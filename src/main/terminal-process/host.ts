@@ -1,8 +1,27 @@
 import { MessageChannelMain, utilityProcess, type MessagePortMain, type UtilityProcess } from "electron";
+import { Effect, Option, Schema } from "effect";
 import terminalEntryPath from "./entry?modulePath";
 import type { CoreMessage } from "../core-process/port";
 import { TERMINAL_CONNECT } from "./protocol";
 import { terminalClient, type TerminalClient } from "./client";
+
+/** How long a stopping terminal process has to report its exit before it is killed again. */
+const STOP_DEADLINE_MS = 10_000;
+
+/** The terminal process did not leave within its stop bound; a quit reports this, never swallows it. */
+export class TerminalsDidNotStop extends Schema.TaggedError<TerminalsDidNotStop>()("TerminalsDidNotStop", {
+  detail: Schema.String,
+}) {}
+
+/** The child's `exit`, as an effect; the listener goes when the effect is interrupted. */
+const exited = (child: UtilityProcess): Effect.Effect<void> =>
+  Effect.callback<void>((resume) => {
+    const onExit = (): void => resume(Effect.void);
+    child.once("exit", onExit);
+    return Effect.sync(() => {
+      child.off("exit", onExit);
+    });
+  });
 
 /**
  * Main's side of the terminal process (phase 1). It forks `entry.ts` as an
@@ -59,7 +78,8 @@ export type TerminalProcessForCore = {
   readonly connect: () => MessagePortMain;
   /** Told when a terminal process that exited has a successor to connect to. */
   readonly onRestart: (listener: () => void) => () => void;
-  readonly stop: () => void;
+  /** Signal it to stop and finish when it has left, bounded, or fail tagged. */
+  readonly stop: () => Effect.Effect<void, TerminalsDidNotStop>;
 };
 
 const RESTART_FIRST_MS = 1_000;
@@ -114,7 +134,27 @@ export const startTerminalProcessForCore = (): TerminalProcessForCore => {
     },
     stop: () => {
       stopping = true;
-      child?.kill();
+      const leaving = child;
+      if (leaving === undefined) return Effect.void;
+      return Effect.suspend(() => {
+        leaving.kill();
+        return exited(leaving).pipe(
+          Effect.timeoutOption(STOP_DEADLINE_MS),
+          Effect.flatMap(
+            Option.match({
+              onSome: () => Effect.void,
+              onNone: () =>
+                Effect.sync(() => leaving.kill()).pipe(
+                  Effect.andThen(
+                    Effect.fail(new TerminalsDidNotStop({
+                      detail: `the Junto terminal process did not exit within ${STOP_DEADLINE_MS} ms of its stop; killed`,
+                    })),
+                  ),
+                ),
+            }),
+          ),
+        );
+      });
     },
   };
 };

@@ -3,6 +3,7 @@ import { join } from "node:path";
 // electron has no main-only exports, so no named binding may be checked at load.
 import * as electron from "electron";
 import type { MessagePortMain, UtilityProcess } from "electron";
+import { Effect, Option, Schema } from "effect";
 import type { PortedCoreMessage } from "./main-side/term-surface";
 import type { CoreBoot } from "./entry";
 import { portCore, type CoreMessage, type PortCoreClient } from "./port";
@@ -21,9 +22,31 @@ const RESTART_FIRST_MS = 1_000;
 const RESTART_MAX_MS = 30_000;
 const RESTART_SETTLED_MS = 60_000;
 const BOOT_DEADLINE_MS = 120_000;
+/** How long a stopping core has to finish its own drain before main takes it down. */
+const STOP_DEADLINE_MS = 10_000;
+
+/** The core did not leave within its stop bound; the quit reports this, never swallows it. */
+export class CoreDidNotStop extends Schema.TaggedError<CoreDidNotStop>()("CoreDidNotStop", {
+  detail: Schema.String,
+}) {}
+
+/** The child's `exit`, as an effect: a stop waits on it, and drops the listener if it is interrupted. */
+const exited = (child: UtilityProcess): Effect.Effect<void> =>
+  Effect.callback<void>((resume) => {
+    const onExit = (): void => resume(Effect.void);
+    child.once("exit", onExit);
+    return Effect.sync(() => {
+      child.off("exit", onExit);
+    });
+  });
 
 export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
-  readonly stop: () => void;
+  /**
+   * Signal the core to stop and finish when it has left. Its drain runs in its
+   * own process (entry.ts answers SIGTERM with core.close() then exit); this
+   * waits for that exit, bounded, and fails tagged when it does not come.
+   */
+  readonly stop: () => Effect.Effect<void, CoreDidNotStop>;
   /** A port transferred to the core beside its message (a surface, or a push such as pty.connect); false when no core is running. */
   readonly postSurface: (message: PortedCoreMessage, port: unknown) => boolean;
 } => {
@@ -110,8 +133,31 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
     stop: () => {
       stopping = true;
       held.length = 0;
-      child?.kill();
-      if (child === undefined) client.fail("the Junto core process has stopped");
+      const leaving = child;
+      client.fail("the Junto core process has stopped");
+      if (leaving === undefined) return Effect.void;
+      return Effect.suspend(() => {
+        // SIGTERM: entry.ts answers with core.close(), which drains the owner
+        // commands, the listener, seat work, canvas edits and the terminal
+        // plane, and exits when it returns.
+        leaving.kill();
+        return exited(leaving).pipe(
+          Effect.timeoutOption(STOP_DEADLINE_MS),
+          Effect.flatMap(
+            Option.match({
+              onSome: () => Effect.void,
+              onNone: () =>
+                Effect.sync(() => leaving.kill()).pipe(
+                  Effect.andThen(
+                    Effect.fail(new CoreDidNotStop({
+                      detail: `the Junto core process did not exit within ${STOP_DEADLINE_MS} ms of its stop; killed`,
+                    })),
+                  ),
+                ),
+            }),
+          ),
+        );
+      });
     },
   };
 };

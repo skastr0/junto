@@ -75,6 +75,14 @@ test("a fresh station quits within the bound", async () => {
     const outcome = await quitWithin(() => junto.app.close(), child);
     closed = outcome.exited;
     console.log(`quit ${outcome.exited ? "exited" : "still running"} after ${String(outcome.ms)}ms\n${lines.join("\n")}`);
+    // The child processes close through one Effect scope: the core's finalizer
+    // (it drains and exits in its own process) runs before the terminal
+    // process's, and both before main's own runtime goes. A finalizer that
+    // hung is named, never swallowed: "[runtime] dispose failed".
+    const phase = (name: string): number => lines.findIndex((line) => line.includes(name));
+    expect(phase("dispose: child processes"), lines.join("\n")).toBeGreaterThanOrEqual(0);
+    expect(phase("dispose: child processes"), lines.join("\n")).toBeLessThan(phase("dispose: effect runtime"));
+    expect(lines.join("\n")).not.toContain("dispose failed");
     expect(outcome.exited, `quit phases:\n${lines.join("\n")}`).toBe(true);
   } finally {
     // The harness proves termination and removes the sandbox either way.

@@ -15,6 +15,7 @@ import {
   shell,
   type IpcMainEvent,
 } from "electron";
+import { Effect } from "effect";
 import { classifyBrowserTarget } from "@shared/browser-policy";
 import {
   IPC_CHANNELS,
@@ -42,7 +43,7 @@ import { appMenuTemplate } from "./junto/app-menu";
 import { appProcessBlocksAppExit, appProcessPlane, describeAppProcessStraggler } from "./junto/app-process-plane";
 import { AppRuntime } from "./runtime";
 import { core } from "./core-process/main-client";
-import { startTerminalProcess, startTerminalProcessForCore } from "./terminal-process/host";
+import { openChildren, takeChildStopFailures, type Children } from "./core-process/children";
 import { subscribe as subscribeCore } from "./core-process/push";
 import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, COMPANION_DEVICES, SETTINGS_CHANGED, WORK_PREAMBLE, type CanvasChangedPush } from "./core-process/channels";
 import { coreBrowserProfileStore, coreTouchedOriginStore } from "./core-process/main-side/browser";
@@ -151,7 +152,7 @@ import { broadcastCompanionDevices, electronCompanionClipboard, registerCompanio
 import { coreOverseerLive } from "./core-process/main-side/overseer-live";
 import { companionNotePreamble } from "./junto/companion/wiring";
 import { askOnEveryCore, askOnLaterCores } from "./core-process/every-core";
-import { startCoreProcessForMain, type CoreProcessForMain } from "./core-process/main-boot";
+import { startCoreProcessForMain } from "./core-process/main-boot";
 import { overseerPagesOn, type OverseerPages } from "./junto/overseer/pages";
 import { runningBuildIdentity } from "./junto/build-identity";
 import type { CompanionDeviceRecord } from "@shared/companion-devices";
@@ -388,7 +389,7 @@ let trustedRendererOrigin: TrustedRendererOrigin | undefined;
 let browserComposition: BrowserComposition | undefined;
 let browserControl: BrowserControlServer | undefined;
 /** With the core in its own process: main's handle on it, and the browser it asks main to drive. */
-let coreProcess: CoreProcessForMain | undefined;
+let coreChildren: Children | undefined;
 let coreProcessPages: OverseerPages | undefined;
 let overseerLive: Awaited<ReturnType<typeof composeOverseerLive>> | undefined;
 let overseerLiveShutdown: Promise<void> | undefined;
@@ -402,8 +403,6 @@ let browserShutdown: Promise<Awaited<ReturnType<BrowserComposition["drainOnQuit"
 let hostOperationsDrain:
   | Promise<Awaited<ReturnType<typeof hostOperationsShutdown.drainOnQuit>>>
   | undefined;
-let terminalProcess: ReturnType<typeof startTerminalProcess> | undefined;
-let terminalsForCore: ReturnType<typeof startTerminalProcessForCore> | undefined;
 let adapterShutdown:
   | Promise<Awaited<ReturnType<typeof terminateAdapterChildrenOnQuit>>>
   | undefined;
@@ -1295,8 +1294,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // One log path: main console + Effect logger (layer already on AppRuntime)
     // into the ring and this machine's log file under ~/.junto/logs.
     installMachineLog({ home: resolveJuntoHome(), process: "app", echo: true });
-    // PTYs spawn in their own process; main serves no terminal: it hands the core a port to them.
-    terminalsForCore = startTerminalProcessForCore();
     installObservabilityConsoleHook();
     // The 4ms invariant, asserted at the source. Dev runs are armed; a
     // packaged app stays silent unless JUNTO_BUDGET says otherwise.
@@ -1480,22 +1477,25 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     subscribeCore(COMPANION_DEVICES, (devices) => broadcastCompanionDevices(devices as ReadonlyArray<CompanionDeviceRecord>));
 
     // The core, its sockets, the link, the overseer and the phone companion
-    // all run in the core process; main builds none of them.
-    coreProcess = startCoreProcessForMain({
-      boot: {
-        home: termControlHome,
-        build: runningBuildIdentity(),
-        bundlesRoot: process.env.JUNTO_MACHINE_BUNDLES ??
-          (app.isPackaged ? join(process.resourcesPath, "machines") : join(app.getAppPath(), "dist", "machines")),
-        operatorCommands: operatorControlEnabledAtLaunch,
-        app: { version: app.getVersion(), packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() },
-      },
+    // all run in the core process; main builds none of them. Both children are
+    // one Effect scope: acquiring it starts the terminal process, then the core,
+    // and closing it stops them in reverse, so quit cannot reorder them.
+    const boot = {
+      home: termControlHome,
+      build: runningBuildIdentity(),
+      bundlesRoot: process.env.JUNTO_MACHINE_BUNDLES ??
+        (app.isPackaged ? join(process.resourcesPath, "machines") : join(app.getAppPath(), "dist", "machines")),
+      operatorCommands: operatorControlEnabledAtLaunch,
+      app: { version: app.getVersion(), packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() },
+    };
+    coreChildren = await Effect.runPromise(openChildren((terminals) => startCoreProcessForMain({
+      boot,
       pages: () => coreProcessPages,
       captureApplicationPage,
       clipboard: electronCompanionClipboard,
       clipboardFormats: () => clipboard.availableFormats(),
-      ...(terminalsForCore === undefined ? {} : { terminals: terminalsForCore }),
-    });
+      terminals,
+    })));
     if (LIVE_OVERSEER_ENABLED) unregisterOverseerLiveIpc = registerOverseerLiveIpc(coreOverseerLive(core));
 
     // UpdateService host hooks: release SQLite before quitAndInstall, and
@@ -1873,6 +1873,17 @@ const requireCleanHostOperationsShutdown = async (): Promise<void> => {
   }
 };
 
+const requireCleanChildrenShutdown = async (): Promise<void> => {
+  const children = coreChildren;
+  coreChildren = undefined;
+  if (children === undefined) return;
+  // The scope's own order: the core's finalizer (it drains, then exits) before
+  // the terminal process's. A child that hung is a tagged failure, named here.
+  await children.close();
+  const [failure] = takeChildStopFailures();
+  if (failure !== undefined) throw failure;
+};
+
 const requireCleanAdapterShutdown = async (): Promise<void> => {
   const receipt = await (adapterShutdown ??= terminateAdapterChildrenOnQuit());
   if (!receipt.settled) {
@@ -1909,13 +1920,12 @@ const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
   lap("dispose: adapters");
   await requireCleanAppProcessShutdown();
   lap("dispose: app processes");
-  // The core stops (and drains its own sockets, plane and stores) before the
-  // terminal process its seats run on.
-  coreProcess?.stop();
-  coreProcess = undefined;
-  // Every PTY it held is drained above; the terminal process goes last.
-  terminalProcess?.stop();
-  terminalsForCore?.stop();
+  // Closing the children's scope runs the core's finalizer first (it drains
+  // its own sockets, plane and stores, then exits) and the terminal process's
+  // last. A child that hangs fails tagged out of the finalizer and is named
+  // here, not swallowed.
+  await requireCleanChildrenShutdown();
+  lap("dispose: child processes");
 };
 
 const disposeRuntime = (): Promise<void> => {

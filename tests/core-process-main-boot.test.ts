@@ -43,7 +43,7 @@ it("hooks main up to a core in its own process: calls go to it, its pushes reach
     captureApplicationPage: async () => ({ ok: true, png: new Uint8Array([7]) }),
     clipboard: { readText: () => clip, writeText: (text) => { clip = text; }, clear: () => { clip = ""; } },
     clipboardFormats: () => ["text/plain"],
-    start: () => ({ ...portCore(portOf(port1)), stop: () => { stopped += 1; } }),
+    start: () => ({ ...portCore(portOf(port1)), stop: () => Effect.sync(() => { stopped += 1; }) }),
   });
   const seen: Array<[string, unknown]> = [];
   const offs = [WORK_PREAMBLE, AGENT_SIGNAL_CHANGED].map((channel) => subscribe(channel, (payload) => seen.push([channel, payload])));
@@ -63,7 +63,7 @@ it("hooks main up to a core in its own process: calls go to it, its pushes reach
     await served.host.call("clipboard.clearIf", { text: "link-1" });
     expect(clip).toBe("");
     expect(seen).toEqual([[WORK_PREAMBLE, { preambleId: "p1" }], [AGENT_SIGNAL_CHANGED, { signalId: "s1" }]]);
-    main.stop();
+    await Effect.runPromise(main.stop());
     expect(stopped).toBe(1);
     // Stopped, main no longer answers for the core.
     await expect(served.host.call("window.capturePage", {})).rejects.toMatchObject({ tag: "UnknownHostOp" });

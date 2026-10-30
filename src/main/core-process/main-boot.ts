@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { hostOps } from "./host-ops";
 import { TERMINAL_CONNECT } from "../terminal-process/protocol";
 import type { TerminalProcessForCore } from "../terminal-process/host";
@@ -7,7 +8,7 @@ import type { OverseerPages } from "../junto/overseer/pages";
 import type { CoreBoot } from "./entry";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { askEveryCoreAsk } from "./every-core";
-import { startCoreProcess } from "./host";
+import { startCoreProcess, type CoreDidNotStop } from "./host";
 import { publish } from "./push";
 import { useCoreClient } from "./main-client";
 import { relayWindowPushes } from "./main-side/window-pushes";
@@ -27,7 +28,8 @@ import type { PortCoreClient } from "./port";
  */
 export type CoreProcessForMain = {
   readonly client: PortCoreClient;
-  readonly stop: () => void;
+  /** Close the core: signal it, wait for its drain and exit bounded, fail tagged when it hangs. */
+  readonly stop: () => Effect.Effect<void, CoreDidNotStop>;
 };
 
 export const startCoreProcessForMain = (input: {
@@ -39,8 +41,8 @@ export const startCoreProcessForMain = (input: {
   readonly clipboard: CompanionClipboard;
   /** The system clipboard's formats, for the paste preflight a guarded seat makes. */
   readonly clipboardFormats: () => ReadonlyArray<string>;
-  /** Tests start a core over a MessageChannel instead of a utilityProcess. */
-  readonly start?: (boot: CoreBoot) => PortCoreClient & { readonly stop: () => void; readonly postSurface?: (message: PortedCoreMessage, port: unknown) => boolean };
+  /** Tests start a core over a MessageChannel instead of a utilityProcess; its stop may be synchronous. */
+  readonly start?: (boot: CoreBoot) => PortCoreClient & { readonly stop: () => Effect.Effect<void, CoreDidNotStop>; readonly postSurface?: (message: PortedCoreMessage, port: unknown) => boolean };
   /** The terminal process the core's plane drives: main hands the core each port to it. */
   readonly terminals?: TerminalProcessForCore;
 }): CoreProcessForMain => {
@@ -76,16 +78,24 @@ export const startCoreProcessForMain = (input: {
   const stopRestart = terminals?.onRestart(() => void giveTerminals()) ?? (() => undefined);
   return {
     client: started,
-    stop: () => {
-      stopReady();
-      stopRestart();
-      stopTerminalHost();
-      useCoreSurfacePlane(undefined);
-      stopClipboardFormats();
-      stopClipboard();
-      stopHost();
-      stopRelay();
-      started.stop();
-    },
+    stop: () =>
+      // The core drains before it exits, and its drain can still ask main for a
+      // page, the clipboard, the clipboard's formats or a terminal port, so
+      // every host stays served until the core is gone. A stop that fails or is
+      // interrupted still unregisters them, and the failure is not swallowed.
+      started.stop().pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            stopReady();
+            stopRestart();
+            stopTerminalHost();
+            useCoreSurfacePlane(undefined);
+            stopClipboardFormats();
+            stopClipboard();
+            stopHost();
+            stopRelay();
+          }),
+        ),
+      ),
   };
 };
