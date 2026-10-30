@@ -61,6 +61,7 @@ test("eef594efc borders, dark: task error, task notice, threads selected row, fi
   };
   const escapeAll = async (): Promise<void> => {
     for (let i = 0; i < 3; i += 1) await page.keyboard.press("Escape");
+    for (const close of await page.getByRole("button", { name: /^Close( view)?$/u }).all()) await close.click({ timeout: 2_000 }).catch(() => undefined);
     await page.waitForTimeout(300);
   };
   try {
@@ -74,7 +75,9 @@ test("eef594efc borders, dark: task error, task notice, threads selected row, fi
     expect(created.kind).toBe("applied");
 
     await step("1 task error", async () => {
-      await page.locator('.react-flow__node[data-id="board"]').dblclick();
+      // The card's middle holds Add a task; its corner opens the board.
+      await page.keyboard.press("Escape");
+      await page.locator('.react-flow__node[data-id="board"]').dblclick({ position: { x: 16, y: 16 } });
       await page.getByRole("list", { name: "Tasks" }).locator("button").filter({ hasText: "Ship the wire spec" }).first().click({ timeout: 20_000 });
       const title = page.getByTestId("task-detail").locator("header input").first();
       await title.click();
@@ -106,7 +109,7 @@ test("eef594efc borders, dark: task error, task notice, threads selected row, fi
     await escapeAll();
 
     await step("3 threads selected row", async () => {
-      await page.locator('.react-flow__node[data-id="atlas"]').dblclick();
+      await page.locator('.react-flow__node[data-id="atlas"]').dblclick({ position: { x: 16, y: 16 } });
       await page.getByTestId("seat-threads-button").click({ timeout: 20_000 });
       await expect(page.getByTestId("seat-threads")).toBeVisible({ timeout: 20_000 });
       for (const text of ["First thread, about the onboarding copy.", "Second thread, about the release notes."]) {
@@ -127,6 +130,7 @@ test("eef594efc borders, dark: task error, task notice, threads selected row, fi
     });
     await escapeAll();
 
+    await escapeAll();
     await step("4 file comment row hovered", async () => {
       const modal = await openFilesModal(page);
       await openInTree(modal, stage.fixture.paths.markdown);
