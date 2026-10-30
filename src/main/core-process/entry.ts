@@ -18,6 +18,7 @@ import { forwardPublishes } from "./push";
 import { host, useHostClient } from "./host-ops";
 import { hostCaptureApplicationPage, hostOverseerPages } from "./ops/overseer-pages";
 import { publishWindowBroadcasts } from "./ops/main-index";
+import { bindOperatorListening } from "./ops/operator";
 import "./ops/index";
 
 export type CoreBoot = {
@@ -25,6 +26,8 @@ export type CoreBoot = {
   readonly build: string;
   /** Where the packaged machine bundles sit, when no release catalog is compiled in. */
   readonly bundlesRoot: string;
+  /** Junto was launched for operator control: the socket listens from boot and takes every command. */
+  readonly operatorCommands: boolean;
 };
 
 type ParentPort = {
@@ -59,6 +62,7 @@ const main = async (parent: ParentPort): Promise<void> => {
     canvasControl: true,
     overseer: { captureApplicationPage: hostCaptureApplicationPage(host), pages: hostOverseerPages(host) },
     onPreamble: broadcasts.onPreamble,
+    operator: { listen: boot.operatorCommands ? "always" : "on-demand", commands: boot.operatorCommands },
     ...makeMachineBundleSources({
       home: boot.home,
       build: boot.build,
@@ -66,6 +70,7 @@ const main = async (parent: ParentPort): Promise<void> => {
       localRoot: () => boot.bundlesRoot,
     }),
   });
+  bindOperatorListening(core.ensureOperatorListening);
   started(core.runtime);
   served.push("core.ready", {});
   const stop = (): void => {

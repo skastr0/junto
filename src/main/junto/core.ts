@@ -31,6 +31,8 @@ import { composeOverseer, type OverseerComposition } from "./overseer/compositio
 import type { ApplicationCaptureResult } from "./overseer/native";
 import type { OverseerPages } from "./overseer/pages";
 import type { PreambleEvent } from "@shared/preamble";
+import { OPERATOR_COMPANION_OPS, OPERATOR_PROTOCOL_VERSION, type OperatorRequestEnvelope, type OperatorResponseEnvelope } from "@shared/operator-control";
+import { AuthorityOwnerControl } from "./hosts/authority-owner";
 
 export type CoreOptions = Omit<MachineCoreOptions, "ready"> & {
   /** The desktop core also serves canvas edits (`junto canvas`); a headless machine core does not. */
@@ -42,7 +44,25 @@ export type CoreOptions = Omit<MachineCoreOptions, "ready"> & {
   };
   /** A seat's preamble as the work control server takes it, for the window. */
   readonly onPreamble?: (event: PreambleEvent) => void;
+  /**
+   * The desktop's operator socket. Without it the core always listens and
+   * answers machine commands, as a headless machine does.
+   */
+  readonly operator?: {
+    /** "on-demand": listen only once `ensureOperatorListening` asks (a phone paired). */
+    readonly listen: "always" | "on-demand";
+    /** Commands beyond the phone companion's need Junto launched for operator control. */
+    readonly commands: boolean;
+    /** The phone companion's answer to its ops, when this machine has one. */
+    readonly companion?: (request: OperatorRequestEnvelope) => Promise<OperatorResponseEnvelope | undefined>;
+  };
 };
+
+const operatorRefusal = (
+  request: OperatorRequestEnvelope,
+  type: "forbidden" | "runtime_down",
+  message: string,
+): OperatorResponseEnvelope => ({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: false, error: { type, message } });
 
 /** The installed database is newer than this build; starting would corrupt it. */
 export class CoreSchemaTooNew extends Schema.TaggedError<CoreSchemaTooNew>()("CoreSchemaTooNew", {
@@ -80,7 +100,12 @@ export const startCore = async (options: CoreOptions) => {
   let sessions: SeatSessions | undefined;
   let stopSeatReports: (() => void) | undefined;
   let releaseRunner: (() => void) | undefined;
-  const runtime = makeCoreRuntime({ ...options, ready: () => admitted && !stopping && owner?.ready() === true && listener?.ready() === true });
+  // An on-demand operator socket not yet asked for is not a core that is down.
+  const ownerReady = (): boolean => owner === undefined ? options.operator?.listen === "on-demand" : owner.ready();
+  const runtime = makeCoreRuntime({ ...options, ready: () => admitted && !stopping && ownerReady() && listener?.ready() === true });
+  let ownerStart: Promise<void> | undefined;
+  /** Opens the operator socket once; the desktop asks when a phone pairs. */
+  let ensureOperatorListening: () => Promise<void> = () => Promise.resolve();
   let closeFlight: Promise<void> | undefined;
   /** `cause` says why this core stops; each linked machine reads it in the close frame. */
   const close = (cause?: unknown): Promise<void> => {
@@ -96,6 +121,8 @@ export const startCore = async (options: CoreOptions) => {
     stopSeatReports?.();
     seatProcesses?.beginShutdown();
     closeFlight = (async () => {
+      // A socket still opening lands in `owner` first, so it closes with the rest.
+      await ownerStart?.catch(() => undefined);
       if (owner !== undefined) {
         const receipt = await owner.close();
         if (!receipt.clean) throw new CoreDidNotDrain({ part: "owner-commands", message: "Owner commands did not drain; core state retained" });
@@ -153,7 +180,28 @@ export const startCore = async (options: CoreOptions) => {
     const files = await runtime.runPromise(makeFilesLinkChannel({ enabled: FILES_REMOTE_ENABLED, service: () => filesHost }));
     await runtime.runPromise(link.setChannels({ status: status.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig, files, consensus: unboundYet("consensus"), authority: unboundYet("authority") }));
     listener = await runtime.runPromise(link.listen(options.home));
-    owner = await startOperatorControlServer({ home: options.home, dispatch: (request) => runtime.runPromise(actions.dispatch(request)) });
+    const machineDispatch = (request: OperatorRequestEnvelope) => runtime.runPromise(actions.dispatch(request));
+    const desk = options.operator;
+    const dispatch = desk === undefined ? machineDispatch : async (request: OperatorRequestEnvelope): Promise<OperatorResponseEnvelope> => {
+      if (OPERATOR_COMPANION_OPS.has(request.op)) {
+        return (await desk.companion?.(request)) ?? operatorRefusal(request, "runtime_down", "the phone companion is not available");
+      }
+      if (!desk.commands) return operatorRefusal(request, "forbidden", "operator commands need Junto launched with --junto-operator-control");
+      if (request.op.startsWith("authority.")) return runtime.runPromise(Effect.flatMap(AuthorityOwnerControl, (authority) => authority.dispatch(request)));
+      if (request.op.startsWith("machine.")) return machineDispatch(request);
+      return operatorRefusal(request, "runtime_down", "The phone companion is not available");
+    };
+    ensureOperatorListening = () =>
+      (ownerStart ??= (async () => {
+        if (owner !== undefined || stopping) return;
+        const started = await startOperatorControlServer({ home: options.home, dispatch });
+        if (stopping) started.beginShutdown();
+        owner = started;
+      })().catch((cause: unknown) => {
+        ownerStart = undefined;
+        throw cause;
+      }));
+    if (desk?.listen !== "on-demand") await ensureOperatorListening();
     await runtime.runPromise(mail.boot({
       runPromise: effect => runtime.runPromise(effect),
       runFork: effect => { runtime.runFork(effect); },
@@ -176,7 +224,7 @@ export const startCore = async (options: CoreOptions) => {
         runtime.runPromise(Effect.flatMap(AgentSignalRepository, (signals) => signals.listSeat({ canvasName, nodeId }))),
     });
     admitted = true;
-    return { runtime, close, overseer, ready: () => admitted && !stopping && owner!.ready() && listener!.ready() };
+    return { runtime, close, overseer, ensureOperatorListening, ready: () => admitted && !stopping && ownerReady() && listener!.ready() };
   } catch (cause) {
     // The start failure is the reason worth keeping; a stop that also fails is logged beside it.
     await close().catch((closeCause: unknown) => {
