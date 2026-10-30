@@ -113,9 +113,9 @@
 
 .quick-open__row[data-active="true"] {
   /* A palette row is the one Enter takes: a step stronger than a list row's
-     overlay-2, still a token, so dark and bright keep their own weight. */
+     overlay-2, still a token, so dark and bright keep their own weight. The
+     tint alone says it; no edge. */
   background: var(--color-overlay-3);
-  box-shadow: inset 2px 0 0 var(--color-cyan);
 }
 
 .quick-open__row-main {
