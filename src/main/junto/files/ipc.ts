@@ -7,7 +7,6 @@ import { trustedRendererIpc } from "../trusted-main-webcontents";
 import { deny, machineName, nodeFacts } from "./host-deps";
 import { workerRootIndex } from "./index-worker-host";
 import { peerSubscribers } from "./peer-subscribers";
-import { heldFilesRemote } from "./remote-holder";
 import { makeFilesRouter, type FilesRemotePort } from "./router";
 import { makeFilesService, type FilesService, type FilesServiceDeps } from "./service";
 
@@ -66,11 +65,11 @@ const withRefPath = <A>(
 
 /**
  * Register the Files channels and return the service (the protocol reads bytes through it).
- * Another machine's node goes to the link client main holds (`remote-holder.ts`, `router.ts`).
+ * Another machine's node goes to the link client in the core (`ops/files-remote.ts`, `router.ts`).
  */
 export const registerFilesIpc = (
   carryThreads?: FilesServiceDeps["carryThreads"],
-  remote: () => FilesRemotePort | undefined = heldFilesRemote,
+  remote: () => FilesRemotePort | undefined = () => undefined,
 ): FilesService => {
   const toWindow = (subscriber: number, event: FilesChanged): void => {
     const target = webContents.fromId(subscriber);

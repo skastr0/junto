@@ -8,6 +8,9 @@ import { makeNativeConfigChannel } from "./inventory/native-channel";
 import { FILES_REMOTE_ENABLED } from "@shared/features";
 import { makeHeadlessFilesService } from "./files/headless-service";
 import { makeFilesLinkChannel } from "./files/link";
+import { makeFilesRemote } from "./files/link-client";
+import { holdFilesRemote } from "./files/remote-holder";
+import { FILES_REMOTE_CHANGED } from "../core-process/ops/files-remote";
 import { unboundYet } from "./link/unbound";
 import { makeSettingsChannel } from "./settings/link-channel";
 import { MachineOwnerControl } from "./hosts/machine-owner";
@@ -153,6 +156,7 @@ export const startCore = async (options: CoreOptions) => {
     canvas?.beginShutdown();
     mail?.seats.suspend();
     bindCoreSeatSessions(undefined);
+    holdFilesRemote(undefined);
     sessions?.stop();
     stopSeatReports?.();
     stopSeatWatches?.();
@@ -232,7 +236,15 @@ export const startCore = async (options: CoreOptions) => {
     // Always bound, off in ship: a peer with filesRemote on that finds the channel unbound closes the whole
     // link, seats and all, so with the feature off the channel is there and refuses every op denied.
     const filesHost = FILES_REMOTE_ENABLED ? makeHeadlessFilesService() : undefined;
-    const files = await runtime.runPromise(makeFilesLinkChannel({ enabled: FILES_REMOTE_ENABLED, service: () => filesHost }));
+    // This core's end of another machine's Files node: the window's router asks it by name.
+    const filesRemote = FILES_REMOTE_ENABLED ? await runtime.runPromise(makeFilesRemote()) : undefined;
+    holdFilesRemote(filesRemote);
+    filesRemote?.onChange((change) => publish(FILES_REMOTE_CHANGED, change));
+    const files = await runtime.runPromise(makeFilesLinkChannel({
+      enabled: FILES_REMOTE_ENABLED,
+      service: () => filesHost,
+      ...(filesRemote === undefined ? {} : { onEvent: filesRemote.onEvent, onOpened: filesRemote.onOpened, onClosed: filesRemote.onClosed }),
+    }));
     await runtime.runPromise(link.setChannels({ status: status.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig, files, consensus: unboundYet("consensus"), authority: unboundYet("authority") }));
     listener = await runtime.runPromise(link.listen(options.home));
     const machineDispatch = (request: OperatorRequestEnvelope) => runtime.runPromise(actions.dispatch(request));

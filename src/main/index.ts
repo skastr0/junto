@@ -158,9 +158,8 @@ import { FILE_PROTOCOL_SCHEME_REGISTRATION, installFileProtocol } from "./junto/
 import { makeFilesDraftsSettle } from "./junto/files/drafts-settle";
 import { registerFilesIpc } from "./junto/files/ipc";
 import { makeFilesLinkChannel } from "./junto/files/link";
-import { makeFilesRemote } from "./junto/files/link-client";
 import { unboundYet } from "./junto/link/unbound";
-import { holdFilesRemote } from "./junto/files/remote-holder";
+import { coreFilesRemote } from "./core-process/ops/files-remote";
 import {
   resolveTrustedRendererOrigin,
   type TrustedRendererOrigin,
@@ -1616,8 +1615,10 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       // A rename or move through Junto carries the threads written on it
       // (0.11 F7): the service calls this after the filesystem change and
       // before it answers, and a failure is logged there, never fails the move.
-      filesService ??= registerFilesIpc((ref, from, to) =>
-        core.call("files.carryThreads", { canvasName: ref.canvas, nodeId: ref.node, from, to }),
+      const filesRemote = coreFilesRemote(core);
+      filesService ??= registerFilesIpc(
+        (ref, from, to) => core.call("files.carryThreads", { canvasName: ref.canvas, nodeId: ref.node, from, to }),
+        () => filesRemote,
       );
       const files = filesService;
       installFileProtocol(session.defaultSession.protocol, (node, path) => files.bytes(node, path));

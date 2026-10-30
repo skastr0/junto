@@ -31,3 +31,4 @@ import "./ipc-startup";
 import "./ipc-library";
 import "./core-reads";
 import "./ipc-automation";
+import "./files-remote";
