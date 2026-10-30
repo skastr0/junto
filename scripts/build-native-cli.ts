@@ -1,82 +1,87 @@
 /**
- * Build the native junto CLI (0.12 native CLI, N1) for one target, stamped
- * with this package's version, and prove the stamp before it is staged.
+ * Compile the native `junto` CLI (native/cli) for one target, with the
+ * resolved feature profile and the app version stamped in, as the Bun build
+ * stamps its defines. Every feature reaches cargo as the build-time variable
+ * its define names (`__JUNTO_TASKS_ENABLED__` is `JUNTO_TASKS_ENABLED`), so
+ * the profile here wins over native/cli/.cargo/config.toml's defaults.
  *
- * The binary reads JUNTO_APP_VERSION at compile time and falls back to 0.1.0
- * without it, so a build that forgot the stamp would ship claiming 0.1.0.
- * This script sets it from package.json and refuses any binary whose
- * --version does not answer that version.
+ *   bun scripts/build-native-cli.ts [--target <triple>] [--machine] [--out <path>]
  */
-import { chmodSync, copyFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { copyFileSync, chmodSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { FEATURE_CATALOG, type FeatureKey } from "../src/shared/feature-catalog";
+import { resolveBuildFeatures, type ResolvedBuildFeatures } from "./build-features";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const crate = resolve(root, "native/cli");
-const appVersion: string = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")).version;
 
-export const NATIVE_CLI_TARGETS = [
-  "aarch64-apple-darwin",
-  "x86_64-apple-darwin",
-  "x86_64-unknown-linux-gnu",
-  "aarch64-unknown-linux-gnu",
-] as const;
-export type NativeCliTarget = (typeof NATIVE_CLI_TARGETS)[number];
+/** The Rust target for a machine bundle's `<platform>-<arch>`. */
+export const NATIVE_TARGETS = {
+  "darwin-arm64": "aarch64-apple-darwin",
+  "darwin-x64": "x86_64-apple-darwin",
+  "linux-x64": "x86_64-unknown-linux-gnu",
+  "linux-arm64": "aarch64-unknown-linux-gnu",
+} as const;
 
-/** The rustc host triple, which is the target when none is named. */
-const hostTarget = (): string => {
-  const result = spawnSync("rustc", ["-vV"], { cwd: crate, encoding: "utf8" });
-  const host = /^host: (.+)$/m.exec(result.stdout ?? "")?.[1];
-  if (result.status !== 0 || host === undefined) throw new Error("native CLI: rustc -vV did not name a host");
-  return host;
-};
+export type NativeTarget = (typeof NATIVE_TARGETS)[keyof typeof NATIVE_TARGETS];
 
-/** What --version must print: the TypeScript CLI's own form (src/cli/main.ts). */
-export const nativeCliVersionLine = (version: string): string => `junto v${version}`;
+export interface NativeCliInput {
+  readonly target: NativeTarget;
+  readonly version: string;
+  readonly features: ResolvedBuildFeatures;
+  /** The machine bundle's CLI: no browser (`__JUNTO_MACHINE_BUILD__`). */
+  readonly machine?: boolean;
+}
 
-const main = (): void => {
-  const args = process.argv.slice(2);
-  const named = args[0] === "--target" ? args[1] : undefined;
-  if ((args.length !== 0 && named === undefined) || args.length > 2) {
-    throw new Error(`usage: bun scripts/build-native-cli.ts [--target ${NATIVE_CLI_TARGETS.join("|")}]`);
-  }
-  if (named !== undefined && !(NATIVE_CLI_TARGETS as ReadonlyArray<string>).includes(named)) {
-    throw new Error(`native CLI: unknown target ${named}`);
-  }
-  const host = hostTarget();
-  const target = named ?? host;
+/** The feature profile as cargo's build environment. */
+export const nativeFeatureEnv = (resolved: ResolvedBuildFeatures): Record<string, string> =>
+  Object.fromEntries(
+    (Object.keys(FEATURE_CATALOG) as FeatureKey[]).map((key) => {
+      const tier = resolved.features[key];
+      return [FEATURE_CATALOG[key].define.replace(/^__|__$/g, ""), tier === true ? "1" : tier === false ? "0" : tier];
+    }),
+  );
 
-  const build = spawnSync("cargo", ["build", "--locked", "--release", "--target", target], {
+/** Builds the crate and copies the binary to `outfile`, atomically. */
+export const compileNativeCli = (outfile: string, input: NativeCliInput): void => {
+  const built = spawnSync("cargo", ["build", "--locked", "--release", "--target", input.target], {
     cwd: crate,
     stdio: "inherit",
-    env: { ...process.env, JUNTO_APP_VERSION: appVersion },
+    env: {
+      ...process.env,
+      ...nativeFeatureEnv(input.features),
+      JUNTO_APP_VERSION: input.version,
+      JUNTO_MACHINE_BUILD: input.machine === true ? "1" : "0",
+    },
   });
-  if (build.status !== 0) throw new Error(`native CLI build for ${target} failed (exit ${String(build.status)})`);
-
-  const built = resolve(crate, "target", target, "release", "junto");
-  // Run what can run here: the host, or x86_64 macOS under Rosetta on an
-  // Apple silicon host. Any other target is proven by its bytes: the stamp
-  // is in the binary as plain text.
-  const runner =
-    target === host ? [built] : target === "x86_64-apple-darwin" && host === "aarch64-apple-darwin" ? ["arch", "-x86_64", built] : undefined;
-  if (runner !== undefined) {
-    const answer = spawnSync(runner[0]!, [...runner.slice(1), "--version"], { encoding: "utf8" });
-    const line = (answer.stdout ?? "").trim();
-    if (answer.status !== 0 || line !== nativeCliVersionLine(appVersion)) {
-      throw new Error(`native CLI: --version answered "${line}", expected "${nativeCliVersionLine(appVersion)}"`);
-    }
-  } else if (!readFileSync(built).includes(Buffer.from(appVersion))) {
-    throw new Error(`native CLI: the ${target} binary does not carry the version ${appVersion}`);
-  }
-
-  const output = resolve(root, "dist", "native", target, "junto");
-  const stage = `${output}.new.${process.pid}`;
-  mkdirSync(dirname(output), { recursive: true });
-  copyFileSync(built, stage);
+  if (built.status !== 0) throw new Error(`native CLI build for ${input.target} failed (exit ${String(built.status)})`);
+  const stage = `${outfile}.new.${process.pid}`;
+  mkdirSync(dirname(outfile), { recursive: true });
+  copyFileSync(resolve(crate, "target", input.target, "release/junto"), stage);
   chmodSync(stage, 0o755);
-  renameSync(stage, output);
-  process.stdout.write(`native CLI ${appVersion} (${target}) → ${output}\n`);
+  renameSync(stage, outfile);
 };
 
-if (import.meta.main) main();
+/** This machine's own target. */
+export const hostTarget = (): NativeTarget => {
+  const key = `${process.platform}-${process.arch}`;
+  const target = NATIVE_TARGETS[key as keyof typeof NATIVE_TARGETS];
+  if (target === undefined) throw new Error(`no native CLI target for ${key}`);
+  return target;
+};
+
+if (import.meta.main) {
+  const argv = process.argv.slice(2);
+  const flag = (name: string) => {
+    const at = argv.indexOf(name);
+    return at >= 0 ? argv[at + 1] : undefined;
+  };
+  const target = (flag("--target") as NativeTarget | undefined) ?? hostTarget();
+  const outfile = resolve(root, flag("--out") ?? "dist/junto");
+  const version: string = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")).version;
+  const features = resolveBuildFeatures(process.env);
+  compileNativeCli(outfile, { target, version, features, machine: argv.includes("--machine") });
+  process.stdout.write(`native junto ${version} (${features.profile}, ${target}) → ${outfile}\n`);
+}

@@ -72,6 +72,14 @@ impl OpId {
         &self.0
     }
 
+    /// The opId a run-time request carries at its top level (opIdInArgs).
+    pub fn in_args(args: &Value) -> Option<OpId> {
+        args.get("opId")
+            .and_then(Value::as_str)
+            .filter(|id| OpId::valid(id))
+            .map(|id| OpId(id.to_string()))
+    }
+
     fn valid(text: &str) -> bool {
         text.len() == 26
             && text.bytes().all(|b| {
@@ -149,19 +157,43 @@ pub fn seat_token() -> Result<String> {
     })
 }
 
+/// What a call may change, so a failure after it was sent says what to do:
+/// a write with its id is sent again under it; a mutation without one is
+/// looked at before it is sent again.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Change<'a> {
+    /// The write's id (opIdInArgs, or the overseer request's own).
+    pub op_id: Option<&'a OpId>,
+    /// The operation that may have completed: a mail op, or an overseer mutation.
+    pub mutation: Option<&'a str>,
+}
+
+fn is_mail(op: &str) -> bool {
+    matches!(op, "msg.send" | "msg.prompt" | "msg.reply")
+}
+
 /// One call of `R::OP`: the answer's data, or the error the TypeScript CLI would give.
 pub fn call<R: Request>(args: &R, timeout: Timeout) -> Result<Data> {
-    let token = seat_token()?;
-    let frame = Frame { token: &token, op: R::OP, args };
-    Call { op: R::OP, op_id: args.op_id(), timeout }.run(&frame)
+    let change = Change { op_id: args.op_id(), mutation: is_mail(R::OP).then_some(R::OP) };
+    send(R::OP, args, change, timeout)
 }
 
 /// One call of an op named at run time, with arguments built at run time
-/// (`junto op`, the overseer's closed commands).
+/// (`junto op`, the overseer's closed commands), that changes nothing.
 pub fn call_dynamic(op: &str, args: &Value, timeout: Timeout) -> Result<Data> {
+    send(op, args, Change::default(), timeout)
+}
+
+/// One call of an op named at run time that may change something: a failure
+/// after it was sent offers a replay under its id, or says it may have completed.
+pub fn call_changing(op: &str, args: &Value, change: Change<'_>, timeout: Timeout) -> Result<Data> {
+    send(op, args, change, timeout)
+}
+
+fn send<A: Serialize + ?Sized>(op: &str, args: &A, change: Change<'_>, timeout: Timeout) -> Result<Data> {
     let token = seat_token()?;
     let frame = Frame { token: &token, op, args };
-    Call { op, op_id: None, timeout }.run(&frame)
+    Call { op, change, timeout }.run(&frame)
 }
 
 #[derive(Serialize)]
@@ -173,7 +205,7 @@ struct Frame<'a, A: Serialize + ?Sized> {
 
 struct Call<'a> {
     op: &'a str,
-    op_id: Option<&'a OpId>,
+    change: Change<'a>,
     timeout: Timeout,
 }
 
@@ -282,34 +314,46 @@ impl Call<'_> {
         }
     }
 
-    /// A transport failure. Mail that may have been sent is never offered for
-    /// replay: it is not deduplicated, so the caller looks before sending again.
+    /// A transport failure. Once sent, a write with its id is offered for
+    /// replay under it (writeTimeout); mail and an overseer mutation without
+    /// one may have completed, and mail is looked at before it is sent again.
     fn transport(&self, kind: ErrorType, message: String, details: Option<Value>, stage: Stage) -> Failure {
-        let is_mail = matches!(self.op, "msg.send" | "msg.prompt" | "msg.reply");
-        if !is_mail || stage == Stage::Unsent {
+        let Change { op_id, mutation } = self.change;
+        if stage == Stage::Sent && !is_mail(self.op) && let Some(id) = op_id {
+            return Failure::new(ErrorType::Timeout, format!("{message}; the write may have applied"))
+                .and("opId", id.as_str())
+                .and("retryable", true)
+                .and(
+                    "next_step",
+                    format!("send the same command again with --op-id {id}; it applies once, or read it with junto op show {id}"),
+                );
+        }
+        let Some(operation) = mutation.filter(|_| stage == Stage::Sent) else {
             let failure = Failure::new(kind, message);
             return match details {
                 Some(details) => failure.with(details),
                 None => failure,
             };
-        }
-        let look = "inspect msg sent before sending again; the mail may already be in the recipient's mailbox";
-        let next = match self.op_id {
-            None => look.to_string(),
-            Some(id) => format!(
-                "{look}. A comment on a task or a subject thread sent again with \"opId\": \"{id}\" is written once"
-            ),
         };
-        let mut failure = Failure::new(
+        let failure = Failure::new(
             ErrorType::UncertainCompletion,
-            format!("{message}; operation {} may have completed", self.op),
+            format!("{message}; operation {operation} may have completed"),
         )
         .and("retryable", false)
-        .and("operation", self.op);
-        if let Some(id) = self.op_id {
-            failure = failure.and("opId", id.as_str());
+        .and("operation", operation);
+        if !is_mail(operation) {
+            return failure;
         }
-        failure.and("next_step", next)
+        // Plain mail is never deduplicated, so it is never offered for replay;
+        // only a comment is written once per opId.
+        let look = "inspect msg sent before sending again; the mail may already be in the recipient's mailbox";
+        match op_id {
+            None => failure.and("next_step", look),
+            Some(id) => failure.and("opId", id.as_str()).and(
+                "next_step",
+                format!("{look}. A comment on a task or a subject thread sent again with \"opId\": \"{id}\" is written once"),
+            ),
+        }
     }
 }
 

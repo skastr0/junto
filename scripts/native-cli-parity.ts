@@ -72,8 +72,9 @@ interface Case {
 
 const onlyFlag = process.argv.indexOf("--only");
 const only = onlyFlag >= 0 ? process.argv[onlyFlag + 1]! : undefined;
-// The shipped feature profile, as native/cli/.cargo/config.toml builds it.
-const profile = { JUNTO_TASKS: "1", JUNTO_ARTIFACTS: "1", JUNTO_BROWSER: "1" };
+// The TypeScript path runs on the shipped feature profile, as the packaged CLI is built.
+const shipDefines = spawnSync("bun", ["scripts/build-features.ts", "--bun-define-args"], { cwd: root, encoding: "utf8" })
+  .stdout.trim().split("\n").filter((line) => line.length > 0);
 
 const opId = "01M659BSENNDDPSF5T18QBAWV1";
 const file = join(home, "reply.json");
@@ -135,7 +136,8 @@ const normal = (text: string, keep: ReadonlySet<string>) => text.replace(ULID, (
 /** What an agent acts on in a failure envelope. */
 const acted = (stderr: string) => {
   try {
-    const { ok, command, error } = JSON.parse(stderr) as { ok: boolean; command?: string; error: { type: string; details?: { next_step?: string; retryable?: boolean } } };
+    const last = stderr.trimEnd().split("\n").at(-1) ?? "";
+    const { ok, command, error } = JSON.parse(last) as { ok: boolean; command?: string; error: { type: string; details?: { next_step?: string; retryable?: boolean } } };
     return { ok, command, type: error.type, next_step: error.details?.next_step, retryable: error.details?.retryable };
   } catch {
     return stderr;
@@ -159,7 +161,7 @@ const runOne = (command: ReadonlyArray<string>, c: Case) =>
     answer = c.answer ?? (() => "silent");
     const child = spawn(command[0]!, [...command.slice(1), ...c.argv], {
       cwd: root,
-      env: { ...process.env, ...profile, JUNTO_WORK_HOME: home, JUNTO_WORK_TOKEN: "seat-token", ...c.env },
+      env: { ...process.env, JUNTO_WORK_HOME: home, JUNTO_WORK_TOKEN: "seat-token", ...c.env },
     });
     // A command that waits on the stand-in forever is a difference, not a hang.
     const kill = setTimeout(() => child.kill("SIGKILL"), 15_000);
@@ -175,7 +177,7 @@ const runOne = (command: ReadonlyArray<string>, c: Case) =>
 let failed = 0;
 for (const c of cases) {
   const keep = new Set([SERVER_ID, ...[...c.argv, String(c.stdin ?? "")].flatMap((a) => a.match(ULID) ?? [])]);
-  const ts = await runOne(["bun", "src/cli/main.ts"], c);
+  const ts = await runOne(["bun", ...shipDefines, "src/cli/main.ts"], c);
   const native = await runOne([bin], c);
   const diffs: string[] = [];
   for (const key of ["stdout", "stderr", "exit", "frames"] as const) {

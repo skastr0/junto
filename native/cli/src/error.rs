@@ -39,6 +39,11 @@ pub enum ErrorType {
     Conflict,
     #[serde(skip_deserializing)]
     Unsupported,
+    // Usage: a bare group shows its help, and a flag value outside its choices.
+    #[serde(skip_deserializing)]
+    ShowHelp,
+    #[serde(skip_deserializing)]
+    InvalidValue,
 }
 
 /// A failure: printed as the `error` of the failure envelope.
