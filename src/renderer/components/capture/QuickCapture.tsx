@@ -266,7 +266,7 @@ export function QuickCapture() {
             tabIndex={0}
           >
             {rows.length === 0 ? (
-              <p className="quick-capture__none" role="status">
+              <p className="quick-capture__none">
                 {query.trim() === "" ? "Nothing captured yet." : "No artifact matches."}
               </p>
             ) : (
@@ -309,6 +309,11 @@ export function QuickCapture() {
               ))
             )}
           </div>
+          {/* Mounted for the surface's life, so the line it says is heard: a
+              status element added with its own words announces nothing. */}
+          <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+            {rows.length === 0 ? (query.trim() === "" ? "Nothing captured yet." : "No artifact matches.") : ""}
+          </span>
         </section>
         <section className="quick-capture__right capture-desk__writing" ref={rightRef} aria-labelledby={`${baseId}-writing`}>
           <h2 className="sr-only" id={`${baseId}-writing`}>Writing</h2>
@@ -341,7 +346,8 @@ export function QuickCapture() {
               {/* The editor's head, read only: Enter swaps the body, never the layout. */}
               <header className="artifact-head capture-editor__head">
                 <ResourceGlyphMark kind="artifact" artifactType={previewRow.type} size={14} />
-                <input className="artifact-head__title" aria-label="Title" value={rowLabel(previewRow)} readOnly />
+                {/* Read only, and not a stop: the preview is a look, not a field. */}
+                <input className="artifact-head__title" aria-label="Title" value={rowLabel(previewRow)} readOnly tabIndex={-1} />
               </header>
               <div className="quick-capture__preview-body">
                 <CapturePreview
