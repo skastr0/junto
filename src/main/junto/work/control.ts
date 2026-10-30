@@ -1259,12 +1259,17 @@ const dispatchOp = (
 
     const mailboxOf = (nodeId: string) =>
       work.readMailbox(caller.canvasName, nodeId).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
+    // msg list reads the last commit on the worker thread's read-only
+    // connection, so its SQL and IO wait leave main; reach and authority are
+    // still decided here, before and after.
+    const mailboxSnapshotOf = (nodeId: string) =>
+      work.readMailboxSnapshot(caller.canvasName, nodeId).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
     // What this seat sent into every other mailbox, newest first.
     // One indexed read by the sender's node stamp (work_messages_sender), as
     // since reads it, instead of every mailbox on the canvas. Mail older than
     // the stamp (fromSeat alone) is left out, as it is from since.
-    const sentMailOf = () =>
-      work.readMailSentBy(caller.canvasName, caller.nodeId).pipe(
+    const sentMailOf = (snapshot = false) =>
+      (snapshot ? work.readMailSentBySnapshot : work.readMailSentBy)(caller.canvasName, caller.nodeId).pipe(
         Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)),
         Effect.map((rows) =>
           rows
@@ -1678,8 +1683,8 @@ const dispatchOp = (
         const reader = resolveProcessBoundActorRef(read.actorRefs, caller);
         if (Result.isFailure(reader)) return yield* Effect.fail(reader.failure);
         // Listing marks read, so the filters and the page apply first; a peek marks nothing.
-        const page = pageOf(yield* mailboxOf(caller.nodeId));
-        const sentPage = pageOf(yield* sentMailOf(), sentBefore);
+        const page = pageOf(yield* mailboxSnapshotOf(caller.nodeId));
+        const sentPage = pageOf(yield* sentMailOf(true), sentBefore);
         const overlaid: Message[] = [];
         for (const item of page.items) {
           if (item.role !== "user" || decoded.success.peek === true) {
@@ -1728,7 +1733,7 @@ const dispatchOp = (
       if (Result.isFailure(named)) return yield* Effect.fail(named.failure);
       const gate = requireTarget(board, caller.nodeId, named.success, op);
       if ("type" in gate) return yield* Effect.fail(gate);
-      const page = pageOf(yield* mailboxOf(named.success));
+      const page = pageOf(yield* mailboxSnapshotOf(named.success));
       return {
         target: named.success,
         ...threadField,
