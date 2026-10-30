@@ -236,7 +236,7 @@ export function CaptureMoveColumn({ move, canvasName }: { readonly move: Capture
         </>
       )}
       {/* Mounted for the column's life, so each line is heard as it changes. */}
-      <p className="capture-move__line" role="status" aria-live="polite">
+      <p className="capture-move__line" role="status" aria-live="polite" aria-atomic="true">
         {move.line ?? ""}
       </p>
       {move.otherOpen && target !== undefined ? (
