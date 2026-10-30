@@ -73,7 +73,6 @@ import {
   BROWSER_ENABLED,
   LIVE_OVERSEER_ENABLED,
 } from "@shared/features";
-import { configureTerminalRouterLayeredRunner, sshTransportRouterRunner } from "./junto/term/router";
 import { resolveBrowserPageTarget } from "./junto/browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./junto/browser/control";
 import {
@@ -162,9 +161,6 @@ import {
 // term/router never imports the Electron runtime graph itself.
 // AppRuntime is the sole warm ManagedRuntime for main (see runtime.ts):
 // boot once → runPromise/runFork with shared Context → dispose on quit.
-// Main's router dials on the SSH transport alone: no database, no core service in main.
-configureTerminalRouterLayeredRunner(sshTransportRouterRunner());
-
 // A launcher (or wrapper script) can hand this process inherited proxy
 // switches, and Chromium re-applies them over Session proxy preferences on
 // every NetworkContext creation (ApplyProxyModeFromCommandLine). An inherited
