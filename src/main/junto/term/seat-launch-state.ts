@@ -14,7 +14,7 @@ import { Clock, Effect } from "effect";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import type { NodeOf } from "@shared/model";
 import { seatCacheWindow, seatNextLaunch } from "@shared/seat-next-launch";
-import { seatNextTurnOf, seatOffboardFactsOf } from "../seat-sessions/operator-offboard";
+import { seatLaunchOf } from "../seat-sessions/operator-offboard";
 import { SeatSessionRepository } from "../seat-sessions/repository";
 import { shouldAvoidSharedHarnessResume } from "./managed-spawn-plan";
 import type { SeatLaunchState } from "./seats-launch";
@@ -22,11 +22,9 @@ import { shouldResumeHarnessSession } from "./session-existence";
 
 export const seatLaunchState = (canvas: string, node: NodeOf<"agent">) => Effect.gen(function* () {
   const sessions = yield* SeatSessionRepository;
-  const { session, history } = yield* Effect.all({
-    session: sessions.current(node.id, node.bindingId),
-    history: sessions.list(node.id).pipe(Effect.orElseSucceed(() => [])),
-  });
-  const lastEnded = history.find((row) => row.endedAt !== undefined)?.endReason;
+  // One statement for both rows a card reads: the open session and the
+  // reason the last one ended. Never the seat's history.
+  const { open: session, lastEnded } = yield* sessions.launch(node.id, node.bindingId);
   // The same proof a start asks for (managed-spawn-plan.ts): the harness's own
   // store holds the id, and this Junto is not an isolated home sharing the
   // harness's sessions, where every start is fresh.
@@ -40,7 +38,8 @@ export const seatLaunchState = (canvas: string, node: NodeOf<"agent">) => Effect
     ...(lastEnded ? { lastEnded } : {}),
   });
   const seat = { canvasName: canvas, seatId: node.id };
-  const [nextTurn, offboard] = yield* Effect.promise(() => Promise.all([seatNextTurnOf(seat, next), seatOffboardFactsOf(seat)]));
+  // Both answers from one read of the seat, not one read each.
+  const { nextTurn, facts: offboard } = yield* Effect.promise(() => seatLaunchOf(seat, next));
   const now = yield* Clock.currentTimeMillis;
   const cacheWindow = offboard && seatCacheWindow(nextTurn, offboard, now);
   const state: SeatLaunchState = {

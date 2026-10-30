@@ -113,6 +113,17 @@ export class SeatSessionRepository extends Context.Service<SeatSessionRepository
     ) => Effect.Effect<string | undefined, SeatSessionPersistenceError>;
     /** The seat's sessions, newest first. */
     readonly list: (seatId: string) => Effect.Effect<ReadonlyArray<SeatSession>, SeatSessionPersistenceError>;
+    /**
+     * The two rows a card needs of those sessions: the open one on this
+     * binding, and why the latest ended session ended. Never the history.
+     */
+    readonly launch: (
+      seatId: string,
+      bindingId: string,
+    ) => Effect.Effect<
+      { readonly open?: SeatSessionObservation; readonly lastEnded?: SeatSessionEndReason },
+      SeatSessionPersistenceError
+    >;
     /** Keep the session's notes (and continuation) on its row, and record it as offboarded. */
     readonly offboard: (input: SeatSessionOffboard) => Effect.Effect<SeatSession, SeatSessionPersistenceError>;
     /**
@@ -225,6 +236,19 @@ const SessionRow = Schema.Struct({
   drain_ended_how: Schema.NullOr(Schema.String),
 });
 
+/** The columns a launch glance reads: no transcript, no gist, no drain. */
+const LAUNCH_COLUMNS =
+  "seat_id, session_id, harness, binding_id, cwd, started_at, ended_at, end_reason";
+const LaunchRow = Schema.Struct({
+  seat_id: Schema.String,
+  session_id: Schema.String,
+  harness: Schema.String,
+  binding_id: Schema.NullOr(Schema.String),
+  cwd: Schema.NullOr(Schema.String),
+  started_at: Schema.Number,
+  ended_at: Schema.NullOr(Schema.Number),
+  end_reason: Schema.NullOr(Schema.String),
+});
 const COLUMNS =
   "s.seat_id, s.session_id, s.harness, s.binding_id, s.cwd, s.transcript_path, s.gist, s.started_at, s.ended_at, s.end_reason, s.ended_by, s.offboarded_at, " +
   "d.detached_at AS drain_detached_at, d.ended_at AS drain_ended_at, d.ended_how AS drain_ended_how";
@@ -311,6 +335,18 @@ export const makeSeatSessionRepositoryLive = (): Layer.Layer<SeatSessionReposito
         Result: SessionRow,
         execute: (seatId) => sql.unsafe(`SELECT ${COLUMNS} FROM ${SESSIONS} WHERE s.seat_id = ?`, [seatId]),
       });
+      // The open row, and the latest started one that ended: at most two rows.
+      const launchRows = SqlSchema.findAll({
+        Request: Schema.String,
+        Result: LaunchRow,
+        execute: (seatId) => sql.unsafe(
+          `SELECT ${LAUNCH_COLUMNS} FROM seat_sessions WHERE seat_id = ? AND ended_at IS NULL
+           UNION ALL
+           SELECT * FROM (SELECT ${LAUNCH_COLUMNS} FROM seat_sessions WHERE seat_id = ? AND ended_at IS NOT NULL
+             ORDER BY started_at DESC LIMIT 1)`,
+          [seatId, seatId],
+        ),
+      });
 
       // Every close, whatever ends the session, saves where the harness keeps
       // it, so an ended session's record never waits on a later lookup.
@@ -391,6 +427,32 @@ export const makeSeatSessionRepositoryLive = (): Layer.Layer<SeatSessionReposito
       const list = Effect.fn("seat-sessions.list")(function* (seatId: string) {
         return newestSessionsFirst((yield* seatRows(seatId)).map(sessionOf));
       }, Effect.mapError(persistence("list")));
+
+      /**
+       * What a card asks of a seat's sessions: the open session on this
+       * binding, and why its latest ended one ended. One statement, two rows
+       * at most, so a long history never loads for a glance.
+       */
+      const launch = Effect.fn("seat-sessions.launch")(function* (seatId: string, bindingId: string) {
+        const rows = yield* launchRows(seatId);
+        const open = rows.find((row) => row.ended_at === null);
+        const ended = rows.find((row) => row.ended_at !== null);
+        const lastEnded = ended === undefined || !isEndReason(ended.end_reason) ? undefined : ended.end_reason;
+        return {
+          ...(open !== undefined && open.binding_id === bindingId
+            ? {
+                open: {
+                  seatId,
+                  sessionId: open.session_id,
+                  harness: open.harness,
+                  bindingId,
+                  ...(open.cwd ? { cwd: open.cwd } : {}),
+                } satisfies SeatSessionObservation,
+              }
+            : {}),
+          ...(lastEnded === undefined ? {} : { lastEnded }),
+        };
+      }, Effect.mapError(persistence("launch")));
 
       const offboard = Effect.fn("seat-sessions.offboard")(function* (input: SeatSessionOffboard) {
         return yield* sql.withTransaction(Effect.gen(function* () {
@@ -643,6 +705,7 @@ export const makeSeatSessionRepositoryLive = (): Layer.Layer<SeatSessionReposito
         ownedByOtherSeat,
         end,
         list,
+        launch,
         offboard,
         notesOf,
         markEnded,

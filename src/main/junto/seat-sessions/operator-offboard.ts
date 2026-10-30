@@ -993,7 +993,24 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
     clock.markOffboarded(bindingId);
   };
 
-  return { run, status, facts, tick, coldAtStart, endedAtStart, nextTurn, dueList, questions, answerDue, clock };
+  /**
+   * A seat's next turn and how it stands against its cache window, from one
+   * read of the seat: a card asks both, and the read is the whole cost.
+   */
+  const launchOf = async (
+    address: SeatAddress,
+    want: SeatNextLaunch,
+  ): Promise<{ readonly nextTurn?: SeatNextTurn; readonly facts?: SeatOffboardFacts }> => {
+    const seat = await ports.locate(address).catch(() => undefined);
+    if (seat === undefined || !seat.local) return {};
+    const mode = modeOf(seat);
+    const cold = !seat.running
+      ? coldForStart(seat, address, "operator")
+      : mode === "off" || mode === "manual" ? { cold: false } : coldness(seat, address);
+    return { nextTurn: seatNextTurn({ running: seat.running, launch: want, cold }), facts: factsOf(seat, now()) };
+  };
+
+  return { run, status, facts, tick, coldAtStart, endedAtStart, nextTurn, launch: launchOf, dueList, questions, answerDue, clock };
 };
 
 export type OperatorOffboard = ReturnType<typeof makeOperatorOffboard>;
@@ -1118,6 +1135,17 @@ export const seatNextTurnOf = (seat: SeatAddress, launch: SeatNextLaunch): Promi
  */
 export const seatOffboardFactsOf = (seat: SeatAddress): Promise<SeatOffboardFacts | undefined> =>
   current ? current.facts(seat).catch(() => undefined) : Promise.resolve(undefined);
+
+/**
+ * Both answers a card asks of a running seat, from one read of it: what its
+ * next turn does, and how its session stands against its cache window. Empty
+ * before the operation is installed, and for a seat on another machine.
+ */
+export const seatLaunchOf = (
+  seat: SeatAddress,
+  launch: SeatNextLaunch,
+): Promise<{ readonly nextTurn?: SeatNextTurn; readonly facts?: SeatOffboardFacts }> =>
+  current ? current.launch(seat, launch).catch(() => ({})) : Promise.resolve({});
 
 export const seatOffboardStatus = (
   canvasName: string,

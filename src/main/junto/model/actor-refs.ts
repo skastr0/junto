@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, PubSub, Schema, Stream } from "effect";
+import { Context, Effect, Layer, Option, PubSub, Schema, Stream } from "effect";
 import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import { ActorRef } from "@shared/work-reference";
 import { InstallationId } from "@shared/installation-id";
@@ -83,6 +83,44 @@ export class ModelActorRefs extends Context.Service<ModelActorRefs>()(
           }),
         ).pipe(Effect.mapError((cause) => modelError("actorRefs", cause)));
       });
+      /**
+       * One seat's reference, read by its own key: its row names the binding,
+       * and that machine's topology row names the installation. A receipt or
+       * a card needs one actor, never every seat on the canvas.
+       */
+      const seat = Effect.fn("ModelActorRefs.seat")(function* (
+        canvas: string,
+        nodeId: string,
+      ) {
+        return yield* withSqlRead(
+          sql,
+          Effect.gen(function* () {
+            const row = yield* SqlSchema.findOneOption({
+              Request: Schema.Tuple([Schema.String, Schema.String]),
+              Result: Schema.Struct({
+                binding_id: Schema.String,
+                installation_id: InstallationId,
+              }),
+              // A removed machine keeps its row (one per name, never re-pinned
+              // to another installation), so a seat on it still has an id.
+              execute: ([name, id]) =>
+                sql`SELECT seats.binding_id, home.installation_id
+                FROM seats JOIN (
+                  SELECT configuration.machine_name AS machine_name, installation.installation_id AS installation_id
+                  FROM machine_configuration AS configuration JOIN installation ON installation.singleton = configuration.singleton
+                  UNION ALL SELECT machine_name, installation_id FROM machine_peers
+                ) AS home ON home.machine_name = seats.host
+                WHERE seats.canvas_name = ${name} AND seats.id = ${id}`,
+            })([canvas, nodeId]).pipe(Effect.map(Option.getOrUndefined));
+            if (row === undefined) return undefined;
+            return {
+              canvasName: canvas,
+              nodeId,
+              seatId: deriveActorSeatId(row.installation_id, row.binding_id),
+            } satisfies ActorRef;
+          }),
+        ).pipe(Effect.mapError((cause) => modelError("actorRefsSeat", cause)));
+      });
       // References change only when seats or canvas membership change, never on mail.
       const announce = (canvas: string) =>
         read(canvas).pipe(
@@ -112,7 +150,7 @@ export class ModelActorRefs extends Context.Service<ModelActorRefs>()(
         }),
         Effect.forkScoped,
       );
-      return { read, changes: Stream.fromPubSub(changed) };
+      return { read, seat, changes: Stream.fromPubSub(changed) };
     }),
   },
 ) {

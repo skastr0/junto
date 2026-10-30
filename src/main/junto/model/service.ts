@@ -194,6 +194,32 @@ export class ModelService extends Context.Service<ModelService>()(
           )
           .pipe(Effect.mapError((cause) => modelError("installCopy", cause)));
       });
+      /**
+       * A canvas's count alone, never its rows. A receipt names the count it
+       * was made against, so a mail typed into a seat costs no canvas load.
+       * Staged and held copies answer first, as `canvas` does.
+       */
+      const seq = Effect.fn("ModelService.seq")(function* (name: string) {
+        const decoded = yield* Schema.decodeUnknownEffect(CanvasName)(
+          name,
+        ).pipe(Effect.mapError(() => refused("Use a valid canvas name.")));
+        const read = Effect.gen(function* () {
+          const drafts = yield* sqlTransactionLocal<Drafts>(sql, draftKey);
+          const drafted = drafts?.get(decoded);
+          if (drafted) return drafted.seq;
+          if (drafts?.has(decoded))
+            return yield* new ModelNotFound({ what: "canvas", id: name });
+          const known = held.get(decoded);
+          if (known) return known.seq;
+          const header = yield* records.getCanvas(decoded);
+          if (!header)
+            return yield* new ModelNotFound({ what: "canvas", id: name });
+          return header.seq;
+        });
+        return yield* withSqlRead(sql, read).pipe(
+          Effect.mapError((cause) => modelError("seq", cause)),
+        );
+      });
       const open = Effect.fn("ModelService.open")(function* (name: string) {
         const current = yield* canvas(name);
         return {
@@ -752,6 +778,7 @@ export class ModelService extends Context.Service<ModelService>()(
           };
         },
         canvas,
+        seq,
         open,
         command,
         fold,

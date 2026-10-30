@@ -83,6 +83,17 @@ it("a delivered mail commits its receipt against the live canvas sequence and su
     expect(receipts).toHaveLength(1);
     const facts = await runtime.runPromise(sql`SELECT basis_kind,basis_canvas_name,basis_canvas_seq FROM work_facts AS facts JOIN work_events AS events USING(event_home,entity_home,seq) WHERE events.operation='delivery.accepted'`);
     expect(facts).toEqual([{ basis_kind: "canvas", basis_canvas_name: "factory", basis_canvas_seq: 2 }]);
+    // A mail typed whole is marked read by its own seat: the delivery and the
+    // read land in one stamp, on one basis, and the seat's own reference is
+    // what the receipt names. The stamp repeated writes nothing.
+    const deliveryId = mailboxMessageDeliveryId("factory", "inbox", "delivered-mail");
+    const readId = `${deliveryId}-read`;
+    const both = () => runtime.runPromise(stampMailboxDeliveryReceipt({ canvas: "factory", nodeId: "inbox", messageId: "delivered-mail", deliveryId, readId }));
+    expect(await both()).toBe(true);
+    expect(await both()).toBe(true);
+    const pair = await runtime.runPromise(sql`SELECT delivery_id, actor_seat_id FROM work_delivery_receipts WHERE delivered_canvas_name='factory' AND delivered_node_id='inbox' ORDER BY delivery_id`);
+    expect(pair.map((row) => row.delivery_id).sort()).toEqual([deliveryId, readId].sort());
+    expect(pair.every((row) => row.actor_seat_id === actors.find((ref) => ref.nodeId === "inbox")!.seatId)).toBe(true);
     expect((await runtime.runPromise(repo.mailMessage("factory", "inbox", "delivered-mail")))?.metadata?.deliveredAt).toBeTypeOf("number");
     delivery.resetForTest();
     await runtime.dispose();

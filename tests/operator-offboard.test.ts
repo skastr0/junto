@@ -17,6 +17,7 @@ import {
   makeOperatorOffboard,
   parseSeatClockRecord,
   seatClockChanges,
+  seatLaunchOf,
   setOperatorOffboard,
   waitsOnOperator,
   type OffboardSeat,
@@ -115,6 +116,8 @@ const world = (
   const estimated = new Set<string>();
   /** What a seat's own machine last said of it, for a seat run elsewhere. */
   const told = new Map<string, SeatOffboardFacts>();
+  /** How many times the operation read a seat: a card's cost, as it sees it. */
+  let located = 0;
   // A session worth cutting, unless the test says otherwise: an hour of work.
   const seeded: SeatClockRecord = {
     savedAt: at,
@@ -126,7 +129,10 @@ const world = (
   };
   const clock = new SeatStatusClock(() => at, options.restored ?? seeded);
   const ports: OperatorOffboardPorts = {
-    locate: async ({ canvasName, seatId }) => (canvasName === CANVAS ? seats.get(seatId) : undefined),
+    locate: async ({ canvasName, seatId }) => {
+      located += 1;
+      return canvasName === CANVAS ? seats.get(seatId) : undefined;
+    },
     seats: async () => [...seats.values()],
     isClosing: ({ seatId }) => closing.has(seatId),
     closeNow: async (s, by) => {
@@ -169,6 +175,7 @@ const world = (
     sizes,
     estimated,
     told,
+    locateCalls: () => located,
     advance: (minutes: number) => {
       at += minutes * MIN;
     },
@@ -723,6 +730,22 @@ describe("the seat's next turn: the same test as the cut", () => {
 });
 
 describe("the seat against its cache window, as its card reads it", () => {
+  it("reads the seat once for both answers, never once each", async () => {
+    const w = world([seat("a", { harness: "amp" })]);
+    w.advance(600);
+    setOperatorOffboard(w.offboard);
+    try {
+      const before = w.locateCalls();
+      const answer = await seatLaunchOf({ canvasName: CANVAS, seatId: "a" }, "resume");
+      expect(w.locateCalls() - before).toBe(1);
+      expect(answer.nextTurn).toBeDefined();
+      expect(answer.facts?.windowMinutes).toBeTypeOf("number");
+      expect(answer.facts?.workMs).toBeTypeOf("number");
+    } finally {
+      setOperatorOffboard(undefined);
+    }
+  });
+
   it("tells a still seat that picks up where it was how far past its harness's window it is, by this machine's clock and rules", async () => {
     const w = world([seat("a", { harness: "amp" })], {
       rules: { ...defaultOffboardRules(), cacheMode: "hybrid", harness: { amp: { cacheWindowMinutes: 5 } } },
@@ -732,6 +755,12 @@ describe("the seat against its cache window, as its card reads it", () => {
     const sessions = {
       current: () => Effect.succeed(open),
       list: () => Effect.succeed([]),
+      launch: () =>
+        Effect.succeed(
+          open === undefined
+            ? {}
+            : { open: { seatId: "a", sessionId: open.sessionId, harness: open.harness, bindingId: "bind-a" } },
+        ),
     } as unknown as SeatSessions["Service"];
     const node = { kind: "agent", id: "a", bindingId: "bind-a", harness: "amp" } as unknown as NodeOf<"agent">;
     let elapsed = 0;

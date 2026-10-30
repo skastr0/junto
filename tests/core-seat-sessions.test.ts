@@ -29,6 +29,14 @@ it("a windowless core closes a session on the agent's own offboard, and answers 
       sessions.record({ seatId: "own-seat", bindingId: "own-binding", sessionId: "session-one", harness: "codex" })));
     const current = () => run(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.current("own-seat", "own-binding")));
     expect((await current())?.sessionId).toBe("session-one");
+    // The card's own read: the open session on the binding the seat holds
+    // now, never the seat's history, and no open one on an old binding.
+    const launch = (bindingId = "own-binding") =>
+      run(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.launch("own-seat", bindingId)));
+    expect(await launch()).toEqual({
+      open: { seatId: "own-seat", sessionId: "session-one", harness: "codex", bindingId: "own-binding" },
+    });
+    expect(await launch("an-older-binding")).toEqual({});
 
     // Operator offboard is installed: a resting seat on this machine may be closed now.
     const [status] = await seatOffboardStatus("rest", ["own-seat"]);
@@ -43,6 +51,9 @@ it("a windowless core closes a session on the agent's own offboard, and answers 
     }, { timeout: 5_000 });
     const sessions = await run(Effect.flatMap(SeatSessionRepository, (repository) => repository.list("own-seat")));
     expect(sessions.find((session) => session.sessionId === "session-one")?.endedAt).toBeTypeOf("number");
+    // With the session ended, the same read names no open one and why it ended:
+    // what the next start reads to answer offboarded or fresh.
+    expect(await launch()).toEqual({ lastEnded: "offboard" });
   } finally {
     await core?.close();
     await rm(home, { recursive: true, force: true });

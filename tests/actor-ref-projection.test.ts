@@ -52,6 +52,11 @@ it("compiles aliases and machine identity from native seats and refuses unresolv
       { seatId: deriveActorSeatId(remote, "binding-remote"), canvasName: "alpha", nodeId: "remote-agent" },
     ]);
     expect(all).toEqual([...alpha, { seatId: deriveActorSeatId(local, "binding-local"), canvasName: "zeta", nodeId: "local-alias" }]);
+    // One seat read by its own key gives the reference the canvas read gives,
+    // and none for a node that is not a seat.
+    expect(await runtime.runPromise(refs.seat("alpha", "local-agent"))).toEqual(alpha[0]);
+    expect(await runtime.runPromise(refs.seat("alpha", "remote-agent"))).toEqual(alpha[1]);
+    expect(await runtime.runPromise(refs.seat("alpha", "no-such-seat"))).toBeUndefined();
     const before = await runtime.runPromise(model.open("alpha"));
     const refused = await runtime.runPromise(Effect.result(model.command(decode({ _tag: "Add", canvas: "alpha", nodes: [modelSeat({ id: "lost-agent", key: "missing-host:codex", label: "Lost", host: "missing-host", bindingId: "binding-lost" })], wires: [] }), "operator")));
     expect(refused).toMatchObject({ _tag: "Failure", failure: { _tag: "ModelRefused", rule: expect.stringContaining("unresolved host") } });
@@ -73,5 +78,7 @@ it("compiles aliases and machine identity from native seats and refuses unresolv
     // A seat whose machine has no row at all is skipped; every other seat still reads.
     await runtime.runPromise(sql.withTransaction(sql`DELETE FROM machine_peers WHERE machine_name='remote-a'`));
     expect(await runtime.runPromise(refs.read())).toEqual(all.filter((ref) => ref.nodeId !== "remote-agent"));
+    expect(await runtime.runPromise(refs.seat("alpha", "remote-agent"))).toBeUndefined();
+    expect(await runtime.runPromise(refs.seat("alpha", "local-agent"))).toEqual(alpha[0]);
   } finally { await runtime.dispose(); await rm(root, { recursive: true, force: true }); }
 });

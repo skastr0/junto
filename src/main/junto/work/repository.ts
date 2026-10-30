@@ -3493,10 +3493,14 @@ export interface WorkRepositoryShape {
     nodeId: string,
     itemId: string,
   ) => Effect.Effect<InstallationId | undefined, WorkRepositoryError>;
-  readonly hasAcceptedDelivery: (
+  /**
+   * Which of these receipts the sink already accepted, in one statement. A
+   * mail's delivery and read receipts are one read, not one each.
+   */
+  readonly acceptedDeliveries: (
     sink: SinkRefValue,
-    deliveryId: string,
-  ) => Effect.Effect<boolean, WorkRepositoryError>;
+    deliveryIds: ReadonlyArray<string>,
+  ) => Effect.Effect<ReadonlyArray<string>, WorkRepositoryError>;
   /**
    * Durable receipt timestamp when present. Used for idempotent mark-read
    * so re-acks return the original acceptedAt, not a fabricated now().
@@ -3764,13 +3768,38 @@ export const WorkRepositoryLive = Layer.effect(
     // pulse does one task-PK read, and a new progress fact normally walks one
     // predecessor. Cold reads follow only this task's indexed fact chain.
 
-    const hasAcceptedDelivery = (
+    const acceptedDeliveries = (
       sink: SinkRefValue,
-      deliveryId: string,
-    ): Effect.Effect<boolean, WorkRepositoryError> =>
-      acceptedDeliveryAt(sink, deliveryId).pipe(
-        Effect.map((at) => at !== undefined),
-      );
+      deliveryIds: ReadonlyArray<string>,
+    ): Effect.Effect<ReadonlyArray<string>, WorkRepositoryError> =>
+      deliveryIds.length === 0
+        ? Effect.succeed([])
+        : withSqlRead(
+            sql,
+            ((reader: SqlClient.SqlClient) =>
+              reader.unsafe<{ delivery_id: string }>(
+                `
+                SELECT delivery_id
+                FROM work_delivery_receipts
+                WHERE delivered_canvas_name = ?
+                  AND delivered_node_id = ?
+                  AND delivery_id IN (${deliveryIds.map(() => "?").join(",")})
+              `,
+                [sink.canvasName, sink.nodeId, ...deliveryIds],
+              ))(sql),
+          )
+            .pipe(
+              Effect.map((rows) => rows.map((row) => row.delivery_id)),
+              Effect.provideService(
+                StateTransactionOperation,
+                "work.acceptedDeliveries",
+              ),
+            )
+            .pipe(
+              Effect.mapError((error) =>
+                toRepositoryError("work.acceptedDeliveries", error),
+              ),
+            );
 
     const acceptedDeliveryAt = (
       sink: SinkRefValue,
@@ -5520,7 +5549,7 @@ export const WorkRepositoryLive = Layer.effect(
         )),
       recentOpsForSeat: readRecentOpsForSeat,
       itemHome,
-      hasAcceptedDelivery,
+      acceptedDeliveries,
       acceptedDeliveryAt,
       publishCheckoutReceipts,
       appendMessage,

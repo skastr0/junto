@@ -37,19 +37,19 @@ export const stampMailboxDeliveryReceipt = Effect.fn("Work.stampMailboxDeliveryR
   return yield* sql.withTransaction(Effect.gen(function* () {
     const sink = { canvasName: input.canvas, nodeId: input.nodeId };
     const receipts = [input.deliveryId, ...(input.readId === undefined ? [] : [input.readId])];
-    const missing: string[] = [];
-    for (const deliveryId of receipts) {
-      if (!(yield* repo.hasAcceptedDelivery(sink, deliveryId))) missing.push(deliveryId);
-    }
+    const accepted = new Set(yield* repo.acceptedDeliveries(sink, receipts));
+    const missing = receipts.filter((deliveryId) => !accepted.has(deliveryId));
     if (missing.length === 0) return true;
-    const current = yield* model.canvas(input.canvas);
-    const actor = (yield* refs.read(input.canvas)).find((ref) => ref.nodeId === input.nodeId);
-    if (!actor) return yield* new ModelNotFound({ what: "delivery actor", id: input.nodeId });
+    // One actor by its own key, and the count alone: a mail typed into a seat
+    // never loads the canvas or every reference on it.
+    const actor = yield* refs.seat(input.canvas, input.nodeId);
+    if (actor === undefined) return yield* new ModelNotFound({ what: "delivery actor", id: input.nodeId });
+    const basis = canvasReceiptBasis({ canvasName: input.canvas, seq: yield* model.seq(input.canvas) });
     const acceptedAt = new Date().toISOString();
     for (const deliveryId of missing) {
       yield* repo.acceptDelivery({
         sink,
-        basis: canvasReceiptBasis({ canvasName: current.name, seq: current.seq }),
+        basis,
         receipt: {
           deliveryId,
           deliveredItem: { kind: "message", itemId: input.messageId, sink },
