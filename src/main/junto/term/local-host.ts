@@ -1447,6 +1447,10 @@ export class LocalSessionHost extends EventEmitter {
       rec.backend = lease.backend;
       rec.exitWitness = lease.io.exited;
       rec.pid = lease.io.pidForDiagnostics;
+      // A PTY in the terminal process names its pid a turn later.
+      void lease.io.pidReady?.then((pid) => {
+        if (rec.pid === undefined && rec.lease === lease) rec.pid = pid;
+      });
       rec.phase = SessionPhase.Live({ surface: "native" });
       // Retain the central plane's exact native-PTY exit witness before any
       // fallible presentation setup. Rejection is diagnostic only: authority
@@ -3214,6 +3218,9 @@ export class LocalSessionHost extends EventEmitter {
   private bindPtyProcessIdentity(rec: SessionRec): boolean {
     const principal = this.processPrincipal(rec);
     if (principal === undefined) return true;
+    // The pid is still on its way from the terminal process; the start's
+    // identity flight waits for it and binds this principal then.
+    if (rec.pid === undefined && rec.lease?.io.pidReady !== undefined && sessionStatusOf(rec) === "running") return true;
     if (rec.pid === undefined || sessionStatusOf(rec) !== "running") return false;
     try {
       const binding = getProcessIdentityMap().bindGeneration(rec.pid, principal);
@@ -3242,6 +3249,13 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   private async bindPtyProcessIdentityAsync(rec: SessionRec): Promise<void> {
+    // A PTY in the terminal process: the bind waits for its pid, and reads the
+    // principal after, so a canvas bind made meanwhile is the one proven.
+    const pidReady = rec.pid === undefined ? rec.lease?.io.pidReady : undefined;
+    if (pidReady !== undefined) {
+      const pid = await pidReady;
+      if (rec.pid === undefined) rec.pid = pid;
+    }
     const principal = this.processPrincipal(rec);
     if (principal === undefined) return;
     // Stopped or replaced before the observation began: there is no generation

@@ -28,6 +28,8 @@ import {
   type SignalChildHandle,
   type SignalOwnedResult,
 } from "./process-signal";
+import type { RemoteTerminal } from "../terminal-process/client";
+import { terminalProcess } from "../terminal-process/use";
 
 export const APP_PROCESS_PLANE_QUIESCING_ERROR =
   "app process plane is shutting down";
@@ -137,6 +139,11 @@ export interface AppTerminalExit {
 
 export interface AppTerminalIo {
   readonly pidForDiagnostics: number | undefined;
+  /**
+   * Present when the PTY runs in the terminal process: its pid arrives a turn
+   * after the spawn, and `pidForDiagnostics` is undefined until then.
+   */
+  readonly pidReady?: Promise<number | undefined>;
   readonly exited: Promise<AppTerminalExit>;
   readonly write: (data: string) => void;
   readonly resize: ((cols: number, rows: number) => void) | undefined;
@@ -349,6 +356,7 @@ interface TerminalBackendHandlers {
 interface TerminalBackend {
   readonly kind: "pty";
   readonly pid: number | undefined;
+  readonly pidReady?: Promise<number | undefined>;
   readonly signalSink: SignalChildHandle;
   readonly write: (data: string) => void;
   readonly resize: ((cols: number, rows: number) => void) | undefined;
@@ -471,6 +479,30 @@ const makePtyBackend = (pty: IPty): TerminalBackend => {
     },
   });
 };
+
+/**
+ * A PTY the terminal process holds (protect the main thread, phase 1). Its
+ * signal sink carries no pid, so the plane admits it as an opaque child: the
+ * terminal process is the one that knows whether the PTY is still live, and
+ * it signals only a live PTY it spawned, never a pid that may be reused.
+ */
+const makeRemotePtyBackend = (remote: RemoteTerminal): TerminalBackend => Object.freeze({
+  kind: "pty" as const,
+  pid: undefined,
+  pidReady: remote.pid.catch(() => undefined),
+  signalSink: Object.freeze({ kill: (signal?: NodeJS.Signals) => remote.kill(signal) }),
+  write: (data: string) => remote.write(data),
+  resize: (cols: number, rows: number) => remote.resize(cols, rows),
+  attach: (handlers: TerminalBackendHandlers) => {
+    // The exit witness first, then the stream, as for a local PTY.
+    const stops = [
+      remote.onExit((event) => handlers.onExit(frozenTerminalExit(event.code, event.signal))),
+      remote.onData(handlers.onData),
+      remote.onError(handlers.onError),
+    ];
+    return { cleanup: () => { for (const stop of stops) stop(); } };
+  },
+});
 
 const spawnOptions = (spec: AppProcessSpawnSpec) => ({
   cwd: spec.cwd,
@@ -1008,6 +1040,7 @@ export const createAppProcessPlane = (
       };
     const io: AppTerminalIo = Object.freeze({
       pidForDiagnostics: record.pidForDiagnostics,
+      ...(backend.pidReady === undefined ? {} : { pidReady: backend.pidReady }),
       exited,
       write,
       resize,
@@ -1121,6 +1154,17 @@ export const createAppProcessPlane = (
 
   const spawnTerminal = (spec: AppTerminalSpawnSpec): AppTerminalLease => {
     assertSpawnAllowed();
+    const terminals = terminalProcess();
+    if (terminals !== undefined) {
+      return registerTerminal(spec, makeRemotePtyBackend(terminals.spawn({
+        command: spec.command,
+        args: [...(spec.args ?? [])],
+        ...(spec.cwd === undefined ? {} : { cwd: spec.cwd }),
+        ...(spec.env === undefined ? {} : { env: { ...spec.env } }),
+        cols: spec.cols,
+        rows: spec.rows,
+      })));
+    }
     let pty: IPty | undefined;
     try {
       // Keep the optional native dependency outside import-time graphs.

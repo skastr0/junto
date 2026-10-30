@@ -370,6 +370,9 @@ describe("machine-safety architecture", () => {
       "src/main/junto/app-process-plane.ts:forbidden-reference:record.kill",
       // Log formatting of a frozen KILL receipt; a straggler carries no process authority.
       "src/main/junto/app-process-plane.ts:forbidden-reference:straggler.kill",
+      // A terminal-process PTY's signal sink: the plane's own signal, sent
+      // across the terminal port (terminal-process/serve.ts signals it).
+      "src/main/junto/app-process-plane.ts:remote.kill",
       // Live-granted node targets resolve bindings, never PIDs. Router delegates
       // to the same owned-session stop capability as terminal IPC.
       "src/main/junto/overseer/native.ts:ctx.termPlane.router.kill",
@@ -403,6 +406,8 @@ describe("machine-safety architecture", () => {
 
   it("keeps asynchronous spawn sites on a reviewed lifetime inventory", () => {
     expect(unsafeSpawnReferences).toEqual([
+      "src/main/junto/app-process-plane.ts:spawn",
+      // spawnTerminal's terminal-process spawn, registered on the plane at once.
       "src/main/junto/app-process-plane.ts:spawn",
     ]);
 
