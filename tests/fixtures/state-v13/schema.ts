@@ -408,3 +408,21 @@ export const STATE_SCHEMA_V69_SQL = stepped(
   STATE_SCHEMA_V68_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 69)!.migrate,
 );
+
+/** Step 70 adds `work_messages_sender`, mail by its sender's stamp (0.12, msg list and since). */
+export const STATE_SCHEMA_V70_SQL = stepped(
+  STATE_SCHEMA_V69_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 70)!.migrate,
+);
+
+/** Step 71 adds `canvas_copy_list` and its members, the newest installed copy's authority list (0.11/06 F3). */
+export const STATE_SCHEMA_V71_SQL = stepped(
+  STATE_SCHEMA_V70_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 71)!.migrate,
+);
+
+/** Step 72 adds the read indexes: the log by kind of fact, mail by its writer and by what a seat sent (0.11.7). */
+export const STATE_SCHEMA_V72_SQL = stepped(
+  STATE_SCHEMA_V71_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 72)!.migrate,
+);
