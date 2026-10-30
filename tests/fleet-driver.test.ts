@@ -55,7 +55,7 @@ const everywhere: RulingContext = { inReach: () => true };
 
 type Store = {
   readonly root: string;
-  readonly runtime: ManagedRuntime.ManagedRuntime<SqlClient.SqlClient | RulingRecorder | ArtifactRepository | WorkRepository, unknown>;
+  readonly runtime: ManagedRuntime.ManagedRuntime<SqlClient.SqlClient | RulingRecorder | ArtifactRepository | WorkRepository | ModelService, unknown>;
   readonly recorded: Array<RecordRulingInput>;
   /** While set, the recorder fails: the crash comes after the fold and before the applied index is written. */
   failing: boolean;

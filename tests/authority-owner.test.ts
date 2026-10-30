@@ -53,6 +53,7 @@ const host = (options: {
 } = {}) =>
   CanvasAuthorities.of({
     judge: () => Effect.die("no batch is judged here"),
+    landed: () => Effect.die("no entry is waited on here"),
     status: () => Effect.sync(() => (options.touched?.(), options.reads ?? [read()])),
     setList: (canvas, order) => Effect.sync(() => (options.touched?.(), (options.setList ?? (() => read()))(canvas, order))),
     alone: () => Effect.sync(() => (options.touched?.(), (options.alone ?? (() => read({ canCommit: true })))())),
@@ -150,6 +151,7 @@ describe("authority ops", () => {
   it("reports a driver refusal as io and retryable only when the driver says so", async () => {
     const failing = CanvasAuthorities.of({
       judge: () => Effect.die("no batch is judged here"),
+      landed: () => Effect.die("no entry is waited on here"),
       status: () => Effect.fail(new FleetDriverError({ message: "this machine's canvases could not be read", cause: "the store was busy", retryable: true })),
       setList: () => Effect.die("no"),
       alone: () => Effect.die("no"),

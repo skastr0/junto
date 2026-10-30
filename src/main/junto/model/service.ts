@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
-import { Context, Effect, Layer, PubSub, Schema, Stream } from "effect";
+import { Context, Effect, Layer, Option, PubSub, Schema, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { ulid } from "ulid";
 import {
@@ -26,6 +26,8 @@ import {
 } from "../state/sql-commit";
 import { withSqlRead } from "../state/sql-read";
 import { StateTransactionOperation } from "../state/service";
+import { AUTHORITY_ENABLED } from "@shared/features";
+import { CanvasAuthorities } from "../fleet/authorities";
 import { StructureCapture } from "./structure-capture";
 import {
   ModelNotFound,
@@ -274,7 +276,7 @@ export class ModelService extends Context.Service<ModelService>()(
             Effect.mapError((cause) => modelError("fold", cause)),
           );
       });
-      const command = Effect.fn("ModelService.command")(function* (
+      const ruleHere = Effect.fn("ModelService.command")(function* (
         input: Command,
         source: "operator" | "runtime" | "overseer",
       ) {
@@ -700,6 +702,34 @@ export class ModelService extends Context.Service<ModelService>()(
           Effect.mapError((cause) => modelError("advanceCount", cause)),
         );
       });
+      /**
+       * A canvas command (0.11/06 F4). Behind the authority it is judged on its
+       * canvas's authority, and answers once its last entry applies here,
+       * written and published by the fold; off, or inside a judged batch, it
+       * rules here. A canvas is made here, and removed here only while one
+       * machine at most holds it: on a longer list a removal would leave the
+       * others holding a canvas no log can end.
+       */
+      const command = (input: Command, source: "operator" | "runtime" | "overseer") =>
+        Effect.gen(function* () {
+          const authorities = AUTHORITY_ENABLED && (yield* StructureCapture) === undefined
+            ? yield* Effect.serviceOption(CanvasAuthorities)
+            : Option.none();
+          if (Option.isNone(authorities) || input._tag === "CreateCanvas") return yield* ruleHere(input, source);
+          if (input._tag === "RemoveCanvas") {
+            const [listed] = yield* sql<{ n: number }>`SELECT COUNT(*) AS n FROM canvas_authorities WHERE canvas_name = ${input.canvas}`.pipe(
+              Effect.mapError((cause) => modelError("command", cause)),
+            );
+            if ((listed?.n ?? 0) > 1) return yield* refused("Take the other machines off this canvas's list before removing it.");
+            return yield* ruleHere(input, source);
+          }
+          const judged = yield* authorities.value.judge(input.canvas, ruleHere(input, source)).pipe(
+            Effect.mapError((cause) => modelError("command", cause)),
+          );
+          const last = judged.entries.at(-1);
+          if (last !== undefined) yield* authorities.value.landed(input.canvas, last).pipe(Effect.mapError((cause) => modelError("command", cause)));
+          return judged.value;
+        });
       const ensureSeed = sql.withTransaction(Effect.gen(function* () {
         if ((yield* records.listCanvases()).length === 0)
           yield* command({ _tag: "CreateCanvas", canvas: Schema.decodeUnknownSync(CanvasName)(SEED_CANVAS_NAME) }, "operator");

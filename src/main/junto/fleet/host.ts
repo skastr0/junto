@@ -200,6 +200,12 @@ export const makeCanvasAuthorities = Effect.gen(function* () {
             Effect.andThen(authorityOf(canvasName)),
             Effect.flatMap((authority) => authority.judge(batch)),
           )),
+    // A canvas gone or not opened is a wait to try again, as a break is.
+    landed: (canvasName, entry) =>
+      authorityOf(canvasName).pipe(
+        Effect.mapError((error) => new FleetDriverError({ message: error.message, cause: error.cause, retryable: true })),
+        Effect.flatMap((authority) => authority.landed(entry)),
+      ),
   });
 });
 

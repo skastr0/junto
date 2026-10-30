@@ -81,6 +81,7 @@ const authoritiesOf = (state: { reachable: boolean; failing: boolean }) =>
     status: () => (state.failing ? Effect.fail(new FleetDriverError({ message: "the authority could not be read", cause: undefined })) : Effect.succeed([read(state.reachable)])),
     machines: () => Effect.succeed({ self: machines[0]!, machines }),
     judge: () => Effect.die("not judged here"),
+    landed: () => Effect.die("not waited on here"),
     setList: () => Effect.die("not set here"),
     alone: () => Effect.die("not forked here"),
   }));

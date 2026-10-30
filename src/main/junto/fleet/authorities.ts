@@ -10,6 +10,7 @@
  */
 import { Context, type Effect } from "effect";
 import type { AuthorityMachineFacts, AuthorityRead } from "@shared/authority";
+import type { Entry } from "./consensus";
 import type { FleetDriverError, Judgment } from "./driver";
 
 export class CanvasAuthorities extends Context.Service<
@@ -17,6 +18,8 @@ export class CanvasAuthorities extends Context.Service<
   {
     /** Judge a batch on `canvasName`'s authority, opening it first if this machine holds it open no more. */
     readonly judge: <A, E, R>(canvasName: string, batch: Effect.Effect<A, E, R>) => Effect.Effect<Judgment<A>, E | FleetDriverError, R>;
+    /** Wait until a judged entry applies on this machine, opening the canvas's authority first; fails retryable as its `landed` does. */
+    readonly landed: (canvasName: string, entry: Pick<Entry, "index" | "term">) => Effect.Effect<void, FleetDriverError>;
     /** One canvas's read, or every canvas this machine holds, in canvas order. */
     readonly status: (canvasName?: string) => Effect.Effect<ReadonlyArray<AuthorityRead>, FleetDriverError>;
     /** The operator's ordered list by machine name: propose the joint entry, then answer the read it left. */
