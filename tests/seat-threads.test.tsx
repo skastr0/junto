@@ -454,6 +454,15 @@ describe("the Threads popup", () => {
     expect(dialog?.querySelector(".two-pane")?.getAttribute("data-sidebar")).toBeNull();
   });
 
+  it("opens a thread on a named stream that takes the keyboard, under an h2 subject", async () => {
+    await open();
+    const stream = q("seat-threads-stream")!;
+    expect(stream.getAttribute("role")).toBe("group");
+    expect(stream.getAttribute("aria-label")).toBe("Messages in Session notes out of ~/.junto: get it done now");
+    expect(stream.getAttribute("tabindex")).toBe("0");
+    expect(document.querySelector(".seat-threads__chat-title")?.tagName).toBe("H2");
+  });
+
   it("reads a message as its words: the author tag drops, and the stored mail keeps it", async () => {
     const { state, change } = await open();
     const text = "product-lead: the list row leads with the words, not the tag.\n\n- one\n- two";

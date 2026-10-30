@@ -193,6 +193,13 @@
   color: var(--color-dim);
 }
 
+/* The stream is a control now: it scrolls from the keyboard, so it wears the
+   inset house ring where it takes focus. */
+.seat-threads__stream:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--color-cyan);
+}
+
 .seat-threads__stream {
   display: flex;
   flex: 1 1 0;

@@ -300,9 +300,9 @@ function ChatHead({
   return (
     <header className="seat-threads__chat-head">
       <div className="seat-threads__chat-line">
-        <h3 className="seat-threads__chat-title" title={full}>
+        <h2 className="seat-threads__chat-title" title={full}>
           {title}
-        </h3>
+        </h2>
         {close}
       </div>
       {meta ? <div className="seat-threads__chat-meta">{meta}</div> : null}
@@ -384,7 +384,15 @@ function ThreadChat({
           </>
         }
       />
-      <div ref={streamRef} className="seat-threads__stream" data-testid="seat-threads-stream" onScroll={() => fillStream(true)}>
+      <div
+        ref={streamRef}
+        className="seat-threads__stream"
+        data-testid="seat-threads-stream"
+        role="group"
+        aria-label={`Messages in ${previewText(thread.title)}`}
+        tabIndex={0}
+        onScroll={() => fillStream(true)}
+      >
         {older !== undefined ? (
           <p className="seat-threads__note seat-threads__note--center" data-testid="seat-threads-older">
             Reading earlier messages…
