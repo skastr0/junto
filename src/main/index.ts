@@ -45,7 +45,7 @@ import { core } from "./core-process/main-client";
 import { startTerminalProcess, TERMINAL_PROCESS_ENABLED } from "./terminal-process/host";
 import { useTerminalProcess } from "./terminal-process/use";
 import { subscribe as subscribeCore } from "./core-process/push";
-import { AGENT_SIGNAL_CHANGED, COMPANION_DEVICES, SETTINGS_CHANGED, WORK_PREAMBLE } from "./core-process/ops/main-index";
+import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, COMPANION_DEVICES, PAUSE_CHANGED, SETTINGS_CHANGED, WORK_PREAMBLE, type CanvasChangedPush, type PauseChangedPush } from "./core-process/ops/main-index";
 import { coreBrowserProfileStore, coreTouchedOriginStore } from "./core-process/ops/browser";
 import { MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail } from "./core-runtime";
 import { makeInventoryChannel } from "./junto/inventory/channel";
@@ -66,8 +66,6 @@ import {
 } from "./junto/observability";
 import { releaseDemoRuntimeIsolation } from "./junto/demo/runtime-isolation";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
-import { ModelService } from "./junto/model/service";
-import { PausePlane } from "./junto/pause-plane";
 import { resolveControlHome } from "./junto/control-home";
 import { registerDemoIpcHandlers } from "./junto/demo/ipc";
 import { registerNotificationIpc } from "./junto/notifications/ipc";
@@ -1867,21 +1865,22 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             canvasUnsubscribe?.();
             edgeGrant.clear();
           };
-          const acquiredCanvasUnsubscribe = await AppRuntime.runPromise(
-            Effect.flatMap(ModelService, (model) => Effect.sync(() => {
-              const changes = model.subscribeChanges((event, next) => {
-                edgeGrant.invalidateCanvas(event.canvas, { next });
-              });
-              const canvases = model.subscribeCanvasesChanges((event) => {
-                if (event._tag === "Removed") edgeGrant.invalidateCanvas(event.canvas, { next: undefined });
-              });
-              return () => { changes(); canvases(); };
-            })),
-          );
+          // Every canvas change and removal arrives in order on one push channel.
+          const acquiredCanvasUnsubscribe = subscribeCore(CANVAS_CHANGED, (payload) => {
+            const { canvas, next } = payload as CanvasChangedPush;
+            edgeGrant.invalidateCanvas(canvas, { next });
+          });
+          await core.call("model.watchCanvases", {});
           if (admissionCleanupRan) acquiredCanvasUnsubscribe();
           else canvasUnsubscribe = acquiredCanvasUnsubscribe;
 
-          const pausePlane = await AppRuntime.runPromise(PausePlane);
+          // Play states as they stand and every change after; a canvas not heard of yet is paused.
+          const playing = new Map<string, boolean>();
+          subscribeCore(PAUSE_CHANGED, (payload) => {
+            const change = payload as PauseChangedPush;
+            playing.set(change.canvas, change.playing);
+          });
+          await core.call("pause.watch", {});
           browserControl = await startBrowserControlServer({
             sessions: composition.sessions,
             capabilities: composition.registry,
@@ -1891,7 +1890,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             edgeGrant,
             listCanvasModels,
             // The work socket's pause source, read on every request.
-            canvasPlaying: (canvasName) => pausePlane.stateFor(canvasName).playing,
+            canvasPlaying: (canvasName) => playing.get(canvasName) ?? false,
             // A seat's box comment, posted as the seat the grant names.
             postPageBoxComment: (input) =>
               // The core checks and posts; the shot is Electron's, so main takes it between.

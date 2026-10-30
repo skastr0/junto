@@ -1,7 +1,9 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { describe, expect, it } from "vitest";
 import { inProcessCore, type CoreRunner } from "../src/main/core-process/client";
-import { AGENT_SIGNAL_CHANGED, SETTINGS_CHANGED, WORK_PREAMBLE, publishWindowBroadcasts, relayWindowPushes } from "../src/main/core-process/ops/main-index";
+import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, PAUSE_CHANGED, SETTINGS_CHANGED, WORK_PREAMBLE, publishWindowBroadcasts, relayWindowPushes } from "../src/main/core-process/ops/main-index";
+import { ModelService } from "../src/main/junto/model/service";
+import { PausePlane } from "../src/main/junto/pause-plane";
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { portCore, serveCore, type CorePort } from "../src/main/core-process/port";
 import { emitAgentSignalChanged } from "../src/main/junto/signals/changes";
@@ -100,6 +102,47 @@ describe("index.ts core operations", () => {
       for (const off of offs) off();
       stopRelay();
       port1.close();
+      await runtime.dispose();
+    }
+  });
+
+  it("publishes canvas changes and play states for the browser, a watch giving every state as it stands, however often asked", async () => {
+    const changes: Array<(event: { canvas: string }, next: unknown) => void> = [];
+    const removals: Array<(event: { _tag: string; canvas: string }) => void> = [];
+    const pauses: Array<(canvas: string, previous: unknown, current: { playing: boolean }) => void> = [];
+    const runtime = ManagedRuntime.make(Layer.mergeAll(
+      Layer.succeed(ModelService, {
+        subscribeChanges: (listener: never) => (changes.push(listener), () => undefined),
+        subscribeCanvasesChanges: (listener: never) => (removals.push(listener), () => undefined),
+        listCanvases: () => Effect.succeed(["factory", "lab"]),
+      } as never),
+      Layer.succeed(PausePlane, {
+        stateFor: (canvas: string) => ({ playing: canvas === "factory", everPlayed: true }),
+        subscribe: (listener: never) => (pauses.push(listener), () => undefined),
+      } as never),
+    ));
+    const core = inProcessCore(runtime as unknown as CoreRunner);
+    const seen: Array<[string, unknown]> = [];
+    const offs = [CANVAS_CHANGED, PAUSE_CHANGED].map((channel) => subscribe(channel, (payload) => seen.push([channel, payload])));
+    try {
+      await core.call("model.watchCanvases", {});
+      await core.call("model.watchCanvases", {});
+      await core.call("pause.watch", {});
+      await core.call("pause.watch", {});
+      expect([changes.length, removals.length, pauses.length]).toEqual([1, 1, 1]);
+      changes[0]!({ canvas: "factory" }, { name: "factory" });
+      removals[0]!({ _tag: "Removed", canvas: "lab" });
+      removals[0]!({ _tag: "Added", canvas: "new" });
+      pauses[0]!("lab", { playing: false }, { playing: true });
+      expect(seen).toEqual([
+        [PAUSE_CHANGED, { canvas: "factory", playing: true }], [PAUSE_CHANGED, { canvas: "lab", playing: false }],
+        [PAUSE_CHANGED, { canvas: "factory", playing: true }], [PAUSE_CHANGED, { canvas: "lab", playing: false }],
+        [CANVAS_CHANGED, { canvas: "factory", next: { name: "factory" } }],
+        [CANVAS_CHANGED, { canvas: "lab", next: undefined }],
+        [PAUSE_CHANGED, { canvas: "lab", playing: true }],
+      ]);
+    } finally {
+      for (const off of offs) off();
       await runtime.dispose();
     }
   });

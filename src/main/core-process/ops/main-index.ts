@@ -8,6 +8,7 @@ import type { PreambleEvent } from "@shared/preamble";
 import { ContentService, type ContentOpenForRead } from "../../junto/content/service";
 import { ModelRecords } from "../../junto/model/records";
 import { ModelService } from "../../junto/model/service";
+import { PausePlane } from "../../junto/pause-plane";
 import { resolveNodeRef, type ResolvedNodeRef } from "../../junto/node-ref-resolver";
 import { SettingsService } from "../../junto/settings/service";
 import { AgentSignalRepository } from "../../junto/signals/repository";
@@ -37,9 +38,16 @@ export const WORK_PREAMBLE = "work.preamble";
 export const AGENT_SIGNAL_CHANGED = "signals.changed";
 /** The paired phones, after any change, for Settings. */
 export const COMPANION_DEVICES = "companion.devices";
+/** A canvas changed, with the document as it is now, or was removed; once `model.watchCanvases` started it. */
+export const CANVAS_CHANGED = "model.canvasChanged";
+/** A canvas's play state, as it stands and on every change, once `pause.watch` started it. */
+export const PAUSE_CHANGED = "pause.changed";
+
+export type CanvasChangedPush = { readonly canvas: string; readonly next: Canvas | undefined };
+export type PauseChangedPush = { readonly canvas: string; readonly playing: boolean };
 
 /** Every channel main forwards to the window. */
-export const WINDOW_CHANNELS = [SETTINGS_CHANGED, WORK_PREAMBLE, AGENT_SIGNAL_CHANGED, COMPANION_DEVICES] as const;
+export const WINDOW_CHANNELS = [SETTINGS_CHANGED, WORK_PREAMBLE, AGENT_SIGNAL_CHANGED, COMPANION_DEVICES, CANVAS_CHANGED, PAUSE_CHANGED] as const;
 
 /**
  * Main's side, once the core runs in its own process: each window push from
@@ -72,6 +80,8 @@ declare module "../ops" {
     "model.editsCanvas": CoreOp<{ readonly canvasName: string }, boolean>;
     "settings.read": CoreOp<Record<string, never>, Settings>;
     "settings.watch": CoreOp<Record<string, never>, void>;
+    "model.watchCanvases": CoreOp<Record<string, never>, void>;
+    "pause.watch": CoreOp<Record<string, never>, void>;
     "content.openForRead": CoreOp<{ readonly ref: ContentRef }, ContentOpenForRead>;
     "files.carryThreads": CoreOp<
       { readonly canvasName: string; readonly nodeId: string; readonly from: string; readonly to: string },
@@ -84,6 +94,8 @@ declare module "../ops" {
 }
 
 let watchingSettings = false;
+let watchingCanvases = false;
+let watchingPause = false;
 
 coreOps({
   "model.resolveNodeRef": ({ ref }) => Effect.flatMap(ModelService, (model) => resolveNodeRef(model, ref)),
@@ -106,6 +118,29 @@ coreOps({
         }
         publish(SETTINGS_CHANGED, yield* settings.get);
       })),
+  // Subscribed once per core; every canvas change and removal is published with the document as it is now.
+  "model.watchCanvases": () =>
+    Effect.flatMap(ModelService, (model) =>
+      Effect.sync(() => {
+        if (watchingCanvases) return;
+        watchingCanvases = true;
+        model.subscribeChanges((event, next) => publish(CANVAS_CHANGED, { canvas: event.canvas, next } satisfies CanvasChangedPush));
+        model.subscribeCanvasesChanges((event) => {
+          if (event._tag === "Removed") publish(CANVAS_CHANGED, { canvas: event.canvas, next: undefined } satisfies CanvasChangedPush);
+        });
+      })),
+  // Subscribed once per core; each watch also publishes every canvas's play state as it stands, after the subscription.
+  "pause.watch": () =>
+    Effect.gen(function* () {
+      const [pause, model] = yield* Effect.all([PausePlane, ModelService]);
+      if (!watchingPause) {
+        watchingPause = true;
+        pause.subscribe((canvas, _previous, current) => publish(PAUSE_CHANGED, { canvas, playing: current.playing } satisfies PauseChangedPush));
+      }
+      for (const canvas of yield* model.listCanvases()) {
+        publish(PAUSE_CHANGED, { canvas, playing: pause.stateFor(canvas).playing } satisfies PauseChangedPush);
+      }
+    }),
   "content.openForRead": ({ ref }) => Effect.flatMap(ContentService, (content) => content.openForRead(ref)),
   "files.carryThreads": ({ canvasName, nodeId, from, to }) =>
     Effect.flatMap(SqlClient.SqlClient, (sql) => carryFileThreads(sql, canvasName, nodeId, from, to)).pipe(Effect.asVoid),
