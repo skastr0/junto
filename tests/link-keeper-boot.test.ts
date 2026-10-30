@@ -18,7 +18,7 @@ it("the window boots the link and Boat keepers: its runtime is the machine core 
   expect(window).toMatch(/export const RootLayer = MachineServicesLive;/u);
   expect(window).toMatch(/const ProductLayer = Layer\.mergeAll\(RootLayer,/u);
   // With the core in its own process main builds no core, so the core process is the one runtime that does.
-  expect(window).toMatch(/const AppLayer = withMachineLogger\(CORE_PROCESS_ENABLED\s*\? Layer\.mergeAll\(AppInfoLive, CodexLive, UpdateServiceLive\)/u);
+  expect(window).toMatch(/const AppLayer = withMachineLogger\(\s*Layer\.mergeAll\(AppInfoLive, CodexLive, UpdateServiceLive\)/u);
   for (const path of ["src/main/index.ts", "src/main/runtime.ts", "src/main/junto/core.ts", "src/main/headless.ts"]) {
     for (const start of ["startLinkKeeper", "startBoatKeeper", "startBoatLease"]) expect(source(path), path).not.toContain(start);
   }

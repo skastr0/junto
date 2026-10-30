@@ -1,5 +1,5 @@
 /**
- * Real app with JUNTO_TERMINAL_PROCESS=1 (protect the main thread, 0.11.7):
+ * Real app with the terminal process (protect the main thread, 0.11.7):
  * the shell runs under the Junto Terminals utility process, never main, and
  * its view types and echoes over its surface port. Each check is reported on
  * its own:
@@ -45,12 +45,9 @@ const alive = (pid: number): boolean => {
   }
 };
 
-const launch = (terminalProcess: boolean): Promise<JuntoHandle> =>
+const launch = (): Promise<JuntoHandle> =>
   launchJunto({
     windowContentSize: { width: 1400, height: 880 },
-    // Main refuses to start with the core in its own process and the terminals
-    // in main, so the control turns both off.
-    extraEnv: terminalProcess ? { JUNTO_TERMINAL_PROCESS: "1" } : { JUNTO_TERMINAL_PROCESS: "0", JUNTO_CORE_PROCESS: "0" },
     seedModels: { [CANVAS]: modelFixture([modelTerminal({ id: "term", bindingId: BINDING, label: "Shell", x: 520, y: 60 })]) },
   });
 
@@ -118,7 +115,7 @@ const closeView = async (page: Page): Promise<void> => {
 
 test("the shell runs in the terminal process and its view types over the port through park, takeover, restart and quit", async () => {
   test.setTimeout(300_000);
-  const junto = await launch(true);
+  const junto = await launch();
   const results: Result[] = [];
   const check = async (row: string, run: () => void | Promise<void>): Promise<void> => {
     try {
@@ -244,18 +241,4 @@ test("the shell runs in the terminal process and its view types over the port th
     shells = [];
   }
   for (const r of results) expect.soft(r.pass, `${r.row}: ${r.detail ?? ""}`).toBe(true);
-});
-
-test("control: with the flag off, a key typed while main is held echoes only after", async () => {
-  test.setTimeout(120_000);
-  const junto = await launch(false);
-  try {
-    await openView(junto.page);
-    const held = await echoUnderHold(junto, "ipc");
-    console.log("TP-CONTROL", JSON.stringify({ ...held, echoAfterEndMs: held.echoAt - held.end }));
-    expect(held.echoAt, "the echo arrived").toBeGreaterThan(0);
-    expect(held.echoAt).toBeGreaterThanOrEqual(held.end);
-  } finally {
-    await junto.close();
-  }
 });

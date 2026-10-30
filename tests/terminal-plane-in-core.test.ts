@@ -20,7 +20,6 @@ const initialType = (process as { type?: string }).type;
 afterEach(() => {
   for (const port of opened.splice(0)) port.close();
   (process as { type?: string }).type = initialType;
-  delete process.env.JUNTO_CORE_PROCESS;
   vi.resetModules();
   vi.doUnmock("../src/main/junto/term/local-host");
 });
@@ -79,7 +78,6 @@ describe("one terminal plane, in the core", () => {
       return { ...real, LocalSessionHost: Counted };
     });
     (process as { type?: string }).type = "browser";
-    process.env.JUNTO_CORE_PROCESS = "1";
     const plane = await import("../src/main/junto/term/plane");
     expect(plane.TERM_PLANE_IN_THIS_PROCESS).toBe(false);
     expect(built).toBe(0);

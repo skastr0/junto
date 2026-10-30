@@ -9,13 +9,7 @@ import { terminalClient, type TerminalClient } from "./client";
  * Electron utilityProcess and gives the process plane a `TerminalClient`.
  * When the terminal process exits, every PTY it held is reported exited (its
  * children lost their terminal with it) and the next spawn starts a new one.
- *
- * On in the app (0.11.7), with the core in its own process; off with
- * `JUNTO_TERMINAL_PROCESS=0`. Outside Electron (tests, the windowless
- * machine core) PTYs stay in process unless set to 1.
  */
-export const TERMINAL_PROCESS_ENABLED = process.env.JUNTO_TERMINAL_PROCESS === "1" ||
-  (process.env.JUNTO_TERMINAL_PROCESS !== "0" && process.versions.electron !== undefined);
 
 export const startTerminalProcess = (): TerminalClient & { readonly stop: () => void } => {
   let child: UtilityProcess | undefined;

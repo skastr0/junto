@@ -7,9 +7,8 @@ import "./ops/index";
  * Main's one handle on the core (Wave 3). Call sites in `index.ts`,
  * `junto/ipc.ts` and `term/ipc.ts` move from `AppRuntime.run*` to
  * `core.call(name, input)`, with each operation's body in a group under
- * `./ops`. Until every site has moved, the core runs in main's runtime; then
- * boot installs the core process's client (`useCoreClient(startCoreProcess(...))`,
- * gated by `CORE_PROCESS_ENABLED`) and the sites stay as they are.
+ * `./ops`. Boot installs the core process's client
+ * (`useCoreClient(startCoreProcess(...))`); outside the app (tests) calls run in process.
  */
 let current: CoreClient = inProcessCore(AppRuntime);
 

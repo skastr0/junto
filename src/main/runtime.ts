@@ -1,5 +1,3 @@
-import { installCoreRunner } from "./core-runner";
-import { CORE_PROCESS_ENABLED } from "./core-process/host";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { app } from "electron";
@@ -87,14 +85,13 @@ export const RootLayer = MachineServicesLive;
 
 // The product owns one warm runtime and disposes it on shutdown.
 const ProductLayer = Layer.mergeAll(RootLayer, AppInfoLive, CodexLive, UpdateServiceLive);
-// With the core in its own process, main builds no core: only what is
+// The core runs in its own process, so main builds no core: only what is
 // Electron's. An effect still asking main for a core service fails loudly; it
 // never opens a second business writer on junto.db.
-const AppLayer = withMachineLogger(CORE_PROCESS_ENABLED
-  ? Layer.mergeAll(AppInfoLive, CodexLive, UpdateServiceLive) as unknown as typeof ProductLayer
-  : ProductLayer);
+const AppLayer = withMachineLogger(
+  Layer.mergeAll(AppInfoLive, CodexLive, UpdateServiceLive) as unknown as typeof ProductLayer,
+);
 export const AppRuntime = ManagedRuntime.make(AppLayer);
-if (!CORE_PROCESS_ENABLED) installCoreRunner(AppRuntime);
 
 export const buildDoctorReport = Effect.gen(function* () {
   // Ensure registry snapshot is current before host-aware doctor / transports.

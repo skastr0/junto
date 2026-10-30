@@ -2,8 +2,8 @@ import type { TerminalClient } from "./client";
 
 /**
  * Where new PTYs spawn (protect the main thread, phase 1). Undefined means in
- * this process, as always; boot installs the terminal process's client when
- * `JUNTO_TERMINAL_PROCESS=1`. A PTY already spawned stays where it started.
+ * this process (tests, the windowless core); the app installs the terminal
+ * process's client. A PTY already spawned stays where it started.
  */
 let current: TerminalClient | undefined;
 

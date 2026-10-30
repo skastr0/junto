@@ -42,7 +42,7 @@ import { appMenuTemplate } from "./junto/app-menu";
 import { appProcessBlocksAppExit, appProcessPlane, describeAppProcessStraggler } from "./junto/app-process-plane";
 import { AppRuntime, setMachineControlReadiness } from "./runtime";
 import { core } from "./core-process/main-client";
-import { startTerminalProcess, startTerminalProcessForCore, TERMINAL_PROCESS_ENABLED } from "./terminal-process/host";
+import { startTerminalProcess, startTerminalProcessForCore } from "./terminal-process/host";
 import { useTerminalProcess } from "./terminal-process/use";
 import { subscribe as subscribeCore } from "./core-process/push";
 import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, COMPANION_DEVICES, SETTINGS_CHANGED, WORK_PREAMBLE, type CanvasChangedPush } from "./core-process/ops/main-index";
@@ -192,8 +192,6 @@ import { coreCompanionSettings } from "./core-process/ops/companion";
 import { coreOverseerLive } from "./core-process/ops/overseer-live";
 import { companionNotePreamble, wireCompanionChanges } from "./junto/companion/wiring";
 import { bindCompanionHost } from "./junto/companion/runtime";
-import { CORE_PROCESS_ENABLED } from "./core-process/host";
-import { splitPlaneRefusal } from "./core-process/plane-guard";
 import { startCoreProcessForMain, type CoreProcessForMain } from "./core-process/main-boot";
 import { overseerPagesOn, type OverseerPages } from "./junto/overseer/pages";
 import { runningBuildIdentity } from "./junto/build-identity";
@@ -210,11 +208,8 @@ import {
 // so term/router never imports the Electron runtime graph itself.
 // AppRuntime is the sole warm ManagedRuntime for CC main (see runtime.ts §S1):
 // boot once → runPromise/runFork with shared Context → dispose on quit.
-// With the core in its own process the plane is still main's, and its dials
-// run on the SSH transport alone: no database, no core service in main.
-configureTerminalRouterLayeredRunner(CORE_PROCESS_ENABLED
-  ? sshTransportRouterRunner()
-  : (effect) => AppRuntime.runPromise(effect));
+// Main's router dials on the SSH transport alone: no database, no core service in main.
+configureTerminalRouterLayeredRunner(sshTransportRouterRunner());
 
 // A launcher (or wrapper script) can hand this process inherited proxy
 // switches, and Chromium re-applies them over Session proxy preferences on
@@ -1356,22 +1351,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // One log path: main console + Effect logger (layer already on AppRuntime)
     // into the ring and this machine's log file under ~/.junto/logs.
     installMachineLog({ home: resolveJuntoHome(), process: "app", echo: true });
-    // A core out of main with the PTYs still here would split the terminal plane: refused, never fallen back from.
-    const refusal = splitPlaneRefusal({ core: CORE_PROCESS_ENABLED, terminal: TERMINAL_PROCESS_ENABLED });
-    if (refusal !== undefined) {
-      console.error(`[boot] ${refusal}`);
-      if (!app.isPackaged) throw new Error(refusal);
-      dialog.showErrorBox("Junto", refusal);
-      app.exit(1);
-      return;
-    }
-    // PTYs spawn in their own process from here on (JUNTO_TERMINAL_PROCESS=1).
-    // With the core in its own process, main serves no terminal: it hands the core a port to them.
-    if (TERMINAL_PROCESS_ENABLED && CORE_PROCESS_ENABLED) terminalsForCore = startTerminalProcessForCore();
-    else if (TERMINAL_PROCESS_ENABLED) {
-      terminalProcess = startTerminalProcess();
-      useTerminalProcess(terminalProcess);
-    }
+    // PTYs spawn in their own process; main serves no terminal: it hands the core a port to them.
+    terminalsForCore = startTerminalProcessForCore();
     installObservabilityConsoleHook();
     // The 4ms invariant, asserted at the source. Dev runs are armed; a
     // packaged app stays silent unless JUNTO_BUDGET says otherwise.
@@ -1556,143 +1537,23 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     subscribeCore(AGENT_SIGNAL_CHANGED, (signal) => showAgentSignal(signal as AgentSignal));
     subscribeCore(COMPANION_DEVICES, (devices) => broadcastCompanionDevices(devices as ReadonlyArray<CompanionDeviceRecord>));
 
-    if (CORE_PROCESS_ENABLED) {
-      // The core, its sockets, the link, the overseer and the phone companion
-      // all run in the core process; main builds none of them.
-      coreProcess = startCoreProcessForMain({
-        boot: {
-          home: termControlHome,
-          build: runningBuildIdentity(),
-          bundlesRoot: process.env.JUNTO_MACHINE_BUNDLES ??
-            (app.isPackaged ? join(process.resourcesPath, "machines") : join(app.getAppPath(), "dist", "machines")),
-          operatorCommands: operatorControlEnabledAtLaunch,
-          app: { version: app.getVersion(), packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() },
-        },
-        pages: () => coreProcessPages,
-        captureApplicationPage,
-        clipboard: electronCompanionClipboard,
-        ...(terminalsForCore === undefined ? {} : { terminals: terminalsForCore }),
-      });
-      if (LIVE_OVERSEER_ENABLED) unregisterOverseerLiveIpc = registerOverseerLiveIpc(coreOverseerLive(core));
-    } else {
-    const coordinator = makeOperatorCoordinator();
-    // The phone companion reaches the app over this same owner-only socket,
-    // relayed by `junto companion-stdio` under a paired phone's forced SSH
-    // command. The socket listens when launched in operator control mode, or
-    // while a phone is paired (never on a Remote). Opened for a phone alone,
-    // it answers the companion ops and refuses every other.
-    // The companion runs on this process's core until the core has its own process.
-    bindCompanionHost({
-      runPromise: (effect) => AppRuntime.runPromise(effect),
-      showSignal: sendAgentSignal,
+    // The core, its sockets, the link, the overseer and the phone companion
+    // all run in the core process; main builds none of them.
+    coreProcess = startCoreProcessForMain({
+      boot: {
+        home: termControlHome,
+        build: runningBuildIdentity(),
+        bundlesRoot: process.env.JUNTO_MACHINE_BUNDLES ??
+          (app.isPackaged ? join(process.resourcesPath, "machines") : join(app.getAppPath(), "dist", "machines")),
+        operatorCommands: operatorControlEnabledAtLaunch,
+        app: { version: app.getVersion(), packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() },
+      },
+      pages: () => coreProcessPages,
+      captureApplicationPage,
+      clipboard: electronCompanionClipboard,
+      ...(terminalsForCore === undefined ? {} : { terminals: terminalsForCore }),
     });
-    const companion = makeCompanionService({
-            appVersion: app.getVersion(),
-            environment: () =>
-              companionE2eEnvironment() ??
-              readCompanionEnvironment({
-                packaged: app.isPackaged,
-                resourcesPath: process.resourcesPath,
-                repoRoot: app.getAppPath(),
-              }),
-            onDevicesChanged: broadcastCompanionDevices,
-            onFirstDevice: () => {
-              void ensureOperatorControl().catch((cause: unknown) => {
-                console.error("[companion] operator control failed to start", cause);
-              });
-            },
-          });
-    if (companion !== undefined) setCompanionService(companion);
-    const operatorRefusal = (
-      request: OperatorRequestEnvelope,
-      type: "forbidden" | "runtime_down",
-      message: string,
-    ): OperatorResponseEnvelope => ({
-      protocol: OPERATOR_PROTOCOL_VERSION,
-      id: request.id,
-      op: request.op,
-      ok: false,
-      error: { type, message },
-    });
-    const dispatchOperator = async (
-      request: OperatorRequestEnvelope,
-    ): Promise<OperatorResponseEnvelope> => {
-      if (OPERATOR_COMPANION_OPS.has(request.op)) {
-        const answer = companion === undefined ? undefined : await companion.dispatch(request);
-        return answer ?? operatorRefusal(request, "runtime_down", "the phone companion is not available");
-      }
-      if (!operatorControlEnabledAtLaunch) {
-        return operatorRefusal(request, "forbidden", "operator commands need Junto launched with --junto-operator-control");
-      }
-      if (request.op.startsWith("authority.")) {
-        return AppRuntime.runPromise(Effect.flatMap(AuthorityOwnerControl, actions => actions.dispatch(request)));
-      }
-      if (request.op.startsWith("machine.")) {
-        return AppRuntime.runPromise(Effect.flatMap(MachineOwnerControl, actions => actions.dispatch(request)));
-      }
-      return coordinator.dispatch(request);
-    };
-    let operatorControlStart: Promise<void> | undefined;
-    const ensureOperatorControl = (): Promise<void> =>
-      (operatorControlStart ??= (async () => {
-        if (operatorControl !== undefined || shutdownAdmissionClosed) return;
-        operatorControl = await startOperatorControlServer({
-          home: termControlHome,
-          dispatch: dispatchOperator,
-        });
-        if (shutdownAdmissionClosed) operatorControl.beginShutdown();
-      })().catch((error: unknown) => {
-        operatorControlStart = undefined;
-        throw error;
-      }));
-
-    try {
-      const [link, machineStatus, rows, seats] = await AppRuntime.runPromise(Effect.all([MachineLink, MachineCoreStatus, MachineCoreRows, MachineCoreSeats]));
-      // A take writes through the repository, which emits the change the window hears.
-      const inventory = await AppRuntime.runPromise(makeInventoryChannel());
-      const nativeConfig = await AppRuntime.runPromise(makeNativeConfigChannel());
-      const settings = await AppRuntime.runPromise(makeSettingsChannel());
-      // The window side of Files over the link: one remote, held for the router that picks a node's service by its host.
-      const filesRemote = FILES_REMOTE_ENABLED ? await AppRuntime.runPromise(makeFilesRemote()) : undefined;
-      holdFilesRemote(filesRemote);
-      // Always bound, off in ship: a peer with filesRemote on that finds the channel unbound closes the whole
-      // link, seats and all, so with the feature off the channel is there and refuses every op denied.
-      // The service is built later, with the window's Files channels; the channel reads it per request.
-      const files = await AppRuntime.runPromise(makeFilesLinkChannel({
-        enabled: FILES_REMOTE_ENABLED,
-        service: () => filesService,
-        ...(filesRemote === undefined ? {} : { onEvent: filesRemote.onEvent, onOpened: filesRemote.onOpened, onClosed: filesRemote.onClosed }),
-      }));
-      await AppRuntime.runPromise(link.setChannels({ status: machineStatus.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig, files, consensus: unboundYet("consensus"), authority: unboundYet("authority") }));
-      machineLinkListener = await AppRuntime.runPromise(link.listen(termControlHome));
-      if (shutdownAdmissionClosed) machineLinkListener.beginShutdown();
-    } catch (error) {
-      console.error("[machines] link control failed to start", error);
-      exitAfterDetach(1, "machine-link-startup-failure");
-      return;
-    }
-
-    if (operatorControlEnabledAtLaunch) {
-      try {
-        await ensureOperatorControl();
-      } catch (error) {
-        console.error("[operator-control] failed to start", error);
-        exitAfterDetach(1, "operator-control-startup-failure");
-        return;
-      }
-    }
-    setMachineControlReadiness(() => !shutdownAdmissionClosed && machineLinkListener?.ready() === true &&
-      (!operatorControlEnabledAtLaunch || operatorControl?.ready() === true));
-    if (companion !== undefined) {
-      void wireCompanionChanges(companion.changes)
-        .then(() => companion.reconcile())
-        .then(() => companion.hasDevices())
-        .then((paired) => (paired ? ensureOperatorControl() : undefined))
-        .catch((cause: unknown) => {
-          console.error("[companion] failed to start", cause);
-        });
-    }
-    }
+    if (LIVE_OVERSEER_ENABLED) unregisterOverseerLiveIpc = registerOverseerLiveIpc(coreOverseerLive(core));
 
     // UpdateService host hooks: release SQLite before quitAndInstall, and
     // relaunch without Squirrel install when finalize fails after quiesce.
@@ -1725,7 +1586,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     registerIpcHandlers();
     registerDemoIpcHandlers();
     // Settings reads the phones from wherever the companion runs.
-    registerCompanionIpc(CORE_PROCESS_ENABLED ? coreCompanionSettings(core) : undefined);
+    registerCompanionIpc(coreCompanionSettings(core));
     notificationPlane ??= registerNotificationIpc({
       window: currentTrustedMainWindow,
       // No banners, badge, or bounce from an isolated harness run; a visible
@@ -1771,72 +1632,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     void core.call("signals.raisedHands", {}).then(raisedHands.hydrate, (error: unknown) => {
       console.error("[signals] raised hands not loaded:", error);
     });
-    if (!CORE_PROCESS_ENABLED) {
-    // Work control socket: agent protocol surface over the work plane.
-    // Independent of browser composition; owns ~/.junto/work/control.sock.
-    try {
-      overseerComposition = await composeOverseer({
-        run: AppRuntime.runPromise,
-        captureApplicationPage,
-      });
-      if (LIVE_OVERSEER_ENABLED) {
-        overseerLive = await composeOverseerLive(AppRuntime.runPromise);
-        unregisterOverseerLiveIpc = registerOverseerLiveIpc(overseerLive);
-      }
-      workControl = await startWorkControlServer({
-        version: app.getVersion(),
-        run: (effect) => AppRuntime.runPromise(effect),
-        onPreamble: showPreamble,
-        onOverseer: overseerComposition.onOverseer,
-        onOverseerLive: overseerLive?.onHost,
-        validateOverseerLive: overseerLive?.validateOperation,
-      });
-      // Every committed signal write reaches the window here, whichever plane
-      // wrote it: a seat's raise by socket, an automation's raise inside main,
-      // an operator's answer, another machine's take. The control socket's own
-      // callback used to be the only sender, so an automation's work stayed
-      // invisible until the canvas was reopened.
-      onAgentSignalChanged(showAgentSignal);
-      if (shutdownAdmissionClosed) workControl.beginShutdown();
-    } catch (error) {
-      console.error("[work-control] failed to start:", error);
-      exitAfterDetach(1, "work-control-startup-failure");
-      return;
-    }
-
-    if (shutdownAdmissionClosed) return;
-    try {
-      canvasControl = await startCanvasControlServer({
-        home: termControlHome,
-        run: (effect) => AppRuntime.runPromise(effect),
-      });
-      if (shutdownAdmissionClosed) canvasControl.beginShutdown();
-    } catch (error) {
-      console.error("[canvas-control] failed to start:", error);
-      exitAfterDetach(1, "canvas-control-startup-failure");
-      return;
-    }
-    // Every installation starts the same product kernel.
-    try {
-      kernelService = await AppRuntime.runPromise(KernelService);
-    } catch (error) {
-      console.error("[kernel] failed to start:", error);
-      exitAfterDetach(1, "kernel-startup-failure");
-      return;
-    }
-    // The shared core starts mail only after its local seats are reachable.
-    try {
-      await termPlane.start({ controlHome: termControlHome });
-      await AppRuntime.runPromise(Effect.flatMap(MachineCoreMail, mail => mail.boot({
-        runPromise: effect => AppRuntime.runPromise(effect),
-        runFork: effect => { AppRuntime.runFork(effect); },
-      })));
-    } catch (error) {
-      console.error("[core] seats and mail failed to start:", error);
-      exitAfterDetach(1, "core-mail-startup-failure");
-      return;
-    }
-    }
     powerMonitor.on("resume", () => {
       if (shutdownAdmissionClosed) return;
       try {
