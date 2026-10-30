@@ -5,3 +5,4 @@
 import "./term-ipc";
 
 import "./main-index";
+import "./browser";

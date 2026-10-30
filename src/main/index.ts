@@ -45,6 +45,7 @@ import { AppRuntime, setMachineControlReadiness } from "./runtime";
 import { core } from "./core-process/main-client";
 import { subscribe as subscribeCore } from "./core-process/push";
 import { SETTINGS_CHANGED } from "./core-process/ops/main-index";
+import { coreTouchedOriginStore } from "./core-process/ops/browser";
 import { MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail } from "./core-runtime";
 import { makeInventoryChannel } from "./junto/inventory/channel";
 import { makeNativeConfigChannel } from "./junto/inventory/native-channel";
@@ -1857,6 +1858,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         },
         {
           sql: await AppRuntime.runPromise(SqlClient.SqlClient),
+          touchedOrigins: coreTouchedOriginStore(core),
           viewAdapter: browserViewAttachmentTarget.adapter,
         },
       );

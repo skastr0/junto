@@ -18,6 +18,8 @@ import {
   type BrowserTouchedOriginStore,
 } from "../src/main/junto/browser/touched-origins";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { inProcessCore } from "../src/main/core-process/client";
+import { coreTouchedOriginStore } from "../src/main/core-process/ops/browser";
 import { partitionNameForProfile } from "../src/shared/browser";
 import { localBrowserTestMachineName } from "./browser-test-machine";
 
@@ -104,6 +106,20 @@ describe("write-ahead touched origins", () => {
       cleared.push(`${partition} ${origin}`);
     });
     expect(cleared).toEqual([`${partitionNameForProfile("personal")} https://touched.example.com`]);
+    expect(await store.list()).toEqual([]);
+  });
+
+  it("keeps the same rows when main asks the core for them by name", async () => {
+    const store = coreTouchedOriginStore(inProcessCore(runtime));
+    await store.record({ profile: "personal", origin: "https://a.example.com" });
+    await store.record({ profile: "personal", origin: "https://a.example.com" });
+    await store.record({ profile: "work", origin: "https://b.example.com" });
+    expect(await makeBrowserTouchedOriginStore(sql).list()).toEqual([
+      { profile: "personal", origin: "https://a.example.com" },
+      { profile: "work", origin: "https://b.example.com" },
+    ]);
+    await store.remove([{ profile: "personal", origin: "https://a.example.com" }]);
+    await store.removeProfile("work");
     expect(await store.list()).toEqual([]);
   });
 
