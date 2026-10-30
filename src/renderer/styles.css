@@ -2876,11 +2876,15 @@ button.actor-ledger__item-row:focus-visible {
   height: 100% !important;
   pointer-events: auto !important;
 }
-/* Hide VS Code scrollbar chrome; do not steal clicks from the TUI canvas. */
-.native-terminal-surface__xterm .xterm-scrollable-element > .scrollbar {
-  opacity: 0 !important;
-  width: 0 !important;
-  pointer-events: none !important;
+/* Hide VS Code scrollbar chrome; do not steal clicks from the TUI canvas.
+   xterm 6.1 names it .xterm-scrollbar (6.0 said .scrollbar, which left the
+   bar showing). display:none, not opacity: the slider writes an inline top
+   every scroll frame, and on a visible box each write is a layout and a
+   page-wide compositor update (~4 ms a frame on a 358-node board, lab
+   measured); under display:none it is a style write and nothing more.
+   tests/terminal-scrollbar-hidden.test.ts holds the class name to xterm's. */
+.native-terminal-surface__xterm .xterm-scrollable-element > .xterm-scrollbar {
+  display: none !important;
 }
 
 /* The Machines window while its code loads. */
