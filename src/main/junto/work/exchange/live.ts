@@ -23,7 +23,7 @@ import type { Message } from "@shared/work-model";
 import { deriveActorSeatId } from "../../actor-seat-id";
 import { notifyAutomationsChanged } from "../../automation/changes";
 import { AutomationRepository } from "../../automation/repository";
-import type { NodeId } from "@shared/physics/schema";
+import { asNodeId } from "@shared/physics/schema";
 import { MachineRepository } from "../../machines/repository";
 import { ModelRecords } from "../../model/records";
 import { ModelService } from "../../model/service";
@@ -370,7 +370,7 @@ export const makeLiveRowExchange = (
                   rows,
                   (arrived) =>
                     Effect.map(automationStore.value.foldRemoteFiring(canvasName, arrived), ({ folded }) => {
-                      if (folded) notifyAutomationsChanged(canvasName, arrived.body.automationNode as NodeId);
+                      if (folded) notifyAutomationsChanged(canvasName, asNodeId(arrived.body.automationNode));
                     }),
                   { discard: true },
                 ),
