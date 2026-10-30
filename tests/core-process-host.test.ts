@@ -29,6 +29,7 @@ vi.mock("electron", () => ({
 vi.mock("../src/main/core-process/entry?modulePath", () => ({ default: "/core-entry.js" }));
 
 const { startCoreProcess } = await import("../src/main/core-process/host");
+const { hostOps } = await import("../src/main/core-process/host-ops");
 
 const BOOT = {
   home: "/home", build: "test", bundlesRoot: "/bundles", operatorCommands: false,
@@ -75,6 +76,25 @@ describe("the core process host", () => {
     expect(forks).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1_000);
     expect(forks[1]!.posted).toEqual([expect.objectContaining({ kind: "call", name: "model.canvases" })]);
+    core.stop();
+  });
+
+  it("never hands an old core's host answer to the next core", async () => {
+    const answers: Array<(value: unknown) => void> = [];
+    const off = hostOps({ "test.slow": () => new Promise((resolve) => answers.push(resolve)) } as never);
+    const core = startCoreProcess(BOOT);
+    forks[0]!.emit("message", { kind: "hostCall", id: 1, name: "test.slow", input: {} });
+    forks[0]!.kill();
+    await vi.advanceTimersByTimeAsync(1_000);
+    // The new core asks with the same id while the old core's call still runs in main.
+    forks[1]!.emit("message", { kind: "hostCall", id: 1, name: "test.slow", input: {} });
+    answers[0]!("old");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(forks[1]!.posted).toEqual([]);
+    answers[1]!("new");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(forks[1]!.posted).toEqual([{ kind: "hostAnswer", id: 1, ok: true, value: "new" }]);
+    off();
     core.stop();
   });
 

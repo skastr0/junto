@@ -30,11 +30,22 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & { readonly st
   let stops = 0;
   let startedAt = 0;
   const handlers = new Set<(message: CoreMessage) => void>();
-  // Between a core's exit and its restart, messages wait here for the next one;
+  // Between a core's exit and its restart, calls wait here for the next core;
   // after stop there is no next one, so a call fails at once.
   const held: CoreMessage[] = [];
+  // A host call's answer goes only to the core that asked: each core numbers
+  // its host calls from 1, so main renames each call to an id of its own and
+  // an old core's answer can never reach a new one under a reused id.
+  let nextHostId = 1;
+  const asked = new Map<number, { readonly core: UtilityProcess; readonly id: number }>();
   const client = portCore({
     post: (message) => {
+      if (message.kind === "hostAnswer") {
+        const call = asked.get(message.id);
+        asked.delete(message.id);
+        if (call !== undefined && call.core === child) child.postMessage({ ...message, id: call.id });
+        return;
+      }
       if (child !== undefined) return child.postMessage(message);
       if (!stopping) return void held.push(message);
       queueMicrotask(() => client.fail("the Junto core process has stopped"));
@@ -61,7 +72,13 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & { readonly st
       if (child === forked) forked.kill();
     }, BOOT_DEADLINE_MS);
     booting.unref();
-    forked.on("message", (message: CoreMessage) => {
+    forked.on("message", (received: CoreMessage) => {
+      let message = received;
+      if (message.kind === "hostCall") {
+        const id = nextHostId++;
+        asked.set(id, { core: forked, id: message.id });
+        message = { ...message, id };
+      }
       for (const handler of handlers) handler(message);
     });
     forked.once("exit", (code) => {
@@ -69,6 +86,7 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & { readonly st
       clearTimeout(booting);
       booting = undefined;
       child = undefined;
+      for (const [id, call] of asked) if (call.core === forked) asked.delete(id);
       client.fail(`the Junto core process exited with code ${code}`);
       if (stopping) return;
       if (Date.now() - startedAt > RESTART_SETTLED_MS) stops = 0;
