@@ -322,7 +322,7 @@ function ThreadView({
       <div className="artifact-thread__reply">
           <MentionCombobox
             dense
-            rows={2}
+            rows={1}
             aria-label="Reply"
             placeholder="Reply"
             value={reply}

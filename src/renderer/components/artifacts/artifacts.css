@@ -1010,6 +1010,18 @@ button.artifact-preview__source:focus-visible {
 .artifact-thread__reply {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: stretch;
   gap: 4px;
+}
+
+/* The Reply action keeps its own height, at the right, once there is text. */
+.artifact-thread__reply > button {
+  align-self: flex-end;
+}
+
+/* One line to begin with, growing as the operator writes: an empty two-row
+   field at the right edge read as a button rather than a place to type
+   (product-design, 0.12). */
+.artifact-thread__reply .mention-combobox__field {
+  min-height: calc(1lh + 10px);
 }
