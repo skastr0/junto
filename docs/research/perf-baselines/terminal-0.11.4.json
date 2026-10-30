@@ -1,0 +1,666 @@
+{
+  "schema": 1,
+  "label": "0.11.4",
+  "build": {
+    "commit": "22d0ed2de9ce2a47c6fb449248018950c3ade95f",
+    "version": "v0.11.4"
+  },
+  "recordedAt": "2026-10-30T07:05:35.176Z",
+  "machine": {
+    "model": "MacBookPro18,2",
+    "cpu": "Apple M1 Max",
+    "cores": 10,
+    "os": "macOS 26.5.2"
+  },
+  "runsPerCondition": 3,
+  "conditions": {
+    "scroll": {
+      "metrics": {
+        "framesPresentedPerS": {
+          "median": 85.8,
+          "min": 64.6,
+          "max": 87.1,
+          "runs": [
+            87.1,
+            85.8,
+            64.6
+          ]
+        },
+        "frameGapP50Ms": {
+          "median": 10.06,
+          "min": 9.55,
+          "max": 13.93,
+          "runs": [
+            10.06,
+            9.55,
+            13.93
+          ]
+        },
+        "frameGapP95Ms": {
+          "median": 17.11,
+          "min": 16.87,
+          "max": 19.01,
+          "runs": [
+            16.87,
+            17.11,
+            19.01
+          ]
+        },
+        "frameGapMaxMs": {
+          "median": 64.58,
+          "min": 61.45,
+          "max": 201.28,
+          "runs": [
+            64.58,
+            61.45,
+            201.28
+          ]
+        },
+        "frameGapsOver16_7": {
+          "median": 91,
+          "min": 65,
+          "max": 180,
+          "runs": [
+            65,
+            91,
+            180
+          ]
+        },
+        "rafGapsOver16_7": {
+          "median": 53,
+          "min": 6,
+          "max": 64,
+          "runs": [
+            64,
+            6,
+            53
+          ]
+        },
+        "rendererMainMsPerS": {
+          "median": 751,
+          "min": 750.7,
+          "max": 811.7,
+          "runs": [
+            811.7,
+            750.7,
+            751
+          ]
+        },
+        "mainTaskP95Ms": {
+          "median": 8.4,
+          "min": 7.79,
+          "max": 9.43,
+          "runs": [
+            8.4,
+            7.79,
+            9.43
+          ]
+        },
+        "mainTasksOver50ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "runs": [
+            0,
+            0,
+            0
+          ]
+        },
+        "paintMsPerS": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "runs": [
+            0,
+            0,
+            0
+          ]
+        },
+        "compositorUpdateMsPerS": {
+          "median": 433.5,
+          "min": 424.6,
+          "max": 484.7,
+          "runs": [
+            484.7,
+            424.6,
+            433.5
+          ]
+        },
+        "layoutMsPerS": {
+          "median": 74.3,
+          "min": 72.9,
+          "max": 77.1,
+          "runs": [
+            74.3,
+            77.1,
+            72.9
+          ]
+        },
+        "mainLoopRttP99Ms": {
+          "median": 8.47,
+          "min": 6.57,
+          "max": 27.96,
+          "runs": [
+            8.47,
+            6.57,
+            27.96
+          ]
+        },
+        "mainLoopStalledMsPerS": {
+          "median": 2.4,
+          "min": 0.7,
+          "max": 21.4,
+          "runs": [
+            2.4,
+            0.7,
+            21.4
+          ]
+        },
+        "wheelToScreenP95Ms": {
+          "median": 51.4,
+          "min": 48.54,
+          "max": 68.58,
+          "runs": [
+            48.54,
+            51.4,
+            68.58
+          ]
+        }
+      },
+      "loadAtStart": [
+        8.6,
+        9.7,
+        16.1
+      ],
+      "topPaint": []
+    },
+    "scroll-stream": {
+      "metrics": {
+        "framesPresentedPerS": {
+          "median": 84.1,
+          "min": 80.4,
+          "max": 91,
+          "runs": [
+            91,
+            84.1,
+            80.4
+          ]
+        },
+        "frameGapP50Ms": {
+          "median": 10.15,
+          "min": 9.41,
+          "max": 11.53,
+          "runs": [
+            9.41,
+            10.15,
+            11.53
+          ]
+        },
+        "frameGapP95Ms": {
+          "median": 17.35,
+          "min": 16.98,
+          "max": 17.67,
+          "runs": [
+            16.98,
+            17.35,
+            17.67
+          ]
+        },
+        "frameGapMaxMs": {
+          "median": 44.28,
+          "min": 37.28,
+          "max": 51.05,
+          "runs": [
+            37.28,
+            51.05,
+            44.28
+          ]
+        },
+        "frameGapsOver16_7": {
+          "median": 125,
+          "min": 86,
+          "max": 140,
+          "runs": [
+            86,
+            125,
+            140
+          ]
+        },
+        "rafGapsOver16_7": {
+          "median": 34,
+          "min": 16,
+          "max": 53,
+          "runs": [
+            16,
+            34,
+            53
+          ]
+        },
+        "rendererMainMsPerS": {
+          "median": 805.5,
+          "min": 786.3,
+          "max": 818.6,
+          "runs": [
+            786.3,
+            805.5,
+            818.6
+          ]
+        },
+        "mainTaskP95Ms": {
+          "median": 8.68,
+          "min": 8.2,
+          "max": 9.44,
+          "runs": [
+            8.2,
+            8.68,
+            9.44
+          ]
+        },
+        "mainTasksOver50ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "runs": [
+            0,
+            0,
+            0
+          ]
+        },
+        "paintMsPerS": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "runs": [
+            0,
+            0,
+            0
+          ]
+        },
+        "compositorUpdateMsPerS": {
+          "median": 464.6,
+          "min": 447.9,
+          "max": 476.5,
+          "runs": [
+            447.9,
+            476.5,
+            464.6
+          ]
+        },
+        "layoutMsPerS": {
+          "median": 81.9,
+          "min": 76.1,
+          "max": 85.9,
+          "runs": [
+            81.9,
+            76.1,
+            85.9
+          ]
+        },
+        "mainLoopRttP99Ms": {
+          "median": 12.96,
+          "min": 6.11,
+          "max": 22.37,
+          "runs": [
+            12.96,
+            6.11,
+            22.37
+          ]
+        },
+        "mainLoopStalledMsPerS": {
+          "median": 7.7,
+          "min": 1.6,
+          "max": 21,
+          "runs": [
+            7.7,
+            1.6,
+            21
+          ]
+        },
+        "wheelToScreenP95Ms": {
+          "median": 50.62,
+          "min": 49.77,
+          "max": 58.12,
+          "runs": [
+            50.62,
+            49.77,
+            58.12
+          ]
+        }
+      },
+      "loadAtStart": [
+        11.2,
+        12.2,
+        18.4
+      ],
+      "topPaint": []
+    },
+    "type": {
+      "metrics": {
+        "rafGapsOver16_7": {
+          "median": 1,
+          "min": 0,
+          "max": 1,
+          "runs": [
+            1,
+            1,
+            0
+          ]
+        },
+        "rendererMainMsPerS": {
+          "median": 118.4,
+          "min": 116.4,
+          "max": 120.9,
+          "runs": [
+            118.4,
+            120.9,
+            116.4
+          ]
+        },
+        "mainTaskP95Ms": {
+          "median": 0.58,
+          "min": 0.57,
+          "max": 0.59,
+          "runs": [
+            0.57,
+            0.58,
+            0.59
+          ]
+        },
+        "mainTasksOver50ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "runs": [
+            0,
+            0,
+            0
+          ]
+        },
+        "paintMsPerS": {
+          "median": 2.8,
+          "min": 2.8,
+          "max": 2.8,
+          "runs": [
+            2.8,
+            2.8,
+            2.8
+          ]
+        },
+        "compositorUpdateMsPerS": {
+          "median": 29.3,
+          "min": 27.9,
+          "max": 29.9,
+          "runs": [
+            27.9,
+            29.3,
+            29.9
+          ]
+        },
+        "layoutMsPerS": {
+          "median": 3.3,
+          "min": 3.2,
+          "max": 3.5,
+          "runs": [
+            3.3,
+            3.2,
+            3.5
+          ]
+        },
+        "mainLoopRttP99Ms": {
+          "median": 4.77,
+          "min": 4.19,
+          "max": 7.02,
+          "runs": [
+            4.77,
+            7.02,
+            4.19
+          ]
+        },
+        "mainLoopStalledMsPerS": {
+          "median": 0.7,
+          "min": 0,
+          "max": 1.7,
+          "runs": [
+            0.7,
+            1.7,
+            0
+          ]
+        }
+      },
+      "loadAtStart": [
+        9.2,
+        13.5,
+        22
+      ],
+      "topPaint": [
+        {
+          "node": "#document",
+          "msPerS": 2.7
+        },
+        {
+          "node": "textarea.xterm-helper-textarea",
+          "msPerS": 0.2
+        }
+      ]
+    },
+    "type-busy": {
+      "metrics": {
+        "rafGapsOver16_7": {
+          "median": 2,
+          "min": 2,
+          "max": 3,
+          "runs": [
+            2,
+            2,
+            3
+          ]
+        },
+        "rendererMainMsPerS": {
+          "median": 128.1,
+          "min": 126,
+          "max": 129,
+          "runs": [
+            129,
+            128.1,
+            126
+          ]
+        },
+        "mainTaskP95Ms": {
+          "median": 0.62,
+          "min": 0.58,
+          "max": 0.69,
+          "runs": [
+            0.69,
+            0.62,
+            0.58
+          ]
+        },
+        "mainTasksOver50ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "runs": [
+            0,
+            0,
+            0
+          ]
+        },
+        "paintMsPerS": {
+          "median": 3,
+          "min": 2.8,
+          "max": 3.2,
+          "runs": [
+            3,
+            3.2,
+            2.8
+          ]
+        },
+        "compositorUpdateMsPerS": {
+          "median": 34.6,
+          "min": 30.8,
+          "max": 35.3,
+          "runs": [
+            34.6,
+            35.3,
+            30.8
+          ]
+        },
+        "layoutMsPerS": {
+          "median": 3.6,
+          "min": 3.6,
+          "max": 3.7,
+          "runs": [
+            3.7,
+            3.6,
+            3.6
+          ]
+        },
+        "mainLoopRttP99Ms": {
+          "median": 11.33,
+          "min": 8.64,
+          "max": 20.4,
+          "runs": [
+            11.33,
+            20.4,
+            8.64
+          ]
+        },
+        "mainLoopStalledMsPerS": {
+          "median": 12.8,
+          "min": 3,
+          "max": 15.2,
+          "runs": [
+            15.2,
+            12.8,
+            3
+          ]
+        }
+      },
+      "loadAtStart": [
+        11.1,
+        9.4,
+        13.3
+      ],
+      "topPaint": [
+        {
+          "node": "#document",
+          "msPerS": 3
+        },
+        {
+          "node": "textarea.xterm-helper-textarea",
+          "msPerS": 0.2
+        }
+      ]
+    },
+    "watch": {
+      "metrics": {
+        "framesPresentedPerS": {
+          "median": 47.7,
+          "min": 47.6,
+          "max": 47.7,
+          "runs": [
+            47.7,
+            47.6,
+            47.7
+          ]
+        },
+        "rafGapsOver16_7": {
+          "median": 2,
+          "min": 2,
+          "max": 2,
+          "runs": [
+            2,
+            2,
+            2
+          ]
+        },
+        "rendererMainMsPerS": {
+          "median": 115,
+          "min": 113.5,
+          "max": 126.9,
+          "runs": [
+            113.5,
+            126.9,
+            115
+          ]
+        },
+        "mainTaskP95Ms": {
+          "median": 1.16,
+          "min": 1.16,
+          "max": 1.25,
+          "runs": [
+            1.16,
+            1.25,
+            1.16
+          ]
+        },
+        "mainTasksOver50ms": {
+          "median": 1,
+          "min": 0,
+          "max": 1,
+          "runs": [
+            1,
+            1,
+            0
+          ]
+        },
+        "paintMsPerS": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "runs": [
+            0,
+            0,
+            0
+          ]
+        },
+        "compositorUpdateMsPerS": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "runs": [
+            0,
+            0,
+            0
+          ]
+        },
+        "layoutMsPerS": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "runs": [
+            0,
+            0,
+            0
+          ]
+        },
+        "mainLoopRttP99Ms": {
+          "median": 5.78,
+          "min": 3,
+          "max": 5.9,
+          "runs": [
+            3,
+            5.9,
+            5.78
+          ]
+        },
+        "mainLoopStalledMsPerS": {
+          "median": 1.6,
+          "min": 0,
+          "max": 2.5,
+          "runs": [
+            0,
+            1.6,
+            2.5
+          ]
+        }
+      },
+      "loadAtStart": [
+        10,
+        16.2,
+        14.7
+      ],
+      "topPaint": []
+    }
+  }
+}
