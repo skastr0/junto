@@ -79,9 +79,8 @@
 }
 
 .mention-combobox__option[data-active="true"] {
-  background: var(--color-overlay-3);
+  background: color-mix(in oklab, var(--mark) 10%, transparent);
   color: var(--color-ink);
-  box-shadow: inset 2px 0 0 var(--mark);
 }
 
 .mention-combobox__label {
