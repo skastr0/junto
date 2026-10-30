@@ -2,7 +2,9 @@
  * Real app, c8262a42d and f73fcde88, dark and bright. (1) The Artifacts
  * window list with one row open, two others picked by Cmd-click and one more
  * hovered: picked is cyan at 10%, hovered overlay-1, the open row its own;
- * then the open row picked too (cyan at 18%). (2) A > blockquote in a
+ * then a Shift run that takes the open row in too (cyan at 18%; Cmd-click
+ * never picks the open row, ArtifactsNode pickRow). The Move to picker
+ * (Combobox) with the keyboard's active option and a hovered one. (2) A > blockquote in a
  * document's live editor and in rendered markdown (ArtifactMarkdown, here a
  * signal's detail, which draws the same .artifact-markdown rule): a neutral
  * 2px stroke-hi rule, not amber. Fills and rules are read as computed.
@@ -48,6 +50,9 @@ test("artifacts: picked, hovered and open rows read apart; the quote rule is neu
     seedModels: {
       [CANVAS]: modelFixture([
         modelNode({ kind: "artifacts", id: "specs", label: "Specs", x: 60, y: 60, width: 300, height: 200, z: 0 }),
+        modelNode({ kind: "artifacts", id: "shelf", label: "Shelf", x: 60, y: 320, width: 300, height: 200, z: 0 }),
+        modelNode({ kind: "artifacts", id: "archive", label: "Archive", x: 400, y: 320, width: 300, height: 200, z: 0 }),
+        modelNode({ kind: "artifacts", id: "drafts", label: "Drafts", x: 740, y: 320, width: 300, height: 200, z: 0 }),
         modelSeat({ id: "worker", key: "local:pq-worker", label: "worker", x: 500, y: 60 }),
       ]),
     },
@@ -100,24 +105,44 @@ test("artifacts: picked, hovered and open rows read apart; the quote rule is neu
 
     await step("list: open, two picked, one hovered", async () => {
       await row(page, "Alpha notes").click();
-      await row(page, "Gamma review").click({ modifiers: ["Meta"] });
-      await row(page, "Delta errands").click({ modifiers: ["Meta"] });
+      // Cmd held across the clicks, as the operator holds it.
+      await page.keyboard.down("Meta");
+      await row(page, "Gamma review").click();
+      await row(page, "Delta errands").click();
+      await page.keyboard.up("Meta");
       await expect(page.locator('.artifacts-list__item[data-picked="true"]')).toHaveCount(2, { timeout: 5_000 });
       await row(page, "Echo draft").hover();
       await frames("01-list-open-picked-hovered", fills);
     });
-    await step("list: the open row picked too", async () => {
-      await row(page, "Alpha notes").click({ modifiers: ["Meta"] });
+
+    await step("quote in the live editor", async () => {
+      const quote = page.locator(".live-markdown .cm-md-quote").first();
+      await expect(quote).toBeVisible({ timeout: 10_000 });
+      await frames("03-quote-live-editor", () => rule(quote));
+    });
+
+    await step("list: a Shift run takes the open row in", async () => {
+      await row(page, "Alpha notes").click();
+      await row(page, "Gamma review").click({ modifiers: ["Shift"] });
       await row(page, "Echo draft").hover();
       await frames("02-list-open-row-picked", fills);
     });
 
-    await step("quote in the live editor", async () => {
-      await page.keyboard.press("Escape");
+    await step("Move to: the keyboard's active option and a hovered one", async () => {
       await row(page, "Alpha notes").click();
-      const quote = page.locator(".live-markdown .cm-md-quote").first();
-      await expect(quote).toBeVisible({ timeout: 10_000 });
-      await frames("03-quote-live-editor", () => rule(quote));
+      await row(page, "Alpha notes").focus();
+      await page.keyboard.press("m");
+      const dialog = page.getByRole("dialog", { name: "Move Alpha notes" });
+      await expect(dialog).toBeVisible({ timeout: 10_000 });
+      const options = dialog.getByRole("option");
+      await expect(options.nth(2)).toBeVisible({ timeout: 10_000 });
+      await page.keyboard.press("ArrowDown");
+      await options.nth(2).hover();
+      await frames("05-move-to-active-hovered", () =>
+        options.evaluateAll((els) => els.map((el) => ({ text: el.textContent?.slice(0, 30), active: el.getAttribute("data-active") ?? el.id === document.querySelector("[aria-activedescendant]")?.getAttribute("aria-activedescendant"), selected: el.getAttribute("aria-selected"), hovered: el.matches(":hover"), fill: getComputedStyle(el).backgroundColor }))),
+      );
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Escape");
     });
 
     await step("quote rendered", async () => {

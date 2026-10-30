@@ -9,9 +9,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Locator } from "@playwright/test";
 import { Schema } from "effect";
-import { asNodeId, Node } from "../../src/shared/model";
-import { mintItemId, mintOpId } from "../../src/shared/resource-command";
-import { taskNodeId } from "../../src/shared/task-model";
+import { Node } from "../../src/shared/model";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
 
@@ -36,23 +34,18 @@ test("mention combobox: the keyboard's active option against the pointer's hover
   const out: Record<string, unknown> = {};
   try {
     const { page } = junto;
-    const taskId = mintItemId();
-    await page.evaluate(
-      ({ canvas, node, taskId, opId }) => window.junto!.resource!.task!.apply(canvas, node, taskId, opId, { kind: "create", taskId, title: "Ship the wire spec" }),
-      { canvas: CANVAS, node: taskNodeId(asNodeId("board")), taskId, opId: mintOpId() },
-    );
+    // An empty board opens New task; its description takes @ for a seat.
     const card = page.locator('.react-flow__node[data-id="board"]');
     await expect(card).toBeVisible({ timeout: 30_000 });
     await card.dblclick();
-    await page.getByRole("list", { name: "Tasks" }).locator("button").filter({ hasText: "Ship the wire spec" }).first().click();
-    const field = page.getByTestId("task-thread").getByLabel("Comment on this task");
-    await field.click();
+    const field = page.getByPlaceholder(/^Context, constraints/u);
+    await field.click({ timeout: 20_000 });
     await field.pressSequentially("over to @");
     const options = page.getByTestId("mention-option");
-    await expect(options.nth(2)).toBeVisible({ timeout: 10_000 });
-    // The keyboard on the second option, the pointer on the third.
+    await expect(options.nth(3)).toBeVisible({ timeout: 10_000 });
+    // The keyboard one step down, the pointer on the fourth.
     await field.press("ArrowDown");
-    await options.nth(2).hover();
+    await options.nth(3).hover();
     await page.waitForTimeout(300);
     for (const theme of ["dark", "bright"] as const) {
       mkdirSync(join(SHOTS, theme), { recursive: true });
@@ -61,8 +54,8 @@ test("mention combobox: the keyboard's active option against the pointer's hover
       await page.screenshot({ path: join(SHOTS, theme, "mention-frame.png") });
       await page.locator(".mention-combobox__popup").first().screenshot({ path: join(SHOTS, theme, "mention-popup.png") });
       const all = await Promise.all([0, 1, 2, 3].map(async (i) => ((await options.nth(i).count()) ? read(options.nth(i)) : null)));
-      const hovered = await options.nth(2).evaluate((el) => el.matches(":hover"));
-      out[theme] = { options: all, thirdHovered: hovered };
+      const hovered = await options.nth(3).evaluate((el) => el.matches(":hover"));
+      out[theme] = { options: all, fourthHovered: hovered };
     }
   } finally {
     mkdirSync(SHOTS, { recursive: true });
