@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { Context, Effect, Layer, Schema , Semaphore } from "effect";
+import { Effect, Schema, Semaphore } from "effect";
 import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import type { ServiceCheck } from "@shared/contracts";
 import {
@@ -185,18 +185,6 @@ export interface BrowserProfileServiceApi {
   readonly rootDir: () => string;
 }
 
-/**
- * V4 migration map (effect@3.21 keeps the compiling bridge for now):
- *
- *   Context.Service<BrowserProfileService, BrowserProfileServiceApi>()(
- *     "@junto/BrowserProfileService",
- *   )
- *
- * This is the single browser-profile service identifier and shape. Keep the
- * V3 Tag as the only bridge until the dependency cutover; do not introduce a
- * parallel Tag, Default layer, or accessor shim.
- */
-export class BrowserProfileService extends Context.Service<BrowserProfileService, BrowserProfileServiceApi>()("@junto/BrowserProfileService") {}
 
 export interface BrowserProfileStateReady extends BrowserProfileRegistryState {
   readonly phase: "ready";
@@ -1258,24 +1246,6 @@ export const makeBrowserProfileServiceOn = (
       }),
   };
 };
-
-export const BrowserProfileLive = Layer.effect(
-  BrowserProfileService,
-  Effect.map(SqlClient.SqlClient, (sql) =>
-    makeBrowserProfileService(sql)
-  ),
-);
-
-/** Test helper: explicit database service and physical profile root. */
-export const BrowserProfileTestLive = (
-  sql: SqlClient.SqlClient,
-  root: string,
-  options: BrowserProfileServiceOptions = {},
-): Layer.Layer<BrowserProfileService> =>
-  Layer.succeed(
-    BrowserProfileService,
-    makeBrowserProfileService(sql, root, options),
-  );
 
 // Physical profile directories remain bounded, external storage facts.
 export const listProfileDirs = async (

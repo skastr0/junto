@@ -110,26 +110,6 @@ export const retainUnmigratedProviderSecrets = (
   return merged as ProvidersSettings;
 };
 
-export const preferencesBodyContainsProviderSecrets = (body: string): boolean => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(body) as unknown;
-  } catch {
-    return false;
-  }
-  if (!isPlainObject(parsed) || !isPlainObject(parsed.providers)) return false;
-  const providers = parsed.providers;
-  for (const key of PROVIDER_SECTION_KEYS) {
-    const section = providers[key];
-    if (!isPlainObject(section)) continue;
-    for (const field of PROVIDER_SECRET_FIELDS[key]) {
-      const value = section[field];
-      if (typeof value === "string" && value.length > 0) return true;
-    }
-  }
-  return false;
-};
-
 /**
  * Remove known secret values from text bound for a log, a trace, an error or
  * a report. Every occurrence of every value is replaced, longest first so a

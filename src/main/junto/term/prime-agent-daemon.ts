@@ -1356,18 +1356,6 @@ export const primeDaemonLayers = (
     Layer.succeed(PrimeDaemonTiming, daemonTiming(options)),
   );
 
-/** Runtime-composable service handle for the daemon plane. */
-export class PrimeAgentDaemonsService extends Context.Service<
-  PrimeAgentDaemonsService,
-  PrimeAgentDaemons
->()("@junto/term/PrimeAgentDaemons") {}
-
-export const PrimeAgentDaemonsLive: Layer.Layer<
-  PrimeAgentDaemonsService,
-  never,
-  PrimeDaemonProcesses | PrimeDaemonReporter | PrimeDaemonTiming
-> = Layer.effect(PrimeAgentDaemonsService, makePrimeAgentDaemonsEffect);
-
 /**
  * Lowered constructor for the imperative terminal plane. Construction is fully
  * synchronous; `Effect.runSync` here mirrors the sanctioned sync hot paths.

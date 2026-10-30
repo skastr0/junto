@@ -164,10 +164,3 @@ export const makeAuthorityOwnerActions = (options: { readonly enabled: boolean }
     } satisfies AuthorityOwnerActions;
   });
 
-/** The owner's live actions, built with the ship flag this process runs under. */
-export const AuthorityOwnerControlLive = (
-  options: { readonly enabled?: boolean } = {},
-) =>
-  Effect.map(makeAuthorityOwnerActions({ enabled: options.enabled ?? AUTHORITY_ENABLED }), (actions) =>
-    AuthorityOwnerControl.of(actions),
-  );

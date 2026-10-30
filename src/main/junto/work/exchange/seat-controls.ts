@@ -15,7 +15,7 @@
  * (`queued` to `applied` or `refused`). Every other machine keeps both rows
  * and does nothing.
  */
-import { Cause, Context, Effect, Layer } from "effect";
+import { Cause, Context, Effect } from "effect";
 import type { SeatControlResult, SeatControlSettledResult, SeatControlRefusal } from "@shared/seat-control-row";
 import {
   heldControlVerdict,
@@ -391,5 +391,3 @@ export const makeHeldSeatControls = (rows: SeatControlRows) =>
       });
   });
 
-export const HeldSeatControlsLive = (rows: SeatControlRows) =>
-  Layer.effect(HeldSeatControls, makeHeldSeatControls(rows));
