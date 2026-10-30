@@ -113,6 +113,17 @@ export type MailBatching = {
 export const MAIL_BATCHING: MailBatching = { quietMs: 2_000, maxWaitMs: 10_000 };
 
 /**
+ * The quiet a seat that is idle at its composer gets: enough for a sender's
+ * quick burst to arrive as one turn, short enough that a lone notice reaches
+ * an idle seat before the sender has looked away. A seat that takes up a turn,
+ * or gains a draft, inside it keeps the full quiet.
+ *
+ * The length is decided when the window closes, never when the mail arrived:
+ * an idle seat can start a turn in the 250 ms.
+ */
+export const MAIL_QUIET_IDLE_MS = 250;
+
+/**
  * How many waiting mails a seat-live pass starts before it yields the event
  * loop. A seat with thousands waiting otherwise starts every read in one
  * tick, and the link's frames and a seat start's own answer wait behind them.
@@ -134,6 +145,12 @@ export type MailLinkRoute = (canvas: string, nodeId: string) => Promise<boolean>
 export type MessageDeliveryTransport = {
   /** The seat's terminal is up and ready to take a paste. */
   readonly seatLive: (bindingId: string) => boolean;
+  /**
+   * The seat is idle at a composer that can take a message now: no turn
+   * running, no dialog, no operator draft. Asked when a quiet window closes.
+   * Absent = every seat keeps the full quiet.
+   */
+  readonly seatReadyForQuiet?: (bindingId: string) => boolean;
   /**
    * `junto onboard` ran in the seat's current harness session. False puts the
    * onboard pointer on the mail line. Absent = no pointer.
@@ -217,6 +234,8 @@ type SeatBatch = {
   readonly bindingId: string;
   readonly generation: number;
   readonly firstAt: number;
+  /** The last mail that joined it: the quiet is counted from here. */
+  lastAt: number;
   readonly mail: Gathered[];
   timer: ReturnType<typeof setTimeout> | undefined;
   /** Its quiet is over: it waits only for the seat's earlier writes. */
@@ -593,16 +612,49 @@ export class MessageDeliveryService {
     generation: number,
   ): Promise<MailDeliveryState> {
     return new Promise((settle) => {
+      const now = Date.now();
       const open = this.batches.get(bindingId);
-      const batch: SeatBatch = open ?? { bindingId, generation, firstAt: Date.now(), mail: [], timer: undefined, due: false };
+      const batch: SeatBatch = open ?? { bindingId, generation, firstAt: now, lastAt: now, mail: [], timer: undefined, due: false };
       if (open === undefined) this.batches.set(bindingId, batch);
       batch.mail.push({ ...mail, settle });
+      batch.lastAt = now;
       if (batch.due) return;
-      if (batch.timer !== undefined) clearTimeout(batch.timer);
-      const wait = Math.min(this.batching.quietMs, batch.firstAt + this.batching.maxWaitMs - Date.now());
-      batch.timer = setTimeout(() => void this.typeBatch(batch), Math.max(0, wait));
-      batch.timer.unref?.();
+      this.armQuiet(batch);
     });
+  }
+
+  /**
+   * Arm the window's next decision. An idle seat is read again after the short
+   * quiet, so a lone mail lands at once; any other seat waits the full quiet
+   * from its last arrival. The cap is applied either way.
+   */
+  private armQuiet(batch: SeatBatch): void {
+    if (batch.timer !== undefined) clearTimeout(batch.timer);
+    const capAt = batch.firstAt + this.batching.maxWaitMs;
+    const idle = this.transport?.seatReadyForQuiet?.(batch.bindingId) === true;
+    const quiet = idle ? MAIL_QUIET_IDLE_MS : this.batching.quietMs;
+    const at = Math.min(batch.lastAt + quiet, capAt);
+    batch.timer = setTimeout(() => void this.closeQuiet(batch), Math.max(0, at - Date.now()));
+    batch.timer.unref?.();
+  }
+
+  /**
+   * The quiet expired. Decide on the seat as it is now: still idle, it is
+   * typed; it took up a turn or a draft inside the short window, so the full
+   * quiet runs from its last arrival, and the cap still holds.
+   */
+  private closeQuiet(batch: SeatBatch): void {
+    if (batch.due) return;
+    batch.timer = undefined;
+    const capAt = batch.firstAt + this.batching.maxWaitMs;
+    if (Date.now() >= capAt) return void this.typeBatch(batch);
+    if (this.transport?.seatReadyForQuiet?.(batch.bindingId) === true) {
+      return void this.typeBatch(batch);
+    }
+    const at = Math.min(batch.lastAt + this.batching.quietMs, capAt);
+    if (at <= Date.now()) return void this.typeBatch(batch);
+    batch.timer = setTimeout(() => void this.closeQuiet(batch), at - Date.now());
+    batch.timer.unref?.();
   }
 
   /**

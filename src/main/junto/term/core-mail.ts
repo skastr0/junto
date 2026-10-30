@@ -141,6 +141,9 @@ export const createCoreMailTransport = (options: Options) => {
   const transport: MessageDeliveryTransport = {
     seatLive: (bindingId) => !suspended && !fence.sealed(bindingId) &&
       mailReadyNow(bindingId) && !supervisor.continuationHoldsMail(bindingId) && (policy.seatLive?.(bindingId) ?? true),
+    // The quiet floor's question, and the same readiness mail is typed on: an
+    // idle seat at an available composer, with no operator draft in it.
+    seatReadyForQuiet: (bindingId) => !suspended && mailReadyNow(bindingId),
     seatOnboarded: (bindingId) => policy.seatOnboarded?.(bindingId) ?? supervisor.isOnboarded(bindingId),
     wakeSeat: (bindingId, canvas, nodeId) => {
       if (suspended) return Promise.resolve(false);

@@ -5,6 +5,7 @@ import type { Message } from "../src/shared/work-model";
 import { mailExtensionMetadata, type MailExtension, type MailKind } from "../src/shared/crew";
 import {
   MAIL_BATCHING,
+  MAIL_QUIET_IDLE_MS,
   MAIL_DRAFT_RETELL_MS,
   MAIL_FILES_RETRY_MS,
   MAIL_HELD_RETRY_MS,
@@ -64,6 +65,8 @@ const rig = (
     onboarded?: (bindingId: string) => boolean;
     /** How mail gathers; a short window unless the test is about gathering. */
     batching?: MailBatching;
+    /** The quiet floor's question: idle at an available composer, no draft. */
+    quietReady?: () => boolean;
     /** How long one write takes to type. */
     writeMs?: number;
     /** A mail's placed files' lines; undefined while they are not on this machine. */
@@ -101,6 +104,7 @@ const rig = (
     store,
     transport: {
       seatLive: (id) => id === bindingId && live,
+      ...(options.quietReady ? { seatReadyForQuiet: (id) => id === bindingId && options.quietReady!() } : {}),
       ...(options.onboarded ? { seatOnboarded: options.onboarded } : {}),
       wakeSeat: async (id, wakeCanvas, wakeNode) => {
         wakes.push({ bindingId: id, canvas: wakeCanvas, nodeId: wakeNode });
@@ -893,6 +897,49 @@ describe("mail delivery", () => {
       await vi.advanceTimersByTimeAsync(MAIL_BATCHING.quietMs + 100);
       expect(seat.writes).toHaveLength(2);
       expect(ids(seat.writes[1])).toEqual(["01H", "01I", "01J"]);
+    });
+
+    it("types a burst of three inside 200 ms on an idle seat after the short quiet, as one turn", async () => {
+      let ready = true;
+      const seat = gathering({ quietReady: () => ready });
+      send(seat, mail("01A", "burst a"));
+      await vi.advanceTimersByTimeAsync(100);
+      send(seat, mail("01B", "burst b"));
+      await vi.advanceTimersByTimeAsync(100);
+      send(seat, mail("01C", "burst c"));
+
+      await vi.advanceTimersByTimeAsync(MAIL_QUIET_IDLE_MS - 50);
+      expect(seat.writes).toEqual([]);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(seat.writes).toHaveLength(1);
+      expect(ids(seat.writes[0])).toEqual(["01A", "01B", "01C"]);
+      ready = false;
+    });
+
+    it("falls back to the full quiet when an idle seat starts a turn inside the short window", async () => {
+      let ready = true;
+      const seat = gathering({ quietReady: () => ready });
+      send(seat, mail("01A", "solo"));
+      await vi.advanceTimersByTimeAsync(100);
+      // The seat takes up a turn before the short quiet closes.
+      ready = false;
+      await vi.advanceTimersByTimeAsync(MAIL_QUIET_IDLE_MS + 100);
+      expect(seat.writes).toEqual([]);
+      await vi.advanceTimersByTimeAsync(MAIL_BATCHING.quietMs);
+      expect(seat.writes).toHaveLength(1);
+      expect(ids(seat.writes[0])).toEqual(["01A"]);
+    });
+
+    it("keeps the 10 s cap under a steady trickle on a seat that never goes idle", async () => {
+      const seat = gathering({ quietReady: () => false });
+      const every = 400;
+      for (let index = 0; index < 30; index += 1) {
+        send(seat, mail(`01${String.fromCharCode(65 + (index % 26))}${String(index)}`, `tick ${String(index)}`));
+        await vi.advanceTimersByTimeAsync(every);
+      }
+      // 12 s of mail 0.4 s apart: the first turn must have left at the cap.
+      expect(seat.writes).toHaveLength(1);
+      expect(seat.writes[0]).toContain("mails, oldest first");
     });
 
     it("past the cap, types each further mail as one line with its id and leaves it unread", async () => {
