@@ -11,7 +11,7 @@ pub mod corpus;
 use std::io::{IsTerminal, Write};
 use std::process::ExitCode;
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::envelope;
 use crate::error::{ErrorType, Failure};
@@ -98,6 +98,31 @@ pub fn show(words: &[&str]) -> ExitCode {
             envelope::refuse(None, &failure)
         }
         None => ExitCode::SUCCESS,
+    }
+}
+
+/// A command line the parser refused, as Effect's CLI answers it: the
+/// command's help on stdout, then the error under ERROR and a ShowHelp
+/// envelope carrying `error` (its `_tag` and fields) on stderr.
+pub fn refuse_usage(words: &[&str], message: &str, error: Value) -> ExitCode {
+    let path = walk(words).0;
+    print(page(&path));
+    let _ = write!(std::io::stderr(), "\nERROR\n  {message}\n");
+    let command_path: Vec<&str> = std::iter::once("junto")
+        .chain(path.split_whitespace())
+        .collect();
+    let failure = Failure::new(ErrorType::ShowHelp, "Help requested")
+        .with(json!({ "commandPath": command_path, "errors": [error] }));
+    envelope::refuse(None, &failure)
+}
+
+/// The command path the words name, as `junto task show`.
+pub fn command_line(words: &[&str]) -> String {
+    let path = walk(words).0;
+    if path.is_empty() {
+        "junto".into()
+    } else {
+        format!("junto {path}")
     }
 }
 
