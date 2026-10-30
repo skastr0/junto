@@ -1,0 +1,64 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Quick capture, triage desk</title>
+<style>
+:root{--ground:oklch(0.150 0.003 67.5);--raise:oklch(0.189 0.009 75);--raise2:oklch(0.184 0.005 67.5);--well:oklch(0.135 0.003 69.6);--ink:oklch(0.927 0.018 81.3);--ink2:oklch(0.810 0.024 84.6);--dim:oklch(0.700 0.018 79.3);--faint:oklch(0.620 0.030 90.4);--stroke:color-mix(in oklab,var(--ink) 14%,transparent);--strokehi:color-mix(in oklab,var(--ink) 28%,transparent);--o1:color-mix(in oklab,var(--ink) 3%,transparent);--o2:color-mix(in oklab,var(--ink) 5%,transparent);--amber:oklch(0.765 0.140 73);--cyan:oklch(0.760 0.117 206);--mono:"SF Mono",SFMono-Regular,Menlo,monospace}
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:1440px;height:900px;overflow:hidden;background:var(--ground);color:var(--ink);font:11px/1.45 var(--mono)}
+.top{height:44px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid var(--stroke);color:var(--dim)}
+.pill{height:26px;padding:0 10px;display:flex;align-items:center;border:1px solid var(--stroke);border-radius:8px;font-size:10px}
+.dim{position:absolute;inset:0;background:color-mix(in oklab,var(--ground) 72%,transparent)}
+.desk{position:absolute;top:27px;left:200px;width:1040px;height:620px;display:grid;grid-template-columns:248px 1fr 248px;grid-template-rows:46px 1fr 34px;background:var(--raise);border:1px solid var(--stroke);border-radius:12px;box-shadow:0 24px 80px oklch(0.3 0.02 60 / .55);overflow:hidden}
+.search{display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--stroke);border-right:1px solid var(--stroke);color:var(--faint);font-size:12px}
+.head{display:flex;align-items:center;gap:10px;padding:0 14px 0 20px;border-bottom:1px solid var(--stroke)}
+.head h1{flex:1;font:600 14px/1.2 var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sel{color:var(--dim)}.saved{color:var(--faint);font-size:10px}
+.dhead{display:flex;align-items:center;padding:0 14px;border-bottom:1px solid var(--stroke);border-left:1px solid var(--stroke);font-size:12px;font-weight:600}
+.list{border-right:1px solid var(--stroke);padding:6px}
+.group{padding:8px 10px 4px;color:var(--dim);font-size:10px;font-weight:500}
+.row{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px}
+.row.on{background:var(--o2)}
+.t{flex:1;min-width:0;font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.a{color:var(--faint);font-size:10px}
+.doc{padding:14px 20px;font-size:12px;line-height:1.6}
+.doc p{margin-bottom:6px}.doc ul{margin-left:18px}
+.caret{display:inline-block;width:1.5px;height:14px;background:var(--amber);vertical-align:-2px}
+.dest{border-left:1px solid var(--stroke);padding:6px}
+.d{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;padding:8px 10px;border-radius:6px}
+.d.on{background:color-mix(in oklab,var(--amber) 10%,transparent);outline:1px solid color-mix(in oklab,var(--amber) 40%,transparent)}
+.d .n{font-size:12px;font-weight:500}.d .why{grid-column:2;color:var(--faint);font-size:10px}
+.k{display:inline-flex;align-items:center;justify-content:center;height:18px;min-width:18px;padding:0 5px;border:1px solid color-mix(in oklab,var(--cyan) 35%,transparent);border-radius:4px;color:var(--cyan);font-size:10px;line-height:1}
+.other{margin:8px 10px 0;height:30px;display:flex;align-items:center;padding:0 10px;border:1px solid var(--stroke);border-radius:6px;color:var(--faint);font-size:11px}
+.foot{grid-column:1/-1;display:flex;gap:14px;align-items:center;padding:0 14px;border-top:1px solid var(--stroke);font-size:10px}
+.foot span{display:inline-flex;gap:5px;align-items:center;color:var(--dim)}
+</style></head><body>
+<div class="top"><div class="pill">factory</div><div class="pill" style="width:320px">Search nodes</div><div style="margin-left:auto" class="pill">needs you 2</div></div>
+<div class="dim"></div>
+<div class="desk">
+  <div class="search">⌕ Search every artifact</div>
+  <div class="head"><h1>Pricing call, Thursday</h1><span class="sel">Document ⌄</span><span class="saved">Saved to Inbox</span></div>
+  <div class="dhead">Move to</div>
+  <div class="list">
+    <div class="group">Inbox, 5</div>
+    <div class="row on"><span class="t">Pricing call, Thursday</span><span class="a">now</span></div>
+    <div class="row"><span class="t">Ask about the compositor layer budget</span><span class="a">2h</span></div>
+    <div class="row"><span class="t">Reading list: CodeMirror view plugins</span><span class="a">5h</span></div>
+    <div class="row"><span class="t">Release checklist gaps for 0.11.1</span><span class="a">1d</span></div>
+    <div class="row"><span class="t">Errands for the week</span><span class="a">2d</span></div>
+    <div class="group">Recent</div>
+    <div class="row"><span class="t">Cmd+T design direction</span><span class="a">3h</span></div>
+    <div class="row"><span class="t">One-sided border census</span><span class="a">4h</span></div>
+  </div>
+  <div class="doc">
+    <p>Pricing call, Thursday</p>
+    <p>Partner tier stays at three seats. Ask product-feed whether task 378 covers the seat count in the invoice view.</p>
+    <ul><li>Annual plan: two months free, not a percentage</li><li>Trial runs fourteen days, no card</li><li>Follow up with the release notes owner<span class="caret"></span></li></ul>
+  </div>
+  <div class="dest">
+    <div class="d on"><b class="k">1</b><span class="n">Specs</span><span class="why">links to 2 artifacts there</span></div>
+    <div class="d"><b class="k">2</b><span class="n">Releases</span><span class="why">label pricing, 4 alike</span></div>
+    <div class="d"><b class="k">3</b><span class="n">Research notes</span><span class="why">mentions product-feed</span></div>
+    <div class="other">Other Artifacts node…</div>
+  </div>
+  <div class="foot"><span><b class="k">↑↓</b> list</span><span><b class="k">↵</b> edit</span><span><b class="k">1</b><b class="k">2</b><b class="k">3</b> move</span><span><b class="k">⌘N</b> new</span><span><b class="k">esc</b> close</span></div>
+</div>
+</body></html>
