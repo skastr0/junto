@@ -195,7 +195,14 @@ describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", ()
       listCanvasModels,
       machineName: () => sessions.machineName(),
       editsCanvas: async () => true,
-      ...(identity ?? {}),
+      ...(identity === undefined
+        ? {}
+        : {
+            credentials: {
+              lookup: async (credential: string) => identity.credentials.lookup(credential),
+              onEvent: (listener: Parameters<SeatCredentialRegistry["subscribe"]>[0]) => identity.credentials.subscribe(listener),
+            },
+          }),
     });
     // The pause plane as the work socket reads it, in the core on every request; flipped per test.
     const pause = { playing: true };

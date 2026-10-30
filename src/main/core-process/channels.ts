@@ -25,6 +25,7 @@ import type { LiveSnapshot } from "@shared/overseer-live";
 import type { PreambleEvent } from "@shared/preamble";
 import type { ReferencesChangedEvent } from "@shared/references";
 import type { SeatOnboardingEvent } from "@shared/seat-onboarding-status";
+import type { SeatCredentialEvent } from "../junto/work/seat-credentials";
 import type { SeatOffboardProgress } from "@shared/seat-sessions";
 import type { Settings } from "@shared/settings";
 import type { UsageState } from "@shared/usage";
@@ -101,6 +102,11 @@ export const OBSERVABILITY_CLEARED = "observability.cleared";
 
 export type ObservabilityCleared = { readonly newestId: number; readonly total: number; readonly dropped: number };
 
+/** A seat credential went live, was suspended or was revoked: what it was granted ends now. */
+export const SEAT_CREDENTIAL_CHANGED = "seatCredential.changed";
+
+export type SeatCredentialChanged = SeatCredentialEvent;
+
 /** A seat's cache window changed, and the auto mode's due seats, for the window. */
 export const SEAT_CACHE_DUE_CHANGED = "seatCacheDue.changed";
 
@@ -132,6 +138,7 @@ export const CORE_PUSHES = {
   [FILES_REMOTE_CHANGED]: carries<RemoteChange>(),
   [FILES_CHANGED]: carries<FilesChangedPush>(),
   [OBSERVABILITY_LOG]: carries<ObservabilityLogEntry>(),
+  [SEAT_CREDENTIAL_CHANGED]: carries<SeatCredentialChanged>(),
   [OBSERVABILITY_CLEARED]: carries<ObservabilityCleared>(),
   [MACHINE_PROGRESS]: carries<MachineProgressPushed>(),
   [TERM_EVENT]: carries<LocalHostEvent>(),

@@ -15,10 +15,10 @@ import {
   type ProcessIdentityMap,
   type ProcessPrincipal,
 } from "../process-identity";
-import {
-  getSeatCredentialRegistry,
-  type SeatCredentialRegistry,
-} from "../work/seat-credentials";
+import type { SeatCredentialEvent, SeatCredentialLookup } from "../work/seat-credentials";
+import { core } from "../../core-process/main-client";
+import { subscribe as onCorePush } from "../../core-process/push";
+import { SEAT_CREDENTIAL_CHANGED } from "../../core-process/channels";
 import { isThisMachine } from "@shared/machine-identity";
 import { parseNodeRef } from "@shared/node-ref";
 import {
@@ -86,7 +86,6 @@ export type EdgeGrantResult =
   | { readonly ok: false; readonly denial: EdgeGrantDenial; readonly message: string };
 
 export interface EdgeGrantService {
-  readonly processMap: ProcessIdentityMap;
   /**
    * Admit the seat generation credential a control request presents (product
    * path). The same registry lookup the work socket admits on.
@@ -133,8 +132,8 @@ export interface EdgeGrantSessionTeardown {
 export interface EdgeGrantDependencies {
   readonly capabilities: BrowserCapabilityRegistry;
   readonly resolvePageTarget: PageTargetResolver;
-  readonly processMap?: ProcessIdentityMap;
-  readonly credentials?: SeatCredentialRegistry;
+  /** Where seat credentials are read, and how their ends are heard (the core's registry). */
+  readonly credentials?: SeatCredentialPort;
   readonly wallNow?: () => number;
   readonly ttlMs?: number;
   /**
@@ -194,24 +193,36 @@ const makeTargetSignature = (targets: ReadonlyArray<BrowserCapabilityTarget>): s
     .digest("base64url");
 };
 
+/**
+ * The seat credentials the browser door admits on. The registry lives in the
+ * core, beside the seats that mint them; main holds no copy, so a suspension
+ * or a revocation is never a stale yes here.
+ */
+export type SeatCredentialPort = {
+  readonly lookup: (credential: string) => Promise<SeatCredentialLookup>;
+  /** Every publish, suspension and revocation, as it happens. Returns the unsubscribe. */
+  readonly onEvent: (listener: (event: SeatCredentialEvent) => void) => () => void;
+};
+
+/** Main's side: the core's registry by name, and its changes on the push bus. */
+const coreCredentials = (): SeatCredentialPort => ({
+  lookup: (credential) => core.call("seatCredential.lookup", { credential }),
+  onEvent: (listener) =>
+    onCorePush(SEAT_CREDENTIAL_CHANGED, (event) => listener(event as SeatCredentialEvent)),
+});
+
 export const makeEdgeGrantService = (
   dependencies: EdgeGrantDependencies,
 ): EdgeGrantService => {
-  const processMap = dependencies.processMap ?? getProcessIdentityMap();
-  const credentials = dependencies.credentials ?? getSeatCredentialRegistry();
+  const credentials = dependencies.credentials ?? coreCredentials();
   const wallNow = dependencies.wallNow ?? Date.now;
   const ttlMs = dependencies.ttlMs ?? EDGE_GRANT_TTL_MS;
   const cache = new Map<string, CacheEntry>();
   const cacheByCanvas = new Map<string, Set<string>>();
   const capabilityPrincipals = new Map<string, BrowserAutomationPrincipal>();
   let lastReceipts: ReadonlyArray<EdgeRevocationReceipt> = Object.freeze([]);
-  processMap.subscribe((principal) => {
-    const cacheKey = processKeyOf(principal);
-    revokeCacheEntry(cacheKey);
-    capabilityPrincipals.delete(cacheKey);
-  });
   // A generation that ends takes its grant with it; the next one remints.
-  credentials.subscribe((event) => {
+  credentials.onEvent((event) => {
     if (event.type !== "revoked") return;
     const cacheKey = processKeyOf(event.principal);
     revokeCacheEntry(cacheKey);
@@ -596,8 +607,16 @@ export const makeEdgeGrantService = (
   const admitCredential = async (
     credential: string | undefined,
   ): Promise<EdgeGrantResult> => {
-    const found =
-      credential === undefined ? { status: "unknown" as const } : credentials.lookup(credential);
+    let found: SeatCredentialLookup;
+    if (credential === undefined) found = { status: "unknown" };
+    else {
+      try {
+        found = await credentials.lookup(credential);
+      } catch {
+        // The core did not answer: a stranger, never a yes.
+        found = { status: "unknown" };
+      }
+    }
     if (found.status === "live") return admitPrincipal(found.principal);
     if (found.status === "suspended") {
       return fail(
@@ -615,7 +634,6 @@ export const makeEdgeGrantService = (
   };
 
   return Object.freeze({
-    processMap,
     admitCredential,
     admitPrincipal,
     clear: () => {
