@@ -587,6 +587,31 @@ const callerMachine = (doc: Canvas, callerId: string): string => {
 };
 
 /**
+ * Capability views by canvas, then by editing machine. A view reads only the
+ * canvas's nodes and wires and the editing machine, and a canvas is an
+ * immutable value (`follow` copies, never mutates), so one canvas object
+ * always gives one view per machine; a changed canvas is a new object and
+ * misses. Building a view walks the whole canvas, and mail admission needs
+ * one per send.
+ */
+const capabilityViews = new WeakMap<Canvas, Map<string, VerbCapabilityView>>();
+
+const capabilityViewFor = (doc: Canvas, callerId: string): VerbCapabilityView => {
+  const editingMachine = callerMachine(doc, callerId);
+  let byMachine = capabilityViews.get(doc);
+  if (byMachine === undefined) {
+    byMachine = new Map();
+    capabilityViews.set(doc, byMachine);
+  }
+  let view = byMachine.get(editingMachine);
+  if (view === undefined) {
+    view = canvasToCapabilityView(doc, { editingMachine });
+    byMachine.set(editingMachine, view);
+  }
+  return view;
+};
+
+/**
  * A reach-admitted task op (TASK_REACH_OPS): the target is a task node in the
  * caller's reach (any on its canvas for a live overseer seat), or the operator's. No edge and no port; plan 04.
  */
@@ -658,7 +683,7 @@ export const admitWorkTarget = (
     );
   }
 
-  const view = canvasToCapabilityView(doc, { editingMachine: callerMachine(doc, callerId) });
+  const view = capabilityViewFor(doc, callerId);
   const result = admitPure(
     view,
     asNodeId(callerId),
@@ -691,17 +716,13 @@ export const summarizeNode = (node: Node): VisibleNode => ({
 export const factoryRoleOfNode = (node: Node): FactoryRole =>
   roleOf(resolveSpec({ kind: nodeKind(node), isGroup: node.kind === "region" }));
 
-/**
- * Ports the caller holds on the undirected edge to target (physics admit).
- * `view` is this canvas's capability view for this caller, when the caller
- * already built it: building one walks the whole canvas.
- */
+/** Ports the caller holds on the undirected edge to target (physics admit). */
 export const heldGrantsOnEdge = (
   doc: Canvas,
   callerId: string,
   targetId: string,
-  view: VerbCapabilityView = canvasToCapabilityView(doc, { editingMachine: callerMachine(doc, callerId) }),
 ): ReadonlyArray<Port> => {
+  const view = capabilityViewFor(doc, callerId);
   const caller = asNodeId(callerId);
   const target = asNodeId(targetId);
   return ALL_PORTS.filter((port) =>
@@ -726,8 +747,6 @@ export const connectedCapabilities = (
 ): ReadonlyArray<ConnectedCapability> => {
   const seen = new Set<string>();
   const out: ConnectedCapability[] = [];
-  // One view for every edge: the canvas and the caller are the same for all.
-  let view: VerbCapabilityView | undefined;
   for (const edge of doc.wires.values()) {
     const other =
       edge.from === callerId
@@ -741,8 +760,7 @@ export const connectedCapabilities = (
     // Seats only (agent and peer rows): a resource node is reached by region,
     // never by its wire.
     if (!node || (node.kind !== "agent" && node.kind !== "peer")) continue;
-    view ??= canvasToCapabilityView(doc, { editingMachine: callerMachine(doc, callerId) });
-    const grants = heldGrantsOnEdge(doc, callerId, other, view);
+    const grants = heldGrantsOnEdge(doc, callerId, other);
     const { name, regions } = seatIdentity(doc, node);
     out.push({
       ...summarizeNode(node),

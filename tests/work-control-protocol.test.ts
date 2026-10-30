@@ -1,4 +1,4 @@
-import { asNodeId } from "../src/shared/model";
+import { asNodeId, asWireId, follow, type Canvas } from "../src/shared/model";
 import { describe, expect, it } from "vitest";
 import { Result, Schema } from "effect";
 import {
@@ -16,6 +16,7 @@ import {
   connectedCapabilities,
   containingRegion,
   factoryRoleOfNode,
+  heldGrantsOnEdge,
   kindAllowsOp,
   regionCoMemberIds,
   scopeDenialToWorkError,
@@ -23,7 +24,7 @@ import {
   visibilityOf,
 } from "../src/main/junto/work/authz";
 import { canvasOf, region, seat, taskBoard, wire } from "./support/model-nodes";
-import { ScopeDenial } from "../src/shared/physics";
+import { ALL_PORTS, ScopeDenial, admitPure, canvasToCapabilityView } from "../src/shared/physics";
 import { productNodeKindEnabled } from "../src/shared/features";
 
 describe("work-control wire schemas", () => {
@@ -201,6 +202,32 @@ describe("work authz — edges as capability", () => {
       expect(invisible.failure.type).toBe("ScopeError");
       expect(invisible.failure.message).toMatch(/not visible/);
     }
+  });
+
+  it("a canvas changed by follow() is admitted on its own wires, never on a cached view of the one before", () => {
+    const uncached = (doc: Canvas, target: string) =>
+      ALL_PORTS.filter((port) =>
+        Result.isSuccess(admitPure(canvasToCapabilityView(doc, { editingMachine: "" }), asNodeId("agent"), asNodeId(target), port)));
+    // Warm the view of the canvas as it was: wired to peer, not to neighbor.
+    expect(heldGrantsOnEdge(board, "agent", "peer")).toContain("msg.send");
+    expect(Result.isSuccess(admitWorkTarget(board, "agent", "peer", "msg.send"))).toBe(true);
+    const followed = follow(board, {
+      canvas: board.name,
+      seq: board.seq + 1,
+      nodes: [],
+      wires: [wire("e2", "agent", "neighbor", "messages")],
+      removedNodes: [],
+      removedWires: [asWireId("e1")],
+    });
+    if (followed._tag !== "Applied") throw new Error(`follow did not apply: ${followed._tag}`);
+    const after = followed.canvas;
+    expect(Result.isFailure(admitWorkTarget(after, "agent", "peer", "msg.send"))).toBe(true);
+    expect(Result.isSuccess(admitWorkTarget(after, "agent", "neighbor", "msg.send"))).toBe(true);
+    expect(heldGrantsOnEdge(after, "agent", "peer")).toEqual(uncached(after, "peer"));
+    expect(heldGrantsOnEdge(after, "agent", "neighbor")).toEqual(uncached(after, "neighbor"));
+    expect(connectedCapabilities(after, "agent").map((cap) => cap.id)).toEqual(["neighbor"]);
+    // The canvas before keeps its own answer.
+    expect(heldGrantsOnEdge(board, "agent", "peer")).toEqual(uncached(board, "peer"));
   });
 
   it("connectedCapabilities lists seats only: a wired task board is reached, not connected", () => {
