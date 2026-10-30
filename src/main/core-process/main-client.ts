@@ -7,7 +7,14 @@ import "./ops/index";
  * `junto/ipc.ts` and `term/ipc.ts` move from `AppRuntime.run*` to
  * `core.call(name, input)`, with each operation's body in a group under
  * `./ops`. Until every site has moved, the core runs in main's runtime; then
- * this handle becomes the port to the core process and the sites stay as
- * they are.
+ * boot installs the core process's client (`useCoreClient(startCoreProcess(...))`,
+ * gated by `CORE_PROCESS_ENABLED`) and the sites stay as they are.
  */
-export const core: CoreClient = inProcessCore(AppRuntime);
+let current: CoreClient = inProcessCore(AppRuntime);
+
+export const core: CoreClient = { call: (name, input) => current.call(name, input) };
+
+/** Boot only: route every call to the core process. */
+export const useCoreClient = (client: CoreClient): void => {
+  current = client;
+};
