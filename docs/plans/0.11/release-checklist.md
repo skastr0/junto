@@ -425,3 +425,18 @@ build `478d090a52481dd425dfc21bc5064076c72b63cdf381d375600f5920f4f45c7b`
 (darwin-arm64, linux-x64), archive hashes match the catalog. The feed says
 0.11.4 and the downloaded zip matches. Launch smoke by product-verify: pass.
 The machine core reads mail on main (22d0ed2de); the app keeps the worker.
+
+## 0.11.5 receipt (product-releases, 2026-10-30)
+
+Published from tag `v0.11.5` = `9f7f0192f` on main (pushed, one push, the
+bump on top of local main as it stood), cut from a clean export with the
+0.11.4 recipe. Unit lane skipped by operator ruling; the eight files this
+release touches (96 tests), typecheck, lint:product-name and the ship feature
+lane (48 pass, 12 skipped) ran. Notarization submission
+`183641bb-8563-4eb3-9c05-db928f97264d` Accepted, stapled. Zip sha256
+`428c50b22851bcc99674933592d9141d8a5537280f9bdc2ab14dc05b7b016afe`, dmg
+sha256 `18a8ef93f7c5e0878052203196e8f0274d96702582860ea8007cb9deceb63638`.
+Machine build `9f15d198df7ddbd0c130cb73e8015135333274e98125e460b0e8fb64af37165a`
+(darwin-arm64, linux-x64). The feed says 0.11.5 and the downloaded zip
+matches. Launch smoke by product-verify before publish: pass (8 of 8). The
+native CLI seats' Rust commits (N2) were on main and built clean.
