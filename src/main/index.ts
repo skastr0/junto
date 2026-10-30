@@ -15,7 +15,6 @@ import {
   shell,
   type IpcMainEvent,
 } from "electron";
-import { Effect } from "effect";
 import { classifyBrowserTarget } from "@shared/browser-policy";
 import {
   IPC_CHANNELS,
@@ -43,7 +42,7 @@ import { appMenuTemplate } from "./junto/app-menu";
 import { appProcessBlocksAppExit, appProcessPlane, describeAppProcessStraggler } from "./junto/app-process-plane";
 import { AppRuntime } from "./runtime";
 import { core } from "./core-process/main-client";
-import { openChildren, takeChildStopFailures, type Children } from "./core-process/children";
+import { startChildren, takeChildStopFailures, type Children } from "./core-process/children";
 import { subscribe as subscribeCore } from "./core-process/push";
 import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, COMPANION_DEVICES, SETTINGS_CHANGED, WORK_PREAMBLE, type CanvasChangedPush } from "./core-process/channels";
 import { coreBrowserProfileStore, coreTouchedOriginStore } from "./core-process/main-side/browser";
@@ -1486,7 +1485,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       operatorCommands: operatorControlEnabledAtLaunch,
       app: { version: app.getVersion(), packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() },
     };
-    coreChildren = await Effect.runPromise(openChildren((terminals) => startCoreProcessForMain({
+    coreChildren = await startChildren((terminals) => startCoreProcessForMain({
       boot,
       pages: () => coreProcessPages,
       captureApplicationPage,

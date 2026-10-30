@@ -65,6 +65,10 @@ export type Children = {
  * Acquire main's children in one scope. `acquireCore` receives the terminal
  * process because the core is handed a port to it, which is also why the core
  * depends on it: the dependency is the order.
+ *
+ * Main's entry runs no effect of its own (index.ts is a thin shell over
+ * `core.call`), so this module is the host edge that opens and closes the
+ * scope: host process lifecycle, and nothing else, runs here.
  */
 export const openChildren = (
   acquireCore: (terminals: TerminalProcessForCore) => CoreProcessForMain,
@@ -85,3 +89,8 @@ export const openChildren = (
       close: () => Effect.runPromise(Scope.close(scope, Exit.void)),
     };
   });
+
+/** The same, for a caller that holds no runtime: main's boot. */
+export const startChildren = (
+  acquireCore: (terminals: TerminalProcessForCore) => CoreProcessForMain,
+): Promise<Children> => Effect.runPromise(openChildren(acquireCore));
