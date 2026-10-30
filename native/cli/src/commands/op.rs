@@ -53,6 +53,7 @@ pub struct Op {
 #[derive(Subcommand)]
 enum Command {
     Show {
+        #[arg(value_name = "opId")]
         op_id: String,
         #[command(flatten)]
         timeout: Timeout,
