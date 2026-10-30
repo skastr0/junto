@@ -976,15 +976,28 @@ const StepIndex = Bounded(0, AUTOMATION_STEPS_MAX - 1);
 
 /**
  * One action's ruling, by its index in `then`. `queued` waits on the editing
- * machine (02). A signal step that raised its signal is `raised`, naming it. A code step that ran is `continued` with its output,
- * `stopped`, or `failed`: `timeout`, `too_large`, `output_carries_secret`
- * or the program's own words. On a failure `logTail` is the end of what it
- * wrote, stdout and stderr together, scrubbed of secrets. A code step
- * not admitted to run is `refused` (`not_permitted`, `not_available`).
+ * machine (02); on another machine it carries `waitingOn`, and an action that
+ * waited and then went carries `heldSince` (S3). A signal step that raised
+ * its signal is `raised`, naming it. A code step that ran is `continued` with
+ * its output, `stopped`, or `failed`: `timeout`, `too_large`,
+ * `output_carries_secret` or the program's own words. On a failure `logTail`
+ * is the end of what it wrote, stdout and stderr together, scrubbed of
+ * secrets. A code step not admitted to run is `refused` (`not_permitted`,
+ * `not_available`).
  */
 export const ActionRuling = Schema.Union([
-  Schema.Struct({ index: StepIndex, ruling: Schema.Literal("applied") }),
-  Schema.Struct({ index: StepIndex, ruling: Schema.Literal("queued") }),
+  Schema.Struct({
+    index: StepIndex,
+    ruling: Schema.Literal("applied"),
+    /** The action waited on a machine that was not linked, from this time, then went (S3). */
+    heldSince: Schema.optionalKey(EpochMs),
+  }),
+  Schema.Struct({
+    index: StepIndex,
+    ruling: Schema.Literal("queued"),
+    /** The machine the action waits on, and since when (S3). Absent on rows written before it. */
+    waitingOn: Schema.optionalKey(Schema.Struct({ machine: HostId, since: EpochMs })),
+  }),
   /** A signal step raised its signal (0.11/07 N2); what became of it is the signal's own state, read by its id. */
   Schema.Struct({
     index: StepIndex,
@@ -999,6 +1012,8 @@ export const ActionRuling = Schema.Union([
     reason: RefusalReason,
     /** The machine the automation moved to while this firing was in flight: its later actions are that machine's. */
     movedTo: Schema.optionalKey(HostId),
+    /** The action waited on a machine that was not linked, from this time, then was refused (S3). */
+    heldSince: Schema.optionalKey(EpochMs),
   }),
   Schema.Struct({ index: StepIndex, ruling: Schema.Literal("continued"), output: CodeOutput, durationMs: Count }),
   Schema.Struct({
@@ -1038,6 +1053,13 @@ export const Firing = Schema.Struct({
   at: EpochMs,
   cause: FiringCause,
   outcome: FiringOutcome,
+  /**
+   * The machine that ran it, by its short name (S3). Only that machine ever
+   * writes a revision of this firing, so a firing in flight when its
+   * automation moves settles here with the old machine still named. Absent on
+   * rows written before the field existed.
+   */
+  machine: Schema.optionalKey(HostId),
 });
 export type Firing = typeof Firing.Type;
 
