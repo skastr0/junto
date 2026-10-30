@@ -20,6 +20,7 @@ vi.mock("@shared/features", async (original) => ({
 }));
 
 const { FilesCard } = await import("../src/renderer/components/files/FilesCard");
+const { FilesNode } = await import("../src/renderer/components/files/FilesNode");
 const { FileView } = await import("../src/renderer/components/file-view/FileView");
 const { installFilesSource, makeLocalFiles, unreachableLine, refusedOf, useFilesRoot } = await import("../src/renderer/lib/files-source");
 const { modelStore } = await import("../src/renderer/lib/use-model");
@@ -142,5 +143,32 @@ describe("a Files node whose machine is unreachable", () => {
     const names = [...document.querySelectorAll("button")].map((button) => button.textContent);
     expect(names).not.toContain("Open in default app");
     expect(names).not.toContain("Reveal in Finder");
+  });
+
+  it("says in its modal that it cannot reach its machine, with no tree, filter or create", async () => {
+    installFilesSource({ ...makeLocalFiles({ "a.md": "" }), open: async () => ({ ok: false, ...unreachable(Date.now() - 5 * MINUTE) }) });
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} onClose={() => undefined} />));
+    await flush();
+    expect(document.querySelector('[role="alert"].files-refused')?.textContent).toContain("Cannot reach mini. Last reached 5 minutes ago.");
+    expect(document.querySelector("nav.files-tree-nav")).toBeNull();
+    expect(document.querySelector('input[aria-label^="Filter files in "]')).toBeNull();
+    expect(document.querySelector('button[aria-label="New file"]')).toBeNull();
+  });
+
+  it("offers no default app or Finder in its modal while it is reached", async () => {
+    installFilesSource(makeLocalFiles({ "a.zip": { size: 10 }, "big.txt": { size: 6 * 1024 * 1024 } }));
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} onClose={() => undefined} />));
+    await flush();
+    const labels = (): Array<string | null> =>
+      [...document.querySelectorAll("button")].map((button) => button.getAttribute("aria-label") ?? button.textContent);
+    expect(document.querySelector("nav.files-tree-nav")).not.toBeNull();
+    expect(labels()).not.toContain("Reveal folder in Finder");
+    act(() => root.unmount());
+    root = createRoot(host);
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} initialPath={"big.txt" as never} onClose={() => undefined} />));
+    await flush();
+    expect(document.querySelector(".files-head__name")?.textContent).toBe("big.txt");
+    expect(labels()).not.toContain("Open in default app");
+    expect(labels()).not.toContain("Reveal in Finder");
   });
 });

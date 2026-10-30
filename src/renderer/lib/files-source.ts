@@ -273,6 +273,18 @@ export const unreachableLine = (label: string, lastReachedAt: number | null, now
     ? `Cannot reach ${label}. Check that it is on.`
     : `Cannot reach ${label}. Last reached ${agoWords(Math.max(0, now - lastReachedAt))}.`;
 
+/** Now, again each minute while `on`, so "Last reached 5 minutes ago" keeps true. */
+export const useMinuteNow = (on: boolean): number => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!on) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), MINUTE_MS);
+    return () => clearInterval(timer);
+  }, [on]);
+  return now;
+};
+
 /** Whether a change event names `path`: a write to it, or a reset of the whole tree. */
 export const changeTouches = (event: FilesChanged, node: NodeId, path: FilePath): boolean =>
   event.node === node && (event.kind === "reset" || (event.kind === "paths" && event.paths.includes(path)));

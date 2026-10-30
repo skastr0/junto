@@ -17,11 +17,14 @@ import {
   filesSource,
   fileViewOf,
   setFileDraft,
+  unreachableLine,
   useDraftsVersion,
   useFilesRoot,
+  useMinuteNow,
   type FileView as FileViewKind,
   type Loaded,
 } from "../../lib/files-source";
+import { machineLabel, onThisMachine } from "../../lib/machines";
 import { useSubjectThreads, type SubjectThread } from "../../lib/subject-threads-source";
 import { boxAnchorOf, filePlaceOf, lineAnchorOf, lineDraftOf, placeLabel, placedFileThreads, type LineDraft } from "../../lib/file-comments";
 import { FileCommentsRail, FileThreadRow, type FileCommentContext } from "./FileComments";
@@ -124,6 +127,11 @@ export function FilesNode({
   });
   const draftsVersion = useDraftsVersion();
   const folderName = root.state === "ready" ? root.value.name : node === undefined ? "Files" : titleOf(node);
+  /** Open in default app and Reveal in Finder act on this screen: another machine's node offers neither. */
+  const here = node?.kind !== "files" || onThisMachine(node.host);
+  /** Its machine cannot be reached: the node says so and shows no tree, nothing stale (0.12, X2). */
+  const offline = root.state === "refused" ? root.offline : undefined;
+  const now = useMinuteNow(offline !== undefined);
 
   /** Read at paint time, so the marks follow the drafts without a new tree. */
   const dirty = useRef<ReadonlySet<string>>(new Set());
@@ -421,46 +429,50 @@ export function FilesNode({
         eyebrow={<span className="files-eyebrow">{folderName}</span>}
         actions={quickOpen.trigger}
       />
-      {/* New file and New folder sit by the filter, so the header keeps its width for the folder's name. */}
-      <div className="files-filter">
-        <label className="files-filter__field">
-          <Search size={12} aria-hidden />
-          <Input
-            dense
-            aria-label={`Filter files in ${folderName}`}
-            placeholder="Filter"
-            value={filter}
-            onChange={(event) => {
-              setFilter(event.target.value);
-              model.setSearch(event.target.value === "" ? null : event.target.value);
-            }}
+      {offline !== undefined ? null : (
+        <>
+          {/* New file and New folder sit by the filter, so the header keeps its width for the folder's name. */}
+          <div className="files-filter">
+            <label className="files-filter__field">
+              <Search size={12} aria-hidden />
+              <Input
+                dense
+                aria-label={`Filter files in ${folderName}`}
+                placeholder="Filter"
+                value={filter}
+                onChange={(event) => {
+                  setFilter(event.target.value);
+                  model.setSearch(event.target.value === "" ? null : event.target.value);
+                }}
+              />
+            </label>
+            <IconButton aria-label="New file" title="New file" size="sm" onClick={() => startCreate(false)}>
+              <FilePlus size={14} />
+            </IconButton>
+            <IconButton aria-label="New folder" title="New folder" size="sm" onClick={() => startCreate(true)}>
+              <FolderPlus size={14} />
+            </IconButton>
+          </div>
+          {treeError ? (
+            <p className="files-error" role="alert">
+              <CircleAlert size={14} aria-hidden />
+              {treeError}
+            </p>
+          ) : treeNote ? (
+            <p className="files-note" role="status">
+              {treeNote}
+            </p>
+          ) : null}
+          <FilesTree
+            model={model}
+            label={`Files in ${folderName}`}
+            onKeyDown={treeKeys}
+            renderContextMenu={(item, context) => (
+              <FilesRowMenu item={item} context={context} onAction={(action) => act(action, rowOf(item.path) ?? null)} onRename={startRename} />
+            )}
           />
-        </label>
-        <IconButton aria-label="New file" title="New file" size="sm" onClick={() => startCreate(false)}>
-          <FilePlus size={14} />
-        </IconButton>
-        <IconButton aria-label="New folder" title="New folder" size="sm" onClick={() => startCreate(true)}>
-          <FolderPlus size={14} />
-        </IconButton>
-      </div>
-      {treeError ? (
-        <p className="files-error" role="alert">
-          <CircleAlert size={14} aria-hidden />
-          {treeError}
-        </p>
-      ) : treeNote ? (
-        <p className="files-note" role="status">
-          {treeNote}
-        </p>
-      ) : null}
-      <FilesTree
-        model={model}
-        label={`Files in ${folderName}`}
-        onKeyDown={treeKeys}
-        renderContextMenu={(item, context) => (
-          <FilesRowMenu item={item} context={context} onAction={(action) => act(action, rowOf(item.path) ?? null)} onRename={startRename} />
-        )}
-      />
+        </>
+      )}
     </>
   );
 
@@ -472,26 +484,33 @@ export function FilesNode({
     root.state === "refused" ? (
       // The folder cannot open: said as an alert, so a reader hears why the tree is empty.
       <div role="alert" className="files-refused">
-        <PaneEmpty glyph={<FileQuestion size={20} />} title={filesErrorLine(root.error)} />
+        <PaneEmpty
+          glyph={<FileQuestion size={20} />}
+          title={offline === undefined ? filesErrorLine(root.error) : unreachableLine(machineLabel(offline.machine), offline.lastReachedAt, now)}
+        />
       </div>
     ) : selected === null ? (
       <PaneEmpty
         glyph={<FileText size={20} />}
         title="Pick a file"
-        action={
-          // The folder itself opens in Finder from here; the header keeps its width for the folder's name.
-          <Button
-            size="sm"
-            variant="subtle"
-            onClick={() =>
-              void filesSource()
-                .revealInFinder(ref, ROOT_PATH)
-                .then((result) => setTreeError(result.ok ? null : filesErrorLine(result.error)))
+        // The folder itself opens in Finder from here, on this machine's node; the header keeps its width for the folder's name.
+        {...(here
+          ? {
+              action: (
+                <Button
+                  size="sm"
+                  variant="subtle"
+                  onClick={() =>
+                    void filesSource()
+                      .revealInFinder(ref, ROOT_PATH)
+                      .then((result) => setTreeError(result.ok ? null : filesErrorLine(result.error)))
+                  }
+                >
+                  Reveal folder in Finder
+                </Button>
+              ),
             }
-          >
-            Reveal folder in Finder
-          </Button>
-        }
+          : {})}
       />
     ) : null;
 
@@ -536,6 +555,7 @@ export function FilesNode({
                 path={shown}
                 {...(pageOnce !== undefined && shown === initialPath ? { initialPage: pageOnce } : {})}
                 railHost={railHost}
+                here={here}
                 save={save}
                 onRename={() => startRename(treePathOf({ path: shown, dir: false }))}
                 onAct={(kind) => actOnRow({ path: shown, dir: false }, kind)}
@@ -558,6 +578,7 @@ function SelectedFile({
   path,
   initialPage,
   railHost,
+  here,
   save,
   onRename,
   onAct,
@@ -569,6 +590,8 @@ function SelectedFile({
   readonly initialPage?: number;
   /** The pane's rail, which the file's comments are drawn into. */
   readonly railHost: HTMLElement | null;
+  /** The node is on this machine: its default app and Finder are offered. */
+  readonly here: boolean;
   readonly save: React.MutableRefObject<(() => void) | null>;
   /** The open file's rename, in its tree row; its move and trash, in their dialogs. */
   readonly onRename: () => void;
@@ -855,7 +878,7 @@ function SelectedFile({
             glyph={<FileQuestion size={20} />}
             title="Too large to open here"
             hint={value.kind === "too-large" ? `${formatSize(value.size)}, over the 5 MB Junto reads as text.` : undefined}
-            action={elsewhere}
+            {...(here ? { action: elsewhere } : {})}
           />
         );
       default:
@@ -903,12 +926,16 @@ function SelectedFile({
         <IconButton aria-label="Move to Trash" title="Move to Trash" size="sm" onClick={() => onAct("trash")}>
           <Trash2 size={14} />
         </IconButton>
-        <IconButton aria-label="Open in default app" title="Open in default app" size="sm" onClick={() => void outside("openInDefaultApp")}>
-          <ExternalLink size={14} />
-        </IconButton>
-        <IconButton aria-label="Reveal in Finder" title="Reveal in Finder" size="sm" onClick={() => void outside("revealInFinder")}>
-          <FolderSearch size={14} />
-        </IconButton>
+        {here ? (
+          <>
+            <IconButton aria-label="Open in default app" title="Open in default app" size="sm" onClick={() => void outside("openInDefaultApp")}>
+              <ExternalLink size={14} />
+            </IconButton>
+            <IconButton aria-label="Reveal in Finder" title="Reveal in Finder" size="sm" onClick={() => void outside("revealInFinder")}>
+              <FolderSearch size={14} />
+            </IconButton>
+          </>
+        ) : null}
       </header>
       {stale === "changed" ? (
         <div className="files-stale" role="alert">

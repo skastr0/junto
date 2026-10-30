@@ -7,7 +7,7 @@ import { ROOT_PATH, type FilesCount, type FilesResult } from "@shared/files";
 import { useFeatureOn } from "../../lib/experimental-features";
 import { CARD_DROP_NOTICE_MS, cardDropNotice, countLine, type CardDropNotice } from "../../lib/files-card";
 import { hasFinderFiles } from "../../lib/files-drop";
-import { filesErrorLine, filesSource, offlineOf, unreachableLine } from "../../lib/files-source";
+import { filesErrorLine, filesSource, offlineOf, unreachableLine, useMinuteNow } from "../../lib/files-source";
 import { machineLabel, onThisMachine, requestMachineCheck } from "../../lib/machines";
 import { editText } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
@@ -64,17 +64,6 @@ const useFilesCount = (
   return { count, recount: () => recountRef.current() };
 };
 
-/** Now, again each minute while `on`, so "Last reached 5 minutes ago" keeps true. */
-const useMinuteNow = (on: boolean): number => {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!on) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 60_000);
-    return () => clearInterval(timer);
-  }, [on]);
-  return now;
-};
 
 /**
  * A Files node on the canvas: its name (the operator's label, else the
