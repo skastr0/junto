@@ -11,14 +11,17 @@ import { Command } from "../src/shared/model";
 
 const source = (relative: string): string => readFileSync(new URL(`../${relative}`, import.meta.url), "utf8");
 
-it("the window boots the link and Boat keepers: its runtime is the machine core layer, and nothing else starts one", () => {
-  // The window's one runtime is AppRuntime, built over the machine core layer (the windowless core builds the same).
+it("the window boots the link and Boat keepers: only the core's runtime is the machine core layer", () => {
+  // The core's one runtime is makeCoreRuntime, built over the machine core layer.
+  const core = source("src/main/core-runtime.ts");
+  expect(core).toMatch(/const makeMachineCoreLayer = [\s\S]*makeCoreProductLayer\(options\.home\)/u);
+  expect(core).toMatch(/export const makeCoreRuntime = \(options: MachineCoreOptions\) =>\s*ManagedRuntime\.make\([^)]*makeMachineCoreLayer\(options\)/u);
+  // Electron main's runtime is Electron's alone: it builds no core service, no
+  // second copy of a singleton (the state engine, the link, the plane), so a
+  // service asked of it is a compile error, not an empty instance.
   const window = source("src/main/runtime.ts");
-  expect(window).toMatch(/const MachineServicesLive = Layer\.unwrap\([\s\S]*return makeMachineCoreLayer\(/u);
-  expect(window).toMatch(/export const RootLayer = MachineServicesLive;/u);
-  expect(window).toMatch(/const ProductLayer = Layer\.mergeAll\(RootLayer,/u);
-  // With the core in its own process main builds no core, so the core process is the one runtime that does.
-  expect(window).toMatch(/const AppLayer = withMachineLogger\(\s*Layer\.mergeAll\(AppInfoLive, CodexLive, UpdateServiceLive\)/u);
+  expect(window).not.toMatch(/makeMachineCoreLayer|MachineServicesLive|RootLayer|ProductLayer/u);
+  expect(window).toContain("const AppLayer = withMachineLogger(Layer.mergeAll(UpdateServiceLive));");
   for (const path of ["src/main/index.ts", "src/main/runtime.ts", "src/main/junto/core.ts", "src/main/headless.ts"]) {
     for (const start of ["startLinkKeeper", "startBoatKeeper", "startBoatLease"]) expect(source(path), path).not.toContain(start);
   }

@@ -14,8 +14,11 @@ describe("actor seat production architecture", () => {
       );
       expect(root, path).not.toContain("TerminalSeatProcess");
     }
+    // The core's runtime builds the machine core layer; main's runtime is Electron's
+    // alone and must not build a second copy of it.
+    expect(source("src/main/core-runtime.ts")).toContain("makeMachineCoreLayer");
+    expect(source("src/main/runtime.ts")).not.toContain("makeMachineCoreLayer");
     for (const path of ["src/main/runtime.ts", "src/main/core-runtime.ts"]) {
-      expect(source(path), path).toContain("makeMachineCoreLayer");
       expect(source(path), path).not.toContain("TerminalSeatProcess");
     }
     expect(source("src/main/core-runtime.ts")).toContain("makeCoreProductLayer(options.home)");
