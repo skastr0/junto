@@ -547,8 +547,11 @@ html[data-theme="bright"] .seat-threads__block {
   color: var(--color-ink);
 }
 
+/* The field holds focus for the whole reply, so its border is the mark: the
+   lit cyan, which clears 3 to 1 on the inset in both themes, with the halo as
+   the second cue. */
 .thread-composer__field:focus-within {
-  border-color: color-mix(in oklab, var(--color-cyan) 60%, transparent);
+  border-color: var(--color-cyan-fg);
   box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 
