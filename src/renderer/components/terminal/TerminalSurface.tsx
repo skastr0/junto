@@ -35,6 +35,7 @@ import {
 } from "../../lib/terminal-viewport";
 import { attachXtermAutoCopy } from "../../lib/xterm-auto-copy";
 import { attachTerminalModifierFence } from "../../lib/terminal-modifier-fence";
+import { registerTerminalPerfProbe } from "../../lib/terminal-perf-probe";
 import { playCue } from "../../lib/sound";
 import { seatTasks$, type SeatTask } from "../../lib/seat-tasks";
 import { tasksSource } from "../../lib/tasks-source";
@@ -1062,6 +1063,8 @@ export function TerminalSurface({
       }
       return rows.join("\n");
     });
+    // Performance baseline numbers (JUNTO_PERF only, read-only).
+    const unregisterPerfProbe = registerTerminalPerfProbe(screenTextKey, term, () => visibleRef.current);
     host.replaceChildren();
     // The measurement moment. xterm requires the parent to be visible with real
     // dimensions here; a 0-size or not-yet-laid-out box poisons the cell metrics
@@ -1279,6 +1282,7 @@ export function TerminalSurface({
       webglBlockedRef.current = false;
       screenTextRegistry.__juntoTermScreenText?.delete(screenTextKey);
       screenTextRegistry.__juntoTermTranscriptText?.delete(screenTextKey);
+      unregisterPerfProbe();
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
