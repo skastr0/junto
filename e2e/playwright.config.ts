@@ -1,4 +1,15 @@
+import { registerHooks } from "node:module";
 import { defineConfig } from "@playwright/test";
+
+// A vite `?nodeWorker` import has no worker under Playwright: it resolves to
+// a module with no default export, and its host takes its no-worker path, as
+// in the machine core bundle (scripts/build-machine.ts).
+registerHooks({
+  resolve: (specifier, context, nextResolve) =>
+    specifier.endsWith("?nodeWorker")
+      ? { url: "data:text/javascript,export default undefined;", format: "module", shortCircuit: true }
+      : nextResolve(specifier, context),
+});
 
 // node only: playwright-core's Electron driver's launch handshake times out
 // under bun (~30s). Run via the `test:e2e*` scripts (`bun run test:e2e:fast

@@ -94,6 +94,7 @@ export const startStateMaintenance = (
       closed = true;
       clearTimeout(restart);
       clearTimeout(analyze);
+      if (current !== undefined) writerCheckpoints(WRITER_AUTOCHECKPOINT_PAGES);
       const worker = current;
       current = undefined;
       void worker?.terminate();
