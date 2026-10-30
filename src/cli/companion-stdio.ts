@@ -181,8 +181,8 @@ export const makeRelayHost = (deviceId: string, call: Call = operatorCall, wake:
         bounded + 10_000,
       );
       if (!result.ok || !result.data.ok) throw new Error("companion events unavailable");
-      const { cursor: next, changed, signals, artifacts, reset } = result.data;
-      return { cursor: next, changed, signals, ...(artifacts === undefined ? {} : { artifacts }), reset };
+      const { cursor: next, changed, signals, artifacts, mail, reset } = result.data;
+      return { cursor: next, changed, signals, ...(artifacts === undefined ? {} : { artifacts }), ...(mail === undefined ? {} : { mail }), reset };
     },
   };
 };

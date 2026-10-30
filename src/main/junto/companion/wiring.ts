@@ -31,11 +31,12 @@ export const wireCompanionChanges = async (changes: CompanionChanges): Promise<(
   changesRef = changes;
   const [model, work, pause] = await AppRuntime.runPromise(Effect.all([ModelService, WorkRepository, PausePlane]));
   const offs = [
-    model.subscribeChanges(() => changes.bump()),
-    model.subscribeCanvasesChanges(() => changes.bump()),
+    // A thread names its seats and canvas, so a canvas change is a mail change too.
+    model.subscribeChanges(() => changes.bump("mail")),
+    model.subscribeCanvasesChanges(() => changes.bump("mail")),
     work.subscribeChanges((canvasName, _nodeId, kind) => {
       if (kind === "mail") forgetSeatUnread(canvasName);
-      changes.bump();
+      changes.bump("mail");
     }),
     pause.subscribe(() => changes.bump()),
     seatStateRuntime.subscribe(() => changes.bump()),
@@ -45,7 +46,7 @@ export const wireCompanionChanges = async (changes: CompanionChanges): Promise<(
     raisedHands.onSignal((signal) => changes.noteSignal(signal)),
     messageDelivery.subscribeDelivered((event) => {
       if (event.failed) noteMailFailure(event.messageId);
-      changes.bump();
+      changes.bump("mail");
     }),
     onDesktopReport(() => changes.bump()),
     // A write through this machine names its artifact and its edit; a replicated row does not.
@@ -57,7 +58,7 @@ export const wireCompanionChanges = async (changes: CompanionChanges): Promise<(
     }),
     onReadChanged(({ canvasName }) => {
       forgetSeatUnread(canvasName);
-      changes.bump();
+      changes.bump("mail");
     }),
   ];
   return () => {

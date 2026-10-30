@@ -21,7 +21,13 @@ const ARTIFACT_RING = 512;
 const COALESCE_MS = 120;
 
 export type CompanionChanges = {
-  readonly bump: () => void;
+  /**
+   * Something a phone reads changed. `"mail"` when it can change a thread or
+   * a mailbox (mail, delivery, reads, the work rows and canvases they name),
+   * so a poll can skip re-reading every followed seat's threads and mail when
+   * only seat state, awareness or pause moved.
+   */
+  readonly bump: (scope?: "mail") => void;
   /**
    * Quit: release every waiting long poll now and answer later ones at once,
    * so operator control shutdown never waits on a phone's idle poll.
@@ -38,6 +44,8 @@ export type CompanionChanges = {
     readonly changed: boolean;
     readonly signals: ReadonlyArray<AgentSignal>;
     readonly artifacts: ReadonlyArray<CompanionArtifactChanged>;
+    /** A mail-scoped bump landed since the cursor. */
+    readonly mail: boolean;
     readonly reset: boolean;
   }>;
 };
@@ -45,6 +53,7 @@ export type CompanionChanges = {
 export const makeCompanionChanges = (): CompanionChanges => {
   const boot = randomBytes(6).toString("hex");
   let seq = 0;
+  let mailSeq = 0;
   const ring: Array<{ readonly seq: number; readonly signal: AgentSignal }> = [];
   const artifacts: Array<{ readonly seq: number; readonly change: CompanionArtifactChanged }> = [];
   let waiters: Array<() => void> = [];
@@ -60,8 +69,9 @@ export const makeCompanionChanges = (): CompanionChanges => {
       for (const resolve of current) resolve();
     }, COALESCE_MS);
   };
-  const bump = (): void => {
+  const bump = (scope?: "mail"): void => {
     seq += 1;
+    if (scope === "mail") mailSeq = seq;
     wake();
   };
   const cursorOf = (value: number): string => `${boot}:${value}`;
@@ -97,7 +107,7 @@ export const makeCompanionChanges = (): CompanionChanges => {
       // Unknown, foreign or too old for the ring: start over from now.
       const oldest = ring[0]?.seq ?? seq;
       if (since === undefined || since > seq || (since < oldest - 1 && ring.length === SIGNAL_RING)) {
-        return { cursor: cursorOf(seq), changed: false, signals: [], artifacts: [], reset: cursor !== undefined };
+        return { cursor: cursorOf(seq), changed: false, signals: [], artifacts: [], mail: false, reset: cursor !== undefined };
       }
       if (since === seq && !closed) {
         await new Promise<void>((resolve) => {
@@ -118,6 +128,7 @@ export const makeCompanionChanges = (): CompanionChanges => {
         changed: now !== since,
         signals: ring.filter((entry) => entry.seq > since && entry.seq <= now).map((entry) => entry.signal),
         artifacts: artifacts.filter((entry) => entry.seq > since && entry.seq <= now).map((entry) => entry.change),
+        mail: mailSeq > since,
         reset: false,
       };
     },

@@ -55,6 +55,12 @@ export type CompanionChange = {
   readonly signals: ReadonlyArray<AgentSignal>;
   /** Artifact changes since the cursor, oldest first: the host sends them only to a connection that asked. */
   readonly artifacts?: ReadonlyArray<CompanionArtifactChanged>;
+  /**
+   * A thread or mailbox may have changed. False when only seat state,
+   * awareness or pause moved, so followed threads and mail are not read
+   * again; absent (an older Mac) means they may have.
+   */
+  readonly mail?: boolean;
   /** The cursor was not recognized (app restarted): refresh everything. */
   readonly reset: boolean;
 };
@@ -243,7 +249,7 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
     }
   };
 
-  const refresh = async (signals: ReadonlyArray<AgentSignal>, artifacts: ReadonlyArray<CompanionArtifactChanged> = []): Promise<void> => {
+  const refresh = async (signals: ReadonlyArray<AgentSignal>, artifacts: ReadonlyArray<CompanionArtifactChanged> = [], mail = true): Promise<void> => {
     for (const change of artifacts) {
       if (artifactsCanvas !== undefined && change.canvasName === artifactsCanvas) emit("artifact.changed", change);
     }
@@ -353,6 +359,9 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
         commentsFocus = undefined;
       }
     }
+    // Every followed seat's threads and mail are the heaviest reads a change
+    // costs the Mac: read them only when mail could have changed them.
+    if (!mail) return;
     for (const [ref, { canvasName, nodeId, sent }] of threadFocus) {
       const threads = await seatThreads(canvasName, nodeId);
       if (threads === "gone") {
@@ -410,7 +419,7 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
       // The first cursor may already count a change made while the phone's
       // answer was on its way: read once against what was sent, then wait.
       if (first || change.changed || change.reset || change.signals.length > 0) {
-        await refresh(change.signals, change.artifacts ?? []).catch(() => undefined);
+        await refresh(change.signals, change.artifacts ?? [], first || change.reset || change.mail !== false).catch(() => undefined);
       }
     }
   };

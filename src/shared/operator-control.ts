@@ -120,6 +120,8 @@ export const OperatorCompanionEventsData = Schema.Union([
     signals: Schema.Array(AgentSignal),
     /** Artifact changes since the cursor, for a connection that subscribed to their canvas. */
     artifacts: Schema.optionalKey(Schema.Array(CompanionArtifactChanged)),
+    /** A thread or mailbox may have changed; absent from an older Mac, which means it may have. */
+    mail: Schema.optionalKey(Schema.Boolean),
     reset: Schema.Boolean,
   }),
   Schema.Struct({ ok: Schema.Literal(false), error: CompanionError }),
