@@ -36,6 +36,10 @@ import { messageDelivery } from "../../junto/work/message-delivery";
 import { TaskRepository } from "../../junto/work/task-repository";
 import { bindSeatIpc, seatOnOfCore } from "./ipc-seats";
 import { coreOps, type CoreOp } from "../ops";
+import { host } from "../host-ops";
+import { harnessRecordFor } from "@shared/harness-records";
+import { seatStateRuntime } from "../../junto/term/agent-state/runtime";
+import { ClipboardUnreadable, clipboardSafeAssert } from "../../junto/term/drive/clipboard-guard";
 
 declare module "../ops" {
   interface CoreOps {
@@ -79,6 +83,21 @@ coreOps({
       let suspended = false;
       let checkoutWatch: CheckoutWatchSupervisor | undefined;
       const { drive: managedDrive, mailReadyNow, driveReady } = coreMail.seats;
+      // A harness that refuses an image paste (Grok) is asked before the drive
+      // types; the pasteboard's formats are Electron's, so main answers and an
+      // answer it does not give is a no (drive/clipboard-guard.ts).
+      coreMail.seats.setClipboardSafe(
+        clipboardSafeAssert({
+          guarded: (bindingId) =>
+            harnessRecordFor(seatStateRuntime.machine.getSlot(bindingId)?.harness)?.pty.clipboardImageGuard === true,
+          ask: () =>
+            Effect.tryPromise({
+              try: () => host.call("clipboard.safeForGrok", {}),
+              catch: (cause) =>
+                new ClipboardUnreadable({ message: cause instanceof Error ? cause.message : String(cause) }),
+            }),
+        }),
+      );
       coreMail.seats.onSuspend(() => {
         suspended = true;
         checkoutWatch?.stop();

@@ -13,6 +13,7 @@ import { useCoreClient } from "./main-client";
 import { relayWindowPushes } from "./main-side/window-pushes";
 import { serveOverseerHost } from "./main-side/overseer-pages";
 import { serveCompanionClipboard } from "./main-side/companion";
+import { serveClipboardFormats } from "./main-side/clipboard";
 import { coreSurfacePlane, useCoreSurfacePlane, type PortedCoreMessage } from "./main-side/term-surface";
 import type { CompanionClipboard } from "../junto/companion/service";
 import type { PortCoreClient } from "./port";
@@ -36,6 +37,8 @@ export const startCoreProcessForMain = (input: {
   readonly captureApplicationPage: () => Promise<ApplicationCaptureResult>;
   /** The system clipboard, for the phone companion's Copy link. */
   readonly clipboard: CompanionClipboard;
+  /** The system clipboard's formats, for the paste preflight a guarded seat makes. */
+  readonly clipboardFormats: () => ReadonlyArray<string>;
   /** Tests start a core over a MessageChannel instead of a utilityProcess. */
   readonly start?: (boot: CoreBoot) => PortCoreClient & { readonly stop: () => void; readonly postSurface?: (message: PortedCoreMessage, port: unknown) => boolean };
   /** The terminal process the core's plane drives: main hands the core each port to it. */
@@ -56,6 +59,8 @@ export const startCoreProcessForMain = (input: {
   const stopRelay = relayWindowPushes(started);
   const stopHost = serveOverseerHost({ core: started, pages: input.pages, captureApplicationPage: input.captureApplicationPage });
   const stopClipboard = serveCompanionClipboard(input.clipboard);
+  // A guarded seat's paste preflight: the core asks, main reads the pasteboard's formats.
+  const stopClipboardFormats = serveClipboardFormats({ availableFormats: input.clipboardFormats });
   // The terminal plane is the core's: each view's surface port rides to it.
   const postSurface = started.postSurface;
   if (postSurface !== undefined) {
@@ -76,6 +81,7 @@ export const startCoreProcessForMain = (input: {
       stopRestart();
       stopTerminalHost();
       useCoreSurfacePlane(undefined);
+      stopClipboardFormats();
       stopClipboard();
       stopHost();
       stopRelay();
