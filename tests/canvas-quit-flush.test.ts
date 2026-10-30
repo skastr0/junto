@@ -142,21 +142,22 @@ describe("canvas quit durability wiring", () => {
   });
 
   it("blocks every exit path after the bounded terminal shutdown returns unclean", () => {
-    const helperStart = source.indexOf("const requireCleanTermPlaneShutdown");
-    const helperEnd = source.indexOf("const exitAfterDetach", helperStart);
-    const helper = source.slice(helperStart, helperEnd);
-    const directEnd = source.indexOf("let quitPreparation", helperEnd);
-    const directExit = source.slice(helperEnd, directEnd);
+    // The plane's bounded drain and its unclean receipt are the core's now:
+    // junto/term/core-seats.ts starts the plane, drains it once, and throws
+    // only when host-owned local PTY generations were retained.
+    const coreSeats = readFileSync(join(import.meta.dirname, "..", "src/main/junto/term/core-seats.ts"), "utf8");
+    expect(coreSeats).toContain("closeFlight ??= termPlane.drainOnQuit(reason)");
+    expect(coreSeats).toContain("termPlaneBlocksAppExit(receipt)");
+    expect(coreSeats).toContain("throw new Error");
+    // Main's exit paths still cut admission before detach and exit, and a
+    // blocked direct exit gives the operator a surface back.
+    const directStart = source.indexOf("const exitAfterDetach");
+    const directEnd = source.indexOf("let quitPreparation", directStart);
+    const directExit = source.slice(directStart, directEnd);
     const signalStart = source.indexOf("installProcessSignalTermination({");
     const standardStart = source.indexOf("// Existing normal continuations", signalStart);
     const signalBlock = source.slice(standardStart);
 
-    expect(helper).toContain("termPlaneBlocksAppExit(receipt)");
-    expect(helper).toContain("termPlaneShutdown = undefined");
-    expect(helper).toContain("throw new Error");
-    // Non-host retention (control UDS) must not trap the operator.
-    expect(helper).toContain("quit continues with non-host terminal retention");
-    expect(helper).not.toContain("waitForAllLocalExited");
     expect(directExit).not.toContain(".finally(");
     expect(directExit.indexOf("requireCleanLocalTerminalShutdown(reason)"))
       .toBeLessThan(directExit.indexOf("detachRuntimeOnQuit(reason)"));

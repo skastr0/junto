@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   ipcMain,
   Menu,
@@ -14,7 +15,6 @@ import {
   shell,
   type IpcMainEvent,
 } from "electron";
-import { Context, Effect } from "effect";
 import { classifyBrowserTarget } from "@shared/browser-policy";
 import {
   IPC_CHANNELS,
@@ -43,19 +43,10 @@ import { appProcessBlocksAppExit, appProcessPlane, describeAppProcessStraggler }
 import { AppRuntime } from "./runtime";
 import { core } from "./core-process/main-client";
 import { startTerminalProcess, startTerminalProcessForCore } from "./terminal-process/host";
-import { useTerminalProcess } from "./terminal-process/use";
 import { subscribe as subscribeCore } from "./core-process/push";
 import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, COMPANION_DEVICES, SETTINGS_CHANGED, WORK_PREAMBLE, type CanvasChangedPush } from "./core-process/channels";
 import { coreBrowserProfileStore, coreTouchedOriginStore } from "./core-process/main-side/browser";
-import { MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail } from "./core-runtime";
-import { makeInventoryChannel } from "./junto/inventory/channel";
-import { makeNativeConfigChannel } from "./junto/inventory/native-channel";
-import { makeSettingsChannel } from "./junto/settings/link-channel";
-import { MachineOwnerControl } from "./junto/hosts/machine-owner";
-import { AuthorityOwnerControl } from "./junto/hosts/authority-owner";
-import { MachineLink, type MachineLinkListener } from "./junto/link/service";
 import { raisedHands } from "./junto/signals/raised-hands";
-import { onAgentSignalChanged } from "./junto/signals/changes";
 import {
   armMainThreadBudget,
   installMachineLog,
@@ -77,34 +68,19 @@ import {
 } from "./junto/browser/composition";
 import { makeBrowserCompositionHost } from "./junto/browser/composition-host";
 import { makeElectronBrowserViewAttachmentTarget } from "./junto/browser/view-adapter";
-import { hostsSnapshot } from "./junto/hosts/snapshot";
 import { applyInterfaceScale, followInterfaceScale, refitInterfaceScale } from "./junto/interface-scale";
 import {
   BROWSER_ENABLED,
-  FILES_REMOTE_ENABLED,
   LIVE_OVERSEER_ENABLED,
 } from "@shared/features";
-import { TERM_PLANE_IN_THIS_PROCESS, termPlane, termPlaneBlocksAppExit } from "./junto/term/plane";
 import { configureTerminalRouterLayeredRunner, sshTransportRouterRunner } from "./junto/term/router";
 import { resolveBrowserPageTarget } from "./junto/browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./junto/browser/control";
 import {
-  startWorkControlServer,
-  workControlReadiness,
-  type WorkControlServer,
-} from "./junto/work/control";
-import {
   captureTrustedWindowPng,
-  composeOverseer,
-  type OverseerComposition,
 } from "./junto/overseer/composition";
 import { composeOverseerLive } from "./junto/overseer/live/composition";
 import { registerOverseerLiveIpc } from "./junto/overseer/live/ipc";
-import {
-  startCanvasControlServer,
-  type CanvasControlServer,
-} from "./junto/canvas-control";
-import { KernelService } from "./junto/kernel/service";
 import { makeEdgeGrantService } from "./junto/browser/edge-grant";
 import { evaluateSchemaCompatibility } from "./junto/state/schema-version-probe";
 import { runStartupStateFailureDialog } from "./junto/state/startup-state-failure-dialog";
@@ -157,8 +133,6 @@ import { remoteVideos } from "./junto/preview/remote-video";
 import { FILE_PROTOCOL_SCHEME_REGISTRATION, installFileProtocol } from "./junto/files/protocol";
 import { makeFilesDraftsSettle } from "./junto/files/drafts-settle";
 import { registerFilesIpc } from "./junto/files/ipc";
-import { makeFilesLinkChannel } from "./junto/files/link";
-import { unboundYet } from "./junto/link/unbound";
 import { coreFilesRemote } from "./core-process/main-side/files-remote";
 import {
   resolveTrustedRendererOrigin,
@@ -167,30 +141,15 @@ import {
 import { loadStationSupervisor } from "./junto/supervision/select";
 import { installUpdateHostHooks } from "./junto/update";
 import { hostOperationsShutdown } from "./junto/hosts/shutdown";
-import { makeOperatorCoordinator } from "./junto/hosts/operator-coordinator";
 import {
   operatorControlEnabledFromInitialArgv,
-  startOperatorControlServer,
-  type OperatorControlServer,
 } from "./junto/operator-control";
 import {
-  OPERATOR_COMPANION_OPS,
-  OPERATOR_PROTOCOL_VERSION,
-  type OperatorRequestEnvelope,
-  type OperatorResponseEnvelope,
-} from "@shared/operator-control";
-import {
-  companionE2eEnvironment,
   companionService,
-  makeCompanionService,
-  readCompanionEnvironment,
-  setCompanionService,
 } from "./junto/companion/service";
 import { broadcastCompanionDevices, electronCompanionClipboard, registerCompanionIpc } from "./junto/companion/ipc";
-import { coreCompanionSettings } from "./core-process/main-side/companion";
 import { coreOverseerLive } from "./core-process/main-side/overseer-live";
-import { companionNotePreamble, wireCompanionChanges } from "./junto/companion/wiring";
-import { bindCompanionHost } from "./junto/companion/runtime";
+import { companionNotePreamble } from "./junto/companion/wiring";
 import { askOnEveryCore, askOnLaterCores } from "./core-process/every-core";
 import { startCoreProcessForMain, type CoreProcessForMain } from "./core-process/main-boot";
 import { overseerPagesOn, type OverseerPages } from "./junto/overseer/pages";
@@ -428,38 +387,23 @@ const browserCompositionHost = makeBrowserCompositionHost({
 let trustedRendererOrigin: TrustedRendererOrigin | undefined;
 let browserComposition: BrowserComposition | undefined;
 let browserControl: BrowserControlServer | undefined;
-let workControl: WorkControlServer | undefined;
-let overseerComposition: OverseerComposition | undefined;
 /** With the core in its own process: main's handle on it, and the browser it asks main to drive. */
 let coreProcess: CoreProcessForMain | undefined;
 let coreProcessPages: OverseerPages | undefined;
 let overseerLive: Awaited<ReturnType<typeof composeOverseerLive>> | undefined;
 let overseerLiveShutdown: Promise<void> | undefined;
 let unregisterOverseerLiveIpc: (() => void) | undefined;
-let canvasControl: CanvasControlServer | undefined;
-let operatorControl: OperatorControlServer | undefined;
-let machineLinkListener: MachineLinkListener | undefined;
-type KernelServiceShape = Context.Service.Shape<typeof KernelService>;
-let kernelService: KernelServiceShape | undefined;
 let rendererWindowAdmissionReady = false;
 let productRuntimeStarted = false;
 let operatorFleetReady = false;
 let shutdownAdmissionClosed = false;
 let shutdownReason = "app_quit";
 let browserShutdown: Promise<Awaited<ReturnType<BrowserComposition["drainOnQuit"]>>> | undefined;
-let workControlShutdown: Promise<Awaited<ReturnType<WorkControlServer["drainOnQuit"]>>> | undefined;
-let canvasControlShutdown:
-  | Promise<Awaited<ReturnType<CanvasControlServer["close"]>>>
-  | undefined;
-let operatorControlShutdown:
-  | Promise<Awaited<ReturnType<OperatorControlServer["close"]>>>
-  | undefined;
 let hostOperationsDrain:
   | Promise<Awaited<ReturnType<typeof hostOperationsShutdown.drainOnQuit>>>
   | undefined;
 let terminalProcess: ReturnType<typeof startTerminalProcess> | undefined;
 let terminalsForCore: ReturnType<typeof startTerminalProcessForCore> | undefined;
-let termPlaneShutdown: Promise<Awaited<ReturnType<typeof termPlane.drainOnQuit>>> | undefined;
 let adapterShutdown:
   | Promise<Awaited<ReturnType<typeof terminateAdapterChildrenOnQuit>>>
   | undefined;
@@ -1549,6 +1493,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       pages: () => coreProcessPages,
       captureApplicationPage,
       clipboard: electronCompanionClipboard,
+      clipboardFormats: () => clipboard.availableFormats(),
       ...(terminalsForCore === undefined ? {} : { terminals: terminalsForCore }),
     });
     if (LIVE_OVERSEER_ENABLED) unregisterOverseerLiveIpc = registerOverseerLiveIpc(coreOverseerLive(core));
@@ -1584,7 +1529,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     registerIpcHandlers();
     registerDemoIpcHandlers();
     // Settings reads the phones from wherever the companion runs.
-    registerCompanionIpc(coreCompanionSettings(core));
+    registerCompanionIpc();
     notificationPlane ??= registerNotificationIpc({
       window: currentTrustedMainWindow,
       // No banners, badge, or bounce from an isolated harness run; a visible
@@ -1716,7 +1661,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           });
           composition.bindControlShutdown(browserControl);
           registerBrowserIpcHandlers(composition.sessions);
-          overseerComposition?.bindPages(composition.sessions);
           coreProcessPages = overseerPagesOn(composition.sessions);
         },
         {
@@ -1741,12 +1685,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         console.error("[browser-automation] control socket did not close", cause);
       }
       browserControl = undefined;
-      try {
-        workControl?.close();
-      } catch (cause) {
-        console.error("[work-control] socket did not close", cause);
-      }
-      workControl = undefined;
       console.error(BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE);
       exitAfterDetach(1, "browser-composition-startup-failure");
       return;
@@ -1809,11 +1747,7 @@ const beginShutdownAdmission = (reason: string): void => {
   shutdownReason = reason;
   if (shutdownAdmissionClosed) return;
   shutdownAdmissionClosed = true;
-  machineLinkListener?.beginShutdown();
   operatorFleetReady = false;
-  // Close kernel scheduling at the same synchronous, one-way admission cut.
-  // No product teardown may strand work claimed by a later kernel cycle.
-  kernelService?.suspend();
   nodeRefOwnerReady = false;
   pendingNodeRefUri = undefined;
   activeNodeRefDelivery = undefined;
@@ -1829,15 +1763,10 @@ const beginShutdownAdmission = (reason: string): void => {
 
   // A phone's idle long poll must not hold operator control open over quit.
   companionService()?.changes.close();
-  operatorControl?.beginShutdown();
   unregisterOverseerLiveIpc?.();
   unregisterOverseerLiveIpc = undefined;
   overseerLiveShutdown ??= overseerLive?.dispose();
-  overseerComposition?.dispose();
-  overseerComposition = undefined;
-  workControl?.beginShutdown();
   hostOperationsShutdown.beginShutdown();
-  if (TERM_PLANE_IN_THIS_PROCESS) termPlane.beginShutdown(reason);
   appProcessPlane.beginShutdown();
 };
 
@@ -1906,9 +1835,6 @@ const detachRuntimeOnQuit = (reason: string): void => {
     throw new Error("runtime detach blocked before signal durability commit");
   }
   runtimeDetachedForQuit = true;
-  // Canvas control cannot reopen. Cut it only after the renderer/document
-  // durability boundary is irreversible, never during a recoverable precommit.
-  canvasControl?.beginShutdown();
   beginShutdownAdmission(reason);
   nodeRefOwnerReady = false;
   pendingNodeRefUri = undefined;
@@ -1937,51 +1863,6 @@ const requireCleanBrowserShutdown = async (reason: string): Promise<void> => {
   if (BROWSER_ENABLED) await browserCompositionHost.shutdown();
 };
 
-const requireCleanWorkControlShutdown = async (): Promise<void> => {
-  if (workControl === undefined && workControlShutdown === undefined) return;
-  const receipt = await (workControlShutdown ??= workControl?.drainOnQuit());
-  if (receipt === undefined) return;
-  if (!receipt.clean) {
-    workControlShutdown = undefined;
-    throw new Error(
-      `work control shutdown retained ${receipt.retainedLabels.join(", ") || "transport state"}`,
-    );
-  }
-  workControl = undefined;
-};
-
-const requireCleanOperatorControlShutdown = async (): Promise<void> => {
-  if (operatorControl === undefined && operatorControlShutdown === undefined) {
-    return;
-  }
-  const receipt = await (operatorControlShutdown ??= operatorControl?.close());
-  if (receipt === undefined) return;
-  if (!receipt.clean) {
-    operatorControlShutdown = undefined;
-    throw new Error(
-      `operator control shutdown retained ${receipt.retainedLabels.join(", ") || "transport state"}`,
-    );
-  }
-  operatorControl = undefined;
-};
-
-const requireCleanCanvasControlShutdown = async (): Promise<void> => {
-  if (canvasControl === undefined && canvasControlShutdown === undefined) {
-    return;
-  }
-  const receipt = await (canvasControlShutdown ??= canvasControl?.close());
-  if (receipt === undefined) return;
-  if (!receipt.clean) {
-    canvasControlShutdown = undefined;
-    throw new Error(
-      `canvas control shutdown retained ${
-        receipt.retainedLabels.join(", ") || "transport state"
-      }`,
-    );
-  }
-  canvasControl = undefined;
-};
-
 const requireCleanHostOperationsShutdown = async (): Promise<void> => {
   const receipt = await (hostOperationsDrain ??= hostOperationsShutdown.drainOnQuit());
   if (!receipt.clean) {
@@ -1990,39 +1871,6 @@ const requireCleanHostOperationsShutdown = async (): Promise<void> => {
       `host operations shutdown retained ${receipt.retainedLabels.join(", ") || "active work"}`,
     );
   }
-};
-
-const formatTermPlaneRetention = (
-  receipt: Awaited<ReturnType<typeof termPlane.drainOnQuit>>,
-): string =>
-  [
-    ...receipt.retainedLabels,
-    ...receipt.diagnostics,
-    ...(receipt.control !== undefined && !receipt.control.clean
-      ? receipt.control.retainedLabels.map((label) => `control:${label}`)
-      : []),
-  ]
-    .filter((part, index, all) => part.length > 0 && all.indexOf(part) === index)
-    .join("; ");
-
-const requireCleanTermPlaneShutdown = async (reason: string): Promise<void> => {
-  // The core's plane drains in the core as it stops.
-  if (!TERM_PLANE_IN_THIS_PROCESS) return;
-  const receipt = await (termPlaneShutdown ??= termPlane.drainOnQuit(reason));
-  if (receipt.clean) return;
-  // Bounded unclean receipts are observations, not permanent facts. Clear so
-  // a later Cmd+Q / signal can re-drain after stragglers exit or path races end.
-  termPlaneShutdown = undefined;
-  const detail = formatTermPlaneRetention(receipt) || "unknown resource";
-  // Control UDS / remote-router dirt must not trap the operator. Only
-  // host-owned local PTY generations may block exit (machine safety).
-  if (!termPlaneBlocksAppExit(receipt)) {
-    console.error(
-      `[term] quit continues with non-host terminal retention (${reason}): ${detail}`,
-    );
-    return;
-  }
-  throw new Error(`terminal plane shutdown retained ${detail}`);
 };
 
 const requireCleanAdapterShutdown = async (): Promise<void> => {
@@ -2053,17 +1901,6 @@ const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
   quitPhases.mark("runtime dispose begins");
   await overseerLiveShutdown;
   lap("dispose: overseer live");
-  await requireCleanOperatorControlShutdown();
-  lap("dispose: operator control");
-  await machineLinkListener?.close();
-  machineLinkListener = undefined;
-  lap("dispose: machine links");
-  await requireCleanTermPlaneShutdown(reason);
-  lap("dispose: terminal plane");
-  await requireCleanCanvasControlShutdown();
-  lap("dispose: canvas control");
-  await requireCleanWorkControlShutdown();
-  lap("dispose: work control");
   await requireCleanHostOperationsShutdown();
   lap("dispose: host operations");
   await requireCleanBrowserShutdown(reason);
@@ -2072,7 +1909,8 @@ const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
   lap("dispose: adapters");
   await requireCleanAppProcessShutdown();
   lap("dispose: app processes");
-  // The core process stops before the terminal process its seats run on.
+  // The core stops (and drains its own sockets, plane and stores) before the
+  // terminal process its seats run on.
   coreProcess?.stop();
   coreProcess = undefined;
   // Every PTY it held is drained above; the terminal process goes last.
@@ -2114,11 +1952,14 @@ const disposeRuntimeFailClosed = (reason: string): Promise<void> => {
   return work;
 };
 
-/** An app exit is authorized only after every owned local child reports exit. */
+/**
+ * An app exit is authorized only after admission is cut: no new authoring,
+ * seat or operator command may enter while the rest of the teardown runs. The
+ * core drains its own terminal plane as it stops (junto/term/core-seats.ts),
+ * and main stops the terminal process after that.
+ */
 const requireCleanLocalTerminalShutdown = async (reason: string): Promise<void> => {
   beginShutdownAdmission(reason);
-  await quitPhases.time(`terminal drain (${reason})`, () =>
-    requireCleanTermPlaneShutdown(reason));
 };
 
 // Electron app.exit() bypasses before-quit and will-quit. Every direct exit
@@ -2188,10 +2029,10 @@ const quiesceSignalRenderer = (generation: number): void => {
   signalQuitState.markRendererQuiesced(generation);
 };
 
+// Main runs no terminal session: every PTY belongs to the core's plane, on
+// this machine or another. A quit that must wait for one is the core's to ask.
 const collectLiveWorkSnapshot = () =>
-  assessLiveWork({
-    localTerminalSessionCount: TERM_PLANE_IN_THIS_PROCESS ? termPlane.router.runningCount() : 0,
-  });
+  assessLiveWork({ localTerminalSessionCount: 0 });
 
 /** Cancel left the process with no UI — give the operator a surface back. */
 const recreateWindowIfEmpty = (): void => {

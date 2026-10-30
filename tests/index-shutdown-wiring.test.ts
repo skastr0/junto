@@ -21,23 +21,33 @@ describe("index shutdown wiring", () => {
     expect(block).toContain("composition.bindControlShutdown(browserControl)");
   });
 
-  it("suspends kernel admission before normal product teardown begins", () => {
+  it("cuts admission before any main drain, and drains only what main runs", () => {
     const start = source.indexOf("const beginShutdownAdmission");
     const end = source.indexOf("const logUnfinishedDrain", start);
     const block = source.slice(start, end);
     const admissionCut = block.indexOf("shutdownAdmissionClosed = true");
-    const kernelCut = block.indexOf("kernelService?.suspend()");
 
     expect(admissionCut).toBeGreaterThanOrEqual(0);
-    expect(kernelCut).toBeGreaterThan(admissionCut);
     for (const teardown of [
       "browserComposition?.drainOnQuit(reason)",
-      "workControl?.beginShutdown()",
       "hostOperationsShutdown.beginShutdown()",
-      "termPlane.beginShutdown(reason)",
       "appProcessPlane.beginShutdown()",
     ]) {
-      expect(kernelCut).toBeLessThan(block.indexOf(teardown));
+      expect(admissionCut).toBeLessThan(block.indexOf(teardown));
+    }
+    // The core's servers (operator control, the machine link, work control,
+    // canvas control, the kernel, the terminal plane) are drained in the core
+    // as it stops; main names none of them, so none is left holding a copy.
+    for (const gone of [
+      "termPlane",
+      "kernelService",
+      "machineLinkListener",
+      "workControl",
+      "canvasControl",
+      "operatorControl",
+      "overseerComposition",
+    ]) {
+      expect(source).not.toMatch(new RegExp(`\\b${gone}\\b`, "u"));
     }
   });
 });
