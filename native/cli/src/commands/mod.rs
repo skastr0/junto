@@ -6,6 +6,9 @@ use std::process::ExitCode;
 
 use clap::{Args, Subcommand};
 
+use crate::envelope;
+use crate::error::{ErrorType, Failure};
+
 pub mod artifact;
 pub mod authority;
 pub mod automation;
@@ -42,6 +45,25 @@ pub struct Timeout {
 impl From<Timeout> for crate::wire::Timeout {
     fn from(t: Timeout) -> Self {
         t.ms.into()
+    }
+}
+
+/// A command this build parses but does not run yet.
+#[derive(Args, Debug)]
+pub struct Pending {
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true, hide = true)]
+    rest: Vec<String>,
+}
+
+impl Pending {
+    pub fn refuse(name: &str) -> ExitCode {
+        envelope::refuse(
+            Some(name),
+            &Failure::new(
+                ErrorType::InputError,
+                format!("{name} is not in this junto build yet"),
+            ),
+        )
     }
 }
 
@@ -111,3 +133,22 @@ impl Run for Root {
         }
     }
 }
+
+/// Declares root commands not ported yet: parsed, refused by name.
+macro_rules! pending {
+    ($($ty:ident => $name:literal),+ $(,)?) => {
+        $(
+            #[derive(clap::Args, Debug)]
+            pub struct $ty {
+                #[command(flatten)]
+                pending: $crate::commands::Pending,
+            }
+            impl $crate::commands::Run for $ty {
+                fn run(self) -> std::process::ExitCode {
+                    $crate::commands::Pending::refuse($name)
+                }
+            }
+        )+
+    };
+}
+pub(crate) use pending;
