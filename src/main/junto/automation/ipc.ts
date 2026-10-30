@@ -124,13 +124,11 @@ export const automationIpcHandlers = (run: AutomationsRun, changed: (event: Auto
   };
 };
 
-/** One line in the app's IPC registration. */
+/** One line in the app's IPC registration: the handlers answer in the core (ops/ipc-automation.ts). */
 export const registerAutomationIpc = (
   ipcMain: Pick<IpcMain, "handle">,
-  broadcast: (channel: string, payload: AutomationsChanged) => void,
-  run: AutomationsRun,
+  handlers: ReturnType<typeof automationIpcHandlers>,
 ): void => {
-  const handlers = automationIpcHandlers(run, (event) => broadcast(IPC_CHANNELS.automationsChanged, event));
   ipcMain.handle(IPC_CHANNELS.automationList, (_event, canvasName: unknown, input: unknown) => handlers.list(canvasName, input));
   ipcMain.handle(IPC_CHANNELS.automationFirings, (_event, canvasName: unknown, input: unknown) => handlers.firings(canvasName, input));
   ipcMain.handle(IPC_CHANNELS.automationApply, (_event, canvasName: unknown, input: unknown) => handlers.apply(canvasName, input));

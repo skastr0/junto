@@ -301,7 +301,14 @@ export const registerJuntoIpc = (): void => {
   // Moving artifacts (0.11.1, 10): the overseer and the window run the same
   // move, each under its caller's authoring label, ruled by the core.
   installArtifactMove((input, by) => core.call("ipc.resource.move", { input, by }));
-  registerAutomationIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
+  registerAutomationIpc(privilegedIpc, {
+    list: (canvasName, input) => core.call("ipc.automation.list", { canvasName, input }),
+    firings: (canvasName, input) => core.call("ipc.automation.firings", { canvasName, input }),
+    apply: (canvasName, input) => core.call("ipc.automation.apply", { canvasName, input }),
+    codePut: (canvasName, input) => core.call("ipc.automation.codePut", { canvasName, input }),
+    codeRead: (canvasName, input) => core.call("ipc.automation.codeRead", { canvasName, input }),
+  });
+  subscribeCore(IPC_CHANNELS.automationsChanged, (event) => broadcast(IPC_CHANNELS.automationsChanged, event));
   // Where each seat, task, artifact and page is mentioned (work/mention-ipc.ts).
   registerMentionIpc(privilegedIpc, (effect) => AppRuntime.runPromise(effect), {
     topology: (canvasName) =>
