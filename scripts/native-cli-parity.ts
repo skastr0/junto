@@ -44,6 +44,15 @@ const err = (op: string, error: unknown) => JSON.stringify({ ok: false, op, erro
 const delivered = (frame: { op: string }) =>
   ok(frame.op, { messageId: SERVER_ID, delivered: true, n: 1.5, big: 1e21, small: 1e-7, s: "é \u0001\"", nested: { z: [null, false] } });
 
+/** content.stage as main answers it: a piece keeps the upload open, `done` closes it with the ref; any other op is delivered. */
+const staged = (frame: { op: string; args: unknown }) => {
+  if (frame.op !== "content.stage") return delivered(frame);
+  const { done } = frame.args as { done?: { mediaType: string; displayName?: string; expected: { sha256: string; byteLength: number } } };
+  return done === undefined
+    ? ok(frame.op, { stageId: `stg_${"0".repeat(32)}`, byteLength: 1 })
+    : ok(frame.op, { ref: { ...done.expected, mediaType: done.mediaType, ...(done.displayName === undefined ? {} : { displayName: done.displayName }) } });
+};
+
 const server = createServer((socket: Socket) => {
   let buffer = "";
   socket.on("data", (chunk) => {
@@ -125,7 +134,7 @@ const exampleCases: ReadonlyArray<Case> = allExamples.flatMap((example) =>
         name: `example ${example.command}: ${example.name}`,
         argv: example.args,
         ...(example.args.some((a) => a === "-" || a === "@-") ? { stdin: JSON.stringify(example.input ?? {}) } : {}),
-        answer: delivered,
+        answer: staged,
       }]);
 
 const cases = [...handCases, ...exampleCases].filter((c) => only === undefined || c.argv.join(" ").startsWith(only));
