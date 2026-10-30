@@ -14,10 +14,7 @@ export class StateEngineError extends Schema.TaggedError<StateEngineError>()(
 ) {}
 
 /** Attribution retained across an owning SQL transaction and its receipts. */
-export const StateTransactionOperation = Context.Reference<string>(
-  "@junto/StateTransactionOperation",
-  { defaultValue: () => "sql.transaction" },
-);
+export { StateTransactionOperation } from "./transaction-operation";
 
 export type StateEngineInfo = {
   readonly path: string;

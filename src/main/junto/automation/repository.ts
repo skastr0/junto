@@ -23,7 +23,7 @@ import {
 import type { NodeId } from "@shared/physics/schema";
 import type { InstallationId } from "@shared/installation-id";
 import type { AutomationFiringResult } from "@shared/automation-firing-row";
-import { StateTransactionOperation } from "../state/service";
+import { StateTransactionOperation } from "../state/transaction-operation";
 import { notifyAutomationsChanged } from "./changes";
 
 export class AutomationPersistenceError extends Schema.TaggedError<AutomationPersistenceError>()(

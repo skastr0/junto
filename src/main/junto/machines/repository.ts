@@ -4,7 +4,7 @@ import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import { InstallationId } from "@shared/installation-id";
 import { MachineName } from "@shared/machine-control";
 import { defaultMachineName } from "@shared/machine-name";
-import { StateTransactionOperation } from "../state/service";
+import { StateTransactionOperation } from "../state/transaction-operation";
 import { withSqlRead } from "../state/sql-read";
 import { setLogMachine } from "../observability/logger";
 import { MachineConfigurationRepository, MachineRefused, type StoredMachineConfiguration } from "./configuration";

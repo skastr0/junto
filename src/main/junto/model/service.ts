@@ -25,7 +25,7 @@ import {
   setSqlTransactionLocal,
 } from "../state/sql-commit";
 import { withSqlRead } from "../state/sql-read";
-import { StateTransactionOperation } from "../state/service";
+import { StateTransactionOperation } from "../state/transaction-operation";
 import { AUTHORITY_ENABLED } from "@shared/features";
 import { CanvasAuthorities } from "../fleet/authorities";
 import { StructureCapture } from "./structure-capture";

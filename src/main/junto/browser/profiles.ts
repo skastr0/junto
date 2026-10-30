@@ -23,7 +23,7 @@ import {
   BROWSER_MAX_VISIBLE_SURFACES_HARD,
   BROWSER_MAX_WARM_SESSIONS_HARD,
 } from "@shared/browser-limits";
-import { StateTransactionOperation } from "../state/service";
+import { StateTransactionOperation } from "../state/transaction-operation";
 import type {
   BrowserProfileGateResult,
   BrowserProfileSnapshot,

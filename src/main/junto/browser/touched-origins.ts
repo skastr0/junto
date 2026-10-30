@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { SqlSchema, type SqlClient } from "effect/unstable/sql";
-import { StateTransactionOperation } from "../state/service";
+import { StateTransactionOperation } from "../state/transaction-operation";
 import { runClosedBrowserEffect } from "./run-closed";
 
 /** One (profile, origin) a seat ran code in. */
