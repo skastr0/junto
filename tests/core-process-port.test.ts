@@ -128,6 +128,29 @@ describe("core operations", () => {
       await expect(served.host.call("test.hostRefuse", {})).rejects.toMatchObject({ tag: "NoWindow", message: "no window" });
     });
 
+    it("while the core still starts: its host calls reach main, and main's calls wait for it", async () => {
+      register();
+      const runtime = runtimeWith();
+      const { port1, port2 } = new MessageChannel();
+      opened.push(() => {
+        port1.close();
+        void runtime.dispose();
+      });
+      let started!: (runner: typeof runtime) => void;
+      const served = serveCore(portOf(port2), new Promise<typeof runtime>((resolve) => { started = resolve; }));
+      const core = portCore(portOf(port1));
+      let answered = false;
+      const early = core.call("test.add", { n: 2 }).then((value) => {
+        answered = true;
+        return value;
+      });
+      // A boot step asks main before the core can answer anything.
+      expect(await served.host.call("test.shot", { scale: 4 })).toEqual({ bytes: [4, 8, 12] });
+      expect(answered).toBe(false);
+      started(runtime);
+      expect(await early).toEqual({ total: 2 });
+    });
+
     it("a stopped main rejects every host call in flight", async () => {
       const runtime = runtimeWith();
       const { port2 } = new MessageChannel();

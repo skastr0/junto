@@ -13,6 +13,7 @@ import { getCompiledMachineReleaseCatalog } from "@shared/machine-release";
 import { makeMachineBundleSources } from "../junto/hosts/machine-bundle-download";
 import { startCore } from "../junto/core";
 import { serveCore, type CoreMessage, type CorePort } from "./port";
+import type { CoreRunner } from "./client";
 import { forwardPublishes } from "./push";
 import { host, useHostClient } from "./host-ops";
 import { hostCaptureApplicationPage, hostOverseerPages } from "./ops/overseer-pages";
@@ -44,6 +45,12 @@ export const parentCorePort = (parent: ParentPort): CorePort => ({
 
 const main = async (parent: ParentPort): Promise<void> => {
   const boot = JSON.parse(process.argv.at(-1) ?? "{}") as CoreBoot;
+  // The port opens before the core boots: what boots may already ask main and
+  // publish, and a call from main waits until the core can run it.
+  let started!: (runner: CoreRunner) => void;
+  const served = serveCore(parentCorePort(parent), new Promise<CoreRunner>((resolve) => { started = resolve; }));
+  forwardPublishes(served.push);
+  useHostClient(served.host);
   const core = await startCore({
     home: boot.home,
     build: boot.build,
@@ -56,9 +63,7 @@ const main = async (parent: ParentPort): Promise<void> => {
       localRoot: () => boot.bundlesRoot,
     }),
   });
-  const served = serveCore(parentCorePort(parent), core.runtime);
-  forwardPublishes(served.push);
-  useHostClient(served.host);
+  started(core.runtime);
   served.push("core.ready", {});
   const stop = (): void => {
     // Main stops the core; nothing will answer a host call still out.

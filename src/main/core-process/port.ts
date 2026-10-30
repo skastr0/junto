@@ -82,8 +82,11 @@ export const portCore = (port: CorePort): PortCoreClient => {
   };
 };
 
-/** The core's side: answer every call by running its operation; push changes; ask main through `host`. */
-export const serveCore = (port: CorePort, runner: CoreRunner): {
+/**
+ * The core's side: answer every call by running its operation; push changes; ask main through `host`.
+ * `runner` may still be starting: the host side and pushes work at once, and a call waits for it.
+ */
+export const serveCore = (port: CorePort, runner: CoreRunner | Promise<CoreRunner>): {
   readonly push: (channel: string, payload: unknown) => void;
   readonly host: HostClient;
   /** Rejects every host call in flight; main is gone. */
@@ -102,7 +105,7 @@ export const serveCore = (port: CorePort, runner: CoreRunner): {
       return;
     }
     if (message.kind !== "call") return;
-    void runCoreOp(runner, message.name, message.input).then(
+    void Promise.resolve(runner).then((ready) => runCoreOp(ready, message.name, message.input)).then(
       (answer) => port.post(answer.ok
         ? { kind: "answer", id: message.id, ok: true, value: answer.value }
         : { kind: "answer", id: message.id, ok: false, failure: answer.failure }),
