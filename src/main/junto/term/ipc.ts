@@ -1,7 +1,4 @@
-import { randomUUID } from "node:crypto";
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
-import { remoteSeatLaunchOf } from "./seats-client";
-import { cardSeatLaunch } from "./seats-launch";
 import type {
   JuntoApi,
   MachineInventoryResult,
@@ -20,10 +17,16 @@ import type { ControlLease, LocalHostEvent } from "./local-host";
 import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer";
 import type { TermPlane } from "./plane";
 import { injectionSupervisor } from "./injection-supervisor";
-import { onRemoteSeatState, rememberRemoteSeatState } from "./remote-seat-state";
-import { liveSeatEnvironment } from "../region-env/live";
 import { core } from "../../core-process/main-client";
-import { bindTermIpcSeatControl } from "../../core-process/ops/term-ipc";
+import { subscribe as subscribeCore } from "../../core-process/push";
+import {
+  bindTermIpcPlane,
+  bindTermIpcSeatControl,
+  TERM_EVENT,
+  TERM_LEASE_ENDED,
+  TERM_SEAT_STATE,
+} from "../../core-process/ops/term-ipc";
+import { coreSurfacePlaneInUse } from "../../core-process/ops/term-surface";
 
 type LeaseOwner = {
   readonly lease: ControlLease;
@@ -72,18 +75,22 @@ const deny = (message: string): never => {
 
 type AttachInput = TerminalAttachInput & { readonly hostId?: string };
 
+/**
+ * The window's terminal IPC. Every plane and router call asks the core by
+ * name (`term.*`, ops/term-ipc.ts), so it runs where the plane is: here when
+ * the core runs in main (`plane` given, and bound to the core here), in the
+ * core process otherwise (`plane` undefined; the core binds its own). The
+ * plane's events come back on the push bus. Main keeps the leases' windows.
+ */
 export const registerTerminalIpc = (
   ipcMain: IpcMain,
-  plane: TermPlane,
+  plane: TermPlane | undefined,
   gate?: TerminalIpcGate,
 ): void => {
   const owners = new Map<string, LeaseOwner>();
   const controlByBinding = new Map<string, string>();
-  const router = plane.router;
-  const nodeDelete = plane.nodeDelete;
-  // A plain terminal opened inside a region starts with that region's
-  // environment, read by the same service that serves agent seats.
-  router.setTerminalEnvironment(liveSeatEnvironment);
+  // The binding also gives a plain terminal its region's environment.
+  if (plane !== undefined) bindTermIpcPlane(plane);
 
   const assertTrusted = (event: IpcMainInvokeEvent): WebContents => {
     const sender = event.sender;
@@ -95,16 +102,10 @@ export const registerTerminalIpc = (
     hostId: string | undefined,
   ): Promise<void> => {
     const target = hostId?.trim();
-    if (
-      target === undefined ||
-      target.length === 0 ||
-      router.isLocalHostId(target) ||
-      target === "*" ||
-      target === "all"
-    ) {
-      return;
-    }
-    await gate?.ensureHostAvailable?.(target);
+    const ensure = gate?.ensureHostAvailable;
+    if (ensure === undefined || target === undefined || target.length === 0 || target === "*" || target === "all") return;
+    if (await core.call("term.isLocalHost", { hostId: target })) return;
+    await ensure(target);
   };
   // Seat start and stop run as core operations; they use this plane and this step.
   bindTermIpcSeatControl({ plane, ensureHostAvailable });
@@ -115,12 +116,30 @@ export const registerTerminalIpc = (
    * when its PTY is not in the terminal process or the lease lost control;
    * the view then reads and types over IPC.
    */
-  const openSurface = (owner: LeaseOwner, read?: bigint): boolean => {
+  const openSurface = async (owner: LeaseOwner, read?: bigint): Promise<boolean> => {
     owner.stopSurface?.();
     owner.stopSurface = undefined;
     owner.surfaced = false;
     if (owner.surfacePorts === undefined || owner.sender.isDestroyed()) return false;
     const { port1, port2 } = new owner.surfacePorts();
+    // Plan B: the plane is the core's, and the port rides to it.
+    const corePlane = coreSurfacePlaneInUse();
+    if (corePlane !== undefined) {
+      const stopped = await corePlane.open(owner.lease, port1, read);
+      if (stopped === undefined || owners.get(owner.lease.leaseId) !== owner || owner.sender.isDestroyed()) {
+        stopped?.();
+        port2.close();
+        return false;
+      }
+      owner.stopSurface = stopped;
+      owner.surfaced = true;
+      owner.sender.postMessage(IPC_CHANNELS.terminalSurface, { leaseId: owner.lease.leaseId }, [port2]);
+      return true;
+    }
+    if (plane === undefined) {
+      port2.close();
+      return false;
+    }
     const stop = plane.host.openSurface(owner.lease, port1, {
       ...(read === undefined ? {} : { read }),
       // Input-origin tagging, as for an IPC write that landed.
@@ -163,7 +182,7 @@ export const registerTerminalIpc = (
     ) {
       controlByBinding.delete(owner.lease.bindingId);
     }
-    void router.release(owner.lease, owner.hostId);
+    void core.call("term.release", { lease: owner.lease, hostId: owner.hostId }).catch(() => undefined);
     try {
       if (!owner.sender.isDestroyed()) {
         owner.sender.removeListener("destroyed", owner.release);
@@ -210,8 +229,9 @@ export const registerTerminalIpc = (
         owner.missed = true;
         continue;
       }
-      // Its port carries the output, straight from the terminal process.
-      if (owner.surfaced && payload.type === "output") continue;
+      // Its port carries the output, straight from the terminal process; with
+      // the plane in the core, output never rides IPC.
+      if ((owner.surfaced || coreSurfacePlaneInUse() !== undefined) && payload.type === "output") continue;
       if (owner.reading !== undefined && payload.type === "output") {
         owner.reading.push(payload);
         continue;
@@ -237,16 +257,17 @@ export const registerTerminalIpc = (
     return leaseId !== undefined && owners.get(leaseId)?.parked !== true;
   });
   // A linked seat's view the seat's machine ended: tell its window, then forget the lease.
-  router.on("lease-ended", (end: { readonly leaseId: string; readonly reason: string }) => {
+  subscribeCore(TERM_LEASE_ENDED, (payload) => {
+    const end = payload as { readonly leaseId: string; readonly reason: string };
     if (!owners.has(end.leaseId)) return;
     leaseEnded(end.leaseId, end.reason);
     release(end.leaseId);
   });
   // A seat on another machine reports its state over the seats channel.
-  onRemoteSeatState((event) => gate?.broadcast(IPC_CHANNELS.agentSeatStateChanged, event));
-  router.on("event", (payload: LocalHostEvent) => {
+  subscribeCore(TERM_SEAT_STATE, (event) => gate?.broadcast(IPC_CHANNELS.agentSeatStateChanged, event));
+  subscribeCore(TERM_EVENT, (raw) => {
+    const payload = raw as LocalHostEvent;
     if (payload.type === "seat-state") {
-      rememberRemoteSeatState(payload.event);
       gate?.broadcast(IPC_CHANNELS.agentSeatStateChanged, payload.event);
       return;
     }
@@ -255,9 +276,8 @@ export const registerTerminalIpc = (
 
   ipcMain.handle(IPC_CHANNELS.terminalList, async (event, hostId?: string) => {
     assertTrusted(event);
-    if (hostId === "*" || hostId === "all") return router.listAll();
-    await ensureHostAvailable(hostId);
-    return router.list(hostId);
+    if (hostId !== "*" && hostId !== "all") await ensureHostAvailable(hostId);
+    return core.call("term.list", { ...(hostId === undefined ? {} : { hostId }) });
   });
 
   ipcMain.handle(
@@ -265,7 +285,7 @@ export const registerTerminalIpc = (
     async (event, hostId: string, path?: string) => {
       assertTrusted(event);
       await ensureHostAvailable(hostId);
-      return router.readDirectory(hostId, path);
+      return core.call("term.readDirectory", { hostId, ...(path === undefined ? {} : { path }) });
     },
   );
 
@@ -282,10 +302,10 @@ export const registerTerminalIpc = (
     assertTrusted(event);
     const node = await readSeat(input?.canvas, input?.id);
     if (node.kind !== "agent") return { settingsFixed: false };
-    if (router.isLocalHostId(node.host)) return core.call("term.seatLaunchState", { canvas: input.canvas, node });
+    if (await core.call("term.isLocalHost", { hostId: node.host })) return core.call("term.seatLaunchState", { canvas: input.canvas, node });
     // A seat on another machine: what that machine last said (seats-launch.ts).
-    const launch = await remoteSeatLaunchOf(node);
-    return launch === undefined ? deny("This seat runs on another machine.") : cardSeatLaunch(launch, Date.now());
+    const launch = await core.call("term.remoteSeatLaunch", { node });
+    return launch === undefined ? deny("This seat runs on another machine.") : launch;
   });
 
   ipcMain.handle(IPC_CHANNELS.modelStart, async (event, input: Parameters<JuntoApi["modelStart"]>[0]) => {
@@ -294,25 +314,8 @@ export const registerTerminalIpc = (
     if (node.kind === "agent") {
       return core.call("term.startSeat", { canvas: input.canvas, seatId: node.id });
     }
-    const createAdmission = nodeDelete.admitCreate(node.bindingId, node.host);
     await ensureHostAvailable(node.host);
-    const assertCurrent = async () => {
-      nodeDelete.assertCreate(createAdmission);
-      const current = await readSeat(input.canvas, input.id);
-      nodeDelete.assertCreate(createAdmission);
-      if (current.kind !== node.kind || current.bindingId !== node.bindingId || current.host !== node.host)
-        return deny("terminal ipc: seat changed while starting");
-    };
-    await assertCurrent();
-    const opened = await router.create({ bindingId: node.bindingId, hostId: node.host,
-      ...(node.launch ? { launch: node.launch } : {}), canvasName: input.canvas, nodeId: node.id,
-      seatRect: { x: node.x, y: node.y, width: node.width, height: node.height },
-      ...(node.label ? { label: node.label } : {}),
-    });
-    // The window is told a terminal exists only once its exact process
-    // identity is bound; the observation waits off the canvas thread.
-    await router.awaitStartIdentity(opened.bindingId, opened.epoch, node.host);
-    return opened;
+    return core.call("term.startTerminal", { canvas: input.canvas, node });
   });
 
   ipcMain.handle(IPC_CHANNELS.modelStop, async (event, input: Parameters<JuntoApi["modelStop"]>[0]) => {
@@ -386,20 +389,14 @@ export const registerTerminalIpc = (
     async (event, bindingId: string, hostId?: string) => {
       assertTrusted(event);
       await ensureHostAvailable(hostId);
-      if (hostId !== undefined && !router.isLocalHostId(hostId)) return (await remoteSeats(hostId)).get(bindingId);
-      return router.get(bindingId, hostId);
+      return core.call("term.get", { bindingId, ...(hostId === undefined ? {} : { hostId }) });
     },
   );
 
-  // A seat on another machine is reached only over the seats channel: its
-  // machine answers, and a failure there arrives typed instead of as false.
-  const remoteSeats = async (hostId: string) =>
-    (await import("./seats-client")).makeSeatsProcessClient(hostId);
-  // Both trusted IPC stop commands use the same owned-session router capability.
-  const stopBinding = async (bindingId: string, hostId?: string) =>
-    hostId !== undefined && !router.isLocalHostId(hostId)
-      ? (await remoteSeats(hostId)).stop(bindingId, randomUUID())
-      : router.kill(bindingId, hostId);
+  // Both trusted IPC stop commands use the same owned-session router capability;
+  // a seat on another machine is stopped over the seats channel, typed.
+  const stopBinding = (bindingId: string, hostId?: string) =>
+    core.call("term.stopBinding", { bindingId, ...(hostId === undefined ? {} : { hostId }) });
 
   ipcMain.handle(
     IPC_CHANNELS.terminalKill,
@@ -416,7 +413,7 @@ export const registerTerminalIpc = (
       resources: ReadonlyArray<TerminalNodeDeleteResource>,
     ) => {
       assertTrusted(event);
-      return nodeDelete.beginNodeDelete(resources);
+      return core.call("term.beginNodeDelete", { resources });
     },
   );
 
@@ -428,16 +425,18 @@ export const registerTerminalIpc = (
       outcome: TerminalFinishNodeDeleteOutcome,
     ) => {
       assertTrusted(event);
-      return nodeDelete.finishNodeDelete(leaseId, outcome);
+      return core.call("term.finishNodeDelete", { leaseId, outcome });
     },
   );
 
   ipcMain.handle(IPC_CHANNELS.terminalAttach, async (event, input: AttachInput) => {
     const sender = assertTrusted(event);
-    const hostId = input.hostId?.trim() || router.thisMachineName();
+    const hostId = input.hostId?.trim() || (await core.call("term.thisMachine", {}));
+    const local = await core.call("term.isLocalHost", { hostId });
     await ensureHostAvailable(hostId);
     // Loaded before the attach, so nothing waits between the lease and its port.
-    const surfacePorts = input.surface === true && input.mode === "control" && router.isLocalHostId(hostId)
+    // With the plane in the core every lease gets a port, an observe lease's included.
+    const surfacePorts = input.surface === true && (input.mode === "control" || coreSurfacePlaneInUse() !== undefined) && local
       ? (await import("electron")).MessageChannelMain
       : undefined;
     if (input.mode === "control" && input.takeover) {
@@ -447,10 +446,10 @@ export const registerTerminalIpc = (
         release(priorLeaseId);
       }
     }
-    const result = await router.attach({ ...input, hostId });
+    const { result } = await core.call("term.attach", { input: { ...input, hostId } });
     if (!result.ok) return result;
     if (sender.isDestroyed()) {
-      void router.release(result.lease, hostId);
+      void core.call("term.release", { lease: result.lease, hostId }).catch(() => undefined);
       return { ok: false as const, message: "renderer gone" };
     }
     const leaseId = result.lease.leaseId;
@@ -471,7 +470,7 @@ export const registerTerminalIpc = (
     if (result.lease.mode === "control") {
       controlByBinding.set(result.lease.bindingId, leaseId);
     }
-    if (surfacePorts !== undefined) openSurface(owners.get(leaseId)!);
+    if (surfacePorts !== undefined) void openSurface(owners.get(leaseId)!);
     return result;
   });
 
@@ -505,7 +504,7 @@ export const registerTerminalIpc = (
             owner.stopSurface?.();
             owner.stopSurface = undefined;
             owner.surfaced = false;
-            plane.host.closeSurface(owner.lease);
+            plane?.host.closeSurface(owner.lease);
             owner.missed = true;
             owner.resurface = true;
           }
@@ -523,7 +522,7 @@ export const registerTerminalIpc = (
       const endRead = (opened: boolean): void => {
         const held = owner.reading ?? [];
         owner.reading = undefined;
-        if (opened || owner.sender.isDestroyed()) return;
+        if (opened || owner.sender.isDestroyed() || coreSurfacePlaneInUse() !== undefined) return;
         for (const payload of held) {
           try {
             owner.sender.send(IPC_CHANNELS.terminalEvent, payload);
@@ -535,16 +534,16 @@ export const registerTerminalIpc = (
       const missed = owner.missed;
       owner.missed = false;
       if (!missed) return { ok: true, missed: false };
-      const view = await router.attach({
+      const { result: view } = await core.call("term.attach", { input: {
         bindingId: owner.lease.bindingId,
         mode: "observe",
         hostId: owner.hostId,
-      });
+      } });
       if (!view.ok) {
         endRead(false);
         return { ok: true, missed: true };
       }
-      void router.release(view.lease, owner.hostId);
+      void core.call("term.release", { lease: view.lease, hostId: owner.hostId }).catch(() => undefined);
       if (view.lease.epoch !== owner.lease.epoch) {
         endRead(false);
         return { ok: true, missed: true };
@@ -561,7 +560,7 @@ export const registerTerminalIpc = (
         owner.reading = undefined;
         owner.missed = true;
         owner.resurface = true;
-      } else if (resurface) endRead(screen !== undefined && openSurface(owner, screen.seq));
+      } else if (resurface) endRead(screen !== undefined && await openSurface(owner, screen.seq));
       return {
         ok: true,
         missed: true,
@@ -581,13 +580,8 @@ export const registerTerminalIpc = (
       if (!owner) return false;
       const decoded =
         encoding === "base64" ? Buffer.from(data, "base64").toString("utf8") : data;
-      const written = router.write(owner.lease, decoded, owner.hostId);
-      // Input-origin tagging: user keystrokes must suppress injection.
-      void written.then((ok) => {
-        if (!ok) return;
-        injectionSupervisor.noteUserInput(owner.lease.bindingId, undefined, decoded);
-      });
-      return written;
+      // The core tags the input's origin where the keys land (term.write).
+      return core.call("term.write", { lease: owner.lease, data: decoded, hostId: owner.hostId });
     },
   );
 
@@ -597,7 +591,7 @@ export const registerTerminalIpc = (
       assertTrusted(event);
       const owner = owned(event.sender, leaseId);
       if (!owner) return false;
-      return router.resize(owner.lease, cols, rows, owner.hostId);
+      return core.call("term.resize", { lease: owner.lease, cols, rows, hostId: owner.hostId });
     },
   );
 };

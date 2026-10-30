@@ -21,6 +21,7 @@ import { AGENT_SIGNAL_CHANGED, COMPANION_DEVICES, publishWindowBroadcasts } from
 import { companionE2eEnvironment, readCompanionEnvironment } from "../junto/companion/service";
 import { bindOperatorListening } from "./ops/operator";
 import { bindOverseerLive } from "./ops/overseer-live";
+import { openCoreSurface, type SurfaceOpenMessage } from "./ops/term-surface";
 import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import "./ops/index";
 
@@ -37,7 +38,7 @@ export type CoreBoot = {
 
 type ParentPort = {
   readonly postMessage: (message: unknown) => void;
-  readonly on: (event: "message", listener: (event: { readonly data: unknown }) => void) => void;
+  readonly on: (event: "message", listener: (event: { readonly data: unknown; readonly ports?: ReadonlyArray<{ readonly close: () => void }> }) => void) => void;
   readonly off: (event: "message", listener: (event: { readonly data: unknown }) => void) => void;
 };
 
@@ -59,6 +60,12 @@ const main = async (parent: ParentPort): Promise<void> => {
   let started!: (runner: CoreRunner) => void;
   const served = serveCore(parentCorePort(parent), new Promise<CoreRunner>((resolve) => { started = resolve; }));
   forwardPublishes(served.push);
+  // A view's surface port, beside its message: the core's plane hands it on to the terminal process.
+  parent.on("message", (event) => {
+    const message = event.data as { readonly kind?: unknown } | undefined;
+    const port = event.ports?.[0];
+    if (message?.kind === "surfaceOpen" && port !== undefined) openCoreSurface(message as SurfaceOpenMessage, port, served.push);
+  });
   useHostClient(served.host);
   const broadcasts = publishWindowBroadcasts();
   const core = await startCore({

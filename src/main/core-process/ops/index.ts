@@ -13,6 +13,7 @@ import "./overseer-live";
 import "./ipc-threads";
 import "./ipc-settings";
 import "./ipc-browser";
+import "./term-surface";
 import "./ipc-model";
 import "./ipc-work";
 import "./ipc-signals";

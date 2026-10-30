@@ -6,6 +6,7 @@ import { useCoreClient } from "./main-client";
 import { relayWindowPushes } from "./ops/main-index";
 import { serveOverseerHost } from "./ops/overseer-pages";
 import { serveCompanionClipboard } from "./ops/companion";
+import { coreSurfacePlane, useCoreSurfacePlane, type SurfaceOpenMessage } from "./ops/term-surface";
 import type { CompanionClipboard } from "../junto/companion/service";
 import type { PortCoreClient } from "./port";
 
@@ -29,16 +30,22 @@ export const startCoreProcessForMain = (input: {
   /** The system clipboard, for the phone companion's Copy link. */
   readonly clipboard: CompanionClipboard;
   /** Tests start a core over a MessageChannel instead of a utilityProcess. */
-  readonly start?: (boot: CoreBoot) => PortCoreClient & { readonly stop: () => void };
+  readonly start?: (boot: CoreBoot) => PortCoreClient & { readonly stop: () => void; readonly postSurface?: (message: SurfaceOpenMessage, port: unknown) => boolean };
 }): CoreProcessForMain => {
   const started = (input.start ?? startCoreProcess)(input.boot);
   useCoreClient(started);
   const stopRelay = relayWindowPushes(started);
   const stopHost = serveOverseerHost({ core: started, pages: input.pages, captureApplicationPage: input.captureApplicationPage });
   const stopClipboard = serveCompanionClipboard(input.clipboard);
+  // The terminal plane is the core's: each view's surface port rides to it.
+  const postSurface = started.postSurface;
+  if (postSurface !== undefined) {
+    useCoreSurfacePlane(coreSurfacePlane({ postSurface, onPush: started.onPush, call: (name, request) => started.call(name, request) }));
+  }
   return {
     client: started,
     stop: () => {
+      useCoreSurfacePlane(undefined);
       stopClipboard();
       stopHost();
       stopRelay();
