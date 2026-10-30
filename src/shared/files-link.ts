@@ -12,13 +12,14 @@
  * open. A refusal the host sends is its own `FilesError`, and crosses as an
  * answer (`Refused`), never as a link failure.
  *
- * A wire module: its import closure is `effect` and its siblings alone.
+ * Not a phone wire module (src/shared/wire/ is the phone's closure): this is
+ * desktop to desktop, and it reads `files.ts` for the one path definition.
  */
 
 import { Schema } from "effect";
-import { isFileName, parseFilePath, type FileEntry, type FilePath, type FilesError } from "../files";
-import { CANONICAL_CANVAS_NAME_PATTERN } from "./canvas-name";
-import { NodeId } from "./ids";
+import { isFileName, parseFilePath, type FileEntry, type FilePath, type FilesError } from "./files";
+import { CANONICAL_CANVAS_NAME_PATTERN } from "./wire/canvas-name";
+import { NodeId } from "./wire/ids";
 
 const CanvasName = Schema.String.pipe(Schema.check(Schema.isPattern(CANONICAL_CANVAS_NAME_PATTERN)));
 

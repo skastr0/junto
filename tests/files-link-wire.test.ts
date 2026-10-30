@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   decodeFilesEvent, decodeFilesRequest, decodeFilesResponse, fitsOneFrame, HOST_FILES_ERRORS, FILES_LINK_TEXT_JSON_MAX,
-} from "../src/shared/wire/files-link";
+} from "../src/shared/files-link";
 
 const where = { canvas: "factory", node: "files-1" };
 const stamp = { mtimeMs: 1.5, size: 3 };
