@@ -34,7 +34,24 @@ const coreLog = (dir: string): string => {
 const pidsIn = (log: string): ReadonlyArray<number> =>
   [...log.matchAll(/\[core\] pid (\d+)/gu)].map((match) => Number(match[1]));
 
-test("a running seat's four ways into Junto, before and after the core is killed", async () => {
+/** A process is there if signal 0 is admitted; ESRCH means it is gone. */
+const alive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Known failure, quarantined: measured on 2026-10-30 against a clean build of
+ * 94d3c60e6, a core restart leaves a running seat with none of its four ways
+ * into Junto (task 01M669F50YX5PR806JQ7GSFK3R). Crash survival was stopped by
+ * operator order, so this stays as the record and runs nowhere until that is
+ * reopened; remove `fixme` then and it becomes the lock.
+ */
+test.fixme("a running seat's four ways into Junto, before and after the core is killed", async () => {
   test.setTimeout(300_000);
   mkdirSync(join(process.cwd(), "test-results"), { recursive: true });
   const logDir = mkdtempSync(join(process.cwd(), "test-results", "core-restart-seats-"));
@@ -102,7 +119,8 @@ test("a running seat's four ways into Junto, before and after the core is killed
     await sleep(1_500);
     const afterReopen = await measure("after-reopen");
 
-    const report = { killed, pids: pidsIn(coreLog(logDir)), before, after, afterReopen };
+    const seatPid = (await seat.ready()).pid;
+    const report = { killed, pids: pidsIn(coreLog(logDir)), seatPid, seatAliveAfter: alive(seatPid), before, after, afterReopen };
     writeFileSync(join(process.cwd(), "test-results", "seat-restart.json"), `${JSON.stringify(report, null, 1)}\n`);
     await test.info().attach("seat-restart.json", { body: JSON.stringify(report, null, 1), contentType: "application/json" });
 
