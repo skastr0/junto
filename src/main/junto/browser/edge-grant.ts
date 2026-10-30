@@ -10,9 +10,7 @@ import {
 import { resolveBrowserCallerFromProcess } from "./process-bind";
 import type { PageTargetResolver } from "./page-target";
 import {
-  getProcessIdentityMap,
   OFFBOARDED_SESSION_MESSAGE,
-  type ProcessIdentityMap,
   type ProcessPrincipal,
 } from "../process-identity";
 import type { SeatCredentialEvent, SeatCredentialLookup } from "../work/seat-credentials";
