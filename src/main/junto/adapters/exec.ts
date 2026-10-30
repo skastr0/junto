@@ -1,3 +1,4 @@
+import { coreReads } from "../../core-runner";
 import { shellEnvironment } from "../shell-environment";
 import { ACCESS_CANCELLED_ERROR } from "../access-signal";
 import {
@@ -392,7 +393,7 @@ export const setConfiguredToolDirectories = (directories: ReadonlyArray<string>)
 // that inherits process.env verbatim (seat launches, the services/process.ts
 // helper) carries the operator environment for free. Shell bookkeeping keys
 // and the app's own JUNTO_*/ELECTRON_* keys are never taken from the shell.
-export const resolvedSpawnEnv = (): Promise<NodeJS.ProcessEnv> => shellEnvironment.ensure();
+export const resolvedSpawnEnv = (): Promise<NodeJS.ProcessEnv> => coreReads.spawnEnv();
 
 // Synchronous accessor for call-sites that cannot await (e.g. inside a spawn
 // options literal). The environment last applied; before the first read, the

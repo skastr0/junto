@@ -15,6 +15,8 @@ declare module "../ops" {
   interface CoreOps {
     "ipc.shellEnvironment.status": CoreOp<Record<string, never>, ShellEnvironmentStatus>;
     "ipc.shellEnvironment.refresh": CoreOp<Record<string, never>, ShellEnvironmentStatus>;
+    /** The environment a spawn uses now, resolved here where the spawns are. */
+    "ipc.shellEnvironment.env": CoreOp<Record<string, never>, Record<string, string | undefined>>;
   }
 }
 
@@ -25,4 +27,5 @@ coreOps({
   "ipc.shellEnvironment.status": () => Effect.promise(() => shellEnvironment.status()),
   // The operator asked for a fresh read: the next spawn uses it.
   "ipc.shellEnvironment.refresh": () => Effect.promise(() => shellEnvironment.refresh("operator")),
+  "ipc.shellEnvironment.env": () => Effect.promise(async () => ({ ...(await shellEnvironment.ensure()) })),
 });

@@ -1382,10 +1382,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       return;
     }
 
-    // Resolve the spawn environment before any adapter/service spawn: the
-    // operator's login-shell environment, PATH merged over inherited PATH,
-    // operator tool directories, and the static floor.
-    await resolvedSpawnEnv();
+    // No spawn environment is read here: each main-side spawn asks the core
+    // for it at spawn time, so a warm read cannot go stale.
     if (shutdownAdmissionClosed) return;
 
     // Schema gate BEFORE AppRuntime opens SQLite. An older binary must not

@@ -41,6 +41,8 @@ export interface CoreReads {
   readonly canvas: (canvasName: string) => Promise<Canvas | undefined>;
   readonly machineName: () => Promise<string>;
   readonly vaultScope: () => Promise<{ readonly vault: string } | undefined>;
+  /** The environment a spawn in this process uses: the core's resolved shell env in the core, an op in main. */
+  readonly spawnEnv: () => Promise<Record<string, string | undefined>>;
 }
 
 const runnerReads: CoreReads = {
@@ -64,6 +66,11 @@ const runnerReads: CoreReads = {
     }) as Effect.Effect<{ readonly vault: string } | undefined, unknown, CoreServices>);
     return record === undefined ? undefined : { vault: record.vault };
   },
+  // The core's own copy of the service: the one that writes the env its spawns use.
+  spawnEnv: async () => {
+    const { shellEnvironment } = await import("./junto/shell-environment");
+    return { ...(await shellEnvironment.ensure()) };
+  },
 };
 let reads: CoreReads = runnerReads;
 
@@ -76,4 +83,5 @@ export const coreReads: CoreReads = {
   canvas: (canvasName) => reads.canvas(canvasName),
   machineName: () => reads.machineName(),
   vaultScope: () => reads.vaultScope(),
+  spawnEnv: () => reads.spawnEnv(),
 };

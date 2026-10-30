@@ -10,7 +10,7 @@ import { makeNameSources, type GitRun, type NameSources } from "./sources";
 
 const SOURCE = "files-index";
 
-const spawnEnv = (): Promise<NodeJS.ProcessEnv> => resolvedSpawnEnv().catch(() => resolvedSpawnEnvSync());
+const spawnEnv = (): Promise<NodeJS.ProcessEnv> => resolvedSpawnEnv();
 
 export const spawnGit: GitRun = async (cwd, args, onBytes, signal, stdin) => {
   if (signal.aborted) return null;

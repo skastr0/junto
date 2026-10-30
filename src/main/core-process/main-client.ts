@@ -29,5 +29,7 @@ export const useCoreClient = (client: CoreClient): void => {
     canvas: (canvasName) => core.call("core.canvas", { canvasName }),
     machineName: () => core.call("core.machineName", {}),
     vaultScope: () => core.call("core.vaultScope", {}),
+    // A spawn in main asks each time: a read held from boot would go stale.
+    spawnEnv: () => core.call("ipc.shellEnvironment.env", {}),
   });
 };
