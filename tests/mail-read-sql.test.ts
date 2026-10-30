@@ -164,6 +164,24 @@ it("the worker's page reads answer the page of the whole read, stamps included",
       expect(readSentByPage(database, "factory", "ada", query)).toEqual(
         pageOfSent(readSentBy(database, "factory", "ada"), query),
       );
+      // The keyset pages the same order and remainder as the whole read, with
+      // the cursor too: 5 sent, 2 a page, 3 left.
+      const sentPage = readSentByPage(database, "factory", "ada", { limit: 2, filter: {} });
+      expect(sentPage).toEqual(pageOfSent(readSentBy(database, "factory", "ada"), { limit: 2, filter: {} }));
+      expect(sentPage.items).toHaveLength(2);
+      expect(sentPage).toMatchObject({ more: true, remaining: 3 });
+      const afterCursor = readSentByPage(database, "factory", "ada", {
+        limit: 2, before: sentPage.items[1]!.message.messageId, filter: {},
+      });
+      expect(afterCursor).toEqual(pageOfSent(readSentBy(database, "factory", "ada"), {
+        limit: 2, before: sentPage.items[1]!.message.messageId, filter: {},
+      }));
+      expect(afterCursor).toMatchObject({ more: true, remaining: 1 });
+      const lastPage = readSentByPage(database, "factory", "ada", {
+        limit: 2, before: afterCursor.items[1]!.message.messageId, filter: {},
+      });
+      expect(lastPage).toMatchObject({ more: false, remaining: 0 });
+      expect(lastPage.items).toHaveLength(1);
       const filtered = readInboxPage(database, "factory", "bo", { limit: 50, filter: { text: "ada to bo" } });
       expect(filtered.items).toHaveLength(5);
       expect(filtered).toEqual(pageOfInbox(readInbox(database, "factory", "bo"), { limit: 50, filter: { text: "ada to bo" } }));

@@ -204,8 +204,14 @@ export const readInboxPage = (
 };
 
 /**
- * One page of the mail `sender` wrote into the other mailboxes, chosen the
- * same way: from the sender index's ids when nothing is filtered.
+ * One page of the mail `sender` wrote into the other mailboxes, newest first.
+ * With no filter it is a keyset over `work_messages_sender_order` (canvas,
+ * sender, message id), so the page reads its own keys and not every key of
+ * the sender, and `remaining` is the covering count of the keys older than
+ * the last one returned: what `pageNewestFirst` answers over the whole
+ * history. The order is the index's, `message_id` descending; every mail this
+ * app writes is a ULID, whose string order is its time order. A filter reads
+ * text and receipts, so it walks the sender's mail as before.
  */
 export const readSentByPage = (
   database: DatabaseSync,
@@ -214,21 +220,37 @@ export const readSentByPage = (
   query: MailPageQuery,
 ): MailPage<SentMail> => {
   if (filtered(query.filter)) return pageOfSent(readSentBy(database, canvasName, sender), query);
-  const keys = database.prepare(`
-    SELECT node_id, message_id FROM work_messages
-    WHERE canvas_name=? AND node_id<>? AND json_extract(metadata_json,'$.senderNodeId')=?`)
-    .all(canvasName, sender, sender) as unknown as Array<{ readonly node_id: string; readonly message_id: string }>;
-  const { page, more, remaining } = pageOfKeys(keys, query);
+  const before = query.before;
+  const bound = before === undefined
+    ? [canvasName, sender, sender, query.limit + 1]
+    : [canvasName, sender, sender, before, query.limit + 1];
+  const rows = database.prepare(`
+    SELECT node_id, ${MAIL_COLUMNS}
+    FROM work_messages INDEXED BY work_messages_sender_order
+    WHERE canvas_name = ? AND json_extract(metadata_json,'$.senderNodeId') = ?
+      AND node_id <> ?
+      ${before === undefined ? "" : "AND message_id < ?"}
+    ORDER BY message_id DESC
+    LIMIT ?`).all(...bound) as unknown as Array<MailRow & { readonly node_id: string }>;
+  const page = rows.slice(0, query.limit);
+  const last = page.at(-1);
+  if (last === undefined) return { items: [], more: false, remaining: 0 };
+  const older = database.prepare(`
+    SELECT count(*) AS n
+    FROM work_messages INDEXED BY work_messages_sender_order
+    WHERE canvas_name = ? AND json_extract(metadata_json,'$.senderNodeId') = ?
+      AND node_id <> ? AND message_id < ?`)
+    .get(canvasName, sender, sender, last.message_id) as unknown as { readonly n: number };
+  const remaining = Number(older.n ?? 0);
   const stamps = receiptStamps(database, canvasName, page);
-  const one = database.prepare(`
-    SELECT ${MAIL_COLUMNS}
-    FROM work_messages
-    WHERE canvas_name = ? AND node_id = ? AND message_id = ?`);
-  const items = page.flatMap((key): SentMail[] => {
-    const row = one.get(canvasName, key.node_id, key.message_id) as unknown as MailRow | undefined;
-    return row === undefined ? [] : [{ nodeId: key.node_id, message: messageOfRow(row, canvasName, key.node_id, stamps) }];
-  });
-  return { items, more, remaining };
+  return {
+    items: page.map((row) => ({
+      nodeId: row.node_id,
+      message: messageOfRow(row, canvasName, row.node_id, stamps),
+    })),
+    more: remaining > 0,
+    remaining,
+  };
 };
 
 /** Every mail `sender` wrote into the other mailboxes on a canvas, in no order. */

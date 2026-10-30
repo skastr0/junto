@@ -65,6 +65,15 @@ const SHAPES: ReadonlyArray<{ readonly name: string; readonly sql: string; reado
     index: "work_messages_sender_order",
   },
   {
+    name: "the sent page as mail-read-sql ships it, self-mail out",
+    sql: `SELECT node_id, message_id FROM work_messages INDEXED BY work_messages_sender_order
+      WHERE canvas_name = ? AND json_extract(metadata_json,'$.senderNodeId') = ?
+        AND node_id <> ? AND message_id < ?
+      ORDER BY message_id DESC LIMIT 51`,
+    params: ["factory", "seat", "seat", "zzzz"],
+    index: "work_messages_sender_order",
+  },
+  {
     name: "task list by state, newest change first",
     sql: `SELECT task_id FROM task_heads
       WHERE canvas_name = ? AND state IN ('working') ORDER BY updated_at DESC, task_id DESC LIMIT 51`,
