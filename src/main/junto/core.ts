@@ -26,6 +26,9 @@ import { wireSeatReports } from "./term/agent-state/seat-reports";
 import { seatStateRuntime } from "./term/agent-state/runtime";
 import { termPlane } from "./term/plane";
 import { configureTerminalRouterLayeredRunner } from "./term/router";
+import { IPC_CHANNELS } from "@shared/ipc";
+import { publish } from "../core-process/push";
+import { bindCoreSeatSessions, SEAT_CACHE_DUE_CHANGED } from "../core-process/ops/ipc-seats";
 import { AgentSignalRepository } from "./signals/repository";
 import { onAgentSignalChanged } from "./signals/changes";
 import { mainAuthoringGate } from "./main-authoring-gate";
@@ -145,6 +148,7 @@ export const startCore = async (options: CoreOptions) => {
     work?.beginShutdown();
     canvas?.beginShutdown();
     mail?.seats.suspend();
+    bindCoreSeatSessions(undefined);
     sessions?.stop();
     stopSeatReports?.();
     seatProcesses?.beginShutdown();
@@ -296,7 +300,11 @@ export const startCore = async (options: CoreOptions) => {
     sessions = await startSeatSessions({
       run: effect => runtime.runPromise(effect),
       onSuspend: listener => { coreMail.seats.onSuspend(listener); },
+      // A window hears where each offboard stands, and when the auto mode's due seats change.
+      publish: (progress) => publish(IPC_CHANNELS.seatOffboardProgress, progress),
+      publishDue: () => publish(SEAT_CACHE_DUE_CHANGED, null),
     });
+    bindCoreSeatSessions(sessions);
     // A seat's declared signals (blocked, escalate, feedback) ride its own
     // snapshot, as in the window, so a seat waiting on the operator is
     // exempt from the cut here too.

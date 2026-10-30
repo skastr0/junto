@@ -19,6 +19,9 @@ import { PausePlane } from "../../junto/pause-plane";
 import { regionEnvStaleSeats } from "../../junto/region-env/report-ipc";
 import { appendSeatPrompt, type SeatPromptInput, type SeatPromptResult } from "../../junto/work/seat-prompt";
 import { coreOps, type CoreOp } from "../ops";
+import type { SeatSessions } from "../../junto/seat-sessions/start-seat-sessions";
+import { composeOffboardAsk, OFFBOARD_MODES, type OffboardMode, type SeatOffboardAskResult, type SeatOffboardProgress } from "@shared/seat-sessions";
+import { isSeatGuidanceSeatId } from "@shared/seat-guidance";
 
 /** What the core asks of whoever holds the terminal plane, for a seat nudge. */
 export type SeatIpcBindings = {
@@ -50,8 +53,28 @@ const boundSeatIpc = (): SeatIpcBindings => {
   return bindings;
 };
 
+/** The core's own seat sessions (core.ts): the seat a node names, and the offboard closer. */
+let coreSessions: Pick<SeatSessions, "seatOn" | "closer"> | undefined;
+
+/** Core boot only, once its seat sessions start. */
+export const bindCoreSeatSessions = (sessions: Pick<SeatSessions, "seatOn" | "closer"> | undefined): void => {
+  coreSessions = sessions;
+};
+
+/** The managed seat a canvas node names, from the core's own seat sessions. */
+export const seatOnOfCore = async (target: { readonly canvasName: string; readonly seatId: string }) =>
+  coreSessions === undefined ? undefined : coreSessions.seatOn(target);
+
+/** A seat's offboard progress changed, and the auto mode's due seats, for the window. */
+export const SEAT_CACHE_DUE_CHANGED = "seatCacheDue.changed";
+
 declare module "../ops" {
   interface CoreOps {
+    "ipc.seats.offboardProgress": CoreOp<Record<string, never>, ReadonlyArray<SeatOffboardProgress>>;
+    "ipc.seats.offboardAsk": CoreOp<
+      { readonly canvasName: unknown; readonly seatId: unknown; readonly mode: unknown },
+      SeatOffboardAskResult
+    >;
     "ipc.seats.regionEnvStaleSeats": CoreOp<
       { readonly canvasName: unknown; readonly regionId: unknown },
       RegionEnvStaleSeatsResult
@@ -73,6 +96,29 @@ declare module "../ops" {
 }
 
 coreOps({
+  "ipc.seats.offboardProgress": () => Effect.sync(() => coreSessions?.closer.current() ?? []),
+  // The operator asks from the seat; the agent writes its notes with `junto
+  // offboard`, and the closer ends the session once it is idle, in its mode.
+  "ipc.seats.offboardAsk": ({ canvasName, seatId, mode }) =>
+    Effect.promise(async (): Promise<SeatOffboardAskResult> => {
+      if (typeof canvasName !== "string" || !canvasName || !isSeatGuidanceSeatId(seatId)) {
+        return { ok: false, message: "Junto could not find that seat." };
+      }
+      if (!(OFFBOARD_MODES as ReadonlyArray<unknown>).includes(mode)) return { ok: false, message: "Offboard to rest or to continue." };
+      const offboardMode = mode as OffboardMode;
+      const seat = await seatOnOfCore({ canvasName, seatId });
+      if (seat === undefined) return { ok: false, message: "Junto could not find that seat." };
+      if (!seat.local) return { ok: false, message: "This seat runs on another installation." };
+      const sent = await appendSeatPrompt(coreRunner.runPromise, {
+        bindingId: seat.bindingId,
+        text: composeOffboardAsk(offboardMode),
+        canvasName,
+        nodeId: seatId,
+      });
+      if (!sent.ok) return { ok: false, message: sent.error ?? "Junto could not send the offboard prompt." };
+      coreSessions?.closer.asked({ seatId, canvasName }, offboardMode);
+      return { ok: true };
+    }),
   "ipc.seats.regionEnvStaleSeats": ({ canvasName, regionId }) =>
     Effect.promise(() => regionEnvStaleSeats(canvasName, regionId)),
   "ipc.seats.factoryPauseState": ({ canvas }) =>

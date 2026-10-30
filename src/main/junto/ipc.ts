@@ -89,7 +89,9 @@ import {
   type SeatOffboardAskResult,
 } from "@shared/seat-sessions";
 import { isSeatGuidanceSeatId, type SeatGuidanceSetResult } from "@shared/seat-guidance";
-import { bindSeatIpc } from "../core-process/ops/ipc-seats";
+import { SEAT_CACHE_DUE_CHANGED } from "../core-process/ops/ipc-seats";
+import { SETTINGS_CHANGED } from "../core-process/ops/main-index";
+import type { Settings } from "@shared/settings";
 import type { ProfileDeleteResult, ProfileResult, ProfileSaveInput } from "@shared/agent-profiles";
 import type { PortraitOverrideSetResult } from "@shared/portrait-overrides";
 import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
@@ -855,312 +857,81 @@ export const registerJuntoIpc = (): void => {
     IPC_CHANNELS.workMailChanged,
     IPC_CHANNELS.workSinkChanged,
     IPC_CHANNELS.seatAwarenessChanged,
+    IPC_CHANNELS.usageChanged,
+    IPC_CHANNELS.kernelChanged,
   ]) onCorePush(channel, (payload) => broadcast(channel, payload));
   void core.call("ipc.watch.model", {});
   void core.call("ipc.watch.modelCanvases", {});
   void core.call("ipc.watch.modelActorRefs", {});
 
-  // Wire pushes and background loops once at startup.
-  void AppRuntime.runPromise(
-    Effect.gen(function* () {
-      const modelForBoot = yield* ModelService;
-      const usage = yield* UsageService;
-      const kernel = yield* KernelService;
-      const coreMail = yield* MachineCoreMail;
-      const settingsForSeed = yield* SettingsService;
-      const settingsAtBoot = yield* settingsForSeed.get;
-      yield* Effect.tryPromise({
-        try: () => runMainAuthoring("startup.canvas.ensure-seed", () => AppRuntime.runPromise(modelForBoot.ensureSeed)),
-        catch: () => undefined,
-      }).pipe(Effect.catch(() => Effect.void));
-      const mailRepository = yield* WorkRepository;
-      mailRepository.subscribeChanges((canvasName, nodeId, kind) => {
-        if (kind === "mail") corePublish(IPC_CHANNELS.workMailChanged, { canvasName, nodeId });
-        else corePublish(IPC_CHANNELS.workSinkChanged, { canvasName, nodeId });
-      });
-      // Keep the last model topology for compact connection-change notices.
-      const modelForNotices = yield* ModelService;
-      const noticeCanvases = new Map<string, Canvas>();
-      for (const name of yield* modelForNotices.listCanvases()) {
-        noticeCanvases.set(name, yield* modelForNotices.canvas(name));
-      }
-      modelForNotices.subscribeChanges((event, next) => {
-        const previous = noticeCanvases.get(event.canvas);
-        noticeCanvases.set(event.canvas, next);
-        void AppRuntime.runPromise(onCanvasChangeForEdgeMap(event.canvas, { previous, next }));
-      });
-      modelForNotices.subscribeCanvasesChanges((event, current) => {
-        if (event._tag === "Removed") noticeCanvases.delete(event.canvas);
-        else if (current) noticeCanvases.set(event.canvas, current);
-      });
-      if (USAGE_ENABLED) {
-        usage.subscribe((state) => broadcast(IPC_CHANNELS.usageChanged, state));
-      }
-      kernel.subscribe((snapshot) => {
-        broadcast(IPC_CHANNELS.kernelChanged, snapshot);
-      });
+  // What the startup wiring needs of the core's services runs in the core
+  // (ops/ipc-startup.ts): the seed, the connection-change notices, the checkout
+  // watch, usage, the onboarding nudge's interject and Claude's resume
+  // recovery. Main keeps the window's handlers and what only it holds.
 
-      let productAutomationSuspended = false;
-      let checkoutWatch: CheckoutWatchSupervisor | undefined;
-      const acceptedClaudeRecoveryEpoch = new Map<string, string>();
-      // Advisory seat-awareness sidecar, an experimental feature. Enrollment is
-      // the Settings toggle: a discovered key is not consent. Off, the plane is
-      // not running at all; on with no key it publishes missing_key. The toggle
-      // applies live: a change stops the plane and, when on, starts it again.
-      // Display only, and never on the terminal path.
-      seatAwarenessPlane.subscribe((event) =>
-        corePublish(IPC_CHANNELS.seatAwarenessChanged, event),
-      );
-      const applySeatAwareness = (settings: typeof settingsAtBoot): void => {
-        if (!SEAT_AWARENESS_COMPILED) return;
-        const on = resolveSeatAwarenessGate({
-          env: process.env[SEAT_AWARENESS_ENV],
-          enrolled: seatAwarenessEnrolled(settings),
-        }).enabled;
-        if (on === seatAwarenessPlane.isEnabled()) return;
-        seatAwarenessPlane.stop();
-        if (on) seatAwarenessPlane.start({ enabled: true, apiKey: seatAwarenessApiKey() });
-      };
-      applySeatAwareness(settingsAtBoot);
-      settingsForSeed.subscribe(applySeatAwareness);
-      const { drive: managedDrive, mailReadyNow, driveReady } = coreMail.seats;
-      // Electron alone can inspect the pasteboard before the harness receives text.
-      coreMail.seats.setClipboardSafe((bindingId) =>
-        harnessRecordFor(seatStateRuntime.machine.getSlot(bindingId)?.harness)?.pty.clipboardImageGuard !== true ||
-        clipboardFormatsAreSafeForGrok(clipboard.availableFormats()),
-      );
-      const writeManagedPrompt = (
-        bindingId: string,
-        text: string,
-        options?: {
-          readonly queueTimeoutMs?: number;
-          readonly ready?: boolean;
-          /** See ManagedTerminalDrive WritePromptOptions.awaitTurnStart. */
-          readonly awaitTurnStart?: boolean;
-          /** See ManagedTerminalDrive WritePromptOptions.queueIfBusy. */
-          readonly queueIfBusy?: boolean;
-        },
-      ) =>
-        managedDrive.writePrompt(bindingId, text, {
-          ready: options?.ready ?? driveReady(bindingId),
-          ...(options ?? {}),
-        });
-      coreMail.seats.onSuspend(() => {
-        productAutomationSuspended = true;
-        checkoutWatch?.stop();
-      });
-      // Operator multi-prompt (RTS): the operator's text is prompt mail from
-      // the operator, delivered like any other mail — at once when the seat
-      // is live, else when it comes up.
-      const appendManagedPrompt = (input: SeatPromptInput, senderName?: string) =>
-        appendSeatPrompt((effect) => AppRuntime.runPromise(effect), input, senderName);
-      privilegedIpc.handle(IPC_CHANNELS.terminalManagedPrompt, (_event, input: SeatPromptInput) =>
-        core.call("ipc.seats.managedPrompt", { input }),
-      );
-      // Offboard: the operator asks from the seat, the agent writes its notes
-      // with `junto offboard`, and the closer ends the session once the agent
-      // is idle, in the mode the agent chose. Both prompts ride the mail path
-      // above, so they reach the agent between turns.
-      // The recorder, capture, drain, closer and operator offboard: the
-      // same seat sessions a windowless core starts (start-seat-sessions.ts).
-      seatSessions?.stop();
-      const sessions = yield* Effect.promise(() =>
-        startSeatSessions({
-          run: (effect) => AppRuntime.runPromise(effect),
-          onSuspend: (listener) => {
-            coreMail.seats.onSuspend(listener);
-          },
-          sendPrompt: ({ bindingId, text, canvasName, nodeId }) =>
-            appendManagedPrompt({ bindingId, text, canvasName, nodeId }),
-          publish: (progress) => broadcast(IPC_CHANNELS.seatOffboardProgress, progress),
-          publishDue: () => pushSeatCacheDue(),
-        }),
-      );
-      seatSessions = sessions;
-      offboardCloser = sessions.closer;
-      const managedSeatOn = sessions.seatOn;
-      privilegedIpc.handle(IPC_CHANNELS.seatOffboardProgressList, () => offboardCloser?.current() ?? []);
-      // The auto cache mode's question: the seats due it, here and on linked machines, and the operator's answer.
-      onSeatViewQuestions(() => pushSeatCacheDue());
-      privilegedIpc.handle(IPC_CHANNELS.seatCacheDueList, () => seatCacheDueForWindow());
-      privilegedIpc.handle(IPC_CHANNELS.seatCacheDueAnswer, (_event, input: unknown) => handleSeatCacheDueAnswer(input));
-      // Operator offboard: ask or offboard now, one seat or many, and what the
-      // buttons should say first. The same operation the overseer and the
-      // automatic rules go through (seat-sessions/operator-offboard.ts).
-      privilegedIpc.handle(IPC_CHANNELS.seatOffboardRun, (_event, input: unknown) =>
-        handleSeatOffboardRun(input, "operator"),
-      );
-      privilegedIpc.handle(
-        IPC_CHANNELS.seatOffboardStatus,
-        (_event, canvasName: unknown, seatIds: unknown) => handleSeatOffboardStatus(canvasName, seatIds),
-      );
-      privilegedIpc.handle(
-        IPC_CHANNELS.seatOffboardAsk,
-        async (_event, canvasName: unknown, seatId: unknown, mode: unknown): Promise<SeatOffboardAskResult> => {
-          if (typeof canvasName !== "string" || !canvasName || !isSeatGuidanceSeatId(seatId)) {
-            return { ok: false, message: "Junto could not find that seat." };
-          }
-          if (!(OFFBOARD_MODES as ReadonlyArray<unknown>).includes(mode)) {
-            return { ok: false, message: "Offboard to rest or to continue." };
-          }
-          const offboardMode = mode as OffboardMode;
-          const seat = await managedSeatOn({ canvasName, seatId });
-          if (seat === undefined) return { ok: false, message: "Junto could not find that seat." };
-          if (!seat.local) return { ok: false, message: "This seat runs on another installation." };
-          const sent = await appendManagedPrompt({
-            bindingId: seat.bindingId,
-            text: composeOffboardAsk(offboardMode),
-            canvasName,
-            nodeId: seatId,
-          });
-          if (!sent.ok) return { ok: false, message: sent.error ?? "Junto could not send the offboard prompt." };
-          offboardCloser?.asked({ seatId, canvasName }, offboardMode);
-          return { ok: true };
-        },
-      );
-      injectionSupervisor.subscribeOnboarding((event) =>
-        broadcast(IPC_CHANNELS.seatOnboardingChanged, event),
-      );
-      privilegedIpc.handle(IPC_CHANNELS.seatOnboardingSnapshot, () =>
-        injectionSupervisor.currentOnboarding(),
-      );
-      // The onboarding nudge is interjected: typed whatever the seat is
-      // doing, mid-turn included, because a nudge that waits for a turn to
-      // end can be hours late. It stays out of the operator's way: a dialog
-      // waiting for an answer is never typed into, and the drive holds back
-      // for a draft in the composer. Nothing is queued; a nudge that could
-      // not be typed is tried again (or the operator presses again).
-      const interjectOnboardNudge = makeOnboardNudgeInterject({
-        suspended: () => productAutomationSuspended,
-        sealed: (bindingId) => closingFence.sealed(bindingId),
-        mailReady: mailReadyNow,
-        writeMail: (bindingId, text) => managedDrive.writeMail(bindingId, text),
-      });
-      // A seat nobody has mailed is otherwise first looked at when its first
-      // turn starts, mid-turn, where a first look never says ready: the nudge
-      // would be refused before the drive was asked, with nothing to retry it.
-      watchSeatReadiness({
-        subscribeSeatState: (listener) => seatStateRuntime.subscribe(listener),
-        mailReady: mailReadyNow,
-      });
-      // The operator's nudge: the same sentence, typed now. The core asks the
-      // plane (bound here) for the seat, its running state and the interject.
-      bindSeatIpc({
-        seatOn: managedSeatOn,
-        seatRunning: (bindingId) => termPlane.host.get(bindingId)?.status === "running",
-        interjectNudge: async (bindingId, text) => {
-          const outcome = await interjectOnboardNudge(bindingId, text);
-          return outcome === "written"
-            ? { ok: true as const }
-            : { ok: false as const, message: onboardNudgeRefusal(outcome) };
-        },
-        noteNudged: (bindingId) => injectionSupervisor.noteNudgeDelivered(bindingId),
-      });
-      privilegedIpc.handle(IPC_CHANNELS.seatOnboardNudge, (_event, canvasName: unknown, seatId: unknown) =>
-        core.call("ipc.seats.onboardNudge", { canvasName, seatId }),
-      );
-      wireFactorySupervisor({
-        supervisor: injectionSupervisor,
-        interject: (bindingId, text) =>
-          interjectOnboardNudge(bindingId, text).then((outcome) => outcome === "written"),
-        write: writeManagedPrompt,
-        composerVerdict: (bindingId) => seatStateRuntime.composerVerdict(bindingId),
-        subscribeSnapshots: (listener) =>
-          terminalObserverPlane.subscribeGlobal(listener),
-      });
-      // Grok ≥1.5s post-spawn before first paste (verified trap).
-      termPlane.host.subscribeEvents((payload) => {
-        if (payload.type === "output") return;
-        if (payload.type !== "session") return;
-        const bindingId = payload.bindingId;
-        if (payload.status === "exited") {
-          acceptedClaudeRecoveryEpoch.delete(bindingId);
-          return;
-        }
-        if (payload.status !== "running") return;
-        acceptedClaudeRecoveryEpoch.delete(bindingId);
-        const harness = seatStateRuntime.machine.getSlot(bindingId)?.harness;
-        const settleMs = harnessRecordFor(harness)?.pty.postSpawnSettleMs;
-        if (settleMs !== undefined) managedDrive.markSpawned(bindingId, settleMs);
-      }, { replayCurrentSessions: true });
-      // A seat's declared signals ride its own snapshot, so its needs carry them.
-      wireSeatReports({
-        sessions: () => termPlane.host.list(),
-        session: (bindingId) => termPlane.host.get(bindingId),
-        seatReported: (bindingId, report) => seatStateRuntime.seatReported(bindingId, report),
-        subscribeSeatState: (listener) => seatStateRuntime.subscribe(listener),
-        onSignalChanged: onAgentSignalChanged,
-        signalsOf: (canvasName, nodeId) =>
-          AppRuntime.runPromise(
-            Effect.flatMap(AgentSignalRepository, (signals) => signals.listSeat({ canvasName, nodeId })),
-          ),
-      });
-      seatStateRuntime.subscribe((event) => {
-        broadcast(IPC_CHANNELS.agentSeatStateChanged, event);
-        if (
-          event.state === "attention" &&
-          !productAutomationSuspended &&
-          seatStateRuntime.machine.getSlot(event.bindingId)?.harness ===
-            "claude"
-        ) {
-          const live = termPlane.host.get(event.bindingId);
-          const epoch = live?.epoch;
-          const snap = terminalObserverPlane.snapshot(event.bindingId);
-          if (
-            live?.status === "running" &&
-            epoch &&
-            snap &&
-            acceptedClaudeRecoveryEpoch.get(event.bindingId) !== epoch &&
-            isLiveClaudeResumeSummaryChoice(snap.lines)
-          ) {
-            // The selector's highlighted first option is Claude's own
-            // recommended summary recovery. This is startup navigation, not a
-            // permission decision, and runs at most once per PTY generation.
-            // Selector navigation races live operator keystrokes and any
-            // in-flight drive span — skip this heartbeat's recovery write
-            // rather than interleave; the next attention repaint retries.
-            // Routed through the drive so a bare CR can never submit a stuck
-            // chip the drive has not receipted (the seat wedge that refused
-            // every later prompt until respawn).
-            acceptedClaudeRecoveryEpoch.set(event.bindingId, epoch);
-            void managedDrive.submitRecoveryCr(event.bindingId).then((ok) => {
-              if (!ok) acceptedClaudeRecoveryEpoch.delete(event.bindingId);
-            });
-          }
-        }
-      });
-
-      const crew = yield* CrewRepository;
-      const workRepository = yield* WorkRepository;
-      checkoutWatch = makeCheckoutWatchComposition({
-        model: yield* ModelService,
-        actorRefs: yield* ModelActorRefs,
-        settings: settingsForSeed,
-        host: termPlane.host,
-        crew,
-        workRepository,
-        tasks: yield* TaskRepository,
-        messageDelivery,
-        basisFor: canvasReceiptBasis,
-        run: (effect) => AppRuntime.runPromise(effect),
-        write: (effect) => runMainAuthoring("review.checkout", () => AppRuntime.runPromise(effect)),
-        onError: (error) => console.error("[checkout-watch]", error),
-      });
-      const syncCheckoutWatch = (): void => {
-        if (!productAutomationSuspended) checkoutWatch?.start();
-        else checkoutWatch?.stop();
-      };
-      syncCheckoutWatch();
-
-      // First usage fetch is fire-and-forget off the boot critical path;
-      // provider fetches can take tens of seconds so it never blocks window open.
-      if (USAGE_ENABLED) usage.start();
-
-      settingsForSeed.subscribe((settings) => {
-        syncCheckoutWatch();
-      });
-    }),
+  // Advisory seat-awareness sidecar, an experimental feature. Enrollment is
+  // the Settings toggle: a discovered key is not consent. Off, the plane is
+  // not running at all; on with no key it publishes missing_key. The toggle
+  // applies live: a change stops the plane and, when on, starts it again.
+  // Display only, and never on the terminal path.
+  seatAwarenessPlane.subscribe((event) =>
+    corePublish(IPC_CHANNELS.seatAwarenessChanged, event),
   );
+  const applySeatAwareness = (settings: Settings): void => {
+    if (!SEAT_AWARENESS_COMPILED) return;
+    const on = resolveSeatAwarenessGate({
+      env: process.env[SEAT_AWARENESS_ENV],
+      enrolled: seatAwarenessEnrolled(settings),
+    }).enabled;
+    if (on === seatAwarenessPlane.isEnabled()) return;
+    seatAwarenessPlane.stop();
+    if (on) seatAwarenessPlane.start({ enabled: true, apiKey: seatAwarenessApiKey() });
+  };
+  onCorePush(SETTINGS_CHANGED, (next) => applySeatAwareness(next as Settings));
+  void core.call("ipc.settings.current", {}).then(applySeatAwareness, (cause: unknown) => {
+    console.error("[seat-awareness] settings could not be read; the sidecar stays as it is", cause);
+  });
+
+  privilegedIpc.handle(IPC_CHANNELS.terminalManagedPrompt, (_event, input: SeatPromptInput) =>
+    core.call("ipc.seats.managedPrompt", { input }),
+  );
+  // Offboard: the operator asks from the seat, the agent writes its notes
+  // with `junto offboard`, and the core's closer ends the session once the
+  // agent is idle, in the mode the agent chose.
+  onCorePush(IPC_CHANNELS.seatOffboardProgress, (progress) => broadcast(IPC_CHANNELS.seatOffboardProgress, progress));
+  privilegedIpc.handle(IPC_CHANNELS.seatOffboardProgressList, () => core.call("ipc.seats.offboardProgress", {}));
+  // The auto cache mode's question: the seats due it, here and on linked machines, and the operator's answer.
+  onSeatViewQuestions(() => pushSeatCacheDue());
+  onCorePush(SEAT_CACHE_DUE_CHANGED, () => pushSeatCacheDue());
+  privilegedIpc.handle(IPC_CHANNELS.seatCacheDueList, () => seatCacheDueForWindow());
+  privilegedIpc.handle(IPC_CHANNELS.seatCacheDueAnswer, (_event, input: unknown) => handleSeatCacheDueAnswer(input));
+  // Operator offboard: ask or offboard now, one seat or many, and what the
+  // buttons should say first. The same operation the overseer and the
+  // automatic rules go through (seat-sessions/operator-offboard.ts).
+  privilegedIpc.handle(IPC_CHANNELS.seatOffboardRun, (_event, input: unknown) =>
+    handleSeatOffboardRun(input, "operator"),
+  );
+  privilegedIpc.handle(
+    IPC_CHANNELS.seatOffboardStatus,
+    (_event, canvasName: unknown, seatIds: unknown) => handleSeatOffboardStatus(canvasName, seatIds),
+  );
+  privilegedIpc.handle(
+    IPC_CHANNELS.seatOffboardAsk,
+    (_event, canvasName: unknown, seatId: unknown, mode: unknown): Promise<SeatOffboardAskResult> =>
+      core.call("ipc.seats.offboardAsk", { canvasName, seatId, mode }),
+  );
+  injectionSupervisor.subscribeOnboarding((event) =>
+    broadcast(IPC_CHANNELS.seatOnboardingChanged, event),
+  );
+  privilegedIpc.handle(IPC_CHANNELS.seatOnboardingSnapshot, () =>
+    injectionSupervisor.currentOnboarding(),
+  );
+  privilegedIpc.handle(IPC_CHANNELS.seatOnboardNudge, (_event, canvasName: unknown, seatId: unknown) =>
+    core.call("ipc.seats.onboardNudge", { canvasName, seatId }),
+  );
+  seatStateRuntime.subscribe((event) => {
+    broadcast(IPC_CHANNELS.agentSeatStateChanged, event);
+  });
 };
 
 /** Browser-only IPC is installed after cold profile recovery succeeds. */
