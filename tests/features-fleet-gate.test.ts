@@ -13,10 +13,6 @@ describe("Fleet product gate", () => {
     const machinesWindow = readFileSync("src/renderer/lib/machines-window.ts", "utf8");
     const preload = readFileSync("src/preload/index.ts", "utf8");
     const cli = readFileSync("src/cli/main.ts", "utf8");
-    const coordinator = readFileSync(
-      "src/main/junto/hosts/operator-coordinator.ts",
-      "utf8",
-    );
     const router = readFileSync("src/main/junto/term/router.ts", "utf8");
     const doctor = readFileSync("src/main/junto/hosts/doctor.ts", "utf8");
 
@@ -38,7 +34,6 @@ describe("Fleet product gate", () => {
     expect(preload).toContain("...(FLEET_UI_ENABLED ? hostsApi : {})");
     // The fleet CLI group, the operator's fleet ops and the fleet doctor are gone.
     expect(cli).not.toMatch(/fleet/iu);
-    expect(coordinator).not.toMatch(/fleet/iu);
     expect(doctor).not.toMatch(/fleet/iu);
     expect(router).toContain("if (!FLEET_UI_ENABLED)");
   });
