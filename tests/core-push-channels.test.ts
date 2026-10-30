@@ -31,7 +31,12 @@ const publishers = (): ReadonlyArray<{ readonly name: string; readonly source: s
         if (entry.name !== "node_modules") walk(path);
       } else if (entry.name.endsWith(".ts")) {
         const source = readFileSync(path, "utf8");
-        if (source.includes("core-process/push")) found.push({ name: path, source });
+        // Every ops group publishes through "../push", which the old filter
+        // missed; each group is scanned, and any other file that imports the bus.
+        const group = path.includes(join("core-process", "ops"));
+        if (group || source.includes("core-process/push") || /from "(\.\.\/)+push"/u.test(source)) {
+          found.push({ name: path, source });
+        }
       }
     }
   };

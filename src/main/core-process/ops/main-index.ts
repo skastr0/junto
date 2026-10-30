@@ -23,6 +23,7 @@ import {
 } from "../../junto/work/page-box-comment";
 import { coreOps, type CoreOp } from "../ops";
 import { publish } from "../push";
+import { MACHINE_PROGRESS } from "./hosts-ipc";
 
 /**
  * What `src/main/index.ts` asks the core on a request: a node ref, the
@@ -67,6 +68,8 @@ export const WINDOW_CHANNELS = [
   IPC_CHANNELS.modelActorRefsChanged,
   IPC_CHANNELS.viewStateChanged,
   IPC_CHANNELS.referencesChanged,
+  // A running machine command's progress, for the window whose call asked.
+  MACHINE_PROGRESS,
 ] as const;
 
 /**
