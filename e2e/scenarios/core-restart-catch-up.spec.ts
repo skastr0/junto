@@ -20,6 +20,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
+import { crashCoreNow } from "../harness/crash-core";
 import { expect, launchJunto, test } from "../harness/launch";
 import { grantOverseer, modelFixture, modelSeat } from "../harness/model";
 
@@ -74,9 +75,9 @@ test("a window and its seat's hold survive the core being killed", async () => {
       .toBeGreaterThan(0);
     const shownBefore = windowReports(coreLog(logDir)).at(-1)!.ids;
 
-    // The core's pid, from the core's own first line.
+    // The core's pid, from the core's own first line; the crash choke point
+    // proves it is this app's live descendant before it signals.
     await expect.poll(() => pidsIn(coreLog(logDir)).length, { timeout: 60_000 }).toBeGreaterThan(0);
-    const before = pidsIn(coreLog(logDir))[0]!;
     await page.evaluate(() => {
       const heard = { restarted: 0, settings: [] as string[] };
       (window as unknown as { __heard: typeof heard }).__heard = heard;
@@ -84,7 +85,7 @@ test("a window and its seat's hold survive the core being killed", async () => {
       window.junto!.onSettingsChanged((settings) => { heard.settings.push(settings.appearance.theme); });
     });
 
-    process.kill(before, "SIGKILL");
+    const before = await crashCoreNow(junto, logDir);
     // Main starts a new core: a second pid, different from the first.
     await expect
       .poll(() => pidsIn(coreLog(logDir)).filter((pid) => pid !== before).length, { timeout: 60_000 })

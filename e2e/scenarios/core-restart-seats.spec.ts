@@ -12,6 +12,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
+import { crashCoreNow } from "../harness/crash-core";
 import { expect, launchJunto, test } from "../harness/launch";
 import { grantOverseer, modelFixture, modelSeat } from "../harness/model";
 
@@ -108,8 +109,7 @@ test.fixme("a running seat's four ways into Junto, before and after the core is 
 
     const before = await measure("before");
     await expect.poll(() => pidsIn(coreLog(logDir)).length, { timeout: 60_000 }).toBeGreaterThan(0);
-    const killed = pidsIn(coreLog(logDir))[0]!;
-    process.kill(killed, "SIGKILL");
+    const killed = await crashCoreNow(junto, logDir);
     await expect.poll(() => pidsIn(coreLog(logDir)).some((pid) => pid !== killed), { timeout: 60_000 }).toBe(true);
     await expect.poll(() => page.evaluate(() => (window as unknown as { __restart: { restarted: number } }).__restart.restarted), { timeout: 150_000 }).toBeGreaterThan(0);
     const after = await measure("after");

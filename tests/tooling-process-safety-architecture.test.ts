@@ -139,6 +139,15 @@ const shutdownRequest = (source: ts.SourceFile): boolean => {
   return found;
 };
 
+const expectIndexInOrder = (text: string, parts: ReadonlyArray<string>): void => {
+  let cursor = -1;
+  for (const part of parts) {
+    const at = text.indexOf(part, cursor + 1);
+    if (at <= cursor) throw new Error(`${part} is not after the previous step in the choke point`);
+    cursor = at;
+  }
+};
+
 const barePidTerminationText = (path: string, text: string): ReadonlyArray<string> => {
   if (path.endsWith(".py")) {
     return text.split("\n").some((line) =>
@@ -157,14 +166,55 @@ const barePidTerminationText = (path: string, text: string): ReadonlyArray<strin
 const barePidTermination = (path: string): ReadonlyArray<string> =>
   barePidTerminationText(path, readFileSync(path, "utf8"));
 
+/**
+ * The one approved crash choke point (operator approval, 2026-10-30;
+ * docs/architecture-machine-safety.md, "Tooling and e2e proofs"). It signals
+ * only after proving the target is a live descendant of the launched app, and
+ * it is the only file in scripts or e2e allowed a terminating signal.
+ */
+const APPROVED_CRASH = "e2e/harness/crash-core.ts";
+const APPROVED_CRASH_REASON =
+  "the e2e crash proof: the pid comes from the core's own log line and must be a live descendant of the app the harness launched";
+
 describe("tooling process-safety architecture", () => {
   it("allows only direct process.kill existence probes in scripts and e2e", () => {
     const violations = parsedTooling.flatMap(({ file, source }) =>
       processKillAccesses(source)
-        .filter((access) => access.mode === "forbidden")
+        .filter((access) => access.mode === "forbidden" && file !== APPROVED_CRASH)
         .map((access) => `${file}:${access.text}`),
     ).sort();
     expect(violations).toEqual([]);
+  });
+
+  it("allows exactly one terminating kill, in the crash choke point, and guards it", () => {
+    const approved = parsedTooling.find(({ file }) => file === APPROVED_CRASH);
+    expect(approved, `${APPROVED_CRASH} is the approved crash choke point (${APPROVED_CRASH_REASON})`).toBeDefined();
+    const forbidden = processKillAccesses(approved!.source).filter((access) => access.mode === "forbidden");
+    expect(forbidden.map((access) => access.text)).toEqual(["process.kill"]);
+    const text = readFileSync(join(root, APPROVED_CRASH), "utf8");
+    // The guard is the reason the exception exists: the pid line, the liveness
+    // probe, the descent walk to the launched app, and a typed refusal.
+    expect(text).toContain("CORE_PID_LINE");
+    expect(text).toContain("isDescendantOf(");
+    expect(text).toContain("Schema.TaggedError<CoreCrashRefused>()");
+    expectIndexInOrder(text, ["corePidsIn(", "isLive(", "isDescendantOf(", 'process.kill(corePid, "SIGKILL")']);
+  });
+
+  it("still forbids a kill anywhere else in e2e or scripts", () => {
+    const elsewhere = ts.createSourceFile(
+      "e2e/scenarios/some-other-proof.spec.ts",
+      'const pid = 1234;\nprocess.kill(pid, "SIGKILL");\n',
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    expect(processKillAccesses(elsewhere).map((access) => access.mode)).toEqual(["forbidden"]);
+    const probe = ts.createSourceFile(
+      "e2e/scenarios/some-other-proof.spec.ts",
+      "process.kill(pid, 0);\n",
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    expect(processKillAccesses(probe).map((access) => access.mode)).toEqual(["probe"]);
   });
 
   it("has no shell or Python bare-PID termination commands", () => {

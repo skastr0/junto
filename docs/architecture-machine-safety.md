@@ -159,6 +159,19 @@ exit
     → releaseOwned(owned)
 ```
 
+### Tooling and e2e proofs
+
+The rule above binds scripts and e2e as well: no bare pid goes into a kill.
+One exception exists for crash proofs, and it is one file,
+`e2e/harness/crash-core.ts`. `crashCore` takes the app the harness launched,
+not a pid; it reads the core pid from the core's own log line, refuses with a
+typed `CoreCrashRefused` unless that pid is live and a descendant of that app's
+main process, and only then sends SIGKILL. A spec asks for a crash instead of
+handling a pid. Every other `process.kill` in scripts or e2e stays forbidden,
+and `tests/tooling-process-safety-architecture.test.ts` holds both halves: the
+one approved site, and that a kill anywhere else still fails. Operator
+approval, 2026-10-30.
+
 **There is no raw-pid admission API, positive terminating `process.kill(pid)`,
 or caller-supplied group-ownership boolean.** This is an application boundary,
 not a claim that the operating-system kernel makes all process signaling
