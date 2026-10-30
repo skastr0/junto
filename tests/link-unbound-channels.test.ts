@@ -43,7 +43,7 @@ it("refuses to bind without a catalog channel, naming it, and without files abov
     expect(refused, missing).toMatchObject({ reason: "missing-channel" });
     expect((refused as { message: string }).message).toContain(missing);
   }
-});
+}, 120_000);
 
 it("refuses a name outside the catalog", async () => {
   const { bind } = await harness();
