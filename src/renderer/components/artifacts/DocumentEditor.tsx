@@ -9,6 +9,15 @@ import { type DocumentMentions, type FieldSelection, LiveMarkdownField, type Liv
 
 export type { DocumentMentions };
 
+/** Where the operator was in a document: the caret's offset and how far the text is scrolled. */
+export type DocumentPlace = { readonly caret: number | null; readonly scroll: number };
+
+/** Read and put back the place in a mounted document; read is null before its engine is in. */
+export type DocumentPlaceHandle = {
+  readonly read: () => DocumentPlace | null;
+  readonly restore: (place: { readonly caret: number; readonly scroll: number }) => boolean;
+};
+
 /** How long typing rests before it is sent as one version. */
 const SAVE_REST_MS = 800;
 
@@ -33,6 +42,8 @@ export function DocumentEditor({
   placeholder = "Nothing written yet.",
   onDraft,
   saveRef,
+  unsent,
+  placeRef,
 }: {
   readonly body: DocumentBody;
   readonly version: ArtifactVersion;
@@ -64,6 +75,14 @@ export function DocumentEditor({
   readonly onDraft?: (text: string) => boolean;
   /** Set to this editor's save while it is mounted: sends what is unsent, to a refusal line or null. */
   readonly saveRef?: { current: (() => Promise<string | null>) | null };
+  /**
+   * Words written over `body` that were never sent, as a kept draft brought
+   * back after a close, a quit or a kill. They open as the draft, as if just
+   * typed, and are sent at once.
+   */
+  readonly unsent?: string;
+  /** Set to the caret and scroll of this editor while it is mounted. */
+  readonly placeRef?: { current: DocumentPlaceHandle | null };
 }) {
   const [refusal, setRefusal] = useState<string | null>(null);
   const [selection, setSelection] = useState<FieldSelection | null>(null);
@@ -72,7 +91,7 @@ export function DocumentEditor({
   /** The newest head seen, which may be ahead of `synced` while the draft holds unsent text. */
   const head = useRef({ markdown: body.markdown, version });
   head.current = { markdown: body.markdown, version };
-  const draftRef = useRef(body.markdown);
+  const draftRef = useRef(unsent ?? body.markdown);
   /** Sends run one after another, each reading the base when it starts. */
   const chain = useRef<Promise<void>>(Promise.resolve());
   const field = useRef<LiveMarkdownFieldHandle>(null);
@@ -136,6 +155,29 @@ export function DocumentEditor({
       mounted.current = false;
     };
   }, []);
+
+  // A kept draft that differs from the head is sent as it opens, so it is in the artifact, not only on disk.
+  useEffect(() => {
+    if (unsent !== undefined && unsent !== synced.current.markdown && !readOnly) void send();
+    // Once, as it opens: a later prop is not a draft brought back.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (placeRef !== undefined) {
+    placeRef.current = {
+      read: () => {
+        const view = field.current?.view() ?? null;
+        return view === null ? null : { caret: view.state.selection.main.head, scroll: view.scrollDOM.scrollTop };
+      },
+      restore: ({ caret, scroll }) => {
+        const view = field.current?.view() ?? null;
+        if (view === null) return false;
+        view.dispatch({ selection: { anchor: Math.min(Math.max(caret, 0), view.state.doc.length) } });
+        view.scrollDOM.scrollTop = scroll;
+        return true;
+      },
+    };
+  }
 
   /**
    * The save a comment runs before posting. Once this editor is gone its

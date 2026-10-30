@@ -99,7 +99,12 @@ const previewTitle = (): string | undefined => {
   return title === undefined || title === "" ? undefined : title;
 };
 /** The opened artifact's title, as the editor's header holds it; empty on a new capture. */
-const openTitle = (): string => document.querySelector<HTMLInputElement>('.quick-capture__right input[aria-label="Title"]')?.value ?? "";
+// The desk shows the title once, as the writing's first line: an open artifact reads as its words.
+const openTitle = (): string => {
+  const line = document.querySelector<HTMLElement>(".quick-capture__right .capture-editor__surface .cm-content > .cm-line:first-child");
+  // An empty document's first line holds only its placeholder.
+  return line === null || line.querySelector(".cm-placeholder") !== null ? "" : (line.textContent ?? "");
+};
 const list = (): HTMLElement => {
   const found = document.querySelector<HTMLElement>(".quick-capture__rows");
   if (found === null) throw new Error("no list");
@@ -214,13 +219,13 @@ describe("quick capture's own keys", () => {
     await press(search(), bare("Enter"));
     expect(editor()).not.toBeNull();
     expect(preview()).toBeNull();
-    expect(openTitle()).toBe("Plan");
+    expect(openTitle()).toBe("the plan");
   });
 
   it("starts another capture on the modifier and N, leaving the focused one behind", async () => {
     await press(search(), bare("ArrowDown"));
     await press(search(), bare("Enter"));
-    expect(openTitle()).toBe("Plan");
+    expect(openTitle()).toBe("the plan");
     await press(search(), mod("n"));
     expect(editor()).not.toBeNull();
     expect(openTitle()).toBe("");

@@ -19,6 +19,28 @@
   padding: 0 14px;
 }
 
+/* Where it lives: the Inbox, or the node it was moved to. The title is not
+   here; it is the writing's first line. */
+.capture-editor__where {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The first line is the title, shown once: set at the title size in the
+   writing. Only while the doc's first line is the first one drawn; a long
+   document scrolled away puts a gap there instead, which this never matches. */
+.capture-editor .live-markdown .cm-content > .cm-line:first-child {
+  margin-bottom: 4px;
+  color: var(--color-ink);
+  font-size: var(--text-title);
+  font-weight: 600;
+}
+
 /* The capture is kept, quietly: the head says so, and nothing else does. */
 .capture-editor__saved {
   margin-left: auto;

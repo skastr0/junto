@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-import { FolderInput, Undo2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { Undo2 } from "lucide-react";
 import {
   type ArtifactBody,
   type ArtifactEdit,
@@ -19,15 +19,13 @@ import { useArtifactsInReach } from "../../lib/artifacts-in-reach";
 import { useResourcesInReach, useSeatsInReach } from "../../lib/mention-sources";
 import { mentionItemsOf, useCanvasArtifacts } from "../../lib/mention-items";
 import { useCanvasTasks } from "../../lib/tasks-source";
-import { nodeAt, useCanvas } from "../../lib/use-model";
-import { releaseFocus } from "../../lib/focus-ownership";
-import { Button, Dropdown, IconButton, ResourceGlyphMark } from "../ui";
-import { ArtifactMoveDialog } from "../artifacts/ArtifactMove";
-import { movedLine } from "../artifacts/artifact-move-model";
+import { nodeAt } from "../../lib/use-model";
+import { titleOf } from "@shared/model/title";
+import { Button, Dropdown } from "../ui";
 import { ArtifactPadEditor } from "../artifacts/ArtifactPadEditor";
 import { FilePreview, LinkPreview } from "../artifacts/ArtifactPreview";
 import { ArtifactSheetEditor, type SheetCellLinks } from "../artifacts/ArtifactSheetEditor";
-import type { DocumentMentions } from "../artifacts/DocumentEditor";
+import type { DocumentMentions, DocumentPlaceHandle } from "../artifacts/DocumentEditor";
 import { DocumentEditor } from "../artifacts/lazy-editors";
 import {
   CAPTURE_TYPES,
@@ -37,9 +35,9 @@ import {
   convertCapture,
   isCaptureType,
   isEmptyCapture,
-  moveSuggestionsFor,
   UNTITLED_CAPTURE,
 } from "./capture-model";
+import { captureDraftOf, captureDraftWriter } from "./capture-draft";
 import "../artifacts/artifacts.css";
 import "./capture-editor.css";
 
@@ -50,6 +48,18 @@ export type CaptureOpen =
 
 /** The artifact a capture is, where it is now. */
 export type CaptureRef = { readonly nodeId: NodeId; readonly artifactId: ItemId };
+export type CaptureArtifactRef = CaptureRef;
+
+/** Puts every word written on disk and answers the artifact they landed in; null while they rest in the kept draft. Never rejects. */
+export type CaptureFlush = () => Promise<CaptureArtifactRef | null>;
+
+/** Where the operator was in the writing, for the desk's view state. */
+export type CaptureView = {
+  /** The caret offset and scroll of the writing; null while no document editor is in. */
+  readonly read: () => { readonly caret: number | null; readonly scroll: number } | null;
+  /** Put them back once the body is in; asked before that, it waits for it. */
+  readonly restore: (view: { readonly caret: number; readonly scroll: number }) => void;
+};
 
 /** One type switch, as undo takes it back: the type it left and the artifact it archived, if one was made. */
 type Switch = { readonly from: CaptureType; readonly archived: CaptureRef | null };
@@ -57,7 +67,7 @@ type Switch = { readonly from: CaptureType; readonly archived: CaptureRef | null
 /** The version a capture not yet made is written against: one before its first. */
 const UNMADE = (FIRST_ARTIFACT_VERSION - 1) as ArtifactVersion;
 
-const NO_INBOX = "Pick an Inbox in Settings first: there is nowhere for this capture to go.";
+const NO_INBOX = "There is no Inbox yet, so this is kept as a draft. Pick one in Settings and it is saved there.";
 
 /** A head to read when there is none: its body is held, so nothing is fetched for it. */
 const NO_HEAD = {
@@ -76,12 +86,15 @@ const spliced = (text: string, patches: ReadonlyArray<TextPatch>): string =>
  * `onArtifact` says which artifact it is, each time that changes.
  *
  * A new capture is a document in the canvas's Inbox from its first
- * keystroke with words; the rest saves at each rest and on close, so nothing
- * written is lost. Its title is its first line until one is typed. The
- * header switches an Inbox capture to a pad or a sheet (capture-model.ts: a
- * new artifact made from its words, the old one archived, and the undo
- * beside it puts the old one back), and moves it with Move to, its suggested
- * nodes first.
+ * keystroke with words; the rest saves at each rest and on close. Every
+ * change is also kept on disk as the canvas's draft (capture-draft.ts), so
+ * words written before there is an Inbox, or still resting, survive a close,
+ * a quit or a kill, and come back as the writing opens. Its title is its
+ * first line, shown once, in the writing. The head says where it lives and
+ * switches an Inbox capture to a pad or a sheet (capture-model.ts: a new
+ * artifact made from its words, the old one archived, and the undo beside it
+ * puts the old one back). Moving it is the desk's Move to column; the writing
+ * follows it to its new node.
  *
  * Seats are unchanged: what a document may mention is reach from the node it
  * is on, as in the node.
@@ -91,16 +104,24 @@ export function CaptureEditor({
   inbox,
   open,
   onArtifact,
+  flushRef,
+  viewRef,
 }: {
   readonly canvasName: string;
-  /** The canvas's Inbox (Q4, `useCaptureInbox`); a new capture with none is refused, never guessed. */
+  /** The canvas's Inbox (Q4, `useCaptureInbox`); a new capture with none is kept as a draft, never guessed. */
   readonly inbox: NodeId | undefined;
   readonly open: CaptureOpen;
   readonly onArtifact?: (ref: CaptureRef | null) => void;
+  /** Set to this writing's flush while it is mounted, and to the last one's answer after. */
+  readonly flushRef?: MutableRefObject<CaptureFlush | null>;
+  readonly viewRef?: MutableRefObject<CaptureView | null>;
 }) {
-  const key = open.kind === "new" ? `new\u0000${String(open.key)}` : `${open.nodeId}\u0000${open.artifactId}`;
+  // An artifact is the same writing wherever it is moved to: only its id keys it.
+  const key = open.kind === "new" ? `new\u0000${String(open.key)}` : open.artifactId;
   // A new `open` is a new capture: nothing of the last one's state carries over.
-  return <CaptureWriter key={key} canvasName={canvasName} inbox={inbox} open={open} onArtifact={onArtifact} />;
+  return (
+    <CaptureWriter key={key} canvasName={canvasName} inbox={inbox} open={open} onArtifact={onArtifact} flushRef={flushRef} viewRef={viewRef} />
+  );
 }
 
 function CaptureWriter({
@@ -108,11 +129,15 @@ function CaptureWriter({
   inbox,
   open,
   onArtifact,
+  flushRef,
+  viewRef,
 }: {
   readonly canvasName: string;
   readonly inbox: NodeId | undefined;
   readonly open: CaptureOpen;
   readonly onArtifact: ((ref: CaptureRef | null) => void) | undefined;
+  readonly flushRef: MutableRefObject<CaptureFlush | null> | undefined;
+  readonly viewRef: MutableRefObject<CaptureView | null> | undefined;
 }) {
   const [current, setCurrentState] = useState<CaptureRef | null>(open.kind === "artifact" ? { nodeId: open.nodeId, artifactId: open.artifactId } : null);
   /** Read ahead of a re-render: a write chained after a create must find it. */
@@ -132,7 +157,6 @@ function CaptureWriter({
   const [startType, setStartType] = useState<CaptureType>("document");
   const [switches, setSwitches] = useState<ReadonlyArray<Switch>>([]);
   const [line, setLine] = useState<string | null>(null);
-  const [moving, setMoving] = useState(false);
   /** The capture is kept: said once, quietly, until the next keystroke. */
   const [saved, setSaved] = useState(false);
 
@@ -142,13 +166,6 @@ function CaptureWriter({
   const listedBody = useHeadBody(canvasName, head ?? NO_HEAD);
   const body: ArtifactBody | null = current === null ? emptyBody(startType) : head !== undefined ? listedBody : madeBody;
 
-  /** The title as the operator is typing it; null while none is being typed. */
-  const [typedTitle, setTypedTitleState] = useState<string | null>(null);
-  const typed = useRef<string | null>(null);
-  const setTypedTitle = (next: string | null): void => {
-    typed.current = next;
-    setTypedTitleState(next);
-  };
   /** Whether the title follows the first line: a new capture's does; an artifact read in place, while its title is its first line. */
   const follows = useRef<boolean | null>(open.kind === "new" ? true : null);
   /** The title last written, so an unchanged first line writes nothing. */
@@ -159,6 +176,25 @@ function CaptureWriter({
   /** The document's words as the operator sees them now. */
   const wordsNow = (): string =>
     draft.current.of === currentRef.current?.artifactId ? draft.current.text : body?.type === "document" ? body.markdown : "";
+
+  /** The words kept on disk at every change; `kept` counts the changes, so a save knows whether it caught the last. */
+  const drafts = useMemo(() => captureDraftWriter(canvasName), [canvasName]);
+  const kept = useRef(0);
+  /** A kept draft of this writing, read once as it opens: the words a close, a quit or a kill left unsent. */
+  const [unsent] = useState<string | undefined>(() => {
+    const held = captureDraftOf(canvasName);
+    if (held === undefined || held.text.trim() === "") return undefined;
+    const mine = open.kind === "new" ? held.of === null : held.of === open.artifactId;
+    return mine ? held.text : undefined;
+  });
+  // The words brought back are the draft until the first keystroke.
+  if (unsent !== undefined && kept.current === 0 && draft.current.text === "") {
+    draft.current = { of: open.kind === "artifact" ? open.artifactId : null, text: unsent };
+  }
+  /** Clear the kept draft once a save holds every word written: nothing was typed since `at`. */
+  const settle = (at: number): void => {
+    if (kept.current === at) drafts.write(null);
+  };
 
   if (follows.current === null && head !== undefined && listedBody !== null) {
     follows.current = listedBody.type === "document" && head.artifact.title === (captureTitleOf(listedBody.markdown) ?? UNTITLED_CAPTURE);
@@ -192,8 +228,7 @@ function CaptureWriter({
     }
   };
 
-  const titleFor = (made: ArtifactBody): string =>
-    typed.current?.trim() || (made.type === "document" ? captureTitleOf(made.markdown) : undefined) || UNTITLED_CAPTURE;
+  const titleFor = (made: ArtifactBody): string => (made.type === "document" ? captureTitleOf(made.markdown) : undefined) || UNTITLED_CAPTURE;
 
   /** Make the capture in the Inbox with this body: its ref, or the refusal in words. */
   const make = async (made: ArtifactBody): Promise<CaptureRef | string> => {
@@ -207,7 +242,6 @@ function CaptureWriter({
     if (ruling.kind === "refused") return ruling.error.message;
     headVersion.current = FIRST_ARTIFACT_VERSION;
     lastTitle.current = title;
-    if (typed.current?.trim()) follows.current = false;
     setCurrent(ref, made, title);
     return ref;
   };
@@ -215,7 +249,7 @@ function CaptureWriter({
   /** The title follows the first line: retitle when a saved draft changes it. */
   const followTitle = (text: string): void => {
     const ref = currentRef.current;
-    if (ref === null || follows.current !== true || typed.current !== null) return;
+    if (ref === null || follows.current !== true) return;
     const next = captureTitleOf(text) ?? UNTITLED_CAPTURE;
     if (next === lastTitle.current) return;
     lastTitle.current = next;
@@ -237,45 +271,31 @@ function CaptureWriter({
     });
 
   /** A document's splices: the first makes the capture, from exactly the text they write. */
-  const patchDocument = (base: ArtifactVersion, patches: ReadonlyArray<TextPatch>): Promise<string | null> =>
-    queue(async () => {
+  const patchDocument = (base: ArtifactVersion, patches: ReadonlyArray<TextPatch>): Promise<string | null> => {
+    // The editor sends the draft as it stands: no change after this one is in it.
+    const at = kept.current;
+    return queue(async () => {
       const ref = currentRef.current;
       if (ref === null || base === UNMADE) {
         const text = spliced("", patches);
         const made = await make({ type: "document", markdown: text });
-        return typeof made === "string" ? made : null;
+        if (typeof made === "string") return made;
+        settle(at);
+        return null;
       }
       const ruling = await apply(ref, { op: "edit", edit: { kind: "patch", type: "document", baseVersion: base, patches: [...patches] } });
       landed(ruling);
       const refused = refusalLine(ruling);
-      if (refused === null) followTitle(wordsNow());
+      if (refused === null) {
+        followTitle(wordsNow());
+        settle(at);
+      }
       return refused;
     });
+  };
 
   const type = head?.artifact.type ?? (current === null ? startType : (madeBody?.type ?? startType));
   const readOnly = head?.artifact.archived === true;
-
-  const commitTitle = (): void => {
-    const next = typed.current;
-    if (next === null) return;
-    const ref = currentRef.current;
-    if (next.trim() === "") {
-      // Cleared: the title goes back to following the first line.
-      setTypedTitle(null);
-      follows.current = true;
-      followTitle(wordsNow());
-      return;
-    }
-    follows.current = false;
-    setTypedTitle(null);
-    if (ref !== null && next.trim() !== lastTitle.current) {
-      lastTitle.current = next.trim();
-      void queue(() => apply(ref, { op: "retitle", title: next.trim() }));
-    } else if (ref === null) {
-      // Not made yet: the create takes it.
-      typed.current = next;
-    }
-  };
 
   /** Whether the header offers the type switch: a capture in the Inbox, or one not made yet. */
   const switchable = !readOnly && isCaptureType(type) && (current === null || current.nodeId === inbox);
@@ -306,7 +326,7 @@ function CaptureWriter({
       const made = { nodeId: ref.nodeId, artifactId: mintItemId() };
       const converted = convertCapture(words, to);
       // The title last written, not the head this click saw: a retitle queued just before may not have listed yet.
-      const title = typed.current?.trim() || lastTitle.current || head?.artifact.title || titleFor(words);
+      const title = lastTitle.current || head?.artifact.title || titleFor(words);
       const created = await apply(made, {
         op: "create",
         title,
@@ -350,18 +370,81 @@ function CaptureWriter({
     [canvasName, mentions],
   );
 
-  const canvas = useCanvas(canvasName);
+  // The writing follows its artifact: moved from the desk's Move to column, or by anyone, it keeps writing there.
   const everything = useCanvasArtifacts(canvasName);
-  // Read as Move to opens, from the words as they stand then.
-  const suggestions = useMemo(
-    () =>
-      !moving || head === undefined || body === null
-        ? []
-        : moveSuggestionsFor(canvas, head, everything, body.type === "document" ? wordsNow() : undefined),
-    // wordsNow reads refs: the moment Move to opens is what counts.
+  const listedAt = current === null ? undefined : everything.find((one) => one.artifact.artifactId === current.artifactId)?.artifact.nodeId;
+  useEffect(() => {
+    if (current === null || listedAt === undefined || listedAt === current.nodeId) return;
+    setCurrent({ nodeId: listedAt as NodeId, artifactId: current.artifactId }, body, head?.artifact.title ?? lastTitle.current ?? null);
+    // setCurrent is this render's; the move is the only cause.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [moving, head, body, everything, canvas],
-  );
+  }, [listedAt]);
+
+  // Words kept while there was no Inbox are saved the moment there is one.
+  useEffect(() => {
+    if (inbox !== undefined && currentRef.current === null && draft.current.text.trim() !== "") void saveDocument.current?.();
+  }, [inbox]);
+
+  // The flush the desk awaits, and once this writing is gone, its last answer.
+  useEffect(() => {
+    if (flushRef === undefined) return;
+    const flush: CaptureFlush = async () => {
+      try {
+        await saveDocument.current?.();
+        await chain.current;
+      } catch {
+        // A refused or unanswered save keeps the words in the draft; the answer says where they are.
+      }
+      await drafts.settled();
+      return currentRef.current;
+    };
+    flushRef.current = flush;
+    return () => {
+      // Closing sent what was unsent; the answer waits for that send to land.
+      const closing = chain.current;
+      flushRef.current = async () => {
+        await closing.catch(() => undefined);
+        await drafts.settled();
+        return currentRef.current;
+      };
+    };
+  });
+
+  // Where the operator was in the writing: read now, or put back once the engine is in.
+  const place = useRef<DocumentPlaceHandle | null>(null);
+  const pendingPlace = useRef<{ readonly caret: number; readonly scroll: number } | null>(null);
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (viewRef === undefined) return;
+    viewRef.current = {
+      read: () => place.current?.read() ?? null,
+      restore: (view) => {
+        if (place.current?.restore(view) === true) return;
+        pendingPlace.current = view;
+      },
+    };
+    return () => {
+      viewRef.current = null;
+    };
+  });
+  useEffect(() => {
+    const surface = surfaceRef.current;
+    if (surface === null) return;
+    const tryPlace = (): boolean => {
+      const view = pendingPlace.current;
+      if (view === null) return true;
+      if (place.current?.restore(view) !== true) return false;
+      pendingPlace.current = null;
+      return true;
+    };
+    if (tryPlace()) return;
+    // The engine loads lazily: the place waits for its lines to exist.
+    const observer = new MutationObserver(() => {
+      if (tryPlace()) observer.disconnect();
+    });
+    observer.observe(surface, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  });
 
   const editor = (() => {
     if (body === null) return <p className="capture-editor__wait">{head === undefined ? "Finding it." : "Loading this version."}</p>;
@@ -375,9 +458,20 @@ function CaptureWriter({
             readOnly={readOnly}
             mentions={mentions}
             saveRef={saveDocument}
+            placeRef={place}
+            unsent={unsent}
             placeholder="Write it down. The first line becomes the title."
             onDraft={(text) => {
               draft.current = { of: currentRef.current?.artifactId ?? null, text };
+              kept.current += 1;
+              const ref = currentRef.current;
+              drafts.write({
+                of: ref?.artifactId ?? null,
+                node: ref?.nodeId ?? null,
+                text,
+                base: ref === null || headVersion.current === UNMADE ? null : headVersion.current,
+                at: Date.now(),
+              });
               setSaved(false);
               // The first keystroke with words makes the capture at once; the rest waits for a rest.
               return currentRef.current === null && text.trim() !== "";
@@ -413,27 +507,18 @@ function CaptureWriter({
   })();
 
   const last = switches[switches.length - 1];
+  const where = (() => {
+    const at = current?.nodeId ?? inbox;
+    if (at === undefined) return "No Inbox yet";
+    if (at === inbox) return "Inbox";
+    const node = nodeAt(canvasName, at);
+    return node === undefined ? "Inbox" : titleOf(node);
+  })();
   return (
     <div className="capture-editor">
+      {/* Where it lives, its type, and that it is kept: the title is its first line, in the writing, once. */}
       <header className="artifact-head capture-editor__head">
-        <ResourceGlyphMark kind="artifact" artifactType={type} size={14} />
-        <input
-          className="artifact-head__title"
-          aria-label="Title"
-          placeholder="Title from the first line"
-          value={typedTitle ?? head?.artifact.title ?? madeTitle ?? typed.current ?? ""}
-          readOnly={readOnly}
-          onChange={(event) => setTypedTitle(event.target.value)}
-          onBlur={commitTitle}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") releaseFocus(event.currentTarget, "gesture");
-            if (event.key === "Escape" && typedTitle !== null) {
-              // Escape puts the title back; only the next one closes the surface.
-              event.stopPropagation();
-              setTypedTitle(null);
-            }
-          }}
-        />
+        <span className="capture-editor__where">{where}</span>
         {switchable ? (
           <Dropdown
             aria-label="Type"
@@ -451,12 +536,6 @@ function CaptureWriter({
             Back to {captureTypeName(last.from).toLowerCase()}
           </Button>
         ) : null}
-        {current !== null && head !== undefined && !readOnly ? (
-          // A glyph, as in the Artifacts header: at 700 wide the words clipped the title. M in the footer names the key.
-          <IconButton aria-label="Move to…" title="Move to…" aria-haspopup="dialog" size="sm" onClick={() => setMoving(true)}>
-            <FolderInput size={14} />
-          </IconButton>
-        ) : null}
         {saved ? (
           <span className="capture-editor__saved" role="status">
             Saved
@@ -468,27 +547,12 @@ function CaptureWriter({
           {line}
         </p>
       ) : null}
-      <div className="capture-editor__surface" data-capture-entry="">
+      <div className="capture-editor__surface" data-capture-entry="" ref={surfaceRef}>
         {/* One editor per type and switch: a create never remounts it, a switch always does. */}
         <div key={`${type}\u0000${String(switches.length)}`} className="capture-editor__fill">
           {editor}
         </div>
       </div>
-      {moving && current !== null && head !== undefined ? (
-        <ArtifactMoveDialog
-          canvasName={canvasName}
-          from={current.nodeId}
-          artifacts={[{ artifactId: current.artifactId, title: head.artifact.title }]}
-          suggestions={suggestions}
-          onCancel={() => setMoving(false)}
-          onDone={(done) => {
-            setMoving(false);
-            setLine(movedLine(done.titles, done.queued, done.to.title));
-            // What it holds and its title carry over until the new node lists it: the editor stays, the title never blanks.
-            setCurrent({ nodeId: done.to.id, artifactId: current.artifactId }, body, head.artifact.title);
-          }}
-        />
-      ) : null}
     </div>
   );
 }

@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 /**
- * Q2 (docs/plans/0.11/11-quick-capture.md): a capture is a document in the
- * Inbox from its first keystroke, titled by its first line until one is
- * typed; its type switches with its words kept, and undo puts it back.
+ * Q2 (docs/plans/0.11/11-quick-capture.md), on the 0.12 desk: a capture is
+ * a document in the Inbox from its first keystroke, titled by its first line;
+ * its type switches with its words kept, and undo puts it back. Every word is
+ * kept on disk as it is written, and comes back after a close, a quit or a
+ * kill; the writing follows its artifact when it moves.
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -14,7 +16,10 @@ import type { ArtifactHead } from "../src/shared/resource-ipc";
 import { mintItemId, type ItemId } from "../src/shared/resource-command";
 import { makeLocalArtifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/renderer/lib/artifacts-source";
 import { modelStore } from "../src/renderer/lib/use-model";
-import { CaptureEditor, type CaptureOpen, type CaptureRef } from "../src/renderer/components/capture/CaptureEditor";
+import { CaptureEditor, type CaptureFlush, type CaptureOpen, type CaptureRef } from "../src/renderer/components/capture/CaptureEditor";
+import { captureDraftOf } from "../src/renderer/components/capture/capture-draft";
+import { makeMemoryNodeViewStore } from "../src/renderer/lib/view-state-stand-in";
+import { nodeViewStore, setNodeViewStore } from "../src/renderer/lib/node-view-state";
 import { artifacts, region } from "./support/model-nodes";
 
 // jsdom lays nothing out; CodeMirror's measuring asks a range for its boxes.
@@ -36,6 +41,7 @@ let host: HTMLDivElement;
 let release: () => void;
 let source: ArtifactsSource;
 let refs: Array<CaptureRef | null>;
+let flushRef: { current: CaptureFlush | null };
 
 const settle = async (): Promise<void> => {
   for (let i = 0; i < 6; i += 1) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -50,7 +56,9 @@ const live = async (): Promise<ReadonlyArray<ArtifactHead>> => (await inbox()).f
 const button = (words: string): HTMLButtonElement => [...host.querySelectorAll("button")].find((one) => one.textContent?.includes(words))!;
 
 const mount = async (open: CaptureOpen = { kind: "new", key: 0 }, inboxNode: typeof INBOX | null = INBOX): Promise<void> => {
-  await act(async () => root.render(<CaptureEditor canvasName={CANVAS} inbox={inboxNode ?? undefined} open={open} onArtifact={(ref) => refs.push(ref)} />));
+  await act(async () =>
+    root.render(<CaptureEditor canvasName={CANVAS} inbox={inboxNode ?? undefined} open={open} onArtifact={(ref) => refs.push(ref)} flushRef={flushRef} />),
+  );
   // The Markdown engine loads lazily.
   for (let i = 0; i < 40 && host.querySelector(".cm-editor") === null; i += 1) await settle();
 };
@@ -70,6 +78,8 @@ beforeEach(() => {
   source = makeLocalArtifactsSource();
   setArtifactsSource(source);
   refs = [];
+  flushRef = { current: null };
+  setNodeViewStore(makeMemoryNodeViewStore());
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -104,11 +114,46 @@ describe("a capture", () => {
     expect(after?.artifact.title).toBe("Call Ana about rates");
   });
 
-  it("is refused, not guessed, with no Inbox", async () => {
+  it("with no Inbox, is kept as a draft, never guessed, and saved there once there is one", async () => {
     await mount({ kind: "new", key: 0 }, null);
     await typeInto("lost?");
     await settle();
-    expect(host.textContent).toContain("Pick an Inbox in Settings first");
+    expect(host.textContent).toContain("kept as a draft");
+    expect(host.querySelector(".capture-editor__where")?.textContent).toBe("No Inbox yet");
+    expect(captureDraftOf(CANVAS)).toMatchObject({ of: null, node: null, text: "lost?" });
+    expect(await flushRef.current!()).toBeNull();
+
+    await mount({ kind: "new", key: 0 });
+    await settle();
+    const [made] = await inbox();
+    expect(made?.body).toEqual({ type: "document", markdown: "lost?" });
+    expect(captureDraftOf(CANVAS)).toBeUndefined();
+  });
+
+  it("brings back words a kill left unsent, and sends them into their artifact", async () => {
+    const id = mintItemId() as ItemId;
+    await source.apply(CANVAS, INBOX, id, mintItemId() as never, { op: "create", title: "Pricing", body: { type: "document", markdown: "Pricing" } });
+    // What a kill -9 leaves: the draft row ahead of the artifact.
+    await nodeViewStore().writeCaptureDraft(CANVAS, { of: id, node: INBOX, text: "Pricing\nPartner tier stays at three", base: 1, at: 1 });
+    await mount({ kind: "artifact", nodeId: INBOX, artifactId: id });
+    await settle();
+    expect(editorView().state.doc.toString()).toBe("Pricing\nPartner tier stays at three");
+    const [head] = await inbox();
+    expect(head?.body).toEqual({ type: "document", markdown: "Pricing\nPartner tier stays at three" });
+    expect(captureDraftOf(CANVAS)).toBeUndefined();
+  });
+
+  it("keeps every keystroke on disk, and the flush puts resting words in the artifact", async () => {
+    await mount();
+    await typeInto("A");
+    await settle();
+    await typeInto("A line still resting");
+    expect(captureDraftOf(CANVAS)?.text).toBe("A line still resting");
+    const ref = await flushRef.current!();
+    const [made] = await inbox();
+    expect(ref).toEqual({ nodeId: INBOX, artifactId: made!.artifact.artifactId });
+    expect(made?.body).toEqual({ type: "document", markdown: "A line still resting" });
+    expect(captureDraftOf(CANVAS)).toBeUndefined();
   });
 
   it("switches to a sheet with a row per line, and undo puts the document back", async () => {
@@ -139,7 +184,7 @@ describe("a capture", () => {
     expect(back?.body).toEqual({ type: "document", markdown: "milk\neggs\nbread" });
   });
 
-  it("edits an artifact in place, its typed title kept over its first line", async () => {
+  it("edits an artifact in place, its own title kept over its first line", async () => {
     const id = mintItemId() as ItemId;
     await source.apply(CANVAS, asNodeId("specs"), id, mintItemId() as never, {
       op: "create",
@@ -155,6 +200,9 @@ describe("a capture", () => {
     expect(head?.artifact.title).toBe("Release notes");
     // Out of the Inbox, the type stays: a switch would make it a new artifact.
     expect(host.querySelector('[aria-label="Type"]')).toBeNull();
+    // The head says where it lives, and never repeats the title.
+    expect(host.querySelector(".capture-editor__where")?.textContent).toBe("Specs");
+    expect(host.querySelector('[aria-label="Title"]')).toBeNull();
   });
 
   /** The source with a retitle that takes a while to answer, and a restore that can be refused. */
@@ -176,26 +224,19 @@ describe("a capture", () => {
     await settle();
   };
 
-  it("gives the switched artifact the title just typed, though its retitle has not listed yet", async () => {
+  it("gives the switched artifact the first line as its title, though its retitle has not listed yet", async () => {
     setArtifactsSource(slowAndStubborn({ on: false }));
     await mount();
-    await typeInto("milk\neggs");
+    await typeInto("Groceries");
     await settle();
+    await typeInto("Groceries for Sunday\nmilk");
     await act(async () => new Promise((resolve) => setTimeout(resolve, 900)));
-    await settle();
-    const title = host.querySelector<HTMLInputElement>('[aria-label="Title"]')!;
-    await act(async () => {
-      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-      set.call(title, "Groceries");
-      title.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await act(async () => title.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
     // Switch at once, before the slow retitle lists.
     await pickType("Sheet");
     await act(async () => new Promise((resolve) => setTimeout(resolve, 100)));
     await settle();
     const [sheet] = await live();
-    expect(sheet?.artifact).toMatchObject({ type: "sheet", title: "Groceries" });
+    expect(sheet?.artifact).toMatchObject({ type: "sheet", title: "Groceries for Sunday" });
   });
 
   it("undoes a switch restore-first: a refused restore leaves the switch live and Back still works", async () => {
@@ -222,23 +263,24 @@ describe("a capture", () => {
     expect((await live()).map((head) => head.artifact.type)).toEqual(["document"]);
   });
 
-  it("keeps its editor and its title through Move to, until the new node lists it", async () => {
+  it("follows its artifact when it is moved, with the same editor, and writes on where it went", async () => {
     await mount();
     await typeInto("Rates for the lease");
     await settle();
     const before = editorView();
-    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Move to…"]')!.click());
+    const [made] = await inbox();
+    const id = made!.artifact.artifactId as ItemId;
+    await source.apply(CANVAS, INBOX, id, mintItemId() as never, { op: "move", to: asNodeId("specs") });
     await settle();
-    const specs = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((one) => one.textContent?.includes("Specs"))!;
-    await act(async () => specs.click());
-    const move = [...document.querySelectorAll<HTMLButtonElement>("button")].find((one) => one.textContent === "Move")!;
-    await act(async () => move.click());
-    // The first render after the move, before the new node's list is read again.
-    expect(host.querySelector<HTMLInputElement>('[aria-label="Title"]')?.value).toBe("Rates for the lease");
     expect(editorView()).toBe(before);
+    expect(refs.at(-1)).toEqual({ nodeId: "specs", artifactId: id });
+    expect(host.querySelector(".capture-editor__where")?.textContent).toBe("Specs");
+
+    await typeInto("Rates for the lease, signed");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 900)));
     await settle();
-    expect((await source.list(CANVAS, asNodeId("specs"))).map((head) => head.artifact.title)).toEqual(["Rates for the lease"]);
-    expect(refs.at(-1)?.nodeId).toBe("specs");
+    const [moved] = await source.list(CANVAS, asNodeId("specs"));
+    expect(moved?.body).toEqual({ type: "document", markdown: "Rates for the lease, signed" });
   });
 });
 
