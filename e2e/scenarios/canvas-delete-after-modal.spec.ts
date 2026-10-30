@@ -58,7 +58,7 @@ test("the delete chord stands down under a modal and comes back in one press", a
   await select("note-behind");
   await page.keyboard.press("Meta+t");
   await expect(page.getByRole("dialog", { name: "Quick capture" })).toBeVisible({ timeout: 10_000 });
-  await page.locator(".quick-capture__list-label").click();
+  await page.locator(".quick-capture__rows").click();
   await page.keyboard.press("Backspace");
   await page.waitForTimeout(800);
   await expect(note("note-behind")).toHaveCount(1);

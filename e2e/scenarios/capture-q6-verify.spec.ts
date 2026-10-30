@@ -135,7 +135,7 @@ test("quick capture Q6: ask once, Cmd+T anywhere writes at once, Inbox first, ty
       await expect(entry(page)).toBeFocused({ timeout: 10_000 });
     });
     await check("the list reads Inbox, then recent, the capture first", async () => {
-      await expect(page.locator(".quick-capture__list-label")).toHaveText("Inbox, then recent");
+      await expect(page.locator(".quick-capture__group").first()).toHaveText("Inbox");
       await expect(rows(page).first().locator(".quick-capture__row-title")).toHaveText(saved, { timeout: 10_000 });
     });
     await shoot(page, "03-inbox-first");

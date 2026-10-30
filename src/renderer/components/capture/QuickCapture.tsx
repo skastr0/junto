@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
-import { FileText, Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 import type { NodeId } from "@shared/physics/schema";
 import type { ItemId } from "@shared/resource-command";
 import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
@@ -21,7 +21,7 @@ import {
 } from "../../lib/listbox-aria";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { ArtifactMoveDialog } from "../artifacts/ArtifactMove";
-import { Kbd } from "../ui";
+import { Kbd, ResourceGlyphMark } from "../ui";
 import { CaptureEditor } from "./CaptureEditor";
 import { CapturePreview } from "./CapturePreview";
 import { CaptureInboxAsk } from "./CaptureInboxAsk";
@@ -67,6 +67,18 @@ export function QuickCapture() {
     [heads, inbox, query],
   );
   const activeRow = rows.find((row) => row.artifactId === active) ?? rows[0];
+  // Inbox first, then everything else, each under its own small heading; a
+  // search is one flat list with no heading (Cmd+K's list).
+  const groups = useMemo(() => {
+    if (query.trim() !== "") return [{ key: "matches", label: null, rows }];
+    const inInbox: CaptureRow[] = [];
+    const recent: CaptureRow[] = [];
+    for (const row of rows) (inbox !== undefined && row.nodeId === inbox ? inInbox : recent).push(row);
+    return [
+      { key: "inbox", label: "Inbox", rows: inInbox },
+      { key: "recent", label: "Recent", rows: recent },
+    ].filter((group) => group.rows.length > 0);
+  }, [rows, inbox, query]);
   // The row as it is now, not the snapshot taken when it was picked: a body
   // that changed under an open preview still reads its newest text.
   const previewRow =
@@ -187,8 +199,7 @@ export function QuickCapture() {
     <OperatorModalShell
       id="capture"
       label="Quick capture"
-      title="Quick capture"
-      width={760}
+      width={700}
       panelClassName="quick-capture"
       onKeyDown={onKeyDown}
     >
@@ -220,55 +231,95 @@ export function QuickCapture() {
                 setActive(undefined);
               }}
             />
+            {query === "" ? null : (
+              <button
+                type="button"
+                className="quick-capture__clear"
+                aria-label="Clear search"
+                // A press must not pull the caret out of the field (Cmd+K's clear).
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={(event) => {
+                  setQuery("");
+                  setActive(undefined);
+                  claimFocus(searchRef.current, "gesture", { event });
+                }}
+              >
+                <X size={13} />
+              </button>
+            )}
           </div>
-          <p className="quick-capture__list-label" id={`${baseId}-label`}>
-            {query.trim() === "" ? "Inbox, then recent" : "Matches"}
-          </p>
-          <ul
+          {/* The list's own name: group headings name themselves, a search has none. */}
+          <span className="sr-only" id={`${baseId}-list-label`}>
+            {query.trim() === "" ? "Artifacts" : "Matches"}
+          </span>
+          <div
             {...listboxAria(aria)}
-            className="quick-capture__rows junto-focus-ring"
-            aria-labelledby={`${baseId}-label`}
+            className="quick-capture__rows"
+            aria-labelledby={`${baseId}-list-label`}
             aria-activedescendant={activeRow === undefined ? undefined : optionId(baseId, activeRow.artifactId)}
             // The list is its own stop: the keys that act on a row, M included,
             // type in the search field, so the keyboard has to be able to sit here.
+            // Its focus mark is the active row's ring, not a box around the list
+            // (quick-capture.css): the row the keys act on says so.
             tabIndex={0}
           >
             {rows.length === 0 ? (
-              <li className="quick-capture__none" role="status">
+              <p className="quick-capture__none" role="status">
                 {query.trim() === "" ? "Nothing captured yet." : "No artifact matches."}
-              </li>
+              </p>
             ) : (
-              rows.map((row) => (
-                <li
-                  key={row.artifactId}
-                  {...optionAria(aria, row.artifactId)}
-                  className="quick-capture__row"
-                  onClick={() => {
-                    setActive(row.artifactId);
-                    setEdit({ kind: "artifact", row });
-                  }}
+              groups.map((group) => (
+                <div
+                  key={group.key}
+                  role="group"
+                  {...(group.label === null ? {} : { "aria-labelledby": `${baseId}-group-${group.key}` })}
                 >
-                  <FileText size={13} aria-hidden />
-                  <span className="quick-capture__row-main">
-                    <span className="quick-capture__row-title">{rowLabel(row)}</span>
-                    {/* A reader hears the title, then the type and labels, not run together. */}
-                    <span className="sr-only">, </span>
-                    <span className="quick-capture__row-detail">{row.detail}</span>
-                  </span>
-                </li>
+                  {group.label === null ? null : (
+                    <p className="quick-capture__group" id={`${baseId}-group-${group.key}`}>
+                      {group.label}
+                    </p>
+                  )}
+                  {group.rows.map((row) => (
+                    <div
+                      key={row.artifactId}
+                      {...optionAria(aria, row.artifactId)}
+                      className="quick-capture__row"
+                      onPointerMove={() => setActive(row.artifactId)}
+                      onClick={() => {
+                        setActive(row.artifactId);
+                        setEdit({ kind: "artifact", row });
+                      }}
+                    >
+                      <ResourceGlyphMark kind="artifact" artifactType={row.type} size={14} />
+                      <span className="quick-capture__row-main">
+                        <span className="quick-capture__row-title">{rowLabel(row)}</span>
+                        {row.detail === "" ? null : (
+                          <>
+                            {/* A reader hears the title, then the labels, not run together. */}
+                            <span className="sr-only">, </span>
+                            <span className="quick-capture__row-detail">{row.detail}</span>
+                          </>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               ))
             )}
-          </ul>
+          </div>
         </div>
         <div className="quick-capture__right" ref={rightRef}>
-          {edit.kind === "new" ? (
+          {edit.kind === "new" || (edit.kind === "preview" && previewRow === undefined) ? (
             inbox === undefined ? (
-              <CaptureInboxAsk canvas={canvasName} onChosen={() => setEdit({ kind: "new", key: edit.key + 1 })} />
+              <CaptureInboxAsk
+                canvas={canvasName}
+                onChosen={() => setEdit({ kind: "new", key: (edit.kind === "new" ? edit.key : 0) + 1 })}
+              />
             ) : (
               <CaptureEditor
                 canvasName={canvasName}
                 inbox={inbox as NodeId}
-                open={{ kind: "new", key: edit.key }}
+                open={{ kind: "new", key: edit.kind === "new" ? edit.key : 0 }}
                 onArtifact={(ref) => {
                   if (ref !== null) setActive(ref.artifactId);
                 }}
@@ -282,25 +333,21 @@ export function QuickCapture() {
               open={{ kind: "artifact", nodeId: edit.row.nodeId, artifactId: edit.row.artifactId as ItemId }}
             />
           ) : null}
-          {edit.kind === "preview" ? (
-            previewRow === undefined ? (
-              <div className="quick-capture__preview">
-                <p className="quick-capture__preview-title">Start writing</p>
-                <p className="quick-capture__preview-detail">What you write here stays.</p>
+          {edit.kind === "preview" && previewRow !== undefined ? (
+            <div className="quick-capture__preview quick-capture__preview--row">
+              {/* The editor's head, read only: Enter swaps the body, never the layout. */}
+              <header className="artifact-head capture-editor__head">
+                <ResourceGlyphMark kind="artifact" artifactType={previewRow.type} size={14} />
+                <input className="artifact-head__title" aria-label="Title" value={rowLabel(previewRow)} readOnly />
+              </header>
+              <div className="quick-capture__preview-body">
+                <CapturePreview
+                  key={`${previewRow.artifactId}:${String(previewRow.updatedAt)}`}
+                  row={previewRow}
+                  canvasName={canvasName}
+                />
               </div>
-            ) : (
-              <div className="quick-capture__preview quick-capture__preview--row">
-                <p className="quick-capture__preview-title">{rowLabel(previewRow)}</p>
-                <p className="quick-capture__preview-detail">{previewRow.detail}</p>
-                <div className="quick-capture__preview-body">
-                  <CapturePreview
-                    key={`${previewRow.artifactId}:${String(previewRow.updatedAt)}`}
-                    row={previewRow}
-                    canvasName={canvasName}
-                  />
-                </div>
-              </div>
-            )
+            </div>
           ) : null}
         </div>
       </div>

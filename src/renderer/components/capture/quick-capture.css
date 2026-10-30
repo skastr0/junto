@@ -4,11 +4,10 @@
 .quick-capture {
   display: flex;
   flex-direction: column;
-  /* A writing surface, not a page: the frame keeps close to Cmd+K's
-     proportions instead of taking the window's whole height (846 of 900 read
-     as a full-bleed panel). The fixed height also keeps a filtering list from
-     resizing the frame. */
-  height: min(600px, 100%);
+  /* Cmd+T is Cmd+K with a second pane: Cmd+K's width and a capped height, not
+     the window's (846 of 900 read as a full-bleed page). The fixed height
+     also keeps a filtering list from resizing the frame. */
+  height: min(560px, 100%);
   min-height: 0;
   /* The surface's base is the scale's body, so no line falls to the browser's
      16px: titles take body-lg, the quieter lines label. */
@@ -18,7 +17,8 @@
 
 .quick-capture__body {
   display: grid;
-  grid-template-columns: minmax(280px, 32%) minmax(0, 1fr);
+  /* Cmd+K's list column, fixed, then the pane that writes. */
+  grid-template-columns: 260px minmax(0, 1fr);
   min-height: 0;
   flex: 1;
 }
@@ -32,10 +32,11 @@
 
 .quick-capture__search {
   display: flex;
+  height: 46px;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  color: var(--color-dim);
+  gap: 10px;
+  padding: 0 14px;
+  color: var(--color-faint);
   border-bottom: 1px solid var(--color-stroke);
 }
 
@@ -47,20 +48,40 @@
 .quick-capture__search input {
   flex: 1;
   min-width: 0;
+  height: 46px;
   background: none;
   border: none;
+  border-radius: 0;
   outline: none;
   color: var(--color-ink);
-  font: inherit;
+  font-size: var(--text-body-lg);
+  letter-spacing: 0;
 }
 
-.quick-capture__list-label {
-  margin: 10px 12px 4px;
-  font-family: var(--font-mono);
+/* Cmd+K's clear: there while there is a query, and a press never takes the caret. */
+.quick-capture__clear {
+  display: grid;
+  height: 22px;
+  width: 22px;
+  flex: none;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--color-dim);
+}
+
+.quick-capture__clear:hover {
+  background: var(--color-overlay-3);
+  color: var(--color-ink);
+}
+
+/* A group's heading, sentence case like Cmd+K's sections: no letterspaced
+   eyebrow, and only over a group that has rows. */
+.quick-capture__group {
+  margin: 10px 10px 4px;
+  padding: 0 4px;
   font-size: var(--text-label);
-  letter-spacing: var(--tracking-eyebrow);
-  text-transform: uppercase;
-  color: var(--color-faint);
+  font-weight: 500;
+  color: var(--color-dim);
 }
 
 /* The list is its own keyboard stop (the keys that act on a row type in the
@@ -86,18 +107,19 @@
 
 .quick-capture__row {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
   width: 100%;
-  padding: 7px 8px;
-  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   text-align: left;
   color: var(--color-dim);
 }
 
+/* Cmd+K's active row: the tint alone, no edge (operator rule). */
 .quick-capture__row[aria-selected="true"] {
-  background: var(--color-overlay-3);
+  background: var(--color-overlay-2);
   color: var(--color-ink);
 }
 
@@ -110,6 +132,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  gap: 1px;
 }
 
 .quick-capture__row-title {
@@ -121,9 +144,14 @@
   white-space: nowrap;
 }
 
+/* The labels, in the instrument face: Cmd+K's detail line. */
 .quick-capture__row-detail {
-  font-size: var(--text-label);
+  overflow: hidden;
   color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .quick-capture__none {
@@ -150,39 +178,19 @@
   outline: none;
 }
 
-.quick-capture__write,
-.quick-capture__edit {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  flex-direction: column;
-  padding: 10px 14px;
-  overflow: auto;
-}
-
 .quick-capture__preview {
   display: flex;
   flex: 1;
   min-height: 0;
   flex-direction: column;
-  justify-content: center;
-  gap: 6px;
-  padding: 24px;
+  justify-content: flex-start;
 }
 
-.quick-capture__preview-title {
-  margin: 0;
-  font-family: var(--font-body);
-  font-size: var(--text-title);
-  font-weight: 600;
-  color: var(--color-ink);
-}
-
-/* Under the title, never over it: the base size would read larger than the title. */
-.quick-capture__preview-detail {
-  margin: 0;
-  font-size: var(--text-label);
-  color: var(--color-dim);
+/* The capture's document is a field, not a page: the artifact page's 40vh
+   bottom room goes, and it sits inside the pane it shares with the list. */
+.quick-capture .artifact-document .live-markdown .cm-content {
+  max-width: none;
+  padding: 16px 20px;
 }
 
 /* Cmd+K's footer, word for word: the same padding, the hint words in dim so
@@ -217,7 +225,17 @@
   flex: 1;
   min-height: 0;
   flex-direction: column;
-  padding-top: 8px;
+}
+
+/* The non-document previews: the same inset as a document's text column. */
+.quick-capture__preview-pad,
+.quick-capture__preview-body > .artifact-preview {
+  padding: 12px 20px;
+}
+
+.quick-capture__preview-body > .quick-capture__sheet {
+  width: calc(100% - 40px);
+  margin: 12px 20px;
 }
 
 .quick-capture__preview-doc,

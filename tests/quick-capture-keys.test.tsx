@@ -93,8 +93,11 @@ const search = (): HTMLInputElement => {
 /** The right half's editor, whichever capture it holds. */
 const editor = (): HTMLElement | null => document.querySelector(".quick-capture__right .capture-editor__surface");
 const preview = (): HTMLElement | null => document.querySelector(".quick-capture__preview");
-const previewTitle = (): string | undefined =>
-  document.querySelector(".quick-capture__preview-title")?.textContent ?? undefined;
+const previewTitle = (): string | undefined => {
+  // The preview wears the editor's head, read only: its title is the input's value.
+  const title = document.querySelector<HTMLInputElement>(".quick-capture__preview .artifact-head__title")?.value;
+  return title === undefined || title === "" ? undefined : title;
+};
 /** The opened artifact's title, as the editor's header holds it; empty on a new capture. */
 const openTitle = (): string => document.querySelector<HTMLInputElement>('.quick-capture__right input[aria-label="Title"]')?.value ?? "";
 const list = (): HTMLElement => {

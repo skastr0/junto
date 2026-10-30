@@ -17,7 +17,11 @@ export type CaptureRow = {
   readonly artifactId: string;
   readonly nodeId: NodeId;
   readonly title: string;
-  /** The quieter line: the type, then the labels. */
+  /**
+   * The quieter line: its labels. The type is drawn as the row's glyph and
+   * still searched, but it no longer takes a line of its own (11, Cmd+T
+   * direction: Cmd+K's rows).
+   */
   readonly detail: string;
   readonly type: ArtifactType;
   readonly labels: ReadonlyArray<string>;
@@ -37,7 +41,7 @@ const rowOf = (head: ArtifactHead): CaptureRow => {
     artifactId: artifact.artifactId,
     nodeId: artifact.nodeId,
     title: artifact.title,
-    detail: [TYPE_NOUN[artifact.type], ...artifact.labels].join(", "),
+    detail: [...artifact.labels].join(", "),
     type: artifact.type,
     labels: artifact.labels,
     updatedAt: artifact.updatedAt,
@@ -69,9 +73,11 @@ export const captureRowsOf = (
     // The trailing space keeps a whole-title match in the prefix tier, as the
     // command bar does, so an exact name does not lose to a longer one.
     const title = `${row.title} `;
+    // The type noun stays searchable even though the row draws it as a glyph.
+    const typeNoun = TYPE_NOUN[row.type];
     const match = fuzzyMatch(q, {
       identity: [title],
-      metadata: [row.detail, bodyWords(row.head)],
+      metadata: [`${typeNoun}${row.detail === "" ? "" : ` ${row.detail}`}`, bodyWords(row.head)],
     });
     if (match !== null) scored.push({ row, score: match.score });
   }
