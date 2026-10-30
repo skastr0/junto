@@ -34,6 +34,13 @@ it("every group ipc.ts calls is registered by ops/index", () => {
     "ipc.content.portraitOverrides",
     "ipc.content.portraitOverrideSet",
     "ipc.content.pageShotPurge",
+    "ipc.viewState.snapshot",
+    "ipc.viewState.apply",
+    "ipc.seats.regionEnvStaleSeats",
+    "ipc.seats.factoryPauseState",
+    "ipc.seats.factoryPauseSet",
+    "ipc.seats.managedPrompt",
+    "ipc.seats.onboardNudge",
   ];
   for (const name of names) expect(coreOpBody(name), name).toBeTypeOf("function");
 });

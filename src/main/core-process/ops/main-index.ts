@@ -66,6 +66,7 @@ export const WINDOW_CHANNELS = [
   IPC_CHANNELS.modelCanvasesChanged,
   IPC_CHANNELS.modelActorRefsChanged,
   IPC_CHANNELS.viewStateChanged,
+  IPC_CHANNELS.referencesChanged,
 ] as const;
 
 /**
