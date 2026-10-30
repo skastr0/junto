@@ -107,7 +107,7 @@ export const makeFilesLinkChannel = Effect.fn("FilesLink.make")(function* (optio
     const held = sessions.get(context.sessionId);
     if (held !== undefined) return held;
     const id = subscribers.allocate((change) => {
-      void Effect.runPromise(context.sendEvent("files", eventOf(change))).catch(() => undefined);
+      void Effect.runPromiseWith(services)(context.sendEvent("files", eventOf(change))).catch(() => undefined);
     });
     sessions.set(context.sessionId, id);
     return id;

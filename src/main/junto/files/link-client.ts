@@ -39,6 +39,7 @@ export type FilesRemoteOptions = { readonly now?: () => number };
 export const makeFilesRemote = Effect.fn("FilesRemote.make")(function* (options: FilesRemoteOptions = {}) {
   const link = yield* MachineLink;
   const machines = yield* MachineRepository;
+  const context = yield* Effect.context<never>();
   const now = options.now ?? Date.now;
   /** When each machine last answered, or sent a change, or its link went down. In memory only. */
   const reached = new Map<string, number>();
@@ -54,7 +55,7 @@ export const makeFilesRemote = Effect.fn("FilesRemote.make")(function* (options:
 
   /** The answer, or the refusal this call ends in. */
   const send = async (machine: string, request: FilesRequest): Promise<FilesResponse | ReturnType<typeof unreachable> | typeof failed> => {
-    const result = await Effect.runPromise(Effect.result(link.request(machine, "files", request)));
+    const result = await Effect.runPromiseWith(context)(Effect.result(link.request(machine, "files", request)));
     if (result._tag === "Failure") return noLink(result.failure) ? unreachable(machine) : failed;
     try {
       const response = decodeFilesResponse(result.success);
