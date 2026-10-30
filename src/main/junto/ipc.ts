@@ -97,7 +97,6 @@ import {
   normalizeSeatCollaborationAsk,
   type SeatCollaborationAskResult,
 } from "@shared/seat-collaboration";
-import type { ActorRef } from "@shared/work-protocol";
 import {
   mainAuthoringGate,
   type MainAuthoringLabel,
@@ -141,19 +140,6 @@ serveSignalTools({
   run: (call) => runTool(call),
   path: async () => (await resolvedSpawnEnv()).PATH,
 });
-
-export const resolveProjectedIpcActorRef = (
-  actorRefs: ReadonlyArray<ActorRef>,
-  canvasName: string,
-  nodeId: string,
-): ActorRef | undefined => {
-  const matches = actorRefs.filter(
-    (actor) =>
-      actor.canvasName === canvasName &&
-      actor.nodeId === nodeId,
-  );
-  return matches.length === 1 ? matches[0] : undefined;
-};
 
 export const registerJuntoIpc = (): void => {
   const privilegedIpc = trustedRendererIpc(ipcMain);
