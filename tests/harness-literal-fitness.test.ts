@@ -35,9 +35,9 @@ const KNOWN: readonly { readonly file: string; readonly text: string; readonly w
     why: "the hook ladder, outside the PTY effort",
   },
   {
-    file: "src/main/core-process/ops/ipc-startup.ts",
-    text: 'seatStateRuntime.machine.getSlot(event.bindingId)?.harness !== "claude"',
-    why: "Claude's attention recovery, moved from junto/ipc.ts where the scan missed it split over two lines",
+    file: "src/main/junto/term/drive/claude-resume-recovery.ts",
+    text: 'deps.harnessOf(event.bindingId) !== "claude"',
+    why: "Claude's attention recovery; the same comparison, now in the core's resume drive",
   },
 ];
 
