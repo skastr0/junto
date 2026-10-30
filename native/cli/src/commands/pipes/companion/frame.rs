@@ -118,7 +118,10 @@ pub fn encode(frame: &Value) -> String {
         return line;
     }
     let id = frame.get("id").and_then(Value::as_str).unwrap_or_default();
-    format!("{}\n", fail(id, Code::Internal, Some("The reply was too large to send.")))
+    format!(
+        "{}\n",
+        fail(id, Code::Internal, Some("The reply was too large to send."))
+    )
 }
 
 /// companionEvent: an event frame, its signals as they leave on this wire.
@@ -130,7 +133,9 @@ pub fn event(event: &str, mut data: Value) -> Value {
             }
         }
         "feed.changed" => {
-            let sections = data.pointer_mut("/feed/sections").and_then(Value::as_array_mut);
+            let sections = data
+                .pointer_mut("/feed/sections")
+                .and_then(Value::as_array_mut);
             for section in sections.into_iter().flatten() {
                 let items = section.get_mut("items").and_then(Value::as_array_mut);
                 items.into_iter().flatten().for_each(leaving_signal);
@@ -161,7 +166,10 @@ pub struct Request {
 impl Request {
     #[cfg(test)]
     pub fn id(&self) -> &str {
-        self.frame.get("id").and_then(Value::as_str).unwrap_or_default()
+        self.frame
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
     }
 
     pub fn args(&self) -> &Value {
@@ -185,7 +193,12 @@ pub struct Refusal {
 
 impl Refusal {
     fn new(id: &str, code: Code, message: &'static str, close: bool) -> Self {
-        Refusal { id: id.to_string(), code, message, close }
+        Refusal {
+            id: id.to_string(),
+            code,
+            message,
+            close,
+        }
     }
 
     /// A refusal with no id is a connection error; one with an id answers that request.
@@ -202,7 +215,9 @@ impl Refusal {
 fn request_id(value: Option<&Value>) -> Option<&str> {
     let id = value?.as_str()?;
     let valid = (1..=64).contains(&id.len())
-        && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-'));
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-'));
     valid.then_some(id)
 }
 
@@ -210,10 +225,15 @@ fn request_id(value: Option<&Value>) -> Option<&str> {
 pub fn decode(line: &str) -> Result<Request, Refusal> {
     let size = line.len() + 1;
     if size > MAX_INBOUND_BYTES {
-        return Err(Refusal::new("", Code::TooLarge, Code::TooLarge.copy(), true));
+        return Err(Refusal::new(
+            "",
+            Code::TooLarge,
+            Code::TooLarge.copy(),
+            true,
+        ));
     }
-    let raw: Value =
-        serde_json::from_str(line).map_err(|_| Refusal::new("", Code::Invalid, "The frame was not JSON.", false))?;
+    let raw: Value = serde_json::from_str(line)
+        .map_err(|_| Refusal::new("", Code::Invalid, "The frame was not JSON.", false))?;
     let object = raw.as_object();
     let field = |key: &str| object.and_then(|o| o.get(key));
     // The envelope every frame carries before its op is looked at.
@@ -231,19 +251,37 @@ pub fn decode(line: &str) -> Result<Request, Refusal> {
         ));
     }
     let Some(id) = id else {
-        return Err(Refusal::new("", Code::Invalid, "The frame is not a request.", false));
+        return Err(Refusal::new(
+            "",
+            Code::Invalid,
+            "The frame is not a request.",
+            false,
+        ));
     };
     let op = field("op").and_then(Value::as_str).unwrap_or_default();
     if !OPS.contains(&op) {
         return Err(Refusal::new(id, Code::Invalid, "Unknown operation.", false));
     }
     if op != "content.stage" && size > MAX_REQUEST_BYTES {
-        return Err(Refusal::new("", Code::TooLarge, Code::TooLarge.copy(), true));
+        return Err(Refusal::new(
+            "",
+            Code::TooLarge,
+            Code::TooLarge.copy(),
+            true,
+        ));
     }
-    let args = open_args(op, field("args").cloned().unwrap_or_else(|| Value::Object(Map::new())));
+    let args = open_args(
+        op,
+        field("args")
+            .cloned()
+            .unwrap_or_else(|| Value::Object(Map::new())),
+    );
     // The frame as its schema reads it: the five keys, nothing else.
     let frame = json!({ "v": PROTOCOL, "type": "request", "id": id, "op": op, "args": args });
-    Ok(Request { op: op.to_string(), frame })
+    Ok(Request {
+        op: op.to_string(),
+        frame,
+    })
 }
 
 /// The keys an op whose arguments are open takes: the TypeScript decode drops
@@ -251,7 +289,8 @@ pub fn decode(line: &str) -> Result<Request, Refusal> {
 /// relayed whole, and the app refuses an unknown key as the phone expects.
 fn open_keys(op: &str, args: &Map<String, Value>) -> Option<&'static [&'static str]> {
     Some(match op {
-        "ping" | "canvases.list" | "feed.unsubscribe" | "quickReplies.get" | "machines.list" | "tailnet.peers" => &[],
+        "ping" | "canvases.list" | "feed.unsubscribe" | "quickReplies.get" | "machines.list"
+        | "tailnet.peers" => &[],
         "pair.complete" => &["publicKey", "deviceName"],
         "feed.get" | "feed.subscribe" | "seats.list" => &["canvasName"],
         "seat.get" => &["canvasName", "nodeId"],
@@ -260,7 +299,9 @@ fn open_keys(op: &str, args: &Map<String, Value>) -> Option<&'static [&'static s
         "portrait.get" => &["portraitIdentity", "size", "theme", "format"],
         "machine.get" => &["name", "minLevel"],
         // The union's first form that reads: quiet, then loud, then an artifact answer.
-        "signal.answer" if args.get("quiet") == Some(&Value::Bool(true)) && args.contains_key("text") => {
+        "signal.answer"
+            if args.get("quiet") == Some(&Value::Bool(true)) && args.contains_key("text") =>
+        {
             &["signalId", "text", "quiet", "attachments"]
         }
         "signal.answer" if args.contains_key("text") => &["signalId", "text", "attachments"],
@@ -292,27 +333,53 @@ mod tests {
 
     #[test]
     fn checks_the_envelope_in_the_order_the_protocol_does() {
-        let ok = decode(r#"{"v":"junto-companion/1","type":"request","id":"r1","op":"ping"}"#).unwrap();
-        assert_eq!((ok.id(), ok.op.as_str(), ok.args()), ("r1", "ping", &json!({})));
-        assert_eq!(refused("{"), ("".into(), Code::Invalid, "The frame was not JSON.", false));
+        let ok =
+            decode(r#"{"v":"junto-companion/1","type":"request","id":"r1","op":"ping"}"#).unwrap();
+        assert_eq!(
+            (ok.id(), ok.op.as_str(), ok.args()),
+            ("r1", "ping", &json!({}))
+        );
+        assert_eq!(
+            refused("{"),
+            ("".into(), Code::Invalid, "The frame was not JSON.", false)
+        );
         assert_eq!(
             refused(r#"{"v":"junto-companion/2","type":"request","id":"r2","op":"ping"}"#),
-            ("r2".into(), Code::UnsupportedVersion, Code::UnsupportedVersion.copy(), true)
+            (
+                "r2".into(),
+                Code::UnsupportedVersion,
+                Code::UnsupportedVersion.copy(),
+                true
+            )
         );
         assert_eq!(refused("5").1, Code::UnsupportedVersion);
         assert_eq!(
             refused(r#"{"v":"junto-companion/1","type":"event","id":"r3","op":"ping"}"#),
-            ("".into(), Code::Invalid, "The frame is not a request.", false)
+            (
+                "".into(),
+                Code::Invalid,
+                "The frame is not a request.",
+                false
+            )
         );
         assert_eq!(
             refused(r#"{"v":"junto-companion/1","type":"request","id":"r4","op":"nope"}"#),
             ("r4".into(), Code::Invalid, "Unknown operation.", false)
         );
-        let long = format!(r#"{{"v":"junto-companion/1","type":"request","id":"r5","op":"ping","args":{{"x":"{}"}}}}"#, "a".repeat(17_000));
-        assert_eq!(refused(&long), ("".into(), Code::TooLarge, Code::TooLarge.copy(), true));
+        let long = format!(
+            r#"{{"v":"junto-companion/1","type":"request","id":"r5","op":"ping","args":{{"x":"{}"}}}}"#,
+            "a".repeat(17_000)
+        );
+        assert_eq!(
+            refused(&long),
+            ("".into(), Code::TooLarge, Code::TooLarge.copy(), true)
+        );
         assert!(decode(&long.replace("\"ping\"", "\"content.stage\"")).is_ok());
         let open = decode(r#"{"v":"junto-companion/1","x":1,"type":"request","id":"r6","op":"seat.get","args":{"nodeId":"n","old":1,"canvasName":"c"}}"#).unwrap();
-        assert_eq!(open.frame.to_string(), r#"{"v":"junto-companion/1","type":"request","id":"r6","op":"seat.get","args":{"nodeId":"n","canvasName":"c"}}"#);
+        assert_eq!(
+            open.frame.to_string(),
+            r#"{"v":"junto-companion/1","type":"request","id":"r6","op":"seat.get","args":{"nodeId":"n","canvasName":"c"}}"#
+        );
         let closed = decode(r#"{"v":"junto-companion/1","type":"request","id":"r7","op":"mail.send","args":{"old":1}}"#).unwrap();
         assert_eq!(closed.args(), &json!({ "old": 1 }));
     }

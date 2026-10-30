@@ -50,19 +50,26 @@ fn parse(args: &[&str]) -> Result<Mode, String> {
         return Ok(Mode::Demo);
     }
     let device = device.ok_or("--device dev_<id> or --demo is required")?;
-    device_id(device).map(Mode::Device).ok_or_else(|| "--device is not a device id".into())
+    device_id(device)
+        .map(Mode::Device)
+        .ok_or_else(|| "--device is not a device id".into())
 }
 
 pub fn run(args: &[&str]) -> ExitCode {
     let refuse = |message: &str| {
         // Still one protocol frame on stdout, so a phone sees a reason; usage on stderr.
-        print!("{}", frame::connection_error_line(Code::Invalid, Some("This key is not set up for Junto.")));
+        print!(
+            "{}",
+            frame::connection_error_line(Code::Invalid, Some("This key is not set up for Junto."))
+        );
         eprintln!("junto companion-stdio: {message}");
         ExitCode::from(64)
     };
     match parse(args) {
         Err(message) => refuse(&message),
-        Ok(Mode::Demo) => refuse("--demo runs from the repository: bun src/cli/main.ts companion-stdio --demo"),
+        Ok(Mode::Demo) => {
+            refuse("--demo runs from the repository: bun src/cli/main.ts companion-stdio --demo")
+        }
         Ok(Mode::Device(device)) => {
             session::run(relay::Relay::new(device));
             ExitCode::SUCCESS
@@ -78,10 +85,19 @@ mod tests {
     fn reads_the_forced_command() {
         let id = "dev_01M65A00M174ZD80B991YMNB97";
         assert_eq!(parse(&["--device", id]), Ok(Mode::Device(id.into())));
-        assert_eq!(parse(&[&format!("--device={id}")]), Ok(Mode::Device(id.into())));
+        assert_eq!(
+            parse(&[&format!("--device={id}")]),
+            Ok(Mode::Device(id.into()))
+        );
         assert_eq!(parse(&["--device", "x", "--demo"]), Ok(Mode::Demo));
-        assert_eq!(parse(&[]), Err("--device dev_<id> or --demo is required".into()));
-        assert_eq!(parse(&["--device", "dev_1"]), Err("--device is not a device id".into()));
+        assert_eq!(
+            parse(&[]),
+            Err("--device dev_<id> or --demo is required".into())
+        );
+        assert_eq!(
+            parse(&["--device", "dev_1"]),
+            Err("--device is not a device id".into())
+        );
         assert_eq!(parse(&["-x"]), Err("unknown argument \"-x\"".into()));
     }
 }

@@ -63,8 +63,12 @@ pub fn run(args: &[&str]) -> ExitCode {
 /// Stdin to the socket on one thread, the socket to stdout on this one. Stdin
 /// ending ends the socket's write half; the far end closing ends the relay.
 fn relay(path: &std::path::Path, opener: Option<&Opener>) -> io::Result<()> {
-    let mut socket = UnixStream::connect(path)
-        .map_err(|e| io::Error::new(e.kind(), format!("connect {} {}", wire::errno_name(&e), path.display())))?;
+    let mut socket = UnixStream::connect(path).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!("connect {} {}", wire::errno_name(&e), path.display()),
+        )
+    })?;
     if let Some(opener) = opener {
         socket.write_all(opener.line().as_bytes())?;
     }

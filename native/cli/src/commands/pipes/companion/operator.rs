@@ -64,19 +64,32 @@ pub fn call(op: &str, args: Value, timeout_ms: u64) -> Result<Value, Refused> {
 
     let started = Instant::now();
     let bound = Duration::from_millis(timeout_ms);
-    let left = || bound.checked_sub(started.elapsed()).filter(|d| !d.is_zero()).ok_or(Refused::Failed);
+    let left = || {
+        bound
+            .checked_sub(started.elapsed())
+            .filter(|d| !d.is_zero())
+            .ok_or(Refused::Failed)
+    };
     let path = wire::junto_home().join(".junto/operator/control.sock");
     let mut stream = UnixStream::connect(&path).map_err(|e| match e.kind() {
-        ErrorKind::NotFound | ErrorKind::ConnectionRefused | ErrorKind::PermissionDenied => Refused::Down,
+        ErrorKind::NotFound | ErrorKind::ConnectionRefused | ErrorKind::PermissionDenied => {
+            Refused::Down
+        }
         _ => Refused::Failed,
     })?;
-    stream.set_write_timeout(Some(left()?)).map_err(|_| Refused::Failed)?;
-    stream.write_all(frame.as_bytes()).map_err(|_| Refused::Failed)?;
+    stream
+        .set_write_timeout(Some(left()?))
+        .map_err(|_| Refused::Failed)?;
+    stream
+        .write_all(frame.as_bytes())
+        .map_err(|_| Refused::Failed)?;
 
     let mut reader = BufReader::new(&stream).take(MAX_RESPONSE_BYTES);
     let mut line = Vec::new();
     while !line.ends_with(b"\n") {
-        stream.set_read_timeout(Some(left()?)).map_err(|_| Refused::Failed)?;
+        stream
+            .set_read_timeout(Some(left()?))
+            .map_err(|_| Refused::Failed)?;
         match reader.read_until(b'\n', &mut line) {
             Ok(0) => return Err(Refused::Failed),
             Ok(_) => {}
@@ -87,8 +100,18 @@ pub fn call(op: &str, args: Value, timeout_ms: u64) -> Result<Value, Refused> {
     let text = std::str::from_utf8(&line).map_err(|_| Refused::Failed)?;
     let response: Response = serde_json::from_str(text.trim_end()).map_err(|_| Refused::Failed)?;
     match response {
-        Response { ok: true, data: Some(data), id: Some(rid), op: Some(rop), .. } if rid == id && rop == op => Ok(data),
-        Response { ok: false, error: Some(error), .. } => Err(match (error.kind.as_str(), error.message.as_str()) {
+        Response {
+            ok: true,
+            data: Some(data),
+            id: Some(rid),
+            op: Some(rop),
+            ..
+        } if rid == id && rop == op => Ok(data),
+        Response {
+            ok: false,
+            error: Some(error),
+            ..
+        } => Err(match (error.kind.as_str(), error.message.as_str()) {
             ("runtime_down" | "shutdown", PEER_LIMIT_MESSAGE) => Refused::Busy,
             ("runtime_down" | "shutdown", _) => Refused::Down,
             ("protocol_error", UNDECODED) => Refused::Undecoded,

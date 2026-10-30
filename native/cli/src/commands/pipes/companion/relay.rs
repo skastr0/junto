@@ -42,12 +42,21 @@ pub struct Relay {
 
 impl Relay {
     pub fn new(device_id: String) -> Self {
-        Relay { device_id, turns: Turns::new(CALLS_MAX) }
+        Relay {
+            device_id,
+            turns: Turns::new(CALLS_MAX),
+        }
     }
 
     /// The hello to send, or the connection error that ends the channel.
     pub fn hello(&self) -> Result<Value, (Code, String)> {
-        let ask = |timeout| operator::call("companion.hello", json!({ "deviceId": self.device_id }), timeout);
+        let ask = |timeout| {
+            operator::call(
+                "companion.hello",
+                json!({ "deviceId": self.device_id }),
+                timeout,
+            )
+        };
         let mut result = ask(DEFAULT_TIMEOUT_MS);
         // Not running: start the installed app once, then ask again until its
         // socket answers or the wait runs out.
@@ -63,14 +72,25 @@ impl Relay {
             }
         }
         let data = result.map_err(|refused| {
-            let code = if refused == Refused::Down { Code::AppNotRunning } else { Code::Internal };
+            let code = if refused == Refused::Down {
+                Code::AppNotRunning
+            } else {
+                Code::Internal
+            };
             (code, code.copy().to_string())
         })?;
         match (data.get("ok"), data.get("hello"), data.get("error")) {
             (Some(Value::Bool(true)), Some(hello), _) => Ok(hello.clone()),
             (Some(Value::Bool(false)), _, Some(error)) => {
-                let code = error.get("code").and_then(|c| serde_json::from_value(c.clone()).ok()).unwrap_or(Code::Internal);
-                let message = error.get("message").and_then(Value::as_str).unwrap_or(code.copy()).to_string();
+                let code = error
+                    .get("code")
+                    .and_then(|c| serde_json::from_value(c.clone()).ok())
+                    .unwrap_or(Code::Internal);
+                let message = error
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or(code.copy())
+                    .to_string();
                 Err((code, message))
             }
             _ => Err((Code::Internal, Code::Internal.copy().to_string())),
@@ -79,15 +99,25 @@ impl Relay {
 
     /// One phone request, answered by the app or refused for the phone.
     pub fn call(&self, request: &Value) -> Value {
-        let id = request.get("id").and_then(Value::as_str).unwrap_or_default();
+        let id = request
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         let args = json!({ "deviceId": self.device_id, "request": request });
-        let answer = self.turns.take(|| operator::call("companion.call", args, DEFAULT_TIMEOUT_MS));
+        let answer = self
+            .turns
+            .take(|| operator::call("companion.call", args, DEFAULT_TIMEOUT_MS));
         match answer {
-            Ok(mut data) => data.get_mut("response").map(Value::take).unwrap_or_else(|| frame::fail(id, Code::Internal, None)),
+            Ok(mut data) => data
+                .get_mut("response")
+                .map(Value::take)
+                .unwrap_or_else(|| frame::fail(id, Code::Internal, None)),
             Err(Refused::Busy) => frame::fail(id, Code::RateLimited, Some(BUSY)),
             Err(Refused::Down) => frame::fail(id, Code::AppNotRunning, None),
             // The app could not decode it: the phone sent arguments its op does not take.
-            Err(Refused::Undecoded) => frame::fail(id, Code::Invalid, Some("The arguments were not valid.")),
+            Err(Refused::Undecoded) => {
+                frame::fail(id, Code::Invalid, Some("The arguments were not valid."))
+            }
             Err(Refused::Failed) => frame::fail(id, Code::Internal, None),
         }
     }
@@ -103,7 +133,12 @@ impl Relay {
         if data.get("ok") != Some(&Value::Bool(true)) {
             return None;
         }
-        let list = |key: &str| data.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
+        let list = |key: &str| {
+            data.get(key)
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+        };
         Some(Change {
             cursor: data.get("cursor")?.as_str()?.to_string(),
             changed: data.get("changed")?.as_bool()?,
@@ -123,13 +158,20 @@ struct Turns {
 
 impl Turns {
     fn new(max: usize) -> Self {
-        Turns { max, running: Mutex::new(0), freed: Condvar::new() }
+        Turns {
+            max,
+            running: Mutex::new(0),
+            freed: Condvar::new(),
+        }
     }
 
     fn take<A>(&self, run: impl FnOnce() -> A) -> A {
         {
             let running = self.running.lock().unwrap_or_else(|p| p.into_inner());
-            let mut running = self.freed.wait_while(running, |n| *n >= self.max).unwrap_or_else(|p| p.into_inner());
+            let mut running = self
+                .freed
+                .wait_while(running, |n| *n >= self.max)
+                .unwrap_or_else(|p| p.into_inner());
             *running += 1;
         }
         let answer = run();
@@ -149,7 +191,13 @@ const BUNDLE_IDENTIFIER: &str = "com.skastr0.junto";
 /// no JUNTO_HOME. What plutil prints is compared and dropped: stderr reaches
 /// the phone over SSH.
 fn launch_installed() -> bool {
-    installed_app_startable() && run("/usr/bin/open", &["-g", INSTALLED_APP], Duration::from_secs(5)).is_some()
+    installed_app_startable()
+        && run(
+            "/usr/bin/open",
+            &["-g", INSTALLED_APP],
+            Duration::from_secs(5),
+        )
+        .is_some()
 }
 
 fn installed_app_startable() -> bool {
@@ -158,17 +206,26 @@ fn installed_app_startable() -> bool {
     }
     let home = std::env::home_dir();
     let account = account_home();
-    if home.is_none() || home.map(|h| normalized(&h)) != account.map(|a| normalized(Path::new(&a))) {
+    if home.is_none() || home.map(|h| normalized(&h)) != account.map(|a| normalized(Path::new(&a)))
+    {
         return false;
     }
     let real = |path: &str, directory: bool| {
-        std::fs::symlink_metadata(path).is_ok_and(|m| if directory { m.is_dir() } else { m.is_file() })
+        std::fs::symlink_metadata(path)
+            .is_ok_and(|m| if directory { m.is_dir() } else { m.is_file() })
     };
     real(INSTALLED_APP, true)
         && real(&format!("{INSTALLED_APP}/Contents/MacOS/Junto"), false)
         && run(
             "/usr/bin/plutil",
-            &["-extract", "CFBundleIdentifier", "raw", "-o", "-", &format!("{INSTALLED_APP}/Contents/Info.plist")],
+            &[
+                "-extract",
+                "CFBundleIdentifier",
+                "raw",
+                "-o",
+                "-",
+                &format!("{INSTALLED_APP}/Contents/Info.plist"),
+            ],
             Duration::from_secs(2),
         )
         .as_deref()
@@ -179,13 +236,19 @@ fn installed_app_startable() -> bool {
 fn usable_junto_home() -> bool {
     std::env::var("JUNTO_HOME").is_ok_and(|home| {
         let home = home.trim();
-        !home.is_empty() && home.len() <= 4096 && !home.chars().any(|c| (c as u32) < 0x20 || c == '\u{7f}') && home.starts_with('/')
+        !home.is_empty()
+            && home.len() <= 4096
+            && !home.chars().any(|c| (c as u32) < 0x20 || c == '\u{7f}')
+            && home.starts_with('/')
     })
 }
 
 /// The account's home from the user database, whatever HOME says (`id -P` prints its passwd entry).
 fn account_home() -> Option<String> {
-    run("/usr/bin/id", &["-P"], Duration::from_secs(2))?.split(':').nth(8).map(str::to_string)
+    run("/usr/bin/id", &["-P"], Duration::from_secs(2))?
+        .split(':')
+        .nth(8)
+        .map(str::to_string)
 }
 
 fn normalized(path: &Path) -> std::path::PathBuf {

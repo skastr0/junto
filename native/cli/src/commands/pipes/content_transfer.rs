@@ -37,7 +37,8 @@ struct Sha256Hex(String);
 
 impl Sha256Hex {
     fn parse(text: &str) -> Option<Self> {
-        let valid = text.len() == 64 && text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+        let valid =
+            text.len() == 64 && text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
         valid.then(|| Sha256Hex(text.to_string()))
     }
 
@@ -65,7 +66,9 @@ enum Mode {
 fn count(token: &str) -> Option<u64> {
     let digits = token.len() <= 16 && token.bytes().all(|b| b.is_ascii_digit());
     let canonical = token == "0" || !token.starts_with('0');
-    (digits && canonical && !token.is_empty()).then(|| token.parse().ok()).flatten()
+    (digits && canonical && !token.is_empty())
+        .then(|| token.parse().ok())
+        .flatten()
 }
 
 fn parse(argv: &[&str]) -> Result<Request, String> {
@@ -87,7 +90,11 @@ fn parse(argv: &[&str]) -> Result<Request, String> {
             if byte_length > MAX_SAFE {
                 return Err("content helper byteLength is not a safe integer".into());
             }
-            Ok(Request { mode: Mode::Stat, sha256, byte_length })
+            Ok(Request {
+                mode: Mode::Stat,
+                sha256,
+                byte_length,
+            })
         }
         ("stat", _) => Err("content helper stat requires <sha256> <byteLength>".into()),
         (_, [sha, length, rest @ ..]) if rest.len() <= 1 => {
@@ -96,10 +103,20 @@ fn parse(argv: &[&str]) -> Result<Request, String> {
             if byte_length > MAX_SAFE || offset > MAX_SAFE || offset > byte_length {
                 return Err("content helper offset/byteLength is out of range".into());
             }
-            let mode = if mode == "receive" { Mode::Receive { offset } } else { Mode::Send { offset } };
-            Ok(Request { mode, sha256, byte_length })
+            let mode = if mode == "receive" {
+                Mode::Receive { offset }
+            } else {
+                Mode::Send { offset }
+            };
+            Ok(Request {
+                mode,
+                sha256,
+                byte_length,
+            })
         }
-        _ => Err(format!("content helper {mode} requires <sha256> <byteLength> [offset]")),
+        _ => Err(format!(
+            "content helper {mode} requires <sha256> <byteLength> [offset]"
+        )),
     }
 }
 
@@ -123,7 +140,10 @@ struct StoreError {
 
 impl StoreError {
     fn new(code: Code, message: impl Into<String>) -> Self {
-        StoreError { code, message: message.into() }
+        StoreError {
+            code,
+            message: message.into(),
+        }
     }
 }
 
@@ -151,7 +171,9 @@ struct Store {
 
 impl Store {
     fn at_home() -> Self {
-        Store { root: wire::junto_home().join(".junto/content/v1") }
+        Store {
+            root: wire::junto_home().join(".junto/content/v1"),
+        }
     }
 
     fn incoming(&self) -> PathBuf {
@@ -180,7 +202,10 @@ impl Store {
 }
 
 fn real_directory(path: &Path) -> Result<()> {
-    DirBuilder::new().recursive(true).mode(DIR_MODE).create(path)?;
+    DirBuilder::new()
+        .recursive(true)
+        .mode(DIR_MODE)
+        .create(path)?;
     let info = fs::symlink_metadata(path)?;
     if !info.is_dir() {
         return Err(StoreError::new(
@@ -227,8 +252,15 @@ fn unlink_owned(path: &Path) -> Result<()> {
 }
 
 fn fsync(path: &Path, directory: bool) -> Result<()> {
-    let flags = if directory { OFlags::NOFOLLOW | OFlags::DIRECTORY } else { OFlags::NOFOLLOW };
-    let file = OpenOptions::new().read(true).custom_flags(flags.bits() as i32).open(path)?;
+    let flags = if directory {
+        OFlags::NOFOLLOW | OFlags::DIRECTORY
+    } else {
+        OFlags::NOFOLLOW
+    };
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(flags.bits() as i32)
+        .open(path)?;
     rustix::fs::fsync(&file).map_err(io::Error::from)?;
     Ok(())
 }
@@ -262,8 +294,17 @@ fn hash(path: &Path) -> Result<Observed> {
             Err(e) => return Err(e.into()),
         }
     }
-    let sha256 = Sha256Hex(digest.finalize().iter().map(|b| format!("{b:02x}")).collect());
-    Ok(Observed { sha256, byte_length })
+    let sha256 = Sha256Hex(
+        digest
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect(),
+    );
+    Ok(Observed {
+        sha256,
+        byte_length,
+    })
 }
 
 fn now() -> String {
@@ -273,15 +314,30 @@ fn now() -> String {
 // --- planning a transfer (statContentForTransfer) ---------------------------
 
 enum Local {
-    Verified { path: PathBuf, verified_at: String },
-    Partial { bytes: u64 },
-    Missing { reason: &'static str },
-    Corrupt { reason: String, observed_sha256: Option<Sha256Hex>, observed_byte_length: Option<u64> },
+    Verified {
+        path: PathBuf,
+        verified_at: String,
+    },
+    Partial {
+        bytes: u64,
+    },
+    Missing {
+        reason: &'static str,
+    },
+    Corrupt {
+        reason: String,
+        observed_sha256: Option<Sha256Hex>,
+        observed_byte_length: Option<u64>,
+    },
 }
 
 impl Local {
     fn corrupt(reason: impl Into<String>) -> Self {
-        Local::Corrupt { reason: reason.into(), observed_sha256: None, observed_byte_length: None }
+        Local::Corrupt {
+            reason: reason.into(),
+            observed_sha256: None,
+            observed_byte_length: None,
+        }
     }
 }
 
@@ -301,7 +357,10 @@ fn inspect(store: &Store, sha256: &Sha256Hex, byte_length: u64) -> Result<Local>
         Entry::File(_) => {
             return Ok(match hash(&path) {
                 Ok(seen) if seen.sha256 == *sha256 && seen.byte_length == byte_length => {
-                    Local::Verified { path, verified_at: now() }
+                    Local::Verified {
+                        path,
+                        verified_at: now(),
+                    }
                 }
                 Ok(seen) => Local::Corrupt {
                     reason: "content object digest or length mismatch".into(),
@@ -314,7 +373,9 @@ fn inspect(store: &Store, sha256: &Sha256Hex, byte_length: u64) -> Result<Local>
         Entry::Absent => {}
     }
     Ok(match entry(&store.partial(sha256))? {
-        Entry::Absent => Local::Missing { reason: "content object and partial are absent" },
+        Entry::Absent => Local::Missing {
+            reason: "content object and partial are absent",
+        },
         Entry::Other => Local::corrupt("content partial is not a regular file"),
         Entry::File(size) if size > byte_length => Local::Corrupt {
             reason: "content partial exceeds ContentRef byteLength".into(),
@@ -334,7 +395,12 @@ struct Published {
 }
 
 /// Verifies the partial and moves it into place, or finds the object already there.
-fn publish(store: &Store, sha256: &Sha256Hex, byte_length: u64, partial: &Path) -> Result<Published> {
+fn publish(
+    store: &Store,
+    sha256: &Sha256Hex,
+    byte_length: u64,
+    partial: &Path,
+) -> Result<Published> {
     let seen = hash(partial)?;
     if seen.sha256 != *sha256 || seen.byte_length != byte_length {
         unlink_owned(partial)?;
@@ -351,36 +417,59 @@ fn publish(store: &Store, sha256: &Sha256Hex, byte_length: u64, partial: &Path) 
         Entry::Other => {
             return Err(StoreError::new(
                 Code::Symlink,
-                format!("content object path is not a regular file: {}", object.display()),
+                format!(
+                    "content object path is not a regular file: {}",
+                    object.display()
+                ),
             ));
         }
         Entry::File(_) => {
-            if hash(&object)? != (Observed { sha256: sha256.clone(), byte_length }) {
+            if hash(&object)?
+                != (Observed {
+                    sha256: sha256.clone(),
+                    byte_length,
+                })
+            {
                 return Err(StoreError::new(
                     Code::Corrupt,
-                    format!("existing content object does not match digest at {}", object.display()),
+                    format!(
+                        "existing content object does not match digest at {}",
+                        object.display()
+                    ),
                 ));
             }
             unlink_owned(partial)?;
-            return Ok(Published { created: false, verified_at: now() });
+            return Ok(Published {
+                created: false,
+                verified_at: now(),
+            });
         }
         Entry::Absent => {}
     }
     let shard = object.parent().unwrap_or(&store.root);
-    DirBuilder::new().recursive(true).mode(DIR_MODE).create(shard)?;
+    DirBuilder::new()
+        .recursive(true)
+        .mode(DIR_MODE)
+        .create(shard)?;
     fs::rename(partial, &object)?;
     let _ = fs::set_permissions(&object, Permissions::from_mode(OBJECT_MODE));
     fsync(shard, true)?;
     fsync(&store.incoming(), true)?;
     match entry(&object)? {
-        Entry::File(size) if size == byte_length => Ok(Published { created: true, verified_at: now() }),
+        Entry::File(size) if size == byte_length => Ok(Published {
+            created: true,
+            verified_at: now(),
+        }),
         Entry::File(_) => Err(StoreError::new(
             Code::Corrupt,
             format!("published content size mismatch at {}", object.display()),
         )),
         _ => Err(StoreError::new(
             Code::Symlink,
-            format!("published content object is not a regular file: {}", object.display()),
+            format!(
+                "published content object is not a regular file: {}",
+                object.display()
+            ),
         )),
     }
 }
@@ -393,7 +482,9 @@ fn admit(store: &Store, need: u64) -> Result<()> {
     if free < required {
         return Err(StoreError::new(
             Code::DiskLow,
-            format!("content disk free {free} bytes is below need {need} plus reserve {DISK_RESERVE_BYTES}"),
+            format!(
+                "content disk free {free} bytes is below need {need} plus reserve {DISK_RESERVE_BYTES}"
+            ),
         ));
     }
     Ok(())
@@ -406,11 +497,20 @@ enum Received {
 
 /// Takes the remaining bytes from `source` into the partial, resuming at
 /// `offset`, and publishes once the whole object is there and verifies.
-fn receive(store: &Store, sha256: &Sha256Hex, byte_length: u64, offset: u64, source: &mut impl Read) -> Result<Received> {
+fn receive(
+    store: &Store,
+    sha256: &Sha256Hex,
+    byte_length: u64,
+    offset: u64,
+    source: &mut impl Read,
+) -> Result<Received> {
     let partial = store.partial(sha256);
     let current = match inspect(store, sha256, byte_length)? {
         Local::Verified { verified_at, .. } => {
-            return Ok(Received::Verified(Published { created: false, verified_at }));
+            return Ok(Received::Verified(Published {
+                created: false,
+                verified_at,
+            }));
         }
         Local::Corrupt { reason, .. } => {
             // A clean retry starts from nothing.
@@ -430,7 +530,13 @@ fn receive(store: &Store, sha256: &Sha256Hex, byte_length: u64, offset: u64, sou
 
     if current == byte_length {
         if byte_length == 0 && matches!(entry(&partial)?, Entry::Absent) {
-            let file = no_follow(OpenOptions::new().write(true).create_new(true).mode(PARTIAL_MODE)).open(&partial)?;
+            let file = no_follow(
+                OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(PARTIAL_MODE),
+            )
+            .open(&partial)?;
             rustix::fs::fsync(&file).map_err(io::Error::from)?;
         }
         return publish(store, sha256, byte_length, &partial).map(Received::Verified);
@@ -454,7 +560,13 @@ fn append(partial: &Path, current: u64, byte_length: u64, source: &mut impl Read
     let mut file = if current == 0 {
         // Exclusive create, so concurrent receivers fail closed.
         unlink_owned(partial)?;
-        let file = no_follow(OpenOptions::new().write(true).create_new(true).mode(PARTIAL_MODE)).open(partial)?;
+        let file = no_follow(
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(PARTIAL_MODE),
+        )
+        .open(partial)?;
         let _ = file.set_permissions(Permissions::from_mode(PARTIAL_MODE));
         file
     } else {
@@ -501,7 +613,11 @@ enum Status<'a> {
 }
 
 #[derive(Serialize)]
-#[serde(tag = "state", rename_all = "lowercase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "state",
+    rename_all = "lowercase",
+    rename_all_fields = "camelCase"
+)]
 enum State<'a> {
     Verified {
         sha256: &'a Sha256Hex,
@@ -533,7 +649,10 @@ enum State<'a> {
 
 impl Status<'_> {
     fn failed(message: &str) -> Self {
-        Status::Err { ok: false, error: clip(message) }
+        Status::Err {
+            ok: false,
+            error: clip(message),
+        }
     }
 
     fn line(&self) -> Vec<u8> {
@@ -574,10 +693,20 @@ pub fn run(argv: &[&str]) -> ExitCode {
         Mode::Receive { offset } => {
             let received = receive(&store, sha256, byte_length, offset, &mut io::stdin().lock());
             let status = received.map(|received| match received {
-                Received::Verified(Published { created, verified_at }) => {
-                    Some(State::Verified { sha256, byte_length, verified_at, created: Some(created) })
-                }
-                Received::Partial { bytes } => Some(State::Partial { sha256, byte_length, received_bytes: bytes }),
+                Received::Verified(Published {
+                    created,
+                    verified_at,
+                }) => Some(State::Verified {
+                    sha256,
+                    byte_length,
+                    verified_at,
+                    created: Some(created),
+                }),
+                Received::Partial { bytes } => Some(State::Partial {
+                    sha256,
+                    byte_length,
+                    received_bytes: bytes,
+                }),
             });
             (status.map(|state| (state, ExitCode::SUCCESS)), false)
         }
@@ -591,7 +720,11 @@ pub fn run(argv: &[&str]) -> ExitCode {
         }
     };
     // A closed pipe has no one left to tell.
-    let _ = if to_stderr { io::stderr().write_all(&line) } else { io::stdout().write_all(&line) };
+    let _ = if to_stderr {
+        io::stderr().write_all(&line)
+    } else {
+        io::stdout().write_all(&line)
+    };
     code
 }
 
@@ -599,15 +732,43 @@ type Outcome<'a> = Result<(Option<State<'a>>, ExitCode)>;
 
 fn stat<'a>(store: &Store, sha256: &'a Sha256Hex, byte_length: u64) -> Outcome<'a> {
     Ok(match inspect(store, sha256, byte_length)? {
-        Local::Verified { verified_at, .. } => {
-            (Some(State::Verified { sha256, byte_length, verified_at, created: None }), ExitCode::SUCCESS)
-        }
-        Local::Partial { bytes } => {
-            (Some(State::Partial { sha256, byte_length, received_bytes: bytes }), ExitCode::SUCCESS)
-        }
-        Local::Missing { reason } => (Some(State::Missing { sha256, byte_length, reason }), ExitCode::SUCCESS),
-        Local::Corrupt { reason, observed_sha256, observed_byte_length } => (
-            Some(State::Corrupt { sha256, byte_length, reason, observed_sha256, observed_byte_length }),
+        Local::Verified { verified_at, .. } => (
+            Some(State::Verified {
+                sha256,
+                byte_length,
+                verified_at,
+                created: None,
+            }),
+            ExitCode::SUCCESS,
+        ),
+        Local::Partial { bytes } => (
+            Some(State::Partial {
+                sha256,
+                byte_length,
+                received_bytes: bytes,
+            }),
+            ExitCode::SUCCESS,
+        ),
+        Local::Missing { reason } => (
+            Some(State::Missing {
+                sha256,
+                byte_length,
+                reason,
+            }),
+            ExitCode::SUCCESS,
+        ),
+        Local::Corrupt {
+            reason,
+            observed_sha256,
+            observed_byte_length,
+        } => (
+            Some(State::Corrupt {
+                sha256,
+                byte_length,
+                reason,
+                observed_sha256,
+                observed_byte_length,
+            }),
             ExitCode::FAILURE,
         ),
     })
@@ -618,13 +779,26 @@ fn send<'a>(store: &Store, sha256: &'a Sha256Hex, byte_length: u64, offset: u64)
     // Refused before any byte: exit 1, whatever is wrong with the object.
     let path = match inspect(store, sha256, byte_length)? {
         Local::Verified { path, .. } => path,
-        Local::Missing { .. } => return Err(StoreError::new(Code::Missing, "content object is not available to send")),
-        _ => return Err(StoreError::new(Code::Invalid, "content object is not verified for send")),
+        Local::Missing { .. } => {
+            return Err(StoreError::new(
+                Code::Missing,
+                "content object is not available to send",
+            ));
+        }
+        _ => {
+            return Err(StoreError::new(
+                Code::Invalid,
+                "content object is not verified for send",
+            ));
+        }
     };
     let mut file = no_follow(OpenOptions::new().read(true)).open(&path)?;
     file.seek(io::SeekFrom::Start(offset))?;
     let mut stdout = io::stdout().lock();
-    io::copy(&mut io::BufReader::with_capacity(READ_CHUNK, file), &mut stdout)?;
+    io::copy(
+        &mut io::BufReader::with_capacity(READ_CHUNK, file),
+        &mut stdout,
+    )?;
     stdout.flush()?;
     Ok((None, ExitCode::SUCCESS))
 }
@@ -640,15 +814,42 @@ mod tests {
         let ok = |argv: &[&str]| parse(argv).map(|r| r.mode);
         assert_eq!(ok(&["stat", SHA, "0"]), Ok(Mode::Stat));
         assert_eq!(ok(&["receive", SHA, "10"]), Ok(Mode::Receive { offset: 0 }));
-        assert_eq!(ok(&["send", SHA, "10", "10"]), Ok(Mode::Send { offset: 10 }));
+        assert_eq!(
+            ok(&["send", SHA, "10", "10"]),
+            Ok(Mode::Send { offset: 10 })
+        );
         assert_eq!(ok(&[]), Err("content helper mode is required".into()));
-        assert_eq!(ok(&["copy", SHA, "1"]), Err("content helper mode is not admitted".into()));
-        assert_eq!(ok(&["stat", SHA]), Err("content helper stat requires <sha256> <byteLength>".into()));
-        assert_eq!(ok(&["send", SHA]), Err("content helper send requires <sha256> <byteLength> [offset]".into()));
-        assert_eq!(ok(&["send", SHA, "1", "2"]), Err("content helper offset/byteLength is out of range".into()));
-        assert_eq!(ok(&["stat", SHA, "9999999999999999"]), Err("content helper byteLength is not a safe integer".into()));
-        for bad in [&["stat", &SHA.to_uppercase(), "1"][..], &["stat", SHA, "01"], &["stat", SHA, "-1"], &["send", SHA, "1", ""]] {
-            assert_eq!(ok(bad), Err("content helper identity tokens are invalid".into()), "{bad:?}");
+        assert_eq!(
+            ok(&["copy", SHA, "1"]),
+            Err("content helper mode is not admitted".into())
+        );
+        assert_eq!(
+            ok(&["stat", SHA]),
+            Err("content helper stat requires <sha256> <byteLength>".into())
+        );
+        assert_eq!(
+            ok(&["send", SHA]),
+            Err("content helper send requires <sha256> <byteLength> [offset]".into())
+        );
+        assert_eq!(
+            ok(&["send", SHA, "1", "2"]),
+            Err("content helper offset/byteLength is out of range".into())
+        );
+        assert_eq!(
+            ok(&["stat", SHA, "9999999999999999"]),
+            Err("content helper byteLength is not a safe integer".into())
+        );
+        for bad in [
+            &["stat", &SHA.to_uppercase(), "1"][..],
+            &["stat", SHA, "01"],
+            &["stat", SHA, "-1"],
+            &["send", SHA, "1", ""],
+        ] {
+            assert_eq!(
+                ok(bad),
+                Err("content helper identity tokens are invalid".into()),
+                "{bad:?}"
+            );
         }
     }
 
@@ -657,37 +858,75 @@ mod tests {
         let sha = Sha256Hex(SHA.into());
         let line = |state| String::from_utf8(Status::Ok { ok: true, state }.line()).unwrap();
         assert_eq!(
-            line(State::Partial { sha256: &sha, byte_length: 3, received_bytes: 1 }),
-            format!("{{\"ok\":true,\"state\":\"partial\",\"sha256\":\"{SHA}\",\"byteLength\":3,\"receivedBytes\":1}}\n")
+            line(State::Partial {
+                sha256: &sha,
+                byte_length: 3,
+                received_bytes: 1
+            }),
+            format!(
+                "{{\"ok\":true,\"state\":\"partial\",\"sha256\":\"{SHA}\",\"byteLength\":3,\"receivedBytes\":1}}\n"
+            )
         );
         assert_eq!(
-            line(State::Corrupt { sha256: &sha, byte_length: 3, reason: "r".into(), observed_sha256: None, observed_byte_length: Some(4) }),
-            format!("{{\"ok\":true,\"state\":\"corrupt\",\"sha256\":\"{SHA}\",\"byteLength\":3,\"reason\":\"r\",\"observedByteLength\":4}}\n")
+            line(State::Corrupt {
+                sha256: &sha,
+                byte_length: 3,
+                reason: "r".into(),
+                observed_sha256: None,
+                observed_byte_length: Some(4)
+            }),
+            format!(
+                "{{\"ok\":true,\"state\":\"corrupt\",\"sha256\":\"{SHA}\",\"byteLength\":3,\"reason\":\"r\",\"observedByteLength\":4}}\n"
+            )
         );
-        assert_eq!(String::from_utf8(Status::failed("no").line()).unwrap(), "{\"ok\":false,\"error\":\"no\"}\n");
+        assert_eq!(
+            String::from_utf8(Status::failed("no").line()).unwrap(),
+            "{\"ok\":false,\"error\":\"no\"}\n"
+        );
     }
 
     #[test]
     fn receives_resumes_and_publishes_once() {
         let home = std::env::temp_dir().join(format!("jct-{}", ulid::Ulid::new()));
-        let store = Store { root: home.join("v1") };
+        let store = Store {
+            root: home.join("v1"),
+        };
         let bytes = b"hello, store";
-        let sha = Sha256Hex(Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect());
+        let sha = Sha256Hex(
+            Sha256::digest(bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect(),
+        );
         let len = bytes.len() as u64;
 
         let first = receive(&store, &sha, len, 0, &mut &bytes[..5]).unwrap();
         assert!(matches!(first, Received::Partial { bytes: 5 }));
-        assert!(receive(&store, &sha, len, 0, &mut &bytes[..]).is_err_and(|e| e.code == Code::Invalid));
+        assert!(
+            receive(&store, &sha, len, 0, &mut &bytes[..]).is_err_and(|e| e.code == Code::Invalid)
+        );
         let done = receive(&store, &sha, len, 5, &mut &bytes[5..]).unwrap();
-        assert!(matches!(done, Received::Verified(Published { created: true, .. })));
+        assert!(matches!(
+            done,
+            Received::Verified(Published { created: true, .. })
+        ));
         let again = receive(&store, &sha, len, 0, &mut &b""[..]).unwrap();
-        assert!(matches!(again, Received::Verified(Published { created: false, .. })));
-        assert!(matches!(inspect(&store, &sha, len).unwrap(), Local::Verified { .. }));
+        assert!(matches!(
+            again,
+            Received::Verified(Published { created: false, .. })
+        ));
+        assert!(matches!(
+            inspect(&store, &sha, len).unwrap(),
+            Local::Verified { .. }
+        ));
 
         let other = Sha256Hex("0".repeat(64));
         let wrong = receive(&store, &other, 2, 0, &mut &b"ab"[..]);
         assert!(wrong.is_err_and(|e| e.code == Code::Corrupt));
-        assert!(matches!(entry(&store.partial(&other)).unwrap(), Entry::Absent));
+        assert!(matches!(
+            entry(&store.partial(&other)).unwrap(),
+            Entry::Absent
+        ));
         let _ = fs::remove_dir_all(home);
     }
 }

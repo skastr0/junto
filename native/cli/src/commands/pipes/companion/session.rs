@@ -126,7 +126,10 @@ struct Seat {
 
 impl Seat {
     fn of(request: &Request) -> Seat {
-        Seat { canvas: request.arg("canvasName").unwrap_or_default().into(), node: request.arg("nodeId").unwrap_or_default().into() }
+        Seat {
+            canvas: request.arg("canvasName").unwrap_or_default().into(),
+            node: request.arg("nodeId").unwrap_or_default().into(),
+        }
     }
 
     fn reference(&self) -> String {
@@ -208,17 +211,24 @@ fn text<'a>(value: &'a Value, key: &str) -> &'a str {
 }
 
 fn list<'a>(value: &'a Value, key: &str) -> &'a [Value] {
-    value.get(key).and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default()
+    value
+        .get(key)
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
 }
 
 /// The result of an answered frame, when it carries `key`.
 fn answered<'a>(response: &'a Value, key: &str) -> Option<&'a Value> {
-    let result = response.get("result").filter(|_| response.get("ok") == Some(&Value::Bool(true)))?;
+    let result = response
+        .get("result")
+        .filter(|_| response.get("ok") == Some(&Value::Bool(true)))?;
     result.get(key).map(|_| result)
 }
 
 fn refused_as(response: &Value, code: &str) -> bool {
-    response.get("ok") == Some(&Value::Bool(false)) && response.pointer("/error/code").and_then(Value::as_str) == Some(code)
+    response.get("ok") == Some(&Value::Bool(false))
+        && response.pointer("/error/code").and_then(Value::as_str) == Some(code)
 }
 
 /// A feed with its clock fields zeroed: two feeds that say the same compare equal.
@@ -227,8 +237,18 @@ fn feed_key(feed: &Value) -> String {
     if let Some(object) = feed.as_object_mut() {
         object.insert("generatedAt".into(), json!(0));
     }
-    for section in feed.get_mut("sections").and_then(Value::as_array_mut).into_iter().flatten() {
-        for item in section.get_mut("items").and_then(Value::as_array_mut).into_iter().flatten() {
+    for section in feed
+        .get_mut("sections")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        for item in section
+            .get_mut("items")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
             if let Some(item) = item.as_object_mut() {
                 item.insert("ageMs".into(), json!(0));
             }
@@ -246,7 +266,11 @@ fn machines_differ(sent: &[Value], next: &[Value]) -> bool {
         }
         machine.to_string()
     };
-    let age = |machine: &Value| machine.pointer("/lastCheck/checkedAgoMs").and_then(Value::as_f64);
+    let age = |machine: &Value| {
+        machine
+            .pointer("/lastCheck/checkedAgoMs")
+            .and_then(Value::as_f64)
+    };
     sent.len() != next.len()
         || sent.iter().zip(next).any(|(before, machine)| {
             ageless(before) != ageless(machine)
@@ -290,7 +314,9 @@ impl Session {
         if self.open.load(Ordering::SeqCst) {
             let mut stdout = io::stdout().lock();
             // A phone that hung up has no one left to tell.
-            let _ = stdout.write_all(line.as_bytes()).and_then(|()| stdout.flush());
+            let _ = stdout
+                .write_all(line.as_bytes())
+                .and_then(|()| stdout.flush());
         }
     }
 
@@ -307,7 +333,10 @@ impl Session {
     /// Follows a seat's mail from its whole recent history, so an older
     /// message is never mistaken for a new one; only a seeded focus is followed.
     fn follow_mail(&self, seat: Seat) {
-        let response = self.ask("mail.list", json!({ "canvasName": seat.canvas, "nodeId": seat.node, "limit": MAIL_MAX_LIMIT }));
+        let response = self.ask(
+            "mail.list",
+            json!({ "canvasName": seat.canvas, "nodeId": seat.node, "limit": MAIL_MAX_LIMIT }),
+        );
         let mut sent = HashMap::new();
         if let Some(result) = answered(&response, "messages").filter(|r| r.get("cut").is_none()) {
             for message in list(result, "messages") {
@@ -319,7 +348,10 @@ impl Session {
 
     /// A seat's newest page of threads.
     fn seat_threads(&self, seat: &Seat) -> SeatThreads {
-        let response = self.ask("threads.list", json!({ "canvasName": seat.canvas, "nodeId": seat.node }));
+        let response = self.ask(
+            "threads.list",
+            json!({ "canvasName": seat.canvas, "nodeId": seat.node }),
+        );
         if refused_as(&response, "not-found") {
             return SeatThreads::Gone;
         }
@@ -338,24 +370,42 @@ impl Session {
             let mut follow = self.follow();
             if let Some(followed) = follow.threads.get_mut(&reference) {
                 for thread in given {
-                    followed.sent.insert(text(thread, "threadId").to_string(), thread.to_string());
+                    followed
+                        .sent
+                        .insert(text(thread, "threadId").to_string(), thread.to_string());
                 }
                 return;
             }
-            let sent = given.iter().map(|t| (text(t, "threadId").to_string(), t.to_string())).collect();
-            follow.threads.set(reference.clone(), Threads { seat: seat.clone(), sent });
+            let sent = given
+                .iter()
+                .map(|t| (text(t, "threadId").to_string(), t.to_string()))
+                .collect();
+            follow.threads.set(
+                reference.clone(),
+                Threads {
+                    seat: seat.clone(),
+                    sent,
+                },
+            );
             let over = follow.threads.0.len().saturating_sub(THREAD_FOCUS_MAX);
             follow.threads.0.drain(..over);
         }
-        let SeatThreads::Listed(threads) = self.seat_threads(&seat) else { return };
+        let SeatThreads::Listed(threads) = self.seat_threads(&seat) else {
+            return;
+        };
         let mut follow = self.follow();
-        let Some(followed) = follow.threads.get_mut(&reference) else { return };
+        let Some(followed) = follow.threads.get_mut(&reference) else {
+            return;
+        };
         for thread in threads {
             let id = text(&thread, "threadId").to_string();
             let key = thread.to_string();
             let held = followed.sent.insert(id, key.clone());
             if held.as_ref().is_some_and(|held| *held != key) {
-                self.emit("thread.changed", json!({ "canvasName": seat.canvas, "nodeId": seat.node, "thread": thread }));
+                self.emit(
+                    "thread.changed",
+                    json!({ "canvasName": seat.canvas, "nodeId": seat.node, "thread": thread }),
+                );
             }
         }
     }
@@ -365,15 +415,24 @@ impl Session {
         {
             let follow = self.follow();
             for change in artifacts {
-                if follow.artifacts_canvas.as_deref().is_some_and(|c| c == text(change, "canvasName")) {
+                if follow
+                    .artifacts_canvas
+                    .as_deref()
+                    .is_some_and(|c| c == text(change, "canvasName"))
+                {
                     self.emit("artifact.changed", change.clone());
                 }
             }
             // signal.changed: every upsert, whoever made it, for a subscribed feed or the focused seat.
             for signal in signals {
                 let canvas = text(signal, "canvasName");
-                let in_feed = follow.feed.as_ref().is_some_and(|filter| filter.as_deref().is_none_or(|c| c == canvas));
-                let on_focus = follow.focus.as_ref().is_some_and(|f| f.seat.canvas == canvas && f.seat.node == text(signal, "nodeId"));
+                let in_feed = follow
+                    .feed
+                    .as_ref()
+                    .is_some_and(|filter| filter.as_deref().is_none_or(|c| c == canvas));
+                let on_focus = follow.focus.as_ref().is_some_and(|f| {
+                    f.seat.canvas == canvas && f.seat.node == text(signal, "nodeId")
+                });
                 if in_feed || on_focus {
                     self.emit("signal.changed", json!({ "signal": signal }));
                 }
@@ -386,7 +445,10 @@ impl Session {
                 let mut follow = self.follow();
                 if follow.canvases.as_ref() != Some(&key) {
                     follow.canvases = Some(key);
-                    self.emit("canvases.changed", json!({ "canvases": result["canvases"] }));
+                    self.emit(
+                        "canvases.changed",
+                        json!({ "canvases": result["canvases"] }),
+                    );
                 }
             }
         }
@@ -395,7 +457,11 @@ impl Session {
             if let Some(result) = answered(&response, "machines") {
                 let machines = list(result, "machines").to_vec();
                 let mut follow = self.follow();
-                if follow.machines.as_deref().is_some_and(|sent| machines_differ(sent, &machines)) {
+                if follow
+                    .machines
+                    .as_deref()
+                    .is_some_and(|sent| machines_differ(sent, &machines))
+                {
                     self.emit("machines.changed", json!({ "machines": &machines }));
                     follow.machines = Some(machines);
                 }
@@ -421,7 +487,9 @@ impl Session {
         let canvases: Vec<String> = self.follow().seat_canvases.keys().cloned().collect();
         for canvas in canvases {
             let response = self.ask("seats.list", json!({ "canvasName": canvas }));
-            let Some(result) = answered(&response, "seats") else { continue };
+            let Some(result) = answered(&response, "seats") else {
+                continue;
+            };
             let mut follow = self.follow();
             let mut present = Vec::new();
             for seat in list(result, "seats") {
@@ -433,42 +501,70 @@ impl Session {
                 }
                 present.push(node);
                 if follow.note_seat(&canvas, seat) {
-                    self.emit("seat.changed", json!({ "canvasName": canvas, "seat": seat }));
+                    self.emit(
+                        "seat.changed",
+                        json!({ "canvasName": canvas, "seat": seat }),
+                    );
                 }
             }
             let gone: Vec<String> = follow
                 .seat_canvases
                 .get(&canvas)
-                .map(|members| members.iter().filter(|m| !present.contains(m)).cloned().collect())
+                .map(|members| {
+                    members
+                        .iter()
+                        .filter(|m| !present.contains(m))
+                        .cloned()
+                        .collect()
+                })
                 .unwrap_or_default();
             for node in gone {
                 if let Some(members) = follow.seat_canvases.get_mut(&canvas) {
                     members.retain(|m| *m != node);
                 }
                 follow.sent_seats.remove(&format!("{canvas}\u{0}{node}"));
-                self.emit("seat.removed", json!({ "canvasName": canvas, "nodeId": node }));
+                self.emit(
+                    "seat.removed",
+                    json!({ "canvasName": canvas, "nodeId": node }),
+                );
             }
         }
         let focus = self.follow().focus.as_ref().map(|f| f.seat.clone());
         if let Some(seat) = focus {
-            let response = self.ask("seat.get", json!({ "canvasName": seat.canvas, "nodeId": seat.node }));
+            let response = self.ask(
+                "seat.get",
+                json!({ "canvasName": seat.canvas, "nodeId": seat.node }),
+            );
             let mut follow = self.follow();
             if let Some(result) = answered(&response, "seat") {
                 let detail = &result["seat"];
                 if follow.note_seat(&seat.canvas, &seat_only(detail)) {
-                    self.emit("seat.changed", json!({ "canvasName": seat.canvas, "seat": seat_only(detail) }));
+                    self.emit(
+                        "seat.changed",
+                        json!({ "canvasName": seat.canvas, "seat": seat_only(detail) }),
+                    );
                 }
                 for preamble in list(detail, "preambles").iter().rev() {
                     let id = text(preamble, "preambleId").to_string();
-                    let fresh = follow.focus.as_mut().is_some_and(|f| f.preambles.insert(id));
+                    let fresh = follow
+                        .focus
+                        .as_mut()
+                        .is_some_and(|f| f.preambles.insert(id));
                     if fresh {
                         self.emit("preamble", json!({ "canvasName": seat.canvas, "nodeId": seat.node, "preamble": preamble }));
                     }
                 }
             } else if refused_as(&response, "not-found") {
                 follow.focus = None;
-                if !follow.seat_canvases.get(&seat.canvas).is_some_and(|m| m.contains(&seat.node)) {
-                    self.emit("seat.removed", json!({ "canvasName": seat.canvas, "nodeId": seat.node }));
+                if !follow
+                    .seat_canvases
+                    .get(&seat.canvas)
+                    .is_some_and(|m| m.contains(&seat.node))
+                {
+                    self.emit(
+                        "seat.removed",
+                        json!({ "canvasName": seat.canvas, "nodeId": seat.node }),
+                    );
                 }
                 follow.sent_seats.remove(&seat.reference());
             }
@@ -480,10 +576,21 @@ impl Session {
             let still = |f: &Follow| f.canvas.as_ref().is_some_and(|c| c.canvas == canvas);
             let held = follow.canvas.as_ref().filter(|c| c.canvas == canvas);
             if let (Some(result), Some(focus)) = (answered(&response, "wires"), held) {
-                let (nodes, changed_nodes, removed_nodes) = delta(list(result, "nodes"), "nodeId", &focus.nodes);
-                let (wires, changed_wires, removed_wires) = delta(list(result, "wires"), "wireId", &focus.wires);
-                if changed_nodes.len() + removed_nodes.len() + changed_wires.len() + removed_wires.len() > 0 {
-                    follow.canvas = Some(CanvasFocus { canvas: canvas.clone(), nodes, wires });
+                let (nodes, changed_nodes, removed_nodes) =
+                    delta(list(result, "nodes"), "nodeId", &focus.nodes);
+                let (wires, changed_wires, removed_wires) =
+                    delta(list(result, "wires"), "wireId", &focus.wires);
+                if changed_nodes.len()
+                    + removed_nodes.len()
+                    + changed_wires.len()
+                    + removed_wires.len()
+                    > 0
+                {
+                    follow.canvas = Some(CanvasFocus {
+                        canvas: canvas.clone(),
+                        nodes,
+                        wires,
+                    });
                     follow.canvas_seq += 1;
                     self.emit(
                         "canvas.changed",
@@ -501,29 +608,51 @@ impl Session {
                 follow.canvas = None;
             }
         }
-        let comments = self.follow().comments.as_ref().map(|c| (c.canvas.clone(), c.subject.clone()));
+        let comments = self
+            .follow()
+            .comments
+            .as_ref()
+            .map(|c| (c.canvas.clone(), c.subject.clone()));
         if let Some((canvas, subject)) = comments {
-            let response = self.ask("comments.list", json!({ "canvasName": canvas, "subject": subject }));
+            let response = self.ask(
+                "comments.list",
+                json!({ "canvasName": canvas, "subject": subject }),
+            );
             let mut follow = self.follow();
             let still = |f: &Follow| f.comments.as_ref().is_some_and(|c| c.canvas == canvas);
             if let Some(result) = answered(&response, "threads") {
                 let key = result.to_string();
                 if follow.comments.as_ref().is_some_and(|c| c.sent != key) && still(&follow) {
-                    follow.comments = Some(Comments { canvas: canvas.clone(), subject: subject.clone(), sent: key });
-                    self.emit("comments.changed", json!({ "canvasName": canvas, "subject": subject }));
+                    follow.comments = Some(Comments {
+                        canvas: canvas.clone(),
+                        subject: subject.clone(),
+                        sent: key,
+                    });
+                    self.emit(
+                        "comments.changed",
+                        json!({ "canvasName": canvas, "subject": subject }),
+                    );
                 }
             } else if refused_as(&response, "not-found") && still(&follow) {
                 follow.comments = None;
             }
         }
-        let followed: Vec<(String, Seat)> = self.follow().threads.0.iter().map(|(r, t)| (r.clone(), t.seat.clone())).collect();
+        let followed: Vec<(String, Seat)> = self
+            .follow()
+            .threads
+            .0
+            .iter()
+            .map(|(r, t)| (r.clone(), t.seat.clone()))
+            .collect();
         for (reference, seat) in followed {
             match self.seat_threads(&seat) {
                 SeatThreads::Gone => self.follow().threads.remove(&reference),
                 SeatThreads::Unknown => {}
                 SeatThreads::Listed(threads) => {
                     let mut follow = self.follow();
-                    let Some(held) = follow.threads.get_mut(&reference) else { continue };
+                    let Some(held) = follow.threads.get_mut(&reference) else {
+                        continue;
+                    };
                     for thread in threads.iter().rev() {
                         let key = thread.to_string();
                         if held.sent.get(text(thread, "threadId")) == Some(&key) {
@@ -537,10 +666,16 @@ impl Session {
         }
         let mail = self.follow().mail.as_ref().map(|(seat, _)| seat.clone());
         if let Some(seat) = mail {
-            let response = self.ask("mail.list", json!({ "canvasName": seat.canvas, "nodeId": seat.node, "limit": MAIL_MAX_LIMIT }));
-            if let Some(result) = answered(&response, "messages").filter(|r| r.get("cut").is_none()) {
+            let response = self.ask(
+                "mail.list",
+                json!({ "canvasName": seat.canvas, "nodeId": seat.node, "limit": MAIL_MAX_LIMIT }),
+            );
+            if let Some(result) = answered(&response, "messages").filter(|r| r.get("cut").is_none())
+            {
                 let mut follow = self.follow();
-                let Some((_, sent)) = follow.mail.as_mut() else { return };
+                let Some((_, sent)) = follow.mail.as_mut() else {
+                    return;
+                };
                 for message in list(result, "messages").iter().rev() {
                     let key = message.to_string();
                     let id = text(message, "messageId").to_string();
@@ -559,7 +694,9 @@ impl Session {
         let mut cursor: Option<String> = None;
         while self.open.load(Ordering::SeqCst) && self.follow().subscribed() {
             // The app went away mid-poll; the next request will say so.
-            let Some(change) = self.relay.wait_change(cursor.as_deref(), WAIT_MS) else { break };
+            let Some(change) = self.relay.wait_change(cursor.as_deref(), WAIT_MS) else {
+                break;
+            };
             if !self.open.load(Ordering::SeqCst) {
                 break;
             }
@@ -594,7 +731,10 @@ impl Session {
                 "feed.subscribe" => {
                     if let Some(result) = answered(&response, "feeds") {
                         follow.feed = Some(canvas);
-                        follow.sent_feeds = list(result, "feeds").iter().map(|f| (text(f, "canvasName").to_string(), feed_key(f))).collect();
+                        follow.sent_feeds = list(result, "feeds")
+                            .iter()
+                            .map(|f| (text(f, "canvasName").to_string(), feed_key(f)))
+                            .collect();
                     }
                 }
                 "feed.unsubscribe" => {
@@ -614,7 +754,10 @@ impl Session {
                 "seats.list" => {
                     if let Some(result) = answered(&response, "seats") {
                         let canvas = canvas.unwrap_or_default();
-                        let members = list(result, "seats").iter().map(|s| text(s, "nodeId").to_string()).collect();
+                        let members = list(result, "seats")
+                            .iter()
+                            .map(|s| text(s, "nodeId").to_string())
+                            .collect();
                         for seat in list(result, "seats") {
                             follow.note_seat(&canvas, seat);
                         }
@@ -626,7 +769,10 @@ impl Session {
                         let detail = &result["seat"];
                         let seat = Seat::of(&request);
                         follow.note_seat(&seat.canvas, &seat_only(detail));
-                        let preambles = list(detail, "preambles").iter().map(|p| text(p, "preambleId").to_string()).collect();
+                        let preambles = list(detail, "preambles")
+                            .iter()
+                            .map(|p| text(p, "preambleId").to_string())
+                            .collect();
                         follow.focus = Some(Focus { seat, preambles });
                     }
                 }
@@ -643,7 +789,11 @@ impl Session {
                     }
                 }
                 "canvas.close" => {
-                    if follow.canvas.as_ref().is_some_and(|c| Some(&c.canvas) == canvas.as_ref()) {
+                    if follow
+                        .canvas
+                        .as_ref()
+                        .is_some_and(|c| Some(&c.canvas) == canvas.as_ref())
+                    {
                         follow.canvas = None;
                     }
                 }
@@ -651,8 +801,12 @@ impl Session {
                     // The phone has the thread as its read left it: no echo of its own read.
                     if let Some(result) = answered(&response, "thread") {
                         let thread = &result["thread"];
-                        if let Some(followed) = follow.threads.get_mut(&Seat::of(&request).reference()) {
-                            followed.sent.insert(text(thread, "threadId").to_string(), thread.to_string());
+                        if let Some(followed) =
+                            follow.threads.get_mut(&Seat::of(&request).reference())
+                        {
+                            followed
+                                .sent
+                                .insert(text(thread, "threadId").to_string(), thread.to_string());
                         }
                     }
                 }
@@ -660,8 +814,16 @@ impl Session {
                 "artifacts.unsubscribe" => follow.artifacts_canvas = None,
                 "comments.list" => {
                     if let Some(result) = answered(&response, "threads") {
-                        let subject = request.args().get("subject").cloned().unwrap_or(Value::Null);
-                        follow.comments = Some(Comments { canvas: canvas.unwrap_or_default(), subject, sent: result.to_string() });
+                        let subject = request
+                            .args()
+                            .get("subject")
+                            .cloned()
+                            .unwrap_or(Value::Null);
+                        follow.comments = Some(Comments {
+                            canvas: canvas.unwrap_or_default(),
+                            subject,
+                            sent: result.to_string(),
+                        });
                     }
                 }
                 _ => {}
@@ -673,7 +835,11 @@ impl Session {
             self.follow_mail(Seat::of(&request));
         }
         if ok && matches!(op, "threads.list" | "thread.get") {
-            let given = if op == "threads.list" { answered(&response, "threads").map(|r| list(r, "threads").to_vec()) } else { None };
+            let given = if op == "threads.list" {
+                answered(&response, "threads").map(|r| list(r, "threads").to_vec())
+            } else {
+                None
+            };
             self.follow_threads(Seat::of(&request), &given.unwrap_or_default());
         }
         self.ensure_polling();
@@ -681,10 +847,22 @@ impl Session {
 }
 
 /// What differs from what was sent, whole, and what is gone.
-fn delta(items: &[Value], id: &str, sent: &Ordered<String>) -> (Ordered<String>, Vec<Value>, Vec<String>) {
+fn delta(
+    items: &[Value],
+    id: &str,
+    sent: &Ordered<String>,
+) -> (Ordered<String>, Vec<Value>, Vec<String>) {
     let next = keyed(items, id);
-    let changed = items.iter().filter(|item| sent.get(text(item, id)) != next.get(text(item, id))).cloned().collect();
-    let removed = sent.keys().filter(|key| next.get(key).is_none()).cloned().collect();
+    let changed = items
+        .iter()
+        .filter(|item| sent.get(text(item, id)) != next.get(text(item, id)))
+        .cloned()
+        .collect();
+    let removed = sent
+        .keys()
+        .filter(|key| next.get(key).is_none())
+        .cloned()
+        .collect();
     (next, changed, removed)
 }
 
@@ -704,7 +882,9 @@ pub fn run(relay: Relay) {
     });
     match session.relay.hello() {
         Ok(hello) => session.emit("hello", hello),
-        Err((code, message)) => return session.write(&frame::connection_error_line(code, Some(&message))),
+        Err((code, message)) => {
+            return session.write(&frame::connection_error_line(code, Some(&message)));
+        }
     }
 
     let mut pending = Vec::new();
@@ -715,7 +895,9 @@ pub fn run(relay: Relay) {
                 session.write(&frame::connection_error_line(Code::TooLarge, None));
                 break;
             }
-            Ok(Input::End) | Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => break,
+            Ok(Input::End) | Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => {
+                break;
+            }
         };
         let line = line.strip_suffix('\r').unwrap_or(&line);
         if line.trim().is_empty() {
@@ -751,15 +933,31 @@ mod tests {
         let machine = |ago: u64, state: &str| json!({ "name": "m", "state": state, "lastCheck": { "checkedAgoMs": ago } });
         assert!(!machines_differ(&[machine(10, "up")], &[machine(20, "up")]));
         assert!(machines_differ(&[machine(10, "up")], &[machine(5, "up")]));
-        assert!(machines_differ(&[machine(10, "up")], &[machine(10, "down")]));
+        assert!(machines_differ(
+            &[machine(10, "up")],
+            &[machine(10, "down")]
+        ));
         assert!(machines_differ(&[], &[machine(10, "up")]));
     }
 
     #[test]
     fn finds_what_changed_on_a_canvas() {
-        let sent = keyed(&[json!({ "nodeId": "a", "x": 1 }), json!({ "nodeId": "b", "x": 1 })], "nodeId");
-        let (_, changed, removed) = delta(&[json!({ "nodeId": "a", "x": 2 }), json!({ "nodeId": "c" })], "nodeId", &sent);
-        assert_eq!(changed, vec![json!({ "nodeId": "a", "x": 2 }), json!({ "nodeId": "c" })]);
+        let sent = keyed(
+            &[
+                json!({ "nodeId": "a", "x": 1 }),
+                json!({ "nodeId": "b", "x": 1 }),
+            ],
+            "nodeId",
+        );
+        let (_, changed, removed) = delta(
+            &[json!({ "nodeId": "a", "x": 2 }), json!({ "nodeId": "c" })],
+            "nodeId",
+            &sent,
+        );
+        assert_eq!(
+            changed,
+            vec![json!({ "nodeId": "a", "x": 2 }), json!({ "nodeId": "c" })]
+        );
         assert_eq!(removed, vec!["b".to_string()]);
     }
 
