@@ -1,4 +1,5 @@
 import { memoryTouchedOriginStore } from "./support/touched-origin-store";
+import { overseerPagesOn } from "../src/main/junto/overseer/pages";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -146,7 +147,7 @@ const occupySeatDefault = async (
 
 const live = (
   documents: ReadonlyArray<{ name: string; doc: Canvas }>,
-  extra: Partial<OverseerNativeLiveOptions> = {},
+  { pages, ...extra }: Partial<Omit<OverseerNativeLiveOptions, "pages">> & { readonly pages?: BrowserSessionService } = {},
 ) => {
   const termPlane = extra.termPlane ?? makeTermPlane();
   return makeOverseerNativeLive({
@@ -159,6 +160,7 @@ const live = (
     listCanvases: extra.listCanvases ?? (async () => new Map(documents.map((held) => [held.name, held.doc]))),
     occupySeat: extra.occupySeat ?? occupySeatDefault,
     ...extra,
+    ...(pages === undefined ? {} : { pages: overseerPagesOn(pages) }),
   });
 };
 
@@ -867,7 +869,7 @@ describe("overseer deletion fences share TermPlane identity", () => {
     let pages: BrowserSessionService | undefined;
     const options: OverseerNativeLiveOptions = {
       termPlane: makeTermPlane(),
-      get pages() { return pages; },
+      get pages() { return pages === undefined ? undefined : overseerPagesOn(pages); },
       captureApplicationPage: async () => ({ ok: true, png: PNG }),
       liveOverseerGrant: async () => true,
       listCanvases: async () => new Map([["factory", doc([page("p1")])]]),

@@ -19,6 +19,7 @@ import { startSeat } from "../term/seat-control";
 import { termPlane } from "../term/plane";
 import { MachineRepository } from "../machines/repository";
 import type { BrowserSessionService } from "../browser/sessions";
+import { overseerPagesOn, type OverseerPages } from "./pages";
 import {
   mainAuthoringGate,
   mainAuthoringLabelForWorkOperation,
@@ -211,8 +212,9 @@ export const composeOverseer = async (input: {
   readonly pages?: BrowserSessionService;
   readonly sourceInstallationId?: InstallationId;
 }): Promise<OverseerComposition> => {
-  const pagesHolder: { current: BrowserSessionService | undefined } = {
-    current: input.pages,
+  // The overseer's view of the browser sessions, kept with them so every dispatch sees the same one.
+  const pagesHolder: { current: OverseerPages | undefined } = {
+    current: input.pages === undefined ? undefined : overseerPagesOn(input.pages),
   };
   const liveGrant = createDispatchGrant(input.run, input.sourceInstallationId);
 
@@ -341,7 +343,7 @@ export const composeOverseer = async (input: {
     native,
     onOverseer,
     bindPages: (next) => {
-      pagesHolder.current = next;
+      pagesHolder.current = next === undefined ? undefined : overseerPagesOn(next);
     },
     dispose: () => {
       accepting = false;

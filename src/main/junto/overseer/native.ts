@@ -37,7 +37,7 @@ import { LinkBuildMismatch } from "../link/types";
 import type { ModelNodeReader } from "../node-ref-resolver";
 import type { TermPlane } from "../term/plane";
 import { terminalObserverPlane } from "../term/observer";
-import { pageOriginGuard, type BrowserSessionService } from "../browser/sessions";
+import type { OverseerPages } from "./pages";
 import { makePageTargetResolver } from "../browser/page-target";
 import { readGitLog, readGitShow, readGitStatus } from "../adapters/git";
 import {
@@ -144,7 +144,7 @@ export type OverseerSeatStart = {
 
 export type OverseerNativeLiveOptions = {
   readonly termPlane: TermPlane;
-  readonly pages?: BrowserSessionService;
+  readonly pages?: OverseerPages;
   readonly captureApplicationPage: () => Promise<ApplicationCaptureResult>;
   readonly liveOverseerGrant: (caller: OverseerCaller) => Promise<boolean>;
   /** Every canvas as the model holds it now, by name. */
@@ -882,7 +882,7 @@ const handleTerminal = async (
   }
 };
 
-const pagesOrDown = (ctx: NativeContext): BrowserSessionService | NativeErr => {
+const pagesOrDown = (ctx: NativeContext): OverseerPages | NativeErr => {
   if (ctx.pages === undefined) {
     return fail(
       "RuntimeDown",
@@ -905,32 +905,32 @@ const pageRefOf = (
   }
 };
 
-const resolveAllLivePageSessions = (
-  pages: BrowserSessionService,
+const resolveAllLivePageSessions = async (
+  pages: OverseerPages,
   canvasName: string,
   nodeId: string,
-): ReadonlyArray<{ readonly owner: string; readonly sessionId: string }> => {
+): Promise<ReadonlyArray<{ readonly owner: string; readonly sessionId: string }>> => {
   const ref = pageRefOf(canvasName, nodeId);
   if (ref === undefined) return [];
-  return [...pages.overseerSessionsForRef(ref)];
+  return pages.sessionsForRef(ref);
 };
 
-const resolveDeletePageSessions = (
-  pages: BrowserSessionService,
+const resolveDeletePageSessions = async (
+  pages: OverseerPages,
   canvasName: string,
   nodeId: string,
-): ReadonlyArray<{ readonly owner: string; readonly sessionId: string }> => {
+): Promise<ReadonlyArray<{ readonly owner: string; readonly sessionId: string }>> => {
   const ref = pageRefOf(canvasName, nodeId);
   if (ref === undefined) return [];
-  return [...pages.overseerDeleteSessionsForRef(ref)];
+  return pages.deleteSessionsForRef(ref);
 };
 
-const resolveLivePageSession = (
-  pages: BrowserSessionService,
+const resolveLivePageSession = async (
+  pages: OverseerPages,
   canvasName: string,
   nodeId: string,
-): { readonly owner: string; readonly sessionId: string } | undefined =>
-  resolveAllLivePageSessions(pages, canvasName, nodeId)[0];
+): Promise<{ readonly owner: string; readonly sessionId: string } | undefined> =>
+  (await resolveAllLivePageSessions(pages, canvasName, nodeId))[0];
 
 const handlePage = async (
   ctx: NativeContext,
@@ -947,7 +947,7 @@ const handlePage = async (
     for (const nodeId of overseerPageNodeIds(canvas)) {
       const admitted = admitOverseerPage(canvas, nodeId);
       if (!admitted.ok) continue;
-      const live = pages === undefined ? undefined : resolveLivePageSession(pages, canvasName, nodeId);
+      const live = pages === undefined ? undefined : await resolveLivePageSession(pages, canvasName, nodeId);
       listed.push({
         nodeId,
         url: admitted.node.url,
@@ -970,9 +970,9 @@ const handlePage = async (
     const pages = ctx.pages;
     let session = undefined;
     if (pages !== undefined) {
-      const live = resolveLivePageSession(pages, targeted.canvasName, targeted.node.id);
+      const live = await resolveLivePageSession(pages, targeted.canvasName, targeted.node.id);
       if (live !== undefined) {
-        const state = pages.stateForOwner(pageOwner(), live.sessionId);
+        const state = await pages.state(pageOwner(), live.sessionId);
         session = state.ok ? state.data : undefined;
       }
     }
@@ -1007,7 +1007,7 @@ const handlePage = async (
     if (!resolved.ok) return fail("NotFound", resolved.message);
     const revoked = await requireGrant(ctx, caller);
     if (revoked) return revoked;
-    const opened = await pages.openForOwner(pageOwner(), resolved.data, ctx.signal, async () => {
+    const opened = await pages.open({ owner: pageOwner(), target: resolved.data, driver: caller.nodeId }, async () => {
       if (ctx.signal.aborted) {
         return { ok: false, code: "failed", message: "overseer invocation was interrupted" };
       }
@@ -1024,7 +1024,7 @@ const handlePage = async (
         return { ok: false, code: "not_found", message: overseerPageMessage(still.denial) };
       }
       return resolver(ref);
-    }, pageOriginGuard(resolved.data.url), undefined, asNodeId(caller.nodeId));
+    }, ctx.signal);
     if (!opened.ok) return fail("RuntimeDown", opened.message);
     return ok(opened.data);
   }
@@ -1040,14 +1040,14 @@ const handlePage = async (
     case "page.goto": {
       const revoked = await requireGrant(ctx, caller);
       if (revoked) return revoked;
-      const result = pages.gotoForOwner(owner, sessionId, String((args as { url: string }).url));
+      const result = await pages.goto(owner, sessionId, String((args as { url: string }).url));
       if (!result.ok) return fail("RuntimeDown", result.message);
       return ok(result.data);
     }
     case "page.eval": {
       const revoked = await requireGrant(ctx, caller);
       if (revoked) return revoked;
-      const result = await pages.evalForOwner(
+      const result = await pages.eval(
         owner,
         sessionId,
         String((args as { code: string }).code),
@@ -1057,7 +1057,7 @@ const handlePage = async (
       return ok(result.data);
     }
     case "page.screenshot": {
-      const result = await pages.screenshotForOwner(owner, sessionId, ctx.signal);
+      const result = await pages.screenshot(owner, sessionId, ctx.signal);
       if (!result.ok) return fail("RuntimeDown", result.message);
       return ok({
         pngBase64: Buffer.from(result.data.png).toString("base64"),
@@ -1065,14 +1065,14 @@ const handlePage = async (
       });
     }
     case "page.close": {
-      const result = pages.closeForOwner(owner, sessionId);
+      const result = await pages.close(owner, sessionId);
       if (!result.ok) return fail("RuntimeDown", result.message);
       return ok(result.data);
     }
     case "page.stop": {
       const revoked = await requireGrant(ctx, caller);
       if (revoked) return revoked;
-      const result = await pages.stopForOwner(owner, sessionId);
+      const result = await pages.stop(owner, sessionId);
       if (!result.ok) return fail("RuntimeDown", result.message);
       return ok(result.data);
     }
@@ -1177,7 +1177,7 @@ type ActiveDeleteLease = {
 const makeDeleteHooks = (
   ctx: {
     readonly termPlane: TermPlane;
-    readonly pages: () => BrowserSessionService | undefined;
+    readonly pages: () => OverseerPages | undefined;
   },
 ): OverseerNativeDeleteHooks => {
   const leases = new Map<string, ActiveDeleteLease>();
@@ -1211,16 +1211,16 @@ const makeDeleteHooks = (
             if (ref === undefined) {
               const runtime = ctx.pages();
               if (runtime !== undefined) {
-                for (const held of pageRefs) runtime.finishOverseerPageDelete(held, leaseId);
+                for (const held of pageRefs) runtime.finishDelete(held, leaseId);
               }
               return {
                 ok: false,
                 error: `page ${page.canvasName}/${page.nodeId} is not a canonical node ref`,
               };
             }
-            pageRuntime.beginOverseerPageDelete(ref, leaseId);
+            pageRuntime.beginDelete(ref, leaseId);
             pageRefs.push(ref);
-            for (const live of resolveDeletePageSessions(
+            for (const live of await resolveDeletePageSessions(
               pageRuntime,
               page.canvasName,
               page.nodeId,
@@ -1235,7 +1235,7 @@ const makeDeleteHooks = (
             sessions: ReadonlyArray<{ readonly owner: string; readonly sessionId: string }>,
           ): Promise<void> => {
             for (const live of sessions) {
-              const stopped = await pageRuntime.stopForOwner(live.owner, live.sessionId);
+              const stopped = await pageRuntime.stop(live.owner, live.sessionId);
               if (stopped.ok) {
                 pageStops.push({ sessionId: live.sessionId, stopped: true });
                 continue;
@@ -1252,7 +1252,7 @@ const makeDeleteHooks = (
           if (!pageStops.some((stop) => !stop.stopped)) {
             const leftover: Array<{ readonly owner: string; readonly sessionId: string }> = [];
             for (const page of pages) {
-              for (const live of resolveDeletePageSessions(
+              for (const live of await resolveDeletePageSessions(
                 pageRuntime,
                 page.canvasName,
                 page.nodeId,
@@ -1280,7 +1280,7 @@ const makeDeleteHooks = (
         const releasePageFences = (): void => {
           const runtime = ctx.pages();
           if (runtime === undefined) return;
-          for (const ref of pageRefs) runtime.finishOverseerPageDelete(ref, leaseId);
+          for (const ref of pageRefs) runtime.finishDelete(ref, leaseId);
         };
         if (terminals.length > 0) {
           const began = await ctx.termPlane.nodeDelete.beginNodeDelete(
@@ -1301,7 +1301,7 @@ const makeDeleteHooks = (
         }
         const runtime = ctx.pages();
         if (runtime !== undefined) {
-          for (const ref of pageRefs) runtime.finishOverseerPageDelete(ref, leaseId);
+          for (const ref of pageRefs) runtime.finishDelete(ref, leaseId);
         }
         return {
           ok: false,
@@ -1328,7 +1328,7 @@ const makeDeleteHooks = (
       if (lease === undefined) return { ok: true };
       const runtime = ctx.pages();
       if (runtime !== undefined) {
-        for (const ref of lease.pageRefs) runtime.finishOverseerPageDelete(ref, id);
+        for (const ref of lease.pageRefs) runtime.finishDelete(ref, id);
       }
       if (lease.termLeaseId !== undefined) {
         const finished = ctx.termPlane.nodeDelete.finishNodeDelete(lease.termLeaseId, outcome);
