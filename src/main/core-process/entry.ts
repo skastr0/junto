@@ -14,6 +14,7 @@ import { makeMachineBundleSources } from "../junto/hosts/machine-bundle-download
 import { startCore } from "../junto/core";
 import { serveCore, type CoreMessage, type CorePort } from "./port";
 import { forwardPublishes } from "./push";
+import { useHostClient } from "./host-ops";
 import "./ops/index";
 
 export type CoreBoot = {
@@ -54,6 +55,7 @@ const main = async (parent: ParentPort): Promise<void> => {
   });
   const served = serveCore(parentCorePort(parent), core.runtime);
   forwardPublishes(served.push);
+  useHostClient(served.host);
   served.push("core.ready", {});
   const stop = (): void => {
     void core.close().finally(() => process.exit(0));
