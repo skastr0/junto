@@ -35,7 +35,7 @@
    writing. Only while the doc's first line is the first one drawn; a long
    document scrolled away puts a gap there instead, which this never matches. */
 .capture-editor .live-markdown .cm-content > .cm-line:first-child {
-  margin-bottom: 4px;
+  padding-bottom: 4px;
   color: var(--color-ink);
   font-size: var(--text-title);
   font-weight: 600;
