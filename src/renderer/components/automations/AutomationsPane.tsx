@@ -32,6 +32,7 @@ import type { Refusal } from "@shared/resource-command";
 import type { NodeId } from "@shared/physics/schema";
 import { ItemId } from "@shared/work-ids";
 import {
+  ACTION_LABEL,
   codeRulingWords,
   codeTimeoutMs,
   draftOf,
@@ -180,10 +181,13 @@ function SignalAnswer({ answer }: { readonly answer: SignalAnswerShown }) {
 function FiringHistory({
   firings,
   focused,
+  stepLabels,
 }: {
   readonly firings: ReadonlyArray<Firing>;
   /** The firing a surface opened on (the feed's card): it is marked and brought into view. */
   readonly focused?: string | undefined;
+  /** Each step's label, by its index in the automation's actions: "Send mail", "Raise a signal". */
+  readonly stepLabels: ReadonlyArray<string>;
 }) {
   const ordered = useMemo(() => historyOrder(firings), [firings]);
   // A firing written on another machine says which one, by the label the operator reads; this machine's own firings do not.
@@ -232,10 +236,17 @@ function FiringHistory({
               {firing.outcome.kind === "fired"
                 ? firing.outcome.actions.map((ruling) => {
                     const signal = ruling.ruling === "raised" ? signals.get(ruling.signalId) : undefined;
+                    const elsewhere =
+                      firing.machine === undefined || here === "" || firing.machine === here ? undefined : nameMachine(firing.machine);
                     const words =
                       codeRulingWords(ruling) ??
                       signalRulingWords(ruling, signal, timeWords) ??
-                      heldRulingWords(ruling, timeWords, nameMachine);
+                      heldRulingWords(ruling, {
+                        atWords: timeWords,
+                        nameMachine,
+                        ...(stepLabels[ruling.index] === undefined ? {} : { label: stepLabels[ruling.index] }),
+                        ...(elsewhere === undefined ? {} : { elsewhere }),
+                      });
                     const answer = signalAnswerOf(signal);
                     return words === undefined ? null : (
                       <div key={ruling.index} className="automation-history__step">
@@ -936,7 +947,11 @@ export function AutomationsPane({
                 </div>
               ) : null}
               {editing.base !== undefined ? (
-                <FiringHistory firings={firings} focused={focusedFiring} />
+                <FiringHistory
+                  firings={firings}
+                  focused={focusedFiring}
+                  stepLabels={editing.draft.then.map((action) => ACTION_LABEL[action.kind])}
+                />
               ) : null}
             </div>
           ) : (

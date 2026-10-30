@@ -326,7 +326,7 @@ describe("a signal step in the firing history", () => {
       cause: { kind: "run" },
       outcome: { kind: "fired", actions: [raised("01MSIGNAL00000000000000001")] },
     };
-    expect(firingWords(firing)).toBe("Run by hand, fired, 1 of 1 action applied");
+    expect(firingWords(firing)).toBe("Run by hand, fired, 1 of 1 step applied");
   });
 });
 
@@ -356,7 +356,7 @@ describe("a code step's result in words", () => {
   });
 
   it("counts a step that continued as one that acted, and says how many stopped or failed", () => {
-    expect(firingWords(firing([{ index: 0, ruling: "continued", output: {}, durationMs: 10 }]))).toBe("Run by hand, fired, 1 of 1 action applied");
+    expect(firingWords(firing([{ index: 0, ruling: "continued", output: {}, durationMs: 10 }]))).toBe("Run by hand, fired, 1 of 1 step applied");
     expect(
       firingWords(
         firing([
@@ -365,7 +365,7 @@ describe("a code step's result in words", () => {
           { index: 2, ruling: "failed", message: "timeout", durationMs: 60_000 },
         ]),
       ),
-    ).toBe("Run by hand, fired, 1 of 3 actions applied, 1 stopped, 1 failed");
+    ).toBe("Run by hand, fired, 1 of 3 steps applied, 1 stopped, 1 failed");
   });
 });
 
@@ -425,39 +425,42 @@ describe("a step held while its automation's machine was not linked (0.12 S3)", 
   });
 
   it("says what an action waits on, and that it waited once it went", () => {
-    expect(heldRulingWords({ index: 1, ruling: "queued", waitingOn: { machine: "mac-mini", since: 9 } }, at)).toBe(
-      "waiting on mac-mini since at 9",
+    expect(heldRulingWords({ index: 1, ruling: "queued", waitingOn: { machine: "mac-mini", since: 9 } }, { atWords: at })).toBe(
+      "waiting for mac-mini since at 9",
     );
-    expect(heldRulingWords({ index: 1, ruling: "queued" }, at)).toBe("waiting");
-    expect(heldRulingWords({ index: 0, ruling: "applied", heldSince: 9 }, at)).toBe("applied after waiting since at 9");
-    expect(heldRulingWords({ index: 0, ruling: "applied" }, at)).toBeUndefined();
+    expect(heldRulingWords({ index: 1, ruling: "queued" }, { atWords: at })).toBe("waiting");
+    expect(heldRulingWords({ index: 0, ruling: "applied", heldSince: 9 }, { atWords: at })).toBe("applied after waiting from at 9");
+    expect(heldRulingWords({ index: 0, ruling: "applied" }, { atWords: at })).toBeUndefined();
   });
 
-  it("names a refusal's reason, where a move took the automation, and that it waited first", () => {
-    expect(heldRulingWords({ index: 2, ruling: "refused", reason: "not_available" }, at)).toBe("not run: it is not available");
-    expect(heldRulingWords({ index: 2, ruling: "refused", reason: "not_permitted", movedTo: "mini" }, at)).toBe(
+  it("names the step that did not run, why, and the machine it would have run on", () => {
+    expect(heldRulingWords({ index: 2, ruling: "refused", reason: "not_available" }, { atWords: at })).toBe("not run: it is not available");
+    expect(
+      heldRulingWords({ index: 2, ruling: "refused", reason: "not_available" }, { atWords: at, label: "Send mail", elsewhere: "Mac mini" }),
+    ).toBe("not run: Send mail is not available on Mac mini");
+    expect(heldRulingWords({ index: 2, ruling: "refused", reason: "not_permitted", movedTo: "mini" }, { atWords: at, label: "Send mail" })).toBe(
       "not run: the automation moved to mini",
     );
-    expect(heldRulingWords({ index: 2, ruling: "refused", reason: "not_permitted", heldSince: 4 }, at)).toBe(
-      "not run after waiting since at 4: it is not permitted",
-    );
-    expect(heldRulingWords({ index: 0, ruling: "continued", output: {}, durationMs: 1 }, at)).toBeUndefined();
+    expect(heldRulingWords({ index: 0, ruling: "continued", output: {}, durationMs: 1 }, { atWords: at })).toBeUndefined();
   });
 
   it("names the machine on a firing that ran elsewhere, and keeps firing-id order when two clocks disagree", () => {
-    expect(firingWords(firing({ machine: "macbook" }), "macbook")).toBe("Run by hand, fired, 0 of 0 actions applied");
-    expect(firingWords(firing({ machine: "mini" }), "macbook")).toBe("Run by hand on mini, fired, 0 of 0 actions applied");
-    expect(firingWords(firing({}))).toBe("Run by hand, fired, 0 of 0 actions applied");
+    expect(firingWords(firing({ machine: "macbook" }), "macbook")).toBe("Run by hand, fired, 0 of 0 steps applied");
+    expect(firingWords(firing({ machine: "mini" }), "macbook")).toBe("Fired on mini, 0 of 0 steps applied");
+    expect(firingWords(firing({}))).toBe("Run by hand, fired, 0 of 0 steps applied");
     // A machine is named by the label the operator reads, as every other line does; settings not loaded names none.
     const labelled = (host: string): string => (host === "mini" ? "Mac mini" : host);
-    expect(firingWords(firing({ machine: "mini" }), "macbook", labelled)).toBe("Run by hand on Mac mini, fired, 0 of 0 actions applied");
-    expect(firingWords(firing({ machine: "mini" }), "")).toBe("Run by hand, fired, 0 of 0 actions applied");
-    expect(heldRulingWords({ index: 1, ruling: "queued", waitingOn: { machine: "mini", since: 9 } }, at, labelled)).toBe(
-      "waiting on Mac mini since at 9",
+    expect(firingWords(firing({ machine: "mini" }), "macbook", labelled)).toBe("Fired on Mac mini, 0 of 0 steps applied");
+    expect(firingWords(firing({ machine: "mini" }), "")).toBe("Run by hand, fired, 0 of 0 steps applied");
+    expect(firingWords(firing({ machine: "mini", outcome: { kind: "skipped", reason: "min_interval" } }), "macbook", labelled)).toBe(
+      "Skipped on Mac mini: it fired too recently",
     );
-    expect(heldRulingWords({ index: 2, ruling: "refused", reason: "not_permitted", movedTo: "mini" }, at, labelled)).toBe(
-      "not run: the automation moved to Mac mini",
+    expect(heldRulingWords({ index: 1, ruling: "queued", waitingOn: { machine: "mini", since: 9 } }, { atWords: at, nameMachine: labelled })).toBe(
+      "waiting for Mac mini since at 9",
     );
+    expect(
+      heldRulingWords({ index: 2, ruling: "refused", reason: "not_permitted", movedTo: "mini" }, { atWords: at, nameMachine: labelled }),
+    ).toBe("not run: the automation moved to Mac mini");
 
     // The newer firing by id has the earlier clock: the id decides, as it does across machines.
     const earlierClock = firing({ firingId: ItemId.make("01JFFFFFFFFFFFFFFFFFFFFFF2"), at: 100 });

@@ -1429,48 +1429,54 @@ export const codeRulingWords = (ruling: ActionRuling): string | undefined => {
   }
 };
 
-/** What a refusal's reason says on a step line, in the operator's words: no reasons a seat or a domain wrote. */
+/** What a refusal's reason says after a step's name, so a line reads "Send mail is not available on Mac mini". */
 const stepRefusalWords: Readonly<Record<RefusalReason, string>> = {
-  not_in_reach: "it is outside its reach",
-  not_permitted: "it is not permitted",
-  unknown_target: "the target is gone",
-  invalid_input: "its values are not valid",
-  invalid_transition: "the target cannot do that now",
-  already_held: "it is held elsewhere",
-  reviewer_is_author: "a review cannot name its author",
-  stale: "it was edited since",
-  rebase_conflict: "it conflicts with a newer edit",
-  depends_on_refused: "an earlier step it needs was refused",
-  not_available: "it is not available",
-  queue_full: "the queue is full",
+  not_in_reach: "is outside its reach",
+  not_permitted: "is not permitted",
+  unknown_target: "targets something that is gone",
+  invalid_input: "has values that are not valid",
+  invalid_transition: "cannot do that now",
+  already_held: "is held elsewhere",
+  reviewer_is_author: "cannot name its author as reviewer",
+  stale: "was written against an older version",
+  rebase_conflict: "conflicts with a newer edit",
+  depends_on_refused: "depends on a step that was refused",
+  not_available: "is not available",
+  queue_full: "waits on a full queue",
+};
+
+/** What a step line needs to name a machine and the step it speaks of. */
+export type StepWordsContext = {
+  readonly atWords: (at: number) => string;
+  /** How a machine is named to the operator; the raw host id by default. */
+  readonly nameMachine?: (host: string) => string;
+  /** The step's label from the automation's actions by index, such as "Send mail". */
+  readonly label?: string;
+  /** The machine that ran the firing, named, when it did not run here. */
+  readonly elsewhere?: string;
 };
 
 /**
- * A step's ruling while its automation's machine was not linked (0.12 S3):
+ * A step's line while its automation's machine was not linked (0.12 S3):
  * an action still waiting names the machine and since when; one that waited
- * and then went says both; a refused step names why, and a move mid-firing
- * says where the automation went. Undefined for a ruling that says nothing
- * more than the firing's own line, or that a code step or a signal step
- * already says in its own words.
+ * and then went says both; a refused step names the step and why, and a move
+ * mid-firing says where the automation went. Undefined for a ruling that
+ * says nothing more than the firing's own line, or that a code step or a
+ * signal step already says in its own words.
  */
-export const heldRulingWords = (
-  ruling: ActionRuling,
-  atWords: (at: number) => string,
-  nameMachine: (host: string) => string = (host) => host,
-): string | undefined => {
+export const heldRulingWords = (ruling: ActionRuling, words: StepWordsContext): string | undefined => {
+  const nameMachine = words.nameMachine ?? ((host: string) => host);
   switch (ruling.ruling) {
     case "queued":
       return ruling.waitingOn === undefined
         ? "waiting"
-        : `waiting on ${nameMachine(ruling.waitingOn.machine)} since ${atWords(ruling.waitingOn.since)}`;
+        : `waiting for ${nameMachine(ruling.waitingOn.machine)} since ${words.atWords(ruling.waitingOn.since)}`;
     case "applied":
-      return ruling.heldSince === undefined ? undefined : `applied after waiting since ${atWords(ruling.heldSince)}`;
+      return ruling.heldSince === undefined ? undefined : `applied after waiting from ${words.atWords(ruling.heldSince)}`;
     case "refused": {
-      const why =
-        ruling.movedTo === undefined
-          ? stepRefusalWords[ruling.reason]
-          : `the automation moved to ${nameMachine(ruling.movedTo)}`;
-      return ruling.heldSince === undefined ? `not run: ${why}` : `not run after waiting since ${atWords(ruling.heldSince)}: ${why}`;
+      if (ruling.movedTo !== undefined) return `not run: the automation moved to ${nameMachine(ruling.movedTo)}`;
+      const place = words.elsewhere === undefined ? "" : ` on ${words.elsewhere}`;
+      return `not run: ${words.label ?? "it"} ${stepRefusalWords[ruling.reason]}${place}`;
     }
     case "raised":
     case "continued":
@@ -1554,19 +1560,22 @@ export const ANSWER_SHORT_MAX = 160;
 export const answerIsLong = (text: string): boolean => text.length > ANSWER_SHORT_MAX || text.includes("\n");
 
 /**
- * One line of the firing history: `Scheduled, fired, 2 of 2 actions applied`.
- * A firing that ran on another machine says so, by the label the operator
- * reads: `Scheduled on Mac mini, ...`. `here` is this machine's short name,
- * empty until settings load, when no machine is named; a firing that names
- * none stays local.
+ * One line of the firing history: `Scheduled, fired, 2 of 2 steps applied`.
+ * A firing that ran on another machine says so instead of its cause, by the
+ * label the operator reads: `Fired on Mac mini, 2 of 2 steps applied`. `here`
+ * is this machine's short name, empty until settings load, when no machine is
+ * named; a firing that names none stays local.
  */
 export const firingWords = (
   firing: Firing,
   here?: string,
   nameMachine: (host: string) => string = (host) => host,
 ): string => {
-  const ran = firing.machine === undefined || here === undefined || here === "" || firing.machine === here ? "" : ` on ${nameMachine(firing.machine)}`;
-  const cause = `${causeWords(firing.cause)}${ran}`;
+  const elsewhere =
+    firing.machine === undefined || here === undefined || here === "" || firing.machine === here
+      ? undefined
+      : nameMachine(firing.machine);
+  const cause = causeWords(firing.cause);
   switch (firing.outcome.kind) {
     case "fired": {
       const actions = firing.outcome.actions;
@@ -1577,7 +1586,7 @@ export const firingWords = (
       const failed = count("failed");
       // A code step that continued did its part: it acted, as an applied action did.
       return [
-        `${cause}, fired, ${count("applied") + count("continued") + count("raised")} of ${actions.length} ${actions.length === 1 ? "action" : "actions"} applied`,
+        `${elsewhere === undefined ? `${cause}, fired` : `Fired on ${elsewhere}`}, ${count("applied") + count("continued") + count("raised")} of ${actions.length} ${actions.length === 1 ? "step" : "steps"} applied`,
         ...(queued > 0 ? [`${queued} queued`] : []),
         ...(refused > 0 ? [`${refused} refused`] : []),
         ...(stopped > 0 ? [`${stopped} stopped`] : []),
@@ -1585,10 +1594,14 @@ export const firingWords = (
       ].join(", ");
     }
     case "skipped":
-      return `${cause}, skipped: ${skipWords[firing.outcome.reason]}`;
+      return elsewhere === undefined
+        ? `${cause}, skipped: ${skipWords[firing.outcome.reason]}`
+        : `Skipped on ${elsewhere}: ${skipWords[firing.outcome.reason]}`;
     // Claimed and never settled: the run died before its actions were ruled. It still counts toward the hourly limit.
     case "claimed":
-      return `${cause}, interrupted before its actions were ruled`;
+      return elsewhere === undefined
+        ? `${cause}, interrupted before its steps were ruled`
+        : `Interrupted on ${elsewhere} before its steps were ruled`;
     default:
       return firing.outcome satisfies never;
   }

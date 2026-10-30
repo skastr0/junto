@@ -185,16 +185,16 @@ describe("a step held while its machine was not linked (0.12 S3)", () => {
       outcome: {
         kind: "fired",
         actions: [
-          { index: 0, ruling: "queued", waitingOn: { machine: "mini", since: 1_700_000_060_000 } },
-          { index: 1, ruling: "refused", reason: "not_permitted", movedTo: "mini" },
+          { index: 0, ruling: "refused", reason: "not_available" },
+          { index: 1, ruling: "queued", waitingOn: { machine: "mini", since: 1_700_000_060_000 } },
         ],
       },
       machine: "mini",
     });
     await render();
     await row();
-    expect(document.body.textContent).toContain("Run by hand on Mac mini");
-    expect(document.body.textContent).toContain("Step 1 waiting on Mac mini since");
-    expect(document.body.textContent).toContain("Step 2 not run: the automation moved to Mac mini");
+    expect(document.body.textContent).toContain("Fired on Mac mini, 0 of 2 steps applied, 1 queued, 1 refused");
+    expect(document.body.textContent).toContain("Step 1 not run: Raise a signal is not available on Mac mini");
+    expect(document.body.textContent).toContain("Step 2 waiting for Mac mini since");
   });
 });

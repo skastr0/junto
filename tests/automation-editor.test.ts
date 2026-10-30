@@ -195,12 +195,12 @@ describe("automation words", () => {
       actions: [{ index: 0, ruling: "applied" }, { index: 1, ruling: "queued" }, { index: 2, ruling: "refused", reason: "stale" }],
     });
     const skipped = firing("f2", 20, { kind: "skipped", reason: "max_per_hour" });
-    expect(firingWords(fired)).toBe("Scheduled, fired, 1 of 3 actions applied, 1 queued, 1 refused");
+    expect(firingWords(fired)).toBe("Scheduled, fired, 1 of 3 steps applied, 1 queued, 1 refused");
     expect(firingWords({ ...skipped, cause: { kind: "poll", slot: 20, missed: 2 } })).toBe(
       "Polled (2 earlier slots missed), skipped: it reached its hourly limit",
     );
     expect(firingWords(skipped)).toBe("Scheduled, skipped: it reached its hourly limit");
-    expect(firingWords(firing("f3", 30, { kind: "claimed" }))).toBe("Scheduled, interrupted before its actions were ruled");
+    expect(firingWords(firing("f3", 30, { kind: "claimed" }))).toBe("Scheduled, interrupted before its steps were ruled");
     expect(historyOrder([fired, skipped]).map((entry) => entry.firingId)).toEqual(["f2", "f1"]);
   });
 });
