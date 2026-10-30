@@ -126,10 +126,14 @@ test("a window and its seat's hold survive the core being killed", async () => {
     await expect.poll(() => page.evaluate(() => (window as unknown as { __heard: { settings: string[] } }).__heard.settings.at(-1)), { timeout: 15_000 }).toBe(theme);
 
     // A quit asked with a seat open still finishes: the core drains and the app goes.
+    // The close event is watched before the ask, since the app may go at once.
+    const closed = junto.app.waitForEvent("close");
     await junto.app.evaluate(({ app }) => { app.quit(); });
-    await expect
-      .poll(() => junto.app.process().exitCode !== null, { timeout: 120_000 })
-      .toBe(true);
+    const outcome = await Promise.race([
+      closed.then(() => "closed" as const),
+      new Promise<"timeout">((resolve) => setTimeout(() => { resolve("timeout"); }, 120_000)),
+    ]);
+    expect(outcome, "the app quit with a seat open").toBe("closed");
   } finally {
     await junto.close().catch(() => undefined);
   }
