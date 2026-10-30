@@ -6,7 +6,7 @@ import { useCoreClient } from "./main-client";
 import { relayWindowPushes } from "./ops/main-index";
 import { serveOverseerHost } from "./ops/overseer-pages";
 import { serveCompanionClipboard } from "./ops/companion";
-import { coreSurfacePlane, useCoreSurfacePlane, type SurfaceOpenMessage } from "./ops/term-surface";
+import { coreSurfacePlane, useCoreSurfacePlane, type PortedCoreMessage } from "./ops/term-surface";
 import type { CompanionClipboard } from "../junto/companion/service";
 import type { PortCoreClient } from "./port";
 
@@ -30,7 +30,7 @@ export const startCoreProcessForMain = (input: {
   /** The system clipboard, for the phone companion's Copy link. */
   readonly clipboard: CompanionClipboard;
   /** Tests start a core over a MessageChannel instead of a utilityProcess. */
-  readonly start?: (boot: CoreBoot) => PortCoreClient & { readonly stop: () => void; readonly postSurface?: (message: SurfaceOpenMessage, port: unknown) => boolean };
+  readonly start?: (boot: CoreBoot) => PortCoreClient & { readonly stop: () => void; readonly postSurface?: (message: PortedCoreMessage, port: unknown) => boolean };
 }): CoreProcessForMain => {
   const started = (input.start ?? startCoreProcess)(input.boot);
   useCoreClient(started);

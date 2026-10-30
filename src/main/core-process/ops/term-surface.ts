@@ -19,6 +19,8 @@ export type SurfaceOpenMessage = {
   readonly lease: ControlLease;
   readonly read?: bigint;
 };
+/** What main posts to the core with a port beside it: a surface, or a push (pty.connect). */
+export type PortedCoreMessage = SurfaceOpenMessage | { readonly kind: "push"; readonly channel: string; readonly payload: unknown };
 export const SURFACE_OPENED = "term.surfaceOpened";
 const SURFACE_ANSWER_MS = 10_000;
 type SurfaceOpened = { readonly id: number; readonly opened: boolean };
@@ -65,7 +67,7 @@ export type SurfacePlane = {
 
 /** Main side: the core process's plane, reached over its port. */
 export const coreSurfacePlane = (client: {
-  readonly postSurface: (message: SurfaceOpenMessage, port: unknown) => boolean;
+  readonly postSurface: (message: PortedCoreMessage, port: unknown) => boolean;
   readonly onPush: (channel: string, listener: (payload: unknown) => void) => () => void;
   readonly call: (name: "term.surface.close", input: { readonly lease: ControlLease }) => Promise<void>;
 }): SurfacePlane => {

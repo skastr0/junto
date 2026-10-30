@@ -3,7 +3,7 @@ import { join } from "node:path";
 // electron has no main-only exports, so no named binding may be checked at load.
 import * as electron from "electron";
 import type { MessagePortMain, UtilityProcess } from "electron";
-import type { SurfaceOpenMessage } from "./ops/term-surface";
+import type { PortedCoreMessage } from "./ops/term-surface";
 import type { CoreBoot } from "./entry";
 import { portCore, type CoreMessage, type PortCoreClient } from "./port";
 
@@ -30,8 +30,8 @@ const BOOT_DEADLINE_MS = 120_000;
 
 export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
   readonly stop: () => void;
-  /** A view's surface port, transferred to the core beside its message; false when no core is running. */
-  readonly postSurface: (message: SurfaceOpenMessage, port: unknown) => boolean;
+  /** A port transferred to the core beside its message (a surface, or a push such as pty.connect); false when no core is running. */
+  readonly postSurface: (message: PortedCoreMessage, port: unknown) => boolean;
 } => {
   let child: UtilityProcess | undefined;
   let stopping = false;
