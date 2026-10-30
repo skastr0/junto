@@ -61,9 +61,44 @@ afterEach(async () => {
 
 describe("the view-state store", () => {
   it("reads an untouched machine as empty, and writes nothing for a node the canvas does not hold", async () => {
-    expect(await snapshot()).toEqual({ commandGroups: {}, nodes: {}, focusSizes: {}, sections: {}, captureInboxes: {}, captureDrafts: {} });
+    expect(await snapshot()).toEqual({
+      commandGroups: {},
+      nodes: {},
+      focusSizes: {},
+      sections: {},
+      captureInboxes: {},
+      captureDrafts: {},
+      captureDesks: {},
+    });
     expect(await write({ area: "sidebar", canvasName: canvas, nodeId: "ghost", collapsed: true })).toBe(false);
     expect((await snapshot()).nodes[canvas]).toBeUndefined();
+  });
+
+  it("keeps the desk and the draft in the one row without either clearing the other", async () => {
+    const desk = {
+      open: { kind: "artifact" as const, nodeId: "artifacts-1", artifactId: "artifact-7" },
+      query: "pricing",
+      focused: "artifact-7",
+      caret: 42,
+      scrollWriting: 180,
+      scrollList: 24,
+    };
+    expect(await write({ area: "capture-desk", canvasName: canvas, value: desk })).toBe(true);
+    expect(
+      await write({
+        area: "capture-draft",
+        canvasName: canvas,
+        value: { of: "artifact-7", node: "artifacts-1", text: "words", base: 1, at: 5 },
+      }),
+    ).toBe(true);
+    const both = await snapshot();
+    expect(both.captureDesks?.[canvas]).toEqual(desk);
+    expect(both.captureDrafts?.[canvas]?.text).toBe("words");
+    // Clearing the draft leaves where the operator was; the desk is the other owner's half.
+    expect(await write({ area: "capture-draft", canvasName: canvas, value: null })).toBe(true);
+    const after = await snapshot();
+    expect(after.captureDrafts?.[canvas]).toBeUndefined();
+    expect(after.captureDesks?.[canvas]).toEqual(desk);
   });
 
   it("keeps nine slots, a group's members in order, and the groups past nine", async () => {

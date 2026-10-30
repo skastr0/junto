@@ -207,6 +207,26 @@ export const CaptureDraft = Schema.Struct({
 });
 export type CaptureDraft = typeof CaptureDraft.Type;
 
+/**
+ * Quick capture's desk (0.12, the Cmd+T triage desk): where the operator was
+ * in it, kept so closing, quitting and a reboot reopen the same desk. The
+ * shell's half of the row, and never a word of the writing: the artifact it
+ * was open on (or a new capture), the query, the focused row, the writing's
+ * caret and scroll, and the list's scroll.
+ */
+export const CaptureDesk = Schema.Struct({
+  open: Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("new") }),
+    Schema.Struct({ kind: Schema.Literal("artifact"), nodeId: NodeText, artifactId: NodeText }),
+  ]),
+  query: Schema.String.pipe(Schema.check(Schema.isMaxLength(1024))),
+  focused: Schema.NullOr(NodeText),
+  caret: Schema.NullOr(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }))),
+  scrollWriting: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
+  scrollList: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
+});
+export type CaptureDesk = typeof CaptureDesk.Type;
+
 export type ViewStateSnapshot = {
   /** By canvas name. A canvas with no saved board is absent. */
   readonly commandGroups: Readonly<Record<string, ViewCommandGroups>>;
@@ -222,6 +242,8 @@ export type ViewStateSnapshot = {
   readonly captureInboxes: Readonly<Record<string, string>>;
   /** By canvas name: quick capture's draft (0.12). Absent with none, and from a main that keeps none. */
   readonly captureDrafts?: Readonly<Record<string, CaptureDraft>>;
+  /** By canvas name: where quick capture's desk was left (0.12). Absent with none. */
+  readonly captureDesks?: Readonly<Record<string, CaptureDesk>>;
 };
 
 export const EMPTY_VIEW_STATE: ViewStateSnapshot = {
@@ -297,6 +319,12 @@ export const ViewStateWrite = Schema.Union([
     canvasName: CanvasName,
     /** The draft as it stands; null clears it, once its words are in an artifact. */
     value: Schema.NullOr(CaptureDraft),
+  }),
+  Schema.Struct({
+    area: Schema.Literal("capture-desk"),
+    canvasName: CanvasName,
+    /** Where the desk was left; null clears it, when a fresh capture starts. */
+    value: Schema.NullOr(CaptureDesk),
   }),
   Schema.Struct({
     area: Schema.Literal("section"),

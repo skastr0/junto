@@ -24,7 +24,7 @@
  */
 import type { ArtifactType } from "@shared/artifact";
 import type { ArtifactLabel } from "@shared/artifact-labels";
-import type { CaptureDraft, ViewCommandGroups, ViewCommandSlot } from "@shared/view-state";
+import type { CaptureDesk, CaptureDraft, ViewCommandGroups, ViewCommandSlot } from "@shared/view-state";
 import type { StateFilter } from "../components/tasks/tasks-pane-model";
 import type { HotbarSlot } from "./hotbar-slots";
 import { HOTBAR_SLOT_COUNT, emptyHotbarSlots } from "./hotbar-slots";
@@ -184,6 +184,13 @@ export type NodeViewStore = {
    * the writing reads it once, as it opens.
    */
   readonly writeCaptureDraft: (canvas: string, draft: CaptureDraft | null) => Promise<boolean>;
+  /** Quick capture's desk (0.12): where the operator was, never a word of the writing. */
+  readonly captureDesk: (canvas: string) => CaptureDesk | undefined;
+  /**
+   * Write the desk, or null to forget it (a fresh capture starts). Resolves
+   * true once the row is on disk, false when it was not kept; never rejects.
+   */
+  readonly writeCaptureDesk: (canvas: string, desk: CaptureDesk | null) => Promise<boolean>;
   /** Hear any change as it lands, this window's or another's; returns the unsubscribe. */
   readonly onChange: (listener: () => void) => () => void;
 };

@@ -12,6 +12,7 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import { SqlClient, SqlError } from "effect/unstable/sql";
 import type {
+  CaptureDesk,
   CaptureDraft,
   ViewArtifactsFilter,
   ViewCommandGroups,
@@ -104,6 +105,17 @@ type CaptureDraftRow = {
   readonly draft_text: string;
   readonly draft_base_version: number | null;
   readonly draft_at: number;
+};
+type CaptureDeskRow = {
+  readonly canvas_name: string;
+  readonly open_kind: string;
+  readonly open_node_id: string | null;
+  readonly open_artifact_id: string | null;
+  readonly query: string | null;
+  readonly focused_artifact_id: string | null;
+  readonly caret: number | null;
+  readonly scroll_writing: number | null;
+  readonly scroll_list: number | null;
 };
 type SectionRow = {
   readonly section: string;
@@ -209,6 +221,10 @@ export const ViewStateRepositoryLive: Layer.Layer<ViewStateRepository, never, Sq
       const draftRows = yield* sql<CaptureDraftRow>`
         SELECT canvas_name, draft_of, draft_node_id, draft_text, draft_base_version, draft_at
         FROM view_capture_desks WHERE draft_text IS NOT NULL ORDER BY canvas_name`;
+      const deskRows = yield* sql<CaptureDeskRow>`
+        SELECT canvas_name, open_kind, open_node_id, open_artifact_id, query, focused_artifact_id,
+               caret, scroll_writing, scroll_list
+        FROM view_capture_desks WHERE open_kind IS NOT NULL ORDER BY canvas_name`;
 
       const boards = new Map<string, BoardDraft>();
       const board = (canvas: string): BoardDraft => {
@@ -305,7 +321,29 @@ export const ViewStateRepositoryLive: Layer.Layer<ViewStateRepository, never, Sq
           at: Number(row.draft_at),
         };
       }
-      return { commandGroups, nodes: nodeState, focusSizes, sections, captureInboxes, captureDrafts } satisfies ViewStateSnapshot;
+      const captureDesks: Record<string, CaptureDesk> = {};
+      for (const row of deskRows) {
+        captureDesks[row.canvas_name] = {
+          open:
+            row.open_kind === "artifact" && row.open_node_id !== null && row.open_artifact_id !== null
+              ? { kind: "artifact", nodeId: row.open_node_id, artifactId: row.open_artifact_id }
+              : { kind: "new" },
+          query: row.query ?? "",
+          focused: row.focused_artifact_id,
+          caret: row.caret === null ? null : Number(row.caret),
+          scrollWriting: Number(row.scroll_writing ?? 0),
+          scrollList: Number(row.scroll_list ?? 0),
+        };
+      }
+      return {
+        commandGroups,
+        nodes: nodeState,
+        focusSizes,
+        sections,
+        captureInboxes,
+        captureDrafts,
+        captureDesks,
+      } satisfies ViewStateSnapshot;
     }, Effect.mapError(persistence("snapshot")));
 
     const write = Effect.fn("viewState.write")(function* (change: ViewStateWrite) {
@@ -440,6 +478,27 @@ export const ViewStateRepositoryLive: Layer.Layer<ViewStateRepository, never, Sq
             ON CONFLICT (canvas_name) DO UPDATE SET
               draft_of = excluded.draft_of, draft_node_id = excluded.draft_node_id, draft_type = excluded.draft_type,
               draft_text = excluded.draft_text, draft_base_version = excluded.draft_base_version, draft_at = excluded.draft_at`;
+          break;
+        }
+        case "capture-desk": {
+          // Only the shell's columns: the draft's columns in the same row are the writing's.
+          const desk = change.value;
+          const open = desk?.open;
+          yield* sql`
+            INSERT INTO view_capture_desks
+              (canvas_name, open_kind, open_node_id, open_artifact_id, query, focused_artifact_id, caret, scroll_writing, scroll_list)
+            VALUES (
+              ${change.canvasName}, ${open?.kind ?? null},
+              ${open?.kind === "artifact" ? open.nodeId : null},
+              ${open?.kind === "artifact" ? open.artifactId : null},
+              ${desk?.query ?? null}, ${desk?.focused ?? null}, ${desk?.caret ?? null},
+              ${desk?.scrollWriting ?? null}, ${desk?.scrollList ?? null}
+            )
+            ON CONFLICT (canvas_name) DO UPDATE SET
+              open_kind = excluded.open_kind, open_node_id = excluded.open_node_id,
+              open_artifact_id = excluded.open_artifact_id, query = excluded.query,
+              focused_artifact_id = excluded.focused_artifact_id, caret = excluded.caret,
+              scroll_writing = excluded.scroll_writing, scroll_list = excluded.scroll_list`;
           break;
         }
         case "section":

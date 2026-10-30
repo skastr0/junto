@@ -10,7 +10,7 @@
  * switch, not against this file. When V1 lands this file goes, and the default
  * `makeCanvasCommandGroups` takes is main's store instead.
  */
-import type { CaptureDraft } from "@shared/view-state";
+import type { CaptureDesk, CaptureDraft } from "@shared/view-state";
 import { storedSlotsOf } from "./view-state";
 import type {
   ArtifactsNodeView,
@@ -89,6 +89,7 @@ export const makeMemoryNodeViewStore = (): NodeViewStore => {
   const sizes = rows<SurfaceSize>();
   const inboxes = rows<string>();
   const drafts = rows<CaptureDraft>();
+  const desks = rows<CaptureDesk>();
   let railOpen = false;
   let actorRail = true;
   const listeners = new Set<() => void>();
@@ -137,6 +138,13 @@ export const makeMemoryNodeViewStore = (): NodeViewStore => {
       if (canvas === "") return Promise.resolve(false);
       if (draft === null) drafts.delete(canvas);
       else drafts.set(canvas, draft);
+      return Promise.resolve(true);
+    },
+    captureDesk: (canvas) => (canvas === "" ? undefined : desks.get(canvas)),
+    writeCaptureDesk: (canvas, desk) => {
+      if (canvas === "") return Promise.resolve(false);
+      if (desk === null) desks.delete(canvas);
+      else desks.set(canvas, desk);
       return Promise.resolve(true);
     },
     commentsRailOpen: () => railOpen,

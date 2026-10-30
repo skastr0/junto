@@ -16,6 +16,7 @@
  */
 import type { JuntoApi, JuntoViewStateApi } from "@shared/ipc";
 import type {
+  CaptureDesk,
   CaptureDraft,
   ViewArtifactsFilter,
   ViewCommandGroups,
@@ -95,6 +96,7 @@ export const createMainViewState = (api: JuntoViewStateApi): MainViewState => {
   const sections = new Map<string, boolean>();
   const inboxes = new Map<string, string>();
   const drafts = new Map<string, CaptureDraft>();
+  const desks = new Map<string, CaptureDesk>();
 
   // A read returns this object until its row changes.
   const artifactsCache = new Map<string, ArtifactsNodeView>();
@@ -158,6 +160,8 @@ export const createMainViewState = (api: JuntoViewStateApi): MainViewState => {
     for (const [canvas, node] of Object.entries(snapshot.captureInboxes ?? {})) inboxes.set(canvas, node);
     drafts.clear();
     for (const [canvas, draft] of Object.entries(snapshot.captureDrafts ?? {})) drafts.set(canvas, draft);
+    desks.clear();
+    for (const [canvas, desk] of Object.entries(snapshot.captureDesks ?? {})) desks.set(canvas, desk);
     clearCaches();
   };
 
@@ -213,12 +217,18 @@ export const createMainViewState = (api: JuntoViewStateApi): MainViewState => {
         if (write.value === null) drafts.delete(write.canvasName);
         else drafts.set(write.canvasName, write.value);
         break;
+      case "capture-desk":
+        if (write.value === null) desks.delete(write.canvasName);
+        else desks.set(write.canvasName, write.value);
+        break;
     }
   };
 
   const announce = (write: ViewStateWrite): void => {
     // A draft is written at every keystroke and read only as the writing opens: no view re-renders for it.
     if (write.area === "capture-draft") return;
+    // The desk is read once, as the surface opens; nothing else renders from it.
+    if (write.area === "capture-desk") return;
     if (write.area === "command-slot" || write.area === "command-extras") emitCanvas(write.canvasName);
     emitNodes();
   };
@@ -454,6 +464,16 @@ export const createMainViewState = (api: JuntoViewStateApi): MainViewState => {
     );
   };
 
+  const writeCaptureDesk = (canvas: string, desk: CaptureDesk | null): Promise<boolean> => {
+    if (canvas === "") return Promise.resolve(false);
+    const write: ViewStateWrite = { area: "capture-desk", canvasName: canvas, value: desk };
+    apply(write);
+    return api.apply(write).then(
+      (result) => result.ok,
+      () => false,
+    );
+  };
+
   const writeCommentsRailOpen = (open: boolean): void => {
     if ((sections.get(RAIL_SECTION) ?? false) === open) return;
     send({ area: "section", section: RAIL_SECTION, open });
@@ -497,6 +517,8 @@ export const createMainViewState = (api: JuntoViewStateApi): MainViewState => {
     writeCaptureInbox,
     captureDraft: (canvas) => (canvas === "" ? undefined : drafts.get(canvas)),
     writeCaptureDraft,
+    captureDesk: (canvas) => (canvas === "" ? undefined : desks.get(canvas)),
+    writeCaptureDesk,
     commentsRailOpen: () => sections.get(RAIL_SECTION) ?? false,
     writeCommentsRailOpen,
     actorRailExpanded: () => sections.get(ACTOR_RAIL_SECTION) ?? true,
