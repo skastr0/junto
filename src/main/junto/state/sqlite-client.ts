@@ -20,6 +20,9 @@ const sqliteError = (operation: string, cause: unknown): SqlError.SqlError => {
   });
 };
 
+/** The most prepared statements one connection keeps. */
+export const STATEMENT_CACHE_SIZE = 500;
+
 const parameters = Schema.decodeUnknownSync(Schema.Array(Schema.Union([
   Schema.Null, Schema.String, Schema.Number, Schema.BigInt, Schema.Uint8Array,
 ])));
@@ -33,13 +36,28 @@ export const makeSqliteClient = Effect.fn("state.makeSqliteClient")(function* (
   database: DatabaseSync,
   semaphore: Semaphore.Semaphore = Semaphore.makeUnsafe(1),
   beforeExecute?: (sql: string, params: ReadonlyArray<unknown>, context: Context.Context<never>) => void,
+  statementCacheSize: number = STATEMENT_CACHE_SIZE,
 ) {
+  // Least recently used first. An IN list with one ? per id is a new text for
+  // every length, so the cache is capped; an evicted statement is finalized
+  // now, not whenever the collector gets to it. Every use is synchronous, so
+  // none is running when it goes.
   const statements = new Map<string, StatementSync>();
   const prepare = (sql: string, cached: boolean): StatementSync => {
     const existing = cached ? statements.get(sql) : undefined;
-    if (existing) return existing;
+    if (existing) {
+      statements.delete(sql);
+      statements.set(sql, existing);
+      return existing;
+    }
     const statement = database.prepare(sql);
-    if (cached) statements.set(sql, statement);
+    if (!cached) return statement;
+    statements.set(sql, statement);
+    if (statements.size > statementCacheSize) {
+      const [oldestSql, oldest] = statements.entries().next().value!;
+      statements.delete(oldestSql);
+      (oldest as { close?: () => void }).close?.();
+    }
     return statement;
   };
 

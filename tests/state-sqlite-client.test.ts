@@ -56,6 +56,35 @@ describe("node:sqlite Effect client", () => {
     }
   });
 
+  test("the statement cache is capped least recently used, and a re-prepared statement reads the same rows", async () => {
+    const db = new DatabaseSync(":memory:");
+    const prepare = vi.spyOn(db, "prepare");
+    try {
+      await Effect.runPromise(Effect.gen(function* () {
+        const sql = yield* makeSqliteClient(db, undefined, undefined, 3);
+        yield* sql`CREATE TABLE items (id INTEGER PRIMARY KEY)`;
+        yield* sql`INSERT INTO items VALUES (1), (2), (3), (4), (5)`;
+        // One text per IN-list length, as a list with one ? per id makes.
+        const within = (ids: ReadonlyArray<number>) => sql`SELECT id FROM items WHERE ${sql.in("id", ids)} ORDER BY id`;
+        const first = yield* within([1, 2]);
+        yield* within([1, 2, 3]);
+        yield* within([1, 2, 3, 4]);
+        // The two-id list stays the most recent, so the three-id one goes first.
+        expect(yield* within([2, 1])).toEqual(first);
+        const before = prepare.mock.calls.length;
+        yield* within([1, 2, 3, 4, 5]);
+        expect(prepare.mock.calls.length).toBe(before + 1);
+        yield* within([1, 2]);
+        expect(prepare.mock.calls.length).toBe(before + 1);
+        // Evicted and finalized, it is prepared again and reads the same rows.
+        expect(yield* within([3, 1, 2])).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }]);
+        expect(prepare.mock.calls.length).toBe(before + 2);
+      }).pipe(Effect.provide(Reactivity.layer)));
+    } finally {
+      db.close();
+    }
+  });
+
   test("safe integers are fiber-local even on a cached statement", () => run(Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const query = sql`SELECT ${9_007_199_254_740_993n} AS n`;
