@@ -67,6 +67,26 @@ describe("the core process host", () => {
     core.stop();
   });
 
+  it("sends a call made while the core restarts to the next core", async () => {
+    const core = startCoreProcess(BOOT);
+    forks[0]!.kill();
+    await vi.advanceTimersByTimeAsync(0);
+    void core.call("model.canvases" as never, {} as never).catch(() => undefined);
+    expect(forks).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(forks[1]!.posted).toEqual([expect.objectContaining({ kind: "call", name: "model.canvases" })]);
+    core.stop();
+  });
+
+  it("fails a call made after stop instead of leaving it waiting", async () => {
+    const core = startCoreProcess(BOOT);
+    core.stop();
+    await vi.advanceTimersByTimeAsync(0);
+    const late = core.call("model.canvases" as never, {} as never).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await late).toMatchObject({ tag: "CoreStopped" });
+  });
+
   it("does not start another after stop during boot", async () => {
     const core = startCoreProcess(BOOT);
     core.stop();

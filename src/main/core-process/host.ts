@@ -30,8 +30,15 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & { readonly st
   let stops = 0;
   let startedAt = 0;
   const handlers = new Set<(message: CoreMessage) => void>();
+  // Between a core's exit and its restart, messages wait here for the next one;
+  // after stop there is no next one, so a call fails at once.
+  const held: CoreMessage[] = [];
   const client = portCore({
-    post: (message) => child?.postMessage(message),
+    post: (message) => {
+      if (child !== undefined) return child.postMessage(message);
+      if (!stopping) return void held.push(message);
+      queueMicrotask(() => client.fail("the Junto core process has stopped"));
+    },
     listen: (handler) => {
       handlers.add(handler);
       return () => handlers.delete(handler);
@@ -49,6 +56,7 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & { readonly st
     const forked = utilityProcess.fork(coreEntryPath, [JSON.stringify(boot)], { serviceName: "Junto Core", stdio: "inherit" });
     child = forked;
     startedAt = Date.now();
+    for (const message of held.splice(0)) forked.postMessage(message);
     booting = setTimeout(() => {
       if (child === forked) forked.kill();
     }, BOOT_DEADLINE_MS);
@@ -74,7 +82,9 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & { readonly st
     ...client,
     stop: () => {
       stopping = true;
+      held.length = 0;
       child?.kill();
+      if (child === undefined) client.fail("the Junto core process has stopped");
     },
   };
 };
