@@ -42,14 +42,12 @@ export const COMPANION_DEVICES = "companion.devices";
 export const LIVE_CHANGED = "live.changed";
 /** A canvas changed, with the document as it is now, or was removed; once `model.watchCanvases` started it. */
 export const CANVAS_CHANGED = "model.canvasChanged";
-/** A canvas's play state, as it stands and on every change, once `pause.watch` started it. */
-export const PAUSE_CHANGED = "pause.changed";
 
 export type CanvasChangedPush = { readonly canvas: string; readonly next: Canvas | undefined };
-export type PauseChangedPush = { readonly canvas: string; readonly playing: boolean };
+
 
 /** Every channel main forwards to the window. */
-export const WINDOW_CHANNELS = [SETTINGS_CHANGED, WORK_PREAMBLE, AGENT_SIGNAL_CHANGED, COMPANION_DEVICES, CANVAS_CHANGED, PAUSE_CHANGED, LIVE_CHANGED] as const;
+export const WINDOW_CHANNELS = [SETTINGS_CHANGED, WORK_PREAMBLE, AGENT_SIGNAL_CHANGED, COMPANION_DEVICES, CANVAS_CHANGED, LIVE_CHANGED] as const;
 
 /**
  * Main's side, once the core runs in its own process: each window push from
@@ -83,7 +81,8 @@ declare module "../ops" {
     "settings.read": CoreOp<Record<string, never>, Settings>;
     "settings.watch": CoreOp<Record<string, never>, void>;
     "model.watchCanvases": CoreOp<Record<string, never>, void>;
-    "pause.watch": CoreOp<Record<string, never>, void>;
+    /** A canvas's play state as the pause plane holds it now. */
+    "pause.playing": CoreOp<{ readonly canvas: string }, boolean>;
     "content.openForRead": CoreOp<{ readonly ref: ContentRef }, ContentOpenForRead>;
     "files.carryThreads": CoreOp<
       { readonly canvasName: string; readonly nodeId: string; readonly from: string; readonly to: string },
@@ -97,7 +96,6 @@ declare module "../ops" {
 
 let watchingSettings = false;
 let watchingCanvases = false;
-let watchingPause = false;
 
 coreOps({
   "model.resolveNodeRef": ({ ref }) => Effect.flatMap(ModelService, (model) => resolveNodeRef(model, ref)),
@@ -131,18 +129,7 @@ coreOps({
           if (event._tag === "Removed") publish(CANVAS_CHANGED, { canvas: event.canvas, next: undefined } satisfies CanvasChangedPush);
         });
       })),
-  // Subscribed once per core; each watch also publishes every canvas's play state as it stands, after the subscription.
-  "pause.watch": () =>
-    Effect.gen(function* () {
-      const [pause, model] = yield* Effect.all([PausePlane, ModelService]);
-      if (!watchingPause) {
-        watchingPause = true;
-        pause.subscribe((canvas, _previous, current) => publish(PAUSE_CHANGED, { canvas, playing: current.playing } satisfies PauseChangedPush));
-      }
-      for (const canvas of yield* model.listCanvases()) {
-        publish(PAUSE_CHANGED, { canvas, playing: pause.stateFor(canvas).playing } satisfies PauseChangedPush);
-      }
-    }),
+  "pause.playing": ({ canvas }) => Effect.map(PausePlane, (pause) => pause.stateFor(canvas).playing),
   "content.openForRead": ({ ref }) => Effect.flatMap(ContentService, (content) => content.openForRead(ref)),
   "files.carryThreads": ({ canvasName, nodeId, from, to }) =>
     Effect.flatMap(SqlClient.SqlClient, (sql) => carryFileThreads(sql, canvasName, nodeId, from, to)).pipe(Effect.asVoid),

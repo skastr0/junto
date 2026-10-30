@@ -45,7 +45,7 @@ import { core } from "./core-process/main-client";
 import { startTerminalProcess, TERMINAL_PROCESS_ENABLED } from "./terminal-process/host";
 import { useTerminalProcess } from "./terminal-process/use";
 import { subscribe as subscribeCore } from "./core-process/push";
-import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, COMPANION_DEVICES, PAUSE_CHANGED, SETTINGS_CHANGED, WORK_PREAMBLE, type CanvasChangedPush, type PauseChangedPush } from "./core-process/ops/main-index";
+import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, COMPANION_DEVICES, SETTINGS_CHANGED, WORK_PREAMBLE, type CanvasChangedPush } from "./core-process/ops/main-index";
 import { coreBrowserProfileStore, coreTouchedOriginStore } from "./core-process/ops/browser";
 import { MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail } from "./core-runtime";
 import { makeInventoryChannel } from "./junto/inventory/channel";
@@ -1876,13 +1876,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           if (admissionCleanupRan) acquiredCanvasUnsubscribe();
           else canvasUnsubscribe = acquiredCanvasUnsubscribe;
 
-          // Play states as they stand and every change after; a canvas not heard of yet is paused.
-          const playing = new Map<string, boolean>();
-          subscribeCore(PAUSE_CHANGED, (payload) => {
-            const change = payload as PauseChangedPush;
-            playing.set(change.canvas, change.playing);
-          });
-          await core.call("pause.watch", {});
           browserControl = await startBrowserControlServer({
             sessions: composition.sessions,
             capabilities: composition.registry,
@@ -1891,8 +1884,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             home: browserControlHome,
             edgeGrant,
             listCanvasModels,
-            // The work socket's pause source, read on every request.
-            canvasPlaying: (canvasName) => playing.get(canvasName) ?? false,
+            // The work socket's pause source, read in the core on every request; never cached here.
+            canvasPlaying: (canvasName) => core.call("pause.playing", { canvas: canvasName }),
             // A seat's box comment, posted as the seat the grant names.
             postPageBoxComment: (input) =>
               // The core checks and posts; the shot is Electron's, so main takes it between.

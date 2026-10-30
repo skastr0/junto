@@ -2,7 +2,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ManagedRuntime, Schema } from "effect";
+import { Layer, ManagedRuntime, Schema } from "effect";
+import { inProcessCore, type CoreRunner } from "../src/main/core-process/client";
+import "../src/main/core-process/ops/main-index";
+import { PausePlane } from "../src/main/junto/pause-plane";
 import { BindingId } from "../src/shared/model/kinds";
 import { SqlClient } from "effect/unstable/sql";
 import type { Canvas } from "../src/shared/model";
@@ -194,8 +197,11 @@ describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", ()
       editsCanvas: async () => true,
       ...(identity ?? {}),
     });
-    // The pause plane as the work socket reads it; flipped per test.
+    // The pause plane as the work socket reads it, in the core on every request; flipped per test.
     const pause = { playing: true };
+    const core = inProcessCore(ManagedRuntime.make(Layer.succeed(PausePlane, {
+      stateFor: (canvasName: string) => ({ playing: canvasName === "work" && pause.playing, everPlayed: true }),
+    } as never)) as unknown as CoreRunner);
     const handlers = makeControlHandlers({
       sessions,
       capabilities,
@@ -204,7 +210,7 @@ describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", ()
       listDocuments: listCanvasModels,
       shotsDir: join(root, "shots"),
       edgeGrant,
-      canvasPlaying: (canvasName) => canvasName === "work" && pause.playing,
+      canvasPlaying: (canvasName) => core.call("pause.playing", { canvas: canvasName }),
     });
     return { handlers, edgeGrant, capabilities, pause };
   };
@@ -566,7 +572,8 @@ describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", ()
     const evaluated = await send("POST", "/eval", { sessionId, code: "1" });
     expect(evaluated.envelope).not.toMatchObject(pausedRefusal.envelope);
 
-    // Pause is read per request, never cached with the grant.
+    // Pause is read in the core per request, never cached with the grant or in main:
+    // a pause that lands after the seat acted refuses its very next act.
     pause.playing = false;
     await expect(send("POST", "/goto", { sessionId, url: TARGET.url })).resolves.toMatchObject(pausedRefusal);
   });

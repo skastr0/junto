@@ -326,7 +326,7 @@ export interface ControlDeps {
    * Whether the canvas plays, read from the pause plane on every request and
    * never cached. On a paused canvas a seat reads but does not act.
    */
-  readonly canvasPlaying: (canvasName: string) => boolean;
+  readonly canvasPlaying: (canvasName: string) => boolean | Promise<boolean>;
   /**
    * Server lifecycle hook. The HTTP host uses this to retain the actual route
    * promise after the request-facing cancellation race has settled.
@@ -379,7 +379,7 @@ interface ControlAuthorization {
 interface ControlRouteHandler {
   readonly action: BrowserCapabilityAction | null;
   /** The refusal for an admitted seat on this canvas when it is paused and the route acts. */
-  readonly pausedRefusal: (canvasName: string) => ControlEnvelope<never> | undefined;
+  readonly pausedRefusal: (canvasName: string) => Promise<ControlEnvelope<never> | undefined>;
   readonly preflight: (
     capability: string | undefined,
     expectedPrincipal?: BrowserAutomationPrincipal,
@@ -581,8 +581,8 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
     run: ControlRouteHandler["run"],
   ): ControlRouteHandler => ({
     action,
-    pausedRefusal: (canvasName) =>
-      action !== null && PAUSE_REFUSED_ACTIONS.has(action) && !deps.canvasPlaying(canvasName)
+    pausedRefusal: async (canvasName) =>
+      action !== null && PAUSE_REFUSED_ACTIONS.has(action) && !(await deps.canvasPlaying(canvasName))
         ? controlErr("forbidden", PAUSED_CANVAS_MESSAGE)
         : undefined,
     preflight: (capability, expectedPrincipal) =>
@@ -1151,7 +1151,7 @@ export const dispatchControlRequest = async (
     if (admit?.kind === "principal") {
       const edge = await admit.edgeGrant.admitPrincipal(admit.principal);
       if (!edge.ok) return edgeGrantHttp(edge.denial, edge.message);
-      const paused = handler.pausedRefusal(edge.canvasName);
+      const paused = await handler.pausedRefusal(edge.canvasName);
       if (paused !== undefined) return { status: 403, envelope: paused };
       secret = edge.secret;
       expectedPrincipal = edge.expectedPrincipal;
@@ -1426,7 +1426,7 @@ export const startBrowserControlServer = async (
     readonly listCanvasModels: ListCanvasModels;
     readonly edgeGrant: EdgeGrantService;
     /** The pause plane's per-request read; see ControlDeps. */
-    readonly canvasPlaying: (canvasName: string) => boolean;
+    readonly canvasPlaying: (canvasName: string) => boolean | Promise<boolean>;
     readonly postPageBoxComment?: PostPageBoxComment;
   },
   runtime: BrowserControlRuntime = defaultControlRuntime,
@@ -1602,7 +1602,11 @@ export const startBrowserControlServer = async (
             respond(denied.status, denied.envelope, true);
             return;
           }
-          const paused = handler.pausedRefusal(edge.canvasName);
+          const paused = await handler.pausedRefusal(edge.canvasName);
+          if (shuttingDown || controller.signal.aborted) {
+            edgeGrant.clear();
+            return;
+          }
           if (paused !== undefined) {
             respond(403, paused, true);
             return;
