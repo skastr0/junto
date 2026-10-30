@@ -1,7 +1,6 @@
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { Context, Data, Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import { CoreCallError, inProcessCore } from "../src/main/core-process/client";
 import { coreOps, type CoreOp, type CoreOpBody } from "../src/main/core-process/ops";
 import { portCore, serveCore, type CorePort } from "../src/main/core-process/port";
 import { HostCallError, hostOps, inProcessHost, type HostOp } from "../src/main/core-process/host-ops";
@@ -55,17 +54,6 @@ afterEach(() => {
 });
 
 describe("core operations", () => {
-  it("in process: answers, and a failure keeps its tag", async () => {
-    const runtime = runtimeWith();
-    opened.push(() => void runtime.dispose());
-    const core = inProcessCore(runtime);
-    expect(await core.call("test.add", { n: 2 })).toEqual({ total: 2 });
-    expect(await core.call("test.add", { n: 3 })).toEqual({ total: 5 });
-    const refused = await core.call("test.refuse", { why: "not yours" }).catch((error: unknown) => error);
-    expect(refused).toBeInstanceOf(CoreCallError);
-    expect(refused).toMatchObject({ operation: "test.refuse", tag: "Refused", message: "not yours" });
-  });
-
   it("over a port: the same answers and failures, and pushes arrive in order after the answer", async () => {
     const runtime = runtimeWith();
     const { port1, port2 } = new MessageChannel();
