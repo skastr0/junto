@@ -8,15 +8,6 @@
  * the private text only where it applies to that machine's seats. Bodies never
  * ride in the copy: it is one frame under the frame bound. This module is the
  * cut, and nothing else.
- *
- * A machine on the canvas's authority list is a keeper (0.11/06 F3): its copy
- * is the canvas as the editing machine holds it — every seat and terminal
- * whole, every region with every field, every note, every wire, every seat's
- * guidance and every reference — so it can take over and recut for anyone.
- * What never crosses is the same in both modes: no resolved secret value, no
- * credential, no session pin, no execution fact, no key material, and no
- * stub's path, address or host. `keeper` is named field by field, never by
- * spread.
  */
 import { Schema, SchemaTransformation } from "effect";
 import type { ActorSeatId } from "./actor-seat";
@@ -29,7 +20,6 @@ import {
   HostId,
   Label,
   NodeId,
-  Note,
   Peer,
   Region,
   Seat,
@@ -145,12 +135,6 @@ export const CanvasCopy = Schema.Struct({
    * Absent in a copy from before 0.11.
    */
   automations: Schema.optionalKey(Schema.Array(CopiedAutomation)),
-  /**
-   * A keeper's notes, whole (0.11/06 F3). Only a copy for a machine the
-   * committed authority list names carries them; every other copy leaves
-   * notes on the editing machine.
-   */
-  notes: Schema.optionalKey(Schema.Array(Note)),
 });
 export type CanvasCopy = typeof CanvasCopy.Type;
 
@@ -176,13 +160,6 @@ export type CanvasCopySource = {
   /** Every live automation and the machine it runs on, the editing machine's for one that names none. */
   readonly automations: ReadonlyArray<CopiedAutomation>;
 };
-
-/**
- * Who a copy is cut for (0.11/06 F3): `"cut"` is the snapshot of today for a
- * machine that holds part of the canvas; `"keeper"` is the whole canvas for a
- * machine the committed authority list names.
- */
-export type CanvasCopyMode = "cut" | "keeper";
 
 export type CanvasCopyTarget = {
   readonly installationId: InstallationId;
@@ -294,15 +271,12 @@ const forMachine = (region: Region, machineName: string): Region => {
 
 /**
  * Cut one canvas for one machine. Refuses while any row still names no real
- * machine and for the editing machine itself. A `"cut"` copy goes only to a
- * machine with a seat or an automation on the canvas; a `"keeper"` copy is
- * the canvas whole, for a machine the committed authority list names, and a
- * seatless one is still owed it.
+ * machine, for the editing machine itself, and for a machine with no seat on
+ * the canvas.
  */
 export const exportCanvasCopy = (
   source: CanvasCopySource,
   target: CanvasCopyTarget,
-  mode: CanvasCopyMode,
 ): CanvasCopyResult => {
   if (target.installationId === source.editor) {
     return { ok: false, refusal: { reason: "the-editing-machine-holds-the-canvas" } };
@@ -311,18 +285,16 @@ export const exportCanvasCopy = (
   if (unnamed !== undefined) {
     return { ok: false, refusal: { reason: "a-row-names-no-machine", nodeId: unnamed.id } };
   }
-  const keeper = mode === "keeper";
   const seats: Seat[] = [];
   const peers: Peer[] = [];
   const terminals: Terminal[] = [];
   const regions: Region[] = [];
-  const notes: Note[] = [];
   const resources: CopiedResource[] = [];
   for (const node of source.nodes) {
     const resource = resourceOf(node, source.editorMachineName);
     if (resource !== undefined) resources.push(resource);
     if (node.kind === "agent") {
-      if (keeper || node.host === target.machineName) {
+      if (node.host === target.machineName) {
         seats.push(node);
       } else {
         peers.push({
@@ -339,16 +311,13 @@ export const exportCanvasCopy = (
         });
       }
     } else if (node.kind === "terminal") {
-      if (keeper || node.host === target.machineName) terminals.push(node);
+      if (node.host === target.machineName) terminals.push(node);
     } else if (node.kind === "region") {
       regions.push(node);
-    } else if (keeper && node.kind === "note") {
-      notes.push(node);
     }
   }
   // A machine with automations and no seat holds the canvas too: it runs them.
-  // A keeper keeps the canvas whole whether a seat or an automation is on it.
-  if (!keeper && seats.length === 0 && !source.automations.some((automation) => automation.machine === target.machineName)) {
+  if (seats.length === 0 && !source.automations.some((automation) => automation.machine === target.machineName)) {
     return { ok: false, refusal: { reason: "no-seat-or-automation-on-that-machine" } };
   }
 
@@ -372,26 +341,21 @@ export const exportCanvasCopy = (
       seats,
       peers,
       terminals,
-      regions: keeper
-        ? regions
-        : regions.map((region) =>
-            mine.has(region.id) ? forMachine(region, target.machineName) : outline(region),
-          ),
+      regions: regions.map((region) =>
+        mine.has(region.id) ? forMachine(region, target.machineName) : outline(region),
+      ),
       resources,
-      wires: keeper ? [...source.wires] : source.wires.filter((wire) => held.has(wire.from) && held.has(wire.to)),
+      wires: source.wires.filter((wire) => held.has(wire.from) && held.has(wire.to)),
       guidance: seats.flatMap((seat) => {
         const guidance = source.guidance[seat.id];
         return guidance === undefined ? [] : [{ nodeId: seat.id, ...guidance }];
       }),
       ...(source.briefing === undefined ? {} : { briefing: source.briefing }),
-      references: keeper
-        ? [...source.references]
-        : source.references.filter(
-            (reference) => reference.regionId === undefined || mine.has(reference.regionId),
-          ),
+      references: source.references.filter(
+        (reference) => reference.regionId === undefined || mine.has(reference.regionId),
+      ),
       playing: source.playing,
       automations: source.automations,
-      ...(keeper ? { notes } : {}),
     },
   };
 };

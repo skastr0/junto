@@ -207,6 +207,34 @@ export function QuickOpen({
     onKeyDown,
   });
 
+  // aria-modal is a promise, so the DOM keeps it: while the palette is open,
+  // every sibling inside the panel it dims is inert and hidden from readers,
+  // and gets its own attributes back on close. The modal stack does this for
+  // whole-window modals from the body down (modal-stack.ts: syncInert); a
+  // palette inside a node modal sits below that level, so it does it here.
+  // These four surfaces pass no aside, which would be outside the panel; one
+  // that did would mark it in this same list.
+  useEffect(() => {
+    const root = cardRef.current?.closest(".quick-open");
+    const panel = root instanceof HTMLElement ? root.parentElement : null;
+    if (!(root instanceof HTMLElement) || panel === null) return;
+    const taken = [...panel.children]
+      .filter((child): child is HTMLElement => child instanceof HTMLElement && child !== root)
+      .map((child) => ({ child, inert: child.hasAttribute("inert"), hidden: child.getAttribute("aria-hidden") }));
+    for (const one of taken) {
+      one.child.setAttribute("inert", "");
+      one.child.setAttribute("aria-hidden", "true");
+    }
+    return () => {
+      // Put back exactly what was there: an inert another surface set stays.
+      for (const one of taken) {
+        if (!one.inert) one.child.removeAttribute("inert");
+        if (one.hidden === null) one.child.removeAttribute("aria-hidden");
+        else one.child.setAttribute("aria-hidden", one.hidden);
+      }
+    };
+  }, []);
+
   return (
     <div className="quick-open" data-testid="quick-open">
       <button

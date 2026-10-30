@@ -15,7 +15,7 @@ import { Cause, Effect, Option } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { exportCanvasCopy, type CanvasCopy, type CopiedAutomation, type CopiedReference } from "@shared/canvas-copy";
 import type { InstallationId } from "@shared/installation-id";
-import { asCanvasName, type HostId, type Seat } from "@shared/model";
+import { asCanvasName, type Seat } from "@shared/model";
 import { APP_REFERENCE_PLACE, type ReferencePlace, type StoredReference } from "@shared/references";
 import type { AgentSignal } from "@shared/agent-signals";
 import { EXCHANGE_MAX_SIGNAL_ATTACHMENTS, signalAttachmentCrosses, type CanvasPlacement, type ExchangeSignal } from "@shared/work-exchange";
@@ -172,9 +172,9 @@ export const makeLiveRowExchange = (
       }).pipe(sql.withTransaction, Effect.provideService(StateTransactionOperation, "exchange.departed"));
 
     /** Every live automation of a canvas and the machine it runs on, by real short name. */
-    const copiedAutomations = (canvasName: string, home?: HostId) =>
+    const copiedAutomations = (canvasName: string) =>
       Effect.gen(function* () {
-        const editorName = home ?? (yield* machines.machineName);
+        const editorName = yield* machines.machineName;
         const state = Option.isSome(automationStore) ? yield* automationStore.value.loadState(canvasName) : new Map();
         const copied: Array<CopiedAutomation> = [];
         for (const { automation, archived } of state.values()) {
@@ -188,9 +188,6 @@ export const makeLiveRowExchange = (
      * This machine's canvas, cut for that machine. Absent when this machine
      * does not edit the canvas, has not pinned that machine, or the cut is
      * refused: that machine has no seat on it, or a row names no machine.
-     * A machine the committed authority list names is a keeper (0.11/06 F3):
-     * its copy is the canvas whole, and an automation that names no machine
-     * is stamped with the list's first machine, the one it follows.
      * One read transaction: the count, the nodes and every automation's
      * machine are read as one state, so no move committed between the reads
      * is sent as standing at the count before it.
@@ -199,12 +196,8 @@ export const makeLiveRowExchange = (
       Effect.gen(function* () {
         const header = yield* records.getCanvas(canvasName);
         if (header === undefined || !(yield* records.editsCanvas(canvasName))) return undefined;
-        const peers = yield* machines.peers;
-        const target = peers.find((pinned) => pinned.installationId === peer);
+        const target = (yield* machines.peers).find((pinned) => pinned.installationId === peer);
         if (target === undefined) return undefined;
-        const listed = (yield* records.canvasAuthorities(canvasName)).map((installation) => installation as InstallationId);
-        const authorities = listed.length === 0 ? [self] : listed;
-        const keeper = authorities.includes(peer);
         const byName = yield* installations;
         const nodes = yield* records.listNodes(canvasName);
         // A seat on a machine this one has not pinned has no identity to send.
@@ -212,9 +205,6 @@ export const makeLiveRowExchange = (
         if (unplaced) return undefined;
         const regionIds = nodes.flatMap((node) => (node.kind === "region" ? [node.id as string] : []));
         const briefing = yield* references.briefingRead();
-        const first = authorities[0]!;
-        const home: HostId | undefined =
-          first === self ? yield* machines.machineName : peers.find((pinned) => pinned.installationId === first)?.machineName;
         const cut = exportCanvasCopy(
           {
             canvasName: asCanvasName(canvasName),
@@ -234,10 +224,9 @@ export const makeLiveRowExchange = (
             ],
             playing: pause.stateFor(canvasName).playing,
             seatIdOf: (seat: Seat) => deriveActorSeatId(byName.get(seat.host)!, seat.bindingId),
-            automations: yield* copiedAutomations(canvasName, home),
+            automations: yield* copiedAutomations(canvasName),
           },
           { installationId: peer, machineName: target.machineName },
-          keeper ? "keeper" : "cut",
         );
         return cut.ok ? cut.copy : undefined;
       }).pipe(sql.withTransaction, Effect.provideService(StateTransactionOperation, "exchange.cut-copy"));
@@ -247,11 +236,11 @@ export const makeLiveRowExchange = (
       Effect.gen(function* () {
         const byName = yield* installations;
         const seats = [
-          ...copy.seats.flatMap((seat) => {
-            // A keeper's copy carries every seat whole: each lives where its host says.
-            const machine = byName.get(seat.host);
-            return machine === undefined ? [] : [{ nodeId: seat.id, seatId: deriveActorSeatId(machine, seat.bindingId), machine }];
-          }),
+          ...copy.seats.map((seat) => ({
+            nodeId: seat.id,
+            seatId: deriveActorSeatId(copy.target, seat.bindingId),
+            machine: copy.target,
+          })),
           ...copy.peers.flatMap((peer) => {
             const machine = byName.get(peer.host);
             return machine === undefined ? [] : [{ nodeId: peer.id, seatId: peer.seatId, machine }];

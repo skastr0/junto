@@ -43,7 +43,6 @@ const copy = (): CanvasCopy => {
       seatIdOf: () => Schema.decodeUnknownSync(ActorSeatId)(`seat_${"1".repeat(64)}`),
     },
     { installationId: MINI, machineName: "mini" },
-    "cut",
   );
   if (!result.ok) throw new Error(result.refusal.reason);
   return result.copy;

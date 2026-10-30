@@ -211,6 +211,32 @@ describe("the quick open palette", () => {
     expect(isModalLayerOpen("working-dialog")).toBe(true);
   });
 
+  it("makes what it covers inert while it is open, and gives it back on close", () => {
+    const panel = document.createElement("div");
+    document.body.appendChild(panel);
+    const local = createRoot(panel);
+    try {
+      const content = <div data-behind="">behind the palette</div>;
+      const already = <div data-already="" inert />;
+      act(() => local.render(<>{content}{already}<QuickOpen source={sourceOf()} onOpen={vi.fn()} onClose={vi.fn()} /></>));
+      const behind = panel.querySelector<HTMLElement>("[data-behind]")!;
+      const kept = panel.querySelector<HTMLElement>("[data-already]")!;
+      // The card is aria-modal, and the panel it dims is inert in the DOM too.
+      expect(behind.hasAttribute("inert")).toBe(true);
+      expect(behind.getAttribute("aria-hidden")).toBe("true");
+      // An inert someone else set is never adopted or taken away.
+      expect(kept.hasAttribute("inert")).toBe(true);
+      // The palette closes, the panel stays: what it took is given back.
+      act(() => local.render(<>{content}{already}</>));
+      expect(behind.hasAttribute("inert")).toBe(false);
+      expect(behind.hasAttribute("aria-hidden")).toBe(false);
+      expect(kept.hasAttribute("inert")).toBe(true);
+    } finally {
+      act(() => local.unmount());
+      panel.remove();
+    }
+  });
+
   it("clears on the click a keyboard or a screen reader activation dispatches", () => {
     render(sourceOf());
     type("launch");
