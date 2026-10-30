@@ -32,20 +32,23 @@ const first = (key: string): boolean => {
 coreOps({
   "ipc.watch.model": () =>
     Effect.gen(function* () {
+      const model = yield* ModelService;
       if (!first("model")) return;
-      (yield* ModelService).subscribeChanges((event) => publish(IPC_CHANNELS.modelChanged, event));
+      model.subscribeChanges((event) => publish(IPC_CHANNELS.modelChanged, event));
     }),
   "ipc.watch.modelCanvases": () =>
     Effect.gen(function* () {
+      const model = yield* ModelService;
       if (!first("modelCanvases")) return;
-      (yield* ModelService).subscribeCanvasesChanges((event) => publish(IPC_CHANNELS.modelCanvasesChanged, event));
+      model.subscribeCanvasesChanges((event) => publish(IPC_CHANNELS.modelCanvasesChanged, event));
     }),
   "ipc.watch.modelActorRefs": () =>
     Effect.gen(function* () {
-      if (!first("modelActorRefs")) return;
       // The refs expose their changes as a stream, not a callback: detach a
-      // reader that publishes each one.
+      // reader that publishes each one. The service is acquired before the
+      // flag is set, so a failed acquisition leaves the watch startable.
       const events = (yield* ModelActorRefs).changes;
+      if (!first("modelActorRefs")) return;
       yield* Effect.forkDetach(
         Stream.runForEach(events, (event) => Effect.sync(() => publish(IPC_CHANNELS.modelActorRefsChanged, event))),
       );

@@ -23,6 +23,8 @@ const electron = vi.hoisted(() => ({
 
 const runtime = vi.hoisted(() => ({
   runPromise: vi.fn(async (_effect: unknown): Promise<string> => "executed"),
+  // The core port asks for an Exit, not a value (inProcessCore).
+  runPromiseExit: vi.fn(async (_effect: unknown) => ({ _tag: "Success" as const, value: "executed" })),
   runFork: vi.fn(),
 }));
 
@@ -109,13 +111,13 @@ describe("renderer canvas authoring IPC", () => {
     const edit = { _tag: "Edit", canvas: "final", id: "note", change: { kind: "note", text: "saved" } };
 
     await expect(command(sender, edit)).resolves.toBe("executed");
-    const callsAfterOrdinary = runtime.runPromise.mock.calls.length;
+    const callsAfterOrdinary = runtime.runPromiseExit.mock.calls.length;
 
     // Quit still admits the same model command path for the open draft.
     mainAuthoringGate.beginFinalFlush();
     await expect(command(sender, edit)).resolves.toBe("executed");
-    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 1);
-    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 1);
+    expect(runtime.runPromiseExit).toHaveBeenCalledTimes(callsAfterOrdinary + 1);
+    expect(runtime.runPromiseExit).toHaveBeenCalledTimes(callsAfterOrdinary + 1);
 
     expect(() => command({ sender: {
       id: 72, isDestroyed: () => false, getURL: () => "junto-app://renderer/index.html",
@@ -123,6 +125,6 @@ describe("renderer canvas authoring IPC", () => {
 
     mainAuthoringGate.close();
     await expect(command(sender, edit)).rejects.toBeInstanceOf(MainAuthoringRefused);
-    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 1);
+    expect(runtime.runPromiseExit).toHaveBeenCalledTimes(callsAfterOrdinary + 1);
   });
 });

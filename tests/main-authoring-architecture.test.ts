@@ -107,7 +107,13 @@ describe("main authoring architecture", () => {
     expect(importers).toEqual([
       // A seat collaboration ask is mail, sent by the core only under the
       // classified ipc.work.collaboration-ask handler in ipc.ts.
+      // The window's signal answers are mail, reached only through the
+      // classified ipc.work.signal-answer handler (canvas-model group).
+      "src/main/core-process/ops/ipc-signals.ts",
       "src/main/core-process/ops/ipc-threads.ts",
+      // The window's work reads: topology, a node's comments and mentions, and
+      // the work pages, all reads.
+      "src/main/core-process/ops/ipc-work.ts",
       // The automation runner's actions write as the automation's own node
       // (automationActorRef), only on the machine that edits the canvas.
       "src/main/junto/automation/live.ts",

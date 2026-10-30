@@ -5,6 +5,7 @@ import type { AgentSignal } from "@shared/agent-signals";
 import type { Canvas } from "@shared/model";
 import type { Settings } from "@shared/settings";
 import type { PreambleEvent } from "@shared/preamble";
+import { IPC_CHANNELS } from "@shared/ipc";
 import { ContentService, type ContentOpenForRead } from "../../junto/content/service";
 import { ModelRecords } from "../../junto/model/records";
 import { ModelService } from "../../junto/model/service";
@@ -51,7 +52,21 @@ export type CanvasChangedPush = { readonly canvas: string; readonly next: Canvas
 
 
 /** Every channel main forwards to the window. */
-export const WINDOW_CHANNELS = [SETTINGS_CHANGED, WORK_PREAMBLE, AGENT_SIGNAL_CHANGED, COMPANION_DEVICES, CANVAS_CHANGED, LIVE_CHANGED, SEAT_THREAD_READ_CHANGED, MAIL_WAITING] as const;
+export const WINDOW_CHANNELS = [
+  SETTINGS_CHANGED,
+  WORK_PREAMBLE,
+  AGENT_SIGNAL_CHANGED,
+  COMPANION_DEVICES,
+  CANVAS_CHANGED,
+  LIVE_CHANGED,
+  SEAT_THREAD_READ_CHANGED,
+  MAIL_WAITING,
+  // The model watches publish on the window's own channel names (ipc-watch.ts).
+  IPC_CHANNELS.modelChanged,
+  IPC_CHANNELS.modelCanvasesChanged,
+  IPC_CHANNELS.modelActorRefsChanged,
+  IPC_CHANNELS.viewStateChanged,
+] as const;
 
 /**
  * Main's side, once the core runs in its own process: each window push from
