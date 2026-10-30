@@ -18,6 +18,7 @@ import {
   type SeatThreadSummary,
 } from "../../lib/seat-threads";
 import { mentionChipOf, openMention, subjectChipOf, type MentionChip } from "../../lib/mention-open";
+import { stripAuthorPreamble, threadHeadline } from "../../lib/thread-text";
 import { useCanvas } from "../../lib/use-model";
 import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
@@ -29,6 +30,7 @@ import { ArtifactMarkdown } from "../work/ArtifactMarkdown";
 import { ResourceChip, ResourceGlyphMark, mentionMark } from "../ui/ResourceChip";
 import { MessageAttachments } from "./MessageAttachments";
 import { ThreadComposer } from "./ThreadComposer";
+import { rehypeThreadInlineIds } from "./thread-inline-ids";
 import "./seat-threads.css";
 
 /**
@@ -62,6 +64,9 @@ export function SeatThreadsButton({ seat, name }: { readonly seat: SeatAddress; 
     </>
   );
 }
+
+/** The markdown passes a thread needs, held once so a message's render stays memoized. */
+const THREAD_MARKDOWN_PLUGINS = [rehypeThreadInlineIds];
 
 /** How far from the list's end, in pixels, the next older page is asked for. */
 const LIST_NEAR_END = 400;
@@ -163,7 +168,7 @@ export function SeatThreadsPopup({
       >
         <span className="seat-threads__row-title">
           {item.subject && item.subject.kind !== "file" ? <ResourceGlyphMark kind={item.subject.kind} /> : null}
-          {previewText(item.title)}
+          {threadHeadline(previewText(item.title), item.participants)}
         </span>
         <span className="seat-threads__row-meta">
           <span className="seat-threads__row-who">{participantsLine(item.participants)}</span>
@@ -357,7 +362,13 @@ function ThreadChat({
   return (
     <>
       <ChatHead
-        title={subject ? <MentionChipView chip={subject} onLeave={onLeave} testId="seat-threads-subject" /> : previewText(thread.title)}
+        title={
+          subject ? (
+            <MentionChipView chip={subject} onLeave={onLeave} testId="seat-threads-subject" />
+          ) : (
+            threadHeadline(previewText(thread.title), thread.participants)
+          )
+        }
         full={thread.title}
         close={close}
         meta={
@@ -397,7 +408,12 @@ function ThreadChat({
             </div>
             {message.text !== "" || message.attachments === undefined ? (
               <div className="seat-threads__bubble">
-                <ArtifactMarkdown source={message.text} className="seat-threads__prose" renderLink={renderLink} />
+                <ArtifactMarkdown
+                  source={stripAuthorPreamble(message.text, [message.author])}
+                  className="seat-threads__prose"
+                  renderLink={renderLink}
+                  rehypePlugins={THREAD_MARKDOWN_PLUGINS}
+                />
               </div>
             ) : null}
             {message.attachments ? <MessageAttachments files={message.attachments} /> : null}

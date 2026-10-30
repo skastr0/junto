@@ -1,0 +1,101 @@
+/**
+ * The words a thread shows, cut on the way to the screen.
+ *
+ * Mail opens with a tag that repeats who wrote it ("From planner,",
+ * "planner:", "planner to builder:") and writes code-ish words in angle
+ * brackets (<paths>, <author>). A thread already names its author above every
+ * message, so the tag is noise, and the angle brackets are words a person
+ * typed, not markup. Both are handled here, at render: the stored mail, the
+ * thread's title and what main counts as unread never change.
+ */
+/** A name as the mail writes it: literal, in any case. */
+const escapeName = (name: string): string => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const knownNames = (known: ReadonlyArray<string>): ReadonlyArray<string> =>
+  [...new Set(known.map((name) => name.trim()).filter((name) => name !== ""))].sort((a, b) => b.length - a.length);
+
+/**
+ * The mail's words without the tag that repeats who wrote them. `known` is
+ * the names drawn beside the words: the message's author in a thread, the
+ * thread's participants in a list row. A name is dropped only when the mail
+ * punctuates it as a tag, so "planner thought the diff was fine" keeps its
+ * sentence.
+ */
+export const stripAuthorPreamble = (text: string, known: ReadonlyArray<string>): string => {
+  const names = knownNames(known);
+  if (names.length === 0) return text;
+  const who = names.map(escapeName).join("|");
+  // The bracketed form may stand alone; the rest need their own punctuation.
+  const tags = [
+    new RegExp(`^\\s*\\[from\\s+(?:${who})\\](?![\\w])\\s*[:,\\u2014\\u2013-]?\\s*`, "iu"),
+    new RegExp(`^\\s*from\\s+(?:${who})(?:\\s+to\\s+[^:,\\n]{1,40})?\\s*(?:[:,\\u2014\\u2013-]|\\.(?=\\s|$))\\s*`, "iu"),
+    new RegExp(`^\\s*(?:${who})\\s+to\\s+[^:,\\n]{1,40}\\s*:\\s*`, "iu"),
+    new RegExp(`^\\s*(?:${who})\\s*(?:[:,\\u2014\\u2013-]|\\.(?=\\s|$))\\s*`, "iu"),
+  ];
+  for (const tag of tags) {
+    const match = tag.exec(text);
+    if (match === null) continue;
+    const rest = text.slice(match[0].length);
+    return rest.trim() === "" ? text : rest;
+  }
+  return text;
+};
+
+/**
+ * The tag some mail writes after its subject: "Review ask, from product-feed:".
+ * A thread's first line only, and only when a short subject comes before it:
+ * in a body the same shape is a clause ("the report, from product-feed: it
+ * says"), and a body keeps its clause.
+ */
+export const stripHeadTag = (text: string, known: ReadonlyArray<string>): string => {
+  const names = knownNames(known);
+  if (names.length === 0) return text;
+  const who = names.map(escapeName).join("|");
+  // The separator before "from" is the tag's own: a comma stays a comma.
+  const tag = new RegExp(`(\\s*,\\s*|\\s+)from\\s+(?:${who})\\s*[:.]\\s*`, "iu");
+  const match = tag.exec(text);
+  if (match === null || match.index > 40) return text;
+  const before = text.slice(0, match.index).replace(/[\s,]+$/u, "");
+  const after = text.slice(match.index + match[0].length);
+  if (before === "" || after.trim() === "") return text;
+  return `${before}${(match[1] ?? "").includes(",") ? ", " : " "}${after}`.trim();
+};
+
+/**
+ * A long machine id: a 26 character ULID in Crockford base32 (no I, L, O or U,
+ * and a real one carries digits in its timestamp, so a shouted word is not
+ * one), or a hex run of twelve or more. Not beside a slash, a dot, a colon or
+ * a dash, so paths and URLs are never touched.
+ */
+const ID_PATTERN = /(?<![\w/.:-])(?:(?=[0-9A-HJKMNP-TV-Z]*[0-9])[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{12,})(?![\w/.:-])/gu;
+
+/** One run of the words; `id` is set when the run is a long id, whole. */
+export type IdSegment = { readonly text: string; readonly id?: string };
+
+/** The words split so each long id is its own segment, the whole id kept. */
+export const idSegments = (text: string): ReadonlyArray<IdSegment> => {
+  const out: IdSegment[] = [];
+  let at = 0;
+  for (const match of text.matchAll(ID_PATTERN)) {
+    const index = match.index ?? 0;
+    if (index > at) out.push({ text: text.slice(at, index) });
+    out.push({ text: match[0], id: match[0] });
+    at = index + match[0].length;
+  }
+  if (out.length === 0) return [{ text }];
+  if (at < text.length) out.push({ text: text.slice(at) });
+  return out;
+};
+
+/**
+ * An id as a row or a header shows it, where the line is a string and no CSS
+ * can cut it: its first characters, the way the thread's prose cuts it.
+ */
+export const shortenIds = (text: string): string =>
+  idSegments(text)
+    .map((segment) => (segment.id === undefined ? segment.text : `${segment.id.slice(0, 8)}\u2026`))
+    .join("");
+
+/** A list row's or a header's line: the tags gone, long ids cut. */
+export const threadHeadline = (text: string, known: ReadonlyArray<string>): string =>
+  shortenIds(stripHeadTag(stripAuthorPreamble(text, known), known));

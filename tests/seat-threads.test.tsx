@@ -442,6 +442,57 @@ describe("the Threads popup", () => {
     expect(dialog?.querySelector(".two-pane")?.getAttribute("data-sidebar")).toBeNull();
   });
 
+  it("reads a message as its words: the author tag drops, and the stored mail keeps it", async () => {
+    const { state, change } = await open();
+    const text = "product-lead: the list row leads with the words, not the tag.\n\n- one\n- two";
+    state.messages.notes = [{ messageId: "m1", author: "product-lead", mine: false, text, at: at(1, 2) }];
+    change();
+    await flush();
+    const bubble = all("seat-threads-message")[0]!.querySelector(".seat-threads__bubble")!;
+    expect(bubble.textContent).toContain("the list row leads with the words, not the tag.");
+    expect(bubble.textContent).not.toContain("product-lead:");
+    // Render only: the mail main holds is unchanged, so unread counts read the same words.
+    expect(state.messages.notes[0]?.text).toBe(text);
+  });
+
+  it("draws a long id as one token that keeps the whole value", async () => {
+    const { state, change } = await open();
+    state.messages.notes = [
+      {
+        messageId: "m1",
+        author: "product-attention",
+        mine: false,
+        text: "Landed: 01M65NSRWSB3PCSBAG7N44SHXN on local main, and `01M65NSRWSB3PCSBAG7N44SHXN` stays code.",
+        at: at(1, 2),
+      },
+    ];
+    change();
+    await flush();
+    const message = all("seat-threads-message")[0]!;
+    const tokens = message.querySelectorAll(".seat-threads__id");
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]?.textContent).toBe("01M65NSRWSB3PCSBAG7N44SHXN");
+    expect(tokens[0]?.getAttribute("title")).toBeNull();
+    expect(message.querySelector("code")?.textContent).toBe("01M65NSRWSB3PCSBAG7N44SHXN");
+  });
+
+  it("lists a thread by the words of its first line: the tag and a long id do not lead the row", async () => {
+    const { state, change } = await open();
+    state.threads = [
+      thread({
+        threadId: "tagged",
+        title: "Review ask, from product-feed: the Needs you feed's filters, 01M65NSRWSB3PCSBAG7N44SHXN",
+        participants: ["you", "product-feed"],
+        lastAt: at(4, 0),
+      }),
+      ...state.threads,
+    ];
+    change();
+    await flush();
+    const row = document.querySelector('[data-thread-id="tagged"] .seat-threads__row-title');
+    expect(row?.textContent).toBe("Review ask, the Needs you feed's filters, 01M65NSR\u2026");
+  });
+
   it("draws a message's markdown, with its mention links as chips inside it", async () => {
     const { state, change } = await open();
     state.messages.notes = [

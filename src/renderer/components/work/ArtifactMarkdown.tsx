@@ -1,5 +1,5 @@
 import { memo, useMemo, type ReactNode } from "react";
-import Markdown, { type Components, type ExtraProps, type UrlTransform } from "react-markdown";
+import Markdown, { type Components, type ExtraProps, type Options, type UrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Nodes, Root } from "mdast";
 import "./artifact-markdown.css";
@@ -124,6 +124,8 @@ export type ArtifactMarkdownProps = {
   readonly className?: string;
   /** Draws the app's own `junto://` links; without it they are blocked. */
   readonly renderLink?: MarkdownLinkRenderer;
+  /** Extra hast passes, for a surface that draws its own tokens. */
+  readonly rehypePlugins?: Options["rehypePlugins"];
 };
 
 /**
@@ -137,6 +139,7 @@ export const ArtifactMarkdown = memo(function ArtifactMarkdown({
   source,
   className,
   renderLink,
+  rehypePlugins,
 }: ArtifactMarkdownProps) {
   const shellClass = ["artifact-markdown", className].filter(Boolean).join(" ");
   const drawn = useMemo(
@@ -147,6 +150,7 @@ export const ArtifactMarkdown = memo(function ArtifactMarkdown({
     <div className={shellClass} data-testid="artifact-markdown">
       <Markdown
         remarkPlugins={[remarkGfm, remarkHtmlAsText]}
+        rehypePlugins={rehypePlugins}
         urlTransform={drawn.urlTransform}
         components={drawn.components}
       >
