@@ -2,7 +2,8 @@ import { Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { FilesChanged, FilesNodeRef, FilesResult } from "../src/shared/files";
-import { FILES_LINK_TEXT_JSON_MAX } from "../src/shared/files-link";
+import { decodeFilesEvent, FILES_LINK_TEXT_JSON_MAX } from "../src/shared/files-link";
+import { eventOf } from "../src/main/junto/files/link";
 import { makeFilesRemote, type RemoteChange } from "../src/main/junto/files/link-client";
 import { MachineLink } from "../src/main/junto/link/service";
 import { linkClosed, LinkRequestFailed, LinkUnavailable, type LinkEventContext } from "../src/main/junto/link/types";
@@ -175,6 +176,19 @@ describe("files remote: events and the link coming and going", () => {
     await Effect.runPromise(f.remote.onEvent(context, { node: asNodeId("files-2"), kind: "reset" }));
     await Effect.runPromise(f.remote.onEvent({ ...context, peer: { ...context.peer, installationId: "stranger" as never } }, { node: asNodeId("files-1"), kind: "reset" }));
     expect(f.changes).toEqual([{ machine: MINI, change: paths }]);
+  });
+
+  it("carries a rename on the host as a move the window machine follows", async () => {
+    const f = await fixture();
+    await opened(f);
+    const renamed: FilesChanged = {
+      node: asNodeId("files-1"), kind: "paths", paths: ["notes/b.md"] as never,
+      moves: [{ from: "notes/a.md" as never, to: "notes/b.md" as never }],
+    };
+    // Host: the change becomes an event, crosses the link as JSON, and is decoded closed at the other end.
+    const onWire = decodeFilesEvent(JSON.parse(JSON.stringify(eventOf(renamed))));
+    await Effect.runPromise(f.remote.onEvent(context, onWire));
+    expect(f.changes).toEqual([{ machine: MINI, change: renamed }]);
   });
 
   it("stops watching a node the host says closed, and one the window closed", async () => {

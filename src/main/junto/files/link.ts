@@ -65,7 +65,7 @@ const hostError = (error: FilesError): HostFilesError => (error === "unreachable
 export const eventOf = (change: FilesChanged): FilesEvent => {
   if (change.kind === "closed") return { node: change.node, kind: "closed", error: hostError(change.error) };
   if (change.kind !== "paths") return change;
-  const event: FilesEvent = { node: change.node, kind: "paths", paths: change.paths };
+  const event: FilesEvent = { node: change.node, kind: "paths", paths: change.paths, ...(change.moves === undefined ? {} : { moves: change.moves }) };
   return fitsOneFrame(event) ? event : { node: change.node, kind: "reset" };
 };
 

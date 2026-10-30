@@ -68,6 +68,10 @@ describe("the files link wire", () => {
     expect(() => decodeFilesResponse({ _tag: "Listed", entries: [{ path: "/abs", dir: false, stamp }] })).toThrow();
     expect(() => decodeFilesResponse({ _tag: "Opened", root: { name: "docs", repo: true, path: "/Users/x/docs" } })).toThrow();
     expect(() => decodeFilesEvent({ node: "files-1", kind: "paths", paths: ["../x"] })).toThrow();
+    const moved = { node: "files-1", kind: "paths", paths: ["b.md"], moves: [{ from: "a.md", to: "b.md" }] };
+    expect(decodeFilesEvent(moved)).toEqual(moved);
+    for (const bad of [{ from: "/abs", to: "b.md" }, { from: "a.md", to: "../b.md" }, { from: "a.md" }, { from: "a.md", to: "b.md", via: "x" }])
+      expect(() => decodeFilesEvent({ ...moved, moves: [bad] }), JSON.stringify(bad)).toThrow();
   });
 
   it("measures what fits one frame as JSON", () => {

@@ -46,6 +46,7 @@ const Entry = Schema.Struct({ path: FilePathWire, dir: Schema.Boolean, stamp: St
 const Entries = Schema.Array(Entry).pipe(Schema.check(Schema.isMaxLength(FILES_LINK_ENTRIES_MAX)));
 const Paths = Schema.Array(FilePathWire).pipe(Schema.check(Schema.isMaxLength(FILES_LINK_ENTRIES_MAX)));
 /** One segment, as `isFileName` reads it: no `/`, no `.` or `..`. */
+const Moves = Schema.Array(Schema.Struct({ from: FilePathWire, to: FilePathWire })).pipe(Schema.check(Schema.isMaxLength(FILES_LINK_ENTRIES_MAX)));
 const Name = Schema.String.pipe(Schema.check(Schema.makeFilter((raw: string) => isFileName(raw))));
 
 /** The refusals a host can send: `FilesError` without `unreachable`, which only the window machine makes. */
@@ -129,7 +130,8 @@ export type FilesResponse = typeof FilesResponse.Type;
 
 /** A change under a node a peer opened; the host's `FilesChanged`, for the link. */
 export const FilesEvent = Schema.Union([
-  Schema.Struct({ node: NodeId, kind: Schema.Literal("paths"), paths: Paths }),
+  /** `moves`: entries renamed outside Junto that the host paired, so a window follows the new name; as the local event. */
+  Schema.Struct({ node: NodeId, kind: Schema.Literal("paths"), paths: Paths, moves: Schema.optionalKey(Moves) }),
   Schema.Struct({ node: NodeId, kind: Schema.Literal("reset") }),
   Schema.Struct({ node: NodeId, kind: Schema.Literal("missing") }),
   Schema.Struct({ node: NodeId, kind: Schema.Literal("back") }),
