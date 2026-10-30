@@ -5,8 +5,9 @@
  */
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { inProcessCore, type CoreRunner } from "../src/main/core-process/client";
-import { bindTermIpcPlane, TERM_SEAT_STATE } from "../src/main/core-process/ops/term-ipc";
+import { inProcessCore, type CoreRunner } from "./support/in-process-core";
+import { bindTermIpcPlane } from "../src/main/core-process/ops/term-ipc";
+import { TERM_SEAT_STATE } from "../src/main/core-process/channels";
 import "../src/main/core-process/ops/seat-cache-due";
 import { subscribe } from "../src/main/core-process/push";
 import { seatStateRuntime } from "../src/main/junto/term/agent-state";

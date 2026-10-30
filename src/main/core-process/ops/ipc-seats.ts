@@ -65,9 +65,6 @@ export const bindCoreSeatSessions = (sessions: Pick<SeatSessions, "seatOn" | "cl
 export const seatOnOfCore = async (target: { readonly canvasName: string; readonly seatId: string }) =>
   coreSessions === undefined ? undefined : coreSessions.seatOn(target);
 
-/** A seat's offboard progress changed, and the auto mode's due seats, for the window. */
-export const SEAT_CACHE_DUE_CHANGED = "seatCacheDue.changed";
-
 declare module "../ops" {
   interface CoreOps {
     "ipc.seats.offboardProgress": CoreOp<Record<string, never>, ReadonlyArray<SeatOffboardProgress>>;

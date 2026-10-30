@@ -1,7 +1,9 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { describe, expect, it } from "vitest";
-import { inProcessCore, type CoreRunner } from "../src/main/core-process/client";
-import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, SETTINGS_CHANGED, WORK_PREAMBLE, publishWindowBroadcasts, relayWindowPushes } from "../src/main/core-process/ops/main-index";
+import { inProcessCore, type CoreRunner } from "./support/in-process-core";
+import { publishWindowBroadcasts } from "../src/main/core-process/ops/main-index";
+import { relayWindowPushes } from "../src/main/core-process/main-side/window-pushes";
+import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, SETTINGS_CHANGED, WORK_PREAMBLE } from "../src/main/core-process/channels";
 import { ModelService } from "../src/main/junto/model/service";
 import { PausePlane } from "../src/main/junto/pause-plane";
 import { MessageChannel, type MessagePort } from "node:worker_threads";

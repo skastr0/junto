@@ -5,7 +5,6 @@ import type { AgentSignal } from "@shared/agent-signals";
 import type { Canvas } from "@shared/model";
 import { redactProvidersForIpc, type Settings } from "@shared/settings";
 import type { PreambleEvent } from "@shared/preamble";
-import { IPC_CHANNELS } from "@shared/ipc";
 import { ContentService, type ContentOpenForRead } from "../../junto/content/service";
 import { ModelRecords } from "../../junto/model/records";
 import { ModelService } from "../../junto/model/service";
@@ -23,12 +22,13 @@ import {
 } from "../../junto/work/page-box-comment";
 import { coreOps, type CoreOp } from "../ops";
 import { publish } from "../push";
-import { FILES_REMOTE_CHANGED } from "./files-remote";
-import { RESOURCE_CHANGED, RESOURCE_THREAD_CHANGED } from "./ipc-resources";
-import { TERM_EVENT, TERM_LEASE_ENDED, TERM_SEAT_STATE } from "./term-ipc";
-import { WIRE_TRAFFIC } from "./ipc-wire-traffic";
-import { SEAT_CACHE_DUE_CHANGED } from "./ipc-seats";
-import { MACHINE_PROGRESS } from "./hosts-ipc";
+import {
+  AGENT_SIGNAL_CHANGED,
+  CANVAS_CHANGED,
+  type CanvasChangedPush,
+  SETTINGS_CHANGED,
+  WORK_PREAMBLE,
+} from "../channels";
 
 /**
  * What `src/main/index.ts` asks the core on a request: a node ref, the
@@ -36,77 +36,6 @@ import { MACHINE_PROGRESS } from "./hosts-ipc";
  * canvases for an edge grant, and a seat's box comment either side of the
  * shot main takes.
  */
-
-/** Where the settings go on every change, provider secrets masked, once `settings.watch` started it. */
-export const SETTINGS_CHANGED = "settings.changed";
-/** A seat's preamble, as the core's work control server takes it, for the window to show. */
-export const WORK_PREAMBLE = "work.preamble";
-/** Every agent signal the core writes, for the window and the raised hands. */
-export const AGENT_SIGNAL_CHANGED = "signals.changed";
-/** The paired phones, after any change, for Settings. */
-export const COMPANION_DEVICES = "companion.devices";
-/** The live overseer's snapshot on every change, once `live.watch` started it. */
-export const LIVE_CHANGED = "live.changed";
-/** A mail thread's read point moved, from any surface, once `ipc.threads.watch` started it. */
-export const SEAT_THREAD_READ_CHANGED = "threads.readChanged";
-/** Mail held on a seat past its wait, once `ipc.threads.watch` started it. */
-export const MAIL_WAITING = "mail.waiting";
-/** A canvas changed, with the document as it is now, or was removed; once `model.watchCanvases` started it. */
-export const CANVAS_CHANGED = "model.canvasChanged";
-
-export type CanvasChangedPush = { readonly canvas: string; readonly next: Canvas | undefined };
-
-
-/** Every channel main forwards to the window. */
-export const WINDOW_CHANNELS = [
-  SETTINGS_CHANGED,
-  WORK_PREAMBLE,
-  AGENT_SIGNAL_CHANGED,
-  COMPANION_DEVICES,
-  CANVAS_CHANGED,
-  LIVE_CHANGED,
-  SEAT_THREAD_READ_CHANGED,
-  MAIL_WAITING,
-  RESOURCE_CHANGED,
-  RESOURCE_THREAD_CHANGED,
-  WIRE_TRAFFIC,
-  // The model watches publish on the window's own channel names (ipc-watch.ts).
-  IPC_CHANNELS.modelChanged,
-  IPC_CHANNELS.modelCanvasesChanged,
-  IPC_CHANNELS.modelActorRefsChanged,
-  IPC_CHANNELS.viewStateChanged,
-  IPC_CHANNELS.referencesChanged,
-  IPC_CHANNELS.workMailChanged,
-  IPC_CHANNELS.workSinkChanged,
-  IPC_CHANNELS.seatAwarenessChanged,
-  IPC_CHANNELS.usageChanged,
-  IPC_CHANNELS.kernelChanged,
-  IPC_CHANNELS.automationsChanged,
-  IPC_CHANNELS.seatOffboardProgress,
-  IPC_CHANNELS.seatOnboardingChanged,
-  // A change under a node opened on another machine (files-remote.ts).
-  FILES_REMOTE_CHANGED,
-  // A running machine command's progress, for the window whose call asked.
-  MACHINE_PROGRESS,
-  // The terminal plane's events, a linked view's end and a remote seat's state (term/ipc.ts).
-  TERM_EVENT,
-  TERM_LEASE_ENDED,
-  TERM_SEAT_STATE,
-  // A seat's cache window changed (ipc-seats.ts); main rereads its due seats.
-  SEAT_CACHE_DUE_CHANGED,
-] as const;
-
-/**
- * Main's side, once the core runs in its own process: each window push from
- * the port reaches main's subscribers on the push bus, as a publish in this
- * process would. Returns the stop.
- */
-export const relayWindowPushes = (client: { readonly onPush: (channel: string, listener: (payload: unknown) => void) => () => void }): (() => void) => {
-  const stops = WINDOW_CHANNELS.map((channel) => client.onPush(channel, (payload) => publish(channel, payload)));
-  return () => {
-    for (const stop of stops) stop();
-  };
-};
 
 /**
  * The window's broadcasts from a core in its own process: each signal change

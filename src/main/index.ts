@@ -45,8 +45,8 @@ import { core } from "./core-process/main-client";
 import { startTerminalProcess, startTerminalProcessForCore } from "./terminal-process/host";
 import { useTerminalProcess } from "./terminal-process/use";
 import { subscribe as subscribeCore } from "./core-process/push";
-import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, COMPANION_DEVICES, SETTINGS_CHANGED, WORK_PREAMBLE, type CanvasChangedPush } from "./core-process/ops/main-index";
-import { coreBrowserProfileStore, coreTouchedOriginStore } from "./core-process/ops/browser";
+import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, COMPANION_DEVICES, SETTINGS_CHANGED, WORK_PREAMBLE, type CanvasChangedPush } from "./core-process/channels";
+import { coreBrowserProfileStore, coreTouchedOriginStore } from "./core-process/main-side/browser";
 import { MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail } from "./core-runtime";
 import { makeInventoryChannel } from "./junto/inventory/channel";
 import { makeNativeConfigChannel } from "./junto/inventory/native-channel";
@@ -159,7 +159,7 @@ import { makeFilesDraftsSettle } from "./junto/files/drafts-settle";
 import { registerFilesIpc } from "./junto/files/ipc";
 import { makeFilesLinkChannel } from "./junto/files/link";
 import { unboundYet } from "./junto/link/unbound";
-import { coreFilesRemote } from "./core-process/ops/files-remote";
+import { coreFilesRemote } from "./core-process/main-side/files-remote";
 import {
   resolveTrustedRendererOrigin,
   type TrustedRendererOrigin,
@@ -187,8 +187,8 @@ import {
   setCompanionService,
 } from "./junto/companion/service";
 import { broadcastCompanionDevices, electronCompanionClipboard, registerCompanionIpc } from "./junto/companion/ipc";
-import { coreCompanionSettings } from "./core-process/ops/companion";
-import { coreOverseerLive } from "./core-process/ops/overseer-live";
+import { coreCompanionSettings } from "./core-process/main-side/companion";
+import { coreOverseerLive } from "./core-process/main-side/overseer-live";
 import { companionNotePreamble, wireCompanionChanges } from "./junto/companion/wiring";
 import { bindCompanionHost } from "./junto/companion/runtime";
 import { askOnEveryCore, askOnLaterCores } from "./core-process/every-core";

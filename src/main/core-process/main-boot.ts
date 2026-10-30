@@ -10,10 +10,10 @@ import { askEveryCoreAsk } from "./every-core";
 import { startCoreProcess } from "./host";
 import { publish } from "./push";
 import { useCoreClient } from "./main-client";
-import { relayWindowPushes } from "./ops/main-index";
-import { serveOverseerHost } from "./ops/overseer-pages";
-import { serveCompanionClipboard } from "./ops/companion";
-import { coreSurfacePlane, useCoreSurfacePlane, type PortedCoreMessage } from "./ops/term-surface";
+import { relayWindowPushes } from "./main-side/window-pushes";
+import { serveOverseerHost } from "./main-side/overseer-pages";
+import { serveCompanionClipboard } from "./main-side/companion";
+import { coreSurfacePlane, useCoreSurfacePlane, type PortedCoreMessage } from "./main-side/term-surface";
 import type { CompanionClipboard } from "../junto/companion/service";
 import type { PortCoreClient } from "./port";
 

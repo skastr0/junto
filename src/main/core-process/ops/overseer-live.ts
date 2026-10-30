@@ -1,17 +1,15 @@
 import { Effect } from "effect";
 import type { LiveAttention, LiveSnapshot, LiveStartInput, LiveStartResult, OverseerLiveApi } from "@shared/overseer-live";
-import type { CoreClient } from "../client";
-import { askOnEveryCore } from "../every-core";
+import { LIVE_CHANGED } from "../channels";
 import { coreOps, type CoreOp } from "../ops";
-import { publish, subscribe } from "../push";
-import { LIVE_CHANGED } from "./main-index";
+import { publish } from "../push";
 
 /**
  * The live overseer runs in the core; the window's live controls reach it by
  * name, and each snapshot change comes back on the push stream.
  */
 
-type LiveService = Omit<OverseerLiveApi, "onLiveChanged"> & {
+export type LiveService = Omit<OverseerLiveApi, "onLiveChanged"> & {
   readonly subscribe: (listener: (snapshot: LiveSnapshot) => void) => () => void;
 };
 type Session = { readonly sessionId: string };
@@ -60,24 +58,4 @@ coreOps({
       watching = true;
       service.subscribe((snapshot) => publish(LIVE_CHANGED, snapshot));
     }),
-});
-
-/** The live overseer as the window's IPC reaches it in the core process. */
-export const coreOverseerLive = (core: CoreClient): LiveService => ({
-  liveStart: (input) => core.call("live.start", { input }),
-  liveEnd: (sessionId) => core.call("live.end", { sessionId }),
-  liveSnapshot: () => core.call("live.snapshot", {}),
-  liveReady: (sessionId, connectionEpoch) => core.call("live.ready", { sessionId, connectionEpoch }),
-  liveProviderEvent: (sessionId, connectionEpoch, event) => core.call("live.providerEvent", { sessionId, connectionEpoch, event }),
-  liveAttention: (sessionId, attention) => core.call("live.attention", { sessionId, attention }),
-  liveCancel: (sessionId, requestId) => core.call("live.cancel", { sessionId, requestId }),
-  liveSteer: (sessionId, requestId, text, attention) => core.call("live.steer", { sessionId, requestId, text, attention }),
-  liveStopActions: (sessionId) => core.call("live.stopActions", { sessionId }),
-  subscribe: (listener) => {
-    const stop = subscribe(LIVE_CHANGED, (snapshot) => listener(snapshot as LiveSnapshot));
-    askOnEveryCore("live.watch", () => core.call("live.watch", {}));
-    return () => {
-      stop();
-    };
-  },
 });

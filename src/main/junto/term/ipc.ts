@@ -19,14 +19,8 @@ import type { TermPlane } from "./plane";
 import { injectionSupervisor } from "./injection-supervisor";
 import { core } from "../../core-process/main-client";
 import { subscribe as subscribeCore } from "../../core-process/push";
-import {
-  bindTermIpcPlane,
-  bindTermIpcSeatControl,
-  TERM_EVENT,
-  TERM_LEASE_ENDED,
-  TERM_SEAT_STATE,
-} from "../../core-process/ops/term-ipc";
-import { coreSurfacePlaneInUse } from "../../core-process/ops/term-surface";
+import { TERM_EVENT, TERM_LEASE_ENDED, TERM_SEAT_STATE } from "../../core-process/channels";
+import { coreSurfacePlaneInUse } from "../../core-process/main-side/term-surface";
 
 type LeaseOwner = {
   readonly lease: ControlLease;
@@ -89,8 +83,6 @@ export const registerTerminalIpc = (
 ): void => {
   const owners = new Map<string, LeaseOwner>();
   const controlByBinding = new Map<string, string>();
-  // The binding also gives a plain terminal its region's environment.
-  if (plane !== undefined) bindTermIpcPlane(plane);
 
   const assertTrusted = (event: IpcMainInvokeEvent): WebContents => {
     const sender = event.sender;
@@ -107,8 +99,7 @@ export const registerTerminalIpc = (
     if (await core.call("term.isLocalHost", { hostId: target })) return;
     await ensure(target);
   };
-  // Seat start and stop run as core operations; they use this plane and this step.
-  bindTermIpcSeatControl({ plane, ensureHostAvailable });
+  // Seat start and stop run as core operations, on the core's own plane.
 
   /**
    * Give the owner's view a surface port, reading from the chunk after the

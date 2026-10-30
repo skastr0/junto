@@ -47,7 +47,7 @@ import {
 import { WorkService } from "../../junto/work/service";
 import { coreOps, type CoreOp } from "../ops";
 import { publish } from "../push";
-import { MAIL_WAITING, SEAT_THREAD_READ_CHANGED } from "./main-index";
+import { MAIL_WAITING, SEAT_THREAD_READ_CHANGED } from "../channels";
 
 
 type Input = { readonly input: unknown };

@@ -1,18 +1,23 @@
 import { installCoreReads } from "../core-runner";
-import { AppRuntime } from "../runtime";
-import { inProcessCore, type CoreClient } from "./client";
-import "./ops/index";
+import { CoreCallError, type CoreClient } from "./client";
 
 /**
- * Main's one handle on the core (Wave 3). Call sites in `index.ts`,
- * `junto/ipc.ts` and `term/ipc.ts` move from `AppRuntime.run*` to
- * `core.call(name, input)`, with each operation's body in a group under
- * `./ops`. Boot installs the core process's client
- * (`useCoreClient(startCoreProcess(...))`); outside the app (tests) calls run in process.
+ * Main's one handle on the core (Wave 3). Every call in `index.ts`,
+ * `junto/ipc.ts`, `term/ipc.ts` and their neighbours goes through
+ * `core.call(name, input)`; boot installs the core process's client
+ * (`useCoreClient(startCoreProcess(...))`). Electron main runs no operation
+ * body itself, so a call with no client installed is a bug, and says so.
  */
-let current: CoreClient = inProcessCore(AppRuntime);
+let current: CoreClient | undefined;
 
-export const core: CoreClient = { call: (name, input) => current.call(name, input) };
+export const core: CoreClient = {
+  call: (name, input) => {
+    const client = current;
+    return client === undefined
+      ? Promise.reject(new CoreCallError(name, "CoreClientMissing", "no core client is installed in this process"))
+      : client.call(name, input);
+  },
+};
 
 /**
  * Boot only: route every call to the core process. Main then has no core

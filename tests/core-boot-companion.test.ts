@@ -5,8 +5,8 @@ import { Result } from "effect";
 import { expect, it } from "vitest";
 import { startCore } from "../src/main/junto/core";
 import { companionService } from "../src/main/junto/companion/service";
-import { coreCompanionSettings } from "../src/main/core-process/ops/companion";
-import { inProcessCore, type CoreRunner } from "../src/main/core-process/client";
+import { coreCompanionSettings } from "../src/main/core-process/main-side/companion";
+import { inProcessCore, type CoreRunner } from "./support/in-process-core";
 import { decodeOperatorResponse, encodeOperatorFrame, operatorControlSocketPath, type OperatorRequestEnvelope } from "../src/shared/operator-control";
 
 const ask = (home: string, request: OperatorRequestEnvelope) =>

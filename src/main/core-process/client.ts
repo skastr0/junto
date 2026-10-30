@@ -2,10 +2,9 @@ import { Cause, Effect, Exit } from "effect";
 import { coreOpBody, type CoreInput, type CoreOpName, type CoreOutput } from "./ops";
 
 /**
- * How Electron main asks the core for anything (Wave 3). `inProcessCore` runs
- * the operation in main's own runtime, as every call site did before;
- * `portCore` sends it to the core process over a port. A site written against
- * `CoreClient` works the same on either.
+ * How a core operation is asked for, on either side of the port: by name,
+ * with a structured-clone input, answering a structured-clone result. Main
+ * holds a `CoreClient` (`main-client.ts`); the core runs the bodies.
  *
  * A failed operation rejects with a `CoreCallError` carrying the failure's
  * `_tag` when it had one, so a site can tell the failures it handles apart
@@ -39,7 +38,7 @@ export const coreFailureOf = (cause: Cause.Cause<unknown>): CoreFailure => {
   return { tag, message };
 };
 
-/** Something that runs a core effect: main's runtime today, the core's own runtime in its process. */
+/** Something that runs a core effect: the core's own runtime. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type CoreRunner = { readonly runPromiseExit: (effect: Effect.Effect<any, any, any>) => Promise<Exit.Exit<any, any>> };
 
@@ -54,11 +53,3 @@ export const runCoreOp = async (
   const exit = await runner.runPromiseExit(Effect.suspend(() => body(input as never)));
   return Exit.isSuccess(exit) ? { ok: true, value: exit.value } : { ok: false, failure: coreFailureOf(exit.cause) };
 };
-
-export const inProcessCore = (runner: CoreRunner): CoreClient => ({
-  call: async (name, input) => {
-    const answer = await runCoreOp(runner, name, input);
-    if (answer.ok) return answer.value as never;
-    throw new CoreCallError(name, answer.failure.tag, answer.failure.message);
-  },
-});

@@ -1,10 +1,10 @@
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { expect, it, vi } from "vitest";
-import type { CoreRunner } from "../src/main/core-process/client";
+import type { CoreRunner } from "./support/in-process-core";
 import { portCore, serveCore, type CorePort } from "../src/main/core-process/port";
 import { subscribe } from "../src/main/core-process/push";
-import { AGENT_SIGNAL_CHANGED, WORK_PREAMBLE } from "../src/main/core-process/ops/main-index";
+import { AGENT_SIGNAL_CHANGED, WORK_PREAMBLE } from "../src/main/core-process/channels";
 import { SettingsService } from "../src/main/junto/settings/service";
 
 vi.mock("electron", () => ({ utilityProcess: { fork: () => { throw new Error("no utilityProcess in tests"); } } }));

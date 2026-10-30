@@ -14,7 +14,6 @@ import {
 } from "../../junto/browser/profiles";
 import { makeBrowserTouchedOriginStore, type BrowserTouchedOrigin, type BrowserTouchedOriginStore } from "../../junto/browser/touched-origins";
 import { coreOps, type CoreOp } from "../ops";
-import type { CoreClient } from "../client";
 
 /**
  * What the browser composition in main keeps in the core's database: the
@@ -23,7 +22,7 @@ import type { CoreClient } from "../client";
  */
 
 /** A profile transaction's outcome as data, so its error code crosses with it. */
-type Profiled<A> =
+export type Profiled<A> =
   | { readonly ok: true; readonly value: A }
   | { readonly ok: false; readonly code?: BrowserProfileErrorCode; readonly message: string };
 
@@ -65,31 +64,4 @@ coreOps({
   "browser.touchedOrigins.list": () => touched((store) => store.list()),
   "browser.touchedOrigins.remove": ({ entries }) => touched((store) => store.remove(entries)),
   "browser.touchedOrigins.removeProfile": ({ profile }) => touched((store) => store.removeProfile(profile)),
-});
-
-/** The touched-origin store as main uses it, each method one core call. */
-export const coreTouchedOriginStore = (core: CoreClient): BrowserTouchedOriginStore => ({
-  record: (entry) => core.call("browser.touchedOrigins.record", entry),
-  list: () => core.call("browser.touchedOrigins.list", {}),
-  remove: (entries) => core.call("browser.touchedOrigins.remove", { entries }),
-  removeProfile: (profile) => core.call("browser.touchedOrigins.removeProfile", { profile }),
-});
-
-const unprofiled = <A>(call: () => Promise<Profiled<A>>): Effect.Effect<A, BrowserProfileError> =>
-  Effect.flatMap(
-    Effect.tryPromise({
-      try: call,
-      catch: () => new BrowserProfileError({ message: "browser profile registry unavailable", code: "io" }),
-    }),
-    (answer) => (answer.ok ? Effect.succeed(answer.value) : Effect.fail(new BrowserProfileError({ message: answer.message, ...(answer.code === undefined ? {} : { code: answer.code }) }))),
-  );
-
-/** The profile registry's store as main uses it: each transaction one core call, its error code kept. */
-export const coreBrowserProfileStore = (core: CoreClient): BrowserProfileStore => ({
-  initialize: (initial) => unprofiled(() => core.call("browser.profiles.initialize", { initial })),
-  create: (record) => unprofiled(() => core.call("browser.profiles.create", { record })),
-  touch: (id, at) => unprofiled(() => core.call("browser.profiles.touch", { id, at })),
-  beginWipe: (begin) => unprofiled(() => core.call("browser.profiles.beginWipe", begin)),
-  markRestartPending: (wipeId) => unprofiled(() => core.call("browser.profiles.markRestartPending", { wipeId })),
-  finalizeWipe: (expected) => unprofiled(() => core.call("browser.profiles.finalizeWipe", { expected })),
 });

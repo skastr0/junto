@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { Node, type Node as ModelNode } from "../src/shared/model";
 import { Effect, Schema } from "effect";
-import { inProcessCore } from "../src/main/core-process/client";
+import { inProcessCore } from "./support/in-process-core";
 import { core } from "../src/main/core-process/main-client";
 import * as seatControl from "../src/main/junto/term/seat-control";
 import { registerTerminalIpc } from "../src/main/junto/term/ipc";

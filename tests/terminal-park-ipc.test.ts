@@ -6,7 +6,7 @@
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
-import { inProcessCore } from "../src/main/core-process/client";
+import { inProcessCore } from "./support/in-process-core";
 import { core } from "../src/main/core-process/main-client";
 import { IPC_CHANNELS, type TerminalParkResult } from "../src/shared/ipc";
 import { registerTerminalIpc } from "../src/main/junto/term/ipc";

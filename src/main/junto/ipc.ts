@@ -2,7 +2,7 @@ import type { PageShotPurged, PageShotPurgeRequest } from "@shared/page-shot";
 import { app, BrowserWindow, ipcMain, nativeImage, shell } from "electron";
 import { Effect, Result, Schema } from "effect";
 import type { MailReadPoint, OperatorThreadSent } from "@shared/mail-threads";
-import { MAIL_WAITING, SEAT_THREAD_READ_CHANGED } from "../core-process/ops/main-index";
+import { MAIL_WAITING, SEAT_THREAD_READ_CHANGED } from "../core-process/channels";
 import { subscribe as subscribeCore } from "../core-process/push";
 import { OperatorAttachments, type OperatorContentPutResult } from "@shared/operator-attachments";
 import { SignalReply } from "@shared/signal-reply";
@@ -41,7 +41,7 @@ import { registerReferencesIpc } from "./references/ipc";
 import { registerAutomationIpc } from "./automation/ipc";
 import { registerArtifactLinksIpc } from "./work/artifact-links-ipc";
 import { registerMentionIpc } from "./work/mention-ipc";
-import { WIRE_TRAFFIC } from "../core-process/ops/ipc-wire-traffic";
+import { WIRE_TRAFFIC } from "../core-process/channels";
 import { registerObservabilityIpc } from "./observability";
 import { registerUpdateIpc } from "./update/ipc";
 import type { AgentSignal } from "@shared/agent-signals";
@@ -73,19 +73,19 @@ import {
   type SeatOffboardAskResult,
 } from "@shared/seat-sessions";
 import { isSeatGuidanceSeatId, type SeatGuidanceSetResult } from "@shared/seat-guidance";
-import { SEAT_CACHE_DUE_CHANGED } from "../core-process/ops/ipc-seats";
+import { SEAT_CACHE_DUE_CHANGED } from "../core-process/channels";
 import type { ProfileDeleteResult, ProfileResult, ProfileSaveInput } from "@shared/agent-profiles";
 import type { PortraitOverrideSetResult } from "@shared/portrait-overrides";
 import { registerTerminalIpc } from "./term/ipc";
 import { registerGitIpc } from "./git/ipc";
-import { serveSignalTools } from "../core-process/ops/ipc-signals";
+import { serveSignalTools } from "../core-process/main-side/signals";
+import { registerResourceIpcCore } from "../core-process/main-side/resources";
 import {
-  registerResourceIpcCore,
   RESOURCE_CHANGED,
   RESOURCE_THREAD_CHANGED,
   type ResourceChangedPush,
   type ResourceThreadChangedPush,
-} from "../core-process/ops/ipc-resources";
+} from "../core-process/channels";
 import { resolvedSpawnEnv } from "./adapters/exec";
 import { runTool } from "./region-env/tool";
 import {
@@ -230,7 +230,6 @@ export const registerJuntoIpc = (): void => {
   registerResourceIpcCore(
     privilegedIpc,
     core,
-    broadcast,
     { task: TASKS_ENABLED, artifact: ARTIFACTS_ENABLED, file: productNodeKindEnabled("files") },
     {
       task: (operation) => runMainAuthoring("ipc.resource.task-apply", operation),

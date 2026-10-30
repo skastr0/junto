@@ -18,8 +18,8 @@ import {
   type BrowserTouchedOriginStore,
 } from "../src/main/junto/browser/touched-origins";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { inProcessCore } from "../src/main/core-process/client";
-import { coreTouchedOriginStore } from "../src/main/core-process/ops/browser";
+import { inProcessCore } from "./support/in-process-core";
+import { coreTouchedOriginStore } from "../src/main/core-process/main-side/browser";
 import { partitionNameForProfile } from "../src/shared/browser";
 import { localBrowserTestMachineName } from "./browser-test-machine";
 

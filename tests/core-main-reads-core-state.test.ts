@@ -6,7 +6,7 @@
  */
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { inProcessCore, type CoreRunner } from "../src/main/core-process/client";
+import { inProcessCore, type CoreRunner } from "./support/in-process-core";
 import "../src/main/core-process/ops/companion";
 import { useCoreClient } from "../src/main/core-process/main-client";
 import { ARTIFACT_LINKS_IPC_CHANNELS } from "../src/shared/artifact-links-ipc-channels";

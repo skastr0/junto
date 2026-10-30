@@ -6,7 +6,6 @@ import { coreOps, type CoreOp } from "../ops";
 import { ModelService } from "../../junto/model/service";
 import { MachineRepository } from "../../junto/machines/repository";
 import { seatLaunchState } from "../../junto/term/seat-launch-state";
-import type { SeatControlOptions } from "../../junto/term/seat-control";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import type { TerminalAttachInput, TerminalFinishNodeDeleteOutcome, TerminalNodeDeleteResource } from "@shared/ipc";
 import type { ControlLease, LocalHostEvent } from "../../junto/term/local-host";
@@ -17,26 +16,12 @@ import { remoteSeatLaunchOf } from "../../junto/term/seats-client";
 import { cardSeatLaunch } from "../../junto/term/seats-launch";
 import { liveSeatEnvironment } from "../../junto/region-env/live";
 import { publish } from "../push";
+import { TERM_EVENT, TERM_LEASE_ENDED, TERM_SEAT_STATE } from "../channels";
 
 /**
  * The core operations `term/ipc.ts` asks for (Wave 3). Seat start and stop
- * need the terminal plane and the window's reachability step, which are
- * not data: whoever holds the plane binds them here once, main's terminal
- * IPC today and the core process when it owns the plane.
+ * run on the core's own terminal plane, which is the one this file binds.
  */
-let seatControl: SeatControlOptions = {};
-
-export const bindTermIpcSeatControl = (options: SeatControlOptions): void => {
-  seatControl = options;
-};
-
-/** A terminal event from the plane (output, status, exit, title), for the window holding its lease. */
-export const TERM_EVENT = "term.event";
-/** A linked seat's view its machine ended. */
-export const TERM_LEASE_ENDED = "term.leaseEnded";
-/** A seat changed state: one this machine runs, or one on another machine over the seats channel. */
-export const TERM_SEAT_STATE = "term.seatState";
-
 /**
  * Where the terminal plane is: main's, with the core in main, or the core
  * process's own. Whoever holds it binds it once; its events go out on the
@@ -134,7 +119,6 @@ coreOps({
     Effect.gen(function* () {
       const plane = yield* planeNow();
       const createAdmission = plane.nodeDelete.admitCreate(node.bindingId, node.host);
-      if (!plane.router.isLocalHostId(node.host)) yield* Effect.promise(() => seatControl.ensureHostAvailable?.(node.host) ?? Promise.resolve());
       const assertCurrent = Effect.gen(function* () {
         plane.nodeDelete.assertCreate(createAdmission);
         const current = (yield* (yield* ModelService).canvas(canvas)).nodes.get(node.id);
@@ -164,7 +148,6 @@ coreOps({
     Effect.gen(function* () {
       const plane = yield* planeNow();
       const hostId = input.hostId?.trim() || plane.router.thisMachineName();
-      if (!plane.router.isLocalHostId(hostId)) yield* Effect.promise(() => seatControl.ensureHostAvailable?.(hostId) ?? Promise.resolve());
       return { hostId, result: yield* routed(() => plane.router.attach({ ...input, hostId })) };
     }),
   "term.release": ({ lease, hostId }) => routed((plane) => Promise.resolve(plane.router.release(lease, hostId)).then(() => undefined)),
@@ -183,12 +166,12 @@ coreOps({
   "term.startSeat": ({ canvas, seatId }) =>
     Effect.gen(function* () {
       const { startSeat } = yield* Effect.promise(() => import("../../junto/term/seat-control"));
-      return yield* startSeat({ canvas: asCanvasName(canvas), seatId }, seatControl);
+      return yield* startSeat({ canvas: asCanvasName(canvas), seatId });
     }),
   "term.stopSeat": ({ canvas, seatId }) =>
     Effect.gen(function* () {
       const { stopSeat } = yield* Effect.promise(() => import("../../junto/term/seat-control"));
-      yield* stopSeat({ canvas: asCanvasName(canvas), seatId }, { ...(seatControl.plane ? { plane: seatControl.plane } : {}) });
+      yield* stopSeat({ canvas: asCanvasName(canvas), seatId });
     }),
   "term.harnessModels": ({ harness }) =>
     Effect.gen(function* () {

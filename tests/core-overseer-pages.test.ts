@@ -2,10 +2,11 @@ import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { Layer, ManagedRuntime } from "effect";
 import { afterEach, expect, it } from "vitest";
 import { portCore, serveCore, type CorePort } from "../src/main/core-process/port";
-import { hostCaptureApplicationPage, hostOverseerPages, serveOverseerHost } from "../src/main/core-process/ops/overseer-pages";
+import { hostCaptureApplicationPage, hostOverseerPages } from "../src/main/core-process/ops/overseer-pages";
+import { serveOverseerHost } from "../src/main/core-process/main-side/overseer-pages";
 import type { OverseerPages } from "../src/main/junto/overseer/pages";
 import type { ResolvedPageTarget } from "../src/main/junto/browser/page-target";
-import type { CoreRunner } from "../src/main/core-process/client";
+import type { CoreRunner } from "./support/in-process-core";
 
 const portOf = (port: MessagePort): CorePort => ({
   post: (message) => port.postMessage(message),

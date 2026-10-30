@@ -1,7 +1,8 @@
 import { Layer, ManagedRuntime } from "effect";
 import { expect, it } from "vitest";
-import { inProcessCore, type CoreRunner } from "../src/main/core-process/client";
-import { bindOverseerLive, coreOverseerLive } from "../src/main/core-process/ops/overseer-live";
+import { inProcessCore, type CoreRunner } from "./support/in-process-core";
+import { bindOverseerLive } from "../src/main/core-process/ops/overseer-live";
+import { coreOverseerLive } from "../src/main/core-process/main-side/overseer-live";
 
 // The window's live controls reach the core's live overseer by name; snapshots come back as pushes.
 it("answers the window's live controls from the core's live overseer, and pushes each snapshot", async () => {

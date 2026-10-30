@@ -34,8 +34,8 @@ import {
   type BrowserProfileWipeOutcome,
 } from "../src/main/junto/browser/profiles";
 import { BrowserProfileGate } from "../src/main/junto/browser/profile-gate";
-import { inProcessCore } from "../src/main/core-process/client";
-import { coreBrowserProfileStore } from "../src/main/core-process/ops/browser";
+import { inProcessCore } from "./support/in-process-core";
+import { coreBrowserProfileStore } from "../src/main/core-process/main-side/browser";
 import {
   BROWSER_MAX_VISIBLE_SURFACES_HARD,
   BROWSER_MAX_WARM_SESSIONS_HARD,

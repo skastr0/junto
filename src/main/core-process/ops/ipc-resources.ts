@@ -10,10 +10,8 @@
  * reaches the window, not only one made here. Main relays both onto the
  * channels the window listens to.
  */
-import type { IpcMain } from "electron";
 import { Effect, Schema } from "effect";
 import type { ArtifactMoveRun, ArtifactMoveRunAnswer, ArtifactMoveRunInput } from "@shared/artifact-move";
-import { productResourceKindEnabled } from "@shared/features";
 import {
   ArtifactApplyInput,
   ArtifactBodyInput,
@@ -57,18 +55,14 @@ import {
 } from "../../junto/work/resource-ipc";
 import { WorkService } from "../../junto/work/service";
 import { coreRunner } from "../../core-runner";
-import type { CoreClient } from "../client";
+import {
+  RESOURCE_CHANGED,
+  RESOURCE_THREAD_CHANGED,
+  type ResourceChangedPush,
+  type ResourceThreadChangedPush,
+} from "../channels";
 import { coreOps, type CoreOp } from "../ops";
 import { publish } from "../push";
-
-/** A resource's rows changed, from any surface: main broadcasts it to the window. */
-export const RESOURCE_CHANGED = "resource.changed";
-/** A comment landed on a resource whose own rows did not change. */
-export const RESOURCE_THREAD_CHANGED = "resource.threadChanged";
-
-/** What crosses on the two notices: the window's own channel and what it carries. */
-export type ResourceChangedPush = { readonly channel: string; readonly canvasName: string };
-export type ResourceThreadChangedPush = ResourceChangedPush & { readonly kind: string };
 
 declare module "../ops" {
   interface CoreOps {
@@ -223,63 +217,8 @@ coreOps({
 });
 
 /**
- * Main's side: the same channels, each answer one core call under the same
- * authoring label, and the two notices broadcast as they come. A product this
- * build turns off still registers nothing.
- */
-export const registerResourceIpcCore = (
-  ipc: Pick<IpcMain, "handle">,
-  core: CoreClient,
-  broadcast: (channel: string, payload: unknown) => void,
-  enabled: { readonly task: boolean; readonly artifact: boolean; readonly file: boolean },
-  authoring: { readonly task: ResourceAuthoring; readonly artifact: ResourceAuthoring; readonly thread: ResourceAuthoring },
-): (() => void) => {
-  const live = {
-    task: enabled.task && productResourceKindEnabled("task"),
-    artifact: enabled.artifact && productResourceKindEnabled("artifact"),
-    file: enabled.file,
-  };
-  const on = <O>(
-    channel: string,
-    call: (input: unknown) => Promise<O>,
-    authored?: ResourceAuthoring,
-  ): void => {
-    ipc.handle(channel, (_event, input: unknown) => {
-      const operation = () => call(input);
-      return authored === undefined ? operation() : (authored(operation) as Promise<O>);
-    });
-  };
-  const task = RESOURCE_IPC_CHANNELS.task;
-  if (live.task) {
-    on(task.list, (input) => core.call("ipc.resource.task.list", { input }));
-    on(task.all, (input) => core.call("ipc.resource.task.all", { input }));
-    on(task.context, (input) => core.call("ipc.resource.task.context", { input }));
-    on(task.apply, (input) => core.call("ipc.resource.task.apply", { input }), authoring.task);
-    on(task.pending, (input) => core.call("ipc.resource.task.pending", { input }));
-  }
-  const artifact = RESOURCE_IPC_CHANNELS.artifact;
-  if (live.artifact) {
-    on(artifact.list, (input) => core.call("ipc.resource.artifact.list", { input }));
-    on(artifact.history, (input) => core.call("ipc.resource.artifact.history", { input }));
-    on(artifact.moves, (input) => core.call("ipc.resource.artifact.moves", { input }));
-    on(artifact.body, (input) => core.call("ipc.resource.artifact.body", { input }));
-    on(artifact.apply, (input) => core.call("ipc.resource.artifact.apply", { input }), authoring.artifact);
-    on(artifact.pending, (input) => core.call("ipc.resource.artifact.pending", { input }));
-    on(artifact.labelColours, (input) => core.call("ipc.resource.artifact.labelColours", { input }));
-    on(artifact.colour, (input) => core.call("ipc.resource.artifact.colour", { input }), authoring.artifact);
-  }
-  const thread = RESOURCE_IPC_CHANNELS.thread;
-  if (live.task || live.artifact || live.file) {
-    on(thread.list, (input) => core.call("ipc.resource.thread.list", { input }));
-    on(thread.post, (input) => core.call("ipc.resource.thread.post", { input }), authoring.thread);
-  }
-  void broadcast;
-  return () => undefined;
-};
-
-/**
  * The operator's artifact move, run here, where the store is. The overseer's
- * `artifact.move` and the window's "Move to..." reach the same `moveArtifacts`;
+ * `artifact.move` and the window's "Move to…" reach the same `moveArtifacts`;
  * the window crosses the port, the overseer is already in this process.
  */
 export const coreArtifactMove: ArtifactMoveRun = (input, by) =>

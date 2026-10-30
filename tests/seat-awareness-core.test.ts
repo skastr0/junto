@@ -14,7 +14,7 @@ import { SEAT_AWARENESS_COMPILED } from "../src/shared/features";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { defaultSettings, type Settings, type SettingsError } from "../src/shared/settings";
 import type { SeatAwarenessEvent } from "../src/renderer/lib/seat-awareness-contract";
-import { inProcessCore, type CoreRunner } from "../src/main/core-process/client";
+import { inProcessCore, type CoreRunner } from "./support/in-process-core";
 import "../src/main/core-process/ops/seat-awareness";
 import { subscribe } from "../src/main/core-process/push";
 import { SettingsService } from "../src/main/junto/settings/service";

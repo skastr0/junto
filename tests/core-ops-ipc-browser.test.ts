@@ -1,6 +1,6 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { expect, it } from "vitest";
-import { inProcessCore, type CoreRunner } from "../src/main/core-process/client";
+import { inProcessCore, type CoreRunner } from "./support/in-process-core";
 import "../src/main/core-process/ops/ipc-browser";
 import { SettingsService } from "../src/main/junto/settings/service";
 

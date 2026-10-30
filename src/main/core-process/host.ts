@@ -3,7 +3,7 @@ import { join } from "node:path";
 // electron has no main-only exports, so no named binding may be checked at load.
 import * as electron from "electron";
 import type { MessagePortMain, UtilityProcess } from "electron";
-import type { PortedCoreMessage } from "./ops/term-surface";
+import type { PortedCoreMessage } from "./main-side/term-surface";
 import type { CoreBoot } from "./entry";
 import { portCore, type CoreMessage, type PortCoreClient } from "./port";
 

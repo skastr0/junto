@@ -24,11 +24,10 @@ import {
   replyAgentSignal,
   type SignalOperatorResult,
 } from "../../junto/signals/operator";
-import type { ToolCall, ToolResult } from "../../junto/region-env/tool";
 import { putSignalSecret } from "../../junto/vault/secret-put";
 import { liveArtifactPorts } from "../../junto/work/artifact-control";
 import { WorkService } from "../../junto/work/service";
-import { host, hostOps, type HostOp } from "../host-ops";
+import { host } from "../host-ops";
 import { coreOps, type CoreOp } from "../ops";
 
 declare module "../ops" {
@@ -54,25 +53,6 @@ declare module "../ops" {
     >;
   }
 }
-
-declare module "../host-ops" {
-  interface HostOps {
-    /** One tool run, as main's own process plane makes it. */
-    "signals.tool.run": HostOp<{ readonly call: ToolCall }, ToolResult>;
-    /** The login shell's PATH, as main resolves it. */
-    "signals.tool.path": HostOp<Record<string, never>, string | undefined>;
-  }
-}
-
-let serving: (() => void) | undefined;
-export const serveSignalTools = (ports: {
-  readonly run: (call: ToolCall) => Promise<ToolResult>;
-  readonly path: () => Promise<string | undefined>;
-}): (() => void) =>
-  (serving ??= hostOps({
-    "signals.tool.run": ({ call }) => ports.run(call),
-    "signals.tool.path": () => ports.path(),
-  }));
 
 coreOps({
   "ipc.signals.list": ({ canvasName }) => listCanvasAgentSignals(canvasName),

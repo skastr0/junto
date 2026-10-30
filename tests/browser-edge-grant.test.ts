@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Layer, ManagedRuntime, Schema } from "effect";
-import { inProcessCore, type CoreRunner } from "../src/main/core-process/client";
+import { inProcessCore, type CoreRunner } from "./support/in-process-core";
 import "../src/main/core-process/ops/main-index";
 import { PausePlane } from "../src/main/junto/pause-plane";
 import { BindingId } from "../src/shared/model/kinds";

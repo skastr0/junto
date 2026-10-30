@@ -14,7 +14,7 @@ import { registerTerminalIpc } from "../src/main/junto/term/ipc";
 import type { TermPlane } from "../src/main/junto/term/plane";
 import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
 import { Layer, ManagedRuntime } from "effect";
-import { inProcessCore } from "../src/main/core-process/client";
+import { inProcessCore } from "./support/in-process-core";
 import { useCoreClient } from "../src/main/core-process/main-client";
 import { bindTermIpcPlane } from "../src/main/core-process/ops/term-ipc";
 import "../src/main/core-process/ops/term-ipc";

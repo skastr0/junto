@@ -9,10 +9,8 @@ import { wireTrafficPreview, type WireTrafficEvent } from "@shared/wire-traffic"
 import { injectionSupervisor } from "../../junto/term/injection-supervisor";
 import { messageDelivery } from "../../junto/work/message-delivery";
 import { termPlane } from "../../junto/term/plane";
+import { WIRE_TRAFFIC } from "../channels";
 import { publish } from "../push";
-
-/** A wire's traffic: one typed message, or a held line. Main relays it. */
-export const WIRE_TRAFFIC = "wire.traffic";
 
 // A continuation line held by the seat's input box, said on the seat.
 injectionSupervisor.subscribeContinuationHeld((bindingId, hold, line) => {

@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
-import { WINDOW_CHANNELS } from "../src/main/core-process/ops/main-index";
+import { WINDOW_CHANNELS } from "../src/main/core-process/main-side/window-pushes";
 
 /**
  * A core operation that publishes on a channel main does not relay is a push
