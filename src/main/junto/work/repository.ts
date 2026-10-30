@@ -1663,18 +1663,20 @@ const mailRowsWithReceipts = Effect.fn("work.mail.receipts")(function* (
   canvasName: string,
   rows: ReadonlyArray<typeof MessageRowSchema.Type & { readonly node_id: string }>,
 ): Effect.fn.Return<ReadonlyArray<{ readonly nodeId: string; readonly message: MessageValue }>, WorkSqlFailure> {
-  const ids = rows.flatMap((row) => [
-    mailboxMessageDeliveryId(canvasName, row.node_id, row.message_id),
-    mailboxMessageReadId(canvasName, row.node_id, row.message_id),
-    mailboxMessageReactId(canvasName, row.node_id, row.message_id, "ack"),
+  // Each stamp is looked up by its whole key, mailbox and id together: by
+  // delivery id alone the lookup walks every receipt on the canvas.
+  const keys = rows.flatMap((row) => [
+    [row.node_id, mailboxMessageDeliveryId(canvasName, row.node_id, row.message_id)],
+    [row.node_id, mailboxMessageReadId(canvasName, row.node_id, row.message_id)],
+    [row.node_id, mailboxMessageReactId(canvasName, row.node_id, row.message_id, "ack")],
   ]);
-  const receipts = ids.length === 0 ? [] : yield* SqlSchema.findAll({
+  const receipts = keys.length === 0 ? [] : yield* SqlSchema.findAll({
     Request: WorkSqlBindings,
     Result: MessageReceiptRow,
     execute: (bindings) => reader.unsafe(`SELECT delivery_id,accepted_at FROM work_delivery_receipts
       WHERE delivered_canvas_name=? AND delivered_item_kind='message'
-        AND delivery_id IN (${ids.map(() => "?").join(",")})`, bindings),
-  })([canvasName, ...ids]);
+        AND (delivered_node_id,delivery_id) IN (VALUES ${keys.map(() => "(?,?)").join(",")})`, bindings),
+  })([canvasName, ...keys.flat()]);
   const stamps = new Map(receipts.map((row) => [row.delivery_id, Date.parse(row.accepted_at)]));
   return yield* Effect.try(() => rows.map((row) => ({
     nodeId: row.node_id, message: messageWithReceipts(row, { canvasName, nodeId: row.node_id }, stamps),
