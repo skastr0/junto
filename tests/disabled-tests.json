@@ -126,13 +126,6 @@
     "date": "2026-10-29"
   },
   {
-    "file": "tests/pty-e2e/scenarios/drain-rekey.test.ts",
-    "test": "*",
-    "owner": "tech-lead",
-    "reason": "PTY corpus sweep: 177 s of its 300 s budget on an idle CI runner, 233 s alone locally",
-    "date": "2026-10-29"
-  },
-  {
     "file": "tests/pty-e2e/scenarios/harness-classification.test.ts",
     "test": "*",
     "owner": "tech-lead",
