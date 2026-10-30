@@ -24,7 +24,7 @@ it("answers thread asks in the core, refuses what does not decode, and pushes re
   const waiting: Array<(fact: unknown) => void> = [];
   const spy = vi.spyOn(messageDelivery, "subscribeMailWaiting").mockImplementation((listener) => (waiting.push(listener as never), () => undefined));
   const seen: Array<[string, unknown]> = [];
-  const offs = [SEAT_THREAD_READ_CHANGED, MAIL_WAITING].map((channel) => subscribe(channel, (payload) => seen.push([channel, payload])));
+  const offs = ([SEAT_THREAD_READ_CHANGED, MAIL_WAITING] as const).map((channel) => subscribe(channel, (payload) => seen.push([channel, payload])));
   try {
     expect(await core.call("ipc.threads.markRead", { input: { canvasName: "factory" } })).toBeUndefined();
     expect(await core.call("ipc.threads.write", { input: { text: "hi" } })).toEqual({ ok: false, reason: "invalid", message: "That mail could not be read." });

@@ -12,9 +12,8 @@
 import { getCompiledMachineReleaseCatalog } from "@shared/machine-release";
 import { makeMachineBundleSources } from "../junto/hosts/machine-bundle-download";
 import { startCore } from "../junto/core";
-import { serveCore, type CoreMessage, type CorePort } from "./port";
-import { runCoreOp } from "./client";
-import type { CoreRunner } from "./client";
+import { type CoreMessage, type CorePort } from "./port";
+import { runCoreOp, serveCore, type CoreRunner } from "./serve";
 import { forwardPublishes, publish } from "./push";
 import { host, useHostClient } from "./host-ops";
 import { hostCaptureApplicationPage, hostOverseerPages } from "./ops/overseer-pages";

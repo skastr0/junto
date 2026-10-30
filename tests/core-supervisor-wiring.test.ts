@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { Effect, Schema } from "effect";
 import { afterEach, expect, it, vi } from "vitest";
 import { startCore } from "../src/main/junto/core";
-import { runCoreOp } from "../src/main/core-process/client";
+import { runCoreOp } from "../src/main/core-process/serve";
 import "../src/main/core-process/ops/index";
 import { MachineCoreMail } from "../src/main/core-runtime";
 import { Command } from "../src/shared/model";

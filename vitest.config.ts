@@ -21,7 +21,27 @@ const testFeatureEnvironment: NodeJS.ProcessEnv = {
     : {}),
 };
 
+/**
+ * `?nodeWorker` is electron-vite's worker entry suffix, which the main build
+ * turns into a worker factory. Vitest has no such loader, so the import would
+ * run the worker's own module here (and `files/index-worker.ts` refuses to run
+ * off a worker thread). A test that reaches one gets a factory that says so.
+ */
+const nodeWorkerStub = {
+  name: "junto-node-worker-stub",
+  enforce: "pre" as const,
+  resolveId(id: string): string | undefined {
+    return id.endsWith("?nodeWorker") ? "\0junto-node-worker-stub" : undefined;
+  },
+  load(id: string): string | undefined {
+    return id === "\0junto-node-worker-stub"
+      ? "export default () => { throw new Error(\"a worker thread is not started in unit tests\"); };"
+      : undefined;
+  },
+};
+
 export default defineConfig({
+  plugins: [nodeWorkerStub],
   // Tests default to the exact shipping profile. Feature-specific suites opt
   // into all-on or individual JUNTO_* overrides before Vitest starts.
   define: featureViteDefines(resolveBuildFeatures(testFeatureEnvironment)),
@@ -31,7 +51,8 @@ export default defineConfig({
     // every *.spec.ts under e2e/ and try to run it as a vitest test.
     // infra/ owns its own package, lockfile, dependencies, and deployment
     // lifecycle. It is not part of the application test surface.
-    exclude: [...configDefaults.exclude, "e2e/**", "infra/**"],
+    // A build an agent keeps under .amp/ is not the test surface either.
+    exclude: [...configDefaults.exclude, "e2e/**", "infra/**", ".amp/**", "**/.amp/**"],
     // Unbound StateEngineLive / stateDatabasePath() must never resolve to
     // the operator's ~/.junto production tree during unit tests.
     setupFiles: [

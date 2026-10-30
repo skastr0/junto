@@ -7,7 +7,8 @@ import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, SETTINGS_CHANGED, WORK_PREAMBLE }
 import { ModelService } from "../src/main/junto/model/service";
 import { PausePlane } from "../src/main/junto/pause-plane";
 import { MessageChannel, type MessagePort } from "node:worker_threads";
-import { portCore, serveCore, type CorePort } from "../src/main/core-process/port";
+import { portCore, type CorePort } from "../src/main/core-process/port";
+import { serveCore } from "../src/main/core-process/serve";
 import { emitAgentSignalChanged } from "../src/main/junto/signals/changes";
 import { subscribe } from "../src/main/core-process/push";
 import { SettingsService } from "../src/main/junto/settings/service";
@@ -63,7 +64,7 @@ describe("index.ts core operations", () => {
 
   it("publishes the window's broadcasts on their channels until stopped", () => {
     const seen: Array<[string, unknown]> = [];
-    const offs = [WORK_PREAMBLE, AGENT_SIGNAL_CHANGED].map((channel) => subscribe(channel, (payload) => seen.push([channel, payload])));
+    const offs = ([WORK_PREAMBLE, AGENT_SIGNAL_CHANGED] as const).map((channel) => subscribe(channel, (payload) => seen.push([channel, payload])));
     const broadcasts = publishWindowBroadcasts();
     try {
       const preamble = { preambleId: "p1", canvasName: "factory", nodeId: "seat", text: "hello", expiresAt: 1 };
@@ -92,7 +93,7 @@ describe("index.ts core operations", () => {
     const served = serveCore(portOf(port2), runtime as unknown as CoreRunner);
     const stopRelay = relayWindowPushes(portCore(portOf(port1)));
     const seen: Array<[string, unknown]> = [];
-    const offs = [WORK_PREAMBLE, AGENT_SIGNAL_CHANGED].map((channel) => subscribe(channel, (payload) => seen.push([channel, payload])));
+    const offs = ([WORK_PREAMBLE, AGENT_SIGNAL_CHANGED] as const).map((channel) => subscribe(channel, (payload) => seen.push([channel, payload])));
     try {
       const preamble = { preambleId: "p1", canvasName: "factory", nodeId: "seat", text: "hello", expiresAt: 1 };
       const signal = { signalId: "s1", canvasName: "factory", nodeId: "seat" };

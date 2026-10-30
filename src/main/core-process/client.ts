@@ -1,5 +1,5 @@
-import { Cause, Effect, Exit } from "effect";
-import { coreOpBody, type CoreInput, type CoreOpName, type CoreOutput } from "./ops";
+import { Cause } from "effect";
+import type { CoreInput, CoreOpName, CoreOutput } from "./ops";
 
 /**
  * How a core operation is asked for, on either side of the port: by name,
@@ -36,20 +36,4 @@ export const coreFailureOf = (cause: Cause.Cause<unknown>): CoreFailure => {
     ? String((error as { message: unknown }).message)
     : String(error);
   return { tag, message };
-};
-
-/** Something that runs a core effect: the core's own runtime. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type CoreRunner = { readonly runPromiseExit: (effect: Effect.Effect<any, any, any>) => Promise<Exit.Exit<any, any>> };
-
-/** Run one named operation on a runner; the answer or a `CoreFailure`. */
-export const runCoreOp = async (
-  runner: CoreRunner,
-  name: string,
-  input: unknown,
-): Promise<{ readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly failure: CoreFailure }> => {
-  const body = coreOpBody(name);
-  if (body === undefined) return { ok: false, failure: { tag: "UnknownCoreOp", message: `no core operation named ${name}` } };
-  const exit = await runner.runPromiseExit(Effect.suspend(() => body(input as never)));
-  return Exit.isSuccess(exit) ? { ok: true, value: exit.value } : { ok: false, failure: coreFailureOf(exit.cause) };
 };

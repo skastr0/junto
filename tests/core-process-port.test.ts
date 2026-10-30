@@ -2,7 +2,8 @@ import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { Context, Data, Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { coreOps, type CoreOp, type CoreOpBody } from "../src/main/core-process/ops";
-import { portCore, serveCore, type CorePort } from "../src/main/core-process/port";
+import { portCore, type CorePort } from "../src/main/core-process/port";
+import { serveCore } from "../src/main/core-process/serve";
 import { HostCallError, hostOps, inProcessHost, type HostOp } from "../src/main/core-process/host-ops";
 
 // One operation group, registered as a group under ops/ registers its own.

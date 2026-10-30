@@ -1,7 +1,8 @@
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { Layer, ManagedRuntime } from "effect";
 import { afterEach, expect, it } from "vitest";
-import { portCore, serveCore, type CorePort } from "../src/main/core-process/port";
+import { portCore, type CorePort } from "../src/main/core-process/port";
+import { serveCore } from "../src/main/core-process/serve";
 import { hostCaptureApplicationPage, hostOverseerPages } from "../src/main/core-process/ops/overseer-pages";
 import { serveOverseerHost } from "../src/main/core-process/main-side/overseer-pages";
 import type { OverseerPages } from "../src/main/junto/overseer/pages";

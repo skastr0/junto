@@ -2,7 +2,8 @@ import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { expect, it, vi } from "vitest";
 import type { CoreRunner } from "./support/in-process-core";
-import { portCore, serveCore, type CorePort } from "../src/main/core-process/port";
+import { portCore, type CorePort } from "../src/main/core-process/port";
+import { serveCore } from "../src/main/core-process/serve";
 import { subscribe } from "../src/main/core-process/push";
 import { AGENT_SIGNAL_CHANGED, WORK_PREAMBLE } from "../src/main/core-process/channels";
 // The operations the served core answers: entry.ts imports this registry at boot.
@@ -46,7 +47,7 @@ it("hooks main up to a core in its own process: calls go to it, its pushes reach
     start: () => ({ ...portCore(portOf(port1)), stop: () => Effect.sync(() => { stopped += 1; }) }),
   });
   const seen: Array<[string, unknown]> = [];
-  const offs = [WORK_PREAMBLE, AGENT_SIGNAL_CHANGED].map((channel) => subscribe(channel, (payload) => seen.push([channel, payload])));
+  const offs = ([WORK_PREAMBLE, AGENT_SIGNAL_CHANGED] as const).map((channel) => subscribe(channel, (payload) => seen.push([channel, payload])));
   try {
     // Main's call sites reach the core process through the one client.
     expect(await core.call("settings.read", {})).toEqual(settings);

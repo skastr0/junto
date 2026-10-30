@@ -6,7 +6,7 @@ import "../src/main/core-process/ops/index";
 import { coreFilesRemote } from "../src/main/core-process/main-side/files-remote";
 import { FILES_REMOTE_CHANGED } from "../src/main/core-process/channels";
 import { publish } from "../src/main/core-process/push";
-import type { FilesRemote } from "../src/main/junto/files/link-client";
+import type { FilesRemote, RemoteChange } from "../src/main/junto/files/link-client";
 import { holdFilesRemote } from "../src/main/junto/files/remote-holder";
 
 const ref = { canvas: "c", node: "n" } as never;
@@ -28,7 +28,7 @@ it("main's port asks the core's link client and hears its changes", async () => 
 
   const heard = vi.fn();
   const stop = port.onChange(heard);
-  const change = { machine: "mini", change: { node: "n", kind: "back" } };
+  const change = { machine: "mini", change: { node: "n", kind: "reset" } } as unknown as RemoteChange;
   publish(FILES_REMOTE_CHANGED, change);
   stop();
   expect(heard).toHaveBeenCalledWith(change);

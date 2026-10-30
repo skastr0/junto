@@ -5,7 +5,8 @@
  * bodies on the runner the test gives it, in this process.
  */
 import { Effect, Exit } from "effect";
-import { CoreCallError, coreFailureOf, type CoreClient, type CoreRunner } from "../../src/main/core-process/client";
+import { CoreCallError, coreFailureOf, type CoreClient } from "../../src/main/core-process/client";
+import type { CoreRunner } from "../../src/main/core-process/serve";
 import { coreOpBody } from "../../src/main/core-process/ops";
 import "../../src/main/core-process/ops/index";
 
