@@ -2,6 +2,66 @@
 
 ## Unreleased
 
+## 0.11.7 — 2026-10-30
+
+Opening the database with 0.11.7 moves it to version 73, and 0.11.5 then
+refuses it as newer than supported. To go back to 0.11.5, open the backup
+taken at the upgrade. The two steps add read indexes (on the event log, on
+mail by its writer and sender, and on task heads by state) and two small
+tables that hold the open commands and seat controls, kept by triggers and
+filled from the log at the upgrade; every node, wire, task, artifact and mail
+is kept as it was.
+
+- The `junto` command is now a native program, not Bun. The app no longer
+  carries a Bun runtime for it. Every call agents made in
+  the last seven days (19,323 calls, 1,845 distinct command lines) gives the
+  same request, output and exit code as before, except for six known
+  differences, listed in the parity report (artifact 01M65PS552XMS3EHXZD3ZSS736).
+  One matters to anyone who writes feedback: a flag value that starts with
+  `- `, as in `feedback --detail "- first item"`, is now sent. The old command
+  refused it, and printed help and exited 0 when the text held an `h`, so that
+  feedback never arrived. The other five are an error type on `machine link`
+  with an incomplete input, a few milliseconds between two reads of `now`,
+  Effect's internal marker keys gone from a usage refusal's details, a clearer
+  message for input that is not JSON, and `msg --completions fish` printing
+  nothing.
+- `msg send` and `msg reply` no longer answer an error over mail that landed.
+  A seat whose process identity went stale while its mail was being written
+  got "process identity became stale" for mail that was delivered, and a retry
+  sent it twice. Revocation now refuses only before the write begins, and a
+  refused reply leaves its parent unread.
+- Seat Threads is redesigned for reading. One centred column of 16px prose,
+  the seat unboxed under its portrait, name and time, the operator in a quiet
+  block on the right, and markdown set as prose. Each row in the list leads
+  with the latest words of the thread, with the unread pill and time, so a
+  thread can be read without opening it. The message stream takes the keyboard
+  and names itself, and a tag in an agent's text shows as the text typed.
+- Mail and the main process are quicker. `msg list`, `msg sent` and the
+  receipt lookups read an index by sender and by whole key, not every receipt
+  on the canvas; on a canvas of 65,632 receipts the mailbox reads behind `msg list` take 4 ms,
+  not 42 ms, and re-listing a read page takes 11.5 ms, not 55.2 ms. Companion mail
+  and mail between two seats are two bounded searches. The state connection
+  keeps a larger page cache, and the minute pass at offboard reads the open
+  sessions once and saves only the clock rows that changed.
+- Shift and Cmd typed in a terminal no longer repaint the whole board, and the
+  terminal's scrollbar no longer repaints it while scrolling.
+- A phone link no longer drops on a busy canvas. The Mac no longer re-reads
+  every followed seat's threads and mail on each change of seat state,
+  awareness or pause: a phone session reads them again only after a mail
+  change, and at most every 500 ms, and the Mac's own thread reads are paced
+  to one pass per canvas, half a second apart. An older Mac keeps the old
+  behavior toward a newer phone.
+- The core and the terminals always run in their own processes. The desktop
+  core runs the operator socket, the work control, the phone companion and the
+  link, and one terminal process drives every PTY, so a busy canvas or a
+  heavy terminal no longer holds the window's main process. The flags that
+  once chose this (`JUNTO_CORE_PROCESS`, `JUNTO_TERMINAL_PROCESS`) are gone.
+- Cmd+T reopens the writing the desk left, not a blank page, and the draft is
+  kept across a quit.
+- The canvas is lighter to move: its level-of-detail scales wait for the
+  camera to rest, a selection no longer latches xyflow, and a seat state event
+  reads its own session, not every session.
+
 ## 0.11.5 — 2026-10-30
 
 No database change: 0.11.5 opens the same version 71 as 0.11.4.
