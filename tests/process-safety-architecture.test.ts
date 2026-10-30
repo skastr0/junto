@@ -360,6 +360,8 @@ describe("machine-safety architecture", () => {
       // The core's utilityProcess, Electron's own child, stopped once at quit
       // (Wave 3); it holds no PTY, so no process group is signalled.
       "src/main/core-process/host.ts:child?.kill",
+      // The same child, killed when it has not said core.ready by its boot deadline.
+      "src/main/core-process/host.ts:forked.kill",
       "src/main/junto/app-process-plane.ts:forbidden-reference:child.kill",
       "src/main/junto/app-process-plane.ts:forbidden-reference:pty.kill",
       "src/main/junto/app-process-plane.ts:forbidden-reference:record.kill",
