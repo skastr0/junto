@@ -14,3 +14,10 @@ it("keeps a block of HTML as inert text", () => {
   expect(drawn).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
   expect(drawn).not.toContain("<script");
 });
+
+it("draws a line that is only a tag, or a tag block, as a paragraph that keeps its line breaks", () => {
+  const drawn = renderToStaticMarkup(<ArtifactMarkdown source={"one\n\n<paths>\n\n<div>\na\nb\n</div>\n\n> <q>"} />);
+  expect(drawn).toContain("<p>&lt;paths&gt;</p>");
+  expect(drawn).toContain("<p>&lt;div&gt;\na\nb\n&lt;/div&gt;</p>");
+  expect(drawn).toContain("<blockquote>\n<p>&lt;q&gt;</p>\n</blockquote>");
+});

@@ -1,6 +1,7 @@
 import { memo, useMemo, type ReactNode } from "react";
 import Markdown, { type Components, type ExtraProps, type UrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import type { Nodes, Root } from "mdast";
 import "./artifact-markdown.css";
 
 const SAFE_URL_PATTERN = /^(?:https?:|mailto:|junto-content:|\/|#)/iu;
@@ -66,6 +67,28 @@ const components: Components = {
   ),
 };
 
+const FLOW_PARENTS = new Set(["root", "blockquote", "listItem", "footnoteDefinition"]);
+
+/**
+ * Raw HTML becomes the text the writer typed. A tag inline in a sentence is
+ * a text run; a tag or tag block on its own line is a paragraph of text, so
+ * it keeps the paragraph's spacing and line breaks.
+ */
+const htmlAsText = (node: Nodes): void => {
+  if (!("children" in node)) return;
+  const flow = FLOW_PARENTS.has(node.type);
+  node.children = node.children.map((child) => {
+    if (child.type !== "html") {
+      htmlAsText(child);
+      return child;
+    }
+    const text = { type: "text" as const, value: child.value };
+    return flow ? { type: "paragraph" as const, children: [text] } : text;
+  }) as typeof node.children;
+};
+
+const remarkHtmlAsText = () => (tree: Root) => htmlAsText(tree);
+
 /** What a link is drawn as when the app draws it itself: a mention chip, say. */
 export type MarkdownLinkRenderer = (href: string, label: string) => ReactNode | undefined;
 
@@ -123,7 +146,7 @@ export const ArtifactMarkdown = memo(function ArtifactMarkdown({
   return (
     <div className={shellClass} data-testid="artifact-markdown">
       <Markdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkHtmlAsText]}
         urlTransform={drawn.urlTransform}
         components={drawn.components}
       >
