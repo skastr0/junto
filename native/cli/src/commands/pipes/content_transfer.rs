@@ -680,7 +680,7 @@ pub fn run(argv: &[&str]) -> ExitCode {
     let request = match parse(argv) {
         Ok(request) => request,
         Err(error) => {
-            eprintln!("junto content-transfer: {error}");
+            crate::envelope::warn(&format!("junto content-transfer: {error}"));
             return ExitCode::from(64);
         }
     };
@@ -795,11 +795,13 @@ fn send<'a>(store: &Store, sha256: &'a Sha256Hex, byte_length: u64, offset: u64)
     let mut file = no_follow(OpenOptions::new().read(true)).open(&path)?;
     file.seek(io::SeekFrom::Start(offset))?;
     let mut stdout = io::stdout().lock();
-    io::copy(
+    // A receiver that hung up ends the send: it resumes from what it holds.
+    let copied = io::copy(
         &mut io::BufReader::with_capacity(READ_CHUNK, file),
         &mut stdout,
-    )?;
-    stdout.flush()?;
+    )
+    .and_then(|_| stdout.flush());
+    super::closed_is_end(copied)?;
     Ok((None, ExitCode::SUCCESS))
 }
 

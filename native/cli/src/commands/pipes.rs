@@ -3,6 +3,7 @@
 //! and `content-transfer` (src/cli/content-transfer.ts). Each owns its stdio
 //! and its exit code; none prints an envelope.
 
+use std::io;
 use std::process::ExitCode;
 
 mod companion;
@@ -12,6 +13,14 @@ mod link;
 /// An argv a pipe does not take: it says so on stderr and exits 64 (EX_USAGE).
 #[derive(Debug)]
 struct Usage;
+
+/// A write to a reader that hung up is the end of the stream, not a failure.
+fn closed_is_end(written: io::Result<()>) -> io::Result<()> {
+    match written {
+        Err(e) if e.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        other => other,
+    }
+}
 
 pub fn link(args: &[&str]) -> ExitCode {
     link::run(args)

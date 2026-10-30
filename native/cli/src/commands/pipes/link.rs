@@ -8,7 +8,7 @@ use std::os::unix::net::UnixStream;
 use std::process::ExitCode;
 use std::thread;
 
-use crate::wire;
+use crate::{envelope, wire};
 
 use super::Usage;
 
@@ -47,14 +47,14 @@ fn parse(args: &[&str]) -> Result<Option<Opener>, Usage> {
 
 pub fn run(args: &[&str]) -> ExitCode {
     let Ok(opener) = parse(args) else {
-        eprintln!("junto link takes no arguments, or --opener <installation id>");
+        envelope::warn("junto link takes no arguments, or --opener <installation id>");
         return ExitCode::from(64);
     };
     let path = wire::junto_home().join(".junto/core/control.sock");
     match relay(&path, opener.as_ref()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("junto link: {error}");
+            envelope::warn(&format!("junto link: {error}"));
             ExitCode::FAILURE
         }
     }
@@ -85,15 +85,22 @@ fn relay(path: &std::path::Path, opener: Option<&Opener>) -> io::Result<()> {
     copied
 }
 
-/// Copies until end of stream, flushing each read: frames go out as they come.
+/// Copies until end of stream, flushing each read: frames go out as they
+/// come. A reader that hung up ends the copy as the far end closing would.
 fn copy_flushing(from: &mut impl Read, to: &mut impl Write) -> io::Result<()> {
     let mut buffer = [0u8; 64 * 1024];
     loop {
         match from.read(&mut buffer) {
-            Ok(0) => return to.flush(),
+            Ok(0) => return super::closed_is_end(to.flush()),
             Ok(n) => {
-                to.write_all(&buffer[..n])?;
-                to.flush()?;
+                let written = to.write_all(&buffer[..n]).and_then(|()| to.flush());
+                if written
+                    .as_ref()
+                    .is_err_and(|e| e.kind() == io::ErrorKind::BrokenPipe)
+                {
+                    return Ok(());
+                }
+                written?;
             }
             Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
             Err(e) => return Err(e),

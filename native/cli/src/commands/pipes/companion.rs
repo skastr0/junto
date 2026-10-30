@@ -16,6 +16,8 @@ mod session;
 
 use frame::Code;
 
+use crate::envelope;
+
 /// What the forced command's argv asks for.
 #[derive(Debug, PartialEq, Eq)]
 enum Mode {
@@ -58,11 +60,10 @@ fn parse(args: &[&str]) -> Result<Mode, String> {
 pub fn run(args: &[&str]) -> ExitCode {
     let refuse = |message: &str| {
         // Still one protocol frame on stdout, so a phone sees a reason; usage on stderr.
-        print!(
-            "{}",
-            frame::connection_error_line(Code::Invalid, Some("This key is not set up for Junto."))
-        );
-        eprintln!("junto companion-stdio: {message}");
+        let line =
+            frame::connection_error_line(Code::Invalid, Some("This key is not set up for Junto."));
+        envelope::say(line.trim_end());
+        envelope::warn(&format!("junto companion-stdio: {message}"));
         ExitCode::from(64)
     };
     match parse(args) {
