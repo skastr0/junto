@@ -314,6 +314,10 @@ describe("quick capture", () => {
     expect(keys("inCapture.search")).toEqual(["Cmd+L"]);
     expect(keys("inCapture.search", false)).toEqual(["Ctrl+L"]);
     expect(keys("inCapture.route")).toEqual(["M"]);
+    // The desk's Move to column: each number sends the open capture to that suggestion.
+    expect(keys("inCapture.route1")).toEqual(["1"]);
+    expect(keys("inCapture.route2")).toEqual(["2"]);
+    expect(keys("inCapture.route3")).toEqual(["3"]);
     for (const id of [
       "inCapture.move",
       "inCapture.open",
@@ -321,6 +325,9 @@ describe("quick capture", () => {
       "inCapture.new",
       "inCapture.search",
       "inCapture.route",
+      "inCapture.route1",
+      "inCapture.route2",
+      "inCapture.route3",
     ]) {
       expect(row(id).surface, id).toBe(true);
       expect(row(id).area, id).toBe("Inside quick capture");

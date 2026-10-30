@@ -157,6 +157,9 @@ export type SurfaceKeyId =
   | "inCapture.new"
   | "inCapture.search"
   | "inCapture.route"
+  | "inCapture.route1"
+  | "inCapture.route2"
+  | "inCapture.route3"
   | "inList.next"
   | "inList.previous"
   | "inList.first"
@@ -691,9 +694,33 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
   surfaceKey({
     id: "inCapture.route",
     area: "Inside quick capture",
-    name: "Move it to another node",
-    does: "Move the focused artifact to another Artifacts node",
+    name: "Choose where it goes",
+    does: "Put the keyboard in Move to, where 1, 2 or 3 sends the capture to that node",
     keys: ["M"],
+    where: ["operator"],
+  }),
+  surfaceKey({
+    id: "inCapture.route1",
+    area: "Inside quick capture",
+    name: "Send it to the first suggestion",
+    does: "Move the open capture to the first node Move to suggests",
+    keys: ["1"],
+    where: ["operator"],
+  }),
+  surfaceKey({
+    id: "inCapture.route2",
+    area: "Inside quick capture",
+    name: "Send it to the second suggestion",
+    does: "Move the open capture to the second node Move to suggests",
+    keys: ["2"],
+    where: ["operator"],
+  }),
+  surfaceKey({
+    id: "inCapture.route3",
+    area: "Inside quick capture",
+    name: "Send it to the third suggestion",
+    does: "Move the open capture to the third node Move to suggests",
+    keys: ["3"],
     where: ["operator"],
   }),
 
