@@ -71,6 +71,9 @@ export const WINDOW_CHANNELS = [
   IPC_CHANNELS.modelActorRefsChanged,
   IPC_CHANNELS.viewStateChanged,
   IPC_CHANNELS.referencesChanged,
+  IPC_CHANNELS.workMailChanged,
+  IPC_CHANNELS.workSinkChanged,
+  IPC_CHANNELS.seatAwarenessChanged,
   // A running machine command's progress, for the window whose call asked.
   MACHINE_PROGRESS,
 ] as const;

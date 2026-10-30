@@ -56,7 +56,7 @@ it("every channel a core publisher publishes is a window channel", () => {
   }
   const published = new Map<string, string>();
   for (const [index, source] of sources.entries()) {
-    for (const match of source.matchAll(/publish\(\s*([^,\s)]+)/gu)) {
+    for (const match of source.matchAll(/[A-Za-z]*[Pp]ublish\(\s*([^,\s)]+)/gu)) {
       const token = match[1]!;
       // A lowercase token is a loop variable over channels the file declares;
       // its names are checked where the list is built, not here.

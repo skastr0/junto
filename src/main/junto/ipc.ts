@@ -8,6 +8,11 @@ import { subscribe as subscribeCore } from "../core-process/push";
 import { OperatorAttachments, type OperatorContentPutResult } from "@shared/operator-attachments";
 import { SignalReply } from "@shared/signal-reply";
 import { SignalSecretPutRequest } from "@shared/vault";
+import { putSignalSecret } from "./vault/secret-put";
+import { resolveJuntoHome } from "@shared/junto-home";
+import { homedir } from "node:os";
+import { resolvedSpawnEnv } from "./adapters/exec";
+import { runTool } from "./region-env/tool";
 import {
   IPC_CHANNELS,
   type AgentSignalAnswerOptions,
@@ -23,7 +28,7 @@ import type { BrowserSessionService } from "./browser/sessions";
 import { ModelService } from "./model/service";
 import { ModelActorRefs } from "./model/actor-refs";
 import { core } from "../core-process/main-client";
-import { subscribe as onCorePush } from "../core-process/push";
+import { publish as corePublish, subscribe as onCorePush } from "../core-process/push";
 import { asNodeId } from "@shared/model";
 
 import {
@@ -43,6 +48,8 @@ import { registerViewStateIpc } from "./view-state/ipc";
 import { shellEnvironment } from "./shell-environment";
 import { registerShellEnvironmentIpc } from "./shell-environment/ipc";
 import { registerReferencesIpc } from "./references/ipc";
+import { installArtifactMove, moveArtifacts } from "./work/artifact-move";
+import { liveResourceIpcPorts, registerResourceIpc } from "./work/resource-ipc";
 import { registerAutomationIpc } from "./automation/ipc";
 import { registerArtifactLinksIpc } from "./work/artifact-links-ipc";
 import { registerMentionIpc } from "./work/mention-ipc";
@@ -93,6 +100,13 @@ import { isSeatGuidanceSeatId, type SeatGuidanceSetResult } from "@shared/seat-g
 import { bindSeatIpc } from "../core-process/ops/ipc-seats";
 import type { ProfileDeleteResult, ProfileResult, ProfileSaveInput } from "@shared/agent-profiles";
 import type { PortraitOverrideSetResult } from "@shared/portrait-overrides";
+import {
+  answerAgentSignal,
+  dismissAgentSignal,
+  listCanvasAgentSignals,
+  replyAgentSignal,
+} from "./signals/operator";
+import { liveArtifactPorts } from "./work/artifact-control";
 import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
 import { WorkRepository } from "./work/repository";
 import { TaskRepository } from "./work/task-repository";
@@ -101,17 +115,6 @@ import { makeCheckoutWatchComposition } from "./work/checkout-watch-composition"
 import type { CheckoutWatchSupervisor } from "./work/checkout-watch-live";
 import { registerTerminalIpc } from "./term/ipc";
 import { registerGitIpc } from "./git/ipc";
-import { serveSignalTools } from "../core-process/ops/ipc-signals";
-import {
-  registerResourceIpcCore,
-  RESOURCE_CHANGED,
-  RESOURCE_THREAD_CHANGED,
-  type ResourceChangedPush,
-  type ResourceThreadChangedPush,
-} from "../core-process/ops/ipc-resources";
-import { installArtifactMove } from "./work/artifact-move";
-import { resolvedSpawnEnv } from "./adapters/exec";
-import { runTool } from "./region-env/tool";
 import { harnessRecordFor } from "../../shared/harness-records";
 import { clipboardFormatsAreSafeForGrok } from "./term/drive/clipboard-safe";
 import {
@@ -186,14 +189,6 @@ const runMainAuthoring = <A>(
   label: MainAuthoringLabel,
   operation: () => Promise<A>,
 ): Promise<A> => mainAuthoringGate.run(label, operation);
-
-// The secret write's tool run and login PATH stay main's: the core asks for
-// them by host call, and main's half is registered here, once, whichever
-// process the core runs in.
-serveSignalTools({
-  run: (call) => runTool(call),
-  path: async () => (await resolvedSpawnEnv()).PATH,
-});
 
 export const resolveProjectedIpcActorRef = (
   actorRefs: ReadonlyArray<ActorRef>,
@@ -272,11 +267,30 @@ export const registerJuntoIpc = (): void => {
   registerShellEnvironmentIpc(privilegedIpc, shellEnvironment, broadcast);
   registerReferencesIpc(privilegedIpc, broadcast);
   registerViewStateIpc(privilegedIpc, broadcast);
-  // The renderer's tasks and artifacts: the core's stores and the core's
-  // ruler (ops/ipc-resources.ts), told to the window as a change lands.
-  registerResourceIpcCore(
+  // The renderer's tasks and artifacts: main's stores, main's ruler (resource-ipc.ts).
+  const resourcePorts = liveResourceIpcPorts((canvasName) =>
+    Effect.tryPromise({
+      try: async () => (await core.call("ipc.work.topology", { canvasName })).canvas,
+      catch: () => ({
+        type: "InternalError" as const,
+        message: `canvas ${canvasName} could not be read`,
+        details: { retryable: true },
+      }),
+    }),
+    // A task's or an artifact's comments, held at its node: read only.
+    (canvasName, nodeId) =>
+      Effect.tryPromise({
+        try: () => core.call("ipc.work.mailbox", { canvasName, nodeId }),
+        catch: () => ({
+          type: "InternalError" as const,
+          message: `the comments on ${nodeId} could not be read`,
+          details: { retryable: true },
+        }),
+      }));
+  registerResourceIpc(
     privilegedIpc,
-    core,
+    (effect) => AppRuntime.runPromise(effect),
+    resourcePorts,
     broadcast,
     { task: TASKS_ENABLED, artifact: ARTIFACTS_ENABLED, file: productNodeKindEnabled("files") },
     {
@@ -285,17 +299,8 @@ export const registerJuntoIpc = (): void => {
       thread: (operation) => runMainAuthoring("ipc.resource.thread-post", operation),
     },
   );
-  subscribeCore(RESOURCE_CHANGED, (event) => {
-    const notice = event as ResourceChangedPush;
-    broadcast(notice.channel, { canvasName: notice.canvasName });
-  });
-  subscribeCore(RESOURCE_THREAD_CHANGED, (event) => {
-    const notice = event as ResourceThreadChangedPush;
-    broadcast(notice.channel, { canvasName: notice.canvasName, kind: notice.kind });
-  });
-  // Moving artifacts (0.11.1, 10): the overseer and the window run the same
-  // move, each under its caller's authoring label, ruled by the core.
-  installArtifactMove((input, by) => core.call("ipc.resource.move", { input, by }));
+  // Moving artifacts (0.11.1, 10): the overseer and the window run the same move, each under its caller's authoring label.
+  installArtifactMove((input, by) => AppRuntime.runPromise(moveArtifacts(resourcePorts, input, by)));
   registerAutomationIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
   // Where each seat, task, artifact and page is mentioned (work/mention-ipc.ts).
   registerMentionIpc(privilegedIpc, (effect) => AppRuntime.runPromise(effect), {
@@ -490,17 +495,17 @@ export const registerJuntoIpc = (): void => {
   // one (typed into the seat as operator mail, then marked answered), or
   // dismisses it. Every change is broadcast as the signal now stands.
   privilegedIpc.handle(IPC_CHANNELS.agentSignalsList, (_event, canvas: string) =>
-    core.call("ipc.signals.list", { canvasName: canvas }),
+    AppRuntime.runPromise(listCanvasAgentSignals(canvas)),
   );
   privilegedIpc.handle(IPC_CHANNELS.mailWaitingRead, () => core.call("ipc.threads.mailWaiting", {}));
   const runSignalOperator = (
     label: MainAuthoringLabel,
-    operation: () => Promise<AgentSignalOperatorResult>,
+    program: Effect.Effect<AgentSignalOperatorResult, never, AgentSignalRepository | WorkService>,
   ): Promise<AgentSignalOperatorResult> =>
     // The window hears of the answer through the store's own change, as every
     // committed signal write is pushed from one place (main/index.ts), so this
     // path only answers the caller.
-    runMainAuthoring(label, operation)
+    runMainAuthoring(label, () => AppRuntime.runPromise(program))
       .catch((error: unknown) => ({
         ok: false as const,
         message: error instanceof Error ? error.message : "signal update failed",
@@ -510,10 +515,9 @@ export const registerJuntoIpc = (): void => {
     async (_event, signalId: string, text: string, options?: AgentSignalAnswerOptions) => {
       const files = Schema.decodeUnknownResult(OperatorAttachments)(options?.attachments ?? []);
       if (Result.isFailure(files)) return { ok: false as const, message: "The attached files could not be read." };
-      const result = await runSignalOperator("ipc.work.signal-answer", () =>
-        core.call("ipc.signals.answer", {
-          signalId: String(signalId),
-          text: String(text),
+      const result = await runSignalOperator(
+        "ipc.work.signal-answer",
+        answerAgentSignal(String(signalId), String(text), {
           silent: options?.silent === true,
           attachments: files.success,
         }),
@@ -534,8 +538,20 @@ export const registerJuntoIpc = (): void => {
     async (_event, signalId: string, reply: unknown) => {
       const decoded = Schema.decodeUnknownResult(SignalReply)(reply);
       if (Result.isFailure(decoded)) return { ok: false as const, message: "The reply could not be read." };
-      const result = await runSignalOperator("ipc.work.signal-reply", () =>
-        core.call("ipc.signals.reply", { signalId: String(signalId), reply: decoded.success }),
+      const result = await runSignalOperator(
+        "ipc.work.signal-reply",
+        replyAgentSignal(String(signalId), decoded.success, {
+          topology: (canvasName: string) =>
+            Effect.tryPromise({
+              try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readTopology(canvasName))),
+              catch: () => ({
+                type: "InternalError" as const,
+                message: `canvas ${canvasName} could not be read`,
+                details: { retryable: true },
+              }),
+            }).pipe(Effect.map((read) => read.canvas)),
+          artifacts: liveArtifactPorts,
+        }),
       );
       // The hand-in is durable mail now: typed into the seat as an answer is.
       if (result.ok && result.messageId !== undefined) {
@@ -556,7 +572,14 @@ export const registerJuntoIpc = (): void => {
       const decoded = Schema.decodeUnknownResult(SignalSecretPutRequest)(request);
       if (Result.isFailure(decoded)) return { ok: false as const, reason: "store-failed" as const, message: "The secret could not be read." };
       const result = await runMainAuthoring("ipc.work.signal-secret-put", () =>
-        core.call("ipc.signals.secretPut", { request: decoded.success }),
+        AppRuntime.runPromise(
+          putSignalSecret(decoded.success, {
+            home: resolveJuntoHome(),
+            userHome: homedir(),
+            run: runTool,
+            path: async () => (await resolvedSpawnEnv()).PATH,
+          }),
+        ),
       // Never its text: a thrown message can hold anything the failure saw, and the
       // pane shows a refusal as a sentence. One sentence, no value, no detail.
       ).catch(() => ({ ok: false as const, reason: "store-failed" as const, message: "The secret was not set." }));
@@ -571,9 +594,7 @@ export const registerJuntoIpc = (): void => {
     },
   );
   privilegedIpc.handle(IPC_CHANNELS.agentSignalDismiss, (_event, signalId: string) =>
-    runSignalOperator("ipc.work.signal-dismiss", () =>
-      core.call("ipc.signals.dismiss", { signalId: String(signalId) }),
-    ),
+    runSignalOperator("ipc.work.signal-dismiss", dismissAgentSignal(String(signalId))),
   );
 
   // Previews of the files an agent names in a signal's detail. The detail is
@@ -849,6 +870,9 @@ export const registerJuntoIpc = (): void => {
     IPC_CHANNELS.modelChanged,
     IPC_CHANNELS.modelCanvasesChanged,
     IPC_CHANNELS.modelActorRefsChanged,
+    IPC_CHANNELS.workMailChanged,
+    IPC_CHANNELS.workSinkChanged,
+    IPC_CHANNELS.seatAwarenessChanged,
   ]) onCorePush(channel, (payload) => broadcast(channel, payload));
   void core.call("ipc.watch.model", {});
   void core.call("ipc.watch.modelCanvases", {});
@@ -869,8 +893,8 @@ export const registerJuntoIpc = (): void => {
       }).pipe(Effect.catch(() => Effect.void));
       const mailRepository = yield* WorkRepository;
       mailRepository.subscribeChanges((canvasName, nodeId, kind) => {
-        if (kind === "mail") broadcast(IPC_CHANNELS.workMailChanged, { canvasName, nodeId });
-        else broadcast(IPC_CHANNELS.workSinkChanged, { canvasName, nodeId });
+        if (kind === "mail") corePublish(IPC_CHANNELS.workMailChanged, { canvasName, nodeId });
+        else corePublish(IPC_CHANNELS.workSinkChanged, { canvasName, nodeId });
       });
       // Keep the last model topology for compact connection-change notices.
       const modelForNotices = yield* ModelService;
@@ -903,7 +927,7 @@ export const registerJuntoIpc = (): void => {
       // applies live: a change stops the plane and, when on, starts it again.
       // Display only, and never on the terminal path.
       seatAwarenessPlane.subscribe((event) =>
-        broadcast(IPC_CHANNELS.seatAwarenessChanged, event),
+        corePublish(IPC_CHANNELS.seatAwarenessChanged, event),
       );
       const applySeatAwareness = (settings: typeof settingsAtBoot): void => {
         if (!SEAT_AWARENESS_COMPILED) return;
