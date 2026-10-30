@@ -5,7 +5,7 @@ import { mailThreadOf } from "@shared/crew";
 import { pageShotOf } from "@shared/thread-subject";
 import { WorkItemQuery, WorkActorQuery, type WorkActorPage, type WorkLaneRow, WorkAttentionQuery, type WorkAttentionRow, WorkSinkQuery, type WorkSinkPage, WORK_SINK_PAGE_SIZE } from "@shared/work-sinks";
 import { WorkMailQuery, type WorkMailPage, WORK_MAIL_PAGE_SIZE } from "@shared/work-mail";
-import { workProjectionChanges } from "./projection-changes";
+import { workProjectionChanges, type WorkChange } from "./projection-changes";
 import {
   ExchangeFact,
   compareSequence,
@@ -2918,7 +2918,28 @@ const writeDelivery = Effect.fn("work.writeDelivery")(function* (
       receivedAt,
     ],
   );
-  if (receipt.deliveredItem.kind === "message") yield* afterSqlCommit(writer, () => workProjectionChanges(writer).notify(receipt.deliveredItem.sink, "mail"));
+  if (receipt.deliveredItem.kind === "message") {
+    // A receipt restamps one held message and nothing else: the mailbox names
+    // the stamp so a holder of its rows needs no read at all.
+    const sink = receipt.deliveredItem.sink;
+    const messageId = receipt.deliveredItem.itemId;
+    const at = Date.parse(receipt.acceptedAt);
+    const stamp =
+      receipt.deliveryId === mailboxMessageDeliveryId(sink.canvasName, sink.nodeId, messageId)
+        ? ("deliveredAt" as const)
+        : receipt.deliveryId === mailboxMessageReadId(sink.canvasName, sink.nodeId, messageId)
+          ? ("readAt" as const)
+          : receipt.deliveryId === mailboxMessageReactId(sink.canvasName, sink.nodeId, messageId, "ack")
+            ? ("ack" as const)
+            : undefined;
+    yield* afterSqlCommit(writer, () =>
+      workProjectionChanges(writer).notify(
+        sink,
+        "mail",
+        stamp === undefined || !Number.isFinite(at) ? undefined : { stamp: { messageId, stamp, at } },
+      ),
+    );
+  }
 });
 
 const materializeFact = Effect.fn("work.materializeFact")(function* (
@@ -3675,7 +3696,7 @@ export interface WorkRepositoryShape {
   /** The durable side of the seat-control pair: outcome, rate count, record, settle, pending. */
   readonly seatControlRows: SeatControlRows;
   readonly subscribeChanges: (
-    listener: (canvasName: string, nodeId: string, kind?: "mail" | "work") => void,
+    listener: (canvasName: string, nodeId: string, kind?: "mail" | "work", change?: WorkChange) => void,
   ) => () => void;
 }
 

@@ -33,7 +33,8 @@ import { startWorkControlServer, type WorkControlServer } from "../src/main/junt
 import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
-import { WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
+import type { WorkChange } from "../src/main/junto/work/projection-changes";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
@@ -620,6 +621,25 @@ describe("operator threads", () => {
     const [grown] = await threadsOf("agent");
     expect(grown).toMatchObject({ threadId: root.data.messageId, messageCount: 2, canReply: false });
     expect(grown?.last.messageId).toBe(reply.data.messageId);
+  });
+
+  it("announces a read receipt as a stamp on the message it names, never as mail that moved", async () => {
+    const root = await call("peer", "msg.send", { target: "agent", text: "read me" });
+    expect(root.ok).toBe(true);
+    const stamps: WorkChange[] = [];
+    const off = await runtime.runPromise(
+      Effect.flatMap(WorkRepository, (repository) =>
+        Effect.sync(() =>
+          repository.subscribeChanges((_canvas, _node, _kind, change) => {
+            if (change?.stamp !== undefined) stamps.push(change);
+          }),
+        ),
+      ),
+    );
+    const read = await call("agent", "msg.read", { messageId: root.data.messageId });
+    off();
+    expect(read.ok).toBe(true);
+    expect(stamps.at(-1)?.stamp).toEqual({ messageId: root.data.messageId, stamp: "readAt", at: expect.any(Number) });
   });
 
   it("seat to seat threads show to the operator without a reply", async () => {

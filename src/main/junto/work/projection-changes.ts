@@ -1,6 +1,22 @@
 import type { SqlClient } from "effect/unstable/sql";
 
-type Listener = (canvasName: string, nodeId: string, kind?: "mail" | "work") => void;
+/** One receipt's stamp on a mailbox message: which message, which stamp, and when. */
+export type MailboxStampChange = {
+  readonly messageId: string;
+  readonly stamp: "deliveredAt" | "readAt" | "ack";
+  readonly at: number;
+};
+
+/**
+ * What a change was, where the writer knows: a receipt that restamped one
+ * message, and nothing else. A change with no detail is the mail itself
+ * moving, and every reader of it must read again.
+ */
+export type WorkChange = {
+  readonly stamp?: MailboxStampChange;
+};
+
+type Listener = (canvasName: string, nodeId: string, kind?: "mail" | "work", change?: WorkChange) => void;
 
 // Work and crew repositories share one projection stream per installation.
 // Callers publish only after their SQL transaction has committed.
@@ -20,12 +36,16 @@ export const workProjectionChanges = (sql: SqlClient.SqlClient) => {
         current.delete(listener);
       };
     },
-    notify: (sink: { canvasName: string; nodeId: string }, kind: "mail" | "work" = "work") => {
+    notify: (
+      sink: { canvasName: string; nodeId: string },
+      kind: "mail" | "work" = "work",
+      change?: WorkChange,
+    ) => {
       // Dispatch only to the listeners present when this commit was announced.
       // Re-subscribing during a callback must not replay this same change.
       for (const listener of [...current]) {
         try {
-          listener(sink.canvasName, sink.nodeId, kind);
+          listener(sink.canvasName, sink.nodeId, kind, change);
         } catch (error) {
           // A consumer cannot turn a committed write into a failed attempt.
           console.error(

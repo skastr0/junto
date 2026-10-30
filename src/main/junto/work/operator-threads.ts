@@ -165,6 +165,13 @@ const settle = (index: CanvasThreads, threadId: string, mail: ThreadMail): void 
   for (const seat of new Set([...wasSeats, ...seats])) index.views.delete(seat);
 };
 
+/** The same messages in the same order: a receipt restamped the rows, and no thread mail moved. */
+const sameMail = (a: ReadonlyArray<Message>, b: ReadonlyArray<Message>): boolean => {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) if (a[index]!.messageId !== b[index]!.messageId) return false;
+  return true;
+};
+
 /**
  * One mailbox's rows replaced in the index: only the threads it is in are
  * rebuilt. `again` derives the same rows under other names (a rename).
@@ -177,7 +184,14 @@ const placeMailbox = (
   again = false,
 ): void => {
   const before = index.boxes.get(nodeId);
-  if (!again && before !== undefined && before.messages === messages) return;
+  if (!again && before !== undefined) {
+    if (before.messages === messages) return;
+    // A receipt restamps held rows and changes no thread mail: the box takes them, and nothing is derived.
+    if (sameMail(before.messages, messages)) {
+      index.boxes.set(nodeId, { ...before, messages });
+      return;
+    }
+  }
   const next: MailboxThreads = { messages, byThread: threadEntriesOfMailbox({ nodeId, messages }, nameOf) };
   if (messages.length === 0) index.boxes.delete(nodeId);
   else index.boxes.set(nodeId, next);

@@ -6,11 +6,17 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { heldMailbox } from "../src/main/junto/work/mailbox-cache";
+import type { WorkChange } from "../src/main/junto/work/projection-changes";
 import { WorkRepository } from "../src/main/junto/work/repository";
 import { WorkService } from "../src/main/junto/work/service";
 import type { Message } from "../src/shared/work-model";
 
-type Listener = (canvasName: string, nodeId: string, kind?: "mail" | "work") => void;
+type Listener = (canvasName: string, nodeId: string, kind?: "mail" | "work", change?: WorkChange) => void;
+
+/** A delivery, read or ack receipt on one message, as the store announces it. */
+const receipt = (messageId: string, stamp: "deliveredAt" | "readAt" | "ack", at: number): WorkChange => ({
+  stamp: { messageId, stamp, at },
+});
 
 const row = (messageId: string): Message => ({ messageId, role: "user", parts: [{ kind: "text", text: messageId }] });
 
@@ -39,7 +45,8 @@ const fixture = () => {
         Effect.provideService(WorkService, work as never),
       ),
     );
-  const announce: Listener = (canvas, node, kind) => listeners.forEach((listener) => listener(canvas, node, kind));
+  const announce: Listener = (canvas, node, kind, change) =>
+    listeners.forEach((listener) => listener(canvas, node, kind, change));
   return { state, read, announce, listeners };
 };
 
@@ -88,6 +95,46 @@ describe("held mailboxes", () => {
     state.stored = [row("a"), row("b")];
     expect(await read("factory", "seat-1")).toHaveLength(2);
     expect(state.reads).toBe(2);
+  });
+
+  it("restamps the row a receipt names, and reads nothing", async () => {
+    const { state, read, announce } = fixture();
+    await read("factory", "seat-1");
+    announce("factory", "seat-1", "mail", receipt("a", "deliveredAt", 1_763_000_000_000));
+    const [held] = await read("factory", "seat-1");
+    expect(held?.metadata).toMatchObject({ deliveredAt: 1_763_000_000_000 });
+    expect(state.reads).toBe(1);
+    // A read stamp lands beside the delivery one, and an ack as the store reads a reaction.
+    announce("factory", "seat-1", "mail", receipt("a", "readAt", 1_763_000_000_001));
+    announce("factory", "seat-1", "mail", receipt("a", "ack", 1_763_000_000_002));
+    const [stamped] = await read("factory", "seat-1");
+    expect(stamped?.metadata).toMatchObject({
+      deliveredAt: 1_763_000_000_000,
+      readAt: 1_763_000_000_001,
+      reactions: [{ kind: "ack", at: 1_763_000_000_002 }],
+    });
+    expect(state.reads).toBe(1);
+  });
+
+  it("stamps the receipts that landed during a read onto the rows it returned", async () => {
+    const { state, read, announce } = fixture();
+    state.duringRead = () => {
+      state.duringRead = undefined;
+      announce("factory", "seat-1", "mail", receipt("a", "readAt", 1_763_000_000_003));
+    };
+    const [held] = await read("factory", "seat-1");
+    expect(held?.metadata).toMatchObject({ readAt: 1_763_000_000_003 });
+    expect(state.reads).toBe(1);
+    expect(await read("factory", "seat-1")).toEqual([expect.objectContaining({ metadata: { readAt: 1_763_000_000_003 } })]);
+  });
+
+  it("leaves the held rows alone for a receipt of a message it does not hold", async () => {
+    const { state, read, announce } = fixture();
+    await read("factory", "seat-1");
+    announce("factory", "seat-1", "mail", receipt("gone", "readAt", 1_763_000_000_004));
+    const [held] = await read("factory", "seat-1");
+    expect(held?.metadata).toBeUndefined();
+    expect(state.reads).toBe(1);
   });
 
   it("subscribes once per repository", async () => {
