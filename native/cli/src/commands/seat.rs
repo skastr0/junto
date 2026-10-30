@@ -8,9 +8,11 @@ use clap::{Args, Subcommand};
 use serde::Serialize;
 
 use super::Run;
+use crate::duration::{
+    bounded_ms, parse_wait_for, socket_timeout_for as socket_timeout, until_error,
+};
 use crate::envelope;
 use crate::error::{Failure, Result};
-use crate::duration::{bounded_ms, parse_wait_for, socket_timeout_for as socket_timeout, until_error};
 use crate::{ops, wire};
 
 /// src/shared/seat-control.ts.
@@ -72,10 +74,14 @@ impl SeatUntil {
 
     /// `--until` as typed, or the refusal naming the states a wait answers on.
     fn parse(raw: &str) -> Result<Self> {
-        Self::ALL.iter().find(|(name, _)| *name == raw).map(|(_, until)| *until).ok_or_else(|| {
-            let names = Self::ALL.map(|(name, _)| name);
-            until_error("until", raw, &names)
-        })
+        Self::ALL
+            .iter()
+            .find(|(name, _)| *name == raw)
+            .map(|(_, until)| *until)
+            .ok_or_else(|| {
+                let names = Self::ALL.map(|(name, _)| name);
+                until_error("until", raw, &names)
+            })
     }
 }
 
