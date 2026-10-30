@@ -619,7 +619,7 @@
       },
       {
         "name": "The No One-Sided Edge Rule",
-        "body": "Never mark state with one colored edge: no colored left, right, top or bottom border, no stripe, no one-side inset shadow on a selected row, a card or a callout. Show state with a full border, a background tint, weight, or an icon. A selected row is an `overlay-2` tint, as in Cmd+K. A callout is a full 1px border in its hue at about 30 percent plus a tint at about 8 percent. Neutral hairline dividers and quote rules are structure, not state, and stay. A colored one-side line that is not state on a row, card or callout is kept by name: the text caret, a spinner arc, a link or mention underline, a tab indicator. `tests/one-sided-accent-border.test.ts` is the lock.",
+        "body": "Never mark state with one colored edge: no colored left, right, top or bottom border, no stripe, no one-side inset shadow on a selected row, a tab, a card or a callout. Show state with a full border, a background tint, weight, or an icon. A selected row is an `overlay-2` tint, as in Cmd+K. A callout is a full 1px border in its hue at about 30 percent plus a tint at about 8 percent. Neutral hairline dividers and quote rules are structure, not state, and stay. A colored one-side line that is not state on a row, card or callout is kept by name: the text caret, a spinner arc, a link or mention underline. `tests/one-sided-accent-border.test.ts` is the lock.",
         "section": "dos-and-donts"
       },
       {

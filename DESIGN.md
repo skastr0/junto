@@ -309,7 +309,7 @@ Familiar, quiet and exact: controls look like the controls of the best tools in 
 
 ### Navigation and lists
 - **List row:** 28px, `rounded-sm`, body 500 `ink` title with a tabular label-size `dim` meta. Hover `overlay-1`, selected `overlay-2`, focus the inset cyan ring, pending a dashed `stroke-hi` outline.
-- **Tabs:** a segmented uppercase row; the shown tab is a tint and ink text, the rest `dim`. The browser tab strip and the inspector tabs also carry a one-side amber indicator, kept for now as a tab indicator.
+- **Tabs:** a segmented uppercase row; the shown tab is a tint and ink text, the rest `dim`.
 - **Key caps:** cyan at 22 percent border, cyan at 6 percent fill, `cyan-fg` text, label size, `rounded-sm`; the md size is 22px wide and body size.
 
 ### Cmd+K command palette (signature)
@@ -320,7 +320,7 @@ The reference palette surface (`src/renderer/components/command-bar/CommandBar.t
 
 ## Do's and Don'ts
 
-**The No One-Sided Edge Rule.** Never mark state with one colored edge: no colored left, right, top or bottom border, no stripe, no one-side inset shadow on a selected row, a card or a callout. Show state with a full border, a background tint, weight, or an icon. A selected row is an `overlay-2` tint, as in Cmd+K. A callout is a full 1px border in its hue at about 30 percent plus a tint at about 8 percent. Neutral hairline dividers and quote rules are structure, not state, and stay. A colored one-side line that is not state on a row, card or callout is kept by name: the text caret, a spinner arc, a link or mention underline, a tab indicator. `tests/one-sided-accent-border.test.ts` is the lock, and its kept list is the only place an exception lives.
+**The No One-Sided Edge Rule.** Never mark state with one colored edge: no colored left, right, top or bottom border, no stripe, no one-side inset shadow on a selected row, a tab, a card or a callout. Show state with a full border, a background tint, weight, or an icon. A selected row is an `overlay-2` tint, as in Cmd+K. A callout is a full 1px border in its hue at about 30 percent plus a tint at about 8 percent. Neutral hairline dividers and quote rules are structure, not state, and stay. A colored one-side line that is not state on a row, card or callout is kept by name: the text caret, a spinner arc, a link or mention underline. `tests/one-sided-accent-border.test.ts` is the lock, and its kept list is the only place an exception lives.
 
 **The Copy Law.** No middle dot (U+00B7) on any surface: product copy, UI strings, generated documents, artifacts. Separate with commas, em dashes or spaces. Derived wire sentences read as spoken compounds ("access stops", "watch completes").
 
