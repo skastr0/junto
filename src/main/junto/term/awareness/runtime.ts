@@ -49,6 +49,12 @@ import { assessmentSignals, awarenessRetired, type SignalEnvelope } from "./seat
 export const AWARENESS_WINDOW_LINES = MAX_EVIDENCE_CANDIDATE_LINES;
 
 /**
+ * Seats one flush observes before the rest wait for the next task, so a whole
+ * fleet's moved grids never hold the main thread in one go.
+ */
+export const AWARENESS_FLUSH_BATCH = 16;
+
+/**
  * The only observer surface awareness may hold: subscribe for snapshots, and
  * read a non-flushing window when a hover needs a screen it has not seen.
  *
@@ -161,8 +167,12 @@ export const makeAwarenessRuntime = (
   const flush = (): void => {
     if (latest.size === 0) return;
     const startedAt = monotonic();
-    const pending = [...latest.values()];
-    latest.clear();
+    const pending: ObserverGridSnapshot[] = [];
+    for (const [bindingId, snapshot] of latest) {
+      latest.delete(bindingId);
+      pending.push(snapshot);
+      if (pending.length === AWARENESS_FLUSH_BATCH) break;
+    }
     for (const snapshot of pending) {
       try {
         observeSnapshot(snapshot);
@@ -173,6 +183,9 @@ export const makeAwarenessRuntime = (
     }
     flushes += 1;
     lastFlushMs = monotonic() - startedAt;
+    // The rest wait for the next task; a seat that moved meanwhile holds only
+    // its newest grid.
+    if (latest.size > 0) scheduleFlush();
   };
 
   const scheduleFlush = (): void => {

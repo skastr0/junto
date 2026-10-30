@@ -10,6 +10,7 @@ import { Context, Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { TerminalObserverPlane } from "../src/main/junto/term/observer";
 import {
+  AWARENESS_FLUSH_BATCH,
   AwarenessRuntime,
   makeAwarenessLayer,
   makeAwarenessRuntime,
@@ -432,6 +433,45 @@ describe("measured observer callback overhead", () => {
       `[awareness] flush of 8 seats (window read + projection + triggers): ${status.lastFlushMs.toFixed(3)} ms`,
     );
     expect(status.flushes).toBe(1);
+  });
+
+  it("splits a fleet's flush into bounded batches, one task each", () => {
+    const h = harness();
+    h.runtime.start();
+    const seats = AWARENESS_FLUSH_BATCH * 2 + 3;
+    for (let seat = 0; seat < seats; seat += 1) {
+      h.seats.set(`s${seat}`, {});
+      h.plane.publish(
+        makeSnapshot({ bindingId: `s${seat}`, epoch: "e1", text: `seat ${seat} evidence` }),
+      );
+    }
+    h.timers.advance(0);
+    expect(h.projection.calls()).toBe(seats);
+    expect(h.runtime.status().flushes).toBe(3);
+  });
+
+  it("takes only the digest per moved grid and builds the request when a call is sent", () => {
+    const h = harness();
+    h.runtime.start();
+    publishSeat(h);
+    h.timers.advance(0);
+    expect(h.projection.calls()).toBe(1);
+    expect(h.projection.requests()).toBe(0);
+
+    h.timers.advance(300);
+    expect(h.model.count()).toBe(1);
+    expect(h.projection.requests()).toBe(1);
+
+    // New grids inside the working-text floor: each is projected, none is asked.
+    for (let frame = 0; frame < 5; frame += 1) {
+      h.plane.publish(
+        makeSnapshot({ bindingId: "s1", epoch: "e1", text: `${EVIDENCE_TEXT}\nstep ${frame}`, seq: BigInt(frame + 2) }),
+      );
+      h.timers.advance(0);
+    }
+    expect(h.projection.calls()).toBe(6);
+    expect(h.model.count()).toBe(1);
+    expect(h.projection.requests()).toBe(1);
   });
 });
 
