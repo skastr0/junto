@@ -39,3 +39,4 @@ import "./mention-ipc";
 import "./files-remote";
 import "./files";
 import "./observability";
+import "./seat-credentials";
