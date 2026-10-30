@@ -649,7 +649,7 @@ describe("the fleet driver, from inside a judged batch", () => {
   it.each([
     ["propose", (authority: CanvasAuthority) => authority.propose({ kind: "structure.changed", seq: 1 })],
     ["tick", (authority: CanvasAuthority) => authority.tick()],
-    ["step", (authority: CanvasAuthority) => authority.step({ type: "append-reply", from: MACBOOK, to: SELF, term: 1, success: false, index: 0 } as Message)],
+    ["step", (authority: CanvasAuthority) => authority.step({ type: "append-reply", from: MACBOOK, to: SELF, term: 1, success: false, index: 0, at: 0 } as Message)],
     ["alone", (authority: CanvasAuthority) => authority.alone()],
   ] as const)("refuses %s rather than wait on the lock its judge holds", async (_name, reach) => {
     const store = await makeStore();
