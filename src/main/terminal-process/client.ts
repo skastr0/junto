@@ -4,6 +4,7 @@ import {
   TERMINAL_SPAWN,
   TerminalInbound,
   TerminalOutbound,
+  TerminalSurface,
   type TerminalData,
   type TerminalError,
   type TerminalExitEvent,
@@ -21,6 +22,8 @@ import {
 export type RemoteTerminalExit = { readonly code: number | undefined; readonly signal: number | undefined };
 
 export type RemoteTerminal = {
+  /** The name surface messages carry for this terminal (phase 3). */
+  readonly id: number;
   /** Resolves once the terminal process has spawned it; rejects when it could not. */
   readonly pid: Promise<number | undefined>;
   readonly write: (data: string) => void;
@@ -29,6 +32,12 @@ export type RemoteTerminal = {
   readonly onData: (listener: (data: string) => void) => () => void;
   readonly onExit: (listener: (event: RemoteTerminalExit) => void) => () => void;
   readonly onError: (listener: (error: Error) => void) => () => void;
+  /** Phase 3: whether keys from a surface may reach the PTY. Closed until said. */
+  readonly gate: (writable: boolean) => void;
+  /** Phase 3: a managed span holds surface keys; release writes them in order. */
+  readonly hold: (held: boolean) => void;
+  /** Phase 3: a lease ended; its surface port closes. */
+  readonly endSurface: (leaseId: string) => void;
 };
 
 export type RemoteTerminalSpawn = Omit<TerminalSpawnInput, "id">;
@@ -112,6 +121,7 @@ export const terminalClient = (port: CorePort): TerminalClient => {
       // A refused spawn is reported on the terminal; the pid's own rejection is for a waiter.
       pid.catch(() => undefined);
       return {
+        id,
         pid,
         write: (data) => post(TerminalInbound.write, { id, data }),
         resize: (cols, rows) => post(TerminalInbound.resize, { id, cols, rows }),
@@ -119,6 +129,9 @@ export const terminalClient = (port: CorePort): TerminalClient => {
         onData: subscribe(id, (terminal) => terminal.data),
         onExit: subscribe(id, (terminal) => terminal.exit),
         onError: subscribe(id, (terminal) => terminal.error),
+        gate: (writable) => post(TerminalSurface.gate, { id, writable }),
+        hold: (held) => post(TerminalSurface.hold, { id, held }),
+        endSurface: (leaseId) => post(TerminalSurface.close, { id, leaseId }),
       };
     },
     fail: (reason) => {

@@ -12,6 +12,13 @@ import {
   type TerminalResize,
   type TerminalSpawnInput,
   type TerminalWrite,
+  TerminalSurface,
+  type SurfaceIn,
+  type SurfaceOut,
+  type TerminalGate,
+  type TerminalHold,
+  type TerminalSurfaceClose,
+  type TerminalSurfaceOpen,
 } from "./protocol";
 
 /**
@@ -53,18 +60,106 @@ const systemEpochs: PtyEpochs = {
   isCurrent: async (pid, epoch) => epoch.pid === pid && (await rowOf(pid))?.startKey === epoch.startKey,
 };
 
+/** One renderer's end of a surface port, as this process holds it. */
+export type SurfacePort = {
+  readonly post: (message: SurfaceOut) => void;
+  readonly listen: (handler: (message: SurfaceIn) => void) => () => void;
+  readonly close: () => void;
+};
+
+/** The output a surface opened late can still be given, per PTY. */
+export const SURFACE_RING_BYTES = 256 * 1024;
+
+type Chunk = { readonly seq: number; readonly data: string };
+
+/**
+ * A PTY's surfaces. Keys reach the PTY only while the core's gate is open; a
+ * managed submission span holds them, and they reach it in order at release.
+ * Gates start closed: no key is written before the core has said it may be.
+ */
+type Surfaces = {
+  seq: number;
+  ring: Chunk[];
+  ringBytes: number;
+  writable: boolean;
+  held: boolean;
+  readonly heldKeys: string[];
+  readonly open: Map<string, { readonly port: SurfacePort; readonly stop: () => void }>;
+};
+
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 export const serveTerminals = (
   port: CorePort,
   spawnPty: SpawnPty,
   epochs: PtyEpochs = systemEpochs,
-): { readonly close: () => void; readonly live: () => number } => {
+): {
+  readonly close: () => void;
+  readonly live: () => number;
+  /** A surface port arrived with its `pty.surface` message. */
+  readonly openSurface: (open: TerminalSurfaceOpen, surface: SurfacePort) => void;
+} => {
   const ptys = new Map<number, IPty>();
   // Taken at spawn; a PTY whose epoch could not be read is never signalled.
   const epochOf = new Map<number, Promise<ChildProcessEpoch | undefined>>();
+  const surfacesOf = new Map<number, Surfaces>();
   const push = (channel: string, payload: TerminalData | TerminalExitEvent | TerminalError): void =>
     port.post({ kind: "push", channel, payload });
+
+  const keyed = (id: number, data: string): void => {
+    const pty = ptys.get(id);
+    const surfaces = surfacesOf.get(id);
+    if (pty === undefined || surfaces === undefined || !surfaces.writable) return;
+    if (surfaces.held) {
+      surfaces.heldKeys.push(data);
+      return;
+    }
+    try {
+      pty.write(data);
+    } catch (error) {
+      return push(TerminalOutbound.error, { id, message: errorMessage(error) });
+    }
+    // The core keeps the input clock; the key itself never waited for it.
+    port.post({ kind: "push", channel: TerminalSurface.input, payload: { id, data } });
+  };
+
+  const endSurface = (surfaces: Surfaces, leaseId: string): void => {
+    const open = surfaces.open.get(leaseId);
+    if (open === undefined) return;
+    surfaces.open.delete(leaseId);
+    open.stop();
+    open.port.post({ t: "end" });
+    open.port.close();
+  };
+
+  const output = (id: number, data: string): void => {
+    const surfaces = surfacesOf.get(id);
+    if (surfaces === undefined) return;
+    const seq = ++surfaces.seq;
+    surfaces.ring.push({ seq, data });
+    surfaces.ringBytes += data.length;
+    while (surfaces.ringBytes > SURFACE_RING_BYTES && surfaces.ring.length > 1) {
+      surfaces.ringBytes -= surfaces.ring.shift()!.data.length;
+    }
+    for (const { port: surface } of surfaces.open.values()) surface.post({ t: "out", seq, data });
+    push(TerminalOutbound.data, { id, data, seq });
+  };
+
+  const openSurface = (open: TerminalSurfaceOpen, surface: SurfacePort): void => {
+    const surfaces = surfacesOf.get(open.id);
+    if (surfaces === undefined) {
+      surface.post({ t: "end" });
+      return surface.close();
+    }
+    endSurface(surfaces, open.leaseId);
+    const oldest = surfaces.ring[0]?.seq ?? surfaces.seq + 1;
+    if (open.fromSeq < oldest && open.fromSeq <= surfaces.seq) surface.post({ t: "gap" });
+    else for (const chunk of surfaces.ring) if (chunk.seq >= open.fromSeq) surface.post({ t: "out", ...chunk });
+    const stop = surface.listen((message) => {
+      if (message.t === "in") keyed(open.id, message.data);
+    });
+    surfaces.open.set(open.leaseId, { port: surface, stop });
+  };
 
   const spawn = (input: TerminalSpawnInput): number | undefined => {
     if (ptys.has(input.id)) throw new Error(`terminal ${input.id} already exists`);
@@ -81,13 +176,17 @@ export const serveTerminals = (
     });
     ptys.set(input.id, pty);
     epochOf.set(input.id, epochs.capture(pty.pid).catch(() => undefined));
+    surfacesOf.set(input.id, { seq: 0, ring: [], ringBytes: 0, writable: false, held: false, heldKeys: [], open: new Map() });
     // The exit witness first, then the stream, as the plane installs them.
     pty.onExit(({ exitCode, signal }) => {
       ptys.delete(input.id);
       epochOf.delete(input.id);
+      const surfaces = surfacesOf.get(input.id);
+      surfacesOf.delete(input.id);
+      if (surfaces !== undefined) for (const leaseId of [...surfaces.open.keys()]) endSurface(surfaces, leaseId);
       push(TerminalOutbound.exit, { id: input.id, code: exitCode ?? undefined, signal: signal ?? undefined });
     });
-    pty.onData((data) => push(TerminalOutbound.data, { id: input.id, data }));
+    pty.onData((data) => output(input.id, data));
     return pty.pid;
   };
 
@@ -110,6 +209,29 @@ export const serveTerminals = (
       } catch (error) {
         push(TerminalOutbound.error, { id, message: errorMessage(error) });
       }
+      return;
+    }
+    if (channel === TerminalSurface.gate) {
+      const { id, writable } = payload as TerminalGate;
+      const surfaces = surfacesOf.get(id);
+      if (surfaces === undefined) return;
+      surfaces.writable = writable;
+      // A closed gate drops what a span was holding; nothing may reach the PTY.
+      if (!writable) surfaces.heldKeys.length = 0;
+      return;
+    }
+    if (channel === TerminalSurface.hold) {
+      const { id, held } = payload as TerminalHold;
+      const surfaces = surfacesOf.get(id);
+      if (surfaces === undefined) return;
+      surfaces.held = held;
+      if (!held) for (const data of surfaces.heldKeys.splice(0)) keyed(id, data);
+      return;
+    }
+    if (channel === TerminalSurface.close) {
+      const { id, leaseId } = payload as TerminalSurfaceClose;
+      const surfaces = surfacesOf.get(id);
+      if (surfaces !== undefined) endSurface(surfaces, leaseId);
       return;
     }
     if (channel === TerminalInbound.kill) {
@@ -147,5 +269,5 @@ export const serveTerminals = (
     }
   });
 
-  return { close, live: () => ptys.size };
+  return { close, live: () => ptys.size, openSurface };
 };

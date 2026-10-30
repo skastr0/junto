@@ -42,6 +42,45 @@ export const TerminalOutbound = {
   error: "pty.error",
 } as const;
 
-export type TerminalData = { readonly id: number; readonly data: string };
+export type TerminalData = { readonly id: number; readonly data: string; readonly seq: number };
 export type TerminalExitEvent = { readonly id: number; readonly code: number | undefined; readonly signal: number | undefined };
 export type TerminalError = { readonly id: number; readonly message: string };
+
+/**
+ * Phase 3: a surface port, one MessagePort per renderer control lease, joins
+ * the renderer to one PTY in the terminal process with nothing between them.
+ * Keys go in and output comes out on it; the core still holds every gate and
+ * tells the terminal process what they say.
+ *
+ * Every output chunk carries `seq`, the PTY's own count of chunks from 1, on
+ * the surface port and on the core's `pty.data` alike, so a renderer that
+ * also saw a chunk over IPC drops it the second time.
+ */
+export const TerminalSurface = {
+  /** Core to terminal process, with the port transferred: start serving it from `fromSeq`. */
+  open: "pty.surface",
+  /** Core to terminal process: the lease ended; close its port. */
+  close: "pty.surfaceEnd",
+  /** Core to terminal process: whether keys may reach the PTY at all. */
+  gate: "pty.gate",
+  /** Core to terminal process: a managed submission span holds keys; they replay at release. */
+  hold: "pty.hold",
+  /** Terminal process to core: a key reached the PTY from a surface. */
+  input: "pty.input",
+} as const;
+
+export type TerminalSurfaceOpen = { readonly id: number; readonly leaseId: string; readonly fromSeq: number };
+export type TerminalSurfaceClose = { readonly id: number; readonly leaseId: string };
+export type TerminalGate = { readonly id: number; readonly writable: boolean };
+export type TerminalHold = { readonly id: number; readonly held: boolean };
+export type TerminalInput = { readonly id: number; readonly data: string };
+
+/** On a surface port: the terminal process to the renderer. */
+export type SurfaceOut =
+  | { readonly t: "out"; readonly seq: number; readonly data: string }
+  /** The chunks from `fromSeq` are gone from the ring: read the screen again. */
+  | { readonly t: "gap" }
+  | { readonly t: "end" };
+
+/** On a surface port: the renderer to the terminal process. */
+export type SurfaceIn = { readonly t: "in"; readonly data: string };
