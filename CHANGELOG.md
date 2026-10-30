@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.11.5 — 2026-10-30
+
+No database change: 0.11.5 opens the same version 71 as 0.11.4.
+
+- The feed's Needs you seat chips fold behind one Seats toggle and follow the
+  region pick, so a canvas of dozens of seats no longer fills the row.
+- A seat's Threads count only replies to the operator as unread, and the
+  operator's threads are listed first.
+
 ## 0.11.4 — 2026-10-30
 
 Opening the database with 0.11.4 moves it to version 71, and 0.11.3 then
