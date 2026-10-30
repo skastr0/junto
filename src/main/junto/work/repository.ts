@@ -3254,6 +3254,22 @@ const exchangeAuthorWasThere = Effect.fn("work.exchangeAuthorWasThere")(function
     // was sent.
     const judgedSeq =
       fact.body.operation === "automation.firing" ? fact.body.claimSeq : fact.basis.seq;
+    if (fact.body.operation === "automation.firing") {
+      // Only the machine that minted a firing writes its revs (S3): the
+      // row's machine must name the writing installation's machine. An
+      // absent machine is not this row's to write.
+      const own = (yield* canonicalLocalWorkAuthority(reader)).installationId;
+      const named = writer === own
+        ? yield* reader.unsafe<{ machine_name: string }>(
+            "SELECT machine_name FROM machine_configuration WHERE singleton = 1",
+            [],
+          )
+        : yield* reader.unsafe<{ machine_name: string }>(
+            "SELECT machine_name FROM machine_peers WHERE installation_id = ?",
+            [writer],
+          );
+      if (named[0] === undefined || fact.body.firing.machine !== named[0].machine_name) return false;
+    }
     const placed = yield* reader.unsafe<{ found: number }>(
       `
         SELECT 1 AS found
@@ -4819,6 +4835,24 @@ export const WorkRepositoryLive = Layer.effect(
         (writer) =>
           Effect.gen(function* () {
             const self = (yield* canonicalLocalWorkAuthority(writer)).installationId;
+            // Only the machine that minted a firing writes its revs (S3): a
+            // firing stamped with another machine's name is folded state,
+            // never this machine's to revise. A firing with no machine is
+            // local — minted before the field existed or unnamed.
+            if (input.firing.machine !== undefined) {
+              const named = yield* writer.unsafe<{ machine_name: string }>(
+                "SELECT machine_name FROM machine_configuration WHERE singleton = 1",
+                [],
+              );
+              if (input.firing.machine !== named[0]?.machine_name) {
+                return yield* Effect.fail(
+                  authorityError(
+                    "authority-mismatch",
+                    `a firing minted on ${input.firing.machine} is not this machine's to revise`,
+                  ),
+                );
+              }
+            }
             const at = yield* Effect.try(now.bind(undefined));
             const canvas = yield* writer.unsafe<{ seq: number }>(
               "SELECT seq FROM canvases WHERE canvas_name = ?",

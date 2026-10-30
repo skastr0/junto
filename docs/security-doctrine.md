@@ -331,6 +331,22 @@ one of six closed reasons (not_permitted, not_found, paused, stale, rate,
 failed), never harness or spawn text. A compromised automation machine can
 start and stop every seat its automations reach, within that bound.
 
+**Firing log.** A firing's revisions cross as `automation.firing` rows, and
+only the machine that minted a firing ever writes a rev for it: the row's
+`firing.machine` must name the writing installation's machine, an absent
+machine refuses the row, and a rev arriving for a firing already held from
+another machine is refused with the held row unchanged. Each rev is admitted
+at the canvas count its claim was minted under (`claimSeq`), so a move
+mid-firing leaves the in-flight firing to settle on the old machine. The
+receiver folds the highest rev into `automation_firings` — where folded rows
+still hold the shared claim key and limits, so a moved automation cannot
+fire a slot twice — but a rev whose clock cannot be true is refused: an
+`at` ahead of the receiver by more than a small skew, a slot ahead of its
+own `at`, or an `at` more than a day old. Folds are bounded to six revs per
+automation per minute so a flood cannot push real history out. A folded
+firing never runs here: a row whose machine is not this one is never
+resolved, swept or settled, and never produces a local rev.
+
 Before registering a writer, materializing a row or advancing a cursor, the
 receiver verifies the peer's authority for that exact canvas, the row's writer,
 author and subject, and the recipient's entitlement. A machine writes for its

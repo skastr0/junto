@@ -30,8 +30,11 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { makeRowsChannel, type RowsChannelContext } from "../src/main/junto/work/exchange/channel";
 import { makeLiveRowExchange } from "../src/main/junto/work/exchange/live";
+import { HeldSeatControls, makeHeldSeatControls } from "../src/main/junto/work/exchange/seat-controls";
 import type { RowExchange } from "../src/main/junto/work/exchange/session";
-import { WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
+import { ActorSeatOccupy } from "../src/main/junto/term/actor-seat-occupy";
 import { makeResourceSubmitLayer } from "../src/main/junto/work/resource-submit";
 import { RulingRecorderLive } from "../src/main/junto/work/ruling-recorder";
 import { TaskRepositoryLive } from "../src/main/junto/work/task-repository";
@@ -109,7 +112,16 @@ const boot = async (name: string, self: InstallationId, pin: readonly [string, I
       const machines = yield* MachineRepository;
       yield* machines.configureName(name);
       yield* machines.pinPeer({ machineName: pin[0], installationId: pin[1] });
-      return yield* makeLiveRowExchange({ mailArrived: () => {} });
+      const repository = yield* WorkRepository;
+      const heldControls = yield* makeHeldSeatControls(repository.seatControlRows).pipe(
+        Effect.provideService(ActorSeatOccupy, ActorSeatOccupy.of({
+          occupy: () => Effect.die("no seat process in this test"),
+          occupancy: () => Effect.die("no seat process in this test"),
+        })),
+      );
+      return yield* makeLiveRowExchange({ mailArrived: () => {} }).pipe(
+        Effect.provideService(HeldSeatControls, heldControls),
+      );
     }),
   );
   const machine: Machine = { name, self, root, runtime, exchange, channel: makeRowsChannel(exchange) };
@@ -188,7 +200,7 @@ const rule = (macbook: Machine, op: AutomationOp, opId: string) =>
     ),
   );
 
-const firing = (ulid: string, claimSeq: number, outcome: Firing["outcome"], at = 1_000, slot = 60_000): Firing => ({
+const firing = (ulid: string, claimSeq: number, outcome: Firing["outcome"], at = Date.now(), slot = 60_000): Firing => ({
   firingId: firingId(ulid),
   automationId: NIGHTLY,
   at,
@@ -228,7 +240,7 @@ it("the automation's machine crosses each revision; a late settle from the machi
   expect(await firingsOn(macbook)).toEqual([skipped]);
 
   // A live claim does not cross; the settle is its first rev on the wire.
-  const claimed = firing("01M62CCCCCCCCCCCCCCCCCCCCC", placed, { kind: "claimed" }, 2_000, 120_000);
+  const claimed = firing("01M62CCCCCCCCCCCCCCCCCCCCC", placed, { kind: "claimed" }, Date.now(), 120_000);
   expect(await claimOn(mini, claimed)).toEqual({ _tag: "Claimed" });
   await settleOn(mini, claimed, { kind: "fired", actions: [{ index: 0, ruling: "applied" }] });
   await push(mini);
@@ -246,7 +258,7 @@ it("the automation's machine crosses each revision; a late settle from the machi
 
   // A firing the mini claimed before the move settles late on the mini: its
   // rev still states the claim's count, so the macbook admits and folds it.
-  const inflight = firing("01M62DDDDDDDDDDDDDDDDDDDDD", placed, { kind: "claimed" }, 3_000, 180_000);
+  const inflight = firing("01M62DDDDDDDDDDDDDDDDDDDDD", placed, { kind: "claimed" }, Date.now(), 180_000);
   expect(await claimOn(mini, inflight)).toEqual({ _tag: "Claimed" });
   await settleOn(mini, inflight, { kind: "fired", actions: [{ index: 0, ruling: "applied" }] });
   await push(mini);
@@ -281,4 +293,65 @@ it("a rev stating a count where the writer did not run the automation is refused
   await push(mini);
   expect(String(await settle())).toContain("a row was not written where its author lives");
   expect(await firingsOn(macbook)).toEqual([]);
+});
+
+it("the editor folds a queued firing and takes its settled row, but writes no rev", { timeout: 30_000 }, async () => {
+  const macbook = await boot("macbook", MACBOOK, ["mini", MINI]);
+  const mini = await boot("mini", MINI, ["macbook", MACBOOK]);
+  const peer = seat("peer", { x: 0, y: 300, width: 200, height: 100, host: "mini" as never, agentKey: "mini:claude", bindingId: "binding-peer" as never });
+  await macbook.runtime.runPromise(seedCanvas("factory", [peer, automations("routines", { x: 400, y: 0 })]));
+
+  expect((await rule(macbook, { kind: "create", automationId: NIGHTLY, enabled: true, machine: "mini" as never, definition }, "01M62AFFFFFFFFFFFFFFFFFFF1")).kind).toBe("applied");
+  const placed = await countOn(macbook);
+  expect(await link(macbook, mini)).toBeUndefined();
+
+  // A firing holds an action queued on the mini's seat; the held state is
+  // its first rev on the wire, and the macbook folds it.
+  const since = Date.now();
+  const heldOutcome = {
+    kind: "fired",
+    actions: [{ index: 0, ruling: "queued", waitingOn: { machine: "mini", since } }],
+  } as const;
+  const held = firing("01M62BBBBBBBBBBBBBBBBBBBBB", placed, { kind: "claimed" });
+  expect(await claimOn(mini, held)).toEqual({ _tag: "Claimed" });
+  await settleOn(mini, held, heldOutcome);
+  await push(mini);
+  expect(await settle()).toBeUndefined();
+  expect(await firingsOn(macbook)).toMatchObject([{ firingId: held.firingId, outcome: heldOutcome }]);
+
+  // The seat's own machine writes the settled row; the macbook takes it as
+  // the canvas's authority. Only the mini may revise the firing, so the
+  // folded row stays exactly as the mini's rev left it and no rev is
+  // written on the macbook.
+  await mini.runtime.runPromise(
+    Effect.flatMap(WorkRepository, (repository) =>
+      repository.seatControlRows.settle({
+        canvasName: "factory",
+        controlId: "control-1",
+        seat: "peer",
+        seatId: deriveActorSeatId(MINI, "binding-peer" as never),
+        op: "start",
+        automationNode: ROUTINES,
+        automationId: NIGHTLY,
+        firingId: held.firingId,
+        actionIndex: 0,
+        result: "applied",
+      }),
+    ),
+  );
+  await push(mini);
+  expect(await settle()).toBeUndefined();
+  // The settled row's resolve runs forked from the frame it arrived in.
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  expect(await firingsOn(macbook)).toMatchObject([{ firingId: held.firingId, outcome: heldOutcome }]);
+  await macbook.runtime.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const revs = yield* sql.unsafe<{ revs: number }>(
+        "SELECT count(*) AS revs FROM work_events WHERE event_home = ? AND item_kind = 'automation-firing'",
+        [MACBOOK],
+      );
+      expect(revs[0]!.revs).toBe(0);
+    }),
+  );
 });

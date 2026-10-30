@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Schema, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import {
   Automation,
@@ -36,6 +36,14 @@ export class AutomationPersistenceError extends Schema.TaggedError<AutomationPer
 
 /** Firings kept per automation (07): older ones are pruned as new ones are claimed. */
 export const FIRINGS_KEPT = 1_000;
+
+/** A folded firing this far ahead of the receiver's clock is forged or skewed past trust (S3). */
+const FIRING_FUTURE_SKEW_MS = 2 * 60_000;
+/** A folded firing this old on the receiver's clock is stale, as a seat.control is (S3). */
+const FIRING_STALE_MS = 24 * 60 * 60_000;
+/** Folded revisions admitted per automation in a minute: a flood cannot push real history out (S3). */
+const FOLDED_REVS_PER_MINUTE = 6;
+const FOLDED_REVS_WINDOW_MS = 60_000;
 
 export type ClaimResult = { readonly _tag: "Claimed" } | { readonly _tag: "Duplicate" };
 
@@ -301,6 +309,46 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
           Effect.mapError(failure(operation)),
         );
 
+      // Only the machine that minted a firing settles or rewrites it (S3): a
+      // folded row carries another machine's name. This machine's name comes
+      // from machine_configuration; a store without it names no machine, so
+      // rows that carry a machine are not this one's. A firing with no
+      // machine is local — minted before the field existed or on a machine
+      // that could not name itself.
+      const localMachine = Effect.fn("AutomationRepository.localMachine")(function* () {
+        const rows = yield* sql<{ readonly machine_name: string }>`
+          SELECT machine_name FROM machine_configuration WHERE singleton = 1
+        `.pipe(Effect.orElseSucceed((): ReadonlyArray<{ readonly machine_name: string }> => []));
+        return rows[0]?.machine_name;
+      });
+      const mintedHere = (firing: FiringType, local: string | undefined) =>
+        firing.machine === undefined || firing.machine === local;
+
+      // Every settle of a canvas's firings holds this semaphore, so
+      // settledArrived, the held-action sweep and the runner cannot race one
+      // firing's update, and each rev is written inside the settle's own
+      // transaction: rev order is write order (S3).
+      const settleSemaphores = new Map<string, Semaphore.Semaphore>();
+      const settleSemaphore = (canvasName: string) => {
+        const held = settleSemaphores.get(canvasName);
+        if (held !== undefined) return held;
+        const made = Semaphore.makeUnsafe(1);
+        settleSemaphores.set(canvasName, made);
+        return made;
+      };
+
+      // Folded revisions admitted per (canvas, automation): the bound that
+      // keeps a flood of crossed revs from evicting real history (S3).
+      const foldedRevTimes = new Map<string, number[]>();
+      const foldRateAdmits = (canvasName: string, automationId: string, now: number) => {
+        const key = `${canvasName} ${automationId}`;
+        const seen = (foldedRevTimes.get(key) ?? []).filter((at) => now - at < FOLDED_REVS_WINDOW_MS);
+        foldedRevTimes.set(key, seen);
+        if (seen.length >= FOLDED_REVS_PER_MINUTE) return false;
+        seen.push(now);
+        return true;
+      };
+
       const loadState = Effect.fn("AutomationRepository.loadState")(function* (canvasName: string) {
         return yield* readState(sql, canvasName).pipe(Effect.mapError(failure("load-state")));
       });
@@ -485,14 +533,28 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         firing: FiringType,
         outcome: FiringOutcome,
       ) {
+        const local = yield* localMachine();
+        if (!mintedHere(firing, local)) {
+          return yield* new AutomationPersistenceError({
+            operation: "settle-firing",
+            message: `a firing minted on ${String(firing.machine)} is not this machine's to settle`,
+            cause: firing.machine,
+          });
+        }
         const settled: FiringType = { ...firing, outcome };
-        yield* sql`
-          UPDATE automation_firings
-          SET fired = ${countsAsFired(outcome) ? 1 : 0}, firing_json = ${JSON.stringify(encodeFiring(settled))}
-          WHERE canvas_name = ${canvasName} AND firing_id = ${firing.firingId}
-        `.pipe(Effect.mapError(failure("settle-firing")));
-        // Every change a firing lives through crosses as its next revision (S3).
-        yield* crossFiring(canvasName, settled);
+        yield* settleSemaphore(canvasName).withPermits(1)(
+          transaction("settle-firing", Effect.gen(function* () {
+            yield* sql`
+              UPDATE automation_firings
+              SET fired = ${countsAsFired(outcome) ? 1 : 0}, firing_json = ${JSON.stringify(encodeFiring(settled))}
+              WHERE canvas_name = ${canvasName} AND firing_id = ${firing.firingId}
+            `.pipe(Effect.mapError(failure("settle-firing")));
+            // Every change a firing lives through crosses as its next
+            // revision, written in the settle's own transaction so rev order
+            // is write order (S3).
+            yield* crossFiring(canvasName, settled);
+          })),
+        );
         yield* firingChanged(canvasName, firing.automationId);
       });
 
@@ -529,20 +591,24 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         });
       });
 
-      /** One firing by id: a settled row that arrives after the run needs its firing as it stands. */
+      /** One firing by id: a settled row that arrives after the run resolves only a firing minted here (S3). */
       const firing = Effect.fn("AutomationRepository.firing")(function* (canvasName: string, firingId: FiringId) {
         const rows = yield* sql<{ readonly firing_json: string }>`
           SELECT firing_json FROM automation_firings
           WHERE canvas_name = ${canvasName} AND firing_id = ${firingId}
         `.pipe(Effect.mapError(failure("firing")));
-        return yield* Effect.try({
+        const decoded = yield* Effect.try({
           try: () => (rows[0] === undefined ? undefined : decodeFiring(JSON.parse(rows[0].firing_json))),
           catch: failure("firing"),
         });
+        if (decoded === undefined) return undefined;
+        const local = yield* localMachine();
+        return mintedHere(decoded, local) ? decoded : undefined;
       });
 
-      /** Every firing with an action still queued: what a held-action sweep resolves. */
+      /** Every firing minted here with an action still queued: what a held-action sweep resolves (S3). */
       const queuedFirings = Effect.fn("AutomationRepository.queuedFirings")(function* (canvasName: string) {
+        const local = yield* localMachine();
         const rows = yield* sql<{ readonly firing_json: string }>`
           SELECT firing_json FROM automation_firings
           WHERE canvas_name = ${canvasName}
@@ -551,6 +617,7 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
               SELECT 1 FROM json_each(firing_json, '$.outcome.actions') AS action
               WHERE json_extract(action.value, '$.ruling') = 'queued'
             )
+            AND (json_extract(firing_json, '$.machine') IS NULL OR json_extract(firing_json, '$.machine') = ${local ?? null})
         `.pipe(Effect.mapError(failure("queued-firings")));
         return yield* Effect.try({
           try: () => rows.map((row) => decodeFiring(JSON.parse(row.firing_json))),
@@ -565,14 +632,60 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         return yield* transaction("fold-remote-firing", Effect.gen(function* () {
           const { body } = arrived;
           const firing = body.firing;
+          // A rev that cannot be true on this machine's clock is refused, not
+          // folded: a future `at` would make min_interval skip the automation
+          // wherever it now runs, a slot ahead of its own `at` is a claim the
+          // writer never made, and a firing a day old is stale as a
+          // seat.control is (S3).
+          const now = Date.now();
+          const slotAheadOfAt =
+            (firing.cause.kind === "schedule" || firing.cause.kind === "poll") && firing.cause.slot > firing.at;
+          if (firing.at > now + FIRING_FUTURE_SKEW_MS || firing.at + FIRING_STALE_MS < now || slotAheadOfAt) {
+            yield* Effect.logWarning("a firing revision's clock cannot be true").pipe(
+              Effect.annotateLogs({
+                area: "exchange",
+                canvas: canvasName,
+                firing: String(firing.firingId),
+                at: firing.at,
+                writer: arrived.writer,
+              }),
+            );
+            return { folded: false };
+          }
           // The highest rev per firing id wins: the arriving revision is
           // judged against the held row's rev in this same transaction.
-          const held = yield* sql<{ readonly rev: number }>`
-            SELECT rev FROM automation_firings
+          const held = yield* sql<{ readonly rev: number; readonly firing_json: string }>`
+            SELECT rev, firing_json FROM automation_firings
             WHERE canvas_name = ${canvasName} AND firing_id = ${firing.firingId}
           `.pipe(Effect.mapError(failure("fold-remote-firing")));
           if (held[0] !== undefined) {
             if (body.rev <= held[0].rev) return { folded: false };
+            // A rev for a held firing id comes only from the machine that
+            // minted it: any other writer is refused and the held row stands
+            // (S3). A held row without a machine minted here, so no remote
+            // machine matches it.
+            const heldMachine = yield* Effect.try({
+              try: () => decodeFiring(JSON.parse(held[0].firing_json)).machine,
+              catch: () => undefined,
+            }).pipe(Effect.orElseSucceed(() => undefined));
+            if (heldMachine !== firing.machine) {
+              yield* Effect.logWarning("a firing revision came from a machine that did not mint the firing").pipe(
+                Effect.annotateLogs({
+                  area: "exchange",
+                  canvas: canvasName,
+                  firing: String(firing.firingId),
+                  heldMachine: heldMachine ?? "unknown",
+                  arrivingMachine: firing.machine ?? arrived.writer,
+                }),
+              );
+              return { folded: false };
+            }
+            if (!foldRateAdmits(canvasName, firing.automationId, now)) {
+              yield* Effect.logWarning("firing revisions are crossing faster than six a minute").pipe(
+                Effect.annotateLogs({ area: "exchange", canvas: canvasName, firing: String(firing.firingId) }),
+              );
+              return { folded: false };
+            }
             yield* sql`
               UPDATE automation_firings
               SET at_epoch_ms = ${firing.at},
@@ -582,6 +695,12 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
               WHERE canvas_name = ${canvasName} AND firing_id = ${firing.firingId}
             `.pipe(Effect.mapError(failure("fold-remote-firing")));
             return { folded: true };
+          }
+          if (!foldRateAdmits(canvasName, firing.automationId, now)) {
+            yield* Effect.logWarning("firing revisions are crossing faster than six a minute").pipe(
+              Effect.annotateLogs({ area: "exchange", canvas: canvasName, firing: String(firing.firingId) }),
+            );
+            return { folded: false };
           }
           const claimKey = claimKeyOf(firing);
           const inserted = yield* sql<{ readonly firing_id: string }>`
