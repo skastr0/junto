@@ -6,7 +6,7 @@ import { CircleAlert, ExternalLink, Search, FileCode, FilePlus, FileQuestion, Fi
 import type { NodeId } from "@shared/physics/schema";
 import type { FilePlaceAnchor } from "@shared/thread-subject";
 import { titleOf } from "@shared/model/title";
-import { baseName, parentOf, parseFilePath, ROOT_PATH, sameStamp, type FilePath, type FileRead, type FilesNodeRef, type FileStamp } from "@shared/files";
+import { baseName, parentOf, parseFilePath, ROOT_PATH, sameStamp, type FilePath, type FileRead, type FilesNodeRef, type FilesResult, type FileStamp } from "@shared/files";
 import { nodeAt, useNode } from "../../lib/use-model";
 import { useFollowOpen } from "../../lib/work-detail-open";
 import {
@@ -587,12 +587,17 @@ function SelectedFile({
 
   /** Bumped by a read from disk only, so a save never remounts the editor under the caret. */
   const [epoch, setEpoch] = useState(0);
-  const load = useCallback(async (): Promise<FileRead | null> => {
-    const result = await filesSource().read(filesRef, path);
+  /** The version on disk this pane last read or wrote: a change event that finds it still there changed nothing here. */
+  const known = useRef<FileStamp | null>(null);
+  /** A write in flight; a second Cmd+S waits for it rather than racing it. */
+  const writing = useRef(false);
+  const shown = useCallback((result: FilesResult<FileRead>): FileRead | null => {
+    known.current = result.ok ? result.value.stamp : null;
     setRead(result.ok ? { state: "ready", value: result.value } : { state: "refused", error: result.error });
     setEpoch((last) => last + 1);
     return result.ok ? result.value : null;
-  }, [filesRef, path]);
+  }, []);
+  const load = useCallback(async (): Promise<FileRead | null> => shown(await filesSource().read(filesRef, path)), [shown, filesRef, path]);
   useEffect(() => {
     // A draft held while the modal was closed may be on a version the disk has since left: say so on open, not at Save.
     void load().then((now) => {
@@ -601,13 +606,17 @@ function SelectedFile({
     });
     return filesSource().onChange((event) => {
       if (!changeTouches(event, nodeId, path)) return;
-      // A clean file follows the disk; a draft is the operator's until they choose.
-      if (fileDraft(nodeId, path) === undefined) void load();
-      else void filesSource()
+      void filesSource()
         .read(filesRef, path)
-        .then((now) => setStale(!now.ok && now.error === "not-found" ? "deleted" : "changed"));
+        .then((now) => {
+          // This pane's own save, told at once and again by the watch, or a write still out that will say what it found.
+          if (writing.current || (now.ok && known.current !== null && sameStamp(now.value.stamp, known.current))) return;
+          // A clean file follows the disk; a draft is the operator's until they choose.
+          if (fileDraft(nodeId, path) === undefined) shown(now);
+          else setStale(!now.ok && now.error === "not-found" ? "deleted" : "changed");
+        });
     });
-  }, [load, filesRef, nodeId, path]);
+  }, [load, shown, filesRef, nodeId, path]);
 
   /** The bar or the control pressed just went away: the keyboard goes back to the file. */
   const backToFile = (): void => {
@@ -624,8 +633,6 @@ function SelectedFile({
     setFileDraft(nodeId, path, next === text.text && sameStamp(base, text.stamp) ? undefined : { text: next, base });
   };
 
-  /** A write in flight; a second Cmd+S waits for it rather than racing it. */
-  const writing = useRef(false);
   const write = async (body: string, base: FileStamp | null): Promise<boolean> => {
     writing.current = true;
     setSaving(true);
@@ -633,6 +640,7 @@ function SelectedFile({
     writing.current = false;
     setSaving(false);
     if (result.ok) {
+      known.current = result.value;
       // Text typed while the write was out is still unsaved: it stays, on the new version.
       const now = fileDraft(nodeId, path);
       setFileDraft(nodeId, path, now === undefined || now.text === body ? undefined : { text: now.text, base: result.value });

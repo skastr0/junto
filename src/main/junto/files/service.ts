@@ -288,8 +288,16 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       withRoot(ref, (root) => listDir(root, dir)),
     read: (ref: FilesNodeRef, path: FilePath): Promise<FilesResult<FileRead>> =>
       withRoot(ref, (root) => readFileAt(root, path)),
+    /**
+     * A save is told to every window on the root as it lands: a twin node on
+     * the same folder need not wait for the watch, which says it again later.
+     */
     write: (ref: FilesNodeRef, path: FilePath, text: string, base: FileStamp | null): Promise<FilesResult<FileStamp>> =>
-      (base === null ? changing : withRoot)(ref, (root) => writeFileAt(root, path, text, base)),
+      (base === null ? changing : withRoot)(ref, async (scope) => {
+        const result = await writeFileAt(scope, path, text, base);
+        if (result.ok) onEvent(scope.root, { kind: "paths", paths: [path] });
+        return result;
+      }),
     create: (ref: FilesNodeRef, path: FilePath, dir: boolean): Promise<FilesResult<FileEntry>> =>
       changing(ref, (root) => createAt(root, path, dir)),
     rename: (ref: FilesNodeRef, path: FilePath, name: string): Promise<FilesResult<FilePath>> =>

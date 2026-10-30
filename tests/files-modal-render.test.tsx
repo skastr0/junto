@@ -121,6 +121,36 @@ describe("the Files modal", () => {
     expect(await files.read(ref, A)).toMatchObject({ ok: true, value: { text: "mine" } });
   });
 
+  it("its own save, told again by the watch while the operator types on, leaves no stale bar", async () => {
+    const files = makeLocalFiles({ "src/a.ts": "one" });
+    installFilesSource(files);
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} initialPath={A} onClose={() => undefined} />));
+    await flush();
+    const read = await files.read(ref, A);
+    if (!read.ok) throw new Error("expected a file");
+    await act(async () => setFileDraft(nodeId, A, { text: "two", base: read.value.stamp }));
+    await press(buttonNamed("Save"));
+    const saved = await files.read(ref, A);
+    if (!saved.ok) throw new Error("expected a file");
+    await act(async () => setFileDraft(nodeId, A, { text: "two and more", base: saved.value.stamp }));
+    await act(async () => files.announce({ node: nodeId, kind: "paths", paths: [A] }));
+    await flush();
+    expect(document.querySelector(".files-stale")).toBeNull();
+    expect(fileDraft(nodeId, A)?.text).toBe("two and more");
+  });
+
+  it("a clean file shows a save made through a twin node as the change is told", async () => {
+    const files = makeLocalFiles({ "src/a.ts": "one" });
+    installFilesSource(files);
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} initialPath={A} onClose={() => undefined} />));
+    await flush();
+    // The twin's save lands on the same folder: main tells this node of the path as the write lands.
+    await act(async () => files.touch(nodeId, "src/a.ts", "theirs"));
+    await flush();
+    expect(document.querySelector(".files-stale")).toBeNull();
+    expect(document.querySelector(".files-code .cm-content")?.textContent).toBe("theirs");
+  });
+
   it("offers the default app and Finder for a file it does not open", async () => {
     installFilesSource(makeLocalFiles({ "a.zip": { size: 10 } }));
     await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} initialPath={parseFilePath("a.zip")!} onClose={() => undefined} />));

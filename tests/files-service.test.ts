@@ -225,11 +225,32 @@ describe("two nodes on one folder", () => {
     while (queued.length > 0) queued.shift()?.();
     await files.settle();
     const told = sent.filter(({ event }) => event.kind === "paths" && event.paths.includes(p("README.md")));
-    expect(told.map(({ subscriber, event }) => [subscriber, event.node])).toEqual([
+    // Once as the save lands, once more when the watch says it.
+    const each = [
       [1, ref.node],
       [1, twin.node],
       [2, twin.node],
+    ];
+    expect(told.map(({ subscriber, event }) => [subscriber, event.node])).toEqual([...each, ...each]);
+  });
+});
+
+describe("a save told at once", () => {
+  it("tells every node on the folder as the write lands, before the watch has said anything", async () => {
+    const watch = manualWatch();
+    const { files, sent } = service({ watch: watch.factory, timers: { set: () => undefined, clear: () => undefined } });
+    const twin: FilesNodeRef = { canvas: "main", node: asNodeId("files-01M5Z6HYFZY0C19XKP9Y1GY5RJ") };
+    value(await files.open(1, ref));
+    value(await files.open(2, twin));
+    const stamp = value(await files.read(ref, p("README.md"))).stamp;
+    value(await files.write(ref, p("README.md"), "# saved\n", stamp));
+    expect(sent.map(({ subscriber, event }) => [subscriber, event])).toEqual([
+      [1, { node: ref.node, kind: "paths", paths: [p("README.md")] }],
+      [2, { node: twin.node, kind: "paths", paths: [p("README.md")] }],
     ]);
+    // A refused write tells no one.
+    expect(errorOf(await files.write(ref, p("README.md"), "late\n", stamp))).toBe("stale");
+    expect(sent).toHaveLength(2);
   });
 });
 
