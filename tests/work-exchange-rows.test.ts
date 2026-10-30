@@ -181,7 +181,18 @@ describe("the rows that may cross machines", () => {
       playing: true,
     };
     expect(Result.isSuccess(decodeExchangeFrame({ kind: "copy", copy }))).toBe(true);
-    expect(Result.isSuccess(decodeExchangeFrame({ kind: "copy", copy: { ...copy, notes: [] } }))).toBe(false);
+    // A keeper's `notes` and its `authorities` list are fields of a copy (0.11/06 F3); a key the schema still does not name refuses.
+    expect(
+      Result.isSuccess(
+        decodeExchangeFrame({ kind: "copy", copy: { ...copy, notes: [], authorities: { members: [mini], term: 1, index: 9 } } }),
+      ),
+    ).toBe(true);
+    expect(Result.isSuccess(decodeExchangeFrame({ kind: "copy", copy: { ...copy, sessions: [] } }))).toBe(false);
+    expect(
+      Result.isSuccess(
+        decodeExchangeFrame({ kind: "copy", copy: { ...copy, authorities: { members: [], term: 1, index: 9, voter: mini } } }),
+      ),
+    ).toBe(false);
     expect(Result.isSuccess(decodeExchangeFrame({ kind: "copy", copy: { ...copy, target: undefined } }))).toBe(false);
     const refusal = { kind: "copy-refused", canvasName: "factory", canvasId: "canvas-factory", seq: 3, reason: "a-canvas-of-that-name" };
     expect(Result.isSuccess(decodeExchangeFrame(refusal))).toBe(true);
