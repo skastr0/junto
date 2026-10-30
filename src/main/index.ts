@@ -133,8 +133,7 @@ import {
 import { remoteVideos } from "./junto/preview/remote-video";
 import { FILE_PROTOCOL_SCHEME_REGISTRATION, installFileProtocol } from "./junto/files/protocol";
 import { makeFilesDraftsSettle } from "./junto/files/drafts-settle";
-import { registerFilesIpc } from "./junto/files/ipc";
-import { coreFilesRemote } from "./core-process/main-side/files-remote";
+import { coreFileBytes, registerFilesIpc } from "./junto/files/ipc";
 import {
   resolveTrustedRendererOrigin,
   type TrustedRendererOrigin,
@@ -360,7 +359,6 @@ applyE2eMacOsFocusIsolation({
 let trustedMainWindow: BrowserWindow | undefined;
 /** Desktop notifications; registered with the product IPC, follows each main window. */
 let notificationPlane: NotificationPlane | undefined;
-let filesService: ReturnType<typeof registerFilesIpc> | undefined;
 /** The Command Center is a trusted renderer identity, never "the first window". */
 const currentTrustedMainWindow = (): BrowserWindow | undefined => {
   const candidate = trustedMainWindow;
@@ -1556,16 +1554,10 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // Files node bytes (junto-file://<node>/<relpath>): served only for a node
     // a window opened, inside its root after realpath (src/main/junto/files/).
     try {
-      // A rename or move through Junto carries the threads written on it
-      // (0.11 F7): the service calls this after the filesystem change and
-      // before it answers, and a failure is logged there, never fails the move.
-      const filesRemote = coreFilesRemote(core);
-      filesService ??= registerFilesIpc(
-        (ref, from, to) => core.call("files.carryThreads", { canvasName: ref.canvas, nodeId: ref.node, from, to }),
-        () => filesRemote,
-      );
-      const files = filesService;
-      installFileProtocol(session.defaultSession.protocol, (node, path) => files.bytes(node, path));
+      // The Files service, its router and its index worker run in the core;
+      // main serves the channels, the shell, and these bytes in chunks.
+      registerFilesIpc();
+      installFileProtocol(session.defaultSession.protocol, coreFileBytes());
     } catch (error) {
       console.error("[files-protocol] failed to install:", error);
       exitAfterDetach(1, "files-protocol-startup-failure");

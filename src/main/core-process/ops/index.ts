@@ -37,3 +37,4 @@ import "./ipc-automation";
 import "./settings-apply";
 import "./mention-ipc";
 import "./files-remote";
+import "./files";

@@ -18,7 +18,7 @@ import { walkNames } from "../src/main/junto/files/sources";
 import { mainNameSources } from "../src/main/junto/files/git-spawn";
 import { execFileSync } from "node:child_process";
 import { numberedName } from "../src/main/junto/files/fs-ops";
-import { createFileProtocolHandler } from "../src/main/junto/files/protocol";
+import { createFileProtocolHandler, readerOfHandle } from "../src/main/junto/files/protocol";
 import { BURST, watchRoot, type WatchBatch, type WatchFactory } from "../src/main/junto/files/watcher";
 
 const p = (raw: string): FilePath => {
@@ -560,7 +560,10 @@ describe("junto-file protocol", () => {
   it("serves an opened node's file with byte ranges, and nothing else", async () => {
     await writeFile(join(root, "doc.pdf"), "%PDF-0123456789");
     const { files } = service();
-    const handler = createFileProtocolHandler((node, path) => files.bytes(node, path));
+    const handler = createFileProtocolHandler(async (node, path) => {
+      const found = await files.bytes(node, path);
+      return found.ok ? { ok: true as const, value: readerOfHandle(found.value.handle, found.value.size) } : found;
+    });
     const url = fileUrl(ref.node, p("doc.pdf"));
     expect((await handler(new Request(url))).status).toBe(404);
     value(await files.open(7, ref));

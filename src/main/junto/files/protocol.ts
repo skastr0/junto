@@ -16,10 +16,34 @@ import { parseByteRangeHeader } from "../content/range";
 
 const STREAM_HIGH_WATER = 64 * 1024;
 
+/**
+ * A file a viewer reads in pieces, whoever serves it: the core opens it and
+ * answers `read` from the offset. Nothing buffers the whole file, so a large
+ * PDF or video costs one chunk per frame of the stream.
+ */
+export type FileBytesReader = {
+  readonly size: number;
+  readonly read: (offset: number, length: number) => Promise<Uint8Array>;
+  readonly close: () => Promise<void>;
+};
+
+/** A file opened here, read in pieces: the one shape a viewer streams from. */
+export const readerOfHandle = (handle: FileHandle, size: number): FileBytesReader => ({
+  size,
+  read: async (offset, length) => {
+    const buffer = Buffer.alloc(Math.max(1, Math.min(Math.trunc(length), STREAM_HIGH_WATER)));
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, offset);
+    return new Uint8Array(buffer.buffer, buffer.byteOffset, bytesRead);
+  },
+  close: async () => {
+    await handle.close();
+  },
+});
+
 export type FileBytesResolver = (
   node: string,
   path: FilePath,
-) => Promise<FilesResult<{ readonly handle: FileHandle; readonly size: number }>>;
+) => Promise<FilesResult<FileBytesReader>>;
 
 /** Same privileges as the content scheme: fetch with Range from the app's own origin. */
 export const FILE_PROTOCOL_SCHEME_REGISTRATION = {
@@ -96,10 +120,11 @@ export const createFileProtocolHandler = (bytes: FileBytesResolver) =>
       return refusal(500, "failed", request.method);
     }
     if (!found.ok) return refusal(STATUS_OF[found.error], found.error, request.method);
-    const { handle, size } = found.value;
+    const reader = found.value;
+    const size = reader.size;
     const range = parseByteRangeHeader(request.headers.get("range"), size);
     if (range.kind === "unsatisfiable") {
-      await handle.close();
+      await reader.close();
       return new Response(null, { status: 416, headers: headers({ "Content-Range": `bytes */${String(size)}` }) });
     }
     const start = range.kind === "full" ? 0 : range.start;
@@ -113,11 +138,23 @@ export const createFileProtocolHandler = (bytes: FileBytesResolver) =>
     if (range.kind === "partial") response.set("Content-Range", `bytes ${String(start)}-${String(end)}/${String(size)}`);
     const status = range.kind === "partial" ? 206 : 200;
     if (request.method === "HEAD" || size === 0) {
-      await handle.close();
+      await reader.close();
       return new Response(null, { status, headers: response });
     }
-    // From the handle the check opened; it closes when the stream ends.
-    const stream = handle.createReadStream({ start, end, highWaterMark: STREAM_HIGH_WATER, autoClose: true });
+    // Chunks pulled from the reader the check opened; it closes when the stream ends or fails.
+    const stream = Readable.from((async function* (): AsyncGenerator<Uint8Array> {
+      let position = start;
+      try {
+        while (position <= end) {
+          const chunk = await reader.read(position, Math.min(STREAM_HIGH_WATER, end - position + 1));
+          if (chunk.byteLength === 0) return;
+          position += chunk.byteLength;
+          yield chunk;
+        }
+      } finally {
+        await reader.close();
+      }
+    })());
     return new Response(Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>, { status, headers: response });
   };
 

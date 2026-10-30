@@ -1,196 +1,140 @@
-import { isAbsolute } from "node:path";
-import { ipcMain, shell, webContents, type IpcMainInvokeEvent } from "electron";
-import { IPC_CHANNELS } from "@shared/ipc";
-import { parseFilePath, type FilePath, type FilesChanged, type FilesNodeRef, type FilesResult, type FileStamp } from "@shared/files";
-import { asNodeId } from "@shared/physics/schema";
-import { trustedRendererIpc } from "../trusted-main-webcontents";
-import { deny, machineName, nodeFacts } from "./host-deps";
-import { workerRootIndex } from "./index-worker-host";
-import { peerSubscribers } from "./peer-subscribers";
-import { makeFilesRouter, type FilesRemotePort } from "./router";
-import { makeFilesService, type FilesService, type FilesServiceDeps } from "./service";
-
 /**
  * The Files channels, behind `trustedRendererIpc`: only the app's own
- * renderer reaches them. Every argument is decoded here before the service
- * sees it; a malformed one answers `invalid-path` (or `no-node` for a bad
- * node reference) and touches nothing.
+ * renderer reaches them. Every answer is a core operation
+ * (`core-process/ops/files.ts`), where the service, the root index's worker
+ * and the bytes live; main keeps what is Electron's here: the shell a Trash,
+ * an Open or a Reveal needs, the window a change goes to, and the names of
+ * the paths each window was handed on a real drag.
+ *
+ * A subscriber is a webContents id. The core serves that number and pushes its
+ * changes back tagged with it; nothing here holds a session.
  */
+import { ipcMain, shell, webContents } from "electron";
+import { IPC_CHANNELS } from "@shared/ipc";
+import type { FilesChanged, FilesResult } from "@shared/files";
+import { trustedRendererIpc } from "../trusted-main-webcontents";
+import { core } from "../../core-process/main-client";
+import { subscribe as subscribeCore } from "../../core-process/push";
+import { FILES_CHANGED, type FilesChangedPush } from "../../core-process/channels";
+import { hostOps } from "../../core-process/host-ops";
+import type { FileBytesReader, FileBytesResolver } from "./protocol";
 
-const MAX_IMPORT_SOURCES = 1000;
-const MAX_SOURCE_LENGTH = 4096;
-/** Dropped paths held per window before the oldest is forgotten. */
-const MAX_DROPPED = 4096;
+const watched = new Set<number>();
 
-const invalid = { ok: false, error: "invalid-path" } as const;
-const noNode = { ok: false, error: "no-node" } as const;
-
-export const decodeRef = (raw: unknown): FilesNodeRef | undefined => {
-  if (typeof raw !== "object" || raw === null) return undefined;
-  const { canvas, node } = raw as Record<string, unknown>;
-  if (typeof canvas !== "string" || canvas === "" || canvas.length > 512) return undefined;
-  if (typeof node !== "string" || node === "" || node.length > 256) return undefined;
-  return { canvas, node: asNodeId(node) };
+/** Tell the core a window is gone: its sessions end with it. */
+const watch = (id: number): void => {
+  if (watched.has(id)) return;
+  watched.add(id);
+  const sender = webContents.fromId(id);
+  if (sender === undefined) return;
+  sender.once("destroyed", () => {
+    watched.delete(id);
+    void core.call("files.windowGone", { subscriber: id }).catch(() => undefined);
+  });
 };
 
-export const decodeStamp = (raw: unknown): FileStamp | undefined => {
-  if (typeof raw !== "object" || raw === null) return undefined;
-  const { mtimeMs, size } = raw as Record<string, unknown>;
-  if (typeof mtimeMs !== "number" || !Number.isFinite(mtimeMs)) return undefined;
-  if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) return undefined;
-  return { mtimeMs, size };
-};
-
-export const decodeSources = (raw: unknown): ReadonlyArray<string> | undefined => {
-  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_IMPORT_SOURCES) return undefined;
-  for (const source of raw) {
-    if (typeof source !== "string" || source.length > MAX_SOURCE_LENGTH || source.includes("\0") || !isAbsolute(source)) {
-      return undefined;
-    }
-  }
-  return raw as ReadonlyArray<string>;
-};
-
-/** Decode a ref and a path, then run; a bad one answers without touching the service. */
-const withRefPath = <A>(
-  rawRef: unknown,
-  rawPath: unknown,
-  run: (ref: FilesNodeRef, path: FilePath) => Promise<FilesResult<A>>,
-): Promise<FilesResult<A>> => {
-  const ref = decodeRef(rawRef);
-  if (ref === undefined) return Promise.resolve(noNode);
-  const path = parseFilePath(rawPath);
-  return path === undefined ? Promise.resolve(invalid) : run(ref, path);
+/** The shell the core's Files service asks for: this process has one, the core none. */
+const serveFilesShell = (): void => {
+  hostOps({
+    "files.trash": async ({ absolute }) => shell.trashItem(absolute),
+    "files.openPath": async ({ absolute }) => shell.openPath(absolute),
+    "files.reveal": async ({ absolute }) => {
+      shell.showItemInFolder(absolute);
+    },
+  });
 };
 
 /**
- * Register the Files channels and return the service (the protocol reads bytes through it).
- * Another machine's node goes to the link client in the core (`ops/files-remote.ts`, `router.ts`).
+ * Register the Files channels. Another machine's node goes to the link client
+ * in the core (`ops/files.ts`, `router.ts`).
  */
-export const registerFilesIpc = (
-  carryThreads?: FilesServiceDeps["carryThreads"],
-  remote: () => FilesRemotePort | undefined = () => undefined,
-): FilesService => {
-  const toWindow = (subscriber: number, event: FilesChanged): void => {
-    const target = webContents.fromId(subscriber);
-    if (target !== undefined && !target.isDestroyed()) target.send(IPC_CHANNELS.filesChanged, event);
-  };
-  const service = makeFilesService({
-    node: nodeFacts,
-    ...(carryThreads === undefined ? {} : { carryThreads }),
-    machineName,
-    deny,
-    trash: (absolute) => shell.trashItem(absolute),
-    openPath: (absolute) => shell.openPath(absolute),
-    reveal: (absolute) => shell.showItemInFolder(absolute),
-    send: (subscriber, event) => {
-      // A peer machine's session: its change goes to the link, not a window.
-      if (peerSubscribers.deliver(subscriber, event)) return;
-      toWindow(subscriber, event);
-    },
-    index: workerRootIndex,
-  });
-  const router = makeFilesRouter({ local: service, remote, node: nodeFacts, machineName, send: toWindow });
-
-  const watched = new Set<number>();
-  const subscriberOf = (event: IpcMainInvokeEvent): number => {
-    const sender = event.sender;
-    if (!watched.has(sender.id)) {
-      watched.add(sender.id);
-      const id = sender.id;
-      sender.once("destroyed", () => {
-        watched.delete(id);
-        router.closeSubscriber(id);
-      });
-    }
-    return sender.id;
-  };
-
-  // OS paths each window's preload saw on a real dropped File. `import`
-  // copies only these, each once, so a renderer call cannot name a source.
-  const dropped = new Map<number, Set<string>>();
-  const forget = (id: number): void => {
-    dropped.delete(id);
-  };
-
+export const registerFilesIpc = (): void => {
   const ipc = trustedRendererIpc(ipcMain);
+  serveFilesShell();
+
+  // A change for a window that has the node open: the core names the window.
+  subscribeCore(FILES_CHANGED, (payload) => {
+    const pushed = payload as FilesChangedPush;
+    const target = webContents.fromId(pushed.subscriber);
+    if (target !== undefined && !target.isDestroyed()) target.send(IPC_CHANNELS.filesChanged, pushed.event);
+  });
+
   ipc.on(IPC_CHANNELS.filesDropped, (event, path: unknown) => {
-    const decoded = decodeSources([path]);
-    if (decoded === undefined) return;
-    const id = event.sender.id;
-    let held = dropped.get(id);
-    if (held === undefined) {
-      held = new Set();
-      dropped.set(id, held);
-      event.sender.once("destroyed", () => forget(id));
-    }
-    if (held.size >= MAX_DROPPED) held.delete(held.values().next().value!);
-    held.add(decoded[0]!);
+    watch(event.sender.id);
+    void core.call("files.dropped", { subscriber: event.sender.id, path }).catch(() => undefined);
   });
-  ipc.handle(IPC_CHANNELS.filesOpen, (event, rawRef: unknown) => {
-    const ref = decodeRef(rawRef);
-    return ref === undefined ? noNode : router.open(subscriberOf(event), ref);
+  ipc.handle(IPC_CHANNELS.filesOpen, (event, ref: unknown) => {
+    watch(event.sender.id);
+    return core.call("files.open", { subscriber: event.sender.id, ref });
   });
-  ipc.handle(IPC_CHANNELS.filesClose, (event, rawRef: unknown) => {
-    const ref = decodeRef(rawRef);
-    return ref === undefined ? noNode : router.close(event.sender.id, ref);
+  ipc.handle(IPC_CHANNELS.filesClose, (event, ref: unknown) => {
+    watch(event.sender.id);
+    return core.call("files.close", { subscriber: event.sender.id, ref });
   });
-  ipc.handle(IPC_CHANNELS.filesCount, (_event, rawRef: unknown) => {
-    const ref = decodeRef(rawRef);
-    return ref === undefined ? noNode : router.count(ref);
+  ipc.handle(IPC_CHANNELS.filesCount, (event, ref: unknown) => {
+    watch(event.sender.id);
+    return core.call("files.count", { ref });
   });
   ipc.handle(IPC_CHANNELS.filesList, (_event, ref: unknown, dir: unknown) =>
-    withRefPath(ref, dir, (r, p) => router.list(r, p)),
+    core.call("files.list", { ref, dir }),
   );
-  ipc.handle(IPC_CHANNELS.filesSearch, (event, rawRef: unknown, query: unknown, seq: unknown) => {
-    const ref = decodeRef(rawRef);
-    if (ref === undefined) return noNode;
-    if (typeof query !== "string" || query.length > 1024 || typeof seq !== "number" || !Number.isSafeInteger(seq)) {
-      return invalid;
-    }
-    return router.search(subscriberOf(event), ref, query, seq);
+  ipc.handle(IPC_CHANNELS.filesSearch, (event, ref: unknown, query: unknown, seq: unknown) => {
+    watch(event.sender.id);
+    return core.call("files.search", { subscriber: event.sender.id, ref, query, seq });
   });
   ipc.handle(IPC_CHANNELS.filesRead, (_event, ref: unknown, path: unknown) =>
-    withRefPath(ref, path, (r, p) => router.read(r, p)),
+    core.call("files.read", { ref, path }),
   );
   ipc.handle(IPC_CHANNELS.filesWrite, (_event, ref: unknown, path: unknown, text: unknown, base: unknown) =>
-    withRefPath(ref, path, async (r, p) => {
-      // null: the file is gone and the save writes it back.
-      const stamp = base === null ? null : decodeStamp(base);
-      if (typeof text !== "string" || stamp === undefined) return invalid;
-      return router.write(r, p, text, stamp);
-    }),
+    core.call("files.write", { ref, path, text, base }),
   );
   ipc.handle(IPC_CHANNELS.filesCreate, (_event, ref: unknown, path: unknown, dir: unknown) =>
-    withRefPath(ref, path, async (r, p) => (typeof dir === "boolean" ? router.create(r, p, dir) : invalid)),
+    core.call("files.create", { ref, path, dir }),
   );
   ipc.handle(IPC_CHANNELS.filesRename, (_event, ref: unknown, path: unknown, name: unknown) =>
-    withRefPath(ref, path, async (r, p) => (typeof name === "string" ? router.rename(r, p, name) : invalid)),
+    core.call("files.rename", { ref, path, name }),
   );
   ipc.handle(IPC_CHANNELS.filesMove, (_event, ref: unknown, path: unknown, intoDir: unknown) =>
-    withRefPath(ref, path, async (r, p) => {
-      const into = parseFilePath(intoDir);
-      return into === undefined ? invalid : router.move(r, p, into);
-    }),
+    core.call("files.move", { ref, path, into: intoDir }),
   );
   ipc.handle(IPC_CHANNELS.filesTrash, (_event, ref: unknown, path: unknown) =>
-    withRefPath(ref, path, (r, p) => router.trash(r, p)),
+    core.call("files.trash", { ref, path }),
   );
-  ipc.handle(IPC_CHANNELS.filesImport, (event, ref: unknown, intoDir: unknown, sources: unknown) =>
-    withRefPath(ref, intoDir, async (r, p) => {
-      const decoded = decodeSources(sources);
-      if (decoded === undefined) return invalid;
-      const held = dropped.get(event.sender.id);
-      if (held === undefined || decoded.some((source) => !held.has(source))) return { ok: false, error: "denied" } as const;
-      for (const source of decoded) held.delete(source);
-      return service.import(r, p, decoded);
-    }),
-  );
+  ipc.handle(IPC_CHANNELS.filesImport, (event, ref: unknown, intoDir: unknown, sources: unknown) => {
+    watch(event.sender.id);
+    return core.call("files.import", { subscriber: event.sender.id, ref, into: intoDir, sources });
+  });
   ipc.handle(IPC_CHANNELS.filesOpenInDefaultApp, (_event, ref: unknown, path: unknown) =>
-    withRefPath(ref, path, (r, p) => service.openInDefaultApp(r, p)),
+    core.call("files.openInDefaultApp", { ref, path }),
   );
   ipc.handle(IPC_CHANNELS.filesReveal, (_event, ref: unknown, path: unknown) =>
-    withRefPath(ref, path, (r, p) => service.revealInFinder(r, p)),
+    core.call("files.reveal", { ref, path }),
   );
-  return service;
+};
+
+/**
+ * The `junto-file:` resolver: one open file in the core, read in chunks by
+ * name, closed when the stream ends. A file a viewer stops reading is closed
+ * with it, so no handle outlives its request.
+ */
+export const coreFileBytes = (): FileBytesResolver => async (node, path) => {
+  const opened = await core
+    .call("files.bytesOpen", { node, path })
+    .catch((): FilesResult<{ readonly token: string; readonly size: number }> => ({ ok: false, error: "failed" }));
+  if (!opened.ok) return opened;
+  const { token, size } = opened.value;
+  const reader: FileBytesReader = {
+    size,
+    read: async (offset, length) => {
+      const chunk = await core
+        .call("files.bytesRead", { token, offset, length })
+        .catch((): FilesResult<Uint8Array> => ({ ok: false, error: "failed" }));
+      if (!chunk.ok) throw new Error("the file could not be read");
+      return chunk.value;
+    },
+    close: async () => {
+      await core.call("files.bytesClose", { token }).catch(() => undefined);
+    },
+  };
+  return { ok: true, value: reader };
 };
