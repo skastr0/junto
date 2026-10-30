@@ -1851,6 +1851,14 @@ function CanvasGraph() {
       selectionMode={SelectionMode.Partial}
       // Shift+click / Shift+marquee additive multi-select (RF default is Meta/Ctrl).
       multiSelectionKeyCode="Shift"
+      // Shift is not xyflow's selection latch: selectionOnDrag already draws
+      // the marquee on a plain drag, so the latch only made Shift a modifier
+      // of the canvas. Each press flipped it on the FlowRenderer, which
+      // re-registered xyflow's wheel listener and repainted the board (about
+      // 10 ms), and Shift is also the multi-select key held while clicking and
+      // the key a terminal holds for capitals. Cmd stays: it turns the wheel
+      // into zoom over panOnScroll.
+      selectionKeyCode={null}
       zoomOnDoubleClick={false}
       deleteKeyCode={
         // xyflow binds Delete/Backspace at the document level, so the chord
