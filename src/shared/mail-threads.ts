@@ -31,8 +31,8 @@ import type {
  * own mailbox naming `toNodeId: "operator"`). A mention is a reference the
  * mail carries, never a recipient. Nothing here reads or writes anything else.
  *
- * There is no operator read state for mail, so a summary says nothing about
- * what the operator has seen.
+ * The operator's read state rides each summary (`readAt`, `unread`), from
+ * their read points (work/mail-reads.ts) and their own mail (`unreadPast`).
  */
 
 /** One seat's mailbox as the store holds it. */
@@ -188,7 +188,11 @@ export const unreadPast = (messages: ReadonlyArray<UnreadEntry>, point: MailRead
   ).length;
 };
 
-/** A summary's read state: when the operator last read it, and what came after, counted as the desktop counts. */
+/**
+ * A summary's read state: the operator's last explicit mark, and what came
+ * after it, counted as the desktop counts. `unread` is the count that matters:
+ * it also reads through the operator's own mail, which `readAt` does not.
+ */
 const readStateOf = (entries: ReadonlyArray<Entry>, point: MailReadPoint | undefined) => ({
   ...(point === undefined ? {} : { readAt: point.at }),
   unread: unreadPast(entries, point),
@@ -314,7 +318,7 @@ const readCursor = (cursor: string | undefined): { readonly at: number; readonly
   return dot > 0 && Number.isFinite(at) ? { at, id: cursor.slice(dot + 1) } : undefined;
 };
 
-/** In the owned-first order a cursor also names its group: `o.` or `r.` before the sort key. */
+/** In the owned-first order a cursor also names its group: `o.` (the operator is in it, `canReply`) or `r.` before the sort key. */
 const ownedCursorOf = (owned: boolean, at: number, id: string): string => `${owned ? "o" : "r"}.${cursorOf(at, id)}`;
 
 const readOwnedCursor = (cursor: string | undefined): { readonly owned: boolean; readonly at: number; readonly id: string } | undefined => {

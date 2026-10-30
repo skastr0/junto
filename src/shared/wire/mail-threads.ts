@@ -48,16 +48,16 @@ export const MailThreadSummary = Schema.Struct({
   canReply: Schema.Boolean,
   /** The operator wrote at least one mail in it. */
   owned: Schema.Boolean,
-  /** When the operator last read it, on the Mac's clock; absent when never read. */
+  /** The operator's last explicit mark, on the Mac's clock; writing does not move it. Absent when never marked. */
   readAt: Schema.optionalKey(Schema.Number),
-  /** Mail the operator did not write, past the read point, or all of it when never read. */
+  /** Replies to the operator past their read, in a thread they are in; 0 for a thread between seats (0.11.5). */
   unread: Schema.Number,
   /** The resource the thread is about, as its mail names it; absent for a mailbox thread. */
   subject: Schema.optionalKey(ResourceSubject),
 });
 export type MailThreadSummary = typeof MailThreadSummary.Type;
 
-/** One page of a seat's threads, newest activity first (or the operator's own first). `next` is the cursor for the page after it; absent at the end. */
+/** One page of a seat's threads, newest activity first (or those the operator is in first). `next` is the cursor for the page after it; absent at the end. */
 export type MailThreadsPage = {
   readonly threads: ReadonlyArray<MailThreadSummary>;
   readonly next?: string;

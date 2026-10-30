@@ -106,7 +106,7 @@ export type CompanionBackend = {
     text: string,
     thread?: CompanionMailThread,
   ) => Promise<CompanionOutcome<CompanionMail>>;
-  /** A page of a seat's threads, the operator's own first, fitted to one frame. */
+  /** A page of a seat's threads, those the operator is in first, fitted to one frame. */
   readonly threads: (
     canvasName: string,
     nodeId: string,

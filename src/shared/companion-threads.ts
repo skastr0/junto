@@ -164,7 +164,7 @@ export const companionThreadMessages = (page: MailThreadMessagesPage): Companion
 /** A page as the phone asks for it: no limit is the most a page holds, which is what a phone before paging always got. */
 type PhonePage = { readonly limit?: number; readonly after?: string; readonly before?: string };
 
-/** `threads.list`: the operator's own threads first, then the rest, a page at a time. */
+/** `threads.list`: the threads the operator is in first, then those between seats, a page at a time. */
 export const companionThreadsPage = (input: MailThreadsInput, nodeId: string, page: PhonePage = {}): CompanionResultByOp["threads.list"] =>
   companionThreads(
     seatMailThreadsPage(input, nodeId, {

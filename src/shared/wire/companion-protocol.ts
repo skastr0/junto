@@ -283,7 +283,7 @@ export type CompanionMail = typeof CompanionMail.Type;
 // phone. Bodies, titles and names are the operator's content: plain text on
 // the phone, never scrubbed and never rendered as anything else.
 
-/** Threads one `threads.list` carries at most: the operator's own first, then the rest, newest activity first in each. */
+/** Threads one `threads.list` carries at most: those the operator is in first, then those between seats, newest activity first in each. */
 export const COMPANION_THREADS_MAX = 200;
 /** Messages one `thread.get` carries at most, newest kept. */
 export const COMPANION_THREAD_MESSAGES_MAX = 200;
@@ -333,9 +333,9 @@ export const CompanionThreadSummary = Schema.Struct({
   canReply: Schema.Boolean,
   /** The operator wrote at least one mail in it. This Mac always sends it; an older one does not. */
   owned: Schema.optionalKey(Schema.Boolean),
-  /** When the operator last read it, on the Mac's clock; absent when never read, and from an older Mac. */
+  /** The operator's last explicit mark, on the Mac's clock; writing does not move it. Absent when never marked, and from an older Mac. */
   readAt: Schema.optionalKey(Schema.Number),
-  /** Mail the operator did not write past the read point, all of it when never read. This Mac always sends it. */
+  /** Replies to the operator past their read, in a thread they are in; 0 for a thread between seats. This Mac always sends it. */
   unread: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
   /** The resource the thread is about; absent for a seat's mailbox thread. */
   subject: Schema.optionalKey(ResourceSubject),

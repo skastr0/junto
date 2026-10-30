@@ -247,8 +247,10 @@ Semantics:
   seat's replies to the operator. A summary's `last.text` is a preview of at
   most 280 characters (`textCut: true` when cut); one mail's text is cut at
   32,000. Both read a page at a time: `threads.list` lists the threads the
-  operator wrote in (`owned`) first, then the rest, each group newest
-  activity first, the thread id descending breaking a tie; `thread.get`
+  operator is in (`canReply`: they wrote in it, or a seat wrote to them)
+  first, then those between seats, each group newest activity first, the
+  thread id descending breaking a tie (since 0.11.5 a `threads.list` cursor's
+  `o.` or `r.` group names `canReply`, no longer `owned`); `thread.get`
   gives the newest page of a thread, oldest first within it. A page's `next`
   (or `older`) is an opaque cursor: send it back as `after` (or `before`) for
   the page that follows, and stop when it is absent. A cursor names a place in
@@ -265,9 +267,14 @@ Semantics:
   when absent; the point only moves forward, so a read of older mail, or the
   same read twice, changes nothing and answers the thread as it stands.
   `not-found` for a thread that is not the seat's, `invalid` for a `through`
-  not in the thread. A summary's `unread` counts the mail the operator did
-  not write past the point, all of it when never read; `readAt` is when it was
-  last read, on the Mac's clock, absent when never read.
+  not in the thread. A summary's `unread` counts only replies to the
+  operator: mail a seat wrote to the operator, in a thread the operator is in,
+  past the read. Mail between seats never counts, so a thread between seats
+  is always 0. The operator's own mail is read, and writing in a thread reads
+  it through that mail. `readAt` is the operator's last explicit mark, on the
+  Mac's clock, absent when never marked; writing does not move it, so a
+  thread can carry no `readAt` and `unread: 0`. `unread` is the count to
+  show.
 - After a `threads.list` or `thread.get` for a seat, the phone receives
   `thread.changed` for that seat's newest 200 threads whenever one changes:
   new mail, a read on any surface (the desktop, another phone, this one
@@ -531,8 +538,8 @@ type ThreadSummary = {
   messageCount: number;
   canReply: boolean;                          // the operator wrote in it, or mail in it is to the operator
   owned?: boolean;                            // the operator wrote at least one mail in it; absent from an older Mac
-  readAt?: number;                            // when the operator last read it, Mac clock; absent when never read
-  unread?: number;                            // mail the operator did not write past the read point; absent from an older Mac
+  readAt?: number;                            // the operator's last explicit mark, Mac clock; absent when never marked
+  unread?: number;                            // replies to the operator past their read; 0 between seats; absent from an older Mac
   subject?: ResourceSubject;                  // what the thread is about; absent for a mailbox thread
 };
 ```
