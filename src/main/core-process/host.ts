@@ -1,5 +1,9 @@
 import { join } from "node:path";
-import { app, utilityProcess, type UtilityProcess } from "electron";
+// A namespace import: this module shares a chunk the core process loads, where
+// electron has no main-only exports, so no named binding may be checked at load.
+import * as electron from "electron";
+import type { MessagePortMain, UtilityProcess } from "electron";
+import type { SurfaceOpenMessage } from "./ops/term-surface";
 import type { CoreBoot } from "./entry";
 import { portCore, type CoreMessage, type PortCoreClient } from "./port";
 
@@ -24,7 +28,11 @@ const RESTART_MAX_MS = 30_000;
 const RESTART_SETTLED_MS = 60_000;
 const BOOT_DEADLINE_MS = 120_000;
 
-export const startCoreProcess = (boot: CoreBoot): PortCoreClient & { readonly stop: () => void } => {
+export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
+  readonly stop: () => void;
+  /** A view's surface port, transferred to the core beside its message; false when no core is running. */
+  readonly postSurface: (message: SurfaceOpenMessage, port: unknown) => boolean;
+} => {
   let child: UtilityProcess | undefined;
   let stopping = false;
   let stops = 0;
@@ -65,8 +73,8 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & { readonly st
   const start = (): void => {
     if (stopping) return;
     // The entry is built beside main's index.js (electron.vite.config.ts), while
-    // this module lands in a chunk under out/main/chunks: resolve from the app root.
-    const forked = utilityProcess.fork(join(app.getAppPath(), "out", "main", "core-process.js"), [JSON.stringify(boot)], { serviceName: "Junto Core", stdio: "inherit" });
+    // this module lands in a chunk under out/main/chunks: resolve from boot's app root.
+    const forked = electron.utilityProcess.fork(join(boot.app.appPath, "out", "main", "core-process.js"), [JSON.stringify(boot)], { serviceName: "Junto Core", stdio: "inherit" });
     child = forked;
     startedAt = Date.now();
     for (const message of held.splice(0)) forked.postMessage(message);
@@ -100,6 +108,11 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & { readonly st
   start();
   return {
     ...client,
+    postSurface: (message, port) => {
+      if (child === undefined) return false;
+      child.postMessage(message, [port as MessagePortMain]);
+      return true;
+    },
     stop: () => {
       stopping = true;
       held.length = 0;

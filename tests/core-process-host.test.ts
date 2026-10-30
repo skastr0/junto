@@ -19,7 +19,6 @@ const forks: FakeChild[] = [];
 const forkedPaths: string[] = [];
 
 vi.mock("electron", () => ({
-  app: { getAppPath: () => "/app" },
   utilityProcess: {
     fork: (path: string) => {
       forkedPaths.push(path);
@@ -50,7 +49,7 @@ describe("the core process host", () => {
   it("forks the entry built beside main's index.js, wherever this module's chunk lands", () => {
     forkedPaths.length = 0;
     const core = startCoreProcess(BOOT);
-    expect(forkedPaths).toEqual(["/app/out/main/core-process.js"]);
+    expect(forkedPaths).toEqual(["/a/out/main/core-process.js"]);
     core.stop();
   });
 
