@@ -30,6 +30,7 @@ export function DocumentEditor({
   revealAnchor,
   mentions,
   title,
+  placeholder = "Nothing written yet.",
   onDraft,
   saveRef,
 }: {
@@ -54,6 +55,8 @@ export function DocumentEditor({
   readonly mentions?: DocumentMentions;
   /** The artifact's title, so two open documents read apart. */
   readonly title?: string;
+  /** The empty field's one line; a capture asks for words rather than saying none came. */
+  readonly placeholder?: string;
   /**
    * Each change to the draft; true sends it at once rather than at rest, as
    * a capture's first keystroke is (11 Q2).
@@ -177,6 +180,7 @@ export function DocumentEditor({
           mentions={mentions}
           label="Markdown"
           surfaceLabel={title ? `${title}, document` : "Document"}
+          placeholder={placeholder}
           restMs={SAVE_REST_MS}
           onChange={(text) => {
             draftRef.current = text;

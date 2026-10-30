@@ -133,6 +133,8 @@ function CaptureWriter({
   const [switches, setSwitches] = useState<ReadonlyArray<Switch>>([]);
   const [line, setLine] = useState<string | null>(null);
   const [moving, setMoving] = useState(false);
+  /** The capture is kept: said once, quietly, until the next keystroke. */
+  const [saved, setSaved] = useState(false);
 
   const node = current?.nodeId ?? inbox;
   const heads = useNodeArtifacts(canvasName, (node ?? "") as NodeId);
@@ -174,6 +176,8 @@ function CaptureWriter({
   const apply = async (ref: CaptureRef, op: ArtifactOp): Promise<ArtifactRuling> => {
     const ruling = await applyArtifactOp(canvasName, ref.nodeId, ref.artifactId, op);
     if (op.op !== "edit") setLine(refusalLine(ruling));
+    // The head says a capture is kept; a refusal says why instead.
+    setSaved(ruling.kind === "applied" || ruling.kind === "queued");
     return ruling;
   };
 
@@ -371,8 +375,10 @@ function CaptureWriter({
             readOnly={readOnly}
             mentions={mentions}
             saveRef={saveDocument}
+            placeholder="Write it down. The first line becomes the title."
             onDraft={(text) => {
               draft.current = { of: currentRef.current?.artifactId ?? null, text };
+              setSaved(false);
               // The first keystroke with words makes the capture at once; the rest waits for a rest.
               return currentRef.current === null && text.trim() !== "";
             }}
@@ -450,6 +456,11 @@ function CaptureWriter({
             <FolderInput size={13} aria-hidden />
             Move to…
           </Button>
+        ) : null}
+        {saved ? (
+          <span className="capture-editor__saved" role="status">
+            Saved
+          </span>
         ) : null}
       </header>
       {line ? (

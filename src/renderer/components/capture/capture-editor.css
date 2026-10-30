@@ -12,6 +12,20 @@
   flex: none;
 }
 
+/* Cmd+K's top line: the editor half opens at the same 46px the search row
+   holds on the other half, so the two halves read as one bar. */
+.capture-editor__head {
+  height: 46px;
+  padding: 0 14px;
+}
+
+/* The capture is kept, quietly: the head says so, and nothing else does. */
+.capture-editor__saved {
+  margin-left: auto;
+  color: var(--color-faint);
+  font-size: var(--text-label);
+}
+
 .capture-editor__line {
   margin: 0;
   padding: 6px 12px;
