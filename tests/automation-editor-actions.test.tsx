@@ -446,14 +446,14 @@ describe("a step held while its automation's machine was not linked (0.12 S3)", 
 
   it("names the machine on a firing that ran elsewhere, and keeps firing-id order when two clocks disagree", () => {
     expect(firingWords(firing({ machine: "macbook" }), "macbook")).toBe("Run by hand, fired, 0 of 0 steps applied");
-    expect(firingWords(firing({ machine: "mini" }), "macbook")).toBe("Fired on mini, 0 of 0 steps applied");
+    expect(firingWords(firing({ machine: "mini" }), "macbook")).toBe("Run by hand, fired on mini, 0 of 0 steps applied");
     expect(firingWords(firing({}))).toBe("Run by hand, fired, 0 of 0 steps applied");
     // A machine is named by the label the operator reads, as every other line does; settings not loaded names none.
     const labelled = (host: string): string => (host === "mini" ? "Mac mini" : host);
-    expect(firingWords(firing({ machine: "mini" }), "macbook", labelled)).toBe("Fired on Mac mini, 0 of 0 steps applied");
+    expect(firingWords(firing({ machine: "mini" }), "macbook", labelled)).toBe("Run by hand, fired on Mac mini, 0 of 0 steps applied");
     expect(firingWords(firing({ machine: "mini" }), "")).toBe("Run by hand, fired, 0 of 0 steps applied");
     expect(firingWords(firing({ machine: "mini", outcome: { kind: "skipped", reason: "min_interval" } }), "macbook", labelled)).toBe(
-      "Skipped on Mac mini: it fired too recently",
+      "Run by hand, skipped on Mac mini: it fired too recently",
     );
     expect(heldRulingWords({ index: 1, ruling: "queued", waitingOn: { machine: "mini", since: 9 } }, { atWords: at, nameMachine: labelled })).toBe(
       "waiting for Mac mini since at 9",

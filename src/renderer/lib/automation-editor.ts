@@ -1561,10 +1561,10 @@ export const answerIsLong = (text: string): boolean => text.length > ANSWER_SHOR
 
 /**
  * One line of the firing history: `Scheduled, fired, 2 of 2 steps applied`.
- * A firing that ran on another machine says so instead of its cause, by the
- * label the operator reads: `Fired on Mac mini, 2 of 2 steps applied`. `here`
- * is this machine's short name, empty until settings load, when no machine is
- * named; a firing that names none stays local.
+ * A firing that ran on another machine says where, by the label the operator
+ * reads: `Scheduled, fired on Mac mini, 2 of 2 steps applied`. `here` is this
+ * machine's short name, empty until settings load, when no machine is named;
+ * a firing that names none stays local.
  */
 export const firingWords = (
   firing: Firing,
@@ -1575,6 +1575,7 @@ export const firingWords = (
     firing.machine === undefined || here === undefined || here === "" || firing.machine === here
       ? undefined
       : nameMachine(firing.machine);
+  const ran = elsewhere === undefined ? "" : ` on ${elsewhere}`;
   const cause = causeWords(firing.cause);
   switch (firing.outcome.kind) {
     case "fired": {
@@ -1586,7 +1587,7 @@ export const firingWords = (
       const failed = count("failed");
       // A code step that continued did its part: it acted, as an applied action did.
       return [
-        `${elsewhere === undefined ? `${cause}, fired` : `Fired on ${elsewhere}`}, ${count("applied") + count("continued") + count("raised")} of ${actions.length} ${actions.length === 1 ? "step" : "steps"} applied`,
+        `${cause}, fired${ran}, ${count("applied") + count("continued") + count("raised")} of ${actions.length} ${actions.length === 1 ? "step" : "steps"} applied`,
         ...(queued > 0 ? [`${queued} queued`] : []),
         ...(refused > 0 ? [`${refused} refused`] : []),
         ...(stopped > 0 ? [`${stopped} stopped`] : []),
@@ -1594,14 +1595,10 @@ export const firingWords = (
       ].join(", ");
     }
     case "skipped":
-      return elsewhere === undefined
-        ? `${cause}, skipped: ${skipWords[firing.outcome.reason]}`
-        : `Skipped on ${elsewhere}: ${skipWords[firing.outcome.reason]}`;
+      return `${cause}, skipped${ran}: ${skipWords[firing.outcome.reason]}`;
     // Claimed and never settled: the run died before its actions were ruled. It still counts toward the hourly limit.
     case "claimed":
-      return elsewhere === undefined
-        ? `${cause}, interrupted before its steps were ruled`
-        : `Interrupted on ${elsewhere} before its steps were ruled`;
+      return `${cause}, interrupted${ran} before its steps were ruled`;
     default:
       return firing.outcome satisfies never;
   }

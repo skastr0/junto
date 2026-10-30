@@ -193,7 +193,7 @@ describe("a step held while its machine was not linked (0.12 S3)", () => {
     });
     await render();
     await row();
-    expect(document.body.textContent).toContain("Fired on Mac mini, 0 of 2 steps applied, 1 queued, 1 refused");
+    expect(document.body.textContent).toContain("Run by hand, fired on Mac mini, 0 of 2 steps applied, 1 queued, 1 refused");
     expect(document.body.textContent).toContain("Step 1 not run: Raise a signal is not available on Mac mini");
     expect(document.body.textContent).toContain("Step 2 waiting for Mac mini since");
   });
