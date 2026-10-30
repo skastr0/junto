@@ -3215,14 +3215,26 @@ export class LocalSessionHost extends EventEmitter {
    * Same rule as `bindPtyProcessIdentity`, and the same observation: only the
    * wait moved. Undefined when there is nothing to bind.
    */
+  /** The generation this record names is no longer the one on its binding. */
+  private generationGone(rec: SessionRec): boolean {
+    return rec.killed || sessionStatusOf(rec) === "exited" ||
+      this.sessions.get(rec.bindingId) !== rec;
+  }
+
   private async bindPtyProcessIdentityAsync(rec: SessionRec): Promise<void> {
     const principal = this.processPrincipal(rec);
     if (principal === undefined) return;
+    // Stopped or replaced before the observation began: there is no generation
+    // left to prove, and a proof that never runs is not a setup failure.
+    if (this.generationGone(rec)) return;
     if (rec.pid === undefined || sessionStatusOf(rec) !== "running") {
       throw new Error("terminal process identity bind failed");
     }
     const identities = getProcessIdentityMap();
     const startKey = await identities.observeStartKeyAsync(rec.pid);
+    // The operator may stop the seat, or it may exit, while the key is being
+    // read. That is a plain stop, not a setup failure: it must not journal one.
+    if (this.generationGone(rec)) return;
     if (startKey === undefined) {
       throw new Error("terminal process identity bind failed");
     }
@@ -3232,9 +3244,9 @@ export class LocalSessionHost extends EventEmitter {
     if (binding === undefined) {
       throw new Error("terminal process identity bind failed");
     }
-    // A generation stopped or replaced while its key was being read keeps no
+    // A generation stopped or replaced between the bind and here keeps no
     // binding: nothing may authorize a signal for it afterwards.
-    if (rec.killed || sessionStatusOf(rec) !== "running" || this.sessions.get(rec.bindingId) !== rec) {
+    if (this.generationGone(rec)) {
       try {
         getProcessIdentityMap().unbindGeneration(binding);
       } catch (error) {

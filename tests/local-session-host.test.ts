@@ -960,6 +960,49 @@ describe("LocalSessionHost", () => {
     );
   });
 
+  it("a stop during the identity observation is a plain stop, never a setup failure", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const identities = makeSyntheticIdentityMap();
+    setProcessIdentityMapForTests({
+      ...identities,
+      // A stopped seat's process is gone by the time ps answers: no row.
+      observeStartKeyAsync: async (pid) => {
+        await gate;
+        return pid === 0 ? identities.observeStartKeyAsync(pid) : undefined;
+      },
+    });
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(63_100),
+      exitOnSignal: "SIGTERM",
+    }));
+    const host = hostWith(fake);
+    const output: string[] = [];
+    host.on("event", (event) => {
+      if (event.type === "output") output.push(event.data);
+    });
+    const input = {
+      bindingId: "stopped-during-bind",
+      harness: "codex" as const,
+      agentKey: "local:stopped-during-bind",
+      launch: { kind: "harness" as const, argv: ["/usr/local/bin/codex"], cwd: "/tmp" },
+      canvasName: "factory",
+      nodeId: "stopped-during-bind-node",
+    };
+
+    const created = host.createAgentSeat(input);
+    const identity = host.awaitStartIdentity(input.bindingId, created.epoch);
+    // The operator stops the seat while its start key is still being read.
+    host.kill(input.bindingId);
+    release();
+
+    await expect(identity).resolves.toBeUndefined();
+    expect(fake.controllers[0]?.signals).toEqual(["SIGTERM"]);
+    expect(output.join("")).not.toContain("terminal setup failed");
+    expect(identities.snapshot()).toEqual([]);
+    expect(host.get(input.bindingId)?.stopping).toBe(true);
+  });
+
   it("keeps client-exit cleanup in the shutdown fence until the Prime stop receipt settles", async () => {
     const identities = makeSyntheticIdentityMap();
     setProcessIdentityMapForTests(identities);
