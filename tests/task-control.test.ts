@@ -11,6 +11,7 @@ import {
   TaskListArgs,
   TaskStampArgs,
   isTaskWriteOp,
+  taskListCursorOf,
   type TaskCommandsWithoutVerb,
   type TaskControlOp,
   type TaskWriteResult,
@@ -40,6 +41,7 @@ import {
   taskLookupOf,
   taskRulingContext,
   type TaskCaller,
+  type TaskListPortQuery,
   type TaskPorts,
 } from "../src/main/junto/work/task-control";
 import type { TaskSubmitOutcome } from "../src/main/junto/work/task-repository";
@@ -186,7 +188,8 @@ const people: Array<ReadonlyArray<string>> = [];
 const portsWith = (outcome: TaskSubmitOutcome, submitted: Array<ResourceCommand<TaskCommand>> = []): TaskPorts => ({
   nodes: (c) => [...c.nodes.values()].filter((node) => node.kind === "task"),
   list: (_, query) => {
-    const on = tasks.filter((task) => query.nodeIds.includes(task.current.node));
+    const on = tasks.filter((task) =>
+      query.nodeIds.includes(task.current.node) && (query.assignee === undefined || task.current.assignee === query.assignee));
     return Effect.succeed({ tasks: on.slice(0, query.limit), more: on.length > query.limit });
   },
   find: (_c, _n, lookup) =>
@@ -377,8 +380,20 @@ describe.runIf(TASKS_ENABLED)("task verbs", () => {
   });
 
   it("lists the task nodes in reach and says when there are more", async () => {
-    expect(await run("task.list", { limit: 1 }, portsWith(applied()))).toEqual(Exit.succeed({ tasks: [tasks[0]], more: true }));
+    expect(await run("task.list", { limit: 1 }, portsWith(applied()))).toEqual(
+      Exit.succeed({ tasks: [tasks[0]], more: true, next: taskListCursorOf(tasks[0]!) }),
+    );
     expect(await run("task.list", {}, portsWith(applied()))).toEqual(Exit.succeed({ tasks: tasks.slice(0, 2), more: false }));
+  });
+
+  it("reads the page after a cursor a page gave, and refuses one it did not", async () => {
+    const asked: Array<TaskListPortQuery> = [];
+    const ports: TaskPorts = { ...portsWith(applied()), list: (_, query) => (asked.push(query), Effect.succeed({ tasks: [], more: false })) };
+    const cursor = taskListCursorOf(tasks[0]!);
+    await run("task.list", { after: cursor }, ports);
+    expect(asked[0]).toMatchObject({ brief: true, after: { updatedAt: tasks[0]!.updatedAt, taskId: tasks[0]!.taskId } });
+    expect(failure(await run("task.list", { after: "not-a-cursor" }, ports)).type).toBe("InputError");
+    expect(failure(await run("task.list", { after: cursor, reviewer: "me" }, ports))).toMatchObject({ type: "InputError", details: { path: "after" } });
   });
 
   it("lists by assignee, the caller's own name included", async () => {

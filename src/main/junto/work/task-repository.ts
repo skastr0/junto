@@ -39,6 +39,7 @@ import {
   taskRefusalToken,
 } from "@shared/task-machine";
 import {
+  OPEN_TASK_STATES,
   TASK_STATES,
   seatNodeId,
   taskNodeId,
@@ -76,10 +77,29 @@ export class TaskPersistenceError extends Schema.TaggedError<TaskPersistenceErro
  */
 export type TaskCanvasEnv = Omit<TaskDomainEnv, "at"> & Required<Pick<TaskDomainEnv, "rulesUnmet" | "checksUnmet" | "derivesTo">>;
 
+/** Where a page of the list ends: the last task listed, in the list's order. */
+export type TaskListCursor = { readonly updatedAt: number; readonly taskId: string };
+
 export type TaskListQuery = {
   readonly nodeIds: ReadonlyArray<NodeId>;
   /** Omitted: every state but archived. */
   readonly states?: ReadonlyArray<TaskState>;
+  /** Only tasks this seat holds. */
+  readonly assignee?: string;
+  readonly limit: number;
+  /** Leave out each task's body and finish evidence: what a listing shows. */
+  readonly brief?: boolean;
+  /** Only tasks after this one in the list's order: the next page. */
+  readonly after?: TaskListCursor;
+};
+
+/** The tasks `since` reads for one seat. */
+export type SeatTaskQuery = {
+  readonly nodeIds: ReadonlyArray<NodeId>;
+  readonly seat: string;
+  /** Changes at or after this time count; absent, every change does. */
+  readonly since?: number;
+  /** The most changed tasks of each kind, newest change first; Infinity for all. */
   readonly limit: number;
 };
 
@@ -104,6 +124,17 @@ export class TaskRepository extends Context.Service<TaskRepository,
       canvasName: string,
       query: TaskListQuery,
     ) => Effect.Effect<{ readonly tasks: ReadonlyArray<TaskView>; readonly more: boolean }, TaskPersistenceError>;
+    /**
+     * What `since` shows a seat, brief: the open tasks it holds, those in
+     * review naming it a reviewer, and those it holds or held on a closed
+     * layer whose state changed since `since`, at most `limit` of each of
+     * those two, newest change first. `leftOut` counts the changed ones the
+     * limit cut.
+     */
+    readonly seatTasks: (
+      canvasName: string,
+      query: SeatTaskQuery,
+    ) => Effect.Effect<{ readonly tasks: ReadonlyArray<TaskView>; readonly leftOut: number }, TaskPersistenceError>;
     /** One task with its closed layers, oldest first. */
     readonly get: (canvasName: string, taskId: TaskId) => Effect.Effect<Option.Option<TaskView>, TaskPersistenceError>;
     /** Rule one command here and write what it makes. */
@@ -162,6 +193,9 @@ const HeadRow = Schema.Struct({
   derived_from: Schema.NullOr(Schema.String),
 });
 type HeadRow = typeof HeadRow.Type;
+const HEAD_COLUMNS = "task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json, archived_from, evidence_json, handoff, derived_from";
+/** A head without its body and finish evidence, the two columns that grow. */
+const BRIEF_HEAD_COLUMNS = HEAD_COLUMNS.replace("body,", "NULL AS body,").replace("evidence_json,", "NULL AS evidence_json,");
 
 const LayerRow = Schema.Struct({ task_id: Schema.String, layer_json: Schema.String, closed_at: Schema.Number });
 type LayerRow = typeof LayerRow.Type;
@@ -374,6 +408,27 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
         SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json, archived_from, evidence_json, handoff, derived_from FROM task_heads WHERE canvas_name = ${canvas} ORDER BY number`,
     });
 
+    /** The heads of these tasks, in the order given; brief leaves out body and evidence. */
+    const headRowsOf = (canvas: string, ids: ReadonlyArray<string>, brief: boolean) =>
+      ids.length === 0
+        ? Effect.succeed<ReadonlyArray<HeadRow>>([])
+        : Effect.map(
+          SqlSchema.findAll({
+            Request: Schema.Void,
+            Result: HeadRow,
+            execute: () => sql`
+              SELECT ${sql.literal(brief ? BRIEF_HEAD_COLUMNS : HEAD_COLUMNS)} FROM task_heads
+              WHERE canvas_name = ${canvas} AND ${sql.in("task_id", ids)}`,
+          })(undefined),
+          (rows) => {
+            const byId = new Map(rows.map((row) => [row.task_id, row]));
+            return ids.flatMap((id) => {
+              const row = byId.get(id);
+              return row === undefined ? [] : [row];
+            });
+          },
+        );
+
     const nextNumberRow = SqlSchema.findOneOption({
       Request: Schema.Struct({ canvas: Schema.String }),
       Result: Schema.Struct({ next_number: Schema.Number }),
@@ -434,9 +489,10 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
         const origins = originIds.length === 0 ? [] : yield* sql<LinkRow>`
           SELECT task_id, number, node_id, derived_from FROM task_heads
           WHERE canvas_name = ${canvas} AND ${sql.in("task_id", originIds)}`;
+        // Without statistics the planner walks every head in number order; the origin index holds only derived ones.
         const derivedRows = ids.length === 0 ? [] : yield* sql<LinkRow>`
-          SELECT task_id, number, node_id, derived_from FROM task_heads
-          WHERE canvas_name = ${canvas} AND ${sql.in("derived_from", ids)}
+          SELECT task_id, number, node_id, derived_from FROM task_heads INDEXED BY task_heads_by_origin
+          WHERE canvas_name = ${canvas} AND derived_from IS NOT NULL AND ${sql.in("derived_from", ids)}
           ORDER BY number`;
         const derived = new Map<string, TaskLink[]>();
         for (const row of derivedRows) {
@@ -519,20 +575,65 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
       if (query.nodeIds.length === 0) return { tasks: [], more: false };
       const states = query.states ?? TASK_STATES.filter((state) => state !== "archived");
       if (states.length === 0) return { tasks: [], more: false };
-      const rows = yield* SqlSchema.findAll({
-        Request: Schema.Void,
-        Result: HeadRow,
-        execute: () => sql`
-          SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json, archived_from, evidence_json, handoff, derived_from FROM task_heads
-          WHERE canvas_name = ${canvasName}
-            AND ${sql.in("node_id", query.nodeIds)}
-            AND ${sql.in("state", states)}
-          ORDER BY updated_at DESC, task_id DESC
-          LIMIT ${query.limit + 1}`,
-      })(undefined);
-      const tasks = yield* viewsOf(canvasName, rows.slice(0, query.limit));
-      return { tasks, more: rows.length > query.limit };
+      const after = query.after;
+      // Keys first, so the sort holds no bodies; then only the page's heads.
+      const keys = yield* sql<{ readonly task_id: string }>`
+        SELECT task_id FROM task_heads
+        WHERE canvas_name = ${canvasName}
+          AND ${sql.in("node_id", query.nodeIds)}
+          AND ${sql.in("state", states)}
+          ${query.assignee === undefined ? sql.literal("") : sql`AND assignee_node_id = ${query.assignee}`}
+          ${after === undefined ? sql.literal("") : sql`AND (updated_at < ${after.updatedAt} OR (updated_at = ${after.updatedAt} AND task_id < ${after.taskId}))`}
+        ORDER BY updated_at DESC, task_id DESC
+        LIMIT ${query.limit + 1}`;
+      const page = keys.slice(0, query.limit).map((key) => key.task_id);
+      const tasks = yield* viewsOf(canvasName, yield* headRowsOf(canvasName, page, query.brief === true));
+      return { tasks, more: keys.length > query.limit };
     }, Effect.mapError(persistence("list")));
+
+    const seatTasks = Effect.fn("tasks.seatTasks")(function* (canvasName: string, query: SeatTaskQuery) {
+      if (query.nodeIds.length === 0) return { tasks: [], leftOut: 0 };
+      const since = query.since ?? 0;
+      const limit = Number.isFinite(query.limit) ? Math.max(0, Math.trunc(query.limit)) : -1;
+      // One row past a zero limit, so the count still comes back with it.
+      const rows = limit === 0 ? 1 : limit;
+      const nodes = sql.in(query.nodeIds);
+      type Changed = { readonly task_id: string; readonly total: number };
+      // The planner, without statistics, reads every head for an assignee; its index holds only the seat's.
+      const open = yield* sql<{ readonly task_id: string }>`
+        SELECT task_id FROM task_heads INDEXED BY task_heads_by_assignee
+        WHERE canvas_name = ${canvasName} AND assignee_node_id = ${query.seat}
+          AND node_id IN ${nodes} AND ${sql.in("state", OPEN_TASK_STATES)}`;
+      const finished = yield* sql<Changed>`
+        SELECT task_id, count(*) OVER () AS total FROM task_heads INDEXED BY task_heads_by_assignee
+        WHERE canvas_name = ${canvasName} AND assignee_node_id = ${query.seat}
+          AND node_id IN ${nodes} AND state IN ('done', 'canceled') AND state_since >= ${since}
+        ORDER BY state_since DESC, task_id DESC
+        LIMIT ${rows}`;
+      // Sent on from a layer the seat held: its last such layer closed since.
+      const sentOn = yield* sql<Changed>`
+        SELECT task_layers.task_id AS task_id, count(*) OVER () AS total
+        FROM task_layers JOIN task_heads
+          ON task_heads.canvas_name = task_layers.canvas_name AND task_heads.task_id = task_layers.task_id
+        WHERE task_layers.canvas_name = ${canvasName}
+          AND json_extract(task_layers.layer_json, '$.assignee') = ${query.seat}
+          AND task_heads.node_id IN ${nodes} AND task_heads.state != 'archived'
+          AND task_heads.assignee_node_id IS NOT ${query.seat}
+        GROUP BY task_layers.task_id
+        HAVING max(task_layers.closed_at) >= ${since}
+        ORDER BY max(task_layers.closed_at) DESC, task_layers.task_id DESC
+        LIMIT ${rows}`;
+      const reviews = yield* sql<{ readonly task_id: string }>`
+        SELECT task_id FROM task_heads
+        WHERE canvas_name = ${canvasName} AND state = 'in-review' AND node_id IN ${nodes}
+          AND assignee_node_id IS NOT ${query.seat}
+          AND EXISTS (SELECT 1 FROM json_each(reviewers_json)
+            WHERE json_extract(value, '$.kind') = 'seat' AND json_extract(value, '$.seat') = ${query.seat})`;
+      const kept = (changed: ReadonlyArray<Changed>) => (limit === -1 ? changed : changed.slice(0, limit));
+      const ids = [...new Set([open, kept(finished), kept(sentOn), reviews].flat().map((row) => row.task_id))];
+      const leftOut = [finished, sentOn].reduce((sum, changed) => sum + (changed[0]?.total ?? 0) - kept(changed).length, 0);
+      return { tasks: yield* viewsOf(canvasName, yield* headRowsOf(canvasName, ids, true)), leftOut };
+    }, Effect.mapError(persistence("seatTasks")));
 
     const get = Effect.fn("tasks.get")(function* (canvasName: string, taskId: TaskId) {
       const row = yield* headRow({ canvas: canvasName, id: taskId });
@@ -651,6 +752,6 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
         )
         : ruleHere(writer, command, context, env);
 
-    return TaskRepository.of({ list, get, submit, precheck: precheckOf, overlay: overlayOf });
+    return TaskRepository.of({ list, seatTasks, get, submit, precheck: precheckOf, overlay: overlayOf });
   }),
 );

@@ -21,6 +21,8 @@ import {
   TASK_COMMAND_OPS,
   TASK_WAIT_DEFAULT_MS,
   TASK_WAIT_MAX_MS,
+  readTaskListCursor,
+  taskListCursorOf,
   type TaskCommandOp,
   type TaskControlOp,
   type TaskCheckArgs,
@@ -76,7 +78,11 @@ export type TaskLookup =
 export type TaskListPortQuery = {
   readonly nodeIds: ReadonlyArray<TaskNodeId>;
   readonly states?: ReadonlyArray<TaskState>;
+  readonly assignee?: SeatNodeId;
   readonly limit: number;
+  /** Leave out each task's body and finish evidence. */
+  readonly brief?: boolean;
+  readonly after?: { readonly updatedAt: number; readonly taskId: string };
 };
 
 /** What the verbs need from the task store, the ruler and the thread mail. */
@@ -644,25 +650,38 @@ export const handleTaskOp = (
           : reviewerKey({ kind: "seat", seat: yield* findSeat(caller, caller.actor.nodeId, input.reviewer, "reviewer") });
         // A review is owed only in review, so a reviewer filter reads that state alone.
         const states = reviewer === undefined ? input.state : (input.state ?? ["in-review"]).filter((state) => state === "in-review");
+        if (input.after !== undefined && reviewer !== undefined) {
+          return yield* Effect.fail<WorkErrorBody>({
+            type: "InputError",
+            message: "reviews owed read longest waiting first, in one page, so a reviewer list takes no after",
+            details: { path: "after", retryable: false, next_step: "list again without after, or without reviewer" },
+          });
+        }
         if (nodes.length === 0 || states?.length === 0) return { tasks: [], more: false };
-        // A filter reads past the limit, so a page is still full.
-        const filtered = assignee !== undefined || reviewer !== undefined;
+        const after = input.after === undefined ? undefined : readTaskListCursor(input.after);
+        // The stamp filter is read here, so a reviewer list reads past the limit to fill its page; the rest is SQL's.
         const listed = yield* ports.list(caller.canvasName, {
           nodeIds: nodes.map((node) => taskNodeId(node.id)),
-          limit: filtered ? NUMBER_SCAN_LIMIT : limit,
+          limit: reviewer === undefined ? limit : NUMBER_SCAN_LIMIT,
+          brief: true,
           ...(states === undefined ? {} : { states }),
+          ...(assignee === undefined ? {} : { assignee }),
+          ...(after === undefined ? {} : { after }),
         });
         const owed = (task: TaskView) =>
           task.current.reviewers.some((named) => reviewerKey(named) === reviewer) &&
           !currentStamps(task.current).some((stamp) => reviewerKey(stamp.reviewer) === reviewer);
-        const tasks = listed.tasks.filter((task) =>
-          (assignee === undefined || task.current.assignee === assignee) && (reviewer === undefined || owed(task)));
+        const tasks = reviewer === undefined ? listed.tasks : listed.tasks.filter(owed);
         // Reviews owed read longest waiting first.
         const ordered = reviewer === undefined ? tasks : [...tasks].sort((a, b) => a.stateSince - b.stateSince);
+        const page = ordered.slice(0, limit);
+        const more = listed.more || tasks.length > limit;
+        const last = page[page.length - 1];
         const marks = yield* pendingOf(caller, ports);
         return {
-          tasks: ordered.slice(0, limit).map((task) => withPendingMark(task, task.taskId, marks)),
-          more: listed.more || tasks.length > limit,
+          tasks: page.map((task) => withPendingMark(task, task.taskId, marks)),
+          more,
+          ...(more && reviewer === undefined && last !== undefined ? { next: taskListCursorOf(last) } : {}),
           ...pendingUnknownOf(marks),
         };
       }

@@ -107,11 +107,12 @@ const listCommand = Command.make(
       Flag.withDescription("Only reviews this seat, or me, owes: in review, naming it, with no stamp from it at the current epoch, longest waiting first"),
     ),
     limit: Flag.integer("limit").pipe(Flag.optional, Flag.withDescription(`At most this many (1 to ${TASK_LIST_LIMIT_MAX}, default 50)`)),
+    after: Flag.string("after").pipe(Flag.optional, Flag.withDescription("The next page: the next a page gave")),
     timeout: timeoutFlag,
   },
-  ({ node, state, assignee, reviewer, limit, timeout }) =>
+  ({ node, state, assignee, reviewer, limit, after, timeout }) =>
     run("list", "task.list", {
-      ...present({ node, assignee, reviewer, limit }),
+      ...present({ node, assignee, reviewer, limit, after }),
       ...(state.length === 0 ? {} : { state }),
     }, Option.none(), timeout),
 ).pipe(Command.withDescription(DESCRIPTIONS.list));

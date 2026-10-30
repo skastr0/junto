@@ -394,6 +394,12 @@ describe("your tasks", () => {
       `Your task #${done.number} "${done.title}" is now done, changed since your last session`,
     ]);
   });
+  it("counts the changed tasks the read left out in the section's more", () => {
+    const done = task({ state: "done", assignee: MINE }, { stateSince: minute(150) });
+    const out = since(inputOf({}, { tasks: [done], tasksLeftOut: 3, previousStartedAt: minute(100) }), 1);
+    expect(out.yourTasks.lines).toHaveLength(1);
+    expect(out.yourTasks.more).toBe(3);
+  });
 });
 
 describe("reviews owed", () => {

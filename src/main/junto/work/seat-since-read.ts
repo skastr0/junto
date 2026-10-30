@@ -1,8 +1,8 @@
 /**
  * Since your last session, read for onboard and `junto since`: the seat's own
  * mailbox and the mail it sent into other seats' (sent mail lives in each
- * recipient's), this seat's signals, the canvas's open and lately changed
- * tasks, and the previous session's start, projected by the pure
+ * recipient's), this seat's signals, the tasks it holds, held or reviews,
+ * and the previous session's start, projected by the pure
  * `seatSince`. Nothing here writes, and nothing is stored.
  */
 import { Cause, Clock, Effect, Option } from "effect";
@@ -11,7 +11,7 @@ import type { HeldMailbox } from "@shared/mail-threads";
 import { asNodeId, type Canvas } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import { SINCE_PER_SECTION, seatSince, type Since } from "@shared/seat-since";
-import { OPEN_TASK_STATES, taskNodeId, type TaskView } from "@shared/task-model";
+import { taskNodeId } from "@shared/task-model";
 import type { Message } from "@shared/work-model";
 import { AgentSignalRepository } from "../signals/repository";
 import { TaskRepository } from "./task-repository";
@@ -44,33 +44,32 @@ export const seatMailboxes = (
   ];
 };
 
-/** The most open tasks of a canvas read, any number per seat. */
-const OPEN_TASK_LIMIT = 10_000;
 /**
- * The most lately changed tasks read for changes since the previous session,
- * newest change first: a change older than the newest this many is not
- * listed.
+ * The tasks `seatSince` reads, each once and without bodies: the seat's open
+ * tasks, those in review it may owe a stamp on, and those it finished or sent
+ * on from its layer since the previous session, at most a section's worth of
+ * each (`TaskRepository.seatTasks`). `leftOut` counts the changes past that.
+ * None on a tasks-off build or where no task store is built.
  */
-export const SINCE_RECENT_TASKS = 200;
-
-/**
- * The tasks `seatSince` reads, each once: every open task on the canvas (the
- * seat's own, and those in review it may owe a stamp on) and the lately
- * changed ones (a task it finished, or sent on from its layer). Two indexed
- * reads of the task heads; none on a tasks-off build or where no task store
- * is built.
- */
-export const readSinceTasks = (board: Canvas, canvasName: string) =>
+export const readSinceTasks = (
+  board: Canvas,
+  canvasName: string,
+  nodeId: string,
+  previousStartedAt: number | undefined,
+  perSection: number,
+) =>
   Effect.gen(function* () {
+    const none = { tasks: [], leftOut: 0 };
     const store = yield* Effect.serviceOption(TaskRepository);
-    if (!TASKS_ENABLED || Option.isNone(store)) return [];
+    if (!TASKS_ENABLED || Option.isNone(store)) return none;
     const nodeIds = [...board.nodes.values()].filter((node) => node.kind === "task").map((node) => taskNodeId(node.id));
-    if (nodeIds.length === 0) return [];
-    const open = yield* store.value.list(canvasName, { nodeIds, states: OPEN_TASK_STATES, limit: OPEN_TASK_LIMIT });
-    const recent = yield* store.value.list(canvasName, { nodeIds, limit: SINCE_RECENT_TASKS });
-    const tasks = new Map<string, TaskView>();
-    for (const task of [...open.tasks, ...recent.tasks]) tasks.set(task.taskId, task);
-    return [...tasks.values()];
+    if (nodeIds.length === 0) return none;
+    return yield* store.value.seatTasks(canvasName, {
+      nodeIds,
+      seat: nodeId,
+      ...(previousStartedAt === undefined ? {} : { since: previousStartedAt }),
+      limit: perSection,
+    });
   });
 
 export const readSeatSince = (
@@ -105,7 +104,7 @@ export const readSeatSince = (
           ...(yield* store.value.listSeat({ canvasName, nodeId })).filter((signal) => signal.state === "open"),
           ...(yield* store.value.listSeatAnswered({ canvasName, nodeId }, previousStartedAt)),
         ];
-    const tasks = yield* readSinceTasks(board, canvasName);
+    const { tasks, leftOut } = yield* readSinceTasks(board, canvasName, nodeId, previousStartedAt, perSection);
     const now = yield* Clock.currentTimeMillis;
     const since: Since = seatSince(
       {
@@ -114,6 +113,7 @@ export const readSeatSince = (
         nameOf: (id) => names.get(id),
         signals,
         tasks,
+        tasksLeftOut: leftOut,
         now,
         ...(previousStartedAt === undefined ? {} : { previousStartedAt }),
       },

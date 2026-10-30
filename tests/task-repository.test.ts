@@ -134,6 +134,65 @@ describe("task repository", () => {
     expect(listed.tasks.map((task) => task.title).sort()).toEqual(["one", "two"]);
   });
 
+  it("lists a page at a time without bodies, filtered by assignee, and walks on from a page's last task", async () => {
+    const [one, two, three] = [await create("one"), await create("two"), await create("three")];
+    applied(await submit(command({ kind: "edit", body: "a long body" }, two.taskId)));
+    applied(await submit(command({ kind: "assign", seat: ada }, three.taskId)));
+    const first = await withRepo((repo) => repo.list(canvas, { nodeIds: [build], limit: 2, brief: true }));
+    expect(first.more).toBe(true);
+    expect(first.tasks.every((task) => task.body === undefined)).toBe(true);
+    const last = first.tasks.at(-1)!;
+    const rest = await withRepo((repo) =>
+      repo.list(canvas, { nodeIds: [build], limit: 2, brief: true, after: { updatedAt: last.updatedAt, taskId: last.taskId } }));
+    expect(rest.more).toBe(false);
+    expect([...first.tasks, ...rest.tasks].map((task) => task.taskId).sort()).toEqual([one.taskId, two.taskId, three.taskId].sort());
+    expect((await withRepo((repo) => repo.get(canvas, two.taskId))).pipe(Option.map((task) => task.body))).toEqual(Option.some("a long body"));
+    const held = await withRepo((repo) => repo.list(canvas, { nodeIds: [build], assignee: ada, limit: 10 }));
+    expect(held.tasks.map((task) => task.taskId)).toEqual([three.taskId]);
+  });
+
+  it("reads only what since shows a seat, and counts the changes its limit cut", async () => {
+    const bob = seatNodeId(asNodeId("seat-bob"));
+    const bobActor: ResourceActor = { kind: "seat", seatId: `seat_${"b".repeat(64)}` as never, nodeId: bob };
+    const flows = env({ downstream: (node) => (node === build ? [qa] : []) });
+    const run = async (taskId: TaskId, ops: ReadonlyArray<readonly [TaskCommand, ResourceActor]>, canvasEnv = env()) => {
+      for (const [op, actor] of ops) applied(await submit(command(op, taskId, { actor }), canvasEnv));
+    };
+    const work = (seat: typeof ada, actor: ResourceActor) =>
+      [[{ kind: "assign", seat }, operator], [{ kind: "start" }, actor], [{ kind: "finish" }, actor]] as const;
+    const open = await create("open");
+    await run(open.taskId, [[{ kind: "assign", seat: ada }, operator]]);
+    const done = [await create("done one"), await create("done two")];
+    for (const { taskId } of done) await run(taskId, work(ada, adaActor));
+    const sentOn = await create("sent on");
+    await run(sentOn.taskId, work(ada, adaActor), flows);
+    const review = await create("review");
+    await run(review.taskId, [
+      [{ kind: "stamp-policy", required: 1 }, operator],
+      [{ kind: "reviewer-add", reviewer: { kind: "seat", seat: ada } }, operator],
+      ...work(bob, bobActor),
+    ]);
+    await create("someone else's");
+    const read = (query: { readonly since?: number; readonly limit: number }) =>
+      withRepo((repo) => repo.seatTasks(canvas, { nodeIds: [build, qa], seat: ada, ...query }));
+
+    const all = await read({ limit: Number.POSITIVE_INFINITY });
+    expect(all.tasks.map((task) => task.title).sort()).toEqual(["done one", "done two", "open", "review", "sent on"]);
+    expect(all.leftOut).toBe(0);
+    expect(all.tasks.every((task) => task.body === undefined)).toBe(true);
+    expect(all.tasks.find((task) => task.title === "sent on")?.layers).toHaveLength(1);
+
+    // One of the two done tasks, the newer change (two can share a millisecond; the id breaks it).
+    const capped = await read({ limit: 1 });
+    expect(capped.tasks.filter((task) => task.title.startsWith("done"))).toHaveLength(1);
+    expect(capped.tasks.map((task) => task.title).filter((title) => !title.startsWith("done")).sort()).toEqual(["open", "review", "sent on"]);
+    expect(capped.leftOut).toBe(1);
+
+    const later = await read({ since: Date.now() + 60_000, limit: 1 });
+    expect(later.tasks.map((task) => task.title).sort()).toEqual(["open", "review"]);
+    expect(later.leftOut).toBe(0);
+  });
+
   it("answers a retried command with its first ruling and owes no mail again", async () => {
     const { taskId } = await create("one");
     const opId = mintOpId();

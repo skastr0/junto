@@ -50,6 +50,11 @@ export type SinceInput = {
    */
   readonly tasks: ReadonlyArray<TaskView>;
   /**
+   * Changed tasks of the seat the read left out, each older than a
+   * section's worth it kept: counted in your tasks' `more`.
+   */
+  readonly tasksLeftOut?: number;
+  /**
    * Bounds silent signal answers and changed tasks. Absent on a first
    * session: no session has seen any of them, so every one is listed.
    */
@@ -141,9 +146,9 @@ const stamp = (row: Message | undefined, key: "deliveredAt" | "readAt"): boolean
 const receiptWords = (row: Message | undefined): string =>
   stamp(row, "readAt") ? "read" : stamp(row, "deliveredAt") ? "delivered, unread" : "not delivered yet";
 
-const section = (key: SinceSectionKey, lines: ReadonlyArray<SinceLine>, cap: number): SinceSection => ({
+const section = (key: SinceSectionKey, lines: ReadonlyArray<SinceLine>, cap: number, leftOut = 0): SinceSection => ({
   lines: lines.slice(0, cap),
-  more: Math.max(0, lines.length - cap),
+  more: Math.max(0, lines.length - cap) + leftOut,
   command: SINCE_COMMANDS[key],
 });
 
@@ -293,7 +298,7 @@ export const seatSince = (input: SinceInput, caps: { readonly perSection: number
     awaitingReplies: section("awaitingReplies", awaiting, cap),
     openSignals: section("openSignals", open, cap),
     answersSince: section("answersSince", answers, cap),
-    yourTasks: section("yourTasks", yourTaskLines(input), cap),
+    yourTasks: section("yourTasks", yourTaskLines(input), cap, input.tasksLeftOut ?? 0),
     reviewsOwed: section("reviewsOwed", reviewOwedLines(input), cap),
     unread: own.filter(unreadOnly).length,
   };

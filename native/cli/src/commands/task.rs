@@ -67,6 +67,8 @@ struct ListArgs {
     reviewer: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     limit: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    after: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     state: Vec<State>,
 }
@@ -369,6 +371,8 @@ enum Command {
         reviewer: Option<String>,
         #[arg(long, allow_negative_numbers = true)]
         limit: Option<i64>,
+        #[arg(long)]
+        after: Option<String>,
         #[command(flatten)]
         timeout: Timeout,
     },
@@ -732,6 +736,7 @@ impl Run for Task {
                 assignee,
                 reviewer,
                 limit,
+                after,
                 timeout,
             } => (
                 "task list",
@@ -741,6 +746,7 @@ impl Run for Task {
                         assignee,
                         reviewer,
                         limit,
+                        after,
                         state,
                     },
                     timeout,

@@ -113,6 +113,7 @@ describe("a store failure on a canvas read, as the seat reads it", () => {
     list: () => Effect.fail(new TaskPersistenceError({
       operation: "list", message: `store failed, Authorization: Bearer ${SECRET}`, cause: undefined,
     })),
+    seatTasks: () => Effect.die(new Error("not read")),
     get: () => Effect.die(new Error("not read")),
     submit: () => Effect.die(new Error("not ruled")),
     precheck: () => Effect.die(new Error("not checked")),

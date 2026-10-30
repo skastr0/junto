@@ -59,8 +59,26 @@ export const TaskListArgs = Schema.Struct({
   /** A seat, or `me`: in-review tasks naming it a reviewer with no stamp from it at the current epoch. */
   reviewer: Schema.optionalKey(SeatRefText),
   limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: TASK_LIST_LIMIT_MAX }))),
+  /** The `next` a page gave: the tasks after its last one. Not with reviewer, whose order is its own. */
+  after: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.makeFilter(
+    (cursor: string) => readTaskListCursor(cursor) !== undefined || "a cursor a task list page gave as next",
+  )))),
 }).annotate(strict);
 export type TaskListArgs = typeof TaskListArgs.Type;
+
+/**
+ * A page's cursor is the sort key of the last task it held,
+ * `<updatedAt>.<taskId>`: a place in the order, not a count, so a task changed
+ * meanwhile moves to the newest end and is not read twice on this walk.
+ */
+export const taskListCursorOf = (task: Pick<TaskView, "updatedAt" | "taskId">): string => `${task.updatedAt}.${task.taskId}`;
+
+export const readTaskListCursor = (cursor: string): { readonly updatedAt: number; readonly taskId: string } | undefined => {
+  const dot = cursor.indexOf(".");
+  const updatedAt = Number(cursor.slice(0, dot));
+  const taskId = cursor.slice(dot + 1);
+  return dot > 0 && Number.isSafeInteger(updatedAt) && updatedAt >= 0 && Schema.is(ItemId)(taskId) ? { updatedAt, taskId } : undefined;
+};
 
 export const TaskShowArgs = Schema.Struct({ task: TaskRefText }).annotate(strict);
 export type TaskShowArgs = typeof TaskShowArgs.Type;
@@ -305,6 +323,8 @@ export type TaskListResult = PendingUnknown & {
   readonly tasks: ReadonlyArray<TaskView & Partial<PendingMark>>;
   /** True when more matched than `limit`. */
   readonly more: boolean;
+  /** When more matched: pass as `after` for the next page. */
+  readonly next?: string;
 };
 
 /**
