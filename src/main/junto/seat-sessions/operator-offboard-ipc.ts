@@ -93,7 +93,7 @@ const decodeAnswer = Schema.decodeUnknownSync(SeatCacheDueAnswerInput, { onExces
  * seats this machine runs, and those a linked machine asked on a view here.
  * A linked seat's size is what its machine last said with its launch state.
  */
-export const seatCacheDueForWindow = async (): Promise<ReadonlyArray<SeatCacheDue>> => {
+export const seatCacheDueHere = async (): Promise<ReadonlyArray<SeatCacheDue>> => {
   const linked = await Promise.all(seatViewQuestions().map(async (asked): Promise<SeatCacheDue> => {
     const launch = await remoteSeatLaunchOf({ bindingId: asked.bindingId, host: asked.machine }).catch(() => undefined);
     const tokens = launch?.offboard?.tokens;
@@ -109,7 +109,7 @@ export const seatCacheDueForWindow = async (): Promise<ReadonlyArray<SeatCacheDu
  * question for that seat settles: one a view here was asked goes back to the
  * seat's machine on that view, any other to this machine's own.
  */
-export const handleSeatCacheDueAnswer = async (input: unknown): Promise<SeatCacheDueAnswerResult> => {
+export const answerSeatCacheDueHere = async (input: unknown): Promise<SeatCacheDueAnswerResult> => {
   let answer: typeof SeatCacheDueAnswerInput.Type;
   try {
     answer = decodeAnswer(input);
@@ -123,3 +123,16 @@ export const handleSeatCacheDueAnswer = async (input: unknown): Promise<SeatCach
       : { ok: false, message: CACHE_QUESTION_GONE };
   return answerSeatCacheDue({ canvasName: answer.canvasName, seatId: answer.seatId }, answer.question, answer.answer);
 };
+
+/**
+ * The window's side of both: the seats, their views and their questions are
+ * the core's, so main asks it by name (ops/seat-cache-due.ts); with the core
+ * in main the call runs here at once.
+ */
+const askCore = () => import("../../core-process/main-client").then(({ core }) => core);
+
+export const seatCacheDueForWindow = async (): Promise<ReadonlyArray<SeatCacheDue>> =>
+  (await askCore()).call("seatCacheDue.list", {});
+
+export const handleSeatCacheDueAnswer = async (input: unknown): Promise<SeatCacheDueAnswerResult> =>
+  (await askCore()).call("seatCacheDue.answer", { input });

@@ -29,10 +29,10 @@ import {
 // Static, not awaited inside a test: the IPC module's cold import pulls the
 // terminal graph and costs seconds on a loaded CI runner, past the 5 s test budget.
 import {
-  handleSeatCacheDueAnswer,
+  answerSeatCacheDueHere,
   handleSeatOffboardRun,
   handleSeatOffboardStatus,
-  seatCacheDueForWindow,
+  seatCacheDueHere,
 } from "../src/main/junto/seat-sessions/operator-offboard-ipc";
 import { makeOperatorHolds, type OperatorHolds } from "../src/main/junto/term/operator-holds";
 import { seatLaunchState } from "../src/main/junto/term/seat-launch-state";
@@ -1380,26 +1380,26 @@ describe("the cache mode, case by case", () => {
 
   it("the window's answer is decoded closed, names the open question, and never throws", async () => {
     const good = { canvasName: CANVAS, seatId: "a", question: qid(1), answer: "keep" };
-    expect(await handleSeatCacheDueAnswer(good)).toEqual({ ok: false, message: "Junto is still starting. Try again in a moment." });
+    expect(await answerSeatCacheDueHere(good)).toEqual({ ok: false, message: "Junto is still starting. Try again in a moment." });
     const w = world([seat("a")], { rules: inMode("auto") });
     w.held.set("a", {});
     w.advance(60);
     await w.offboard.tick();
     setOperatorOffboard(w.offboard);
     try {
-      expect(await seatCacheDueForWindow()).toEqual([asked("a", qid(1), T0 + 60 * MIN)]);
+      expect(await seatCacheDueHere()).toEqual([asked("a", qid(1), T0 + 60 * MIN)]);
       // Closed: a field past these, a question not by the link's pattern, or another answer is refused before use.
       for (const bad of [undefined, { ...good, canvasName: "" }, { ...good, window: 1 }, { ...good, question: "short" },
         { ...good, answer: "later" }])
-        expect(await handleSeatCacheDueAnswer(bad)).toEqual({ ok: false, message: "Start fresh, or keep this session." });
+        expect(await answerSeatCacheDueHere(bad)).toEqual({ ok: false, message: "Start fresh, or keep this session." });
       // A well-formed id that is not the open question settles nothing.
-      expect(await handleSeatCacheDueAnswer({ ...good, question: qid(9), answer: "fresh" }))
+      expect(await answerSeatCacheDueHere({ ...good, question: qid(9), answer: "fresh" }))
         .toEqual({ ok: false, message: CACHE_QUESTION_GONE });
       expect(w.closed).toEqual([]);
-      expect(await handleSeatCacheDueAnswer({ ...good, answer: "fresh" })).toEqual({ ok: true });
+      expect(await answerSeatCacheDueHere({ ...good, answer: "fresh" })).toEqual({ ok: true });
       expect(w.closed).toEqual([{ seatId: "a", by: "operator" }]);
-      expect(await seatCacheDueForWindow()).toEqual([]);
-      expect(await handleSeatCacheDueAnswer({ ...good, answer: "fresh" })).toEqual({ ok: false, message: CACHE_QUESTION_GONE });
+      expect(await seatCacheDueHere()).toEqual([]);
+      expect(await answerSeatCacheDueHere({ ...good, answer: "fresh" })).toEqual({ ok: false, message: CACHE_QUESTION_GONE });
     } finally {
       setOperatorOffboard(undefined);
     }
