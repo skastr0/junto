@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import type { JuntoViewStateApi } from "../src/shared/ipc";
 import { artifactLabelOf, type ArtifactLabel } from "../src/shared/artifact-labels";
-import type { ViewStateEvent, ViewStateSnapshot, ViewStateWrite } from "../src/shared/view-state";
+import type { CaptureDesk, ViewStateEvent, ViewStateSnapshot, ViewStateWrite } from "../src/shared/view-state";
 import { createMainViewState } from "../src/renderer/lib/view-state-main";
 
 const EMPTY: ViewStateSnapshot = { commandGroups: {}, nodes: {}, focusSizes: {}, sections: {}, captureInboxes: {} };
@@ -76,6 +76,31 @@ describe("the main-backed view-state store", () => {
     expect(state.nodeView.captureInbox("main")).toBeUndefined();
     expect(heard).toBeGreaterThanOrEqual(2);
     state.nodeView.writeCaptureInbox("", "shelf");
+    expect(applied).toHaveLength(1);
+  });
+
+  it("fills the capture desk on load, writes it as one row, and never announces it", async () => {
+    const desk: CaptureDesk = {
+      open: { kind: "artifact", nodeId: "artifacts-1", artifactId: "artifact-7" },
+      query: "pricing",
+      focused: "artifact-7",
+      caret: 42,
+      scrollWriting: 180,
+      scrollList: 24,
+    };
+    const { state, applied } = await hydrated({ ...EMPTY, captureDesks: { main: desk } });
+    expect(state.nodeView.captureDesk("main")).toEqual(desk);
+    expect(state.nodeView.captureDesk("")).toBeUndefined();
+    let heard = 0;
+    state.nodeView.onChange(() => (heard += 1));
+    const next: CaptureDesk = { ...desk, query: "tiers" };
+    const written = state.nodeView.writeCaptureDesk("main", next);
+    expect(applied).toEqual([{ area: "capture-desk", canvasName: "main", value: next }]);
+    expect(state.nodeView.captureDesk("main")).toEqual(next);
+    // Read once, as the surface opens: a desk write re-renders nothing.
+    expect(heard).toBe(0);
+    expect(await written).toBe(true);
+    state.nodeView.writeCaptureDesk("", next);
     expect(applied).toHaveLength(1);
   });
 
