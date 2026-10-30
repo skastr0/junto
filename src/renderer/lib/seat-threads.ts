@@ -20,7 +20,7 @@ import { useEffect, useState } from "react";
 import type { MentionableSeat, OperatorThreadSend, OperatorThreadSent, ThreadGroup } from "@shared/mail-threads";
 import type { ResourceSubject } from "@shared/thread-subject";
 import type { ContentRef } from "@shared/wire/content-ref";
-import type { MailParty } from "@shared/wire/mail-threads";
+import type { MailParty, MailThreadMessage } from "@shared/wire/mail-threads";
 import { getJuntoApi } from "./junto-api";
 
 export type SeatAddress = { readonly canvasName: string; readonly seatId: string };
@@ -36,6 +36,8 @@ export type SeatThreadSummary = {
   readonly startedAt: number;
   /** Its latest message's time (epoch ms). */
   readonly lastAt: number;
+  /** Its latest message: who wrote it and what it says, as the list row shows them. */
+  readonly last: SeatThreadMessage;
   readonly messageCount: number;
   /** The operator is in it and may write in it. */
   readonly canReply: boolean;
@@ -95,6 +97,16 @@ export type SeatThreadsSource = {
 /** A party by name, as the popup says it: the operator is "you". */
 const partyName = (party: MailParty): string => (party.kind === "operator" ? "you" : party.name);
 
+/** One mail, as this module holds it: main's parties read by name. */
+const messageOf = (message: MailThreadMessage): SeatThreadMessage => ({
+  messageId: message.messageId,
+  author: partyName(message.from),
+  mine: message.mine,
+  text: message.text,
+  at: message.at,
+  ...(message.attachments === undefined || message.attachments.length === 0 ? {} : { attachments: message.attachments }),
+});
+
 /** The source over main's threads IPC, or undefined while the bridge lacks it. */
 export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
   const api = getJuntoApi();
@@ -130,6 +142,7 @@ export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
           participants: thread.participants.map(partyName),
           startedAt: thread.startedAt,
           lastAt: thread.lastAt,
+          last: messageOf(thread.last),
           messageCount: thread.messageCount,
           canReply: thread.canReply,
           ...(thread.readAt === undefined ? {} : { readAt: thread.readAt }),
@@ -148,14 +161,7 @@ export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
         ...(before === undefined ? {} : { before }),
       });
       return {
-        messages: page.messages.map((message) => ({
-          messageId: message.messageId,
-          author: partyName(message.from),
-          mine: message.mine,
-          text: message.text,
-          at: message.at,
-          ...(message.attachments === undefined || message.attachments.length === 0 ? {} : { attachments: message.attachments }),
-        })),
+        messages: page.messages.map(messageOf),
         ...(page.older === undefined ? {} : { older: page.older }),
       };
     },

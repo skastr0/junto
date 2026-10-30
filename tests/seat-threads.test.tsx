@@ -14,6 +14,7 @@ import { OPERATOR_MAIL_MAX_TEXT } from "../src/shared/mail-threads";
 import {
   THREAD_TEXT_MAX,
   betweenLine,
+  juntoSeatThreadsSource,
   groupSeatThreads,
   participantsLine,
   refreshSeatThreads,
@@ -56,6 +57,7 @@ const thread = (over: Partial<SeatThreadSummary> & { threadId: string }): SeatTh
   participants: ["you", "pty-lead"],
   startedAt: at(1, 2),
   lastAt: at(1, 12),
+  last: { messageId: `${over.threadId}-last`, author: "pty-lead", mine: false, text: over.threadId, at: at(1, 12) },
   messageCount: 2,
   canReply: true,
   unread: 0,
@@ -350,6 +352,16 @@ describe("main's threads IPC as the source", () => {
     expect(seatThreadsList).toHaveBeenCalledWith({ canvasName: "factory", nodeId: "seat-1", limit: 50, group: "between" });
     expect(q("seat-threads-with-you")?.textContent).toContain("you, pty-lead");
     expect(all("seat-threads-message")[0]?.textContent).toContain("you 01:02");
+    // The row previews the latest mail without reading the thread: it rides the list page,
+    // with the operator named as this surface names them.
+    const page = await juntoSeatThreadsSource()!.list({ canvasName: "factory", seatId: "seat-1", group: "with-you" });
+    expect(page.threads[0]?.last).toEqual({
+      messageId: "m1",
+      author: "you",
+      mine: true,
+      text: "Move them, [@cli-lead](junto://canvas/factory?node=seat-cli).",
+      at: at(1, 2),
+    });
     expect(chipLabels()).toEqual(["@cli-lead"]);
     // A change in another seat's mailbox can change this seat's threads.
     const calls = seatThreadsList.mock.calls.length;
