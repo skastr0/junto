@@ -134,8 +134,8 @@ describe("macOS packaged runtime policy", () => {
     } finally { await rm(app, { recursive: true, force: true }); }
   });
 
-  it("pins 23 Mach-O objects and only the four exact Electron JIT roles", () => {
-    expect(MACOS_RUNTIME_POLICY.machO).toHaveLength(23);
+  it("pins 20 Mach-O objects and only the four exact Electron JIT roles", () => {
+    expect(MACOS_RUNTIME_POLICY.machO).toHaveLength(20);
     expect(
       MACOS_RUNTIME_POLICY.machO
         .filter((entry) => entry.profile === "jit")
@@ -157,13 +157,16 @@ describe("macOS packaged runtime policy", () => {
         (entry) => entry.path === "Contents/Resources/bin/junto-station",
       ),
     ).toBeUndefined();
+    // The Mac app is arm64 only: it carries the one node-pty binary pair it can
+    // load, and none of the other platforms' or the dev rebuild's.
     expect(
-      MACOS_RUNTIME_POLICY.machO.find(
-        (entry) =>
-          entry.path ===
-          "Contents/Resources/app.asar.unpacked/node_modules/node-pty/bin/darwin-arm64-148/node-pty.node",
-      ),
-    ).toMatchObject({ identifier: "node-pty", profile: "none" });
+      MACOS_RUNTIME_POLICY.machO.filter((entry) =>
+        /\/node-pty\/(bin|prebuilds)\//u.test(entry.path),
+      ).map((entry) => entry.path),
+    ).toEqual([
+      "Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-arm64/pty.node",
+      "Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper",
+    ]);
     expect(MACOS_RUNTIME_POLICY.profiles).toEqual({
       none: {},
       jit: { "com.apple.security.cs.allow-jit": true, "com.apple.security.device.audio-input": true },
@@ -187,7 +190,7 @@ describe("macOS packaged runtime policy", () => {
 
     const missing = structuredClone(rawRuntimePolicy);
     missing.machO.pop();
-    expect(() => validateMacOSRuntimePolicy(missing)).toThrow(/exactly 23/u);
+    expect(() => validateMacOSRuntimePolicy(missing)).toThrow(/exactly 20/u);
 
     const duplicate = structuredClone(rawRuntimePolicy);
     duplicate.machO[1].path = duplicate.machO[0].path;

@@ -19,11 +19,6 @@
       "profile": "none"
     },
     {
-      "path": "Contents/Resources/app.asar.unpacked/node_modules/node-pty/bin/darwin-arm64-148/node-pty.node",
-      "identifier": "node-pty",
-      "profile": "none"
-    },
-    {
       "path": "Contents/Resources/app.asar.unpacked/node_modules/node-pty/build/Release/pty.node",
       "identifier": "pty",
       "profile": "none"
@@ -40,16 +35,6 @@
     },
     {
       "path": "Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper",
-      "identifier": "spawn-helper",
-      "profile": "none"
-    },
-    {
-      "path": "Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-x64/pty.node",
-      "identifier": "pty",
-      "profile": "none"
-    },
-    {
-      "path": "Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-x64/spawn-helper",
       "identifier": "spawn-helper",
       "profile": "none"
     },

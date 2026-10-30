@@ -185,6 +185,9 @@
       "package.json",
       "!node_modules/@parcel/watcher{,/**/*}",
       "!node_modules/@parcel/watcher-*{,/**/*}",
+      "!node_modules/node-pty/bin{,/**/*}",
+      "!node_modules/node-pty/prebuilds/linux-*{,/**/*}",
+      "!node_modules/node-pty/prebuilds/win32-*{,/**/*}",
       "LICENSE"
     ],
     "extraResources": [
@@ -213,6 +216,20 @@
         "zip",
         "dmg"
       ],
+      "files": [
+        "out/main/**",
+        "out/preload/**",
+        "out/renderer/**",
+        "out/package-runtime-provenance.json",
+        "package.json",
+        "!node_modules/@parcel/watcher{,/**/*}",
+        "!node_modules/@parcel/watcher-*{,/**/*}",
+        "!node_modules/node-pty/bin{,/**/*}",
+        "!node_modules/node-pty/prebuilds/darwin-x64{,/**/*}",
+        "!node_modules/node-pty/prebuilds/linux-*{,/**/*}",
+        "!node_modules/node-pty/prebuilds/win32-*{,/**/*}",
+        "LICENSE"
+      ],
       "minimumSystemVersion": "13.0",
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
@@ -240,6 +257,7 @@
         "out/renderer/**",
         "out/package-runtime-provenance.json",
         "package.json",
+        "!node_modules/node-pty/bin{,/**/*}",
         "!node_modules/node-pty/prebuilds/darwin-*/**",
         "!node_modules/node-pty/prebuilds/win32-*/**",
         "!node_modules/@msgpackr-extract/msgpackr-extract-linux-x64/*.musl.node",
