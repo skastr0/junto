@@ -6,8 +6,11 @@
  */
 import { Effect, Option } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AuthorityOwner, authorityAlone, authorityStatus } from "../src/cli/commands/authority";
-import { authorityAloneWarning, type AuthorityMachineFacts, type AuthorityStatusData } from "../src/shared/authority";
+import { AuthorityOwner, authorityAlone, authorityList, authorityStatus } from "../src/cli/commands/authority";
+import { rootCommandNames } from "../src/cli/command-runner";
+import { buildConceptsDoc } from "../src/shared/junto-docs";
+import { AUTHORITY_ENABLED } from "../src/shared/features";
+import { AUTHORITY_LIST_WAITING, authorityAloneWarning, type AuthorityMachineFacts, type AuthorityStatusData } from "../src/shared/authority";
 import type { InstallationId } from "../src/shared/installation-id";
 import { WORK_TOKEN_ENV } from "../src/shared/work-control";
 
@@ -40,6 +43,13 @@ const owner = (calls: Array<unknown>) =>
   AuthorityOwner.of({
     status: (args) => Effect.sync(() => (calls.push(["status", args]), data)),
     alone: (args) => Effect.sync(() => (calls.push(["alone", args]), { canvas: args.canvas, term: 8, authority: id("book"), warning })),
+    list: (args) => Effect.sync(() => (calls.push(["list", args]), {
+      canvas: args.canvas,
+      named: [mini, book],
+      committed: [{ ...book, isAuthority: true }],
+      pending: true,
+      waiting: AUTHORITY_LIST_WAITING,
+    })),
   });
 
 const run = <A, E>(effect: Effect.Effect<A, E, AuthorityOwner>, calls: Array<unknown>) =>
@@ -87,13 +97,41 @@ describe("junto authority", () => {
     expect(out.success.warning).toContain("use alone only when it is gone");
   });
 
+  it("list sends the order named, and answers each machine with its state and why it waits", async () => {
+    const calls: Array<unknown> = [];
+    const out = await run(authorityList("factory", " mini, book ,"), calls);
+    expect(calls).toEqual([["list", { canvas: "factory", order: ["mini", "book"] }]]);
+    if (out._tag !== "Success") throw new Error("refused");
+    expect(out.success.named.map((machine) => machine.state)).toEqual(["Mac mini asleep since 2026-10-28T01:12:00.000Z", "this machine"]);
+    expect(out.success.committed.map((machine) => machine.state)).toEqual(["this machine"]);
+    expect(out.success.pending).toBe(true);
+    expect(out.success.waiting).toBe(AUTHORITY_LIST_WAITING);
+  });
+
+  it("list refuses an empty or repeated order before any op is called", async () => {
+    const calls: Array<unknown> = [];
+    for (const order of ["", " , ", "mini,mini"]) {
+      const out = await run(authorityList("factory", order), calls);
+      expect(out._tag).toBe("Failure");
+      if (out._tag === "Failure") expect((out.failure as { _tag?: string })._tag).toBe("InputError");
+    }
+    expect(calls).toEqual([]);
+  });
+
   it("a seat is refused before any op is called", async () => {
     process.env[WORK_TOKEN_ENV] = "seat-token";
     const calls: Array<unknown> = [];
     const status = await run(authorityStatus(Option.none()), calls);
     const alone = await run(authorityAlone("factory"), calls);
+    const list = await run(authorityList("factory", "mini,book"), calls);
     expect(status._tag).toBe("Failure");
     expect(alone._tag).toBe("Failure");
+    expect(list._tag).toBe("Failure");
     expect(calls).toEqual([]);
+  });
+
+  it("is a root command and a docs section only in a build with authority", () => {
+    expect(rootCommandNames().includes("authority")).toBe(AUTHORITY_ENABLED);
+    expect(buildConceptsDoc().includes("## Authority")).toBe(AUTHORITY_ENABLED);
   });
 });

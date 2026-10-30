@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { CLI_VERSION } from "./core/constants";
 import { earlyDispatchFromArgv } from "./early-dispatch";
-import { ARTIFACTS_ENABLED, BROWSER_ENABLED,
+import { ARTIFACTS_ENABLED, AUTHORITY_ENABLED, BROWSER_ENABLED,
   LIVE_OVERSEER_ENABLED, TASKS_ENABLED } from "@shared/features";
 
 export { earlyDispatchFromArgv } from "./early-dispatch";
@@ -17,6 +17,7 @@ const disabledCliGroup = (args: ReadonlyArray<string>): string | undefined => {
   if (!TASKS_ENABLED && group === "rulings") return "rulings";
   if (!ARTIFACTS_ENABLED && group === "artifact") return "artifact";
   if (!BROWSER_ENABLED && group === "browser") return "browser";
+  if (!AUTHORITY_ENABLED && group === "authority") return "authority";
   return undefined;
 };
 

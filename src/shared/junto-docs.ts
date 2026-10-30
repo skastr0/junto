@@ -11,6 +11,7 @@
 
 import { Schema } from "effect";
 import {
+  AUTHORITY_ENABLED,
   productNodeKindEnabled,
   productPortEnabled,
   TASKS_ENABLED,
@@ -341,6 +342,19 @@ const COMPLETION_CONCEPT = TASKS_ENABLED
     "it verified, and what it could not finish.",
   ];
 
+/** Fleet authority (0.11/06 F5), only in a build that has it. */
+const AUTHORITY_CONCEPT: ReadonlyArray<string> = AUTHORITY_ENABLED
+  ? [
+    "## Authority",
+    "One machine at a time takes changes for a canvas: the first reachable one on",
+    "the operator's ordered list. The operator reads and sets it from a shell on",
+    "the machine, never from a seat: `junto authority status [canvas]`,",
+    "`junto authority list <canvas> --order <names>` and `junto authority alone",
+    "<canvas>`. A seat that runs one is refused.",
+    "",
+  ]
+  : [];
+
 export const buildConceptsDoc = (): string =>
   [
     "# Concepts",
@@ -367,6 +381,7 @@ export const buildConceptsDoc = (): string =>
     "Retry only when retryable, at most twice; then adapt or escalate. Never",
     "invent around an error.",
     "",
+    ...AUTHORITY_CONCEPT,
     "## The intervention ladder",
     "Junto may become more active with a seat's PTY only when it can",
     "prove the intervention cannot damage the experience: never near user input,",
