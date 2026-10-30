@@ -101,6 +101,18 @@ export const terminalClient = (
     if (terminal !== undefined) each(terminal.error, new Error(message));
   };
 
+  const post = (channel: string, payload: unknown): void => port.post({ kind: "push", channel, payload });
+
+  // Handled output is acknowledged once per turn, every terminal at once, so
+  // a PTY is read only as fast as this side keeps up (backpressure).
+  const handled = new Map<number, number>();
+  let ackScheduled = false;
+  const acknowledge = (): void => {
+    ackScheduled = false;
+    for (const [id, chars] of handled) post(TerminalInbound.ack, { id, chars });
+    handled.clear();
+  };
+
   port.listen((message: CoreMessage) => {
     if (message.kind !== "push") return;
     if (message.channel === TerminalOutbound.data) {
@@ -109,6 +121,11 @@ export const terminalClient = (
       if (terminal === undefined) return;
       terminal.seq = seq;
       each(terminal.data, data);
+      handled.set(id, (handled.get(id) ?? 0) + data.length);
+      if (!ackScheduled) {
+        ackScheduled = true;
+        setImmediate(acknowledge);
+      }
       return;
     }
     if (message.channel === TerminalSurface.typing || message.channel === TerminalSurface.input) {
@@ -134,7 +151,6 @@ export const terminalClient = (
     return () => pick(terminal).delete(listener);
   };
 
-  const post = (channel: string, payload: unknown): void => port.post({ kind: "push", channel, payload });
 
   return {
     spawn: (input) => {

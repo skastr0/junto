@@ -58,6 +58,8 @@ const until = async (check: () => boolean, timeoutMs = 5_000): Promise<void> => 
 
 const env = { PATH: process.env.PATH, TERM: "xterm-256color" };
 
+const settleTurn = () => new Promise((resolve) => setTimeout(resolve, 30));
+
 describe("the terminal process", () => {
   it("echoes input written before the pid is known, and reports the exit", async () => {
     const { client, served } = pair();
@@ -163,6 +165,67 @@ describe("the terminal process", () => {
     answer?.(true);
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(kills).toEqual([]);
+  });
+
+  it("stops reading a PTY the core has fallen a megabyte behind on, and reads it again once the core catches up", async () => {
+    let emit: ((data: string) => void) | undefined;
+    const calls: string[] = [];
+    const fake: SpawnPty = () => ({
+      pid: 4244,
+      onExit: () => ({ dispose: () => undefined }),
+      onData: (listener: (data: string) => void) => {
+        emit = listener;
+        return { dispose: () => undefined };
+      },
+      pause: () => calls.push("pause"),
+      resume: () => calls.push("resume"),
+      kill: () => undefined,
+      write: () => undefined,
+      resize: () => undefined,
+    }) as unknown as ReturnType<SpawnPty>;
+    const { port1, port2 } = new MessageChannel();
+    opened.push(port1, port2);
+    serveTerminals(portOf(port2), fake, { capture: async () => undefined, isCurrent: async () => false });
+    // A core that does not keep up: it answers the spawn and acknowledges nothing.
+    const core = portOf(port1);
+    core.post({ kind: "call", id: 1, name: "pty.spawn", input: { id: 1, command: "/bin/true", args: [], cols: 80, rows: 24 } });
+    await until(() => emit !== undefined);
+    const chunk = "x".repeat(64 * 1024);
+    for (let i = 0; i < 16; i++) emit!(chunk);
+    expect(calls).toEqual([]);
+    emit!(chunk);
+    expect(calls).toEqual(["pause"]);
+    emit!(chunk);
+    expect(calls).toEqual(["pause"]);
+    core.post({ kind: "push", channel: "pty.ack", payload: { id: 1, chars: 12 * 64 * 1024 } });
+    await settleTurn();
+    expect(calls).toEqual(["pause"]);
+    core.post({ kind: "push", channel: "pty.ack", payload: { id: 1, chars: 4 * 64 * 1024 } });
+    await until(() => calls.length === 2);
+    expect(calls).toEqual(["pause", "resume"]);
+  });
+
+  it("a core that keeps up acknowledges what it handled, so a fast stream is never paused", async () => {
+    const calls: string[] = [];
+    const spawnPty: SpawnPty = (command, args, options) => {
+      const pty = realPty(command, args, options);
+      const { pause, resume } = pty;
+      pty.pause = () => {
+        calls.push("pause");
+        pause.call(pty);
+      };
+      pty.resume = () => {
+        calls.push("resume");
+        resume.call(pty);
+      };
+      return pty;
+    };
+    const { client } = pair(spawnPty);
+    const flood = client.spawn({ command: "/bin/sh", args: ["-c", "head -c 4000000 /dev/zero | tr '\\0' x"], cols: 80, rows: 24, env });
+    const seen = record(flood);
+    expect((await seen.exit).code).toBe(0);
+    expect(seen.output().replace(/[^x]/g, "").length).toBe(4_000_000);
+    expect(calls.filter((call) => call === "pause").length).toBe(calls.filter((call) => call === "resume").length);
   });
 
   it("a refused spawn arrives as an error, then an exit", async () => {

@@ -8,7 +8,10 @@ import {
   type TerminalData,
   type TerminalError,
   type TerminalExitEvent,
+  type TerminalAck,
   type TerminalKill,
+  TERMINAL_UNACKED_HIGH,
+  TERMINAL_UNACKED_LOW,
   type TerminalResize,
   type TerminalSpawnInput,
   type TerminalWrite,
@@ -105,6 +108,8 @@ export const serveTerminals = (
   // Taken at spawn; a PTY whose epoch could not be read is never signalled.
   const epochOf = new Map<number, Promise<ChildProcessEpoch | undefined>>();
   const surfacesOf = new Map<number, Surfaces>();
+  // Output sent to the core and not yet handled there, and whether the PTY is paused for it.
+  const unacked = new Map<number, { chars: number; paused: boolean }>();
   const push = (channel: string, payload: TerminalData | TerminalExitEvent | TerminalError): void =>
     port.post({ kind: "push", channel, payload });
 
@@ -147,6 +152,17 @@ export const serveTerminals = (
     }
     for (const { port: surface } of surfaces.open.values()) surface.post({ t: "out", seq, data });
     push(TerminalOutbound.data, { id, data, seq });
+    const owed = unacked.get(id);
+    if (owed === undefined) return;
+    owed.chars += data.length;
+    if (!owed.paused && owed.chars > TERMINAL_UNACKED_HIGH) {
+      owed.paused = true;
+      try {
+        ptys.get(id)?.pause();
+      } catch {
+        // An exiting PTY has nothing left to pause.
+      }
+    }
   };
 
   const openSurface = (open: TerminalSurfaceOpen, surface: SurfacePort): void => {
@@ -184,11 +200,13 @@ export const serveTerminals = (
     });
     ptys.set(input.id, pty);
     epochOf.set(input.id, epochs.capture(pty.pid).catch(() => undefined));
+    unacked.set(input.id, { chars: 0, paused: false });
     surfacesOf.set(input.id, { seq: 0, ring: [], ringBytes: 0, controller: null, held: false, heldKeys: [], open: new Map() });
     // The exit witness first, then the stream, as the plane installs them.
     pty.onExit(({ exitCode, signal }) => {
       ptys.delete(input.id);
       epochOf.delete(input.id);
+      unacked.delete(input.id);
       const surfaces = surfacesOf.get(input.id);
       surfacesOf.delete(input.id);
       if (surfaces !== undefined) for (const leaseId of [...surfaces.open.keys()]) endSurface(surfaces, leaseId);
@@ -216,6 +234,21 @@ export const serveTerminals = (
         ptys.get(id)?.resize(cols, rows);
       } catch (error) {
         push(TerminalOutbound.error, { id, message: errorMessage(error) });
+      }
+      return;
+    }
+    if (channel === TerminalInbound.ack) {
+      const { id, chars } = payload as TerminalAck;
+      const owed = unacked.get(id);
+      if (owed === undefined) return;
+      owed.chars = Math.max(0, owed.chars - chars);
+      if (owed.paused && owed.chars < TERMINAL_UNACKED_LOW) {
+        owed.paused = false;
+        try {
+          ptys.get(id)?.resume();
+        } catch {
+          // An exiting PTY has nothing left to resume.
+        }
       }
       return;
     }

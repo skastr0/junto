@@ -29,11 +29,23 @@ export const TerminalInbound = {
   write: "pty.write",
   resize: "pty.resize",
   kill: "pty.kill",
+  /** The core has handled this many more output characters of the terminal. */
+  ack: "pty.ack",
 } as const;
 
 export type TerminalWrite = { readonly id: number; readonly data: string };
 export type TerminalResize = { readonly id: number; readonly cols: number; readonly rows: number };
 export type TerminalKill = { readonly id: number; readonly signal?: NodeJS.Signals };
+export type TerminalAck = { readonly id: number; readonly chars: number };
+
+/**
+ * Backpressure: a PTY whose output the core has not handled past the high
+ * mark stops being read, so its child blocks on a full terminal as it would
+ * if the core read it in process; it is read again below the low mark.
+ * Characters, as the output strings count them.
+ */
+export const TERMINAL_UNACKED_HIGH = 1024 * 1024;
+export const TERMINAL_UNACKED_LOW = 256 * 1024;
 
 /** The terminal process to the core: output, the exit witness, and I/O failures. */
 export const TerminalOutbound = {
