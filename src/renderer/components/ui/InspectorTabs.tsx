@@ -1,4 +1,6 @@
+import { useLayoutEffect, useRef } from "react";
 import { DIM, HUE, HUE_TEXT, INK, withAlpha } from "../../lib/theme";
+import { FOCUS_RING_INSET } from "./focus";
 
 // A tiny, self-contained tab bar primitive for internal panel navigation —
 // no CSS import required, so any panel can drop it in. 10px uppercase
@@ -12,6 +14,22 @@ export interface InspectorTab {
   readonly badge?: number;
 }
 
+/** How far a cut row fades at the edge that has more behind it. */
+const FADE_PX = 16;
+
+/**
+ * A row wider than its box scrolls, its scrollbar hidden, so the edge that has
+ * more behind it fades out: a cut tab says there is more, and a row that fits
+ * is left as it is. Set on the element itself, so scrolling renders nothing.
+ */
+const fadeEdges = (row: HTMLElement): void => {
+  const more = row.scrollWidth - row.clientWidth > 1;
+  const start = more && row.scrollLeft > 1;
+  const end = more && row.scrollLeft + row.clientWidth < row.scrollWidth - 1;
+  const stops = [start ? `transparent, black ${FADE_PX}px` : "black", end ? `black calc(100% - ${FADE_PX}px), transparent` : "black"];
+  row.style.maskImage = start || end ? `linear-gradient(to right, ${stops.join(", ")})` : "";
+};
+
 export function InspectorTabs({
   tabs,
   active,
@@ -24,9 +42,26 @@ export function InspectorTabs({
   /** Accessible name of the tab row. */
   readonly label?: string;
 }) {
+  const row = useRef<HTMLDivElement>(null);
+  const count = tabs.length;
+  useLayoutEffect(() => {
+    const el = row.current;
+    if (el === null) return undefined;
+    const update = (): void => fadeEdges(el);
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    if (typeof ResizeObserver !== "function") return () => el.removeEventListener("scroll", update);
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    for (const child of el.children) observer.observe(child);
+    return () => {
+      el.removeEventListener("scroll", update);
+      observer.disconnect();
+    };
+  }, [count]);
   if (tabs.length === 0) return null;
   return (
-    <div role="tablist" aria-label={label} className="flex items-end gap-0.5 overflow-x-auto [scrollbar-width:none]" style={{ borderBottom: "1px solid var(--color-overlay-4)" }}>
+    <div ref={row} role="tablist" aria-label={label} className="flex items-end gap-0.5 overflow-x-auto [scrollbar-width:none]" style={{ borderBottom: "1px solid var(--color-overlay-4)" }}>
       {tabs.map((tab) => {
         const isActive = tab.id === active;
         return (
@@ -36,7 +71,7 @@ export function InspectorTabs({
             role="tab"
             aria-selected={isActive}
             onClick={() => onSelect(tab.id)}
-            className="relative flex items-center gap-1.5 whitespace-nowrap rounded-t-md focus-visible:-outline-offset-2 px-2.5 py-1.5 text-label font-medium uppercase tracking-label transition"
+            className={`relative flex items-center gap-1.5 whitespace-nowrap rounded-t-md px-2 py-1.5 text-label font-medium uppercase tracking-label outline-none transition ${FOCUS_RING_INSET}`}
             style={{
               color: isActive ? INK : DIM,
               background: isActive ? withAlpha(HUE.amber, 0.1) : "transparent",
