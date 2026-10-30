@@ -118,6 +118,7 @@ import {
   buildQuitConfirmPrompt,
   hasLiveWork,
   QUIT_CONFIRM_ACCEPT_INDEX,
+  type LiveWorkSnapshot,
 } from "./junto/quit-live-work";
 import { mainAuthoringGate } from "./junto/main-authoring-gate";
 import {
@@ -2030,10 +2031,21 @@ const quiesceSignalRenderer = (generation: number): void => {
   signalQuitState.markRendererQuiesced(generation);
 };
 
-// Main runs no terminal session: every PTY belongs to the core's plane, on
-// this machine or another. A quit that must wait for one is the core's to ask.
-const collectLiveWorkSnapshot = () =>
-  assessLiveWork({ localTerminalSessionCount: 0 });
+/**
+ * What is still running, as the core sees it: main holds no session, so the
+ * count is a core call (term.list) filtered to the statuses a quit would end.
+ * A core that does not answer is unknown, never zero, and unknown warns.
+ */
+const collectLiveWorkSnapshot = async (): Promise<LiveWorkSnapshot> => {
+  try {
+    const sessions = await core.call("term.list", {});
+    const running = sessions.filter((session) => session.status === "running" || session.status === "starting");
+    return assessLiveWork({ localTerminalSessionCount: running.length });
+  } catch (cause) {
+    console.error("[quit] the core did not say what is running; treating the count as unknown", cause);
+    return assessLiveWork({ localTerminalSessionCount: "unknown" });
+  }
+};
 
 /** Cancel left the process with no UI — give the operator a surface back. */
 const recreateWindowIfEmpty = (): void => {
@@ -2144,8 +2156,8 @@ app.on("before-quit", (event) => {
   // Second Cmd+Q while the confirm is open: swallow (still preventDefault).
   if (quitConfirmPending) return;
 
-  const confirmLiveWorkThenQuit = (): void => {
-    const live = collectLiveWorkSnapshot();
+  const confirmLiveWorkThenQuit = async (): Promise<void> => {
+    const live = await collectLiveWorkSnapshot();
     if (!hasLiveWork(live)) {
       quitConfirmed = true;
       beginQuitPreparation();
@@ -2208,7 +2220,11 @@ app.on("before-quit", (event) => {
       recreateWindowIfEmpty();
       return;
     }
-    confirmLiveWorkThenQuit();
+    void confirmLiveWorkThenQuit().catch((error: unknown) => {
+      quitConfirmPending = false;
+      quitConfirmed = false;
+      console.error("[quit] the live-work check failed before the prompt:", error);
+    });
   });
 });
 

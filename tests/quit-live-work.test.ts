@@ -24,11 +24,21 @@ describe("quit live-work assessment", () => {
     const snap = assessLiveWork({ localTerminalSessionCount: 2 });
     expect(hasLiveWork(snap)).toBe(true);
   });
+
+  it("a core that did not answer is unknown, not zero: the operator is warned", () => {
+    const snap = assessLiveWork({ localTerminalSessionCount: "unknown" });
+    expect(snap.countUnknown).toBe(true);
+    expect(snap.localTerminalSessionCount).toBe(0);
+    expect(hasLiveWork(snap)).toBe(true);
+    const prompt = buildQuitConfirmPrompt(snap);
+    expect(prompt.detail).toMatch(/did not answer how many/);
+    expect(prompt.detail).not.toMatch(/0 local terminal sessions/);
+  });
 });
 
 describe("quit confirm prompt", () => {
   it("names what pauses and what stops", () => {
-    const prompt = buildQuitConfirmPrompt({ localTerminalSessionCount: 1 });
+    const prompt = buildQuitConfirmPrompt(assessLiveWork({ localTerminalSessionCount: 1 }));
     expect(prompt.buttons).toEqual(["Cancel", "Quit"]);
     expect(prompt.defaultId).toBe(0);
     expect(prompt.cancelId).toBe(0);
@@ -43,7 +53,7 @@ describe("quit confirm prompt", () => {
   });
 
   it("idle inventory still produces a valid shape (caller should skip dialog)", () => {
-    const prompt = buildQuitConfirmPrompt({ localTerminalSessionCount: 0 });
+    const prompt = buildQuitConfirmPrompt(assessLiveWork({ localTerminalSessionCount: 0 }));
     expect(prompt.buttons[QUIT_CONFIRM_ACCEPT_INDEX]).toBe("Quit");
   });
 });
