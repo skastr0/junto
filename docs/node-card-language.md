@@ -42,8 +42,8 @@ Idle shows nothing. Status is a shape and a word at every tier, never colour
 alone.
 
 **Spine.** Starts 15px in from the chip's left edge, 6px below it: a 1.5px
-`--color-stroke-hi` left rule. A blocked or needs-you node's spine is 2px in
-its tone. Each row hangs from it by an 11px tick, padding-left 16px, gap 7px,
+`--color-stroke-hi` left rule, the same for every node: a blocked or
+needs-you node shows its tone on the chip's tag, never on the spine. Each row hangs from it by an 11px tick, padding-left 16px, gap 7px,
 mono `--text-body` (11px) `--color-ink-2`, glyph 12px `--color-dim`. The first
 row is the meta line, `--text-label` (10px) `--color-dim`. At most four rows, then a dim `+N more` row.
 A seat mentioned in a row is a ResourceChip with its portrait.
@@ -51,8 +51,9 @@ A seat mentioned in a row is a ResourceChip with its portrait.
 **Leaf nodes** (page, terminal, git, file, link, peer, stub) are a chip alone,
 with one dim `--text-label` line under it, indented 15px, and no spine.
 
-**Note and label have no chip.** A note is typeset text: a 3px
-`--color-amber` left rule, 12px left padding, title 14px weight 600, body 11px
+**Note and label have no chip.** A note is typeset text in an amber callout:
+a full 1px border of `--color-amber` at 30%, an 8% amber tint, `--radius-md`
+corners and 8px 12px padding, never a one-sided rule (DESIGN.md). Title 14px weight 600, body 11px
 at 1.55 in `--color-ink-2`. A label is bare display type, 22px weight 700,
 `--font-display`.
 
