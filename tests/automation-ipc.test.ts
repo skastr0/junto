@@ -583,7 +583,8 @@ describe("the CLI's live automation ports", () => {
         op: { kind: "run" },
       }));
       expect(ran).toMatchObject({ disposition: "applied", opId: OVERSEER_RUN, automationId: ID });
-      expect(changed).toHaveLength(2);
+      // The create and the run, then the run's firing claimed and settled (repository.ts firingChanged).
+      expect(changed).toHaveLength(4);
 
       // Node-wide history: every automation on the node, newest first.
       const firings = await inApp(liveAutomationPorts.firings("factory", asNodeId(NODE), { limit: 10 }));
