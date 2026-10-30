@@ -88,14 +88,10 @@ export const idSegments = (text: string): ReadonlyArray<IdSegment> => {
 };
 
 /**
- * An id as a row or a header shows it, where the line is a string and no CSS
- * can cut it: its first characters, the way the thread's prose cuts it.
+ * A list row's or a header's line, as the runs it is drawn from: the tags gone,
+ * each long id its own run so the surface can draw it as the token whose whole
+ * value stays in the document. Never a cut string: a row is a button whose
+ * name is its text, and copy and a screen reader must get the whole id.
  */
-export const shortenIds = (text: string): string =>
-  idSegments(text)
-    .map((segment) => (segment.id === undefined ? segment.text : `${segment.id.slice(0, 8)}\u2026`))
-    .join("");
-
-/** A list row's or a header's line: the tags gone, long ids cut. */
-export const threadHeadline = (text: string, known: ReadonlyArray<string>): string =>
-  shortenIds(stripHeadTag(stripAuthorPreamble(text, known), known));
+export const threadHeadline = (text: string, known: ReadonlyArray<string>): ReadonlyArray<IdSegment> =>
+  idSegments(stripHeadTag(stripAuthorPreamble(text, known), known));

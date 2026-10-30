@@ -6,11 +6,16 @@
 import { describe, expect, it } from "vitest";
 import {
   idSegments,
-  shortenIds,
   stripAuthorPreamble,
   stripHeadTag,
   threadHeadline,
 } from "../src/renderer/lib/thread-text";
+
+/** The runs as a line of words, to read a composition back. */
+const words = (text: string, known: ReadonlyArray<string>): string =>
+  threadHeadline(text, known)
+    .map((segment) => segment.text)
+    .join("");
 
 const ULID = "01M65NSRWSB3PCSBAG7N44SHXN";
 
@@ -90,16 +95,17 @@ describe("long ids", () => {
     expect(segment).toEqual({ text: ULID, id: ULID });
   });
 
-  it("cuts the id for a line that is a string: a row, a header", () => {
-    expect(shortenIds(`Landed ${ULID} on main`)).toBe("Landed 01M65NSR\u2026 on main");
-    expect(shortenIds("commit 5b13225bd is fine")).toBe("commit 5b13225bd is fine");
+  it("keeps a short id out of the token, so a commit sha reads as written", () => {
+    expect(idSegments("commit 5b13225bd is fine").every((segment) => segment.id === undefined)).toBe(true);
   });
 });
 
 describe("threadHeadline", () => {
-  it("composes the row's line: the tags gone, the ids cut, the rest as written", () => {
-    expect(threadHeadline(`From product-lead, landed ${ULID} today`, ["product-lead"])).toBe("landed 01M65NSR\u2026 today");
-    expect(threadHeadline("Review ask, from product-feed: the Needs you feed's filters", ["product-feed"])).toBe(
+  it("composes the row's line: the tags gone, each long id its own run, the rest as written", () => {
+    const runs = threadHeadline(`From product-lead, landed ${ULID} today`, ["product-lead"]);
+    expect(runs.filter((segment) => segment.id !== undefined)).toEqual([{ text: ULID, id: ULID }]);
+    expect(words(`From product-lead, landed ${ULID} today`, ["product-lead"])).toBe(`landed ${ULID} today`);
+    expect(words("Review ask, from product-feed: the Needs you feed's filters", ["product-feed"])).toBe(
       "Review ask, the Needs you feed's filters",
     );
   });

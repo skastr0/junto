@@ -68,6 +68,28 @@ export function SeatThreadsButton({ seat, name }: { readonly seat: SeatAddress; 
 /** The markdown passes a thread needs, held once so a message's render stays memoized. */
 const THREAD_MARKDOWN_PLUGINS = [rehypeThreadInlineIds];
 
+/**
+ * A thread's line as it is drawn: its words, with each long id as the token
+ * whose whole value stays in the document (the stylesheet cuts what the eye
+ * sees). A row is a button whose name is this text, so nothing here may cut an
+ * id into a string.
+ */
+function Headline({ text, known }: { readonly text: string; readonly known: ReadonlyArray<string> }) {
+  return (
+    <>
+      {threadHeadline(previewText(text), known).map((segment, index) =>
+        segment.id === undefined ? (
+          segment.text
+        ) : (
+          <span key={`${segment.id}-${String(index)}`} className="seat-threads__id">
+            {segment.id}
+          </span>
+        ),
+      )}
+    </>
+  );
+}
+
 /** How far from the list's end, in pixels, the next older page is asked for. */
 const LIST_NEAR_END = 400;
 /** How far from the chat's top, in pixels, the next older page is asked for. */
@@ -168,7 +190,7 @@ export function SeatThreadsPopup({
       >
         <span className="seat-threads__row-title">
           {item.subject && item.subject.kind !== "file" ? <ResourceGlyphMark kind={item.subject.kind} /> : null}
-          {threadHeadline(previewText(item.title), item.participants)}
+          <Headline text={item.title} known={item.participants} />
         </span>
         <span className="seat-threads__row-meta">
           <span className="seat-threads__row-who">{participantsLine(item.participants)}</span>
@@ -366,7 +388,7 @@ function ThreadChat({
           subject ? (
             <MentionChipView chip={subject} onLeave={onLeave} testId="seat-threads-subject" />
           ) : (
-            threadHeadline(previewText(thread.title), thread.participants)
+            <Headline text={thread.title} known={thread.participants} />
           )
         }
         full={thread.title}

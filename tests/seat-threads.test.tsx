@@ -510,8 +510,11 @@ describe("the Threads popup", () => {
     ];
     change();
     await flush();
-    const row = document.querySelector('[data-thread-id="tagged"] .seat-threads__row-title');
-    expect(row?.textContent).toBe("Review ask, the Needs you feed's filters, 01M65NSR\u2026");
+    const row = document.querySelector('[data-thread-id="tagged"] .seat-threads__row-title')!;
+    expect(row.textContent).toBe("Review ask, the Needs you feed's filters, 01M65NSRWSB3PCSBAG7N44SHXN");
+    // A row is a button whose name is its text: the whole id is in it, and the
+    // stylesheet, not the string, is what cuts the eye's copy.
+    expect(row.querySelector(".seat-threads__id")?.textContent).toBe("01M65NSRWSB3PCSBAG7N44SHXN");
   });
 
   it("draws a message's markdown, with its mention links as chips inside it", async () => {

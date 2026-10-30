@@ -210,16 +210,17 @@
   padding: 16px 20px;
 }
 
-/* A message hugs its text on the sender's side, about 68 characters a line,
-   in the reading step: the title size (14px) on the open leading, in the
-   prose face. The face and size are set here so the ch is measured in them;
-   the bubble's padding and border (26px) sit outside the measure. */
+/* A message hugs its text on the sender's side, about 72 characters a line in
+   the reading step: the title size (14px) on the open leading, in the prose
+   face. A ch is a zero's width, wider than prose averages, so 58ch of this
+   face is about 72 characters of a sentence (measured in the real app); the
+   bubble's padding and border (26px) sit outside the measure. */
 .seat-threads__message {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
-  max-width: min(92%, calc(68ch + 26px));
+  max-width: min(92%, calc(58ch + 26px));
   font-family: var(--font-body);
   font-size: var(--text-title);
   line-height: var(--leading-open);
