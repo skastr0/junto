@@ -45,7 +45,7 @@ export const AuthorityBanner = ({ canvasName }: { canvasName: string | undefined
     <div className={`authority-banner authority-banner--${banner.kind}`} data-kind={banner.kind}>
       <div className="authority-banner__heading" role="status" aria-live="polite">
         <span className="authority-banner__title">{banner.title}</span>
-        <span className="authority-banner__states">{authorityMachineSentence(view, authorityWhen)}</span>
+        <span className="authority-banner__states sr-only">{authorityMachineSentence(view, authorityWhen)}</span>
       </div>
       <AuthorityChips view={view} />
       {banner.lines.map((line) => (
