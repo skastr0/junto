@@ -109,6 +109,12 @@ export const portCore = (port: CorePort): PortCoreClient => {
       return () => set.delete(listener);
     },
     fail: (reason) => {
+      // Name what was still in flight: an unhandled rejection at quit is a
+      // caller that reached the core after admission closed, and the operation
+      // is the only thing that says which.
+      if (pending.size > 0) {
+        console.warn(`[core] ${String(pending.size)} call(s) in flight when the core stopped: ${[...pending.values()].map((entry) => entry.name).join(", ")}`);
+      }
       for (const [id, entry] of pending) {
         pending.delete(id);
         entry.reject(new CoreCallError(entry.name, "CoreStopped", reason));
