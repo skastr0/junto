@@ -2,7 +2,7 @@
  * Real app, 572b6c065: the inspector tab's active mark is the amber tint with
  * ink words and a rounded top, no underline; words and badge 10px. Its two
  * users, the agent editor (from the seat toolbar) and the git detail (from a
- * seat's git line), dark and bright, at 1500 and 900 wide. Each tab row is
+ * seat's git line), dark and bright, at 1500, 900 and 720 wide (where the agent editor stacks). Each tab row is
  * read for a wrapped tab, a clipped badge, the active tab's fill, border and
  * radius, and how its bottom meets the hairline under the row.
  *   JUNTO_SHOTS_DIR=<dir> bun run test:e2e:fast e2e/scenarios/inspector-tabs-verify.spec.ts
@@ -67,7 +67,7 @@ const readTabs = (list: Locator) =>
 const setContentSize = (app: ElectronApplication, width: number, height: number): Promise<void> =>
   app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0]!.setContentSize(size.width, size.height), { width, height });
 
-test("inspector tabs: agent editor and git detail, dark and bright, 1500 and 900 wide", async () => {
+test("inspector tabs: agent editor and git detail, dark and bright, 1500, 900 and 720 wide", async () => {
   test.setTimeout(400_000);
   const repo = realpathSync(mkdtempSync(join(tmpdir(), "junto-e2e-tabs-")));
   makeRepository(repo);
@@ -79,7 +79,7 @@ test("inspector tabs: agent editor and git detail, dark and bright, 1500 and 900
   const out: Record<string, unknown> = {};
   const misses: string[] = [];
   const frames = async (name: string, list: Locator): Promise<void> => {
-    for (const width of [1500, 900]) {
+    for (const width of [1500, 900, 720]) {
       await setContentSize(app, width, 900);
       await page.waitForTimeout(600);
       for (const theme of ["dark", "bright"] as const) {
