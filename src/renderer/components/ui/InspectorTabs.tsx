@@ -1,9 +1,9 @@
 import { DIM, HUE, HUE_TEXT, INK, withAlpha } from "../../lib/theme";
 
 // A tiny, self-contained tab bar primitive for internal panel navigation —
-// no CSS import required, so any panel can drop it in. 9px uppercase
-// segmented row: ink active on an amber wash, dim inactive, 1px hairline
-// borders. Deliberately dumb (controlled active/onSelect) so callers own
+// no CSS import required, so any panel can drop it in. 10px uppercase
+// segmented row: ink active on an amber wash, dim inactive, one neutral
+// hairline under the row, no coloured edge. Deliberately dumb (controlled active/onSelect) so callers own
 // what "tabs" means for their panel.
 
 export interface InspectorTab {
@@ -36,18 +36,16 @@ export function InspectorTabs({
             role="tab"
             aria-selected={isActive}
             onClick={() => onSelect(tab.id)}
-            className="relative flex items-center gap-1.5 px-2.5 py-1.5 text-caption font-medium uppercase tracking-label transition"
+            className="relative flex items-center gap-1.5 rounded-t-md px-2.5 py-1.5 text-label font-medium uppercase tracking-label transition"
             style={{
               color: isActive ? INK : DIM,
               background: isActive ? withAlpha(HUE.amber, 0.1) : "transparent",
-              borderBottom: `1px solid ${isActive ? withAlpha(HUE.amber, 0.5) : "transparent"}`,
-              marginBottom: -1,
             }}
           >
             {tab.label}
             {tab.badge ? (
               <span
-                className="inline-flex min-w-[14px] items-center justify-center rounded-full px-1 text-micro tabular-nums"
+                className="inline-flex min-w-[14px] items-center justify-center rounded-full px-1 text-label tabular-nums"
                 style={{ background: withAlpha(HUE.amber, 0.22), color: HUE_TEXT.amber }}
               >
                 {tab.badge > 99 ? "99+" : tab.badge}

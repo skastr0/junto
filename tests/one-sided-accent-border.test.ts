@@ -185,9 +185,6 @@ const KEPT: ReadonlyArray<Kept> = [
   { file: "src/renderer/components/artifacts/live-markdown.css", selector: /\.cm-md-link$|artifact-document__anchor$/, reason: "a link or anchor underline" },
   { file: "src/renderer/components/ui/mention-combobox.css", selector: /^\.mention-combobox__chip$/, reason: "an inline mention chip underline, a link in running text" },
   { file: "src/renderer/components/artifacts/artifact-sheet.css", selector: /^\.junto-artifact-sheet__link$/, reason: "a link underline in a cell" },
-  { file: "src/renderer/components/browser/browser-chrome.css", selector: /^\.tab-strip__tab\[data-active="true"\]$/, reason: "a tab indicator" },
-  { file: "src/renderer/components/ui/InspectorTabs.tsx", selector: /^\(tsx\)$/, reason: "a tab indicator" },
-  { file: "src/renderer/styles/region-title.css", selector: /^\.junto-region-titlebar:hover$/, reason: "a title bar's hover hairline, not a selection" },
   { file: "src/renderer/components/nodes/spine-card.css", selector: /^\.spine__row\[data-tone="(?:crimson|amber)"\]::before$/, reason: "the spine's branch tick, a drawn tree line, not an edge of the row" },
 ];
 
