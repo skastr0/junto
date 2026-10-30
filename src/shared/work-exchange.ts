@@ -237,6 +237,13 @@ export type CanvasPlacement = {
   readonly canvasId: string;
   /** The machine that may change the canvas; it keeps all of it. */
   readonly editor: InstallationId;
+  /**
+   * The canvas's committed authority list as this machine's log states it,
+   * oldest position first (0.11/06 F3): the machines that keep the canvas
+   * whole and relay its rows. Absent reads as the editor alone, which is
+   * every canvas until the operator lists a fallback.
+   */
+  readonly authorities?: ReadonlyArray<InstallationId>;
   /** Does this machine hold the canvas: it edits it, one of its seats or automations is on it, or it is departing. */
   readonly holds: (machine: InstallationId) => boolean;
   /** The seat at a node: its identity and the machine it lives on. Undefined for a node that is no seat. */
@@ -263,6 +270,15 @@ export type CanvasPlacement = {
  * lands, that is the machine that edits it; this is the one place that changes.
  */
 export const authorityOf = (placement: Pick<CanvasPlacement, "editor">): InstallationId => placement.editor;
+
+/**
+ * The canvas's committed authority list, oldest position first (0.11/06 F3):
+ * who keeps it whole and relays its rows, as this machine's log states it.
+ * `authorityOf` names who rules; this names who may take over, keep and
+ * relay. A placement that names none is the editor alone.
+ */
+export const authoritiesOf = (placement: Pick<CanvasPlacement, "editor" | "authorities">): ReadonlyArray<InstallationId> =>
+  placement.authorities === undefined || placement.authorities.length === 0 ? [placement.editor] : placement.authorities;
 
 /**
  * What a machine may state of a signal to a peer, or nothing. The machine the

@@ -70,6 +70,8 @@ export const canvasPlacement = (canvasName: string) =>
     if (header === undefined) return undefined;
     const self = yield* (yield* MachineRepository).installationId;
     const editor = ((yield* records.canvasEditor(canvasName)) ?? self) as InstallationId;
+    const listed = (yield* records.canvasAuthorities(canvasName)).map((id) => id as InstallationId);
+    const authorities = listed.length === 0 ? [editor] : listed;
     const nodes = yield* records.listNodes(canvasName);
     const byName = yield* machineInstallations;
     const homes = homesOf(nodes, byName);
@@ -77,12 +79,14 @@ export const canvasPlacement = (canvasName: string) =>
     const names = new Map(nodes.map((node) => [node.id as string, titleOf(node)]));
     const holders = new Set<InstallationId>([
       editor,
+      ...authorities,
       ...[...homes.values()].map((home) => home.machine),
       ...automations.values(),
     ]);
     return {
       canvasId: header.canvas_id,
       editor,
+      authorities,
       holds: (machine) => holders.has(machine),
       seatOf: (nodeId) => homes.get(nodeId),
       nameOf: (nodeId) => names.get(nodeId),

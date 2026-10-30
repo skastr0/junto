@@ -129,6 +129,23 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
           failure("canvasEditor"),
         ),
       );
+      const canvasAuthorityRows = SqlSchema.findAll({
+        Request: Schema.String,
+        Result: Schema.Struct({ installation_id: Schema.String }),
+        execute: (canvas) =>
+          sql`SELECT installation_id FROM canvas_authorities WHERE canvas_name=${canvas} ORDER BY position`,
+      });
+      /**
+       * The canvas's committed authority list, oldest position first (0.11/06
+       * F3). Empty where no list is seeded: the table fills only behind the
+       * authority, and there the editor alone is the list.
+       */
+      const canvasAuthorities = Effect.fn("ModelRecords.canvasAuthorities")((canvas: string) =>
+        canvasAuthorityRows(canvas).pipe(
+          Effect.map((rows) => rows.map((row) => row.installation_id)),
+          failure("canvasAuthorities"),
+        ),
+      );
       const canvasEdits = SqlSchema.findAll({
         Request: Schema.String,
         Result: Schema.Struct({ edits: Schema.Number }),
@@ -421,6 +438,7 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
         requireFilesPlace,
         getCanvas,
         canvasEditor,
+        canvasAuthorities,
         editsCanvas,
         listCanvases,
         listCanvasSummaries: () => listCanvasSummaries(undefined).pipe(failure("listCanvasSummaries")),
