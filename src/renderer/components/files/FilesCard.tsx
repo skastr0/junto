@@ -7,7 +7,7 @@ import { ROOT_PATH, type FilesCount, type FilesResult } from "@shared/files";
 import { useFeatureOn } from "../../lib/experimental-features";
 import { CARD_DROP_NOTICE_MS, cardDropNotice, countLine, type CardDropNotice } from "../../lib/files-card";
 import { hasFinderFiles } from "../../lib/files-drop";
-import { filesErrorLine, filesSource, offlineLine, offlineOf } from "../../lib/files-source";
+import { filesErrorLine, filesSource, offlineOf, unreachableLine } from "../../lib/files-source";
 import { machineLabel, onThisMachine, requestMachineCheck } from "../../lib/machines";
 import { editText } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
@@ -64,7 +64,7 @@ const useFilesCount = (
   return { count, recount: () => recountRef.current() };
 };
 
-/** Now, again each minute while `on`, so "last reached 5 minutes ago" keeps true. */
+/** Now, again each minute while `on`, so "Last reached 5 minutes ago" keeps true. */
 const useMinuteNow = (on: boolean): number => {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -92,7 +92,7 @@ export function FilesCard({
   const name = titleOf(node);
   const here = onThisMachine(node.host);
   const takesDrops = useFeatureOn("files") && here;
-  // Files over SSH: another machine's node is counted through its link, and says when that machine is offline.
+  // Files over SSH: another machine's node is counted through its link, and says when that machine cannot be reached.
   const remote = FILES_REMOTE_ENABLED && !here;
   const reach = use$(() => (remote && node.host !== undefined ? state$.machineFacts[node.host]?.reachable.get() : undefined));
   useEffect(() => {
@@ -101,7 +101,7 @@ export function FilesCard({
   const counted = useFilesCount(use$(state$.canvasName) || "", node, here || remote, reach);
   const offline = counted.count === undefined || counted.count.ok ? undefined : offlineOf(counted.count);
   const now = useMinuteNow(offline !== undefined);
-  const count = offline === undefined ? countLine(counted.count) : offlineLine(machineLabel(offline.machine), offline.lastReachedAt, now);
+  const count = offline === undefined ? countLine(counted.count) : unreachableLine(machineLabel(offline.machine), offline.lastReachedAt, now);
   const [over, setOver] = useState(false);
   const [notice, setNotice] = useState<CardDropNotice | undefined>();
   const depth = useRef(0);

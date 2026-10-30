@@ -264,13 +264,14 @@ const agoWords = (ms: number): string => {
 };
 
 /**
- * A Files node whose machine cannot be reached, in the operator's words: the
- * machine by its label, and when it was last reached.
+ * A Files node whose machine cannot be reached, in the words a seat on that
+ * machine uses (`seatMachineLine`): the machine by its label, and when it was
+ * last reached, else to check that it is on.
  */
-export const offlineLine = (label: string, lastReachedAt: number | null, now: number): string =>
+export const unreachableLine = (label: string, lastReachedAt: number | null, now: number): string =>
   lastReachedAt === null
-    ? `${label} is offline. Junto has not reached it yet.`
-    : `${label} is offline, last reached ${agoWords(Math.max(0, now - lastReachedAt))}.`;
+    ? `Cannot reach ${label}. Check that it is on.`
+    : `Cannot reach ${label}. Last reached ${agoWords(Math.max(0, now - lastReachedAt))}.`;
 
 /** Whether a change event names `path`: a write to it, or a reset of the whole tree. */
 export const changeTouches = (event: FilesChanged, node: NodeId, path: FilePath): boolean =>
@@ -342,7 +343,7 @@ export const useDraftsVersion = (): number =>
 export type Loaded<A> =
   | { readonly state: "loading" }
   | { readonly state: "ready"; readonly value: A }
-  /** `offline` is set when the refusal was `unreachable`: the node says its machine is offline and shows no tree. */
+  /** `offline` is set when the refusal was `unreachable`: the node says it cannot reach its machine and shows no tree. */
   | { readonly state: "refused"; readonly error: FilesError; readonly offline?: FilesOffline };
 
 /** A refusal as a loaded state, with its machine when it was `unreachable`. */

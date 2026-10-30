@@ -21,7 +21,7 @@ vi.mock("@shared/features", async (original) => ({
 
 const { FilesCard } = await import("../src/renderer/components/files/FilesCard");
 const { FileView } = await import("../src/renderer/components/file-view/FileView");
-const { installFilesSource, makeLocalFiles, offlineLine, refusedOf, useFilesRoot } = await import("../src/renderer/lib/files-source");
+const { installFilesSource, makeLocalFiles, unreachableLine, refusedOf, useFilesRoot } = await import("../src/renderer/lib/files-source");
 const { modelStore } = await import("../src/renderer/lib/use-model");
 const { state$ } = await import("../src/renderer/lib/state");
 
@@ -54,21 +54,21 @@ afterEach(() => {
   installFilesSource(null);
 });
 
-describe("the offline line", () => {
+describe("the unreachable line", () => {
   const now = 1_000 * MINUTE;
   it("names the machine and says when it was last reached", () => {
-    expect(offlineLine("Mac mini", now - 30_000, now)).toBe("Mac mini is offline, last reached less than a minute ago.");
-    expect(offlineLine("Mac mini", now - MINUTE, now)).toBe("Mac mini is offline, last reached a minute ago.");
-    expect(offlineLine("Mac mini", now - 5 * MINUTE, now)).toBe("Mac mini is offline, last reached 5 minutes ago.");
-    expect(offlineLine("Mac mini", now - 60 * MINUTE, now)).toBe("Mac mini is offline, last reached an hour ago.");
-    expect(offlineLine("Mac mini", now - 180 * MINUTE, now)).toBe("Mac mini is offline, last reached 3 hours ago.");
-    expect(offlineLine("Mac mini", now - 24 * 60 * MINUTE, now)).toBe("Mac mini is offline, last reached a day ago.");
-    expect(offlineLine("Mac mini", now - 3 * 24 * 60 * MINUTE, now)).toBe("Mac mini is offline, last reached 3 days ago.");
+    expect(unreachableLine("Mac mini", now - 30_000, now)).toBe("Cannot reach Mac mini. Last reached less than a minute ago.");
+    expect(unreachableLine("Mac mini", now - MINUTE, now)).toBe("Cannot reach Mac mini. Last reached a minute ago.");
+    expect(unreachableLine("Mac mini", now - 5 * MINUTE, now)).toBe("Cannot reach Mac mini. Last reached 5 minutes ago.");
+    expect(unreachableLine("Mac mini", now - 60 * MINUTE, now)).toBe("Cannot reach Mac mini. Last reached an hour ago.");
+    expect(unreachableLine("Mac mini", now - 180 * MINUTE, now)).toBe("Cannot reach Mac mini. Last reached 3 hours ago.");
+    expect(unreachableLine("Mac mini", now - 24 * 60 * MINUTE, now)).toBe("Cannot reach Mac mini. Last reached a day ago.");
+    expect(unreachableLine("Mac mini", now - 3 * 24 * 60 * MINUTE, now)).toBe("Cannot reach Mac mini. Last reached 3 days ago.");
   });
 
   it("says a machine never reached as such, and never a time in the future", () => {
-    expect(offlineLine("Mac mini", null, now)).toBe("Mac mini is offline. Junto has not reached it yet.");
-    expect(offlineLine("Mac mini", now + MINUTE, now)).toBe("Mac mini is offline, last reached less than a minute ago.");
+    expect(unreachableLine("Mac mini", null, now)).toBe("Cannot reach Mac mini. Check that it is on.");
+    expect(unreachableLine("Mac mini", now + MINUTE, now)).toBe("Cannot reach Mac mini. Last reached less than a minute ago.");
   });
 
   it("keeps the machine only from an unreachable refusal", () => {
@@ -110,12 +110,12 @@ describe("a Files node whose machine is unreachable", () => {
     expect(document.querySelector('[data-testid="root"]')?.textContent).toBe("unreachable mini");
   });
 
-  it("says on its card that its machine is offline and when it was last reached", async () => {
+  it("says on its card that it cannot reach its machine and when it was last reached", async () => {
     installFilesSource({ ...makeLocalFiles(), count: async () => ({ ok: false, ...unreachable(Date.now() - 5 * MINUTE) }) });
     const node = filesNode("files-remote", { host: "mini" });
     await act(async () => root.render(<FilesCard node={node} />));
     await flush();
-    expect(document.querySelector('[data-testid="files-card"]')?.textContent).toContain("mini is offline, last reached 5 minutes ago.");
+    expect(document.querySelector('[data-testid="files-card"]')?.textContent).toContain("Cannot reach mini. Last reached 5 minutes ago.");
   });
 
   it("is the stub card it is today while Files over SSH is off", async () => {
@@ -131,7 +131,7 @@ describe("a Files node whose machine is unreachable", () => {
     await act(async () => root.render(<FilesCard node={filesNode("files-remote", { host: "mini" })} />));
     await flush();
     expect(asked).toBe(false);
-    expect(document.querySelector('[data-testid="files-card"]')?.textContent).not.toContain("offline");
+    expect(document.querySelector('[data-testid="files-card"]')?.textContent).not.toContain("Cannot reach");
   });
 
   it("offers neither its default app nor Finder for a file it cannot preview", async () => {
