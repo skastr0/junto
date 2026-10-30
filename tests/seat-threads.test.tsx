@@ -927,6 +927,37 @@ describe("the thread composer", () => {
   });
 });
 
+describe("the pace of change-driven reads", () => {
+  /** The floor between change-driven reads of one canvas, as the module keeps it. */
+  const FLOOR_MS = 500;
+
+  it("reads a burst of fifty changes in a hundred milliseconds at most twice", async () => {
+    vi.useFakeTimers();
+    try {
+      const fixture = fake();
+      setSeatThreadsSource(fixture.source);
+      await render();
+      await click(q("seat-threads-button"));
+      // One round is the seat's two lists read together.
+      const before = fixture.state.lists;
+      // Fifty changes spread over a hundred milliseconds, two apart.
+      await act(async () => {
+        for (let index = 0; index < 50; index += 1) {
+          fixture.change();
+          await vi.advanceTimersByTimeAsync(2);
+        }
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(FLOOR_MS + 100);
+      });
+      // One read for the burst, one for what landed during it: four list calls, never fifty rounds.
+      expect(fixture.state.lists - before).toBeLessThanOrEqual(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("paging in the popup", () => {
   const ROW = 60;
   const VIEW = 600;

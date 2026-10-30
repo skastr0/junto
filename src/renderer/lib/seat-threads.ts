@@ -486,23 +486,100 @@ const touched = (
 };
 
 /**
+ * The floor between change-driven reads of one canvas: mail arrives in bursts
+ * (an append, its receipts, a read mark), and each change used to read the
+ * canvas again. A read now takes everything a burst asked for, one runs at a
+ * time, and the next starts no sooner than this after the last one began.
+ */
+const THREADS_READ_FLOOR_MS = 500;
+
+/** What one canvas still owes a read: its lists, their counts, its open threads. */
+type CanvasPace = {
+  readonly lists: Set<string>;
+  readonly counts: Set<string>;
+  readonly threads: Set<string>;
+  /** A read of this canvas is in flight. */
+  running: boolean;
+  /** When the last read began. */
+  startedAt: number;
+  timer?: ReturnType<typeof setTimeout>;
+};
+
+const paces = new Map<string, CanvasPace>();
+
+const paceOf = (canvasName: string): CanvasPace => {
+  let pace = paces.get(canvasName);
+  if (pace === undefined) {
+    pace = { lists: new Set(), counts: new Set(), threads: new Set(), running: false, startedAt: 0 };
+    paces.set(canvasName, pace);
+  }
+  return pace;
+};
+
+/**
+ * One read of this canvas now, or as soon as the floor allows: everything a
+ * burst asked for goes in one pass, and a change during it is carried to the
+ * pass that follows, never to a read of its own.
+ */
+const drainPace = (canvasName: string, pace: CanvasPace): void => {
+  if (pace.running || pace.timer !== undefined) return;
+  if (pace.lists.size === 0 && pace.counts.size === 0 && pace.threads.size === 0) return;
+  const wait = THREADS_READ_FLOOR_MS - (Date.now() - pace.startedAt);
+  if (wait > 0) {
+    pace.timer = setTimeout(() => {
+      pace.timer = undefined;
+      drainPace(canvasName, pace);
+    }, wait);
+    return;
+  }
+  const lists = [...pace.lists];
+  const counts = [...pace.counts];
+  const threads = [...pace.threads];
+  pace.lists.clear();
+  pace.counts.clear();
+  pace.threads.clear();
+  pace.running = true;
+  pace.startedAt = Date.now();
+  void Promise.all([
+    ...lists.map((key) => refreshSeat(key)),
+    ...counts.map((key) => refreshUnread(key)),
+    ...threads.map((key) => refreshThread(key)),
+  ]).finally(() => {
+    pace.running = false;
+    drainPace(canvasName, pace);
+  });
+};
+
+/** Ask for a read of this canvas, added to whatever its burst already owes. */
+const paceCanvas = (canvasName: string, ask: (pace: CanvasPace) => void): void => {
+  const pace = paceOf(canvasName);
+  ask(pace);
+  drainPace(canvasName, pace);
+};
+
+/**
  * A mail change names no thread, and any mailbox can change a seat's threads:
  * every list held is read again, and every count, while a seat whose popup is
- * shut is asked only for the count its button shows.
+ * shut is asked only for the count its button shows. All of it is paced per
+ * canvas: a burst of changes costs one read and one trailing.
  */
 const listenForChanges = (): void => {
   const read = activeSource();
   if ((offChanged && offRead) || !read) return;
   offChanged ??= read.onChanged((change) => {
-    for (const key of touched(listed.keys(), change)) void refreshSeat(key);
-    for (const key of touched(counted.keys(), change)) void refreshUnread(key);
-    for (const key of touched(openThreads.keys(), change)) void refreshThread(key);
+    paceCanvas(change.canvasName, (pace) => {
+      for (const key of touched(listed.keys(), change)) pace.lists.add(key);
+      for (const key of touched(counted.keys(), change)) pace.counts.add(key);
+      for (const key of touched(openThreads.keys(), change)) pace.threads.add(key);
+    });
   });
   // The operator read on the other device: the counts here follow (0.11.3).
   offRead ??= read.onReadChanged((change) => {
     const seats = new Set(change.seatIds);
-    for (const key of touched(listed.keys(), change)) if (seats.has(seatOfKey(key).seatId)) void refreshSeat(key);
-    for (const key of touched(counted.keys(), change)) if (seats.has(seatOfKey(key).seatId)) void refreshUnread(key);
+    paceCanvas(change.canvasName, (pace) => {
+      for (const key of touched(listed.keys(), change)) if (seats.has(seatOfKey(key).seatId)) pace.lists.add(key);
+      for (const key of touched(counted.keys(), change)) if (seats.has(seatOfKey(key).seatId)) pace.counts.add(key);
+    });
   });
 };
 
@@ -743,6 +820,8 @@ export const resetSeatThreads = (): void => {
   listed.clear();
   counted.clear();
   openThreads.clear();
+  for (const pace of paces.values()) if (pace.timer !== undefined) clearTimeout(pace.timer);
+  paces.clear();
   flights.clear();
   seatThreads$.set({ seats: {}, messages: {}, unread: {} });
 };
