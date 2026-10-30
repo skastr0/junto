@@ -206,14 +206,15 @@
   margin: 0 8px 8px;
 }
 
-/* Rows picked to move together (0.11.1, 10): a tint on each, the open one
-   keeping its stronger fill, and one line under the list that counts them. */
+/* Rows picked to move together (0.11.1, 10): a cyan tint on each, apart from
+   hover's overlay-1, the open one tinted deeper, and one line under the list
+   that counts them. */
 .artifacts-list__item[data-picked="true"] > button {
-  background: var(--color-overlay-1);
+  background: color-mix(in oklab, var(--color-cyan) 10%, transparent);
 }
 
 .artifacts-list__item[data-picked="true"] > button[data-selected="true"] {
-  background: var(--color-overlay-2);
+  background: color-mix(in oklab, var(--color-cyan) 18%, transparent);
 }
 
 .artifacts-picked,
