@@ -102,13 +102,13 @@ test("artifact move window: M, the reach line, several rows, the row menu, the h
     await row(page, "Beta").focus();
     // Newest first: Delta, Gamma, Beta. Beta is last, so the run grows up to Gamma.
     await page.keyboard.press("Shift+ArrowUp");
-    await expect(page.locator(".artifacts-picked")).toHaveText("2 picked. M or Move to moves them together.");
+    await expect(page.locator(".artifacts-picked")).toHaveText("2 picked. M, or Move to…, moves them together.");
     await expect(page.locator('.artifacts-list__item[data-picked="true"]')).toHaveCount(2);
     // At the last row Shift and Down has nowhere to go: the picks and the keyboard stay.
     await row(page, "Beta").focus();
     await page.keyboard.press("Shift+ArrowDown");
     await expect(row(page, "Beta")).toBeFocused();
-    await expect(page.locator(".artifacts-picked")).toHaveText("2 picked. M or Move to moves them together.");
+    await expect(page.locator(".artifacts-picked")).toHaveText("2 picked. M, or Move to…, moves them together.");
     await shoot(page, "2-two-picked");
     await page.keyboard.press("Shift+F10");
     const menu = page.getByRole("menu");

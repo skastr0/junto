@@ -401,7 +401,7 @@ export function ArtifactsNode({
       </div>
       {/* Mounted empty, so the change that fills them is the one announced. */}
       <p className="artifacts-picked" role="status">
-        {selection.size > 1 ? `${String(selection.size)} picked. M or Move to moves them together.` : ""}
+        {selection.size > 1 ? `${String(selection.size)} picked. M, or Move to\u2026, moves them together.` : ""}
       </p>
       <p className="artifacts-moved" role="status">
         {moved ?? ""}
