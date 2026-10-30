@@ -7,6 +7,8 @@ import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
 import { keyIs, keyCaps } from "../../lib/key-match";
 import { isMac } from "../../lib/platform";
 import { useCanvasArtifacts } from "../../lib/capture-artifacts";
+import { nodeViewStore } from "../../lib/node-view-state";
+import { registerCanvasDraftCommit } from "../../lib/canvas-editor-flush";
 import { useCaptureInbox } from "../../lib/capture-inbox";
 import { state$ } from "../../lib/state";
 import { closeOperatorModal } from "../../lib/operator-modal";
@@ -20,11 +22,12 @@ import {
 } from "../../lib/listbox-aria";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { Kbd, ResourceGlyphMark } from "../ui";
-import { CaptureEditor, type CaptureArtifactRef } from "./CaptureEditor";
+import { CaptureEditor, type CaptureArtifactRef, type CaptureFlush, type CaptureView } from "./CaptureEditor";
 import { CaptureMoveColumn, ROUTE_KEYS as CAPTURE_ROUTES, useCaptureMove } from "./CaptureMoveColumn";
 import { CapturePreview } from "./CapturePreview";
 import { CaptureInboxAsk } from "./CaptureInboxAsk";
 import { captureRowsOf, type CaptureRow } from "./capture-list";
+import { EMPTY_CAPTURE_DESK, type CaptureDeskState } from "./capture-desk-state";
 import "./quick-capture.css";
 
 /**
@@ -42,7 +45,12 @@ import "./quick-capture.css";
 type Edit =
   | { readonly kind: "new"; readonly key: number }
   | { readonly kind: "artifact"; readonly row: CaptureRow }
+  /** The writing the desk left open, before its row is in the list. */
+  | { readonly kind: "reopened"; readonly nodeId: string; readonly artifactId: string }
   | { readonly kind: "preview"; readonly row: CaptureRow | undefined };
+
+/** How often the writing's place is kept while the operator works in it. */
+const PLACE_EVERY_MS = 400;
 
 /** A chord as its key caps in one word: "⌘N" on macOS, "Ctrl+N" elsewhere. */
 const capsOf = (caps: readonly string[] | undefined): string | undefined =>
@@ -54,9 +62,54 @@ export function QuickCapture() {
   const canvasName = use$(state$.canvasName);
   const heads = useCanvasArtifacts(canvasName);
   const inbox = useCaptureInbox(canvasName);
-  const [query, setQuery] = useState("");
-  const [active, setActive] = useState<string | undefined>(undefined);
-  const [edit, setEdit] = useState<Edit>({ kind: "new", key: 0 });
+  // The desk the operator left: what was open, the query, the focused row and
+  // the place in the writing, read once as the surface opens.
+  const [desk] = useState<CaptureDeskState>(() => {
+    const stored = canvasName === "" ? undefined : nodeViewStore().captureDesk(canvasName);
+    return stored ?? EMPTY_CAPTURE_DESK;
+  });
+  const [query, setQuery] = useState(desk.query);
+  const [active, setActive] = useState<string | undefined>(desk.focused ?? undefined);
+  const [edit, setEdit] = useState<Edit>(() =>
+    desk.open.kind === "artifact"
+      ? { kind: "reopened", nodeId: desk.open.nodeId, artifactId: desk.open.artifactId }
+      : { kind: "new", key: 0 },
+  );
+  /** What the desk row says now; a write carries the whole of it. */
+  const deskNow = useRef<CaptureDeskState>(desk);
+  const deskTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The writing's flush and place, set by whichever editor is mounted. */
+  const flushRef = useRef<CaptureFlush | null>(null);
+  const viewRef = useRef<CaptureView | null>(null);
+  /**
+   * Keep the desk: the pointer to the writing, the query, the focused row, and
+   * where in the writing the operator was. Coalesced, so a keystroke costs no
+   * write of its own, and never awaited: a desk that cannot be kept must not
+   * stop the writing.
+   */
+  const keepDesk = useCallback(
+    (patch: Partial<CaptureDeskState>, now = false): void => {
+      deskNow.current = { ...deskNow.current, ...patch };
+      if (canvasName === "") return;
+      if (deskTimer.current !== null) {
+        if (!now) return;
+        clearTimeout(deskTimer.current);
+      }
+      const write = (): void => {
+        deskTimer.current = null;
+        void nodeViewStore().writeCaptureDesk(canvasName, deskNow.current);
+      };
+      if (now) write();
+      else deskTimer.current = setTimeout(write, PLACE_EVERY_MS);
+    },
+    [canvasName],
+  );
+  /** Where the operator is in the writing now, as the editor reads it. */
+  const keepPlace = useCallback((): void => {
+    const view = viewRef.current?.read();
+    if (view === null || view === undefined) return;
+    keepDesk({ caret: view.caret, scrollWriting: view.scroll });
+  }, [keepDesk]);
   const searchRef = useRef<HTMLInputElement>(null);
   const rightRef = useRef<HTMLDivElement>(null);
   const baseId = useId();
@@ -111,7 +164,14 @@ export function QuickCapture() {
           : undefined;
   const move = useCaptureMove(canvasName, moveTarget);
 
-  const openKey = edit.kind === "new" ? `new-${String(edit.key)}` : edit.kind === "artifact" ? edit.row.artifactId : "preview";
+  const openKey =
+    edit.kind === "new"
+      ? `new-${String(edit.key)}`
+      : edit.kind === "artifact"
+        ? edit.row.artifactId
+        : edit.kind === "reopened"
+          ? edit.artifactId
+          : "preview";
   useEffect(() => {
     let live = true;
     const claim = (): boolean => {
@@ -133,8 +193,49 @@ export function QuickCapture() {
     };
   }, [openKey]);
 
+  // A desk that names an artifact this canvas no longer offers (deleted,
+  // archived, or another canvas) opens a new capture rather than a writing
+  // that never arrives. The list loads after the surface does, so the check
+  // waits for it.
+  useEffect(() => {
+    if (edit.kind !== "reopened" || heads.length === 0) return;
+    if (heads.some((head) => head.artifact.artifactId === edit.artifactId)) return;
+    setEdit({ kind: "new", key: 0 });
+    keepDesk({ open: { kind: "new" }, focused: null }, true);
+  }, [edit, heads, keepDesk]);
+
+  // The place the desk saved comes back once the writing's engine has lines:
+  // asked before that, the editor holds it until the body is in.
+  const restored = useRef(false);
+  useEffect(() => {
+    if (restored.current || edit.kind !== "reopened" || desk.caret === null) return;
+    const timer = setTimeout(() => {
+      viewRef.current?.restore({ caret: desk.caret ?? 0, scroll: desk.scrollWriting });
+      restored.current = true;
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [edit.kind, desk.caret, desk.scrollWriting]);
+
+  // Where the operator is, kept while they work, so a quit or a kill leaves the
+  // desk pointing at the words and at the place in them.
+  useEffect(() => {
+    const timer = setInterval(keepPlace, PLACE_EVERY_MS);
+    return () => clearInterval(timer);
+  }, [keepPlace]);
+  // Native quit: the place goes first, then the editor is asked to put every
+  // word on disk; its writes ride the canvas flush that follows this commit.
+  useEffect(
+    () =>
+      registerCanvasDraftCommit(() => {
+        keepPlace();
+        void flushRef.current?.();
+      }),
+    [keepPlace],
+  );
+
   const focusRow = (id: string | undefined): void => {
     setActive(id);
+    keepDesk({ focused: id ?? null });
     const row = rows.find((candidate) => candidate.artifactId === id) ?? rows[0];
     setEdit({ kind: "preview", row });
   };
@@ -150,9 +251,16 @@ export function QuickCapture() {
     [rows, active, activeRow?.artifactId],
   );
 
+  /** Leave the surface: the desk and the place are kept, the words are the editor's. */
+  const closeCapture = (): void => {
+    keepPlace();
+    keepDesk({}, true);
+    closeOperatorModal("capture");
+  };
+
   const openInNode = (row: CaptureRow | undefined): void => {
     if (row === undefined) return;
-    closeOperatorModal("capture");
+    closeCapture();
     focusCanvasNode(row.nodeId);
   };
 
@@ -167,6 +275,7 @@ export function QuickCapture() {
     if (keyIs(event.nativeEvent, "inCapture.new")) {
       event.preventDefault();
       setEdit((prior) => ({ kind: "new", key: (prior.kind === "new" ? prior.key : 0) + 1 }));
+      keepDesk({ open: { kind: "new" }, focused: null }, true);
       return;
     }
     if (keyIs(event.nativeEvent, "inCapture.search")) {
@@ -188,6 +297,7 @@ export function QuickCapture() {
     if (keyIs(event.nativeEvent, "inCapture.open") && activeRow !== undefined) {
       event.preventDefault();
       setEdit({ kind: "artifact", row: activeRow });
+      keepDesk({ open: { kind: "artifact", nodeId: activeRow.nodeId, artifactId: activeRow.artifactId } }, true);
       return;
     }
     // Bare keys: they type in the search field and in the writing, so they act
@@ -225,7 +335,7 @@ export function QuickCapture() {
           if (event.key !== "Escape") return;
           event.preventDefault();
           event.stopPropagation();
-          closeOperatorModal("capture");
+          closeCapture();
         }}
       >
         <section className="quick-capture__list" aria-labelledby={`${baseId}-captures`}>
@@ -244,6 +354,7 @@ export function QuickCapture() {
               onChange={(event) => {
                 setQuery(event.target.value);
                 setActive(undefined);
+                keepDesk({ query: event.target.value, focused: null });
               }}
             />
             {query === "" ? null : (
@@ -256,6 +367,7 @@ export function QuickCapture() {
                 onClick={(event) => {
                   setQuery("");
                   setActive(undefined);
+                  keepDesk({ query: "", focused: null }, true);
                   claimFocus(searchRef.current, "gesture", { event });
                 }}
               >
@@ -303,6 +415,7 @@ export function QuickCapture() {
                       onClick={() => {
                         setActive(row.artifactId);
                         setEdit({ kind: "artifact", row });
+                        keepDesk({ open: { kind: "artifact", nodeId: row.nodeId, artifactId: row.artifactId }, focused: row.artifactId }, true);
                       }}
                     >
                       <ResourceGlyphMark kind="artifact" artifactType={row.type} size={14} />
@@ -341,18 +454,41 @@ export function QuickCapture() {
                 canvasName={canvasName}
                 inbox={inbox as NodeId}
                 open={{ kind: "new", key: edit.kind === "new" ? edit.key : 0 }}
+                flushRef={flushRef}
+                viewRef={viewRef}
                 onArtifact={(ref) => {
                   if (ref !== null) setActive(ref.artifactId);
                   setMade(ref === null ? undefined : { key: edit.kind === "new" ? edit.key : 0, ref });
+                  // The first keystroke with words makes the artifact: the desk
+                  // points at it at once, so a kill right after it still reopens
+                  // the words rather than a blank capture.
+                  keepDesk(
+                    {
+                      open: ref === null ? { kind: "new" } : { kind: "artifact", nodeId: ref.nodeId, artifactId: ref.artifactId },
+                      ...(ref === null ? {} : { focused: ref.artifactId }),
+                    },
+                    true,
+                  );
                 }}
               />
             )
           ) : null}
-          {edit.kind === "artifact" ? (
+          {edit.kind === "artifact" || edit.kind === "reopened" ? (
             <CaptureEditor
               canvasName={canvasName}
               inbox={inbox as NodeId | undefined}
-              open={{ kind: "artifact", nodeId: edit.row.nodeId, artifactId: edit.row.artifactId as ItemId }}
+              open={
+                edit.kind === "artifact"
+                  ? { kind: "artifact", nodeId: edit.row.nodeId, artifactId: edit.row.artifactId as ItemId }
+                  : { kind: "artifact", nodeId: edit.nodeId as NodeId, artifactId: edit.artifactId as ItemId }
+              }
+              flushRef={flushRef}
+              viewRef={viewRef}
+              onArtifact={(ref) => {
+                if (ref === null) return;
+                setActive(ref.artifactId);
+                keepDesk({ open: { kind: "artifact", nodeId: ref.nodeId, artifactId: ref.artifactId } }, true);
+              }}
             />
           ) : null}
           {edit.kind === "preview" && previewRow !== undefined ? (
