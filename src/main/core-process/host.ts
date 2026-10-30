@@ -22,8 +22,19 @@ const RESTART_FIRST_MS = 1_000;
 const RESTART_MAX_MS = 30_000;
 const RESTART_SETTLED_MS = 60_000;
 const BOOT_DEADLINE_MS = 120_000;
-/** How long a stopping core has to finish its own drain before main takes it down. */
-const STOP_DEADLINE_MS = 10_000;
+/**
+ * How long a stopping core has to finish its own drain before main takes it
+ * down. The bound is set from the core's own bounds, because a healthy drain
+ * must never be killed for taking its time: an operator command in flight
+ * holds owner.close() for up to REQUEST_TIMEOUT_MS = 30 s
+ * (junto/operator-control/server.ts:67), work control drains in 2 s
+ * (junto/work/control.ts:2606), canvas control in 5 s
+ * (junto/canvas-control/server.ts:81), the terminal plane in 5 s
+ * (junto/term/plane.ts:66) and the authoring gate in 5 s (junto/core.ts:186).
+ * That is 47 s before the unbounded steps (link listener close, runtime
+ * dispose, service children); 60 s leaves room and still ends a hung core.
+ */
+const STOP_DEADLINE_MS = 60_000;
 
 /** The core did not leave within its stop bound; the quit reports this, never swallows it. */
 export class CoreDidNotStop extends Schema.TaggedError<CoreDidNotStop>()("CoreDidNotStop", {
