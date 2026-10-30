@@ -88,7 +88,6 @@ import {
   type OffboardMode,
   type SeatOffboardAskResult,
 } from "@shared/seat-sessions";
-import { wireTrafficPreview, type WireTrafficEvent } from "@shared/wire-traffic";
 import { isSeatGuidanceSeatId, type SeatGuidanceSetResult } from "@shared/seat-guidance";
 import { bindSeatIpc } from "../core-process/ops/ipc-seats";
 import type { ProfileDeleteResult, ProfileResult, ProfileSaveInput } from "@shared/agent-profiles";
@@ -109,6 +108,7 @@ import {
   type ResourceChangedPush,
   type ResourceThreadChangedPush,
 } from "../core-process/ops/ipc-resources";
+import { WIRE_TRAFFIC } from "../core-process/ops/ipc-wire-traffic";
 import { installArtifactMove } from "./work/artifact-move";
 import { resolvedSpawnEnv } from "./adapters/exec";
 import { runTool } from "./region-env/tool";
@@ -293,6 +293,8 @@ export const registerJuntoIpc = (): void => {
     const notice = event as ResourceThreadChangedPush;
     broadcast(notice.channel, { canvasName: notice.canvasName, kind: notice.kind });
   });
+  // A message typed into a seat, and a held line said on it, from the core.
+  subscribeCore(WIRE_TRAFFIC, (event) => broadcast(IPC_CHANNELS.wireTraffic, event));
   // Moving artifacts (0.11.1, 10): the overseer and the window run the same
   // move, each under its caller's authoring label, ruled by the core.
   installArtifactMove((input, by) => core.call("ipc.resource.move", { input, by }));
@@ -1128,25 +1130,6 @@ export const registerJuntoIpc = (): void => {
       });
 
       const crew = yield* CrewRepository;
-      // A continuation line held by the seat's input box is said on the seat
-      // the way held mail is.
-      injectionSupervisor.subscribeContinuationHeld((bindingId, hold, line) => {
-        const live = termPlane.host.get(bindingId);
-        if (!live?.canvasName || !live.nodeId) return;
-        broadcast(IPC_CHANNELS.wireTraffic, {
-          canvasName: live.canvasName,
-          toNodeId: live.nodeId,
-          kind: "notice",
-          messageId: `continuation:${bindingId}:${live.epoch}`,
-          preview: wireTrafficPreview(line),
-          at: Date.now(),
-          held: hold,
-        } satisfies WireTrafficEvent);
-      });
-      // Every message typed into a seat pulses its wire on the canvas.
-      messageDelivery.subscribeDelivered((event) =>
-        broadcast(IPC_CHANNELS.wireTraffic, event),
-      );
       const workRepository = yield* WorkRepository;
       checkoutWatch = makeCheckoutWatchComposition({
         model: yield* ModelService,

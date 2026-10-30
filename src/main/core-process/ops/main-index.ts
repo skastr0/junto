@@ -24,6 +24,7 @@ import {
 import { coreOps, type CoreOp } from "../ops";
 import { publish } from "../push";
 import { RESOURCE_CHANGED, RESOURCE_THREAD_CHANGED } from "./ipc-resources";
+import { WIRE_TRAFFIC } from "./ipc-wire-traffic";
 import { MACHINE_PROGRESS } from "./hosts-ipc";
 
 /**
@@ -65,6 +66,7 @@ export const WINDOW_CHANNELS = [
   MAIL_WAITING,
   RESOURCE_CHANGED,
   RESOURCE_THREAD_CHANGED,
+  WIRE_TRAFFIC,
   // The model watches publish on the window's own channel names (ipc-watch.ts).
   IPC_CHANNELS.modelChanged,
   IPC_CHANNELS.modelCanvasesChanged,
