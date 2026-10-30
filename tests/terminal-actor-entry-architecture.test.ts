@@ -17,6 +17,7 @@ const TERMINAL_SURFACE =
   "src/renderer/components/terminal/TerminalSurface.tsx";
 const MAIN_ENTRY = "src/main/junto/term/ipc.ts";
 const SEAT_CONTROL = "src/main/junto/term/seat-control.ts";
+const SEAT_NODE_OP = "src/main/core-process/ops/term-ipc.ts";
 
 const between = (source: string, start: string, end: string): string => {
   const from = source.indexOf(start);
@@ -137,9 +138,15 @@ describe("terminal actor entry", () => {
     const geography = start.slice(start.indexOf("const createAdmission"));
     expect(start).toContain("const node = await readSeat(input?.canvas, input?.id);");
     expect(source).toContain('node?.kind !== "agent" && node?.kind !== "terminal"');
-    expect(source).toContain("return current.nodes.get(id as never);");
-    // An agent seat starts through the one path the owner commands share.
-    expect(agent).toContain("startSeat({ canvas: asCanvasName(input.canvas), seatId: node.id },");
+    // The stored node is read by the core (term.seatNode), by canvas and id only.
+    expect(source).toContain('const node = await core.call("term.seatNode", { canvas, id });');
+    const seatNode = between(readSource(SEAT_NODE_OP), '"term.seatNode": ({ canvas, id }) =>', '"term.seatLaunchState"');
+    expect(seatNode).toContain("(yield* model.canvas(canvas)).nodes.get(id as never);");
+    // An agent seat starts through the one path the owner commands share,
+    // by the stored node's id, in the core (term.startSeat).
+    expect(agent).toContain('core.call("term.startSeat", { canvas: input.canvas, seatId: node.id })');
+    const startOp = between(readSource(SEAT_NODE_OP), '"term.startSeat": ({ canvas, seatId }) =>', '"term.stopSeat"');
+    expect(startOp).toContain("startSeat({ canvas: asCanvasName(canvas), seatId }, seatControl)");
     const control = readSource(SEAT_CONTROL);
     expect(control).toContain("const seats = yield* ActorSeatOccupy;");
     expect(control).toContain("yield* seats.occupy({");
@@ -151,7 +158,7 @@ describe("terminal actor entry", () => {
       expect(body).not.toContain("isManagedHarnessInstalled");
       expect(body).not.toMatch(/input\??\.(?:node|harness|agentKey|bindingId|hostId|launch)/u);
     }
-    expect(geography).toContain("return router.create({");
+    expect(geography).toContain("await router.create({ bindingId: node.bindingId, hostId: node.host,");
     expect(geography).not.toContain("ActorSeatOccupy");
   });
 
