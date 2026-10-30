@@ -41,9 +41,17 @@ export class CoreDidNotStop extends Schema.TaggedError<CoreDidNotStop>()("CoreDi
   detail: Schema.String,
 }) {}
 
-/** The child's `exit`, as an effect: a stop waits on it, and drops the listener if it is interrupted. */
-const exited = (child: UtilityProcess): Effect.Effect<void> =>
+/**
+ * The child's `exit`, as an effect: a stop waits on it, and drops the listener
+ * if it is interrupted. `gone` answers a child that already left, so a stop
+ * that signalled first never waits for an exit it missed.
+ */
+const exited = (child: UtilityProcess, gone: () => boolean): Effect.Effect<void> =>
   Effect.callback<void>((resume) => {
+    if (gone()) {
+      resume(Effect.void);
+      return;
+    }
     const onExit = (): void => resume(Effect.void);
     child.once("exit", onExit);
     return Effect.sync(() => {
@@ -63,6 +71,8 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
 } => {
   let child: UtilityProcess | undefined;
   let stopping = false;
+  /** Children that have already emitted `exit`; their parent waits on nothing. */
+  const gone = new WeakSet<UtilityProcess>();
   let stops = 0;
   let startedAt = 0;
   const handlers = new Set<(message: CoreMessage) => void>();
@@ -82,9 +92,11 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
         if (call !== undefined && call.core === child) child.postMessage({ ...message, id: call.id });
         return;
       }
+      // A call made after stop fails at once: it must never wait on a child
+      // that is going away, or on the stop effect that nobody may run.
+      if (stopping) return queueMicrotask(() => client.fail("the Junto core process has stopped"));
       if (child !== undefined) return child.postMessage(message);
-      if (!stopping) return void held.push(message);
-      queueMicrotask(() => client.fail("the Junto core process has stopped"));
+      held.push(message);
     },
     listen: (handler) => {
       handlers.add(handler);
@@ -120,6 +132,7 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
       for (const handler of handlers) handler(message);
     });
     forked.once("exit", (code) => {
+      gone.add(forked);
       if (child !== forked) return;
       clearTimeout(booting);
       booting = undefined;
@@ -145,14 +158,16 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
       stopping = true;
       held.length = 0;
       const leaving = child;
-      client.fail("the Junto core process has stopped");
-      if (leaving === undefined) return Effect.void;
-      return Effect.suspend(() => {
-        // SIGTERM: entry.ts answers with core.close(), which drains the owner
-        // commands, the listener, seat work, canvas edits and the terminal
-        // plane, and exits when it returns.
-        leaving.kill();
-        return exited(leaving).pipe(
+      if (leaving === undefined) {
+        client.fail("the Junto core process has stopped");
+        return Effect.void;
+      }
+      // Signal now, not inside the effect: stop must take effect whether or
+      // not the caller runs what it returns. The effect only waits for the
+      // exit, which entry.ts produces after its own drain.
+      leaving.kill();
+      return Effect.suspend(() =>
+        exited(leaving, () => gone.has(leaving)).pipe(
           Effect.timeoutOption(STOP_DEADLINE_MS),
           Effect.flatMap(
             Option.match({
@@ -167,8 +182,8 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
                 ),
             }),
           ),
-        );
-      });
+        ),
+      );
     },
   };
 };

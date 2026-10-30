@@ -14,8 +14,12 @@ export class TerminalsDidNotStop extends Schema.TaggedError<TerminalsDidNotStop>
 }) {}
 
 /** The child's `exit`, as an effect; the listener goes when the effect is interrupted. */
-const exited = (child: UtilityProcess): Effect.Effect<void> =>
+const exited = (child: UtilityProcess, gone: () => boolean): Effect.Effect<void> =>
   Effect.callback<void>((resume) => {
+    if (gone()) {
+      resume(Effect.void);
+      return;
+    }
     const onExit = (): void => resume(Effect.void);
     child.once("exit", onExit);
     return Effect.sync(() => {
@@ -98,12 +102,15 @@ export const startTerminalProcessForCore = (): TerminalProcessForCore => {
   let stopping = false;
   let stops = 0;
   let startedAt = 0;
+  /** Children that have already emitted `exit`; a stop waits on nothing for them. */
+  const gone = new WeakSet<UtilityProcess>();
   const restarted = new Set<() => void>();
 
   const fork = (): UtilityProcess => {
     const forked = utilityProcess.fork(terminalEntryPath, [], { serviceName: "Junto Terminals", stdio: "inherit" });
     startedAt = Date.now();
     forked.once("exit", () => {
+      gone.add(forked);
       if (child !== forked) return;
       child = undefined;
       if (stopping) return;
@@ -136,9 +143,11 @@ export const startTerminalProcessForCore = (): TerminalProcessForCore => {
       stopping = true;
       const leaving = child;
       if (leaving === undefined) return Effect.void;
-      return Effect.suspend(() => {
-        leaving.kill();
-        return exited(leaving).pipe(
+      // Signal now, and let the effect only wait: a stop takes effect whether
+      // or not the caller runs what it returns.
+      leaving.kill();
+      return Effect.suspend(() =>
+        exited(leaving, () => gone.has(leaving)).pipe(
           Effect.timeoutOption(STOP_DEADLINE_MS),
           Effect.flatMap(
             Option.match({
@@ -153,8 +162,8 @@ export const startTerminalProcessForCore = (): TerminalProcessForCore => {
                 ),
             }),
           ),
-        );
-      });
+        ),
+      );
     },
   };
 };
