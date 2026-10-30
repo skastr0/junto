@@ -46,6 +46,7 @@ import type { BrowserSessionService } from "./browser/sessions";
 import { ModelService } from "./model/service";
 import { ModelActorRefs } from "./model/actor-refs";
 import { core } from "../core-process/main-client";
+import { subscribe as onCorePush } from "../core-process/push";
 import { asNodeId } from "@shared/model";
 
 import {
@@ -1128,15 +1129,16 @@ export const registerJuntoIpc = (): void => {
       core.call("ipc.work.seatRecentOps", { canvas, nodeId, ...(limit === undefined ? {} : { limit }) }),
   );
 
-  AppRuntime.runFork(Effect.flatMap(ModelService, (model) => model.changes.pipe(
-    Stream.runForEach((event) => Effect.sync(() => broadcast(IPC_CHANNELS.modelChanged, event))),
-  )));
-  AppRuntime.runFork(Effect.flatMap(ModelService, (model) => model.canvasesChanges.pipe(
-    Stream.runForEach((event) => Effect.sync(() => broadcast(IPC_CHANNELS.modelCanvasesChanged, event))),
-  )));
-  AppRuntime.runFork(Effect.flatMap(ModelActorRefs, (refs) => refs.changes.pipe(
-    Stream.runForEach((event) => Effect.sync(() => broadcast(IPC_CHANNELS.modelActorRefsChanged, event))),
-  )));
+  // The model watches start in the core and publish; main forwards each
+  // channel once to the window, as the settings watch does (ops/main-index.ts).
+  for (const channel of [
+    IPC_CHANNELS.modelChanged,
+    IPC_CHANNELS.modelCanvasesChanged,
+    IPC_CHANNELS.modelActorRefsChanged,
+  ]) onCorePush(channel, (payload) => broadcast(channel, payload));
+  void core.call("ipc.watch.model", {});
+  void core.call("ipc.watch.modelCanvases", {});
+  void core.call("ipc.watch.modelActorRefs", {});
 
   // Wire pushes and background loops once at startup.
   void AppRuntime.runPromise(

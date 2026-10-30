@@ -13,3 +13,4 @@ import "./overseer-live";
 import "./ipc-model";
 import "./ipc-work";
 import "./ipc-status";
+import "./ipc-watch";

@@ -26,6 +26,9 @@ it("every group ipc.ts calls is registered by ops/index", () => {
     "ipc.status.usageCurrent",
     "ipc.status.usageRefresh",
     "ipc.status.kernel",
+    "ipc.watch.model",
+    "ipc.watch.modelCanvases",
+    "ipc.watch.modelActorRefs",
   ];
   for (const name of names) expect(coreOpBody(name), name).toBeTypeOf("function");
 });
