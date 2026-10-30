@@ -1065,7 +1065,7 @@ describe("a copy carrying the authority list", () => {
     expect(outcome).toMatchObject({ installed: false });
     // The honest copy's own list persisted at its install; the forged one moved nothing.
     expect(await copyList(mini)).toMatchObject({ term: 0, index: 0, sender: MACBOOK });
-    expect(await mini.runtime.runPromise(Effect.flatMap(ModelRecords, (records) => records.canvasAuthorities("factory")))).toEqual([]);
+    expect(await mini.runtime.runPromise(Effect.flatMap(ModelRecords, (records) => records.canvasAuthorities("factory")))).not.toContain(ROGUE);
     // The canvas the honest copy described is the one still held.
     expect((await header(mini))!.editor).toBe(MACBOOK);
   });

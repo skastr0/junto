@@ -50,8 +50,11 @@ const boot = async () => {
 
 const list = (canvas: string, entries: ReadonlyArray<readonly [position: number, machine: InstallationId]>) =>
   Effect.flatMap(SqlClient.SqlClient, (sql) =>
-    Effect.forEach(entries, ([position, machine]) =>
-      sql`INSERT INTO canvas_authorities (canvas_name, position, installation_id) VALUES (${canvas}, ${position}, ${machine})`,
+    // With the authority gate on, a new canvas is already seeded with this machine.
+    sql`DELETE FROM canvas_authorities WHERE canvas_name = ${canvas}`.pipe(
+      Effect.andThen(Effect.forEach(entries, ([position, machine]) =>
+        sql`INSERT INTO canvas_authorities (canvas_name, position, installation_id) VALUES (${canvas}, ${position}, ${machine})`,
+      )),
     ),
   );
 
