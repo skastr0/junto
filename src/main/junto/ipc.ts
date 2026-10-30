@@ -47,9 +47,9 @@ import { MachineCoreMail } from "../core-runtime";
 import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
 import { ModelService } from "./model/service";
-import { commandReleasingSeats } from "./work/seat-release";
 import { ModelActorRefs } from "./model/actor-refs";
-import { Command, CanvasName, asNodeId } from "@shared/model";
+import { core } from "../core-process/main-client";
+import { asNodeId } from "@shared/model";
 
 import {
   ARTIFACTS_ENABLED,
@@ -286,28 +286,15 @@ const resolveRendererActor = (
 
 export const registerJuntoIpc = (): void => {
   const privilegedIpc = trustedRendererIpc(ipcMain);
-  const ModelOpenInput = Schema.Struct({ canvas: CanvasName });
-  privilegedIpc.handle(IPC_CHANNELS.modelCanvases, () =>
-    AppRuntime.runPromise(Effect.flatMap(ModelService, (model) => model.listCanvasSummaries())),
-  );
+  privilegedIpc.handle(IPC_CHANNELS.modelCanvases, () => core.call("ipc.model.canvases", {}));
   privilegedIpc.handle(IPC_CHANNELS.modelOpen, (_event, input: unknown) =>
-    AppRuntime.runPromise(Effect.gen(function* () {
-      const query = yield* Schema.decodeUnknownEffect(ModelOpenInput)(input, { onExcessProperty: "error" });
-      return yield* (yield* ModelService).open(query.canvas);
-    })),
+    core.call("ipc.model.open", { input }),
   );
   privilegedIpc.handle(IPC_CHANNELS.modelCommand, (_event, input: unknown) =>
-    runMainAuthoring("ipc.model.command", () => AppRuntime.runPromise(Effect.gen(function* () {
-      const command = yield* Schema.decodeUnknownEffect(Command)(input, { onExcessProperty: "error" });
-      // A seat the command removes lets go of its task, and one it restores takes it back (seat-release.ts).
-      return yield* commandReleasingSeats(command, "operator");
-    }))),
+    runMainAuthoring("ipc.model.command", () => core.call("ipc.model.command", { input })),
   );
   privilegedIpc.handle(IPC_CHANNELS.modelActorRefs, (_event, input: unknown) =>
-    AppRuntime.runPromise(Effect.gen(function* () {
-      const query = yield* Schema.decodeUnknownEffect(ModelOpenInput)(input, { onExcessProperty: "error" });
-      return yield* (yield* ModelActorRefs).read(query.canvas);
-    })),
+    core.call("ipc.model.actorRefs", { input }),
   );
 
   registerTerminalIpc(privilegedIpc, termPlane, {
