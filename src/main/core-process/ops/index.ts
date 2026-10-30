@@ -6,5 +6,6 @@ import "./term-ipc";
 
 import "./main-index";
 import "./browser";
+import "./overseer-pages";
 import "./ipc-model";
 import "./ipc-work";
