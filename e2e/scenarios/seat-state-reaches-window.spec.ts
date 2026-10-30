@@ -6,7 +6,7 @@
  */
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
-import { modelFixture, modelRegion, modelSeat, modelWire } from "../harness/model";
+import { modelFixture, modelNode, modelRegion, modelSeat, modelWire } from "../harness/model";
 
 const CANVAS = "seatstatewindow";
 const SEAT = modelSeat({ id: "scout", label: "Scout", x: 480, y: 40 });
@@ -14,6 +14,8 @@ const SEAT = modelSeat({ id: "scout", label: "Scout", x: 480, y: 40 });
 const IDLE = modelSeat({ id: "lookout", label: "Lookout", x: 480, y: 220 });
 /** Both seats in one region: a seat reaches its region's co-members. */
 const REGION = modelRegion({ id: "floor", label: "Floor", x: 400, y: 0, width: 700, height: 460 });
+/** The shelf a seat's document ask writes into, in that same region. */
+const SHELF = modelNode({ kind: "artifacts", id: "shelf", label: "Shelf", x: 900, y: 30, width: 180, height: 96, z: 0 });
 
 test("a running seat's state reaches the window and offboard is answered", async () => {
   test.setTimeout(120_000);
@@ -45,14 +47,15 @@ test("a running seat's state reaches the window and offboard is answered", async
  * The attention surfaces, read from one real running seat with nothing
  * injected: a working seat takes a hotbar digit, Cmd+Backquote steps to it, a
  * seat's own `junto escalate` shows on its card and in the command center, an
- * answer to that signal is typed into the seat, and mail held on a busy seat
- * is counted as waiting.
+ * answer to that signal is typed into the seat, the document it asks for is
+ * handed in from the feed and typed in too, and mail held on a busy seat is
+ * counted as waiting.
  */
-test("a running seat's attention reaches the hotbar, the switcher, the card, the command center, its signal answer and the mail count", async () => {
+test("a running seat's attention reaches the hotbar, the switcher, the card, the command center, its signal answers and the mail count", async () => {
   test.setTimeout(180_000);
   const junto = await launchJunto({
     windowContentSize: { width: 1400, height: 880 },
-    seedModels: { [CANVAS]: modelFixture([REGION, SEAT, IDLE], [modelWire("wire-scout-lookout", "scout", "lookout", "messages", [SEAT, IDLE])]) },
+    seedModels: { [CANVAS]: modelFixture([REGION, SHELF, SEAT, IDLE], [modelWire("wire-scout-lookout", "scout", "lookout", "messages", [SEAT, IDLE])]) },
     afterSeed: installCrewSeatHarness,
   });
   const seat = crewSeat(junto.sandbox, CANVAS, "scout");
@@ -116,6 +119,22 @@ test("a running seat's attention reaches the hotbar, the switcher, the card, the
     // answer is typed into the seat.
     await seat.control({ screen: { mode: "idle" } });
     await expect.poll(() => seat.stdinLog(), { timeout: 45_000 }).toContain(ANSWER);
+
+    // (3c) The seat asks for a document; the operator writes it in the window,
+    // and the core types the hand-in into the seat.
+    const asked = await seat.cli(["escalate", "Write the note.", "--ask-artifact", "Shelf", "--min-words", "1"]);
+    expect(asked.exitCode, asked.stderr).toBe(0);
+    await page.keyboard.press("Meta+i");
+    const workCard = page.getByTestId("operator-feed-card").filter({ hasText: "Write the note." });
+    await expect(workCard).toHaveCount(1, { timeout: 15_000 });
+    await workCard.click();
+    const work = page.getByTestId("operator-feed-detail").getByTestId("signal-work-form");
+    await expect(work).toHaveAttribute("data-form", "artifact", { timeout: 15_000 });
+    await work.getByRole("textbox", { name: "Your writing" }).click();
+    await page.keyboard.type("The archive is the record.");
+    await work.getByRole("button", { name: "Hand in" }).click();
+    await expect.poll(() => seat.stdinLog(), { timeout: 45_000 }).toContain("is written");
+    await page.keyboard.press("Escape");
 
     // (4) Mail along the edge reaches the far seat: it is in that seat's box,
     // which the seat reads back through its own credential. The mail-waiting
