@@ -59,7 +59,7 @@ const ownArtifactOp = (sql: SqlClient.SqlClient, canvasName: string, ruling: Rul
       `
         SELECT fact.result_json
         FROM installation
-        JOIN work_events AS event ON event.event_home = installation.installation_id AND event.entity_home = installation.installation_id
+        JOIN work_events AS event INDEXED BY work_events_by_item ON event.event_home = installation.installation_id AND event.entity_home = installation.installation_id
         JOIN work_facts AS fact USING (event_home, entity_home, seq)
         WHERE installation.singleton = 1
           AND installation.installation_id = ?

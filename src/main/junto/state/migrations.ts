@@ -79,7 +79,7 @@ import {
 import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-models-state-schema";
 import { VIEW_CAPTURE_DESK_SCHEMA_SQL, VIEW_CAPTURE_INBOX_SCHEMA_SQL, VIEW_STATE_SCHEMA_SQL } from "../view-state/state-schema";
 import { OPERATOR_MAIL_READS_SCHEMA_SQL } from "../work/mail-reads-state-schema";
-import { WORK_MESSAGES_SENDER_INDEX_SQL } from "../work/state-schema";
+import { WORK_MESSAGES_SENDER_INDEX_SQL, WORK_READ_INDEXES_SQL } from "../work/state-schema";
 import {
   actualStateSchemaSha256,
   normalizeSchemaSql,
@@ -886,7 +886,18 @@ export const STATE_SCHEMA_V71_IDENTITY = {
     "d91a80e620f8657916aa81ffcd7c651c69d0448ea36e56a8b2ca81ad2b6f672f",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 71;
+/**
+ * Version 72 indexes the reads that ask the log by kind of fact, and mail by
+ * the seat that wrote it (protect the main thread, 0.11.7):
+ * `work_events_by_operation`, `work_events_by_item` and `work_messages_actor`.
+ * Expand only.
+ */
+export const STATE_SCHEMA_V72_IDENTITY = {
+  actualSchemaSha256:
+    "df9fa62490e77bb8c49f3a3cefb82819e400ddfed0157115589490664b9ff752",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 72;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -894,7 +905,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 71;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V70_IDENTITY;
+  STATE_SCHEMA_V72_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1459,6 +1470,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V70_IDENTITY,
     migrate: (database) => database.exec(FLEET_COPY_LIST_STATE_SCHEMA_SQL),
+  },
+  {
+    fromVersion: 71,
+    toVersion: 72,
+    name: "index the log by kind of fact, and mail by its writer",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V71_IDENTITY,
+    migrate: (database) => database.exec(WORK_READ_INDEXES_SQL),
   },
 ];
 

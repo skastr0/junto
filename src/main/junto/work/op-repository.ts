@@ -146,7 +146,7 @@ export const OpRepositoryLive: Layer.Layer<OpRepository, never, SqlClient.SqlCli
       const where = narrowed("event.item_id", narrow);
       return Effect.map(
         sql.unsafe<{ op_id: string }>(
-          `SELECT event.item_id AS op_id FROM work_events AS event
+          `SELECT event.item_id AS op_id FROM work_events AS event INDEXED BY work_events_by_operation
            JOIN work_facts AS fact USING (event_home, entity_home, seq)
            WHERE event.event_home = ? AND event.entity_home = ? AND event.item_canvas_name = ?
              AND event.item_kind = 'command' AND event.operation = 'command.queued'
@@ -211,7 +211,7 @@ export const OpRepositoryLive: Layer.Layer<OpRepository, never, SqlClient.SqlCli
           const writer = yield* self;
           if (writer === undefined) return undefined;
           const rows = yield* sql.unsafe<{ result_json: string }>(
-            `SELECT fact.result_json FROM work_events AS event
+            `SELECT fact.result_json FROM work_events AS event INDEXED BY work_events_by_operation
              JOIN work_facts AS fact USING (event_home, entity_home, seq)
              WHERE event.event_home = ? AND event.entity_home = ? AND event.item_canvas_name = ?
                AND event.item_kind = 'command' AND event.operation = 'command.queued'

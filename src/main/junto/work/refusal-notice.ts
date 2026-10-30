@@ -44,7 +44,7 @@ export const refusalNoticeWrite = Effect.fn("work.refusalNoticeWrite")(function*
   const rows = yield* reader.unsafe<{ item_id: string; result_json: string }>(
     `
       SELECT event.item_id, fact.result_json
-      FROM work_events AS event
+      FROM work_events AS event INDEXED BY work_events_by_operation
       JOIN work_facts AS fact USING (event_home, entity_home, seq)
       WHERE event.event_home = ?
         AND event.entity_home = ?
@@ -100,7 +100,7 @@ export const refusedKindOf = Effect.fn("work.refusedKindOf")(function* (
   const rows = yield* reader.unsafe<{ result_json: string }>(
     `
       SELECT fact.result_json
-      FROM work_events AS event
+      FROM work_events AS event INDEXED BY work_events_by_item
       JOIN work_facts AS fact USING (event_home, entity_home, seq)
       WHERE event.event_home = ? AND event.entity_home = ? AND event.item_canvas_name = ?
         AND event.item_kind = 'command' AND event.operation = 'command.queued' AND event.item_id = ?

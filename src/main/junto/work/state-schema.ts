@@ -19,6 +19,21 @@
 export const WORK_MESSAGES_SENDER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS work_messages_sender
     ON work_messages(canvas_name, json_extract(metadata_json,'$.senderNodeId'), node_id, position);`;
 
+/**
+ * The reads that ask the log a question by kind of fact rather than by item:
+ * the open seat controls, the queued and unruled commands, a queue's load,
+ * refusal notices and ruling projections. `work_events_item_history` leads
+ * with the node, so without these each of those walked every event on the
+ * canvas. `work_messages_actor` serves a seat's recent mail by the seat that
+ * wrote it, which otherwise read every fact and parsed its JSON.
+ */
+export const WORK_READ_INDEXES_SQL = `CREATE INDEX IF NOT EXISTS work_events_by_operation
+    ON work_events(item_canvas_name, operation, event_home, entity_home, length(seq), seq);
+  CREATE INDEX IF NOT EXISTS work_events_by_item
+    ON work_events(item_canvas_name, item_kind, item_id);
+  CREATE INDEX IF NOT EXISTS work_messages_actor
+    ON work_messages(canvas_name, actor_seat_id, received_at);`;
+
 export const WORK_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS work_event_sequences (
     event_home TEXT NOT NULL,
@@ -616,6 +631,8 @@ export const WORK_STATE_SCHEMA_SQL = `
 
   CREATE INDEX IF NOT EXISTS work_events_route_order
     ON work_events(event_home, entity_home, length(seq), seq);
+
+  ${WORK_READ_INDEXES_SQL}
 
   CREATE TRIGGER IF NOT EXISTS work_tasks_home_immutable
   BEFORE UPDATE OF entity_home ON work_tasks

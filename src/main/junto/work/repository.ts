@@ -5143,7 +5143,7 @@ export const WorkRepositoryLive = Layer.effect(
         .unsafe<{ rows: number; bytes: number | null }>(
           `
             SELECT count(*) AS rows, sum(length(CAST(fact.result_json AS BLOB))) AS bytes
-            FROM work_events AS command
+            FROM work_events AS command INDEXED BY work_events_by_operation
             JOIN work_facts AS fact USING (event_home, entity_home, seq)
             WHERE command.event_home = ?
               AND command.entity_home = ?
@@ -5353,7 +5353,7 @@ export const WorkRepositoryLive = Layer.effect(
           const rows = yield* sql.unsafe<{ writer: string; result_json: string }>(
             `
               SELECT command.event_home AS writer, fact.result_json
-              FROM work_events AS command
+              FROM work_events AS command INDEXED BY work_events_by_operation
               JOIN work_facts AS fact USING (event_home, entity_home, seq)
               WHERE command.item_canvas_name = ?
                 AND command.operation = 'command.queued'
