@@ -154,6 +154,38 @@ jobs:
       - uses: ./.github/actions/setup
       - run: bun run audit:dependencies
 
+  # The native junto CLI (0.12 native CLI, N1): its toolchain comes from
+  # native/cli/rust-toolchain.toml, and every build runs --locked.
+  native-cli:
+    name: Native CLI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-24.04]
+    concurrency:
+      group: verify-native-cli-${{ matrix.os }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    defaults:
+      run:
+        working-directory: native/cli
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - run: rustup show active-toolchain
+      - run: cargo fmt --check
+      - if: ${{ !cancelled() }}
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - if: ${{ !cancelled() }}
+        run: cargo test --locked
+      - if: ${{ !cancelled() }}
+        run: cargo build --locked --release
+      # Licences: anything outside deny.toml's allow-list fails the build.
+      - if: ${{ !cancelled() && runner.os == 'Linux' }}
+        run: cargo install --locked cargo-deny@0.19.0 && cargo deny --locked check
+
   free-startup-e2e:
     name: Free startup E2E (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
