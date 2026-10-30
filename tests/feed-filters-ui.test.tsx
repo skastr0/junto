@@ -9,7 +9,7 @@ import { act, useSyncExternalStore } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AgentSignal, AgentSignalKind } from "../src/shared/agent-signals";
-import { buildOperatorFeed, feedItemRank, OPERATOR_FEED_VERSION, type FeedItem, type OperatorFeed as Feed } from "../src/shared/operator-feed";
+import { buildOperatorFeed, feedItemRank, OPERATOR_FEED_VERSION, type FeedItem, type FeedRegion, type OperatorFeed as Feed } from "../src/shared/operator-feed";
 import { OperatorFeed } from "../src/renderer/components/feed/OperatorFeed";
 import { clearFeedFilters, feedView$ } from "../src/renderer/lib/operator-feed";
 import { state$ } from "../src/renderer/lib/state";
@@ -41,11 +41,25 @@ vi.mock("../src/renderer/lib/operator-feed", async (importOriginal) => ({
 const CANVAS = "feed-filters";
 const NOW = 10_000_000;
 
-/** One signal per entry, each its own seat, so seat chips have something to say. */
+/** One signal per entry, each an entry on a seat, so seat chips have something to say. */
+const REGION_OF: Readonly<Record<string, FeedRegion>> = {
+  Build: { regionId: "build", label: "Build", path: ["Build"] },
+  Design: { regionId: "design", label: "Design", path: ["Design"], color: "3" },
+};
+
 const feedOf = (
-  specs: ReadonlyArray<{ readonly id: string; readonly kind: AgentSignalKind; readonly seat: string; readonly text: string }>,
+  specs: ReadonlyArray<{
+    readonly id: string;
+    readonly kind: AgentSignalKind;
+    readonly seat: string;
+    readonly text: string;
+    /** The seat's region; Build unless the entry says otherwise. */
+    readonly region?: keyof typeof REGION_OF;
+  }>,
 ): Feed => {
-  const seats = [...new Map(specs.map((spec) => [spec.seat, spec.seat] as const)).entries()].map(([seat]) => seat);
+  const seats = [...new Map(specs.map((spec) => [spec.seat, spec.region ?? "Build"] as const)).entries()].map(
+    ([seat, region]) => ({ seat, region }),
+  );
   const signals: AgentSignal[] = specs.map((spec) => ({
     signalId: spec.id,
     canvasName: CANVAS,
@@ -58,9 +72,9 @@ const feedOf = (
   return buildOperatorFeed({
     canvasName: CANVAS,
     nowMs: NOW,
-    seats: seats.map((seat) => ({
+    seats: seats.map(({ seat, region }) => ({
       seat: { nodeId: `seat-${seat}`, name: seat, portraitIdentity: seat },
-      region: { regionId: "build", label: "Build", path: ["Build"] },
+      region: REGION_OF[region]!,
     })),
     signals,
   });
@@ -133,6 +147,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   HTMLElement.prototype.scrollIntoView = () => {};
   clearFeedFilters();
+  feedView$.seatsOpen.set(false);
   state$.canvasName.set(CANVAS);
   host = document.createElement("div");
   document.body.append(host);
@@ -143,6 +158,7 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   clearFeedFilters();
+  feedView$.seatsOpen.set(false);
   state$.canvasName.set(oldCanvas);
   vi.unstubAllGlobals();
 });
@@ -172,27 +188,95 @@ it("gives every kind one chip, in the one order, named as every surface names it
   expect(chips("feed-kind-chip").map((chip) => chip.textContent)).toEqual(["Blocked1", "Waiting on you1", "To do1"]);
 });
 
-it("filters by kind, by seat, and by both, each chip on its own", async () => {
+it("keeps the seats folded behind one toggle until the operator asks for them", async () => {
   await open();
-  const kind = (kind: string) => chips("feed-kind-chip").find((chip) => chip.dataset.kind === kind)!;
-  // Chips carry the seat's node id; the words are its name.
-  const seat = (name: string) => chips("feed-seat-chip").find((chip) => chip.textContent?.startsWith(name))!;
-  expect(chips("feed-seat-chip").map((chip) => chip.textContent)).toEqual(["atlas2", "bravo1"]);
+  const row = q("feed-seats-row")!;
+  const toggle = q("feed-seats-toggle")!;
+  // Folded: no seat chip shows, and the toggle names the row it opens and says it is closed.
+  expect(row.hidden).toBe(true);
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(toggle.getAttribute("aria-controls")).toBe(row.id);
+  expect(toggle.textContent).toContain("Seats");
+  expect(toggle.textContent).toContain("2");
 
+  await press(toggle);
+  expect(row.hidden).toBe(false);
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  expect(chips("feed-seat-chip").map((chip) => chip.textContent)).toEqual(["atlas2", "bravo1"]);
+  // Every seat chip carries its region's dot, the same coding as the region chips.
+  expect(chips("feed-seat-chip").every((chip) => chip.querySelector(".feed-region-chip__swatch") !== null)).toBe(true);
+
+  await press(toggle);
+  expect(row.hidden).toBe(true);
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+});
+
+it("filters by one seat at a time, leaving the chosen seat in the bar with its own clear", async () => {
+  await open();
+  const kind = (name: string) => chips("feed-kind-chip").find((chip) => chip.dataset.kind === name)!;
+  const seat = (name: string) => chips("feed-seat-chip").find((chip) => chip.dataset.seat === `seat-${name}`)!;
+  await press(q("feed-seats-toggle")!);
+
+  await press(seat("atlas"));
+  expect(seat("atlas").getAttribute("aria-pressed")).toBe("true");
+  expect(cards()).toEqual(["a", "c"]);
+
+  // A second seat replaces the first: one seat at a time, like the region pick.
+  await press(seat("bravo"));
+  expect(cards()).toEqual(["b"]);
+  expect(seat("atlas").getAttribute("aria-pressed")).toBe("false");
+
+  // Kinds and the seat narrow together, each on its own axis.
   await press(kind("blocked"));
-  expect(kind("blocked").getAttribute("aria-pressed")).toBe("true");
+  expect(cards()).toEqual(["b"]);
+  await press(kind("blocked"));
   expect(cards()).toEqual(["b"]);
 
-  await press(seat("atlas"));
-  expect(chips("feed-seat-chip").find((chip) => chip.textContent?.startsWith("atlas"))?.getAttribute("aria-pressed")).toBe("true");
-  // Both axes: blocked is Bravo's only need, so nothing is left.
-  expect(cards()).toEqual([]);
+  // The chosen seat stays in the bar whether the row is open or folded.
+  const chosen = () => q("feed-seat-chosen")!;
+  expect(chosen().textContent).toBe("bravo");
+  await press(q("feed-seats-toggle")!);
+  expect(q("feed-seats-row")!.hidden).toBe(true);
+  expect(chosen().textContent).toBe("bravo");
 
-  await press(kind("blocked"));
-  expect(cards()).toEqual(["a", "c"]);
-  await press(seat("atlas"));
-  // Both chips off: the whole feed again, most urgent first.
+  // Its own clear drops it, with the keyboard left where the operator was.
+  const clear = chosen().querySelector<HTMLButtonElement>("button[aria-label='Clear seat bravo']")!;
+  await press(clear);
   expect(cards()).toEqual(["b", "a", "c"]);
+  expect(q("feed-seat-chosen")).toBeNull();
+  expect(seat("bravo").getAttribute("aria-pressed")).toBe("false");
+});
+
+it("lists only the picked region's seats, and drops a seat that region does not hold", async () => {
+  live.set(
+    feedOf([
+      { id: "a", kind: "escalate", seat: "atlas", text: "Atlas asks about the rates" },
+      { id: "b", kind: "work", seat: "cleo", text: "Cleo ships the notes" },
+      { id: "c", kind: "blocked", seat: "bravo", text: "Bravo is stuck", region: "Design" },
+    ]),
+  );
+  await act(async () => root.render(<OperatorFeed />));
+  const region = (name: string) =>
+    [...document.body.querySelectorAll<HTMLButtonElement>('[data-testid="feed-region-chip"]')].find((chip) =>
+      chip.textContent?.includes(name),
+    )!;
+  const seatsIn = () => chips("feed-seat-chip").map((chip) => chip.dataset.seat);
+
+  await press(q("feed-seats-toggle")!);
+  expect(seatsIn()).toEqual(["seat-atlas", "seat-bravo", "seat-cleo"]);
+
+  // A picked region leaves only its own seats in the row.
+  await press(region("Build"));
+  expect(seatsIn()).toEqual(["seat-atlas", "seat-cleo"]);
+  await press(chips("feed-seat-chip").find((chip) => chip.dataset.seat === "seat-atlas")!);
+  expect(cards()).toEqual(["a"]);
+
+  // A region that does not hold the picked seat drops it rather than emptying the feed.
+  await press(region("Design"));
+  expect(q("feed-seat-chosen")).toBeNull();
+  // One seat in scope chooses nothing: the toggle gives way to the chips alone.
+  expect(q("feed-seats-toggle")).toBeNull();
+  expect(cards()).toEqual(["c"]);
 });
 
 it("says what the narrowing leaves, and announces it, rather than the whole feed's count", async () => {
@@ -228,7 +312,10 @@ it("clears everything the operator narrowed, and only then", async () => {
   await open();
   await type("rates");
   await press(chips("feed-kind-chip").find((chip) => chip.dataset.kind === "escalate")!);
+  await press(q("feed-seats-toggle")!);
+  await press(chips("feed-seat-chip").find((chip) => chip.dataset.seat === "seat-atlas")!);
   expect(cards()).toEqual(["a"]);
+  expect(q("feed-seat-chosen")).not.toBeNull();
   expect(q("feed-clear-filters")).not.toBeNull();
 
   await press(q("feed-clear-filters")!);
@@ -236,7 +323,11 @@ it("clears everything the operator narrowed, and only then", async () => {
   expect(document.activeElement).toBe(search());
   expect(search().value).toBe("");
   expect(chips("feed-kind-chip").every((chip) => chip.getAttribute("aria-pressed") === "false")).toBe(true);
+  // The seat goes with the rest, and the row is left as the operator had it.
+  expect(q("feed-seat-chosen")).toBeNull();
+  expect(chips("feed-seat-chip").every((chip) => chip.getAttribute("aria-pressed") === "false")).toBe(true);
   // Back to the feed's own order: most urgent first.
   expect(cards()).toEqual(["b", "a", "c"]);
   expect(feedView$.query.peek()).toBe("");
+  expect(feedView$.seat.peek()).toBeUndefined();
 });

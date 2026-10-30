@@ -38,10 +38,12 @@ import { use$ } from "@legendapp/state/react";
 import {
   ArrowUpRight,
   Check,
+  ChevronDown,
   Inbox,
   MonitorSmartphone,
+  X,
 } from "lucide-react";
-import type { Node, Seat } from "@shared/model";
+import { titleOf, type Node, type Seat } from "@shared/model";
 import {
   FEED_KIND_LABEL,
   feedKindChips,
@@ -49,6 +51,7 @@ import {
   needsOperatorCount,
   orderFeedSections,
   type FeedItem,
+  type FeedSeatChip,
   type FeedSortOrder,
 } from "@shared/operator-feed";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
@@ -67,6 +70,7 @@ import {
   reconcileSelection,
   regionPickKey,
   regionPickName,
+  regionMatches,
   toggleFeedKind,
   toggleFeedSeat,
   useOperatorFeed,
@@ -89,6 +93,7 @@ import {
 import { requestSectionReveal } from "../../lib/sidebar-sections";
 import { handInSignalWork, itemWorkOf, paneAnswerOf, putSignalSecret, type PaneAnswer } from "../../lib/signal-work";
 import { VAULT_ENABLED } from "@shared/features";
+import { regionChipStyle } from "../../lib/region-chip-style";
 import { state$ } from "../../lib/state";
 import { useCanvasTasks } from "../../lib/tasks-source";
 import { useCanvas } from "../../lib/use-model";
@@ -117,6 +122,8 @@ import "./operator-feed.css";
 
 const LEAVE_MS = 280;
 const NO_IDS: ReadonlySet<string> = new Set();
+/** The seat row's id, which the toggle names as the thing it opens. */
+const SEATS_ROW_ID = "operator-feed-seats";
 
 const closeOperatorFeed = (): void => closeOperatorModal("feed");
 
@@ -487,8 +494,9 @@ export function OperatorFeed() {
   const feedOrder = use$(feedView$.order);
   const feedQuery = use$(feedView$.query);
   const feedKinds = use$(feedView$.kinds);
-  const feedSeats = use$(feedView$.seats);
-  const filter = useMemo(() => feedFilterOf({ query: feedQuery, kinds: feedKinds, seats: feedSeats }), [feedQuery, feedKinds, feedSeats]);
+  const feedSeatId = use$(feedView$.seat);
+  const seatsOpen = use$(feedView$.seatsOpen);
+  const filter = useMemo(() => feedFilterOf({ query: feedQuery, kinds: feedKinds, seat: feedSeatId }), [feedQuery, feedKinds, feedSeatId]);
   const filtering = feedFilterOn(filter);
   const activeRegion = regionPick?.canvasName === canvasName ? regionPick : undefined;
   // Coming back from a review opened on a card: the same card, the same
@@ -516,6 +524,9 @@ export function OperatorFeed() {
   const [scrolled, setScrolled] = useState(false);
   /** Clear takes the keyboard with it: it lands in the search field rather than on the body. */
   const searchRef = useRef<HTMLInputElement>(null);
+  /** The Seats toggle, where closing the row hands the keyboard back. */
+  const seatsToggleRef = useRef<HTMLButtonElement>(null);
+  const refocusSeats = useRef(false);
   const clearAll = (event: ReactMouseEvent<HTMLButtonElement>): void => {
     clearFeedFilters();
     claimFocus(searchRef.current, "gesture", { event });
@@ -536,7 +547,7 @@ export function OperatorFeed() {
   // commit ever draws the list without a card that is still fading: one that
   // did remounted the card, a reply box open on it took focus again, and the
   // list scrolled to it.
-  const pick = `${canvasName}\n${activeRegion ? `region:${regionPickKey(activeRegion.path)}` : "all"}\n${feedOrder}\n${feedQuery}\n${feedKinds.join(",")}\n${feedSeats.join(",")}`;
+  const pick = `${canvasName}\n${activeRegion ? `region:${regionPickKey(activeRegion.path)}` : "all"}\n${feedOrder}\n${feedQuery}\n${feedKinds.join(",")}\n${feedSeatId ?? ""}`;
   const drawn = useRef<{ readonly pick: string; readonly sections: ReadonlyArray<ShownFeedSection> }>({ pick, sections: [] });
   // Cards whose fade is over: the next draw leaves them out.
   const [faded, setFaded] = useState<ReadonlySet<string>>(NO_IDS);
@@ -689,11 +700,19 @@ export function OperatorFeed() {
       else openSeat(item, nodesById.get(item.seat.nodeId));
     }
   };
-  // Escape closes an open reply first; only then does the shell close the feed.
+  // Escape closes an open reply first, then the seats row, and only then does
+  // the shell close the feed.
   const onEscape = (): boolean => {
-    if (replyFor === null) return false;
-    setReplyFor(null);
-    return true;
+    if (replyFor !== null) {
+      setReplyFor(null);
+      return true;
+    }
+    if (seatsOpen) {
+      refocusSeats.current = true;
+      feedView$.seatsOpen.set(false);
+      return true;
+    }
+    return false;
   };
   // The region chips, in the order the feed's sections run, each parent just
   // before its first child; a pick that emptied out stays so it can be seen
@@ -706,7 +725,53 @@ export function OperatorFeed() {
   // holds in the one order every surface says them, and every seat with a need.
   // Counted over the whole feed, so picking one chip never empties the others.
   const kindChips = useMemo(() => feedKindChips(orderFeedSections(feed.sections, feedOrder)), [feed.sections, feedOrder]);
-  const seatChips = useMemo(() => feedSeatChips(orderFeedSections(feed.sections, feedOrder)), [feed.sections, feedOrder]);
+
+  // The seat chips follow the region chips: with a region picked, only the
+  // seats with a need in it, so the row says what the list is showing. The
+  // kind filter is left out on purpose: picking one chip never empties the rest.
+  const seatChips = useMemo(() => {
+    const scoped =
+      activeRegion === undefined
+        ? feed.sections
+        : feed.sections.filter((section) => regionMatches(activeRegion.path, section.region));
+    return feedSeatChips(orderFeedSections(scoped, feedOrder));
+  }, [feed.sections, feedOrder, activeRegion]);
+  // A row of one chip chooses nothing: the toggle waits for a second seat.
+  const seatsToggleShown = seatChips.length >= 2;
+  // A seat the region does not hold would empty the feed with no other sign:
+  // the seat goes with the region that does not keep it, and with its last need.
+  useEffect(() => {
+    if (feedSeatId === undefined) return;
+    if (seatChips.some((chip) => chip.seatId === feedSeatId)) return;
+    feedView$.seat.set(undefined);
+  }, [feedSeatId, seatChips]);
+  useEffect(() => {
+    if (seatsOpen && !seatsToggleShown) feedView$.seatsOpen.set(false);
+  }, [seatsOpen, seatsToggleShown]);
+  // Closing the row takes the keyboard with it: back to the toggle that opened
+  // it, which is where the operator was when they pressed Escape in the row.
+  useEffect(() => {
+    if (seatsOpen || !refocusSeats.current) return;
+    refocusSeats.current = false;
+    claimFocus(seatsToggleRef.current, "gesture");
+  }, [seatsOpen]);
+  // The picked seat, while the row is folded or its needs just left the list:
+  // the chip keeps its name and its region's dot, so a filter is never invisible.
+  const activeSeat = useMemo((): FeedSeatChip | undefined => {
+    if (feedSeatId === undefined) return undefined;
+    const chip = seatChips.find((candidate) => candidate.seatId === feedSeatId);
+    if (chip) return chip;
+    const node = nodesById.get(feedSeatId);
+    return {
+      seatId: feedSeatId,
+      name: node ? titleOf(node) : "that seat",
+      count: 0,
+      regionLabel: activeRegion ? regionPickName(activeRegion.path) : "",
+      regionPath: activeRegion?.path ?? [],
+      open: activeRegion !== undefined && activeRegion.path.length === 0,
+      color: undefined,
+    };
+  }, [feedSeatId, seatChips, nodesById, activeRegion]);
   const chosenRegion = activeRegion ? regionPickKey(activeRegion.path) : undefined;
   const regionName = activeRegion ? regionPickName(activeRegion.path) : "";
   // The rows the whole feed holds, readings included: what a filter's pair counts against.
@@ -782,29 +847,83 @@ export function OperatorFeed() {
               </button>
             ))}
           </div>
-          <div className="operator-feed__chips" role="group" aria-label="Seats">
-            {seatChips.map((chip) => (
+          {seatsToggleShown ? (
+            <button
+              ref={seatsToggleRef}
+              type="button"
+              className="operator-feed__filter-chip operator-feed__seats-toggle"
+              data-testid="feed-seats-toggle"
+              aria-expanded={seatsOpen}
+              aria-controls={SEATS_ROW_ID}
+              onClick={() => feedView$.seatsOpen.set(!seatsOpen)}
+            >
+              Seats
+              <span className="operator-feed__filter-count" aria-hidden>
+                {seatChips.length}
+              </span>
+              <ChevronDown size={12} strokeWidth={2} aria-hidden className="operator-feed__seats-chevron" />
+            </button>
+          ) : null}
+          {/* The seat kept, whether the row below is folded or open, so a filter
+              the operator set never leaves the bar without a sign. */}
+          {activeSeat === undefined ? null : (
+            <span
+              className="feed-region-chip operator-feed__seat-chip operator-feed__seat-chip--chosen"
+              data-testid="feed-seat-chosen"
+              data-seat={activeSeat.seatId}
+              style={regionChipStyle(activeSeat)}
+              title={activeSeat.regionLabel ? `${activeSeat.name} in ${activeSeat.regionLabel}` : activeSeat.name}
+            >
+              <span className="feed-region-chip__swatch" aria-hidden />
+              <span className="feed-region-chip__label">{activeSeat.name}</span>
               <button
-                key={chip.seatId}
                 type="button"
-                className="operator-feed__filter-chip"
-                data-testid="feed-seat-chip"
-                data-seat={chip.seatId}
-                aria-pressed={feedSeats.includes(chip.seatId)}
-                onClick={() => toggleFeedSeat(chip.seatId)}
+                className="operator-feed__seat-clear"
+                aria-label={`Clear seat ${activeSeat.name}`}
+                onClick={() => feedView$.seat.set(undefined)}
               >
-                {feedSeats.includes(chip.seatId) ? <Check size={11} strokeWidth={2} aria-hidden /> : null}
-                {chip.name}
-                <span className="operator-feed__filter-count" aria-hidden>
-                  {chip.count}
-                </span>
+                <X size={11} strokeWidth={2} aria-hidden />
               </button>
-            ))}
-          </div>
+            </span>
+          )}
           {filtering || activeRegion !== undefined ? (
             <Button size="sm" variant="subtle" data-testid="feed-clear-filters" onClick={clearAll}>
               Clear
             </Button>
+          ) : null}
+          {/* The seat row: its own line under the chips, at most two chips tall,
+              so a busy canvas costs the list two lines and never five. */}
+          {seatsToggleShown ? (
+            <div
+              className="operator-feed__seats"
+              id={SEATS_ROW_ID}
+              role="group"
+              aria-label="Seats"
+              data-testid="feed-seats-row"
+              hidden={!seatsOpen}
+            >
+              {seatChips.map((chip) => (
+                <button
+                  key={chip.seatId}
+                  type="button"
+                  className="feed-region-chip operator-feed__seat-chip"
+                  data-testid="feed-seat-chip"
+                  data-seat={chip.seatId}
+                  aria-pressed={feedSeatId === chip.seatId}
+                  aria-label={`${chip.name}${chip.count > 0 ? `, ${chip.count} waiting` : ""}`}
+                  style={regionChipStyle(chip)}
+                  title={chip.regionLabel ? `${chip.name} in ${chip.regionLabel}` : chip.name}
+                  onClick={() => toggleFeedSeat(chip.seatId)}
+                >
+                  {feedSeatId === chip.seatId ? <Check size={11} strokeWidth={2} aria-hidden /> : null}
+                  <span className="feed-region-chip__swatch" aria-hidden />
+                  <span className="feed-region-chip__label">{chip.name}</span>
+                  <span className="feed-region-chip__count" aria-hidden>
+                    {chip.count > 99 ? "99+" : chip.count}
+                  </span>
+                </button>
+              ))}
+            </div>
           ) : null}
         </div>
       ) : null}

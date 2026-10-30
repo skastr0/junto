@@ -390,16 +390,22 @@ export const feedView$ = observable<{
   query: string;
   /** The kinds kept; empty keeps every kind. */
   kinds: ReadonlyArray<FeedItemKind>;
-  /** The seats kept, by node id; empty keeps every seat. */
-  seats: ReadonlyArray<string>;
-}>({ region: undefined, order: "urgency", query: "", kinds: [], seats: [] });
+  /** The one seat kept, by node id; undefined keeps every seat. */
+  seat: string | undefined;
+  /**
+   * Whether the seat chips are unfolded. Folded by default: one row per seat
+   * made the bar grow to five lines on a busy canvas. A seat picked while
+   * folded still shows in the bar, so a filter is never invisible.
+   */
+  seatsOpen: boolean;
+}>({ region: undefined, order: "urgency", query: "", kinds: [], seat: undefined, seatsOpen: false });
 
 /** The filter the view's three narrowing fields say. */
 export const feedFilterOf = (view: {
   readonly query: string;
   readonly kinds: ReadonlyArray<FeedItemKind>;
-  readonly seats: ReadonlyArray<string>;
-}): FeedFilter => ({ query: view.query, kinds: view.kinds, seats: view.seats });
+  readonly seat: string | undefined;
+}): FeedFilter => ({ query: view.query, kinds: view.kinds, seats: view.seat === undefined ? [] : [view.seat] });
 
 /** A chip's press: the kind joins the filter, or leaves it. */
 export const toggleFeedKind = (kind: FeedItemKind): void => {
@@ -407,10 +413,13 @@ export const toggleFeedKind = (kind: FeedItemKind): void => {
   feedView$.kinds.set(held.includes(kind) ? held.filter((one) => one !== kind) : [...held, kind]);
 };
 
-/** A chip's press: the seat joins the filter, or leaves it. */
+/**
+ * A chip's press: the seat becomes the one kept, or leaves when it already
+ * is. One seat at a time, like the region pick: a second pick replaces the
+ * first rather than narrowing to nothing.
+ */
 export const toggleFeedSeat = (seatId: string): void => {
-  const held = feedView$.seats.peek();
-  feedView$.seats.set(held.includes(seatId) ? held.filter((one) => one !== seatId) : [...held, seatId]);
+  feedView$.seat.set(feedView$.seat.peek() === seatId ? undefined : seatId);
 };
 
 /** Clear everything the operator narrowed: the region pick and the three axes. */
@@ -418,7 +427,7 @@ export const clearFeedFilters = (): void => {
   feedView$.region.set(undefined);
   feedView$.query.set("");
   feedView$.kinds.set([]);
-  feedView$.seats.set([]);
+  feedView$.seat.set(undefined);
 };
 
 /**

@@ -231,6 +231,98 @@
   color: inherit;
 }
 
+/* The Seats toggle: the same chip as a kind's, at the end of the row, with how
+   many seats are in scope and a chevron that turns as the row opens. */
+
+.operator-feed__seats-toggle {
+  gap: 5px;
+}
+
+.operator-feed__seats-chevron {
+  transition: transform 140ms ease;
+}
+
+.operator-feed__seats-toggle[aria-expanded="true"] .operator-feed__seats-chevron {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .operator-feed__seats-chevron {
+    transition: none;
+  }
+}
+
+/* The seat row: its own line under the chips, wrapping, at most two chips tall
+   (2 x 26px + the 6px gap, and 2px above and below so a focus ring is not
+   clipped) and scrolling past that, so the list never drops by more than it. */
+
+.operator-feed__seats {
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-height: 62px;
+  padding-block: 2px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.operator-feed__seats[hidden] {
+  display: none;
+}
+
+/* A seat chip is a region chip: same geometry, same tinted count, and its own
+   region's dot. Pressed reads like a kind's press, the house amber and a
+   check, so filter state says the same thing on every chip in the bar. */
+.operator-feed__seat-chip {
+  flex: none;
+}
+
+.operator-feed__seat-chip[aria-pressed="true"],
+.operator-feed__seat-chip--chosen {
+  border-color: var(--color-amber);
+  background: var(--color-overlay-2);
+  color: var(--color-amber-fg);
+}
+
+.operator-feed__seat-chip[aria-pressed="true"] .feed-region-chip__label,
+.operator-feed__seat-chip--chosen .feed-region-chip__label {
+  color: inherit;
+}
+
+/* The chosen seat keeps a clear control of its own, so it can be dropped
+   without unfolding the row. */
+.operator-feed__seat-chip--chosen {
+  cursor: default;
+  padding-right: 4px;
+}
+
+.operator-feed__seat-clear {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-dim);
+  cursor: pointer;
+}
+
+.operator-feed__seat-clear:hover {
+  background: var(--color-overlay-2);
+  color: var(--color-ink);
+}
+
+.operator-feed__seat-clear:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 1px;
+}
+
 /* The narrowing, for a screen reader: mounted always, so its sentence is heard. */
 .operator-feed__announce {
   position: absolute;

@@ -355,23 +355,49 @@ export const feedKindChips = (sections: ReadonlyArray<FeedSection>): ReadonlyArr
   }));
 };
 
-/** A seat filter chip: the seat by its name, and how many of its needs it would show. */
+/**
+ * A seat filter chip: the seat by its name, how many of its needs it would
+ * show, and the region it sits in, so its dot takes that region's colour the
+ * way the region chips do.
+ */
 export type FeedSeatChip = {
   readonly seatId: string;
   readonly name: string;
   readonly count: number;
+  readonly regionLabel: string;
+  /** Containing region labels, outer to inner; empty for the open field. */
+  readonly regionPath: ReadonlyArray<string>;
+  /** The seat sits in the open field: its dot is hollow, like the region's. */
+  readonly open: boolean;
+  /** The region's own colour, when it has one. */
+  readonly color: string | undefined;
 };
 
 /**
  * One chip per seat with a need, the busiest first and ties by name, so the
- * strip reads like the list it filters rather than like a roster.
+ * strip reads like the list it filters rather than like a roster. A seat is
+ * named by the first region it is seen in, so its dot does not change as
+ * other needs arrive.
  */
 export const feedSeatChips = (sections: ReadonlyArray<FeedSection>): ReadonlyArray<FeedSeatChip> => {
   const chips = new Map<string, FeedSeatChip>();
   for (const section of sections) {
     for (const item of section.items) {
       const known = chips.get(item.seat.nodeId);
-      chips.set(item.seat.nodeId, { seatId: item.seat.nodeId, name: item.seat.name, count: (known?.count ?? 0) + 1 });
+      chips.set(
+        item.seat.nodeId,
+        known === undefined
+          ? {
+              seatId: item.seat.nodeId,
+              name: item.seat.name,
+              count: 1,
+              regionLabel: item.region.label,
+              regionPath: item.region.path,
+              open: item.region.path.length === 0,
+              color: item.region.color,
+            }
+          : { ...known, count: known.count + 1 },
+      );
     }
   }
   return [...chips.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));

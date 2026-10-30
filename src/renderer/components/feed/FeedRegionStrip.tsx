@@ -1,28 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { FeedRegionChip } from "../../lib/operator-feed";
-import { regionWordShare } from "../../lib/region-word-ink";
-import { accentColor } from "../../lib/theme";
+import { regionChipStyle } from "../../lib/region-chip-style";
 import "./feed-region-strip.css";
 
 /** How much of the chip before the chosen one stays in view, so the strip reads as scrollable. */
 const REVEAL_INSET = 32;
-
-/**
- * The region's colours as the phone draws them: a preset or hex is the base,
- * a region with no colour of its own the main accent, the open field steel.
- * Ink, tint and halo mix from the base in feed-region-strip.css. A free hex
- * is no preset tuned per theme, so its words take only as much of it as
- * still reads at 4.5:1 in each theme.
- */
-const chipStyle = (chip: FeedRegionChip): CSSProperties => {
-  const base = chip.open ? "var(--color-steel)" : accentColor(chip.color);
-  if (!base.startsWith("#")) return { "--chip-region": base } as CSSProperties;
-  return {
-    "--chip-region": base,
-    "--chip-share-dark": `${regionWordShare(base, "dark")}%`,
-    "--chip-share-bright": `${regionWordShare(base, "bright")}%`,
-  } as CSSProperties;
-};
 
 /**
  * The Needs you feed's region filter, a strip of chips like the phone's
@@ -120,7 +102,7 @@ export function FeedRegionStrip({
             data-open-field={chip.open ? "true" : undefined}
             data-testid="feed-region-chip"
             data-chip-key={chip.key}
-            style={chipStyle(chip)}
+            style={regionChipStyle(chip)}
             title={`${where}${chip.label}`}
             onClick={() => onPick(selected ? undefined : chip)}
           >

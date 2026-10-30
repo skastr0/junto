@@ -15,6 +15,7 @@ import {
   type FeedFilter,
   type FeedItem,
   type FeedItemKind,
+  type FeedRegion,
   type FeedSection,
 } from "../src/shared/operator-feed";
 import { feedStatusLine, viewFeedSections } from "../src/renderer/lib/operator-feed";
@@ -121,9 +122,68 @@ describe("the feed's chips", () => {
 
   it("names each seat with a need, the busiest first, and how many it has", () => {
     expect(feedSeatChips(sections(items))).toEqual([
-      { seatId: "seat-atlas", name: "atlas", count: 2 },
-      { seatId: "seat-bravo", name: "bravo", count: 1 },
-      { seatId: "seat-cleo", name: "cleo", count: 1 },
+      {
+        seatId: "seat-atlas",
+        name: "atlas",
+        count: 2,
+        regionLabel: "R",
+        regionPath: ["R"],
+        open: false,
+        color: undefined,
+      },
+      {
+        seatId: "seat-bravo",
+        name: "bravo",
+        count: 1,
+        regionLabel: "R",
+        regionPath: ["R"],
+        open: false,
+        color: undefined,
+      },
+      {
+        seatId: "seat-cleo",
+        name: "cleo",
+        count: 1,
+        regionLabel: "R",
+        regionPath: ["R"],
+        open: false,
+        color: undefined,
+      },
+    ]);
+  });
+
+  it("gives a seat its own region, so its dot takes that region's colour like the region chips", () => {
+    const build: FeedRegion = { regionId: "build", label: "Build", path: ["Factory", "Build"], color: "3" };
+    const field: FeedRegion = { regionId: null, label: "Open field", path: [] };
+    const factory: FeedSection = {
+      region: build,
+      items: [{ ...at("a", "work", "seat-atlas", "one"), region: build }],
+      worstUrgency: feedItemRank("work"),
+    };
+    const openField: FeedSection = {
+      region: field,
+      items: [{ ...at("b", "work", "seat-open", "two"), region: field }],
+      worstUrgency: feedItemRank("work"),
+    };
+    expect(feedSeatChips([factory, openField])).toEqual([
+      {
+        seatId: "seat-atlas",
+        name: "atlas",
+        count: 1,
+        regionLabel: "Build",
+        regionPath: ["Factory", "Build"],
+        open: false,
+        color: "3",
+      },
+      {
+        seatId: "seat-open",
+        name: "open",
+        count: 1,
+        regionLabel: "Open field",
+        regionPath: [],
+        open: true,
+        color: undefined,
+      },
     ]);
   });
 });

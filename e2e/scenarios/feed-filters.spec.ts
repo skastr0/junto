@@ -1,13 +1,15 @@
 /**
- * The Needs you feed's filters (0.11.4): a field that says "Search needs", one
- * chip per kind named as every surface names it, one chip per seat, and Clear.
+ * The Needs you feed's filters (0.11.5): a field that says "Search needs", one
+ * chip per kind named as every surface names it, the seats folded behind one
+ * toggle, and Clear.
  *   JUNTO_SHOTS_DIR=<dir> bun run test:e2e:fast e2e/scenarios/feed-filters.spec.ts
  *
  * Asserts:
  *   - the field's placeholder, and a chip for each kind the feed holds with its count
- *   - a chip per seat by name
+ *   - the seats are folded until the toggle opens them, then a chip per seat by name
+ *   - the chosen seat stays in the bar with its own clear
  *   - the words narrow the cards, a kind chip narrows them, both together narrow further
- *   - Clear puts every card back and empties the field
+ *   - Clear puts every card back, empties the field, and drops the seat
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -66,7 +68,7 @@ test("the feed narrows by words, kind and seat, and Clear puts it back", async (
     const cards = feed.getByTestId("operator-feed-card");
     await expect(cards).toHaveCount(3);
 
-    // The field says what it does, and every kind and seat the feed holds has a chip.
+    // The field says what it does, and every kind the feed holds has a chip.
     const bar = page.getByTestId("feed-filter-bar");
     await expect(bar.locator(".operator-feed__search")).toHaveAttribute("placeholder", "Search needs");
     const kind = (name: string) => bar.getByTestId("feed-kind-chip").filter({ hasText: name });
@@ -74,6 +76,14 @@ test("the feed narrows by words, kind and seat, and Clear puts it back", async (
     await expect(kind("Waiting on you")).toHaveCount(1);
     await expect(kind("To do")).toHaveCount(1);
     await expect(kind("Blocked")).toHaveCount(1);
+    // The seats are folded away until the operator asks for them.
+    const seats = bar.getByTestId("feed-seats-toggle");
+    const seatRow = bar.getByTestId("feed-seats-row");
+    await expect(seats).toHaveAttribute("aria-expanded", "false");
+    await expect(seatRow).toBeHidden();
+    await seats.click();
+    await expect(seats).toHaveAttribute("aria-expanded", "true");
+    await expect(seatRow).toBeVisible();
     await expect(seat("Atlas")).toHaveCount(1);
     await expect(seat("Bravo")).toHaveCount(1);
     await shot(page, "1-filter-bar");
@@ -91,15 +101,20 @@ test("the feed narrows by words, kind and seat, and Clear puts it back", async (
     await seat("Atlas").click();
     await expect(cards).toHaveCount(0);
     await expect(page.getByTestId("feed-no-matches")).toBeVisible();
+    // The chosen seat stays in the bar, folded or not, with its own clear.
+    await seats.click();
+    await expect(seatRow).toBeHidden();
+    await expect(bar.getByTestId("feed-seat-chosen")).toContainText("Atlas");
     // The header says the part, not the whole, and the live region can say it too.
     await expect(page.locator(".operator-feed__status")).toHaveText("0 of 3 shown");
     await expect(page.locator(".operator-feed__announce")).toHaveText("0 of 3 shown with these filters");
     await shot(page, "2-nothing-matches");
 
-    // Clear puts every card back and empties the field.
+    // Clear puts every card back, empties the field, and drops the seat.
     await page.getByTestId("feed-clear-filters").click();
     await expect(cards).toHaveCount(3);
     await expect(bar.locator(".operator-feed__search")).toHaveValue("");
+    await expect(bar.getByTestId("feed-seat-chosen")).toHaveCount(0);
     // Clear takes the keyboard with it: the next Tab is in the bar, not on the header's Close.
     await expect(bar.locator(".operator-feed__search")).toBeFocused();
     await expect(kind("Blocked")).toHaveAttribute("aria-pressed", "false");
