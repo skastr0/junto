@@ -37,8 +37,8 @@ const HIT_24 =
   "relative before:absolute before:inset-x-0 before:top-1/2 before:h-6 before:-translate-y-1/2 before:content-['']";
 
 const SIZE: Record<ButtonSize, string> = {
-  xs: "gap-1 rounded px-1.5 py-0.5 text-caption uppercase tracking-label",
-  sm: "gap-1.5 rounded-md px-2 py-1 text-caption uppercase tracking-eyebrow",
+  xs: "gap-1 rounded px-1.5 py-0.5 text-label uppercase tracking-label",
+  sm: "gap-1.5 rounded-md px-2 py-1 text-label uppercase tracking-eyebrow",
   md: "gap-1.5 rounded-md px-3 py-1.5 text-body-lg",
 };
 
