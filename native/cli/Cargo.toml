@@ -1,0 +1,22 @@
+[package]
+name = "junto-cli"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.98.1"
+license = "LicenseRef-Junto"
+publish = false
+description = "The native junto CLI: what an agent's terminal calls, over the runtime's socket"
+
+[[bin]]
+name = "junto"
+path = "src/main.rs"
+
+# Few dependencies: blocking std sockets and threads, no async runtime unless
+# the byte pipes (N4) prove they need one. Every one passes deny.toml.
+[dependencies]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
