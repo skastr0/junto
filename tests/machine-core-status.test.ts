@@ -48,6 +48,7 @@ it("reports the same bounded facts to the owner and the linked machine, once per
     ] });
     const peer = await runtime.runPromise(status.handler.handleRequest!({
       peer: { machineName: "book", installationId, build: "a".repeat(64) },
+      keyBound: false,
       sessionId: "status-session", signal: new AbortController().signal,
       sendEvent: () => Effect.void, request: () => Effect.die("unused"), close: () => Effect.void,
     }, status.handler.decodeRequest({ kind: "machine" })));
@@ -61,6 +62,7 @@ it("reports the same bounded facts to the owner and the linked machine, once per
     // The same channel answers this machine's log, scoped to the asking peer.
     const logs = await runtime.runPromise(status.handler.handleRequest!({
       peer: { machineName: "book", installationId, build: "a".repeat(64) },
+      keyBound: false,
       sessionId: "status-session", signal: new AbortController().signal,
       sendEvent: () => Effect.void, request: () => Effect.die("unused"), close: () => Effect.void,
     }, status.handler.decodeRequest({ kind: "logs", query: { level: "error" } })));

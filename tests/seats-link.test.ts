@@ -149,6 +149,7 @@ const fixture = async (options: {
   const controller = new AbortController();
   const context: LinkChannelContext = {
     peer: { build: "same-build", installationId: editor, machineName: "macbook" },
+    keyBound: false,
     sessionId: "admitted-link", signal: controller.signal,
     sendEvent: sent, close: () => Effect.void,
     request: () => Effect.die("the start receiver must not send requests"),

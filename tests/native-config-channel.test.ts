@@ -89,6 +89,7 @@ const fixture = async (options: {
   const channel = await runtime.runPromise(makeNativeConfigChannel());
   const context: LinkChannelContext = {
     peer: { build: "same-build", installationId: editor, machineName: "macbook" },
+    keyBound: false,
     sessionId: "admitted-link", operationId: "op-native-1", signal: new AbortController().signal,
     sendEvent: () => Effect.void, close: () => Effect.void, request: () => Effect.die("unused"),
   };

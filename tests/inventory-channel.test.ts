@@ -104,6 +104,7 @@ const runtimeWith = async (nodes: ReadonlyArray<Node>, canvasEditor: "editor" | 
 
 const context: LinkChannelContext = {
   peer: { build: "same-build", installationId: editor, machineName: "macbook" },
+  keyBound: false,
   sessionId: "admitted-link",
   operationId: "op-inventory-1",
   signal: new AbortController().signal,
