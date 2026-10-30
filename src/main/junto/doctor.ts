@@ -14,7 +14,7 @@ import { primeHostsSnapshot } from "./hosts/snapshot";
 import { KernelService } from "./kernel/service";
 import { ModelService } from "./model/service";
 import { SettingsService } from "./settings/service";
-import { TERM_PLANE_IN_THIS_PROCESS, termPlane } from "./term/plane";
+import { termPlane } from "./term/plane";
 import { assessNativeTerminalDoctor, probeNativeTerminalReadiness } from "./term/native-readiness";
 import { linuxDesktopInstallStorageDoctor } from "./update/linux-install";
 import { UsageService } from "./usage/usage-service";
@@ -51,7 +51,7 @@ export const buildDoctorReport = (station: StationInfo) =>
       { concurrency: "unbounded" },
     );
 
-    const running = TERM_PLANE_IN_THIS_PROCESS ? termPlane.router.runningCount() : 0;
+    const running = termPlane.router.runningCount();
     const sockOk = existsSync(termControlSocketPath());
     const nativeTerminalProbe = yield* Effect.promise(() =>
       probeNativeTerminalReadiness()
