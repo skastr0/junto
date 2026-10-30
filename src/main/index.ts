@@ -85,7 +85,7 @@ import {
   LIVE_OVERSEER_ENABLED,
 } from "@shared/features";
 import { termPlane, termPlaneBlocksAppExit } from "./junto/term/plane";
-import { configureTerminalRouterLayeredRunner } from "./junto/term/router";
+import { configureTerminalRouterLayeredRunner, sshTransportRouterRunner } from "./junto/term/router";
 import { resolveBrowserPageTarget } from "./junto/browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./junto/browser/control";
 import {
@@ -210,12 +210,11 @@ import {
 // so term/router never imports the Electron runtime graph itself.
 // AppRuntime is the sole warm ManagedRuntime for CC main (see runtime.ts §S1):
 // boot once → runPromise/runFork with shared Context → dispose on quit.
-// With the core in its own process, the core binds its own (junto/core.ts).
-if (!CORE_PROCESS_ENABLED) {
-  configureTerminalRouterLayeredRunner((effect) =>
-    AppRuntime.runPromise(effect as never),
-  );
-}
+// With the core in its own process the plane is still main's, and its dials
+// run on the SSH transport alone: no database, no core service in main.
+configureTerminalRouterLayeredRunner(CORE_PROCESS_ENABLED
+  ? sshTransportRouterRunner()
+  : (effect) => AppRuntime.runPromise(effect));
 
 // A launcher (or wrapper script) can hand this process inherited proxy
 // switches, and Chromium re-applies them over Session proxy preferences on

@@ -11,7 +11,7 @@ import { isThisMachine } from "@shared/machine-name";
 import { thisMachineName } from "./machine-name";
 import { randomBytes } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { Context, Effect, Exit, Result, Scope } from "effect";
+import { Context, Effect, Exit, ManagedRuntime, Result, Scope } from "effect";
 import {
   findHostById,
   hostsWithCapability,
@@ -47,6 +47,7 @@ import { oneShot, unixForward } from "../ssh/program";
 import { remoteTermControl } from "./remote-term-route";
 import type { SshForwardLease } from "../ssh/service";
 import { SshTransport } from "../ssh/service";
+import { SshTransportLive } from "../ssh/live";
 import type {
   ControlLease,
   JournalEntry,
@@ -62,13 +63,23 @@ import type { TermControlClientShutdownReceipt } from "./control-client";
 import { shellEnvironment } from "../shell-environment";
 
 /**
- * Layered Effect runner for SSH/Scope work. Configured once by the process
- * entry (Electron `AppRuntime` or Node `RemoteRuntime`) so this module never
- * imports Electron's runtime graph.
+ * Layered Effect runner for the router's SSH dials, which need only the SSH
+ * transport. Configured once by the process that holds the terminal plane, so
+ * this module never imports Electron's runtime graph.
  */
-export type TerminalRouterLayeredRunner = <A, E, R>(
-  effect: Effect.Effect<A, E, R>,
+export type TerminalRouterLayeredRunner = <A, E>(
+  effect: Effect.Effect<A, E, SshTransport>,
 ) => Promise<A>;
+
+/**
+ * A runner on the SSH transport alone, for a plane whose process holds no
+ * core: main, while the core runs in its own process. It opens no database
+ * and asks no core service; the transport is built on the first dial.
+ */
+export const sshTransportRouterRunner = (): TerminalRouterLayeredRunner => {
+  let runtime: ManagedRuntime.ManagedRuntime<SshTransport, unknown> | undefined;
+  return (effect) => (runtime ??= ManagedRuntime.make(SshTransportLive)).runPromise(effect);
+};
 
 let configuredLayeredRunner: TerminalRouterLayeredRunner | undefined;
 
@@ -82,9 +93,9 @@ export const resetTerminalRouterLayeredRunnerForTests = (): void => {
   configuredLayeredRunner = undefined;
 };
 
-// Effects that need SshTransport / Scope from the process RootLayer.
-const runLayered = async <A, E, R>(
-  effect: Effect.Effect<A, E, R>,
+// Effects that need the SSH transport.
+const runLayered = async <A, E>(
+  effect: Effect.Effect<A, E, SshTransport>,
 ): Promise<A> => {
   const runner = configuredLayeredRunner;
   if (runner === undefined) {
