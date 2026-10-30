@@ -139,6 +139,14 @@ const exampleCases: ReadonlyArray<Case> = allExamples.flatMap((example) =>
 
 const cases = [...handCases, ...exampleCases].filter((c) => only === undefined || c.argv.join(" ").startsWith(only));
 
+// --list prints each case's name and argv, for coverage reports, and runs none.
+if (process.argv.includes("--list")) {
+  process.stdout.write(`${JSON.stringify(cases.map(({ name, argv }) => ({ name, argv })))}\n`);
+  server.close();
+  rmSync(home, { recursive: true, force: true });
+  process.exit(0);
+}
+
 const ULID = /[0-9A-HJKMNP-TV-Z]{26}/g;
 const normal = (text: string, keep: ReadonlySet<string>) => text.replace(ULID, (id) => (keep.has(id) ? id : "<ULID>"));
 
@@ -189,8 +197,6 @@ const runOne = (command: ReadonlyArray<string>, c: Case) =>
  * of this list on its own.
  */
 const ACCEPTED: ReadonlyMap<string, string> = new Map([
-  // The TypeScript CLI answers this example with its usage help (ShowHelp); the native one refuses it as an InputError that names the help.
-  ["example seat wait: wait for an idle peer with JSON", "usage help"],
   // since=now is read on each side's own clock, so the two times differ by the gap between the runs.
   ["example logs: recent errors on this machine", "since=now timing"],
 ]);
