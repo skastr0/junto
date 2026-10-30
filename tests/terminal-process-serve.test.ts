@@ -114,8 +114,8 @@ describe("the terminal process", () => {
     const { port1, port2 } = new MessageChannel();
     opened.push(port1, port2);
     serveTerminals(portOf(port2), reaped, {
-      capture: (pid) => ({ pid, startKey: "spawned" }) as never,
-      isCurrent: () => alive,
+      capture: async (pid) => ({ pid, startKey: "spawned" }),
+      isCurrent: async () => alive,
     });
     const client = terminalClient(portOf(port1));
     const pty = client.spawn({ command: "/bin/true", args: [], cols: 80, rows: 24 });
