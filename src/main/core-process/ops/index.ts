@@ -15,6 +15,7 @@ import "./ipc-settings";
 import "./ipc-browser";
 import "./ipc-model";
 import "./ipc-work";
+import "./ipc-signals";
 import "./ipc-status";
 import "./ipc-content";
 import "./hosts-ipc";
