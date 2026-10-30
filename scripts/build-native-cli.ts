@@ -55,13 +55,19 @@ const main = (): void => {
   if (build.status !== 0) throw new Error(`native CLI build for ${target} failed (exit ${String(build.status)})`);
 
   const built = resolve(crate, "target", target, "release", "junto");
-  // A cross build cannot run here; its stamp is proven where it runs (the package audit).
-  if (target === host) {
-    const answer = spawnSync(built, ["--version"], { encoding: "utf8" });
+  // Run what can run here: the host, or x86_64 macOS under Rosetta on an
+  // Apple silicon host. Any other target is proven by its bytes: the stamp
+  // is in the binary as plain text.
+  const runner =
+    target === host ? [built] : target === "x86_64-apple-darwin" && host === "aarch64-apple-darwin" ? ["arch", "-x86_64", built] : undefined;
+  if (runner !== undefined) {
+    const answer = spawnSync(runner[0]!, [...runner.slice(1), "--version"], { encoding: "utf8" });
     const line = (answer.stdout ?? "").trim();
     if (answer.status !== 0 || line !== nativeCliVersionLine(appVersion)) {
       throw new Error(`native CLI: --version answered "${line}", expected "${nativeCliVersionLine(appVersion)}"`);
     }
+  } else if (!readFileSync(built).includes(Buffer.from(appVersion))) {
+    throw new Error(`native CLI: the ${target} binary does not carry the version ${appVersion}`);
   }
 
   const output = resolve(root, "dist", "native", target, "junto");
