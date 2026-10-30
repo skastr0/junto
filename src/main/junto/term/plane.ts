@@ -454,11 +454,11 @@ export class TermPlane {
 
 /**
  * One terminal plane, in the core. With the core in its own process
- * (JUNTO_CORE_PROCESS=1), Electron main builds none: every use there is a bug
+ * (on in the app; JUNTO_CORE_PROCESS=0 keeps it in main), Electron main builds none: every use there is a bug
  * (a seat reached on a plane that holds none) and throws, naming the use.
  */
 export const TERM_PLANE_IN_THIS_PROCESS =
-  !((process as { type?: string }).type === "browser" && process.env.JUNTO_CORE_PROCESS === "1");
+  !((process as { type?: string }).type === "browser" && process.env.JUNTO_CORE_PROCESS !== "0");
 
 const noPlaneInMain = (): TermPlane =>
   new Proxy({} as TermPlane, {

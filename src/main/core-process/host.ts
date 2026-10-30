@@ -16,12 +16,13 @@ import { portCore, type CoreMessage, type PortCoreClient } from "./port";
  * that has not said `core.ready` 120 s after its fork is killed, so a boot that
  * neither finishes nor exits fails its waiting calls and starts again.
  *
- * Off until every `AppRuntime.run*` site in main calls the core by name (two
- * runtimes would mean two business writers on junto.db) and the terminal
- * process owns the PTYs (`JUNTO_TERMINAL_PROCESS`): until then seat start
- * would run on the core's plane while attach and write stay on main's.
+ * On in the app (0.11.7), with the one terminal plane in the core driving
+ * PTYs in the terminal process; JUNTO_CORE_PROCESS=0 keeps the core in main.
+ * Outside Electron (tests, the windowless machine core) it is off unless set
+ * to 1.
  */
-export const CORE_PROCESS_ENABLED = process.env.JUNTO_CORE_PROCESS === "1";
+export const CORE_PROCESS_ENABLED = process.env.JUNTO_CORE_PROCESS === "1" ||
+  (process.env.JUNTO_CORE_PROCESS !== "0" && process.versions.electron !== undefined);
 
 const RESTART_FIRST_MS = 1_000;
 const RESTART_MAX_MS = 30_000;
