@@ -140,18 +140,29 @@ fn code_files(write: Write, input: &Map<String, Value>) -> Result<Vec<CodeFile>>
         let file = file
             .as_str()
             .filter(|file| !file.is_empty())
-            .ok_or_else(|| Failure::input("file is the path of the step's program", format!("{at}.file")))?;
+            .ok_or_else(|| {
+                Failure::input(
+                    "file is the path of the step's program",
+                    format!("{at}.file"),
+                )
+            })?;
         if step.contains_key("source") {
             return Err(Failure::input(
                 "a code step names its program by file or by source, not both",
                 format!("{at}.file"),
             ));
         }
-        let media_type = step
-            .get("language")
-            .and_then(media_type)
-            .ok_or_else(|| Failure::input("language is one of typescript, shell", format!("{at}.language")))?;
-        files.push(CodeFile { index, file: file.to_string(), media_type });
+        let media_type = step.get("language").and_then(media_type).ok_or_else(|| {
+            Failure::input(
+                "language is one of typescript, shell",
+                format!("{at}.language"),
+            )
+        })?;
+        files.push(CodeFile {
+            index,
+            file: file.to_string(),
+            media_type,
+        });
     }
     Ok(files)
 }
@@ -159,8 +170,14 @@ fn code_files(write: Write, input: &Map<String, Value>) -> Result<Vec<CodeFile>>
 /// withSources: the step's `file` staged into the content store and swapped
 /// for `source`, the ref it was staged as, so code never rides the socket as text.
 fn staged(write: Write, input: &mut Map<String, Value>, file: CodeFile) -> Result<()> {
-    let source = attach::stage_file(Path::new(&file.file), file.media_type, None, Timeout::default())?;
-    let source = serde_json::to_value(source).map_err(|e| Failure::new(ErrorType::InternalError, e.to_string()))?;
+    let source = attach::stage_file(
+        Path::new(&file.file),
+        file.media_type,
+        None,
+        Timeout::default(),
+    )?;
+    let source = serde_json::to_value(source)
+        .map_err(|e| Failure::new(ErrorType::InternalError, e.to_string()))?;
     let holder = match write {
         Write::Edit => input.get_mut("change").and_then(Value::as_object_mut),
         _ => Some(input),

@@ -13,6 +13,7 @@ use serde_json::{Map, Value, json};
 
 use super::automation;
 use super::catalog::{self, Operation, Shape};
+use super::offline;
 use crate::attach::body_input::{self, BodyRequest};
 use crate::attach::secret_input;
 use crate::envelope::{self, Answer, Reply};
@@ -66,7 +67,10 @@ impl Call {
             ));
         }
         let data = if self.op.mutation() {
-            let change = Change { op_id, mutation: Some(self.op.name) };
+            let change = Change {
+                op_id,
+                mutation: Some(self.op.name),
+            };
             wire::call_changing("overseer", &request, change, self.timeout)?
         } else {
             wire::call_dynamic("overseer", &request, self.timeout)?
@@ -74,9 +78,10 @@ impl Call {
         unwrap(&data)
     }
 
-    /// The JSON argument, `{}` when none was given. Main judges its shape;
-    /// a seat draft carrying what main works out is refused here, saying
-    /// what a seat is made from.
+    /// The JSON argument, `{}` when none was given, refused before a call
+    /// when it lacks a key its schema requires or has one it does not take,
+    /// as the TypeScript decode refuses it; main judges the rest. A seat
+    /// draft carrying what main works out is told what a seat is made from.
     fn args(&self) -> Result<Value> {
         let raw = self
             .input
@@ -96,16 +101,20 @@ impl Call {
                     format!("junto overseer schema show {}", self.op.name),
                 )
         };
-        if !args.is_object() {
+        let Some(object) = args.as_object() else {
             return Err(refuse("Expected an object".into()));
-        }
+        };
         match seat_fields_main_works_out(self.op, &args).as_slice() {
-            [] => Ok(args),
-            fields => Err(refuse(format!(
-                "A seat is created from harness, profile, model, effort, mode, permissionMode and cwd; Junto builds its launch. Remove: {}",
-                fields.join(", ")
-            ))),
+            [] => {}
+            fields => {
+                return Err(refuse(format!(
+                    "A seat is created from harness, profile, model, effort, mode, permissionMode and cwd; Junto builds its launch. Remove: {}",
+                    fields.join(", ")
+                )));
+            }
         }
+        offline::misfit(self.op, object).map_err(refuse)?;
+        Ok(args)
     }
 
     /// withBody: the JSON argument with its prose body, from `--body` or
@@ -113,7 +122,12 @@ impl Call {
     fn with_body(&self, empty: &str) -> Result<Value> {
         let raw = self.input.as_deref();
         let argument = input::load(raw.filter(|raw| !raw.trim().is_empty()).unwrap_or("{}"))?;
-        let request = BodyRequest { input: raw, argument, flag: self.body.as_deref(), empty_message: empty };
+        let request = BodyRequest {
+            input: raw,
+            argument,
+            flag: self.body.as_deref(),
+            empty_message: empty,
+        };
         body_input::with_body(request).map(Value::Object)
     }
 

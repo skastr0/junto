@@ -1,19 +1,19 @@
 //! `overseer` (src/cli/commands/overseer.ts, overseer-automation.ts,
 //! overseer-skill.ts): the closed operations of a human-granted overseer
 //! seat, sent over the work socket as the op `overseer`, and the offline
-//! surface that needs no daemon: the skill and capabilities. Schemas and
-//! examples come from the TypeScript-built embed (N5).
+//! surface that needs no daemon: skill, schema, examples and capabilities,
+//! answered from the built-in corpus.
 
 mod automation;
 mod catalog;
 mod live;
+mod offline;
 
 use std::process::ExitCode;
 
 use clap::{Args, Subcommand};
-use serde_json::json;
 
-use super::{Pending, Run};
+use super::Run;
 use crate::envelope;
 
 /// Agent-native overseer commands (JSON).
@@ -26,121 +26,45 @@ pub struct Overseer {
 #[derive(Subcommand)]
 enum Command {
     Skill,
-    Schema(Pending),
-    Examples(Pending),
+    Schema {
+        #[command(subcommand)]
+        lookup: Lookup,
+    },
+    Examples {
+        #[command(subcommand)]
+        lookup: Lookup,
+    },
     Capabilities,
     #[command(flatten)]
     Live(live::Call),
 }
 
+/// Every operation, or the one a target names: an operation, command id or command.
+#[derive(Subcommand)]
+enum Lookup {
+    List,
+    Show { target: String },
+}
+
 impl Run for Overseer {
     fn run(self) -> ExitCode {
-        match self.command {
-            Command::Skill => envelope::print("overseer skill", envelope::ok(&skill())),
-            Command::Schema(_) => Pending::refuse("overseer schema"),
-            Command::Examples(_) => Pending::refuse("overseer examples"),
-            Command::Capabilities => {
-                envelope::print("overseer capabilities", envelope::ok(&capabilities()))
-            }
-            Command::Live(call) => call.run(),
-        }
+        let (name, answer) = match self.command {
+            Command::Skill => ("overseer skill", offline::skill()),
+            Command::Schema {
+                lookup: Lookup::List,
+            } => ("overseer schema list", offline::schema_list()),
+            Command::Schema {
+                lookup: Lookup::Show { target },
+            } => ("overseer schema show", offline::schema_show(&target)),
+            Command::Examples {
+                lookup: Lookup::List,
+            } => ("overseer examples list", offline::examples_list()),
+            Command::Examples {
+                lookup: Lookup::Show { target },
+            } => ("overseer examples show", offline::examples_show(&target)),
+            Command::Capabilities => ("overseer capabilities", offline::capabilities()),
+            Command::Live(call) => return call.run(),
+        };
+        envelope::print(name, answer)
     }
-}
-
-/// OVERSEER_SKILL_MARKDOWN, its family list from this build's catalog.
-const SKILL: &str = include_str!("overseer/skill.md");
-
-fn skill() -> serde_json::Value {
-    let families = catalog::families()
-        .into_iter()
-        .map(|family| {
-            if family == "overseer" {
-                "status"
-            } else {
-                family
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    json!({
-        "name": "overseer",
-        "offline": true,
-        "daemon_required": false,
-        "format": "agent-skill-markdown",
-        "content": SKILL.replacen("{families}", &families, 1),
-    })
-}
-
-/// OVERSEER_UNAVAILABLE: what no overseer can do, and why.
-const UNAVAILABLE: [(&str, &str); 8] = [
-    (
-        "grant or revoke overseer",
-        "Human-only toggle. Overseers cannot propagate.",
-    ),
-    (
-        "delete own seat",
-        "Direct, indirect, canvas delete, alias, or binding replacement that removes this seat is refused.",
-    ),
-    (
-        "change what an overseer seat runs, remove it, or reseat it",
-        "Operator only, for any overseer seat, this one included: agent, session, harness, host and launch. Renaming, moving, resizing and recoloring an overseer seat are allowed.",
-    ),
-    (
-        "operator viewport mutation",
-        "No pan, zoom, focus, resize, or switch. Screenshots observe only.",
-    ),
-    (
-        "set a seat's overseer field",
-        "Create, copy, configure, and reseat cannot mint or restore the grant: no draft or change carries it.",
-    ),
-    (
-        "pause/play as authority",
-        "Pause and play gate automated work only. They have no bearing on overseer command.",
-    ),
-    (
-        "direct database or operator socket",
-        "Closed overseer operations over the existing process-bind work socket only.",
-    ),
-    (
-        "caller-supplied principal",
-        "Identity is process-bind. No nodeRef or operator seat impersonation.",
-    ),
-];
-
-/// overseerOfflineCapabilities: the transport this CLI implements, and the
-/// authority no overseer has. Live handlers are never claimed offline.
-fn capabilities() -> serde_json::Value {
-    let unavailable: Vec<_> = UNAVAILABLE
-        .iter()
-        .map(|(capability, reason)| json!({ "capability": capability, "reason": reason }))
-        .collect();
-    let operations: Vec<_> = catalog::enabled().map(|op| op.name).collect();
-    json!({
-        "offline": true,
-        "daemon_required": false,
-        "transport": {
-            "implemented": true,
-            "work_op": "overseer",
-            "request": { "operation": "OverseerOperation", "args": "optional" },
-            "inner_result": "{ok:true,operation,data}|{ok:false,operation,error}",
-        },
-        "implemented": {
-            "cli_transport": operations,
-            "offline": ["overseer skill", "overseer schema", "overseer examples", "overseer capabilities"],
-        },
-        "unavailable": unavailable,
-        "handlers": {
-            "claimed": false,
-            "note": "CLI ships the full catalog. Live handler availability is not claimed offline. Run overseer status under a live granted seat, or treat Unsupported as missing handler.",
-        },
-        "authority": {
-            "grant": "human-only",
-            "remote": "supported",
-            "edges_required": false,
-            "pause_play_has_bearing": false,
-            "self_deletion": false,
-            "operator_viewport_mutation": false,
-            "propagation": false,
-        },
-    })
 }
