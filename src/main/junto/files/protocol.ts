@@ -1,7 +1,7 @@
-import type { FileHandle } from "node:fs/promises";
 import { Readable } from "node:stream";
 import type { Protocol } from "electron";
 import type { FilePath, FilesError, FilesResult } from "@shared/files";
+import { FILE_BYTE_CHUNK, type FileBytesReader } from "./bytes";
 import { FILE_PROTOCOL_SCHEME, fileMime, parseFileUrl } from "@shared/file-url";
 import { parseByteRangeHeader } from "../content/range";
 
@@ -14,31 +14,7 @@ import { parseByteRangeHeader } from "../content/range";
  * `application/octet-stream`, `nosniff`. Responses name no path.
  */
 
-const STREAM_HIGH_WATER = 64 * 1024;
-
-/**
- * A file a viewer reads in pieces, whoever serves it: the core opens it and
- * answers `read` from the offset. Nothing buffers the whole file, so a large
- * PDF or video costs one chunk per frame of the stream.
- */
-export type FileBytesReader = {
-  readonly size: number;
-  readonly read: (offset: number, length: number) => Promise<Uint8Array>;
-  readonly close: () => Promise<void>;
-};
-
-/** A file opened here, read in pieces: the one shape a viewer streams from. */
-export const readerOfHandle = (handle: FileHandle, size: number): FileBytesReader => ({
-  size,
-  read: async (offset, length) => {
-    const buffer = Buffer.alloc(Math.max(1, Math.min(Math.trunc(length), STREAM_HIGH_WATER)));
-    const { bytesRead } = await handle.read(buffer, 0, buffer.length, offset);
-    return new Uint8Array(buffer.buffer, buffer.byteOffset, bytesRead);
-  },
-  close: async () => {
-    await handle.close();
-  },
-});
+const STREAM_HIGH_WATER = FILE_BYTE_CHUNK;
 
 export type FileBytesResolver = (
   node: string,

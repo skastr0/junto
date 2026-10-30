@@ -17,7 +17,8 @@ import { core } from "../../core-process/main-client";
 import { subscribe as subscribeCore } from "../../core-process/push";
 import { FILES_CHANGED, type FilesChangedPush } from "../../core-process/channels";
 import { hostOps } from "../../core-process/host-ops";
-import type { FileBytesReader, FileBytesResolver } from "./protocol";
+import type { FileBytesReader } from "./bytes";
+import type { FileBytesResolver } from "./protocol";
 
 const watched = new Set<number>();
 

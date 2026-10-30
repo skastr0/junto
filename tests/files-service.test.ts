@@ -18,7 +18,8 @@ import { walkNames } from "../src/main/junto/files/sources";
 import { mainNameSources } from "../src/main/junto/files/git-spawn";
 import { execFileSync } from "node:child_process";
 import { numberedName } from "../src/main/junto/files/fs-ops";
-import { createFileProtocolHandler, readerOfHandle } from "../src/main/junto/files/protocol";
+import { createFileProtocolHandler } from "../src/main/junto/files/protocol";
+import { readerOfHandle } from "../src/main/junto/files/bytes";
 import { BURST, watchRoot, type WatchBatch, type WatchFactory } from "../src/main/junto/files/watcher";
 
 const p = (raw: string): FilePath => {

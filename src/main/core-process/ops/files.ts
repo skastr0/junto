@@ -27,7 +27,7 @@ import { workerRootIndex } from "../../junto/files/index-worker-host";
 import { peerSubscribers } from "../../junto/files/peer-subscribers";
 import { heldFilesRemote } from "../../junto/files/remote-holder";
 import { makeFilesRouter, type FilesRouter } from "../../junto/files/router";
-import { readerOfHandle, type FileBytesReader } from "../../junto/files/protocol";
+import { readerOfHandle, type FileBytesReader } from "../../junto/files/bytes";
 import { makeFilesService, type FilesService } from "../../junto/files/service";
 import { coreRunner } from "../../core-runner";
 import { FILES_CHANGED, type FilesChangedPush } from "../channels";
