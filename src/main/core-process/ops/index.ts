@@ -8,5 +8,6 @@ import "./main-index";
 import "./browser";
 import "./overseer-pages";
 import "./operator";
+import "./companion";
 import "./ipc-model";
 import "./ipc-work";

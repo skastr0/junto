@@ -5,6 +5,8 @@ import { startCoreProcess } from "./host";
 import { useCoreClient } from "./main-client";
 import { relayWindowPushes } from "./ops/main-index";
 import { serveOverseerHost } from "./ops/overseer-pages";
+import { serveCompanionClipboard } from "./ops/companion";
+import type { CompanionClipboard } from "../junto/companion/service";
 import type { PortCoreClient } from "./port";
 
 /**
@@ -24,6 +26,8 @@ export const startCoreProcessForMain = (input: {
   /** The browser the overseer drives, once the browser composition bound it. */
   readonly pages: () => OverseerPages | undefined;
   readonly captureApplicationPage: () => Promise<ApplicationCaptureResult>;
+  /** The system clipboard, for the phone companion's Copy link. */
+  readonly clipboard: CompanionClipboard;
   /** Tests start a core over a MessageChannel instead of a utilityProcess. */
   readonly start?: (boot: CoreBoot) => PortCoreClient & { readonly stop: () => void };
 }): CoreProcessForMain => {
@@ -31,9 +35,11 @@ export const startCoreProcessForMain = (input: {
   useCoreClient(started);
   const stopRelay = relayWindowPushes(started);
   const stopHost = serveOverseerHost({ core: started, pages: input.pages, captureApplicationPage: input.captureApplicationPage });
+  const stopClipboard = serveCompanionClipboard(input.clipboard);
   return {
     client: started,
     stop: () => {
+      stopClipboard();
       stopHost();
       stopRelay();
       started.stop();

@@ -189,9 +189,14 @@ import {
   readCompanionEnvironment,
   setCompanionService,
 } from "./junto/companion/service";
-import { broadcastCompanionDevices, registerCompanionIpc } from "./junto/companion/ipc";
+import { broadcastCompanionDevices, electronCompanionClipboard, registerCompanionIpc } from "./junto/companion/ipc";
+import { coreCompanionSettings } from "./core-process/ops/companion";
 import { companionNotePreamble, wireCompanionChanges } from "./junto/companion/wiring";
 import { bindCompanionHost } from "./junto/companion/runtime";
+import { CORE_PROCESS_ENABLED } from "./core-process/host";
+import { startCoreProcessForMain, type CoreProcessForMain } from "./core-process/main-boot";
+import { overseerPagesOn, type OverseerPages } from "./junto/overseer/pages";
+import { runningBuildIdentity } from "./junto/build-identity";
 import type { CompanionDeviceRecord } from "@shared/companion-devices";
 import { findPackagedSandboxDisablingSwitch } from "./junto/packaged-sandbox-policy";
 import {
@@ -428,6 +433,9 @@ let browserComposition: BrowserComposition | undefined;
 let browserControl: BrowserControlServer | undefined;
 let workControl: WorkControlServer | undefined;
 let overseerComposition: OverseerComposition | undefined;
+/** With the core in its own process: main's handle on it, and the browser it asks main to drive. */
+let coreProcess: CoreProcessForMain | undefined;
+let coreProcessPages: OverseerPages | undefined;
 let overseerLive: Awaited<ReturnType<typeof composeOverseerLive>> | undefined;
 let overseerLiveShutdown: Promise<void> | undefined;
 let unregisterOverseerLiveIpc: (() => void) | undefined;
@@ -1502,6 +1510,55 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       explicitHome: process.env.JUNTO_BROWSER_HOME ?? process.env.JUNTO_HOME,
     });
 
+    const captureApplicationPage = captureTrustedWindowPng(async () => {
+      const window = currentTrustedMainWindow();
+      if (
+        window === undefined ||
+        window.isDestroyed() ||
+        window.webContents.isDestroyed()
+      ) {
+        return undefined;
+      }
+      const image = await window.webContents.capturePage();
+      return new Uint8Array(image.toPNG());
+    });
+    const showPreamble = (event: PreambleEvent): void => {
+      companionNotePreamble(event);
+      const window = currentTrustedMainWindow();
+      if (
+        window === undefined ||
+        window.webContents.isDestroyed() ||
+        !isTrustedMainWebContents(window.webContents)
+      ) return;
+      window.webContents.send(IPC_CHANNELS.preamble, event);
+    };
+    const showAgentSignal = (signal: AgentSignal): void => {
+      raisedHands.note(signal);
+      sendAgentSignal(signal);
+    };
+    // A core in its own process sends these on the push stream; in this
+    // process the hooks below call them, and nothing is published.
+    subscribeCore(WORK_PREAMBLE, (event) => showPreamble(event as PreambleEvent));
+    subscribeCore(AGENT_SIGNAL_CHANGED, (signal) => showAgentSignal(signal as AgentSignal));
+    subscribeCore(COMPANION_DEVICES, (devices) => broadcastCompanionDevices(devices as ReadonlyArray<CompanionDeviceRecord>));
+
+    if (CORE_PROCESS_ENABLED) {
+      // The core, its sockets, the link, the overseer and the phone companion
+      // all run in the core process; main builds none of them.
+      coreProcess = startCoreProcessForMain({
+        boot: {
+          home: termControlHome,
+          build: runningBuildIdentity(),
+          bundlesRoot: process.env.JUNTO_MACHINE_BUNDLES ??
+            (app.isPackaged ? join(process.resourcesPath, "machines") : join(app.getAppPath(), "dist", "machines")),
+          operatorCommands: operatorControlEnabledAtLaunch,
+          app: { version: app.getVersion(), packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() },
+        },
+        pages: () => coreProcessPages,
+        captureApplicationPage,
+        clipboard: electronCompanionClipboard,
+      });
+    } else {
     const coordinator = makeOperatorCoordinator();
     // The phone companion reaches the app over this same owner-only socket,
     // relayed by `junto companion-stdio` under a paired phone's forced SSH
@@ -1619,6 +1676,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           console.error("[companion] failed to start", cause);
         });
     }
+    }
 
     // UpdateService host hooks: release SQLite before quitAndInstall, and
     // relaunch without Squirrel install when finalize fails after quiesce.
@@ -1650,7 +1708,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     });
     registerIpcHandlers();
     registerDemoIpcHandlers();
-    registerCompanionIpc();
+    // Settings reads the phones from wherever the companion runs.
+    registerCompanionIpc(CORE_PROCESS_ENABLED ? coreCompanionSettings(core) : undefined);
     notificationPlane ??= registerNotificationIpc({
       window: currentTrustedMainWindow,
       // No banners, badge, or bounce from an isolated harness run; a visible
@@ -1691,52 +1750,23 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       return;
     }
 
+    // Hands already raised before this boot: agent → relay announce wires
+    // watch them. Signal writes from here on are noted as they happen.
+    void core.call("signals.raisedHands", {}).then(raisedHands.hydrate, (error: unknown) => {
+      console.error("[signals] raised hands not loaded:", error);
+    });
+    if (!CORE_PROCESS_ENABLED) {
     // Work control socket: agent protocol surface over the work plane.
     // Independent of browser composition; owns ~/.junto/work/control.sock.
     try {
       overseerComposition = await composeOverseer({
         run: AppRuntime.runPromise,
-        captureApplicationPage: captureTrustedWindowPng(async () => {
-          const window = currentTrustedMainWindow();
-          if (
-            window === undefined ||
-            window.isDestroyed() ||
-            window.webContents.isDestroyed()
-          ) {
-            return undefined;
-          }
-          const image = await window.webContents.capturePage();
-          return new Uint8Array(image.toPNG());
-        }),
+        captureApplicationPage,
       });
       if (LIVE_OVERSEER_ENABLED) {
         overseerLive = await composeOverseerLive(AppRuntime.runPromise);
         unregisterOverseerLiveIpc = registerOverseerLiveIpc(overseerLive);
       }
-      // Hands already raised before this boot: agent → relay announce wires
-      // watch them. Signal writes from here on are noted as they happen.
-      void core.call("signals.raisedHands", {}).then(raisedHands.hydrate, (error: unknown) => {
-        console.error("[signals] raised hands not loaded:", error);
-      });
-      const showPreamble = (event: PreambleEvent): void => {
-        companionNotePreamble(event);
-        const window = currentTrustedMainWindow();
-        if (
-          window === undefined ||
-          window.webContents.isDestroyed() ||
-          !isTrustedMainWebContents(window.webContents)
-        ) return;
-        window.webContents.send(IPC_CHANNELS.preamble, event);
-      };
-      const showAgentSignal = (signal: AgentSignal): void => {
-        raisedHands.note(signal);
-        sendAgentSignal(signal);
-      };
-      // A core in its own process sends these on the push stream; in this
-      // process the hooks below call them, and nothing is published.
-      subscribeCore(WORK_PREAMBLE, (event) => showPreamble(event as PreambleEvent));
-      subscribeCore(AGENT_SIGNAL_CHANGED, (signal) => showAgentSignal(signal as AgentSignal));
-      subscribeCore(COMPANION_DEVICES, (devices) => broadcastCompanionDevices(devices as ReadonlyArray<CompanionDeviceRecord>));
       workControl = await startWorkControlServer({
         version: app.getVersion(),
         run: (effect) => AppRuntime.runPromise(effect),
@@ -1789,6 +1819,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       console.error("[core] seats and mail failed to start:", error);
       exitAfterDetach(1, "core-mail-startup-failure");
       return;
+    }
     }
     powerMonitor.on("resume", () => {
       if (shutdownAdmissionClosed) return;
@@ -1876,6 +1907,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           composition.bindControlShutdown(browserControl);
           registerBrowserIpcHandlers(composition.sessions);
           overseerComposition?.bindPages(composition.sessions);
+          coreProcessPages = overseerPagesOn(composition.sessions);
         },
         {
           profileStore: coreBrowserProfileStore(core),
@@ -2229,6 +2261,9 @@ const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
   lap("dispose: adapters");
   await requireCleanAppProcessShutdown();
   lap("dispose: app processes");
+  // The core process stops before the terminal process its seats run on.
+  coreProcess?.stop();
+  coreProcess = undefined;
   // Every PTY it held is drained above; the terminal process goes last.
   terminalProcess?.stop();
 };

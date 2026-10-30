@@ -10,7 +10,8 @@ import type { CompanionDeviceRecord, CompanionKeyRestore, CompanionPairStart, Co
 import { IPC_CHANNELS } from "@shared/ipc";
 import { isTrustedMainWebContents, trustedRendererIpc } from "../trusted-main-webcontents";
 import { probeRemoteLogin } from "./environment";
-import { companionService } from "./service";
+import { companionService, type CompanionClipboard } from "./service";
+import { companionSettingsOn, type CompanionSettings } from "./settings";
 
 /** System Settings, General, Sharing, where Remote Login is switched on. */
 export const MAC_REMOTE_LOGIN_SETTINGS_URL = "x-apple.systempreferences:com.apple.Sharing-Settings.extension";
@@ -25,67 +26,37 @@ export const broadcastCompanionDevices = (devices: ReadonlyArray<CompanionDevice
   }
 };
 
-const UNAVAILABLE: CompanionStatus = {
-  available: false,
-  remoteLogin: "off",
-  hosts: [],
-  juntoCommand: false,
-  hostKey: false,
-  station: "",
+/** The system clipboard, for Copy link in this process. */
+export const electronCompanionClipboard: CompanionClipboard = {
+  readText: () => clipboard.readText(),
+  writeText: (text) => clipboard.writeText(text),
+  clear: () => clipboard.clear(),
 };
 
-export const registerCompanionIpc = (): void => {
+/** `settings` is the companion as Settings reaches it: in this process by default, or the core's. */
+export const registerCompanionIpc = (
+  settings: CompanionSettings = companionSettingsOn(companionService, electronCompanionClipboard),
+): void => {
   const privilegedIpc = trustedRendererIpc(ipcMain);
 
-  privilegedIpc.handle(IPC_CHANNELS.companionStatus, async (): Promise<CompanionStatus> => {
-    const service = companionService();
-    if (!service) return UNAVAILABLE;
-    const environment = await service.environment();
-    return {
-      available: true,
-      remoteLogin: environment.remoteLogin,
-      ...(environment.tailscale ? { tailscale: environment.tailscale } : {}),
-      hosts: environment.hosts,
-      juntoCommand: environment.juntoPath !== undefined,
-      hostKey: environment.hostKey !== undefined,
-      station: environment.station,
-    };
-  });
+  privilegedIpc.handle(IPC_CHANNELS.companionStatus, (): Promise<CompanionStatus> => settings.status());
 
-  privilegedIpc.handle(IPC_CHANNELS.companionPairStart, async (): Promise<CompanionPairStart> => {
-    const service = companionService();
-    if (!service) return { ok: false, message: "Phones pair with the Command Center." };
-    try {
-      const started = await service.startPairing();
-      if (!started.ok) return started;
-      return { ok: true, deviceId: started.deviceId, expiresAt: started.expiresAt, qrSvg: started.qrSvg, hosts: started.hosts };
-    } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : "Pairing could not start." };
-    }
-  });
+  privilegedIpc.handle(IPC_CHANNELS.companionPairStart, (): Promise<CompanionPairStart> => settings.startPairing());
 
   privilegedIpc.handle(IPC_CHANNELS.companionPairCancel, async (_event, raw: unknown) => {
     const deviceId = deviceIdOf(raw);
-    const service = companionService();
-    if (!deviceId || !service) return { ok: false };
-    await service.cancelPairing(deviceId).catch(() => undefined);
+    if (!deviceId) return { ok: false };
+    await settings.cancelPairing(deviceId);
     return { ok: true };
   });
 
-  privilegedIpc.handle(IPC_CHANNELS.companionPairCopyLink, (_event, raw: unknown) => {
+  privilegedIpc.handle(IPC_CHANNELS.companionPairCopyLink, async (_event, raw: unknown) => {
     const deviceId = deviceIdOf(raw);
-    const service = companionService();
-    if (!deviceId || !service) return { ok: false };
-    return {
-      ok: service.copyLink(deviceId, {
-        readText: () => clipboard.readText(),
-        writeText: (text) => clipboard.writeText(text),
-        clear: () => clipboard.clear(),
-      }),
-    };
+    if (!deviceId) return { ok: false };
+    return { ok: await settings.copyLink(deviceId) };
   });
 
-  privilegedIpc.handle(IPC_CHANNELS.companionDevices, async () => (await companionService()?.devices()) ?? []);
+  privilegedIpc.handle(IPC_CHANNELS.companionDevices, () => settings.devices());
 
   // The Needs you feed asks on every focus while a phone is paired: only the
   // port probe, never Tailscale or the host names.
@@ -100,23 +71,13 @@ export const registerCompanionIpc = (): void => {
 
   privilegedIpc.handle(IPC_CHANNELS.companionDeviceRemove, async (_event, raw: unknown) => {
     const deviceId = deviceIdOf(raw);
-    const service = companionService();
-    if (!deviceId || !service) return { ok: false, message: "No such phone." };
-    try {
-      return { ok: await service.remove(deviceId) };
-    } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : "The phone could not be removed." };
-    }
+    if (!deviceId) return { ok: false, message: "No such phone." };
+    return settings.remove(deviceId);
   });
 
   privilegedIpc.handle(IPC_CHANNELS.companionDeviceRestore, async (_event, raw: unknown): Promise<CompanionKeyRestore> => {
     const target = raw === "all" ? "all" : deviceIdOf(raw);
-    const service = companionService();
-    if (!target || !service) return { ok: false, restored: [], failed: [], message: "No such phone." };
-    try {
-      return await service.restore(target);
-    } catch {
-      return { ok: false, restored: [], failed: [], message: "The phone could not be restored." };
-    }
+    if (!target) return { ok: false, restored: [], failed: [], message: "No such phone." };
+    return settings.restore(target);
   });
 };

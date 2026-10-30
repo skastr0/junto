@@ -5,6 +5,8 @@ import { Result } from "effect";
 import { expect, it } from "vitest";
 import { startCore } from "../src/main/junto/core";
 import { companionService } from "../src/main/junto/companion/service";
+import { coreCompanionSettings } from "../src/main/core-process/ops/companion";
+import { inProcessCore, type CoreRunner } from "../src/main/core-process/client";
 import { decodeOperatorResponse, encodeOperatorFrame, operatorControlSocketPath, type OperatorRequestEnvelope } from "../src/shared/operator-control";
 
 const ask = (home: string, request: OperatorRequestEnvelope) =>
@@ -42,6 +44,10 @@ it("answers a phone from the core: the companion is built there and the socket r
       },
     });
     expect(await companionService()!.devices()).toEqual([]);
+    // Settings reads the phones and this Mac's readiness from the core's companion, by name.
+    const settings = coreCompanionSettings(inProcessCore(core.runtime as unknown as CoreRunner));
+    expect(await settings.devices()).toEqual([]);
+    expect(await settings.status()).toMatchObject({ available: true, station: "test" });
     // No phone is paired, so boot left the socket closed.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(existsSync(operatorControlSocketPath(home))).toBe(false);
