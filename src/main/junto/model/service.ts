@@ -167,6 +167,11 @@ export class ModelService extends Context.Service<ModelService>()(
                   if (header.seq >= input.seq) return { installed: false as const, seq: header.seq };
                 }
               }
+              // Higher wins between a copy and entries (0.11/06 F3): a copy
+              // behind what the committed log already applied is not
+              // installed; the machine waits for a newer one.
+              const structureHead = yield* records.canvasStructureHead(input.canvas);
+              if (structureHead > input.seq) return { installed: false as const, seq: structureHead };
               yield* records.replaceCanvas(input);
               const replaced = canvasFromOpened({ canvas: input.canvas, seq: input.seq, nodes: input.nodes, wires: input.wires });
               yield* stage(input.canvas, replaced);

@@ -33,6 +33,7 @@ import { followLocalCommits, makeLiveRowExchange } from "../src/main/junto/work/
 import type { RowExchange } from "../src/main/junto/work/exchange/session";
 import { MessageDeliveryService } from "../src/main/junto/work/message-delivery";
 import { makeMessageDeliveryStore } from "../src/main/junto/work/message-delivery-store";
+import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { InstallationId } from "../src/shared/installation-id";
 import { Command, asCanvasName, type Node } from "../src/shared/model";
@@ -351,7 +352,7 @@ describe("a copy no honest machine sends", () => {
     const { macbook } = await pair();
     const honest = await cutFor(macbook);
     const channel = macbook.channel;
-    expect(() => channel.decodeEvent({ kind: "copy", copy: { ...honest.copy, notes: [note] } })).toThrow();
+    expect(() => channel.decodeEvent({ kind: "copy", copy: { ...honest.copy, notes: ["not a note"] } })).toThrow();
     expect(() => channel.decodeEvent({ kind: "copy", copy: { ...honest.copy, seats: [{ id: "x" }] } })).toThrow();
     expect(() => channel.decodeEvent({ kind: "copy" })).toThrow();
     expect(() => channel.decodeEvent("rows")).toThrow();
@@ -884,5 +885,101 @@ describe("a seat that moves while its copy is cut", () => {
       { machine: MACBOOK, from_seq: before, until_seq: after },
       { machine: MINI, from_seq: after, until_seq: null },
     ]);
+  });
+});
+
+describe("a canvas kept whole on a listed machine", () => {
+  const helper = seat("helper", { ...place, x: 0, y: 200, host: "macbook" as never, agentKey: "macbook:claude", bindingId: "binding-helper" as never });
+  const keptNote = { kind: "note", id: "kept-note", x: 700, y: 100, width: 100, height: 60, z: 0, text: "only a keeper holds this" } as Node;
+
+  /** Replace a canvas's committed authority list on one machine (0.11/06 F3). */
+  const authorities = (on: Machine, members: ReadonlyArray<InstallationId>) =>
+    on.runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`INSERT OR IGNORE INTO canvas_consensus (canvas_name, current_term, commit_index, applied_index) VALUES ('factory', 1, 0, 0)`;
+        yield* sql`DELETE FROM canvas_authorities WHERE canvas_name = 'factory'`;
+        for (const [position, member] of members.entries()) {
+          yield* sql`INSERT INTO canvas_authorities (canvas_name, position, installation_id) VALUES ('factory', ${position}, ${member})`;
+        }
+      }),
+    );
+
+  /** Move the count so the next exchange pass sends a fresh copy. */
+  const bump = (macbook: Machine) =>
+    macbook.runtime
+      .runPromise(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`UPDATE canvases SET seq = seq + 1 WHERE canvas_name = 'factory'`;
+        }),
+      )
+      .then(() => macbook.runtime.runPromise(macbook.exchange.committed("factory")));
+
+  const cursors = (on: Machine) =>
+    on.runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        return yield* sql.unsafe("SELECT writer, through FROM work_exchange_cursors WHERE canvas_name = 'factory'");
+      }),
+    );
+
+  it("installs whole only while its own committed list names it, keeps the canvas's cursors, and prunes foreign mail after a delist", async () => {
+    const macbook = await boot("macbook", MACBOOK, [["mini", MINI]]);
+    const mini = await boot("mini", MINI, [["macbook", MACBOOK]]);
+    await macbook.runtime.runPromise(
+      seedCanvas("factory", [region, lead, peer, helper, keptNote], [wire("lead-to-peer", "lead", "peer", "messages")]),
+    );
+    await link(macbook, mini);
+    await settle();
+    // Unlisted on both sides the copy is a cut one: mini's seat whole, the
+    // macbook's seats as peers, and the note stays behind.
+    expect(await nodesOn(mini)).toEqual(["agent peer", "peer helper", "peer lead", "region remote"]);
+
+    // The macbook lists mini: the next copy is a keeper's, and it still does
+    // not install while mini's own committed list does not name it.
+    await authorities(macbook, [MACBOOK, MINI]);
+    await bump(macbook);
+    await settle();
+    expect(await nodesOn(mini)).toEqual(["agent peer", "peer helper", "peer lead", "region remote"]);
+
+    // Listed on its own rows now: the same canvas lands whole.
+    await authorities(mini, [MACBOOK, MINI]);
+    await bump(macbook);
+    await settle();
+    const whole = await nodesOn(mini);
+    expect(whole).toEqual(["agent helper", "agent lead", "agent peer", "note kept-note", "region remote"]);
+
+    // A keeper copy carrying foreign seats does not forget the canvas's
+    // cursors: only a seat that lives here can do that.
+    await mini.runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql.withTransaction(
+          unjournaledWorkMutationEffect(
+            "test.fixture-seed",
+            sql.unsafe(
+              "INSERT INTO work_exchange_cursors (canvas_name, writer, through, last_basis_seq, updated_at) VALUES ('factory', 'mini-installation', '7', 0, 'now')",
+            ),
+          ),
+        );
+      }),
+    );
+    await mail(mini, { id: "peer", bindingId: "binding-peer" }, "helper", "held-for-helper");
+    await mail(mini, { id: "peer", bindingId: "binding-peer" }, "peer", "held-for-peer");
+    await bump(macbook);
+    await settle();
+    expect(await cursors(mini)).toEqual([{ writer: "mini-installation", through: "7" }]);
+
+    // Delisted on both sides the next copy is a cut one again: the note is
+    // gone, and mail held for a seat on another machine is pruned while
+    // mini's own is kept.
+    await authorities(macbook, [MACBOOK]);
+    await authorities(mini, [MACBOOK]);
+    await bump(macbook);
+    await settle();
+    expect(await nodesOn(mini)).toEqual(["agent peer", "peer helper", "peer lead", "region remote"]);
+    expect(await inbox(mini, "helper")).toEqual([]);
+    expect(await inbox(mini, "peer")).toEqual(["held-for-peer"]);
   });
 });

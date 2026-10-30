@@ -196,3 +196,18 @@ it("refuses a copy this machine would edit, and a copy that names another editin
       expect((yield* model.open(canvas)).seq).toBe(7);
     }),
   ));
+
+it("leaves a copy behind what the committed log applied alone, and says the higher count", () =>
+  run((model, db) =>
+    Effect.gen(function* () {
+      expect(yield* model.installCopy(copy(7))).toEqual({ installed: true, seq: 7 });
+      // A structure entry the log already applied moved the canvas to 9; a
+      // copy cut at 8 must not take it back (0.11/06 F3: higher wins).
+      db.exec(`INSERT OR REPLACE INTO canvas_consensus (canvas_name, current_term, commit_index, applied_index)
+               VALUES ('factory', 1, 2, 2);
+               INSERT INTO canvas_log (canvas_name, log_index, term, kind, structure_seq)
+               VALUES ('factory', 2, 1, 'structure.changed', 9);`);
+      expect(yield* model.installCopy(copy(8))).toEqual({ installed: false, seq: 9 });
+      expect((yield* model.open(canvas)).seq).toBe(7);
+    }),
+  ));

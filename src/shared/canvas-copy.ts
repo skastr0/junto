@@ -193,7 +193,17 @@ export type CanvasCopyTarget = {
 export type CanvasCopyRefusal =
   | { readonly reason: "the-editing-machine-holds-the-canvas" }
   | { readonly reason: "a-row-names-no-machine"; readonly nodeId: string }
-  | { readonly reason: "no-seat-or-automation-on-that-machine" };
+  | { readonly reason: "no-seat-or-automation-on-that-machine" }
+  /** The copy is one frame and a link frame is bounded; over it the copy is refused, never truncated. */
+  | { readonly reason: "over-the-frame-bound"; readonly bytes: number };
+
+/**
+ * The byte bound one copy frame must fit, the link's `frameBytes` limit
+ * (0.11/06 F3): a keeper copy carries the whole canvas — every note, every
+ * seat's guidance — and a canvas too large for one frame is refused loudly,
+ * never sent cut down.
+ */
+export const CANVAS_COPY_FRAME_BUDGET = 1024 * 1024;
 
 export type CanvasCopyResult =
   | { readonly ok: true; readonly copy: CanvasCopy }
@@ -361,37 +371,39 @@ export const exportCanvasCopy = (
   // a wire to a page would be something to drive it with.
   const wired = resources.filter((resource) => resource.kind !== "stub");
   const held = new Set<string>([...seats, ...peers, ...terminals, ...regions, ...wired].map((node) => node.id));
-  return {
-    ok: true,
-    copy: {
-      canvasName: source.canvasName,
-      canvasId: source.canvasId,
-      seq: source.seq,
-      editor: source.editor,
-      target: target.installationId,
-      seats,
-      peers,
-      terminals,
-      regions: keeper
-        ? regions
-        : regions.map((region) =>
-            mine.has(region.id) ? forMachine(region, target.machineName) : outline(region),
-          ),
-      resources,
-      wires: keeper ? [...source.wires] : source.wires.filter((wire) => held.has(wire.from) && held.has(wire.to)),
-      guidance: seats.flatMap((seat) => {
-        const guidance = source.guidance[seat.id];
-        return guidance === undefined ? [] : [{ nodeId: seat.id, ...guidance }];
-      }),
-      ...(source.briefing === undefined ? {} : { briefing: source.briefing }),
-      references: keeper
-        ? [...source.references]
-        : source.references.filter(
-            (reference) => reference.regionId === undefined || mine.has(reference.regionId),
-          ),
-      playing: source.playing,
-      automations: source.automations,
-      ...(keeper ? { notes } : {}),
-    },
+  const copy: CanvasCopy = {
+    canvasName: source.canvasName,
+    canvasId: source.canvasId,
+    seq: source.seq,
+    editor: source.editor,
+    target: target.installationId,
+    seats,
+    peers,
+    terminals,
+    regions: keeper
+      ? regions
+      : regions.map((region) =>
+          mine.has(region.id) ? forMachine(region, target.machineName) : outline(region),
+        ),
+    resources,
+    wires: keeper ? [...source.wires] : source.wires.filter((wire) => held.has(wire.from) && held.has(wire.to)),
+    guidance: seats.flatMap((seat) => {
+      const guidance = source.guidance[seat.id];
+      return guidance === undefined ? [] : [{ nodeId: seat.id, ...guidance }];
+    }),
+    ...(source.briefing === undefined ? {} : { briefing: source.briefing }),
+    references: keeper
+      ? [...source.references]
+      : source.references.filter(
+          (reference) => reference.regionId === undefined || mine.has(reference.regionId),
+        ),
+    playing: source.playing,
+    automations: source.automations,
+    ...(keeper ? { notes } : {}),
   };
+  const bytes = new TextEncoder().encode(JSON.stringify({ kind: "copy", copy })).byteLength;
+  if (bytes > CANVAS_COPY_FRAME_BUDGET) {
+    return { ok: false, refusal: { reason: "over-the-frame-bound", bytes } };
+  }
+  return { ok: true, copy };
 };

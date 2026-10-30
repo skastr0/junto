@@ -520,4 +520,19 @@ describe("a canvas kept whole for a listed machine", () => {
     expect("EDITOR_ONLY" in merged.env).toBe(false);
     expect(Object.values(merged.env)).not.toContain("x");
   });
+
+  it("is refused over the link's one-frame bound, loudly, never sent cut down", () => {
+    const fat = {
+      ...source,
+      nodes: [...nodes, { kind: "note", id: "fat", x: 0, y: 0, width: 10, height: 10, z: 0, text: "x".repeat(1024 * 1024) } as Node],
+    };
+    const result = exportCanvasCopy(fat, { installationId: KEEPER, machineName: "keeper" }, "keeper");
+    expect(result).toEqual({
+      ok: false,
+      refusal: { reason: "over-the-frame-bound", bytes: expect.any(Number) },
+    });
+    if (!result.ok && result.refusal.reason === "over-the-frame-bound") {
+      expect(result.refusal.bytes).toBeGreaterThan(1024 * 1024);
+    }
+  });
 });

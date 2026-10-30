@@ -204,6 +204,17 @@ export const UNJOURNALED_WORK_REASONS = {
     retire:
       "Never while checkout watching is Command Center-local.",
   },
+  "work.exchange.forget-mail": {
+    why:
+      "A cut copy after a keeper delist prunes work_messages this machine held " +
+      "only for seats that stay on other machines (0.11/06 F3): a machine that " +
+      "keeps no canvas keeps no relay mail. The delete mints no fact, so a " +
+      "journal rebuild resurrects the rows until entitlement is folded again.",
+    retire:
+      "Re-materialize entitled mail from the journaled facts on each copy " +
+      "install instead of pruning projection rows in place, then delete this " +
+      "reason.",
+  },
 } as const;
 
 export type UnjournaledWorkReason = keyof typeof UNJOURNALED_WORK_REASONS;

@@ -146,6 +146,26 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
           failure("canvasAuthorities"),
         ),
       );
+      /**
+       * The highest structure count the committed log applied for a canvas
+       * (0.11/06 F3): copies and entries are compared to it so a copy behind
+       * the log never installs. -1 where no log applied yet.
+       */
+      const canvasStructureHead = Effect.fn("ModelRecords.canvasStructureHead")((canvas: string) =>
+        sql<{ readonly head: number | null }>`
+          SELECT MAX(structure_seq) AS head
+          FROM canvas_log
+          WHERE canvas_name = ${canvas}
+            AND structure_seq IS NOT NULL
+            AND log_index <= COALESCE(
+              (SELECT applied_index FROM canvas_consensus WHERE canvas_name = ${canvas}),
+              -1
+            )
+        `.pipe(
+          Effect.map((rows) => rows[0]?.head ?? -1),
+          failure("canvasStructureHead"),
+        ),
+      );
       const canvasEdits = SqlSchema.findAll({
         Request: Schema.String,
         Result: Schema.Struct({ edits: Schema.Number }),
@@ -439,6 +459,7 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
         getCanvas,
         canvasEditor,
         canvasAuthorities,
+        canvasStructureHead,
         editsCanvas,
         listCanvases,
         listCanvasSummaries: () => listCanvasSummaries(undefined).pipe(failure("listCanvasSummaries")),

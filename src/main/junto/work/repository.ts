@@ -3528,6 +3528,12 @@ export interface WorkRepositoryShape {
    */
   readonly exchangeForget: (canvasName: string) => Effect.Effect<void, WorkRepositoryError>;
   /**
+   * Drop mail held for mailboxes that were only kept as a keeper (0.11/06 F3):
+   * a machine removed from the authority list holds no other machine's seat
+   * rows, so the mail those mailboxes carried is dropped with them.
+   */
+  readonly exchangeForgetMail: (canvasName: string, nodeIds: ReadonlyArray<string>) => Effect.Effect<void, WorkRepositoryError>;
+  /**
    * The machines that lost their last seat or automation on a canvas and have
    * not yet been recorded as told so: placement history still has a row of
    * theirs open, or closed after the last count recorded for them. Read on the
@@ -4390,6 +4396,26 @@ export const WorkRepositoryLive = Layer.effect(
           Effect.provideService(StateTransactionOperation, "work.exchange.forget"),
           Effect.mapError((error) => toRepositoryError("work.exchange.forget", error)),
         );
+
+    const exchangeForgetMail = (canvasName: string, nodeIds: ReadonlyArray<string>): Effect.Effect<void, WorkRepositoryError> =>
+      (nodeIds.length === 0
+        ? Effect.void
+        : sql.withTransaction(
+            // Declared journal-free: delisted-keeper projection prune, mints no fact.
+            unjournaledWorkMutationEffect(
+              "work.exchange.forget-mail",
+              Effect.forEach(
+                nodeIds,
+                (nodeId) =>
+                  sql.unsafe("DELETE FROM work_messages WHERE canvas_name = ? AND node_id = ?", [canvasName, nodeId]),
+                { discard: true },
+              ),
+            ),
+          ).pipe(Effect.asVoid)
+      ).pipe(
+        Effect.provideService(StateTransactionOperation, "work.exchange.forget-mail"),
+        Effect.mapError((error) => toRepositoryError("work.exchange.forget-mail", error)),
+      );
 
     const departingFrom = (canvasName: string): Effect.Effect<ReadonlySet<InstallationId>, WorkRepositoryError> =>
       withSqlRead(
@@ -5408,6 +5434,7 @@ export const WorkRepositoryLive = Layer.effect(
       departingFrom,
       exchangeHave,
       exchangeForget,
+      exchangeForgetMail,
       exchangeWriters,
       exchangeRows,
       applyExchangeRows,

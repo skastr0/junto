@@ -13,7 +13,13 @@
  */
 import { Cause, Effect, Option } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { exportCanvasCopy, type CanvasCopy, type CopiedAutomation, type CopiedReference } from "@shared/canvas-copy";
+import {
+  CANVAS_COPY_FRAME_BUDGET,
+  exportCanvasCopy,
+  type CanvasCopy,
+  type CopiedAutomation,
+  type CopiedReference,
+} from "@shared/canvas-copy";
 import type { InstallationId } from "@shared/installation-id";
 import { asCanvasName, type HostId, type Seat } from "@shared/model";
 import { APP_REFERENCE_PLACE, type ReferencePlace, type StoredReference } from "@shared/references";
@@ -241,7 +247,18 @@ export const makeLiveRowExchange = (
           { installationId: peer, machineName: target.machineName },
           keeper ? "keeper" : "cut",
         );
-        return cut.ok ? cut.copy : undefined;
+        if (!cut.ok) {
+          // A copy over the frame bound must not silently never go: the link
+          // is told why it failed, bytes and all.
+          return cut.refusal.reason === "over-the-frame-bound"
+            ? yield* Effect.fail(
+                new Error(
+                  `${canvasName} does not fit one link frame for ${peer}: ${cut.refusal.bytes} bytes over the ${CANVAS_COPY_FRAME_BUDGET} bound`,
+                ),
+              )
+            : undefined;
+        }
+        return cut.copy;
       }).pipe(sql.withTransaction, Effect.provideService(StateTransactionOperation, "exchange.cut-copy"));
 
     /** Keep the count sent to that machine, and where every seat and automation was at it. */
@@ -320,21 +337,47 @@ export const makeLiveRowExchange = (
 
     const installCopy = (copy: CanvasCopy): Effect.Effect<CopyInstalled, unknown> =>
       Effect.gen(function* () {
+        // A copy carrying keeper fields installs them only while this
+        // machine's own committed log lists it (0.11/06 F3): `notes` is the
+        // keeper mark, absent on every cut copy. A delisted machine waits
+        // for the sender's cut copy rather than applying keeper rows.
+        if (copy.notes !== undefined) {
+          const listed = (yield* records.canvasAuthorities(copy.canvasName)).includes(self);
+          if (!listed) {
+            const head = yield* records.getCanvas(copy.canvasName);
+            return { installed: false, seq: head?.seq ?? 0 };
+          }
+        }
         // A seat that comes to live here makes its held mail this machine's:
         // forgotten before the copy is kept, so no stop in between loses it.
         const here = yield* machines.machineName;
+        const heldNodes = yield* records.listNodes(copy.canvasName);
         const seated = new Set(
-          (yield* records.listNodes(copy.canvasName)).flatMap((node) =>
+          heldNodes.flatMap((node) =>
             node.kind === "agent" && node.host === here ? [node.id as string] : [],
           ),
         );
-        if (copy.seats.some((seat) => !seated.has(seat.id))) yield* repository.exchangeForget(copy.canvasName);
+        // Only seats that live here count: a keeper copy carries every seat
+        // whole, and foreign rows must not forget this canvas's cursors.
+        if (copy.seats.some((seat) => seat.host === here && !seated.has(seat.id))) yield* repository.exchangeForget(copy.canvasName);
+        if (copy.notes === undefined) {
+          // Keeper-to-cut transition only: a canvas installed as a keeper
+          // holds foreign seats whole (kind agent); a cut-installed canvas
+          // keeps them as peer rows, and ordinary cut updates must not prune
+          // anything. Mail held for a seat that stays foreign is dropped;
+          // a seat this copy moved here keeps what was held for it.
+          const staying = new Set(copy.seats.flatMap((seat) => (seat.host === here ? [seat.id as string] : [])));
+          const stale = heldNodes.flatMap((node) =>
+            node.kind === "agent" && node.host !== here && !staying.has(node.id) ? [node.id as string] : [],
+          );
+          if (stale.length > 0) yield* repository.exchangeForgetMail(copy.canvasName, stale);
+        }
         const outcome = yield* model.installCopy({
           canvas: copy.canvasName,
           canvasId: copy.canvasId,
           seq: copy.seq,
           editor: copy.editor,
-          nodes: [...copy.regions, ...copy.seats, ...copy.peers, ...copy.terminals, ...copy.resources],
+          nodes: [...copy.regions, ...copy.seats, ...copy.peers, ...copy.terminals, ...copy.resources, ...(copy.notes ?? [])],
           wires: copy.wires,
         });
         if (!("seq" in outcome) || outcome.seq === undefined) return { refused: "a-canvas-of-that-name" };

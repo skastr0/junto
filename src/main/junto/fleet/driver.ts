@@ -102,6 +102,7 @@ type ConsensusRow = {
   readonly voted_for: string | null;
   readonly commit_index: number;
   readonly applied_index: number;
+  readonly sole_installation_id: string | null;
 };
 
 type LogRow = {
@@ -203,14 +204,60 @@ const applyList = (sql: SqlClient.SqlClient, canvasName: string, members: Member
     }
   });
 
-/** One committed entry, folded as the ruler would have written it: the facts, then the ruling row. */
-const applyEntry = (sql: SqlClient.SqlClient, record: RecordRuling, canvasName: string, entry: Entry) =>
+/**
+ * The structure watermark of a canvas (0.11/06 F3): the higher of the canvas
+ * count the newest copy left it at, and the highest structure count the log
+ * already applied — entries at or below `applied`, never the waiting tail.
+ * A copy's install moves the first; a committed `structure.changed` entry
+ * moves the second as it applies.
+ */
+const structureHeadOf = (sql: SqlClient.SqlClient, canvasName: string, applied: number) =>
+  Effect.gen(function* () {
+    const canvas = yield* sql<{ readonly seq: number }>`SELECT seq FROM canvases WHERE canvas_name = ${canvasName}`;
+    const appliedHead = yield* sql<{ readonly head: number | null }>`
+      SELECT MAX(structure_seq) AS head FROM canvas_log
+      WHERE canvas_name = ${canvasName} AND structure_seq IS NOT NULL AND log_index <= ${applied}`;
+    return Math.max(canvas[0]?.seq ?? 0, appliedHead[0]?.head ?? -1);
+  });
+
+/**
+ * One committed entry, folded as the ruler would have written it: the facts,
+ * then the ruling row. Takes and returns the canvas's structure watermark:
+ * past it a `structure.changed` entry folds only at exactly head plus one
+ * (0.11/06 F3) — covered means a copy already holds it, and a gap is a
+ * missed entry, refused loudly so the machine catches up by copy, never by
+ * skipping ahead.
+ */
+const applyEntry = (sql: SqlClient.SqlClient, record: RecordRuling, canvasName: string, entry: Entry, head: number, sole: boolean) =>
   Effect.gen(function* () {
     const { payload } = entry;
-    if (payload.kind === "noop") return;
-    if (payload.kind === "list") return yield* applyList(sql, canvasName, payload.members);
+    if (payload.kind === "noop") return head;
+    if (payload.kind === "list") {
+      yield* applyList(sql, canvasName, payload.members);
+      return head;
+    }
     const data = yield* dataOf(payload);
-    if (data.kind === "structure.changed") return;
+    if (data.kind === "structure.changed") {
+      // Rulings folded earlier in this batch may have moved the canvas count;
+      // the watermark reads it fresh, with the entries applied before this one.
+      head = Math.max(head, yield* structureHeadOf(sql, canvasName, entry.index - 1));
+      if (data.seq <= head) return head;
+      if (data.seq !== head + 1 && !sole) {
+        return yield* Effect.fail(
+          new FleetDriverError({
+            message: `${canvasName} holds structure count ${head} and entry ${entry.index} moved to ${data.seq}: a missed entry, so this machine catches up by copy`,
+            cause: { canvasName, head, seq: data.seq, index: entry.index },
+          }),
+        );
+      }
+      // The fold of the change lands with F4; until then the entry moves the
+      // index and the canvas count with it: carrying the count in canvases.seq
+      // keeps the watermark whole when a fork rewrite takes the applied log
+      // rows away. A sole authority numbers its own history — an alone fork
+      // renumbers legitimately — so only followers enforce head plus one.
+      yield* sql`UPDATE canvases SET seq = ${data.seq} WHERE canvas_name = ${canvasName}`;
+      return data.seq;
+    }
     const { input, bodies, ruledAt } = data.ruling;
     const ruled: RecordRulingInput = { ...input, bodies: new Map(bodies.map(({ sha256, body }) => [sha256, body])) };
     const row = rulingRowOf(ruled.writer, ruled.command, ruled.kind, ruled.ruling as never);
@@ -221,11 +268,12 @@ const applyEntry = (sql: SqlClient.SqlClient, record: RecordRuling, canvasName: 
       });
     }
     yield* record(ruled);
+    return head;
   });
 
 const readConsensus = (sql: SqlClient.SqlClient, canvasName: string) =>
   Effect.map(
-    sql<ConsensusRow>`SELECT current_term, voted_for, commit_index, applied_index FROM canvas_consensus WHERE canvas_name = ${canvasName}`,
+    sql<ConsensusRow>`SELECT current_term, voted_for, commit_index, applied_index, sole_installation_id FROM canvas_consensus WHERE canvas_name = ${canvasName}`,
     (rows) => rows[0],
   );
 
@@ -486,11 +534,14 @@ const openClaimed = (
     const apply = (entries: ReadonlyArray<Entry>, through: number) =>
       sql.withTransaction(
         Effect.gen(function* () {
-          const applied = (yield* readConsensus(sql, canvasName))?.applied_index ?? 0;
+          const consensus = yield* readConsensus(sql, canvasName);
+          const applied = consensus?.applied_index ?? 0;
+          let head = yield* structureHeadOf(sql, canvasName, applied);
+          const sole = consensus?.sole_installation_id === self;
           let last = applied;
           for (const entry of entries) {
             if (entry.index <= last) continue;
-            yield* applyEntry(sql, recorder.record, canvasName, entry);
+            head = yield* applyEntry(sql, recorder.record, canvasName, entry, head, sole);
             last = entry.index;
           }
           if (through > applied) {

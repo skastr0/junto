@@ -313,6 +313,51 @@ const tablesOf = (store: Store) =>
     }),
   );
 
+describe("the fleet driver's structure watermark", () => {
+  // 0.11/06 F3: past the count a copy left, a structure entry folds only at
+  // exactly head plus one; covered is skipped, and a gap is a missed entry.
+  const structure = (seq: number) => ({ kind: "structure.changed", seq }) as const;
+
+  it("applies a structure entry only at exactly head plus one, skipping what a copy covered", async () => {
+    const store = await makeStore();
+    const authority = await store.runtime.runPromise(openCanvasAuthority({ canvasName: CANVAS, self: SELF }));
+    await store.runtime.runPromise(authority.propose(structure(2)));
+    // A copy install moved the held count to 5: entries at or under it are
+    // already covered by the copy and skip.
+    await store.runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`UPDATE canvases SET seq = 5 WHERE canvas_name = ${CANVAS}`;
+      }),
+    );
+    const before = await store.runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        return (yield* sql<{ applied_index: number }>`SELECT applied_index FROM canvas_consensus WHERE canvas_name = ${CANVAS}`)[0]!
+          .applied_index;
+      }),
+    );
+    await store.runtime.runPromise(authority.propose(structure(4)));
+    await store.runtime.runPromise(authority.propose(structure(6)));
+    const applied = await store.runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        return yield* sql<{ applied_index: number }>`SELECT applied_index FROM canvas_consensus WHERE canvas_name = ${CANVAS}`;
+      }),
+    );
+    expect(applied[0]!.applied_index - before).toBe(2);
+  });
+
+  it("refuses a structure entry across a gap, loudly, so the machine catches up by copy and never skips ahead", async () => {
+    const store = await makeStore();
+    const authority = await store.runtime.runPromise(openCanvasAuthority({ canvasName: CANVAS, self: SELF }));
+    await store.runtime.runPromise(authority.propose(structure(2)));
+    const exit = await store.runtime.runPromiseExit(authority.propose(structure(4)));
+    expect(exit._tag).toBe("Failure");
+    if (exit._tag === "Failure") expect(String(exit.cause)).toContain("catches up by copy");
+  });
+});
+
 describe("the fleet driver judges a batch", () => {
   it("as the rulers write it directly: answers, facts, bodies, count and ruling rows", async () => {
     const direct = await makeStore();
