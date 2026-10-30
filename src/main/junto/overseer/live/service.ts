@@ -712,8 +712,3 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
   };
 };
 export type LiveSessionService = ReturnType<typeof createLiveSessionService>;
-/** The composition owner releases timers, voice resources and authority subscriptions on scope exit. */
-export const acquireLiveSessionService = (options: LiveSessionServiceOptions) => Effect.acquireRelease(
-  Effect.sync(() => createLiveSessionService(options)),
-  (service) => Effect.promise(() => service.dispose()),
-);

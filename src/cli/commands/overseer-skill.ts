@@ -2,8 +2,6 @@
 import { SEAT_FIELDS_MAIN_WORKS_OUT } from "@shared/model/drafts";
 import { OVERSEER_CATALOG } from "@shared/overseer-control";
 
-export const OVERSEER_SKILL_NAME = "overseer";
-
 // The skill is a product surface: families a feature gate turned off leave
 // the list and their verb notes with them.
 const ENABLED_FAMILIES: ReadonlyArray<string> = [

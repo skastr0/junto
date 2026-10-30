@@ -14,6 +14,3 @@ export const MAX_PROFILES = 64;
 
 export const isProfileName = (value: string): boolean => PROFILE_NAME_PATTERN.test(value);
 
-/** The names that fit, first come, at most MAX_PROFILES, each once. */
-export const profileNamesOf = (names: readonly string[]): readonly string[] =>
-  [...new Set(names.filter(isProfileName))].slice(0, MAX_PROFILES);

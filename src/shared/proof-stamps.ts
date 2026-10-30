@@ -50,36 +50,7 @@ export type OperatorHumanAuthority = {
   readonly kind: "operator-human-grant";
 };
 
-export const operatorHumanAuthority = (): OperatorHumanAuthority => ({
-  kind: "operator-human-grant",
-});
-
 // ---------------------------------------------------------------------------
 // Match helpers (pure phase inputs)
 // ---------------------------------------------------------------------------
 
-/**
- * Find a stamp on the source sink that satisfies proof criteria.
- * - step must match
- * - if expectedInputsHash is set, stamp.inputsHash must equal it (replay gate)
- */
-export const findMatchingStamp = (
-  stamps: ReadonlyArray<ProofStamp> | undefined,
-  step: string,
-  expectedInputsHash: string | undefined,
-): ProofStamp | undefined => {
-  if (!stamps || stamps.length === 0) return undefined;
-  for (const stamp of stamps) {
-    if (stamp.step !== step) continue;
-    if (expectedInputsHash !== undefined && stamp.inputsHash !== expectedInputsHash) {
-      continue;
-    }
-    return stamp;
-  }
-  return undefined;
-};
-
-export const findApproval = (
-  approvals: ApprovalView | undefined,
-  step: string,
-): HumanApproval | undefined => approvals?.get(step);

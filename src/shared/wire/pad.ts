@@ -260,9 +260,6 @@ export class PadError extends Schema.TaggedError<PadError>()("PadError", {
 export const decodePad = Schema.decodeUnknownResult(Pad, STRICT);
 export const decodePadPatch = Schema.decodeUnknownResult(PadPatch, STRICT);
 export const decodePadShape = Schema.decodeUnknownResult(PadShape, STRICT);
-export const decodePadEdge = Schema.decodeUnknownResult(PadEdge, STRICT);
-export const decodePadImage = Schema.decodeUnknownResult(PadImage, STRICT);
-export const decodePadInk = Schema.decodeUnknownResult(PadInk, STRICT);
 
 export const emptyPad = (): Pad => ({
   revision: 0,

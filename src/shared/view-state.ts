@@ -175,20 +175,6 @@ export const DEFAULT_NODE_VIEW: ViewNode = {
   sidebarCollapsed: false,
 };
 
-/** The node's saved state with its defaults: what a surface draws from. */
-export const viewNodeOf = (
-  saved: ViewNodeState | undefined,
-): ViewNode =>
-  saved === undefined
-    ? DEFAULT_NODE_VIEW
-    : {
-        artifactsFilter: saved.artifactsFilter ?? DEFAULT_ARTIFACTS_FILTER,
-        tasksFilter: saved.tasksFilter ?? DEFAULT_TASK_STATE_FILTER,
-        openItem: saved.openItem ?? null,
-        expandedFolders: saved.expandedFolders ?? [],
-        sidebarCollapsed: saved.sidebarCollapsed === true,
-      };
-
 /** The snapshot a window opens with: every row this machine saved, sparse. */
 /**
  * Quick capture's draft (0.12, the Cmd+T desk): the document words the
@@ -244,14 +230,6 @@ export type ViewStateSnapshot = {
   readonly captureDrafts?: Readonly<Record<string, CaptureDraft>>;
   /** By canvas name: where quick capture's desk was left (0.12). Absent with none. */
   readonly captureDesks?: Readonly<Record<string, CaptureDesk>>;
-};
-
-export const EMPTY_VIEW_STATE: ViewStateSnapshot = {
-  commandGroups: {},
-  nodes: {},
-  focusSizes: {},
-  sections: {},
-  captureInboxes: {},
 };
 
 // ---------------------------------------------------------------------------
@@ -349,6 +327,3 @@ export type ViewStateReload = typeof ViewStateReload.Type;
 export const ViewStateEvent = Schema.Union([ViewStateWrite, ViewStateReload]);
 export type ViewStateEvent = typeof ViewStateEvent.Type;
 
-/** The canvas a write names; absent for the machine-wide rows. */
-export const canvasOfWrite = (write: ViewStateWrite): string | undefined =>
-  "canvasName" in write ? write.canvasName : undefined;

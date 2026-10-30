@@ -102,20 +102,3 @@ export const examplesCommand = Command.make("examples").pipe(
   Command.withSubcommands([examplesListCommand, examplesShowCommand]),
 );
 
-// Static CLI capability catalog (not live edges — use `capabilities` for that).
-export const staticCapabilitiesData = {
-  cli: { name: CLI_NAME, version: CLI_VERSION },
-  protocol_version: WORK_PROTOCOL_VERSION,
-  input_modes: ["inline-json", "@file", "stdin"],
-  output: {
-    success: { stream: "stdout", envelope: "{ ok: true, command, data }" },
-    failure: { stream: "stderr", envelope: "{ ok: false, command, error }" },
-  },
-  batch: {
-    outcome_values: ["succeeded", "partial_failure"],
-    all_failed: "the failure envelope: one item's own error, or BatchFailed with every result",
-    default_concurrency: 5,
-    partial_failure_exit_code: 1,
-  },
-  commands: commandCapabilities,
-};

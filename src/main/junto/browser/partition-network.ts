@@ -152,7 +152,3 @@ export const closeAllManagedBrowserPartitionNetworks = async (): Promise<void> =
   );
 };
 
-export const managedBrowserProxyAuthForEndpoint = (
-  host: string,
-  port: number,
-): BrowserEgressProxyHandle | undefined => credentialsByEndpoint.get(endpointKey(host, port));

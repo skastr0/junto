@@ -110,8 +110,6 @@ export const COMPANION_MACHINE_TEXT_MAX = 1024;
 export const COMPANION_MACHINE_CHECK_AGO_MAX_MS = 7 * 24 * 60 * 60_000;
 /** Waypoints one drawn wire carries at most. */
 export const COMPANION_WIRE_POINTS_MAX = 256;
-/** How round a drawn wire's corners are, canvas units: the desktop's. */
-export const COMPANION_WIRE_RADIUS = 8;
 
 // --- primitives --------------------------------------------------------------
 

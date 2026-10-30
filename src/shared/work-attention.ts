@@ -18,7 +18,3 @@ export const WorkAttentionSnapshot = Schema.Struct({
 });
 export type WorkAttentionSnapshot = typeof WorkAttentionSnapshot.Type;
 
-export const emptySinkGlance = (nodeId: string): WorkSinkGlance => ({
-  nodeId, count: 0, needsHuman: false, allTerminal: true,
-  inputRequired: 0, authRequired: 0,
-});

@@ -325,10 +325,6 @@ export const buildEdgeContracts = (
   targets: readonly ConnectedTarget[] | undefined,
 ): readonly string[] => commandGroupsFor(targets).map(edgeContractSection);
 
-    .filter((group) => group.family === family)
-    .map(edgeContractSection)
-    .join("\n\n");
-
 export const EDGE_CONTRACTS_INTRO = `### Command contracts
 
 A seat is only taught the commands it may run. \`junto onboard\` compiles them from the ports the seat holds on each connected seat, returned under \`commands\`, and from the kind of each resource in its reach, which admits with no edge, returned under \`reach\`; the tables below are the same commands with their reference notes. When edges change mid-session, a short notice names what was added and removed; the live command set is always \`junto onboard\` / \`junto capabilities\`.`;

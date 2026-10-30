@@ -173,11 +173,6 @@ export type SeatControlKey = {
 const sameOp = (op: Extract<Action, { readonly kind: "seat-control" }>["op"]): SeatControlOp => op;
 void sameOp;
 
-export const seatControlKeyOf = (body: {
-  readonly firingId: string;
-  readonly actionIndex: number;
-}): Omit<SeatControlKey, "canvasName"> => ({ firingId: body.firingId, actionIndex: body.actionIndex });
-
 /** A control's item id derives from its firing and action: a retried firing names the same control. */
 export const seatControlItemId = (body: {
   readonly firingId: string;

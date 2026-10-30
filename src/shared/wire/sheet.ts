@@ -73,75 +73,6 @@ export const emptySheet = (): SheetGrid => ({
   rows: [{ id: "r1", cells: {} }],
 });
 
-export const addSheetColumn = (sheet: SheetGrid, name?: string): SheetGrid => {
-  if (sheet.columns.length >= SHEET_MAX_COLUMNS) return sheet;
-  const id = nextId("c", columnIds(sheet));
-  const label = (name ?? `Column ${String(sheet.columns.length + 1)}`).slice(
-    0,
-    SHEET_MAX_NAME_LENGTH,
-  );
-  return { ...sheet, columns: [...sheet.columns, { id, name: label }] };
-};
-
-export const addSheetRow = (sheet: SheetGrid): SheetGrid => {
-  if (sheet.rows.length >= SHEET_MAX_ROWS) return sheet;
-  const id = nextId("r", rowIds(sheet));
-  return { ...sheet, rows: [...sheet.rows, { id, cells: {} }] };
-};
-
-export const renameSheetColumn = (
-  sheet: SheetGrid,
-  columnId: string,
-  name: string,
-): SheetGrid => ({
-  ...sheet,
-  columns: sheet.columns.map((column) =>
-    column.id === columnId
-      ? { ...column, name: name.slice(0, SHEET_MAX_NAME_LENGTH) }
-      : column,
-  ),
-});
-
-/** Dropping a column drops its cells too — nothing keeps orphaned values. */
-export const removeSheetColumn = (sheet: SheetGrid, columnId: string): SheetGrid => {
-  if (!sheet.columns.some((column) => column.id === columnId)) return sheet;
-  return {
-    columns: sheet.columns.filter((column) => column.id !== columnId),
-    rows: sheet.rows.map((row) => {
-      if (!(columnId in row.cells)) return row;
-      const cells = { ...row.cells };
-      delete cells[columnId];
-      return { ...row, cells };
-    }),
-  };
-};
-
-export const removeSheetRow = (sheet: SheetGrid, rowId: string): SheetGrid => ({
-  ...sheet,
-  rows: sheet.rows.filter((row) => row.id !== rowId),
-});
-
-/** Write one cell. Blank text clears the key so the grid stays sparse. */
-export const setSheetCell = (
-  sheet: SheetGrid,
-  rowId: string,
-  columnId: string,
-  value: string,
-): SheetGrid => {
-  if (!sheet.columns.some((column) => column.id === columnId)) return sheet;
-  const text = value.slice(0, SHEET_MAX_CELL_LENGTH);
-  return {
-    ...sheet,
-    rows: sheet.rows.map((row) => {
-      if (row.id !== rowId) return row;
-      const cells = { ...row.cells };
-      if (text.trim().length === 0) delete cells[columnId];
-      else cells[columnId] = text;
-      return { ...row, cells };
-    }),
-  };
-};
-
 export const sheetCell = (
   sheet: SheetGrid,
   rowId: string,
@@ -244,15 +175,3 @@ export const visibleSheetRowRange = (
   return { start, end };
 };
 
-/** Card glance line: shape first, then the first column names. */
-export const sheetGlance = (sheet: SheetGrid | undefined): string => {
-  const columns = sheet?.columns.length ?? 0;
-  const rows = sheet?.rows.length ?? 0;
-  const shape = `${String(rows)} row${rows === 1 ? "" : "s"}, ${String(columns)} column${columns === 1 ? "" : "s"}`;
-  const names = (sheet?.columns ?? [])
-    .map((column) => column.name.trim())
-    .filter((name) => name.length > 0)
-    .slice(0, 3)
-    .join(", ");
-  return names.length > 0 ? `${shape} - ${names}` : shape;
-};

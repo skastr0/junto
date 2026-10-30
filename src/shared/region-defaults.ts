@@ -105,20 +105,6 @@ export const stripEmptyRegionPaths = (
   return Object.keys(next).length > 0 ? next : undefined;
 };
 
-/** Full defaults bag on the innermost region that has a non-empty defaults bag. */
-export const resolveRegionDefaults = (
-  doc: Canvas | undefined,
-  x: number,
-  y: number,
-): RegionDefaults | undefined => {
-  const region = findInnermostGroup(doc, x, y, (g) => {
-    const d = g.defaults;
-    if (!d) return false;
-    return regionHasPageSpawnFields(g) || regionHasPaths(g);
-  });
-  return stripEmptyRegionDefaults(region?.defaults);
-};
-
 /** Collapse empty strings / empty nested bags so the model stays sparse. */
 export const stripEmptyRegionDefaults = (
   defaults: RegionDefaults | undefined,

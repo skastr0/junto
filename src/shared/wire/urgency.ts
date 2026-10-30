@@ -147,9 +147,6 @@ export const levelOfFeedItem = (kind: FeedItemKind): UrgencyLevel => FEED_LEVEL[
  */
 export const levelOfRing = (form: RingForm): UrgencyLevel => RING_LEVEL[form];
 
-/** For layout only, such as picking a cluster's lead seat: the form's level's rank. */
-export const ringFormRank = (form: RingForm): UrgencyRank => rankOf(levelOfRing(form));
-
 // ── Predicates ─────────────────────────────────────────────────────────────
 
 /** Something waits on the operator: blocked, stopped, waiting or escalated. */

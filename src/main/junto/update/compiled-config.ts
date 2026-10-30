@@ -17,12 +17,6 @@ declare const __JUNTO_MAC_UPDATE_FEED_URL__: string | undefined;
 export const MAC_ARM64_UPDATE_FEED_URL_PRODUCTION =
   "https://releases.juntoagents.com/mac/arm64" as const;
 
-/**
- * Interim GitHub public feed (used only when the release feed is unavailable).
- */
-export const MAC_ARM64_UPDATE_FEED_URL_INTERIM =
-  "https://github.com/skastr0/junto/releases/download/v0.1.0" as const;
-
 /** Active packaged default: the production origin. */
 export const MAC_ARM64_UPDATE_FEED_URL = MAC_ARM64_UPDATE_FEED_URL_PRODUCTION;
 

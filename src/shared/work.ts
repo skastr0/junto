@@ -179,10 +179,6 @@ export const workMessageAppend = (
   return { message: stamped };
 };
 
-/** Soft-archive flag lives in metadata so decode admits history without schema migration. */
-export const isArtifactArchived = (artifact: Artifact): boolean =>
-  artifact.metadata?.archived === true;
-
 const withArtifactArchivedFlag = (
   artifact: Artifact,
   archived: boolean,

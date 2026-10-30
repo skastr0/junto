@@ -50,9 +50,6 @@ export const SessionPhase = Data.taggedEnum<SessionPhase>();
 export const sessionPhaseAllowsWrite = (phase: SessionPhase): boolean =>
   phase._tag === "Live";
 
-export const sessionPhaseIsOpen = (phase: SessionPhase): boolean =>
-  phase._tag === "Opening" || phase._tag === "Live" || phase._tag === "Broken";
-
 /** Map product phase → existing TerminalSessionStatus wire vocab. */
 export const productStatusFromSessionPhase = (
   phase: SessionPhase,
@@ -98,12 +95,3 @@ export type TerminalSessionError =
   | TerminalAdmitError
   | TerminalWriteError;
 
-export const terminalSpawnError = (
-  surface: SessionSurface,
-  message: string,
-): TerminalSpawnError => new TerminalSpawnError({ surface, message });
-
-export const terminalWriteError = (
-  surface: SessionSurface,
-  message: string,
-): TerminalWriteError => new TerminalWriteError({ surface, message });

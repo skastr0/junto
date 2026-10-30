@@ -142,5 +142,3 @@ export const filterCandidates = (
   const contains = own.filter((candidate) => !starts.includes(candidate) && name(candidate).includes(typed));
   return [...starts, ...contains];
 };
-
-  trigger === "[[" ? `[[${candidate.title}]]` : candidate.label;

@@ -20,7 +20,6 @@
  */
 import { Schema } from "effect";
 
-export const ARTIFACT_LABEL_MAX_LENGTH = 40;
 export const ARTIFACT_LABELS_MAX = 20;
 
 /** The rule in one sentence, for every place that refuses a label: the header, the automation editor. */

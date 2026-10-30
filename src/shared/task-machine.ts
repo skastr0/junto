@@ -829,5 +829,3 @@ export const taskDomain = (env: TaskDomainEnv): ResourceDomain<TaskBoardState, T
   definite: (refusal) => isTaskRefusalDetail(refusal.expected) && isDefiniteTaskRefusal(refusal.expected),
 });
 
-/** How a task reads in a message: its number when it has one. */
-export const taskLabel = (task: Pick<TaskRecord, "number">): string => formatTaskNumber(task.number);

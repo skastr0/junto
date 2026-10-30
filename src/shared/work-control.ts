@@ -73,10 +73,8 @@ export const isSeatCredentialShape = (value: string): boolean => {
 };
 export const WORK_PROTOCOL_VERSION = "junto/work-control/v1";
 
-export const WORK_DEFAULT_BATCH_CONCURRENCY = 5;
 export const WORK_DEFAULT_TIMEOUT_MS = 30_000;
 export const WORK_MAX_FRAME_BYTES = 8 * 1024 * 1024;
-export const WORK_MAX_ERROR_BYTES = 4_096;
 
 // ---------------------------------------------------------------------------
 // Ops
@@ -330,9 +328,6 @@ export const workErr = (
 
 // ---------------------------------------------------------------------------
 // Domain arg schemas (shared by CLI input + daemon decode)
-
-/** Outer bound on a wait before starting. */
-export const WAIT_FOR_MAX_MS = 90 * 24 * 60 * 60 * 1000;
 
 export const TasksRulesArgs = Schema.Struct({
   target: Schema.String,
@@ -635,19 +630,5 @@ export type EmptyArgs = typeof EmptyArgs.Type;
 // ---------------------------------------------------------------------------
 // Helpers
 
-export const stripTokenFromLog = (value: unknown): unknown => {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
-  const copy: Record<string, unknown> = { ...(value as Record<string, unknown>) };
-  if ("token" in copy) copy.token = "[redacted]";
-  return copy;
-};
-
 export const encodeWorkFrame = (value: unknown): string => `${JSON.stringify(value)}\n`;
 
-export const decodeWorkJsonLine = (line: string): Result.Result<unknown, string> => {
-  try {
-    return Result.succeed(JSON.parse(line) as unknown);
-  } catch {
-    return Result.fail("malformed JSON frame");
-  }
-};

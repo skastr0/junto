@@ -122,10 +122,3 @@ export const receiptForTeardown = (input: {
 export const stillPageNode = (doc: Canvas | undefined, nodeId: string): boolean =>
   doc !== undefined && isPageNode(findNode(doc, nodeId));
 
-/**
- * True when a node id is still an actor seat (the caller side of a grant).
- * Asks the one caller predicate, exactly as {@link stillPageNode} asks the one
- * page predicate — the actor kinds are not re-listed here.
- */
-export const stillCallerNode = (doc: Canvas | undefined, nodeId: string): boolean =>
-  doc !== undefined && isBrowserCallerNode(findNode(doc, nodeId));

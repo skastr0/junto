@@ -34,13 +34,6 @@ const lstatOrUndefined = (path: string): Stats | undefined => {
   }
 };
 
-/** Stable identity comparison; media metadata is descriptive, not identity. */
-export const sameContentIdentity = (
-  left: Pick<ContentRef, "sha256" | "byteLength">,
-  right: Pick<ContentRef, "sha256" | "byteLength">,
-): boolean =>
-  left.sha256 === right.sha256 && left.byteLength === right.byteLength;
-
 /** Encode user-controlled scope identifiers into path-safe, non-ambiguous names. */
 const scopeSegment = (value: string): string =>
   (() => {

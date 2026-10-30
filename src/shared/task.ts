@@ -8,19 +8,6 @@ import type {
 
 // Display + transition helpers for the work plane. Pure — no I/O.
 
-/** First text line of history[0] (the brief); falls back to task id. */
-export const taskBrief = (task: Task): string => {
-  const first = task.history[0];
-  if (!first) return task.id;
-  for (const part of first.parts) {
-    if (part.kind === "text") {
-      const line = part.text.split("\n")[0]?.trim();
-      if (line) return line;
-    }
-  }
-  return task.id;
-};
-
 /** Settled for workers/dragging; completed has the separate QA requeue exit. */
 export const isTerminalTaskState = (state: TaskState): boolean =>
   state === "completed" ||
