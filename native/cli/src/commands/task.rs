@@ -12,16 +12,20 @@ use clap::{Args, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{Pending, Run, Timeout};
+use super::{Run, Timeout};
 use crate::envelope::{self, Answer};
 use crate::error::{Failure, Result};
 use crate::wire::{self, OpId, Request};
-use crate::{input, ops};
+use crate::{duration, input, ops};
 
 /// CHECK_OUTPUT_TAIL_MAX (src/shared/task-model.ts), in UTF-16 code units.
 const CHECK_OUTPUT_TAIL_MAX: usize = 8 * 1024;
 /// TASK_HANDOFF_MAX (src/shared/task-model.ts), in UTF-16 code units.
 const HANDOFF_MAX: usize = 4096;
+/// TASK_WAIT_UNTIL, TASK_WAIT_DEFAULT_MS and TASK_WAIT_MAX_MS (src/shared/task-control.ts).
+const WAIT_UNTIL: [&str; 4] = ["done", "input-required", "in-review", "canceled"];
+const WAIT_DEFAULT_MS: u64 = 60_000;
+const WAIT_MAX_MS: u64 = 600_000;
 
 /// TASK_STATES (src/shared/task-model.ts).
 #[derive(Debug, Clone, Copy, ValueEnum, Serialize)]
@@ -72,6 +76,15 @@ struct ShowArgs {
     task: String,
 }
 
+/// A bounded wait for a task to reach a state.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WaitArgs {
+    task: String,
+    until: String,
+    timeout_ms: u64,
+}
+
 /// The rules where a task sits, or a task node's own.
 #[derive(Serialize)]
 #[serde(untagged)]
@@ -84,6 +97,7 @@ ops! {
     ListArgs => "task.list",
     ShowArgs => "task.show",
     RulesArgs => "task.rules",
+    WaitArgs => "task.wait",
 }
 
 // --- writes ------------------------------------------------------------------
@@ -458,8 +472,14 @@ enum Command {
         #[command(flatten)]
         timeout: Timeout,
     },
-    /// seat.ts's: lands with the seat family.
-    Wait(Pending),
+    Wait {
+        task: String,
+        #[arg(long)]
+        until: String,
+        /// A duration ("600s", "10m") or milliseconds.
+        #[arg(long)]
+        timeout: Option<String>,
+    },
 }
 
 // --- running -------------------------------------------------------------------
@@ -469,7 +489,8 @@ fn op_id(given: Option<&str>) -> Result<OpId> {
     match given {
         None => Ok(OpId::mint()),
         Some(text) => serde_json::from_value(Value::from(text.trim())).map_err(|_| {
-            Failure::input("--op-id must be the ULID a write returned", "--op-id").and("received", text)
+            Failure::input("--op-id must be the ULID a write returned", "--op-id")
+                .and("received", text)
         }),
     }
 }
@@ -479,39 +500,98 @@ pub(super) fn read<R: Request>(args: &R, timeout: Timeout) -> Answer {
 }
 
 pub(super) fn write<V: Verb>(flags: WriteFlags, verb: V) -> Answer {
-    let args = Write { op_id: op_id(flags.op_id.as_deref())?, verb };
+    let args = Write {
+        op_id: op_id(flags.op_id.as_deref())?,
+        verb,
+    };
     wire::call(&args, flags.timeout.into()).map(Into::into)
 }
 
 fn one<M: Op>(OneTask { task, flags }: OneTask) -> Answer {
-    write(flags, One::<M> { task, op: PhantomData })
+    write(
+        flags,
+        One::<M> {
+            task,
+            op: PhantomData,
+        },
+    )
 }
 
 fn dependency<M: Op>(DependFlags { task, on, flags }: DependFlags) -> Answer {
-    write(flags, Dependency::<M> { task, on, op: PhantomData })
+    write(
+        flags,
+        Dependency::<M> {
+            task,
+            on,
+            op: PhantomData,
+        },
+    )
 }
 
-fn reviewer<M: Op>(ReviewerFlags { task, reviewer, flags }: ReviewerFlags) -> Answer {
-    write(flags, ReviewerArgs::<M> { task, reviewer, op: PhantomData })
+fn reviewer<M: Op>(
+    ReviewerFlags {
+        task,
+        reviewer,
+        flags,
+    }: ReviewerFlags,
+) -> Answer {
+    write(
+        flags,
+        ReviewerArgs::<M> {
+            task,
+            reviewer,
+            op: PhantomData,
+        },
+    )
+}
+
+/// A bounded wait (lowerTaskWait): the socket's bound sits above the wait's own.
+fn wait(task: String, until: String, timeout: Option<&str>) -> Answer {
+    if !WAIT_UNTIL.contains(&until.as_str()) {
+        return Err(duration::until_error("until", &until, &WAIT_UNTIL));
+    }
+    let timeout_ms = duration::bounded_ms("timeout", timeout, WAIT_MAX_MS, WAIT_DEFAULT_MS)?;
+    wire::call(
+        &WaitArgs {
+            task,
+            until,
+            timeout_ms,
+        },
+        duration::socket_timeout_for(timeout_ms),
+    )
+    .map(Into::into)
 }
 
 /// `<left><sep><right>` split at `at`, both sides non-empty (pairOf).
 fn pair(flag: &str, shape: &str, value: &str, at: Option<usize>) -> Result<(String, String)> {
     match at {
-        Some(at) if at > 0 && at + 1 < value.len() => {
-            Ok((value[..at].trim().to_string(), value[at + 1..].trim().to_string()))
-        }
-        _ => Err(Failure::input(format!("--{flag} takes {shape}, got {}", Value::from(value)), flag)),
+        Some(at) if at > 0 && at + 1 < value.len() => Ok((
+            value[..at].trim().to_string(),
+            value[at + 1..].trim().to_string(),
+        )),
+        _ => Err(Failure::input(
+            format!("--{flag} takes {shape}, got {}", Value::from(value)),
+            flag,
+        )),
     }
 }
 
 /// The evidence flags as CompletionEvidence, or nothing when none was given.
-fn evidence(artifact: &[String], commit: Vec<String>, claim: &[String]) -> Result<Option<Evidence>> {
+fn evidence(
+    artifact: &[String],
+    commit: Vec<String>,
+    claim: &[String],
+) -> Result<Option<Evidence>> {
     // An artifact id holds no slash, so the last one ends the node.
     let artifacts = artifact
         .iter()
         .map(|v| pair("artifact", "<node id>/<artifactId>", v, v.rfind('/')))
-        .map(|p| p.map(|(node_id, artifact_id)| ArtifactCite { node_id, artifact_id }))
+        .map(|p| {
+            p.map(|(node_id, artifact_id)| ArtifactCite {
+                node_id,
+                artifact_id,
+            })
+        })
         .collect::<Result<Vec<_>>>()?;
     let claims = claim
         .iter()
@@ -522,15 +602,26 @@ fn evidence(artifact: &[String], commit: Vec<String>, claim: &[String]) -> Resul
         return Ok(None);
     }
     let git = (!commit.is_empty()).then_some(Git { commits: commit });
-    Ok(Some(Evidence { artifacts, git, claims }))
+    Ok(Some(Evidence {
+        artifacts,
+        git,
+        claims,
+    }))
 }
 
 /// The note `--note` names, inline, from @file or from - (handoffOf). A
 /// file's or stdin's last newline is the file's, not the note's.
 fn handoff(raw: &str) -> Result<String> {
     let trimmed = raw.trim();
-    let read = |text: String| text.strip_suffix('\n').map(|t| t.strip_suffix('\r').unwrap_or(t).to_string()).unwrap_or(text);
-    let note = match (trimmed, trimmed.strip_prefix('@').filter(|path| !path.is_empty())) {
+    let read = |text: String| {
+        text.strip_suffix('\n')
+            .map(|t| t.strip_suffix('\r').unwrap_or(t).to_string())
+            .unwrap_or(text)
+    };
+    let note = match (
+        trimmed,
+        trimmed.strip_prefix('@').filter(|path| !path.is_empty()),
+    ) {
         ("-" | "@-", _) => read(input::stdin()?),
         (_, Some(path)) => read(input::file(path)?),
         _ => raw.to_string(),
@@ -540,7 +631,10 @@ fn handoff(raw: &str) -> Result<String> {
     }
     let length = note.encode_utf16().count();
     if length > HANDOFF_MAX {
-        return Err(Failure::input(format!("--note holds at most {HANDOFF_MAX} characters, got {length}"), "note"));
+        return Err(Failure::input(
+            format!("--note holds at most {HANDOFF_MAX} characters, got {length}"),
+            "note",
+        ));
     }
     Ok(note)
 }
@@ -549,20 +643,41 @@ fn handoff(raw: &str) -> Result<String> {
 fn flagged(side: Side, flag: &str, value: &str) -> Result<CheckResult> {
     let (check_id, code) = pair(flag, "<checkId>=<exitCode>", value, value.rfind('='))?;
     let digits = code.strip_prefix('-').unwrap_or(&code);
-    let refused = || Failure::input(format!("--{flag} takes <checkId>=<exitCode>, got {}", Value::from(value)), flag);
+    let refused = || {
+        Failure::input(
+            format!(
+                "--{flag} takes <checkId>=<exitCode>, got {}",
+                Value::from(value)
+            ),
+            flag,
+        )
+    };
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
         return Err(refused());
     }
     let exit_code = code.parse().map_err(|_| refused())?;
-    Ok(CheckResult { check_id, side, exit_code, output_tail: String::new() })
+    Ok(CheckResult {
+        check_id,
+        side,
+        exit_code,
+        output_tail: String::new(),
+    })
 }
 
 /// The results the flags name, or the JSON `--results` carries: one way or the other.
-fn check_results(outgoing: &[String], incoming: &[String], results: Option<&str>) -> Result<Vec<CheckResult>> {
+fn check_results(
+    outgoing: &[String],
+    incoming: &[String],
+    results: Option<&str>,
+) -> Result<Vec<CheckResult>> {
     let flags = outgoing
         .iter()
         .map(|v| flagged(Side::Outgoing, "outgoing", v))
-        .chain(incoming.iter().map(|v| flagged(Side::Incoming, "incoming", v)))
+        .chain(
+            incoming
+                .iter()
+                .map(|v| flagged(Side::Incoming, "incoming", v)),
+        )
         .collect::<Result<Vec<_>>>()?;
     let reported = match results {
         Some(_) if !flags.is_empty() => None,
@@ -571,14 +686,26 @@ fn check_results(outgoing: &[String], incoming: &[String], results: Option<&str>
         None => Some(flags),
     };
     let reported = reported.ok_or_else(|| {
-        Failure::input("report results with --outgoing and --incoming, or with --results, not both", "results")
+        Failure::input(
+            "report results with --outgoing and --incoming, or with --results, not both",
+            "results",
+        )
     })?;
-    Ok(reported.into_iter().map(|r| CheckResult { output_tail: tail(r.output_tail), ..r }).collect())
+    Ok(reported
+        .into_iter()
+        .map(|r| CheckResult {
+            output_tail: tail(r.output_tail),
+            ..r
+        })
+        .collect())
 }
 
 /// The last CHECK_OUTPUT_TAIL_MAX UTF-16 code units, as main counts them.
 fn tail(text: String) -> String {
-    let mut over = text.encode_utf16().count().saturating_sub(CHECK_OUTPUT_TAIL_MAX);
+    let mut over = text
+        .encode_utf16()
+        .count()
+        .saturating_sub(CHECK_OUTPUT_TAIL_MAX);
     if over == 0 {
         return text;
     }
@@ -599,49 +726,158 @@ fn tail(text: String) -> String {
 impl Run for Task {
     fn run(self) -> ExitCode {
         let (name, answer) = match self.command {
-            Command::List { node, state, assignee, reviewer, limit, timeout } => {
-                ("task list", read(&ListArgs { node, assignee, reviewer, limit, state }, timeout))
-            }
+            Command::List {
+                node,
+                state,
+                assignee,
+                reviewer,
+                limit,
+                timeout,
+            } => (
+                "task list",
+                read(
+                    &ListArgs {
+                        node,
+                        assignee,
+                        reviewer,
+                        limit,
+                        state,
+                    },
+                    timeout,
+                ),
+            ),
             Command::Show { task, timeout } => ("task show", read(&ShowArgs { task }, timeout)),
-            Command::Create { title, body, node, stamps, flags } => {
+            Command::Create {
+                title,
+                body,
+                node,
+                stamps,
+                flags,
+            } => {
                 let task_id = ulid::Ulid::new().to_string();
-                ("task create", write(flags, CreateArgs { task_id, title, body, node, stamps }))
+                (
+                    "task create",
+                    write(
+                        flags,
+                        CreateArgs {
+                            task_id,
+                            title,
+                            body,
+                            node,
+                            stamps,
+                        },
+                    ),
+                )
             }
-            Command::Edit { task, title, body, flags } => ("task edit", write(flags, EditArgs { task, title, body })),
-            Command::Assign { task, seat, flags } => ("task assign", write(flags, AssignArgs { task, seat })),
+            Command::Edit {
+                task,
+                title,
+                body,
+                flags,
+            } => ("task edit", write(flags, EditArgs { task, title, body })),
+            Command::Assign { task, seat, flags } => {
+                ("task assign", write(flags, AssignArgs { task, seat }))
+            }
             Command::Unassign(c) => ("task unassign", one::<Unassign>(c)),
             Command::Start(c) => ("task start", one::<Start>(c)),
             Command::Pause(c) => ("task pause", one::<Pause>(c)),
             Command::Resume(c) => ("task resume", one::<Resume>(c)),
             Command::Cancel(c) => ("task cancel", one::<Cancel>(c)),
             Command::Archive(c) => ("task archive", one::<Archive>(c)),
-            Command::Finish { task, next, artifact, commit, claim, note, flags } => {
+            Command::Finish {
+                task,
+                next,
+                artifact,
+                commit,
+                claim,
+                note,
+                flags,
+            } => {
                 let finish = evidence(&artifact, commit, &claim).and_then(|evidence| {
                     let handoff = note.as_deref().map(handoff).transpose()?;
-                    Ok(FinishArgs { task, next, evidence, handoff })
+                    Ok(FinishArgs {
+                        task,
+                        next,
+                        evidence,
+                        handoff,
+                    })
                 });
-                ("task finish", finish.and_then(|finish| write(flags, finish)))
+                (
+                    "task finish",
+                    finish.and_then(|finish| write(flags, finish)),
+                )
             }
-            Command::Check { task, outgoing, incoming, results, next, flags } => {
+            Command::Check {
+                task,
+                outgoing,
+                incoming,
+                results,
+                next,
+                flags,
+            } => {
                 let check = check_results(&outgoing, &incoming, results.as_deref());
-                ("task check", check.and_then(|results| write(flags, CheckArgs { task, next, results })))
+                (
+                    "task check",
+                    check.and_then(|results| {
+                        write(
+                            flags,
+                            CheckArgs {
+                                task,
+                                next,
+                                results,
+                            },
+                        )
+                    }),
+                )
             }
             Command::Depend(c) => ("task depend", dependency::<Depend>(c)),
             Command::Undepend(c) => ("task undepend", dependency::<Undepend>(c)),
-            Command::Reviewer(Reviewer::Add(c)) => ("task reviewer add", reviewer::<ReviewerAdd>(c)),
-            Command::Reviewer(Reviewer::Remove(c)) => ("task reviewer remove", reviewer::<ReviewerRemove>(c)),
-            Command::StampPolicy { task, required, flags } => {
-                ("task stamp-policy", write(flags, StampPolicyArgs { task, required }))
+            Command::Reviewer(Reviewer::Add(c)) => {
+                ("task reviewer add", reviewer::<ReviewerAdd>(c))
             }
-            Command::Stamp { task, verdict, text, subject_hash, flags } => {
+            Command::Reviewer(Reviewer::Remove(c)) => {
+                ("task reviewer remove", reviewer::<ReviewerRemove>(c))
+            }
+            Command::StampPolicy {
+                task,
+                required,
+                flags,
+            } => (
+                "task stamp-policy",
+                write(flags, StampPolicyArgs { task, required }),
+            ),
+            Command::Stamp {
+                task,
+                verdict,
+                text,
+                subject_hash,
+                flags,
+            } => {
                 let answer = match (verdict, &text) {
-                    (Verdict::Changes, None) => Err(Failure::input("changes says what to change: add --text", "text")),
-                    _ => write(flags, StampArgs { task, verdict, text, subject_hash }),
+                    (Verdict::Changes, None) => Err(Failure::input(
+                        "changes says what to change: add --text",
+                        "text",
+                    )),
+                    _ => write(
+                        flags,
+                        StampArgs {
+                            task,
+                            verdict,
+                            text,
+                            subject_hash,
+                        },
+                    ),
                 };
                 ("task stamp", answer)
             }
-            Command::Comment { task, text, flags } => ("task comment", write(flags, CommentArgs { task, text })),
-            Command::Rules { task, node, timeout } => {
+            Command::Comment { task, text, flags } => {
+                ("task comment", write(flags, CommentArgs { task, text }))
+            }
+            Command::Rules {
+                task,
+                node,
+                timeout,
+            } => {
                 // One of the two: the rules where a task sits, or a task node's own.
                 let args = match (task, node) {
                     (Some(task), None) => Ok(RulesArgs::Task { task }),
@@ -653,7 +889,11 @@ impl Run for Task {
                 };
                 ("task rules", args.and_then(|args| read(&args, timeout)))
             }
-            Command::Wait(_) => return Pending::refuse("task wait"),
+            Command::Wait {
+                task,
+                until,
+                timeout,
+            } => ("task wait", wait(task, until, timeout.as_deref())),
         };
         envelope::print(name, answer)
     }
@@ -667,16 +907,31 @@ mod tests {
     fn tail_keeps_the_last_utf16_units() {
         let short = "ok".to_string();
         assert_eq!(tail(short.clone()), short);
-        let long = format!("{}{}", "é".repeat(10), "a".repeat(CHECK_OUTPUT_TAIL_MAX - 1));
-        assert_eq!(tail(long), format!("é{}", "a".repeat(CHECK_OUTPUT_TAIL_MAX - 1)));
+        let long = format!(
+            "{}{}",
+            "é".repeat(10),
+            "a".repeat(CHECK_OUTPUT_TAIL_MAX - 1)
+        );
+        assert_eq!(
+            tail(long),
+            format!("é{}", "a".repeat(CHECK_OUTPUT_TAIL_MAX - 1))
+        );
     }
 
     #[test]
     fn pairs_split_where_task_ts_does() {
-        assert_eq!(pair("claim", "s", "tests= a=b", Some(5)).ok(), Some(("tests".into(), "a=b".into())));
+        assert_eq!(
+            pair("claim", "s", "tests= a=b", Some(5)).ok(),
+            Some(("tests".into(), "a=b".into()))
+        );
         assert!(pair("claim", "s", "=x", Some(0)).is_err());
         assert!(pair("claim", "s", "x=", Some(1)).is_err());
         assert!(flagged(Side::Outgoing, "outgoing", "lint=1x").is_err());
-        assert_eq!(flagged(Side::Incoming, "incoming", "e2e=-2").map(|r| r.exit_code).ok(), Some(-2));
+        assert_eq!(
+            flagged(Side::Incoming, "incoming", "e2e=-2")
+                .map(|r| r.exit_code)
+                .ok(),
+            Some(-2)
+        );
     }
 }

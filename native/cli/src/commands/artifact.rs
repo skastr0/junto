@@ -301,21 +301,30 @@ enum Command {
 
 /// A flag's JSON, or the input error that names the flag.
 fn json(flag: &str, text: &str) -> Result<Value> {
-    serde_json::from_str(text)
-        .map_err(|_| Failure::input(format!("--{flag} must be JSON"), format!("--{flag}")).and("received", text))
+    serde_json::from_str(text).map_err(|_| {
+        Failure::input(format!("--{flag} must be JSON"), format!("--{flag}")).and("received", text)
+    })
 }
 
 /// Each value split on commas and trimmed. An empty entry stays, so main
 /// refuses it by name; only `whole_set` reads an empty flag as none.
 fn labels(given: &[String]) -> Vec<String> {
-    given.iter().flat_map(|one| one.split(',')).map(|one| one.trim().to_string()).collect()
+    given
+        .iter()
+        .flat_map(|one| one.split(','))
+        .map(|one| one.trim().to_string())
+        .collect()
 }
 
 /// `--set` names the whole set, and `--set ''` clears it; None when left out.
 fn whole_set(given: &[String]) -> Option<Vec<String>> {
     (!given.is_empty()).then(|| {
         let set = labels(given);
-        if set.iter().all(String::is_empty) { Vec::new() } else { set }
+        if set.iter().all(String::is_empty) {
+            Vec::new()
+        } else {
+            set
+        }
     })
 }
 
@@ -325,29 +334,81 @@ fn named(given: &[String]) -> Option<Vec<String>> {
 }
 
 /// At most one of --markdown, --url and --body, as main's BodyInput.
-fn body(BodyFlags { markdown, url, body }: BodyFlags) -> Result<Option<Body>> {
+fn body(
+    BodyFlags {
+        markdown,
+        url,
+        body,
+    }: BodyFlags,
+) -> Result<Option<Body>> {
     match (markdown, url, body) {
         (None, None, None) => Ok(None),
         (Some(markdown), None, None) => Ok(Some(Body::Markdown(markdown))),
         (None, Some(url), None) => Ok(Some(Body::Url(url))),
         (None, None, Some(body)) => json("body", &body).map(|body| Some(Body::Json(body))),
-        _ => Err(Failure::input("name one of --markdown, --url and --body", "--body")),
+        _ => Err(Failure::input(
+            "name one of --markdown, --url and --body",
+            "--body",
+        )),
     }
 }
 
 impl Run for Artifact {
     fn run(self) -> ExitCode {
         let (name, answer) = match self.command {
-            Command::List { node, kind, archived, label, limit, timeout } => {
-                ("artifact list", read(&ListArgs { node, kind, limit, archived, labels: labels(&label) }, timeout))
-            }
-            Command::Show { artifact, version, timeout } => {
-                ("artifact show", read(&ShowArgs { artifact, version }, timeout))
-            }
-            Command::History { artifact, limit, before, timeout } => {
-                ("artifact history", read(&HistoryArgs { artifact, limit, before }, timeout))
-            }
-            Command::Create { title, kind, node, task, label, body: given, flags } => {
+            Command::List {
+                node,
+                kind,
+                archived,
+                label,
+                limit,
+                timeout,
+            } => (
+                "artifact list",
+                read(
+                    &ListArgs {
+                        node,
+                        kind,
+                        limit,
+                        archived,
+                        labels: labels(&label),
+                    },
+                    timeout,
+                ),
+            ),
+            Command::Show {
+                artifact,
+                version,
+                timeout,
+            } => (
+                "artifact show",
+                read(&ShowArgs { artifact, version }, timeout),
+            ),
+            Command::History {
+                artifact,
+                limit,
+                before,
+                timeout,
+            } => (
+                "artifact history",
+                read(
+                    &HistoryArgs {
+                        artifact,
+                        limit,
+                        before,
+                    },
+                    timeout,
+                ),
+            ),
+            Command::Create {
+                title,
+                kind,
+                node,
+                task,
+                label,
+                body: given,
+                flags,
+            } => {
                 let create = body(given).map(|body| CreateArgs {
                     artifact_id: ulid::Ulid::new().to_string(),
                     kind,
@@ -357,37 +418,106 @@ impl Run for Artifact {
                     task_ids: task,
                     labels: labels(&label),
                 });
-                ("artifact create", create.and_then(|create| write(flags, create)))
+                (
+                    "artifact create",
+                    create.and_then(|create| write(flags, create)),
+                )
             }
-            Command::Edit { artifact, base, body: given, patch, flags } => {
+            Command::Edit {
+                artifact,
+                base,
+                body: given,
+                patch,
+                flags,
+            } => {
                 let edit = body(given).and_then(|body| {
-                    let patches = patch.as_deref().map(|patch| json("patch", patch)).transpose()?;
-                    Ok(EditArgs { artifact, base_version: base, body, patches })
+                    let patches = patch
+                        .as_deref()
+                        .map(|patch| json("patch", patch))
+                        .transpose()?;
+                    Ok(EditArgs {
+                        artifact,
+                        base_version: base,
+                        body,
+                        patches,
+                    })
                 });
                 ("artifact edit", edit.and_then(|edit| write(flags, edit)))
             }
-            Command::Label { artifact, set, add, remove, flags } => {
-                let label = LabelArgs { artifact, set: whole_set(&set), add: named(&add), remove: named(&remove) };
+            Command::Label {
+                artifact,
+                set,
+                add,
+                remove,
+                flags,
+            } => {
+                let label = LabelArgs {
+                    artifact,
+                    set: whole_set(&set),
+                    add: named(&add),
+                    remove: named(&remove),
+                };
                 ("artifact label", write(flags, label))
             }
-            Command::Colour { label, colour, node, flags } => {
+            Command::Colour {
+                label,
+                colour,
+                node,
+                flags,
+            } => {
                 let colour = (colour != Colour::None).then_some(colour);
-                ("artifact colour", write(flags, ColourArgs { label, colour, node }))
+                (
+                    "artifact colour",
+                    write(
+                        flags,
+                        ColourArgs {
+                            label,
+                            colour,
+                            node,
+                        },
+                    ),
+                )
             }
-            Command::Comment { artifact, text, anchor, flags } => {
+            Command::Comment {
+                artifact,
+                text,
+                anchor,
+                flags,
+            } => {
                 let comment = anchor
                     .as_deref()
                     .map(|anchor| json("anchor", anchor))
                     .transpose()
-                    .map(|anchor| CommentArgs { artifact, text, anchor });
-                ("artifact comment", comment.and_then(|comment| write(flags, comment)))
+                    .map(|anchor| CommentArgs {
+                        artifact,
+                        text,
+                        anchor,
+                    });
+                (
+                    "artifact comment",
+                    comment.and_then(|comment| write(flags, comment)),
+                )
             }
-            Command::Archive(OneArtifact { artifact, flags }) => {
-                ("artifact archive", write(flags, One::<Archive> { artifact, op: PhantomData }))
-            }
-            Command::Restore(OneArtifact { artifact, flags }) => {
-                ("artifact restore", write(flags, One::<Restore> { artifact, op: PhantomData }))
-            }
+            Command::Archive(OneArtifact { artifact, flags }) => (
+                "artifact archive",
+                write(
+                    flags,
+                    One::<Archive> {
+                        artifact,
+                        op: PhantomData,
+                    },
+                ),
+            ),
+            Command::Restore(OneArtifact { artifact, flags }) => (
+                "artifact restore",
+                write(
+                    flags,
+                    One::<Restore> {
+                        artifact,
+                        op: PhantomData,
+                    },
+                ),
+            ),
         };
         envelope::print(name, answer)
     }
