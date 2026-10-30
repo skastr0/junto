@@ -28,6 +28,7 @@ import type { ContentOwner } from "../content/manifest";
 import { ContentService } from "../content/service";
 import { contentStageOwner } from "../content/stage";
 import { ModelService } from "../model/service";
+import { operatorPageOf, type OperatorPage } from "./operator-page";
 import { postSubjectComment, type StagedPageShot } from "./subject-comment";
 
 type Refused = { readonly ok: false; readonly code: "invalid" | "failed"; readonly message: string };
@@ -92,19 +93,8 @@ const stillStaged = (shot: Staged): Effect.Effect<boolean> =>
     ),
   );
 
-/** The page a session shows: its canvas and node. */
-export type OperatorPage = { readonly canvasName: string; readonly nodeId: string };
-
 /** The shot of a box the operator drew, as the session took it. */
 export type DrawnPageShot = NonNullable<Extract<Awaited<ReturnType<BrowserSessionService["drawBox"]>>, { readonly ok: true }>["data"]>;
-
-/** The page a session shows, read where the session lives (main). */
-export const operatorPageOf = (sessions: Pick<BrowserSessionService, "state">, sessionId: string): OperatorPage | undefined => {
-  const session = sessions.state(sessionId);
-  if (!session.ok) return undefined;
-  const ref = parseNodeRef(session.data.ref);
-  return ref.ok ? { canvasName: ref.value.canvasName, nodeId: session.data.nodeId } : undefined;
-};
 
 /** What the operator is told of a refusal: the writer's own words when they are about the box, never the store's. */
 const toldOf = (failure: WorkErrorBody): Refused =>

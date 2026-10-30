@@ -15,10 +15,10 @@ import {
   releaseStagedShots,
   stageOperatorPageBox,
   type DrawnPageShot,
-  type OperatorPage,
   type OperatorPageBoxCommented,
   type OperatorPageBoxDrawn,
 } from "../../junto/work/page-box-comment";
+import type { OperatorPage } from "../../junto/work/operator-page";
 import { coreOps, type CoreOp } from "../ops";
 
 declare module "../ops" {

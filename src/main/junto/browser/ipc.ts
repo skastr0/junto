@@ -21,7 +21,8 @@ import {
 import type { BrowserSessionService } from "./sessions";
 import { core } from "../../core-process/main-client";
 import type { PageTargetResolver } from "./page-target";
-import { operatorPageOf, type OperatorPageBoxDrawn } from "../work/page-box-comment";
+import type { OperatorPageBoxDrawn } from "../work/page-box-comment";
+import { operatorPageOf } from "../work/operator-page";
 import { mainAuthoringGate } from "../main-authoring-gate";
 
 /** The most of a box comment's text the chrome may send; the writer bounds it again. */
