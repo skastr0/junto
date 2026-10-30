@@ -6,6 +6,7 @@
 mod attach;
 mod batch;
 mod commands;
+mod duration;
 mod envelope;
 mod error;
 mod features;
