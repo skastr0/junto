@@ -7,7 +7,7 @@ import {
   RemoteHostsError,
   type RemoteHost as RemoteHostT,
 } from "@shared/remote-hosts";
-import { SshTransport, type SshTransportShape } from "../ssh";
+import { SshTransport, type SshTransportShape } from "../ssh/service";
 import {
   runRemoteHostsDoctor,
   runRemoteHostsDoctorSnapshot,
