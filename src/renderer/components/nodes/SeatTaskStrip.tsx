@@ -19,7 +19,7 @@ export function SeatTaskStrip({ nodeId }: { readonly nodeId: string }) {
   const more = held.tasks.length - 1;
   return (
     <div
-      className="mt-1 flex items-center gap-1 truncate text-caption leading-snug"
+      className="seat-task flex items-center gap-1 truncate text-caption leading-snug"
       style={{ color: INK }}
       title={held.tasks.map((task) => `${task.label} ${task.title}`).join("\n")}
       data-testid="seat-task"

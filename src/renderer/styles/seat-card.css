@@ -18,3 +18,9 @@ html:not([data-surface-motion="paused"]) .junto-node:has(.junto-mark[data-mark-v
 html:not([data-surface-motion="paused"]) .react-flow__node:hover .junto-node:has(.junto-mark[data-mark-visible] > .junto-mark__part) { transform: translate3d(0, -1px, 0); }
 html:not([data-surface-motion="paused"]) .react-flow__node.dragging .junto-node:has(.junto-mark[data-mark-visible] > .junto-mark__part) { transform: translateZ(0); }
 .junto-node--bare .junto-node__body { overflow: visible; }
+
+/* The task a seat holds is one more line under its state, at the same
+   leading: the state mark's 20px box (sized for a Tasks node row) shrinks to
+   the line and to what it holds, so the row is no taller than its text and
+   the mark starts where the state line does. */
+.seat-task .task-state__mark { width: auto; min-width: 7px; height: 1lh; }
