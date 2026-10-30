@@ -154,6 +154,14 @@ it("rejects an envelope's unknown fields, channels and absent payload", () => {
   ]) expect(() => decodeLinkFrame(frame)).toThrow();
 });
 
+it("names the files channel in a frame and closes on it while no handler is bound", async () => {
+  expect(() => decodeLinkFrame({ type: "request", id: "one", op: "op", channel: "files", payload: {} })).not.toThrow();
+  const f = raw();
+  f.send({ type: "hello", ...hello("mini") }); await f.session.ready;
+  f.send({ type: "request", id: "files-1", op: "op-files", channel: "files", payload: {} });
+  await f.session.closed;
+});
+
 class SeatSpawnFailed extends Schema.TaggedError<SeatSpawnFailed>()("SeatSpawnFailed", { seatId: Schema.String, exitCode: Schema.Number, message: Schema.String }) {}
 
 it("answers a failed request with its real cause, typed, never a generic phrase", async () => {

@@ -3,7 +3,7 @@ import { EncodedCauses, EncodedFailure, failureSentence, type EncodedCause } fro
 import type { InstallationId } from "@shared/installation-id";
 import { describeCause, causeChain } from "../failure-encode";
 
-export type LinkChannel = "rows" | "seats" | "status" | "inventory" | "settings" | "native-config" | "content" | "consensus" | "authority";
+export type LinkChannel = "rows" | "seats" | "status" | "inventory" | "settings" | "native-config" | "content" | "consensus" | "authority" | "files";
 
 export interface LinkHello {
   readonly build: string;
