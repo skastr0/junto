@@ -1,4 +1,5 @@
-import type { Effect } from "effect";
+import { Effect } from "effect";
+import type { Canvas } from "@shared/model";
 import type { SqlClient } from "effect/unstable/sql";
 import type { ModelService } from "./junto/model/service";
 import type { MachineRepository } from "./junto/machines/repository";
@@ -27,4 +28,51 @@ export const coreRunner: CoreRunner = {
   runPromise: (effect) => installed === undefined
     ? Promise.reject(new Error("Junto core is not running"))
     : installed.runPromise(effect),
+};
+
+/**
+ * The few reads code shared by both processes needs from the core: a canvas,
+ * this machine's name, its vault scope. In the core they run on its runtime;
+ * in main, with the core in its own process, main installs reads that ask
+ * the core by name, since main then has no runtime to run them on.
+ */
+export interface CoreReads {
+  readonly canvas: (canvasName: string) => Promise<Canvas | undefined>;
+  readonly machineName: () => Promise<string>;
+  readonly vaultScope: () => Promise<{ readonly vault: string } | undefined>;
+}
+
+const runnerReads: CoreReads = {
+  canvas: async (canvasName) => {
+    const { ModelService } = await import("./junto/model/service");
+    const read = await coreRunner.runPromise(Effect.flatMap(ModelService, (model) => model.canvas(canvasName)).pipe(Effect.result));
+    return read._tag === "Success" ? read.success : undefined;
+  },
+  machineName: async () => {
+    const { MachineRepository } = await import("./junto/machines/repository");
+    return coreRunner.runPromise(Effect.flatMap(MachineRepository, (machine) => machine.machineName));
+  },
+  vaultScope: async () => {
+    const [{ MachineRepository }, { makeVaultTokens }] = await Promise.all([
+      import("./junto/machines/repository"), import("./junto/vault/repository"),
+    ]);
+    const record = await coreRunner.runPromise(Effect.gen(function* () {
+      const machine = yield* MachineRepository;
+      const tokens = yield* makeVaultTokens;
+      return yield* tokens.get(yield* machine.machineName);
+    }) as Effect.Effect<{ readonly vault: string } | undefined, unknown, CoreServices>);
+    return record === undefined ? undefined : { vault: record.vault };
+  },
+};
+let reads: CoreReads = runnerReads;
+
+/** Main only, with the core in its own process: answer these reads from the core. */
+export const installCoreReads = (installedReads: CoreReads): void => {
+  reads = installedReads;
+};
+
+export const coreReads: CoreReads = {
+  canvas: (canvasName) => reads.canvas(canvasName),
+  machineName: () => reads.machineName(),
+  vaultScope: () => reads.vaultScope(),
 };

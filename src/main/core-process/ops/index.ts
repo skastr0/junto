@@ -18,3 +18,4 @@ import "./ipc-status";
 import "./ipc-content";
 import "./ipc-watch";
 import "./ipc-view-state";import "./ipc-library";
+import "./core-reads";

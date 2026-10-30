@@ -1,3 +1,4 @@
+import { installCoreReads } from "../core-runner";
 import { AppRuntime } from "../runtime";
 import { inProcessCore, type CoreClient } from "./client";
 import "./ops/index";
@@ -14,7 +15,15 @@ let current: CoreClient = inProcessCore(AppRuntime);
 
 export const core: CoreClient = { call: (name, input) => current.call(name, input) };
 
-/** Boot only: route every call to the core process. */
+/**
+ * Boot only: route every call to the core process. Main then has no core
+ * runtime, so the shared reads (`coreReads`) ask the core by name too.
+ */
 export const useCoreClient = (client: CoreClient): void => {
   current = client;
+  installCoreReads({
+    canvas: (canvasName) => core.call("core.canvas", { canvasName }),
+    machineName: () => core.call("core.machineName", {}),
+    vaultScope: () => core.call("core.vaultScope", {}),
+  });
 };

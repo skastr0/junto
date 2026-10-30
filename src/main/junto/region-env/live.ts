@@ -28,27 +28,16 @@ const resolution = makeRegionEnvironmentResolution({
 
 const readDoc = async (canvasName: string): Promise<Canvas | undefined> => {
   try {
-    const [{ coreRunner }, { ModelService }] = await Promise.all([
-      import("../../core-runner"),
-      import("../model/service"),
-    ]);
-    const read = await coreRunner.runPromise(
-      Effect.gen(function* () {
-        const model = yield* ModelService;
-        return yield* model.canvas(canvasName).pipe(Effect.result);
-      }),
-    );
-    return read._tag === "Success" ? read.success : undefined;
+    const { coreReads } = await import("../../core-runner");
+    return await coreReads.canvas(canvasName);
   } catch {
     return undefined;
   }
 };
 
 const hostId = async (): Promise<string> => {
-  const [{ coreRunner }, { MachineRepository }] = await Promise.all([
-    import("../../core-runner"), import("../machines/repository"),
-  ]);
-  return coreRunner.runPromise(Effect.flatMap(MachineRepository, (machine) => machine.machineName));
+  const { coreReads } = await import("../../core-runner");
+  return coreReads.machineName();
 };
 
 let service: RegionEnvironmentService | undefined;

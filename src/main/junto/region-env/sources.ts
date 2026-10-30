@@ -420,15 +420,10 @@ export const liveVaultDeps = (enabled: boolean): Pick<SourceDeps, "vault"> =>
 
 /** This machine's own scope record and token file; the core runtime is imported lazily, as `./live.ts` does. */
 const ownVaultToken = async (): Promise<{ readonly vault: string; readonly token: string } | undefined> => {
-  const [{ coreRunner }, { MachineRepository }, { makeVaultTokens }, { readVaultToken }, { resolveJuntoHome }] = await Promise.all([
-    import("../../core-runner"), import("../machines/repository"), import("../vault/repository"),
-    import("../vault/token-file"), import("@shared/junto-home"),
+  const [{ coreReads }, { readVaultToken }, { resolveJuntoHome }] = await Promise.all([
+    import("../../core-runner"), import("../vault/token-file"), import("@shared/junto-home"),
   ]);
-  const record = await coreRunner.runPromise(Effect.gen(function* () {
-    const machine = yield* MachineRepository;
-    const tokens = yield* makeVaultTokens;
-    return yield* tokens.get(yield* machine.machineName);
-  }));
+  const record = await coreReads.vaultScope();
   if (record === undefined) return undefined;
   const token = await readVaultToken(resolveJuntoHome());
   return token === undefined ? undefined : { vault: record.vault, token };

@@ -1,6 +1,5 @@
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { Effect } from "effect";
 import type { FilesNodeRef } from "@shared/files";
 import { resolveJuntoHome } from "@shared/junto-home";
 import type { FilesNodeFacts } from "./service";
@@ -13,15 +12,9 @@ import type { FilesNodeFacts } from "./service";
  */
 
 export const nodeFacts = async (ref: FilesNodeRef): Promise<FilesNodeFacts | undefined> => {
-  const [{ coreRunner }, { ModelService }] = await Promise.all([
-    import("../../core-runner"),
-    import("../model/service"),
-  ]);
-  const read = await coreRunner.runPromise(
-    Effect.flatMap(ModelService, (model) => model.canvas(ref.canvas)).pipe(Effect.result),
-  );
-  if (read._tag !== "Success") return undefined;
-  const node = read.success.nodes.get(ref.node);
+  const { coreReads } = await import("../../core-runner");
+  const canvas = await coreReads.canvas(ref.canvas);
+  const node = canvas?.nodes.get(ref.node);
   return node?.kind === "files" ? { host: node.host, root: node.root } : undefined;
 };
 
@@ -36,9 +29,6 @@ export const deny = (): Promise<ReadonlyArray<string>> => {
 };
 
 export const machineName = async (): Promise<string> => {
-  const [{ coreRunner }, { MachineRepository }] = await Promise.all([
-    import("../../core-runner"),
-    import("../machines/repository"),
-  ]);
-  return coreRunner.runPromise(Effect.flatMap(MachineRepository, (machine) => machine.machineName));
+  const { coreReads } = await import("../../core-runner");
+  return coreReads.machineName();
 };
