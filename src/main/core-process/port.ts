@@ -1,3 +1,4 @@
+import { Effect, Schema } from "effect";
 import { CoreCallError, runCoreOp, type CoreClient, type CoreFailure, type CoreRunner } from "./client";
 import { HostCallError, runHostOp, type HostClient, type HostFailure } from "./host-ops";
 
@@ -33,22 +34,30 @@ export type CoreMessage =
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
+/** A message the port refused: its value could not be cloned, or the port is gone. */
+class PortPostFailed extends Schema.TaggedError<PortPostFailed>()("PortPostFailed", { message: Schema.String }) {}
+
+const post = (port: CorePort, message: CoreMessage): Effect.Effect<void, PortPostFailed> =>
+  Effect.try({ try: () => port.post(message), catch: (cause) => new PortPostFailed({ message: messageOf(cause) }) });
+
 type AnswerMessage = Extract<CoreMessage, { readonly kind: "answer" | "hostAnswer" }>;
 
 /**
  * Post an answer, or, when its value cannot be cloned across the port, a
  * failure in its place, so the caller hears back instead of waiting forever.
+ * Run at the port's edge, where the message handler is plain JavaScript.
  */
-const postAnswer = (port: CorePort, answer: AnswerMessage): void => {
-  try {
-    port.post(answer);
-  } catch (error) {
-    const failure = { tag: "CoreAnswerNotCloneable", message: messageOf(error) };
-    port.post(answer.kind === "answer"
-      ? { kind: "answer", id: answer.id, ok: false, failure }
-      : { kind: "hostAnswer", id: answer.id, ok: false, failure });
-  }
-};
+const postAnswer = (port: CorePort, answer: AnswerMessage): void =>
+  post(port, answer).pipe(
+    Effect.catchTag("PortPostFailed", ({ message }) => {
+      const failure = { tag: "CoreAnswerNotCloneable", message };
+      return post(port, answer.kind === "answer"
+        ? { kind: "answer", id: answer.id, ok: false, failure }
+        : { kind: "hostAnswer", id: answer.id, ok: false, failure });
+    }),
+    Effect.catchTag("PortPostFailed", ({ message }) => Effect.logWarning(`core port: an answer could not be posted: ${message}`)),
+    Effect.runSync,
+  );
 
 /** Main's side: calls go out, answers and pushes come back; the core's host calls are answered here. */
 export type PortCoreClient = CoreClient & {
@@ -84,12 +93,14 @@ export const portCore = (port: CorePort): PortCoreClient => {
       new Promise((resolve, reject) => {
         const id = nextId++;
         pending.set(id, { name, resolve, reject });
-        try {
-          port.post({ kind: "call", id, name, input });
-        } catch (error) {
-          pending.delete(id);
-          reject(new CoreCallError(name, "CoreInputNotCloneable", messageOf(error)));
-        }
+        post(port, { kind: "call", id, name, input }).pipe(
+          Effect.catchTag("PortPostFailed", ({ message }) =>
+            Effect.sync(() => {
+              pending.delete(id);
+              reject(new CoreCallError(name, "CoreInputNotCloneable", message));
+            })),
+          Effect.runSync,
+        );
       }),
     onPush: (channel, listener) => {
       const set = listeners.get(channel) ?? new Set();
