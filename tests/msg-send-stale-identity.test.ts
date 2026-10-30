@@ -1,8 +1,9 @@
 /**
  * A seat whose identity goes stale while its mail is being written gets the
  * truth back over the real work-control socket: mail that landed is answered
- * ok, once, so an agent never retries it into a second copy. Every store,
- * home and socket lives under a temp root.
+ * ok, once, so an agent never retries it into a second copy, and a send or
+ * reply refused as stale has written nothing at all. Every store, home and
+ * socket lives under a temp root.
  */
 import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -32,6 +33,21 @@ import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 
 const CANVAS = "stale-send";
 
+// Runs inside the reads every send and reply make before they write.
+let duringPrelude: (() => void) | undefined;
+
+/** The live WorkService, with its prelude reads calling `duringPrelude` first. */
+const PreludeHookLive = Layer.effect(WorkService, Effect.gen(function* () {
+  const work = yield* WorkService;
+  return {
+    ...work,
+    readMailbox: (canvas, nodeId) =>
+      Effect.sync(() => duringPrelude?.()).pipe(Effect.andThen(work.readMailbox(canvas, nodeId))),
+    readMailMessage: (canvas, nodeId, messageId) =>
+      Effect.sync(() => duringPrelude?.()).pipe(Effect.andThen(work.readMailMessage(canvas, nodeId, messageId))),
+  } satisfies typeof WorkService.Service;
+}));
+
 const makeRuntime = (root: string) => {
   const repositoriesLive = Layer.provideMerge(
     Layer.mergeAll(
@@ -47,7 +63,7 @@ const makeRuntime = (root: string) => {
     ),
   );
   const canvasesLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
-  const workLive = Layer.provideMerge(WorkLive, canvasesLive);
+  const workLive = Layer.provideMerge(Layer.provide(PreludeHookLive, WorkLive), canvasesLive);
   return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneAllPlaying));
 };
 
@@ -95,6 +111,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  duringPrelude = undefined;
   await server.close();
   await runtime.dispose();
   await rm(root, { recursive: true, force: true });
@@ -144,5 +161,36 @@ describe("a send whose identity goes stale after its mail is written", () => {
     expect(refused.ok).toBe(false);
     expect(refused.error.type).toBe("AuthError");
     expect(await mailbox("reader")).toEqual([]);
+  });
+});
+
+describe("a send or reply whose identity goes stale before it writes", () => {
+  const isStale = (answer: any) => {
+    expect(answer.ok).toBe(false);
+    expect(answer.error.type).toBe("AuthError");
+    expect(answer.error.message).toMatch(/identity became stale/);
+  };
+
+  it("msg send in a thread is refused at its write and nothing lands", async () => {
+    const first = await call("sender", "msg.send", { target: "reader", text: "first" });
+    expect(first.ok).toBe(true);
+    duringPrelude = () => server.credentials.revoke(tokens.sender!, "offboarded");
+
+    isStale(await call("sender", "msg.send", { target: "reader", text: "never lands", threadId: first.data.messageId }));
+
+    expect((await mailbox("reader")).map((message) => message.messageId)).toEqual([first.data.messageId]);
+  });
+
+  it("msg reply is refused at its write: no reply, and the parent stays unread", async () => {
+    const asked = await call("sender", "msg.send", { target: "reader", text: "status?" });
+    expect(asked.ok).toBe(true);
+    duringPrelude = () => server.credentials.revoke(tokens.reader!, "offboarded");
+
+    isStale(await call("reader", "msg.reply", { target: "sender", text: "never lands", inReplyTo: asked.data.messageId }));
+
+    expect(await mailbox("sender")).toEqual([]);
+    const [parent] = await mailbox("reader");
+    expect(parent?.messageId).toBe(asked.data.messageId);
+    expect(parent?.metadata?.readAt).toBeUndefined();
   });
 });
