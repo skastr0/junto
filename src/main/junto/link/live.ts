@@ -158,7 +158,7 @@ export const makeMachineLink = (options: { readonly build: string; readonly home
         const output = new Writable({ highWaterMark: 64 * 1024, write: (chunk: Buffer, _encoding, callback) => {
           void run(lease.write(chunk)).then(() => callback(), (cause) => callback(toLinkError(cause, host.id) as Error));
         } });
-        session = open({ readable: input, writable: output, self: own, admit: admission(host, setupId), channels, run, expected: host.id }, true);
+        session = open({ readable: input, writable: output, self: own, admit: admission(host, setupId), channels, run, expected: host.id, ...(bound === undefined ? {} : { keyBound: true as const }) }, true);
         const held = session;
         // The first cause wins: when the process ends, the link closes with its exit and stderr tail.
         const processEnded = Effect.gen(function* () {

@@ -141,6 +141,12 @@ export const linkClosed = (input: {
 /** Identity comes only from an admitted hello, never from a channel payload. */
 export interface LinkChannelContext {
   readonly peer: LinkHello;
+  /**
+   * The peer is proven by its link key: this end accepted it through the
+   * relay's opener, or dialed it over a bound route. Fleet consensus admits
+   * nothing else.
+   */
+  readonly keyBound: boolean;
   readonly sessionId: string;
   readonly signal: AbortSignal;
   /** The operation the current request belongs to; absent outside a request. */

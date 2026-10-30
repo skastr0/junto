@@ -13,7 +13,7 @@ import { afterEach, expect, it } from "vitest";
 import { relayMachineLink } from "../src/cli/link";
 import { makeLinkSession } from "../src/main/junto/link/session";
 import { LinkHelloSchema } from "../src/main/junto/link/protocol";
-import type { LinkHello } from "../src/main/junto/link/types";
+import type { LinkChannels, LinkHello } from "../src/main/junto/link/types";
 import { InstallationId } from "../src/shared/installation-id";
 
 const BUILD = "d".repeat(64);
@@ -105,4 +105,39 @@ it("writes the opener line before any byte from the far end", async () => {
     await finished;
     expect(Buffer.concat(received).toString()).toBe(`${opener("mini-install")}\nfar end bytes\n`);
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
+/** A channel that tells each opened link's context, as fleet consensus reads it. */
+const watching = (seen: Array<boolean>): LinkChannels => {
+  const none = () => { throw new Error("no payloads on this channel"); };
+  return { consensus: { decodeRequest: none, decodeResponse: none, decodeEvent: none, opened: (context) => Effect.sync(() => { seen.push(context.keyBound); }) } };
+};
+const pair = (input: { readonly first: ReadonlyArray<string>; readonly dialerKeyBound?: true }) => {
+  const toAccepted = new PassThrough();
+  const toDialer = new PassThrough();
+  for (const line of input.first) toAccepted.write(`${line}\n`);
+  const accepting: Array<boolean> = [];
+  const dialing: Array<boolean> = [];
+  const accepted = makeLinkSession({ readable: toAccepted, writable: toDialer, self: hello("vps"), channels: watching(accepting), run: Effect.runPromise, acceptsOpener: true, admit: async () => {} });
+  const dialer = makeLinkSession({ readable: toDialer, writable: toAccepted, self: hello("mini"), channels: watching(dialing), run: Effect.runPromise, admit: async () => {},
+    ...(input.dialerKeyBound === undefined ? {} : { keyBound: input.dialerKeyBound }) });
+  opened.push(async () => { await Promise.all([accepted.close(), dialer.close()]); });
+  const both = async () => {
+    await Promise.all([accepted.ready, dialer.ready]);
+    await expect.poll(() => accepting.length + dialing.length).toBe(2);
+    return { accepting: accepting[0], dialing: dialing[0] };
+  };
+  return { both };
+};
+
+it("calls a link key-bound at the end that accepted it through the relay's opener", async () => {
+  expect(await pair({ first: [opener("mini-install")] }).both()).toEqual({ accepting: true, dialing: false });
+});
+
+it("calls a link key-bound at the end that dialed it over a bound route", async () => {
+  expect(await pair({ first: [opener("mini-install")], dialerKeyBound: true }).both()).toEqual({ accepting: true, dialing: true });
+});
+
+it("never calls a link key-bound when no key named the peer", async () => {
+  expect(await pair({ first: [] }).both()).toEqual({ accepting: false, dialing: false });
 });

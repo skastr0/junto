@@ -44,6 +44,8 @@ export interface LinkSessionOptions {
    * A connection this end dialed never takes one.
    */
   readonly acceptsOpener?: true;
+  /** A connection this end dialed over a bound route: its own key, strict against the host key pinned at setup. */
+  readonly keyBound?: true;
   /**
    * Told once, synchronously, as the hello is admitted and before any channel
    * opens. A throw closes this link with that cause and opens no channel.
@@ -160,7 +162,7 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
   };
   const context = (operationId?: string): LinkChannelContext => {
     if (peer === undefined) throw new LinkUnavailable({ reason: "not-admitted", message: "The link hello is not admitted yet" });
-    return { peer, sessionId, signal: controller.signal, ...(operationId === undefined ? {} : { operationId }),
+    return { peer, keyBound: options.keyBound === true || opener !== undefined, sessionId, signal: controller.signal, ...(operationId === undefined ? {} : { operationId }),
       sendEvent: (channel, payload) => Effect.tryPromise({ try: () => sendEvent(channel, payload), catch: classify }),
       request: (channel, payload, op) => Effect.tryPromise({ try: () => request(channel, payload, op), catch: classify }),
       close: cause => Effect.promise(() => close(cause)),
