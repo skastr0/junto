@@ -15,6 +15,14 @@ const knownNames = (known: ReadonlyArray<string>): ReadonlyArray<string> =>
   [...new Set(known.map((name) => name.trim()).filter((name) => name !== ""))].sort((a, b) => b.length - a.length);
 
 /**
+ * A head that lost its tag opens with a capital: "operator request for 0.11.6"
+ * reads as a sentence once "From product-lead," is gone. Only a plain word is
+ * capitalised, so an address or an identifier that opens the line is kept.
+ */
+export const sentenceCase = (text: string): string =>
+  /^[a-z]{3,}(?=[\s,:]|\.(?:\s|$)|$)/u.test(text) ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+
+/**
  * The mail's words without the tag that repeats who wrote them. `known` is
  * the names drawn beside the words: the message's author in a thread, the
  * thread's participants in a list row. A name is dropped only when the mail
@@ -36,7 +44,7 @@ export const stripAuthorPreamble = (text: string, known: ReadonlyArray<string>):
     const match = tag.exec(text);
     if (match === null) continue;
     const rest = text.slice(match[0].length);
-    return rest.trim() === "" ? text : rest;
+    return rest.trim() === "" ? text : sentenceCase(rest);
   }
   return text;
 };
@@ -88,18 +96,14 @@ export const idSegments = (text: string): ReadonlyArray<IdSegment> => {
 };
 
 /**
- * A head that lost its tag opens with a capital: "operator request for 0.11.6"
- * reads as a sentence once "From product-lead," is gone. Only a plain word is
- * capitalised, so an address or an identifier that opens the line is kept.
- */
-const sentenceCase = (text: string): string =>
-  /^[a-z]{3,}(?=\s|,|:)/u.test(text) ? text.charAt(0).toUpperCase() + text.slice(1) : text;
-
-/**
  * A list row's or a header's line, as the runs it is drawn from: the tags gone,
  * each long id its own run so the surface can draw it as the token whose whole
  * value stays in the document. Never a cut string: a row is a button whose
  * name is its text, and copy and a screen reader must get the whole id.
  */
-export const threadHeadline = (text: string, known: ReadonlyArray<string>): ReadonlyArray<IdSegment> =>
-  idSegments(sentenceCase(stripHeadTag(stripAuthorPreamble(text, known), known)));
+export const threadHeadline = (text: string, known: ReadonlyArray<string>): ReadonlyArray<IdSegment> => {
+  const stripped = stripHeadTag(stripAuthorPreamble(text, known), known);
+  // Only a line that lost its tag is opened with a capital; the writer's own
+  // first word is never touched.
+  return idSegments(stripped === text ? text : sentenceCase(stripped));
+};

@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import {
   idSegments,
+  sentenceCase,
   stripAuthorPreamble,
   stripHeadTag,
   threadHeadline,
@@ -22,22 +23,22 @@ const ULID = "01M65NSRWSB3PCSBAG7N44SHXN";
 describe("stripAuthorPreamble", () => {
   it("drops the tag when it names the author already drawn with the words", () => {
     expect(stripAuthorPreamble("From product-lead, operator request for 0.11.6: a readability upgrade", ["product-lead"])).toBe(
-      "operator request for 0.11.6: a readability upgrade",
+      "Operator request for 0.11.6: a readability upgrade",
     );
     expect(stripAuthorPreamble("From product-lead: thorough review, thank you.", ["product-lead"])).toBe(
-      "thorough review, thank you.",
+      "Thorough review, thank you.",
     );
     expect(stripAuthorPreamble("From product-onboarding. The first run asks three things.", ["product-onboarding"])).toBe(
       "The first run asks three things.",
     );
     expect(stripAuthorPreamble("product-modals: holding. Nothing of mine is uncommitted.", ["product-modals"])).toBe(
-      "holding. Nothing of mine is uncommitted.",
+      "Holding. Nothing of mine is uncommitted.",
     );
     expect(stripAuthorPreamble("product-modals to product-settings: the cleanup is yours", ["product-modals"])).toBe(
-      "the cleanup is yours",
+      "The cleanup is yours",
     );
     expect(stripAuthorPreamble("[from product-design] plan approved as written.", ["product-design"])).toBe(
-      "plan approved as written.",
+      "Plan approved as written.",
     );
   });
 
@@ -58,6 +59,14 @@ describe("stripAuthorPreamble", () => {
     expect(stripAuthorPreamble("[@cli-lead](junto://canvas/factory?node=seat-cli) the review is yours", ["cli-lead"])).toBe(
       "[@cli-lead](junto://canvas/factory?node=seat-cli) the review is yours",
     );
+  });
+});
+
+describe("sentenceCase", () => {
+  it("capitalises a plain opening word and leaves an address or identifier alone", () => {
+    expect(sentenceCase("operator request for 0.11.6")).toBe("Operator request for 0.11.6");
+    expect(sentenceCase("junto.db is the only store")).toBe("junto.db is the only store");
+    expect(sentenceCase("@cli-lead read this")).toBe("@cli-lead read this");
   });
 });
 

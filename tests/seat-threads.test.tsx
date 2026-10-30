@@ -479,7 +479,7 @@ describe("the Threads popup", () => {
     change();
     await flush();
     const bubble = all("seat-threads-message")[0]!.querySelector(".seat-threads__prose")!;
-    expect(bubble.textContent).toContain("the list row leads with the words, not the tag.");
+    expect(bubble.textContent).toContain("The list row leads with the words, not the tag.");
     expect(bubble.textContent).not.toContain("product-lead:");
     // Render only: the mail main holds is unchanged, so unread counts read the same words.
     expect(state.messages.notes[0]?.text).toBe(text);
