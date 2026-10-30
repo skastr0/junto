@@ -576,9 +576,10 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
       const states = query.states ?? TASK_STATES.filter((state) => state !== "archived");
       if (states.length === 0) return { tasks: [], more: false };
       const after = query.after;
-      // Keys first, so the sort holds no bodies; then only the page's heads.
+      // Keys first, so the sort holds no bodies; then only the page's heads. By state the index
+      // holds every column the keys read; an assignee filter is the assignee index's.
       const keys = yield* sql<{ readonly task_id: string }>`
-        SELECT task_id FROM task_heads
+        SELECT task_id FROM task_heads ${sql.literal(query.assignee === undefined ? "INDEXED BY task_heads_by_state" : "")}
         WHERE canvas_name = ${canvasName}
           AND ${sql.in("node_id", query.nodeIds)}
           AND ${sql.in("state", states)}
