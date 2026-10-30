@@ -173,29 +173,3 @@ export const VIEW_CAPTURE_DESK_SCHEMA_SQL = `
   ) STRICT, WITHOUT ROWID;
 `;
 
-/** The node-scoped tables the model delete seam clears, by node and canvas. */
-export const VIEW_STATE_NODE_TABLES = [
-  "view_artifacts_filters",
-  "view_tasks_filters",
-  "view_open_items",
-  "view_expanded_folders",
-  "view_collapsed_sidebars",
-  "view_capture_inboxes",
-] as const;
-
-/** Every view-state table, for the canvas delete and its tests. */
-export const VIEW_STATE_TABLES = [
-  "view_command_slots",
-  "view_command_slot_members",
-  "view_command_extras",
-  "view_artifacts_filters",
-  "view_artifacts_filter_labels",
-  "view_tasks_filters",
-  "view_open_items",
-  "view_expanded_folders",
-  "view_collapsed_sidebars",
-  "view_focus_sizes",
-  "view_sections",
-  "view_capture_inboxes",
-  "view_capture_desks",
-] as const;
