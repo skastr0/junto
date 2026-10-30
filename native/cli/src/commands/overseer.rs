@@ -9,6 +9,8 @@ mod catalog;
 mod live;
 mod offline;
 
+pub use offline::retired_edge;
+
 use std::process::ExitCode;
 
 use clap::{Args, Subcommand};

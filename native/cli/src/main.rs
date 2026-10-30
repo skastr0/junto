@@ -45,30 +45,33 @@ fn main() -> ExitCode {
         Some(&("machine" | "link" | "companion-stdio"))
     ) && std::env::var_os("JUNTO_WORK_TOKEN").is_some()
     {
-        eprintln!("{OWNER_COMMAND_REFUSAL}");
+        envelope::warn(OWNER_COMMAND_REFUSAL);
         return ExitCode::FAILURE;
     }
     match words.as_slice() {
         ["--version" | "-v"] => {
-            println!("junto v{CLI_VERSION}");
+            envelope::say(&format!("junto v{CLI_VERSION}"));
             ExitCode::SUCCESS
         }
         ["link", rest @ ..] => commands::pipes::link(rest),
         ["companion-stdio", rest @ ..] => commands::pipes::companion_stdio(rest),
         ["content-transfer", rest @ ..] => commands::pipes::content_transfer(rest),
+        ["overseer", "edge", rest @ ..] => {
+            envelope::refuse(None, &commands::overseer::retired_edge(rest))
+        }
         // The live conversation host is not part of this CLI.
         ["overseer-host", ..] => {
-            eprintln!("Junto live conversation is disabled in this build");
+            envelope::warn("Junto live conversation is disabled in this build");
             ExitCode::from(2)
         }
         ["browser", ..] if features::MACHINE_BUILD => {
-            eprintln!(
-                "junto browser: the browser runs in the desktop app, not on a Junto Remote machine"
+            envelope::warn(
+                "junto browser: the browser runs in the desktop app, not on a Junto Remote machine",
             );
             ExitCode::from(2)
         }
         [first, ..] if features::disabled_group(first).is_some() => {
-            eprintln!("junto {first}: disabled in this Junto build");
+            envelope::warn(&format!("junto {first}: disabled in this Junto build"));
             ExitCode::from(2)
         }
         _ if help::asked(&words) => help::show(&words),

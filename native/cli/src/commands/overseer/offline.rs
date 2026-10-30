@@ -129,6 +129,22 @@ pub fn examples_show(target: &str) -> Answer {
         })
 }
 
+/// retiredOverseerInvocation (src/cli/commands/overseer-retired.ts):
+/// `junto overseer edge <rest>`, typed by an agent that still holds the old
+/// skill, refused before parsing.
+pub fn retired_edge(rest: &[&str]) -> Failure {
+    rest.first()
+        .filter(|verb| !verb.starts_with('-'))
+        .and_then(|verb| retired(&format!("edge.{verb}")))
+        .unwrap_or_else(|| {
+            Failure::input(
+                "the edge family is now wire: junto overseer wire --help",
+                "family",
+            )
+            .and("hint", "junto overseer schema list")
+        })
+}
+
 /// OVERSEER_RETIRED_OPERATIONS: the edge family is now wire.
 fn retired(target: &str) -> Option<Failure> {
     let trimmed = target.trim();

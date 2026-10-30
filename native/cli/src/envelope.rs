@@ -88,6 +88,17 @@ pub fn refuse(command: Option<&str>, error: &Failure) -> ExitCode {
     ExitCode::FAILURE
 }
 
+/// One line of text on stdout. A reader that hung up has no one left to
+/// tell, so a closed pipe is not a panic (println! would abort).
+pub fn say(text: &str) {
+    let _ = writeln!(std::io::stdout(), "{text}");
+}
+
+/// One line of text on stderr, as `say`.
+pub fn warn(text: &str) {
+    let _ = writeln!(std::io::stderr(), "{text}");
+}
+
 fn line<T: Serialize>(out: &mut impl Write, value: &T) {
     let mut bytes = serde_json::to_vec(value).unwrap_or_default();
     bytes.push(b'\n');
