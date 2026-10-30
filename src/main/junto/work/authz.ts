@@ -27,7 +27,7 @@ import {
   type OldTaskStoreOp,
   type TargetWorkOpName,
 } from "@shared/physics";
-import { canvasToCapabilityView } from "@shared/physics/view";
+import { canvasToCapabilityView, type VerbCapabilityView } from "@shared/physics/view";
 import type { TargetCandidate, WorkErrorBody, WorkOpName } from "@shared/work-control";
 import { resolveTarget, type ResolvedTarget } from "@shared/target-resolution";
 import { resourcesInReach, seatReachesTaskNode, seatsInReach } from "@shared/region-reach";
@@ -691,13 +691,17 @@ export const summarizeNode = (node: Node): VisibleNode => ({
 export const factoryRoleOfNode = (node: Node): FactoryRole =>
   roleOf(resolveSpec({ kind: nodeKind(node), isGroup: node.kind === "region" }));
 
-/** Ports the caller holds on the undirected edge to target (physics admit). */
+/**
+ * Ports the caller holds on the undirected edge to target (physics admit).
+ * `view` is this canvas's capability view for this caller, when the caller
+ * already built it: building one walks the whole canvas.
+ */
 export const heldGrantsOnEdge = (
   doc: Canvas,
   callerId: string,
   targetId: string,
+  view: VerbCapabilityView = canvasToCapabilityView(doc, { editingMachine: callerMachine(doc, callerId) }),
 ): ReadonlyArray<Port> => {
-  const view = canvasToCapabilityView(doc, { editingMachine: callerMachine(doc, callerId) });
   const caller = asNodeId(callerId);
   const target = asNodeId(targetId);
   return ALL_PORTS.filter((port) =>
@@ -722,6 +726,8 @@ export const connectedCapabilities = (
 ): ReadonlyArray<ConnectedCapability> => {
   const seen = new Set<string>();
   const out: ConnectedCapability[] = [];
+  // One view for every edge: the canvas and the caller are the same for all.
+  let view: VerbCapabilityView | undefined;
   for (const edge of doc.wires.values()) {
     const other =
       edge.from === callerId
@@ -735,7 +741,8 @@ export const connectedCapabilities = (
     // Seats only (agent and peer rows): a resource node is reached by region,
     // never by its wire.
     if (!node || (node.kind !== "agent" && node.kind !== "peer")) continue;
-    const grants = heldGrantsOnEdge(doc, callerId, other);
+    view ??= canvasToCapabilityView(doc, { editingMachine: callerMachine(doc, callerId) });
+    const grants = heldGrantsOnEdge(doc, callerId, other, view);
     const { name, regions } = seatIdentity(doc, node);
     out.push({
       ...summarizeNode(node),
