@@ -59,11 +59,13 @@ const printed = (words: ReadonlyArray<string>, colors: boolean): Promise<string>
   const capture: Console.Console = Object.assign(Object.create(console), {
     log: (...parts: ReadonlyArray<unknown>) => void lines.push(`${parts.map(String).join(" ")}\n`),
   });
+  // Help and completions are action flags: no command handler runs, so no
+  // command's service (the work socket) is reached, as runCli casts it.
   return Effect.runPromise(
     Command.runWith(root, { version: CLI_VERSION })(words).pipe(
       Effect.provideService(Console.Console, capture),
       Effect.provide(Layer.mergeAll(BunServices.layer, CliOutput.layer(CliOutput.defaultFormatter({ colors })))),
-    ),
+    ) as Effect.Effect<void, unknown, never>,
   ).then(() => lines.join(""));
 };
 
