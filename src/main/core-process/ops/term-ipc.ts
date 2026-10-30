@@ -163,15 +163,18 @@ coreOps({
       return node?.kind === "agent" || node?.kind === "terminal" ? node : undefined;
     }),
   "term.seatLaunchState": ({ canvas, node }) => seatLaunchState(canvas, node),
+  // The plane is the one this core bound (junto/core.ts), never a second copy.
   "term.startSeat": ({ canvas, seatId }) =>
     Effect.gen(function* () {
+      const plane = yield* planeNow();
       const { startSeat } = yield* Effect.promise(() => import("../../junto/term/seat-control"));
-      return yield* startSeat({ canvas: asCanvasName(canvas), seatId });
+      return yield* startSeat({ canvas: asCanvasName(canvas), seatId }, { plane });
     }),
   "term.stopSeat": ({ canvas, seatId }) =>
     Effect.gen(function* () {
+      const plane = yield* planeNow();
       const { stopSeat } = yield* Effect.promise(() => import("../../junto/term/seat-control"));
-      yield* stopSeat({ canvas: asCanvasName(canvas), seatId });
+      yield* stopSeat({ canvas: asCanvasName(canvas), seatId }, { plane });
     }),
   "term.harnessModels": ({ harness }) =>
     Effect.gen(function* () {

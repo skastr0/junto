@@ -3,6 +3,7 @@
  * group file; a seat converting a call site file adds its group here.
  */
 import "./term-ipc";
+import "./term-templates";
 import "./seat-cache-due";
 
 import "./main-index";

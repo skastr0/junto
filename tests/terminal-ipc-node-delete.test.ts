@@ -7,21 +7,12 @@ import { inProcessCore } from "./support/in-process-core";
 import { core } from "../src/main/core-process/main-client";
 import * as seatControl from "../src/main/junto/term/seat-control";
 import { registerTerminalIpc } from "../src/main/junto/term/ipc";
+import { bindTermIpcPlane } from "../src/main/core-process/ops/term-ipc";
+import "../src/main/core-process/ops/term-ipc";
 import type { TermPlane } from "../src/main/junto/term/plane";
 import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
 import { ModelService } from "../src/main/junto/model/service";
 import type { HarnessId } from "../src/shared/managed-terminal-templates";
-
-/** Polls until the check passes (bun has no vi.waitFor). */
-const eventually = async (check: () => void, timeoutMs = 2_000): Promise<void> => {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    try { return check(); } catch (error) {
-      if (Date.now() > deadline) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-  }
-};
 
 const sender = {
   isDestroyed: () => false,
@@ -44,7 +35,6 @@ const coreWithSeat = (node: ModelNode | undefined) => {
 };
 
 const harness = (options: {
-  readonly ensureHostAvailable?: (hostId: string) => Promise<void>;
   readonly node?: ModelNode;
 } = {}) => {
   if (options.node) coreWithSeat(options.node);
@@ -75,14 +65,11 @@ const harness = (options: {
     release: vi.fn(),
     setTerminalEnvironment: vi.fn(),
   });
+  // The plane is the core's; the test binds it where the operations run.
+  bindTermIpcPlane({ router, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane);
   registerTerminalIpc(
     ipcMain as never,
-    { router, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane,
-    {
-      isTrustedSender: () => true,
-      ensureHostAvailable: options.ensureHostAvailable,
-      broadcast: () => {},
-    },
+    { isTrustedSender: () => true, broadcast: () => {} },
   );
   const handler = (channel: string): Handler => {
     const value = handlers.get(channel);
@@ -104,36 +91,8 @@ const agentNode = (bindingId: string, host: string, harness: HarnessId, agentKey
 afterEach(() => vi.restoreAllMocks());
 
 describe("terminal IPC node-delete admission", () => {
-  it("revokes a create that was awaiting host activation before deletion", async () => {
-    let finishHostActivation!: () => void;
-    const hostActivation = new Promise<void>((resolve) => {
-      finishHostActivation = resolve;
-    });
-    const ensureHostAvailable = vi.fn(() => hostActivation);
-    const runtime = harness({ ensureHostAvailable, node: geographyNode("binding-race", "remote-race") });
-    runtime.router.deleteBinding.mockResolvedValueOnce(false);
-
-    const create = Promise.resolve(runtime.handler(IPC_CHANNELS.modelStart)(
-      event,
-      { canvas: "factory", id: "node-binding-race" },
-    ));
-    await eventually(() => expect(ensureHostAvailable).toHaveBeenCalledOnce());
-
-    const began = await runtime.handler(
-      IPC_CHANNELS.terminalBeginNodeDelete,
-    )(event, [{ bindingId: "binding-race", hostId: "remote-race" }]);
-    // Remote exact deletion is currently refused, but the begin call still
-    // increments the revision before it awaits that receipt.
-    expect(began).toMatchObject({ ok: false });
-    finishHostActivation();
-
-    await expect(create).rejects.toThrow(/revoked by node deletion/u);
-    expect(runtime.router.create).not.toHaveBeenCalled();
-  });
-
-  it("starts an agent seat through seat control, with the window's host step", async () => {
-    const ensureHostAvailable = vi.fn(async () => {});
-    const runtime = harness({ ensureHostAvailable });
+  it("starts an agent seat through seat control, never through the router", async () => {
+    const runtime = harness();
     const node = agentNode("codex-mini", "mini", "codex", "mini:codex-mini");
     const occupied = { bindingId: "codex-mini", status: "running" };
     const start = vi.spyOn(seatControl, "startSeat").mockReturnValue(Effect.succeed(occupied) as never);
@@ -142,10 +101,7 @@ describe("terminal IPC node-delete admission", () => {
       id: node.id, canvas: "factory",
     })).toEqual(occupied);
     expect(start).toHaveBeenCalledTimes(1);
-    expect(start).toHaveBeenCalledWith(
-      { canvas: "factory", seatId: node.id },
-      { plane: expect.anything(), ensureHostAvailable: expect.any(Function) },
-    );
+    expect(start).toHaveBeenCalledWith({ canvas: "factory", seatId: node.id }, { plane: expect.anything() });
     expect(runtime.router.create).not.toHaveBeenCalled();
   });
 

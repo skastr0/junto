@@ -18,6 +18,7 @@ import { inProcessCore } from "./support/in-process-core";
 import { useCoreClient } from "../src/main/core-process/main-client";
 import { bindTermIpcPlane } from "../src/main/core-process/ops/term-ipc";
 import "../src/main/core-process/ops/term-ipc";
+import { useCoreSurfacePlane } from "../src/main/core-process/main-side/term-surface";
 
 vi.mock("electron", () => ({ MessageChannelMain: MessageChannel }));
 
@@ -61,13 +62,16 @@ const rig = (surfaces: boolean | (() => boolean) = true) => {
     release: vi.fn(async () => {}),
     setTerminalEnvironment: vi.fn(),
   });
+  const stops: Array<ReturnType<typeof vi.fn>> = [];
   const host = {
     openSurface: vi.fn((_lease: unknown, port: { close: () => void }, _options?: { read?: bigint }) => {
       if (!(typeof surfaces === "function" ? surfaces() : surfaces)) {
         port.close();
         return undefined;
       }
-      return () => undefined;
+      const stop = vi.fn();
+      stops.push(stop);
+      return stop;
     }),
     closeSurface: vi.fn(),
   };
@@ -75,9 +79,13 @@ const rig = (surfaces: boolean | (() => boolean) = true) => {
   // The window's handlers ask the core by name; here the core is in process, on this rig's plane.
   useCoreClient(inProcessCore(ManagedRuntime.make(Layer.empty) as never));
   unbind = bindTermIpcPlane(plane);
+  // Main's surface ports reach the core: here the core is the same process, and
+  // this stands in for its plane handing the port to the terminal process.
+  useCoreSurfacePlane({
+    open: async (lease, port, read) => host.openSurface(lease, port, read === undefined ? undefined : { read }),
+  });
   registerTerminalIpc(
     { handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never,
-    plane,
     { isTrustedSender: () => true, broadcast: () => {} },
   );
   const call = (channel: string, ...args: unknown[]) => Promise.resolve(handlers.get(channel)!({ sender }, ...args));
@@ -91,13 +99,14 @@ const rig = (surfaces: boolean | (() => boolean) = true) => {
   const emit = (seq: bigint, data: string) => router.emit("event", { type: "output", bindingId: "seat", epoch: "e1", seq, data });
   const output = () =>
     sent.filter((entry) => entry.channel === IPC_CHANNELS.terminalEvent && (entry.payload as { type: string }).type === "output");
-  return { host, ports, open, park, emit, output, router, sent, during };
+  return { host, stops, ports, open, park, emit, output, router, sent, during };
 };
 
 let unbind: (() => void) | undefined;
 afterEach(() => {
   unbind?.();
   unbind = undefined;
+  useCoreSurfacePlane(undefined);
   vi.restoreAllMocks();
 });
 
@@ -118,7 +127,8 @@ describe("a control view on a surface port", () => {
     const view = rig();
     const lease = await view.open();
     await view.park(lease, true);
-    expect(view.host.closeSurface).toHaveBeenCalledTimes(1);
+    // The view's port is given up by its own stop, which closes it in the core.
+    expect(view.stops[0]).toHaveBeenCalledTimes(1);
     view.emit(10n, "while hidden");
     await settle();
     expect(view.output()).toEqual([]);

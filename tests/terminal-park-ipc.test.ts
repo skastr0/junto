@@ -10,6 +10,8 @@ import { inProcessCore } from "./support/in-process-core";
 import { core } from "../src/main/core-process/main-client";
 import { IPC_CHANNELS, type TerminalParkResult } from "../src/shared/ipc";
 import { registerTerminalIpc } from "../src/main/junto/term/ipc";
+import { bindTermIpcPlane } from "../src/main/core-process/ops/term-ipc";
+import "../src/main/core-process/ops/term-ipc";
 import type { TermPlane } from "../src/main/junto/term/plane";
 import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
 import { OBSERVER_WATCHED_SCROLLBACK } from "../src/main/junto/term/observer/session-observer";
@@ -57,9 +59,10 @@ const rig = () => {
     setTerminalEnvironment: vi.fn(),
   });
   stubCore();
+  // The plane is the core's; the test binds it where the operations run.
+  bindTermIpcPlane({ router, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane);
   registerTerminalIpc(
     { handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never,
-    { router, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane,
     { isTrustedSender: () => true, broadcast: () => {} },
   );
   const call = (channel: string, ...args: unknown[]) => Promise.resolve(handlers.get(channel)!(event, ...args));

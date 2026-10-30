@@ -21,10 +21,18 @@ import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-proces
 import { seat } from "./support/model-nodes";
 
 const app = vi.hoisted(() => ({ runPromise: vi.fn(), runPromiseExit: vi.fn() }));
-vi.mock("../src/main/core-runner", () => ({ coreRunner: app }));
+vi.mock("../src/main/core-runner", () => ({ coreRunner: app, installCoreReads: vi.fn() }));
 vi.mock("../src/main/runtime", () => ({ AppRuntime: app }));
 import { registerTerminalIpc } from "../src/main/junto/term/ipc";
+import { bindTermIpcPlane } from "../src/main/core-process/ops/term-ipc";
+import "../src/main/core-process/ops/term-ipc";
 import { writeSeatSessionId } from "../src/main/junto/term/seat-session-id";
+import { useCoreClient } from "../src/main/core-process/main-client";
+import { inProcessCore } from "./support/in-process-core";
+
+// Main runs no operation body: the test installs the core the app installs at
+// boot, run on the fixture's runtime.
+useCoreClient(inProcessCore(app));
 
 const deferred = <A>() => {
   let resolve!: (value: A) => void;
@@ -78,7 +86,8 @@ const fixture = async () => {
   await command({ _tag: "Add", canvas: "quit", nodes: [{ ...node, host: "workbench" }], wires: [] });
   type Handler = (...args: readonly unknown[]) => unknown;
   const handlers = new Map<string, Handler>();
-  registerTerminalIpc({ handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never, plane, {
+  bindTermIpcPlane(plane);
+  registerTerminalIpc({ handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never, {
     isTrustedSender: () => true, broadcast: () => {},
   });
   const start = () => Promise.resolve(handlers.get(IPC_CHANNELS.modelStart)!(

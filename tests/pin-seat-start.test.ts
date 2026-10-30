@@ -24,14 +24,22 @@ import { ensureManagedSeatRunning } from "../src/main/junto/term/ensure-managed-
 import { termPlane } from "../src/main/junto/term/plane";
 
 const app = vi.hoisted(() => ({ runPromise: vi.fn(), runPromiseExit: vi.fn() }));
-vi.mock("../src/main/core-runner", () => ({ coreRunner: app }));
+vi.mock("../src/main/core-runner", () => ({ coreRunner: app, installCoreReads: vi.fn() }));
 vi.mock("../src/main/runtime", () => ({ AppRuntime: app }));
 vi.mock("node:crypto", async (original) => {
   const actual = await original<typeof import("node:crypto")>();
   return { ...actual, randomUUID: vi.fn(actual.randomUUID) };
 });
 import { registerTerminalIpc } from "../src/main/junto/term/ipc";
+import { bindTermIpcPlane } from "../src/main/core-process/ops/term-ipc";
+import "../src/main/core-process/ops/term-ipc";
 import { ensureSeatSessionId } from "../src/main/junto/term/seat-session-before-start";
+import { useCoreClient } from "../src/main/core-process/main-client";
+import { inProcessCore } from "./support/in-process-core";
+
+// Main runs no operation body: the test installs the core the app installs at
+// boot, run on the fixture's runtime.
+useCoreClient(inProcessCore(app));
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -77,8 +85,9 @@ const fixture = async () => {
   await command({ _tag: "Add", canvas: "proof", nodes: [node], wires: [] });
   const router = Object.assign(new EventEmitter(), { thisMachineName: () => "workbench", setTerminalEnvironment: () => {}, isLocalHostId: () => true });
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
+  // The plane is the core's; the test binds it where the operations run.
+  bindTermIpcPlane({ router, nodeDelete: new TerminalNodeDeleteService(router as never) } as never);
   registerTerminalIpc({ handle: (channel: string, handler: (...args: unknown[]) => unknown) => handlers.set(channel, handler) } as never,
-    { router, nodeDelete: new TerminalNodeDeleteService(router as never) } as never,
     { isTrustedSender: () => true, broadcast: () => {} });
   const start = () => Promise.resolve(handlers.get(IPC_CHANNELS.modelStart)!(
     { sender: { isDestroyed: () => false, send: () => {} } }, { canvas: "proof", id: "subject" }));
