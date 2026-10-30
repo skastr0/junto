@@ -26,13 +26,19 @@ export const WORK_MESSAGES_SENDER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS work_m
  * with the node, so without these each of those walked every event on the
  * canvas. `work_messages_actor` serves a seat's recent mail by the seat that
  * wrote it, which otherwise read every fact and parsed its JSON.
+ * `work_messages_sender_order` pages what one seat sent by message id, newest
+ * first, without reading every key of that sender; node_id rides along so
+ * the page's id pass never touches the table. Its expression must stay the
+ * one the sent page filters on.
  */
 export const WORK_READ_INDEXES_SQL = `CREATE INDEX IF NOT EXISTS work_events_by_operation
     ON work_events(item_canvas_name, operation, event_home, entity_home, length(seq), seq);
   CREATE INDEX IF NOT EXISTS work_events_by_item
     ON work_events(item_canvas_name, item_kind, item_id);
   CREATE INDEX IF NOT EXISTS work_messages_actor
-    ON work_messages(canvas_name, actor_seat_id, received_at);`;
+    ON work_messages(canvas_name, actor_seat_id, received_at);
+  CREATE INDEX IF NOT EXISTS work_messages_sender_order
+    ON work_messages(canvas_name, json_extract(metadata_json,'$.senderNodeId'), message_id, node_id);`;
 
 export const WORK_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS work_event_sequences (

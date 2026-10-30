@@ -889,12 +889,13 @@ export const STATE_SCHEMA_V71_IDENTITY = {
 /**
  * Version 72 indexes the reads that ask the log by kind of fact, and mail by
  * the seat that wrote it (protect the main thread, 0.11.7):
- * `work_events_by_operation`, `work_events_by_item` and `work_messages_actor`.
+ * `work_events_by_operation`, `work_events_by_item`, `work_messages_actor`
+ * and `work_messages_sender_order`.
  * Expand only.
  */
 export const STATE_SCHEMA_V72_IDENTITY = {
   actualSchemaSha256:
-    "df9fa62490e77bb8c49f3a3cefb82819e400ddfed0157115589490664b9ff752",
+    "8673a617a15440d00e35605e0f140f033f2088ebbd3180105fadb04f748c982d",
 } as const satisfies VerifiedStateSchemaIdentity;
 
 export const CURRENT_STATE_SCHEMA_VERSION = 72;

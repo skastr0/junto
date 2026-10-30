@@ -56,6 +56,14 @@ const SHAPES: ReadonlyArray<{ readonly name: string; readonly sql: string; reado
     params: ["factory", "seat"],
     index: "work_messages_actor",
   },
+  {
+    name: "a page of what one seat sent, newest first",
+    sql: `SELECT node_id, message_id FROM work_messages
+      WHERE canvas_name = ? AND json_extract(metadata_json,'$.senderNodeId') = ? AND message_id < ?
+      ORDER BY message_id DESC LIMIT 50`,
+    params: ["factory", "seat", "zzzz"],
+    index: "work_messages_sender_order",
+  },
 ];
 
 describe("v72 read indexes", () => {
