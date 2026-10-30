@@ -10,13 +10,13 @@
  * stop. The op bodies never reach for main's state themselves.
  */
 import { Effect } from "effect";
-import type { FactoryPauseSetResult, RegionEnvStaleSeatsResult } from "@shared/ipc";
+import type { FactoryPauseSetResult, RegionEnvReportResult, RegionEnvStaleSeatsResult } from "@shared/ipc";
 import type { CanvasPauseState } from "@shared/pause";
 import { buildOnboardNudge } from "@shared/managed-terminal-injection";
 import type { SeatOnboardNudgeResult } from "@shared/seat-onboarding-status";
 import { coreRunner } from "../../core-runner";
 import { PausePlane } from "../../junto/pause-plane";
-import { regionEnvStaleSeats } from "../../junto/region-env/report-ipc";
+import { regionEnvReport, regionEnvStaleSeats } from "../../junto/region-env/report-ipc";
 import { appendSeatPrompt, type SeatPromptInput, type SeatPromptResult } from "../../junto/work/seat-prompt";
 import { coreOps, type CoreOp } from "../ops";
 import type { SeatSessions } from "../../junto/seat-sessions/start-seat-sessions";
@@ -72,6 +72,10 @@ declare module "../ops" {
       { readonly canvasName: unknown; readonly seatId: unknown; readonly mode: unknown },
       SeatOffboardAskResult
     >;
+    "ipc.regionEnv.report": CoreOp<
+      { readonly canvasName: unknown; readonly regionId: unknown },
+      RegionEnvReportResult
+    >;
     "ipc.seats.regionEnvStaleSeats": CoreOp<
       { readonly canvasName: unknown; readonly regionId: unknown },
       RegionEnvStaleSeatsResult
@@ -116,6 +120,10 @@ coreOps({
       coreSessions?.closer.asked({ seatId, canvasName }, offboardMode);
       return { ok: true };
     }),
+  // The region screen's read: the environment a region resolves to, from the
+  // service that holds it here.
+  "ipc.regionEnv.report": ({ canvasName, regionId }) =>
+    Effect.promise(() => regionEnvReport(canvasName, regionId)),
   "ipc.seats.regionEnvStaleSeats": ({ canvasName, regionId }) =>
     Effect.promise(() => regionEnvStaleSeats(canvasName, regionId)),
   "ipc.seats.factoryPauseState": ({ canvas }) =>

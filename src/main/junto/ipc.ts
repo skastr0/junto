@@ -93,7 +93,6 @@ import {
 import { registerOperatorHoldsIpc } from "./term/operator-holds-ipc";
 import { coreOperatorHolds } from "../core-process/main-side/seat-holds";
 import { removeRegionSecret, saveRegionSecret } from "./region-env/secret-ipc";
-import { regionEnvReport } from "./region-env/report-ipc";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 import { trustedRendererIpc } from "./trusted-main-webcontents";
 import {
@@ -650,7 +649,7 @@ export const registerJuntoIpc = (): void => {
   privilegedIpc.handle(
     IPC_CHANNELS.regionEnvReport,
     (_event, canvasName: unknown, regionId: unknown) =>
-      regionEnvReport(canvasName, regionId),
+      core.call("ipc.regionEnv.report", { canvasName, regionId }),
   );
   privilegedIpc.handle(
     IPC_CHANNELS.regionEnvStaleSeats,
