@@ -46,13 +46,12 @@ const STATE_DIRECTORY_MODE = 0o700;
 const STATE_FILE_MODE = 0o600;
 const STATE_BUSY_TIMEOUT_MS = 5_000;
 /**
- * Page cache and memory map of the state connection. The database is far
- * larger than SQLite's default 2 MB cache (negative is KiB), and a memory map
- * serves reads from the OS page cache without a read call per page. Reads on
- * the live file were 9 to 28% faster with both; the write path was unchanged.
+ * Page cache of the state connection. The database is far larger than SQLite's
+ * default 2 MB cache (negative is KiB). Reads on the live file were 9 to 28%
+ * faster with it; the write path was unchanged. No memory map: an I/O error on
+ * a mapped file cannot be caught by SQLite, so it can end the process.
  */
 const STATE_CACHE_SIZE_KIB = 64 * 1024;
-const STATE_MMAP_SIZE_BYTES = 256 * 1024 * 1024;
 
 const stateEngineError = (
   operation: string,
@@ -144,7 +143,6 @@ const openStateEngine = (
             PRAGMA busy_timeout = ${STATE_BUSY_TIMEOUT_MS};
             PRAGMA trusted_schema = OFF;
             PRAGMA cache_size = -${STATE_CACHE_SIZE_KIB};
-            PRAGMA mmap_size = ${STATE_MMAP_SIZE_BYTES};
           `);
           if (stateSchemaAdvanceRequired(database)) {
             createVerifiedStateBackup(database, directory);
