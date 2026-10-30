@@ -54,10 +54,15 @@ describe("the operator's purge of a page box comment's shot", () => {
     const files = sources(src).map((path) => ({ path: relative(src, path), text: readFileSync(path, "utf8") }));
     const calling = (pattern: RegExp) => files.filter(({ text }) => pattern.test(text)).map(({ path }) => path).sort();
     expect(calling(/\.purgeShot\(/u)).toEqual(["main/junto/work/page-shot-purge.ts"]);
-    expect(calling(/\bpurgeOperatorPageShot\b/u)).toEqual(["main/junto/ipc.ts", "main/junto/work/page-shot-purge.ts"]);
+    expect(calling(/\bpurgeOperatorPageShot\b/u)).toEqual([
+      "main/core-process/ops/ipc-content.ts",
+      "main/junto/work/page-shot-purge.ts",
+    ]);
     const ipc = files.find(({ path }) => path === "main/junto/ipc.ts")!.text;
+    const op = files.find(({ path }) => path === "main/core-process/ops/ipc-content.ts")!.text;
     expect(ipc).toMatch(/privilegedIpc\.handle\(IPC_CHANNELS\.pageShotPurge,/u);
     expect(ipc).toMatch(/runMainAuthoring\("ipc\.page-shot\.purge"/u);
+    expect(op).toMatch(/\bpurgeOperatorPageShot\(/u);
     expect(MAIN_AUTHORING_LABELS).toContain("ipc.page-shot.purge");
     // The work socket, seats, overseers and automations speak work ops: none purges.
     expect(WorkOpName.literals.filter((op) => /purge/iu.test(op))).toEqual([]);

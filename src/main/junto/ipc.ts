@@ -481,9 +481,13 @@ export const registerJuntoIpc = (): void => {
   privilegedIpc.handle(
     IPC_CHANNELS.portraitOverrideSet,
     async (_event, seatId: unknown, override: unknown): Promise<PortraitOverrideSetResult> => {
-      const saved = await core.call("ipc.content.portraitOverrideSet", { seatId, override });
-      if (saved.ok) broadcast(IPC_CHANNELS.portraitOverride, { seatId: saved.seatId, override: saved.override });
-      return saved;
+      try {
+        const saved = await core.call("ipc.content.portraitOverrideSet", { seatId, override });
+        if (saved.ok) broadcast(IPC_CHANNELS.portraitOverride, { seatId: saved.seatId, override: saved.override });
+        return saved;
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : "portrait save failed" };
+      }
     },
   );
 
