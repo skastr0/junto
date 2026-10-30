@@ -104,10 +104,11 @@ export function QuickCapture() {
     },
     [canvasName],
   );
-  /** Where the operator is in the writing now, as the editor reads it. */
+  /** Where the operator is in the writing now, as the editor reads it. Unchanged, nothing is written. */
   const keepPlace = useCallback((): void => {
     const view = viewRef.current?.read();
     if (view === null || view === undefined) return;
+    if (deskNow.current.caret === view.caret && deskNow.current.scrollWriting === view.scroll) return;
     keepDesk({ caret: view.caret, scrollWriting: view.scroll });
   }, [keepDesk]);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -196,13 +197,15 @@ export function QuickCapture() {
   // A desk that names an artifact this canvas no longer offers (deleted,
   // archived, or another canvas) opens a new capture rather than a writing
   // that never arrives. The list loads after the surface does, so the check
-  // waits for it.
+  // waits for it, and it reads the desk's own list rather than the searched
+  // one, so a query never makes a live capture look gone.
+  const deskRows = useMemo(() => captureRowsOf(heads, inbox as NodeId | undefined, ""), [heads, inbox]);
   useEffect(() => {
-    if (edit.kind !== "reopened" || heads.length === 0) return;
-    if (heads.some((head) => head.artifact.artifactId === edit.artifactId)) return;
+    if (edit.kind !== "reopened" || deskRows.length === 0) return;
+    if (deskRows.some((row) => row.artifactId === edit.artifactId)) return;
     setEdit({ kind: "new", key: 0 });
     keepDesk({ open: { kind: "new" }, focused: null }, true);
-  }, [edit, heads, keepDesk]);
+  }, [edit, deskRows, keepDesk]);
 
   // The place the desk saved comes back once the writing's engine has lines:
   // asked before that, the editor holds it until the body is in.
