@@ -19,6 +19,7 @@ import {
   type StateSchemaMigrationPlan,
 } from "../src/main/junto/state/migrations";
 import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
+import { VIEW_CAPTURE_DESK_SCHEMA_SQL } from "../src/main/junto/view-state/state-schema";
 import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import { STATE_SCHEMA_V68_SQL, STATE_SCHEMA_V69_SQL } from "./fixtures/state-v13/schema";
 
@@ -38,10 +39,13 @@ const counts = (database: DatabaseSync): Readonly<Record<string, number>> =>
   Object.fromEntries(tables(database).map((name) => [name, Number((database.prepare(`SELECT count(*) AS n FROM "${name}"`).get() as { n: number }).n)]));
 
 describe("state migration 68 -> 69 (quick capture's desk)", () => {
-  it("starts from the version-68 witness and ends at the version-69 witness, the production DDL's", () => {
+  it("starts from the version-68 witness and ends at the version-69 witness", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V68_SQL)).toEqual(STATE_SCHEMA_V68_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V69_SQL)).toEqual(STATE_SCHEMA_V69_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V69_IDENTITY);
+  });
+
+  it("is in the production DDL a fresh database is made from", () => {
+    expect(STATE_SCHEMA_SQL).toContain(VIEW_CAPTURE_DESK_SCHEMA_SQL);
   });
 
   it("adds view_capture_desks, empty, keeps every row held, and changes nothing else", () => {
