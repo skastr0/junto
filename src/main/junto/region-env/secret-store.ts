@@ -24,7 +24,7 @@ import {
   SECRET_VALUE_MAX_BYTES,
   secretValueProblem,
 } from "@shared/region-secrets";
-import { stateDatabasePath } from "../state/engine";
+import { stateDatabasePath } from "../state/database-path";
 
 export { SECRET_ID_PATTERN, SECRET_VALUE_MAX_BYTES, secretValueProblem };
 
