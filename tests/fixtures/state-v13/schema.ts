@@ -390,3 +390,9 @@ export const STATE_SCHEMA_V66_SQL = stepped(
   STATE_SCHEMA_V65_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 66)!.migrate,
 );
+
+/** Step 67 adds `canvas_log_structure` and `canvas_log_waiting_structure`, each structure entry's change (0.12, 06 F4). */
+export const STATE_SCHEMA_V67_SQL = stepped(
+  STATE_SCHEMA_V66_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 67)!.migrate,
+);

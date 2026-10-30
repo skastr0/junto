@@ -16,7 +16,7 @@ import { TASK_SEAT_RELEASES_SQL } from "../work/task-state-schema";
 import { MACHINE_CODE_ALLOWANCES_SQL } from "../automation/code-allowance-schema";
 import { MACHINE_PEER_BINDING_COLUMN_SQL } from "../machines/state-schema";
 import { SEAT_CONTROLS_STATE_SCHEMA_SQL } from "../work/seat-controls-state-schema";
-import { FLEET_CONSENSUS_SEED_SQL, FLEET_CONSENSUS_STATE_SCHEMA_SQL } from "../fleet/state-schema";
+import { FLEET_CONSENSUS_SEED_SQL, FLEET_CONSENSUS_STATE_SCHEMA_SQL, FLEET_STRUCTURE_LOG_STATE_SCHEMA_SQL } from "../fleet/state-schema";
 import { MACHINE_VAULT_TOKENS_SQL } from "../vault/state-schema";
 import { SHOT_PURGES_SQL } from "../work/shot-purge-schema";
 import {
@@ -834,7 +834,17 @@ export const STATE_SCHEMA_V66_IDENTITY = {
     "964fd315da714095a3f049d96f87cfa5b7b622573d2304537dfe79eb2e5499fd",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 66;
+/**
+ * Version 67 keeps each structure entry's change beside the canvas log
+ * (0.12, 06 F4): `canvas_log_structure` and, for an entry an alone fork
+ * revoked, `canvas_log_waiting_structure`. Expand only.
+ */
+export const STATE_SCHEMA_V67_IDENTITY = {
+  actualSchemaSha256:
+    "6fef2c2b4e57055dc27e318650d4ec998fc90433f543c710fe89ad26ff675add",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 67;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -842,7 +852,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 66;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V66_IDENTITY;
+  STATE_SCHEMA_V67_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1366,6 +1376,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V65_IDENTITY,
     migrate: (database) => database.exec(OPERATOR_MAIL_READS_SCHEMA_SQL),
+  },
+  {
+    fromVersion: 66,
+    toVersion: 67,
+    name: "keep each structure entry's change",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V66_IDENTITY,
+    migrate: (database) => database.exec(FLEET_STRUCTURE_LOG_STATE_SCHEMA_SQL),
   },
 ];
 

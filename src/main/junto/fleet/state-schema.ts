@@ -140,3 +140,29 @@ export const FLEET_CONSENSUS_FILL_SQL = [
     )
     WHERE editor IS NOT NULL`,
 ] as const;
+
+/**
+ * A structure entry's change (0.11/06 F4): the nodes and wires it wrote and
+ * the ones it removed, as the canvas command left them, so every listed
+ * machine folds the entry without judging it again. One row per
+ * `structure.changed` entry, going with it; a revoked one keeps its change
+ * while it waits for the operator. Added by state migration 66 -> 67.
+ */
+export const FLEET_STRUCTURE_LOG_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS canvas_log_structure (
+    canvas_name TEXT NOT NULL,
+    log_index INTEGER NOT NULL,
+    change_json TEXT NOT NULL CHECK (json_valid(change_json)),
+    PRIMARY KEY (canvas_name, log_index),
+    FOREIGN KEY (canvas_name, log_index) REFERENCES canvas_log(canvas_name, log_index) ON DELETE CASCADE ON UPDATE CASCADE
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE TABLE IF NOT EXISTS canvas_log_waiting_structure (
+    canvas_name TEXT NOT NULL,
+    term INTEGER NOT NULL,
+    log_index INTEGER NOT NULL,
+    change_json TEXT NOT NULL CHECK (json_valid(change_json)),
+    PRIMARY KEY (canvas_name, term, log_index),
+    FOREIGN KEY (canvas_name, term, log_index) REFERENCES canvas_log_waiting(canvas_name, term, log_index) ON DELETE CASCADE ON UPDATE CASCADE
+  ) STRICT, WITHOUT ROWID;
+`;

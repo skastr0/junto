@@ -34,10 +34,9 @@ const counts = (database: DatabaseSync): Readonly<Record<string, number>> =>
   Object.fromEntries(tables(database).map((name) => [name, Number((database.prepare(`SELECT count(*) AS n FROM "${name}"`).get() as { n: number }).n)]));
 
 describe("state migration 65 -> 66 (the operator's mail read points)", () => {
-  it("starts from the version-65 witness and ends at the head, which a fresh database matches", () => {
+  it("starts from the version-65 witness and ends at the version-66 witness", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V65_SQL)).toEqual(STATE_SCHEMA_V65_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V66_SQL)).toEqual(STATE_SCHEMA_V66_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V66_IDENTITY);
   });
 
   it("adds operator_mail_reads, empty, keeps every row held, and its rows go with their canvas", () => {
