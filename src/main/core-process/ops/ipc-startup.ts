@@ -27,7 +27,6 @@ import { makeOnboardNudgeInterject } from "../../junto/term/onboard-nudge-interj
 import { wireFactorySupervisor } from "../../junto/term/factory-delivery-composition";
 import { termPlane } from "../../junto/term/plane";
 import { terminalObserverPlane } from "../../junto/term/observer";
-import { seatStateRuntime } from "../../junto/term/agent-state/runtime";
 import { makeCheckoutWatchComposition } from "../../junto/work/checkout-watch-composition";
 import type { CheckoutWatchSupervisor } from "../../junto/work/checkout-watch-live";
 import { CrewRepository } from "../../junto/work/crew-repository";
