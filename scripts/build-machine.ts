@@ -130,6 +130,10 @@ export const bundleMachineCore = async (outdir: string, input: {
       // the UMD main: Node loads it there, and cannot load the extensionless ESM.
       builder.onResolve({filter: /^jsonc-parser$/}, () => ({path: join(repoRoot, "node_modules/jsonc-parser/lib/esm/main.js")}));
       builder.onLoad({filter: /.*/, namespace: "native-fs"}, () => ({contents: 'module.exports = require("node:fs");', loader: "js"}));
+      // A vite `?nodeWorker` import has no worker in the core: it resolves to
+      // nothing, and its host reads on main as before (mail-read-host.ts).
+      builder.onResolve({filter: /\?nodeWorker$/}, () => ({path: "none", namespace: "no-worker"}));
+      builder.onLoad({filter: /.*/, namespace: "no-worker"}, () => ({contents: "export default undefined;", loader: "js"}));
     }}],
   }).catch((error: unknown) => { throw MachineBundleBuildFailed.from(error); });
   if (!result.success) throw MachineBundleBuildFailed.from(new AggregateError(result.logs, "Bundle failed"));
