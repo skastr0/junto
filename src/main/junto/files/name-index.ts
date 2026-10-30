@@ -198,6 +198,9 @@ type FolderPasses = {
  */
 const FOLDER_SLOTS = 1 << 20;
 
+/** Passes kept between searches up to this many slots (4.5 MB): up to a 13-character query on 20,000 folders. */
+const HELD_SLOTS = 1 << 18;
+
 /**
  * Passes for `slots` slots, reusing `held` when it is big enough. Only
  * `starts` and `matched` are cleared: the rest is read only after them.
@@ -443,7 +446,7 @@ export class NameIndex {
   private changes = 0;
   /** Changes on every delta; a cached match set from another generation is not narrowed. */
   private generation = 0;
-  /** The last search's folder passes, cleared and reused by the next. */
+  /** The last search's folder passes, cleared and reused by the next; past `HELD_SLOTS` not kept. */
   private passes: FolderPasses | undefined;
 
   constructor(
@@ -574,7 +577,7 @@ export class NameIndex {
     const { codes, starts, masks, dead, folders, folderLengths } = this;
     const slots = folderLengths.length * query.length;
     const passes = slots <= FOLDER_SLOTS ? folderPasses(slots, this.passes) : undefined;
-    this.passes = passes ?? this.passes;
+    if (passes !== undefined) this.passes = passes.starts.length <= HELD_SLOTS ? passes : undefined;
     const found = new Int32Array(narrow ? previous.ids.length : total);
     let foundCount = 0;
     const count = narrow ? previous.ids.length : total;
