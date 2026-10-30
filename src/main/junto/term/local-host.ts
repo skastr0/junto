@@ -1845,24 +1845,47 @@ export class LocalSessionHost extends EventEmitter {
 
   /**
    * Phase 3: hand the renderer's port for this control lease to the terminal
-   * process. It reads from the seq the attach that minted the lease saw, so
-   * it neither misses nor repeats what that attach's screen held. False, and
-   * the port is closed, when the lease does not control a PTY there.
+   * process. It reads from the chunk after the screen the view painted: the
+   * attach that minted the lease, or `read`, the seq of a screen read since
+   * (an unpark's), so it neither misses nor repeats what that screen held.
+   * `onInput` hears each key of this lease that reached the PTY. Undefined,
+   * and the port is closed, when the lease does not control a PTY there;
+   * otherwise a stop for `onInput`.
    */
-  openSurface(lease: ControlLease, port: { readonly close: () => void }): boolean {
+  openSurface(
+    lease: ControlLease,
+    port: { readonly close: () => void },
+    options: { readonly read?: bigint; readonly onInput?: (data: string) => void } = {},
+  ): (() => void) | undefined {
     const rec = this.sessions.get(lease.bindingId);
     const surface = rec?.lease?.io.surface;
-    const cursor = rec?.surfaceCursor;
+    const fromSeq = rec === undefined
+      ? undefined
+      : options.read === undefined
+        ? rec.surfaceCursor?.leaseId === lease.leaseId ? rec.surfaceCursor.fromSeq : undefined
+        : surfaceChunkAfter(rec, options.read);
     if (
-      rec === undefined || surface === undefined || cursor === undefined ||
+      rec === undefined || surface === undefined || fromSeq === undefined ||
       lease.mode !== "control" || rec.controlLeaseId !== lease.leaseId ||
-      lease.epoch !== rec.epoch || cursor.leaseId !== lease.leaseId
+      lease.epoch !== rec.epoch
     ) {
       port.close();
-      return false;
+      return undefined;
     }
-    surface.openSurface({ leaseId: lease.leaseId, epoch: lease.epoch }, cursor.fromSeq, port);
-    return true;
+    const onInput = options.onInput;
+    const stop = onInput === undefined
+      ? () => undefined
+      : surface.onInput((input) => {
+        if (input.leaseId === lease.leaseId) onInput(input.data);
+      });
+    surface.openSurface({ leaseId: lease.leaseId, epoch: lease.epoch }, fromSeq, port);
+    return stop;
+  }
+
+  /** Phase 3: close this lease's surface port; its view reads and types over IPC again. */
+  closeSurface(lease: ControlLease): void {
+    if (lease.mode !== "control") return;
+    this.sessions.get(lease.bindingId)?.lease?.io.surface?.endSurface(lease.leaseId);
   }
 
   /**

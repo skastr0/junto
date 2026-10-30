@@ -34,6 +34,16 @@ type LeaseOwner = {
   parked: boolean;
   /** Output was held back while parked, so the unpark carries a catch-up. */
   missed: boolean;
+  /**
+   * The view takes a surface port (phase 3): how to make one. While it holds
+   * one (`surfaced`), its output and keys go over the port, never IPC; a
+   * hidden view gives its port up and gets a new one when shown.
+   */
+  readonly surfacePorts?: typeof import("electron").MessageChannelMain;
+  surfaced: boolean;
+  /** It gave its port up when it was hidden, and gets a new one when shown. */
+  resurface?: boolean;
+  stopSurface?: () => void;
 };
 
 export type TerminalIpcGate = {
@@ -93,9 +103,37 @@ export const registerTerminalIpc = (
   // Seat start and stop run as core operations; they use this plane and this step.
   bindTermIpcSeatControl({ plane, ensureHostAvailable });
 
+  /**
+   * Give the owner's view a surface port, reading from the chunk after the
+   * screen it painted (`read`, or the attach that minted its lease). False
+   * when its PTY is not in the terminal process or the lease lost control;
+   * the view then reads and types over IPC.
+   */
+  const openSurface = (owner: LeaseOwner, read?: bigint): boolean => {
+    owner.stopSurface?.();
+    owner.stopSurface = undefined;
+    owner.surfaced = false;
+    if (owner.surfacePorts === undefined || owner.sender.isDestroyed()) return false;
+    const { port1, port2 } = new owner.surfacePorts();
+    const stop = plane.host.openSurface(owner.lease, port1, {
+      ...(read === undefined ? {} : { read }),
+      // Input-origin tagging, as for an IPC write that landed.
+      onInput: (data) => injectionSupervisor.noteUserInput(owner.lease.bindingId, undefined, data),
+    });
+    if (stop === undefined) {
+      port2.close();
+      return false;
+    }
+    owner.stopSurface = stop;
+    owner.surfaced = true;
+    owner.sender.postMessage(IPC_CHANNELS.terminalSurface, { leaseId: owner.lease.leaseId }, [port2]);
+    return true;
+  };
+
   const release = (leaseId: string): void => {
     const owner = owners.get(leaseId);
     if (!owner) return;
+    owner.stopSurface?.();
     // Deliver any pending coalesced output to the releasing owner before the
     // lease tears down, then drop the buffer once no owner shares the binding.
     coalescer.flush(terminalBindingKey(owner.lease.bindingId, owner.lease.epoch));
@@ -166,6 +204,8 @@ export const registerTerminalIpc = (
         owner.missed = true;
         continue;
       }
+      // Its port carries the output, straight from the terminal process.
+      if (owner.surfaced && payload.type === "output") continue;
       try {
         owner.sender.send(IPC_CHANNELS.terminalEvent, payload);
       } catch {
@@ -386,6 +426,10 @@ export const registerTerminalIpc = (
     const sender = assertTrusted(event);
     const hostId = input.hostId?.trim() || router.thisMachineName();
     await ensureHostAvailable(hostId);
+    // Loaded before the attach, so nothing waits between the lease and its port.
+    const surfacePorts = input.surface === true && input.mode === "control" && router.isLocalHostId(hostId)
+      ? (await import("electron")).MessageChannelMain
+      : undefined;
     if (input.mode === "control" && input.takeover) {
       const priorLeaseId = controlByBinding.get(input.bindingId);
       if (priorLeaseId) {
@@ -411,10 +455,13 @@ export const registerTerminalIpc = (
       release: releaseOwner,
       parked: false,
       missed: false,
+      ...(surfacePorts === undefined ? {} : { surfacePorts }),
+      surfaced: false,
     });
     if (result.lease.mode === "control") {
       controlByBinding.set(result.lease.bindingId, leaseId);
     }
+    if (surfacePorts !== undefined) openSurface(owners.get(leaseId)!);
     return result;
   });
 
@@ -442,11 +489,26 @@ export const registerTerminalIpc = (
           coalescer.flush(terminalBindingKey(owner.lease.bindingId, owner.lease.epoch));
           owner.parked = true;
           owner.missed = false;
+          if (owner.surfaced) {
+            // A hidden view parses nothing: its port goes, and showing it
+            // again repaints from the grid and opens a new one.
+            owner.stopSurface?.();
+            owner.stopSurface = undefined;
+            owner.surfaced = false;
+            plane.host.closeSurface(owner.lease);
+            owner.missed = true;
+            owner.resurface = true;
+          }
         }
         return { ok: true, missed: false };
       }
       if (!owner.parked) return { ok: true, missed: false };
       owner.parked = false;
+      // Output that flows while the screen is read waits for the new port,
+      // which starts after that screen; none of it goes over IPC.
+      const resurface = owner.resurface === true;
+      owner.resurface = false;
+      if (resurface) owner.surfaced = true;
       const missed = owner.missed;
       owner.missed = false;
       if (!missed) return { ok: true, missed: false };
@@ -455,10 +517,20 @@ export const registerTerminalIpc = (
         mode: "observe",
         hostId: owner.hostId,
       });
-      if (!view.ok) return { ok: true, missed: true };
+      if (!view.ok) {
+        owner.surfaced = false;
+        return { ok: true, missed: true };
+      }
       void router.release(view.lease, owner.hostId);
-      if (view.lease.epoch !== owner.lease.epoch) return { ok: true, missed: true };
+      if (view.lease.epoch !== owner.lease.epoch) {
+        owner.surfaced = false;
+        return { ok: true, missed: true };
+      }
       const screen = view.screen?.epoch === owner.lease.epoch ? view.screen : undefined;
+      // No new port: the lease lost control during the read (its view is
+      // told it ended), or the generation left no grid. The view paints what
+      // there is and reads over IPC from here.
+      if (resurface && (screen === undefined || !openSurface(owner, screen.seq))) owner.surfaced = false;
       return {
         ok: true,
         missed: true,

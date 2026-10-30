@@ -176,7 +176,7 @@ describe("the session host and the terminal process's surface gate", () => {
     const { host, interlock } = await start();
     const lease = await control(host);
     const view = renderer();
-    expect(host.openSurface(lease, view.far)).toBe(true);
+    expect(host.openSurface(lease, view.far)).toBeTypeOf("function");
     const before = interlock.inputVersion("b1");
     view.type("echo surfaced-$((40+2))\r");
     await until(() => view.text().includes("surfaced-42"));
@@ -189,7 +189,7 @@ describe("the session host and the terminal process's surface gate", () => {
     const { host } = await start();
     const warm = await control(host);
     const first = renderer();
-    expect(host.openSurface(warm, first.far)).toBe(true);
+    expect(host.openSurface(warm, first.far)).toBeTypeOf("function");
     first.type("echo held-$((6*7))\r");
     await until(() => first.text().includes("held-42"));
     host.release(warm);
@@ -199,7 +199,7 @@ describe("the session host and the terminal process's surface gate", () => {
     if (!attached.ok) throw new Error(attached.message);
     expect(attached.screen?.serialized).toContain("held-42");
     const view = renderer();
-    expect(host.openSurface(attached.lease, view.far)).toBe(true);
+    expect(host.openSurface(attached.lease, view.far)).toBeTypeOf("function");
     view.type("echo after-$((50+1))\r");
     await until(() => view.text().includes("after-51"));
     expect(view.text()).not.toContain("held-42");
@@ -210,7 +210,7 @@ describe("the session host and the terminal process's surface gate", () => {
     const first = await control(host);
     await control(host, true);
     const view = renderer();
-    expect(host.openSurface(first, view.far)).toBe(false);
+    expect(host.openSurface(first, view.far)).toBeUndefined();
     await until(view.closed);
   });
 });

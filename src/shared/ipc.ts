@@ -457,6 +457,11 @@ export const IPC_CHANNELS = {
   terminalEvent: "junto:terminal-event",
   /** A lease this window held ended without its release: another view took control, or the link ended it. */
   terminalLeaseEnded: "junto:terminal-lease-ended",
+  /**
+   * Main to a window, with a MessagePort moved alongside: the direct line from
+   * a control lease's view to its PTY in the terminal process.
+   */
+  terminalSurface: "junto:terminal-surface",
   hostDirectoryRead: "junto:host-directory-read",
   gitStatus: "junto:git-status",
   gitLog: "junto:git-log",
@@ -1317,6 +1322,12 @@ export interface TerminalAttachInput {
   readonly takeover?: boolean;
   /** Route to remote station when not local. */
   readonly hostId?: string;
+  /**
+   * A control view that can take a surface port: when its PTY runs in the
+   * terminal process, its keys and echo go over the port, not IPC
+   * (`terminalSurface`).
+   */
+  readonly surface?: boolean;
 }
 
 /**
