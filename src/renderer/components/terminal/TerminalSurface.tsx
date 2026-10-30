@@ -34,6 +34,7 @@ import {
   takeTerminalViewport,
 } from "../../lib/terminal-viewport";
 import { attachXtermAutoCopy } from "../../lib/xterm-auto-copy";
+import { attachTerminalModifierFence } from "../../lib/terminal-modifier-fence";
 import { playCue } from "../../lib/sound";
 import { seatTasks$, type SeatTask } from "../../lib/seat-tasks";
 import { tasksSource } from "../../lib/tasks-source";
@@ -1162,6 +1163,9 @@ export function TerminalSurface({
       return false;
     });
 
+    // Shift and Cmd typed here never reach the canvas's key hooks (lib/terminal-modifier-fence.ts).
+    const detachModifierFence = attachTerminalModifierFence(host);
+
     // Keep the xterm textarea focused so key + mouse protocol stay live.
     const onPointerDownCapture = (event: PointerEvent): void => {
       claimFocus(term.textarea ?? host, "gesture", { event, via: term, owner: host });
@@ -1255,6 +1259,7 @@ export function TerminalSurface({
 
     return () => {
       detachAutoCopy();
+      detachModifierFence();
       host.removeEventListener("wheel", onWheelBubble);
       host.removeEventListener("pointerdown", onPointerDownCapture, { capture: true });
       window.removeEventListener("resize", onWindowResize);
