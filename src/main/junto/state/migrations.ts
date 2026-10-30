@@ -16,7 +16,7 @@ import { TASK_SEAT_RELEASES_SQL } from "../work/task-state-schema";
 import { MACHINE_CODE_ALLOWANCES_SQL } from "../automation/code-allowance-schema";
 import { MACHINE_PEER_BINDING_COLUMN_SQL } from "../machines/state-schema";
 import { SEAT_CONTROLS_STATE_SCHEMA_SQL } from "../work/seat-controls-state-schema";
-import { FLEET_CONSENSUS_SEED_SQL, FLEET_CONSENSUS_STATE_SCHEMA_SQL, FLEET_STRUCTURE_LOG_STATE_SCHEMA_SQL } from "../fleet/state-schema";
+import { FLEET_CONSENSUS_SEED_SQL, FLEET_CONSENSUS_STATE_SCHEMA_SQL, FLEET_COPY_LIST_STATE_SCHEMA_SQL, FLEET_STRUCTURE_LOG_STATE_SCHEMA_SQL } from "../fleet/state-schema";
 import { MACHINE_VAULT_TOKENS_SQL } from "../vault/state-schema";
 import { SHOT_PURGES_SQL } from "../work/shot-purge-schema";
 import {
@@ -875,7 +875,18 @@ export const STATE_SCHEMA_V70_IDENTITY = {
     "dd84cfc7f7edfe690b0c25d5669ded74fe293a5afe10d24e44e3dacd132497d7",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 70;
+/**
+ * Version 71 keeps the newest installed copy's authority list (0.11/06 F3):
+ * `canvas_copy_list` with its committed position and sender, and
+ * `canvas_copy_list_members` beside it, so a copy's list can widen the voter
+ * set without a copy certifying itself. Expand only.
+ */
+export const STATE_SCHEMA_V71_IDENTITY = {
+  actualSchemaSha256:
+    "d91a80e620f8657916aa81ffcd7c651c69d0448ea36e56a8b2ca81ad2b6f672f",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 71;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -1440,6 +1451,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V69_IDENTITY,
     migrate: (database) => database.exec(WORK_MESSAGES_SENDER_INDEX_SQL),
+  },
+  {
+    fromVersion: 70,
+    toVersion: 71,
+    name: "keep the newest installed copy's authority list",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V70_IDENTITY,
+    migrate: (database) => database.exec(FLEET_COPY_LIST_STATE_SCHEMA_SQL),
   },
 ];
 

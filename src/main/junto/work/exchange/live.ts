@@ -258,7 +258,14 @@ export const makeLiveRowExchange = (
               )
             : undefined;
         }
-        return cut.copy;
+        // The list the copy was cut under, with the position that committed
+        // it (0.11/06 F3): the receiver admits the sender before this list,
+        // keeps the newer position, and never unions an older one back.
+        const listPosition = yield* records.canvasListPosition(canvasName);
+        return {
+          ...cut.copy,
+          authorities: { members: authorities, term: listPosition?.term ?? 0, index: listPosition?.log_index ?? 0 },
+        };
       }).pipe(sql.withTransaction, Effect.provideService(StateTransactionOperation, "exchange.cut-copy"));
 
     /** Keep the count sent to that machine, and where every seat and automation was at it. */
@@ -335,18 +342,57 @@ export const makeLiveRowExchange = (
         }
       });
 
+    /**
+     * A copy's carried authority list vs the newest this machine already
+     * holds (0.11/06 F3): newest wins by (term, index), never a union, so a
+     * stale or replayed list cannot keep a removed machine a voter.
+     */
+    const positionNewer = (
+      position: { readonly term: number; readonly index: number },
+      held: { readonly term: number; readonly index: number } | undefined,
+    ): boolean => held === undefined || position.term > held.term || (position.term === held.term && position.index > held.index);
+
     const installCopy = (copy: CanvasCopy): Effect.Effect<CopyInstalled, unknown> =>
       Effect.gen(function* () {
-        // A copy carrying keeper fields installs them only while this
-        // machine's own committed log lists it (0.11/06 F3): `notes` is the
-        // keeper mark, absent on every cut copy. A delisted machine waits
-        // for the sender's cut copy rather than applying keeper rows.
+        const head = yield* records.getCanvas(copy.canvasName);
+        const heldCopy = yield* records.canvasCopyList(copy.canvasName);
+        const committedRow = yield* records.canvasListPosition(copy.canvasName);
+        const committedPosition = committedRow === undefined ? undefined : { term: committedRow.term, index: committedRow.log_index };
+        const committed = (yield* records.canvasAuthorities(copy.canvasName)).map((installation) => installation as InstallationId);
+        const heldPosition = heldCopy !== undefined && positionNewer(heldCopy, committedPosition)
+          ? { term: heldCopy.term, index: heldCopy.index }
+          : committedPosition;
+        // The voter set before this copy (G1): the newer of the committed
+        // list and the newest installed copy's list, by position; the list
+        // inside an incoming copy never admits its own sender.
+        const heldEditor = committed.length === 0 && heldCopy === undefined ? yield* records.canvasEditor(copy.canvasName) : undefined;
+        const voters = heldCopy !== undefined && positionNewer(heldCopy, committedPosition)
+          ? heldCopy.members
+          : committed.length > 0
+            ? committed
+            : heldEditor === undefined ? [] : [heldEditor as InstallationId];
+        // A copy list older than one already held is refused outright (G3):
+        // it cannot quietly keep a removed machine's membership alive.
+        if (copy.authorities !== undefined && heldPosition !== undefined && positionNewer(heldPosition, copy.authorities)) {
+          return { installed: false, seq: head?.seq ?? 0 };
+        }
+        // A copy carrying keeper fields (`notes`, absent on every cut copy)
+        // is admitted only from a sender that was already a voter (G1), or,
+        // for a machine that holds nothing of the canvas, only from the
+        // peer the operator linked it from by key (G2b) — never whichever
+        // pinned peer arrives first, and never from the list it carries.
         if (copy.notes !== undefined) {
-          const listed = (yield* records.canvasAuthorities(copy.canvasName)).includes(self);
-          if (!listed) {
-            const head = yield* records.getCanvas(copy.canvasName);
-            return { installed: false, seq: head?.seq ?? 0 };
+          let admitted = voters.includes(copy.editor);
+          if (!admitted && head === undefined) {
+            const sender = (yield* machines.peers).find((peer) => peer.installationId === copy.editor);
+            admitted = sender?.binding === "key";
           }
+          if (!admitted) return { installed: false, seq: head?.seq ?? 0 };
+          // Keeper fields apply only while the effective list — the list
+          // this copy carries when present, the held one otherwise — still
+          // names this machine. A delisted machine waits for the cut copy.
+          const listed = (copy.authorities?.members ?? voters).includes(self);
+          if (!listed) return { installed: false, seq: head?.seq ?? 0 };
         }
         // A seat that comes to live here makes its held mail this machine's:
         // forgotten before the copy is kept, so no stop in between loses it.
@@ -383,6 +429,16 @@ export const makeLiveRowExchange = (
         if (!("seq" in outcome) || outcome.seq === undefined) return { refused: "a-canvas-of-that-name" };
         // The copy this machine holds, new or sent again: what it carries may have changed.
         if (outcome.seq === copy.seq) yield* keepCarried(copy);
+        // The list an admitted copy carried replaces the held one only when
+        // strictly newer (G3): remote-core reads it back with its sender.
+        if (outcome.seq === copy.seq && copy.authorities !== undefined && positionNewer(copy.authorities, heldPosition)) {
+          yield* records.canvasCopyListSave(copy.canvasName, {
+            term: copy.authorities.term,
+            index: copy.authorities.index,
+            sender: copy.editor,
+            members: copy.authorities.members,
+          });
+        }
         return { installed: outcome.installed, seq: outcome.seq };
       });
 

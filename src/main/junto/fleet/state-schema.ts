@@ -166,3 +166,31 @@ export const FLEET_STRUCTURE_LOG_STATE_SCHEMA_SQL = `
     FOREIGN KEY (canvas_name, term, log_index) REFERENCES canvas_log_waiting(canvas_name, term, log_index) ON DELETE CASCADE ON UPDATE CASCADE
   ) STRICT, WITHOUT ROWID;
 `;
+
+/**
+ * The newest installed copy's authority list (0.11/06 F3): the members, the
+ * log position the list committed at, and the installation that sent the
+ * copy, so copy admission can take voters from the newest list this machine
+ * was given without a copy certifying itself. One row per canvas, replaced
+ * only by a strictly newer position — newest wins, never a union — and the
+ * sender is kept beside it so the admission check can prove the sender was
+ * already a voter before its list counted. Added by state migration 70 -> 71.
+ */
+export const FLEET_COPY_LIST_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS canvas_copy_list (
+    canvas_name TEXT NOT NULL,
+    term INTEGER NOT NULL CHECK (term >= 0),
+    log_index INTEGER NOT NULL CHECK (log_index >= 0),
+    sender TEXT NOT NULL,
+    PRIMARY KEY (canvas_name),
+    FOREIGN KEY (canvas_name) REFERENCES canvases(canvas_name) ON DELETE CASCADE ON UPDATE CASCADE
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE TABLE IF NOT EXISTS canvas_copy_list_members (
+    canvas_name TEXT NOT NULL,
+    position INTEGER NOT NULL CHECK (position >= 0),
+    installation_id TEXT NOT NULL,
+    PRIMARY KEY (canvas_name, position),
+    FOREIGN KEY (canvas_name) REFERENCES canvas_copy_list(canvas_name) ON DELETE CASCADE ON UPDATE CASCADE
+  ) STRICT, WITHOUT ROWID;
+`;

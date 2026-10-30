@@ -192,7 +192,7 @@ const owesNothing = (owed: Owed): boolean =>
  * the count already sent goes again when this differs.
  */
 const carriedBy = (copy: CanvasCopy): string =>
-  JSON.stringify([copy.guidance, copy.briefing ?? null, copy.references, copy.playing]);
+  JSON.stringify([copy.guidance, copy.briefing ?? null, copy.references, copy.playing, copy.authorities ?? null]);
 
 const closed = (cause: unknown): ExchangeClosed =>
   new ExchangeClosed({ message: cause instanceof Error ? cause.message : String(cause) });
@@ -620,6 +620,8 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
     linked: (peer: InstallationId): boolean => links.has(peer),
     /** Where the seats of a canvas live, and which machine edits it; absent when this machine does not hold it. */
     placement: (canvasName: string): Effect.Effect<CanvasPlacement | undefined> => deps.placement(canvasName),
+    /** Admit and install a copy exactly as a frame does, minus the link checks the frame layer owns. */
+    installCopy: deps.installCopy,
     /**
      * Does mail for that seat of another machine leave on an open link: one to
      * the seat's machine, or to the machine that edits the canvas and passes

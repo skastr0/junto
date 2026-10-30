@@ -36,6 +36,7 @@ import { makeMessageDeliveryStore } from "../src/main/junto/work/message-deliver
 import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { InstallationId } from "../src/shared/installation-id";
+import type { CanvasCopy } from "../src/shared/canvas-copy";
 import { Command, asCanvasName, type Node } from "../src/shared/model";
 import { seat, wire } from "./support/model-nodes";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
@@ -924,7 +925,7 @@ describe("a canvas kept whole on a listed machine", () => {
       }),
     );
 
-  it("installs whole only while its own committed list names it, keeps the canvas's cursors, and prunes foreign mail after a delist", async () => {
+  it("installs whole once the admitted copy's list names it, keeps the canvas's cursors, and prunes foreign mail after a delist", async () => {
     const macbook = await boot("macbook", MACBOOK, [["mini", MINI]]);
     const mini = await boot("mini", MINI, [["macbook", MACBOOK]]);
     await macbook.runtime.runPromise(
@@ -936,19 +937,15 @@ describe("a canvas kept whole on a listed machine", () => {
     // macbook's seats as peers, and the note stays behind.
     expect(await nodesOn(mini)).toEqual(["agent peer", "peer helper", "peer lead", "region remote"]);
 
-    // The macbook lists mini: the next copy is a keeper's, and it still does
-    // not install while mini's own committed list does not name it.
+    // The macbook lists mini: the next copy is a keeper's, and it installs
+    // whole — the sender was a voter, so the list it carries is trusted and
+    // names this machine (0.11/06 F3: the copy is how the list reaches it).
     await authorities(macbook, [MACBOOK, MINI]);
-    await bump(macbook);
-    await settle();
-    expect(await nodesOn(mini)).toEqual(["agent peer", "peer helper", "peer lead", "region remote"]);
-
-    // Listed on its own rows now: the same canvas lands whole.
-    await authorities(mini, [MACBOOK, MINI]);
     await bump(macbook);
     await settle();
     const whole = await nodesOn(mini);
     expect(whole).toEqual(["agent helper", "agent lead", "agent peer", "note kept-note", "region remote"]);
+    await authorities(mini, [MACBOOK, MINI]);
 
     // A keeper copy carrying foreign seats does not forget the canvas's
     // cursors: only a seat that lives here can do that.
@@ -981,5 +978,153 @@ describe("a canvas kept whole on a listed machine", () => {
     expect(await nodesOn(mini)).toEqual(["agent peer", "peer helper", "peer lead", "region remote"]);
     expect(await inbox(mini, "helper")).toEqual([]);
     expect(await inbox(mini, "peer")).toEqual(["held-for-peer"]);
+  });
+});
+
+describe("a copy carrying the authority list", () => {
+  const ROGUE = id("rogue-installation");
+
+  /** Replace a canvas's committed authority list on one machine. */
+  const authorities = (on: Machine, members: ReadonlyArray<InstallationId>) =>
+    on.runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`DELETE FROM canvas_authorities WHERE canvas_name = 'factory'`;
+        for (const [position, member] of members.entries()) {
+          yield* sql`INSERT INTO canvas_authorities (canvas_name, position, installation_id) VALUES ('factory', ${position}, ${member})`;
+        }
+      }),
+    );
+
+  /** Pin a peer as the operator's machine link does: bound by the link key. */
+  const pinKey = (on: Machine, machineName: string, installationId: InstallationId) =>
+    on.runtime.runPromise(
+      Effect.flatMap(MachineRepository, (machines) => machines.pinPeer({ machineName, installationId }, { binding: "key" })),
+    );
+
+  /** The newest installed copy's list, position and sender, as remote-core reads them. */
+  const copyList = (on: Machine) =>
+    on.runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const rows = yield* sql.unsafe<{ term: number; log_index: number; sender: string }>(
+          "SELECT term, log_index, sender FROM canvas_copy_list WHERE canvas_name = 'factory'",
+        );
+        if (rows[0] === undefined) return undefined;
+        const members = yield* sql.unsafe<{ installation_id: string }>(
+          "SELECT installation_id FROM canvas_copy_list_members WHERE canvas_name = 'factory' ORDER BY position",
+        );
+        return { term: rows[0].term, index: rows[0].log_index, sender: rows[0].sender, members: members.map((member) => member.installation_id) };
+      }),
+    );
+
+  /** The copy the macbook owes the mini now, taken from the queue before it crosses. */
+  const copyFor = async (macbook: Machine, mini: Machine) => {
+    queue.length = 0;
+    if (!macbook.exchange.linked(mini.self)) {
+      open.add(`${macbook.name}>${mini.name}`);
+      await macbook.runtime.runPromise(macbook.channel.opened(contextOf(macbook, mini)));
+    } else {
+      await macbook.runtime.runPromise(macbook.exchange.committed("factory"));
+    }
+    await quiet();
+    const frame = queue.find((queued) => (queued.payload as { kind: string }).kind === "copy");
+    queue.length = 0;
+    return (frame!.payload as { copy: CanvasCopy }).copy;
+  };
+
+  /** Deliver queued frames in order, recording the kinds the named machine takes in. */
+  const deliveredTo = async (mini: Machine): Promise<string[]> => {
+    const kinds: string[] = [];
+    for (await quiet(); queue.length > 0; await quiet()) {
+      const next = queue.shift()!;
+      if (!open.has(`${next.from.name}>${next.to.name}`)) continue;
+      const frame = next.to.channel.decodeEvent(next.payload);
+      if (next.to === mini) kinds.push((frame as { kind: string }).kind);
+      await next.to.runtime.runPromise(next.to.channel.handleEvent(contextOf(next.to, next.from), frame));
+    }
+    return kinds;
+  };
+
+  it("refuses a keeper copy from an unlisted peer whose list names itself, and the trust set does not move", async () => {
+    const { macbook, mini } = await pair();
+    await link(macbook, mini);
+    await settle();
+    // Even pinned by the operator's key, a peer that holds no voter seat
+    // cannot certify itself through the list inside its own copy (G1).
+    await pinKey(mini, "rogue", ROGUE);
+    await authorities(macbook, [MACBOOK, MINI]);
+    const honest = await copyFor(macbook, mini);
+    const forged: CanvasCopy = {
+      ...honest,
+      editor: ROGUE,
+      notes: [],
+      authorities: { members: [ROGUE], term: 1, index: 9 },
+    };
+    const outcome = await mini.runtime.runPromise(mini.exchange.installCopy(forged));
+    expect(outcome).toMatchObject({ installed: false });
+    // The honest copy's own list persisted at its install; the forged one moved nothing.
+    expect(await copyList(mini)).toMatchObject({ term: 0, index: 0, sender: MACBOOK });
+    expect(await mini.runtime.runPromise(Effect.flatMap(ModelRecords, (records) => records.canvasAuthorities("factory")))).toEqual([]);
+    // The canvas the honest copy described is the one still held.
+    expect((await header(mini))!.editor).toBe(MACBOOK);
+  });
+
+  it("refuses a copy whose list is older than the one it holds", async () => {
+    const { macbook, mini } = await pair();
+    await link(macbook, mini);
+    await settle();
+    await authorities(macbook, [MACBOOK, MINI]);
+    const honest = await copyFor(macbook, mini);
+    // A keeper copy from a voter at list position 9 installs and persists it.
+    const newer: CanvasCopy = { ...honest, notes: [], authorities: { members: [MACBOOK, MINI], term: 1, index: 9 } };
+    const first = await mini.runtime.runPromise(mini.exchange.installCopy(newer));
+    expect(first).not.toMatchObject({ refused: expect.anything() });
+    expect(await copyList(mini)).toMatchObject({ term: 1, index: 9, sender: MACBOOK, members: [MACBOOK, MINI] });
+    // A copy carrying the list as it stood at 7 never unwinds it (G3).
+    const stale: CanvasCopy = { ...honest, notes: [], authorities: { members: [MACBOOK, MINI, ROGUE], term: 1, index: 7 } };
+    const second = await mini.runtime.runPromise(mini.exchange.installCopy(stale));
+    expect(second).toMatchObject({ installed: false });
+    expect(await copyList(mini)).toMatchObject({ term: 1, index: 9, sender: MACBOOK, members: [MACBOOK, MINI] });
+  });
+
+  it("admits a newcomer's first copy only from the key-bound peer, never another pinned machine", async () => {
+    const macbook = await boot("macbook", MACBOOK, [["mini", MINI]]);
+    const mini = await boot("mini", MINI, [["macbook", MACBOOK], ["rogue", ROGUE]]);
+    await factoryOn(macbook);
+    await pinKey(mini, "macbook", MACBOOK);
+    await authorities(macbook, [MACBOOK, MINI]);
+    const honest = await copyFor(macbook, mini);
+    expect(honest.notes).toBeDefined();
+    // The rogue's keeper copy arrives first: pinned, but never key-bound,
+    // and nothing else admits it to a machine that holds nothing (G2).
+    const rogueCopy: CanvasCopy = { ...honest, editor: ROGUE };
+    expect(await mini.runtime.runPromise(mini.exchange.installCopy(rogueCopy))).toMatchObject({ installed: false });
+    expect(await header(mini)).toBeUndefined();
+    // The operator's key-bound peer's copy is the one that lands, whole.
+    expect(await mini.runtime.runPromise(mini.exchange.installCopy(honest))).toMatchObject({ installed: true });
+    expect(await nodesOn(mini)).toContain("note a-note");
+    expect(await copyList(mini)).toMatchObject({ term: 0, index: 0, sender: MACBOOK, members: [MACBOOK, MINI] });
+  });
+
+  it("hands the newcomer its copy ahead of the first rows once the list commits", async () => {
+    const macbook = await boot("macbook", MACBOOK, [["mini", MINI]]);
+    const mini = await boot("mini", MINI, [["macbook", MACBOOK]]);
+    await factoryOn(macbook);
+    await pinKey(mini, "macbook", MACBOOK);
+    await authorities(macbook, [MACBOOK, MINI]);
+    await mail(macbook, { id: "lead", bindingId: "binding-lead" }, "peer", "owed-before-the-copy");
+    queue.length = 0;
+    await link(macbook, mini);
+    const kinds = await deliveredTo(mini);
+    // The keeper copy crosses before the first rows frame: a machine takes
+    // the list, and only then what its authority appends.
+    const copyAt = kinds.indexOf("copy");
+    const rowsAt = kinds.indexOf("rows");
+    expect(copyAt).toBeGreaterThanOrEqual(0);
+    expect(rowsAt === -1 || copyAt < rowsAt).toBe(true);
+    expect(await nodesOn(mini)).toContain("note a-note");
+    expect(await copyList(mini)).toMatchObject({ sender: MACBOOK, members: [MACBOOK, MINI] });
+    expect(await inbox(mini, "peer")).toEqual(["owed-before-the-copy"]);
   });
 });

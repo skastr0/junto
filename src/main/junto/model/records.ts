@@ -166,6 +166,73 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
           failure("canvasStructureHead"),
         ),
       );
+      /**
+       * The log position of the newest list entry the committed log applied
+       * for a canvas (0.11/06 F3): the position the canvas's own history
+       * assigns its authority list, compared to the one a copy carries.
+       * Absent where no list entry applied yet.
+       */
+      const canvasListPosition = Effect.fn("ModelRecords.canvasListPosition")((canvas: string) =>
+        sql<{ readonly term: number; readonly log_index: number }>`
+          SELECT term, log_index
+          FROM canvas_log
+          WHERE canvas_name = ${canvas}
+            AND kind = 'list'
+            AND log_index <= COALESCE(
+              (SELECT applied_index FROM canvas_consensus WHERE canvas_name = ${canvas}),
+              -1
+            )
+          ORDER BY log_index DESC
+          LIMIT 1
+        `.pipe(
+          Effect.map((rows) => rows[0]),
+          failure("canvasListPosition"),
+        ),
+      );
+      /**
+       * The authority list the newest installed copy carried for a canvas,
+       * with the position it committed at and the installation that sent the
+       * copy (0.11/06 F3): the second half of the voter set copy admission
+       * consults, after the receiver's own committed list.
+       */
+      const canvasCopyList = Effect.fn("ModelRecords.canvasCopyList")((canvas: string) =>
+        Effect.gen(function* () {
+          const rows = yield* sql<{
+            readonly term: number;
+            readonly log_index: number;
+            readonly sender: string;
+          }>`SELECT term, log_index, sender FROM canvas_copy_list WHERE canvas_name = ${canvas}`;
+          if (rows[0] === undefined) return undefined;
+          const members = yield* sql<{ readonly installation_id: string }>`
+            SELECT installation_id FROM canvas_copy_list_members WHERE canvas_name = ${canvas} ORDER BY position`;
+          return {
+            term: rows[0].term,
+            index: rows[0].log_index,
+            sender: rows[0].sender,
+            members: members.map((member) => member.installation_id),
+          };
+        }).pipe(failure("canvasCopyList")),
+      );
+      /**
+       * Replace the persisted copy list when the copy that carried it was
+       * admitted and its position is strictly newer than what is held
+       * (0.11/06 F3): newest wins, never a union, and the sender goes in
+       * beside it so admission can prove a list never certifies its sender.
+       */
+      const canvasCopyListSave = Effect.fn("ModelRecords.canvasCopyListSave")(
+        (
+          canvas: string,
+          list: { readonly term: number; readonly index: number; readonly sender: string; readonly members: ReadonlyArray<string> },
+        ) =>
+          Effect.gen(function* () {
+            yield* sql`DELETE FROM canvas_copy_list_members WHERE canvas_name = ${canvas}`;
+            yield* sql`DELETE FROM canvas_copy_list WHERE canvas_name = ${canvas}`;
+            yield* sql`INSERT INTO canvas_copy_list (canvas_name, term, log_index, sender) VALUES (${canvas}, ${list.term}, ${list.index}, ${list.sender})`;
+            for (const [position, member] of list.members.entries()) {
+              yield* sql`INSERT INTO canvas_copy_list_members (canvas_name, position, installation_id) VALUES (${canvas}, ${position}, ${member})`;
+            }
+          }).pipe(failure("canvasCopyListSave")),
+      );
       const canvasEdits = SqlSchema.findAll({
         Request: Schema.String,
         Result: Schema.Struct({ edits: Schema.Number }),
@@ -460,6 +527,9 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
         canvasEditor,
         canvasAuthorities,
         canvasStructureHead,
+        canvasListPosition,
+        canvasCopyList,
+        canvasCopyListSave,
         editsCanvas,
         listCanvases,
         listCanvasSummaries: () => listCanvasSummaries(undefined).pipe(failure("listCanvasSummaries")),

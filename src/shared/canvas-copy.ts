@@ -151,6 +151,16 @@ export const CanvasCopy = Schema.Struct({
    * notes on the editing machine.
    */
   notes: Schema.optionalKey(Schema.Array(Note)),
+  /**
+   * The committed authority list this copy was cut under and the log
+   * position that committed it (0.11/06 F3): how a machine learns who may
+   * rule, and how newest wins without unioning a stale list back in. A
+   * position of (0,0) marks the implicit first list, which no entry
+   * committed. Absent in a copy from before the field existed.
+   */
+  authorities: Schema.optionalKey(
+    Schema.Struct({ members: Schema.Array(InstallationId), term: Schema.Number, index: Schema.Number }),
+  ),
 });
 export type CanvasCopy = typeof CanvasCopy.Type;
 
