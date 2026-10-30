@@ -1,19 +1,19 @@
 /**
- * The operator's holds on seats, kept in main so the cut at the cache window
- * can ask. A seat is held while any window shows its terminal, and for
- * OPERATOR_TYPING_GRACE_MS after the operator's last key into it.
+ * The operator's holds on seats, kept where the cut at the cache window can ask:
+ * the core, which runs the seats. A seat is held while any window shows its
+ * terminal, and for OPERATOR_TYPING_GRACE_MS after the operator's last key into
+ * it.
  *
  * Holds are kept per window and per binding. A window says which bindings it
  * shows as a whole list each time it changes, so a missed message heals at the
  * next one. A window that closes, crashes or reloads drops every hold it had,
- * typing included.
+ * typing included. The window's reports reach these holds from main by
+ * core.call (core-process/ops/seat-holds.ts, term/operator-holds-ipc.ts).
  *
  * A seat that runs on another machine is cut there, so its holds cross the
  * link: the views of it (seat-views.ts) send each change as a Hold, and the
  * seat's machine adds what its peers hold (seat-attach.ts) as a hold source.
  */
-import type { IpcMain, WebContents } from "electron";
-import { IPC_CHANNELS } from "@shared/ipc";
 import { OPERATOR_TYPING_GRACE_MS } from "@shared/operator-hold";
 
 type WindowHolds = {
@@ -127,8 +127,8 @@ export const makeOperatorHolds = (clock: () => number = Date.now): OperatorHolds
 };
 
 const live = makeOperatorHolds();
-/** The live holds of this process's windows, for the views that carry them to a seat's own machine. */
-export const liveOperatorHolds: Pick<OperatorHolds, "shows" | "subscribe"> = live;
+/** The live holds of this process, for the cut, the views that carry them to a seat's own machine, and the reports from the window. */
+export const liveOperatorHolds: OperatorHolds = live;
 
 const typedListeners = new Set<(bindingId: string) => void>();
 /**
@@ -178,34 +178,3 @@ export const operatorHolds = (bindingId: string, now: number): boolean => operat
  */
 export const operatorHeldUntil = (bindingId: string, now: number): number | undefined =>
   operatorHold(bindingId, now)?.until;
-
-const BINDINGS_MAX = 1_024;
-const isBindingId = (value: unknown): value is string =>
-  typeof value === "string" && value.length > 0 && value.length <= 256;
-
-/** Window reports into the live holds; each window is watched for close and reload from its first report. */
-export const registerOperatorHoldsIpc = (ipc: Pick<IpcMain, "handle">, holds: OperatorHolds = live): void => {
-  const watched = new Set<number>();
-  const watch = (sender: WebContents): number => {
-    const id = sender.id;
-    if (watched.has(id)) return id;
-    watched.add(id);
-    sender.on("did-start-navigation", (_event, _url, inPlace, isMainFrame) => {
-      if (isMainFrame && !inPlace) holds.dropWindow(id);
-    });
-    sender.on("render-process-gone", () => holds.dropWindow(id));
-    sender.once("destroyed", () => {
-      holds.dropWindow(id);
-      watched.delete(id);
-    });
-    return id;
-  };
-
-  ipc.handle(IPC_CHANNELS.seatSurfacesOpen, (event, bindingIds: unknown) => {
-    if (!Array.isArray(bindingIds) || bindingIds.length > BINDINGS_MAX) return;
-    holds.surfaces(watch(event.sender), bindingIds.filter(isBindingId));
-  });
-  ipc.handle(IPC_CHANNELS.seatOperatorTyped, (event, bindingId: unknown) => {
-    if (isBindingId(bindingId)) holds.typed(watch(event.sender), bindingId);
-  });
-};

@@ -6,7 +6,8 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
-import { makeOperatorHolds, registerOperatorHoldsIpc, subscribeOperatorTyped } from "../src/main/junto/term/operator-holds";
+import { makeOperatorHolds, liveOperatorHolds, subscribeOperatorTyped } from "../src/main/junto/term/operator-holds";
+import { registerOperatorHoldsIpc } from "../src/main/junto/term/operator-holds-ipc";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { OPERATOR_TYPED_REPORT_MS, OPERATOR_TYPING_GRACE_MS } from "../src/shared/operator-hold";
 import { openSurfaceBindingIds } from "../src/renderer/lib/agent-seat-state";
@@ -139,7 +140,7 @@ describe("operator holds over IPC", () => {
 
   it("a key in this process's window warms the seat: told to whoever keeps its cache window", () => {
     const handlers = new Map<string, Listener>();
-    registerOperatorHoldsIpc({ handle: (channel: string, listener: Listener) => { handlers.set(channel, listener); } } as unknown as Pick<IpcMain, "handle">);
+    registerOperatorHoldsIpc({ handle: (channel: string, listener: Listener) => { handlers.set(channel, listener); } } as unknown as Pick<IpcMain, "handle">, liveOperatorHolds);
     const sender = Object.assign(new EventEmitter(), { id: 9_001 }) as unknown as WebContents & EventEmitter;
     const warmed: string[] = [];
     const off = subscribeOperatorTyped((bindingId) => warmed.push(bindingId));

@@ -91,7 +91,8 @@ import { runTool } from "./region-env/tool";
 import {
   isLiveClaudeResumeSummaryChoice,
 } from "./term/drive/claude-startup";
-import { registerOperatorHoldsIpc } from "./term/operator-holds";
+import { registerOperatorHoldsIpc } from "./term/operator-holds-ipc";
+import { coreOperatorHolds } from "../core-process/ops/seat-holds";
 import { removeRegionSecret, saveRegionSecret } from "./region-env/secret-ipc";
 import { regionEnvReport } from "./region-env/report-ipc";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
@@ -303,7 +304,9 @@ export const registerJuntoIpc = (): void => {
     await core.call("ipc.threads.seatViewed", { bindingId });
   });
 
-  registerOperatorHoldsIpc(privilegedIpc);
+  // The holds themselves are the core's, where the cache cut asks: main sends
+  // each window's report on and keeps none (core-process/ops/seat-holds.ts).
+  registerOperatorHoldsIpc(privilegedIpc, coreOperatorHolds(core));
 
   // The plane runs in the core, where the seats and their windows are; main
   // asks it for the latest event per binding a renderer hydrates from.
