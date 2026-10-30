@@ -13,6 +13,7 @@ import { UsageService } from "../../junto/usage/usage-service";
 import { WorkRepository } from "../../junto/work/repository";
 import { publish } from "../push";
 import type { Canvas } from "@shared/model";
+import type { UsageState } from "@shared/usage";
 import { USAGE_ENABLED } from "@shared/features";
 import { onboardNudgeRefusal } from "@shared/seat-onboarding-status";
 import { redactProvidersForIpc, type Settings } from "@shared/settings";
@@ -48,6 +49,19 @@ declare module "../ops" {
   }
 }
 
+/**
+ * The usage snapshot reaches the window only where the build turns usage on
+ * (baseline junto/ipc.ts:896); the first fetch at the end of this op is gated
+ * the same way. Exported for the flag's test.
+ */
+export const subscribeUsageWhenEnabled = (
+  usage: { readonly subscribe: (listener: (state: UsageState) => void) => unknown },
+  enabled: boolean = USAGE_ENABLED,
+): void => {
+  if (!enabled) return;
+  usage.subscribe((state) => publish(IPC_CHANNELS.usageChanged, state));
+};
+
 coreOps({
   "ipc.startup.core": () =>
     Effect.gen(function* () {
@@ -59,7 +73,7 @@ coreOps({
         else publish(IPC_CHANNELS.workSinkChanged, { canvasName, nodeId });
       });
       const usage = yield* UsageService;
-      usage.subscribe((state) => publish(IPC_CHANNELS.usageChanged, state));
+      subscribeUsageWhenEnabled(usage);
       const kernel = yield* KernelService;
       kernel.subscribe((snapshot) => publish(IPC_CHANNELS.kernelChanged, snapshot));
 

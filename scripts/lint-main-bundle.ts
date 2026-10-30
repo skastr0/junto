@@ -56,6 +56,16 @@ const prune = process.argv.includes("--prune");
 
 const load = <T>(rel: string): T => JSON.parse(readFileSync(join(ROOT, rel), "utf8")) as T;
 
+/** The cut that owns a module: junto/<dir>, junto/(root), core-process, or an area of main. */
+const cutOf = (module: string): string => {
+  const parts = module.split("/");
+  if (parts[0] !== "src" || parts[1] !== "main") return parts[0] ?? module;
+  if (parts.length === 3) return "(main root)";
+  if (parts[2] === "junto") return parts.length === 4 ? "junto/(root)" : `junto/${parts[3]}`;
+  if (parts[2] === "core-process") return parts[3] === "ops" ? "core-process/ops" : "core-process/(root)";
+  return parts[2] ?? "(main root)";
+};
+
 const main = (): number => {
   let manifest: Manifest;
   let allowlist: Allowlist;
@@ -108,9 +118,22 @@ const main = (): number => {
     `${ENTRY} and ${CORE_ENTRY} link ${mainModules.size} and ${coreModules.size} modules, ` +
     `${project.length} in both: ${offenders.size} main-side ` +
     `(${staysInBoth} stay, ${debtInBoth} debt, ${added.length} not on the list), ${shared.length} src/shared`;
+  // The same overlap, by the cut that owns it: a directory of junto/, another
+  // area of main. Each cut task's count is what the split closes when it lands.
+  const byCut = new Map<string, number>();
+  for (const module of offenders) {
+    const cut = cutOf(module);
+    byCut.set(cut, (byCut.get(cut) ?? 0) + 1);
+  }
+  const cuts = [...byCut].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const cutsLine =
+    "by cut: " +
+    cuts.slice(0, 6).map(([cut, count]) => `${cut} ${count}`).join(", ") +
+    (cuts.length > 6 ? `, ${cuts.length - 6} more` : "");
 
   if (added.length === 0 && staleDebt.length === 0 && staleStays.length === 0) {
     console.log(`ok main-bundle: ${summary}`);
+    console.log(`  ${cutsLine}`);
     return 0;
   }
 
@@ -123,6 +146,7 @@ const main = (): number => {
       `${JSON.stringify({ ...allowlist, debt }, null, 2)}\n`,
     );
     console.log(`ok main-bundle: pruned ${staleDebt.length} module(s) the split closed; ${summary}`);
+    console.log(`  ${cutsLine}`);
     return 0;
   }
 
@@ -142,6 +166,7 @@ const main = (): number => {
     for (const module of staleStays) console.error(`    ${module}`);
   }
   console.error(`  ${summary}`);
+  console.error(`  ${cutsLine}`);
   return 1;
 };
 
