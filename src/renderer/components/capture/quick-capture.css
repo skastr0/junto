@@ -96,7 +96,8 @@
    list: the row the keys act on is the one that says the keyboard is there. */
 .quick-capture__rows {
   margin: 0;
-  padding: 0 6px 8px;
+  /* Cmd+K's list: 6px above the first row, so it clears the divider. */
+  padding: 6px 6px 8px;
   overflow-y: auto;
   overscroll-behavior: contain;
   list-style: none;
@@ -194,8 +195,10 @@
 }
 
 /* The capture's document is a field, not a page: the artifact page's 40vh
-   bottom room goes, and it sits inside the pane it shares with the list. */
-.quick-capture .artifact-document .live-markdown .cm-content {
+   bottom room goes, and it sits inside the pane it shares with the list. The
+   read-only preview takes the same inset, so Enter never moves the text. */
+.quick-capture .artifact-document .live-markdown .cm-content,
+.quick-capture__preview-doc .live-markdown .cm-content {
   max-width: none;
   padding: 16px 20px;
 }

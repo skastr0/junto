@@ -26,6 +26,12 @@
   font-size: var(--text-label);
 }
 
+/* The head's title clips like the row titles it stands for; the caret's own
+   edge shows the rest while the field is being written. */
+.capture-editor__head .artifact-head__title:not(:focus) {
+  text-overflow: ellipsis;
+}
+
 .capture-editor__line {
   margin: 0;
   padding: 6px 12px;
