@@ -444,7 +444,7 @@ describe("WorkRepository v2 local authority", () => {
       }).pipe(Effect.result));
       expect(Result.isFailure(refused)).toBe(true);
       if (Result.isFailure(refused)) expect(refused.failure).toMatchObject({ reason: "causal-conflict" });
-      expect(await runtime.runPromise(repository.hasAcceptedDelivery(sink, deliveryId))).toBe(false);
+      expect(await runtime.runPromise(repository.acceptedDeliveries(sink, [deliveryId]))).toEqual([]);
       expect(events).toEqual([]);
       await runtime.runPromise(repository.acceptDelivery({ sink, basis: authorialBasis, receipt }));
       expect(await runtime.runPromise(repository.acceptedDeliveryAt(sink, deliveryId))).toBe(observedAt);
@@ -469,10 +469,8 @@ describe("WorkRepository v2 local authority", () => {
       }),
     );
     expect(
-      await runtime.runPromise(
-        repository.hasAcceptedDelivery(inbox, "delivery-1"),
-      ),
-    ).toBe(false);
+      await runtime.runPromise(repository.acceptedDeliveries(inbox, ["delivery-1"])),
+    ).toEqual([]);
     await runtime.runPromise(
       repository.acceptDelivery({
         sink: inbox,
@@ -488,10 +486,8 @@ describe("WorkRepository v2 local authority", () => {
       }),
     );
     expect(
-      await runtime.runPromise(
-        repository.hasAcceptedDelivery(inbox, "delivery-1"),
-      ),
-    ).toBe(true);
+      await runtime.runPromise(repository.acceptedDeliveries(inbox, ["delivery-1"])),
+    ).toEqual(["delivery-1"]);
 
     expect(
       (
