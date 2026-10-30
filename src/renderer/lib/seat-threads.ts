@@ -11,12 +11,13 @@
  * src/shared/wire/mail-threads.ts, imported as types only: no Effect runtime
  * here). Main pushes nothing for threads: any mailbox can change a seat's
  * threads, so a mail change anywhere on the canvas reads its seats again.
- * Mail has no operator read state, so nothing here says what is new.
+ * The operator's read state rides each row (`unread`) and the seat's total
+ * (`unreadTotal`); main decides both, so only replies to the operator count.
  */
 import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { useEffect, useState } from "react";
-import type { MentionableSeat, OperatorThreadSend, OperatorThreadSent } from "@shared/mail-threads";
+import type { MentionableSeat, OperatorThreadSend, OperatorThreadSent, ThreadGroup } from "@shared/mail-threads";
 import type { ResourceSubject } from "@shared/thread-subject";
 import type { ContentRef } from "@shared/wire/content-ref";
 import type { MailParty } from "@shared/wire/mail-threads";
@@ -65,7 +66,7 @@ export const THREADS_PAGE = 50;
 /** Messages in a page: the newest on open, and each older page as the chat scrolls up. */
 export const MESSAGES_PAGE = 50;
 
-/** One page of a seat's threads, newest first; `next` asks for the page after it. */
+/** One page of one of a seat's two lists, newest first; `next` asks for the page after it. */
 export type SeatThreadsPage = { readonly threads: ReadonlyArray<SeatThreadSummary>; readonly next?: string };
 
 /** One page of a thread's messages, oldest first; `older` asks for the page above it. */
@@ -73,8 +74,8 @@ export type SeatThreadMessagesPage = { readonly messages: ReadonlyArray<SeatThre
 
 /** What reads a seat's threads, a page at a time. */
 export type SeatThreadsSource = {
-  /** From the newest, or after the cursor a page gave. */
-  readonly list: (seat: SeatAddress & { readonly after?: string }) => Promise<SeatThreadsPage>;
+  /** One list, the threads the operator is in or those between seats: from the newest, or after the cursor its page gave. */
+  readonly list: (seat: SeatAddress & { readonly group: ThreadGroup; readonly after?: string }) => Promise<SeatThreadsPage>;
   /** The newest, or those before the cursor a page gave. */
   readonly messages: (
     seat: SeatAddress & { readonly threadId: string; readonly before?: string },
@@ -114,11 +115,12 @@ export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
     return undefined;
   }
   return {
-    list: async ({ canvasName, seatId, after }) => {
+    list: async ({ canvasName, seatId, group, after }) => {
       const page = await list({
         canvasName,
         nodeId: seatId,
         limit: THREADS_PAGE,
+        group,
         ...(after === undefined ? {} : { after }),
       });
       return {
@@ -190,13 +192,16 @@ export const setSeatThreadsSource = (next: SeatThreadsSource | undefined): void 
   for (const key of Object.keys(seatThreads$.messages.peek())) void refreshThread(key);
 };
 
+/** Each list's cursor for its page after the last one read; a list that has ended has none. */
+type ListCursors = { readonly [G in ThreadGroup]?: string };
+
 type SeatState = {
-  /** The pages read so far, newest first. */
+  /** The pages read so far of both lists, newest first. */
   readonly threads: ReadonlyArray<SeatThreadSummary>;
   readonly loaded: boolean;
   readonly error: string;
-  /** Cursor for the page after the last one read; absent when the list has ended. */
-  readonly next?: string;
+  /** Where each list goes on; absent when both have ended. */
+  readonly next?: ListCursors;
   /** An older page is being read. */
   readonly loadingMore?: true;
 };
@@ -290,20 +295,48 @@ const refreshed = <T>(
     : { rows: laid(tail, head, id, order), cursor: heldCursor };
 };
 
+/** The operator's threads page apart from those between seats, first (0.11.5). */
+const GROUPS: ReadonlyArray<ThreadGroup> = ["with-you", "between"];
+const inGroup = (group: ThreadGroup) => (thread: SeatThreadSummary): boolean => thread.canReply === (group === "with-you");
+
+/** Both lists' cursors, or none when both have ended. */
+const cursorsOf = (cursors: ListCursors): ListCursors | undefined =>
+  GROUPS.some((group) => cursors[group] !== undefined) ? cursors : undefined;
+
+/** Both lists as one, newest first; a thread that moved between them is kept once, with the operator. */
+const merged = (withYou: ReadonlyArray<SeatThreadSummary>, between: ReadonlyArray<SeatThreadSummary>): SeatThreadSummary[] => {
+  const mine = new Set(withYou.map((thread) => thread.threadId));
+  return [...withYou, ...between.filter((thread) => !mine.has(thread.threadId))].sort(byActivity);
+};
+
 const refreshSeat = (key: string): Promise<void> =>
   coalesce(key, async () => {
     const read = activeSource();
     if (!read || !retained.has(key)) return;
     try {
-      const page = await read.list(seatOfKey(key));
+      const seat = seatOfKey(key);
+      const pages = await Promise.all(GROUPS.map((group) => read.list({ ...seat, group })));
       if (activeSource() !== read || !retained.has(key)) return;
       const prior = seatThreads$.seats[key].peek();
-      const head = refreshed(prior?.threads ?? [], page.threads, page.next, prior?.next, (t) => t.threadId, byActivity, (row, far) => byActivity(row, far) > 0);
+      // Each list's head over what it holds, on its own cursor.
+      const heads = GROUPS.map((group, n) => {
+        const page = pages[n]!;
+        return refreshed(
+          (prior?.threads ?? []).filter(inGroup(group)),
+          page.threads.filter(inGroup(group)),
+          page.next,
+          prior?.next?.[group],
+          (t) => t.threadId,
+          byActivity,
+          (row, far) => byActivity(row, far) > 0,
+        );
+      });
+      const next = cursorsOf(Object.fromEntries(GROUPS.flatMap((group, n) => (heads[n]!.cursor === undefined ? [] : [[group, heads[n]!.cursor]]))));
       seatThreads$.seats[key].set({
-        threads: head.rows,
+        threads: merged(heads[0]!.rows, heads[1]!.rows),
         loaded: true,
         error: "",
-        ...(head.cursor === undefined ? {} : { next: head.cursor }),
+        ...(next === undefined ? {} : { next }),
         ...(prior?.loadingMore ? { loadingMore: true as const } : {}),
       });
     } catch (error) {
@@ -353,25 +386,35 @@ const refreshThread = (key: string): Promise<void> =>
     }
   });
 
-/** The next older page of a retained seat's threads, when there is one and none is being read. */
+/**
+ * The next older page of a retained seat's threads, when there is one and none
+ * is being read: the operator's list until it ends, then the list between seats.
+ */
 export const loadMoreSeatThreads = async (seat: SeatAddress): Promise<void> => {
   const key = seatKey(seat);
   const read = activeSource();
   const state = seatThreads$.seats[key].peek();
-  const after = state?.next;
-  if (!read || !state || !retained.has(key) || after === undefined || state.loadingMore) return;
+  const group = GROUPS.find((candidate) => state?.next?.[candidate] !== undefined);
+  const after = group === undefined ? undefined : state?.next?.[group];
+  if (!read || !state || !retained.has(key) || group === undefined || after === undefined || state.loadingMore) return;
   seatThreads$.seats[key].set({ ...state, loadingMore: true });
   try {
-    const page = await read.list({ ...seat, after });
+    const page = await read.list({ ...seat, group, after });
     if (activeSource() !== read || !retained.has(key)) return;
     const now = seatThreads$.seats[key].peek();
     if (!now) return;
     // A head read meanwhile may have moved the cursor on; only its own page ends here.
     const { loadingMore: _done, next: _next, ...rest } = now;
-    const next = now.next === after ? page.next : now.next;
+    const { [group]: held, ...others } = now.next ?? {};
+    const moved = held === after ? page.next : held;
+    const next = cursorsOf({ ...others, ...(moved === undefined ? {} : { [group]: moved }) });
+    const lists = GROUPS.map((each) => {
+      const held = now.threads.filter(inGroup(each));
+      return each === group ? laid(held, page.threads.filter(inGroup(each)), (t) => t.threadId, byActivity) : held;
+    });
     seatThreads$.seats[key].set({
       ...rest,
-      threads: laid(now.threads, page.threads, (t) => t.threadId, byActivity),
+      threads: merged(lists[0]!, lists[1]!),
       error: "",
       ...(next === undefined ? {} : { next }),
     });

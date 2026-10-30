@@ -560,7 +560,7 @@ export const registerJuntoIpc = (): void => {
       const query = yield* Schema.decodeUnknownEffect(SeatThreadsPageQuery, { onExcessProperty: "error" })(input);
       // The operator's read points ride the list, so a row knows what it has not read yet (0.11.3).
       const points = yield* readPoints(query.canvasName, query.nodeId);
-      return yield* seatThreadsPage(query.canvasName, query.nodeId, { limit: query.limit, after: query.after }, points);
+      return yield* seatThreadsPage(query.canvasName, query.nodeId, { limit: query.limit, after: query.after, group: query.group }, points);
     })),
   );
   privilegedIpc.handle(IPC_CHANNELS.seatThreadMessages, (_event, input: unknown) =>

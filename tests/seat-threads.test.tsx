@@ -345,7 +345,9 @@ describe("main's threads IPC as the source", () => {
     };
     await render();
     await click(q("seat-threads-button"));
-    expect(seatThreadsList).toHaveBeenCalledWith({ canvasName: "factory", nodeId: "seat-1", limit: 50 });
+    // Each list is read on its own: the operator's, and the one between seats (0.11.5).
+    expect(seatThreadsList).toHaveBeenCalledWith({ canvasName: "factory", nodeId: "seat-1", limit: 50, group: "with-you" });
+    expect(seatThreadsList).toHaveBeenCalledWith({ canvasName: "factory", nodeId: "seat-1", limit: 50, group: "between" });
     expect(q("seat-threads-with-you")?.textContent).toContain("you, pty-lead");
     expect(all("seat-threads-message")[0]?.textContent).toContain("you 01:02");
     expect(chipLabels()).toEqual(["@cli-lead"]);
@@ -849,16 +851,20 @@ describe("paging in the popup", () => {
    * so only a cursor says an older page was asked for.
    */
   const pageAsks = (calls: ReadonlyArray<string | undefined>) => calls.filter((after): after is string => after !== undefined);
-  const pagedSource = () => {
+  /** As main pages them: each list alone, on its own cursor. */
+  const pagedSource = (between: ReadonlyArray<SeatThreadSummary> = []) => {
     const calls: Array<string | undefined> = [];
+    const asked: Array<{ readonly group: string; readonly after: string }> = [];
     const everything = Array.from({ length: TOTAL }, (_, n) => threadAt(n));
     const source: SeatThreadsSource = {
-      list: async ({ after }) => {
-        calls.push(after);
-        const from = after === undefined ? 0 : everything.findIndex((item) => item.threadId === after) + 1;
-        const threads = everything.slice(from, from + 50);
+      list: async ({ group, after }) => {
+        const list = group === "with-you" ? everything : between;
+        if (group === "with-you") calls.push(after);
+        if (after !== undefined) asked.push({ group, after });
+        const from = after === undefined ? 0 : list.findIndex((item) => item.threadId === after) + 1;
+        const threads = list.slice(from, from + 50);
         const last = threads.at(-1);
-        return { threads, ...(from + 50 < TOTAL && last ? { next: last.threadId } : {}) };
+        return { threads, ...(from + 50 < list.length && last ? { next: last.threadId } : {}) };
       },
       messages: async () => ({ messages: [] }),
       onChanged: () => () => undefined,
@@ -866,8 +872,38 @@ describe("paging in the popup", () => {
       unreadTotal: async () => 0,
       onReadChanged: () => () => undefined,
     };
-    return { source, calls, everything };
+    return { source, calls, asked, everything };
   };
+
+  it("keeps the operator's threads on the first page however much newer mail is between seats, and pages that list after theirs", async () => {
+    // Sixty threads between seats, every one newer than any thread with the operator.
+    const between = Array.from({ length: 60 }, (_, n) =>
+      thread({ threadId: `b${String(n).padStart(3, "0")}`, participants: ["cli-lead", "pty-lead"], canReply: false, lastAt: at(9, 0) - n * 1000 }));
+    const { source, asked } = pagedSource(between);
+    setSeatThreadsSource(source);
+    await render();
+    await click(q("seat-threads-button"));
+    const group = (testId: string) => [...(q(testId)?.querySelectorAll('[data-testid="seat-threads-row"]') ?? [])];
+    // Both lists open on their own first page: fifty of each, the operator's not pushed off.
+    expect(group("seat-threads-with-you")).toHaveLength(50);
+    expect(group("seat-threads-between-seats")).toHaveLength(50);
+
+    // Scrolling pages the operator's list until it ends, then the one between seats, each on its own cursor.
+    const list = document.querySelector<HTMLElement>(".seat-threads__list")!;
+    for (let n = 0; n < 4; n += 1) {
+      list.scrollTop = list.scrollHeight - VIEW - 100;
+      act(() => list.dispatchEvent(new Event("scroll")));
+      await flush();
+    }
+    expect(asked).toEqual([
+      { group: "with-you", after: "t049" },
+      { group: "with-you", after: "t099" },
+      { group: "between", after: "b049" },
+    ]);
+    expect(group("seat-threads-with-you")).toHaveLength(TOTAL);
+    expect(group("seat-threads-between-seats")).toHaveLength(60);
+    expect(q("seat-threads-more")).toBeNull();
+  });
 
   it("reads one page of threads on open and the next as the list is scrolled near its end", async () => {
     const { source, calls } = pagedSource();

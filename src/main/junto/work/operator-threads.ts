@@ -34,6 +34,7 @@ import {
   type MentionableSeat,
   type OperatorThreadSendDecoded,
   type OperatorThreadSent,
+  type ThreadGroup,
 } from "@shared/mail-threads";
 import { operatorActorRef } from "@shared/work-reference";
 import { ModelService } from "../model/service";
@@ -116,7 +117,7 @@ export const withReadPoints = (
 export const seatThreadsPage = (
   canvasName: string,
   nodeId: string,
-  page: { limit?: number; after?: string },
+  page: { limit?: number; after?: string; group?: ThreadGroup },
   readPoints?: ReadonlyMap<string, MailReadPoint>,
 ) =>
   Effect.map(threadsInput(canvasName), ({ input }) =>

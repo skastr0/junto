@@ -196,12 +196,13 @@ describe("threads against the demo", () => {
     };
     const never = await summary();
     expect(never.readAt).toBeUndefined();
+    // Only the replies to the operator count: Atlas's, not Relay's mail to Atlas in the same thread (0.11.5).
     const theirs = DEMO_THREAD_MAIL.filter((mail) => mail.threadId === root.threadId && !mail.mine).length;
     expect(theirs).toBe(2);
-    expect(never.unread).toBe(theirs);
+    expect(never.unread).toBe(1);
 
     const first = await host.call(frame("threads.read", { canvasName: DEMO_CANVAS, nodeId: "atlas", threadId: root.threadId, through: atlasReply.messageId }));
-    expect(first).toMatchObject({ ok: true, result: { thread: { threadId: root.threadId, unread: theirs - 1 } } });
+    expect(first).toMatchObject({ ok: true, result: { thread: { threadId: root.threadId, unread: 0 } } });
     const all = await host.call(frame("threads.read", { canvasName: DEMO_CANVAS, nodeId: "atlas", threadId: root.threadId }));
     expect(all).toMatchObject({ ok: true, result: { thread: { unread: 0, readAt: expect.any(Number) } } });
     // An older mail does not move the point back; the same read twice answers the same.

@@ -164,13 +164,28 @@ export const readPointKey = (point: MailReadPoint): Pick<Entry, "at" | "messageI
   messageId: point.through,
 });
 
+type UnreadEntry = Pick<Entry, "at" | "messageId" | "mine" | "to">;
+
+/** The operator is in the thread: they wrote in it, or a seat wrote to them. Only such a thread counts unread or may be replied in. */
+const operatorIn = (messages: ReadonlyArray<Pick<Entry, "mine" | "to">>): boolean =>
+  messages.some((message) => message.mine || message.to.some((party) => party.kind === "operator"));
+
 /**
- * A thread's unread mail: what the operator did not write, past its read
- * point, or all of it with none. The desktop and the phone count the same way.
+ * A thread's unread mail (0.11.5): only replies to the operator, mail a seat
+ * wrote to them, in a thread the operator is in, past where they last read.
+ * Mail between seats never counts, in any thread, even a seat's answer to the
+ * operator's mail that it sends to another seat. The operator's own mail is
+ * read, and their newest is a read point of its own: writing in a thread reads
+ * it through that mail, from the thread view, the Needs you feed or the phone
+ * alike. The desktop and the phone count the same way.
  */
-export const unreadPast = (messages: ReadonlyArray<Pick<Entry, "at" | "messageId" | "mine">>, point: MailReadPoint | undefined): number => {
-  const read = point === undefined ? undefined : readPointKey(point);
-  return messages.filter((message) => !message.mine && (read === undefined || mailAfter(message, read))).length;
+export const unreadPast = (messages: ReadonlyArray<UnreadEntry>, point: MailReadPoint | undefined): number => {
+  if (!operatorIn(messages)) return 0;
+  let read = point === undefined ? undefined : readPointKey(point);
+  for (const message of messages) if (message.mine && (read === undefined || mailAfter(message, read))) read = message;
+  return messages.filter(
+    (message) => !message.mine && message.to.some((party) => party.kind === "operator") && (read === undefined || mailAfter(message, read)),
+  ).length;
 };
 
 /** A summary's read state: when the operator last read it, and what came after, counted as the desktop counts. */
@@ -223,7 +238,7 @@ const summaryOf = (input: MailThreadsInput, threadId: string, entries: ReadonlyA
     lastAt: last.at,
     last,
     messageCount: entries.length,
-    canReply: entries.some((entry) => entry.mine || entry.to.some((party) => party.kind === "operator")),
+    canReply: operatorIn(entries),
     owned: entries.some((entry) => entry.mine),
     ...readStateOf(entries, input.readPointOf?.(threadId)),
     ...(subject === undefined ? {} : { subject }),
@@ -252,7 +267,7 @@ const byActivity = (a: { lastAt: number; threadId: string }, b: { lastAt: number
 
 type ActivityKey = { readonly lastAt: number; readonly threadId: string; readonly owned: boolean };
 
-/** The threads the operator wrote in first, then the rest, each group newest activity first. */
+/** The threads the operator is in first, then the rest, each group newest activity first. */
 const byOwnedActivity = (a: ActivityKey, b: ActivityKey): number => Number(b.owned) - Number(a.owned) || byActivity(a, b);
 
 /** The threads a seat wrote or was written to in, newest activity first. */
@@ -308,9 +323,18 @@ const readOwnedCursor = (cursor: string | undefined): { readonly owned: boolean;
   return key === undefined ? undefined : { owned: cursor.startsWith("o."), ...key };
 };
 
-/** The cursor that asks for the threads after this one, in the order its page was read in. */
-export const threadsCursorAfter = (thread: Pick<MailThreadSummary, "owned" | "lastAt" | "threadId">, ownedFirst = false): string =>
-  ownedFirst ? ownedCursorOf(thread.owned, thread.lastAt, thread.threadId) : cursorOf(thread.lastAt, thread.threadId);
+/**
+ * The cursor that asks for the threads after this one, in the order its page
+ * was read in. The owned-first order's group is the operator's being in the
+ * thread (`canReply`), so a thread a seat opened to the operator is never
+ * pushed off the page by mail between seats.
+ */
+export const threadsCursorAfter = (thread: Pick<MailThreadSummary, "canReply" | "lastAt" | "threadId">, ownedFirst = false): string =>
+  ownedFirst ? ownedCursorOf(thread.canReply, thread.lastAt, thread.threadId) : cursorOf(thread.lastAt, thread.threadId);
+
+/** The two lists a seat's threads page as, each with its own cursor: those the operator is in, and those between seats. */
+export const THREAD_GROUPS = ["with-you", "between"] as const;
+export type ThreadGroup = (typeof THREAD_GROUPS)[number];
 
 /** The cursor that asks for the messages before this one. */
 export const messagesCursorBefore = (message: Pick<MailThreadMessage, "at" | "messageId">): string => cursorOf(message.at, message.messageId);
@@ -319,13 +343,15 @@ export const messagesCursorBefore = (message: Pick<MailThreadMessage, "at" | "me
  * One page of a seat's threads, newest activity first: the `limit` that come
  * after `after` in that order, and `next` to ask for the page that follows,
  * absent at the end. Only the page's threads are summarised. `ownedFirst`
- * puts the threads the operator wrote in ahead of the rest, across pages; its
- * cursors are its own.
+ * puts the threads the operator is in ahead of the rest, across pages; its
+ * cursors are its own. `group` pages one list alone, the threads the operator
+ * is in or those between seats, so mail between seats never pushes the
+ * operator's threads off a page (0.11.5).
  */
 export const seatMailThreadsPage = (
   input: MailThreadsInput,
   nodeId: string,
-  page: { readonly limit?: number; readonly after?: string; readonly ownedFirst?: boolean } = {},
+  page: { readonly limit?: number; readonly after?: string; readonly ownedFirst?: boolean; readonly group?: ThreadGroup } = {},
 ): MailThreadsPage => {
   const limit = pageSize(page.limit, THREADS_PAGE_DEFAULT);
   const ownedFirst = page.ownedFirst === true;
@@ -333,7 +359,8 @@ export const seatMailThreadsPage = (
   const plain = readCursor(page.after);
   const after = ownedFirst ? readOwnedCursor(page.after) : plain === undefined ? undefined : { ...plain, owned: false };
   const keyed = [...threadsTouching(input, nodeId)]
-    .map(([threadId, entries]) => ({ threadId, entries, lastAt: entries[entries.length - 1]!.at, owned: entries.some((entry) => entry.mine) }))
+    .map(([threadId, entries]) => ({ threadId, entries, lastAt: entries[entries.length - 1]!.at, owned: operatorIn(entries) }))
+    .filter((item) => page.group === undefined || item.owned === (page.group === "with-you"))
     .sort(order);
   const start = after === undefined ? 0 : keyed.findIndex((item) => order(item, { lastAt: after.at, threadId: after.id, owned: after.owned }) > 0);
   const rest = start < 0 ? [] : keyed.slice(start);
@@ -341,7 +368,7 @@ export const seatMailThreadsPage = (
   const last = held[held.length - 1];
   return {
     threads: held.map((item) => summaryOf(input, item.threadId, item.entries)),
-    ...(rest.length > limit && last !== undefined ? { next: threadsCursorAfter(last, ownedFirst) } : {}),
+    ...(rest.length > limit && last !== undefined ? { next: threadsCursorAfter({ ...last, canReply: last.owned }, ownedFirst) } : {}),
   };
 };
 
@@ -434,6 +461,8 @@ export const SeatThreadsPageQuery = Schema.Struct({
   nodeId: NodeId,
   limit: Schema.optionalKey(PageLimit),
   after: Schema.optionalKey(PageCursor),
+  /** One list alone, with its own cursor; absent, both as one (a caller from before 0.11.5). */
+  group: Schema.optionalKey(Schema.Literals(THREAD_GROUPS)),
 });
 /** As a caller sends it; main decodes it to `SeatThreadsPageQueryDecoded`. */
 export type SeatThreadsPageQuery = typeof SeatThreadsPageQuery.Encoded;

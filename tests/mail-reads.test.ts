@@ -12,7 +12,11 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ulid } from "ulid";
 import { encodeWorkFrame } from "../src/shared/work-control";
+import { mailExtensionMetadata } from "../src/shared/crew";
+import { makeUserMessage } from "../src/shared/task";
+import { operatorActorRef } from "../src/shared/work-reference";
 import { unreadPast, type MailReadChanged } from "../src/shared/mail-threads";
 import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
@@ -29,6 +33,7 @@ import { SettingsLive } from "../src/main/junto/settings/service";
 import { nameThisMachine } from "./support/name-this-machine";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import { seatThreadMessages } from "../src/main/junto/work/operator-threads";
+import { WorkService } from "../src/main/junto/work/service";
 import { canvasPoints, markRead, onReadChanged, readPoints } from "../src/main/junto/work/mail-reads";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 
@@ -120,6 +125,38 @@ const conversation = async () => {
   return { threadId: opened.data.messageId as string, first: opened.data.messageId as string, last: reply.data.messageId as string };
 };
 
+/** Operator mail into a seat, as the desktop, the phone and the Needs you feed write it: a new thread, or a row in `threadId`. */
+const operatorMail = async (nodeId: string, text: string, threadId?: string): Promise<string> => {
+  const sender = operatorActorRef(CANVAS);
+  const appended = await runtime.runPromise(
+    Effect.flatMap(WorkService, (work) =>
+      work.workSystemMailboxNotify(CANVAS, nodeId, makeUserMessage({
+        messageId: ulid(),
+        text,
+        contextId: CANVAS,
+        metadata: {
+          factoryMail: true,
+          ...mailExtensionMetadata({ mailKind: "prompt", fromSeat: sender.seatId, senderNodeId: sender.nodeId, senderName: "operator", senderGeneration: "operator", senderHarness: "unknown" }),
+          ...(threadId === undefined ? {} : { threadId }),
+        },
+      })),
+    ),
+  );
+  if (!appended.ok) throw new Error(appended.message);
+  return appended.data.messageId;
+};
+
+/** The operator asks the agent; the agent answers the operator `replies` times. */
+const withOperator = async (replies: number) => {
+  const threadId = await operatorMail("agent", "what is left?");
+  const answers: string[] = [];
+  for (let n = 0; n < replies; n += 1) {
+    const answered = await call("agent", "msg.reply", { target: "operator", text: `answer ${String(n)}`, inReplyTo: threadId });
+    answers.push(answered.data.messageId as string);
+  }
+  return { threadId, answers };
+};
+
 const points = (nodeId: string, threadIds?: ReadonlyArray<string>) => runtime.runPromise(readPoints(CANVAS, nodeId, threadIds));
 const mark = (nodeId: string, threadId: string, through?: string) => runtime.runPromise(markRead(CANVAS, nodeId, threadId, through));
 const unread = async (nodeId: string, threadId: string) =>
@@ -131,9 +168,9 @@ describe("the operator's mail read points", () => {
   it("a thread between two seats, read under one, is read under both", async () => {
     const { threadId, last } = await conversation();
     expect((await points("agent")).has(threadId)).toBe(false);
-    // Never read: every mail the operator did not write is unread, under each seat.
-    expect(await unread("agent", threadId)).toBe(2);
-    expect(await unread("peer", threadId)).toBe(2);
+    // Between seats: never counted, read or not (0.11.5).
+    expect(await unread("agent", threadId)).toBe(0);
+    expect(await unread("peer", threadId)).toBe(0);
 
     const point = await mark("agent", threadId);
     expect(point).toMatchObject({ through: last });
@@ -156,17 +193,29 @@ describe("the operator's mail read points", () => {
     expect(await readAt()).toEqual(written);
     expect(heard).toHaveLength(1);
 
-    // New seat mail past the point is unread again, and a mark with no mail named reads through it.
+    // New seat mail past the point moves nothing the operator counts, and a mark with no mail named reads through it.
     const more = await call("peer", "msg.reply", { target: "agent", text: "and this", inReplyTo: last });
-    expect(await unread("agent", threadId)).toBe(1);
+    expect(await unread("agent", threadId)).toBe(0);
     expect(await mark("agent", threadId)).toMatchObject({ through: more.data.messageId });
     expect(await unread("peer", threadId)).toBe(0);
     expect(heard).toHaveLength(2);
   });
 
-  it("a read before the newest mail leaves what came after it unread", async () => {
-    const { threadId, first } = await conversation();
-    expect(await mark("agent", threadId, first)).toMatchObject({ through: first });
+  it("a read before the newest reply leaves what came after it unread", async () => {
+    const { threadId, answers } = await withOperator(2);
+    expect(await unread("agent", threadId)).toBe(2);
+    expect(await mark("agent", threadId, answers[0])).toMatchObject({ through: answers[0] });
+    expect(await unread("agent", threadId)).toBe(1);
+  });
+
+  it("counts only the seat's replies to the operator, and the operator writing reads them", async () => {
+    const { threadId } = await withOperator(2);
+    expect(await unread("agent", threadId)).toBe(2);
+    // The operator writes in the thread with no read stored: everything before it is read.
+    await operatorMail("agent", "thanks, one more thing", threadId);
+    expect((await points("agent")).has(threadId)).toBe(false);
+    expect(await unread("agent", threadId)).toBe(0);
+    await call("agent", "msg.reply", { target: "operator", text: "done", inReplyTo: threadId });
     expect(await unread("agent", threadId)).toBe(1);
   });
 

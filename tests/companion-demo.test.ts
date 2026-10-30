@@ -207,7 +207,8 @@ describe("demo transcript", () => {
     phone.send(demoRequest("l1", "threads.list", { canvasName: DEMO_CANVAS, nodeId: "relay" }));
     const listed = await phone.until(response("l1"));
     const thread = listed.result.threads[0];
-    expect(thread.unread).toBe(2);
+    // Atlas's reply to the operator counts; Relay's mail to Atlas in the same thread does not (0.11.5).
+    expect(thread.unread).toBe(1);
 
     other.send(demoRequest("r1", "threads.read", { canvasName: DEMO_CANVAS, nodeId: "atlas", threadId: thread.threadId }));
     expect(await other.until(response("r1"))).toMatchObject({ ok: true, result: { thread: { unread: 0 } } });
@@ -236,8 +237,8 @@ describe("demo transcript", () => {
     phone.send(demoRequest("s1", "seats.list", { canvasName: DEMO_CANVAS }));
     const listed = await phone.until(response("s1"));
     const unreadOf = (seats: Array<{ nodeId: string; unread?: number }>, nodeId: string) => seats.find((seat) => seat.nodeId === nodeId)?.unread;
-    expect(unreadOf(listed.result.seats, "atlas")).toBe(2);
-    expect(unreadOf(listed.result.seats, "relay")).toBe(2);
+    expect(unreadOf(listed.result.seats, "atlas")).toBe(1);
+    expect(unreadOf(listed.result.seats, "relay")).toBe(1);
     phone.send(demoRequest("g1", "seat.get", { canvasName: DEMO_CANVAS, nodeId: "quill" }));
     expect((await phone.until(response("g1"))).result.seat.unread).toBe(1);
 
