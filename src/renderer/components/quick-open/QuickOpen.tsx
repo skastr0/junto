@@ -163,16 +163,11 @@ export function QuickOpen({
     row?.scrollIntoView({ block: "nearest" });
   }, [active]);
 
-  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+  // The card's keys, typed for the element it is passed to: the stack calls it
+  // with an HTMLElement event, the card hands it its own.
+  const onKeyDown = (event: React.KeyboardEvent<HTMLElement>): void => {
     if (event.key === "Escape") {
       // The palette's Escape, never the modal's: the modal stays open.
-      event.preventDefault();
-      event.stopPropagation();
-      onClose();
-      return;
-    }
-    if (event.key === "Tab" && !event.altKey && !event.ctrlKey && !event.metaKey) {
-      // Tab is the operator leaving: no combobox stays armed behind them.
       event.preventDefault();
       event.stopPropagation();
       onClose();
@@ -202,9 +197,10 @@ export function QuickOpen({
   // The palette is a dialog over a modal, so it joins the stack: Tab stays
   // between its own controls, Escape closes only the palette (the body's own
   // handler takes that key and prevents this layer's), and closing gives the
-  // keyboard back to what opened it.
+  // keyboard back to what opened it. A palette over a node modal is a working
+  // dialog, not an operator modal, so it stacks with the modal it covers.
   const layer = useModalLayer({
-    layer: "operator-dialog",
+    layer: "working-dialog",
     containerRef: cardRef,
     onEscape: () => false,
     onClose,
@@ -216,7 +212,7 @@ export function QuickOpen({
       <button
         type="button"
         className="quick-open__scrim"
-        // The dim is a pointer target only: Escape and Tab are the named ways out.
+        // The dim is a pointer target only: Escape and the dim are the ways out.
         aria-hidden="true"
         tabIndex={-1}
         onClick={onClose}

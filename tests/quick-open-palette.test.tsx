@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QuickOpen } from "../src/renderer/components/quick-open/QuickOpen";
 import { itemsQuickOpen, QUICK_OPEN_WORDS, type QuickOpenItem, type QuickOpenSource } from "../src/renderer/lib/quick-open";
+import { isModalLayerOpen } from "../src/renderer/lib/modal-stack";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -14,6 +15,10 @@ beforeEach(() => {
   // The count announces on a settle timer, which fake time advances.
   vi.useFakeTimers();
   HTMLElement.prototype.scrollIntoView = () => {};
+  // The modal stack moves Tab only between stops it can see, and it asks the
+  // layout for that (modal-stack.ts: getClientRects). jsdom has no layout, so
+  // every stop would read as invisible and the trap would never move.
+  HTMLElement.prototype.getClientRects = () => [new DOMRect()] as unknown as DOMRectList;
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
@@ -184,12 +189,26 @@ describe("the quick open palette", () => {
     expect(announced()).toBe("3 artifacts");
   });
 
-  it("closes on Tab, so no combobox stays armed behind the keyboard", () => {
+  it("keeps Tab inside the card: the ends wrap between field and clear, never close", () => {
     const held = render(sourceOf());
-    act(() => {
-      field().dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
-    });
-    expect(held.onClose).toHaveBeenCalledTimes(1);
+    type("launch");
+    const clear = clearButton();
+    const tab = (target: HTMLElement, shiftKey = false): void => {
+      act(() => {
+        target.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true }));
+      });
+    };
+    field().focus();
+    // The field is the card's first stop: Shift+Tab wraps to the clear button.
+    tab(field(), true);
+    expect(document.activeElement).toBe(clear);
+    // The clear button is the last: Tab wraps back to the field.
+    tab(clear);
+    expect(document.activeElement).toBe(field());
+    // Tab is never a way out, and the card is on the stack to say so.
+    expect(held.onClose).not.toHaveBeenCalled();
+    expect(document.querySelector("[data-testid='quick-open']")).not.toBeNull();
+    expect(isModalLayerOpen("working-dialog")).toBe(true);
   });
 
   it("clears on the click a keyboard or a screen reader activation dispatches", () => {
