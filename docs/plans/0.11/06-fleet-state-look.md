@@ -5,7 +5,7 @@ Plan: `06-fleet-state.md`, section 2. Words: `src/shared/authority.ts` owns
 every sentence; this page owns only how they look. Nothing here adds a word
 the contract does not already say, except the two role words below.
 
-## The five states
+## The six states
 
 One machine, as the banner chip and the Machines window both show it. The
 list position comes first, because the order is what decides who rules.
@@ -16,6 +16,7 @@ list position comes first, because the order is what decides who rules.
 | Fallback | listed, `reachable`, not the authority | `stands by` | dim text, chip frame `--color-stroke` |
 | Asleep | `asleep` | `asleep since 01:12` (or `asleep`) | dim text, chip frame `--color-stroke` |
 | Unreachable | `unreachable` or `not-linked` | `unreachable`, `not linked` | `--color-amber-fg` text, chip frame amber 50% |
+| Not following | listed, and the authority has not heard it acknowledge within the timeout | `not following` | `--color-amber-fg` text, chip frame amber 50% |
 | Read-only | no authority reachable (`authorityReachable` false) | the banner below | banner frame amber 50%, tint amber 10% |
 
 - In the read-only banner a reachable machine reads `reachable but not
@@ -24,6 +25,12 @@ list position comes first, because the order is what decides who rules.
 - Amber means the operator has something to do, as it already does on the
   shelf (`data-needs-you`). Ruling is not a fault and is not green: it is the
   normal state, so it is the plainest chip, set apart only by its frame.
+- Not following takes the unreachable treatment because the operator acts
+  on it: they remove the machine from the list and add it again. Only the
+  ruling machine knows it, from the acknowledgements it hears, so the read
+  carries it as its own fact; it is not one of today's `AuthorityReach`
+  values. In the Machines window it is the shelf card's state line, amber,
+  like unreachable.
 - `here` is this machine: its chip says its label, never "this machine",
   plus its state. The window already knows which machine it runs on.
 - Time: the existing `seatStatusTime` (`src/shared/seat-status-text.ts`):
