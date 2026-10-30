@@ -18,6 +18,7 @@ import {
   STATE_SCHEMA_V71_IDENTITY,
   STATE_SCHEMA_V72_IDENTITY,
   migrateStateSchema,
+  type StateSchemaMigrationDatabase,
   type StateSchemaMigrationPlan,
 } from "../src/main/junto/state/migrations";
 import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
@@ -60,7 +61,9 @@ const upTo = (version: number, currentSchemaSql: string): StateSchemaMigrationPl
   currentVersion: version,
   currentSchemaSql,
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= version).map((step) =>
-    step.toVersion === 21 ? { ...step, migrate: (database: DatabaseSync) => migrateMachineNames(database, "macbook") } : step,
+    step.toVersion === 21
+      ? { ...step, migrate: (database: StateSchemaMigrationDatabase) => migrateMachineNames(database, "macbook") }
+      : step,
   ),
 });
 
