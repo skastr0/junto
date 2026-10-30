@@ -189,7 +189,28 @@ for (const mode of ["dark", "bright"] as const) {
     console.log(`  ${mode} label-${name}-fg on fill: ${worst.toFixed(2)} (min ${FLOOR}) ${mark}`);
   }
 }
+
+// Chip tones (ui/Chip.tsx): a state tag's word takes the hue's text form on a
+// wash of the same hue at 9 percent. The mark form is too dim for the tag's
+// 8px words in dark (violet 2.5, steel 2.9, crimson 3.4, green 3.8), so the
+// word is the -fg token and this holds it.
+const CHIP_TONES = ["amber", "cyan", "violet", "crimson", "steel", "green"] as const;
+const CHIP_FILL_PCT = 9;
+console.log("\nchip tone report (word on its wash, over each surface):");
+for (const mode of ["dark", "bright"] as const) {
+  const t = themeRuntime(mode);
+  for (const tone of CHIP_TONES) {
+    const worst = Math.min(
+      ...["ground", "raise", "raise-2", "inset", "well"].map((surface) =>
+        contrastRatio(t[`${tone}-fg`]!, blend(t[tone]!, t[surface]!, CHIP_FILL_PCT / 100)),
+      ),
+    );
+    const mark = worst >= FLOOR ? "ok " : "FAIL";
+    if (worst < FLOOR) unreadable = true;
+    console.log(`  ${mode} ${tone}-fg on wash: ${worst.toFixed(2)} (min ${FLOOR}) ${mark}`);
+  }
+}
 if (unreadable) {
-  console.error(`\ndim and faint, and the label colour words, must reach ${FLOOR} to 1 in every theme. Raise the token, do not lower the floor.`);
+  console.error(`\ndim and faint, the label colour words, and the chip tone words must reach ${FLOOR} to 1 in every theme. Raise the token, do not lower the floor.`);
   process.exit(1);
 }

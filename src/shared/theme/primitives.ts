@@ -34,11 +34,14 @@ export interface HueRamp {
   crimson: Oklch;
   "crimson-fg": Oklch;
   violet: Oklch;
+  "violet-fg": Oklch;
   steel: Oklch;
+  "steel-fg": Oklch;
   indigo: Oklch;
   gold: Oklch;
   orange: Oklch;
   green: Oklch;
+  "green-fg": Oklch;
   yellow: Oklch;
   lime: Oklch;
   blue: Oklch;
@@ -84,13 +87,18 @@ export const HUES: Record<"dark" | "bright", HueRamp> = {
     cyan: { l: 0.76048, c: 0.11721, h: 206.31 }, // #39c6d6
     "cyan-fg": { l: 0.76048, c: 0.11721, h: 206.31 },
     crimson: { l: 0.62557, c: 0.19334, h: 23.03 }, // #e5484d — blockers only
-    "crimson-fg": { l: 0.62557, c: 0.19334, h: 23.03 },
+    // #f78481: the mark is 3.4 on a 9 percent tint, too dim for a chip's 8px
+    // word; the text form is lighter on dark, as it is darker on paper.
+    "crimson-fg": { l: 0.74, c: 0.14, h: 23 },
     violet: { l: 0.64851, c: 0.16258, h: 287.53 }, // #8b7beb
+    "violet-fg": { l: 0.8, c: 0.1, h: 288 }, // the mark is 2.5 on a chip's tint
     steel: { l: 0.70421, c: 0.02949, h: 236.38 }, // #8fa3b0
+    "steel-fg": { l: 0.8, c: 0.02, h: 236 }, // the mark is 2.9 on a chip's tint
     indigo: { l: 0.63143, c: 0.17645, h: 275.45 }, // #6e7bf2
     gold: { l: 0.75664, c: 0.11885, h: 83.55 }, // #d4a94f
     orange: { l: 0.69551, c: 0.1692, h: 44.1 }, // #f07438
     green: { l: 0.71797, c: 0.10827, h: 161.16 }, // #5fb98e
+    "green-fg": { l: 0.8, c: 0.09, h: 161 }, // the mark is 3.8 on a chip's tint
     // Colour choices for regions and cards only (shared/canvas-colors.ts):
     // a clear yellow beside the mustard gold, and the gaps a region palette
     // needs between green, cyan and violet.
@@ -107,17 +115,20 @@ export const HUES: Record<"dark" | "bright", HueRamp> = {
     amber: { l: 0.63, c: 0.18, h: 72 },
     // Emphasis on paper is darker, not lighter: 5.0 on the primary button's hover fill, 6.5 on the ground.
     "amber-hi": { l: 0.45, c: 0.11, h: 62 },
-    "amber-fg": { l: 0.51, c: 0.11, h: 60 }, // burnished rust, 4.5 on well
+    "amber-fg": { l: 0.48, c: 0.11, h: 60 }, // burnished rust; 4.6 on a chip wash on well
     cyan: { l: 0.60, c: 0.09, h: 220 },
-    "cyan-fg": { l: 0.48, c: 0.075, h: 225 }, // slate blue
+    "cyan-fg": { l: 0.47, c: 0.075, h: 225 }, // slate blue, 4.7 on a chip wash on well
     crimson: { l: 0.56, c: 0.19, h: 25 },
     "crimson-fg": { l: 0.48, c: 0.17, h: 25 }, // deep red
     violet: { l: 0.52, c: 0.13, h: 295 },
+    "violet-fg": { l: 0.48, c: 0.13, h: 295 }, // 4.6 on a chip wash on well
     steel: { l: 0.52, c: 0.03, h: 230 }, // 4.5 on ground: quiet status lines are words
+    "steel-fg": { l: 0.47, c: 0.03, h: 230 }, // 4.7 on a chip wash on well
     indigo: { l: 0.5, c: 0.12, h: 275 },
     gold: { l: 0.55, c: 0.11, h: 80 },
     orange: { l: 0.54, c: 0.15, h: 45 },
     green: { l: 0.51, c: 0.1, h: 160 }, // teal-leaning
+    "green-fg": { l: 0.46, c: 0.1, h: 160 }, // 4.6 on a chip wash on well
     // Yellow cannot darken far on paper before it turns mustard; it keeps
     // its lightness and the frame carries it.
     yellow: { l: 0.75, c: 0.155, h: 96 },

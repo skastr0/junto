@@ -31,12 +31,17 @@ export const HUE = {
   pink: "var(--color-pink)",
 } as const;
 
-// The same three hues as words. A hue painted as text takes its -fg form:
-// the mark form above is near 3 to 1 on the bright ground.
+// The same hues as words. A hue painted as text takes its -fg form: the mark
+// form is near 3 to 1 on the bright ground, and 2.5 to 3.8 on a chip's own tint
+// in dark. Each of these clears 4.5 on its tint over every surface (theme-build
+// reports it).
 export const HUE_TEXT = {
   amber: "var(--color-amber-fg)",
   cyan: "var(--color-cyan-fg)",
   crimson: "var(--color-crimson-fg)",
+  violet: "var(--color-violet-fg)",
+  steel: "var(--color-steel-fg)",
+  green: "var(--color-green-fg)",
 } as const;
 
 // Ground-to-ink ladder. CSS variable references so these resolve against the
