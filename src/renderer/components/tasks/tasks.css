@@ -122,8 +122,10 @@
 
 .task-error {
   margin: 0;
-  padding-left: 8px;
-  border-left: 2px solid var(--color-crimson);
+  padding: 6px 8px;
+  border: 1px solid color-mix(in oklab, var(--color-crimson) 30%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--color-crimson) 8%, transparent);
   color: var(--color-ink);
   font-size: var(--text-body);
   line-height: var(--leading-body);
@@ -156,8 +158,10 @@
 
 .task-notice {
   margin: 0;
-  padding-left: 8px;
-  border-left: 2px solid var(--color-amber);
+  padding: 6px 8px;
+  border: 1px solid color-mix(in oklab, var(--color-amber) 30%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--color-amber) 8%, transparent);
   color: var(--color-ink);
   font-size: var(--text-body);
   line-height: var(--leading-body);
@@ -367,8 +371,10 @@
 .task-thread__failure {
   flex: 1;
   margin: 0;
-  padding-left: 8px;
-  border-left: 2px solid var(--color-crimson);
+  padding: 6px 8px;
+  border: 1px solid color-mix(in oklab, var(--color-crimson) 30%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--color-crimson) 8%, transparent);
   color: var(--color-ink);
   font-size: var(--text-body);
   line-height: var(--leading-body);

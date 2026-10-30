@@ -16,10 +16,10 @@
   gap: 4px;
   width: 100%;
   margin: 4px 0 6px 10px;
-  padding: 8px 10px;
+  /* The left padding keeps the words where the 2px stripe used to hold them. */
+  padding: 8px 10px 8px 12px;
   border: 0;
-  border-left: 2px solid var(--color-stroke);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  border-radius: var(--radius-sm);
   background: var(--color-raise);
   font-family: var(--font-body);
   font-size: var(--text-body);
@@ -29,7 +29,7 @@
 }
 
 .file-comment-row:hover {
-  border-left-color: var(--color-cyan);
+  background: var(--color-overlay-2);
 }
 
 .file-comment-row:focus-visible {

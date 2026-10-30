@@ -56,8 +56,8 @@
   gap: 4px;
   width: 100%;
   min-width: 0;
-  padding: 8px 14px;
-  border-left: 2px solid transparent;
+  /* The left padding keeps the words where the 2px stripe used to hold them. */
+  padding: 8px 14px 8px 16px;
   text-align: left;
   color: var(--color-ink);
 }
@@ -67,7 +67,6 @@
 }
 
 .seat-threads__row[data-selected="true"] {
-  border-left-color: var(--color-cyan);
   background: var(--color-overlay-2);
 }
 

@@ -21,7 +21,7 @@
   align-items: center;
   gap: 8px;
   padding: 7px 14px;
-  border-bottom: 1px solid color-mix(in oklab, var(--color-accent) 34%, transparent);
+  border-bottom: 1px solid var(--color-stroke);
   background: color-mix(in oklab, var(--color-accent) 8%, transparent);
   color: var(--color-crimson);
   font-size: var(--text-label);
@@ -281,7 +281,7 @@
   min-height: 0;
   flex: none;
   flex-direction: column;
-  border-left: 1px solid color-mix(in oklab, var(--color-second) 48%, transparent);
+  border-left: 1px solid var(--color-stroke);
   background: var(--color-ground);
   animation: work-ledger-detail-enter 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -293,7 +293,6 @@
   width: auto;
   min-width: 0;
   max-width: none;
-  border-left-color: color-mix(in oklab, var(--color-violet) 52%, transparent);
 }
 
 .work-ledger-detail--empty {

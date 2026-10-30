@@ -198,13 +198,6 @@ const KEPT: ReadonlyArray<Kept> = [
  * so a fix can land before the entry goes.
  */
 const PENDING: ReadonlyArray<{ readonly file: string; readonly selector: RegExp; readonly owner: string }> = [
-  { file: "src/renderer/components/threads/seat-threads.css", selector: /seat-threads__row/, owner: "product-feed" },
-  { file: "src/renderer/components/files/file-comments.css", selector: /file-comment-row/, owner: "product-feed" },
-  { file: "src/renderer/components/tasks/tasks.css", selector: /^\.task-(?:error|notice|thread__failure)$/, owner: "product-feed" },
-  { file: "src/renderer/components/work/task-verbs.css", selector: /^\.task-verbs__refused$/, owner: "product-feed" },
-  { file: "src/renderer/components/work/task-enqueue.css", selector: /^\.task-enqueue__error$/, owner: "product-feed" },
-  { file: "src/renderer/components/work/task-reviewers.css", selector: /^\.task-reviewers__refused$/, owner: "product-feed" },
-  { file: "src/renderer/components/work/work-ledger.css", selector: /^\.work-ledger-(?:error|detail|detail--artifact)$/, owner: "product-feed" },
 ];
 
 const kept = (edge: Edge): boolean =>
