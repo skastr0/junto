@@ -32,7 +32,7 @@ const OPEN_TASK_LIMIT = 10_000;
 export type CheckoutWatchCompositionOptions = {
   readonly model: Pick<Context.Service.Shape<typeof ModelService>, "listCanvases" | "canvas">;
   readonly actorRefs: Pick<Context.Service.Shape<typeof ModelActorRefs>, "read">;
-  readonly settings: Pick<SettingsServiceApi, "get" | "subscribe">;
+  readonly settings: Pick<SettingsServiceApi, "get">;
   readonly host: Pick<LocalSessionHost, "get">;
   readonly crew: Pick<CrewRepositoryShape, "recordCheckoutObservation">;
   readonly workRepository: Pick<WorkRepositoryShape, "publishCheckoutReceipts">;
@@ -97,18 +97,20 @@ export const makeCheckoutWatchComposition = (
   let stopped = false;
   // Only a seat on this machine has a checkout here. A machine that holds a
   // copy of a canvas holds none of its boards, so it claims nothing there.
-  // The name is read once, then followed as settings change: a pass never
-  // reads all settings again.
-  let thisMachineName: string | undefined;
-  options.settings.subscribe((settings) => { thisMachineName = settings.machine.name; });
-  const machineName = Effect.suspend(() => thisMachineName !== undefined
-    ? Effect.succeed(thisMachineName)
-    // A change seen while the first read ran is newer than that read.
-    : options.settings.get.pipe(Effect.map((settings) => thisMachineName ??= settings.machine.name)));
+  // The name is fixed once any canvas is authored or received (machine.configure
+  // refuses a rename from then on), so it is kept from the first pass that
+  // read an authored canvas before it: a pass never reads all settings again.
+  let fixedMachineName: string | undefined;
+  const machineName = (canvas: Canvas) => Effect.suspend(() => fixedMachineName !== undefined
+    ? Effect.succeed(fixedMachineName)
+    : options.settings.get.pipe(Effect.map((settings) => {
+      if (canvas.seq > 0) fixedMachineName = settings.machine.name;
+      return settings.machine.name;
+    })));
 
   const readClaims = (canvasName: string) => Effect.gen(function* () {
-    const thisMachine = yield* machineName;
     const canvas = yield* options.model.canvas(canvasName);
+    const thisMachine = yield* machineName(canvas);
     const actors = yield* options.actorRefs.read(canvasName);
     const processes = new Map<string, ProcessProof>();
     const sessions: Array<{ readonly bindingId: string; readonly identity: string }> = [];

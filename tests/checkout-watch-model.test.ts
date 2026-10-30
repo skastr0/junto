@@ -39,7 +39,7 @@ const fixture = async () => {
   const options: CheckoutWatchCompositionOptions = {
     model: { listCanvases: () => Effect.succeed([canvas.name]), canvas: () => Effect.succeed(canvas) },
     actorRefs: { read: () => Effect.succeed([{ canvasName: "factory", nodeId: "seat", seatId }]) },
-    settings: { get: Effect.succeed({ ...settings, machine: { ...settings.machine, name: THIS_MACHINE } }), subscribe: () => () => undefined },
+    settings: { get: Effect.succeed({ ...settings, machine: { ...settings.machine, name: THIS_MACHINE } }) },
     host: { get: () => session },
     crew: { recordCheckoutObservation: (input) => Effect.sync(() => { records.push(input); return true; }) },
     tasks: { list: () => Effect.succeed({ tasks: [task, ...others], more: false }) },
@@ -106,29 +106,34 @@ it("a canvas change during claim inventory rejects the pass instead of replacing
   } finally { watch.stop(); await rm(f.root, { recursive: true, force: true }); }
 });
 
-it("the machine name is read once, then followed as settings change", async () => {
+it("the machine name is read once a canvas is authored, and every pass before", async () => {
   const f = await fixture();
   const settings = defaultSettings();
   let reads = 0;
-  let listener: ((next: typeof settings) => void) | undefined;
   const watch = makeCheckoutWatchComposition({
     ...f.options,
-    settings: {
-      get: Effect.sync(() => { reads++; return { ...settings, machine: { ...settings.machine, name: THIS_MACHINE } }; }),
-      subscribe: (next) => { listener = next; return () => undefined; },
-    },
+    settings: { get: Effect.sync(() => { reads++; return { ...settings, machine: { ...settings.machine, name: THIS_MACHINE } }; }) },
   });
   try {
     await Effect.runPromise(watch.scanOnce());
     f.advance();
-    const before = await Effect.runPromise(watch.scanOnce());
-    expect(reads).toBe(1);
-    expect(f.records).toHaveLength(1);
-    expect(before[0]?.receipt.checkouts).toBe(1);
-    // Renamed, this machine no longer runs the seat: it claims nothing.
-    listener?.({ ...settings, machine: { ...settings.machine, name: "elsewhere" } });
     const result = await Effect.runPromise(watch.scanOnce());
+    expect(result[0]?.receipt.checkouts).toBe(1);
+    expect(f.records).toHaveLength(1);
     expect(reads).toBe(1);
-    expect(result[0]?.receipt.checkouts).toBe(0);
   } finally { watch.stop(); await rm(f.root, { recursive: true, force: true }); }
+  // Before any canvas is authored the name may still be configured: it is read again.
+  const g = await fixture();
+  let early = 0;
+  const unauthored = { name: "factory" as Canvas["name"], seq: 0, nodes: new Map(), wires: new Map() } as Canvas;
+  const before = makeCheckoutWatchComposition({
+    ...g.options,
+    model: { listCanvases: () => Effect.succeed([unauthored.name]), canvas: () => Effect.succeed(unauthored) },
+    settings: { get: Effect.sync(() => { early++; return settings; }) },
+  });
+  try {
+    await Effect.runPromise(before.scanOnce());
+    await Effect.runPromise(before.scanOnce());
+    expect(early).toBeGreaterThan(1);
+  } finally { before.stop(); await rm(g.root, { recursive: true, force: true }); }
 });
