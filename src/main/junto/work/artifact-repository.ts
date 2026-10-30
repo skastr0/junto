@@ -865,7 +865,7 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
         )
         : ruleHere(writer, command, context);
 
-    const submitNode = Effect.fn("artifacts.submitNode")(function* (
+    const ruleNodeHere = Effect.fn("artifacts.submitNode")(function* (
       writer: InstallationId,
       command: ResourceCommand<ArtifactOp>,
       context: RulingContext,
@@ -907,6 +907,15 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
       });
       return outcome;
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "artifacts.submitNode"), Effect.mapError(persistence("submitNode")));
+
+    // A node command, a label's colour, is judged on the authority as an artifact's is.
+    const submitNode: ArtifactRepository["Service"]["submitNode"] = (writer, command, context) =>
+      AUTHORITY_ENABLED && Option.isSome(authorities)
+        ? authorities.value.judge(command.canvasName, ruleNodeHere(writer, command, context)).pipe(
+          Effect.map((judged) => judged.value),
+          Effect.mapError(persistence("submitNode")),
+        )
+        : ruleNodeHere(writer, command, context);
 
     const labelColours = Effect.fn("artifacts.labelColours")(function* (canvasName: string, nodeIds: ReadonlyArray<NodeId>) {
       // Null-prototype records: `__proto__` and `constructor` are labels like any other.

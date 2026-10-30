@@ -147,6 +147,40 @@ describe.each([false, true])("with the authority %s", (authority) => {
     expect(count("SELECT COUNT(*) AS n FROM artifact_versions WHERE canvas_name = ? AND artifact_id = ?", NAME, id)).toBe(3);
   });
 
+  it("a node command, a label's colour, is on disk once submitNode returns, and is judged as an artifact's is", async () => {
+    const rt = await boot(authority);
+    const node = (op: ArtifactOp): ResourceCommand<ArtifactOp> => ({
+      opId: mintOpId(),
+      canvasName: NAME,
+      actor: { kind: "operator" },
+      target: { kind: "artifact", nodeId: ARTS },
+      basis: null,
+      after: [],
+      op,
+    });
+    const submitNode = (command: ResourceCommand<ArtifactOp>) =>
+      Effect.gen(function* () {
+        const writer = yield* (yield* MachineRepository).installationId;
+        return yield* (yield* ArtifactRepository).submitNode(writer, command, everywhere);
+      });
+    const colour = () =>
+      (onDisk((db) => db.prepare("SELECT colour FROM artifact_label_colours WHERE canvas_name = ? AND node_id = ? AND label = 'docs'").get(NAME, ARTS)) as
+        | { colour: string }
+        | undefined)?.colour;
+    const teal = node({ op: "labelColour", label: "docs", colour: "teal" });
+    expect(await rt.runPromise(submitNode(teal))).toMatchObject({ kind: "applied" });
+    expect(colour()).toBe("teal");
+    expect(count("SELECT COUNT(*) AS n FROM canvas_log WHERE canvas_name = ? AND kind = 'ruling'", NAME) > 0).toBe(authority);
+    // A resend is answered from its stored ruling, and a later colour lands over the first.
+    expect(await rt.runPromise(submitNode(teal))).toMatchObject({ kind: "applied", facts: [] });
+    expect(await rt.runPromise(submitNode(node({ op: "labelColour", label: "docs", colour: "red" })))).toMatchObject({ kind: "applied" });
+    expect(colour()).toBe("red");
+    const inside = await rt.runPromise(
+      Effect.exit(Effect.flatMap(SqlClient.SqlClient, (sql) => sql.withTransaction(submitNode(node({ op: "labelColour", label: "docs", colour: null }))))),
+    );
+    expect(inside._tag).toBe(authority ? "Failure" : "Success");
+  });
+
   it("a seat's artifact is heard once it is on disk, and tells the seat nothing", async () => {
     const rt = await boot(authority);
     const command = create(ada);
