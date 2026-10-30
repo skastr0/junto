@@ -26,6 +26,7 @@ import { publish } from "../push";
 import { RESOURCE_CHANGED, RESOURCE_THREAD_CHANGED } from "./ipc-resources";
 import { TERM_EVENT, TERM_LEASE_ENDED, TERM_SEAT_STATE } from "./term-ipc";
 import { WIRE_TRAFFIC } from "./ipc-wire-traffic";
+import { SEAT_CACHE_DUE_CHANGED } from "./ipc-seats";
 import { MACHINE_PROGRESS } from "./hosts-ipc";
 
 /**
@@ -80,12 +81,15 @@ export const WINDOW_CHANNELS = [
   IPC_CHANNELS.usageChanged,
   IPC_CHANNELS.kernelChanged,
   IPC_CHANNELS.automationsChanged,
+  IPC_CHANNELS.seatOffboardProgress,
   // A running machine command's progress, for the window whose call asked.
   MACHINE_PROGRESS,
   // The terminal plane's events, a linked view's end and a remote seat's state (term/ipc.ts).
   TERM_EVENT,
   TERM_LEASE_ENDED,
   TERM_SEAT_STATE,
+  // A seat's cache window changed (ipc-seats.ts); main rereads its due seats.
+  SEAT_CACHE_DUE_CHANGED,
 ] as const;
 
 /**
