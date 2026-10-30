@@ -75,26 +75,35 @@ test("eef594efc borders, dark: task error, task notice, threads selected row, fi
     expect(created.kind).toBe("applied");
 
     await step("1 task error", async () => {
-      // The card's middle holds Add a task; its corner opens the board.
+      // A ruler refusal (product-feed): the first task depends on a second still in backlog, so Finish is refused deps-unmet.
+      const apply = (id: string, command: Record<string, unknown>) =>
+        page.evaluate(
+          ({ canvas, node, taskId, opId, command }) => window.junto!.resource!.task!.apply(canvas, node, taskId as never, opId, command as never),
+          { canvas: CANVAS, node: taskNodeId(asNodeId("board")), taskId: id, opId: mintOpId(), command },
+        );
+      const holder = mintItemId();
+      expect((await apply(holder, { kind: "create", taskId: holder, title: "Write the migration" })).kind).toBe("applied");
+      read["1-depend"] = await apply(taskId, { kind: "depend", on: holder });
+      read["1-assign"] = await apply(taskId, { kind: "assign", to: asNodeId("atlas") });
       await page.keyboard.press("Escape");
       await page.locator('.react-flow__node[data-id="board"]').dblclick({ position: { x: 16, y: 16 } });
       await page.getByRole("list", { name: "Tasks" }).locator("button").filter({ hasText: "Ship the wire spec" }).first().click({ timeout: 20_000 });
-      const title = page.getByTestId("task-detail").locator("header input").first();
-      await title.click();
-      const logs: string[] = [];
-      page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") logs.push(m.text().slice(0, 300)); });
-      await title.fill("x".repeat(240));
-      await title.press("Enter");
-      // Enter and a click beside it left the field focused in the last run, so the blur that commits is sent outright.
-      if (await title.evaluate((el) => el === document.activeElement)) await title.evaluate((el) => (el as HTMLInputElement).blur());
-      await page.waitForTimeout(1500);
-      await page.screenshot({ path: join(SHOTS, "1x-after-long-title.png") });
-      read["1-after-long-title"] = { title: await title.inputValue(), logs };
+      const verbs = page.getByTestId("task-verbs");
+      read["1-verbs-before"] = await verbs.innerText().catch(() => null);
+      for (const name of ["Start", "Finish"]) {
+        const verb = verbs.getByRole("button", { name: new RegExp(`^${name}`, "u") }).first();
+        if (await verb.isVisible().catch(() => false)) {
+          await verb.click();
+          await page.waitForTimeout(800);
+          if (await page.locator(".task-error").isVisible()) break;
+        }
+      }
+      read["1-verbs-after"] = await verbs.innerText().catch(() => null);
       const error = page.locator(".task-error").first();
       await expect(error).toBeVisible({ timeout: 10_000 });
       read["1-task-error-text"] = await error.innerText();
+      read["1-beside"] = await page.locator(".task-facts__meta, .task-facts__none").first().evaluate((el) => ({ text: el.textContent, color: getComputedStyle(el).color }));
       await shoot("1-task-error", error);
-      await title.press("Escape");
     });
 
     await step("2 task notice", async () => {
