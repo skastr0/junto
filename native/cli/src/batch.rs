@@ -2,8 +2,7 @@
 //! each decoded and sent on its own, at most `concurrency` at a time, and one
 //! answer for all of them.
 
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, PoisonError, mpsc};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -138,26 +137,25 @@ fn parallel<T: Send, U: Send>(
     workers: usize,
     one: impl Fn(T, usize) -> U + Sync,
 ) -> Vec<U> {
-    let slots: Vec<Mutex<Option<T>>> = items.into_iter().map(|i| Mutex::new(Some(i))).collect();
-    let answers: Vec<Mutex<Option<U>>> = slots.iter().map(|_| Mutex::new(None)).collect();
-    let next = AtomicUsize::new(0);
-    let take = |m: &Mutex<Option<T>>| m.lock().unwrap_or_else(|e| e.into_inner()).take();
+    let total = items.len();
+    let queue = Mutex::new(items.into_iter().enumerate());
+    let (answered, answers) = mpsc::channel();
     std::thread::scope(|scope| {
-        for _ in 0..workers.min(slots.len()).max(1) {
-            scope.spawn(|| {
-                while let Some(index) =
-                    Some(next.fetch_add(1, Ordering::Relaxed)).filter(|i| *i < slots.len())
+        let (queue, one) = (&queue, &one);
+        for _ in 0..workers.clamp(1, total.max(1)) {
+            let answered = answered.clone();
+            scope.spawn(move || {
+                // A worker that panicked mid-item leaves the queue usable.
+                while let Some((index, item)) =
+                    queue.lock().unwrap_or_else(PoisonError::into_inner).next()
                 {
-                    if let Some(item) = take(&slots[index]) {
-                        let answer = one(item, index);
-                        *answers[index].lock().unwrap_or_else(|e| e.into_inner()) = Some(answer);
-                    }
+                    let _ = answered.send((index, one(item, index)));
                 }
             });
         }
     });
-    answers
-        .into_iter()
-        .filter_map(|m| m.into_inner().unwrap_or_else(|e| e.into_inner()))
-        .collect()
+    drop(answered);
+    let mut ordered: Vec<(usize, U)> = answers.into_iter().collect();
+    ordered.sort_unstable_by_key(|(index, _)| *index);
+    ordered.into_iter().map(|(_, answer)| answer).collect()
 }
