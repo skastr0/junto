@@ -187,10 +187,15 @@ const createSourceRepository = async (
     path.join(root, "package.json"),
     `${JSON.stringify({ version: appVersion })}\n`,
   );
+  // The head version lives on its own (state/schema-version.ts); migrations
+  // imports and re-exports it.
+  await writeFile(
+    path.join(root, "src/main/junto/state/schema-version.ts"),
+    `export const CURRENT_STATE_SCHEMA_VERSION = ${String(schemaVersion)};\n`,
+  );
   await writeFile(
     path.join(root, "src/main/junto/state/migrations.ts"),
     [
-      `export const CURRENT_STATE_SCHEMA_VERSION = ${String(schemaVersion)};`,
       `export const STATE_SCHEMA_V${String(schemaVersion)}_IDENTITY = { actualSchemaSha256: ${JSON.stringify(migrationIdentitySha256)} };`,
       schemaVersion === 1
         ? "const migrations = [];"
@@ -219,13 +224,26 @@ const mutatePackageSourceFacts = async (
     "src/main/junto/state/migrations.ts",
   );
   const body = await readFile(migrationPath, "utf8");
+  if (field === "schema") {
+    // The version lives in schema-version.ts; the identity and the step in
+    // migrations.ts.
+    const versionPath = path.join(
+      root,
+      "src/main/junto/state/schema-version.ts",
+    );
+    const versions = await readFile(versionPath, "utf8");
+    const bumped = versions.replace(
+      "CURRENT_STATE_SCHEMA_VERSION = 20",
+      "CURRENT_STATE_SCHEMA_VERSION = 21",
+    );
+    if (bumped === versions) {
+      throw new Error("fixture source is missing the schema-version bump");
+    }
+    await writeFile(versionPath, bumped);
+  }
   const substitutions: ReadonlyArray<readonly [string, string]> =
     field === "schema"
       ? [
-          [
-            "CURRENT_STATE_SCHEMA_VERSION = 20",
-            "CURRENT_STATE_SCHEMA_VERSION = 21",
-          ],
           ["STATE_SCHEMA_V20_IDENTITY", "STATE_SCHEMA_V21_IDENTITY"],
           ["fromVersion: 19, toVersion: 20", "fromVersion: 20, toVersion: 21"],
         ]
@@ -413,6 +431,9 @@ describe("package source facts", () => {
       await writeFile(migrationPath, baseline.replace("const migrations = [];",
         'const migrations = [{ fromVersion: 0, toVersion: 1, name: "invented" }];'));
       await expect(readPackageSchemaFacts(fixture.root)).rejects.toThrow(/baseline must have no migrations/u);
+      const versionPath = path.join(fixture.root, "src/main/junto/state/schema-version.ts");
+      const versionSource = await readFile(versionPath, "utf8");
+      await writeFile(versionPath, versionSource.replaceAll("VERSION = 1", "VERSION = 2"));
       await writeFile(migrationPath, baseline.replaceAll("VERSION = 1", "VERSION = 2")
         .replaceAll("V1_IDENTITY", "V2_IDENTITY"));
       await expect(readPackageSchemaFacts(fixture.root)).rejects.toThrow(/exactly one migration head/u);

@@ -13,7 +13,7 @@ export default defineConfig(({ command, mode }) => {
   // and a second watcher for it would be a build system of its own. The
   // production build splits them (electron.core.vite.config.ts), so a module
   // only the core needs cannot ride a chunk the window also loads.
-  const mainInput =
+  const mainInput: Record<string, string> =
     command === "serve"
       ? {
           index: resolve("src/main/index.ts"),

@@ -386,8 +386,15 @@ export const readPackageSchemaFacts = async (
   );
   await requireRegularFile(migrationsPath, "state migration source");
   const body = await readFile(migrationsPath, "utf8");
+  // The head version lives on its own so the boot gate does not link the
+  // migration chain; migrations.ts imports and re-exports it.
+  const versionPath = path.join(
+    path.resolve(repoRoot),
+    "src/main/junto/state/schema-version.ts",
+  );
+  await requireRegularFile(versionPath, "state schema version source");
   const versionMatch = uniqueMatch(
-    body,
+    await readFile(versionPath, "utf8"),
     /export\s+const\s+CURRENT_STATE_SCHEMA_VERSION\s*=\s*([0-9]+)\s*;/u,
     "CURRENT_STATE_SCHEMA_VERSION",
   );
@@ -931,6 +938,13 @@ export const preparePackageRuntimes = async (input: {
     runCompiler({
       command: "bunx",
       args: ["--no-install", "electron-vite", "build"],
+      cwd: root,
+    });
+    // The core is its own bundle (electron.core.vite.config.ts). The app forks
+    // out/main/core-process.js, so a package without it cannot start.
+    runCompiler({
+      command: "bunx",
+      args: ["--no-install", "electron-vite", "build", "-c", "electron.core.vite.config.ts"],
       cwd: root,
     });
   }))(repoRoot);
