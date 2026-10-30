@@ -56,6 +56,11 @@ fn main() -> ExitCode {
         ["link", rest @ ..] => commands::pipes::link(rest),
         ["companion-stdio", rest @ ..] => commands::pipes::companion_stdio(rest),
         ["content-transfer", rest @ ..] => commands::pipes::content_transfer(rest),
+        // The live conversation host is not part of this CLI.
+        ["overseer-host", ..] => {
+            eprintln!("Junto live conversation is disabled in this build");
+            ExitCode::from(2)
+        }
         ["browser", ..] if features::MACHINE_BUILD => {
             eprintln!(
                 "junto browser: the browser runs in the desktop app, not on a Junto Remote machine"

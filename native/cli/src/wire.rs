@@ -72,14 +72,6 @@ impl OpId {
         &self.0
     }
 
-    /// The opId a run-time request carries at its top level (opIdInArgs).
-    pub fn in_args(args: &Value) -> Option<OpId> {
-        args.get("opId")
-            .and_then(Value::as_str)
-            .filter(|id| OpId::valid(id))
-            .map(|id| OpId(id.to_string()))
-    }
-
     fn valid(text: &str) -> bool {
         text.len() == 26
             && text.bytes().all(|b| {
