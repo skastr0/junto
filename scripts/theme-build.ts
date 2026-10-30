@@ -18,6 +18,7 @@ import {
   FONT_MONO,
   LEADING,
   LEGACY_TEXT_SIZES,
+  READING_TEXT_SIZES,
   RADIUS,
   TEXT_SIZES,
   TRACKING,
@@ -94,7 +95,9 @@ lines.push(
 for (const [name, value] of Object.entries(TEXT_SIZES)) {
   const legacy = LEGACY_TEXT_SIZES.includes(name)
     ? " /* legacy, under review: not for new work */"
-    : "";
+    : READING_TEXT_SIZES.includes(name)
+      ? " /* reading surfaces only: thread messages */"
+      : "";
   lines.push(`  --text-${name}: ${value};${legacy}`);
 }
 for (const [name, value] of Object.entries(TRACKING)) {
@@ -227,6 +230,18 @@ for (const mode of ["dark", "bright"] as const) {
     const mark = ratio >= min ? "ok " : "FAIL";
     if (ratio < min) unreadable = true;
     console.log(`  ${mode} ${label}: ${ratio.toFixed(2)} (min ${min}) ${mark}`);
+  }
+  // The selected row's border and the keyboard ring sit on its overlay-2 wash,
+  // ink at 5 percent in dark and 8 in bright (semantic.ts), over raise-2.
+  const wash = blend(t["ink"]!, t["raise-2"]!, mode === "dark" ? 0.05 : 0.08);
+  for (const [label, fg] of [
+    ["selected row border, amber-fg on its wash", "amber-fg"],
+    ["selected row focus ring, cyan-fg on its wash", "cyan-fg"],
+  ] as const) {
+    const ratio = contrastRatio(t[fg]!, wash);
+    const mark = ratio >= NON_TEXT_FLOOR ? "ok " : "FAIL";
+    if (ratio < NON_TEXT_FLOOR) unreadable = true;
+    console.log(`  ${mode} ${label}: ${ratio.toFixed(2)} (min ${NON_TEXT_FLOOR}) ${mark}`);
   }
 }
 if (unreadable) {

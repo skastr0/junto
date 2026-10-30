@@ -68,6 +68,11 @@ typography:
     fontSize: "12px"
     fontWeight: 400
     lineHeight: 1.6
+  prose-xl:
+    fontFamily: "-apple-system, SF Pro Text, system-ui, Segoe UI, sans-serif"
+    fontSize: "16px"
+    fontWeight: 400
+    lineHeight: 1.6
 rounded:
   sm: "4px"
   md: "6px"
@@ -235,11 +240,14 @@ A restrained, warm palette: tinted near-black neutrals toward hue 70 to 85, one 
 - **Body Large** (mono, 500 to 600, 12px, 1.45): node chip names, palette row titles, form fields, md buttons, the palette input.
 - **Body** (mono, 400, 11px, 1.45): the working size. List rows, spine rows, dialog body, counts. The most used step in the app.
 - **Label** (mono, 600, 10px, uppercase, 0.08em tracking): sm and xs buttons, status tags, meta lines, footers, key caps, eyebrows (eyebrows widen to 0.14em).
+- **Prose XL** (sans, 400, 16px, 1.6, `--text-prose-xl`): the reading step, for long human-written text a person reads for a while. Seat thread messages only, set at a 34em measure (66 to 72 characters at 12, 14 and 16px, because em follows the size). Never a control, a count or a name.
 
 Tracking steps are `flat` 0, `soft` 0.04em, `label` 0.08em and `eyebrow` 0.14em; leading steps are `compact` 1.2, `dense` 1.35, `body` 1.45 and `open` 1.6. Weights in use are 400, 500, 600 and 700; 600 carries most names. The wordmark is uppercase JUNTO in the display font, weight 600, 0.14em, in `ink` (`docs/brand/README.md`).
 
 ### Named Rules
-**The Six Steps Rule.** New work uses exactly six sizes: `label` 10px, `body` 11px, `body-lg` 12px, `title` 14px, `display` 18px, `hero` 24px. `micro` 8px and `caption` 9px are legacy and under review: never reach for them in new work. There is no 13px. A raw pixel size is a defect waiting for its nearest step (`scripts/design-token-codemod.ts` holds the mapping).
+**The Six Steps Rule.** New work uses exactly six sizes: `label` 10px, `body` 11px, `body-lg` 12px, `title` 14px, `display` 18px, `hero` 24px, plus the one reading step, `prose-xl` 16px, which only a reading surface (thread messages) may use. `micro` 8px and `caption` 9px are legacy and under review: never reach for them in new work. There is no 13px. A raw pixel size is a defect waiting for its nearest step (`scripts/design-token-codemod.ts` holds the mapping).
+
+**The Reading Code Step Rule.** Code inside reading prose takes the step below the prose, never a scaled em: prose 12 sets code at `body` 11, prose 14 at `body-lg` 12, prose `prose-xl` 16 at `title` 14 (0.86em of 16px is 13.76px, and there is no 13). One variable per surface, `--prose-code-size`, sits beside `--prose-size`.
 
 **The Instrument Type Rule.** Mono is the default voice. The display face is a stamp: uppercase, tracked, short. The prose face is for paragraphs a person wrote. Never set a control, a count or a node name in the prose face.
 

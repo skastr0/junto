@@ -35,7 +35,7 @@ import {
 export { THEME_MODES, type ThemeMode, type TokenValue };
 export { contrastRatio, hexToOklch, oklchToHex, type Oklch } from "./oklch";
 export { SEMANTIC_DARK, SEMANTIC_BRIGHT_OVERRIDES, semanticTokens };
-export { LEADING, LEGACY_TEXT_SIZES, TEXT_SIZES, TRACKING } from "./type";
+export { LEADING, LEGACY_TEXT_SIZES, READING_TEXT_SIZES, TEXT_SIZES, TRACKING } from "./type";
 export { RADIUS } from "./shape";
 
 export const FONT_MONO =

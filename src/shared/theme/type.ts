@@ -21,10 +21,16 @@ export const TEXT_SIZES: Record<string, string> = {
   title: "14px",
   display: "18px",
   hero: "24px",
+  // The reading step: long prose a person reads for a while (thread
+  // messages), on 1.6 leading at a 34em measure. Reading surfaces only.
+  "prose-xl": "16px",
 };
 
 /** Names in TEXT_SIZES that new work must not reach for. */
 export const LEGACY_TEXT_SIZES: readonly string[] = ["micro", "caption"];
+
+/** Names in TEXT_SIZES that only a reading surface may use; a control or a count never does. */
+export const READING_TEXT_SIZES: readonly string[] = ["prose-xl"];
 
 export const TRACKING: Record<string, string> = {
   flat: "0",

@@ -101,6 +101,7 @@
   --text-title: 14px;
   --text-display: 18px;
   --text-hero: 24px;
+  --text-prose-xl: 16px; /* reading surfaces only: thread messages */
   --tracking-flat: 0;
   --tracking-soft: 0.04em;
   --tracking-label: 0.08em;
