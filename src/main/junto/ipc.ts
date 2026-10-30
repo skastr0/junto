@@ -743,10 +743,6 @@ export const registerJuntoIpc = (): void => {
     core.call("ipc.work.attention", { input }),
   );
 
-  privilegedIpc.handle(IPC_CHANNELS.workSinkPage, (_event, input: unknown) =>
-    core.call("ipc.work.sinkPage", { input }),
-  );
-
   privilegedIpc.handle(IPC_CHANNELS.workMailPage, (_event, input: unknown) =>
     core.call("ipc.work.mailPage", { input }),
   );

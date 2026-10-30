@@ -13,7 +13,7 @@ import { asNodeId, type Canvas } from "@shared/model";
 import type { ItemId } from "@shared/work-ids";
 import type { Message } from "@shared/work-model";
 import { linkedFromBodies } from "../../junto/work/body-links";
-import { WorkAttentionQuery, WorkItemQuery, WorkSinkQuery } from "@shared/work-sinks";
+import { WorkAttentionQuery, WorkItemQuery } from "@shared/work-sinks";
 import { WorkMailQuery } from "@shared/work-mail";
 import type { MentionAfter, MentionRow } from "../../junto/work/mention-backlinks";
 import { readMentions } from "../../junto/work/mention-backlinks";
@@ -40,7 +40,6 @@ declare module "../ops" {
     /** The window's work pages; their answers are the repository's own shapes. */
     "ipc.work.item": CoreOp<{ readonly input: unknown }, unknown>;
     "ipc.work.attention": CoreOp<{ readonly input: unknown }, unknown>;
-    "ipc.work.sinkPage": CoreOp<{ readonly input: unknown }, unknown>;
     "ipc.work.mailPage": CoreOp<{ readonly input: unknown }, unknown>;
     "ipc.work.seatRecentOps": CoreOp<
       { readonly canvas: string; readonly nodeId: string; readonly limit?: number },
@@ -74,11 +73,6 @@ coreOps({
     Effect.gen(function* () {
       const query = yield* decode(WorkAttentionQuery, input);
       return yield* (yield* WorkRepository).attentionSnapshot(query);
-    }),
-  "ipc.work.sinkPage": ({ input }) =>
-    Effect.gen(function* () {
-      const query = yield* decode(WorkSinkQuery, input);
-      return yield* (yield* WorkRepository).sinkPage(query);
     }),
   "ipc.work.mailPage": ({ input }) =>
     Effect.gen(function* () {

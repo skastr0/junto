@@ -6,7 +6,7 @@ import type { AuthorityWindowData } from "./authority";
 import type { NativeSettingWrite } from "./harness-domain/native-config";
 import type { MachineCacheWindows, MachineProviders, MachineRecord } from "./machine-settings";
 import type { WorkAttentionSnapshot } from "./work-attention";
-import type { WorkItemQuery, WorkAttentionQuery, WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
+import type { WorkItemQuery, WorkAttentionQuery, WorkSinkChanged } from "./work-sinks";
 import type { CanvasesChanged, Changed, Command, Opened } from "./model";
 import type { WorkMailQuery, WorkMailPage, WorkMailChanged } from "./work-mail";
 import type { ViewStateEvent, ViewStateSnapshot, ViewStateWrite } from "./view-state";
@@ -353,7 +353,6 @@ export const IPC_CHANNELS = {
   workMailPage: "junto:work-mail-page",
   workItem: "junto:work-item",
   workAttention: "junto:work-attention",
-  workSinkPage: "junto:work-sink-page",
   workSinkChanged: "junto:work-sink-changed",
   // The Automations node (0.10/07): reads, the operator's writes, and a change after each.
   automationList: "junto:automation-list",
@@ -956,7 +955,6 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   // topology and runtime projection only.
   readonly workItem: (query: WorkItemQuery) => Promise<Task | undefined>;
   readonly workAttention: (query: WorkAttentionQuery) => Promise<WorkAttentionSnapshot>;
-  readonly workSinkPage: (query: WorkSinkQuery) => Promise<WorkSinkPage>;
   readonly onWorkSinkChanged: (listener: (event: WorkSinkChanged) => void) => () => void;
   readonly automationList: (canvas: string, request: AutomationListRequest) => Promise<AutomationListResponse>;
   readonly automationFirings: (canvas: string, request: AutomationFiringsRequest) => Promise<AutomationFiringsResponse>;
