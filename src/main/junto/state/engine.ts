@@ -47,7 +47,7 @@ const STATE_FILE_MODE = 0o600;
 const STATE_BUSY_TIMEOUT_MS = 5_000;
 /**
  * Page cache of the state connection. The database is far larger than SQLite's
- * default 2 MB cache (negative is KiB). Reads on the live file were 9 to 28%
+ * default 2 MB cache (negative is KiB). Reads on the live file were 9 to 26%
  * faster with it; the write path was unchanged. No memory map: an I/O error on
  * a mapped file cannot be caught by SQLite, so it can end the process.
  */
