@@ -1453,16 +1453,23 @@ const stepRefusalWords: Readonly<Record<RefusalReason, string>> = {
  * more than the firing's own line, or that a code step or a signal step
  * already says in its own words.
  */
-export const heldRulingWords = (ruling: ActionRuling, atWords: (at: number) => string): string | undefined => {
+export const heldRulingWords = (
+  ruling: ActionRuling,
+  atWords: (at: number) => string,
+  nameMachine: (host: string) => string = (host) => host,
+): string | undefined => {
   switch (ruling.ruling) {
     case "queued":
       return ruling.waitingOn === undefined
         ? "waiting"
-        : `waiting on ${ruling.waitingOn.machine} since ${atWords(ruling.waitingOn.since)}`;
+        : `waiting on ${nameMachine(ruling.waitingOn.machine)} since ${atWords(ruling.waitingOn.since)}`;
     case "applied":
       return ruling.heldSince === undefined ? undefined : `applied after waiting since ${atWords(ruling.heldSince)}`;
     case "refused": {
-      const why = ruling.movedTo === undefined ? stepRefusalWords[ruling.reason] : `the automation moved to ${ruling.movedTo}`;
+      const why =
+        ruling.movedTo === undefined
+          ? stepRefusalWords[ruling.reason]
+          : `the automation moved to ${nameMachine(ruling.movedTo)}`;
       return ruling.heldSince === undefined ? `not run: ${why}` : `not run after waiting since ${atWords(ruling.heldSince)}: ${why}`;
     }
     case "raised":
@@ -1548,11 +1555,17 @@ export const answerIsLong = (text: string): boolean => text.length > ANSWER_SHOR
 
 /**
  * One line of the firing history: `Scheduled, fired, 2 of 2 actions applied`.
- * A firing that ran on another machine says so: `Scheduled on mac-mini, ...`.
- * `here` is this machine's short name; a firing that names none stays local.
+ * A firing that ran on another machine says so, by the label the operator
+ * reads: `Scheduled on Mac mini, ...`. `here` is this machine's short name,
+ * empty until settings load, when no machine is named; a firing that names
+ * none stays local.
  */
-export const firingWords = (firing: Firing, here?: string): string => {
-  const ran = firing.machine === undefined || firing.machine === here ? "" : ` on ${firing.machine}`;
+export const firingWords = (
+  firing: Firing,
+  here?: string,
+  nameMachine: (host: string) => string = (host) => host,
+): string => {
+  const ran = firing.machine === undefined || here === undefined || here === "" || firing.machine === here ? "" : ` on ${nameMachine(firing.machine)}`;
   const cause = `${causeWords(firing.cause)}${ran}`;
   switch (firing.outcome.kind) {
     case "fired": {

@@ -174,6 +174,9 @@ describe("a signal step in the automation's history", () => {
 
 describe("a step held while its machine was not linked (0.12 S3)", () => {
   it("names the machine the firing ran on, the step that waits, and why a step did not run", async () => {
+    // This machine knows its own name, and calls another machine by the label the operator reads.
+    state$.settings.machine.name.set("macbook");
+    state$.machines.set([{ id: "mini", label: "Mac mini" } as never]);
     source.record(canvas, {
       firingId: ItemId.make("01JFFFFFFFFFFFFFFFFFFFFFF9"),
       automationId,
@@ -182,7 +185,7 @@ describe("a step held while its machine was not linked (0.12 S3)", () => {
       outcome: {
         kind: "fired",
         actions: [
-          { index: 0, ruling: "queued", waitingOn: { machine: "mac-mini", since: 1_700_000_060_000 } },
+          { index: 0, ruling: "queued", waitingOn: { machine: "mini", since: 1_700_000_060_000 } },
           { index: 1, ruling: "refused", reason: "not_permitted", movedTo: "mini" },
         ],
       },
@@ -190,8 +193,8 @@ describe("a step held while its machine was not linked (0.12 S3)", () => {
     });
     await render();
     await row();
-    expect(document.body.textContent).toContain("Run by hand on mini");
-    expect(document.body.textContent).toContain("Step 1 waiting on mac-mini since");
-    expect(document.body.textContent).toContain("Step 2 not run: the automation moved to mini");
+    expect(document.body.textContent).toContain("Run by hand on Mac mini");
+    expect(document.body.textContent).toContain("Step 1 waiting on Mac mini since");
+    expect(document.body.textContent).toContain("Step 2 not run: the automation moved to Mac mini");
   });
 });

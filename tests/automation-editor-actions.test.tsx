@@ -448,6 +448,16 @@ describe("a step held while its automation's machine was not linked (0.12 S3)", 
     expect(firingWords(firing({ machine: "macbook" }), "macbook")).toBe("Run by hand, fired, 0 of 0 actions applied");
     expect(firingWords(firing({ machine: "mini" }), "macbook")).toBe("Run by hand on mini, fired, 0 of 0 actions applied");
     expect(firingWords(firing({}))).toBe("Run by hand, fired, 0 of 0 actions applied");
+    // A machine is named by the label the operator reads, as every other line does; settings not loaded names none.
+    const labelled = (host: string): string => (host === "mini" ? "Mac mini" : host);
+    expect(firingWords(firing({ machine: "mini" }), "macbook", labelled)).toBe("Run by hand on Mac mini, fired, 0 of 0 actions applied");
+    expect(firingWords(firing({ machine: "mini" }), "")).toBe("Run by hand, fired, 0 of 0 actions applied");
+    expect(heldRulingWords({ index: 1, ruling: "queued", waitingOn: { machine: "mini", since: 9 } }, at, labelled)).toBe(
+      "waiting on Mac mini since at 9",
+    );
+    expect(heldRulingWords({ index: 2, ruling: "refused", reason: "not_permitted", movedTo: "mini" }, at, labelled)).toBe(
+      "not run: the automation moved to Mac mini",
+    );
 
     // The newer firing by id has the earlier clock: the id decides, as it does across machines.
     const earlierClock = firing({ firingId: ItemId.make("01JFFFFFFFFFFFFFFFFFFFFFF2"), at: 100 });

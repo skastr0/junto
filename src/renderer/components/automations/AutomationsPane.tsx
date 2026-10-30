@@ -80,7 +80,7 @@ import { useSignalsById } from "../../lib/automation-signals";
 import { AutomationEditor } from "./AutomationEditor";
 import { AutomationCodeEditor, codeTemplate } from "./AutomationCodeEditor";
 import { useTargetNames } from "../../lib/automation-names";
-import { useThisMachineName } from "../../lib/machines";
+import { useThisMachineName, machineLabelIn, useMachines } from "../../lib/machines";
 import "./automations.css";
 
 type Editing = {
@@ -186,8 +186,10 @@ function FiringHistory({
   readonly focused?: string | undefined;
 }) {
   const ordered = useMemo(() => historyOrder(firings), [firings]);
-  // A firing written on another machine says which one; this machine's own firings do not.
+  // A firing written on another machine says which one, by the label the operator reads; this machine's own firings do not.
   const here = useThisMachineName();
+  const machines = useMachines();
+  const nameMachine = (host: string): string => machineLabelIn(machines, host);
   // A signal step's ruling names its signal; what became of it is the signal's row, read here.
   const signalIds = useMemo(
     () =>
@@ -225,7 +227,7 @@ function FiringHistory({
                 >
                   {timeWords(firing.at)}
                 </time>
-                <span>{firingWords(firing, here)}</span>
+                <span>{firingWords(firing, here, nameMachine)}</span>
               </div>
               {firing.outcome.kind === "fired"
                 ? firing.outcome.actions.map((ruling) => {
@@ -233,7 +235,7 @@ function FiringHistory({
                     const words =
                       codeRulingWords(ruling) ??
                       signalRulingWords(ruling, signal, timeWords) ??
-                      heldRulingWords(ruling, timeWords);
+                      heldRulingWords(ruling, timeWords, nameMachine);
                     const answer = signalAnswerOf(signal);
                     return words === undefined ? null : (
                       <div key={ruling.index} className="automation-history__step">
