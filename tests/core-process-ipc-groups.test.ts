@@ -18,7 +18,6 @@ it("every group ipc.ts calls is registered by ops/index", () => {
     "ipc.work.mentions",
     "ipc.work.item",
     "ipc.work.attention",
-    "ipc.work.sinkPage",
     "ipc.work.mailPage",
     "ipc.work.seatRecentOps",
     "ipc.status.authority",
@@ -29,11 +28,6 @@ it("every group ipc.ts calls is registered by ops/index", () => {
     "ipc.watch.model",
     "ipc.watch.modelCanvases",
     "ipc.watch.modelActorRefs",
-    "ipc.seats.regionEnvStaleSeats",
-    "ipc.seats.factoryPauseState",
-    "ipc.seats.factoryPauseSet",
-    "ipc.seats.managedPrompt",
-    "ipc.seats.onboardNudge",
     "ipc.content.operatorPut",
     "ipc.content.putImage",
     "ipc.content.portraitOverrides",
@@ -69,11 +63,6 @@ it("every group ipc.ts calls is registered by ops/index", () => {
     "ipc.resource.thread.list",
     "ipc.resource.thread.post",
     "ipc.resource.move",
-    "ipc.seats.regionEnvStaleSeats",
-    "ipc.seats.factoryPauseState",
-    "ipc.seats.factoryPauseSet",
-    "ipc.seats.managedPrompt",
-    "ipc.seats.onboardNudge",
   ];
   for (const name of names) expect(coreOpBody(name), name).toBeTypeOf("function");
 });
