@@ -1,11 +1,12 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { STATION_STATE_SCHEMA_SQL } from "../src/main/junto/station/state-schema";
 import { migrateMachineConfiguration, migrateMachineIdentity, migrateMachinePeers } from "../src/main/junto/machines/migrate";
+import { STATE_SCHEMA_V14_FRAGMENTS } from "./fixtures/state-v13/v14-fragments";
 
 const open = (): DatabaseSync => {
   const database = new DatabaseSync(":memory:");
-  database.exec(STATION_STATE_SCHEMA_SQL);
+  // The station tables as version 14 froze them: the shape the 20 -> 21 step converts.
+  database.exec(STATE_SCHEMA_V14_FRAGMENTS.station);
   return database;
 };
 const convert = (database: DatabaseSync, name: string): void => {
