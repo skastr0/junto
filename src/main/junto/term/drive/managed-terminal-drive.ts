@@ -1481,8 +1481,20 @@ export class ManagedTerminalDrive {
         async (): Promise<
           | { readonly kind: "inactive" }
           | { readonly kind: "failed" }
+          | { readonly kind: "operator" }
           | { readonly kind: "written"; readonly sentChipCr: boolean }
         > => {
+          // A surface key reaches its PTY in the terminal process and is
+          // heard here a hop later: once the hold is in force there, a key
+          // the gates above could not yet see refuses before the paste.
+          const fence = this.interlock.holdFence(bindingId);
+          if (fence !== undefined) {
+            await fence;
+            if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
+              return { kind: "inactive" };
+            }
+            if (this.interlock.inputVersion(bindingId) !== inputVersion) return { kind: "operator" };
+          }
           const ok = await this.writePasteAndCr(
             bindingId,
             text,
@@ -1541,6 +1553,10 @@ export class ManagedTerminalDrive {
           writesBefore,
           evidence.wrote,
         );
+      }
+      if (physical.kind === "operator") {
+        this.onAttention?.(bindingId, "operator-active");
+        return refuseNow("operator-active");
       }
       if (physical.kind === "failed") {
         // The paste envelope never completed: without an accepted paste

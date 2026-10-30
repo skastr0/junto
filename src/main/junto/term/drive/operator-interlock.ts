@@ -82,6 +82,7 @@ export class OperatorInterlock {
   private readonly resizeUntil = new Map<string, number>();
   private readonly holds = new Map<string, HoldState>();
   private readonly holdingListeners = new Set<(bindingId: string) => void>();
+  private holdFenceOf: ((bindingId: string) => Promise<void> | undefined) | undefined;
   private readonly quietWaiters = new Map<
     string,
     Array<() => void>
@@ -197,6 +198,20 @@ export class OperatorInterlock {
     return () => {
       this.holdingListeners.delete(listener);
     };
+  }
+
+  /**
+   * Where a hold reaches keys on another port (a surface in the terminal
+   * process, phase 3), the round trip after which it is in force there and
+   * every key that arrived before it has stamped `noteInput` here.
+   */
+  useHoldFence(fence: (bindingId: string) => Promise<void> | undefined): void {
+    this.holdFenceOf = fence;
+  }
+
+  /** Undefined when the hold is in force already: keys only reach this process. */
+  holdFence(bindingId: string): Promise<void> | undefined {
+    return this.holdFenceOf?.(bindingId);
   }
 
   private holdingTurned(bindingId: string): void {

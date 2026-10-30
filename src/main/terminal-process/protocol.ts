@@ -24,6 +24,13 @@ export type TerminalSpawnInput = {
 
 export type TerminalSpawnOutput = { readonly pid: number | undefined };
 
+/**
+ * Answered at once, so its answer comes back behind every push the terminal
+ * process sent before it took this call: a hold posted before a fence is in
+ * force there, and every surface key that arrived before it has been heard.
+ */
+export const TERMINAL_FENCE = "pty.fence";
+
 /** The core to the terminal process: input, size and signals, never answered. */
 export const TerminalInbound = {
   write: "pty.write",

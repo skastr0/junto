@@ -1594,6 +1594,31 @@ describe("operator interlock", () => {
     ]);
   });
 
+  it("a surface key heard only after the hold is in force refuses the paste", async () => {
+    interlock = new OperatorInterlock(() => clock);
+    // The terminal process took a key before the hold; its typing push lands during the fence.
+    interlock.useHoldFence(() => Promise.resolve().then(() => interlock.noteInput("b1")));
+    drive = makeDrive({ write: acknowledgeSubmit });
+    await expect(
+      drive.writePrompt("b1", "notice", { queueIfBusy: false }),
+    ).resolves.toMatchObject({ status: "refused", reason: "operator-active" });
+    expect(writes).toEqual([]);
+    expect(interlock.holding("b1")).toBe(false);
+  });
+
+  it("a quiet fence lets the paste through", async () => {
+    interlock = new OperatorInterlock(() => clock);
+    let fenced = 0;
+    interlock.useHoldFence(() => {
+      fenced += 1;
+      return Promise.resolve();
+    });
+    drive = makeDrive({ write: acknowledgeSubmit });
+    await expect(drive.writePrompt("b1", "notice")).resolves.toMatchObject({ status: "submitted" });
+    expect(fenced).toBe(1);
+    expect(writes.map((w) => w.data)).toEqual([encodeBracketedPaste("notice"), CR]);
+  });
+
   it("a resize latch gates admission the same way", async () => {
     interlock = new OperatorInterlock(() => clock);
     interlock.noteResize("b1");

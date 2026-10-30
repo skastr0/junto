@@ -1,6 +1,7 @@
 import { portCore } from "../core-process/port";
 import type { CoreMessage, CorePort } from "../core-process/port";
 import {
+  TERMINAL_FENCE,
   TERMINAL_SPAWN,
   TerminalInbound,
   TerminalOutbound,
@@ -48,6 +49,12 @@ export type RemoteTerminal = {
   readonly onTyping: (listener: (input: { readonly leaseId: string; readonly data: string }) => void) => () => void;
   /** Phase 3: a key from a surface reached the PTY. */
   readonly onInput: (listener: (input: { readonly leaseId: string; readonly data: string }) => void) => () => void;
+  /**
+   * Resolves once everything posted before it is in force in the terminal
+   * process and every surface key that arrived there first has been heard
+   * here. A lost terminal process resolves it too: nothing is left to type.
+   */
+  readonly fence: () => Promise<void>;
 };
 
 export type RemoteTerminalSpawn = Omit<TerminalSpawnInput, "id">;
@@ -184,6 +191,7 @@ export const terminalClient = (
         lastSeq: () => live.get(id)?.seq ?? 0,
         onTyping: subscribe(id, (terminal) => terminal.typing),
         onInput: subscribe(id, (terminal) => terminal.input),
+        fence: () => (calls.call as (name: string, input: unknown) => Promise<unknown>)(TERMINAL_FENCE, {}).then(() => undefined, () => undefined),
       };
     },
     fail: (reason) => {

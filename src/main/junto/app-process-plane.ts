@@ -162,7 +162,7 @@ export interface AppTerminalIo {
  */
 export type AppTerminalSurface = Pick<
   RemoteTerminal,
-  "gate" | "hold" | "openSurface" | "endSurface" | "lastSeq" | "onTyping" | "onInput"
+  "gate" | "hold" | "openSurface" | "endSurface" | "lastSeq" | "onTyping" | "onInput" | "fence"
 >;
 
 export class TerminalBackendUnavailableError extends Error {
@@ -512,6 +512,7 @@ const makeRemotePtyBackend = (remote: RemoteTerminal): TerminalBackend => Object
     lastSeq: remote.lastSeq,
     onTyping: remote.onTyping,
     onInput: remote.onInput,
+    fence: remote.fence,
   }),
   signalSink: Object.freeze({ kill: (signal?: NodeJS.Signals) => remote.kill(signal) }),
   write: (data: string) => remote.write(data),

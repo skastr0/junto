@@ -2,6 +2,7 @@ import type { IPty } from "node-pty";
 import type { CoreMessage, CorePort } from "../core-process/port";
 import { readSingleProcessEpochSnapshotAsync, type ChildProcessEpoch } from "../junto/process-epoch";
 import {
+  TERMINAL_FENCE,
   TERMINAL_SPAWN,
   TerminalInbound,
   TerminalOutbound,
@@ -305,6 +306,10 @@ export const serveTerminals = (
   const close = port.listen((message: CoreMessage) => {
     if (message.kind === "push") return inbound(message.channel, message.payload);
     if (message.kind !== "call") return;
+    if (message.name === TERMINAL_FENCE) {
+      port.post({ kind: "answer", id: message.id, ok: true, value: {} });
+      return;
+    }
     if (message.name !== TERMINAL_SPAWN) {
       port.post({ kind: "answer", id: message.id, ok: false, failure: { tag: "UnknownTerminalOp", message: `no terminal operation named ${message.name}` } });
       return;

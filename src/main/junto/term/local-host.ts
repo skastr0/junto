@@ -1053,6 +1053,7 @@ export class LocalSessionHost extends EventEmitter {
       const rec = this.sessions.get(bindingId);
       if (rec !== undefined) this.syncSurface(rec);
     });
+    this.operatorInterlock.useHoldFence((bindingId) => this.sessions.get(bindingId)?.lease?.io.surface?.fence());
   }
 
   /** Open a geography terminal. A shell — it can hold no harness. */
