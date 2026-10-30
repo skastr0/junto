@@ -6,7 +6,7 @@
  * Raft's safety properties run after every step.
  */
 import { describe, expect, it } from "vitest";
-import { ALONE_TERM_STRIDE, isListQuorum, isQuorum, ProposalRefused } from "../src/main/junto/fleet/consensus";
+import { ALONE_TERM_STRIDE, ConsensusNode, isListQuorum, isQuorum, ProposalRefused, type MachineId } from "../src/main/junto/fleet/consensus";
 import { Cluster } from "./support/consensus-sim";
 
 const set = (...ids: string[]) => new Set(ids);
@@ -88,6 +88,73 @@ describe("a pair", () => {
     cluster.heal();
     cluster.run(400);
     expect(cluster.appliedData("macbook")).not.toContain("lost on macbook");
+  });
+});
+
+/**
+ * When a machine stands (remote-lead's ruling on 06-fleet-state.md:137): its
+ * rank counts the list without the authority it last heard, so the first
+ * fallback stands after one timeout and the next after two. No jitter here.
+ */
+describe("the wait before standing", () => {
+  const member = (id: MachineId, list: ReadonlyArray<MachineId>) => new ConsensusNode({
+    id, electionTicks: 10, heartbeatTicks: 1, hardState: { term: 1, votedFor: null, commit: 1 },
+    log: [{ term: 1, index: 1, payload: { kind: "list", members: { list } } }],
+  });
+  const hear = (node: ConsensusNode, authority: MachineId) => {
+    node.step({ type: "append", from: authority, to: node.id, term: 2, prevIndex: 1, prevTerm: 1, entries: [], commit: 1, at: 0 });
+    node.ready();
+  };
+  /** Ticks until the machine leaves follower: it stood. */
+  const standsAfter = (node: ConsensusNode) => {
+    for (let tick = 1; tick <= 100; tick++) {
+      node.tick();
+      node.ready();
+      if (node.status().role !== "follower") return tick;
+    }
+    return undefined;
+  };
+
+  it("is one timeout for a pair's fallback once the first machine ruled", () => {
+    const mini = member("mini", ["macbook", "mini"]);
+    hear(mini, "macbook");
+    expect(standsAfter(mini)).toBe(10);
+  });
+
+  it("is one timeout for the next machine down a list of three, and two for the one after, when the first ruled", () => {
+    for (const [id, wait] of [["mini", 10], ["vps", 20]] as const) {
+      const node = member(id, ["macbook", "mini", "vps"]);
+      hear(node, "macbook");
+      expect(standsAfter(node), id).toBe(wait);
+    }
+  });
+
+  it("is one timeout for the first machine and two for the third, when the second ruled", () => {
+    for (const [id, wait] of [["macbook", 10], ["vps", 20]] as const) {
+      const node = member(id, ["macbook", "mini", "vps"]);
+      hear(node, "mini");
+      expect(standsAfter(node), id).toBe(wait);
+    }
+  });
+
+  it("counts the whole list when no authority was heard", () => {
+    expect(standsAfter(member("vps", ["macbook", "mini", "vps"]))).toBe(30);
+  });
+
+  it("never has two fresh authorities: the old one's lease lapses before the fallback stands", () => {
+    for (let seed = 30; seed < 60; seed++) {
+      const cluster = new Cluster(seed, ["macbook", "mini"], ["macbook", "mini"]);
+      const once = () => {
+        const fresh = [...cluster.nodes.values()].filter(node => node.status().fresh).map(node => node.id);
+        expect(fresh.length, `seed ${seed}, tick ${cluster.now}: ${fresh.join(", ")}`).toBeLessThanOrEqual(1);
+      };
+      cluster.run(200, once);
+      cluster.partition(["macbook"], ["mini"]);
+      cluster.run(200, once);
+      expect(cluster.leader()?.id).toBe("mini");
+      cluster.heal();
+      cluster.run(400, once);
+    }
   });
 });
 

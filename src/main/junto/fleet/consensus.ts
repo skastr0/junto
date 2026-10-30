@@ -18,15 +18,19 @@
  *   A joint entry needs a quorum of both lists, then the new list follows.
  * - **Priority.** A machine stands for election only after its rank's extra
  *   timeouts (rank 0 after one, rank 1 after two), and the authority hands
- *   over to a higher-ranked machine once it has caught up.
+ *   over to a higher-ranked machine once it has caught up. The rank counts
+ *   the list without the authority last heard: when the MacBook that ruled a
+ *   pair goes quiet, the mini stands after one timeout, not two.
  * - **Pre-vote** keeps a machine back from a partition from raising the term.
  * - **`alone`**: the operator's statement on a listed machine that the others
  *   are dead. It starts a term no election reaches (`ALONE_TERM_STRIDE` past
  *   its own) whose list names this machine as sole voter. It is outside
  *   Raft's guarantees by definition and the one path to divergence: entries
  *   a machine committed and then loses to it come out as `revoked`.
- * - **Freshness, not safety, uses time**: an authority that has not heard a
- *   quorum within an election timeout reports `fresh: false` (CheckQuorum).
+ * - **Freshness, not safety, uses time**: an authority is fresh while a
+ *   quorum has answered an append it sent within the last election timeout
+ *   (CheckQuorum). Counted from the send, it lapses before a follower that
+ *   heard that append can stand, so two machines are never fresh at once.
  */
 
 export type MachineId = string;
@@ -53,8 +57,9 @@ export type Message =
   | { readonly type: "pre-vote-reply"; readonly from: MachineId; readonly to: MachineId; readonly term: number; readonly granted: boolean }
   | { readonly type: "vote"; readonly from: MachineId; readonly to: MachineId; readonly term: number; readonly lastIndex: number; readonly lastTerm: number; readonly transfer: boolean }
   | { readonly type: "vote-reply"; readonly from: MachineId; readonly to: MachineId; readonly term: number; readonly granted: boolean }
-  | { readonly type: "append"; readonly from: MachineId; readonly to: MachineId; readonly term: number; readonly prevIndex: number; readonly prevTerm: number; readonly entries: ReadonlyArray<Entry>; readonly commit: number }
-  | { readonly type: "append-reply"; readonly from: MachineId; readonly to: MachineId; readonly term: number; readonly success: boolean; readonly index: number }
+  /** `at` is the sender's own tick count when it sent, opaque to the receiver, which echoes it. */
+  | { readonly type: "append"; readonly from: MachineId; readonly to: MachineId; readonly term: number; readonly prevIndex: number; readonly prevTerm: number; readonly entries: ReadonlyArray<Entry>; readonly commit: number; readonly at: number }
+  | { readonly type: "append-reply"; readonly from: MachineId; readonly to: MachineId; readonly term: number; readonly success: boolean; readonly index: number; readonly at: number }
   | { readonly type: "timeout-now"; readonly from: MachineId; readonly to: MachineId; readonly term: number };
 
 export type Role = "follower" | "pre-candidate" | "candidate" | "leader";
@@ -137,6 +142,14 @@ export const isQuorum = (members: MemberList, acks: ReadonlySet<MachineId>): boo
 const voters = (members: MemberList): ReadonlyArray<MachineId> =>
   [...new Set([...members.list, ...(members.old ?? []), ...(members.sole === undefined ? [] : [members.sole])])];
 
+/** The members without `gone`: the list a machine counts its rank in once that authority went quiet. */
+const without = (members: MemberList, gone: MachineId | null): MemberList =>
+  gone === null ? members : {
+    ...members,
+    list: members.list.filter(id => id !== gone),
+    ...(members.old === undefined ? {} : { old: members.old.filter(id => id !== gone) }),
+  };
+
 /** A machine's rank: its place in the list, then in the old list while joint; undefined when it may not stand. */
 const rankOf = (members: MemberList, id: MachineId): number | undefined => {
   if (members.sole !== undefined) return members.sole === id ? 0 : undefined;
@@ -161,15 +174,18 @@ export class ConsensusNode {
 
   private role: Role = "follower";
   private leader: MachineId | null = null;
+  /** The last authority this machine heard, kept after it goes quiet: the rank a wait counts leaves it out. */
+  private lastAuthority: MachineId | null = null;
   private elapsed = 0;
   private timeout = 0;
   private heartbeatElapsed = 0;
   private votes = new Set<MachineId>();
   private matchIndex = new Map<MachineId, number>();
   private nextIndex = new Map<MachineId, number>();
-  private heardSince = new Set<MachineId>();
-  private quorumElapsed = 0;
-  private fresh = false;
+  /** Ticks since this core was made: what `at` counts. */
+  private ticks = 0;
+  /** Per machine, when this authority sent the latest append that machine answered. */
+  private answeredAt = new Map<MachineId, number>();
   private transferTo: MachineId | null = null;
   private transferElapsed = 0;
 
@@ -230,10 +246,24 @@ export class ConsensusNode {
     return rankOf(this.members(), this.id) ?? rankOf(this.committedMembers(), this.id);
   }
 
+  /** The rank that sets the wait: the standing rank in the lists without the authority last heard. */
+  private waitRank(): number {
+    const gone = this.lastAuthority === this.id ? null : this.lastAuthority;
+    return rankOf(without(this.members(), gone), this.id) ?? rankOf(without(this.committedMembers(), gone), this.id) ?? 0;
+  }
+
+  /** Follows `authority`; a new one changes the rank this machine waits by. */
+  private heard(authority: MachineId): void {
+    this.leader = authority;
+    if (this.lastAuthority === authority) return;
+    this.lastAuthority = authority;
+    this.resetTimeout();
+  }
+
   status(): Status {
     const latest = this.members();
     const committed = this.committedMembers();
-    const fresh = this.role === "leader" && (this.fresh || isQuorum(latest, new Set([this.id])));
+    const fresh = this.isFresh();
     return {
       id: this.id, role: this.role, term: this.term, leader: this.leader, commit: this.commit,
       lastIndex: this.lastIndex(), members: committed,
@@ -246,14 +276,9 @@ export class ConsensusNode {
   // ---- inputs --------------------------------------------------------------
 
   tick(): void {
+    this.ticks += 1;
     if (this.role === "leader") {
       this.heartbeatElapsed += 1;
-      this.quorumElapsed += 1;
-      if (this.quorumElapsed >= this.electionTicks) {
-        this.fresh = isQuorum(this.members(), new Set([...this.heardSince, this.id]));
-        this.heardSince.clear();
-        this.quorumElapsed = 0;
-      }
       if (this.heartbeatElapsed >= this.heartbeatTicks) {
         this.heartbeatElapsed = 0;
         this.broadcastAppend();
@@ -340,7 +365,7 @@ export class ConsensusNode {
       this.becomeFollower(message.term, message.type === "append" || message.type === "timeout-now" ? message.from : null);
     } else if (message.term < this.term) {
       // A stale sender learns the term from the refusal.
-      if (message.type === "append") this.outbox.push({ type: "append-reply", from: this.id, to: message.from, term: this.term, success: false, index: this.lastIndex() });
+      if (message.type === "append") this.outbox.push({ type: "append-reply", from: this.id, to: message.from, term: this.term, success: false, index: this.lastIndex(), at: message.at });
       if (message.type === "vote") this.outbox.push({ type: "vote-reply", from: this.id, to: message.from, term: this.term, granted: false });
       return;
     }
@@ -388,19 +413,17 @@ export class ConsensusNode {
     this.setTerm(term, term === this.term ? this.votedFor : null);
     this.role = "follower";
     this.leader = leader;
+    if (leader !== null) this.lastAuthority = leader;
     this.elapsed = 0;
     this.resetTimeout();
     this.transferTo = null;
-    this.fresh = false;
   }
 
   private becomeLeader(): void {
     this.role = "leader";
     this.leader = this.id;
     this.heartbeatElapsed = 0;
-    this.quorumElapsed = 0;
-    this.heardSince.clear();
-    this.fresh = false;
+    this.answeredAt.clear();
     this.transferTo = null;
     this.matchIndex.clear();
     this.nextIndex.clear();
@@ -412,7 +435,7 @@ export class ConsensusNode {
 
   /** Rank 0 stands after one election timeout, rank 1 after two, each plus its jitter. */
   private resetTimeout(): void {
-    const rank = this.standing() ?? 0;
+    const rank = this.waitRank();
     this.timeout = this.electionTicks * (1 + rank) + Math.max(0, Math.floor(this.jitter()));
   }
 
@@ -450,6 +473,14 @@ export class ConsensusNode {
     this.becomeLeader();
     // A new term commits nothing of an earlier one until an entry of its own does (Raft 5.4.2).
     this.appendOwn({ kind: "noop" });
+  }
+
+  /** An authority a quorum answered within an election timeout of sending, or that is a quorum on its own. */
+  private isFresh(): boolean {
+    if (this.role !== "leader") return false;
+    const heard = new Set([this.id]);
+    for (const [peer, at] of this.answeredAt) if (this.ticks - at < this.electionTicks) heard.add(peer);
+    return isQuorum(this.members(), heard);
   }
 
   private upToDate(lastIndex: number, lastTerm: number): boolean {
@@ -528,16 +559,16 @@ export class ConsensusNode {
     this.outbox.push({
       type: "append", from: this.id, to: peer, term: this.term,
       prevIndex, prevTerm: this.termAt(prevIndex),
-      entries: this.log.slice(prevIndex, prevIndex + this.maxEntries), commit: this.commit,
+      entries: this.log.slice(prevIndex, prevIndex + this.maxEntries), commit: this.commit, at: this.ticks,
     });
   }
 
   private onAppend(message: Extract<Message, { type: "append" }>): void {
     if (this.role !== "follower") this.becomeFollower(this.term, message.from);
-    this.leader = message.from;
+    this.heard(message.from);
     this.elapsed = 0;
     if (message.prevIndex > this.lastIndex() || this.termAt(message.prevIndex) !== message.prevTerm) {
-      this.outbox.push({ type: "append-reply", from: this.id, to: message.from, term: this.term, success: false, index: Math.min(this.lastIndex(), message.prevIndex - 1) });
+      this.outbox.push({ type: "append-reply", from: this.id, to: message.from, term: this.term, success: false, index: Math.min(this.lastIndex(), message.prevIndex - 1), at: message.at });
       return;
     }
     for (const entry of message.entries) {
@@ -559,14 +590,13 @@ export class ConsensusNode {
     const last = message.prevIndex + message.entries.length;
     const commit = Math.min(message.commit, last);
     if (commit > this.commit) { this.commit = commit; this.hardDirty = true; }
-    this.outbox.push({ type: "append-reply", from: this.id, to: message.from, term: this.term, success: true, index: last });
+    this.outbox.push({ type: "append-reply", from: this.id, to: message.from, term: this.term, success: true, index: last, at: message.at });
   }
 
   private onAppendReply(message: Extract<Message, { type: "append-reply" }>): void {
     if (this.role !== "leader") return;
-    this.heardSince.add(message.from);
-    // Fresh as soon as a quorum answers; it lapses only at a window's end that heard none.
-    if (isQuorum(this.members(), new Set([...this.heardSince, this.id]))) this.fresh = true;
+    // Fresh as soon as a quorum answers, until an election timeout past the send they answered.
+    if (message.at <= this.ticks && message.at > (this.answeredAt.get(message.from) ?? -1)) this.answeredAt.set(message.from, message.at);
     if (!message.success) {
       this.nextIndex.set(message.from, Math.max(1, Math.min(message.index + 1, (this.nextIndex.get(message.from) ?? 1) - 1)));
       this.sendAppend(message.from);
@@ -622,7 +652,7 @@ export class ConsensusNode {
   private considerHandover(): void {
     if (this.transferTo !== null) return;
     const rank = rankOf(this.members(), this.id);
-    if (rank === undefined || rank === 0 || !this.fresh) return;
+    if (rank === undefined || rank === 0 || !this.isFresh()) return;
     const to = this.handoverTarget(rank);
     if (to !== undefined) this.transfer(to);
   }
