@@ -199,10 +199,10 @@ describe("task repository", () => {
     // The middle one changes last; the index alone would hand them back by id.
     applied(await submit(command({ kind: "edit", title: "second, edited" }, open[1]!.taskId)));
     const read = await withRepo((repo) => repo.seatTasks(canvas, { nodeIds: [build], seat: ada, limit: 1 }));
-    const updated = read.tasks.map((task) => task.updatedAt);
+    // Writes can share a millisecond; the id breaks the tie, as since's order does. Id order alone never matches.
+    const newestFirst = [...read.tasks].sort((a, b) => b.updatedAt - a.updatedAt || (a.taskId < b.taskId ? 1 : -1));
     expect(read.tasks).toHaveLength(3);
-    expect(read.tasks[0]!.title).toBe("second, edited");
-    expect(updated).toEqual([...updated].sort((a, b) => b - a));
+    expect(read.tasks.map((task) => task.taskId)).toEqual(newestFirst.map((task) => task.taskId));
   });
 
   it("answers a retried command with its first ruling and owes no mail again", async () => {
