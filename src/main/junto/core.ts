@@ -23,6 +23,7 @@ import { startSeatSessions, type SeatSessions } from "./seat-sessions/start-seat
 import { wireSeatReports } from "./term/agent-state/seat-reports";
 import { seatStateRuntime } from "./term/agent-state/runtime";
 import { termPlane } from "./term/plane";
+import { configureTerminalRouterLayeredRunner } from "./term/router";
 import { AgentSignalRepository } from "./signals/repository";
 import { onAgentSignalChanged } from "./signals/changes";
 import { mainAuthoringGate } from "./main-authoring-gate";
@@ -177,6 +178,8 @@ export const startCore = async (options: CoreOptions) => {
   };
   try {
     releaseRunner = installCoreRunner(runtime);
+    // The terminal router's SSH dials run on the core that owns the terminal plane.
+    configureTerminalRouterLayeredRunner((effect) => runtime.runPromise(effect as never));
     const [actions, link, status, rows, seats, coreMail] = await runtime.runPromise(Effect.all([MachineOwnerControl, MachineLink, MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail]));
     mail = coreMail;
     if (options.overseer !== undefined) {

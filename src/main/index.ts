@@ -209,9 +209,12 @@ import {
 // so term/router never imports the Electron runtime graph itself.
 // AppRuntime is the sole warm ManagedRuntime for CC main (see runtime.ts §S1):
 // boot once → runPromise/runFork with shared Context → dispose on quit.
-configureTerminalRouterLayeredRunner((effect) =>
-  AppRuntime.runPromise(effect as never),
-);
+// With the core in its own process, the core binds its own (junto/core.ts).
+if (!CORE_PROCESS_ENABLED) {
+  configureTerminalRouterLayeredRunner((effect) =>
+    AppRuntime.runPromise(effect as never),
+  );
+}
 
 // A launcher (or wrapper script) can hand this process inherited proxy
 // switches, and Chromium re-applies them over Session proxy preferences on
