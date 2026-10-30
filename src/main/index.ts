@@ -1676,8 +1676,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       }
       browserControl = undefined;
       console.error(BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE);
-      exitAfterDetach(1, "browser-composition-startup-failure");
-      return;
+      // Not a silent exit: the startup chain's own catch names the failure in
+      // the startup dialog, and quits only after the operator has seen it.
+      throw startupError;
     }
 
     productRuntimeStarted = true;
