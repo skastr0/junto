@@ -397,6 +397,16 @@ export class TerminalRouter extends EventEmitter {
    * part of that region's work. `seatRect` is where the node sits when the
    * caller holds one newer than the saved canvas.
    */
+  /**
+   * A local generation is reported started only once its exact process
+   * identity is bound. A terminal created on another machine was already
+   * awaited there, by that machine's own control plane.
+   */
+  async awaitStartIdentity(bindingId: string, epoch: string, hostId?: string): Promise<void> {
+    if (hostId !== undefined && !this.isLocalHostId(hostId)) return;
+    await this.local.awaitStartIdentity(bindingId, epoch);
+  }
+
   async create(
     input: LocalHostCreateInput & { hostId?: string; seatRect?: RegionRect },
   ): Promise<TerminalSessionSummary> {

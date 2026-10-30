@@ -2898,7 +2898,7 @@ export class LocalSessionHost extends EventEmitter {
     ) {
       rec.resumeFailureSeen = true;
     }
-    this.maybeFailOpenAfterResumeFailure(rec);
+    void this.maybeFailOpenAfterResumeFailure(rec);
   }
 
   /**
@@ -2906,7 +2906,7 @@ export class LocalSessionHost extends EventEmitter {
    * remote/local session → mint a new pin id and respawn. Explicit resumption
    * UI (later) is the only path that may fail closed.
    */
-  private maybeFailOpenAfterResumeFailure(rec: SessionRec): void {
+  private async maybeFailOpenAfterResumeFailure(rec: SessionRec): Promise<void> {
     if (rec.failOpenUsed || !rec.resumeAttempt || !rec.resumeFailureSeen) return;
     if (rec.killed) return;
     const seed = rec.failOpenSeed;
@@ -2963,7 +2963,7 @@ export class LocalSessionHost extends EventEmitter {
     const live = this.sessions.get(rec.bindingId);
     if (live && live !== rec && sessionStatusOf(live) !== "exited") return;
     try {
-      this.open(
+      const respawned = this.open(
         {
           kind: "agent",
           harness: seed.harness,
@@ -2993,6 +2993,9 @@ export class LocalSessionHost extends EventEmitter {
           failOpenUsed: true,
         },
       );
+      // The replacement is announced as started only once its exact identity
+      // is bound; a bind that cannot be proven tears the replacement down.
+      await this.awaitStartIdentity(respawned.bindingId, respawned.epoch);
     } catch (err) {
       console.error(
         `[term] fail-open respawn failed for ${rec.bindingId}:`,

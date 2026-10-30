@@ -262,11 +262,15 @@ export const registerTerminalIpc = (
         return deny("terminal ipc: seat changed while starting");
     };
     await assertCurrent();
-    return router.create({ bindingId: node.bindingId, hostId: node.host,
+    const opened = await router.create({ bindingId: node.bindingId, hostId: node.host,
       ...(node.launch ? { launch: node.launch } : {}), canvasName: input.canvas, nodeId: node.id,
       seatRect: { x: node.x, y: node.y, width: node.width, height: node.height },
       ...(node.label ? { label: node.label } : {}),
     });
+    // The window is told a terminal exists only once its exact process
+    // identity is bound; the observation waits off the canvas thread.
+    await router.awaitStartIdentity(opened.bindingId, opened.epoch, node.host);
+    return opened;
   });
 
   ipcMain.handle(IPC_CHANNELS.modelStop, async (event, input: Parameters<JuntoApi["modelStop"]>[0]) => {

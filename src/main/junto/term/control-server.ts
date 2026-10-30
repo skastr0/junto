@@ -426,6 +426,8 @@ export const startTermControlServer = async (
             nodeId: req.nodeId,
             label: req.label,
           });
+          // This machine answers "started" only once the exact identity is bound.
+          await host.awaitStartIdentity(summary.bindingId, summary.epoch);
           return { v: TERM_CONTROL_PROTOCOL, id, ok: true, data: summary };
         }
         case "createAgentSeat": {
