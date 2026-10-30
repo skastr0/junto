@@ -45,7 +45,7 @@ import {
   type SignalsFrame,
 } from "@shared/work-exchange";
 import { EXCHANGE_ROWS_PAGE_BYTES } from "@shared/exchange-bounds";
-import type { WorkRepositoryShape } from "../repository";
+import type { ArrivedAutomationFiring, WorkRepositoryShape } from "../repository";
 import { noteResourceChanged } from "../resource-changes";
 import type { ArrivedSeatControl, ArrivedSeatSettled } from "./seat-controls";
 
@@ -80,6 +80,8 @@ export type RowExchangeDeps = {
   readonly seatSettlementsArrived?: (canvasName: string, settled: ReadonlyArray<ArrivedSeatSettled>) => void;
   /** Re-judge every control this machine took and never settled: after a fold installed newer state. */
   readonly seatControlsSweep?: (canvasName: string) => void;
+  /** Firing revisions that arrived, to fold into `automation_firings` by highest rev (0.11, 05 S3). */
+  readonly automationFiringsArrived?: (canvasName: string, rows: ReadonlyArray<ArrivedAutomationFiring>) => void;
   /**
    * This machine's canvas, cut for that machine. Absent when this machine does
    * not edit the canvas or that machine has no seat on it.
@@ -519,6 +521,7 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       if (applied.commands > 0) deps.commandArrived?.(frame.canvasName);
       if (applied.seatControls.length > 0) deps.seatControlsArrived?.(frame.canvasName, applied.seatControls);
       if (applied.seatSettlements.length > 0) deps.seatSettlementsArrived?.(frame.canvasName, applied.seatSettlements);
+      if (applied.automationFirings.length > 0) deps.automationFiringsArrived?.(frame.canvasName, applied.automationFirings);
       // A ruling folded here changed what the panes show: committed, so they read it again.
       for (const kind of applied.changed) if (kind === "task" || kind === "artifact") noteResourceChanged(kind, frame.canvasName);
       // Rows taken from one machine go on to the others entitled to them.

@@ -20,7 +20,10 @@ import {
   applyAutomationFact,
 } from "@shared/automation-domain";
 import type { NodeId } from "@shared/physics/schema";
+import type { InstallationId } from "@shared/installation-id";
+import type { AutomationFiringResult } from "@shared/automation-firing-row";
 import { StateTransactionOperation } from "../state/service";
+import { notifyAutomationsChanged } from "./changes";
 
 export class AutomationPersistenceError extends Schema.TaggedError<AutomationPersistenceError>()(
   "AutomationPersistenceError",
@@ -35,6 +38,26 @@ export class AutomationPersistenceError extends Schema.TaggedError<AutomationPer
 export const FIRINGS_KEPT = 1_000;
 
 export type ClaimResult = { readonly _tag: "Claimed" } | { readonly _tag: "Duplicate" };
+
+/**
+ * The exchange writes one revision of a firing each time a firing changes on
+ * its machine (0.11, 05 S3): a skipped firing at its claim, every settle. The
+ * row exchange sets the one hook; a hook that fails loses that revision, and
+ * the next crossing still carries the whole firing.
+ */
+export type FiringCrossingHook = (canvasName: string, firing: FiringType) => Effect.Effect<void, unknown>;
+let firingCrossing: FiringCrossingHook | undefined;
+export const setFiringCrossing = (hook: FiringCrossingHook | undefined): void => {
+  firingCrossing = hook;
+};
+const crossFiring = (canvasName: string, firing: FiringType) =>
+  firingCrossing === undefined
+    ? Effect.void
+    : firingCrossing(canvasName, firing).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("a firing's exchange row could not be written", cause),
+        ),
+      );
 
 /**
  * Automation storage on the editing machine (state-schema.ts). The ruled
@@ -114,6 +137,16 @@ export class AutomationRepository extends Context.Service<AutomationRepository,
     readonly queuedFirings: (
       canvasName: string,
     ) => Effect.Effect<ReadonlyArray<FiringType>, AutomationPersistenceError>;
+    /**
+     * Fold a firing revision that crossed (0.11, 05 S3): the highest rev per
+     * firing id wins — a lower or equal one is ignored, and a claim key held
+     * under another firing id keeps the row it has. `folded` says the table
+     * changed.
+     */
+    readonly foldRemoteFiring: (
+      canvasName: string,
+      arrived: { readonly writer: InstallationId; readonly body: AutomationFiringResult },
+    ) => Effect.Effect<{ readonly folded: boolean }, AutomationPersistenceError>;
   }>()("@junto/AutomationRepository") {}
 
 /** An applied task ruling that brought its task into a state, as a change trigger reads it. */
@@ -398,8 +431,15 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         }));
       });
 
+      /** Open panes read again after a firing changed: on the canvas's Automations node. */
+      const firingChanged = (canvasName: string, automationId: AutomationId) =>
+        Effect.map(loadState(canvasName), (state) => {
+          const nodeId = state.get(automationId)?.automation.nodeId;
+          if (nodeId !== undefined) notifyAutomationsChanged(canvasName, nodeId);
+        }).pipe(Effect.catchCause(() => Effect.void));
+
       const claimFiring = Effect.fn("AutomationRepository.claimFiring")(function* (canvasName: string, firing: FiringType) {
-        return yield* transaction("claim-firing", Effect.gen(function* () {
+        const claimed = yield* transaction("claim-firing", Effect.gen(function* () {
           // Only the claim key may conflict: a CHECK failure or a firing id
           // collision is an error, never a silent Duplicate.
           const rows = yield* sql<{ readonly firing_id: string }>`
@@ -430,6 +470,14 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
           `;
           return { _tag: "Claimed" } as const;
         }));
+        // A skipped firing crosses at its claim: rev 0 is its first state
+        // worth showing (S3). A claimed one crosses when the pass leaves it
+        // settled or held, never as the transient claim itself.
+        if (claimed._tag === "Claimed" && firing.outcome.kind === "skipped") {
+          yield* crossFiring(canvasName, firing);
+        }
+        if (claimed._tag === "Claimed") yield* firingChanged(canvasName, firing.automationId);
+        return claimed;
       });
 
       const settleFiring = Effect.fn("AutomationRepository.settleFiring")(function* (
@@ -443,6 +491,9 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
           SET fired = ${countsAsFired(outcome) ? 1 : 0}, firing_json = ${JSON.stringify(encodeFiring(settled))}
           WHERE canvas_name = ${canvasName} AND firing_id = ${firing.firingId}
         `.pipe(Effect.mapError(failure("settle-firing")));
+        // Every change a firing lives through crosses as its next revision (S3).
+        yield* crossFiring(canvasName, settled);
+        yield* firingChanged(canvasName, firing.automationId);
       });
 
       const firedSince = Effect.fn("AutomationRepository.firedSince")(function* (
@@ -507,6 +558,66 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         });
       });
 
+      const foldRemoteFiring = Effect.fn("AutomationRepository.foldRemoteFiring")(function* (
+        canvasName: string,
+        arrived: { readonly writer: InstallationId; readonly body: AutomationFiringResult },
+      ) {
+        return yield* transaction("fold-remote-firing", Effect.gen(function* () {
+          const { body } = arrived;
+          const firing = body.firing;
+          // The highest rev per firing id wins: the arriving revision is
+          // judged against the held row's rev in this same transaction.
+          const held = yield* sql<{ readonly rev: number }>`
+            SELECT rev FROM automation_firings
+            WHERE canvas_name = ${canvasName} AND firing_id = ${firing.firingId}
+          `.pipe(Effect.mapError(failure("fold-remote-firing")));
+          if (held[0] !== undefined) {
+            if (body.rev <= held[0].rev) return { folded: false };
+            yield* sql`
+              UPDATE automation_firings
+              SET at_epoch_ms = ${firing.at},
+                  fired = ${countsAsFired(firing.outcome) ? 1 : 0},
+                  firing_json = ${JSON.stringify(encodeFiring(firing))},
+                  rev = ${body.rev}
+              WHERE canvas_name = ${canvasName} AND firing_id = ${firing.firingId}
+            `.pipe(Effect.mapError(failure("fold-remote-firing")));
+            return { folded: true };
+          }
+          const claimKey = claimKeyOf(firing);
+          const inserted = yield* sql<{ readonly firing_id: string }>`
+            INSERT INTO automation_firings(
+              canvas_name, automation_id, cause_kind, claim_key, firing_id, at_epoch_ms, fired, firing_json, rev
+            ) VALUES (${canvasName}, ${firing.automationId}, ${firing.cause.kind}, ${claimKey}, ${firing.firingId},
+              ${firing.at}, ${countsAsFired(firing.outcome) ? 1 : 0}, ${JSON.stringify(encodeFiring(firing))}, ${body.rev})
+            ON CONFLICT (canvas_name, automation_id, cause_kind, claim_key) DO NOTHING
+            RETURNING firing_id
+          `.pipe(Effect.mapError(failure("fold-remote-firing")));
+          if (inserted.length === 1) return { folded: true };
+          // A slot fired on two machines, which Rule 3 says must not happen:
+          // keep the row held, and say which machines claimed it.
+          const other = yield* sql<{ readonly firing_json: string }>`
+            SELECT firing_json FROM automation_firings
+            WHERE canvas_name = ${canvasName} AND automation_id = ${firing.automationId}
+              AND cause_kind = ${firing.cause.kind} AND claim_key = ${claimKey}
+          `.pipe(Effect.mapError(failure("fold-remote-firing")));
+          const heldMachine = yield* Effect.try({
+            try: () => (other[0] === undefined ? undefined : decodeFiring(JSON.parse(other[0].firing_json)).machine),
+            catch: () => undefined,
+          }).pipe(Effect.orElseSucceed(() => undefined));
+          yield* Effect.logWarning("a firing's claim fired on two machines").pipe(
+            Effect.annotateLogs({
+              area: "exchange",
+              canvas: canvasName,
+              firing: String(firing.firingId),
+              claimKey,
+              heldMachine: heldMachine ?? "unknown",
+              arrivingMachine: firing.machine ?? arrived.writer,
+            }),
+          );
+          return { folded: false };
+        }));
+      });
+
       return AutomationRepository.of({
         loadState,
         applyFacts,
@@ -523,6 +634,7 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         firings,
         firing,
         queuedFirings,
+        foldRemoteFiring,
       });
     }),
   );

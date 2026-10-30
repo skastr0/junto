@@ -87,6 +87,10 @@ export const ExchangeFact = WorkFact.pipe(
           return (
             fact.item.sink.nodeId === fact.body.automationNode || "a settled row answers at the automation's node"
           );
+        case "automation.firing":
+          return (
+            fact.item.sink.nodeId === fact.body.automationNode || "a firing is written at the automation's node"
+          );
         default:
           return "this kind of row does not cross machines";
       }
@@ -362,6 +366,14 @@ export const rowAuthorOf = (fact: ExchangeFact): MailAuthor => {
       // The row's own schema binds its actor to the automation, or to the seat
       // it answers for, so the author is the automation or that seat.
       return mailAuthorOf(body.actor);
+    case "automation.firing":
+      // Only the automation runs its firings, under the identity automation
+      // mail carries, so its node and id are checked the same way.
+      return mailAuthorOf({
+        seatId: AUTOMATION_SEAT_ID,
+        nodeId: body.automationNode,
+        automationId: body.automationId,
+      });
     default:
       return { kind: "malformed" };
   }
@@ -505,6 +517,10 @@ export const entitledTo = (
     case "seat.control.settled":
       // For the automation's machine, where its firing waits to resolve.
       return placement.automationOf?.(fact.body.automationNode, fact.body.automationId) === machine;
+    case "automation.firing":
+      // For the machine that edits the canvas, and for the listed machines
+      // once fleet state lists them (0.11/06).
+      return authoritiesOf(placement).includes(machine);
   }
   if (fact.body.operation === "message.append") {
     return placement.seatOf(fact.item.sink.nodeId)?.machine === machine;

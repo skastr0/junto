@@ -23,15 +23,9 @@ import { type AutomationSubmitOutcome, automationEnvOf, submitAutomationCommand 
 
 export type AutomationsChangedListener = (canvasName: string, nodeId: NodeId) => void;
 
-const listeners = new Set<AutomationsChangedListener>();
-
 /** Returns the unsubscribe. */
-export const onAutomationsChanged = (listener: AutomationsChangedListener): (() => void) => {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-};
+export { onAutomationsChanged } from "./changes";
+import { notifyAutomationsChanged } from "./changes";
 
 /** This machine's installation id: the writer of the commands it rules. */
 const localWriter = Effect.gen(function* () {
@@ -118,7 +112,7 @@ export const applyAutomationCommand = (command: ResourceCommand<AutomationOp>) =
       if (command.op.kind === "run") yield* runner.value.onRun(name, outcome.automation.automationId);
       else yield* runner.value.wake(name).pipe(Effect.catchCause((cause) => Effect.logWarning("automation pass after a save failed", cause)));
     }
-    for (const listener of listeners) listener(name, command.target.nodeId as NodeId);
+    notifyAutomationsChanged(name, command.target.nodeId as NodeId);
     return outcome;
   });
 

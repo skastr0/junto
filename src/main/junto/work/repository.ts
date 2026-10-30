@@ -112,6 +112,9 @@ import {
   type SeatControlRefusal,
   type SeatControlSettledResult,
 } from "@shared/seat-control-row";
+import { type AutomationFiringResult, automationFiringItemId } from "@shared/automation-firing-row";
+import type { AutomationNodeId } from "@shared/mail-author";
+import type { AutomationId, Firing } from "@shared/automation";
 import type {
   ArrivedSeatControl,
   ArrivedSeatSettled,
@@ -3085,6 +3088,14 @@ export type AppliedExchangeRows = {
   readonly seatControls: ReadonlyArray<ArrivedSeatControl>;
   /** Control settlements that arrived, for the automation's machine to resolve. */
   readonly seatSettlements: ReadonlyArray<ArrivedSeatSettled>;
+  /** Firing revisions that arrived, to fold into `automation_firings` by highest rev. */
+  readonly automationFirings: ReadonlyArray<ArrivedAutomationFiring>;
+};
+
+/** A firing revision this machine took: its writer and its body, which carries the whole Firing. */
+export type ArrivedAutomationFiring = {
+  readonly writer: InstallationId;
+  readonly body: AutomationFiringResult;
 };
 
 const ExchangeFactRow = Schema.Struct({
@@ -3235,7 +3246,14 @@ const exchangeAuthorWasThere = Effect.fn("work.exchangeAuthorWasThere")(function
   const writer = fact.id.route.eventHome;
   if (seat.automationId !== undefined) {
     // An automation is judged as a seat is: where it was at the stated count,
-    // on a node that held no seat then, by a copy sent to the writer at that count.
+    // on a node that held no seat then, by a copy sent to the writer at that
+    // count. A firing states its claim's count (claimSeq), not its basis's:
+    // a move mid-firing leaves the in-flight firing to settle on the machine
+    // it was claimed under, and a rev for that id from the new machine finds
+    // no placement there. The writer's own stated count must still be one it
+    // was sent.
+    const judgedSeq =
+      fact.body.operation === "automation.firing" ? fact.body.claimSeq : fact.basis.seq;
     const placed = yield* reader.unsafe<{ found: number }>(
       `
         SELECT 1 AS found
@@ -3257,6 +3275,10 @@ const exchangeAuthorWasThere = Effect.fn("work.exchangeAuthorWasThere")(function
             SELECT 1 FROM canvas_copies_sent AS sent
             WHERE sent.canvas_name = placed.canvas_name AND sent.target = ? AND sent.seq = ?
           )
+          AND EXISTS (
+            SELECT 1 FROM canvas_copies_sent AS sent
+            WHERE sent.canvas_name = placed.canvas_name AND sent.target = ? AND sent.seq = ?
+          )
         LIMIT 1
       `,
       [
@@ -3264,10 +3286,12 @@ const exchangeAuthorWasThere = Effect.fn("work.exchangeAuthorWasThere")(function
         seat.nodeId,
         seat.automationId,
         writer,
-        fact.basis.seq,
-        fact.basis.seq,
-        fact.basis.seq,
-        fact.basis.seq,
+        judgedSeq,
+        judgedSeq,
+        judgedSeq,
+        judgedSeq,
+        writer,
+        judgedSeq,
         writer,
         fact.basis.seq,
       ],
@@ -3536,6 +3560,20 @@ export interface WorkRepositoryShape {
   readonly seatControlSubmit: (
     canvasName: string,
     body: SeatControlResult,
+  ) => Effect.Effect<void, RepositoryFailure>;
+  /**
+   * The automation's machine writes the next revision of a firing (0.11, 05
+   * S3): rev 0 is its first state worth showing, each later change the next
+   * rev, and `claimSeq` the count its claim was minted under on every rev.
+   * Only the machine that minted the firing id ever writes a rev for it.
+   */
+  readonly automationFiringSubmit: (
+    canvasName: string,
+    input: {
+      readonly automationNode: AutomationNodeId;
+      readonly automationId: AutomationId;
+      readonly firing: Firing;
+    },
   ) => Effect.Effect<void, RepositoryFailure>;
   /** The durable side of the seat-control pair: outcome, rate count, record, settle, pending. */
   readonly seatControlRows: SeatControlRows;
@@ -4416,7 +4454,7 @@ export const WorkRepositoryLive = Layer.effect(
               WHERE event.event_home = ?
                 AND event.entity_home = ?
                 AND event.item_canvas_name = ?
-                AND event.operation IN ('message.append', 'delivery.accepted', 'command.queued', 'ruling.applied', 'ruling.refused', 'shot.purged', 'seat.control', 'seat.control.settled')
+                AND event.operation IN ('message.append', 'delivery.accepted', 'command.queued', 'ruling.applied', 'ruling.refused', 'shot.purged', 'seat.control', 'seat.control.settled', 'automation.firing')
                 AND fact.predecessor_seq IS NULL
                 AND (
                   length(event.seq) > length(?)
@@ -4595,6 +4633,7 @@ export const WorkRepositoryLive = Layer.effect(
             const mail: Array<AppliedExchangeRows["mail"][number]> = [];
             const seatControls: Array<ArrivedSeatControl> = [];
             const seatSettlements: Array<ArrivedSeatSettled> = [];
+            const automationFirings: Array<ArrivedAutomationFiring> = [];
             const changed = new Set<RulingAppliedResult["kind"]>();
             if (fresh.length > 0) {
               const newest = fresh.at(-1)!.id.seq;
@@ -4678,6 +4717,8 @@ export const WorkRepositoryLive = Layer.effect(
                   });
                 } else if (fact.body.operation === "seat.control.settled") {
                   seatSettlements.push({ writer: frame.writer, body: fact.body });
+                } else if (fact.body.operation === "automation.firing") {
+                  automationFirings.push({ writer: frame.writer, body: fact.body });
                 }
               }
             }
@@ -4692,7 +4733,7 @@ export const WorkRepositoryLive = Layer.effect(
                  updated_at = excluded.updated_at`,
               [frame.canvasName, frame.writer, through, lastBasisSeq, receivedAt],
             );
-            return { taken: fresh.length, commands: fresh.filter((fact) => fact.body.operation === "command.queued").length, changed: [...changed], mail, seatControls, seatSettlements };
+            return { taken: fresh.length, commands: fresh.filter((fact) => fact.body.operation === "command.queued").length, changed: [...changed], mail, seatControls, seatSettlements, automationFirings };
           }),
         "mail",
       ).pipe(
@@ -4737,6 +4778,67 @@ export const WorkRepositoryLive = Layer.effect(
             });
           }),
       ).pipe(Effect.mapError((error) => toRepositoryError("work.seat-control.submit", error)));
+
+    const automationFiringSubmit = (
+      canvasName: string,
+      input: {
+        readonly automationNode: AutomationNodeId;
+        readonly automationId: AutomationId;
+        readonly firing: Firing;
+      },
+    ): Effect.Effect<void, RepositoryFailure> =>
+      transaction(
+        "work.automation-firing.submit",
+        { canvasName, nodeId: input.automationNode },
+        (writer) =>
+          Effect.gen(function* () {
+            const self = (yield* canonicalLocalWorkAuthority(writer)).installationId;
+            const at = yield* Effect.try(now.bind(undefined));
+            const canvas = yield* writer.unsafe<{ seq: number }>(
+              "SELECT seq FROM canvases WHERE canvas_name = ?",
+              [canvasName],
+            );
+            const writeSeq = canvas[0]?.seq ?? 0;
+            // Every rev states the count its claim was minted under, so a
+            // firing in flight when its automation moved settles on this
+            // machine still — judged where the automation ran then. A firing
+            // claimed before claimSeq existed states the write's own count.
+            const claimSeq = input.firing.claimSeq ?? writeSeq;
+            // Rev counts this machine's crossing rows for the firing: 0 the
+            // first state worth showing, each later change the next.
+            const crossed = yield* writer.unsafe<{ crossed: number }>(
+              `SELECT count(*) AS crossed FROM work_events
+               WHERE event_home = ? AND item_kind = 'automation-firing' AND item_id GLOB 'automation-firing:' || ? || ':*'`,
+              [self, input.firing.firingId],
+            );
+            const body: AutomationFiringResult = {
+              operation: "automation.firing",
+              automationNode: input.automationNode,
+              automationId: input.automationId,
+              firingId: input.firing.firingId,
+              claimSeq,
+              rev: crossed[0]?.crossed ?? 0,
+              firing: input.firing,
+            };
+            yield* commitLocalFact(writer, {
+              localInstallationId: self,
+              sink: { canvasName, nodeId: input.automationNode },
+              basis: { kind: "canvas", canvasName, seq: writeSeq },
+              item: item("automation-firing", automationFiringItemId(body), { canvasName, nodeId: input.automationNode }),
+              operation: "automation.firing",
+              predecessor: null,
+              body,
+              value: undefined,
+              originAt: at,
+              receivedAt: at,
+            });
+            // The writer's own row carries the rev it crossed at.
+            yield* writer.unsafe(
+              "UPDATE automation_firings SET rev = ? WHERE canvas_name = ? AND firing_id = ? AND rev < ?",
+              [body.rev, canvasName, input.firing.firingId, body.rev],
+            );
+          }),
+      ).pipe(Effect.mapError((error) => toRepositoryError("work.automation-firing.submit", error)));
 
     const seatControlRows: SeatControlRows = {
       outcome: (canvasName, firingId, actionIndex) =>
@@ -5310,6 +5412,7 @@ export const WorkRepositoryLive = Layer.effect(
       exchangeRows,
       applyExchangeRows,
       seatControlSubmit,
+      automationFiringSubmit,
       seatControlRows,
       subscribeChanges: changes.subscribe,
     });

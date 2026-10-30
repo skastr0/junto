@@ -296,12 +296,18 @@ export const makeHeldSeatControls = (rows: SeatControlRows) =>
           const actions = firing.outcome.actions.map((action) => {
             if (action.index !== body.actionIndex || action.ruling !== "queued") return action;
             touched = true;
+            // The wait stays visible beside how it ended (S3).
+            const held = {
+              ...(action.waitingOn === undefined ? {} : { heldSince: action.waitingOn.since }),
+              heldUntil: Date.now(),
+            } as const;
             return body.result === "applied"
-              ? ({ index: action.index, ruling: "applied" } as const)
+              ? ({ index: action.index, ruling: "applied", ...held } as const)
               : ({
                   index: action.index,
                   ruling: "refused",
                   reason: body.reason === undefined ? "not_available" : SEAT_CONTROL_REFUSAL_TO_RULING[body.reason],
+                  ...held,
                 } as const);
           });
           if (!touched) return;
@@ -356,6 +362,9 @@ export const makeHeldSeatControls = (rows: SeatControlRows) =>
                         index: action.index,
                         ruling: "refused",
                         reason: SEAT_CONTROL_REFUSAL_TO_RULING[refusal],
+                        // The wait stays visible beside how it ended (S3).
+                        ...(action.waitingOn === undefined ? {} : { heldSince: action.waitingOn.since }),
+                        heldUntil: nowEpochMs,
                       } as const);
                 }),
               { concurrency: 1 },

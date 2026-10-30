@@ -37,6 +37,7 @@ import {
   targetNodeIds,
 } from "@shared/automation";
 import type { NodeId } from "@shared/physics/schema";
+import type { HostId } from "@shared/remote-hosts";
 import { automationTargets, type ReachCanvas } from "@shared/region-reach";
 import { type ChangeEvent, changeMatches, decide, dueSlot, nextSlot } from "./plan";
 import { type AutomationPersistenceError, AutomationRepository } from "./repository";
@@ -67,6 +68,10 @@ export type RunnerPorts = {
   readonly now: () => number;
   /** Whether this machine runs the automation: the one it names, or the editing machine when it names none. */
   readonly runsHere: (canvasName: string, automation: Automation) => boolean;
+  /** This machine's own short name, which a firing minted here names as its machine (S3). */
+  readonly machineName?: (canvasName: string) => HostId | undefined;
+  /** The canvas count this machine's copy stands at: the count a claim is minted under (S3). */
+  readonly claimSeq?: (canvasName: string) => number | undefined;
 };
 
 /**
@@ -143,12 +148,19 @@ export const makeAutomationRunner = (ports: RunnerPorts): AutomationRunner => {
       inReach: targetNodeIds(automation).every((id) => targets.has(id)),
       conditionsHold: (automation.when ?? []).every((condition) => ports.holds(canvasName, condition)),
     });
+    // The machine and the claim's count are minted with the id: only this
+    // machine ever writes this firing's revisions, judged where the
+    // automation ran at that count (S3).
+    const machine = ports.machineName?.(canvasName);
+    const claimSeq = ports.claimSeq?.(canvasName);
     const firing: Firing = {
       firingId: ports.mintFiringId(),
       automationId: automation.automationId,
       at: now,
       cause,
       outcome: decision.kind === "fire" ? { kind: "claimed" } : { kind: "skipped", reason: decision.reason },
+      ...(machine === undefined ? {} : { machine }),
+      ...(claimSeq === undefined ? {} : { claimSeq }),
     };
     const claim = yield* repository.claimFiring(canvasName, firing);
     if (claim._tag === "Duplicate") return undefined;
@@ -249,12 +261,16 @@ export const makeAutomationRunner = (ports: RunnerPorts): AutomationRunner => {
     const now = ports.now();
     const inReach = targetNodeIds({ ...automation, then: [delivery] }).every((id) => targets.has(id));
     const repository = yield* AutomationRepository;
+    const machine = ports.machineName?.(canvasName);
+    const claimSeq = ports.claimSeq?.(canvasName);
     const firing: Firing = {
       firingId: ports.mintFiringId(),
       automationId: automation.automationId,
       at: now,
       cause: { kind: "change", key: `answer:${event.signal.signalId}` },
       outcome: inReach ? { kind: "claimed" } : { kind: "skipped", reason: "out_of_reach" },
+      ...(machine === undefined ? {} : { machine }),
+      ...(claimSeq === undefined ? {} : { claimSeq }),
     };
     const claim = yield* repository.claimFiring(canvasName, firing);
     if (claim._tag === "Duplicate" || !inReach) return claim._tag === "Duplicate" ? undefined : firing;

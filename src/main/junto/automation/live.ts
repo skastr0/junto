@@ -58,7 +58,7 @@ import { ArtifactRepository } from "../work/artifact-repository";
 import { readSeatTaskIndex } from "../work/seat-task-read";
 import { MachineRepository } from "../machines/repository";
 import { isThisMachine } from "@shared/machine-name";
-import { type AutomationPersistenceError, AutomationRepository, RULINGS_START, type TaskRuling } from "./repository";
+import { type AutomationPersistenceError, AutomationRepository, RULINGS_START, setFiringCrossing, type TaskRuling } from "./repository";
 import { type ChangeEvent } from "./plan";
 import { makeAutomationRunner, type RunnerPorts } from "./runner";
 import { SeatStateSource } from "./seat-state-source";
@@ -564,6 +564,8 @@ export const AutomationRunnerLive = Layer.effect(
       : Option.none();
     // The canvas as it stood when this pass began; the ports read it synchronously.
     const canvases = new Map<string, Canvas>();
+    // Each canvas's count as a gate last opened: the count a claim is minted under (S3).
+    const canvasSeqs = new Map<string, number>();
     const views = new Map<string, ConditionView>();
     // The Artifacts nodes of each canvas whose comments have had a good read.
     const commentsRead = new Map<string, Set<string>>();
@@ -602,6 +604,8 @@ export const AutomationRunnerLive = Layer.effect(
           ? yield* machines.value.machineName.pipe(Effect.orElseSucceed(() => undefined))
           : undefined;
         here.set(canvasName, { edits, machine });
+        const header = yield* records.getCanvas(canvasName).pipe(Effect.orElseSucceed(() => undefined));
+        if (header !== undefined) canvasSeqs.set(canvasName, header.seq);
         const state = yield* repository.loadState(canvasName).pipe(Effect.orElseSucceed(() => new Map()));
         return [...state.values()].some((entry) => !entry.archived && runsHere(canvasName, entry.automation));
       });
@@ -760,8 +764,21 @@ export const AutomationRunnerLive = Layer.effect(
           actor: automationActorRef(canvasName, from.value, automation.automationId),
         };
         const written = yield* store.seatControlSubmit(canvasName, body).pipe(Effect.result);
+        // A queued action says which machine it waits on and since when (S3);
+        // a seat this copy does not place waits on nothing it can name.
+        const seatNode = canvas.nodes.get(action.seat.nodeId);
+        const waitsOn =
+          home !== undefined &&
+          home.machine !== self &&
+          (seatNode?.kind === "agent" || seatNode?.kind === "peer")
+            ? { machine: seatNode.host, since: nowEpochMs }
+            : undefined;
         return written._tag === "Success"
-          ? ({ index, ruling: "queued" } as const)
+          ? ({
+              index,
+              ruling: "queued",
+              ...(waitsOn === undefined ? {} : { waitingOn: waitsOn }),
+            } as const)
           : ({ index, ruling: "refused", reason: "not_available" } as const);
       }).pipe(Effect.catchCause(() => Effect.succeed(notAvailable(index))));
     // An action's text with its `{{name}}` values said as this firing says them, formatted in the
@@ -771,6 +788,25 @@ export const AutomationRunnerLive = Layer.effect(
         ? Effect.succeed(text)
         : Effect.map(firedReads(canvasName, fired), (reads) =>
             resolveValues(text, (name) => firedValue(name, fired, reads, canvases.get(canvasName), canvasName), automationTimeZone(automation)));
+    // A firing's every change on this machine crosses as the next revision of
+    // its `automation.firing` row (S3): a skipped firing at its claim, every
+    // settle. The hook writes it; a failure costs that revision and no more.
+    setFiringCrossing((canvasName, firing) =>
+      Option.match(workRepository, {
+        onNone: () => Effect.void,
+        onSome: (store) =>
+          Effect.gen(function* () {
+            const entry = (yield* repository.loadState(canvasName)).get(firing.automationId);
+            const node = entry === undefined ? Option.none() : decodeAutomationNode(entry.automation.nodeId);
+            if (entry === undefined || Option.isNone(node)) return;
+            yield* store.automationFiringSubmit(canvasName, {
+              automationNode: node.value,
+              automationId: firing.automationId,
+              firing,
+            });
+          }),
+      }),
+    );
     const ports: RunnerPorts = {
       canvas: (canvasName) => canvases.get(canvasName),
       runsHere,
@@ -818,6 +854,8 @@ export const AutomationRunnerLive = Layer.effect(
         ),
       mintFiringId: () => FiringId.make(ulid()),
       now: () => Date.now(),
+      machineName: (canvasName) => here.get(canvasName)?.machine,
+      claimSeq: (canvasName) => canvasSeqs.get(canvasName),
     };
     const runner = makeAutomationRunner(ports);
     // What a `when` reads: every task's state on the canvas's task nodes, and the seat task index.

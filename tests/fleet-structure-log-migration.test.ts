@@ -39,10 +39,9 @@ const counts = (database: DatabaseSync): Readonly<Record<string, number>> =>
   Object.fromEntries(tables(database).map((name) => [name, Number((database.prepare(`SELECT count(*) AS n FROM "${name}"`).get() as { n: number }).n)]));
 
 describe("state migration 66 -> 67 (each structure entry's change)", () => {
-  it("starts from the version-66 witness and ends at the head, which a fresh database matches", () => {
+  it("starts from the version-66 witness and ends at the version-67 one, whose tables the head still holds", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V66_SQL)).toEqual(STATE_SCHEMA_V66_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V67_SQL)).toEqual(STATE_SCHEMA_V67_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V67_IDENTITY);
     expect(STATE_SCHEMA_SQL).toContain("CREATE TABLE IF NOT EXISTS canvas_log_structure");
     expect(STATE_SCHEMA_SQL).toContain("CREATE TABLE IF NOT EXISTS canvas_log_waiting_structure");
   });

@@ -3,6 +3,7 @@ import { Seq } from "./model/events";
 import { ActorSeatId } from "./actor-seat";
 import { InstallationId } from "./installation-id";
 import { CommandQueuedResult, RulingAppliedResult, RulingRefusedResult } from "./command-row";
+import { AutomationFiringResult, automationFiringItemId } from "./automation-firing-row";
 import { SeatControlResult, SeatControlSettledResult, seatControlItemId, seatControlSettledItemId } from "./seat-control-row";
 import { ShotPurgedResult } from "./shot-purge";
 import {
@@ -132,7 +133,8 @@ export const WorkOperation = Schema.Literals(["task.create",
 "ruling.refused",
 "shot.purged",
 "seat.control",
-"seat.control.settled",]);
+"seat.control.settled",
+"automation.firing",]);
 export type WorkOperation = typeof WorkOperation.Type;
 
 export const DeliveryReceipt = Schema.Struct({
@@ -235,7 +237,8 @@ RulingAppliedResult,
 RulingRefusedResult,
 ShotPurgedResult,
 SeatControlResult,
-SeatControlSettledResult,]);
+SeatControlSettledResult,
+AutomationFiringResult,]);
 export type WorkResult = typeof WorkResult.Type;
 
 /** Why a work write was refused. */
@@ -320,6 +323,12 @@ const itemMatchesResult = (
         item.itemId === seatControlSettledItemId(result) &&
         item.sink.nodeId === result.automationNode
       );
+    case "automation.firing":
+      return (
+        item.kind === "automation-firing" &&
+        item.itemId === automationFiringItemId(result) &&
+        item.sink.nodeId === result.automationNode
+      );
   }
 };
 
@@ -334,7 +343,8 @@ const noPriorMaterialFact = (operation: WorkOperation): boolean =>
   operation === "ruling.refused" ||
   operation === "shot.purged" ||
   operation === "seat.control" ||
-  operation === "seat.control.settled";
+  operation === "seat.control.settled" ||
+  operation === "automation.firing";
 
 const recordByteLength = (record: unknown): number | undefined => {
   try {

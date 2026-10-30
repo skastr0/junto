@@ -112,8 +112,9 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    row that breaks this, or that arrives twice with different content, closes
    the link. The exchange has its own closed list and admits nothing else:
    mail, receipts, signals, session facts, `command.queued` rows, the
-   rulings `ruling.applied` and `ruling.refused`, and the pair `seat.control`
-   and `seat.control.settled` (Rule 11). A seat changes a resource
+   rulings `ruling.applied` and `ruling.refused`, the pair `seat.control`
+   and `seat.control.settled` (Rule 11), and `automation.firing`
+   revisions. A seat changes a resource
    by proposing: its machine writes a `command.queued` row for the canvas it
    is for, and the machine that edits the canvas rules it
    against region reach on its own canvas (`src/shared/region-reach.ts`),
@@ -123,7 +124,14 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    at the count the row states. A `seat.control` row is valid only from the
    machine the automation it names was on, by node and id, at the count the
    row states, and a `seat.control.settled` only from the machine the seat
-   is on. The ruler takes an automation's reach from
+   is on. An `automation.firing` row is one revision of a firing, written by
+   the machine the automation ran on at the canvas count its claim states
+   (`claimSeq`, the claim's count, not the write's), and only by the machine
+   that minted the firing id: a move mid-firing leaves the in-flight firing
+   to settle on the machine it was claimed under, and a revision for that id
+   from the machine it moved to is refused. The receiver keeps the highest
+   revision per firing id and folds it into `automation_firings`. The ruler
+   takes an automation's reach from
    its own copy of the definition (the author's), never from the row; one it
    does not hold reaches nothing. An operator's command, and every ruling,
    is valid only from the machine that edits the canvas, which takes them
@@ -153,7 +161,8 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    scoped to one canvas: only the machine that keeps that canvas may do it,
    and never for another canvas. A `seat.control` row is for the seat's
    machine; its `seat.control.settled` answer is for the machine the
-   automation runs on.
+   automation runs on. An `automation.firing` row is for the machine that
+   edits the canvas, and for the listed machines once fleet state lands.
 6. **Mail waits.** Mail to a seat whose machine is unreachable is accepted and
    held, the way mail to a stopped seat is held. It is delivered when a path
    exists. The sender is told which happened: delivered here, handed to a

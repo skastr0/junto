@@ -21,7 +21,9 @@ import type { AgentSignal } from "@shared/agent-signals";
 import { EXCHANGE_MAX_SIGNAL_ATTACHMENTS, signalAttachmentCrosses, type CanvasPlacement, type ExchangeSignal } from "@shared/work-exchange";
 import type { Message } from "@shared/work-model";
 import { deriveActorSeatId } from "../../actor-seat-id";
+import { notifyAutomationsChanged } from "../../automation/changes";
 import { AutomationRepository } from "../../automation/repository";
+import type { NodeId } from "@shared/physics/schema";
 import { MachineRepository } from "../../machines/repository";
 import { ModelRecords } from "../../model/records";
 import { ModelService } from "../../model/service";
@@ -34,7 +36,7 @@ import { SeatGuidanceRepository } from "../../seat-guidance/repository";
 import { onAgentSignalChanged } from "../../signals/changes";
 import { raisedHands } from "../../signals/raised-hands";
 import { AgentSignalRepository } from "../../signals/repository";
-import { WorkRepository } from "../repository";
+import { WorkRepository, type ArrivedAutomationFiring } from "../repository";
 import { HeldSeatControls } from "./seat-controls";
 import { canvasPlacement, machineInstallations } from "../canvas-placement";
 import type { ArrivedSeatControl, ArrivedSeatSettled } from "./seat-controls";
@@ -356,6 +358,23 @@ export const makeLiveRowExchange = (
             seatSettlementsArrived: (canvasName: string, settled: ReadonlyArray<ArrivedSeatSettled>) =>
               runHeld(heldControls.value.settledArrived(canvasName, settled)),
             seatControlsSweep: (canvasName: string) => runHeld(heldControls.value.sweepPending(canvasName)),
+          }),
+      ...(Option.isNone(automationStore)
+        ? {}
+        : {
+            // A firing revision that crossed folds by highest rev, on arrival
+            // and on each later change; every fold tells the panes (S3).
+            automationFiringsArrived: (canvasName: string, rows: ReadonlyArray<ArrivedAutomationFiring>) =>
+              runHeld(
+                Effect.forEach(
+                  rows,
+                  (arrived) =>
+                    Effect.map(automationStore.value.foldRemoteFiring(canvasName, arrived), ({ folded }) => {
+                      if (folded) notifyAutomationsChanged(canvasName, arrived.body.automationNode as NodeId);
+                    }),
+                  { discard: true },
+                ),
+              ),
           }),
       ...(options.linkFailed === undefined ? {} : { linkFailed: options.linkFailed }),
       cutCopy,

@@ -42,6 +42,7 @@ import { applyValueFormats, DATE_PATTERN_WORDS, parseValueFormats, VALUE_FORMATS
 export { VALUE_FORMATS } from "./automation-formats";
 import { ArtifactMention, MentionRef, PageMention, TaskMention } from "./mention";
 import { NodeId } from "./physics/schema";
+import { Seq } from "./model";
 import { HostId } from "./remote-hosts";
 import type { AutomationAuthor as ReachAuthor } from "./region-reach";
 import { RefusalReason, type Refusal } from "./resource-command";
@@ -991,6 +992,8 @@ export const ActionRuling = Schema.Union([
     ruling: Schema.Literal("applied"),
     /** The action waited on a machine that was not linked, from this time, then went (S3). */
     heldSince: Schema.optionalKey(EpochMs),
+    /** The time the held action finally went (S3). */
+    heldUntil: Schema.optionalKey(EpochMs),
   }),
   Schema.Struct({
     index: StepIndex,
@@ -1014,6 +1017,8 @@ export const ActionRuling = Schema.Union([
     movedTo: Schema.optionalKey(HostId),
     /** The action waited on a machine that was not linked, from this time, then was refused (S3). */
     heldSince: Schema.optionalKey(EpochMs),
+    /** The time the held action was refused (S3). */
+    heldUntil: Schema.optionalKey(EpochMs),
   }),
   Schema.Struct({ index: StepIndex, ruling: Schema.Literal("continued"), output: CodeOutput, durationMs: Count }),
   Schema.Struct({
@@ -1060,6 +1065,13 @@ export const Firing = Schema.Struct({
    * rows written before the field existed.
    */
   machine: Schema.optionalKey(HostId),
+  /**
+   * The canvas count the claim was minted under (S3): an `automation.firing`
+   * revision states it, and the editing machine admits it only from where the
+   * automation ran at that count. Absent on firings claimed before the field
+   * existed.
+   */
+  claimSeq: Schema.optionalKey(Seq),
 });
 export type Firing = typeof Firing.Type;
 
