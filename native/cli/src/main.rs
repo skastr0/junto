@@ -79,7 +79,7 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
         _ if help::asked(&words) => help::show(&words),
-        _ => match booleans(&words) {
+        _ => match effect_reading(&words) {
             Err((message, error)) => help::refuse_usage(&words, &message, error),
             Ok(read) => match Cli::try_parse_from(
                 std::iter::once("junto").chain(read.iter().map(String::as_str)),
@@ -115,42 +115,76 @@ fn named<'a>(root: &'a clap::Command, words: &[&str]) -> &'a clap::Command {
     command
 }
 
-/// Whether the flag `--name` of the command the words name takes an integer,
-/// which Effect names "integer" where any other value is a "string".
+/// Whether a flag takes an integer, which Effect names "integer" where any
+/// other value is a "string", and reads as a JS number that must be whole.
+fn integer(arg: &clap::Arg) -> bool {
+    use std::any::TypeId;
+    let id = arg.get_value_parser().type_id();
+    [
+        TypeId::of::<i64>(),
+        TypeId::of::<u64>(),
+        TypeId::of::<u32>(),
+        TypeId::of::<usize>(),
+        TypeId::of::<std::num::NonZeroU64>(),
+    ]
+    .into_iter()
+    .any(|integer| id == integer)
+}
+
+/// Whether the flag `--name` of the command the words name takes an integer.
 fn integer_flag(words: &[&str], name: &str) -> bool {
     use clap::CommandFactory;
-    use std::any::TypeId;
     let root = Cli::command();
     named(&root, words)
         .get_arguments()
-        .find(|arg| arg.get_long() == Some(name))
-        .is_some_and(|arg| {
-            let id = arg.get_value_parser().type_id();
-            [
-                TypeId::of::<i64>(),
-                TypeId::of::<u64>(),
-                TypeId::of::<u32>(),
-                TypeId::of::<usize>(),
-                TypeId::of::<std::num::NonZeroU64>(),
-            ]
-            .into_iter()
-            .any(|integer| id == integer)
-        })
+        .any(|arg| arg.get_long() == Some(name) && integer(arg))
+}
+
+/// A number as Effect reads one from text: a sign, digits with a fraction or
+/// a leading dot, and an exponent; "1." and " 5" are not numbers.
+fn number_shaped(text: &str) -> bool {
+    let body = text.strip_prefix(['+', '-']).unwrap_or(text);
+    let (mantissa, exponent) = body
+        .split_once(['e', 'E'])
+        .map_or((body, None), |(m, e)| (m, Some(e)));
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    let mantissa_ok = match mantissa.split_once('.') {
+        None => digits(mantissa),
+        Some((whole, fraction)) => digits(fraction) && (whole.is_empty() || digits(whole)),
+    };
+    mantissa_ok && exponent.is_none_or(|e| digits(e.strip_prefix(['+', '-']).unwrap_or(e)))
+}
+
+/// An integer flag's number-shaped value as a plain integer, or None when it
+/// is not whole, finite and safe (Number.isSafeInteger).
+fn whole(text: &str) -> Option<String> {
+    const SAFE: f64 = 9_007_199_254_740_991.0;
+    text.parse::<f64>()
+        .ok()
+        .filter(|v| v.is_finite() && v.fract() == 0.0 && v.abs() <= SAFE)
+        .map(|v| format!("{}", v as i64))
 }
 
 const TRUE: [&str; 5] = ["true", "yes", "on", "1", "y"];
 const FALSE: [&str; 5] = ["false", "no", "off", "0", "n"];
 
-/// Effect's boolean flags as clap reads them: `--no-x` sets x false, and
-/// `--x=<literal>` or `--x <literal>` sets it from a true or false word.
-/// What Effect refuses comes back as its message and tagged error.
-fn booleans(words: &[&str]) -> Result<Vec<String>, (String, serde_json::Value)> {
+/// The command line as Effect reads it, rewritten for clap. A boolean flag
+/// takes `--no-x`, `--x=<word>` and `--x <word>` for true and false words; an
+/// integer flag takes any whole number text, `1.0` or `1e3`. What Effect
+/// refuses comes back as its message and tagged error, unless a required
+/// positional is missing, which Effect reports first.
+fn effect_reading(words: &[&str]) -> Result<Vec<String>, (String, serde_json::Value)> {
     use clap::{ArgAction, CommandFactory};
     let root = Cli::command();
     let command = named(&root, words);
-    let flags: Vec<&str> = command
+    let booleans: Vec<&str> = command
         .get_arguments()
         .filter(|arg| matches!(arg.get_action(), ArgAction::SetTrue))
+        .filter_map(|arg| arg.get_long())
+        .collect();
+    let integers: Vec<&str> = command
+        .get_arguments()
+        .filter(|arg| integer(arg))
         .filter_map(|arg| arg.get_long())
         .collect();
     let refuse = |name: &str, value: &str, expected: String| {
@@ -170,6 +204,7 @@ fn booleans(words: &[&str]) -> Result<Vec<String>, (String, serde_json::Value)> 
                     "expected": expected, "kind": "flag" }),
         )
     };
+    let mut refused = None;
     let mut read: Vec<String> = Vec::with_capacity(words.len());
     let mut rest = words.iter().copied().peekable();
     while let Some(word) = rest.next() {
@@ -186,25 +221,39 @@ fn booleans(words: &[&str]) -> Result<Vec<String>, (String, serde_json::Value)> 
             .split_once('=')
             .map_or((long, None), |(n, v)| (n, Some(v)));
         let literal = |v: &str| TRUE.contains(&v) || FALSE.contains(&v);
-        if let Some(negated) = name.strip_prefix("no-").filter(|n| flags.contains(n)) {
+        if let Some(negated) = name.strip_prefix("no-").filter(|n| booleans.contains(n)) {
             let given = inline.or_else(|| rest.next_if(|next| literal(next)));
             if let Some(value) = given {
                 let expected =
                     format!("omit the value and use {word} by itself to set --{negated} to false");
+                // Refused as the words are read, before any positional check.
                 return Err(refuse(negated, value, expected));
             }
             let set = format!("--{negated}");
             read.retain(|w| *w != set);
             continue;
         }
-        if !flags.contains(&name) {
+        if integers.contains(&name) {
+            let given = inline.or_else(|| rest.next_if(|next| !next.starts_with('-')));
+            match given {
+                Some(value) if number_shaped(value) => match whole(value) {
+                    Some(number) => read.extend([format!("--{name}"), number]),
+                    None => {
+                        let expected = "Expected an integer".to_string();
+                        refused = refused.or(Some(refuse(name, value, expected)));
+                    }
+                },
+                // Not a number: clap refuses it as Effect words it (usage).
+                Some(value) => read.extend([format!("--{name}"), value.into()]),
+                None => read.push(word.into()),
+            }
+            continue;
+        }
+        if !booleans.contains(&name) {
             read.push(word.into());
             continue;
         }
-        // `--x=` with nothing after it is the bare flag, as Effect reads it.
-        let value = inline
-            .filter(|v| !v.is_empty())
-            .or_else(|| rest.next_if(|next| literal(next)));
+        let value = inline.or_else(|| rest.next_if(|next| literal(next)));
         let on = match value {
             None => true,
             Some(v) if TRUE.contains(&v) => true,
@@ -215,7 +264,12 @@ fn booleans(words: &[&str]) -> Result<Vec<String>, (String, serde_json::Value)> 
                     .chain(&FALSE)
                     .map(|l| format!("\"{l}\""))
                     .collect();
-                return Err(refuse(name, v, format!("Expected {}", all.join(" | "))));
+                refused = refused.or(Some(refuse(
+                    name,
+                    v,
+                    format!("Expected {}", all.join(" | ")),
+                )));
+                continue;
             }
         };
         let set = format!("--{name}");
@@ -224,7 +278,20 @@ fn booleans(words: &[&str]) -> Result<Vec<String>, (String, serde_json::Value)> 
             read.push(set);
         }
     }
-    Ok(read)
+    let Some(refusal) = refused else {
+        return Ok(read);
+    };
+    // A required positional left out is reported before any flag's value.
+    let missing =
+        Cli::try_parse_from(std::iter::once("junto").chain(read.iter().map(String::as_str)))
+            .err()
+            .filter(|e| e.kind() == clap::error::ErrorKind::MissingRequiredArgument)
+            .and_then(|e| match e.get(clap::error::ContextKind::InvalidArg) {
+                Some(clap::error::ContextValue::Strings(args)) => args.first().cloned(),
+                _ => None,
+            })
+            .is_some_and(|arg| !arg.starts_with("--"));
+    if missing { Ok(read) } else { Err(refusal) }
 }
 
 /// A command line clap could not read, answered as Effect's CLI answers it
@@ -304,16 +371,16 @@ fn usage(error: &clap::Error, words: &[&str]) -> ExitCode {
                         "value": value, "expected": expected, "kind": "flag" }),
             )
         }
+        // A number-shaped value of an integer flag was read before clap.
         ErrorKind::ValueValidation => {
-            // A number that is not whole, for an integer flag, is named as such.
-            let fractional = value.parse::<f64>().is_ok_and(f64::is_finite);
-            let expected = if fractional && integer_flag(words, flag.trim_start_matches('-')) {
-                "Expected an integer"
+            let expected = "Expected a string representing a finite number";
+            let message = if value.is_empty() {
+                format!("Missing value for flag {flag}. {expected}")
             } else {
-                "Expected a string representing a finite number"
+                format!("Invalid value for flag {flag}: \"{value}\". {expected}")
             };
             (
-                format!("Invalid value for flag {flag}: \"{value}\". {expected}"),
+                message,
                 json!({ "_tag": "InvalidValue", "option": flag.trim_start_matches('-'),
                         "value": value, "expected": expected, "kind": "flag" }),
             )
