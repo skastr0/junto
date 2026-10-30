@@ -14,10 +14,11 @@
  * source module, with the reason they still link. The list may only shrink.
  * A module not on it that holds a marker fails; a module on it that no longer
  * holds one fails as stale, so the count comes down as the split closes.
+ * `--prune` drops the stale entries and writes the list back; it never adds.
  *
  * Run after `electron-vite build`: `bun run lint:main-bundle`.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -43,6 +44,7 @@ type Allowlist = {
 };
 
 const SPECIFIER = /(?:from\s*|require\(\s*|import\(\s*)["']([^"']+)["']/g;
+const prune = process.argv.includes("--prune");
 
 /** Every file the bundle loads from `entry` by static import, entry included. */
 const staticClosure = (entryFile: string): ReadonlyMap<string, string> => {
@@ -129,13 +131,26 @@ const main = (): number => {
     return 0;
   }
 
+  // --prune only drops what the split already closed; a new offender still fails.
+  if (added.length === 0 && prune) {
+    writeFileSync(
+      join(ROOT, ALLOWLIST_REL),
+      `${JSON.stringify({ ...allowlist, offenders: [...offenders.keys()].sort() }, null, 2)}\n`,
+    );
+    console.log(
+      `ok main-bundle: pruned ${stale.length} module(s) the split closed; ` +
+        `${offenders.size} core-marked, all on the ratchet`,
+    );
+    return 0;
+  }
+
   console.error("main-bundle gate FAILED: main's bundle still holds the core.");
   if (added.length > 0) {
     console.error(`  ${added.length} core module(s) newly linked into main (${marked.length} emitted file(s) carry a marker):`);
     for (const [module, what] of added) console.error(`    ${module} — ${what}`);
   }
   if (stale.length > 0) {
-    console.error(`  ${stale.length} allowlisted module(s) no longer hold core code: drop them from ${ALLOWLIST_REL} so the ratchet shrinks:`);
+    console.error(`  ${stale.length} allowlisted module(s) no longer hold core code: drop them from ${ALLOWLIST_REL} so the ratchet shrinks (bun scripts/lint-main-bundle.ts --prune):`);
     for (const module of stale) console.error(`    ${module}`);
   }
   return 1;
