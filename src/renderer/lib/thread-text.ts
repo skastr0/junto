@@ -72,10 +72,13 @@ export const stripHeadTag = (text: string, known: ReadonlyArray<string>): string
 /**
  * A long machine id: a 26 character ULID in Crockford base32 (no I, L, O or U,
  * and a real one carries digits in its timestamp, so a shouted word is not
- * one), or a hex run of twelve or more. Not beside a slash, a dot, a colon or
- * a dash, so paths and URLs are never touched.
+ * one), or a hex run of twelve or more. Never inside a path or a URL, and never
+ * the head of a dotted name, so a run that a slash precedes, or that a dot and
+ * a word follow, is left alone. A period that ends the sentence is not part of
+ * the id: "the thread id 01M65QV5FYN4DMTRAHA6SF5CMK." closes its token.
  */
-const ID_PATTERN = /(?<![\w/.:-])(?:(?=[0-9A-HJKMNP-TV-Z]*[0-9])[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{12,})(?![\w/.:-])/gu;
+const ID_PATTERN =
+  /(?<![\w/.:-])(?:(?=[0-9A-HJKMNP-TV-Z]*[0-9])[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{12,})(?![\w/:-]|\.(?=\w))/gu;
 
 /** One run of the words; `id` is set when the run is a long id, whole. */
 export type IdSegment = { readonly text: string; readonly id?: string };

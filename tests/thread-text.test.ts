@@ -97,6 +97,16 @@ describe("long ids", () => {
     expect(idSegments("ABCDEFGHJKMNPQRSTVWXYZABCDEFGHJKM").filter((segment) => segment.id !== undefined)).toHaveLength(0);
     expect(idSegments("see /tmp/0123456789abcdef/notes").filter((segment) => segment.id !== undefined)).toHaveLength(0);
     expect(idSegments("https://example.com/a/0123456789abcdef").filter((segment) => segment.id !== undefined)).toHaveLength(0);
+    expect(idSegments("the bundle is 0123456789abcdef.min.js").filter((segment) => segment.id !== undefined)).toHaveLength(0);
+  });
+
+  it("closes a token an id ends a sentence with", () => {
+    const [sentence] = idSegments("Sent to pty-lead with the thread id 01M65QV5FYN4DMTRAHA6SF5CMK.").filter(
+      (segment) => segment.id !== undefined,
+    );
+    expect(sentence?.id).toBe("01M65QV5FYN4DMTRAHA6SF5CMK");
+    expect(idSegments("(see 01M65QV5FYN4DMTRAHA6SF5CMK)").filter((segment) => segment.id !== undefined)).toHaveLength(1);
+    expect(idSegments("id 01M65QV5FYN4DMTRAHA6SF5CMK, then").filter((segment) => segment.id !== undefined)).toHaveLength(1);
   });
 
   it("keeps the whole id in the segment, so the stylesheet can cut it and copy keeps it", () => {
