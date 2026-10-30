@@ -294,6 +294,11 @@ export const createModelStore = (getApi: () => ModelApi | undefined) => {
     reread: (canvas: string): Promise<void> =>
       (users.get(canvas) ?? 0) > 0 ? read(canvas) : Promise.resolve(),
 
+    /** Read every open canvas afresh: a new core took over and changes may have gone unheard. */
+    rereadOpen: (): void => {
+      for (const canvas of users.keys()) void read(canvas);
+    },
+
     /**
      * Show at once what a command will have done, where the window can know
      * it. Returns whether anything was shown; main's event settles it either

@@ -15,6 +15,7 @@ import type {
   ReferenceWriteResult,
   StoredReference,
 } from "@shared/references";
+import { askOnEveryCore } from "../../core-process/every-core";
 import { core } from "../../core-process/main-client";
 import { subscribe as onCorePush } from "../../core-process/push";
 
@@ -44,6 +45,6 @@ export const registerReferencesIpc = (
   const stop = onCorePush(IPC_CHANNELS.referencesChanged, (event) =>
     broadcast(IPC_CHANNELS.referencesChanged, event),
   );
-  void core.call("ipc.references.watch", {});
+  askOnEveryCore("ipc.references.watch", () => core.call("ipc.references.watch", {}));
   return stop;
 };

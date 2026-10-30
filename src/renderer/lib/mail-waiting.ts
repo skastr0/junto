@@ -17,6 +17,7 @@ export type MailWaitingBridge = {
   /** The facts that stand now, one per seat. */
   readonly mailWaiting?: () => Promise<ReadonlyArray<MailWaitingFact>>;
   /** Each fact as it is told, changes or clears. */
+  readonly onCoreRestarted?: (listener: () => void) => () => void;
   readonly onMailWaiting?: (listener: (fact: MailWaitingFact) => void) => () => void;
 };
 
@@ -63,7 +64,7 @@ export const startMailWaitingWatch = (api: object): (() => void) => {
       told.add(`${fact.canvasName}\n${fact.nodeId}`);
       applyMailWaitingFact(fact);
     }) ?? (() => undefined);
-  void bridge.mailWaiting?.().then(
+  const read = (): void => void bridge.mailWaiting?.().then(
     (facts) => {
       if (stopped) return;
       const current = mailWaiting$.peek();
@@ -81,8 +82,15 @@ export const startMailWaitingWatch = (api: object): (() => void) => {
     },
     () => undefined,
   );
+  read();
+  // A new core took over: what it holds now is the answer, not what this window was told.
+  const offRestart = bridge.onCoreRestarted?.(() => {
+    told.clear();
+    read();
+  }) ?? (() => undefined);
   return () => {
     stopped = true;
     off();
+    offRestart();
   };
 };

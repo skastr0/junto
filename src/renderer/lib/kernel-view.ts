@@ -73,10 +73,12 @@ export function startKernelBridge(): () => void {
   });
 
   // Initial hydrate — don't wait on the first kernelChanged push.
-  void api.getKernelState().then((snapshot) => {
+  const hydrate = (): void => void api.getKernelState().then((snapshot) => {
     latestSnapshot = snapshot;
     projectSnapshot(snapshot, state$.canvasName.peek());
   });
+  hydrate();
+  const offCoreRestarted = api.onCoreRestarted(hydrate);
 
   // Re-project (no new IPC round-trip) whenever the open canvas changes —
   // main already streams every hydrated canvas, so switching documents is a
@@ -86,6 +88,6 @@ export function startKernelBridge(): () => void {
     projectSnapshot(latestSnapshot, canvasName);
   });
 
-  teardown = [offKernelChanged, offCanvasName];
+  teardown = [offKernelChanged, offCoreRestarted, offCanvasName];
   return stopKernelBridge;
 }

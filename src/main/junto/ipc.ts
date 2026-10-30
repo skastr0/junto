@@ -22,6 +22,7 @@ import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
 import { ModelService } from "./model/service";
 import { ModelActorRefs } from "./model/actor-refs";
+import { askOnEveryCore } from "../core-process/every-core";
 import { core } from "../core-process/main-client";
 import { publish as corePublish, subscribe as onCorePush } from "../core-process/push";
 import { asNodeId } from "@shared/model";
@@ -451,7 +452,7 @@ export const registerJuntoIpc = (): void => {
   );
   subscribeCore(SEAT_THREAD_READ_CHANGED, (change) => broadcast(IPC_CHANNELS.seatThreadReadChanged, change));
   subscribeCore(MAIL_WAITING, (fact) => broadcast(IPC_CHANNELS.mailWaiting, fact));
-  void core.call("ipc.threads.watch", {}).catch((error: unknown) => console.error("[threads] read points and waiting mail not watched:", error));
+  askOnEveryCore("ipc.threads.watch", () => core.call("ipc.threads.watch", {}));
   privilegedIpc.handle(IPC_CHANNELS.seatThreadSend, async (_event, input: unknown): Promise<OperatorThreadSent> => {
     try {
       // The write alone holds the authoring gate; delivery follows it, as before.
@@ -854,10 +855,11 @@ export const registerJuntoIpc = (): void => {
     IPC_CHANNELS.seatAwarenessChanged,
     IPC_CHANNELS.usageChanged,
     IPC_CHANNELS.kernelChanged,
+    IPC_CHANNELS.coreRestarted,
   ]) onCorePush(channel, (payload) => broadcast(channel, payload));
-  void core.call("ipc.watch.model", {});
-  void core.call("ipc.watch.modelCanvases", {});
-  void core.call("ipc.watch.modelActorRefs", {});
+  askOnEveryCore("ipc.watch.model", () => core.call("ipc.watch.model", {}));
+  askOnEveryCore("ipc.watch.modelCanvases", () => core.call("ipc.watch.modelCanvases", {}));
+  askOnEveryCore("ipc.watch.modelActorRefs", () => core.call("ipc.watch.modelActorRefs", {}));
 
   // What the startup wiring needs of the core's services runs in the core
   // (ops/ipc-startup.ts): the seed, the connection-change notices, the checkout
@@ -883,9 +885,7 @@ export const registerJuntoIpc = (): void => {
     if (on) seatAwarenessPlane.start({ enabled: true, apiKey: seatAwarenessApiKey() });
   };
   onCorePush(SETTINGS_CHANGED, (next) => applySeatAwareness(next as Settings));
-  void core.call("ipc.settings.current", {}).then(applySeatAwareness, (cause: unknown) => {
-    console.error("[seat-awareness] settings could not be read; the sidecar stays as it is", cause);
-  });
+  askOnEveryCore("ipc.settings.current", () => core.call("ipc.settings.current", {}).then(applySeatAwareness));
 
   privilegedIpc.handle(IPC_CHANNELS.terminalManagedPrompt, (_event, input: SeatPromptInput) =>
     core.call("ipc.seats.managedPrompt", { input }),

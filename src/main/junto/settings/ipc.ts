@@ -11,6 +11,7 @@ import {
   type SettingsOpResult,
 } from "@shared/settings";
 import { setConfiguredToolDirectories } from "../adapters/exec";
+import { askOnEveryCore } from "../../core-process/every-core";
 import { core } from "../../core-process/main-client";
 import { SETTINGS_CHANGED } from "../../core-process/ops/main-index";
 import { subscribe as subscribeCore } from "../../core-process/push";
@@ -145,7 +146,5 @@ export const registerSettingsIpc = (
     publishToolDirectories(next);
     broadcast(IPC_CHANNELS.settingsChanged, redactProvidersForIpc(next));
   });
-  void core.call("settings.watch", {}).catch((cause: unknown) => {
-    console.error("[settings] settings not watched; main keeps the default theme", cause);
-  });
+  askOnEveryCore("settings.watch", () => core.call("settings.watch", {}));
 };

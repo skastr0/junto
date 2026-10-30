@@ -523,6 +523,19 @@ export function App() {
     [],
   );
 
+  // A new core took over: read again what the last one answered. Settings come
+  // back on their own push when main asks the new core to watch them.
+  useEffect(
+    () =>
+      window.junto?.onCoreRestarted((): void => {
+        modelStore.rereadOpen();
+        void refreshList();
+        const name = state$.canvasName.peek();
+        if (name !== "") void window.junto?.modelActorRefs({ canvas: name }).then(replaceActiveActorRefs);
+      }),
+    [],
+  );
+
   // Command bar "Open canvas" action — one-shot request consumed here so
   // opening a canvas keeps its single owner in App.
   useEffect(() => {

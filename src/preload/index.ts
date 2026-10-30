@@ -485,6 +485,7 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   onModelChanged: (listener) => subscribe<Changed>(IPC_CHANNELS.modelChanged, listener),
   onModelCanvasesChanged: (listener) =>
     subscribe<CanvasesChanged>(IPC_CHANNELS.modelCanvasesChanged, listener),
+  onCoreRestarted: (listener) => subscribe<unknown>(IPC_CHANNELS.coreRestarted, () => listener()),
   modelActorRefs: (input) => invoke(IPC_CHANNELS.modelActorRefs, IPC_TIMEOUT_MS, input),
   onModelActorRefsChanged: (listener) =>
     subscribe<ModelActorRefsChanged>(IPC_CHANNELS.modelActorRefsChanged, listener),

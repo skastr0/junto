@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import type { LiveAttention, LiveSnapshot, LiveStartInput, LiveStartResult, OverseerLiveApi } from "@shared/overseer-live";
 import type { CoreClient } from "../client";
+import { askOnEveryCore } from "../every-core";
 import { coreOps, type CoreOp } from "../ops";
 import { publish, subscribe } from "../push";
 import { LIVE_CHANGED } from "./main-index";
@@ -74,7 +75,7 @@ export const coreOverseerLive = (core: CoreClient): LiveService => ({
   liveStopActions: (sessionId) => core.call("live.stopActions", { sessionId }),
   subscribe: (listener) => {
     const stop = subscribe(LIVE_CHANGED, (snapshot) => listener(snapshot as LiveSnapshot));
-    void core.call("live.watch", {}).catch((error: unknown) => console.error("[live] snapshots not watched:", error));
+    askOnEveryCore("live.watch", () => core.call("live.watch", {}));
     return () => {
       stop();
     };

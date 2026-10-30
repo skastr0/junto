@@ -318,6 +318,8 @@ export const IPC_CHANNELS = {
   viewStateSnapshot: "junto:view-state-snapshot",
   viewStateApply: "junto:view-state-apply",
   viewStateChanged: "junto:view-state-changed",
+  /** A new core took over: what a window read from the last one may be stale. */
+  coreRestarted: "junto:core-restarted",
   /** The operator's shell environment: what Junto read, a fresh read, and main's push when it changes. */
   shellEnvironmentStatus: "junto:shell-environment-status",
   shellEnvironmentRefresh: "junto:shell-environment-refresh",
@@ -752,6 +754,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   /** The rows that changed on a canvas, after every commit, to every window. */
   readonly onModelChanged: (listener: (event: Changed) => void) => () => void;
   readonly onModelCanvasesChanged: (listener: (event: CanvasesChanged) => void) => () => void;
+  /** A new core took over: read again what the last one answered. */
+  readonly onCoreRestarted: (listener: () => void) => () => void;
   /** Which seat acts for which node on a canvas. Read apart from `modelOpen`. */
   readonly modelActorRefs: (input: { readonly canvas: string }) => Promise<ReadonlyArray<ActorRef>>;
   /** The whole list again, whenever it changes. */

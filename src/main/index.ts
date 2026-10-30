@@ -191,6 +191,7 @@ import { coreCompanionSettings } from "./core-process/ops/companion";
 import { coreOverseerLive } from "./core-process/ops/overseer-live";
 import { companionNotePreamble, wireCompanionChanges } from "./junto/companion/wiring";
 import { bindCompanionHost } from "./junto/companion/runtime";
+import { askOnEveryCore, askOnLaterCores } from "./core-process/every-core";
 import { startCoreProcessForMain, type CoreProcessForMain } from "./core-process/main-boot";
 import { overseerPagesOn, type OverseerPages } from "./junto/overseer/pages";
 import { runningBuildIdentity } from "./junto/build-identity";
@@ -1414,9 +1415,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       showAppMenuWith(undefined);
       // The settings as they stand and every change after arrive in order on one push channel.
       subscribeCore(SETTINGS_CHANGED, (next) => showAppMenuWith(next as Settings));
-      void core.call("settings.watch", {}).catch((cause: unknown) => {
-        console.error("[menu] stored shortcuts could not be read; the menu shows the defaults", cause);
-      });
+      askOnEveryCore("settings.watch", () => core.call("settings.watch", {}));
     }
     if (!(await ensureSupervised())) return;
     if (shutdownAdmissionClosed) return;
@@ -1630,9 +1629,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
 
     // Hands already raised before this boot: agent → relay announce wires
     // watch them. Signal writes from here on are noted as they happen.
-    void core.call("signals.raisedHands", {}).then(raisedHands.hydrate, (error: unknown) => {
-      console.error("[signals] raised hands not loaded:", error);
-    });
+    askOnEveryCore("signals.raisedHands", () => core.call("signals.raisedHands", {}).then(raisedHands.hydrate));
     powerMonitor.on("resume", () => {
       if (shutdownAdmissionClosed) return;
       try {
@@ -1680,11 +1677,18 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             edgeGrant.clear();
           };
           // Every canvas change and removal arrives in order on one push channel.
-          const acquiredCanvasUnsubscribe = subscribeCore(CANVAS_CHANGED, (payload) => {
+          const stopCanvasChanged = subscribeCore(CANVAS_CHANGED, (payload) => {
             const { canvas, next } = payload as CanvasChangedPush;
             edgeGrant.invalidateCanvas(canvas, { next });
           });
+          // A change while no core ran never reached the grants: a new core starts them over.
+          const stopCoreRestarted = subscribeCore(IPC_CHANNELS.coreRestarted, () => edgeGrant.clear());
+          const acquiredCanvasUnsubscribe = (): void => {
+            stopCanvasChanged();
+            stopCoreRestarted();
+          };
           await core.call("model.watchCanvases", {});
+          askOnLaterCores("model.watchCanvases", () => core.call("model.watchCanvases", {}));
           if (admissionCleanupRan) acquiredCanvasUnsubscribe();
           else canvasUnsubscribe = acquiredCanvasUnsubscribe;
 

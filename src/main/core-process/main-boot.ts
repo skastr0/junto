@@ -5,7 +5,10 @@ import type {} from "../terminal-process/core-side";
 import type { ApplicationCaptureResult } from "../junto/overseer/native";
 import type { OverseerPages } from "../junto/overseer/pages";
 import type { CoreBoot } from "./entry";
+import { IPC_CHANNELS } from "@shared/ipc";
+import { askEveryCoreAsk } from "./every-core";
 import { startCoreProcess } from "./host";
+import { publish } from "./push";
 import { useCoreClient } from "./main-client";
 import { relayWindowPushes } from "./ops/main-index";
 import { serveOverseerHost } from "./ops/overseer-pages";
@@ -40,6 +43,16 @@ export const startCoreProcessForMain = (input: {
 }): CoreProcessForMain => {
   const started = (input.start ?? startCoreProcess)(input.boot);
   useCoreClient(started);
+  // Each core that says ready is asked what main asks of every core; after the
+  // first, the windows then read again what changed while no core ran.
+  let readies = 0;
+  const stopReady = started.onPush("core.ready", () => {
+    const restarted = readies > 0;
+    readies += 1;
+    askEveryCoreAsk(() => {
+      if (restarted) publish(IPC_CHANNELS.coreRestarted, {});
+    });
+  });
   const stopRelay = relayWindowPushes(started);
   const stopHost = serveOverseerHost({ core: started, pages: input.pages, captureApplicationPage: input.captureApplicationPage });
   const stopClipboard = serveCompanionClipboard(input.clipboard);
@@ -59,6 +72,7 @@ export const startCoreProcessForMain = (input: {
   return {
     client: started,
     stop: () => {
+      stopReady();
       stopRestart();
       stopTerminalHost();
       useCoreSurfacePlane(undefined);
