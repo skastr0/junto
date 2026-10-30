@@ -10,7 +10,7 @@
      this chip, the text cyan 5 to 1. They are one value in dark. */
   color: var(--color-second-fg);
   padding: 3px 5px;
-  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-label);
   line-height: var(--leading-compact);
 }
