@@ -60,7 +60,7 @@ export const makeSqliteClient = Effect.fn("state.makeSqliteClient")(function* (
       }
       const rows = statement.all(...values);
       return transformRows ? transformRows(rows) : rows;
-    }, undefined, !transactionControl.test(sql)),
+    }, undefined, !transactionControl.test(sql), sql),
     catch: (cause) => sqliteError("execute", cause),
   }));
 
@@ -82,7 +82,7 @@ export const makeSqliteClient = Effect.fn("state.makeSqliteClient")(function* (
         } finally {
           statement.setReturnArrays(false);
         }
-      }, undefined, !transactionControl.test(sql)),
+      }, undefined, !transactionControl.test(sql), sql),
       catch: (cause) => sqliteError("executeValues", cause),
     }));
 
@@ -100,7 +100,7 @@ export const makeSqliteClient = Effect.fn("state.makeSqliteClient")(function* (
         return statement.columns().length > 0
           ? statement.all(...values)
           : statement.run(...values);
-      }, undefined, !transactionControl.test(sql)),
+      }, undefined, !transactionControl.test(sql), sql),
       catch: (cause) => sqliteError("executeRaw", cause),
     })),
     // SQLite is synchronous. Buffer the result before yielding to a consumer,

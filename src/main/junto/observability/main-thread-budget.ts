@@ -137,6 +137,7 @@ export const resetMainThreadBudget = (): void => {
   report = defaultReport;
   violations = [];
   listeners.clear();
+  resetStatementTiming();
 };
 
 export const mainThreadBudgetArmed = (): boolean => enabled;
@@ -203,6 +204,91 @@ const recordSpan = (
   return true;
 };
 
+// ── per-statement timing ──────────────────────────────────────────────────
+//
+// While the budget is armed, every SQL statement that runs under
+// `withinBudget(..., sql)` is also folded into a bounded aggregate keyed by
+// operation plus normalized SQL: how often it ran, how long it held the main
+// thread in all, its longest run, and the rows it returned. The budget only
+// names spans over 4 ms; this names the many short ones that add up (an idle
+// app can spend hundreds of ms a second in statements that are each far under
+// it). `startSqlTimingLog` writes the top of it to disk.
+
+/** Keys kept; a statement past it is counted in one "other" row. */
+export const MAX_STATEMENT_KEYS = 500;
+const STATEMENT_SQL_CHARS = 100;
+/** A host parameter inside an IN list: `?`, `?1`, `:name`, `@name`, `$name`. */
+const IN_LIST = /\bIN\s*\(\s*(?:\?\d*|[:@$]\w+)(?:\s*,\s*(?:\?\d*|[:@$]\w+))*\s*\)/gi;
+
+export type StatementTiming = {
+  readonly operation: string;
+  readonly sql: string;
+  readonly count: number;
+  readonly totalMs: number;
+  readonly maxMs: number;
+  readonly rows: number;
+};
+
+type StatementStat = { operation: string; sql: string; count: number; totalMs: number; maxMs: number; rows: number };
+
+const statementStats = new Map<string, StatementStat>();
+let otherStatements: StatementStat | undefined;
+/** Raw SQL to its key text: normalizing is a regex pass, and the same texts come back. */
+const normalized = new Map<string, string>();
+const MAX_NORMALIZED = 2_000;
+let statementsSince = Date.now();
+
+/** Whitespace collapsed, IN lists folded to `IN (?*)`, cut to 100 characters. */
+export const normalizeStatementSql = (sql: string): string => {
+  const known = normalized.get(sql);
+  if (known !== undefined) return known;
+  const text = sql.replace(/\s+/g, " ").trim().replace(IN_LIST, "IN (?*)").slice(0, STATEMENT_SQL_CHARS);
+  if (normalized.size >= MAX_NORMALIZED) normalized.clear();
+  normalized.set(sql, text);
+  return text;
+};
+
+const noteStatement = (operation: string, sql: string, ms: number, rows: number): void => {
+  const text = normalizeStatementSql(sql);
+  const key = `${operation}\u0000${text}`;
+  let stat = statementStats.get(key);
+  if (stat === undefined) {
+    if (statementStats.size >= MAX_STATEMENT_KEYS) {
+      otherStatements ??= { operation: "(other)", sql: "(keys past the cap)", count: 0, totalMs: 0, maxMs: 0, rows: 0 };
+      stat = otherStatements;
+    } else {
+      stat = { operation, sql: text, count: 0, totalMs: 0, maxMs: 0, rows: 0 };
+      statementStats.set(key, stat);
+    }
+  }
+  stat.count += 1;
+  stat.totalMs += ms;
+  if (ms > stat.maxMs) stat.maxMs = ms;
+  stat.rows += rows;
+};
+
+/** The statements that held the main thread longest in all, longest first; the "other" row, when there is one, last. */
+export const statementTimingTop = (limit = 20): ReadonlyArray<StatementTiming> => {
+  const top = [...statementStats.values()].sort((a, b) => b.totalMs - a.totalMs).slice(0, limit);
+  return otherStatements === undefined ? top : [...top, otherStatements];
+};
+
+/** How many distinct statements are kept, and when the aggregate began. */
+export const statementTimingSummary = (): { readonly keys: number; readonly sinceMs: number; readonly otherCount: number } => ({
+  keys: statementStats.size,
+  sinceMs: statementsSince,
+  otherCount: otherStatements?.count ?? 0,
+});
+
+export const resetStatementTiming = (): void => {
+  statementStats.clear();
+  otherStatements = undefined;
+  normalized.clear();
+  statementsSince = Date.now();
+};
+
+const rowsOf = (value: unknown): number => (Array.isArray(value) ? value.length : 0);
+
 /**
  * Run a synchronous operation under the budget. Returns whatever it returns.
  *
@@ -217,22 +303,30 @@ const recordSpan = (
  * fact worth keeping.
  * Set allowThrow=false for transaction control: a successful BEGIN or COMMIT
  * must not look failed to the resource owner after changing database state.
+ * Pass `sql` for a statement: while armed it also feeds the per-statement
+ * aggregate (`statementTimingTop`).
  */
 export const withinBudget = <A>(
   operation: string,
   run: () => A,
   detail?: string,
   allowThrow = true,
+  sql?: string,
 ): A => {
   if (!enabled) return run();
   const startedAt = performance.now();
   let failed = false;
+  let value: A | undefined;
   try {
-    return run();
+    value = run();
+    return value;
   } catch (error) {
     failed = true;
     throw error;
   } finally {
-    recordSpan(operation, performance.now() - startedAt, detail, !failed && allowThrow);
+    const ms = performance.now() - startedAt;
+    // Before the span is judged: a strict violation throws from recordSpan.
+    if (sql !== undefined) noteStatement(operation, sql, ms, failed ? 0 : rowsOf(value));
+    recordSpan(operation, ms, detail, !failed && allowThrow);
   }
 };

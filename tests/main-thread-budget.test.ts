@@ -15,7 +15,11 @@ import {
   noteSyncSpan,
   onMainThreadBudgetViolation,
   MainThreadBudgetExceeded,
+  MAX_STATEMENT_KEYS,
+  normalizeStatementSql,
   resetMainThreadBudget,
+  statementTimingSummary,
+  statementTimingTop,
   withinBudget,
   type BudgetViolation,
 } from "../src/main/junto/observability/main-thread-budget";
@@ -161,5 +165,96 @@ describe("the 4ms main-thread budget", () => {
 
     expect(() => noteSyncSpan("watched.operation", 10)).not.toThrow();
     expect(mainThreadBudgetViolations()).toHaveLength(1);
+  });
+});
+
+describe("the per-statement aggregate", () => {
+  const run = (operation: string, sql: string, rows = 0, ms = 0) =>
+    withinBudget(operation, () => {
+      if (ms > 0) block(ms);
+      return Array.from({ length: rows }, (_, i) => i);
+    }, undefined, true, sql);
+
+  it("records nothing, and keeps nothing, until it is armed", () => {
+    armMainThreadBudget({ enabled: false, force: true });
+    run("state.read", "SELECT 1", 3);
+    expect(statementTimingTop()).toEqual([]);
+    expect(statementTimingSummary().keys).toBe(0);
+  });
+
+  it("counts a statement once however it is spaced and however long its IN list is", () => {
+    arm();
+    run("state.read", "SELECT id FROM t\n  WHERE id IN (?, ?, ?)", 3);
+    run("state.read", "SELECT id FROM t WHERE id IN (?,?,?,?,?)", 5);
+    run("state.read", "  SELECT id FROM t WHERE   id IN (?)", 1);
+
+    const top = statementTimingTop();
+    expect(top).toHaveLength(1);
+    expect(top[0]).toMatchObject({ operation: "state.read", sql: "SELECT id FROM t WHERE id IN (?*)", count: 3, rows: 9 });
+    expect(top[0]!.totalMs).toBeGreaterThanOrEqual(top[0]!.maxMs);
+  });
+
+  it("keeps a different operation, or a different statement, apart", () => {
+    arm();
+    run("state.read", "SELECT 1");
+    run("state.write", "SELECT 1");
+    run("state.read", "SELECT 2");
+    expect(statementTimingTop().map((row) => `${row.operation} ${row.sql}`).sort()).toEqual([
+      "state.read SELECT 1",
+      "state.read SELECT 2",
+      "state.write SELECT 1",
+    ]);
+  });
+
+  it("orders by total time, longest first, and tracks the longest single run", () => {
+    arm();
+    run("op", "fast", 0, 0);
+    run("op", "slow", 0, 3);
+    run("op", "slow", 0, 1);
+    const [first, second] = statementTimingTop();
+    expect(first?.sql).toBe("slow");
+    expect(first?.count).toBe(2);
+    expect(first!.maxMs).toBeGreaterThanOrEqual(3);
+    expect(first!.totalMs).toBeGreaterThanOrEqual(4);
+    expect(second?.sql).toBe("fast");
+  });
+
+  it("folds IN lists of host parameters and leaves a subquery alone", () => {
+    expect(normalizeStatementSql("a IN (?, ?2, :name, @n, $v) AND b in (?)")).toBe("a IN (?*) AND b IN (?*)");
+    expect(normalizeStatementSql("a IN (SELECT x FROM y)")).toBe("a IN (SELECT x FROM y)");
+    expect(normalizeStatementSql("x".repeat(300))).toHaveLength(100);
+  });
+
+  it("is bounded: past the cap, new statements are counted in one other row", () => {
+    arm();
+    for (let i = 0; i < MAX_STATEMENT_KEYS + 25; i += 1) run("op", `SELECT ${i}`);
+    run("op", "SELECT 0");
+
+    const all = statementTimingTop(10_000);
+    expect(statementTimingSummary().keys).toBe(MAX_STATEMENT_KEYS);
+    expect(all).toHaveLength(MAX_STATEMENT_KEYS + 1);
+    expect(all[all.length - 1]).toMatchObject({ operation: "(other)", count: 25 });
+    expect(all.find((row) => row.sql === "SELECT 0")?.count).toBe(2);
+  });
+
+  it("counts a statement that threw, with no rows, and still throws", () => {
+    arm();
+    expect(() => withinBudget("op", () => {
+      throw new Error("no such table");
+    }, undefined, true, "SELECT * FROM missing")).toThrow("no such table");
+    expect(statementTimingTop()[0]).toMatchObject({ sql: "SELECT * FROM missing", count: 1, rows: 0 });
+  });
+
+  it("records the statement before a strict violation throws", () => {
+    arm({ throwOnViolation: true });
+    expect(() => run("op", "SELECT slow", 0, MAIN_THREAD_BUDGET_MS + 3)).toThrow(MainThreadBudgetExceeded);
+    expect(statementTimingTop()[0]).toMatchObject({ sql: "SELECT slow", count: 1 });
+  });
+
+  it("starts again from nothing on reset", () => {
+    arm();
+    run("op", "SELECT 1");
+    resetMainThreadBudget();
+    expect(statementTimingTop()).toEqual([]);
   });
 });

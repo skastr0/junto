@@ -23,3 +23,4 @@ export {
   MAIN_THREAD_BUDGET_MS,
   armMainThreadBudget,
 } from "./main-thread-budget";
+export { startSqlTimingLog } from "./sql-timing-log";
