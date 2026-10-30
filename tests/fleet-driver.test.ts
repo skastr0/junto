@@ -1093,4 +1093,61 @@ describe("the fleet driver waits on an entry", () => {
     await wait.settled;
     expect(wait.answer()).toMatchObject({ landed: false, retryable: true, message: expect.stringMatching(/closed/) });
   });
+
+  /**
+   * The MacBook rules, judges a batch and runs its log on past it while the link is down; the mini takes over and
+   * commits a shorter history. Answers the MacBook's tail, the pair, and the link.
+   */
+  const lostTail = async () => {
+    const pair: Record<string, Seat> = {};
+    for (const id of [MACBOOK, SELF]) {
+      const store = await makeStore(id, [MACBOOK, SELF]);
+      pair[id] = { store, authority: await open(store, id), failures: [] };
+    }
+    const link = { up: true };
+    const up = () => link.up;
+    const macbook = pair[MACBOOK]!;
+    for (let round = 0; round < 30 && !macbook.authority.status().canCommit; round++) await tickPair(pair, [MACBOOK, SELF], up);
+    await macbook.store.runtime.runPromise(
+      Effect.flatMap(SqlClient.SqlClient, (sql) => sql`UPDATE canvases SET editor_installation_id = ${MACBOOK} WHERE canvas_name = ${CANVAS}`),
+    );
+    link.up = false;
+    await judged(macbook, createArtifact);
+    for (let seq = 2; seq <= 6; seq++) await macbook.store.runtime.runPromise(macbook.authority.propose({ kind: "structure.changed", seq, change: NO_CHANGE }));
+    const status = macbook.authority.status();
+    return { pair, link, up, tail: { index: status.lastIndex, term: status.term } };
+  };
+
+  it("fails retryable, at once, a wait registered after a later term cut its entry", async () => {
+    const { pair, link, up, tail } = await lostTail();
+    const macbook = pair[MACBOOK]!;
+    const mini = pair[SELF]!;
+    for (let round = 0; round < 30 && !mini.authority.status().canCommit; round++) await tickPair(pair, [MACBOOK, SELF], up);
+    await proposeOn(pair, SELF, 1, up);
+    link.up = true;
+    for (let round = 0; round < 10 && macbook.authority.status().commit < mini.authority.status().commit; round++) await tickPair(pair, [SELF, MACBOOK], up);
+    // The MacBook took the mini's shorter history: its tail is gone, and no term after its own appends it.
+    expect(macbook.authority.status().lastIndex).toBeLessThan(tail.index);
+    expect(macbook.authority.status().term).toBeGreaterThan(tail.term);
+    const wait = waitOn(macbook, tail);
+    await wait.settled;
+    expect(wait.answer()).toMatchObject({ landed: false, retryable: true, message: expect.stringMatching(/later term/) });
+    expect(macbook.failures).toEqual([]);
+  });
+
+  it("fails retryable a held wait whose entry never reached this machine once a later term writes over its index", async () => {
+    const { pair, up, tail } = await lostTail();
+    const mini = pair[SELF]!;
+    // The mini, cut off, waits on the MacBook's tail in the term that wrote it: it may yet come, so it waits.
+    expect(mini.authority.status().term).toBe(tail.term);
+    const wait = waitOn(mini, tail);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(wait.answer()).toBeUndefined();
+    // The mini takes over: a later term appends only its own, so the tail never comes. Its first append writes
+    // at or below the tail's index, so the cut answers the wait before the term check would.
+    for (let round = 0; round < 30 && wait.answer() === undefined; round++) await tickPair(pair, [MACBOOK, SELF], up);
+    await wait.settled;
+    expect(mini.authority.status().term).toBeGreaterThan(tail.term);
+    expect(wait.answer()).toMatchObject({ landed: false, retryable: true, message: expect.stringMatching(/cut|later term/) });
+  });
 });

@@ -673,6 +673,31 @@ const openClaimed = (
           cause: ready.revoked.map((entry) => entry.index),
         })));
 
+    /** The term of the entry the log holds at `index`, or undefined when it holds none there. */
+    const termAt = (index: number) =>
+      Effect.map(
+        sql<{ term: number }>`SELECT term FROM canvas_log WHERE canvas_name = ${canvasName} AND log_index = ${index}`,
+        ([row]) => row?.term,
+      );
+
+    /**
+     * When the term moves past a wait's own, an entry the log does not hold in
+     * that term never comes: a later term appends only its own. Those waits
+     * fail retryable; one the log still holds in its term may yet commit.
+     */
+    let termSeen = node.status().term;
+    const termMoved = Effect.suspend(() => {
+      const term = node.status().term;
+      if (term === termSeen) return Effect.void;
+      termSeen = term;
+      return Effect.forEach(waiters.filter((waiter) => waiter.term < term), (waiter) =>
+        Effect.map(termAt(waiter.index), (held) => (held === waiter.term ? undefined : waiter)),
+      ).pipe(Effect.map((gone) => {
+        const ended = new Set(gone.filter((waiter) => waiter !== undefined));
+        answerWaiters((waiter) => !ended.has(waiter), (waiter) => lost(waiter.index, waiter.term, "is not in the log, and a later term has begun"));
+      }));
+    });
+
     /** Drain the core: persist, hand back the messages to send, then apply what committed. */
     const drain = Effect.suspend(() => {
       if (broken !== undefined) return Effect.fail(broken);
@@ -683,6 +708,8 @@ const openClaimed = (
         if (!isEmpty(ready)) yield* durably(writeReady(ready));
         if (ready.committed.length > 0 && options.beforeApply !== undefined) yield* options.beforeApply;
         yield* applyCommitted(ready);
+        // A wait whose term has passed is answered now; a log that cannot be read leaves it waiting.
+        yield* termMoved.pipe(Effect.catch(() => Effect.void));
         return ready.messages;
       }).pipe(Effect.mapError(breaks));
     });
@@ -804,14 +831,18 @@ const openClaimed = (
           if (broken !== undefined) return yield* Effect.fail(lost(entry.index, entry.term, "is unknown: its authority must be opened again"));
           const consensus = yield* readConsensus(sql, canvasName);
           if (entry.index > (consensus?.applied_index ?? 0)) {
+            // Cut before it was waited on: a later term never appends it, so waiting would never end.
+            if (node.status().term > entry.term && (yield* termAt(entry.index)) !== entry.term) {
+              return Effect.fail(lost(entry.index, entry.term, "is not in the log, and a later term has begun"));
+            }
             const done = Deferred.makeUnsafe<void, FleetDriverError>();
             waiters.push({ index: entry.index, term: entry.term, done });
             return Deferred.await(done);
           }
-          const [row] = yield* sql<{ term: number }>`SELECT term FROM canvas_log WHERE canvas_name = ${canvasName} AND log_index = ${entry.index}`;
-          return row?.term === entry.term
+          const term = yield* termAt(entry.index);
+          return term === entry.term
             ? Effect.void
-            : Effect.fail(lost(entry.index, entry.term, row === undefined ? "is no longer in the log" : "was replaced by another term's entry"));
+            : Effect.fail(lost(entry.index, entry.term, term === undefined ? "is no longer in the log" : "was replaced by another term's entry"));
         }).pipe(Effect.mapError((cause) => (cause instanceof FleetDriverError ? cause : failed(`the log of ${canvasName} could not be read`)(cause))))),
         // Awaited outside the lock: the step that commits it takes the lock.
         (wait) => wait,
