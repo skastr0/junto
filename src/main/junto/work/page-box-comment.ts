@@ -229,29 +229,17 @@ export type SeatPageBoxRequest = {
   readonly signal?: AbortSignal;
 };
 
-/**
- * A seat comments on a box of the page its grant opened. Main takes the shot
- * as the lease's owner (the operation gate refuses it while the operator
- * holds the page), stages it under the seat's own stage owner, and posts it
- * on the one comment path as the seat, which judges the seat's reach to the
- * page. A seat on a paused canvas does not act. The stage is let go after,
- * whatever happened: a posted shot moved to the comment.
- *
- * Only on the machine that edits the canvas: pages live there, and only a
- * seat with a live grant there captures (plan 06). A seat elsewhere reads
- * the crop through the thread (page-shot-seat.ts); its shot never moves.
- */
-export const postSeatPageBox = (
-  sessions: Pick<BrowserSessionService, "captureBoxForOwner">,
-  request: SeatPageBoxRequest,
-): Effect.Effect<
-  BrowserResult<{ readonly messageId: string; readonly threadId: string }>,
-  never,
-  ModelService | MachineRepository | PausePlane | SqlClient.SqlClient
-> =>
+/** The seat's box comment without the abort signal: what crosses to the core. */
+export type SeatPageBoxTarget = Omit<SeatPageBoxRequest, "signal">;
+/** The shot main took for a seat's box comment. */
+export type SeatPageShot = Extract<Awaited<ReturnType<BrowserSessionService["captureBoxForOwner"]>>, { readonly ok: true }>["data"];
+type SeatPageBoxRefusal = { readonly ok: false; readonly code: "invalid" | "forbidden" | "failed"; readonly message: string };
+
+/** Where a seat's box comment goes and who writes it, or why it does not. */
+const placeSeatPageBox = (request: SeatPageBoxTarget) =>
   Effect.gen(function* () {
     const ref = parseNodeRef(request.pageRef);
-    if (!ref.ok) return { ok: false, code: "invalid", message: "That page cannot be named." } as const;
+    if (!ref.ok) return { ok: false, code: "invalid", message: "That page cannot be named." } satisfies SeatPageBoxRefusal;
     const { canvasName, nodeId } = ref.value;
     // No editor named is this machine's own canvas, as the model reads it.
     const placed = yield* Effect.flatMap(SqlClient.SqlClient, (sql) =>
@@ -260,43 +248,64 @@ export const postSeatPageBox = (
         FROM canvases WHERE canvas_name = ${canvasName}`,
     ).pipe(Effect.map((rows) => rows[0]), Effect.orElseSucceed(() => undefined));
     if (placed === undefined || (placed.editor !== null && placed.editor !== placed.self)) {
-      return { ok: false, code: "forbidden", message: "a seat comments on a page box only on the machine that edits the canvas" } as const;
+      return { ok: false, code: "forbidden", message: "a seat comments on a page box only on the machine that edits the canvas" } satisfies SeatPageBoxRefusal;
     }
     if (!(yield* PausePlane).stateFor(canvasName).playing) {
-      return { ok: false, code: "forbidden", message: "This canvas is paused: a seat comments when the operator plays it." } as const;
+      return { ok: false, code: "forbidden", message: "This canvas is paused: a seat comments when the operator plays it." } satisfies SeatPageBoxRefusal;
     }
     const canvas = yield* Effect.flatMap(ModelService, (model) => model.canvas(canvasName)).pipe(Effect.result);
-    if (canvas._tag === "Failure") return { ok: false, code: "failed", message: "The canvas could not be read." } as const;
+    if (canvas._tag === "Failure") return { ok: false, code: "failed", message: "The canvas could not be read." } satisfies SeatPageBoxRefusal;
     const seat = canvas.success.nodes.get(asNodeId(request.seatNodeId));
-    if (seat?.kind !== "agent") return { ok: false, code: "forbidden", message: "This grant's seat is not on the canvas." } as const;
+    if (seat?.kind !== "agent") return { ok: false, code: "forbidden", message: "This grant's seat is not on the canvas." } satisfies SeatPageBoxRefusal;
     const installation = yield* Effect.flatMap(MachineRepository, (machines) => machines.installationId).pipe(Effect.result);
-    if (installation._tag === "Failure") return { ok: false, code: "failed", message: "This machine has no installation id yet." } as const;
-    const shot = yield* Effect.promise(() => sessions.captureBoxForOwner(request.owner, request.sessionId, request.rect, request.signal));
-    if (!shot.ok) return shot;
-    if (pageBoxUrlOf(shot.data.url) === undefined) return { ok: false, code: "invalid", message: "This page's address cannot be named on a comment." } as const;
+    if (installation._tag === "Failure") return { ok: false, code: "failed", message: "This machine has no installation id yet." } satisfies SeatPageBoxRefusal;
+    return { ok: true, canvasName, nodeId, canvas: canvas.success, seat, installation: installation.success } as const;
+  });
+
+/** The core's check before main takes a seat's shot: the refusal, or go. */
+export const checkSeatPageBox = (request: SeatPageBoxTarget) =>
+  Effect.map(placeSeatPageBox(request), (placed): SeatPageBoxRefusal | { readonly ok: true } => (placed.ok ? { ok: true } : placed));
+
+/**
+ * The core's half after the shot: checked again, since the canvas may have
+ * moved while main captured, then staged and posted as the seat.
+ */
+export const postSeatPageShot = (
+  request: SeatPageBoxTarget,
+  shot: SeatPageShot,
+): Effect.Effect<
+  BrowserResult<{ readonly messageId: string; readonly threadId: string }>,
+  never,
+  ModelService | MachineRepository | PausePlane | SqlClient.SqlClient
+> =>
+  Effect.gen(function* () {
+    const placed = yield* placeSeatPageBox(request);
+    if (!placed.ok) return placed;
+    const { canvasName, nodeId, canvas, seat, installation } = placed;
+    if (pageBoxUrlOf(shot.url) === undefined) return { ok: false, code: "invalid", message: "This page's address cannot be named on a comment." } as const;
     const content = yield* Effect.serviceOption(ContentService);
     if (Option.isNone(content)) return { ok: false, code: "failed", message: "The content store is unavailable." } as const;
     const stager = { canvasName, nodeId: request.seatNodeId };
     const owner = contentStageOwner(stager, ulid());
-    const put = yield* Effect.result(content.value.put({ source: shot.data.png, mediaType: "image/png", owner }));
+    const put = yield* Effect.result(content.value.put({ source: shot.png, mediaType: "image/png", owner }));
     if (put._tag === "Failure") return { ok: false, code: "failed", message: "The shot could not be stored." } as const;
     const staged: StagedPageShot = {
       ref: { sha256: put.success.ref.sha256, byteLength: put.success.ref.byteLength },
       stager,
-      url: shot.data.url,
-      scroll: shot.data.scroll,
-      rect: shot.data.rect,
+      url: shot.url,
+      scroll: shot.scroll,
+      rect: shot.rect,
     };
     const posted = yield* Effect.result(
       postSubjectComment(
         {
           text: request.text,
-          actor: { kind: "seat", seatId: deriveActorSeatId(installation.success, seat.bindingId), nodeId: asNodeId(request.seatNodeId) },
+          actor: { kind: "seat", seatId: deriveActorSeatId(installation, seat.bindingId), nodeId: asNodeId(request.seatNodeId) },
           opId: OpId.make(ulid()),
           subject: { kind: "page", nodeId: asNodeId(nodeId) },
-          anchor: { kind: "box", ...shot.data.rect },
+          anchor: { kind: "box", ...shot.rect },
         },
-        { canvas: canvas.success, canvasName, people: [], pageShot: () => Effect.succeed(staged) },
+        { canvas, canvasName, people: [], pageShot: () => Effect.succeed(staged) },
       ),
     );
     yield* release(owner);
@@ -308,4 +317,35 @@ export const postSeatPageBox = (
       : failure.type === "InputError" || failure.type === "UnknownTarget"
         ? { ok: false, code: "invalid", message: failure.message }
         : { ok: false, code: "failed", message: "The comment could not be written." };
+  });
+
+/**
+ * A seat comments on a box of the page its grant opened. Main takes the shot
+ * as the lease's owner (the operation gate refuses it while the operator
+ * holds the page), stages it under the seat's own stage owner, and posts it
+ * on the one comment path as the seat, which judges the seat's reach to the
+ * page. A seat on a paused canvas does not act. The stage is let go after,
+ * whatever happened: a posted shot moved to the comment.
+ *
+ * Only on the machine that edits the canvas: pages live there, and only a
+ * seat with a live grant there captures (plan 06). A seat elsewhere reads
+ * the crop through the thread (page-shot-seat.ts); its shot never moves.
+ *
+ * Main runs the same three steps across the core: check, capture, post.
+ */
+export const postSeatPageBox = (
+  sessions: Pick<BrowserSessionService, "captureBoxForOwner">,
+  request: SeatPageBoxRequest,
+): Effect.Effect<
+  BrowserResult<{ readonly messageId: string; readonly threadId: string }>,
+  never,
+  ModelService | MachineRepository | PausePlane | SqlClient.SqlClient
+> =>
+  Effect.gen(function* () {
+    const { signal, ...target } = request;
+    const checked = yield* checkSeatPageBox(target);
+    if (!checked.ok) return checked;
+    const shot = yield* Effect.promise(() => sessions.captureBoxForOwner(request.owner, request.sessionId, request.rect, signal));
+    if (!shot.ok) return shot;
+    return yield* postSeatPageShot(target, shot.data);
   });

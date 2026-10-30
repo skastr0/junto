@@ -42,6 +42,9 @@ import {
 import { appMenuTemplate } from "./junto/app-menu";
 import { appProcessBlocksAppExit, appProcessPlane, describeAppProcessStraggler } from "./junto/app-process-plane";
 import { AppRuntime, setMachineControlReadiness } from "./runtime";
+import { core } from "./core-process/main-client";
+import { subscribe as subscribeCore } from "./core-process/push";
+import { SETTINGS_CHANGED } from "./core-process/ops/main-index";
 import { MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail } from "./core-runtime";
 import { makeInventoryChannel } from "./junto/inventory/channel";
 import { makeNativeConfigChannel } from "./junto/inventory/native-channel";
@@ -49,7 +52,6 @@ import { makeSettingsChannel } from "./junto/settings/link-channel";
 import { MachineOwnerControl } from "./junto/hosts/machine-owner";
 import { AuthorityOwnerControl } from "./junto/hosts/authority-owner";
 import { MachineLink, type MachineLinkListener } from "./junto/link/service";
-import { AgentSignalRepository } from "./junto/signals/repository";
 import { raisedHands } from "./junto/signals/raised-hands";
 import { onAgentSignalChanged } from "./junto/signals/changes";
 import {
@@ -63,7 +65,6 @@ import {
 import { releaseDemoRuntimeIsolation } from "./junto/demo/runtime-isolation";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
 import { ModelService } from "./junto/model/service";
-import { ModelRecords } from "./junto/model/records";
 import { PausePlane } from "./junto/pause-plane";
 import { resolveControlHome } from "./junto/control-home";
 import { registerDemoIpcHandlers } from "./junto/demo/ipc";
@@ -116,7 +117,6 @@ import {
   makeNodeRefIngress,
 } from "./junto/node-ref-ingress";
 import type { NodeRefKey } from "@shared/node-ref";
-import { resolveNodeRef } from "./junto/node-ref-resolver";
 import {
   createQuitPreparationArbiter,
   createSignalQuitState,
@@ -144,7 +144,6 @@ import {
   QUIT_CONFIRM_ACCEPT_INDEX,
 } from "./junto/quit-live-work";
 import { mainAuthoringGate } from "./junto/main-authoring-gate";
-import { postSeatPageBox } from "./junto/work/page-box-comment";
 import {
   installTrustedRendererPermissionPolicy,
   installTrustedRendererProtocol,
@@ -162,14 +161,11 @@ import { makeFilesLinkChannel } from "./junto/files/link";
 import { makeFilesRemote } from "./junto/files/link-client";
 import { unboundYet } from "./junto/link/unbound";
 import { holdFilesRemote } from "./junto/files/remote-holder";
-import { carryFileThreads } from "./junto/work/file-thread-paths";
-import { ContentService } from "./junto/content/service";
 import {
   resolveTrustedRendererOrigin,
   type TrustedRendererOrigin,
 } from "@shared/trusted-renderer-origin";
 import { loadStationSupervisor } from "./junto/supervision/select";
-import { SettingsService } from "./junto/settings/service";
 import { installUpdateHostHooks } from "./junto/update";
 import { hostOperationsShutdown } from "./junto/hosts/shutdown";
 import { makeOperatorCoordinator } from "./junto/hosts/operator-coordinator";
@@ -298,11 +294,7 @@ app.on(
 );
 installBrowserEgressProxyAuth(app);
 
-const nodeRefIngress = makeNodeRefIngress((ref) =>
-  AppRuntime.runPromise(
-    Effect.flatMap(ModelService, (model) => resolveNodeRef(model, ref)),
-  ),
-);
+const nodeRefIngress = makeNodeRefIngress((ref) => core.call("model.resolveNodeRef", { ref }));
 
 let nodeRefOwnerReady = false;
 let pendingNodeRefUri: NodeRefKey | undefined;
@@ -1266,7 +1258,7 @@ const recoverRendererSurface = (
 const ensureSupervised = async (): Promise<boolean> => {
   if (!app.isPackaged) return true; // dev runs are never rerouted
   try {
-    const machine = (await AppRuntime.runPromise(Effect.flatMap(SettingsService, (settings) => settings.get))).machine;
+    const machine = (await core.call("settings.read", {})).machine;
     if (!machine.supervisedPreferred) return true;
   } catch { return true; }
   const supervisor = await loadStationSupervisor();
@@ -1408,13 +1400,11 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         showAppMenu();
       };
       showAppMenuWith(undefined);
-      void AppRuntime.runPromise(
-        Effect.gen(function* () {
-          const settings = yield* SettingsService;
-          showAppMenuWith(yield* settings.get);
-          settings.subscribe(showAppMenuWith);
-        }),
-      ).catch((cause: unknown) => {
+      subscribeCore(SETTINGS_CHANGED, (next) => showAppMenuWith(next as Settings));
+      void core.call("settings.read", {}).then((settings) => {
+        showAppMenuWith(settings);
+        return core.call("settings.watch", {});
+      }).catch((cause: unknown) => {
         console.error("[menu] stored shortcuts could not be read; the menu shows the defaults", cause);
       });
     }
@@ -1663,13 +1653,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // from the renderer and never exposes host paths in the URL.
     try {
       installContentProtocol(session.defaultSession.protocol, async (ref) => {
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const content = yield* ContentService;
-            return yield* content.openForRead(ref);
-          }),
-        );
-        return result;
+        return core.call("content.openForRead", { ref });
       }, (request) => remoteVideos.handle(request));
     } catch (error) {
       console.error("[content-protocol] failed to install:", error);
@@ -1684,9 +1668,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       // (0.11 F7): the service calls this after the filesystem change and
       // before it answers, and a failure is logged there, never fails the move.
       filesService ??= registerFilesIpc((ref, from, to) =>
-        AppRuntime.runPromise(
-          Effect.flatMap(SqlClient.SqlClient, (sql) => carryFileThreads(sql, ref.canvas, ref.node, from, to)),
-        ).then(() => undefined),
+        core.call("files.carryThreads", { canvasName: ref.canvas, nodeId: ref.node, from, to }),
       );
       const files = filesService;
       installFileProtocol(session.defaultSession.protocol, (node, path) => files.bytes(node, path));
@@ -1720,9 +1702,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       }
       // Hands already raised before this boot: agent → relay announce wires
       // watch them. Signal writes from here on are noted as they happen.
-      void AppRuntime.runPromise(
-        Effect.flatMap(AgentSignalRepository, (signals) => signals.listRaisedHands),
-      ).then(raisedHands.hydrate, (error: unknown) => {
+      void core.call("signals.raisedHands", {}).then(raisedHands.hydrate, (error: unknown) => {
         console.error("[signals] raised hands not loaded:", error);
       });
       workControl = await startWorkControlServer({
@@ -1808,12 +1788,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         async (composition) => {
           const listCanvasModels = async () => {
             try {
-              return await AppRuntime.runPromise(
-                Effect.flatMap(ModelService, (model) => Effect.gen(function* () {
-                  const names = yield* model.listCanvases();
-                  return yield* Effect.forEach(names, (name) => Effect.map(model.canvas(name), (doc) => ({ name, doc })));
-                })),
-              );
+              return await core.call("model.canvases", {});
             } catch (cause) {
               // No canvases means no edge grant: the read fails closed, and says why.
               console.error("[browser-automation] canvases could not be listed; edge grants refuse until they can", cause);
@@ -1825,9 +1800,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             resolvePageTarget: resolveBrowserPageTarget,
             listCanvasModels,
             machineName: () => composition.sessions.machineName(),
-            editsCanvas: (canvasName) => AppRuntime.runPromise(
-              Effect.flatMap(ModelRecords, (records) => records.editsCanvas(canvasName)),
-            ),
+            editsCanvas: (canvasName) => core.call("model.editsCanvas", { canvasName }),
             // Edge-delete (I10): same destroy path as capability terminate, but
             // keyed by (owner, page-ref) so sibling edges stay live.
             sessions: {
@@ -1870,9 +1843,15 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             canvasPlaying: (canvasName) => pausePlane.stateFor(canvasName).playing,
             // A seat's box comment, posted as the seat the grant names.
             postPageBoxComment: (input) =>
-              mainAuthoringGate.run("control.browser.box-comment", () =>
-                AppRuntime.runPromise(postSeatPageBox(composition.sessions, input)),
-              ),
+              // The core checks and posts; the shot is Electron's, so main takes it between.
+              mainAuthoringGate.run("control.browser.box-comment", async () => {
+                const { signal, ...request } = input;
+                const checked = await core.call("pageBox.check", request);
+                if (!checked.ok) return checked;
+                const shot = await composition.sessions.captureBoxForOwner(input.owner, input.sessionId, input.rect, signal);
+                if (!shot.ok) return shot;
+                return core.call("pageBox.post", { request, shot: shot.data });
+              }),
           });
           composition.bindControlShutdown(browserControl);
           registerBrowserIpcHandlers(composition.sessions);
