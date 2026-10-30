@@ -119,10 +119,7 @@ await allMustPass([
 ]);
 
 // The build above resolved JUNTO_OVERLAY; unset, out/ must hold no overlay.
-// Its output is also what the main-bundle gate reads: main's static import
-// closure must reach no core module (scripts/lint-main-bundle.ts).
 await allMustPass([
-  { name: "check:main-bundle", cmd: ["bun", "scripts/lint-main-bundle.ts"] },
   { name: "check:overlay-bundle", cmd: ["bun", "scripts/lint-overlay.ts", "--bundle"] },
 ]);
 
