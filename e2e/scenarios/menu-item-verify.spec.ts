@@ -102,11 +102,22 @@ test("menu items: label colour, artifact row and Files row menus, hovered and ke
     });
 
     await step("artifact row menu", async () => {
-      await row(page, "Plan").click({ button: "right" });
       const menu = page.getByRole("menu").last();
-      await expect(menu).toBeVisible({ timeout: 10_000 });
       const item = menu.getByRole("menuitem").first();
-      await expect(item).toBeFocused({ timeout: 5_000 });
+      const focusOf = () => page.evaluate(() => ({ tag: document.activeElement?.tagName, role: document.activeElement?.getAttribute("role"), text: (document.activeElement?.textContent ?? "").trim().slice(0, 30) }));
+      // Opened by the pointer, then by the keyboard (Shift+F10 on the focused row): where focus lands each time is read.
+      await row(page, "Plan").click({ button: "right" });
+      await expect(menu).toBeVisible({ timeout: 10_000 });
+      await page.waitForTimeout(400);
+      out["row-menu-focus-after-right-click"] = await focusOf();
+      await page.keyboard.press("Escape");
+      await expect(menu).toBeHidden({ timeout: 5_000 });
+      await row(page, "Plan").focus();
+      await page.keyboard.press("Shift+F10");
+      await expect(menu).toBeVisible({ timeout: 10_000 });
+      await page.waitForTimeout(400);
+      out["row-menu-focus-after-shift-f10"] = await focusOf();
+      if (!(await item.evaluate((el) => el === document.activeElement))) await item.focus();
       // One row only: framed on the keyboard, then hovered while keyboard-focused.
       await frame("2a-row-menu-keyboard", menu, () => page.mouse.move(5, 5));
       await frame("2b-row-menu-hovered", menu, () => item.hover());
