@@ -49,8 +49,23 @@ type HeadlessLine = {
   getCell: (x: number, cell?: HeadlessCell) => HeadlessCell | undefined;
 };
 
-/** One row as translateToString(true) reads it, with each faint cell a space. */
-const withoutFaint = (line: HeadlessLine, cols: number, cell?: HeadlessCell): string => {
+/**
+ * One row as translateToString(true) reads it, with each faint cell a space.
+ * Most rows have no faint cell, and such a row is its painted text: the walk
+ * asks each cell only whether it is faint, and spells the row out cell by
+ * cell only when one is.
+ */
+export const withoutFaint = (line: HeadlessLine, cols: number, painted: string, cell?: HeadlessCell): string => {
+  let faint = false;
+  for (let x = 0; x < cols; x++) {
+    const at = line.getCell(x, cell);
+    if (!at) break;
+    if (at.isDim()) {
+      faint = true;
+      break;
+    }
+  }
+  if (!faint) return painted.trimEnd();
   let out = "";
   for (let x = 0; x < cols; x++) {
     const at = line.getCell(x, cell);
@@ -853,7 +868,7 @@ export class SessionObserver {
         continue;
       }
       cell ??= line.getCell(0);
-      promptBoxWithoutFaint.push(withoutFaint(line, cols, cell));
+      promptBoxWithoutFaint.push(withoutFaint(line, cols, lines[i]!, cell));
     }
 
     const signals: ObserverSignals = {
