@@ -93,7 +93,13 @@ const stillStaged = (shot: Staged): Effect.Effect<boolean> =>
   );
 
 /** The page a session shows: its canvas and node. */
-const pageOf = (sessions: Pick<BrowserSessionService, "state">, sessionId: string) => {
+export type OperatorPage = { readonly canvasName: string; readonly nodeId: string };
+
+/** The shot of a box the operator drew, as the session took it. */
+export type DrawnPageShot = NonNullable<Extract<Awaited<ReturnType<BrowserSessionService["drawBox"]>>, { readonly ok: true }>["data"]>;
+
+/** The page a session shows, read where the session lives (main). */
+export const operatorPageOf = (sessions: Pick<BrowserSessionService, "state">, sessionId: string): OperatorPage | undefined => {
   const session = sessions.state(sessionId);
   if (!session.ok) return undefined;
   const ref = parseNodeRef(session.data.ref);
@@ -114,12 +120,24 @@ export const startOperatorPageBox = (
   sessionId: string,
 ): Effect.Effect<OperatorPageBoxDrawn> =>
   Effect.gen(function* () {
-    const page = pageOf(sessions, sessionId);
+    const page = operatorPageOf(sessions, sessionId);
     if (page === undefined) return refused("invalid", "That page is not open.");
     const drawn = yield* Effect.promise(() => sessions.drawBox(sessionId));
     if (!drawn.ok) return refused(drawn.code === "invalid" || drawn.code === "result_too_large" ? "invalid" : "failed", drawn.message);
     if (drawn.data === undefined) return { ok: true, data: { kind: "ended" } };
-    const shot = drawn.data;
+    return yield* stageOperatorPageBox(sessionId, page, drawn.data);
+  });
+
+/**
+ * Stage a drawn box's shot for the composer, where the content store is (the
+ * core); main draws it and hands the shot here.
+ */
+export const stageOperatorPageBox = (
+  sessionId: string,
+  page: OperatorPage,
+  shot: DrawnPageShot,
+): Effect.Effect<OperatorPageBoxDrawn> =>
+  Effect.gen(function* () {
     const url = pageBoxUrlOf(shot.url);
     const size = pngSize(shot.png);
     if (url === undefined || size === undefined) return refused("invalid", "This page's address cannot be named on a comment.");
@@ -160,13 +178,19 @@ export const postOperatorPageBox = (
   sessions: Pick<BrowserSessionService, "state">,
   request: { readonly sessionId: string; readonly shotId: string; readonly text: string },
 ): Effect.Effect<OperatorPageBoxCommented, never, ModelService> =>
+  Effect.suspend(() => postStagedPageBox(operatorPageOf(sessions, request.sessionId), request));
+
+/** The post itself, where the staged shot is (the core), for the page main read off the session. */
+export const postStagedPageBox = (
+  page: OperatorPage | undefined,
+  request: { readonly sessionId: string; readonly shotId: string; readonly text: string },
+): Effect.Effect<OperatorPageBoxCommented, never, ModelService> =>
   Effect.gen(function* () {
     const shot = staged.get(request.shotId);
     if (shot === undefined || shot.sessionId !== request.sessionId) {
       return refused("invalid", "That shot was already posted or dropped: draw the box again.");
     }
     if (shot.posting) return refused("invalid", "That comment is being posted.");
-    const page = pageOf(sessions, request.sessionId);
     if (page === undefined) {
       take(request.sessionId, request.shotId);
       yield* release(shot.owner);

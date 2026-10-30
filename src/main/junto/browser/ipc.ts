@@ -4,7 +4,6 @@ import type {
   MessageBoxOptions,
   WebContents,
 } from "electron";
-import { Effect } from "effect";
 import {
   IPC_CHANNELS,
   type BrowserOpenInput,
@@ -20,11 +19,9 @@ import {
   parseBrowserSurfaceBounds,
 } from "@shared/browser-limits";
 import type { BrowserSessionService } from "./sessions";
-import { AppRuntime } from "../../runtime";
-import { ModelService } from "../model/service";
-import { SettingsService } from "../settings/service";
-import { makePageTargetResolver, type PageTargetResolver } from "./page-target";
-import { discardOperatorPageBox, postOperatorPageBox, releaseStagedShots, startOperatorPageBox } from "../work/page-box-comment";
+import { core } from "../../core-process/main-client";
+import type { PageTargetResolver } from "./page-target";
+import { operatorPageOf, type OperatorPageBoxDrawn } from "../work/page-box-comment";
 import { mainAuthoringGate } from "../main-authoring-gate";
 
 /** The most of a box comment's text the chrome may send; the writer bounds it again. */
@@ -33,12 +30,7 @@ const BOX_COMMENT_TEXT_MAX = 64 * 1024;
 /** A staged shot's id as main minted it: a ULID. */
 const isShotId = (value: unknown): value is string => typeof value === "string" && /^[0-9A-HJKMNP-TV-Z]{26}$/u.test(value);
 
-export const resolveBrowserPageTarget: PageTargetResolver = (ref) =>
-  AppRuntime.runPromise(
-    Effect.flatMap(ModelService, (canvases) =>
-      Effect.promise(() => makePageTargetResolver(canvases)(ref)),
-    ),
-  );
+export const resolveBrowserPageTarget: PageTargetResolver = (ref) => core.call("browser.pageTarget", { ref });
 
 const invalidArguments = (message = "unexpected arguments") => ({
   ok: false as const,
@@ -128,18 +120,7 @@ export const registerBrowserIpc = (
 ): void => {
   // Settings.browser is the sole durable SoT for pool limits. Installation is
   // intentionally delayed until cold profile recovery admits browser IPC.
-  browserSessions.setPoolLimitsProvider(() =>
-    AppRuntime.runPromise(
-      Effect.gen(function* () {
-        const settings = yield* SettingsService;
-        const doc = yield* settings.get;
-        return {
-          maxVisibleSurfaces: doc.browser.maxVisibleSurfaces,
-          maxWarmSessions: doc.browser.maxWarmSessions,
-        };
-      }),
-    ),
-  );
+  browserSessions.setPoolLimitsProvider(() => core.call("browser.poolLimits", {}));
   browserSessions.setSink((session) => {
     for (const contents of webContentsGetter()) {
       contents.send(IPC_CHANNELS.browserSessionChanged, session);
@@ -159,7 +140,7 @@ export const registerBrowserIpc = (
   browserSessions.subscribeSessionChanges((session) => {
     if (session.state !== "destroyed") return;
     void browserSessions
-      .retainUiIngress("box-release", AppRuntime.runPromise(releaseStagedShots(session.sessionId)))
+      .retainUiIngress("box-release", core.call("pageBox.releaseSession", { sessionId: session.sessionId }))
       .catch(() => undefined);
   });
 
@@ -186,21 +167,28 @@ export const registerBrowserIpc = (
   onPage(IPC_CHANNELS.browserRelease, [1], (sessionId) => browserSessions.release(sessionId));
   // A box comment (B7): the operator draws, main stages the shot it took,
   // and the post carries exactly that shot. Bytes only ever leave main.
-  onPage(IPC_CHANNELS.browserBoxStart, [1], (sessionId) =>
-    AppRuntime.runPromise(startOperatorPageBox(browserSessions, sessionId)),
-  );
+  onPage(IPC_CHANNELS.browserBoxStart, [1], async (sessionId): Promise<OperatorPageBoxDrawn> => {
+    const page = operatorPageOf(browserSessions, sessionId);
+    if (page === undefined) return { ok: false, code: "invalid", message: "That page is not open." };
+    const drawn = await browserSessions.drawBox(sessionId);
+    if (!drawn.ok) {
+      return { ok: false, code: drawn.code === "invalid" || drawn.code === "result_too_large" ? "invalid" : "failed", message: drawn.message };
+    }
+    if (drawn.data === undefined) return { ok: true, data: { kind: "ended" } };
+    return core.call("pageBox.stage", { sessionId, page, shot: drawn.data });
+  });
   onPage(IPC_CHANNELS.browserBoxPost, [3], (sessionId, [shotId, text]) => {
     if (!isShotId(shotId)) return invalidArguments("a staged shot's id is required");
     if (typeof text !== "string" || text.trim() === "" || text.length > BOX_COMMENT_TEXT_MAX) {
       return invalidArguments("a comment's text is required");
     }
     return mainAuthoringGate.run("ipc.browser.box-comment", () =>
-      AppRuntime.runPromise(postOperatorPageBox(browserSessions, { sessionId, shotId, text })),
+      core.call("pageBox.operatorPost", { page: operatorPageOf(browserSessions, sessionId), sessionId, shotId, text }),
     );
   });
   onPage(IPC_CHANNELS.browserBoxDiscard, [2], async (sessionId, [shotId]) => {
     if (!isShotId(shotId)) return invalidArguments("a staged shot's id is required");
-    await AppRuntime.runPromise(discardOperatorPageBox(sessionId, shotId));
+    await core.call("pageBox.discard", { sessionId, shotId });
     return { ok: true as const, data: null };
   });
   onPage(IPC_CHANNELS.browserGoto, [2, 3], (sessionId, [url, tab]) => {

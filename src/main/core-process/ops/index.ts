@@ -12,6 +12,7 @@ import "./companion";
 import "./overseer-live";
 import "./ipc-threads";
 import "./ipc-settings";
+import "./ipc-browser";
 import "./ipc-model";
 import "./ipc-work";
 import "./ipc-status";
