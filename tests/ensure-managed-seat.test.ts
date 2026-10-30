@@ -13,9 +13,12 @@ import {
   AUTO_RESTART_BACKOFF_MS,
   AUTO_RESTART_MAX,
   ensureManagedSeatRunning,
+  isManagedSeatRuntimeLocal,
   managedSeatWakeDecision,
   resetAutoRestartBudgetsForTest,
 } from "../src/main/junto/term/ensure-managed-seat";
+import { makeSeatCredentialRegistry } from "../src/main/junto/work/seat-credentials";
+import { SEAT_CREDENTIAL_PREFIX } from "../src/shared/work-control";
 
 const base = {
   stopping: false,
@@ -265,5 +268,57 @@ describe("managed-seat occupation", () => {
       provision.mockRestore();
       get.mockRestore();
     }
+  });
+});
+
+describe("a keeper's foreign seat", () => {
+  /**
+   * A keeper holds every seat whole (0.11/06 F3). A foreign row is a peer in
+   * every respect but storage: never started, never minted a credential,
+   * never admitted as a caller — the start path and credential admission are
+   * where that is proved.
+   */
+  const keeperInstallation = Schema.decodeUnknownSync(InstallationId)("install-keeper");
+  const homeInstallation = Schema.decodeUnknownSync(InstallationId)("install-home");
+  const foreign = Schema.decodeUnknownSync(Node)({
+    id: "lead", kind: "agent", x: 0, y: 0, width: 240, height: 100, z: 0,
+    label: "lead", agentKey: "box-a:codex", host: "box-a",
+    bindingId: "binding-lead", harness: "codex", overseer: false,
+  }) as Seat;
+  const homeSeatId = deriveActorSeatId(homeInstallation, "binding-lead");
+
+  it("is not local on the keeper's host name, nor on the foreign host field alone", () => {
+    const authority = {
+      actor: { seatId: homeSeatId, canvasName: "factory", nodeId: "lead" },
+      installationId: keeperInstallation,
+      hostId: "box-b",
+    };
+    expect(isManagedSeatRuntimeLocal("factory", foreign, authority)).toBe(false);
+    // Even presented on the foreign host name, the seat id this installation
+    // derives is not the one its home installation derives.
+    expect(isManagedSeatRuntimeLocal("factory", foreign, { ...authority, hostId: "box-a" })).toBe(false);
+    expect(deriveActorSeatId(keeperInstallation, "binding-lead")).not.toBe(homeSeatId);
+  });
+
+  it("never reaches spawn, so no credential exists for it on this machine", async () => {
+    const authority = {
+      actor: { seatId: homeSeatId, canvasName: "factory", nodeId: "lead" },
+      installationId: keeperInstallation,
+      hostId: "box-b",
+    };
+    const occupy = vi.fn((_spec: ActorOccupySpec) => Effect.succeed(runningSummary));
+    const actorSeatOccupy = ActorSeatOccupy.of({
+      occupy,
+      occupancy: () => Effect.die(new Error("unexpected occupancy call")),
+    });
+    expect(
+      await Effect.runPromise(
+        ensureManagedSeatRunning("factory", foreign, authority, actorSeatOccupy),
+      ),
+    ).toBe(false);
+    expect(occupy).not.toHaveBeenCalled();
+    // Credential admission: this machine's registry holds nothing for a seat
+    // it never spawned, so nothing it presents can admit as one.
+    expect(makeSeatCredentialRegistry().lookup(`${SEAT_CREDENTIAL_PREFIX}forged`)).toEqual({ status: "unknown" });
   });
 });

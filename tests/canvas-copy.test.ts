@@ -10,6 +10,7 @@ import {
 } from "../src/shared/canvas-copy";
 import { productNodeKindEnabled } from "../src/shared/features";
 import { InstallationId } from "../src/shared/installation-id";
+import { mergeRegionEnvironment, planRegionEnvironment } from "../src/shared/region-environment";
 import { asCanvasName, asNodeId, type Node, type Region, type Wire } from "../src/shared/model";
 import { files, page, seat as seatNode, wire } from "./support/model-nodes";
 
@@ -94,7 +95,7 @@ const source: CanvasCopySource = {
 };
 
 const cut = (): CanvasCopy => {
-  const result = exportCanvasCopy(source, { installationId: MINI, machineName: "mini" });
+  const result = exportCanvasCopy(source, { installationId: MINI, machineName: "mini" }, "cut");
   if (!result.ok) throw new Error(result.refusal.reason);
   return result.copy;
 };
@@ -184,7 +185,7 @@ describe("a canvas cut for one machine", () => {
       { automationId: ItemId.make("01M629AAAAAAAAAAAAAAAAAAAA"), nodeId: asNodeId("routines"), machine: "stranger" as never },
       { automationId: ItemId.make("01M629BBBBBBBBBBBBBBBBBBBB"), nodeId: asNodeId("routines"), machine: "mini" as never },
     ];
-    const cut = exportCanvasCopy({ ...source, automations }, { installationId: id("stranger"), machineName: "stranger" });
+    const cut = exportCanvasCopy({ ...source, automations }, { installationId: id("stranger"), machineName: "stranger" }, "cut");
     expect(cut.ok).toBe(true);
     if (!cut.ok) return;
     expect(cut.copy.seats).toEqual([]);
@@ -192,16 +193,16 @@ describe("a canvas cut for one machine", () => {
   });
 
   it("is refused for the editing machine, for a machine with no seat, and while a row names no machine", () => {
-    expect(exportCanvasCopy(source, { installationId: EDITOR, machineName: "macbook" })).toEqual({
+    expect(exportCanvasCopy(source, { installationId: EDITOR, machineName: "macbook" }, "cut")).toEqual({
       ok: false,
       refusal: { reason: "the-editing-machine-holds-the-canvas" },
     });
-    expect(exportCanvasCopy(source, { installationId: id("stranger"), machineName: "stranger" })).toEqual({
+    expect(exportCanvasCopy(source, { installationId: id("stranger"), machineName: "stranger" }, "cut")).toEqual({
       ok: false,
       refusal: { reason: "no-seat-or-automation-on-that-machine" },
     });
     const unnamed = { ...source, nodes: [...nodes, seat("stray", "local", { x: 50, y: 300 })] };
-    expect(exportCanvasCopy(unnamed, { installationId: MINI, machineName: "mini" })).toEqual({
+    expect(exportCanvasCopy(unnamed, { installationId: MINI, machineName: "mini" }, "cut")).toEqual({
       ok: false,
       refusal: { reason: "a-row-names-no-machine", nodeId: "stray" },
     });
@@ -209,12 +210,12 @@ describe("a canvas cut for one machine", () => {
       ...source,
       nodes: nodes.map((node) => (node.id === "private" ? { ...node, defaults: { paths: { local: "/tmp" } } } as Node : node)),
     };
-    expect(exportCanvasCopy(unnamedFolder, { installationId: MINI, machineName: "mini" })).toMatchObject({
+    expect(exportCanvasCopy(unnamedFolder, { installationId: MINI, machineName: "mini" }, "cut")).toMatchObject({
       ok: false,
       refusal: { reason: "a-row-names-no-machine", nodeId: "private" },
     });
     const unnamedFiles = { ...source, nodes: [...nodes, files("stray-folder", { host: "local" as never })] };
-    expect(exportCanvasCopy(unnamedFiles, { installationId: MINI, machineName: "mini" })).toEqual({
+    expect(exportCanvasCopy(unnamedFiles, { installationId: MINI, machineName: "mini" }, "cut")).toEqual({
       ok: false,
       refusal: { reason: "a-row-names-no-machine", nodeId: "stray-folder" },
     });
@@ -266,7 +267,7 @@ describe("each kind, cut for each machine", () => {
     seatIdOf: (node) => seatId(node.id === "lead" ? "1" : node.id === "peer" ? "2" : node.id === "solo" ? "3" : "4"),
   };
   const cutFor = (installationId: typeof MINI, machineName: string): CanvasCopy => {
-    const result = exportCanvasCopy(everything, { installationId, machineName });
+    const result = exportCanvasCopy(everything, { installationId, machineName }, "cut");
     if (!result.ok) throw new Error(result.refusal.reason);
     return result.copy;
   };
@@ -383,6 +384,140 @@ describe("each kind, cut for each machine", () => {
       ...everything,
       nodes: everything.nodes.map((node) => (node.id === "browser" ? ({ ...node, host: "local" } as Node) : node)),
     };
-    expect(exportCanvasCopy(unnamedPage, { installationId: MINI, machineName: "mini" }).ok).toBe(true);
+    expect(exportCanvasCopy(unnamedPage, { installationId: MINI, machineName: "mini" }, "cut").ok).toBe(true);
+  });
+});
+
+/**
+ * A machine on the canvas's committed authority list is a keeper (0.11/06 F3):
+ * its copy is the canvas the way the editing machine holds it — every seat,
+ * terminal, region and note whole, every wire, every seat's guidance, every
+ * reference — so it can take over and recut for anyone. What never crosses is
+ * the same in both modes: no resolved secret value, no credential or session
+ * pin, and no stub's path, address or host.
+ */
+describe("a canvas kept whole for a listed machine", () => {
+  const KEEPER = id("keeper-installation");
+  const keptFor = (installationId: InstallationId, machineName: string, over: Partial<CanvasCopySource> = {}): CanvasCopy => {
+    const result = exportCanvasCopy({ ...source, ...over }, { installationId, machineName }, "keeper");
+    if (!result.ok) throw new Error(result.refusal.reason);
+    return result.copy;
+  };
+  const kept = (over: Partial<CanvasCopySource> = {}): CanvasCopy => keptFor(KEEPER, "keeper", over);
+
+  it("is owed to a listed machine with no seat or automation on it, and decodes as written", () => {
+    const copy = kept();
+    expect(copy).toMatchObject({ canvasName: "factory", canvasId: "canvas-factory", seq: 41, editor: EDITOR, target: KEEPER, playing: true });
+    expect(Result.isSuccess(decodeCanvasCopy(JSON.parse(JSON.stringify(copy))))).toBe(true);
+    // The same target, unlisted, is still refused.
+    expect(exportCanvasCopy(source, { installationId: KEEPER, machineName: "keeper" }, "cut")).toEqual({
+      ok: false,
+      refusal: { reason: "no-seat-or-automation-on-that-machine" },
+    });
+  });
+
+  it("holds every seat and terminal whole, and no seat as a peer", () => {
+    const copy = kept();
+    expect(copy.seats).toEqual(nodes.filter((node) => node.kind === "agent"));
+    expect(copy.peers).toEqual([]);
+    expect(copy.terminals).toEqual(nodes.filter((node) => node.kind === "terminal"));
+    const sent = JSON.stringify(copy);
+    for (const full of ["binding-lead", "binding-solo", "binding-macbook-shell", "macbook:claude"]) {
+      expect(sent).toContain(full);
+    }
+  });
+
+  it("holds every region whole: the private parts, every machine's paths, every environment source", () => {
+    const copy = kept();
+    expect(copy.regions).toEqual(nodes.filter((node) => node.kind === "region"));
+    const sent = JSON.stringify(copy);
+    for (const full of [
+      "nobody on the mini",
+      "never-sent",
+      "/Users/op/junto",
+      "EDITOR_ONLY",
+      "sunset.png",
+      "example.com",
+      "token-1",
+    ]) {
+      expect(sent).toContain(full);
+    }
+  });
+
+  it("carries a region secret and a vault reference, never a resolved value", () => {
+    const copy = kept({
+      nodes: nodes.map((node) =>
+        node.id === "remote"
+          ? ({
+              ...node,
+              environment: {
+                vault: { backend: "onepassword", vault: "corp" },
+                sources: [
+                  { id: "s1", kind: "secret", name: "TOKEN", secretId: "token-1" },
+                  { id: "s2", kind: "onepassword", name: "DB", ref: "op://corp/db/password" },
+                  { id: "s3", kind: "envFile", path: "/Users/op/.env.junto" },
+                  { id: "s4", kind: "command", name: "ISSUER", argv: ["junto-secret", "issuer"] },
+                ],
+              },
+            } as Node)
+          : node,
+      ),
+    });
+    const remote = copy.regions.find((held) => held.id === "remote")!;
+    // What crosses is the authored row, field for field: the references the
+    // keeper resolves against its own stores, and nothing resolved.
+    expect(remote.environment?.sources).toEqual([
+      { id: "s1", kind: "secret", name: "TOKEN", secretId: "token-1" },
+      { id: "s2", kind: "onepassword", name: "DB", ref: "op://corp/db/password" },
+      { id: "s3", kind: "envFile", path: "/Users/op/.env.junto" },
+      { id: "s4", kind: "command", name: "ISSUER", argv: ["junto-secret", "issuer"] },
+    ]);
+  });
+
+  it("holds every note, every wire, every seat's guidance and every reference", () => {
+    const copy = kept();
+    expect(copy.notes).toEqual(nodes.filter((node) => node.kind === "note"));
+    expect(copy.wires).toEqual(wires);
+    expect(copy.guidance).toEqual([
+      { nodeId: "lead", soul: "The lead's soul.", instructions: "The lead's instructions." },
+      { nodeId: "peer", soul: "The peer's soul." },
+    ]);
+    expect(copy.references.map((reference) => reference.name)).toEqual(["style", "runbook", "secrets-policy"]);
+    expect(JSON.stringify(copy)).toContain("written by the operator");
+  });
+
+  it("is still refused for the editing machine", () => {
+    expect(exportCanvasCopy(source, { installationId: EDITOR, machineName: "macbook" }, "keeper")).toEqual({
+      ok: false,
+      refusal: { reason: "the-editing-machine-holds-the-canvas" },
+    });
+  });
+
+  it("plans a skipped host, never the value, for its own seat where a source names another machine", () => {
+    const copy = keptFor(MINI, "mini");
+    const doc = {
+      name: asCanvasName("factory"),
+      seq: copy.seq,
+      nodes: new Map<Node["id"], Node>([
+        ...copy.regions.map((region) => [region.id, region] as const),
+        ...copy.seats.map((seat) => [seat.id, seat] as const),
+      ]),
+      wires: new Map(copy.wires.map((kept) => [kept.id, kept])),
+    };
+    // The keeper's own seat resolves for this machine: a source that names the
+    // macbook stays restricted to it even though its row now sits here whole.
+    const plan = planRegionEnvironment(doc, { seat: "peer" }, "mini");
+    expect(plan.sources.find((planned) => planned.source.id === "macbook-only")?.skippedHost).toBe(true);
+    const outcomes = new Map(
+      plan.sources
+        .filter((planned) => !planned.skippedHost)
+        .map((planned, index) => [planned.key, { status: "ok" as const, values: { [`RESOLVED_${index}`]: "here" } }]),
+    );
+    const merged = mergeRegionEnvironment(plan, outcomes);
+    expect(merged.report.find((entry) => entry.sourceId === "macbook-only")?.status).toBe("skipped-host");
+    // Other sources resolved into the env; the restricted one contributed nothing.
+    expect(Object.values(merged.env)).toContain("here");
+    expect("EDITOR_ONLY" in merged.env).toBe(false);
+    expect(Object.values(merged.env)).not.toContain("x");
   });
 });
