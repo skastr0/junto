@@ -12,10 +12,8 @@
  */
 import type { IpcMain } from "electron";
 import { IPC_CHANNELS, type ViewStateApplyResult } from "@shared/ipc";
-import type { ViewStateReload } from "@shared/view-state";
 import { core } from "../../core-process/main-client";
 import { subscribe as onCorePush } from "../../core-process/push";
-import { subscribeViewStateChanges } from "./changes";
 
 export const registerViewStateIpc = (
   ipc: Pick<IpcMain, "handle">,
@@ -25,11 +23,6 @@ export const registerViewStateIpc = (
 
   // The core publishes each committed write; every window reads it as it lands.
   onCorePush(IPC_CHANNELS.viewStateChanged, (change) => broadcast(IPC_CHANNELS.viewStateChanged, change));
-
-  // A node or canvas delete took rows in its transaction; every window reads again.
-  subscribeViewStateChanges(() => {
-    broadcast(IPC_CHANNELS.viewStateChanged, { area: "reload" } satisfies ViewStateReload);
-  });
 
   ipc.handle(IPC_CHANNELS.viewStateApply, (_event, raw: unknown): Promise<ViewStateApplyResult> =>
     core.call("ipc.viewState.apply", { input: raw }),

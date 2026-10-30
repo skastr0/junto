@@ -21,9 +21,27 @@ const channelValue = (token: string, declared: ReadonlyMap<string, string>): str
   return bare === null ? undefined : declared.get(bare[1]!);
 };
 
-it("every channel a core op publishes is a window channel", () => {
-  const files = readdirSync(OPS).filter((file) => file.endsWith(".ts"));
-  const sources = files.map((file) => readFileSync(join(OPS, file), "utf8"));
+/** Every source that publishes on the core bus: the ops, and any other core file. */
+const publishers = (): ReadonlyArray<{ readonly name: string; readonly source: string }> => {
+  const found: Array<{ readonly name: string; readonly source: string }> = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== "node_modules") walk(path);
+      } else if (entry.name.endsWith(".ts")) {
+        const source = readFileSync(path, "utf8");
+        if (source.includes("core-process/push")) found.push({ name: path, source });
+      }
+    }
+  };
+  walk("src/main");
+  return found;
+};
+
+it("every channel a core publisher publishes is a window channel", () => {
+  const sources = publishers().map((entry) => entry.source);
+  const files = publishers().map((entry) => entry.name);
   // Channel constants a group or this suite declares, by name.
   const declared = new Map<string, string>();
   for (const source of sources) {
