@@ -18,6 +18,7 @@ import type { KernelSnapshot } from "@shared/ipc";
 import type { MailWaitingFact } from "@shared/mail-waiting";
 import type { MailReadChanged } from "@shared/mail-threads";
 import type { MachineCommandProgress } from "@shared/machine-progress";
+import type { ShellEnvironmentChange } from "@shared/shell-environment";
 import { MENTION_IPC_CHANNELS } from "@shared/mention-ipc-channels";
 import type { Canvas, CanvasesChanged, Changed } from "@shared/model";
 import type { ObservabilityLogEntry } from "@shared/observability";
@@ -110,6 +111,9 @@ export type SeatCredentialChanged = SeatCredentialEvent;
 /** A seat's cache window changed, and the auto mode's due seats, for the window. */
 export const SEAT_CACHE_DUE_CHANGED = "seatCacheDue.changed";
 
+/** The shell environment was read again, in the core whose copy spawns. */
+export const SHELL_ENVIRONMENT_CHANGED = "shellEnvironment.changed";
+
 /** What a lease's end says: which view, and why its machine ended it. */
 export type TermLeaseEnded = { readonly leaseId: string; readonly reason: string };
 
@@ -145,6 +149,7 @@ export const CORE_PUSHES = {
   [TERM_LEASE_ENDED]: carries<TermLeaseEnded>(),
   [TERM_SEAT_STATE]: carries<AgentSeatStateEvent>(),
   [SEAT_CACHE_DUE_CHANGED]: carries<null>(),
+  [SHELL_ENVIRONMENT_CHANGED]: carries<ShellEnvironmentChange>(),
   // A backlink landed; the panes read their mentions again.
   [MENTION_IPC_CHANNELS.changed]: carries<{ readonly canvasName: string }>(),
   // The model's own watches, each on the window's channel name (ops/ipc-watch.ts).

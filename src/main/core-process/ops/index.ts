@@ -14,6 +14,7 @@ import "./companion";
 import "./overseer-live";
 import "./ipc-threads";
 import "./ipc-settings";
+import "./shell-environment";
 import "./ipc-browser";
 import "./term-surface";
 import "./ipc-model";

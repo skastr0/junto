@@ -33,7 +33,6 @@ import { registerHostsIpc } from "./hosts/ipc";
 import type { AuthorityWindowData } from "@shared/authority";
 import { registerSettingsIpc } from "./settings/ipc";
 import { registerViewStateIpc } from "./view-state/ipc";
-import { shellEnvironment } from "./shell-environment";
 import { registerShellEnvironmentIpc } from "./shell-environment/ipc";
 import { registerReferencesIpc } from "./references/ipc";
 import { registerAutomationIpc } from "./automation/ipc";
@@ -163,7 +162,7 @@ export const registerJuntoIpc = (): void => {
   });
   registerGitIpc(privilegedIpc);
   registerSettingsIpc(privilegedIpc, broadcast);
-  registerShellEnvironmentIpc(privilegedIpc, shellEnvironment, broadcast);
+  registerShellEnvironmentIpc(privilegedIpc, broadcast);
   registerReferencesIpc(privilegedIpc, broadcast);
   registerViewStateIpc(privilegedIpc, broadcast);
   // The renderer's tasks and artifacts: the core's stores and the core's
