@@ -242,7 +242,9 @@ The following are architectural defects, not compatibility features:
 - a renderer, CLI, bridge, or helper opening the production database;
 - a concurrent second product opener, per-service SQLite file, or direct
   connection outside `StateEngine`, except for the exact quiesced
-  packaged-candidate read-only preflight defined above;
+  packaged-candidate read-only preflight defined above and the read-only
+  connections the core owns in its own workers to keep reads off the main
+  thread (operator ruling 2026-10-30): `StateEngine` stays the only writer;
 - file-store importers, compatibility readers, dual writes, feature flags, or
   rollback instructions that keep an obsolete path alive.
 

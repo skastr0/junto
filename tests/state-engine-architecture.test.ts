@@ -24,6 +24,10 @@ const allowed = new Set([
   "src/main/junto/install-ops/engine.ts",
   // Read-only external harness receipts; never Junto product state.
   "src/main/junto/term/read-only-sqlite.ts",
+  // The core's read-only connection in its mail read worker, off the main
+  // thread; StateEngine stays the only writer (operator ruling 2026-10-30).
+  "src/main/junto/work/mail-read-worker.ts",
+  "src/main/junto/work/mail-read-sql.ts",
 ]);
 
 const filesUnder = (directory: string): string[] => {

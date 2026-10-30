@@ -41,7 +41,10 @@ owned by the same app runtime. Do not fold migration/backfill completeness
 markers into product rows so seeds and installs cannot lie about local
 walks. Each installation has one sole app runtime process as the normal
 opener of product and install-ops databases, and one `StateEngine`
-connection for `junto.db`: the Junto core on that machine. Renderers, CLIs,
+connection for `junto.db`: the Junto core on that machine, its only writer.
+The core may also own read-only connections to `junto.db` in its own workers,
+so reads leave the main thread (operator ruling 2026-10-30, protect the main
+thread); they never write and never outlive the core. Renderers, CLIs,
 helpers, and other machines use IPC, control APIs or a link and never open
 product or install-ops databases.
 Junto writes no canvas file: there is no JSON Canvas export or import, and no
