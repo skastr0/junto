@@ -1,12 +1,14 @@
 import { isAbsolute } from "node:path";
 import { ipcMain, shell, webContents, type IpcMainInvokeEvent } from "electron";
 import { IPC_CHANNELS } from "@shared/ipc";
-import { parseFilePath, type FilePath, type FilesNodeRef, type FilesResult, type FileStamp } from "@shared/files";
+import { parseFilePath, type FilePath, type FilesChanged, type FilesNodeRef, type FilesResult, type FileStamp } from "@shared/files";
 import { asNodeId } from "@shared/physics/schema";
 import { trustedRendererIpc } from "../trusted-main-webcontents";
 import { deny, machineName, nodeFacts } from "./host-deps";
 import { workerRootIndex } from "./index-worker-host";
 import { peerSubscribers } from "./peer-subscribers";
+import { heldFilesRemote } from "./remote-holder";
+import { makeFilesRouter, type FilesRemotePort } from "./router";
 import { makeFilesService, type FilesService, type FilesServiceDeps } from "./service";
 
 /**
@@ -62,8 +64,18 @@ const withRefPath = <A>(
   return path === undefined ? Promise.resolve(invalid) : run(ref, path);
 };
 
-/** Register the Files channels and return the service (the protocol reads bytes through it). */
-export const registerFilesIpc = (carryThreads?: FilesServiceDeps["carryThreads"]): FilesService => {
+/**
+ * Register the Files channels and return the service (the protocol reads bytes through it).
+ * Another machine's node goes to the link client main holds (`remote-holder.ts`, `router.ts`).
+ */
+export const registerFilesIpc = (
+  carryThreads?: FilesServiceDeps["carryThreads"],
+  remote: () => FilesRemotePort | undefined = heldFilesRemote,
+): FilesService => {
+  const toWindow = (subscriber: number, event: FilesChanged): void => {
+    const target = webContents.fromId(subscriber);
+    if (target !== undefined && !target.isDestroyed()) target.send(IPC_CHANNELS.filesChanged, event);
+  };
   const service = makeFilesService({
     node: nodeFacts,
     ...(carryThreads === undefined ? {} : { carryThreads }),
@@ -75,11 +87,11 @@ export const registerFilesIpc = (carryThreads?: FilesServiceDeps["carryThreads"]
     send: (subscriber, event) => {
       // A peer machine's session: its change goes to the link, not a window.
       if (peerSubscribers.deliver(subscriber, event)) return;
-      const target = webContents.fromId(subscriber);
-      if (target !== undefined && !target.isDestroyed()) target.send(IPC_CHANNELS.filesChanged, event);
+      toWindow(subscriber, event);
     },
     index: workerRootIndex,
   });
+  const router = makeFilesRouter({ local: service, remote, node: nodeFacts, machineName, send: toWindow });
 
   const watched = new Set<number>();
   const subscriberOf = (event: IpcMainInvokeEvent): number => {
@@ -89,7 +101,7 @@ export const registerFilesIpc = (carryThreads?: FilesServiceDeps["carryThreads"]
       const id = sender.id;
       sender.once("destroyed", () => {
         watched.delete(id);
-        service.closeSubscriber(id);
+        router.closeSubscriber(id);
       });
     }
     return sender.id;
@@ -118,18 +130,18 @@ export const registerFilesIpc = (carryThreads?: FilesServiceDeps["carryThreads"]
   });
   ipc.handle(IPC_CHANNELS.filesOpen, (event, rawRef: unknown) => {
     const ref = decodeRef(rawRef);
-    return ref === undefined ? noNode : service.open(subscriberOf(event), ref);
+    return ref === undefined ? noNode : router.open(subscriberOf(event), ref);
   });
   ipc.handle(IPC_CHANNELS.filesClose, (event, rawRef: unknown) => {
     const ref = decodeRef(rawRef);
-    return ref === undefined ? noNode : service.close(event.sender.id, ref);
+    return ref === undefined ? noNode : router.close(event.sender.id, ref);
   });
   ipc.handle(IPC_CHANNELS.filesCount, (_event, rawRef: unknown) => {
     const ref = decodeRef(rawRef);
-    return ref === undefined ? noNode : service.count(ref);
+    return ref === undefined ? noNode : router.count(ref);
   });
   ipc.handle(IPC_CHANNELS.filesList, (_event, ref: unknown, dir: unknown) =>
-    withRefPath(ref, dir, (r, p) => service.list(r, p)),
+    withRefPath(ref, dir, (r, p) => router.list(r, p)),
   );
   ipc.handle(IPC_CHANNELS.filesSearch, (event, rawRef: unknown, query: unknown, seq: unknown) => {
     const ref = decodeRef(rawRef);
@@ -137,33 +149,33 @@ export const registerFilesIpc = (carryThreads?: FilesServiceDeps["carryThreads"]
     if (typeof query !== "string" || query.length > 1024 || typeof seq !== "number" || !Number.isSafeInteger(seq)) {
       return invalid;
     }
-    return service.search(subscriberOf(event), ref, query, seq);
+    return router.search(subscriberOf(event), ref, query, seq);
   });
   ipc.handle(IPC_CHANNELS.filesRead, (_event, ref: unknown, path: unknown) =>
-    withRefPath(ref, path, (r, p) => service.read(r, p)),
+    withRefPath(ref, path, (r, p) => router.read(r, p)),
   );
   ipc.handle(IPC_CHANNELS.filesWrite, (_event, ref: unknown, path: unknown, text: unknown, base: unknown) =>
     withRefPath(ref, path, async (r, p) => {
       // null: the file is gone and the save writes it back.
       const stamp = base === null ? null : decodeStamp(base);
       if (typeof text !== "string" || stamp === undefined) return invalid;
-      return service.write(r, p, text, stamp);
+      return router.write(r, p, text, stamp);
     }),
   );
   ipc.handle(IPC_CHANNELS.filesCreate, (_event, ref: unknown, path: unknown, dir: unknown) =>
-    withRefPath(ref, path, async (r, p) => (typeof dir === "boolean" ? service.create(r, p, dir) : invalid)),
+    withRefPath(ref, path, async (r, p) => (typeof dir === "boolean" ? router.create(r, p, dir) : invalid)),
   );
   ipc.handle(IPC_CHANNELS.filesRename, (_event, ref: unknown, path: unknown, name: unknown) =>
-    withRefPath(ref, path, async (r, p) => (typeof name === "string" ? service.rename(r, p, name) : invalid)),
+    withRefPath(ref, path, async (r, p) => (typeof name === "string" ? router.rename(r, p, name) : invalid)),
   );
   ipc.handle(IPC_CHANNELS.filesMove, (_event, ref: unknown, path: unknown, intoDir: unknown) =>
     withRefPath(ref, path, async (r, p) => {
       const into = parseFilePath(intoDir);
-      return into === undefined ? invalid : service.move(r, p, into);
+      return into === undefined ? invalid : router.move(r, p, into);
     }),
   );
   ipc.handle(IPC_CHANNELS.filesTrash, (_event, ref: unknown, path: unknown) =>
-    withRefPath(ref, path, (r, p) => service.trash(r, p)),
+    withRefPath(ref, path, (r, p) => router.trash(r, p)),
   );
   ipc.handle(IPC_CHANNELS.filesImport, (event, ref: unknown, intoDir: unknown, sources: unknown) =>
     withRefPath(ref, intoDir, async (r, p) => {
