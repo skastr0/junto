@@ -29,6 +29,11 @@ it("every group ipc.ts calls is registered by ops/index", () => {
     "ipc.watch.model",
     "ipc.watch.modelCanvases",
     "ipc.watch.modelActorRefs",
+    "ipc.content.operatorPut",
+    "ipc.content.putImage",
+    "ipc.content.portraitOverrides",
+    "ipc.content.portraitOverrideSet",
+    "ipc.content.pageShotPurge",
   ];
   for (const name of names) expect(coreOpBody(name), name).toBeTypeOf("function");
 });
