@@ -265,9 +265,9 @@ export const validateMacOSRuntimePolicy = (
       "macOS runtime policy must expose only empty and Electron JIT/audio profiles",
     );
   }
-  if (value.machO.length !== 21) {
+  if (value.machO.length !== 20) {
     throw new Error(
-      `macOS runtime policy must name exactly 21 Mach-O objects, got ${value.machO.length}`,
+      `macOS runtime policy must name exactly 20 Mach-O objects, got ${value.machO.length}`,
     );
   }
 
@@ -305,18 +305,11 @@ export const validateMacOSRuntimePolicy = (
     );
   }
 
-  for (const cliPath of [
-    "Contents/Resources/bin/junto",
-    "Contents/Resources/bin/junto-native",
-  ] as const) {
-    const cli = value.machO.find(
-      (entry) => isRecord(entry) && entry.path === cliPath,
-    );
-    if (cli?.profile !== "none") {
-      throw new Error(
-        `packaged ${path.posix.basename(cliPath)} must have the empty entitlement profile`,
-      );
-    }
+  const cli = value.machO.find(
+    (entry) => isRecord(entry) && entry.path === "Contents/Resources/bin/junto",
+  );
+  if (cli?.profile !== "none") {
+    throw new Error("packaged junto must have the empty entitlement profile");
   }
 
   return value as unknown as MacOSRuntimePolicy;
@@ -589,18 +582,18 @@ const requireRegularFile = async (filePath: string): Promise<void> => {
 };
 
 /**
- * The native junto CLI (0.12, N1) rides in the app called by nothing until
- * N7. Its version is stamped at build; one that does not answer the app's
- * own version was built without the stamp.
+ * The packaged junto is the native CLI (0.11.6, N7). Its version is stamped
+ * at build; one that does not answer the app's own version was built
+ * without the stamp.
  */
 const auditNativeCli = async (binPath: string, plist: unknown): Promise<void> => {
-  const nativeCliPath = path.join(binPath, "junto-native");
-  await requireExecutable(nativeCliPath);
+  const cliPath = path.join(binPath, "junto");
+  await requireExecutable(cliPath);
   const version = isRecord(plist) ? plist.CFBundleShortVersionString : undefined;
   if (typeof version !== "string") throw new Error("Info.plist has no CFBundleShortVersionString");
-  const answer = runFixedCommand(nativeCliPath, ["--version"]).trim();
+  const answer = runFixedCommand(cliPath, ["--version"]).trim();
   if (answer !== `junto v${version}`) {
-    throw new Error(`packaged junto-native answers "${answer}", want "junto v${version}"`);
+    throw new Error(`packaged junto answers "${answer}", want "junto v${version}"`);
   }
 };
 

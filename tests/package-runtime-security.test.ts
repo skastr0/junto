@@ -134,8 +134,8 @@ describe("macOS packaged runtime policy", () => {
     } finally { await rm(app, { recursive: true, force: true }); }
   });
 
-  it("pins 21 Mach-O objects and only the four exact Electron JIT roles", () => {
-    expect(MACOS_RUNTIME_POLICY.machO).toHaveLength(21);
+  it("pins 20 Mach-O objects and only the four exact Electron JIT roles", () => {
+    expect(MACOS_RUNTIME_POLICY.machO).toHaveLength(20);
     expect(
       MACOS_RUNTIME_POLICY.machO
         .filter((entry) => entry.profile === "jit")
@@ -190,7 +190,7 @@ describe("macOS packaged runtime policy", () => {
 
     const missing = structuredClone(rawRuntimePolicy);
     missing.machO.pop();
-    expect(() => validateMacOSRuntimePolicy(missing)).toThrow(/exactly 21/u);
+    expect(() => validateMacOSRuntimePolicy(missing)).toThrow(/exactly 20/u);
 
     const duplicate = structuredClone(rawRuntimePolicy);
     duplicate.machO[1].path = duplicate.machO[0].path;

@@ -94,7 +94,7 @@ export const RETIRED_STATE_SIGNATURE_AUDIT_LIMITS: Readonly<
   maxExecutableBytes: 96 * 1024 * 1024,
 });
 
-/** Measured Bun Linux runtime executables fit below 98 MiB; use a finite 112 MiB release bound. */
+/** The release helpers are Bun runtime executables, measured below 98 MiB; use a finite 112 MiB bound. */
 export const LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES =
   112 * 1024 * 1024;
 
@@ -289,7 +289,7 @@ const firstRetiredSignature = (
 
 /**
  * Scan one first-party packaged payload without decoding it. This works for
- * JavaScript/text buffers and Bun-compiled Junto CLI executables alike.
+ * JavaScript/text buffers and the native Junto CLI executable alike.
  */
 export const auditRetiredStateBuffer = (
   bytes: Uint8Array,
@@ -501,10 +501,8 @@ export const auditLinuxRetiredStateRuntimeBundle = async (
 ): Promise<LinuxRetiredStateRuntimeBundleAuditReceipt> => {
   const asar = auditRetiredStateAsar(paths.asarPath);
   const [work, installer, bridge] = await Promise.all([
-    auditRetiredStateFile(paths.workCliPath, {
-      label: "packaged junto",
-      maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
-    }),
+    // The native CLI sits well inside the default executable bound.
+    auditRetiredStateFile(paths.workCliPath, { label: "packaged junto" }),
     auditRetiredStateFile(paths.installerPath, {
       label: "packaged junto-release-installer",
       maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,

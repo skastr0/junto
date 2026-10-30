@@ -19,11 +19,6 @@
       "profile": "none"
     },
     {
-      "path": "Contents/Resources/bin/junto-native",
-      "identifier": "junto-native",
-      "profile": "none"
-    },
-    {
       "path": "Contents/Resources/app.asar.unpacked/node_modules/node-pty/build/Release/pty.node",
       "identifier": "pty",
       "profile": "none"

@@ -7,7 +7,8 @@ import { resolveMacSigningConfig } from "./mac-signing-config.mjs";
 const MAGIC = new Set(["feedface", "cefaedfe", "feedfacf", "cffaedfe", "cafebabe", "bebafeca", "cafebabf", "bfbafeca"]);
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 export const machineSigningIdentifier = (relative) => `junto.machine.${relative.replaceAll("/", "-").replaceAll(".", "-")}`;
-export const machineNeedsJit = (relative) => relative === "bin/node" || relative === "bin/junto";
+// Only node runs JavaScript: the native junto CLI needs no JIT.
+export const machineNeedsJit = (relative) => relative === "bin/node";
 
 export const machineMachOFiles = async (directory) => {
   const files = [];

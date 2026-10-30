@@ -41,7 +41,10 @@ describe("immutable signed machine payloads", () => {
         for (const args of calls.filter(args => args.includes("--sign"))) {
           expect(args).toContain("runtime");
           expect(args).toContain(environment.JUNTO_MAC_SIGNING_IDENTITY);
-          expect(args.find(value => value.endsWith(".plist"))).toContain("entitlements.machine-runtime.plist");
+          // Only node runs JavaScript: the native junto signs without JIT.
+          expect(args.find(value => value.endsWith(".plist"))).toContain(
+            args.at(-1)!.endsWith("bin/node") ? "entitlements.machine-runtime.plist" : "entitlements.mac.inherit.plist",
+          );
         }
         await writeFile(path.join(bundle, "manifest.json"), JSON.stringify({ build: "a".repeat(64), target, node: "26.10.0", appVersion: "0.7.0", files: await machineBundleFiles(bundle) }));
       }
