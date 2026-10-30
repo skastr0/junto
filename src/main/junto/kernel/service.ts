@@ -20,6 +20,7 @@
 import type { SeatStartCause } from "../term/seat-start-cause";
 import { Cause, Context, Effect, Layer } from "effect";
 import { asNodeId } from "@shared/model/base";
+import type { Canvas } from "@shared/model/canvas";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import type { ActorRefResolver } from "@shared/attention";
 import type { ServiceCheck } from "@shared/contracts";
@@ -626,13 +627,75 @@ const makeKernelService = (
       if (generationIsActive(generation)) setWorlds(worlds);
     });
 
-  // A change to a canvas or to its tasks -> read both again; a canvas that is
-  // gone -> drop it and purge its namespaced in-memory state. The model's list
-  // is the source of truth for "still there".
+  // What changed on each canvas since its last resync, from the events
+  // themselves: the canvas as its latest commit left it, and whether its tasks
+  // moved. Only a canvas made, removed or replaced is read from the start.
+  type CanvasChangeSet = { readonly canvas?: Canvas; readonly tasks: boolean; readonly whole: boolean };
+  const changeSets = new Map<string, CanvasChangeSet>();
+  const holdChange = (name: string, change: Partial<CanvasChangeSet>): void => {
+    const held = changeSets.get(name);
+    const canvas = held?.canvas === undefined || (change.canvas !== undefined && change.canvas.seq >= held.canvas.seq)
+      ? change.canvas ?? held?.canvas
+      : held.canvas;
+    changeSets.set(name, {
+      ...(canvas === undefined ? {} : { canvas }),
+      tasks: held?.tasks === true || change.tasks === true,
+      whole: held?.whole === true || change.whole === true,
+    });
+  };
+  const noteChange = (name: string, change: Partial<CanvasChangeSet>): void => {
+    if (suspended) return;
+    holdChange(name, change);
+    scheduleResync(name);
+  };
+
+  /** The task nodes a canvas holds: the only part of it its seat task index reads. */
+  const sameTaskNodes = (a: Canvas, b: Canvas): boolean => {
+    const ids = (canvas: Canvas) => [...canvas.nodes.values()].filter((node) => node.kind === "task").map((node) => node.id);
+    const left = ids(a);
+    const right = new Set(ids(b));
+    return left.length === right.size && left.every((id) => right.has(id));
+  };
+
+  // A canvas held, with only its own commits or task writes since: take the
+  // canvas from its commit and read its tasks only when they moved or its
+  // task nodes did. Anything else (first sight, made, removed, replaced):
+  // read it whole, below.
+  const applyChangeSet = (
+    name: string,
+    held: World,
+    change: CanvasChangeSet,
+    generation: number,
+  ): Effect.Effect<void, unknown> =>
+    Effect.gen(function* () {
+      const canvas = change.canvas !== undefined && change.canvas.seq >= held.canvas.seq ? change.canvas : held.canvas;
+      const tasksMoved = change.tasks || !sameTaskNodes(held.canvas, canvas);
+      if (!tasksMoved && canvas === held.canvas) return;
+      let seatTasks = held.seatTasks;
+      if (tasksMoved) {
+        const read = yield* Effect.result(readSeatTaskIndex(tasks, canvas));
+        if (!generationIsActive(generation)) return;
+        // Kept for the next change to retry, as a failed whole read is.
+        if (read._tag === "Failure") return holdChange(name, change);
+        seatTasks = read.success;
+      }
+      worlds.set(name, { canvas, seatTasks });
+      scheduleCycle();
+    });
+
+  // A change to a canvas or to its tasks -> apply its change set; a canvas
+  // that is gone -> drop it and purge its namespaced in-memory state. The
+  // model's list is the source of truth for "still there".
   const resyncCanvas = (name: string): Effect.Effect<void, unknown> =>
     Effect.gen(function* () {
       const generation = activeGeneration();
       if (!generationIsActive(generation)) return;
+      const change = changeSets.get(name);
+      changeSets.delete(name);
+      const held = worlds.get(name);
+      if (change !== undefined && !change.whole && held !== undefined) {
+        return yield* applyChangeSet(name, held, change, generation);
+      }
       const names = yield* model.listCanvases();
       if (!generationIsActive(generation)) return;
       if (!names.some((held) => held === name)) {
@@ -663,15 +726,15 @@ const makeKernelService = (
       lifecycleCleanups = [
         // Immediate lane, keyed by canvas: a burst of commits on one canvas
         // now costs ONE re-read instead of one fork per notification.
-        model.subscribeChanges((event) => {
-          scheduleResync(event.canvas);
+        model.subscribeChanges((event, current) => {
+          noteChange(event.canvas, { canvas: current });
         }),
         model.subscribeCanvasesChanges((event) => {
-          scheduleResync(event.canvas);
+          noteChange(event.canvas, { whole: true });
         }),
         // A task write moves what a seat holds, and so its blocked mark.
         onResourceChanged((domain, canvasName) => {
-          if (domain === "task") scheduleResync(canvasName);
+          if (domain === "task") noteChange(canvasName, { tasks: true });
         }),
         // Play/pause is an authoritative runtime transition. Resume must
         // claim immediately; pause must promptly cause the next cycle to

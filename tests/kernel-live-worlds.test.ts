@@ -17,6 +17,7 @@ import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { noteResourceChanged } from "../src/main/junto/work/resource-changes";
 import { TaskRepository } from "../src/main/junto/work/task-repository";
 import { THIS_MACHINE } from "./support/machines";
+import { note } from "./support/model-nodes";
 
 // The kernel service against the real model and work stores: it holds every
 // canvas the model lists, follows canvases that come and go, and reads a
@@ -47,6 +48,7 @@ it("holds the model's canvases and follows their tasks", async () => {
         taskReads.push(canvas);
         return Effect.succeed({ tasks: [], more: false });
       },
+      seatTasks: () => Effect.succeed({ tasks: [], leftOut: 0 }),
       get: () => Effect.succeed(Option.none()),
       submit: () => Effect.die(new Error("the kernel rules no task")),
       precheck: () => Effect.succeed(Option.none()),
@@ -122,6 +124,21 @@ it("holds the model's canvases and follows their tasks", async () => {
       () => (taskReads.filter((name) => name === "factory").length > readsBefore ? true : undefined),
       "the kernel to read the canvas's tasks again",
     );
+
+    // A commit that moves no task node is applied from its change set: the
+    // kernel holds the canvas it left, and reads no task.
+    const reads = () => taskReads.filter((name) => name === "factory").length;
+    const quiet = reads();
+    let cycles = 0;
+    const offCycles = live.subscribe(() => { cycles += 1; });
+    await send({ _tag: "Add", canvas: "factory", nodes: [note("aside")], wires: [] });
+    // The world it left is held: that schedules the pass that follows.
+    await until(() => (cycles > 0 ? true : undefined), "the pass after the commit");
+    offCycles();
+    if (reads() !== quiet) throw new Error(`a commit with no task node read the tasks ${String(reads() - quiet)} times`);
+    // A new task node changes what the seat task index reads: it is read again.
+    await send({ _tag: "Add", canvas: "factory", nodes: [{ kind: "task", id: "more", x: 300, y: 0, width: 200, height: 100, z: 1 }], wires: [] });
+    await until(() => (reads() > quiet ? true : undefined), "a new task node to read the tasks again");
   } finally {
     kernel?.suspend();
     await runtime.dispose();
