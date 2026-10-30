@@ -10,6 +10,7 @@ import "./overseer-pages";
 import "./operator";
 import "./companion";
 import "./overseer-live";
+import "./ipc-threads";
 import "./ipc-model";
 import "./ipc-work";
 import "./ipc-status";

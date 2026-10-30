@@ -40,6 +40,10 @@ export const AGENT_SIGNAL_CHANGED = "signals.changed";
 export const COMPANION_DEVICES = "companion.devices";
 /** The live overseer's snapshot on every change, once `live.watch` started it. */
 export const LIVE_CHANGED = "live.changed";
+/** A mail thread's read point moved, from any surface, once `ipc.threads.watch` started it. */
+export const SEAT_THREAD_READ_CHANGED = "threads.readChanged";
+/** Mail held on a seat past its wait, once `ipc.threads.watch` started it. */
+export const MAIL_WAITING = "mail.waiting";
 /** A canvas changed, with the document as it is now, or was removed; once `model.watchCanvases` started it. */
 export const CANVAS_CHANGED = "model.canvasChanged";
 
@@ -47,7 +51,7 @@ export type CanvasChangedPush = { readonly canvas: string; readonly next: Canvas
 
 
 /** Every channel main forwards to the window. */
-export const WINDOW_CHANNELS = [SETTINGS_CHANGED, WORK_PREAMBLE, AGENT_SIGNAL_CHANGED, COMPANION_DEVICES, CANVAS_CHANGED, LIVE_CHANGED] as const;
+export const WINDOW_CHANNELS = [SETTINGS_CHANGED, WORK_PREAMBLE, AGENT_SIGNAL_CHANGED, COMPANION_DEVICES, CANVAS_CHANGED, LIVE_CHANGED, SEAT_THREAD_READ_CHANGED, MAIL_WAITING] as const;
 
 /**
  * Main's side, once the core runs in its own process: each window push from

@@ -105,6 +105,9 @@ describe("main authoring architecture", () => {
       .filter((path) => path !== "src/main/junto/work/service.ts")
       .sort();
     expect(importers).toEqual([
+      // A seat collaboration ask is mail, sent by the core only under the
+      // classified ipc.work.collaboration-ask handler in ipc.ts.
+      "src/main/core-process/ops/ipc-threads.ts",
       // The automation runner's actions write as the automation's own node
       // (automationActorRef), only on the machine that edits the canvas.
       "src/main/junto/automation/live.ts",

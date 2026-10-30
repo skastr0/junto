@@ -4,24 +4,9 @@ import { purgeOperatorPageShot } from "./work/page-shot-purge";
 import type { PageShotPurged, PageShotPurgeRequest } from "@shared/page-shot";
 import { app, BrowserWindow, clipboard, ipcMain, nativeImage, shell } from "electron";
 import { Effect, Option, Result, Schema, Stream } from "effect";
-import {
-  OperatorThreadSend,
-  SeatThreadMarkRead,
-  SeatThreadPageQuery,
-  SeatThreadReadsQuery,
-  SeatThreadsPageQuery,
-  SeatThreadsQuery,
-  type MailReadPoint,
-  type OperatorThreadSent,
-} from "@shared/mail-threads";
-import { markRead, onReadChanged, readPoints, unreadTotal } from "./work/mail-reads";
-import {
-  deliverOperatorThreadMail,
-  mentionableSeats,
-  seatThreadMessagesPage,
-  seatThreadsPage,
-  sendOperatorThreadMail,
-} from "./work/operator-threads";
+import type { MailReadPoint, OperatorThreadSent } from "@shared/mail-threads";
+import { MAIL_WAITING, SEAT_THREAD_READ_CHANGED } from "../core-process/ops/main-index";
+import { subscribe as subscribeCore } from "../core-process/push";
 import { OperatorAttachments, OperatorContentPut, type OperatorContentPutResult } from "@shared/operator-attachments";
 import { SignalReply } from "@shared/signal-reply";
 import { SignalSecretPutRequest } from "@shared/vault";
@@ -180,14 +165,10 @@ import { terminalObserverPlane } from "./term/observer";
 import { termPlane } from "./term/plane";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 import { trustedRendererIpc } from "./trusted-main-webcontents";
-import { makeUserMessage } from "@shared/task";
 import {
-  collaborationRequestMetadata,
-  composeCollaborationRequestText,
   normalizeSeatCollaborationAsk,
   type SeatCollaborationAskResult,
 } from "@shared/seat-collaboration";
-import { ulid } from "ulid";
 import type { ActorRef } from "@shared/work-protocol";
 import {
   mainAuthoringGate,
@@ -426,13 +407,7 @@ export const registerJuntoIpc = (): void => {
     // A seat on another machine: its machine holds the turn, so the view goes there.
     const remote = remoteSeatStateEvents().find((event) => event.bindingId === bindingId);
     if (remote === undefined || remote.state === "gone") return;
-    const { makeSeatsProcessClient, remoteSeatMachine } = await import("./term/seats-client");
-    const machine = await AppRuntime.runPromise(remoteSeatMachine(bindingId).pipe(
-      Effect.tapCause((cause) => Effect.logWarning("seat view not sent: its machine could not be read", cause)),
-      Effect.annotateLogs({ area: "seats", seat: bindingId }),
-      Effect.orElseSucceed(() => undefined),
-    ));
-    if (machine !== undefined) await makeSeatsProcessClient(machine).viewed(bindingId, remote.epoch).catch(() => false);
+    await core.call("ipc.threads.remoteSeatViewed", { bindingId, epoch: remote.epoch });
   });
 
   registerOperatorHoldsIpc(privilegedIpc);
@@ -460,63 +435,8 @@ export const registerJuntoIpc = (): void => {
       const normalized = normalizeSeatCollaborationAsk(input);
       if (!normalized.ok) return Promise.resolve(normalized);
       const draft = normalized.draft;
-      return runMainAuthoring(
-        "ipc.work.collaboration-ask",
-        async (): Promise<SeatCollaborationAskResult> =>
-          AppRuntime.runPromise(
-            Effect.gen(function* () {
-              const model = yield* ModelService;
-              const read = yield* Effect.result(
-                model.canvas(draft.canvas),
-              );
-              if (read._tag === "Failure") {
-                return {
-                  ok: false as const,
-                  error: `canvas ${JSON.stringify(draft.canvas)} could not be read`,
-                };
-              }
-              const nodes = read.success.nodes;
-              const source = nodes.get(asNodeId(draft.sourceNodeId));
-              const target = nodes.get(asNodeId(draft.targetNodeId));
-              if (source === undefined) {
-                return {
-                  ok: false as const,
-                  error: `seat ${JSON.stringify(draft.sourceNodeId)} is not on this canvas`,
-                };
-              }
-              if (target === undefined) {
-                return {
-                  ok: false as const,
-                  error: `seat ${JSON.stringify(draft.targetNodeId)} is not on this canvas`,
-                };
-              }
-              if (target.kind !== "agent") {
-                return {
-                  ok: false as const,
-                  error: "a collaboration request can only be sent to an agent seat",
-                };
-              }
-              const work = yield* WorkService;
-              const requestId = ulid();
-              const result = yield* work.workSystemMailboxNotify(
-                draft.canvas,
-                draft.targetNodeId,
-                makeUserMessage({
-                  messageId: requestId,
-                  text: composeCollaborationRequestText(draft, requestId),
-                  contextId: draft.canvas,
-                  metadata: collaborationRequestMetadata(draft, requestId),
-                }),
-              );
-              if (!result.ok) {
-                return { ok: false as const, error: result.message };
-              }
-              return {
-                ok: true as const,
-                requestId,
-              };
-            }),
-          ),
+      return runMainAuthoring("ipc.work.collaboration-ask", () =>
+        core.call("ipc.threads.collaborationAsk", { draft }),
       ).catch((error: unknown) => ({
         ok: false as const,
         error:
@@ -530,58 +450,35 @@ export const registerJuntoIpc = (): void => {
   // Mail threads, for a seat's Threads popup: reads through the shared
   // derivation, and the operator's send into a thread.
   privilegedIpc.handle(IPC_CHANNELS.seatThreadsList, (_event, input: unknown) =>
-    AppRuntime.runPromise(Effect.gen(function* () {
-      const query = yield* Schema.decodeUnknownEffect(SeatThreadsPageQuery, { onExcessProperty: "error" })(input);
-      // The operator's read points ride the list, so a row knows what it has not read yet (0.11.3).
-      const points = yield* readPoints(query.canvasName, query.nodeId);
-      return yield* seatThreadsPage(query.canvasName, query.nodeId, { limit: query.limit, after: query.after, group: query.group }, points);
-    })),
+    core.call("ipc.threads.list", { input }),
   );
   privilegedIpc.handle(IPC_CHANNELS.seatThreadMessages, (_event, input: unknown) =>
-    AppRuntime.runPromise(Effect.gen(function* () {
-      const query = yield* Schema.decodeUnknownEffect(SeatThreadPageQuery, { onExcessProperty: "error" })(input);
-      return yield* seatThreadMessagesPage(query.canvasName, query.nodeId, query.threadId, {
-        limit: query.limit,
-        before: query.before,
-      });
-    })),
+    core.call("ipc.threads.messages", { input }),
   );
   privilegedIpc.handle(IPC_CHANNELS.seatThreadMentionables, (_event, input: unknown) =>
-    AppRuntime.runPromise(Effect.gen(function* () {
-      const query = yield* Schema.decodeUnknownEffect(SeatThreadsQuery, { onExcessProperty: "error" })(input);
-      return yield* mentionableSeats(query.canvasName, query.nodeId);
-    })),
+    core.call("ipc.threads.mentionables", { input }),
   );
   // The operator's read points, one per thread and shared with the phone
   // (work/mail-reads.ts). A mark never rejects: a refusal is undefined.
   privilegedIpc.handle(IPC_CHANNELS.seatThreadReads, (_event, input: unknown) =>
-    AppRuntime.runPromise(Effect.gen(function* () {
-      const query = yield* Schema.decodeUnknownEffect(SeatThreadReadsQuery, { onExcessProperty: "error" })(input);
-      return Object.fromEntries(yield* readPoints(query.canvasName, query.nodeId, query.threadIds));
-    })),
+    core.call("ipc.threads.reads", { input }),
   );
   // The header's count: every thread of the seat, never the page the list holds.
   privilegedIpc.handle(IPC_CHANNELS.seatThreadUnread, (_event, input: unknown) =>
-    AppRuntime.runPromise(Effect.gen(function* () {
-      const query = yield* Schema.decodeUnknownEffect(SeatThreadReadsQuery, { onExcessProperty: "error" })(input);
-      return yield* unreadTotal(query.canvasName, query.nodeId);
-    })),
+    core.call("ipc.threads.unread", { input }),
   );
-  privilegedIpc.handle(IPC_CHANNELS.seatThreadMarkRead, (_event, input: unknown): Promise<MailReadPoint | undefined> => {
-    const decoded = Schema.decodeUnknownResult(SeatThreadMarkRead, { onExcessProperty: "error" })(input);
-    if (Result.isFailure(decoded)) return Promise.resolve(undefined);
-    const { canvasName, nodeId, threadId, through } = decoded.success;
-    return AppRuntime.runPromise(markRead(canvasName, nodeId, threadId, through)).catch(() => undefined);
-  });
-  onReadChanged((change) => broadcast(IPC_CHANNELS.seatThreadReadChanged, change));
+  privilegedIpc.handle(IPC_CHANNELS.seatThreadMarkRead, (_event, input: unknown): Promise<MailReadPoint | undefined> =>
+    core.call("ipc.threads.markRead", { input }).catch(() => undefined),
+  );
+  subscribeCore(SEAT_THREAD_READ_CHANGED, (change) => broadcast(IPC_CHANNELS.seatThreadReadChanged, change));
+  subscribeCore(MAIL_WAITING, (fact) => broadcast(IPC_CHANNELS.mailWaiting, fact));
+  void core.call("ipc.threads.watch", {}).catch((error: unknown) => console.error("[threads] read points and waiting mail not watched:", error));
   privilegedIpc.handle(IPC_CHANNELS.seatThreadSend, async (_event, input: unknown): Promise<OperatorThreadSent> => {
-    const decoded = Schema.decodeUnknownResult(OperatorThreadSend, { onExcessProperty: "error" })(input);
-    if (Result.isFailure(decoded)) return { ok: false, reason: "invalid", message: "That mail could not be read." };
     try {
-      const written = await runMainAuthoring("ipc.work.thread-send", () =>
-        AppRuntime.runPromise(sendOperatorThreadMail(decoded.success)),
-      );
-      return await deliverOperatorThreadMail(decoded.success.canvasName, decoded.success.nodeId, written);
+      // The write alone holds the authoring gate; delivery follows it, as before.
+      const sent = await runMainAuthoring("ipc.work.thread-send", () => core.call("ipc.threads.write", { input }));
+      if ("ok" in sent) return sent;
+      return await core.call("ipc.threads.deliver", sent);
     } catch {
       // Fixed words: a thrown error may carry the mail's text.
       return { ok: false, reason: "failed", message: "The mail could not be sent." };
@@ -625,7 +522,7 @@ export const registerJuntoIpc = (): void => {
   privilegedIpc.handle(IPC_CHANNELS.agentSignalsList, (_event, canvas: string) =>
     AppRuntime.runPromise(listCanvasAgentSignals(canvas)),
   );
-  privilegedIpc.handle(IPC_CHANNELS.mailWaitingRead, () => messageDelivery.mailWaiting());
+  privilegedIpc.handle(IPC_CHANNELS.mailWaitingRead, () => core.call("ipc.threads.mailWaiting", {}));
   const runSignalOperator = (
     label: MainAuthoringLabel,
     program: Effect.Effect<AgentSignalOperatorResult, never, AgentSignalRepository | WorkService>,
@@ -1435,9 +1332,6 @@ export const registerJuntoIpc = (): void => {
       messageDelivery.subscribeDelivered((event) =>
         broadcast(IPC_CHANNELS.wireTraffic, event),
       );
-      // Mail held on a seat past 30 minutes: the operator feed shows it. Display
-      // only; nothing answers it back.
-      messageDelivery.subscribeMailWaiting((fact) => broadcast(IPC_CHANNELS.mailWaiting, fact));
       const workRepository = yield* WorkRepository;
       checkoutWatch = makeCheckoutWatchComposition({
         model: yield* ModelService,
