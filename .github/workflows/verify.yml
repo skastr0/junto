@@ -159,7 +159,7 @@ jobs:
   native-cli:
     name: Native CLI (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -186,6 +186,13 @@ jobs:
         run: cargo test --locked
       - if: ${{ !cancelled() }}
         run: cargo build --locked --release
+      # Every command through both CLIs against one stand-in socket: the
+      # frames, stdout and exit match, and failures on what an agent acts on.
+      - if: ${{ !cancelled() }}
+        run: cargo build --locked
+      - if: ${{ !cancelled() }}
+        working-directory: .
+        run: bun scripts/native-cli-parity.ts --bin native/cli/target/debug/junto
 
   free-startup-e2e:
     name: Free startup E2E (${{ matrix.os }})

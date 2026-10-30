@@ -183,7 +183,20 @@ const runOne = (command: ReadonlyArray<string>, c: Case) =>
     child.on("close", (exit) => done({ stdout, stderr, exit, frames: [...frames].sort() }));
   });
 
+/**
+ * The differences accepted, by case name and nothing broader: they print but
+ * do not fail the guard. A case left out of the corpus or renamed drops out
+ * of this list on its own.
+ */
+const ACCEPTED: ReadonlyMap<string, string> = new Map([
+  // The TypeScript CLI answers this example with its usage help (ShowHelp); the native one refuses it as an InputError that names the help.
+  ["example seat wait: wait for an idle peer with JSON", "usage help"],
+  // since=now is read on each side's own clock, so the two times differ by the gap between the runs.
+  ["example logs: recent errors on this machine", "since=now timing"],
+]);
+
 let failed = 0;
+let accepted = 0;
 for (const c of cases) {
   const keep = new Set([SERVER_ID, ...[...c.argv, String(c.stdin ?? "")].flatMap((a) => a.match(ULID) ?? [])]);
   const ts = await runOne(["bun", ...shipDefines, "src/cli/main.ts"], c);
@@ -197,6 +210,9 @@ for (const c of cases) {
   }
   if (diffs.length === 0) {
     process.stdout.write(`same  ${c.name}\n`);
+  } else if (ACCEPTED.has(c.name)) {
+    accepted += 1;
+    process.stdout.write(`ACCEPTED (${ACCEPTED.get(c.name)})  ${c.name}\n${diffs.join("\n")}\n`);
   } else {
     failed += 1;
     process.stdout.write(`DIFF  ${c.name}\n${diffs.join("\n")}\n`);
@@ -205,5 +221,5 @@ for (const c of cases) {
 
 server.close();
 rmSync(home, { recursive: true, force: true });
-process.stdout.write(`\n${cases.length - failed} of ${cases.length} cases the same\n`);
+process.stdout.write(`\n${cases.length - failed - accepted} of ${cases.length} cases the same, ${accepted} accepted\n`);
 process.exit(failed === 0 ? 0 : 1);
