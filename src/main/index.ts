@@ -79,7 +79,6 @@ import { startBrowserControlServer, type BrowserControlServer } from "./junto/br
 import {
   captureTrustedWindowPng,
 } from "./junto/overseer/composition";
-import { composeOverseerLive } from "./junto/overseer/live/composition";
 import { registerOverseerLiveIpc } from "./junto/overseer/live/ipc";
 import { makeEdgeGrantService } from "./junto/browser/edge-grant";
 import { evaluateSchemaCompatibility } from "./junto/state/schema-version-probe";
@@ -389,8 +388,6 @@ let browserControl: BrowserControlServer | undefined;
 /** With the core in its own process: main's handle on it, and the browser it asks main to drive. */
 let coreChildren: Children | undefined;
 let coreProcessPages: OverseerPages | undefined;
-let overseerLive: Awaited<ReturnType<typeof composeOverseerLive>> | undefined;
-let overseerLiveShutdown: Promise<void> | undefined;
 let unregisterOverseerLiveIpc: (() => void) | undefined;
 let rendererWindowAdmissionReady = false;
 let productRuntimeStarted = false;
@@ -1024,9 +1021,10 @@ const createWindow = () => {
   mainWindow.webContents.on("did-stop-loading", rendererNavigation.didStopLoading);
   mainWindow.webContents.on("render-process-gone", rendererNavigation.documentLost);
   mainWindow.webContents.on("render-process-gone", () => filesDraftsSettle.gone(mainWebContentsId));
+  // The live overseer runs in the core; a lost renderer still ends its session,
+  // asked for by name (core-process/main-side/overseer-live.ts).
   const endLostLiveMedia = (): void => {
-    const service = overseerLive;
-    if (!service) return;
+    const service = coreOverseerLive(core);
     void service.liveSnapshot().then((snapshot) => snapshot.sessionId !== null
       ? service.liveEnd(snapshot.sessionId) : undefined).catch(() => undefined);
   };
@@ -1757,7 +1755,6 @@ const beginShutdownAdmission = (reason: string): void => {
   companionService()?.changes.close();
   unregisterOverseerLiveIpc?.();
   unregisterOverseerLiveIpc = undefined;
-  overseerLiveShutdown ??= overseerLive?.dispose();
   hostOperationsShutdown.beginShutdown();
   appProcessPlane.beginShutdown();
 };
@@ -1902,8 +1899,6 @@ const requireCleanAppProcessShutdown = async (): Promise<void> => {
 const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
   const { lap } = quitPhases;
   quitPhases.mark("runtime dispose begins");
-  await overseerLiveShutdown;
-  lap("dispose: overseer live");
   await requireCleanHostOperationsShutdown();
   lap("dispose: host operations");
   await requireCleanBrowserShutdown(reason);
