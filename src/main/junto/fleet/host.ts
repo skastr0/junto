@@ -10,6 +10,7 @@
  */
 import { Effect, Layer, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import type { AuthorityMachineFacts, AuthorityMemberList, AuthorityRead } from "@shared/authority";
 import type { InstallationId } from "@shared/installation-id";
 import { MachineRepository } from "../machines/repository";
 import { RulingRecorder } from "../work/ruling-recorder";
@@ -50,7 +51,146 @@ export const makeCanvasAuthorities = Effect.gen(function* () {
       }),
     );
 
+  const failedRead = (message: string, cause: unknown) => new FleetDriverError({ message, cause });
+  const asId = (id: string): InstallationId => id as InstallationId;
+  const memberList = (members: {
+    readonly list: ReadonlyArray<string>;
+    readonly old?: ReadonlyArray<string>;
+    readonly sole?: string;
+  }): AuthorityMemberList => ({
+    list: members.list.map(asId),
+    ...(members.old === undefined ? {} : { old: members.old.map(asId) }),
+    ...(members.sole === undefined ? {} : { sole: asId(members.sole) }),
+  });
+
+  /**
+   * Names and reach for the machines on a list. This machine is `here`; a
+   * pinned peer is named by its bound name but no link carries it yet, so it
+   * reads `not-linked` until the link layer reports reach. A listed machine
+   * this store does not know keeps its installation id.
+   */
+  const machineFacts = (ids: ReadonlyArray<InstallationId>): Effect.Effect<ReadonlyArray<AuthorityMachineFacts>, FleetDriverError> =>
+    Effect.gen(function* () {
+      const self = yield* machines.installationId.pipe(
+        Effect.mapError((cause) => failedRead("this machine's installation could not be read", cause)),
+      );
+      const ownName = yield* machines.machineName.pipe(
+        Effect.mapError((cause) => failedRead("this machine's name could not be read", cause)),
+      );
+      const peers = yield* machines.peers.pipe(
+        Effect.mapError((cause) => failedRead("this machine's machines could not be read", cause)),
+      );
+      return ids.map((id): AuthorityMachineFacts => {
+        if (id === self) return { installationId: id, name: ownName, label: ownName, reach: "here", since: null };
+        const peer = peers.find((candidate) => candidate.installationId === id);
+        const name = peer?.machineName ?? id;
+        return { installationId: id, name, label: name, reach: "not-linked", since: null };
+      });
+    });
+
+  const readOf = (canvasName: string): Effect.Effect<AuthorityRead, FleetDriverError> =>
+    Effect.gen(function* () {
+      const authority = yield* authorityOf(canvasName);
+      const status = authority.status();
+      const self = yield* machines.installationId.pipe(
+        Effect.mapError((cause) => failedRead("this machine's installation could not be read", cause)),
+      );
+      const [consensus] = yield* sql<{ last: number | null }>`
+        SELECT last_applied_at_epoch_ms AS last FROM canvas_consensus WHERE canvas_name = ${canvasName}`.pipe(
+        Effect.mapError((cause) => failedRead(`the authority of ${canvasName} could not be read`, cause)),
+      );
+      const [waiting] = yield* sql<{ total: number; commands: number; structure: number }>`
+        SELECT COUNT(*) AS total,
+               COALESCE(SUM(CASE WHEN kind = 'ruling' THEN 1 ELSE 0 END), 0) AS commands,
+               COALESCE(SUM(CASE WHEN kind = 'structure.changed' THEN 1 ELSE 0 END), 0) AS structure
+        FROM canvas_log_waiting WHERE canvas_name = ${canvasName}`.pipe(
+        Effect.mapError((cause) => failedRead(`the changes kept for the operator on ${canvasName} could not be read`, cause)),
+      );
+      return {
+        canvas: canvasName,
+        self,
+        role: status.role,
+        term: status.term,
+        leader: status.leader === null ? null : asId(status.leader),
+        commit: status.commit,
+        lastIndex: status.lastIndex,
+        members: memberList(status.members),
+        ...(status.pendingList === undefined ? {} : { pendingList: memberList(status.pendingList) }),
+        fresh: status.fresh,
+        canCommit: status.canCommit,
+        lastCommitAt: consensus?.last ?? null,
+        waitingForOperator: {
+          total: waiting?.total ?? 0,
+          commands: waiting?.commands ?? 0,
+          structure: waiting?.structure ?? 0,
+        },
+        // No link carries a leader's heartbeat yet, so an authority on another machine is not heard here.
+        authorityReachable: status.canCommit,
+      } satisfies AuthorityRead;
+    });
+
+  const status = (canvasName?: string): Effect.Effect<ReadonlyArray<AuthorityRead>, FleetDriverError> =>
+    canvasName === undefined
+      ? sql<{ canvas_name: string }>`SELECT canvas_name FROM canvases ORDER BY canvas_name`.pipe(
+        Effect.mapError((cause) => failedRead("this machine's canvases could not be read", cause)),
+        Effect.flatMap((rows) => Effect.forEach(rows, (row) => readOf(row.canvas_name))),
+      )
+      : Effect.map(readOf(canvasName), (read) => [read]);
+
+  const setList = (canvasName: string, order: ReadonlyArray<string>): Effect.Effect<AuthorityRead, FleetDriverError> =>
+    Effect.gen(function* () {
+      const authority = yield* authorityOf(canvasName);
+      const self = yield* machines.installationId.pipe(
+        Effect.mapError((cause) => failedRead("this machine's installation could not be read", cause)),
+      );
+      const ownName = yield* machines.machineName.pipe(
+        Effect.mapError((cause) => failedRead("this machine's name could not be read", cause)),
+      );
+      const peers = yield* machines.peers.pipe(
+        Effect.mapError((cause) => failedRead("this machine's machines could not be read", cause)),
+      );
+      const resolved = order.map((name): InstallationId | undefined =>
+        name === ownName ? self : peers.find((peer) => peer.machineName === name)?.installationId,
+      );
+      const unknown = order.filter((_, at) => resolved[at] === undefined);
+      if (unknown.length > 0) {
+        return yield* Effect.fail(new FleetDriverError({ message: `there is no machine named ${unknown.join(", ")}`, cause: unknown }));
+      }
+      const list = resolved.filter((id): id is InstallationId => id !== undefined);
+      if (new Set(list).size !== list.length) {
+        return yield* Effect.fail(new FleetDriverError({ message: "a machine appears twice in the list", cause: order }));
+      }
+      yield* authority.proposeList(list);
+      return yield* readOf(canvasName);
+    });
+
+  const alone = (canvasName: string): Effect.Effect<AuthorityRead, FleetDriverError> =>
+    Effect.gen(function* () {
+      const authority = yield* authorityOf(canvasName);
+      yield* authority.alone();
+      return yield* readOf(canvasName);
+    });
+
+  /** This machine and every pinned peer, as the authority view names them. */
+  const machinesView: Effect.Effect<{ self: AuthorityMachineFacts; machines: ReadonlyArray<AuthorityMachineFacts> }, FleetDriverError> =
+    Effect.gen(function* () {
+      const self = yield* machines.installationId.pipe(
+        Effect.mapError((cause) => failedRead("this machine's installation could not be read", cause)),
+      );
+      const peers = yield* machines.peers.pipe(
+        Effect.mapError((cause) => failedRead("this machine's machines could not be read", cause)),
+      );
+      const facts = yield* machineFacts([self, ...peers.map((peer) => peer.installationId)]);
+      const own = facts.find((fact) => fact.installationId === self);
+      if (own === undefined) return yield* Effect.fail(new FleetDriverError({ message: "this machine is not on its own machine list", cause: self }));
+      return { self: own, machines: facts };
+    });
+
   return CanvasAuthorities.of({
+    status,
+    setList,
+    alone,
+    machines: () => machinesView,
     judge: (canvasName, batch) =>
       Effect.flatMap(judgingCanvas, (outer) =>
         outer !== undefined

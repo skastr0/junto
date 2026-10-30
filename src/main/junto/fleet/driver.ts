@@ -358,6 +358,12 @@ export type CanvasAuthority = {
   readonly judge: <A, E, R>(batch: Effect.Effect<A, E, R>) => Effect.Effect<Judgment<A>, E | FleetDriverError, R>;
   /** Propose an entry (a judged ruling, a structure change); on a canvas this machine rules alone it is committed and applied when this returns. */
   readonly propose: (data: LogData) => Effect.Effect<Entry, FleetDriverError>;
+  /**
+   * Propose the operator's ordered list (0.11/06 F5): a joint entry, so it
+   * commits once a quorum of the old list and the new one holds it. Until
+   * then the old list rules and `status().pendingList` carries it.
+   */
+  readonly proposeList: (list: ReadonlyArray<InstallationId>) => Effect.Effect<Entry, FleetDriverError>;
   readonly tick: () => Effect.Effect<ReadonlyArray<Message>, FleetDriverError>;
   readonly step: (message: Message) => Effect.Effect<ReadonlyArray<Message>, FleetDriverError>;
   /** `junto authority alone`: the operator says the pair's other machine is dead; this one becomes sole voter. */
@@ -677,6 +683,7 @@ const openClaimed = (
       status: () => node.status(),
       judge,
       propose: (data) => held(() => node.propose(encodeLogData(data))),
+      proposeList: (list) => held(() => node.proposeList(list)),
       tick: () => drained(() => node.tick()),
       step: (message) => drained(() => node.step(message)),
       alone: () => drained(() => node.alone()),
