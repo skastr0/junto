@@ -28,7 +28,7 @@ import type { BrowserSessionService } from "./browser/sessions";
 import { ModelService } from "./model/service";
 import { ModelActorRefs } from "./model/actor-refs";
 import { core } from "../core-process/main-client";
-import { subscribe as onCorePush } from "../core-process/push";
+import { publish as corePublish, subscribe as onCorePush } from "../core-process/push";
 import { asNodeId } from "@shared/model";
 
 import {
@@ -870,6 +870,9 @@ export const registerJuntoIpc = (): void => {
     IPC_CHANNELS.modelChanged,
     IPC_CHANNELS.modelCanvasesChanged,
     IPC_CHANNELS.modelActorRefsChanged,
+    IPC_CHANNELS.workMailChanged,
+    IPC_CHANNELS.workSinkChanged,
+    IPC_CHANNELS.seatAwarenessChanged,
   ]) onCorePush(channel, (payload) => broadcast(channel, payload));
   void core.call("ipc.watch.model", {});
   void core.call("ipc.watch.modelCanvases", {});
@@ -890,8 +893,8 @@ export const registerJuntoIpc = (): void => {
       }).pipe(Effect.catch(() => Effect.void));
       const mailRepository = yield* WorkRepository;
       mailRepository.subscribeChanges((canvasName, nodeId, kind) => {
-        if (kind === "mail") broadcast(IPC_CHANNELS.workMailChanged, { canvasName, nodeId });
-        else broadcast(IPC_CHANNELS.workSinkChanged, { canvasName, nodeId });
+        if (kind === "mail") corePublish(IPC_CHANNELS.workMailChanged, { canvasName, nodeId });
+        else corePublish(IPC_CHANNELS.workSinkChanged, { canvasName, nodeId });
       });
       // Keep the last model topology for compact connection-change notices.
       const modelForNotices = yield* ModelService;
@@ -924,7 +927,7 @@ export const registerJuntoIpc = (): void => {
       // applies live: a change stops the plane and, when on, starts it again.
       // Display only, and never on the terminal path.
       seatAwarenessPlane.subscribe((event) =>
-        broadcast(IPC_CHANNELS.seatAwarenessChanged, event),
+        corePublish(IPC_CHANNELS.seatAwarenessChanged, event),
       );
       const applySeatAwareness = (settings: typeof settingsAtBoot): void => {
         if (!SEAT_AWARENESS_COMPILED) return;
