@@ -139,6 +139,28 @@ describe("the Files modal", () => {
     expect(fileDraft(nodeId, A)?.text).toBe("two and more");
   });
 
+  it("a twin's save told while this pane's own save is out shows once the save returns", async () => {
+    const files = makeLocalFiles({ "src/a.ts": "one" });
+    // The twin saves after ours lands and before ours answers; both are told while ours is out.
+    installFilesSource({
+      ...files,
+      write: async (...call) => {
+        const result = await files.write(...call);
+        files.touch(nodeId, "src/a.ts", "theirs");
+        for (let index = 0; index < 5; index += 1) await Promise.resolve();
+        return result;
+      },
+    });
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} initialPath={A} onClose={() => undefined} />));
+    await flush();
+    const read = await files.read(ref, A);
+    if (!read.ok) throw new Error("expected a file");
+    await act(async () => setFileDraft(nodeId, A, { text: "two", base: read.value.stamp }));
+    await press(buttonNamed("Save"));
+    await flush();
+    expect(document.querySelector(".files-code .cm-content")?.textContent).toBe("theirs");
+  });
+
   it("a clean file shows a save made through a twin node as the change is told", async () => {
     const files = makeLocalFiles({ "src/a.ts": "one" });
     installFilesSource(files);

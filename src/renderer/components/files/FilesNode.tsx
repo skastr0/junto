@@ -629,6 +629,24 @@ function SelectedFile({
     return result.ok ? result.value : null;
   }, []);
   const load = useCallback(async (): Promise<FileRead | null> => shown(await filesSource().read(filesRef, path)), [shown, filesRef, path]);
+  /** A change that came while this pane's write was out: looked at again once the write has said what it found. */
+  const missed = useRef(false);
+  /** Read the disk and act on a change there since this pane last knew it. */
+  const recheck = useCallback((): void => {
+    void filesSource()
+      .read(filesRef, path)
+      .then((now) => {
+        if (writing.current) {
+          missed.current = true;
+          return;
+        }
+        // This pane's own save, told at once and again by the watch.
+        if (now.ok && known.current !== null && sameStamp(now.value.stamp, known.current)) return;
+        // A clean file follows the disk; a draft is the operator's until they choose.
+        if (fileDraft(nodeId, path) === undefined) shown(now);
+        else setStale(!now.ok && now.error === "not-found" ? "deleted" : "changed");
+      });
+  }, [shown, filesRef, nodeId, path]);
   useEffect(() => {
     // A draft held while the modal was closed may be on a version the disk has since left: say so on open, not at Save.
     void load().then((now) => {
@@ -636,18 +654,9 @@ function SelectedFile({
       if (now !== null && held !== undefined && !sameStamp(held.base, now.stamp)) setStale("changed");
     });
     return filesSource().onChange((event) => {
-      if (!changeTouches(event, nodeId, path)) return;
-      void filesSource()
-        .read(filesRef, path)
-        .then((now) => {
-          // This pane's own save, told at once and again by the watch, or a write still out that will say what it found.
-          if (writing.current || (now.ok && known.current !== null && sameStamp(now.value.stamp, known.current))) return;
-          // A clean file follows the disk; a draft is the operator's until they choose.
-          if (fileDraft(nodeId, path) === undefined) shown(now);
-          else setStale(!now.ok && now.error === "not-found" ? "deleted" : "changed");
-        });
+      if (changeTouches(event, nodeId, path)) recheck();
     });
-  }, [load, shown, filesRef, nodeId, path]);
+  }, [load, recheck, nodeId, path]);
 
   /** The bar or the control pressed just went away: the keyboard goes back to the file. */
   const backToFile = (): void => {
@@ -670,6 +679,11 @@ function SelectedFile({
     const result = await filesSource().write(filesRef, path, body, base);
     writing.current = false;
     setSaving(false);
+    // Another save told while this one was out (a twin node's): looked at now, not at the watch's echo.
+    if (missed.current) {
+      missed.current = false;
+      queueMicrotask(recheck);
+    }
     if (result.ok) {
       known.current = result.value;
       // Text typed while the write was out is still unsaved: it stays, on the new version.
