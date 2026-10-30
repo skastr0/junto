@@ -31,6 +31,25 @@ export type CoreMessage =
   | { readonly kind: "hostAnswer"; readonly id: number; readonly ok: true; readonly value: unknown }
   | { readonly kind: "hostAnswer"; readonly id: number; readonly ok: false; readonly failure: HostFailure };
 
+const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+type AnswerMessage = Extract<CoreMessage, { readonly kind: "answer" | "hostAnswer" }>;
+
+/**
+ * Post an answer, or, when its value cannot be cloned across the port, a
+ * failure in its place, so the caller hears back instead of waiting forever.
+ */
+const postAnswer = (port: CorePort, answer: AnswerMessage): void => {
+  try {
+    port.post(answer);
+  } catch (error) {
+    const failure = { tag: "CoreAnswerNotCloneable", message: messageOf(error) };
+    port.post(answer.kind === "answer"
+      ? { kind: "answer", id: answer.id, ok: false, failure }
+      : { kind: "hostAnswer", id: answer.id, ok: false, failure });
+  }
+};
+
 /** Main's side: calls go out, answers and pushes come back; the core's host calls are answered here. */
 export type PortCoreClient = CoreClient & {
   readonly onPush: (channel: string, listener: (payload: unknown) => void) => () => void;
@@ -44,7 +63,7 @@ export const portCore = (port: CorePort): PortCoreClient => {
   const listeners = new Map<string, Set<(payload: unknown) => void>>();
   port.listen((message) => {
     if (message.kind === "hostCall") {
-      void runHostOp(message.name, message.input).then((answer) => port.post(answer.ok
+      void runHostOp(message.name, message.input).then((answer) => postAnswer(port, answer.ok
         ? { kind: "hostAnswer", id: message.id, ok: true, value: answer.value }
         : { kind: "hostAnswer", id: message.id, ok: false, failure: answer.failure }));
       return;
@@ -65,7 +84,12 @@ export const portCore = (port: CorePort): PortCoreClient => {
       new Promise((resolve, reject) => {
         const id = nextId++;
         pending.set(id, { name, resolve, reject });
-        port.post({ kind: "call", id, name, input });
+        try {
+          port.post({ kind: "call", id, name, input });
+        } catch (error) {
+          pending.delete(id);
+          reject(new CoreCallError(name, "CoreInputNotCloneable", messageOf(error)));
+        }
       }),
     onPush: (channel, listener) => {
       const set = listeners.get(channel) ?? new Set();
@@ -106,12 +130,12 @@ export const serveCore = (port: CorePort, runner: CoreRunner | Promise<CoreRunne
     }
     if (message.kind !== "call") return;
     void Promise.resolve(runner).then((ready) => runCoreOp(ready, message.name, message.input)).then(
-      (answer) => port.post(answer.ok
+      (answer) => postAnswer(port, answer.ok
         ? { kind: "answer", id: message.id, ok: true, value: answer.value }
         : { kind: "answer", id: message.id, ok: false, failure: answer.failure }),
-      (error: unknown) => port.post({
+      (error: unknown) => postAnswer(port, {
         kind: "answer", id: message.id, ok: false,
-        failure: { tag: "CoreDefect", message: error instanceof Error ? error.message : String(error) },
+        failure: { tag: "CoreDefect", message: messageOf(error) },
       }),
     );
   });

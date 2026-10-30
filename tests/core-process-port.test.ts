@@ -14,6 +14,7 @@ declare module "../src/main/core-process/ops" {
   interface CoreOps {
     "test.add": CoreOp<{ readonly n: number }, { readonly total: number }>;
     "test.refuse": CoreOp<{ readonly why: string }, never>;
+    "test.uncloneable": CoreOp<Record<string, never>, { readonly total: number }>;
   }
 }
 
@@ -27,6 +28,8 @@ declare module "../src/main/core-process/host-ops" {
 coreOps({
   "test.add": ({ n }) => Effect.flatMap(Counter, (counter) => counter.add(n)).pipe(Effect.map((total) => ({ total }))),
   "test.refuse": ({ why }) => Effect.fail(new Refused({ message: why })),
+  // A body whose answer cannot cross a port, which its type does not admit.
+  "test.uncloneable": () => Effect.succeed({ total: 1, read: () => 1 } as { readonly total: number }),
 });
 
 const runtimeWith = () => {
@@ -79,6 +82,20 @@ describe("core operations", () => {
     await expect(core.call("test.refuse", { why: "no" })).rejects.toMatchObject({ tag: "Refused", message: "no" });
     expect(pushed).toEqual([{ total: 4 }, { total: 5 }]);
     await expect(core.call("nope" as never, {} as never)).rejects.toMatchObject({ tag: "UnknownCoreOp" });
+  });
+
+  it("an answer that cannot cross the port fails its call instead of leaving it waiting", async () => {
+    const runtime = runtimeWith();
+    const { port1, port2 } = new MessageChannel();
+    opened.push(() => {
+      port1.close();
+      void runtime.dispose();
+    });
+    serveCore(portOf(port2), runtime);
+    const core = portCore(portOf(port1));
+    await expect(core.call("test.uncloneable", {})).rejects.toMatchObject({ tag: "CoreAnswerNotCloneable" });
+    await expect(core.call("test.add", { n: 2 })).resolves.toEqual({ total: 2 });
+    await expect(core.call("test.add", { n: 1, read: () => 1 } as never)).rejects.toMatchObject({ tag: "CoreInputNotCloneable" });
   });
 
   it("a stopped core rejects every call in flight", async () => {
