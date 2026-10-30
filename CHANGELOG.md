@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+## 0.11.4 — 2026-10-30
+
+Opening the database with 0.11.4 moves it to version 71, and 0.11.3 then
+refuses it as newer than supported. To go back to 0.11.3, open the backup
+taken at the upgrade. The five steps add tables and columns for the desk, the
+mail sender index, the automation firing revision, each structure entry's
+change and a canvas copy's authority list; every node, wire, task and artifact
+is kept as it was.
+
+- Mail is quicker. `msg list`, `onboard` and `since` read a seat's mail on a
+  worker thread, off the main process, and sent mail comes from an index by
+  sender instead of a walk of every mailbox. `msg list` answers one page of a
+  mailbox, newest first, and marks only that page read. An idle seat gets its
+  batch after 250 ms of quiet, not 2 s, and a seat start no longer waits on
+  its process identity check.
+- Cmd+P search is faster on a large folder: each folder is walked once per
+  query, not once per file.
+- Cmd+P is a dialog for readers: Tab stays inside it, what it covers is inert,
+  and the result count is said once the query rests.
+- Files: an open file that is renamed outside Junto follows its new name, a
+  save in one Files node on a folder is what a second node on that folder
+  opens, a trash reserves its name before it moves so two trashes cannot
+  replace each other, and a Files node on an unreachable machine says so.
+- Automations: the history names the machine that ran a firing, what a held
+  step waited on and when it went, and a remote firing keeps its cause.
+- Cmd+T opens the capture desk: a writing pane that keeps every word on disk,
+  reopens where it was left, and moves a capture to a column with 1, 2 or 3.
+- The app carries a small native `junto-native` program that nothing calls
+  yet. It answers `--version` and is signed and notarized with the app.
+- Fleet state, the vault, Files over SSH and code steps are built but off in
+  this build.
+
 ## 0.11.3 — 2026-10-29
 
 Opening the database with 0.11.3 moves it to version 66, and 0.11.2 then
