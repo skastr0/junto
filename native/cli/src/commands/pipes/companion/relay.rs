@@ -80,7 +80,7 @@ impl Relay {
             (code, code.copy().to_string())
         })?;
         match (data.get("ok"), data.get("hello"), data.get("error")) {
-            (Some(Value::Bool(true)), Some(hello), _) => Ok(hello.clone()),
+            (Some(Value::Bool(true)), Some(hello), _) => Ok(in_schema_order(hello)),
             (Some(Value::Bool(false)), _, Some(error)) => {
                 let code = error
                     .get("code")
@@ -147,6 +147,32 @@ impl Relay {
             reset: data.get("reset")?.as_bool()?,
         })
     }
+}
+
+/// CompanionHello's field order: the TypeScript relay decodes the app's hello
+/// and writes it back in this order, whatever order the app sent.
+const HELLO_FIELDS: [&str; 7] = [
+    "appVersion",
+    "deviceId",
+    "deviceName",
+    "station",
+    "serverTime",
+    "hosts",
+    "features",
+];
+
+fn in_schema_order(hello: &Value) -> Value {
+    let Some(fields) = hello.as_object() else {
+        return hello.clone();
+    };
+    let known = HELLO_FIELDS
+        .iter()
+        .filter_map(|&key| Some((key.to_string(), fields.get(key)?.clone())));
+    let rest = fields
+        .iter()
+        .filter(|(key, _)| !HELLO_FIELDS.contains(&key.as_str()))
+        .map(|(key, value)| (key.clone(), value.clone()));
+    Value::Object(known.chain(rest).collect())
 }
 
 /// At most `max` at once, first come first served.
@@ -283,4 +309,22 @@ fn run(file: &str, args: &[&str], bound: Duration) -> Option<String> {
     let mut out = String::new();
     std::io::Read::read_to_string(&mut child.stdout.take()?, &mut out).ok()?;
     Some(out.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn writes_the_hello_in_schema_order() {
+        let sent = json!({ "appVersion": "1", "deviceId": "d", "deviceName": "n", "station": "s",
+            "hosts": ["h"], "features": ["f"], "serverTime": 1 });
+        let keys: Vec<_> = in_schema_order(&sent)
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
+        assert_eq!(keys, HELLO_FIELDS);
+    }
 }
