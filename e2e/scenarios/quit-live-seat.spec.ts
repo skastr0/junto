@@ -7,9 +7,11 @@
  * marked before the prompt opens, so it is the record of what the check saw.
  *
  * The confirm itself is native, and the e2e harness answers native dialogs with
- * "quit anyway" (e2e/harness/launch.ts). So this proves the check saw the seat
- * and that the quit that follows ends cleanly with the core drained; the
- * Cancel-keeps-the-seat branch is not reachable from here.
+ * "quit anyway" (e2e/harness/launch.ts). The first case proves the check saw
+ * the seat and that the quit that follows ends cleanly with the core drained.
+ * The second case answers the same dialog with Cancel from the spec, and proves
+ * the app stays, the seat stays, and a later accept still quits: the operator's
+ * Cancel is not a dead end.
  *   bun run test:e2e:fast e2e/scenarios/quit-live-seat.spec.ts
  */
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
@@ -55,6 +57,60 @@ test("quit with a running seat names it, then drains the core and leaves", async
     await expect.poll(() => lines.join("\n"), { timeout: 30_000 }).toContain("dispose: child processes");
     await expect.poll(() => lines.join("\n"), { timeout: 30_000 }).toContain("quit, exit code 0");
     console.log(`quit-with-seat lines:\n${lines.join("\n")}`);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await junto.close().catch(() => undefined);
+  }
+});
+
+test("quit Cancel keeps the app and the seat, and a later quit still works", async () => {
+  test.setTimeout(120_000);
+  const junto = await launchJunto({
+    windowContentSize: { width: 1400, height: 880 },
+    seedModels: { [CANVAS]: modelFixture([SEAT]) },
+    afterSeed: installCrewSeatHarness,
+  });
+  const child = junto.app.process();
+  const lines: string[] = [];
+  let quitting = false;
+  const keep = (chunk: Buffer): void => {
+    for (const line of chunk.toString("utf8").split("\n")) {
+      if (line.includes("[quit]")) lines.push(line.trim().slice(0, 300));
+    }
+  };
+  child.stdout?.on("data", keep);
+  child.stderr?.on("data", keep);
+  try {
+    await expect(junto.page.locator('.react-flow__node[data-id="scout"]')).toBeVisible({ timeout: 30_000 });
+    await crewPlayFactory(junto.page);
+    await crewOccupySeat(junto.page, CANVAS, SEAT, crewSeat(junto.sandbox, CANVAS, "scout"));
+
+    // Answer the honest-quit confirm with Cancel (index 0) for this run.
+    await junto.app.evaluate(({ dialog }) => {
+      dialog.showMessageBox = (async () => ({ response: 0, checkboxChecked: false })) as typeof dialog.showMessageBox;
+    });
+    await junto.app.evaluate(({ app }) => {
+      app.quit();
+    });
+
+    // The prompt opened on the running seat, and Cancel means the app stays:
+    // no will-quit, no exit, and the seat's terminal is still the core's.
+    await expect.poll(() => lines.join("\n"), { timeout: 20_000 }).toContain("live work: 1 local terminal session");
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    expect(child.exitCode).toBeNull();
+    expect(lines.join("\n")).not.toContain("will-quit");
+    await expect(junto.page.locator('.react-flow__node[data-id="scout"]')).toBeVisible();
+    const [status] = await junto.page.evaluate((canvas) => window.junto!.seatOffboardStatus!(canvas, ["scout"]), CANVAS);
+    expect((status!.now as { readonly allowed: boolean }).allowed).toBe(true);
+
+    // A later accept still quits: Cancel did not wedge the quit path.
+    quitting = true;
+    await junto.app.evaluate(({ dialog, app }) => {
+      dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox;
+      app.quit();
+    });
+    await expect.poll(() => lines.join("\n"), { timeout: 30_000 }).toContain("quit, exit code 0");
+    console.log(`quit-cancel lines:\n${lines.join("\n")}`);
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
     await junto.close().catch(() => undefined);
