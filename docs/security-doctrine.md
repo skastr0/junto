@@ -341,11 +341,28 @@ mid-firing leaves the in-flight firing to settle on the old machine. The
 receiver folds the highest rev into `automation_firings` — where folded rows
 still hold the shared claim key and limits, so a moved automation cannot
 fire a slot twice — but a rev whose clock cannot be true is refused: an
-`at` ahead of the receiver by more than a small skew, a slot ahead of its
-own `at`, or an `at` more than a day old. Folds are bounded to six revs per
-automation per minute so a flood cannot push real history out. A folded
-firing never runs here: a row whose machine is not this one is never
-resolved, swept or settled, and never produces a local rev.
+`at` ahead of the receiver by more than a small skew, or a slot ahead of its
+own `at`. Age is no bound: a refused fold is never retried, so an old but
+honest rev folds whenever it arrives. The only rate bound is a firing's own
+life: a rev beyond a first state, a settle and one resolution per queued
+action is forged. Pruning keeps the newest thousand firings per automation
+per minting machine, so a flood can evict only its own rows. A folded firing
+never runs here: a row whose machine is not this one is never resolved,
+swept or settled, and never produces a local rev. Renaming a machine ends
+the firings it minted under the old name: they read as foreign and their
+queued actions stay queued. A machine that once ran an automation can, if
+compromised, still suppress some of that automation's firings where it runs
+now. A change firing's claim key is predictable (a seat's transition, a
+label's change, a signal's answer), and the fold cannot check that the event
+happened. Such a machine can therefore claim keys ahead of the real
+transitions, stating a count at which it ran the automation. When the
+automation now runs on a machine that folds firing rows, one of the canvas's
+authorities, the real transition there finds its key taken and does not
+fire. A machine that folds no firing rows is not affected. Schedule and
+poll slots are not open to this: a slot ahead of its firing's time, or a
+time more than two minutes ahead of the receiver's clock, is refused. The
+power ends when the operator removes that machine. Closing it takes keys
+the receiver can check and a fold that waits for its event, after 0.12.
 
 Before registering a writer, materializing a row or advancing a cursor, the
 receiver verifies the peer's authority for that exact canvas, the row's writer,

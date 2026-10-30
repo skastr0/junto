@@ -211,7 +211,7 @@ describe("the firing's crossing on its own machine", () => {
 });
 
 describe("a folded firing this clock cannot back", () => {
-  it("refuses a firing ahead of the clock, a slot ahead of its at, and a stale firing", () =>
+  it("refuses a firing ahead of the clock or a slot ahead of its at, while an old honest one folds", () =>
     run(
       Effect.gen(function* () {
         const future = firing("01M62BBBBBBBBBBBBBBBBBBBBB", { kind: "fired", actions: [] }, { kind: "change", key: "a:1" }, Date.now() + 5 * 60_000);
@@ -220,10 +220,12 @@ describe("a folded firing this clock cannot back", () => {
         const slotAhead = firing("01M62CCCCCCCCCCCCCCCCCCCCC", { kind: "fired", actions: [] }, { kind: "schedule", slot: Date.now() + 60_000, missed: 0 });
         expect(yield* fold("mini", slotAhead, 0)).toEqual({ folded: false });
 
-        const stale = firing("01M62DDDDDDDDDDDDDDDDDDDDD", { kind: "fired", actions: [] }, { kind: "change", key: "a:2" }, Date.now() - 2 * 24 * 60 * 60_000);
-        expect(yield* fold("mini", stale, 0)).toEqual({ folded: false });
+        // No age bound: a refused fold is never retried, so a firing that is
+        // simply old — a weekend of backlog — folds on arrival.
+        const old = firing("01M62DDDDDDDDDDDDDDDDDDDDD", { kind: "fired", actions: [] }, { kind: "change", key: "a:2" }, Date.now() - 2 * 24 * 60 * 60_000);
+        expect(yield* fold("mini", old, 0)).toEqual({ folded: true });
 
-        expect(yield* firings()).toEqual([]);
+        expect(yield* firings()).toHaveLength(1);
       }),
     ));
 
@@ -257,18 +259,91 @@ describe("a folded firing this clock cannot back", () => {
       }),
     ));
 
-  it("bounds folded revisions to six a minute per automation", () =>
+  it("refuses a rev beyond a firing's life, while revs inside it fold", () =>
     run(
       Effect.gen(function* () {
-        for (let n = 0; n < 6; n += 1) {
-          const f = firing(`01M62BBBBBBBBBBBBBBBBBBBB${n}`, { kind: "fired", actions: [] }, { kind: "change", key: `a:${n}` });
-          expect(yield* fold("mini", f, 0)).toEqual({ folded: true });
-        }
-        const flood = firing("01M62CCCCCCCCCCCCCCCCCCCCC", { kind: "fired", actions: [] }, { kind: "change", key: "a:6" });
-        expect(yield* fold("mini", flood, 0)).toEqual({ folded: false });
-        expect(yield* firings()).toHaveLength(6);
+        const f = firing("01M62BBBBBBBBBBBBBBBBBBBBB", { kind: "claimed" });
+        expect(yield* fold("mini", f, 0)).toEqual({ folded: true });
+        // A firing lives a first state, a settle and one resolution per queued
+        // action: at sixteen steps that is rev 18. Rev 19 is forged.
+        const settled: Firing = { ...f, outcome: { kind: "fired", actions: [] } };
+        expect(yield* fold("mini", settled, 18)).toEqual({ folded: true });
+        const beyond: Firing = { ...f, outcome: { kind: "fired", actions: [{ index: 0, ruling: "applied" }] } };
+        expect(yield* fold("mini", beyond, 19)).toEqual({ folded: false });
+        expect((yield* firings())[0]).toMatchObject({ outcome: { kind: "fired", actions: [] } });
       }),
     ));
+
+  it("folds a 48-firing backlog plus a held control's final rev in one pass", () =>
+    run(
+      Effect.gen(function* () {
+        // The editor's machine is closed for the weekend while the mini fires
+        // hourly: every firing folds on Monday, since none is ever retried.
+        const saturday = Date.now() - 48 * 60 * 60_000;
+        for (let n = 0; n < 48; n += 1) {
+          const slot = saturday + n * 60 * 60_000;
+          const f = firing(`01M62B${String(n).padStart(20, "0")}`, { kind: "fired", actions: [] }, { kind: "schedule", slot, missed: 0 }, slot + 1);
+          expect(yield* fold("mini", f, 0)).toEqual({ folded: true });
+        }
+        // A held seat control that ended after a day still lands its last rev.
+        const since = saturday;
+        const held = firing("01M62C00000000000000000000", {
+          kind: "fired",
+          actions: [{ index: 0, ruling: "queued", waitingOn: { machine: "mini", since } }],
+        }, { kind: "change", key: "seat:seat1:idle:1" }, since);
+        expect(yield* fold("mini", held, 0)).toEqual({ folded: true });
+        const ended = saturday + 25 * 60 * 60_000;
+        const resolved: Firing = {
+          ...held,
+          at: ended,
+          outcome: { kind: "fired", actions: [{ index: 0, ruling: "applied", heldSince: since, heldUntil: ended }] },
+        };
+        expect(yield* fold("mini", resolved, 1)).toEqual({ folded: true });
+        expect(yield* firings()).toHaveLength(49);
+      }),
+    ));
+
+  it("folds a burst of twenty change firings in a minute", () =>
+    run(
+      Effect.gen(function* () {
+        // Twenty task moves in a minute are twenty honest firings: the rev
+        // cap is per firingId, never per minute.
+        for (let n = 0; n < 20; n += 1) {
+          const f = firing(`01M62D${String(n).padStart(20, "0")}`, { kind: "fired", actions: [] }, { kind: "change", key: `task:t${n}:done` }, Date.now() - (20 - n) * 1_000);
+          expect(yield* fold("mini", f, 0)).toEqual({ folded: true });
+        }
+        expect(yield* firings()).toHaveLength(20);
+      }),
+    ));
+
+  it("a flood from one machine evicts only that machine's rows", () =>
+    run(
+      Effect.gen(function* () {
+        // Five macbook firings fold first; then the mini floods past
+        // FIRINGS_KEPT, and only mini rows are pruned.
+        for (let n = 0; n < 5; n += 1) {
+          const f: Firing = { ...firing(`01M62E${String(n).padStart(20, "0")}`, { kind: "fired", actions: [] }, { kind: "change", key: `mac:${n}` }), machine: "macbook" };
+          expect(yield* fold("macbook", f, 0)).toEqual({ folded: true });
+        }
+        for (let n = 0; n < 1001; n += 1) {
+          const f = firing(`01M62F${String(n).padStart(20, "0")}`, { kind: "fired", actions: [] }, { kind: "change", key: `mini:${n}` }, Date.now() - (1001 - n) * 1_000);
+          expect(yield* fold("mini", f, 0)).toEqual({ folded: true });
+        }
+        const sql = yield* SqlClient.SqlClient;
+        const counts = yield* sql<{ readonly machine: string; readonly kept: number }>`
+          SELECT COALESCE(json_extract(firing_json, '$.machine'), 'none') AS machine, COUNT(*) AS kept
+          FROM automation_firings WHERE canvas_name = 'factory' GROUP BY machine
+        `;
+        expect(counts).toEqual(
+          expect.arrayContaining([
+            { machine: "mini", kept: 1000 },
+            { machine: "macbook", kept: 5 },
+          ]),
+        );
+        expect(counts).toHaveLength(2);
+      }),
+      "macbook",
+    ), 60_000);
 });
 
 describe("a folded firing is not this machine's to run", () => {
@@ -287,8 +362,10 @@ describe("a folded firing is not this machine's to run", () => {
 
         expect(yield* repository.firing("factory", queued.firingId)).toBeUndefined();
         expect(yield* repository.queuedFirings("factory")).toEqual([]);
-        const error = yield* Effect.flip(repository.settleFiring("factory", queued, { kind: "fired", actions: [{ index: 0, ruling: "applied" }] }));
-        expect(error._tag).toBe("AutomationPersistenceError");
+        // A settle of a foreign firing is skipped, never failed: after a
+        // rename even a once-local firing reads as foreign, and its queued
+        // actions end rather than erroring the sweep.
+        yield* repository.settleFiring("factory", queued, { kind: "fired", actions: [{ index: 0, ruling: "applied" }] });
         expect((yield* firings())[0]!.outcome).toEqual(queued.outcome);
       }),
       "macbook",
