@@ -42,14 +42,33 @@ pub enum Text {
 /// One thing to attach, as planned from a flag or a JSON item.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Plan {
-    File { path: String },
-    Code { language: String, text: Text },
-    Diff { text: Text },
-    Compare { before: Text, after: Text, language: Option<String> },
-    Commit { rev: String },
-    Video { url: String },
-    Task { reference: String },
-    Artifact { reference: String },
+    File {
+        path: String,
+    },
+    Code {
+        language: String,
+        text: Text,
+    },
+    Diff {
+        text: Text,
+    },
+    Compare {
+        before: Text,
+        after: Text,
+        language: Option<String>,
+    },
+    Commit {
+        rev: String,
+    },
+    Video {
+        url: String,
+    },
+    Task {
+        reference: String,
+    },
+    Artifact {
+        reference: String,
+    },
 }
 
 /// A plan and the caption it is shown under.
@@ -117,7 +136,10 @@ impl Flag {
     /// FLAG_HELP: what a valid value looks like, and one.
     fn help(self) -> (&'static str, &'static str) {
         match self {
-            Flag::Attach => ("a path to a file that exists", r#"--attach "Before=/abs/before.png""#),
+            Flag::Attach => (
+                "a path to a file that exists",
+                r#"--attach "Before=/abs/before.png""#,
+            ),
             Flag::Code => (
                 "<language>:<text>, where the text may be @file (a file that exists) or - for stdin",
                 r#"--code "The guard=ts:if (!user) return;""#,
@@ -126,10 +148,22 @@ impl Flag {
                 "unified diff text (it starts with diff, ---, Index: or @@), @file (a file that exists), or - for stdin",
                 r#"git diff | junto feedback "..." --diff "What changed=-""#,
             ),
-            Flag::Compare => ("<before path>,<after path>, two files that exist", r#"--compare "The limit=old.ts,new.ts""#),
-            Flag::Commit => ("a commit in this folder: HEAD, a branch, or an id", r#"--commit "The fix=HEAD""#),
-            Flag::Video => ("an address that starts with http:// or https://", r#"--video "The run=https://host/run.mp4""#),
-            Flag::Task => ("a task: its junto:// ref, #42, or its id", r##"--task "Stamp this=#42""##),
+            Flag::Compare => (
+                "<before path>,<after path>, two files that exist",
+                r#"--compare "The limit=old.ts,new.ts""#,
+            ),
+            Flag::Commit => (
+                "a commit in this folder: HEAD, a branch, or an id",
+                r#"--commit "The fix=HEAD""#,
+            ),
+            Flag::Video => (
+                "an address that starts with http:// or https://",
+                r#"--video "The run=https://host/run.mp4""#,
+            ),
+            Flag::Task => (
+                "a task: its junto:// ref, #42, or its id",
+                r##"--task "Stamp this=#42""##,
+            ),
             Flag::Artifact => (
                 "an artifact: its junto:// ref or its id",
                 r#"--artifact "The spec=junto://canvas/<canvas>?node=<id>&item=<id>""#,
@@ -168,7 +202,10 @@ impl AttachFlags {
 
     /// The first flag given, as `--name`, when any is.
     pub fn first_given(&self) -> Option<String> {
-        self.each().into_iter().find(|(_, values)| !values.is_empty()).map(|(flag, _)| format!("--{}", flag.name()))
+        self.each()
+            .into_iter()
+            .find(|(_, values)| !values.is_empty())
+            .map(|(flag, _)| format!("--{}", flag.name()))
     }
 }
 
@@ -197,7 +234,13 @@ impl Probe for Live {
             return None;
         }
         let sha = Command::new("git")
-            .args(["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}"), "--"])
+            .args([
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                &format!("{rev}^{{commit}}"),
+                "--",
+            ])
             .stdin(Stdio::null())
             .stderr(Stdio::null())
             .output()
@@ -222,18 +265,32 @@ fn shown(value: &str) -> String {
 
 fn flag_error(flag: Flag, value: &str, why: Option<&str>) -> Failure {
     let (looks, example) = flag.help();
-    let why = why.map_or_else(|| format!("\"{}\" is not {looks}", shown(value)), str::to_string);
-    Failure::input(format!("--{}: {why}", flag.name()), format!("--{}", flag.name()))
-        .and("hint", format!("a valid value is {looks}, for example {example}"))
+    let why = why.map_or_else(
+        || format!("\"{}\" is not {looks}", shown(value)),
+        str::to_string,
+    );
+    Failure::input(
+        format!("--{}: {why}", flag.name()),
+        format!("--{}", flag.name()),
+    )
+    .and(
+        "hint",
+        format!("a valid value is {looks}, for example {example}"),
+    )
 }
 
 /// splitCaption: `[Caption=]value` by the one caption rule, or none when
 /// neither the whole value nor what follows a caption is valid.
-pub fn split_caption(raw: &str, is_value: impl Fn(&str) -> bool) -> Option<(String, Option<String>)> {
+pub fn split_caption(
+    raw: &str,
+    is_value: impl Fn(&str) -> bool,
+) -> Option<(String, Option<String>)> {
     if is_value(raw) {
         return Some((raw.to_string(), None));
     }
-    let (caption, value) = raw.split_once('=').filter(|(caption, _)| !caption.is_empty())?;
+    let (caption, value) = raw
+        .split_once('=')
+        .filter(|(caption, _)| !caption.is_empty())?;
     let caption = caption.trim();
     if caption.is_empty() || caption.contains([':', '\n', '\r']) {
         return None;
@@ -249,7 +306,9 @@ pub fn split_caption(raw: &str, is_value: impl Fn(&str) -> bool) -> Option<(Stri
 /// `@path` names a file only when that file exists: code may well start with `@`.
 fn file_named(raw: &str, probe: &impl Probe) -> Option<String> {
     let trimmed = raw.trim();
-    let path = trimmed.strip_prefix('@').filter(|p| !p.is_empty() && !trimmed.contains('\n'))?;
+    let path = trimmed
+        .strip_prefix('@')
+        .filter(|p| !p.is_empty() && !trimmed.contains('\n'))?;
     probe.is_file(path).then(|| path.to_string())
 }
 
@@ -264,7 +323,9 @@ fn text_of(raw: &str, probe: &impl Probe) -> Text {
 fn code_value(value: &str) -> Option<(&str, &str)> {
     let (language, text) = value.split_once(':')?;
     let language_ok = (1..=32).contains(&language.len())
-        && language.bytes().all(|b| b.is_ascii_alphanumeric() || b".+#_-".contains(&b));
+        && language
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b".+#_-".contains(&b));
     (language_ok && !text.is_empty()).then_some((language, text))
 }
 
@@ -272,7 +333,9 @@ fn is_diff_value(value: &str, probe: &impl Probe) -> bool {
     let start = value.trim_start();
     matches!(value.trim(), "-" | "@-")
         || file_named(value, probe).is_some()
-        || ["diff ", "--- ", "Index: ", "@@"].iter().any(|p| start.starts_with(p))
+        || ["diff ", "--- ", "Index: ", "@@"]
+            .iter()
+            .any(|p| start.starts_with(p))
 }
 
 /// The one comma at which both sides are files; none when none or several.
@@ -288,7 +351,9 @@ fn compare_pair(value: &str, probe: &impl Probe) -> Option<(String, String)> {
 
 fn is_video(value: &str) -> bool {
     let value = value.trim().as_bytes();
-    let starts = |prefix: &[u8]| value.len() >= prefix.len() && value[..prefix.len()].eq_ignore_ascii_case(prefix);
+    let starts = |prefix: &[u8]| {
+        value.len() >= prefix.len() && value[..prefix.len()].eq_ignore_ascii_case(prefix)
+    };
     starts(b"http://") || starts(b"https://")
 }
 
@@ -296,7 +361,9 @@ fn is_video(value: &str) -> bool {
 /// with an `=` in it is read as `Caption=value`.
 fn is_resource_ref(value: &str) -> bool {
     let value = value.trim();
-    !value.is_empty() && !value.contains(['\n', '\r']) && (value.starts_with("junto://") || !value.contains('='))
+    !value.is_empty()
+        && !value.contains(['\n', '\r'])
+        && (value.starts_with("junto://") || !value.contains('='))
 }
 
 /// planAttachFlags: every flag value as a plan, or the first that is not valid.
@@ -306,32 +373,80 @@ pub fn plan_flags(flags: &AttachFlags, probe: &impl Probe) -> Result<Vec<Caption
         for raw in values {
             let fail = |why: Option<&str>| flag_error(flag, raw, why);
             let planned = match flag {
-                Flag::Attach => split_caption(raw, |v| probe.is_file(v)).map(|(path, c)| (Plan::File { path }, c)),
-                Flag::Code => split_caption(raw, |v| code_value(v).is_some()).and_then(|(value, c)| {
-                    let (language, text) = code_value(&value)?;
-                    Some((Plan::Code { language: language.into(), text: text_of(text, probe) }, c))
+                Flag::Attach => split_caption(raw, |v| probe.is_file(v))
+                    .map(|(path, c)| (Plan::File { path }, c)),
+                Flag::Code => {
+                    split_caption(raw, |v| code_value(v).is_some()).and_then(|(value, c)| {
+                        let (language, text) = code_value(&value)?;
+                        Some((
+                            Plan::Code {
+                                language: language.into(),
+                                text: text_of(text, probe),
+                            },
+                            c,
+                        ))
+                    })
+                }
+                Flag::Diff => split_caption(raw, |v| is_diff_value(v, probe)).map(|(value, c)| {
+                    (
+                        Plan::Diff {
+                            text: text_of(&value, probe),
+                        },
+                        c,
+                    )
                 }),
-                Flag::Diff => split_caption(raw, |v| is_diff_value(v, probe))
-                    .map(|(value, c)| (Plan::Diff { text: text_of(&value, probe) }, c)),
                 Flag::Compare => {
                     let split = split_caption(raw, |v| compare_pair(v, probe).is_some());
                     match split.and_then(|(value, c)| Some((compare_pair(&value, probe)?, c))) {
-                        Some(((before, after), c)) => {
-                            Some((Plan::Compare { before: Text::File(before), after: Text::File(after), language: None }, c))
-                        }
+                        Some(((before, after), c)) => Some((
+                            Plan::Compare {
+                                before: Text::File(before),
+                                after: Text::File(after),
+                                language: None,
+                            },
+                            c,
+                        )),
                         None if raw.contains(',') => return Err(fail(None)),
-                        None => return Err(fail(Some(
-                            r#"two files are needed, split by a comma; for two texts typed inline use the JSON form: {"before": "...", "after": "...", "language": "ts"}"#,
-                        ))),
+                        None => {
+                            return Err(fail(Some(
+                                r#"two files are needed, split by a comma; for two texts typed inline use the JSON form: {"before": "...", "after": "...", "language": "ts"}"#,
+                            )));
+                        }
                     }
                 }
                 Flag::Commit => split_caption(raw, |v| probe.resolve_commit(v.trim()).is_some())
-                    .map(|(rev, c)| (Plan::Commit { rev: rev.trim().into() }, c)),
-                Flag::Video => split_caption(raw, is_video).map(|(url, c)| (Plan::Video { url: url.trim().into() }, c)),
-                Flag::Task => split_caption(raw, is_resource_ref)
-                    .map(|(r, c)| (Plan::Task { reference: r.trim().into() }, c)),
-                Flag::Artifact => split_caption(raw, is_resource_ref)
-                    .map(|(r, c)| (Plan::Artifact { reference: r.trim().into() }, c)),
+                    .map(|(rev, c)| {
+                        (
+                            Plan::Commit {
+                                rev: rev.trim().into(),
+                            },
+                            c,
+                        )
+                    }),
+                Flag::Video => split_caption(raw, is_video).map(|(url, c)| {
+                    (
+                        Plan::Video {
+                            url: url.trim().into(),
+                        },
+                        c,
+                    )
+                }),
+                Flag::Task => split_caption(raw, is_resource_ref).map(|(r, c)| {
+                    (
+                        Plan::Task {
+                            reference: r.trim().into(),
+                        },
+                        c,
+                    )
+                }),
+                Flag::Artifact => split_caption(raw, is_resource_ref).map(|(r, c)| {
+                    (
+                        Plan::Artifact {
+                            reference: r.trim().into(),
+                        },
+                        c,
+                    )
+                }),
             };
             let (plan, caption) = planned.ok_or_else(|| fail(None))?;
             plans.push(Captioned { plan, caption });
@@ -398,29 +513,33 @@ pub enum Item {
 
 /// The JSON `attach` list, strict: an item with a key of no shape is refused,
 /// as Effect Schema refuses excess keys on each member of the union.
-pub fn strict_items<'de, D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Option<Vec<Item>>, D::Error> {
+pub fn strict_items<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<Vec<Item>>, D::Error> {
     use serde::de::Error;
     let raw = Vec::<serde_json::Map<String, serde_json::Value>>::deserialize(deserializer)?;
     raw.into_iter()
-            .map(|object| {
-                let keys: Vec<&str> = object.keys().map(String::as_str).collect();
-                let allowed: &[&str] = match () {
-                    _ if object.contains_key("path") => &["path", "caption"],
-                    _ if object.contains_key("code") => &["code", "language", "caption"],
-                    _ if object.contains_key("diff") => &["diff", "caption"],
-                    _ if object.contains_key("before") => &["before", "after", "language", "caption"],
-                    _ if object.contains_key("commit") => &["commit", "caption"],
-                    _ if object.contains_key("url") => &["url", "caption"],
-                    _ if object.contains_key("task") => &["task", "caption"],
-                    _ => &["artifact", "caption"],
-                };
-                if let Some(extra) = keys.iter().find(|k| !allowed.contains(k)) {
-                    return Err(D::Error::custom(format!("attach: \"{extra}\" is not a key of this attachment")));
-                }
-                serde_json::from_value(serde_json::Value::Object(object)).map_err(D::Error::custom)
-            })
-            .collect::<std::result::Result<Vec<_>, _>>()
-            .map(Some)
+        .map(|object| {
+            let keys: Vec<&str> = object.keys().map(String::as_str).collect();
+            let allowed: &[&str] = match () {
+                _ if object.contains_key("path") => &["path", "caption"],
+                _ if object.contains_key("code") => &["code", "language", "caption"],
+                _ if object.contains_key("diff") => &["diff", "caption"],
+                _ if object.contains_key("before") => &["before", "after", "language", "caption"],
+                _ if object.contains_key("commit") => &["commit", "caption"],
+                _ if object.contains_key("url") => &["url", "caption"],
+                _ if object.contains_key("task") => &["task", "caption"],
+                _ => &["artifact", "caption"],
+            };
+            if let Some(extra) = keys.iter().find(|k| !allowed.contains(k)) {
+                return Err(D::Error::custom(format!(
+                    "attach: \"{extra}\" is not a key of this attachment"
+                )));
+            }
+            serde_json::from_value(serde_json::Value::Object(object)).map_err(D::Error::custom)
+        })
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map(Some)
 }
 
 fn side(value: Side) -> Text {
@@ -432,23 +551,72 @@ fn side(value: Side) -> Text {
 
 /// planAttachItems: the JSON list as plans, in list order.
 pub fn plan_items(items: Vec<Item>) -> Vec<Captioned> {
-    let trimmed = |text: Option<String>| text.map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+    let trimmed =
+        |text: Option<String>| text.map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
     items
         .into_iter()
         .map(|item| {
             let (plan, caption) = match item {
                 Item::File { path, caption } => (Plan::File { path }, caption),
-                Item::Code { code, language, caption } => (Plan::Code { language, text: Text::Inline(code) }, caption),
-                Item::Diff { diff, caption } => (Plan::Diff { text: Text::Inline(diff) }, caption),
-                Item::Commit { commit, caption } => (Plan::Commit { rev: commit.trim().into() }, caption),
-                Item::Video { url, caption } => (Plan::Video { url: url.trim().into() }, caption),
-                Item::Task { task, caption } => (Plan::Task { reference: task.trim().into() }, caption),
-                Item::Artifact { artifact, caption } => (Plan::Artifact { reference: artifact.trim().into() }, caption),
-                Item::Compare { before, after, language, caption } => {
-                    (Plan::Compare { before: side(before), after: side(after), language: trimmed(language) }, caption)
-                }
+                Item::Code {
+                    code,
+                    language,
+                    caption,
+                } => (
+                    Plan::Code {
+                        language,
+                        text: Text::Inline(code),
+                    },
+                    caption,
+                ),
+                Item::Diff { diff, caption } => (
+                    Plan::Diff {
+                        text: Text::Inline(diff),
+                    },
+                    caption,
+                ),
+                Item::Commit { commit, caption } => (
+                    Plan::Commit {
+                        rev: commit.trim().into(),
+                    },
+                    caption,
+                ),
+                Item::Video { url, caption } => (
+                    Plan::Video {
+                        url: url.trim().into(),
+                    },
+                    caption,
+                ),
+                Item::Task { task, caption } => (
+                    Plan::Task {
+                        reference: task.trim().into(),
+                    },
+                    caption,
+                ),
+                Item::Artifact { artifact, caption } => (
+                    Plan::Artifact {
+                        reference: artifact.trim().into(),
+                    },
+                    caption,
+                ),
+                Item::Compare {
+                    before,
+                    after,
+                    language,
+                    caption,
+                } => (
+                    Plan::Compare {
+                        before: side(before),
+                        after: side(after),
+                        language: trimmed(language),
+                    },
+                    caption,
+                ),
             };
-            Captioned { plan, caption: trimmed(caption) }
+            Captioned {
+                plan,
+                caption: trimmed(caption),
+            }
         })
         .collect()
 }
@@ -497,9 +665,17 @@ pub enum Attachment {
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Named {
-    Compare { before: Identity, after: Identity, name: String },
-    Commit { sha: String },
-    Link { url: String },
+    Compare {
+        before: Identity,
+        after: Identity,
+        name: String,
+    },
+    Commit {
+        sha: String,
+    },
+    Link {
+        url: String,
+    },
     Task {
         #[serde(rename = "ref")]
         reference: String,
@@ -524,7 +700,11 @@ enum Source {
 
 enum Checked {
     File(Upload),
-    Compare { before: Upload, after: Upload, name: String },
+    Compare {
+        before: Upload,
+        after: Upload,
+        name: String,
+    },
     Ready(Named),
 }
 
@@ -537,7 +717,9 @@ fn kind_error(plan: &Plan, message: String) -> Failure {
 fn read_head(path: &str, limit: u64) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
     let mut head = Vec::new();
-    std::fs::File::open(path)?.take(limit).read_to_end(&mut head)?;
+    std::fs::File::open(path)?
+        .take(limit)
+        .read_to_end(&mut head)?;
     Ok(head)
 }
 
@@ -547,9 +729,15 @@ fn file_upload(plan: &Plan, path: &str) -> Result<Upload> {
             return Err(std::io::Error::other("not a regular file"));
         }
         let head = read_head(path, info.len().min(media::HEAD_BYTES as u64))?;
-        let name = Some(media::name(path)).filter(|n| !n.is_empty()).unwrap_or_else(|| "file".into());
+        let name = Some(media::name(path))
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| "file".into());
         let media_type = media::media_type(&name, &head);
-        Ok(Upload { name, media_type, bytes: Source::Path(path.into()) })
+        Ok(Upload {
+            name,
+            media_type,
+            bytes: Source::Path(path.into()),
+        })
     });
     checked.map_err(|error| kind_error(plan, format!("{path}: {error}")))
 }
@@ -568,35 +756,82 @@ fn text_upload(plan: &Plan, source: &Text, name: String, stdin: Option<&str>) ->
         Text::Inline(text) => text.as_str(),
     };
     if text.trim().is_empty() {
-        let why = if *source == Text::Stdin { "nothing came in on stdin" } else { "the text is empty" };
+        let why = if *source == Text::Stdin {
+            "nothing came in on stdin"
+        } else {
+            "the text is empty"
+        };
         return Err(kind_error(plan, why.into()));
     }
     let media_type = media::media_type(&name, media::text_head(text).as_bytes());
-    Ok(Upload { name, media_type, bytes: Source::Text(text.into()) })
+    Ok(Upload {
+        name,
+        media_type,
+        bytes: Source::Text(text.into()),
+    })
 }
 
 fn check(plan: &Plan, probe: &impl Probe, stdin: Option<&str>) -> Result<Checked> {
     Ok(match plan {
         Plan::File { path } => Checked::File(file_upload(plan, path)?),
-        Plan::Code { language, text } => Checked::File(text_upload(plan, text, language_file_name(language, "snippet"), stdin)?),
-        Plan::Diff { text } => Checked::File(text_upload(plan, text, "changes.diff".into(), stdin)?),
-        Plan::Compare { before, after, language } => {
+        Plan::Code { language, text } => Checked::File(text_upload(
+            plan,
+            text,
+            language_file_name(language, "snippet"),
+            stdin,
+        )?),
+        Plan::Diff { text } => {
+            Checked::File(text_upload(plan, text, "changes.diff".into(), stdin)?)
+        }
+        Plan::Compare {
+            before,
+            after,
+            language,
+        } => {
             let side_language = language.as_deref().unwrap_or("txt");
-            let before = text_upload(plan, before, language_file_name(side_language, "before"), stdin)?;
-            let after = text_upload(plan, after, language_file_name(side_language, "after"), stdin)?;
+            let before = text_upload(
+                plan,
+                before,
+                language_file_name(side_language, "before"),
+                stdin,
+            )?;
+            let after = text_upload(
+                plan,
+                after,
+                language_file_name(side_language, "after"),
+                stdin,
+            )?;
             // The language, when given; else the after file's own name.
-            let name = language.as_deref().map_or_else(|| after.name.clone(), |l| language_file_name(l, "snippet"));
-            Checked::Compare { before, after, name }
+            let name = language
+                .as_deref()
+                .map_or_else(|| after.name.clone(), |l| language_file_name(l, "snippet"));
+            Checked::Compare {
+                before,
+                after,
+                name,
+            }
         }
         Plan::Commit { rev } => match probe.resolve_commit(rev) {
             Some(sha) => Checked::Ready(Named::Commit { sha }),
-            None => return Err(kind_error(plan, format!("\"{rev}\" is not a commit in this folder"))),
+            None => {
+                return Err(kind_error(
+                    plan,
+                    format!("\"{rev}\" is not a commit in this folder"),
+                ));
+            }
         },
         Plan::Task { reference } | Plan::Artifact { reference } if reference.is_empty() => {
-            return Err(kind_error(plan, format!("name the {}", Flag::of(plan).name())));
+            return Err(kind_error(
+                plan,
+                format!("name the {}", Flag::of(plan).name()),
+            ));
         }
-        Plan::Task { reference } => Checked::Ready(Named::Task { reference: reference.clone() }),
-        Plan::Artifact { reference } => Checked::Ready(Named::Artifact { reference: reference.clone() }),
+        Plan::Task { reference } => Checked::Ready(Named::Task {
+            reference: reference.clone(),
+        }),
+        Plan::Artifact { reference } => Checked::Ready(Named::Artifact {
+            reference: reference.clone(),
+        }),
         Plan::Video { url } => match super::link::admit(url) {
             Ok(url) => Checked::Ready(Named::Link { url }),
             Err(reason) => return Err(kind_error(plan, format!("{url}: {reason}"))),
@@ -605,7 +840,10 @@ fn check(plan: &Plan, probe: &impl Probe, stdin: Option<&str>) -> Result<Checked
 }
 
 fn upload(item: &Upload, timeout: Timeout) -> Result<Identity> {
-    let label = Label { media_type: item.media_type, display_name: Some(&item.name) };
+    let label = Label {
+        media_type: item.media_type,
+        display_name: Some(&item.name),
+    };
     let staged = match &item.bytes {
         Source::Path(path) => content_stage::file(Path::new(path), label, timeout),
         // Text typed inline goes up from memory: no file is written for it.
@@ -617,7 +855,12 @@ fn upload(item: &Upload, timeout: Timeout) -> Result<Identity> {
 /// stageAttachPlans: every plan checked, then what is made of bytes uploaded,
 /// in order; nothing goes up unless all of them pass. `stdin` is the piped
 /// text, read once by the caller, for the one item that asked for it.
-pub fn stage(plans: &[Captioned], stdin: Option<&str>, timeout: Timeout, probe: &impl Probe) -> Result<Vec<Attachment>> {
+pub fn stage(
+    plans: &[Captioned],
+    stdin: Option<&str>,
+    timeout: Timeout,
+    probe: &impl Probe,
+) -> Result<Vec<Attachment>> {
     let checked = plans
         .iter()
         .map(|c| check(&c.plan, probe, stdin).map(|checked| (checked, c.caption.clone())))
@@ -626,9 +869,20 @@ pub fn stage(plans: &[Captioned], stdin: Option<&str>, timeout: Timeout, probe: 
         .into_iter()
         .map(|(item, caption)| {
             Ok(match item {
-                Checked::File(file) => Attachment::File { reference: upload(&file, timeout)?, caption },
-                Checked::Compare { before, after, name } => {
-                    let kind = Named::Compare { before: upload(&before, timeout)?, after: upload(&after, timeout)?, name };
+                Checked::File(file) => Attachment::File {
+                    reference: upload(&file, timeout)?,
+                    caption,
+                },
+                Checked::Compare {
+                    before,
+                    after,
+                    name,
+                } => {
+                    let kind = Named::Compare {
+                        before: upload(&before, timeout)?,
+                        after: upload(&after, timeout)?,
+                        name,
+                    };
                     Attachment::Named { kind, caption }
                 }
                 Checked::Ready(kind) => Attachment::Named { kind, caption },
@@ -653,33 +907,71 @@ mod tests {
     }
 
     fn plan(flags: AttachFlags) -> Result<Vec<(Plan, Option<String>)>> {
-        plan_flags(&flags, &Fake).map(|plans| plans.into_iter().map(|c| (c.plan, c.caption)).collect())
+        plan_flags(&flags, &Fake)
+            .map(|plans| plans.into_iter().map(|c| (c.plan, c.caption)).collect())
     }
 
     #[test]
     fn splits_captions_by_the_one_rule() {
-        let code = AttachFlags { code: vec!["ts:const a = 1".into(), "The guard=ts:x".into()], ..AttachFlags::default() };
+        let code = AttachFlags {
+            code: vec!["ts:const a = 1".into(), "The guard=ts:x".into()],
+            ..AttachFlags::default()
+        };
         assert_eq!(
             plan(code).unwrap(),
             vec![
-                (Plan::Code { language: "ts".into(), text: Text::Inline("const a = 1".into()) }, None),
-                (Plan::Code { language: "ts".into(), text: Text::Inline("x".into()) }, Some("The guard".into())),
+                (
+                    Plan::Code {
+                        language: "ts".into(),
+                        text: Text::Inline("const a = 1".into())
+                    },
+                    None
+                ),
+                (
+                    Plan::Code {
+                        language: "ts".into(),
+                        text: Text::Inline("x".into())
+                    },
+                    Some("The guard".into())
+                ),
             ]
         );
-        let attach = AttachFlags { attach: vec!["Before= /x.png".into()], commit: vec!["The fix=HEAD".into()], ..AttachFlags::default() };
+        let attach = AttachFlags {
+            attach: vec!["Before= /x.png".into()],
+            commit: vec!["The fix=HEAD".into()],
+            ..AttachFlags::default()
+        };
         assert_eq!(
             plan(attach).unwrap(),
             vec![
-                (Plan::File { path: "/x.png".into() }, Some("Before".into())),
+                (
+                    Plan::File {
+                        path: "/x.png".into()
+                    },
+                    Some("Before".into())
+                ),
                 (Plan::Commit { rev: "HEAD".into() }, Some("The fix".into())),
             ]
         );
-        let task = AttachFlags { task: vec!["junto://canvas/c?node=n&item=i".into(), "Stamp=#42".into()], ..AttachFlags::default() };
+        let task = AttachFlags {
+            task: vec!["junto://canvas/c?node=n&item=i".into(), "Stamp=#42".into()],
+            ..AttachFlags::default()
+        };
         assert_eq!(
             plan(task).unwrap(),
             vec![
-                (Plan::Task { reference: "junto://canvas/c?node=n&item=i".into() }, None),
-                (Plan::Task { reference: "#42".into() }, Some("Stamp".into())),
+                (
+                    Plan::Task {
+                        reference: "junto://canvas/c?node=n&item=i".into()
+                    },
+                    None
+                ),
+                (
+                    Plan::Task {
+                        reference: "#42".into()
+                    },
+                    Some("Stamp".into())
+                ),
             ]
         );
     }
@@ -693,23 +985,60 @@ mod tests {
             ..AttachFlags::default()
         };
         let plans = plan_flags(&flags, &Fake).unwrap();
-        assert_eq!(plans[0].plan, Plan::Code { language: "md".into(), text: Text::File("notes.md".into()) });
-        assert_eq!(plans[1].plan, Plan::Code { language: "css".into(), text: Text::Inline("@media x".into()) });
+        assert_eq!(
+            plans[0].plan,
+            Plan::Code {
+                language: "md".into(),
+                text: Text::File("notes.md".into())
+            }
+        );
+        assert_eq!(
+            plans[1].plan,
+            Plan::Code {
+                language: "css".into(),
+                text: Text::Inline("@media x".into())
+            }
+        );
         assert_eq!(plans[2].plan, Plan::Diff { text: Text::Stdin });
-        assert_eq!(plans[3].plan, Plan::Diff { text: Text::Inline("--- a\n+++ b".into()) });
-        assert!(matches!(&plans[4].plan, Plan::Compare { before: Text::File(b), .. } if b == "a.ts"));
+        assert_eq!(
+            plans[3].plan,
+            Plan::Diff {
+                text: Text::Inline("--- a\n+++ b".into())
+            }
+        );
+        assert!(
+            matches!(&plans[4].plan, Plan::Compare { before: Text::File(b), .. } if b == "a.ts")
+        );
         assert_eq!(stdin_uses(&plans), 1);
     }
 
     #[test]
     fn refuses_what_is_not_a_value() {
         for flags in [
-            AttachFlags { attach: vec!["/nope".into()], ..AttachFlags::default() },
-            AttachFlags { code: vec!["no language".into()], ..AttachFlags::default() },
-            AttachFlags { compare: vec!["a.ts".into()], ..AttachFlags::default() },
-            AttachFlags { commit: vec!["nope".into()], ..AttachFlags::default() },
-            AttachFlags { video: vec!["ftp://x".into()], ..AttachFlags::default() },
-            AttachFlags { task: vec!["a=b=c\n".into()], ..AttachFlags::default() },
+            AttachFlags {
+                attach: vec!["/nope".into()],
+                ..AttachFlags::default()
+            },
+            AttachFlags {
+                code: vec!["no language".into()],
+                ..AttachFlags::default()
+            },
+            AttachFlags {
+                compare: vec!["a.ts".into()],
+                ..AttachFlags::default()
+            },
+            AttachFlags {
+                commit: vec!["nope".into()],
+                ..AttachFlags::default()
+            },
+            AttachFlags {
+                video: vec!["ftp://x".into()],
+                ..AttachFlags::default()
+            },
+            AttachFlags {
+                task: vec!["a=b=c\n".into()],
+                ..AttachFlags::default()
+            },
         ] {
             let failure = plan_flags(&flags, &Fake).unwrap_err();
             assert_eq!(failure.kind, crate::error::ErrorType::InputError);
@@ -719,7 +1048,10 @@ mod tests {
     #[test]
     fn names_files_by_language() {
         assert_eq!(language_file_name("ts", "snippet"), "snippet.ts");
-        assert_eq!(language_file_name("Dockerfile.dev", "snippet"), "Dockerfile.dev");
+        assert_eq!(
+            language_file_name("Dockerfile.dev", "snippet"),
+            "Dockerfile.dev"
+        );
         assert_eq!(language_file_name(" ", "before"), "before.txt");
     }
 
@@ -737,20 +1069,49 @@ mod tests {
         assert_eq!(plans[0].caption.as_deref(), Some("A"));
         assert_eq!(
             plans[1].plan,
-            Plan::Compare { before: Text::Inline("x".into()), after: Text::File("b".into()), language: Some("ts".into()) }
+            Plan::Compare {
+                before: Text::Inline("x".into()),
+                after: Text::File("b".into()),
+                language: Some("ts".into())
+            }
         );
-        assert_eq!(plans[2].plan, Plan::Video { url: "https://h".into() });
+        assert_eq!(
+            plans[2].plan,
+            Plan::Video {
+                url: "https://h".into()
+            }
+        );
         assert!(serde_json::from_str::<List>(r#"[{"path":"/x","code":"y"}]"#).is_err());
-        assert!(serde_json::from_str::<List>(r#"[{"before":"x","after":{"path":"b","q":1}}]"#).is_err());
+        assert!(
+            serde_json::from_str::<List>(r#"[{"before":"x","after":{"path":"b","q":1}}]"#).is_err()
+        );
     }
 
     #[test]
     fn serializes_attachments_in_wire_order() {
-        let id = || Identity { sha256: "s".into(), byte_length: 3 };
+        let id = || Identity {
+            sha256: "s".into(),
+            byte_length: 3,
+        };
         let all = vec![
-            Attachment::File { reference: id(), caption: Some("c".into()) },
-            Attachment::Named { kind: Named::Compare { before: id(), after: id(), name: "n.ts".into() }, caption: None },
-            Attachment::Named { kind: Named::Task { reference: "#4".into() }, caption: Some("t".into()) },
+            Attachment::File {
+                reference: id(),
+                caption: Some("c".into()),
+            },
+            Attachment::Named {
+                kind: Named::Compare {
+                    before: id(),
+                    after: id(),
+                    name: "n.ts".into(),
+                },
+                caption: None,
+            },
+            Attachment::Named {
+                kind: Named::Task {
+                    reference: "#4".into(),
+                },
+                caption: Some("t".into()),
+            },
         ];
         assert_eq!(
             serde_json::to_string(&all).unwrap(),

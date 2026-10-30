@@ -24,10 +24,19 @@ mod tests {
 
     #[test]
     fn admits_as_a_browser_reads() {
-        assert_eq!(admit(" HTTPS://Host.example/a/../run.mp4 "), Ok("https://host.example/run.mp4".into()));
+        assert_eq!(
+            admit(" HTTPS://Host.example/a/../run.mp4 "),
+            Ok("https://host.example/run.mp4".into())
+        );
         assert_eq!(admit("https://host"), Ok("https://host/".into()));
-        assert_eq!(admit("ftp://host/x"), Err("only http and https addresses can be attached"));
-        assert_eq!(admit("https://u:p@host/"), Err("the address carries a name or a password; remove them"));
+        assert_eq!(
+            admit("ftp://host/x"),
+            Err("only http and https addresses can be attached")
+        );
+        assert_eq!(
+            admit("https://u:p@host/"),
+            Err("the address carries a name or a password; remove them")
+        );
         assert_eq!(admit("nope"), Err("not a web address"));
     }
 }

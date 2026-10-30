@@ -75,7 +75,10 @@ fn refuse(message: impl Into<String>, path: impl Into<String>) -> Failure {
 
 fn no_form(kind: Kind, path: &str) -> Failure {
     refuse(
-        format!("{} asks for no form: only blocked and escalate ask the operator to produce something", kind.name()),
+        format!(
+            "{} asks for no form: only blocked and escalate ask the operator to produce something",
+            kind.name()
+        ),
         path,
     )
 }
@@ -83,7 +86,9 @@ fn no_form(kind: Kind, path: &str) -> Failure {
 /// SIGNAL_SECRET_NAME_PATTERN: the environment variable the seat reads.
 fn is_secret_name(name: &str) -> bool {
     let mut bytes = name.bytes();
-    bytes.next().is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+    bytes
+        .next()
+        .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
         && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
@@ -97,7 +102,11 @@ fn is_label(label: &str) -> bool {
         [] => false,
         [one] => edge(*one),
         [first, middle @ .., last] => {
-            bytes.len() <= 40 && edge(*first) && edge(*last) && middle.iter().all(|b| inner(*b)) && !label.contains("//")
+            bytes.len() <= 40
+                && edge(*first)
+                && edge(*last)
+                && middle.iter().all(|b| inner(*b))
+                && !label.contains("//")
         }
     }
 }
@@ -142,19 +151,35 @@ pub fn plan_flags(kind: Kind, flags: &FormFlags) -> Result<Option<Form>> {
     .flatten()
     .collect();
     let artifact_only = || {
-        let path = if flags.min_words.is_some() { "--min-words" } else { "--label" };
+        let path = if flags.min_words.is_some() {
+            "--min-words"
+        } else {
+            "--label"
+        };
         refuse("--min-words and --label go with --ask-artifact", path)
     };
     let extras = flags.min_words.is_some() || !flags.label.is_empty();
     match (given.as_slice(), &flags.ask_secret, &flags.ask_artifact) {
-        ([], _, _) if flags.min_words.is_some() => Err(refuse("--min-words sets the words an artifact form asks for", "--min-words")
-            .and("hint", "add --ask-artifact <Artifacts node>")),
-        ([], _, _) if !flags.label.is_empty() => Err(refuse("--label labels the artifact an artifact form makes", "--label")
-            .and("hint", "add --ask-artifact <Artifacts node>")),
+        ([], _, _) if flags.min_words.is_some() => Err(refuse(
+            "--min-words sets the words an artifact form asks for",
+            "--min-words",
+        )
+        .and("hint", "add --ask-artifact <Artifacts node>")),
+        ([], _, _) if !flags.label.is_empty() => Err(refuse(
+            "--label labels the artifact an artifact form makes",
+            "--label",
+        )
+        .and("hint", "add --ask-artifact <Artifacts node>")),
         ([], _, _) => Ok(None),
         ([first, ..], _, _) if !kind.takes_form() => Err(no_form(kind, first)),
-        ([first, second, ..], _, _) => Err(refuse(format!("one form per signal: {first} and {second} given"), *second)
-            .and("hint", "ask for one now, and raise another signal for the next")),
+        ([first, second, ..], _, _) => Err(refuse(
+            format!("one form per signal: {first} and {second} given"),
+            *second,
+        )
+        .and(
+            "hint",
+            "ask for one now, and raise another signal for the next",
+        )),
         (_, Some(_), _) | (_, None, None) if extras => Err(artifact_only()),
         (_, Some(secret), _) => {
             let name = secret.trim();
@@ -172,7 +197,10 @@ pub fn plan_flags(kind: Kind, flags: &FormFlags) -> Result<Option<Form>> {
         (_, None, Some(node)) => {
             let node = node.trim();
             if node.is_empty() {
-                return Err(refuse("--ask-artifact names the Artifacts node the reply is written into", "--ask-artifact"));
+                return Err(refuse(
+                    "--ask-artifact names the Artifacts node the reply is written into",
+                    "--ask-artifact",
+                ));
             }
             let min_words = match flags.min_words {
                 None => None,
@@ -181,11 +209,20 @@ pub fn plan_flags(kind: Kind, flags: &FormFlags) -> Result<Option<Form>> {
                         .ok()
                         .filter(|n| *n as i64 <= MAX_MIN_WORDS)
                         .and_then(NonZeroU64::new)
-                        .ok_or_else(|| refuse(format!("--min-words is 1 to {MAX_MIN_WORDS}"), "--min-words"))?,
+                        .ok_or_else(|| {
+                            refuse(
+                                format!("--min-words is 1 to {MAX_MIN_WORDS}"),
+                                "--min-words",
+                            )
+                        })?,
                 ),
             };
             let labels = fold_labels(&flags.label, |index| format!("--label[{index}]"))?;
-            Ok(Some(Form::ArtifactAsked { node: node.into(), min_words, labels: (!labels.is_empty()).then_some(labels) }))
+            Ok(Some(Form::ArtifactAsked {
+                node: node.into(),
+                min_words,
+                labels: (!labels.is_empty()).then_some(labels),
+            }))
         }
     }
 }
@@ -195,11 +232,21 @@ pub fn fold_input(kind: Kind, form: Form) -> Result<Form> {
     match form {
         Form::Text => Ok(Form::Text),
         _ if !kind.takes_form() => Err(no_form(kind, "form")),
-        Form::Artifact { node, title, labels: Some(labels), min_words } => {
+        Form::Artifact {
+            node,
+            title,
+            labels: Some(labels),
+            min_words,
+        } => {
             let folded = fold_labels(&labels, |index| format!("form.labels[{index}]"))?;
             // An empty fold keeps the list as it was given.
             let labels = Some(if folded.is_empty() { labels } else { folded });
-            Ok(Form::Artifact { node, title, labels, min_words })
+            Ok(Form::Artifact {
+                node,
+                title,
+                labels,
+                min_words,
+            })
         }
         form => Ok(form),
     }
@@ -217,12 +264,24 @@ mod tests {
 
     #[test]
     fn plans_one_form() {
-        assert_eq!(plan_flags(Kind::Blocked, &FormFlags::default()).unwrap(), None);
         assert_eq!(
-            plan_flags(Kind::Blocked, &flags(|f| f.ask_secret = Some(" CF_TOKEN ".into()))).unwrap(),
-            Some(Form::Secret { name: "CF_TOKEN".into() })
+            plan_flags(Kind::Blocked, &FormFlags::default()).unwrap(),
+            None
         );
-        assert_eq!(plan_flags(Kind::Escalate, &flags(|f| f.ask_proof = true)).unwrap(), Some(Form::Proof));
+        assert_eq!(
+            plan_flags(
+                Kind::Blocked,
+                &flags(|f| f.ask_secret = Some(" CF_TOKEN ".into()))
+            )
+            .unwrap(),
+            Some(Form::Secret {
+                name: "CF_TOKEN".into()
+            })
+        );
+        assert_eq!(
+            plan_flags(Kind::Escalate, &flags(|f| f.ask_proof = true)).unwrap(),
+            Some(Form::Proof)
+        );
         let artifact = flags(|f| {
             f.ask_artifact = Some("Docs".into());
             f.min_words = Some(50);
@@ -236,14 +295,60 @@ mod tests {
 
     #[test]
     fn refuses_mixes_and_bad_values() {
-        let path = |kind, f: FormFlags| plan_flags(kind, &f).unwrap_err().details.unwrap()["path"].clone();
-        assert_eq!(path(Kind::Feedback, flags(|f| f.ask_proof = true)), "--ask-proof");
-        assert_eq!(path(Kind::Blocked, flags(|f| f.min_words = Some(3))), "--min-words");
-        assert_eq!(path(Kind::Blocked, flags(|f| { f.ask_proof = true; f.ask_secret = Some("A".into()) })), "--ask-proof");
-        assert_eq!(path(Kind::Blocked, flags(|f| { f.ask_proof = true; f.label = vec!["x".into()] })), "--label");
-        assert_eq!(path(Kind::Blocked, flags(|f| f.ask_secret = Some("1A".into()))), "--ask-secret");
-        assert_eq!(path(Kind::Blocked, flags(|f| { f.ask_artifact = Some("D".into()); f.min_words = Some(0) })), "--min-words");
-        assert_eq!(path(Kind::Blocked, flags(|f| { f.ask_artifact = Some("D".into()); f.label = vec!["ok".into(), "/no".into()] })), "--label[1]");
+        let path =
+            |kind, f: FormFlags| plan_flags(kind, &f).unwrap_err().details.unwrap()["path"].clone();
+        assert_eq!(
+            path(Kind::Feedback, flags(|f| f.ask_proof = true)),
+            "--ask-proof"
+        );
+        assert_eq!(
+            path(Kind::Blocked, flags(|f| f.min_words = Some(3))),
+            "--min-words"
+        );
+        assert_eq!(
+            path(
+                Kind::Blocked,
+                flags(|f| {
+                    f.ask_proof = true;
+                    f.ask_secret = Some("A".into())
+                })
+            ),
+            "--ask-proof"
+        );
+        assert_eq!(
+            path(
+                Kind::Blocked,
+                flags(|f| {
+                    f.ask_proof = true;
+                    f.label = vec!["x".into()]
+                })
+            ),
+            "--label"
+        );
+        assert_eq!(
+            path(Kind::Blocked, flags(|f| f.ask_secret = Some("1A".into()))),
+            "--ask-secret"
+        );
+        assert_eq!(
+            path(
+                Kind::Blocked,
+                flags(|f| {
+                    f.ask_artifact = Some("D".into());
+                    f.min_words = Some(0)
+                })
+            ),
+            "--min-words"
+        );
+        assert_eq!(
+            path(
+                Kind::Blocked,
+                flags(|f| {
+                    f.ask_artifact = Some("D".into());
+                    f.label = vec!["ok".into(), "/no".into()]
+                })
+            ),
+            "--label[1]"
+        );
     }
 
     #[test]
@@ -258,7 +363,10 @@ mod tests {
 
     #[test]
     fn folds_the_json_form() {
-        let form: Form = serde_json::from_str(r#"{"kind":"artifact","node":"D","labels":["Z","a"],"minWords":2.0}"#).unwrap();
+        let form: Form = serde_json::from_str(
+            r#"{"kind":"artifact","node":"D","labels":["Z","a"],"minWords":2.0}"#,
+        )
+        .unwrap();
         assert_eq!(
             serde_json::to_string(&fold_input(Kind::Blocked, form).unwrap()).unwrap(),
             r#"{"kind":"artifact","node":"D","labels":["a","z"],"minWords":2}"#

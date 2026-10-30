@@ -18,9 +18,9 @@ use std::path::Path;
 
 use serde::Serialize;
 
-pub use content_stage::StagedRef;
 use crate::error::Result;
 use crate::wire::Timeout;
+pub use content_stage::StagedRef;
 
 /// SeatRaiseKind: what a seat raises. Feedback asks for review, nothing more.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -50,6 +50,18 @@ impl Kind {
 /// per call, and answer the ref to name it by. The path never crosses the
 /// socket; a file of any size goes up without being whole in memory.
 #[allow(dead_code)]
-pub fn stage_file(path: &Path, media_type: &str, display_name: Option<&str>, timeout: Timeout) -> Result<StagedRef> {
-    content_stage::file(path, content_stage::Label { media_type, display_name }, timeout)
+pub fn stage_file(
+    path: &Path,
+    media_type: &str,
+    display_name: Option<&str>,
+    timeout: Timeout,
+) -> Result<StagedRef> {
+    content_stage::file(
+        path,
+        content_stage::Label {
+            media_type,
+            display_name,
+        },
+        timeout,
+    )
 }

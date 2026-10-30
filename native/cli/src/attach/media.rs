@@ -21,7 +21,21 @@ fn raster(bytes: &[u8]) -> Option<&'static str> {
         [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, ..] => Some("image/png"),
         [0xff, 0xd8, 0xff, ..] => Some("image/jpeg"),
         [b'G', b'I', b'F', b'8', ..] => Some("image/gif"),
-        [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P', ..] => Some("image/webp"),
+        [
+            b'R',
+            b'I',
+            b'F',
+            b'F',
+            _,
+            _,
+            _,
+            _,
+            b'W',
+            b'E',
+            b'B',
+            b'P',
+            ..,
+        ] => Some("image/webp"),
         _ => None,
     }
 }
@@ -53,10 +67,11 @@ pub fn is_text_head(head: &[u8]) -> bool {
 /// attachmentName: the last segment only, with no control character, line or
 /// paragraph separator, or bidi control that could forge a line or reverse a path.
 pub fn name(raw: &str) -> String {
-    let last = raw.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or_default();
-    let forged = |c: char| {
-        matches!(c, '\u{0}'..='\u{1f}' | '\u{7f}'..='\u{9f}' | '\u{2028}' | '\u{2029}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
-    };
+    let last = raw
+        .rsplit(['/', '\\'])
+        .find(|s| !s.is_empty())
+        .unwrap_or_default();
+    let forged = |c: char| matches!(c, '\u{0}'..='\u{1f}' | '\u{7f}'..='\u{9f}' | '\u{2028}' | '\u{2029}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}');
     let clean: String = last.chars().filter(|c| !forged(*c)).collect();
     clean.trim().chars().take(255).collect()
 }

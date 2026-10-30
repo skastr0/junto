@@ -42,7 +42,9 @@ impl Common {
             form,
             timeout: self.timeout.into(),
         };
-        let answer = signal_input::load(raise).and_then(|args| wire::call(&args, self.timeout.into())).map(Into::into);
+        let answer = signal_input::load(raise)
+            .and_then(|args| wire::call(&args, self.timeout.into()))
+            .map(Into::into);
         envelope::print(kind.name(), answer)
     }
 }
@@ -86,7 +88,8 @@ impl Run for Blocked {
 
 impl Run for Feedback {
     fn run(self) -> ExitCode {
-        self.common.raise(Kind::Feedback, &signal_form::FormFlags::default())
+        self.common
+            .raise(Kind::Feedback, &signal_form::FormFlags::default())
     }
 }
 
@@ -137,10 +140,14 @@ enum Command {
 impl Run for Signal {
     fn run(self) -> ExitCode {
         let (name, answer): (&str, Answer) = match self.command {
-            Command::List { since, timeout } => ("signal list", wire::call(&ListArgs { since }, timeout.into()).map(Into::into)),
-            Command::Clear { id, timeout } => {
-                ("signal clear", wire::call(&ClearArgs { signal_id: id }, timeout.into()).map(Into::into))
-            }
+            Command::List { since, timeout } => (
+                "signal list",
+                wire::call(&ListArgs { since }, timeout.into()).map(Into::into),
+            ),
+            Command::Clear { id, timeout } => (
+                "signal clear",
+                wire::call(&ClearArgs { signal_id: id }, timeout.into()).map(Into::into),
+            ),
         };
         envelope::print(name, answer)
     }

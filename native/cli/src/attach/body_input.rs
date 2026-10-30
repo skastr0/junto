@@ -26,9 +26,17 @@ fn is_stdin(raw: Option<&str>) -> bool {
 
 /// bodyPlanProblem: the mixes refused before anything is read.
 fn planned(request: BodyRequest<'_>) -> Result<(Map<String, Value>, Option<&str>, &str)> {
-    let BodyRequest { input, argument, flag, empty_message } = request;
+    let BodyRequest {
+        input,
+        argument,
+        flag,
+        empty_message,
+    } = request;
     let Value::Object(argument) = argument else {
-        return Err(Failure::input("the argument must be a JSON object", "input"));
+        return Err(Failure::input(
+            "the argument must be a JSON object",
+            "input",
+        ));
     };
     match (argument.contains_key("body"), flag) {
         (true, Some(_)) => Err(Failure::input(r#"the body was given twice: as "body" in the argument and with --body"#, "--body")
@@ -66,14 +74,25 @@ mod tests {
     use serde_json::json;
 
     fn body(argument: Value, flag: Option<&str>) -> Result<String> {
-        let request = BodyRequest { input: None, argument, flag, empty_message: "say something" };
+        let request = BodyRequest {
+            input: None,
+            argument,
+            flag,
+            empty_message: "say something",
+        };
         with_body(request).map(|args| Value::Object(args).to_string())
     }
 
     #[test]
     fn takes_one_body() {
-        assert_eq!(body(json!({"body": "b", "name": "n"}), None).unwrap(), r#"{"body":"b","name":"n"}"#);
-        assert_eq!(body(json!({"name": "n"}), Some("prose")).unwrap(), r#"{"name":"n","body":"prose"}"#);
+        assert_eq!(
+            body(json!({"body": "b", "name": "n"}), None).unwrap(),
+            r#"{"body":"b","name":"n"}"#
+        );
+        assert_eq!(
+            body(json!({"name": "n"}), Some("prose")).unwrap(),
+            r#"{"name":"n","body":"prose"}"#
+        );
         for (argument, flag) in [
             (json!({"body": "b"}), Some("x")),
             (json!({}), None),

@@ -51,7 +51,10 @@ pub struct Identity {
 
 impl StagedRef {
     pub fn identity(&self) -> Identity {
-        Identity { sha256: self.sha256.clone(), byte_length: self.byte_length }
+        Identity {
+            sha256: self.sha256.clone(),
+            byte_length: self.byte_length,
+        }
     }
 }
 
@@ -103,19 +106,26 @@ fn protocol(message: &str) -> Failure {
 }
 
 fn unreadable(path: &Path) -> Failure {
-    Failure::input("the file could not be read", path.display().to_string())
-        .and("hint", "check that the path names a file this process may read")
+    Failure::input("the file could not be read", path.display().to_string()).and(
+        "hint",
+        "check that the path names a file this process may read",
+    )
 }
 
 /// ContentStageId: `stg_` and 32 lowercase hex digits.
 fn is_stage_id(id: &str) -> bool {
-    id.strip_prefix("stg_")
-        .is_some_and(|hex| hex.len() == 32 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+    id.strip_prefix("stg_").is_some_and(|hex| {
+        hex.len() == 32 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    })
 }
 
 /// Sends pieces until one comes back short of a full piece, which closes the
 /// upload. `next` answers the next piece each time it is called.
-fn stage_pieces(mut next: impl FnMut() -> Result<Vec<u8>>, label: Label, timeout: Timeout) -> Result<StagedRef> {
+fn stage_pieces(
+    mut next: impl FnMut() -> Result<Vec<u8>>,
+    label: Label,
+    timeout: Timeout,
+) -> Result<StagedRef> {
     let mut digest = Sha256::new();
     let mut byte_length = 0u64;
     let mut stage_id = None;
@@ -124,7 +134,11 @@ fn stage_pieces(mut next: impl FnMut() -> Result<Vec<u8>>, label: Label, timeout
     loop {
         digest.update(&held);
         byte_length += held.len() as u64;
-        let following = if held.len() < PIECE_BYTES { Vec::new() } else { next()? };
+        let following = if held.len() < PIECE_BYTES {
+            Vec::new()
+        } else {
+            next()?
+        };
         let last = following.is_empty();
         let args = StageArgs {
             stage_id: stage_id.take(),
@@ -132,15 +146,24 @@ fn stage_pieces(mut next: impl FnMut() -> Result<Vec<u8>>, label: Label, timeout
             done: last.then(|| Done {
                 media_type: label.media_type,
                 display_name: label.display_name,
-                expected: Expected { sha256: hex(&digest.clone().finalize()), byte_length },
+                expected: Expected {
+                    sha256: hex(&digest.clone().finalize()),
+                    byte_length,
+                },
             }),
         };
         let answer = wire::call(&args, timeout)?;
         match serde_json::from_str(answer.get()) {
             Ok(Staged::Closed { reference }) => return Ok(reference),
-            Ok(Staged::Open { .. }) if last => return Err(protocol("content.stage did not close the upload")),
+            Ok(Staged::Open { .. }) if last => {
+                return Err(protocol("content.stage did not close the upload"));
+            }
             Ok(Staged::Open { stage_id: id }) if is_stage_id(&id) => stage_id = Some(id),
-            _ => return Err(protocol("content.stage answered in a form this CLI does not know")),
+            _ => {
+                return Err(protocol(
+                    "content.stage answered in a form this CLI does not know",
+                ));
+            }
         }
         held = following;
     }
@@ -170,7 +193,11 @@ pub fn file(path: &Path, label: Label, timeout: Timeout) -> Result<StagedRef> {
 /// like a file; no file is written to send them.
 pub fn bytes(all: &[u8], label: Label, timeout: Timeout) -> Result<StagedRef> {
     let mut pieces = all.chunks(PIECE_BYTES);
-    stage_pieces(|| Ok(pieces.next().map(<[u8]>::to_vec).unwrap_or_default()), label, timeout)
+    stage_pieces(
+        || Ok(pieces.next().map(<[u8]>::to_vec).unwrap_or_default()),
+        label,
+        timeout,
+    )
 }
 
 #[cfg(test)]
@@ -179,9 +206,17 @@ mod tests {
 
     #[test]
     fn reads_the_answer_shapes() {
-        let closed: Staged = serde_json::from_str(r#"{"ref":{"sha256":"ab","byteLength":3,"mediaType":"x","more":1}}"#).unwrap();
-        assert!(matches!(closed, Staged::Closed { reference } if reference.byte_length == 3 && reference.display_name.is_none()));
-        let open: Staged = serde_json::from_str(r#"{"stageId":"stg_0123456789abcdef0123456789abcdef","byteLength":4}"#).unwrap();
+        let closed: Staged = serde_json::from_str(
+            r#"{"ref":{"sha256":"ab","byteLength":3,"mediaType":"x","more":1}}"#,
+        )
+        .unwrap();
+        assert!(
+            matches!(closed, Staged::Closed { reference } if reference.byte_length == 3 && reference.display_name.is_none())
+        );
+        let open: Staged = serde_json::from_str(
+            r#"{"stageId":"stg_0123456789abcdef0123456789abcdef","byteLength":4}"#,
+        )
+        .unwrap();
         assert!(matches!(open, Staged::Open { stage_id } if is_stage_id(&stage_id)));
         assert!(!is_stage_id("stg_0123"));
     }
