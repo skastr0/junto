@@ -206,11 +206,10 @@
   margin: 0 8px 8px;
 }
 
-/* Rows picked to move together (0.11.1, 10): a cyan edge on each, the open
-   one keeping its own fill, and one line under the list that counts them. */
+/* Rows picked to move together (0.11.1, 10): a tint on each, the open one
+   keeping its stronger fill, and one line under the list that counts them. */
 .artifacts-list__item[data-picked="true"] > button {
   background: var(--color-overlay-1);
-  box-shadow: inset 2px 0 0 var(--color-cyan);
 }
 
 .artifacts-list__item[data-picked="true"] > button[data-selected="true"] {

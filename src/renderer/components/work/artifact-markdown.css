@@ -109,7 +109,7 @@
 
 .artifact-markdown blockquote {
   margin: 0 0 0.8em;
-  border-left: 2px solid var(--color-amber);
+  border-left: 2px solid var(--color-stroke-hi);
   padding: 0.15em 0 0.15em 1em;
   color: var(--color-dim);
 }

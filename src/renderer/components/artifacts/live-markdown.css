@@ -151,7 +151,7 @@
 }
 
 .live-markdown .cm-md-quote {
-  border-left: 2px solid var(--color-amber);
+  border-left: 2px solid var(--color-stroke-hi);
   padding-left: 1em;
   color: var(--color-dim);
 }
