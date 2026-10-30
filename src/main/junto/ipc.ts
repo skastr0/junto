@@ -217,7 +217,7 @@ export const registerJuntoIpc = (): void => {
   // With the core in its own process the plane is the core's: main binds none.
   // Main holds no terminal plane: the core runs it, and every call below
   // reaches it by name (term/ipc.ts).
-  registerTerminalIpc(privilegedIpc, undefined, {
+  registerTerminalIpc(privilegedIpc, {
     isTrustedSender: isTrustedMainWebContents,
     broadcast,
   });
