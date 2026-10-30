@@ -1214,6 +1214,7 @@ const dispatchOp = (
   args: unknown,
   caller: WorkCaller,
   version: string,
+  fence: WriteFence,
 ): Effect.Effect<
   unknown,
   WorkErrorBody,
@@ -1784,6 +1785,7 @@ const dispatchOp = (
           }),
         },
       });
+      yield* beginWrite(fence);
       const appended = fromWorkResult(yield* work.workMessageAppend(
         caller.canvasName, input.target, null, message, sender.success,
       ));
@@ -1836,6 +1838,7 @@ const dispatchOp = (
             details: { path: "threadId", retryable: false, next_step: "drop threadId: a task comment joins its task's thread" },
           });
         }
+        yield* beginWrite(fence);
         const posted = yield* commentOnTask(seatTaskCaller(board, caller, sentBy.success), liveTaskPorts, {
           // The caller's write id keeps a retry one comment; a raw frame with none gets its own.
           opId: asked.success.opId ?? OpId.make(ulid()),
@@ -1911,6 +1914,7 @@ const dispatchOp = (
           ...(threadId === undefined ? {} : { threadId }),
         },
       });
+      yield* beginWrite(fence);
       const result = yield* work.workMessageAppend(
         caller.canvasName,
         decoded.success.target,
@@ -2144,6 +2148,7 @@ const dispatchOp = (
         }),
         ...thread,
       };
+      yield* beginWrite(fence);
       const result = toOperator
         ? yield* work.workOperatorReply(
             caller.canvasName,
@@ -2756,6 +2761,26 @@ const revokedProcessIdentity = (): WorkErrorBody => ({
   },
 });
 
+/**
+ * Where one work call starts to write. A stale identity refuses the call only
+ * while nothing is written; once the write begins, the call runs to its own
+ * answer. So a stale-identity AuthError always means nothing was written, and
+ * mail that lands is answered ok.
+ */
+interface WriteFence {
+  state: "open" | "writing" | "refused";
+}
+
+const makeWriteFence = (): WriteFence => ({ state: "open" });
+
+/** Begin the write, or refuse it when the identity went stale first. */
+const beginWrite = (fence: WriteFence): Effect.Effect<void, WorkErrorBody> =>
+  Effect.suspend(() => {
+    if (fence.state === "refused") return Effect.fail(revokedProcessIdentity());
+    fence.state = "writing";
+    return Effect.void;
+  });
+
 const overseerDispatchError = (error: unknown): WorkErrorBody => ({
   type: "InternalError",
   message: error instanceof Error ? error.message : String(error),
@@ -2806,6 +2831,7 @@ const watchSeatCredentialRevocation = (
   credential: string,
   principal: ProcessPrincipal,
   generationId: string,
+  fence: WriteFence,
 ): Effect.Effect<WorkDispatchResult> =>
   Effect.callback<WorkDispatchResult>((resume) => {
     let active = true;
@@ -2826,6 +2852,9 @@ const watchSeatCredentialRevocation = (
     const finishRevoked = (): void => {
       if (!active) return;
       stopListening();
+      // The write has begun: the call answers for itself, ok or its own error.
+      if (fence.state === "writing") return;
+      fence.state = "refused";
       resume(Effect.succeed(Result.fail(revokedProcessIdentity())));
     };
 
@@ -3069,6 +3098,8 @@ export const startWorkControlServer = async (
         // The admitted seat's terminal binding, for the onboarding proof.
         let admittedBindingId: string | undefined;
         let sealedForOffboard = false;
+        // Shared by the revocation watcher and the dispatch it races.
+        const fence = makeWriteFence();
         const liveAuthorityAndDispatch: Effect.Effect<
           WorkDispatchResult,
           never,
@@ -3275,6 +3306,7 @@ export const startWorkControlServer = async (
             req.args,
             caller,
             options.version,
+            fence,
           ).pipe(Effect.result);
         });
 
@@ -3283,6 +3315,7 @@ export const startWorkControlServer = async (
           admission.credential,
           admission.principal,
           admission.generationId,
+          fence,
         );
         const run = () =>
           retainOperation(
