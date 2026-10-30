@@ -107,13 +107,14 @@ describe("main authoring architecture", () => {
       // classified ipc.work.collaboration-ask handler in ipc.ts.
       // The window's signal answers are mail, reached only through the
       // classified ipc.work.signal-answer handler (canvas-model group).
-      // The resource ports read a canvas and a node's comments through it, read only.
-      "src/main/core-process/ops/ipc-resources.ts",
       "src/main/core-process/ops/ipc-signals.ts",
       "src/main/core-process/ops/ipc-threads.ts",
       // The window's work reads: topology, a node's comments and mentions, and
       // the work pages, all reads.
       "src/main/core-process/ops/ipc-work.ts",
+      // The window's mentions read a node's text through it, read only; the
+      // read now carries the services it needs and runs in the core.
+      "src/main/core-process/ops/mention-ipc.ts",
       // The automation runner's actions write as the automation's own node
       // (automationActorRef), only on the machine that edits the canvas.
       "src/main/junto/automation/live.ts",
@@ -128,7 +129,6 @@ describe("main authoring architecture", () => {
       // A paired phone's mail and signal answers are operator mail, written only
       // under the companion.* authoring labels (asserted below).
       "src/main/junto/companion/operator-actions.ts",
-      "src/main/junto/ipc.ts",
       // Closed administrative dispatch is still process-bound and gated.
       "src/main/junto/overseer/work.ts",
       // The copies of an answer to the seats it mentions, written only from
@@ -154,6 +154,9 @@ describe("main authoring architecture", () => {
       // A page box comment's shot, read for the operator only, under the
       // trusted preview read in ipc.ts; it reads one row and never writes.
       "src/main/junto/work/page-shot-read.ts",
+      // The resource ports read a canvas and a node's comments through it, read
+      // only; they sit beside the ports now that the ops file only wires them.
+      "src/main/junto/work/resource-ports.ts",
       // Seat waits re-read topology and the selected task; they never mutate.
       "src/main/junto/work/seat-observation-live.ts",
       // Prompt mail to a seat, written only under ipc.work.message-append.
@@ -190,10 +193,12 @@ describe("main authoring architecture", () => {
     const contract = source("src/shared/ipc.ts");
     const control = source("src/main/junto/work/control.ts");
 
-    expect(ipc).toContain("resolveProjectedIpcActorRef");
-    // Claim resolves the projected actor at the trusted IPC boundary; other
-    // actor operations remain process-bound to the control plane.
-    expect(ipc).toContain("resolveRendererActor");
+    // Main resolves no actor of its own any more: the core's control plane
+    // resolves one at its trusted boundary, from the compiled execution
+    // projection, so a caller can only be the node it is bound to.
+    const workControl = source("src/main/junto/work/control.ts");
+    expect(workControl).toContain("resolveProcessBoundActorRef");
+    expect(workControl).toContain("only ActorRef carries");
     for (const actorOperation of [
       "workMessageAppend",
       "workRequestCreate",
