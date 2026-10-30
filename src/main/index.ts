@@ -40,7 +40,7 @@ import {
 } from "./junto/adapters/exec";
 import { appMenuTemplate } from "./junto/app-menu";
 import { appProcessBlocksAppExit, appProcessPlane, describeAppProcessStraggler } from "./junto/app-process-plane";
-import { AppRuntime, setMachineControlReadiness } from "./runtime";
+import { AppRuntime } from "./runtime";
 import { core } from "./core-process/main-client";
 import { startTerminalProcess, startTerminalProcessForCore } from "./terminal-process/host";
 import { useTerminalProcess } from "./terminal-process/use";
@@ -1809,7 +1809,6 @@ const beginShutdownAdmission = (reason: string): void => {
   shutdownReason = reason;
   if (shutdownAdmissionClosed) return;
   shutdownAdmissionClosed = true;
-  setMachineControlReadiness(() => false);
   machineLinkListener?.beginShutdown();
   operatorFleetReady = false;
   // Close kernel scheduling at the same synchronous, one-way admission cut.

@@ -2,7 +2,7 @@ import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { Context, Data, Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { CoreCallError, inProcessCore } from "../src/main/core-process/client";
-import { coreOps, type CoreOp } from "../src/main/core-process/ops";
+import { coreOps, type CoreOp, type CoreOpBody } from "../src/main/core-process/ops";
 import { portCore, serveCore, type CorePort } from "../src/main/core-process/port";
 import { HostCallError, hostOps, inProcessHost, type HostOp } from "../src/main/core-process/host-ops";
 
@@ -26,7 +26,10 @@ declare module "../src/main/core-process/host-ops" {
 }
 
 coreOps({
-  "test.add": ({ n }) => Effect.flatMap(Counter, (counter) => counter.add(n)).pipe(Effect.map((total) => ({ total }))),
+  // This file tests the port, so its Counter stands in for a core service:
+  // the registry's core-services constraint (ops.ts) is waived here on purpose.
+  "test.add": (({ n }: { readonly n: number }) =>
+    Effect.flatMap(Counter, (counter) => counter.add(n)).pipe(Effect.map((total) => ({ total })))) as unknown as CoreOpBody<"test.add">,
   "test.refuse": ({ why }) => Effect.fail(new Refused({ message: why })),
   // A body whose answer cannot cross a port, which its type does not admit.
   "test.uncloneable": () => Effect.succeed({ total: 1, read: () => 1 } as { readonly total: number }),

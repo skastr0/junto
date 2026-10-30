@@ -1,30 +1,7 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { app } from "electron";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { withMachineLogger } from "./junto/observability";
-import { resolveJuntoHome } from "@shared/junto-home";
-import { makeMachineCoreLayer } from "./core-runtime";
-import { runningBuildIdentity } from "./junto/build-identity";
-import { getCompiledMachineReleaseCatalog } from "@shared/machine-release";
-import { makeMachineBundleSources } from "./junto/hosts/machine-bundle-download";
 import productMetadata from "../../package.json";
-import type { DoctorReport, ServiceCheck } from "@shared/contracts";
-import { linuxDesktopInstallStorageDoctor } from "./junto/update/linux-install";
-import { termControlSocketPath } from "@shared/term-control";
-import { CodexLive, CodexService } from "./services/codex";
-import { AppInfoLive, AppInfoService } from "./services/app-info";
-import { ModelService } from "./junto/model/service";
-import { TERM_PLANE_IN_THIS_PROCESS, termPlane } from "./junto/term/plane";
-import {
-  assessNativeTerminalDoctor,
-  probeNativeTerminalReadiness,
-} from "./junto/term/native-readiness";
-import { KernelService } from "./junto/kernel/service";
-import { SettingsService } from "./junto/settings/service";
-import { UsageService } from "./junto/usage/usage-service";
-import { HostsService } from "./junto/hosts";
-import { primeHostsSnapshot } from "./junto/hosts/snapshot";
 import {
   deferredUpdateHostHooks,
   installUpdateProviderHandle,
@@ -65,93 +42,10 @@ const UpdateServiceLive = Layer.unwrap(
   }),
 );
 
-let machineControlReady = (): boolean => false;
-export const setMachineControlReadiness = (ready: () => boolean): void => {
-  machineControlReady = ready;
-};
-
-const MachineServicesLive = Layer.unwrap(Effect.sync(() => {
-  const home = resolveJuntoHome(), build = runningBuildIdentity();
-  const catalog = getCompiledMachineReleaseCatalog();
-  return makeMachineCoreLayer({
-    home, build, ready: () => machineControlReady(),
-    ...makeMachineBundleSources({ home, build, catalog, localRoot: () => process.env.JUNTO_MACHINE_BUNDLES ??
-      (app.isPackaged ? join(process.resourcesPath, "machines") : join(app.getAppPath(), "dist", "machines")),
-    }),
-  });
-}));
-
-export const RootLayer = MachineServicesLive;
-
-// The product owns one warm runtime and disposes it on shutdown.
-const ProductLayer = Layer.mergeAll(RootLayer, AppInfoLive, CodexLive, UpdateServiceLive);
-// The core runs in its own process, so main builds no core: only what is
-// Electron's. An effect still asking main for a core service fails loudly; it
-// never opens a second business writer on junto.db.
-const AppLayer = withMachineLogger(
-  Layer.mergeAll(AppInfoLive, CodexLive, UpdateServiceLive) as unknown as typeof ProductLayer,
-);
+// The product owns one warm runtime in this process and disposes it on
+// shutdown. The core runs in its own process, so main builds no core: only
+// what is Electron's. The layer's type is exactly that, so an effect asking
+// main for a core service is a compile error here, never a second copy of a
+// singleton that main leaves empty.
+const AppLayer = withMachineLogger(Layer.mergeAll(UpdateServiceLive));
 export const AppRuntime = ManagedRuntime.make(AppLayer);
-
-export const buildDoctorReport = Effect.gen(function* () {
-  // Ensure registry snapshot is current before host-aware doctor / transports.
-  yield* Effect.tryPromise({
-    try: () => primeHostsSnapshot(),
-    catch: () => undefined,
-  }).pipe(Effect.ignore);
-
-  const appInfo = yield* AppInfoService;
-  const codex = yield* CodexService;
-  const model = yield* ModelService;
-  const kernel = yield* KernelService;
-  const usage = yield* UsageService;
-  const settings = yield* SettingsService;
-  const hosts = yield* HostsService;
-
-  const station = yield* appInfo.stationInfo;
-  const hostsDoctorSnapshot = yield* hosts.doctorSnapshot;
-
-  const serviceResults = yield* Effect.all(
-    [
-      codex.doctor,
-      model.listCanvases().pipe(Effect.match({
-        onFailure: () => ({ id: "canvases", label: "Canvases", status: "error" as const, detail: "Canvas storage is unavailable" }),
-        onSuccess: (names) => ({ id: "canvases", label: "Canvases", status: "ok" as const, detail: `${names.length} canvases` }),
-      })),
-      kernel.doctor,
-      usage.doctor,
-      settings.doctor,
-      Effect.succeed(hostsDoctorSnapshot.check),
-    ],
-    { concurrency: "unbounded" },
-  );
-
-  const running = TERM_PLANE_IN_THIS_PROCESS ? termPlane.router.runningCount() : 0;
-  const sockOk = existsSync(termControlSocketPath());
-  const nativeTerminalProbe = yield* Effect.promise(() =>
-    probeNativeTerminalReadiness()
-  );
-  const terminalCheck = assessNativeTerminalDoctor({
-    probe: nativeTerminalProbe,
-    controlReady: sockOk,
-    running,
-  });
-  const linuxInstallStorage = process.platform === "linux"
-    ? yield* Effect.promise(() => linuxDesktopInstallStorageDoctor({ executablePath: process.execPath }))
-    : undefined;
-  const services: ReadonlyArray<ServiceCheck> = [
-    ...serviceResults,
-    terminalCheck,
-    ...(linuxInstallStorage === undefined ? [] : [linuxInstallStorage]),
-  ];
-  const recommendations = services
-    .filter((service) => service.status !== "ok")
-    .map((service) => `${service.label}: ${service.detail}`);
-
-  return {
-    checkedAt: new Date().toISOString(),
-    station,
-    services,
-    recommendations,
-  } satisfies DoctorReport;
-});

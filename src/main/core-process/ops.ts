@@ -1,4 +1,5 @@
-import type { Effect } from "effect";
+import type { Effect, Layer } from "effect";
+import type { makeMachineCoreLayer } from "../core-runtime";
 
 /**
  * The core's operations, by name (Wave 3, protect the main thread). Electron
@@ -30,9 +31,18 @@ export type CoreOpName = keyof CoreOps & string;
 export type CoreInput<K extends CoreOpName> = CoreOps[K] extends CoreOp<infer I, unknown> ? I : never;
 export type CoreOutput<K extends CoreOpName> = CoreOps[K] extends CoreOp<unknown, infer O> ? O : never;
 
+/**
+ * What the core's runtime provides. An operation body may ask the core for
+ * any of this, and for nothing else: a body that leans on a service the core
+ * does not build is a type error in the file that wrote it, not a defect at
+ * the call. Type-only, so main's bundle still links no core code through here.
+ */
+export type CoreServices = Layer.Success<ReturnType<typeof makeMachineCoreLayer>>;
+
 /** The body of an operation, run inside the core's runtime. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type CoreOpBody<K extends CoreOpName> = (input: CoreInput<K>) => Effect.Effect<CoreOutput<K>, unknown, any>;
+export type CoreOpBody<K extends CoreOpName> = (
+  input: CoreInput<K>,
+) => Effect.Effect<CoreOutput<K>, unknown, CoreServices>;
 
 export type CoreOpBodies = { readonly [K in CoreOpName]?: CoreOpBody<K> };
 

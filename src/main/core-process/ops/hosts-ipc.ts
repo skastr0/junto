@@ -16,23 +16,16 @@ import type {
 } from "@shared/ipc";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { OPERATOR_PROTOCOL_VERSION, type OperatorResponseEnvelope } from "@shared/operator-control";
-import type { MachineCommandProgress } from "@shared/machine-progress";
 import { endpointHostToken, type TailscalePeer } from "@shared/tailscale-peers";
-import { buildDoctorReport } from "../../runtime";
+import type { StationInfo, DoctorReport } from "@shared/contracts";
+import { buildDoctorReport } from "../../junto/doctor";
 import { HostsService } from "../../junto/hosts/service";
 import { MachineOwnerControl } from "../../junto/hosts/machine-owner";
 import { dispatchMachineIpcCommand } from "../../junto/hosts/machine-ipc-command";
 import { tailscalePeerCache } from "../../junto/hosts/tailscale-peers";
+import { MACHINE_PROGRESS, type MachineProgressPushed } from "../channels";
 import { coreOps, type CoreOp } from "../ops";
 import { publish } from "../push";
-
-/** A running machine command's progress, tagged with the call that asked for it. */
-export const MACHINE_PROGRESS = "hosts.machineProgress";
-
-export type MachineProgressPushed = {
-  readonly requestId: string;
-  readonly progress: MachineCommandProgress;
-};
 
 declare module "../ops" {
   interface CoreOps {
@@ -45,7 +38,7 @@ declare module "../ops" {
     "ipc.hosts.upsert": CoreOp<{ readonly input: unknown }, HostsOpResult>;
     "ipc.hosts.remove": CoreOp<{ readonly id: unknown }, HostsOpResult>;
     "ipc.hosts.test": CoreOp<{ readonly id: unknown }, HostsTestResult>;
-    "ipc.doctor.report": CoreOp<Record<string, never>, unknown>;
+    "ipc.doctor.report": CoreOp<{ readonly station: StationInfo }, DoctorReport>;
   }
 }
 
@@ -184,6 +177,7 @@ coreOps({
         message: result.failure.message,
       } satisfies HostsTestResult;
     }),
-  // The window's doctor report: every service's own answer, as one document.
-  "ipc.doctor.report": () => buildDoctorReport,
+  // The window's doctor: every service's own answer, as one document, with
+  // this installation's station facts as main knows them.
+  "ipc.doctor.report": ({ station }) => buildDoctorReport(station),
 });

@@ -44,6 +44,7 @@ import { NativeConfigLive } from "./junto/native-config/service";
 import { ProductModelDependentsLive } from "./junto/view-state/model-dependents";
 import { ViewStateRepositoryLive } from "./junto/view-state/repository";
 import { ModelLive } from "./junto/model/layer";
+import { CodexLive } from "./services/codex";
 import { SeatAwarenessLive } from "./junto/term/seat-awareness-live";
 
 /**
@@ -125,6 +126,9 @@ export const makeCoreProductLayer = (home: string) => {
       // The seat awareness plane runs here, where the seats and their windows are, and its
       // events leave as core pushes; main asks it for the snapshot (term/seat-awareness-live.ts).
       Layer.provide(SeatAwarenessLive, settings),
+      // The doctor's Codex check runs here too: it is this machine's CLI, and
+      // the doctor document is assembled in the core (junto/doctor.ts).
+      CodexLive,
     ),
     occupants,
   );
