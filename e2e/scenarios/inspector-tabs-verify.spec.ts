@@ -113,6 +113,37 @@ test("inspector tabs: agent editor and git detail, dark and bright, 1500, 900 an
       const editor = page.getByTestId("agent-editor");
       await expect(editor).toBeVisible({ timeout: 10_000 });
       await frames("1-agent-editor", editor.getByRole("tablist").first());
+      // The keyboard onto a tab, at the narrowest: its ring is read against the row's clip.
+      await setContentSize(app, 720, 900);
+      await page.waitForTimeout(600);
+      for (let i = 0; i < 40 && !(await page.evaluate(() => document.activeElement?.getAttribute("role") === "tab")); i += 1) await page.keyboard.press("Tab");
+      const ring = await page.evaluate(() => {
+        const tab = document.activeElement as HTMLElement;
+        if (tab?.getAttribute("role") !== "tab") return null;
+        const row = tab.closest('[role="tablist"]') as HTMLElement;
+        const s = getComputedStyle(tab);
+        const t = tab.getBoundingClientRect();
+        const r = row.getBoundingClientRect();
+        const reach = Number.parseFloat(s.outlineWidth) + Number.parseFloat(s.outlineOffset);
+        return {
+          tab: tab.textContent?.trim(),
+          focusVisible: tab.matches(":focus-visible"),
+          outline: `${s.outlineWidth} ${s.outlineStyle} ${s.outlineColor} offset ${s.outlineOffset}`,
+          shadow: s.boxShadow,
+          rowOverflow: getComputedStyle(row).overflowX,
+          ringInsideRow: t.left - Math.max(reach, 0) >= r.left - 0.5 && t.right + Math.max(reach, 0) <= r.right + 0.5 && t.top - Math.max(reach, 0) >= r.top - 0.5 && t.bottom + Math.max(reach, 0) <= r.bottom + 0.5,
+        };
+      });
+      out["keyboard-focus-720"] = ring;
+      for (const theme of ["dark", "bright"] as const) {
+        await page.evaluate((t) => window.junto!.settingsPatch({ appearance: { theme: t } }), theme);
+        await page.waitForTimeout(350);
+        const box = await editor.getByRole("tablist").first().boundingBox();
+        if (box) await page.screenshot({ path: join(SHOTS, theme, "3-agent-editor-720-keyboard-focus-crop.png"), clip: { x: Math.max(0, box.x - 12), y: Math.max(0, box.y - 12), width: Math.min(box.width + 24, 720 - Math.max(0, box.x - 12)), height: box.height + 40 } });
+        await page.screenshot({ path: join(SHOTS, theme, "3-agent-editor-720-keyboard-focus.png") });
+      }
+      await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
+      await setContentSize(app, 1500, 900);
       await page.keyboard.press("Escape");
       await expect(editor).toBeHidden({ timeout: 5_000 });
     });
