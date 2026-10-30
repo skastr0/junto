@@ -14,7 +14,7 @@
  * writes no row.
  */
 import { Schema } from "effect";
-import { ArtifactType } from "./artifact";
+import { ARTIFACT_MAX_DOCUMENT_LENGTH, ArtifactType } from "./artifact";
 import { ArtifactLabel } from "./artifact-labels";
 import { FILE_PATH_MAX, parseFilePath } from "./files";
 
@@ -190,6 +190,23 @@ export const viewNodeOf = (
       };
 
 /** The snapshot a window opens with: every row this machine saved, sparse. */
+/**
+ * Quick capture's draft (0.12, the Cmd+T desk): the document words the
+ * operator wrote that may not be in an artifact yet, kept on every change so
+ * a close, a quit, a kill or a reboot loses none. `of` is the artifact they
+ * belong to, null while none was made (no Inbox yet, or a refusal); `node`
+ * is where that artifact was when the words were written; `base` the
+ * version they were written over. `at` is when, in epoch milliseconds.
+ */
+export const CaptureDraft = Schema.Struct({
+  of: Schema.NullOr(NodeText),
+  node: Schema.NullOr(NodeText),
+  text: Schema.String.pipe(Schema.check(Schema.isMaxLength(ARTIFACT_MAX_DOCUMENT_LENGTH))),
+  base: Schema.NullOr(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }))),
+  at: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
+});
+export type CaptureDraft = typeof CaptureDraft.Type;
+
 export type ViewStateSnapshot = {
   /** By canvas name. A canvas with no saved board is absent. */
   readonly commandGroups: Readonly<Record<string, ViewCommandGroups>>;
@@ -203,6 +220,8 @@ export type ViewStateSnapshot = {
   readonly sections: Readonly<Record<string, boolean>>;
   /** By canvas name: the Artifacts node quick capture lands in (11 Q4). Absent until chosen. */
   readonly captureInboxes: Readonly<Record<string, string>>;
+  /** By canvas name: quick capture's draft (0.12). Absent with none, and from a main that keeps none. */
+  readonly captureDrafts?: Readonly<Record<string, CaptureDraft>>;
 };
 
 export const EMPTY_VIEW_STATE: ViewStateSnapshot = {
@@ -272,6 +291,12 @@ export const ViewStateWrite = Schema.Union([
     canvasName: CanvasName,
     /** The Artifacts node captures land in; null forgets the choice. */
     inbox: Schema.NullOr(NodeText),
+  }),
+  Schema.Struct({
+    area: Schema.Literal("capture-draft"),
+    canvasName: CanvasName,
+    /** The draft as it stands; null clears it, once its words are in an artifact. */
+    value: Schema.NullOr(CaptureDraft),
   }),
   Schema.Struct({
     area: Schema.Literal("section"),

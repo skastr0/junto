@@ -12,6 +12,7 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import { SqlClient, SqlError } from "effect/unstable/sql";
 import type {
+  CaptureDraft,
   ViewArtifactsFilter,
   ViewCommandGroups,
   ViewCommandSlot,
@@ -95,6 +96,14 @@ type FocusSizeRow = {
 type CaptureInboxRow = {
   readonly canvas_name: string;
   readonly node_id: string;
+};
+type CaptureDraftRow = {
+  readonly canvas_name: string;
+  readonly draft_of: string | null;
+  readonly draft_node_id: string | null;
+  readonly draft_text: string;
+  readonly draft_base_version: number | null;
+  readonly draft_at: number;
 };
 type SectionRow = {
   readonly section: string;
@@ -197,6 +206,9 @@ export const ViewStateRepositoryLive: Layer.Layer<ViewStateRepository, never, Sq
 
       const inboxRows = yield* sql<CaptureInboxRow>`
         SELECT canvas_name, node_id FROM view_capture_inboxes ORDER BY canvas_name`;
+      const draftRows = yield* sql<CaptureDraftRow>`
+        SELECT canvas_name, draft_of, draft_node_id, draft_text, draft_base_version, draft_at
+        FROM view_capture_desks WHERE draft_text IS NOT NULL ORDER BY canvas_name`;
 
       const boards = new Map<string, BoardDraft>();
       const board = (canvas: string): BoardDraft => {
@@ -283,7 +295,17 @@ export const ViewStateRepositoryLive: Layer.Layer<ViewStateRepository, never, Sq
       for (const row of sectionRows) sections[row.section] = row.open === 1;
       const captureInboxes: Record<string, string> = {};
       for (const row of inboxRows) captureInboxes[row.canvas_name] = row.node_id;
-      return { commandGroups, nodes: nodeState, focusSizes, sections, captureInboxes } satisfies ViewStateSnapshot;
+      const captureDrafts: Record<string, CaptureDraft> = {};
+      for (const row of draftRows) {
+        captureDrafts[row.canvas_name] = {
+          of: row.draft_of,
+          node: row.draft_node_id,
+          text: row.draft_text,
+          base: row.draft_base_version,
+          at: Number(row.draft_at),
+        };
+      }
+      return { commandGroups, nodes: nodeState, focusSizes, sections, captureInboxes, captureDrafts } satisfies ViewStateSnapshot;
     }, Effect.mapError(persistence("snapshot")));
 
     const write = Effect.fn("viewState.write")(function* (change: ViewStateWrite) {
@@ -403,6 +425,21 @@ export const ViewStateRepositoryLive: Layer.Layer<ViewStateRepository, never, Sq
           yield* sql`
             INSERT INTO view_capture_inboxes (canvas_name, node_id) VALUES (${change.canvasName}, ${change.inbox})
             ON CONFLICT (canvas_name) DO UPDATE SET node_id = excluded.node_id`;
+          break;
+        }
+        case "capture-draft": {
+          // Only the draft's columns: the shell's columns in the same row are its own.
+          const draft = change.value;
+          yield* sql`
+            INSERT INTO view_capture_desks
+              (canvas_name, draft_of, draft_node_id, draft_type, draft_text, draft_base_version, draft_at)
+            VALUES (
+              ${change.canvasName}, ${draft?.of ?? null}, ${draft?.node ?? null}, ${draft === null ? null : "document"},
+              ${draft?.text ?? null}, ${draft?.base ?? null}, ${draft?.at ?? null}
+            )
+            ON CONFLICT (canvas_name) DO UPDATE SET
+              draft_of = excluded.draft_of, draft_node_id = excluded.draft_node_id, draft_type = excluded.draft_type,
+              draft_text = excluded.draft_text, draft_base_version = excluded.draft_base_version, draft_at = excluded.draft_at`;
           break;
         }
         case "section":

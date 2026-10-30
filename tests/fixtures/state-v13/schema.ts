@@ -402,3 +402,9 @@ export const STATE_SCHEMA_V68_SQL = stepped(
   STATE_SCHEMA_V67_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 68)!.migrate,
 );
+
+/** Step 69 adds `view_capture_desks`, quick capture's draft and where the operator was (0.12, Cmd+T desk). */
+export const STATE_SCHEMA_V69_SQL = stepped(
+  STATE_SCHEMA_V68_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 69)!.migrate,
+);

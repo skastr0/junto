@@ -61,7 +61,7 @@ afterEach(async () => {
 
 describe("the view-state store", () => {
   it("reads an untouched machine as empty, and writes nothing for a node the canvas does not hold", async () => {
-    expect(await snapshot()).toEqual({ commandGroups: {}, nodes: {}, focusSizes: {}, sections: {}, captureInboxes: {} });
+    expect(await snapshot()).toEqual({ commandGroups: {}, nodes: {}, focusSizes: {}, sections: {}, captureInboxes: {}, captureDrafts: {} });
     expect(await write({ area: "sidebar", canvasName: canvas, nodeId: "ghost", collapsed: true })).toBe(false);
     expect((await snapshot()).nodes[canvas]).toBeUndefined();
   });
@@ -179,6 +179,40 @@ describe("quick capture's Inbox (11 Q4)", () => {
       ),
     );
     expect((await snapshot()).captureInboxes).toEqual({});
+  });
+});
+
+describe("quick capture's draft (0.12, the Cmd+T desk)", () => {
+  const draft = { of: "artifact-1", node: "a", text: "Pricing call, Thursday\nPartner tier stays", base: 3, at: 1_793_320_000_000 };
+
+  it("keeps the words as last written, and null clears them", async () => {
+    expect(await write({ area: "capture-draft", canvasName: canvas, value: { ...draft, text: "Pricing" } })).toBe(true);
+    expect(await write({ area: "capture-draft", canvasName: canvas, value: draft })).toBe(true);
+    expect((await snapshot()).captureDrafts).toEqual({ [canvas]: draft });
+    expect(await write({ area: "capture-draft", canvasName: canvas, value: null })).toBe(true);
+    expect((await snapshot()).captureDrafts).toEqual({});
+  });
+
+  it("keeps words that belong to no artifact yet", async () => {
+    const unmade = { of: null, node: null, text: "Written before the Inbox", base: null, at: 1 };
+    expect(await write({ area: "capture-draft", canvasName: canvas, value: unmade })).toBe(true);
+    expect((await snapshot()).captureDrafts).toEqual({ [canvas]: unmade });
+  });
+
+  it("outlives the node its artifact was on, and touches none of the shell's columns", async () => {
+    await run(
+      Effect.flatMap(SqlClient.SqlClient, (sql) =>
+        sql`INSERT INTO view_capture_desks (canvas_name, open_kind, query, caret) VALUES (${canvas}, 'new', 'pricing', 7)`,
+      ),
+    );
+    await write({ area: "capture-draft", canvasName: canvas, value: draft });
+    await removeNodes(["a"]);
+    expect((await snapshot()).captureDrafts).toEqual({ [canvas]: draft });
+    await write({ area: "capture-draft", canvasName: canvas, value: null });
+    const shell = await run(
+      Effect.flatMap(SqlClient.SqlClient, (sql) => sql`SELECT open_kind, query, caret FROM view_capture_desks WHERE canvas_name = ${canvas}`),
+    );
+    expect(shell).toEqual([{ open_kind: "new", query: "pricing", caret: 7 }]);
   });
 });
 

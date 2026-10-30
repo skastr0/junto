@@ -24,6 +24,7 @@ export const removeViewCanvas = (
     yield* sql`DELETE FROM view_expanded_folders WHERE canvas_name = ${canvas}`;
     yield* sql`DELETE FROM view_collapsed_sidebars WHERE canvas_name = ${canvas}`;
     yield* sql`DELETE FROM view_capture_inboxes WHERE canvas_name = ${canvas}`;
+    yield* sql`DELETE FROM view_capture_desks WHERE canvas_name = ${canvas}`;
   });
 
 /**

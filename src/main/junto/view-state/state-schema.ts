@@ -139,6 +139,40 @@ export const VIEW_CAPTURE_INBOX_SCHEMA_SQL = `
   ) STRICT, WITHOUT ROWID;
 `;
 
+/**
+ * Quick capture's desk (0.12, the Cmd+T triage desk): one row per canvas,
+ * held across closing the surface, quitting and a reboot. Two owners, one
+ * row: the draft columns are the words not yet in an artifact (the writing,
+ * product-documents), written on every change; the open, query, focused,
+ * caret and scroll columns are where the operator was (the shell,
+ * product-modals), and never hold text from the writing. A draft outlives
+ * its node: the words are kept even when the Inbox they were meant for
+ * goes, so the row goes only with its canvas (FK). Added by state migration
+ * 68 -> 69.
+ */
+export const VIEW_CAPTURE_DESK_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS view_capture_desks (
+    canvas_name TEXT NOT NULL
+      CHECK (length(canvas_name) BETWEEN 1 AND 256)
+      REFERENCES canvases (canvas_name) ON DELETE CASCADE,
+    draft_of TEXT CHECK (draft_of IS NULL OR length(draft_of) BETWEEN 1 AND 256),
+    draft_node_id TEXT CHECK (draft_node_id IS NULL OR length(draft_node_id) BETWEEN 1 AND 256),
+    draft_type TEXT CHECK (draft_type IS NULL OR draft_type IN ('document', 'pad', 'sheet')),
+    draft_text TEXT CHECK (draft_text IS NULL OR length(draft_text) <= 512000),
+    draft_base_version INTEGER CHECK (draft_base_version IS NULL OR draft_base_version >= 0),
+    draft_at INTEGER CHECK (draft_at IS NULL OR draft_at >= 0),
+    open_kind TEXT CHECK (open_kind IS NULL OR open_kind IN ('new', 'artifact')),
+    open_node_id TEXT CHECK (open_node_id IS NULL OR length(open_node_id) BETWEEN 1 AND 256),
+    open_artifact_id TEXT CHECK (open_artifact_id IS NULL OR length(open_artifact_id) BETWEEN 1 AND 256),
+    query TEXT CHECK (query IS NULL OR length(query) <= 1024),
+    focused_artifact_id TEXT CHECK (focused_artifact_id IS NULL OR length(focused_artifact_id) BETWEEN 1 AND 256),
+    caret INTEGER CHECK (caret IS NULL OR caret >= 0),
+    scroll_writing INTEGER CHECK (scroll_writing IS NULL OR scroll_writing >= 0),
+    scroll_list INTEGER CHECK (scroll_list IS NULL OR scroll_list >= 0),
+    PRIMARY KEY (canvas_name)
+  ) STRICT, WITHOUT ROWID;
+`;
+
 /** The node-scoped tables the model delete seam clears, by node and canvas. */
 export const VIEW_STATE_NODE_TABLES = [
   "view_artifacts_filters",
@@ -163,4 +197,5 @@ export const VIEW_STATE_TABLES = [
   "view_focus_sizes",
   "view_sections",
   "view_capture_inboxes",
+  "view_capture_desks",
 ] as const;
