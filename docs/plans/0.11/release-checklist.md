@@ -441,3 +441,17 @@ Machine build `9f15d198df7ddbd0c130cb73e8015135333274e98125e460b0e8fb64af37165a`
 (darwin-arm64, linux-x64). The feed says 0.11.5 and the downloaded zip
 matches. Launch smoke by product-verify before publish: pass (8 of 8). The
 native CLI seats' Rust commits (N2) were on main and built clean.
+
+## 0.11.7 receipt (product-releases, 2026-10-30)
+
+Published from tag `v0.11.7` = `22d9ab0d8` on main (pushed), cut from a clean
+export, by operator order. Recipe: typecheck and packaging only; the unit,
+ship feature and product-name lanes were skipped by the shim. The package
+audit read the machine archive pins only from `out/main/index.js`; the core
+split moved them into a chunk, so `c64c51d83` and `22d9ab0d8` make it scan every
+compiled main file. Database v73 (one-way from 0.11.5). Notarization
+submission `cd4e5d1c-6192-4f64-b6bd-f5c0ef1e362b` Accepted, stapled. Zip sha256
+`651b5532a0301c3f1c3521f5f309b9a40c20b813d487982f8cbad809c995c274`, dmg sha256
+`6134f39d2783cb99083a7cdb2eed0912c32719ea12902edc60ecf9f9c00a200c`. The feed says
+0.11.7 and the downloaded zip matches. Fresh-home smoke by product-verify: pass.
+Linux payloads built on the junto Orb.
