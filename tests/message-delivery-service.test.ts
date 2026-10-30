@@ -567,13 +567,22 @@ describe("mail delivery", () => {
 
     it("stops its walk when the seat stops being ready, leaves the rest waiting, and types it when it is back", async () => {
       const seat = rig({ live: false, wake: () => false, batching: { quietMs: 10, maxWaitMs: 60_000 } });
-      await indexed(seat, backlog(2_000));
+      // Three chunks of backlog: enough to prove the walk stops at a chunk
+      // boundary and resumes, small enough that the last mail lands inside the
+      // test's own budget on a loaded machine.
+      await indexed(seat, backlog(MAIL_PASS_CHUNK * 3));
       const wakesBefore = seat.wakes.length;
       seat.setLive(true);
       const before = seat.modelReads();
 
       seat.service.onSeatLive(bindingId);
-      await Promise.resolve();
+      // Wait on the walk itself, not on a clock: the pass yields to this turn
+      // only after it has started its first chunk, so stop the seat at that
+      // point and the next turn of the loop is the one that sees it.
+      for (let spins = 0; seat.modelReads() === before; spins += 1) {
+        if (spins > 10_000) throw new Error("the seat-live pass never started its first chunk");
+        await Promise.resolve();
+      }
       seat.setLive(false);
       await settle();
 
