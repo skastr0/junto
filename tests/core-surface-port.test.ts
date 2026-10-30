@@ -1,7 +1,7 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { expect, it, vi } from "vitest";
 import { inProcessCore, type CoreRunner } from "../src/main/core-process/client";
-import { coreSurfacePlane, openCoreSurface, SURFACE_OPENED, type SurfaceOpenMessage } from "../src/main/core-process/ops/term-surface";
+import { coreSurfacePlane, openCoreSurface, SURFACE_OPENED, type PortedCoreMessage } from "../src/main/core-process/ops/term-surface";
 import { termPlane } from "../src/main/junto/term/plane";
 
 // Plan B: a view's surface port rides from main to the core's plane, which says whether it opened.
@@ -22,7 +22,8 @@ it("carries a surface port to the core's plane, answers whether it opened, and c
   const close = vi.spyOn(termPlane.host, "closeSurface").mockImplementation(() => undefined);
   const plane = coreSurfacePlane({
     // The core process's side, as entry.ts runs it on the transferred port.
-    postSurface: (message: SurfaceOpenMessage, port) => {
+    postSurface: (message: PortedCoreMessage, port) => {
+      if (message.kind !== "surfaceOpen") return false;
       queueMicrotask(() => openCoreSurface(message, port as { close: () => void }, (channel, payload) => pushes.get(channel)?.(payload)));
       return true;
     },
