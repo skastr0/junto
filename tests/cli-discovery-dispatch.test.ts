@@ -49,11 +49,11 @@ const commandWords = (command: string): string =>
 const WORK_OPS = new Set(["content.stage"]);
 
 /**
- * Dispatched families discovery leaves out on purpose: `machine` is the
- * operator's (refused to a seat before parsing), and `docs` is the reference
- * itself, which the onboard guidance points at.
+ * Dispatched families discovery leaves out on purpose: `machine` and
+ * `authority` are the operator's (refused to a seat before any op), and `docs`
+ * is the reference itself, which the onboard guidance points at.
  */
-const UNDISCOVERED_FAMILIES = ["machine", "docs"];
+const UNDISCOVERED_FAMILIES = ["machine", "authority", "docs"];
 
 const discoveryRows = [...commandCapabilities, ...allSchemas, ...allExamples]
   .filter((row) => !WORK_OPS.has(row.command_id));
