@@ -167,7 +167,8 @@ describe("V4-ENTRY managed runtime domain entry", () => {
     expect(core).toMatch(/runtime\.runPromise/);
     expect(cc).toMatch(/AppRuntime\.runPromise/);
     expect(cc).toMatch(/AppRuntime\.runFork/);
-    expect(ipc).toMatch(/AppRuntime\.runPromise/);
+    // The window's own ipc.ts is a thin shell: every domain read asks the core by name.
+    expect(ipc).toMatch(/core\.call\(/);
     expect(juntoIpc).toMatch(/AppRuntime\.runPromise/);
 
     // Keep the construction sites explicit: the desktop shell and the windowless core.
