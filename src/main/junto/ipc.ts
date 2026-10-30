@@ -39,7 +39,6 @@ import {
   type WorkOpResult,
 } from "@shared/ipc";
 import type { Canvas } from "@shared/model";
-import { readModelDigest } from "./model/digest";
 import { AppRuntime } from "../runtime";
 import { MachineCoreMail } from "../core-runtime";
 import { registerBrowserIpc } from "./browser/ipc";
@@ -51,7 +50,6 @@ import { asNodeId } from "@shared/model";
 
 import {
   ARTIFACTS_ENABLED,
-  AUTHORITY_ENABLED,
   BROWSER_ENABLED,
   FLEET_UI_ENABLED,
   productNodeKindEnabled,
@@ -61,7 +59,6 @@ import {
 } from "@shared/features";
 import { KernelService } from "./kernel/service";
 import { registerHostsIpc } from "./hosts/ipc";
-import { CanvasAuthorities } from "./fleet/authorities";
 import type { AuthorityWindowData } from "@shared/authority";
 import { PausePlane } from "./pause-plane";
 import { registerSettingsIpc } from "./settings/ipc";
@@ -388,16 +385,7 @@ export const registerJuntoIpc = (): void => {
   }
   // The authority read (0.11/06 F5): null with the authority off, so a ship window shows none of it.
   privilegedIpc.handle(IPC_CHANNELS.authorityRead, () =>
-    AppRuntime.runPromise(
-      Effect.gen(function* () {
-        if (!AUTHORITY_ENABLED) return null;
-        const host = yield* Effect.serviceOption(CanvasAuthorities);
-        if (Option.isNone(host)) return null;
-        const machines = yield* host.value.machines();
-        const canvases = yield* host.value.status();
-        return { self: machines.self, machines: machines.machines, canvases } satisfies AuthorityWindowData;
-      }).pipe(Effect.catch(() => Effect.succeed(null))),
-    ),
+    core.call("ipc.status.authority", {}),
   );
   registerUpdateIpc(
     privilegedIpc,
@@ -405,28 +393,23 @@ export const registerJuntoIpc = (): void => {
     app.getVersion(),
   );
   privilegedIpc.handle(IPC_CHANNELS.canvasDigest, (_event, name: string) =>
-    AppRuntime.runPromise(
-      Effect.gen(function* () {
-        const digest = yield* readModelDigest(name);
-        return { digest };
-      }),
-    ),
+    core.call("ipc.status.digest", { name }),
   );
 
   if (USAGE_ENABLED) {
     privilegedIpc.handle(IPC_CHANNELS.getUsage, () =>
-      AppRuntime.runPromise(Effect.flatMap(UsageService, (usage) => usage.current)),
+      core.call("ipc.status.usageCurrent", {}),
     );
 
     privilegedIpc.handle(IPC_CHANNELS.refreshUsage, () =>
-      AppRuntime.runPromise(Effect.flatMap(UsageService, (usage) => usage.refresh())),
+      core.call("ipc.status.usageRefresh", {}),
     );
   }
 
   // The kernel plane: seat and task evaluation over every hydrated canvas,
   // running continuously in main regardless of window state.
   privilegedIpc.handle(IPC_CHANNELS.getKernelState, () =>
-    AppRuntime.runPromise(Effect.map(KernelService, (kernel) => kernel.getSnapshot())),
+    core.call("ipc.status.kernel", {}),
   );
 
   privilegedIpc.handle(IPC_CHANNELS.agentSeatStateSnapshot, () =>

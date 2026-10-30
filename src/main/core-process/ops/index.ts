@@ -12,3 +12,4 @@ import "./companion";
 import "./overseer-live";
 import "./ipc-model";
 import "./ipc-work";
+import "./ipc-status";
