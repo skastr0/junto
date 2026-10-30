@@ -396,11 +396,14 @@ describe("machine-safety architecture", () => {
       // Owned child only: codesign/plutil admit timeout.
       "src/main/junto/update/admit-mac-app.ts:child.kill",
       // The terminal process (protect the main thread): the plane's PTY signal
-      // crosses the port by its channel name, and the far side signals only a
-      // PTY it spawned and has not seen exit, so a reused pid is never hit.
+      // crosses the port by its channel name, and the far side signals a PTY
+      // it spawned only while its pid still has the start epoch taken at spawn.
       "src/main/terminal-process/client.ts:forbidden-reference:TerminalInbound.kill",
+      // The terminal utilityProcess, Electron's own child, stopped at quit after
+      // the plane drained every PTY it held.
+      "src/main/terminal-process/host.ts:child?.kill",
       "src/main/terminal-process/serve.ts:forbidden-reference:TerminalInbound.kill",
-      "src/main/terminal-process/serve.ts:ptys.get(id)?.kill",
+      "src/main/terminal-process/serve.ts:pty.kill",
     ]);
   });
 
@@ -431,6 +434,8 @@ describe("machine-safety architecture", () => {
       // Owned children only: codesign admit, ditto extract.
       "src/main/junto/update/admit-mac-app.ts:spawn",
       "src/main/junto/update/staging.ts:spawn",
+      // The terminal process's one PTY spawn, served for the plane's spawnTerminal.
+      "src/main/terminal-process/entry.ts:nodePty.spawn",
     ]);
 
     // Raw child admission is now centralized in the app process plane. Other

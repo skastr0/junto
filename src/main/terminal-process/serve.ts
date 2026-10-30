@@ -1,6 +1,11 @@
 import type { IPty } from "node-pty";
 import type { CoreMessage, CorePort } from "../core-process/port";
 import {
+  captureChildProcessEpoch,
+  childProcessEpochIsCurrent,
+  type ChildProcessEpoch,
+} from "../junto/process-epoch";
+import {
   TERMINAL_SPAWN,
   TerminalInbound,
   TerminalOutbound,
@@ -18,8 +23,11 @@ import {
  * core asks of them, and pushes their output and exit back on the same port.
  * It decides nothing about seats; the core keeps every gate.
  *
- * A PTY that has exited takes no more input and no signal: its pid may
- * already belong to another process, and only this side saw the exit first.
+ * A signal reaches a PTY only while its pid still names the process this
+ * side spawned: the start epoch is taken at spawn and read again before each
+ * kill, as the plane does for a local PTY (process-signal.ts). node-pty can
+ * report an exit after the child was reaped, so the exit alone does not
+ * close that window. A PTY that has exited takes no more input.
  */
 export type SpawnPty = (command: string, args: readonly string[], options: {
   readonly name: string;
@@ -29,10 +37,24 @@ export type SpawnPty = (command: string, args: readonly string[], options: {
   readonly env?: Record<string, string>;
 }) => IPty;
 
+/** The pid identity reads behind a signal; the process table by default. */
+export type PtyEpochs = {
+  readonly capture: (pid: number) => ChildProcessEpoch | undefined;
+  readonly isCurrent: (pid: number, epoch: ChildProcessEpoch) => boolean;
+};
+
+const systemEpochs: PtyEpochs = { capture: captureChildProcessEpoch, isCurrent: childProcessEpochIsCurrent };
+
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-export const serveTerminals = (port: CorePort, spawnPty: SpawnPty): { readonly close: () => void; readonly live: () => number } => {
+export const serveTerminals = (
+  port: CorePort,
+  spawnPty: SpawnPty,
+  epochs: PtyEpochs = systemEpochs,
+): { readonly close: () => void; readonly live: () => number } => {
   const ptys = new Map<number, IPty>();
+  // Taken at spawn; a PTY whose epoch could not be read is never signalled.
+  const epochOf = new Map<number, ChildProcessEpoch | undefined>();
   const push = (channel: string, payload: TerminalData | TerminalExitEvent | TerminalError): void =>
     port.post({ kind: "push", channel, payload });
 
@@ -50,9 +72,11 @@ export const serveTerminals = (port: CorePort, spawnPty: SpawnPty): { readonly c
       // pauses the read with no resume (app-process-plane.ts spawnTerminal).
     });
     ptys.set(input.id, pty);
+    epochOf.set(input.id, epochs.capture(pty.pid));
     // The exit witness first, then the stream, as the plane installs them.
     pty.onExit(({ exitCode, signal }) => {
       ptys.delete(input.id);
+      epochOf.delete(input.id);
       push(TerminalOutbound.exit, { id: input.id, code: exitCode ?? undefined, signal: signal ?? undefined });
     });
     pty.onData((data) => push(TerminalOutbound.data, { id: input.id, data }));
@@ -82,8 +106,12 @@ export const serveTerminals = (port: CorePort, spawnPty: SpawnPty): { readonly c
     }
     if (channel === TerminalInbound.kill) {
       const { id, signal } = payload as TerminalKill;
+      const pty = ptys.get(id);
+      const epoch = epochOf.get(id);
+      // Gone, reaped or reused: the signal is dropped, never sent to a pid.
+      if (pty === undefined || epoch === undefined || !epochs.isCurrent(pty.pid, epoch)) return;
       try {
-        ptys.get(id)?.kill(signal);
+        pty.kill(signal);
       } catch {
         // The child is already gone; its exit witness reports it.
       }

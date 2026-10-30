@@ -96,6 +96,40 @@ describe("the terminal process", () => {
     expect(after.errors).toEqual([]);
   });
 
+  it("a kill after the child is reaped and before its exit is reported is dropped", async () => {
+    let exit: ((event: { exitCode: number; signal?: number }) => void) | undefined;
+    const kills: Array<string | undefined> = [];
+    const reaped: SpawnPty = () => ({
+      pid: 4242,
+      onExit: (listener: typeof exit) => {
+        exit = listener;
+        return { dispose: () => undefined };
+      },
+      onData: () => ({ dispose: () => undefined }),
+      kill: (signal?: string) => kills.push(signal),
+      write: () => undefined,
+      resize: () => undefined,
+    }) as unknown as ReturnType<SpawnPty>;
+    let alive = true;
+    const { port1, port2 } = new MessageChannel();
+    opened.push(port1, port2);
+    serveTerminals(portOf(port2), reaped, {
+      capture: (pid) => ({ pid, startKey: "spawned" }) as never,
+      isCurrent: () => alive,
+    });
+    const client = terminalClient(portOf(port1));
+    const pty = client.spawn({ command: "/bin/true", args: [], cols: 80, rows: 24 });
+    await pty.pid;
+    pty.kill("SIGTERM");
+    await until(() => kills.length === 1);
+    // The child is reaped; node-pty has not reported the exit yet.
+    alive = false;
+    pty.kill("SIGKILL");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(kills).toEqual(["SIGTERM"]);
+    exit?.({ exitCode: 0 });
+  });
+
   it("a refused spawn arrives as an error, then an exit", async () => {
     const refusing: SpawnPty = () => {
       throw new Error("posix_spawnp failed");

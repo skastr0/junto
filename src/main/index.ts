@@ -42,6 +42,8 @@ import { appMenuTemplate } from "./junto/app-menu";
 import { appProcessBlocksAppExit, appProcessPlane, describeAppProcessStraggler } from "./junto/app-process-plane";
 import { AppRuntime, setMachineControlReadiness } from "./runtime";
 import { core } from "./core-process/main-client";
+import { startTerminalProcess, TERMINAL_PROCESS_ENABLED } from "./terminal-process/host";
+import { useTerminalProcess } from "./terminal-process/use";
 import { subscribe as subscribeCore } from "./core-process/push";
 import { SETTINGS_CHANGED } from "./core-process/ops/main-index";
 import { coreBrowserProfileStore, coreTouchedOriginStore } from "./core-process/ops/browser";
@@ -448,6 +450,7 @@ let operatorControlShutdown:
 let hostOperationsDrain:
   | Promise<Awaited<ReturnType<typeof hostOperationsShutdown.drainOnQuit>>>
   | undefined;
+let terminalProcess: ReturnType<typeof startTerminalProcess> | undefined;
 let termPlaneShutdown: Promise<Awaited<ReturnType<typeof termPlane.drainOnQuit>>> | undefined;
 let adapterShutdown:
   | Promise<Awaited<ReturnType<typeof terminateAdapterChildrenOnQuit>>>
@@ -1340,6 +1343,11 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // One log path: main console + Effect logger (layer already on AppRuntime)
     // into the ring and this machine's log file under ~/.junto/logs.
     installMachineLog({ home: resolveJuntoHome(), process: "app", echo: true });
+    // PTYs spawn in their own process from here on (JUNTO_TERMINAL_PROCESS=1).
+    if (TERMINAL_PROCESS_ENABLED) {
+      terminalProcess = startTerminalProcess();
+      useTerminalProcess(terminalProcess);
+    }
     installObservabilityConsoleHook();
     // The 4ms invariant, asserted at the source. Dev runs are armed; a
     // packaged app stays silent unless JUNTO_BUDGET says otherwise.
@@ -2207,6 +2215,8 @@ const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
   lap("dispose: adapters");
   await requireCleanAppProcessShutdown();
   lap("dispose: app processes");
+  // Every PTY it held is drained above; the terminal process goes last.
+  terminalProcess?.stop();
 };
 
 const disposeRuntime = (): Promise<void> => {
