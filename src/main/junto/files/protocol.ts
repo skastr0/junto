@@ -58,6 +58,7 @@ const headers = (extra: Record<string, string>): Headers =>
 const STATUS_OF: Record<FilesError, number> = {
   "no-node": 404,
   elsewhere: 404,
+  unreachable: 503,
   "root-missing": 404,
   "not-found": 404,
   "invalid-path": 400,

@@ -71,7 +71,7 @@ export const makeLocalFiles = (
     return stampOf(held);
   };
   const ok = <A>(value: A): FilesResult<A> => ({ ok: true, value });
-  const refused = <A>(error: FilesError): FilesResult<A> => ({ ok: false, error });
+  const refused = <A>(error: Exclude<FilesError, "unreachable">): FilesResult<A> => ({ ok: false, error });
   const has = (ref: FilesNodeRef, path: FilePath): boolean => rootOf(ref.node).has(path);
   return {
     open: async () => ok<FilesRoot>({ name: "folder", repo: false }),
@@ -215,6 +215,8 @@ export const filesErrorLine = (error: FilesError): string => {
       return "This Files node is gone from the canvas.";
     case "elsewhere":
       return "This folder lives on another machine. Open it there.";
+    case "unreachable":
+      return "This folder's machine is offline.";
     case "root-missing":
       return "This node's folder is missing on this machine.";
     case "invalid-path":

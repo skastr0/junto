@@ -39,6 +39,7 @@ describe("compile-time feature profiles", () => {
       // Fleet authority and the vault are carried to 0.12: never live in ship.
       authority: false,
       vault: false,
+      filesRemote: false,
       // Code steps ship off until their real-app walk passes; automation signals walked and ship on in 0.11.1.
       codeSteps: false,
       automationSignals: true,

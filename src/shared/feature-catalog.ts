@@ -157,6 +157,16 @@ export const FEATURE_CATALOG = {
     define: "__JUNTO_VAULT_ENABLED__",
   },
   /**
+   * Files over SSH (0.11/12): a Files node on another machine served through
+   * that machine's Junto over the link, and `unreachable` when it cannot be
+   * reached. For 0.12: off in ship, on in all-on. Off, another machine's
+   * Files node is the stub card it is today.
+   */
+  filesRemote: {
+    env: "JUNTO_FILES_REMOTE",
+    define: "__JUNTO_FILES_REMOTE_ENABLED__",
+  },
+  /**
    * Code steps in automations (0.11/05, K1 to K4): the step in the editor and
    * the CLI, and the runner that starts its process. Off in ship until a
    * real-app walk passes. Off, a save refuses a code step, the editor and the
@@ -253,6 +263,8 @@ export const SHIP_FEATURES: FeatureSet = {
   // Fleet authority and the vault are carried to 0.12: built from main, never live in ship.
   authority: false,
   vault: false,
+  // Files over SSH is for 0.12: built from main, never live in ship until remote-verify walks it.
+  filesRemote: false,
   // Unverified in the real app at the freeze: flips on when its walk passes (0.11 release checklist).
   codeSteps: false,
   // On from 0.11.1: N2 and H5 walked in the real app, dark and bright
@@ -282,6 +294,7 @@ export const ALL_FEATURES: FeatureSet = {
   files: true,
   authority: true,
   vault: true,
+  filesRemote: true,
   codeSteps: true,
   automationSignals: true,
   harnessHermes: true,

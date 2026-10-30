@@ -38,6 +38,7 @@ declare const __JUNTO_SEAT_AWARENESS_TIER__: FeatureTier | undefined;
 declare const __JUNTO_FILES_TIER__: FeatureTier | undefined;
 declare const __JUNTO_AUTHORITY_ENABLED__: boolean | undefined;
 declare const __JUNTO_VAULT_ENABLED__: boolean | undefined;
+declare const __JUNTO_FILES_REMOTE_ENABLED__: boolean | undefined;
 declare const __JUNTO_CODE_STEPS_ENABLED__: boolean | undefined;
 declare const __JUNTO_AUTOMATION_SIGNALS_ENABLED__: boolean | undefined;
 
@@ -246,6 +247,15 @@ export const VAULT_ENABLED: boolean =
     ? __JUNTO_VAULT_ENABLED__
     : envEnabled("JUNTO_VAULT");
 
+/**
+ * Files over SSH (0.11/12): another machine's Files node served over the link,
+ * and said offline when it cannot be reached. OFF in ship (0.12).
+ */
+export const FILES_REMOTE_ENABLED: boolean =
+  typeof __JUNTO_FILES_REMOTE_ENABLED__ === "boolean"
+    ? __JUNTO_FILES_REMOTE_ENABLED__
+    : envEnabled("JUNTO_FILES_REMOTE");
+
 /** Code steps in automations (0.11/05 K1 to K4): saved, offered and run. */
 export const CODE_STEPS_ENABLED: boolean =
   typeof __JUNTO_CODE_STEPS_ENABLED__ === "boolean"
@@ -280,6 +290,7 @@ export const BUILD_FEATURES = {
   files: FILES_TIER,
   authority: AUTHORITY_ENABLED,
   vault: VAULT_ENABLED,
+  filesRemote: FILES_REMOTE_ENABLED,
   codeSteps: CODE_STEPS_ENABLED,
   automationSignals: AUTOMATION_SIGNALS_ENABLED,
 } as const satisfies Readonly<Record<FeatureKey, FeatureTier>>;

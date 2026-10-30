@@ -91,6 +91,7 @@ export type FileRead =
  *
  * - `no-node`: no Files node by that id on that canvas.
  * - `elsewhere`: the node's host is not this machine.
+ * - `unreachable`: the node's host is another machine, and its link is down.
  * - `root-missing`: the root is gone or is not a folder.
  * - `invalid-path`: not a `FilePath`, or a name with a `/`.
  * - `outside-root`: the path resolves outside the root (a symlink out, most often).
@@ -103,6 +104,7 @@ export type FileRead =
 export type FilesError =
   | "no-node"
   | "elsewhere"
+  | "unreachable"
   | "root-missing"
   | "invalid-path"
   | "outside-root"
@@ -115,9 +117,16 @@ export type FilesError =
   | "denied"
   | "failed";
 
-export type FilesResult<A> =
-  | { readonly ok: true; readonly value: A }
-  | { readonly ok: false; readonly error: FilesError };
+/**
+ * Why a call was refused. Only `unreachable` carries more: the machine the
+ * node lives on (its `host`) and when its link last answered, epoch ms, or
+ * null when it never has, so the node can say when it was last reached.
+ */
+export type FilesRefusal =
+  | { readonly error: Exclude<FilesError, "unreachable"> }
+  | { readonly error: "unreachable"; readonly machine: string; readonly lastReachedAt: number | null };
+
+export type FilesResult<A> = { readonly ok: true; readonly value: A } | ({ readonly ok: false } & FilesRefusal);
 
 /** Which Files node a call is for. */
 export type FilesNodeRef = { readonly canvas: string; readonly node: NodeId };
@@ -167,7 +176,7 @@ export type FilesChanged =
   /** The root folder is back: list again (as after `reset`). */
   | { readonly node: NodeId; readonly kind: "back" }
   /** The node is no longer served here (its watch failed, or it moved); calls now refuse. */
-  | { readonly node: NodeId; readonly kind: "closed"; readonly error: FilesError };
+  | ({ readonly node: NodeId; readonly kind: "closed" } & FilesRefusal);
 
 export interface JuntoFilesApi {
   readonly files: {

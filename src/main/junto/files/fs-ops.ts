@@ -37,10 +37,13 @@ export type Ok<A> = Extract<FilesResult<A>, { ok: true }>;
 export type Refused = Extract<FilesResult<never>, { ok: false }>;
 
 export const ok = <A>(value: A): Ok<A> => ({ ok: true, value });
-export const refused = (error: FilesError): Refused => ({ ok: false, error });
+/** This machine's own refusals: `unreachable` is a link's, never the disk's. */
+export type LocalFilesError = Exclude<FilesError, "unreachable">;
+
+export const refused = (error: LocalFilesError): Refused => ({ ok: false, error });
 
 /** The `FilesError` for a thrown filesystem error; the cause stays in main's log. */
-export const errorOf = (cause: unknown): FilesError => {
+export const errorOf = (cause: unknown): LocalFilesError => {
   const code = (cause as { code?: unknown } | null)?.code;
   switch (code) {
     case "ENOENT":
