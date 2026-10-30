@@ -24,20 +24,22 @@ declare module "../ops" {
 // Every added backlink, from any writer, reaches the panes as it commits.
 onMentionsChanged((canvasName) => publish(MENTION_IPC_CHANNELS.changed, { canvasName }));
 
-const ports: MentionIpcPorts = {
+const unreadable = (canvasName: string) => (): WorkErrorBody => ({
+  type: "InternalError",
+  message: `the mentions on canvas ${canvasName} could not be read`,
+  details: { retryable: true },
+});
+
+const ports: MentionIpcPorts<SqlClient.SqlClient | WorkService> = {
   topology: (canvasName) =>
     Effect.flatMap(WorkService, (work) => work.readTopology(canvasName)).pipe(
       Effect.map((read) => read.canvas),
-      Effect.mapError(
-        (error): WorkErrorBody => ({
-          type: "InternalError",
-          message: `the mentions on canvas ${canvasName} could not be read: ${error.message}`,
-          details: { retryable: true },
-        }),
-      ),
+      Effect.mapError(unreadable(canvasName)),
     ),
   read: (canvasName, key, limit, after: MentionAfter | undefined) =>
-    Effect.flatMap(SqlClient.SqlClient, (sql) => readMentions(sql, canvasName, key, limit, after)),
+    Effect.flatMap(SqlClient.SqlClient, (sql) => readMentions(sql, canvasName, key, limit, after)).pipe(
+      Effect.mapError(unreadable(canvasName)),
+    ),
 };
 
 coreOps({

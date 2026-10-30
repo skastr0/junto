@@ -23,14 +23,15 @@ import { threadSubjectOf } from "@shared/thread-subject";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { MentionAfter, MentionRow } from "./mention-backlinks";
 
-export type MentionIpcPorts = {
-  readonly topology: (canvasName: string) => Effect.Effect<Canvas, WorkErrorBody>;
+/** What the list reads through; the services it needs are the caller's (`R`). */
+export type MentionIpcPorts<R = never> = {
+  readonly topology: (canvasName: string) => Effect.Effect<Canvas, WorkErrorBody, R>;
   readonly read: (
     canvasName: string,
     key: string,
     limit: number,
     after?: MentionAfter,
-  ) => Effect.Effect<ReadonlyArray<MentionRow>, WorkErrorBody>;
+  ) => Effect.Effect<ReadonlyArray<MentionRow>, WorkErrorBody, R>;
 };
 
 // ── the cursor ─────────────────────────────────────────────────────────────
@@ -115,10 +116,10 @@ export const entryOf = (canvas: Canvas, row: MentionRow): MentionedIn | undefine
  * One page of where `target` is mentioned, newest first. A row whose stamp
  * does not read is left out but still moves the cursor, so no page repeats.
  */
-export const listMentions = (
-  ports: MentionIpcPorts,
+export const listMentions = <R>(
+  ports: MentionIpcPorts<R>,
   input: typeof MentionListInput.Type,
-): Effect.Effect<MentionPage, WorkErrorBody> =>
+): Effect.Effect<MentionPage, WorkErrorBody, R> =>
   Effect.gen(function* () {
     const before = input.page?.before;
     const after = before === undefined ? undefined : afterOf(before);
