@@ -134,6 +134,29 @@ describe("files remote: events and the link coming and going", () => {
     expect(f.seen.at(-1)!.payload).toEqual({ _tag: "Open", canvas: "factory", node: "files-1" });
   });
 
+  it("watches a node opened while the machine is unreachable, and opens it again with back when the link comes up", async () => {
+    const f = await fixture();
+    expect(await f.remote.open(MINI, ref)).toEqual(unreachable(null));
+    expect(f.remote.watched(MINI)).toEqual(["files-1"]);
+    f.script.push(answers({ _tag: "Opened", root: { name: "docs", repo: false } }));
+    await Effect.runPromise(f.remote.onOpened(context));
+    await expect.poll(() => f.changes.length).toBe(1);
+    expect(f.changes[0]).toEqual({ machine: MINI, change: { node: "files-1", kind: "back" } });
+    expect(f.seen.at(-1)!.payload).toEqual({ _tag: "Open", canvas: "factory", node: "files-1" });
+  });
+
+  it("stops watching a node the window closes while the machine is unreachable, so nothing opens it again", async () => {
+    const f = await fixture();
+    await f.remote.open(MINI, ref);
+    expect(await f.remote.close(MINI, ref)).toEqual(unreachable(null));
+    expect(f.remote.watched(MINI)).toEqual([]);
+    const before = f.seen.length;
+    await Effect.runPromise(f.remote.onOpened(context));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(f.seen).toHaveLength(before);
+    expect(f.changes).toEqual([]);
+  });
+
   it("says why when the node cannot open again, and stops watching it", async () => {
     const f = await fixture();
     await opened(f);

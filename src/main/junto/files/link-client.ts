@@ -81,7 +81,8 @@ export const makeFilesRemote = Effect.fn("FilesRemote.make")(function* (options:
 
   const open = async (machine: string, ref: FilesNodeRef): Promise<FilesResult<FilesRoot>> => {
     const result = await answer(machine, { _tag: "Open", ...where(ref) }, "Opened", (response) => response.root);
-    if (result.ok) {
+    // A node opened while the machine is unreachable is watched too: when the link returns it opens again and says back.
+    if (result.ok || result.error === "unreachable") {
       const nodes = watching.get(machine) ?? new Map<NodeId, string>();
       nodes.set(ref.node, ref.canvas);
       watching.set(machine, nodes);
