@@ -1,5 +1,4 @@
 import { canvasReceiptBasis } from "./work/delivery-receipts";
-import { readPageShot } from "./work/page-shot-read";
 import { purgeOperatorPageShot } from "./work/page-shot-purge";
 import type { PageShotPurged, PageShotPurgeRequest } from "@shared/page-shot";
 import { app, BrowserWindow, clipboard, ipcMain, nativeImage, shell } from "electron";
@@ -69,7 +68,6 @@ import type { AgentSignal } from "@shared/agent-signals";
 import { messageDelivery } from "./work/message-delivery";
 import { appendSeatPrompt, type SeatPromptInput } from "./work/seat-prompt";
 import { AgentSignalRepository } from "./signals/repository";
-import { SignalFilePuller } from "./signals/file-puller";
 import { readSignalAttachmentPreview } from "./signals/attachment-preview";
 import { onAgentSignalChanged } from "./signals/changes";
 import { wireSeatReports } from "./term/agent-state/seat-reports";
@@ -88,9 +86,7 @@ import {
   type PreviewShotSource,
   type PreviewSource,
 } from "@shared/preview";
-import { SquadRepository, type SquadRepositoryError } from "./squads/repository";
 import type { SquadDeleteResult, SquadResult, SquadSaveInput } from "@shared/squads";
-import { SeatGuidanceRepository } from "./seat-guidance/repository";
 import type { SeatOffboardCloser } from "./seat-sessions/offboard-close";
 import { startSeatSessions, type SeatSessions } from "./seat-sessions/start-seat-sessions";
 import { closingFence } from "./term/closing-fence";
@@ -108,7 +104,6 @@ import {
 } from "@shared/seat-sessions";
 import { wireTrafficPreview, type WireTrafficEvent } from "@shared/wire-traffic";
 import { isSeatGuidanceSeatId, type SeatGuidanceSetResult } from "@shared/seat-guidance";
-import { ProfileRepository, type ProfileRepositoryError } from "./profiles/repository";
 import type { ProfileDeleteResult, ProfileResult, ProfileSaveInput } from "@shared/agent-profiles";
 import { PortraitOverrideRepository } from "./portraits/repository";
 import {
@@ -630,12 +625,7 @@ export const registerJuntoIpc = (): void => {
     if (candidate?.kind !== "signal" || typeof candidate.signalId !== "string") {
       return Promise.resolve(undefined);
     }
-    return AppRuntime.runPromise(
-      Effect.flatMap(AgentSignalRepository, (signals) => signals.get(candidate.signalId as string)).pipe(
-        Effect.map((signal): AgentSignal | undefined => signal),
-        Effect.orElseSucceed(() => undefined),
-      ),
-    ).catch(() => undefined);
+    return core.call("ipc.library.signal", { signalId: candidate.signalId }).catch(() => undefined);
   };
   const previewThumbnail: PreviewThumbnailer = (bytes, edge) => {
     const image = nativeImage.createFromBuffer(bytes);
@@ -672,9 +662,9 @@ export const registerJuntoIpc = (): void => {
       if (target?.kind !== "shot" || typeof source.canvasName !== "string" || typeof source.nodeId !== "string" || typeof source.messageId !== "string") {
         return { ok: false, reason: "not-named" };
       }
-      const shot = await AppRuntime.runPromise(
-        readPageShot({ canvasName: source.canvasName, nodeId: source.nodeId, messageId: source.messageId }),
-      ).catch(() => ({ ok: false, reason: "missing" }) as const);
+      const shot = await core
+        .call("ipc.library.pageShot", { canvasName: source.canvasName, nodeId: source.nodeId, messageId: source.messageId })
+        .catch(() => ({ ok: false, reason: "missing" }) as const);
       if (!shot.ok) return shot;
       const small = render.variant === "thumb" ? previewThumbnail(shot.bytes, PREVIEW_THUMB_EDGE) : undefined;
       const bytes = small?.bytes ?? shot.bytes;
@@ -690,20 +680,9 @@ export const registerJuntoIpc = (): void => {
     const signal = await previewSourceSignal(request?.source);
     if (target?.kind === "attachment") {
       return readSignalAttachmentPreview({
-        open: (ref) => AppRuntime.runPromise(Effect.flatMap(ContentService, (content) => content.openForRead(ref))).catch(() => undefined),
+        open: (ref) => core.call("content.openForRead", { ref }).catch(() => undefined),
         // Only the operator's open of a file reaches here: the seat's machine is asked for it now.
-        pull: (named, away) => AppRuntime.runPromise(
-          Effect.serviceOption(SignalFilePuller).pipe(
-            Effect.flatMap((puller) =>
-              Option.isNone(puller)
-                ? Effect.succeed(undefined)
-                : Effect.forEach(away, (ref) => puller.value.pull({ signal: named, ref })).pipe(
-                    Effect.andThen(Effect.flatMap(AgentSignalRepository, (signals) => signals.get(named.signalId))),
-                  ),
-            ),
-            Effect.orElseSucceed(() => undefined),
-          ),
-        ),
+        pull: (named, away) => core.call("ipc.library.pullSignalFiles", { signal: named, away }).catch(() => undefined),
       }, { signal, index: target.index, render });
     }
     if (target?.kind !== "path" || typeof target.path !== "string") return { ok: false, reason: "not-named" };
@@ -733,12 +712,11 @@ export const registerJuntoIpc = (): void => {
   // Squads: the operator's reusable seat templates. Every change pushes the
   // whole list so each window's add picker stays current. Refusals (taken
   // name, bad template, gone squad) come back as a message, never a throw.
-  const squadsNow = () =>
-    AppRuntime.runPromise(Effect.flatMap(SquadRepository, (repository) => repository.list()));
+  const squadsNow = () => core.call("ipc.library.squadsList", {});
   const runSquad = async <A>(
-    program: Effect.Effect<A, SquadRepositoryError, SquadRepository>,
+    program: () => Promise<A>,
   ): Promise<{ readonly ok: true; readonly value: A } | { readonly ok: false; readonly message: string }> => {
-    const result = await AppRuntime.runPromise(Effect.result(program)).catch((error: unknown) =>
+    const result = await program().then(Result.succeed, (error: unknown) =>
       Result.fail({ message: error instanceof Error ? error.message : "squad update failed" }),
     );
     if (Result.isFailure(result)) return { ok: false, message: result.failure.message };
@@ -752,13 +730,8 @@ export const registerJuntoIpc = (): void => {
   privilegedIpc.handle(IPC_CHANNELS.squadsList, () => squadsNow());
   privilegedIpc.handle(IPC_CHANNELS.squadSave, async (_event, input: unknown): Promise<SquadResult> => {
     const raw = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
-    const saved = await runSquad(
-      Effect.flatMap(SquadRepository, (repository) =>
-        repository.save({
-          name: String(raw.name ?? ""),
-          body: raw.body as SquadSaveInput["body"],
-        }),
-      ),
+    const saved = await runSquad(() =>
+      core.call("ipc.library.squadSave", { name: String(raw.name ?? ""), body: raw.body as SquadSaveInput["body"] }),
     );
     return saved.ok ? { ok: true, squad: saved.value } : saved;
   });
@@ -767,9 +740,7 @@ export const registerJuntoIpc = (): void => {
     async (_event, squadId: unknown, name: unknown): Promise<SquadResult> => {
       const id = squadIdOf(squadId);
       if (id === undefined) return { ok: false, message: "squad id is invalid" };
-      const renamed = await runSquad(
-        Effect.flatMap(SquadRepository, (repository) => repository.rename(id, String(name ?? ""))),
-      );
+      const renamed = await runSquad(() => core.call("ipc.library.squadRename", { squadId: id, name: String(name ?? "") }));
       return renamed.ok ? { ok: true, squad: renamed.value } : renamed;
     },
   );
@@ -778,9 +749,7 @@ export const registerJuntoIpc = (): void => {
     async (_event, squadId: unknown): Promise<SquadDeleteResult> => {
       const id = squadIdOf(squadId);
       if (id === undefined) return { ok: false, message: "squad id is invalid" };
-      const removed = await runSquad(
-        Effect.flatMap(SquadRepository, (repository) => repository.remove(id)),
-      );
+      const removed = await runSquad(() => core.call("ipc.library.squadRemove", { squadId: id }));
       return removed.ok ? { ok: true, squadId: removed.value } : removed;
     },
   );
@@ -789,16 +758,12 @@ export const registerJuntoIpc = (): void => {
   // install-local preference like portrait overrides (no canvas authoring), so
   // it runs outside the main-authoring gate. `junto onboard` reads the stored
   // rows, so a write is broadcast as it is stored.
-  privilegedIpc.handle(IPC_CHANNELS.seatGuidanceList, () =>
-    AppRuntime.runPromise(Effect.flatMap(SeatGuidanceRepository, (repository) => repository.list())),
-  );
+  privilegedIpc.handle(IPC_CHANNELS.seatGuidanceList, () => core.call("ipc.library.guidanceList", {}));
   privilegedIpc.handle(
     IPC_CHANNELS.seatGuidanceSet,
     async (_event, seatId: unknown, guidance: unknown): Promise<SeatGuidanceSetResult> => {
       if (!isSeatGuidanceSeatId(seatId)) return { ok: false, message: "seat id is invalid" };
-      const result = await AppRuntime.runPromise(
-        Effect.result(Effect.flatMap(SeatGuidanceRepository, (repository) => repository.set(seatId, guidance))),
-      ).catch((error: unknown) =>
+      const result = await core.call("ipc.library.guidanceSet", { seatId, guidance }).then(Result.succeed, (error: unknown) =>
         Result.fail({ message: error instanceof Error ? error.message : "seat guidance save failed" }),
       );
       if (Result.isFailure(result)) return { ok: false, message: result.failure.message };
@@ -830,12 +795,11 @@ export const registerJuntoIpc = (): void => {
 
   // Agent profiles: saved agents placed from the add picker. Every change
   // pushes the whole list; refusals come back as a message, never a throw.
-  const profilesNow = () =>
-    AppRuntime.runPromise(Effect.flatMap(ProfileRepository, (repository) => repository.list()));
+  const profilesNow = () => core.call("ipc.library.profilesList", {});
   const runProfile = async <A>(
-    program: Effect.Effect<A, ProfileRepositoryError, ProfileRepository>,
+    program: () => Promise<A>,
   ): Promise<{ readonly ok: true; readonly value: A } | { readonly ok: false; readonly message: string }> => {
-    const result = await AppRuntime.runPromise(Effect.result(program)).catch((error: unknown) =>
+    const result = await program().then(Result.succeed, (error: unknown) =>
       Result.fail({ message: error instanceof Error ? error.message : "profile update failed" }),
     );
     if (Result.isFailure(result)) return { ok: false, message: result.failure.message };
@@ -851,13 +815,11 @@ export const registerJuntoIpc = (): void => {
     const raw = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
     const profileId = raw.profileId === undefined ? undefined : profileIdOf(raw.profileId);
     if (raw.profileId !== undefined && profileId === undefined) return { ok: false, message: "profile id is invalid" };
-    const saved = await runProfile(
-      Effect.flatMap(ProfileRepository, (repository) =>
-        repository.save({
-          ...(profileId === undefined ? {} : { profileId }),
-          body: raw.body as ProfileSaveInput["body"],
-        }),
-      ),
+    const saved = await runProfile(() =>
+      core.call("ipc.library.profileSave", {
+        ...(profileId === undefined ? {} : { profileId }),
+        body: raw.body as ProfileSaveInput["body"],
+      }),
     );
     return saved.ok ? { ok: true, profile: saved.value } : saved;
   });
@@ -866,9 +828,7 @@ export const registerJuntoIpc = (): void => {
     async (_event, profileId: unknown, name: unknown): Promise<ProfileResult> => {
       const id = profileIdOf(profileId);
       if (id === undefined) return { ok: false, message: "profile id is invalid" };
-      const renamed = await runProfile(
-        Effect.flatMap(ProfileRepository, (repository) => repository.rename(id, String(name ?? ""))),
-      );
+      const renamed = await runProfile(() => core.call("ipc.library.profileRename", { profileId: id, name: String(name ?? "") }));
       return renamed.ok ? { ok: true, profile: renamed.value } : renamed;
     },
   );
@@ -877,9 +837,7 @@ export const registerJuntoIpc = (): void => {
     async (_event, profileId: unknown): Promise<ProfileDeleteResult> => {
       const id = profileIdOf(profileId);
       if (id === undefined) return { ok: false, message: "profile id is invalid" };
-      const removed = await runProfile(
-        Effect.flatMap(ProfileRepository, (repository) => repository.remove(id)),
-      );
+      const removed = await runProfile(() => core.call("ipc.library.profileRemove", { profileId: id }));
       return removed.ok ? { ok: true, profileId: removed.value } : removed;
     },
   );

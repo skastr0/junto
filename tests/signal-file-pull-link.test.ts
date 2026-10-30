@@ -159,16 +159,24 @@ it("starts a pull only from the operator's preview: no other source names the pu
       entry.isDirectory() ? sources(join(dir, entry.name)) : entry.name.endsWith(".ts") || entry.name.endsWith(".tsx") ? [join(dir, entry.name)] : []);
   const naming = sources("src").filter((file) => /SignalFilePuller|pullSignalFile/u.test(readFileSync(file, "utf8")));
   expect(naming.sort()).toEqual([
+    "src/main/core-process/ops/ipc-library.ts",
     "src/main/core-runtime.ts",
     "src/main/junto/ipc.ts",
     "src/main/junto/signals/file-pull.ts",
     "src/main/junto/signals/file-puller.ts",
   ]);
-  // In the trusted IPC, only the preview read asks for one: every use past the import is inside it.
+  // In the trusted IPC, only the preview read asks the core for a pull: every call is inside it.
   const ipc = readFileSync("src/main/junto/ipc.ts", "utf8");
   const preview = ipc.indexOf("IPC_CHANNELS.previewRead");
   const next = ipc.indexOf("privilegedIpc.handle(", preview + 1);
-  const uses = [...ipc.matchAll(/SignalFilePuller/gu)].map((match) => match.index!).filter((at) => !ipc.slice(ipc.lastIndexOf("\n", at) + 1, at).startsWith("import"));
+  const uses = [...ipc.matchAll(/ipc\.library\.pullSignalFiles/gu)].map((match) => match.index!);
   expect(uses.length).toBeGreaterThan(0);
   expect(uses.every((at) => at > preview && at < next)).toBe(true);
+  // In the core, the puller is named only by that one operation.
+  const ops = readFileSync("src/main/core-process/ops/ipc-library.ts", "utf8");
+  const op = ops.indexOf('"ipc.library.pullSignalFiles": ({');
+  const after = ops.indexOf('\n  "ipc.library.', op + 1);
+  const named = [...ops.matchAll(/SignalFilePuller/gu)].map((match) => match.index!).filter((at) => !ops.slice(ops.lastIndexOf("\n", at) + 1, at).startsWith("import"));
+  expect(named.length).toBeGreaterThan(0);
+  expect(named.every((at) => at > op && at < after)).toBe(true);
 });
