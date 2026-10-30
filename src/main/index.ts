@@ -75,9 +75,7 @@ import {
 } from "@shared/features";
 import { resolveBrowserPageTarget } from "./junto/browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./junto/browser/control";
-import {
-  captureTrustedWindowPng,
-} from "./junto/overseer/composition";
+import { captureTrustedWindowPng } from "./junto/overseer/window-png";
 import { registerOverseerLiveIpc } from "./junto/overseer/live/ipc";
 import { makeEdgeGrantService } from "./junto/browser/edge-grant";
 import { evaluateSchemaCompatibility } from "./junto/state/schema-version-probe";

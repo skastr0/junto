@@ -112,29 +112,6 @@ export const runCanvasHook = async <A>(
     : { ok: false, message: outcome.failure.message };
 };
 
-export const captureTrustedWindowPng = (
-  capture: () => Promise<Uint8Array | undefined>,
-): (() => Promise<ApplicationCaptureResult>) =>
-  async () => {
-    try {
-      const png = await capture();
-      if (png === undefined) {
-        return {
-          ok: false,
-          unavailable: true,
-          reason: "no trusted Command Center window to observe",
-        };
-      }
-      return { ok: true, png };
-    } catch (error) {
-      return {
-        ok: false,
-        unavailable: true,
-        reason: error instanceof Error ? error.message : String(error),
-      };
-    }
-  };
-
 export const lateBoundDrive = (): Pick<ManagedTerminalDrive, "writePrompt" | "interrupt"> => ({
   writePrompt: (bindingId, text, options) => {
     const drive = managedTerminalDriveForOverseer();
