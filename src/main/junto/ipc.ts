@@ -8,6 +8,11 @@ import { subscribe as subscribeCore } from "../core-process/push";
 import { OperatorAttachments, type OperatorContentPutResult } from "@shared/operator-attachments";
 import { SignalReply } from "@shared/signal-reply";
 import { SignalSecretPutRequest } from "@shared/vault";
+import { putSignalSecret } from "./vault/secret-put";
+import { resolveJuntoHome } from "@shared/junto-home";
+import { homedir } from "node:os";
+import { resolvedSpawnEnv } from "./adapters/exec";
+import { runTool } from "./region-env/tool";
 import {
   IPC_CHANNELS,
   type AgentSignalAnswerOptions,
@@ -38,7 +43,6 @@ import {
 import { KernelService } from "./kernel/service";
 import { registerHostsIpc } from "./hosts/ipc";
 import type { AuthorityWindowData } from "@shared/authority";
-import { PausePlane } from "./pause-plane";
 import { registerSettingsIpc } from "./settings/ipc";
 import { registerViewStateIpc } from "./view-state/ipc";
 import { shellEnvironment } from "./shell-environment";
@@ -84,11 +88,7 @@ import type { SeatOffboardCloser } from "./seat-sessions/offboard-close";
 import { startSeatSessions, type SeatSessions } from "./seat-sessions/start-seat-sessions";
 import { closingFence } from "./term/closing-fence";
 import { makeOnboardNudgeInterject, watchSeatReadiness } from "./term/onboard-nudge-interject";
-import { buildOnboardNudge } from "@shared/managed-terminal-injection";
-import {
-  onboardNudgeRefusal,
-  type SeatOnboardNudgeResult,
-} from "@shared/seat-onboarding-status";
+import { onboardNudgeRefusal } from "@shared/seat-onboarding-status";
 import {
   composeOffboardAsk,
   OFFBOARD_MODES,
@@ -97,8 +97,16 @@ import {
 } from "@shared/seat-sessions";
 import { wireTrafficPreview, type WireTrafficEvent } from "@shared/wire-traffic";
 import { isSeatGuidanceSeatId, type SeatGuidanceSetResult } from "@shared/seat-guidance";
+import { bindSeatIpc } from "../core-process/ops/ipc-seats";
 import type { ProfileDeleteResult, ProfileResult, ProfileSaveInput } from "@shared/agent-profiles";
 import type { PortraitOverrideSetResult } from "@shared/portrait-overrides";
+import {
+  answerAgentSignal,
+  dismissAgentSignal,
+  listCanvasAgentSignals,
+  replyAgentSignal,
+} from "./signals/operator";
+import { liveArtifactPorts } from "./work/artifact-control";
 import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
 import { WorkRepository } from "./work/repository";
 import { TaskRepository } from "./work/task-repository";
@@ -107,9 +115,6 @@ import { makeCheckoutWatchComposition } from "./work/checkout-watch-composition"
 import type { CheckoutWatchSupervisor } from "./work/checkout-watch-live";
 import { registerTerminalIpc } from "./term/ipc";
 import { registerGitIpc } from "./git/ipc";
-import { serveSignalTools } from "../core-process/ops/ipc-signals";
-import { resolvedSpawnEnv } from "./adapters/exec";
-import { runTool } from "./region-env/tool";
 import { harnessRecordFor } from "../../shared/harness-records";
 import { clipboardFormatsAreSafeForGrok } from "./term/drive/clipboard-safe";
 import {
@@ -138,7 +143,7 @@ import {
   seatCacheDueForWindow,
 } from "./seat-sessions/operator-offboard-ipc";
 import { onSeatViewQuestions } from "./term/seat-views";
-import { regionEnvReport, regionEnvStaleSeats } from "./region-env/report-ipc";
+import { regionEnvReport } from "./region-env/report-ipc";
 import { wireFactorySupervisor } from "./term/factory-delivery-composition";
 import { terminalObserverPlane } from "./term/observer";
 import { termPlane } from "./term/plane";
@@ -184,14 +189,6 @@ const runMainAuthoring = <A>(
   label: MainAuthoringLabel,
   operation: () => Promise<A>,
 ): Promise<A> => mainAuthoringGate.run(label, operation);
-
-// The secret write's tool run and login PATH stay main's: the core asks for
-// them by host call, and main's half is registered here, once, whichever
-// process the core runs in.
-serveSignalTools({
-  run: (call) => runTool(call),
-  path: async () => (await resolvedSpawnEnv()).PATH,
-});
 
 export const resolveProjectedIpcActorRef = (
   actorRefs: ReadonlyArray<ActorRef>,
@@ -268,7 +265,7 @@ export const registerJuntoIpc = (): void => {
   registerGitIpc(privilegedIpc);
   registerSettingsIpc(privilegedIpc, broadcast);
   registerShellEnvironmentIpc(privilegedIpc, shellEnvironment, broadcast);
-  registerReferencesIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
+  registerReferencesIpc(privilegedIpc, broadcast);
   registerViewStateIpc(privilegedIpc, broadcast);
   // The renderer's tasks and artifacts: main's stores, main's ruler (resource-ipc.ts).
   const resourcePorts = liveResourceIpcPorts((canvasName) =>
@@ -494,17 +491,17 @@ export const registerJuntoIpc = (): void => {
   // one (typed into the seat as operator mail, then marked answered), or
   // dismisses it. Every change is broadcast as the signal now stands.
   privilegedIpc.handle(IPC_CHANNELS.agentSignalsList, (_event, canvas: string) =>
-    core.call("ipc.signals.list", { canvasName: canvas }),
+    AppRuntime.runPromise(listCanvasAgentSignals(canvas)),
   );
   privilegedIpc.handle(IPC_CHANNELS.mailWaitingRead, () => core.call("ipc.threads.mailWaiting", {}));
   const runSignalOperator = (
     label: MainAuthoringLabel,
-    operation: () => Promise<AgentSignalOperatorResult>,
+    program: Effect.Effect<AgentSignalOperatorResult, never, AgentSignalRepository | WorkService>,
   ): Promise<AgentSignalOperatorResult> =>
     // The window hears of the answer through the store's own change, as every
     // committed signal write is pushed from one place (main/index.ts), so this
     // path only answers the caller.
-    runMainAuthoring(label, operation)
+    runMainAuthoring(label, () => AppRuntime.runPromise(program))
       .catch((error: unknown) => ({
         ok: false as const,
         message: error instanceof Error ? error.message : "signal update failed",
@@ -514,10 +511,9 @@ export const registerJuntoIpc = (): void => {
     async (_event, signalId: string, text: string, options?: AgentSignalAnswerOptions) => {
       const files = Schema.decodeUnknownResult(OperatorAttachments)(options?.attachments ?? []);
       if (Result.isFailure(files)) return { ok: false as const, message: "The attached files could not be read." };
-      const result = await runSignalOperator("ipc.work.signal-answer", () =>
-        core.call("ipc.signals.answer", {
-          signalId: String(signalId),
-          text: String(text),
+      const result = await runSignalOperator(
+        "ipc.work.signal-answer",
+        answerAgentSignal(String(signalId), String(text), {
           silent: options?.silent === true,
           attachments: files.success,
         }),
@@ -538,8 +534,20 @@ export const registerJuntoIpc = (): void => {
     async (_event, signalId: string, reply: unknown) => {
       const decoded = Schema.decodeUnknownResult(SignalReply)(reply);
       if (Result.isFailure(decoded)) return { ok: false as const, message: "The reply could not be read." };
-      const result = await runSignalOperator("ipc.work.signal-reply", () =>
-        core.call("ipc.signals.reply", { signalId: String(signalId), reply: decoded.success }),
+      const result = await runSignalOperator(
+        "ipc.work.signal-reply",
+        replyAgentSignal(String(signalId), decoded.success, {
+          topology: (canvasName: string) =>
+            Effect.tryPromise({
+              try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readTopology(canvasName))),
+              catch: () => ({
+                type: "InternalError" as const,
+                message: `canvas ${canvasName} could not be read`,
+                details: { retryable: true },
+              }),
+            }).pipe(Effect.map((read) => read.canvas)),
+          artifacts: liveArtifactPorts,
+        }),
       );
       // The hand-in is durable mail now: typed into the seat as an answer is.
       if (result.ok && result.messageId !== undefined) {
@@ -560,7 +568,14 @@ export const registerJuntoIpc = (): void => {
       const decoded = Schema.decodeUnknownResult(SignalSecretPutRequest)(request);
       if (Result.isFailure(decoded)) return { ok: false as const, reason: "store-failed" as const, message: "The secret could not be read." };
       const result = await runMainAuthoring("ipc.work.signal-secret-put", () =>
-        core.call("ipc.signals.secretPut", { request: decoded.success }),
+        AppRuntime.runPromise(
+          putSignalSecret(decoded.success, {
+            home: resolveJuntoHome(),
+            userHome: homedir(),
+            run: runTool,
+            path: async () => (await resolvedSpawnEnv()).PATH,
+          }),
+        ),
       // Never its text: a thrown message can hold anything the failure saw, and the
       // pane shows a refusal as a sentence. One sentence, no value, no detail.
       ).catch(() => ({ ok: false as const, reason: "store-failed" as const, message: "The secret was not set." }));
@@ -575,9 +590,7 @@ export const registerJuntoIpc = (): void => {
     },
   );
   privilegedIpc.handle(IPC_CHANNELS.agentSignalDismiss, (_event, signalId: string) =>
-    runSignalOperator("ipc.work.signal-dismiss", () =>
-      core.call("ipc.signals.dismiss", { signalId: String(signalId) }),
-    ),
+    runSignalOperator("ipc.work.signal-dismiss", dismissAgentSignal(String(signalId))),
   );
 
   // Previews of the files an agent names in a signal's detail. The detail is
@@ -753,7 +766,7 @@ export const registerJuntoIpc = (): void => {
   privilegedIpc.handle(
     IPC_CHANNELS.regionEnvStaleSeats,
     (_event, canvasName: unknown, regionId: unknown) =>
-      regionEnvStaleSeats(canvasName, regionId),
+      core.call("ipc.seats.regionEnvStaleSeats", { canvasName, regionId }),
   );
 
   // Agent profiles: saved agents placed from the add picker. Every change
@@ -806,33 +819,13 @@ export const registerJuntoIpc = (): void => {
   );
 
   privilegedIpc.handle(IPC_CHANNELS.factoryPauseState, (_event, canvas: string) =>
-    AppRuntime.runPromise(
-      Effect.gen(function* () {
-        const pause = yield* PausePlane;
-        yield* pause.start;
-        return pause.stateFor(canvas);
-      }),
-    ),
+    core.call("ipc.seats.factoryPauseState", { canvas }),
   );
 
   privilegedIpc.handle(
     IPC_CHANNELS.factoryPauseSet,
-    (
-      _event,
-      canvas: string,
-      paused: boolean,
-    ): Promise<FactoryPauseSetResult> =>
-      AppRuntime.runPromise(
-        Effect.gen(function* () {
-          const pause = yield* PausePlane;
-          yield* pause.start;
-          const written = yield* Effect.result(pause.setPlaying(canvas, !paused));
-          if (written._tag === "Failure") {
-            return { ok: false as const, error: written.failure.message };
-          }
-          return { ok: true as const, state: pause.stateFor(canvas) };
-        }),
-      ),
+    (_event, canvas: string, paused: boolean): Promise<FactoryPauseSetResult> =>
+      core.call("ipc.seats.factoryPauseSet", { canvas, paused }),
   );
 
   // Image content put — canvas image nodes + note embeds. Content store only;
@@ -972,9 +965,8 @@ export const registerJuntoIpc = (): void => {
       // is live, else when it comes up.
       const appendManagedPrompt = (input: SeatPromptInput, senderName?: string) =>
         appendSeatPrompt((effect) => AppRuntime.runPromise(effect), input, senderName);
-      privilegedIpc.handle(
-        IPC_CHANNELS.terminalManagedPrompt,
-        (_event, input: Parameters<typeof appendManagedPrompt>[0]) => appendManagedPrompt(input),
+      privilegedIpc.handle(IPC_CHANNELS.terminalManagedPrompt, (_event, input: SeatPromptInput) =>
+        core.call("ipc.seats.managedPrompt", { input }),
       );
       // Offboard: the operator asks from the seat, the agent writes its notes
       // with `junto offboard`, and the closer ends the session once the agent
@@ -1062,25 +1054,21 @@ export const registerJuntoIpc = (): void => {
         subscribeSeatState: (listener) => seatStateRuntime.subscribe(listener),
         mailReady: mailReadyNow,
       });
-      // The operator's nudge: the same sentence, typed now.
-      privilegedIpc.handle(
-        IPC_CHANNELS.seatOnboardNudge,
-        async (_event, canvasName: unknown, seatId: unknown): Promise<SeatOnboardNudgeResult> => {
-          if (typeof canvasName !== "string" || !canvasName || typeof seatId !== "string" || !seatId) {
-            return { ok: false, message: "Junto could not find that seat." };
-          }
-          const seat = await managedSeatOn({ canvasName, seatId });
-          if (seat === undefined) return { ok: false, message: "Junto could not find that seat." };
-          if (!seat.local) return { ok: false, message: "This seat runs on another installation." };
-          if (termPlane.host.get(seat.bindingId)?.status !== "running") {
-            return { ok: false, message: "This seat is not running." };
-          }
-          const outcome = await interjectOnboardNudge(seat.bindingId, buildOnboardNudge());
-          if (outcome !== "written") return { ok: false, message: onboardNudgeRefusal(outcome) };
-          // The cadence does not repeat what the operator just sent.
-          injectionSupervisor.noteNudgeDelivered(seat.bindingId);
-          return { ok: true };
+      // The operator's nudge: the same sentence, typed now. The core asks the
+      // plane (bound here) for the seat, its running state and the interject.
+      bindSeatIpc({
+        seatOn: managedSeatOn,
+        seatRunning: (bindingId) => termPlane.host.get(bindingId)?.status === "running",
+        interjectNudge: async (bindingId, text) => {
+          const outcome = await interjectOnboardNudge(bindingId, text);
+          return outcome === "written"
+            ? { ok: true as const }
+            : { ok: false as const, message: onboardNudgeRefusal(outcome) };
         },
+        noteNudged: (bindingId) => injectionSupervisor.noteNudgeDelivered(bindingId),
+      });
+      privilegedIpc.handle(IPC_CHANNELS.seatOnboardNudge, (_event, canvasName: unknown, seatId: unknown) =>
+        core.call("ipc.seats.onboardNudge", { canvasName, seatId }),
       );
       wireFactorySupervisor({
         supervisor: injectionSupervisor,
