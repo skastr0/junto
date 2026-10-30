@@ -7,7 +7,7 @@ import { Context, Effect, Layer, Schema } from "effect";
 import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import { MachineName } from "@shared/machine-control";
 import { VaultName, VaultPermissions, VaultTokenOrigin, VaultTokenRecord } from "@shared/vault";
-import { StateTransactionOperation } from "../state/service";
+import { StateTransactionOperation } from "../state/transaction-operation";
 import { withSqlRead } from "../state/sql-read";
 
 export class VaultTokenPersistenceError extends Schema.TaggedError<VaultTokenPersistenceError>()(
