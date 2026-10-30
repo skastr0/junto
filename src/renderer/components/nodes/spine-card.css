@@ -230,9 +230,6 @@
   list-style: none;
 }
 
-.spine-card[data-tone="crimson"] .spine { border-left: 2px solid var(--color-crimson); }
-.spine-card[data-tone="amber"] .spine { border-left: 2px solid var(--color-amber); }
-
 .spine__meta,
 .spine__row,
 .spine__more {
@@ -399,12 +396,15 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[dat
   opacity: 0.72;
 }
 
-/* Note and label have no chip. A note is typeset text on an amber rule; a
-   label is bare display type. Their focus ring goes round the text block. */
+/* Note and label have no chip. A note is typeset text in an amber callout,
+   a full border and a tint; a label is bare display type. Their focus ring
+   goes round the text block. */
 
 .junto-node[data-look="spine"][data-node-kind="text"] .junto-node__body {
-  padding-left: 12px;
-  border-left: 3px solid var(--color-amber);
+  padding: 8px 12px;
+  border: 1px solid color-mix(in oklab, var(--color-amber) 30%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--color-amber) 8%, transparent);
 }
 
 .junto-node[data-look="spine"][data-node-kind="text"] :is(.note-surface, .note-edit-inline) {
