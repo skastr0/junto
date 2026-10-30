@@ -1700,8 +1700,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           // The core not answering at all is named as that, with its log, not
           // as the data store failing to open.
           coreUnavailable: isCoreUnavailable(error),
-          // The core not answering at all is named as that, with its log, not
-          // as the data store failing to open.
         });
       } catch (dialogError) {
         console.error("[startup] failure dialog failed:", dialogError);
