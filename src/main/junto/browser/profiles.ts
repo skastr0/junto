@@ -198,16 +198,16 @@ export interface BrowserProfileServiceApi {
  */
 export class BrowserProfileService extends Context.Service<BrowserProfileService, BrowserProfileServiceApi>()("@junto/BrowserProfileService") {}
 
-interface BrowserProfileStateReady extends BrowserProfileRegistryState {
+export interface BrowserProfileStateReady extends BrowserProfileRegistryState {
   readonly phase: "ready";
 }
 
-interface BrowserProfileStatePending extends BrowserProfileRegistryState {
+export interface BrowserProfileStatePending extends BrowserProfileRegistryState {
   readonly phase: "wipe_pending";
   readonly pendingWipe: BrowserProfilePendingWipe;
 }
 
-type BrowserProfileState =
+export type BrowserProfileState =
   | BrowserProfileStateReady
   | BrowserProfileStatePending;
 
@@ -681,15 +681,30 @@ const removeEmptyProfileDirectory = async (
   await syncDirectory(profilesDir(root));
 };
 
-export const makeBrowserProfileService = (
-  sql: SqlClient.SqlClient,
-  root: string = browserRootDir(),
-  options: BrowserProfileServiceOptions = {},
-): BrowserProfileServiceApi => {
-  const requestedRoot = root;
-  const now = options.now ?? (() => new Date());
-  const mutationLock = Semaphore.makeUnsafe(1);
+/** A pending wipe as its begin step records it. */
+export interface BrowserProfileWipeBegin {
+  readonly wipeId: string;
+  readonly profileId: string;
+  readonly partition: string;
+  readonly requestedAt: string;
+  readonly paths: BrowserProfileWipePaths;
+}
 
+/**
+ * The profile registry's transactions, each one whole: data in, data out, so
+ * the service runs where the browser does and the rows stay in the core.
+ */
+export interface BrowserProfileStore {
+  /** The stored state, or `initial` written first when nothing is. */
+  readonly initialize: (initial: BrowserProfileStateReady) => Effect.Effect<BrowserProfileState, BrowserProfileError>;
+  readonly create: (record: BrowserProfileRecord) => Effect.Effect<void, BrowserProfileError>;
+  readonly touch: (id: string, at: string) => Effect.Effect<void, BrowserProfileError>;
+  readonly beginWipe: (begin: BrowserProfileWipeBegin) => Effect.Effect<BrowserProfileStatePending, BrowserProfileError>;
+  readonly markRestartPending: (wipeId: string) => Effect.Effect<void, BrowserProfileError>;
+  readonly finalizeWipe: (expected: BrowserProfilePendingWipe) => Effect.Effect<BrowserProfileStateReady, BrowserProfileError>;
+}
+
+export const makeSqlBrowserProfileStore = (sql: SqlClient.SqlClient): BrowserProfileStore => {
   const databaseTransaction = <A, E>(
     operation: string,
     body: Effect.Effect<A, E>,
@@ -698,61 +713,31 @@ export const makeBrowserProfileService = (
       Effect.provideService(StateTransactionOperation, operation),
       Effect.mapError(stateError),
     );
-
-  const fileEffect = <A>(
-    operation: () => Promise<A>,
-  ): Effect.Effect<A, BrowserProfileError> =>
-    Effect.tryPromise({
-      try: operation,
-      catch: toPublicError,
-    });
-
-  const ensureInitialized = databaseTransaction(
-    "browser-profiles.initialize",
-    Effect.gen(function* () {
-      const current = yield* readStoredState(sql);
-      if (current !== undefined) return current;
-      const initial = defaultState(now);
-      for (const [index, profile] of initial.profiles.entries()) {
-        yield* insertProfile(sql, profile, index);
-      }
-      yield* sql`
-          INSERT INTO browser_profile_settings(
-            singleton,
-            version,
-            default_profile,
-            max_warm_sessions,
-            max_visible_surfaces
-          )
-          VALUES (1, ${CONFIG_VERSION}, ${initial.defaultProfile}, ${initial.maxWarmSessions}, ${initial.maxVisibleSurfaces})
-        `;
-      return yield* requireStoredState(sql);
-    }),
-  );
-
-  const load = Effect.gen(function* () {
-    const config = yield* ensureInitialized;
-    const canonicalRoot = yield* fileEffect(() =>
-      prepareRegistryRoot(requestedRoot)
-    );
-    yield* fileEffect(() =>
-      prepareProfileDirectories(canonicalRoot, config.profiles)
-    );
-    return {
-      root: canonicalRoot,
-      config,
-    };
-  });
-
-  const finalizePending = (
-    rootPath: string,
-    expected: BrowserProfilePendingWipe,
-  ): Effect.Effect<BrowserProfileStateReady, BrowserProfileError> =>
-    Effect.gen(function* () {
-      yield* fileEffect(() =>
-        removeEmptyProfileDirectory(rootPath, expected.profileId)
-      );
-      return yield* databaseTransaction(
+  return {
+    initialize: (initial) =>
+      databaseTransaction(
+        "browser-profiles.initialize",
+        Effect.gen(function* () {
+          const current = yield* readStoredState(sql);
+          if (current !== undefined) return current;
+          for (const [index, profile] of initial.profiles.entries()) {
+            yield* insertProfile(sql, profile, index);
+          }
+          yield* sql`
+              INSERT INTO browser_profile_settings(
+                singleton,
+                version,
+                default_profile,
+                max_warm_sessions,
+                max_visible_surfaces
+              )
+              VALUES (1, ${CONFIG_VERSION}, ${initial.defaultProfile}, ${initial.maxWarmSessions}, ${initial.maxVisibleSurfaces})
+            `;
+          return yield* requireStoredState(sql);
+        }),
+      ),
+    finalizeWipe: (expected) =>
+      databaseTransaction(
         "browser-profiles.wipe.finalize",
         Effect.gen(function* () {
           const current = yield* requireStoredState(sql);
@@ -800,7 +785,190 @@ export const makeBrowserProfileService = (
           yield* sql`DELETE FROM browser_profiles WHERE id = ${expected.profileId}`;
           return yield* requireReady(yield* requireStoredState(sql));
         }),
+      ),
+    markRestartPending: (wipeId) =>
+      databaseTransaction(
+        "browser-profiles.wipe.restart-pending",
+        Effect.gen(function* () {
+          const current = yield* requireStoredState(sql);
+          if (
+            current.phase !== "wipe_pending" ||
+            current.pendingWipe.wipeId !==
+              wipeId
+          ) {
+            return yield* corruptError();
+          }
+          yield* sql`
+              UPDATE browser_profile_pending_wipe
+              SET stage = 'restart_delete_pending'
+              WHERE singleton = 1
+            `;
+        }),
+      ),
+    create: (record) =>
+      databaseTransaction(
+        "browser-profiles.create",
+        Effect.gen(function* () {
+          const current = yield* requireReady(
+            yield* requireStoredState(sql),
+          );
+          if (
+            current.profiles.length >= MAX_PROFILES
+          ) {
+            return yield* new BrowserProfileError({
+              message: "profile limit reached",
+              code: "forbidden",
+            });
+          }
+          if (
+            current.profiles.some(
+              (profile) => profile.id === record.id,
+            )
+          ) {
+            return yield* new BrowserProfileError({
+              message: "profile already exists",
+              code: "invalid",
+            });
+          }
+          const maxOrder = (yield* SqlSchema.findOne({
+            Request: Schema.Void,
+            Result: Schema.Struct({ max_order: Schema.NullOr(Schema.Number) }),
+            execute: () => sql`
+              SELECT max(sort_order) AS max_order
+              FROM browser_profiles
+            `,
+          })(undefined)).max_order ?? -1;
+          yield* insertProfile(
+            sql,
+            record,
+            maxOrder + 1,
+          );
+        }),
+      ),
+    beginWipe: ({ wipeId, profileId, partition, requestedAt, paths }) =>
+      databaseTransaction(
+        "browser-profiles.wipe.begin",
+        Effect.gen(function* () {
+          const current = yield* requireReady(
+            yield* requireStoredState(sql),
+          );
+          if (
+            !current.profiles.some(
+              (profile) => profile.id === profileId,
+            )
+          ) {
+            return yield* new BrowserProfileError({
+              message: "profile not found",
+              code: "not_found",
+            });
+          }
+          if (current.profiles.length <= 1) {
+            return yield* new BrowserProfileError({
+              message: "cannot wipe the last browser profile",
+              code: "forbidden",
+            });
+          }
+          yield* sql`
+              INSERT INTO browser_profile_pending_wipe(
+                singleton,
+                wipe_id,
+                profile_id,
+                partition,
+                requested_at,
+                stage,
+                storage_path,
+                user_data_path,
+                session_data_path
+              )
+              VALUES (1, ${wipeId}, ${profileId}, ${partition}, ${requestedAt}, 'live_clear_pending', ${paths.storagePath}, ${paths.userDataPath}, ${paths.sessionDataPath})
+            `;
+          const next = yield* requireStoredState(sql);
+          if (next.phase !== "wipe_pending") {
+            return yield* corruptError();
+          }
+          return next;
+        }),
+      ),
+    touch: (id, at) =>
+      databaseTransaction(
+        "browser-profiles.touch",
+        Effect.gen(function* () {
+          const config = yield* requireStoredState(sql);
+          if (
+            config.phase === "wipe_pending" &&
+            config.pendingWipe.profileId === id
+          ) {
+            return yield* pendingError();
+          }
+          if (
+            !config.profiles.some(
+              (profile) => profile.id === id,
+            )
+          ) {
+            return yield* new BrowserProfileError({
+              message: "profile not found",
+              code: "not_found",
+            });
+          }
+          yield* sql`
+              UPDATE browser_profiles
+              SET last_used_at = ${at}
+              WHERE id = ${id}
+            `;
+        }),
+      ),
+  };
+};
+
+export const makeBrowserProfileService = (
+  sql: SqlClient.SqlClient,
+  root: string = browserRootDir(),
+  options: BrowserProfileServiceOptions = {},
+): BrowserProfileServiceApi => makeBrowserProfileServiceOn(makeSqlBrowserProfileStore(sql), root, options);
+
+/** The profile service over any store: SQL in the core, or the core's operations from main. */
+export const makeBrowserProfileServiceOn = (
+  store: BrowserProfileStore,
+  root: string = browserRootDir(),
+  options: BrowserProfileServiceOptions = {},
+): BrowserProfileServiceApi => {
+  const requestedRoot = root;
+  const now = options.now ?? (() => new Date());
+  const mutationLock = Semaphore.makeUnsafe(1);
+
+  const fileEffect = <A>(
+    operation: () => Promise<A>,
+  ): Effect.Effect<A, BrowserProfileError> =>
+    Effect.tryPromise({
+      try: operation,
+      catch: toPublicError,
+    });
+
+  const ensureInitialized = Effect.suspend(() => store.initialize(defaultState(now)));
+
+  const load = Effect.gen(function* () {
+    const config = yield* ensureInitialized;
+    const canonicalRoot = yield* fileEffect(() =>
+      prepareRegistryRoot(requestedRoot)
+    );
+    yield* fileEffect(() =>
+      prepareProfileDirectories(canonicalRoot, config.profiles)
+    );
+    return {
+      root: canonicalRoot,
+      config,
+    };
+  });
+
+  const finalizePending = (
+    rootPath: string,
+    expected: BrowserProfilePendingWipe,
+  ): Effect.Effect<BrowserProfileStateReady, BrowserProfileError> =>
+    Effect.gen(function* () {
+      yield* fileEffect(() =>
+        removeEmptyProfileDirectory(rootPath, expected.profileId)
       );
+      return yield* store.finalizeWipe(expected);
     });
 
   const recoverPendingCold = (
@@ -830,24 +998,7 @@ export const makeBrowserProfileService = (
         catch: () => pendingError(),
       });
       if (outcome.status === "restart_delete_pending") {
-        yield* databaseTransaction(
-          "browser-profiles.wipe.restart-pending",
-          Effect.gen(function* () {
-            const current = yield* requireStoredState(sql);
-            if (
-              current.phase !== "wipe_pending" ||
-              current.pendingWipe.wipeId !==
-                config.pendingWipe.wipeId
-            ) {
-              return yield* corruptError();
-            }
-            yield* sql`
-                UPDATE browser_profile_pending_wipe
-                SET stage = 'restart_delete_pending'
-                WHERE singleton = 1
-              `;
-          }),
-        );
+        yield* store.markRestartPending(config.pendingWipe.wipeId);
         return Object.freeze({
           status: "restart_required",
         });
@@ -945,45 +1096,7 @@ export const makeBrowserProfileService = (
               : {}),
             createdAt: now().toISOString(),
           };
-          yield* databaseTransaction(
-            "browser-profiles.create",
-            Effect.gen(function* () {
-              const current = yield* requireReady(
-                yield* requireStoredState(sql),
-              );
-              if (
-                current.profiles.length >= MAX_PROFILES
-              ) {
-                return yield* new BrowserProfileError({
-                  message: "profile limit reached",
-                  code: "forbidden",
-                });
-              }
-              if (
-                current.profiles.some(
-                  (profile) => profile.id === id,
-                )
-              ) {
-                return yield* new BrowserProfileError({
-                  message: "profile already exists",
-                  code: "invalid",
-                });
-              }
-              const maxOrder = (yield* SqlSchema.findOne({
-                Request: Schema.Void,
-                Result: Schema.Struct({ max_order: Schema.NullOr(Schema.Number) }),
-                execute: () => sql`
-                  SELECT max(sort_order) AS max_order
-                  FROM browser_profiles
-                `,
-              })(undefined)).max_order ?? -1;
-              yield* insertProfile(
-                sql,
-                record,
-                maxOrder + 1,
-              );
-            }),
-          );
+          yield* store.create(record);
           // SQLite is the authority. The directory is a repairable physical
           // projection and must never appear for a rejected database write.
           yield* fileEffect(() =>
@@ -1071,49 +1184,7 @@ export const makeBrowserProfileService = (
           );
         }
         const requestedAt = now().toISOString();
-        const pending = yield* databaseTransaction(
-          "browser-profiles.wipe.begin",
-          Effect.gen(function* () {
-            const current = yield* requireReady(
-              yield* requireStoredState(sql),
-            );
-            if (
-              !current.profiles.some(
-                (profile) => profile.id === id,
-              )
-            ) {
-              return yield* new BrowserProfileError({
-                message: "profile not found",
-                code: "not_found",
-              });
-            }
-            if (current.profiles.length <= 1) {
-              return yield* new BrowserProfileError({
-                message: "cannot wipe the last browser profile",
-                code: "forbidden",
-              });
-            }
-            yield* sql`
-                INSERT INTO browser_profile_pending_wipe(
-                  singleton,
-                  wipe_id,
-                  profile_id,
-                  partition,
-                  requested_at,
-                  stage,
-                  storage_path,
-                  user_data_path,
-                  session_data_path
-                )
-                VALUES (1, ${wipeId}, ${id}, ${partition}, ${requestedAt}, 'live_clear_pending', ${paths.storagePath}, ${paths.userDataPath}, ${paths.sessionDataPath})
-              `;
-            const next = yield* requireStoredState(sql);
-            if (next.phase !== "wipe_pending") {
-              return yield* corruptError();
-            }
-            return next;
-          }),
-        );
+        const pending = yield* store.beginWipe({ wipeId, profileId: id, partition, requestedAt, paths });
         return yield* executePendingLive(
           loaded.root,
           pending,
@@ -1131,33 +1202,7 @@ export const makeBrowserProfileService = (
         }
         yield* load;
         const touched = now().toISOString();
-        yield* databaseTransaction(
-          "browser-profiles.touch",
-          Effect.gen(function* () {
-            const config = yield* requireStoredState(sql);
-            if (
-              config.phase === "wipe_pending" &&
-              config.pendingWipe.profileId === id
-            ) {
-              return yield* pendingError();
-            }
-            if (
-              !config.profiles.some(
-                (profile) => profile.id === id,
-              )
-            ) {
-              return yield* new BrowserProfileError({
-                message: "profile not found",
-                code: "not_found",
-              });
-            }
-            yield* sql`
-                UPDATE browser_profiles
-                SET last_used_at = ${touched}
-                WHERE id = ${id}
-              `;
-          }),
-        );
+        yield* store.touch(id, touched);
       }),
     resolveDefaultProfile: (canvasName) =>
       Effect.gen(function* () {

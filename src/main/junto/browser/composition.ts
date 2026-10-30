@@ -22,7 +22,9 @@ import {
   type BrowserProfileStorageShutdownReceipt,
 } from "./profile-storage";
 import {
-  makeBrowserProfileService,
+  makeBrowserProfileServiceOn,
+  makeSqlBrowserProfileStore,
+  type BrowserProfileStore,
   type BrowserProfileServiceApi,
 } from "./profiles";
 import {
@@ -436,8 +438,16 @@ export const makeBrowserShutdownCoordinator = (input: {
   });
 };
 
+const sqlOf = (runtime: BrowserCompositionRuntime): SqlClient.SqlClient => {
+  if (runtime.sql === undefined) throw new Error("the browser composition needs a SQL client, or both of the core's stores");
+  return runtime.sql;
+};
+
 export interface BrowserCompositionRuntime {
-  readonly sql: SqlClient.SqlClient;
+  /** Where the profile registry and touched origins live, unless both stores below are given. */
+  readonly sql?: SqlClient.SqlClient;
+  /** The profile registry's transactions; absent, run on `sql`. */
+  readonly profileStore?: BrowserProfileStore;
   readonly profileRoot?: string;
   readonly profileGate?: BrowserProfileGate;
   readonly storagePlatform?: BrowserProfileStoragePlatform;
@@ -527,7 +537,7 @@ export const startBrowserComposition = async (
       capabilities: storageCapabilityControl,
       profileGate,
     });
-    const profiles = makeBrowserProfileService(runtime.sql, runtime.profileRoot, {
+    const profiles = makeBrowserProfileServiceOn(runtime.profileStore ?? makeSqlBrowserProfileStore(sqlOf(runtime)), runtime.profileRoot, {
       wipeLifecycle: storage,
       profileGate,
     });
@@ -578,7 +588,7 @@ export const startBrowserComposition = async (
     const clearServiceWorkers =
       runtime.clearServiceWorkers ??
       (await import("./profile-storage-electron")).clearElectronOriginServiceWorkers;
-    const touchedOrigins = runtime.touchedOrigins ?? makeBrowserTouchedOriginStore(runtime.sql);
+    const touchedOrigins = runtime.touchedOrigins ?? makeBrowserTouchedOriginStore(sqlOf(runtime));
     await clearTouchedServiceWorkersAtStart(touchedOrigins, clearServiceWorkers);
     sessions.setTouchedOriginStore(touchedOrigins);
     await activate(composition);

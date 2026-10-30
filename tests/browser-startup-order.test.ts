@@ -82,7 +82,7 @@ describe("browser startup recovery gate", () => {
     expect(controlStart).toBeGreaterThan(grantStart);
     expect(grant).toContain("machineName: () => composition.sessions.machineName()");
     expect(grant).not.toContain("admitBrowserHost");
-    expect(grant).toContain("records.editsCanvas(canvasName)");
+    expect(grant).toContain('core.call("model.editsCanvas", { canvasName })');
     expect(activation).not.toContain("subscribeHostsSnapshot");
     expect(activation).toContain("edgeGrant.clear()");
   });
@@ -137,10 +137,7 @@ describe("browser startup recovery gate", () => {
     expect(ensureSupervised).toContain("if (!machine.supervisedPreferred) return true;");
     expect(ensureSupervised).not.toContain("process.platform");
     expect(ensureSupervised).not.toContain("role");
-    expect(ensureSupervised).toContain("await AppRuntime.runPromise(");
-    expect(ensureSupervised).toContain(
-      "Effect.flatMap(SettingsService, (settings) => settings.get)",
-    );
+    expect(ensureSupervised).toContain('(await core.call("settings.read", {})).machine');
     expect(indexSrc).not.toContain("StateEngineLive");
     expect(indexSrc).not.toContain("SettingsLive");
     expect(indexSrc).not.toContain("ManagedRuntime.make");

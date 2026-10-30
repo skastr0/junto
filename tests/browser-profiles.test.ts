@@ -28,11 +28,14 @@ import {
 import {
   listProfileDirs,
   makeBrowserProfileService,
+  makeBrowserProfileServiceOn,
   type BrowserProfilePendingWipe,
   type BrowserProfileWipeLifecycle,
   type BrowserProfileWipeOutcome,
 } from "../src/main/junto/browser/profiles";
 import { BrowserProfileGate } from "../src/main/junto/browser/profile-gate";
+import { inProcessCore } from "../src/main/core-process/client";
+import { coreBrowserProfileStore } from "../src/main/core-process/ops/browser";
 import {
   BROWSER_MAX_VISIBLE_SURFACES_HARD,
   BROWSER_MAX_WARM_SESSIONS_HARD,
@@ -326,6 +329,23 @@ describe("browser profile registry", () => {
     expect(persisted.slice(2).sort()).toEqual(
       [...ids].sort(),
     );
+  });
+
+  it("runs the same registry through the core's operations, with each refusal's code kept", async () => {
+    await freshState();
+    const registry = makeBrowserProfileServiceOn(coreBrowserProfileStore(inProcessCore(runtime!)), registryRoot, {
+      wipeLifecycle: lifecycle(),
+      now: () => new Date(FIXED_TIME),
+    });
+    expect((await run(registry.initialize)).profiles.map((profile) => profile.id)).toEqual(["personal", "work"]);
+    await run(registry.createProfile("lab"));
+    const twice = await runEither(registry.createProfile("lab"));
+    expect(Result.isFailure(twice) && twice.failure).toMatchObject({ _tag: "BrowserProfileError", code: "invalid", message: "profile already exists" });
+    await run(registry.touchProfile("lab"));
+    expect(await run(registry.wipeProfile("lab"))).toEqual({ status: "complete" });
+    expect((await run(registry.listProfiles)).map((profile) => profile.id)).toEqual(["personal", "work"]);
+    // The rows are the core's: a SQL service on the same database reads them.
+    expect((await run(makeBrowserProfileService(sql, registryRoot).listProfiles)).map((profile) => profile.id)).toEqual(["personal", "work"]);
   });
 
   it("allows exactly one concurrent duplicate create", async () => {
