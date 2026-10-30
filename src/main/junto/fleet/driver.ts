@@ -114,7 +114,6 @@ type ConsensusRow = {
   readonly voted_for: string | null;
   readonly commit_index: number;
   readonly applied_index: number;
-  readonly sole_installation_id: string | null;
 };
 
 type LogRow = {
@@ -251,7 +250,6 @@ const applyEntry = (
   canvasName: string,
   entry: Entry,
   head: number,
-  sole: boolean,
 ) =>
   Effect.gen(function* () {
     const { payload } = entry;
@@ -266,7 +264,7 @@ const applyEntry = (
       // the watermark reads it fresh, with the entries applied before this one.
       head = Math.max(head, yield* structureHeadOf(sql, canvasName, entry.index - 1));
       if (data.seq <= head) return head;
-      if (data.seq !== head + 1 && !sole) {
+      if (data.seq !== head + 1) {
         return yield* Effect.fail(
           new FleetDriverError({
             message: `${canvasName} holds structure count ${head} and entry ${entry.index} moved to ${data.seq}: a missed entry, so this machine catches up by copy`,
@@ -299,7 +297,7 @@ const applyEntry = (
 
 const readConsensus = (sql: SqlClient.SqlClient, canvasName: string) =>
   Effect.map(
-    sql<ConsensusRow>`SELECT current_term, voted_for, commit_index, applied_index, sole_installation_id FROM canvas_consensus WHERE canvas_name = ${canvasName}`,
+    sql<ConsensusRow>`SELECT current_term, voted_for, commit_index, applied_index FROM canvas_consensus WHERE canvas_name = ${canvasName}`,
     (rows) => rows[0],
   );
 
@@ -567,11 +565,10 @@ const openClaimed = (
           const consensus = yield* readConsensus(sql, canvasName);
           const applied = consensus?.applied_index ?? 0;
           let head = yield* structureHeadOf(sql, canvasName, applied);
-          const sole = consensus?.sole_installation_id === self;
           let last = applied;
           for (const entry of entries) {
             if (entry.index <= last) continue;
-            head = yield* applyEntry(sql, recorder.record, model, canvasName, entry, head, sole);
+            head = yield* applyEntry(sql, recorder.record, model, canvasName, entry, head);
             last = entry.index;
           }
           if (through > applied) {
