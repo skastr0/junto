@@ -30,7 +30,7 @@ import {
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import { MENTIONABLE, readMentions, rebuildMentions } from "../src/main/junto/work/mention-backlinks";
-import { listMentions, type MentionIpcPorts } from "../src/main/junto/work/mention-ipc";
+import { listMentions, type MentionIpcPorts } from "../src/main/junto/work/mentions";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { STATE_SCHEMA_V45_SQL, STATE_SCHEMA_V46_SQL } from "./fixtures/state-v13/schema";
 import { seedCanvasRows } from "./support/seed-canvas";

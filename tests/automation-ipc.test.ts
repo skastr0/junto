@@ -4,8 +4,18 @@ import { join } from "node:path";
 import { Cause, Effect, Exit, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, it } from "vitest";
-import { automationIpcHandlers } from "../src/main/junto/automation/ipc";
+import { coreOpBody } from "../src/main/core-process/ops";
+import "../src/main/core-process/ops/ipc-automation";
+import { subscribe as subscribePushes } from "../src/main/core-process/push";
 import { AutomationRunnerLive, AutomationRunnerService } from "../src/main/junto/automation/live";
+import type {
+  AutomationApplyResponse,
+  AutomationCodePutResponse,
+  AutomationCodeReadResponse,
+  AutomationFiringsResponse,
+  AutomationListResponse,
+} from "../src/shared/automation";
+import { IPC_CHANNELS } from "../src/shared/ipc";
 import { taskCanvasEnv } from "../src/main/junto/work/task-control";
 import { rulingContextOf } from "../src/shared/ruling-context";
 import { checkTaskCommand } from "../src/shared/task-model";
@@ -49,9 +59,30 @@ const definition: AutomationDefinition = {
 // The real recorder: a ruling's row and its fact, whose seq is the order change triggers read rulings in.
 const recorder = Layer.provideMerge(RulingRecorderLive, WorkRepositoryLive);
 
+/** The pane's client as main has it: every answer is the core operation of that name. */
+const automationOps = (run: <A, E>(effect: Effect.Effect<A, E, never>) => Promise<A>) => {
+  const call = <A>(name: string, input: unknown): Promise<A> => {
+    const body = coreOpBody(name);
+    if (body === undefined) throw new Error(`no core operation named ${name}`);
+    return run(body(input as never) as Effect.Effect<A, never, never>);
+  };
+  return {
+    list: (canvasName: unknown, input: unknown) =>
+      call<AutomationListResponse>("ipc.automation.list", { canvasName, input }),
+    firings: (canvasName: unknown, input: unknown) =>
+      call<AutomationFiringsResponse>("ipc.automation.firings", { canvasName, input }),
+    apply: (canvasName: unknown, input: unknown) =>
+      call<AutomationApplyResponse>("ipc.automation.apply", { canvasName, input }),
+    codePut: (canvasName: unknown, input: unknown) =>
+      call<AutomationCodePutResponse>("ipc.automation.codePut", { canvasName, input }),
+    codeRead: (canvasName: unknown, input: unknown) =>
+      call<AutomationCodeReadResponse>("ipc.automation.codeRead", { canvasName, input }),
+  };
+};
+
 const run = async (
   test: (
-    handlers: ReturnType<typeof automationIpcHandlers>,
+    handlers: ReturnType<typeof automationOps>,
     changed: AutomationsChanged[],
     sql: (statement: string) => Promise<void>,
     inApp: <A, E>(effect: Effect.Effect<A, E, TaskRepository | AutomationRunnerService | ModelService | AutomationRepository>) => Promise<A>,
@@ -97,13 +128,18 @@ const run = async (
       }),
     );
     const changed: AutomationsChanged[] = [];
+    const stopPushes = subscribePushes(IPC_CHANNELS.automationsChanged, (event) => changed.push(event as AutomationsChanged));
     const exec = (statement: string) => runtime.runPromise(Effect.flatMap(SqlClient.SqlClient, (sql) => sql.unsafe(statement)).pipe(Effect.asVoid));
-    await test(
-      automationIpcHandlers((effect) => runtime.runPromise(effect), (event) => changed.push(event)),
-      changed,
-      exec,
-      (effect) => runtime.runPromise(effect),
-    );
+    try {
+      await test(
+        automationOps((effect) => runtime.runPromise(effect as Effect.Effect<never, never, never>)),
+        changed,
+        exec,
+        (effect) => runtime.runPromise(effect),
+      );
+    } finally {
+      stopPushes();
+    }
   } finally {
     await runtime.dispose();
     await rm(home, { recursive: true, force: true });

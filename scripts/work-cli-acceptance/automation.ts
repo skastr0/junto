@@ -7,10 +7,12 @@
  */
 import { Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { automationIpcHandlers } from "../../src/main/junto/automation/ipc";
+import { coreOpBody } from "../../src/main/core-process/ops";
+import "../../src/main/core-process/ops/ipc-automation";
 import { ModelService } from "../../src/main/junto/model/service";
 import { overseerAutomationExamples } from "../../src/cli/commands/overseer-automation";
 import { Command } from "../../src/shared/model";
+import type { AutomationApplyResponse } from "../../src/shared/automation";
 import { mintItemId } from "../../src/shared/resource-command";
 import { casesFor, type AcceptanceArea } from "./area";
 import { envelopeOf } from "./envelope";
@@ -37,7 +39,13 @@ export const automationArea: AcceptanceArea = {
       wires: [],
     }), "operator"));
     const automationId = mintItemId();
-    const created = await automationIpcHandlers((effect) => inApp.runPromise(effect), () => undefined).apply(canvas, {
+    // The pane's write, as main makes it: the core operation of that name.
+    const operatorApply = (canvasName: string, input: unknown): Promise<AutomationApplyResponse> => {
+      const body = coreOpBody("ipc.automation.apply");
+      if (body === undefined) throw new Error("no core operation named ipc.automation.apply");
+      return inApp.runPromise(body({ canvasName, input } as never) as never);
+    };
+    const created = await operatorApply(canvas, {
       nodeId: NODE,
       automationId,
       op: {

@@ -86,7 +86,7 @@ import { postSubjectComment, type SubjectCommentContext } from "./subject-commen
 import { bodyTexts, editTexts, hasArtifactLinkTokens, linkBodyTitles, linkEditTitles, type ResolveTitle } from "@shared/artifact-link-tokens";
 import { resolveArtifactTitles } from "./artifact-link-titles";
 import { readMentions, type MentionRow } from "./mention-backlinks";
-import { entryOf } from "./mention-ipc";
+import { entryOf } from "./mentions";
 import { linkedFromBodies } from "./body-links";
 import type { ArtifactLinkRef, LinkedFromBody } from "@shared/artifact-links";
 import { SqlClient } from "effect/unstable/sql";

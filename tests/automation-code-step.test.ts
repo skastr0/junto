@@ -7,7 +7,8 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { Reactivity } from "effect/unstable/reactivity";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, it } from "vitest";
-import { automationIpcHandlers } from "../src/main/junto/automation/ipc";
+import { coreOpBody } from "../src/main/core-process/ops";
+import "../src/main/core-process/ops/ipc-automation";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
@@ -23,6 +24,8 @@ import {
   type Action,
   type ActionRuling,
   type Automation,
+  type AutomationCodePutResponse,
+  type AutomationCodeReadResponse,
   AutomationId,
   type AutomationOp,
   AutomationVersion,
@@ -283,7 +286,18 @@ describe("the editor's code channels", () => {
       ),
     );
     try {
-      const handlers = automationIpcHandlers((effect) => runtime.runPromise(effect as never), () => undefined);
+      // The pane's client: both channels are the core operation of that name.
+      const call = <A>(name: string, input: unknown): Promise<A> => {
+        const body = coreOpBody(name);
+        if (body === undefined) throw new Error(`no core operation named ${name}`);
+        return runtime.runPromise(body(input as never) as Effect.Effect<A, never, never>);
+      };
+      const handlers = {
+        codePut: (canvasName: unknown, input: unknown) =>
+          call<AutomationCodePutResponse>("ipc.automation.codePut", { canvasName, input }),
+        codeRead: (canvasName: unknown, input: unknown) =>
+          call<AutomationCodeReadResponse>("ipc.automation.codeRead", { canvasName, input }),
+      };
       const text = 'import { cont } from "junto/automation";\ncont({ count: 3 });\n';
       const put = await handlers.codePut("factory", { text });
       if (put.kind !== "put") throw new Error(put.refusal.message);

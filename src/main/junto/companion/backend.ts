@@ -101,7 +101,7 @@ import { mentionKey, parseMentionHref, type MentionRef, type MentionTarget } fro
 import { ArtifactRepository } from "../work/artifact-repository";
 import { linkedFromBodies } from "../work/body-links";
 import { readMentions } from "../work/mention-backlinks";
-import { entryOf } from "../work/mention-ipc";
+import { entryOf } from "../work/mentions";
 
 // Portraits wear the packs this build bundles, as the renderer's do.
 installCosmeticPacks(decodeCosmeticPacks(overlayManifest.cosmetics));
