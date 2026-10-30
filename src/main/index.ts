@@ -159,6 +159,7 @@ import { makeFilesDraftsSettle } from "./junto/files/drafts-settle";
 import { registerFilesIpc } from "./junto/files/ipc";
 import { makeFilesLinkChannel } from "./junto/files/link";
 import { makeFilesRemote } from "./junto/files/link-client";
+import { unboundYet } from "./junto/link/unbound";
 import { holdFilesRemote } from "./junto/files/remote-holder";
 import { carryFileThreads } from "./junto/work/file-thread-paths";
 import { ContentService } from "./junto/content/service";
@@ -1582,7 +1583,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         service: () => filesService,
         ...(filesRemote === undefined ? {} : { onEvent: filesRemote.onEvent, onOpened: filesRemote.onOpened, onClosed: filesRemote.onClosed }),
       }));
-      await AppRuntime.runPromise(link.setChannels({ status: machineStatus.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig, files }));
+      await AppRuntime.runPromise(link.setChannels({ status: machineStatus.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig, files, consensus: unboundYet("consensus"), authority: unboundYet("authority") }));
       machineLinkListener = await AppRuntime.runPromise(link.listen(termControlHome));
       if (shutdownAdmissionClosed) machineLinkListener.beginShutdown();
     } catch (error) {

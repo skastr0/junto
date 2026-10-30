@@ -30,20 +30,19 @@ const harness = async () => {
   return { bind };
 };
 
-it("binds the whole catalog, with the stub standing on the two channels that have no owner yet", async () => {
+it("binds the whole catalog", async () => {
   const { bind } = await harness();
-  const { consensus: _consensus, authority: _authority, ...owned } = allChannels();
-  expect(await bind(owned)).toBe("bound");
+  expect(await bind(allChannels())).toBe("bound");
 });
 
-it("refuses to bind without a catalog channel, naming it, and without files above all", async () => {
-  for (const missing of LINK_CHANNELS.filter((name) => name !== "consensus" && name !== "authority")) {
+it("refuses to bind without any catalog channel, naming it: a forgotten consensus or authority never keeps a stub quietly", async () => {
+  for (const missing of LINK_CHANNELS) {
     const { [missing]: _left, ...rest } = allChannels();
     const refused = await harness().then(({ bind: fresh }) => fresh(rest));
     expect(refused, missing).toMatchObject({ reason: "missing-channel" });
     expect((refused as { message: string }).message).toContain(missing);
   }
-}, 120_000);
+}, 180_000);
 
 it("refuses a name outside the catalog", async () => {
   const { bind } = await harness();

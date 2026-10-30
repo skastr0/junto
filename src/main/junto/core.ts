@@ -8,6 +8,7 @@ import { makeNativeConfigChannel } from "./inventory/native-channel";
 import { FILES_REMOTE_ENABLED } from "@shared/features";
 import { makeHeadlessFilesService } from "./files/headless-service";
 import { makeFilesLinkChannel } from "./files/link";
+import { unboundYet } from "./link/unbound";
 import { makeSettingsChannel } from "./settings/link-channel";
 import { MachineOwnerControl } from "./hosts/machine-owner";
 import { MachineLink, type MachineLinkListener } from "./link/service";
@@ -115,7 +116,7 @@ export const startCore = async (options: CoreOptions) => {
     // link, seats and all, so with the feature off the channel is there and refuses every op denied.
     const filesHost = FILES_REMOTE_ENABLED ? makeHeadlessFilesService() : undefined;
     const files = await runtime.runPromise(makeFilesLinkChannel({ enabled: FILES_REMOTE_ENABLED, service: () => filesHost }));
-    await runtime.runPromise(link.setChannels({ status: status.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig, files }));
+    await runtime.runPromise(link.setChannels({ status: status.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig, files, consensus: unboundYet("consensus"), authority: unboundYet("authority") }));
     listener = await runtime.runPromise(link.listen(options.home));
     owner = await startOperatorControlServer({ home: options.home, dispatch: (request) => runtime.runPromise(actions.dispatch(request)) });
     await runtime.runPromise(mail.boot({
