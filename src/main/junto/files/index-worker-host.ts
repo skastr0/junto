@@ -1,5 +1,5 @@
 import type { Worker } from "node:worker_threads";
-import createIndexWorker from "./index-worker?nodeWorker";
+import createIndexWorkerOrNothing from "./index-worker?nodeWorker";
 import { spawnGit } from "./git-spawn";
 import type { RootEvent, RootIndex } from "./root-index";
 import { portRootIndex } from "./root-index-port";
@@ -13,6 +13,15 @@ import { portRootIndex } from "./root-index-port";
  * after 1 s, doubling to 30 s, if it keeps stopping), and those roots'
  * sessions get a reset so their trees list again.
  */
+
+/**
+ * The factory electron-vite builds for `?nodeWorker`. Unit tests stub it out:
+ * the worker's module refuses to run off a worker thread, so a test that
+ * reaches for one is told plainly rather than running the module here.
+ */
+const createIndexWorker = createIndexWorkerOrNothing as unknown as
+  | ((options: { readonly name: string }) => Worker)
+  | undefined;
 
 const RESTART_FIRST_MS = 1_000;
 const RESTART_MAX_MS = 30_000;
@@ -37,6 +46,7 @@ export const workerRootIndex = (emit: (root: string, event: RootEvent) => void):
 
   const live = (): RootIndex => {
     if (current !== undefined) return current.index;
+    if (createIndexWorker === undefined) throw new Error("the files index worker is only built into the app");
     const worker = createIndexWorker({ name: "junto-files-index" });
     const index = portRootIndex(worker, { git: spawnGit, emit, onIdle: () => queueMicrotask(end) });
     const held = { worker, index };
