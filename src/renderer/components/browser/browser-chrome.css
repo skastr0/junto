@@ -186,7 +186,7 @@
   color: var(--color-ink);
 }
 
-/* The shown tab joins the row below it: same ground, no seam, an amber cap. */
+/* The shown tab joins the row below it: same ground, no seam. */
 /* The tab you are on keeps a readable floor while the others shrink past it. */
 .tab-strip__tab[data-active="true"] {
   position: relative;
@@ -194,7 +194,6 @@
   min-width: 120px;
   border-color: var(--color-stroke);
   background: var(--color-raise-2);
-  box-shadow: inset 0 2px 0 var(--color-amber);
   color: var(--color-ink);
 }
 

@@ -22,7 +22,6 @@
 }
 .junto-region-titlebar:hover {
   background: color-mix(in oklab, var(--color-amber) 6%, transparent);
-  border-bottom-color: color-mix(in oklab, var(--color-amber) 22%, transparent);
 }
 .junto-region-titlebar:active { cursor: grabbing; }
 /* A region names itself the way a seat does: its name in the seat's type,
