@@ -23,8 +23,10 @@
  *
  *   2. **The ports.** Deterministic seat facts come from `seatStateRuntime`
  *      (harness, control revision, attention, the current stall episode), and
- *      the projection is the real `selectAwarenessInput`, so the digest the
+ *      the projection is the real `selectAwarenessEvidence`, so the digest the
  *      scheduler caches on is the same normalization the renderer compares.
+ *      The request itself (`assembleAwarenessRequest`) is built only when a
+ *      call is about to be sent.
  *
  * The layer is built to run with a disabled model: a missing key constructs no
  * client and publishes honest notices rather than failing to wire. Nothing here
@@ -50,7 +52,7 @@ import type {
   AwarenessSeatFacts,
   AwarenessSeatPort,
 } from "./awareness/scheduler";
-import { selectAwarenessInput } from "./awareness/select-input";
+import { assembleAwarenessRequest, selectAwarenessEvidence } from "./awareness/select-input";
 
 // ---------------------------------------------------------------------------
 // Enrollment gate
@@ -110,7 +112,14 @@ export const seatAwarenessApiKey = (
 
 /** The real evidence projection: one normalization, the scheduler's own. */
 export const awarenessProjectionPort = (): AwarenessProjectionPort => ({
-  project: ({ window }) => ({ state: selectAwarenessInput(window) }),
+  project: ({ window }) => {
+    const evidence = selectAwarenessEvidence(window);
+    return {
+      evidenceHash: evidence.evidenceHash,
+      observedAt: evidence.observedAt,
+      request: () => assembleAwarenessRequest(evidence),
+    };
+  },
 });
 
 export type SeatStatePortHandle = {

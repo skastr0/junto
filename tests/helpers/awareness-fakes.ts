@@ -4,7 +4,7 @@
  * Everything the awareness plane touches is injected, so these fakes are the
  * whole world the scheduler and runtime see: a deterministic clock with manual
  * timers, a fake observation plane, a fake seat port, the REAL evidence
- * projection (workstream C's `selectAwarenessInput`), and a recording model ask
+ * projection (workstream C's `selectAwarenessEvidence`), and a recording model ask
  * that builds real assessments through C's own projection.
  */
 
@@ -26,7 +26,10 @@ import {
   type AwarenessModelShape,
   type AwarenessTransportFailureKind,
 } from "../../src/main/junto/term/awareness/jev-client";
-import { selectAwarenessInput } from "../../src/main/junto/term/awareness/select-input";
+import {
+  assembleAwarenessRequest,
+  selectAwarenessEvidence,
+} from "../../src/main/junto/term/awareness/select-input";
 import {
   projectAwarenessAnswers,
   projectAwarenessUnavailable,
@@ -204,15 +207,19 @@ export const makeFakeSeatPort = (): FakeSeatPort => {
 export type FakeProjectionPort = AwarenessProjectionPort & {
   /** Number of times the projection ran. */
   readonly calls: () => number;
+  /** Number of requests built from a projection. */
+  readonly requests: () => number;
   /** Throw from the projection, to prove the plane survives a port fault. */
   readonly failWith: (error: Error | undefined) => void;
 };
 
 export const makeFakeProjectionPort = (): FakeProjectionPort => {
   let calls = 0;
+  let requests = 0;
   let failure: Error | undefined;
   return {
     calls: () => calls,
+    requests: () => requests,
     failWith: (error) => {
       failure = error;
     },
@@ -220,7 +227,15 @@ export const makeFakeProjectionPort = (): FakeProjectionPort => {
       calls += 1;
       if (failure !== undefined) throw failure;
       // The real projection: caps, redaction, line ids, and the window digest.
-      return { state: selectAwarenessInput(window) };
+      const evidence = selectAwarenessEvidence(window);
+      return {
+        evidenceHash: evidence.evidenceHash,
+        observedAt: evidence.observedAt,
+        request: () => {
+          requests += 1;
+          return assembleAwarenessRequest(evidence);
+        },
+      };
     },
   };
 };

@@ -73,8 +73,16 @@ export interface AwarenessSeatPort {
 }
 
 export type AwarenessProjection = {
-  /** C's canonical request for this observation. */
-  readonly state: AwarenessRequestState;
+  /** The observation's window digest (`computeWindowDigest`). */
+  readonly evidenceHash: string;
+  /** Wall-clock ms when the window was read. */
+  readonly observedAt: number;
+  /**
+   * C's canonical request for this observation. Built only when a call is
+   * about to be sent (questions, wire, the request cap); the scheduler keeps
+   * the result for the observation.
+   */
+  readonly request: () => AwarenessRequestState;
 };
 
 export interface AwarenessProjectionPort {
@@ -419,6 +427,8 @@ type Seat = {
   facts: AwarenessSeatFacts | undefined;
   /** Geometry of the window the newest projection came from. */
   geometry: { readonly cols: number; readonly rows: number };
+  projection: AwarenessProjection | undefined;
+  /** The newest projection's request, once a call has needed it. */
   state: AwarenessRequestState | undefined;
   projectedSeq: bigint | undefined;
   windowDigest: string | undefined;
@@ -778,6 +788,12 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
   const assessmentIdFor = (state: AwarenessRequestState): string =>
     `${state.evidenceHash}:${state.observedAt}`;
 
+  /** The newest projection's request, built on first need and kept for it. */
+  const requestOf = (seat: Seat): AwarenessRequestState | undefined => {
+    if (seat.state === undefined && seat.projection !== undefined) seat.state = seat.projection.request();
+    return seat.state;
+  };
+
   /**
    * Cache identity: the projection's window digest plus generation, harness,
    * geometry, the relevant deterministic observations, question-pack version,
@@ -785,9 +801,10 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
    */
   const cacheKeyFor = (seat: Seat, t: number): string | undefined => {
     const facts = seat.facts;
-    const state = seat.state;
     const digest = seat.windowDigest;
-    if (facts === undefined || state === undefined || digest === undefined) return undefined;
+    if (facts === undefined || digest === undefined) return undefined;
+    const state = requestOf(seat);
+    if (state === undefined) return undefined;
     // Nothing askable: no call, no cost, no cache entry.
     if (state.questions.length === 0) return undefined;
     return [
@@ -1052,7 +1069,7 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
     }
     if (outcome.usage !== undefined) stats.inputTokens += outcome.usage.inputTokens;
     seat.gate = undefined;
-    const state = seat.state;
+    const state = requestOf(seat);
     const digest = seat.windowDigest;
     if (outcome.failure !== undefined) {
       recordFailure(seat, outcome.failure, t);
@@ -1112,7 +1129,7 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
     seat.gate = undefined;
 
     const t = now();
-    const state = seat.state;
+    const state = requestOf(seat);
     const key = cacheKeyFor(seat, t);
     if (state === undefined || key === undefined) {
       // Nothing worth asking about: no reservation, no call, no cost.
@@ -1237,20 +1254,18 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
           // A seat with nothing displayable is owed one honest notice: the
           // provider could not be asked (or answered), and no call is charged
           // for saying so. A seat holding a fresh judgment keeps it instead.
-          if (
-            seat.state !== undefined &&
-            (seat.retained === undefined || !seat.retained.displayable)
-          ) {
+          const state = seat.retained === undefined || !seat.retained.displayable ? requestOf(seat) : undefined;
+          if (state !== undefined) {
             seat.retained = {
               assessment: deps.unavailable({
-                request: seat.state,
+                request: state,
                 reason: deps.modelAvailable ? "transport_error" : "not_configured",
                 detail: gate,
               }),
-              evidenceLines: seat.state.evidenceLines,
-              evidenceDigest: seat.windowDigest ?? seat.state.evidenceHash,
-              assessmentId: assessmentIdFor(seat.state),
-              observedAt: seat.state.observedAt,
+              evidenceLines: state.evidenceLines,
+              evidenceDigest: seat.windowDigest ?? state.evidenceHash,
+              assessmentId: assessmentIdFor(state),
+              observedAt: state.observedAt,
               expiresAt: t + config.cacheTtlMs,
               displayable: false,
             };
@@ -1288,6 +1303,7 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
       requestSeq: 0,
       facts: undefined,
       geometry: { cols: snapshot.cols, rows: snapshot.rows },
+      projection: undefined,
       state: undefined,
       projectedSeq: undefined,
       windowDigest: undefined,
@@ -1342,6 +1358,7 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
     seat.lastDigestAskedAt = undefined;
     seat.generationSeq += 1;
     seat.requestSeq += 1;
+    seat.projection = undefined;
     seat.state = undefined;
     seat.projectedSeq = undefined;
     seat.windowDigest = undefined;
@@ -1387,20 +1404,21 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
     // grid moved: the window's PTY sequence identifies it exactly. A window is
     // absent when the runtime already delivered that grid, in which case the
     // seat evaluates its deterministic facts against the evidence it holds.
-    if (window !== undefined && (current.state === undefined || current.projectedSeq !== window.seq)) {
+    if (window !== undefined && (current.projection === undefined || current.projectedSeq !== window.seq)) {
       try {
         const projection = deps.projection.project({ window, facts });
-        current.state = projection.state;
+        current.projection = projection;
+        current.state = undefined;
         current.projectedSeq = window.seq;
         // `evidenceHash` is C's `computeWindowDigest` output: the single
         // normalization the cache key, the material-change trigger, and the
         // renderer's staleness comparison all read. The capture time is paired
         // with it: the window event says "this material revision was captured
         // at this time", so a repaint that normalizes away moves neither half.
-        const digest = projection.state.evidenceHash;
+        const digest = projection.evidenceHash;
         if (current.windowDigest === undefined || digest !== current.windowDigest) {
           current.windowDigest = digest;
-          current.windowCapturedAt = projection.state.observedAt;
+          current.windowCapturedAt = projection.observedAt;
         }
       } catch (error) {
         console.error("[awareness] projection port failed:", error);
@@ -1408,8 +1426,7 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
       }
     }
 
-    const state = current.state;
-    if (state === undefined) return;
+    if (current.projection === undefined) return;
     const t = now();
     const firstScreen = !current.sawGeneration;
     current.sawGeneration = true;

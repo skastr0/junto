@@ -263,8 +263,9 @@ export type AwarenessRequestState = {
 
 /**
  * Redaction rules, in declared order. Patterns are stored as source strings and
- * compiled per call so no global-regex `lastIndex` state can leak between
- * observations and break determinism.
+ * compiled once (`compileRules`): only `replace` runs them, which resets a
+ * global regex's `lastIndex` before it starts and leaves it at zero, and no
+ * rule is sticky, so no state leaks between observations.
  *
  * Scope note: redaction is line-by-line. A secret split across a soft wrap is
  * matched on the row that carries the recognizable shape; a shape this list
@@ -353,6 +354,40 @@ export const REDACTION_RULES: readonly RedactionRule[] = [
   },
 ];
 
+/** A rule set compiled once, in declared order. */
+const compileRules = (
+  rules: readonly { readonly pattern: string; readonly flags: string }[],
+): readonly RegExp[] => rules.map((rule) => new RegExp(rule.pattern, rule.flags));
+
+const REDACTION_REGEXES = compileRules(REDACTION_RULES);
+
+/** Lines each line memo holds before its young generation turns old. */
+const LINE_MEMO_ENTRIES = 32_768;
+
+/**
+ * Remember a pure per-line function across observations. A seat's window
+ * moves a few lines at a time (a spinner frame, a new row), so nearly every
+ * line of the next window was already redacted and normalized for the last
+ * one, and a remembered result is the result. Two generations bound the
+ * memory: when the young one fills it becomes the old one, and a line found
+ * only in the old one moves back.
+ */
+const memoizeLine = <T>(compute: (text: string) => T): ((text: string) => T) => {
+  let young = new Map<string, T>();
+  let old = new Map<string, T>();
+  return (text) => {
+    const hit = young.get(text);
+    if (hit !== undefined) return hit;
+    const value = old.get(text) ?? compute(text);
+    if (young.size >= LINE_MEMO_ENTRIES) {
+      old = young;
+      young = new Map();
+    }
+    young.set(text, value);
+    return value;
+  };
+};
+
 export const REDACTION_DISCLAIMER =
   "Redaction removes the secret and path shapes this sidecar knows. It is not a " +
   "confidentiality guarantee: an unrecognized secret, host name, customer value, or " +
@@ -380,8 +415,8 @@ export const redactEvidenceText = (text: string): Redacted => {
   let current = text;
   const fired: string[] = [];
   let replacements = 0;
-  for (const rule of REDACTION_RULES) {
-    const re = new RegExp(rule.pattern, rule.flags);
+  for (const [index, rule] of REDACTION_RULES.entries()) {
+    const re = REDACTION_REGEXES[index]!;
     let hits = 0;
     current = current.replace(re, (...args: unknown[]) => {
       hits += 1;
@@ -395,6 +430,8 @@ export const redactEvidenceText = (text: string): Redacted => {
   }
   return { text: current, ruleIds: fired, replacements };
 };
+
+const redactLine = memoizeLine(redactEvidenceText);
 
 // ---------------------------------------------------------------------------
 // Composer / injected-prompt exclusion
@@ -709,7 +746,8 @@ export type VolatileChromeRule = {
 /**
  * Volatile chrome, in declared order. Each rule rewrites ONE line in place and
  * must never change the line count. Patterns are stored as source strings and
- * compiled per call so no global-regex state can leak between observations.
+ * compiled once, under the same `replace`-only discipline as redaction, so no
+ * global-regex state leaks between observations.
  *
  * The discipline is one-sided: a rule that fails to normalize some volatile
  * frame costs a redundant judgment, while a rule that swallows a material
@@ -839,18 +877,21 @@ export const VOLATILE_CHROME_RULES: readonly VolatileChromeRule[] = [
   },
 ];
 
+const VOLATILE_CHROME_REGEXES = compileRules(VOLATILE_CHROME_RULES);
+
 /** Rewrite one evidence line into its volatile-chrome-normalized form. */
 export const normalizeVolatileChrome = (text: string): string => {
   let current = text;
-  for (const rule of VOLATILE_CHROME_RULES) {
-    const re = new RegExp(rule.pattern, rule.flags);
-    current = current.replace(re, (...args: unknown[]) => {
+  for (const [index, rule] of VOLATILE_CHROME_RULES.entries()) {
+    current = current.replace(VOLATILE_CHROME_REGEXES[index]!, (...args: unknown[]) => {
       const groups = args.slice(1, -2).map((value) => String(value ?? ""));
       return expandReplacement(rule.replace, groups);
     });
   }
   return current;
 };
+
+const normalizeLine = memoizeLine(normalizeVolatileChrome);
 
 export type WindowDigestInput = {
   /** Observation identity: two seats and two generations never share a digest. */
@@ -882,22 +923,47 @@ export const windowDigestMaterial = (input: WindowDigestInput): unknown => ({
   version: WINDOW_DIGEST_VERSION,
   bindingId: input.bindingId,
   epoch: input.epoch,
-  lines: input.lines.map((line) => normalizeVolatileChrome(line.text)),
+  lines: input.lines.map((line) => normalizeLine(line.text)),
 });
 
-type BuildInput = {
+type EvidenceCaps = {
+  readonly candidateLines: number;
+  readonly evidenceBytes: number;
+  readonly requestBytes: number;
+};
+
+/** The evidence lines the byte cap keeps, id-tagged, and what it dropped. */
+type CappedEvidence = {
+  readonly evidenceLines: readonly EvidenceLine[];
+  readonly byteCapLines: number;
+  readonly byteCapBytes: number;
+  readonly lineClipped: boolean;
+};
+
+/**
+ * One observation's evidence, before any question: the redacted survivors,
+ * the lines the byte cap keeps, and their window digest. This is all the
+ * scheduler needs on every observation; `assembleAwarenessRequest` builds the
+ * request from it only when a call is about to be sent.
+ */
+export type AwarenessEvidence = {
   readonly window: AwarenessEvidenceWindow;
-  readonly caps: {
-    readonly candidateLines: number;
-    readonly evidenceBytes: number;
-    readonly requestBytes: number;
-  };
+  readonly caps: EvidenceCaps;
   readonly packVersion: string;
   /** Redacted survivors, oldest first, before any cap. */
   readonly survivors: readonly CandidateLine[];
   readonly redaction: RedactionReport;
-  /** Drops already known before the request-cap loop. */
+  /** Drops known before the request cap. */
   readonly baseDrops: Omit<EvidenceDrops, "requestCapLines" | "questions">;
+  /** The byte cap over every survivor. */
+  readonly capped: CappedEvidence;
+  /** `computeWindowDigest` over `capped`: the observation's material revision. */
+  readonly evidenceHash: string;
+  readonly observedAt: number;
+};
+
+type BuildInput = {
+  readonly evidence: AwarenessEvidence;
   /** Question ids still in play (a request-cap squeeze removes from this set). */
   readonly questionIds: readonly string[];
   /** Evidence lines removed by the request-cap squeeze (oldest first). */
@@ -905,9 +971,7 @@ type BuildInput = {
   readonly droppedQuestionIds: readonly string[];
 };
 
-const assembleRequest = (input: BuildInput): AwarenessRequestState => {
-  const { window, caps, survivors } = input;
-
+const capEvidence = (survivors: readonly CandidateLine[], caps: EvidenceCaps): CappedEvidence => {
   // Byte cap: drop the oldest lines until the evidence fits, then clip the
   // newest line if it alone cannot. Each rendered line is `id| text`, and the
   // id prefix is estimated at the widest id the candidate cap can produce, so
@@ -949,6 +1013,18 @@ const assembleRequest = (input: BuildInput): AwarenessRequestState => {
     sourceIndex: line.sourceIndex,
     clipped: line.clipped,
   }));
+  return { evidenceLines, byteCapLines, byteCapBytes, lineClipped };
+};
+
+const assembleRequest = (input: BuildInput): AwarenessRequestState => {
+  const { evidence } = input;
+  const { window, caps } = evidence;
+  // The squeeze drops the oldest survivors and caps again; with nothing
+  // dropped, the evidence and its digest are the ones the observation took.
+  const squeezed = input.requestCapLines > 0;
+  const { evidenceLines, byteCapLines, byteCapBytes, lineClipped } = squeezed
+    ? capEvidence(evidence.survivors.slice(input.requestCapLines), caps)
+    : evidence.capped;
 
   const temporal = detectTemporalEvidence(evidenceLines);
   const availability = {
@@ -984,18 +1060,19 @@ const assembleRequest = (input: BuildInput): AwarenessRequestState => {
 
   const evidenceBlock = renderEvidenceBlock(evidenceLines);
   const evidenceBytes = byteLength(evidenceBlock);
+  const { baseDrops } = evidence;
   const drops: EvidenceDrops = {
-    ...input.baseDrops,
-    byteCapLines: input.baseDrops.byteCapLines + byteCapLines,
-    byteCapBytes: input.baseDrops.byteCapBytes + byteCapBytes,
-    lineClipped: input.baseDrops.lineClipped || lineClipped,
+    ...baseDrops,
+    byteCapLines: baseDrops.byteCapLines + byteCapLines,
+    byteCapBytes: baseDrops.byteCapBytes + byteCapBytes,
+    lineClipped: baseDrops.lineClipped || lineClipped,
     requestCapLines: input.requestCapLines,
     questions: input.droppedQuestionIds,
   };
 
   const temporalNote = describeTemporal(temporal);
   const wire: AwarenessWireRequest = {
-    packVersion: input.packVersion,
+    packVersion: evidence.packVersion,
     evidence: evidenceBlock,
     note: temporalNote,
     questions: requested.map((question) => ({ id: question.id, prompt: question.prompt })),
@@ -1003,22 +1080,20 @@ const assembleRequest = (input: BuildInput): AwarenessRequestState => {
   const serializedBytes = byteLength(JSON.stringify(wire));
 
   const state: AwarenessRequestState = {
-    packVersion: input.packVersion,
+    packVersion: evidence.packVersion,
     bindingId: window.bindingId,
     epoch: window.epoch,
     sourceSeq: window.seq.toString(),
     observedAt: window.observedAt,
-    evidenceHash: computeWindowDigest({
-      bindingId: window.bindingId,
-      epoch: window.epoch,
-      lines: evidenceLines,
-    }),
+    evidenceHash: squeezed
+      ? computeWindowDigest({ bindingId: window.bindingId, epoch: window.epoch, lines: evidenceLines })
+      : evidence.evidenceHash,
     evidenceBlock,
     evidenceLines,
     evidenceBytes,
     temporal,
     temporalNote,
-    redaction: input.redaction,
+    redaction: evidence.redaction,
     drops,
     questions: requested,
     skipped,
@@ -1032,16 +1107,17 @@ const assembleRequest = (input: BuildInput): AwarenessRequestState => {
 };
 
 /**
- * Project one observation into the request state.
+ * Select one observation's evidence and take its window digest: steps 1 to 3
+ * and the byte cap, with no question rendered and nothing serialized.
  *
  * Pure and deterministic. `opts.injectedPromptNeedles` are the only caller
  * knowledge this accepts, because only the caller can ground what this app
  * pasted into the seat.
  */
-export const selectAwarenessInput = (
+export const selectAwarenessEvidence = (
   window: AwarenessEvidenceWindow,
   opts: SelectAwarenessInputOptions = {},
-): AwarenessRequestState => {
+): AwarenessEvidence => {
   const caps = {
     candidateLines: opts.caps?.candidateLines ?? MAX_EVIDENCE_CANDIDATE_LINES,
     evidenceBytes: opts.caps?.evidenceBytes ?? MAX_EVIDENCE_BYTES,
@@ -1075,11 +1151,11 @@ export const selectAwarenessInput = (
     survivors.push(line);
   }
 
-  // 3. Redaction, then the byte cap and id tagging (inside the assembler).
+  // 3. Redaction, then the byte cap and id tagging.
   const firedRules = new Set<string>();
   let replacements = 0;
   const redacted: CandidateLine[] = survivors.map((line) => {
-    const result = redactEvidenceText(line.text);
+    const result = redactLine(line.text);
     for (const id of result.ruleIds) firedRules.add(id);
     replacements += result.replacements;
     return { ...line, text: result.text };
@@ -1103,25 +1179,37 @@ export const selectAwarenessInput = (
     windowLines: window.lines.length,
   };
 
-  // 4. Assemble, then squeeze under the total serialized-request cap. The cap
-  //    drops the lowest-priority question first; only if no question is left
-  //    does it drop evidence lines (oldest first). Either way the drop is
-  //    reported, and `requestCapHonored` says plainly whether the cap was met.
+  const capped = capEvidence(redacted, caps);
+  return {
+    window,
+    caps,
+    packVersion,
+    survivors: redacted,
+    redaction,
+    baseDrops,
+    capped,
+    evidenceHash: computeWindowDigest({
+      bindingId: window.bindingId,
+      epoch: window.epoch,
+      lines: capped.evidenceLines,
+    }),
+    observedAt: window.observedAt,
+  };
+};
+
+/**
+ * Build the request one observation's evidence supports: the questions, the
+ * wire payload, and the squeeze under the total serialized-request cap. The
+ * cap drops the lowest-priority question first; only if no question is left
+ * does it drop evidence lines (oldest first). Either way the drop is reported,
+ * and `requestCapHonored` says plainly whether the cap was met.
+ */
+export const assembleAwarenessRequest = (evidence: AwarenessEvidence): AwarenessRequestState => {
   let questionIds = AWARENESS_QUESTIONS.map((q) => q.id);
   const droppedQuestionIds: string[] = [];
   let requestCapLines = 0;
   for (;;) {
-    const state = assembleRequest({
-      window,
-      caps,
-      packVersion,
-      survivors: redacted,
-      redaction,
-      baseDrops,
-      questionIds,
-      requestCapLines,
-      droppedQuestionIds,
-    });
+    const state = assembleRequest({ evidence, questionIds, requestCapLines, droppedQuestionIds });
     if (state.requestCapHonored) return state;
     // Only a question that was actually requested can be squeezed out:
     // `requested` is already ordered highest priority first, so the last entry
@@ -1132,8 +1220,7 @@ export const selectAwarenessInput = (
       droppedQuestionIds.push(victim.id);
       continue;
     }
-    if (redacted.length > 0) {
-      redacted.shift();
+    if (requestCapLines < evidence.survivors.length) {
       requestCapLines += 1;
       continue;
     }
@@ -1142,3 +1229,12 @@ export const selectAwarenessInput = (
     return state;
   }
 };
+
+/**
+ * Project one observation into the request state: the evidence, then the
+ * request. Pure and deterministic.
+ */
+export const selectAwarenessInput = (
+  window: AwarenessEvidenceWindow,
+  opts: SelectAwarenessInputOptions = {},
+): AwarenessRequestState => assembleAwarenessRequest(selectAwarenessEvidence(window, opts));

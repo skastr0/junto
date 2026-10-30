@@ -176,7 +176,7 @@ const runTurn = async (
   const projection: AwarenessProjectionPort = {
     project: (input) => {
       const projected = realProjection.project(input);
-      digests.push(projected.state.evidenceHash);
+      digests.push(projected.evidenceHash);
       return projected;
     },
   };
