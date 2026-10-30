@@ -38,9 +38,8 @@ const RAW_Z = [
   /\bz-\[(\d+)\]/g, // tailwind arbitrary value
 ];
 
-// The canvas delete paths still ask through window.confirm. Owner: the canvas
-// team, who are moving both onto confirmNodeDelete and confirmEdgeDelete
-// (src/renderer/lib/confirm-delete.ts). Each leaves this list when it does.
+// The canvas delete paths still ask through window.confirm. Each leaves this
+// list when it asks through askConfirm (src/renderer/lib/confirm.ts) instead.
 const NATIVE_DIALOG_OWNED = new Set([
   "src/renderer/lib/mutations.ts",
   "src/renderer/lib/edge-mutations.ts",
