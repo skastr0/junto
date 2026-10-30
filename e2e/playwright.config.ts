@@ -1,12 +1,12 @@
 import { registerHooks } from "node:module";
 import { defineConfig } from "@playwright/test";
 
-// A vite `?nodeWorker` import has no worker under Playwright: it resolves to
-// a module with no default export, and its host takes its no-worker path, as
-// in the machine core bundle (scripts/build-machine.ts).
+// A vite `?nodeWorker` or `?modulePath` import has no entry under Playwright:
+// it resolves to a module with no default export, and its host takes its
+// no-worker path, as in the machine core bundle (scripts/build-machine.ts).
 registerHooks({
   resolve: (specifier, context, nextResolve) =>
-    specifier.endsWith("?nodeWorker")
+    specifier.endsWith("?nodeWorker") || specifier.endsWith("?modulePath")
       ? { url: "data:text/javascript,export default undefined;", format: "module", shortCircuit: true }
       : nextResolve(specifier, context),
 });
