@@ -133,6 +133,24 @@ describe("a control view on a surface port", () => {
     expect(view.output().map((entry) => (entry.payload as { data: string }).data).join("")).toContain("after");
   });
 
+  it("a view hidden again while its screen was read gets no port until it is shown", async () => {
+    const view = rig();
+    const lease = await view.open();
+    await view.park(lease, true);
+    let parkedAgain: Promise<unknown> | undefined;
+    view.during.push(() => {
+      parkedAgain = view.park(lease, true);
+    });
+    await view.park(lease, false);
+    await parkedAgain;
+    expect(view.ports).toHaveLength(1);
+    view.emit(10n, "while hidden");
+    await settle();
+    expect(view.output()).toEqual([]);
+    expect(await view.park(lease, false)).toMatchObject({ ok: true, missed: true, screen: { seq: 9n } });
+    expect(view.ports).toHaveLength(2);
+  });
+
   it("reads over IPC when its PTY is not in the terminal process", async () => {
     const view = rig(false);
     await view.open();

@@ -554,7 +554,14 @@ export const registerTerminalIpc = (
       // left no grid, or the chunk memory let go of the screen's seq): the
       // view paints what there is and reads over IPC from here, beginning
       // with what flowed during the read.
-      if (resurface) endRead(screen !== undefined && openSurface(owner, screen.seq));
+      if (resurface && owner.parked) {
+        // Hidden again while the screen was read: no port for a hidden view.
+        // It missed this output, and its next unpark reads a new screen and
+        // opens the port then.
+        owner.reading = undefined;
+        owner.missed = true;
+        owner.resurface = true;
+      } else if (resurface) endRead(screen !== undefined && openSurface(owner, screen.seq));
       return {
         ok: true,
         missed: true,
