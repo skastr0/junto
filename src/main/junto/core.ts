@@ -5,6 +5,9 @@ import { makeCoreRuntime } from "../core-runtime";
 import { MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail } from "../core-runtime";
 import { makeInventoryChannel } from "./inventory/channel";
 import { makeNativeConfigChannel } from "./inventory/native-channel";
+import { FILES_REMOTE_ENABLED } from "@shared/features";
+import { makeHeadlessFilesService } from "./files/headless-service";
+import { makeFilesLinkChannel } from "./files/link";
 import { makeSettingsChannel } from "./settings/link-channel";
 import { MachineOwnerControl } from "./hosts/machine-owner";
 import { MachineLink, type MachineLinkListener } from "./link/service";
@@ -108,7 +111,10 @@ export const startCore = async (options: CoreOptions) => {
     const inventory = await runtime.runPromise(makeInventoryChannel());
     const nativeConfig = await runtime.runPromise(makeNativeConfigChannel());
     const settings = await runtime.runPromise(makeSettingsChannel());
-    await runtime.runPromise(link.setChannels({ status: status.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig }));
+    // Off in ship: with the feature off the channel is unbound and a peer's frame on it is refused.
+    const filesHost = FILES_REMOTE_ENABLED ? makeHeadlessFilesService() : undefined;
+    const files = filesHost === undefined ? undefined : await runtime.runPromise(makeFilesLinkChannel({ service: () => filesHost }));
+    await runtime.runPromise(link.setChannels({ status: status.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig, ...(files === undefined ? {} : { files }) }));
     listener = await runtime.runPromise(link.listen(options.home));
     owner = await startOperatorControlServer({ home: options.home, dispatch: (request) => runtime.runPromise(actions.dispatch(request)) });
     await runtime.runPromise(mail.boot({

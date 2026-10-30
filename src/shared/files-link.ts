@@ -29,8 +29,8 @@ export const FILES_LINK_TEXT_JSON_MAX = 900_000;
 export const FILES_LINK_ENTRIES_MAX = 10_000;
 export const FILES_LINK_QUERY_MAX = 512;
 
-/** Whether `text` fits one frame once it is JSON. */
-export const fitsOneFrame = (text: string): boolean => new TextEncoder().encode(JSON.stringify(text)).byteLength <= FILES_LINK_TEXT_JSON_MAX;
+/** Whether `value` fits one frame once it is JSON, in bytes as the frame bound counts them. */
+export const fitsOneFrame = (value: unknown): boolean => new TextEncoder().encode(JSON.stringify(value)).byteLength <= FILES_LINK_TEXT_JSON_MAX;
 
 /**
  * A path relative to the root, or the root itself (""): `parseFilePath` is the

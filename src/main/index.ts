@@ -79,6 +79,7 @@ import { hostsSnapshot } from "./junto/hosts/snapshot";
 import { applyInterfaceScale, followInterfaceScale, refitInterfaceScale } from "./junto/interface-scale";
 import {
   BROWSER_ENABLED,
+  FILES_REMOTE_ENABLED,
   LIVE_OVERSEER_ENABLED,
 } from "@shared/features";
 import { termPlane, termPlaneBlocksAppExit } from "./junto/term/plane";
@@ -156,6 +157,7 @@ import { remoteVideos } from "./junto/preview/remote-video";
 import { FILE_PROTOCOL_SCHEME_REGISTRATION, installFileProtocol } from "./junto/files/protocol";
 import { makeFilesDraftsSettle } from "./junto/files/drafts-settle";
 import { registerFilesIpc } from "./junto/files/ipc";
+import { makeFilesLinkChannel } from "./junto/files/link";
 import { carryFileThreads } from "./junto/work/file-thread-paths";
 import { ContentService } from "./junto/content/service";
 import {
@@ -1567,7 +1569,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       const inventory = await AppRuntime.runPromise(makeInventoryChannel());
       const nativeConfig = await AppRuntime.runPromise(makeNativeConfigChannel());
       const settings = await AppRuntime.runPromise(makeSettingsChannel());
-      await AppRuntime.runPromise(link.setChannels({ status: machineStatus.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig }));
+      // The service is built later, with the window's Files channels; the channel reads it per request.
+      const files = FILES_REMOTE_ENABLED ? await AppRuntime.runPromise(makeFilesLinkChannel({ service: () => filesService })) : undefined;
+      await AppRuntime.runPromise(link.setChannels({ status: machineStatus.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig, ...(files === undefined ? {} : { files }) }));
       machineLinkListener = await AppRuntime.runPromise(link.listen(termControlHome));
       if (shutdownAdmissionClosed) machineLinkListener.beginShutdown();
     } catch (error) {

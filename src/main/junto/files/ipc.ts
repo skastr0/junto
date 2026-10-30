@@ -6,6 +6,7 @@ import { asNodeId } from "@shared/physics/schema";
 import { trustedRendererIpc } from "../trusted-main-webcontents";
 import { deny, machineName, nodeFacts } from "./host-deps";
 import { workerRootIndex } from "./index-worker-host";
+import { peerSubscribers } from "./peer-subscribers";
 import { makeFilesService, type FilesService, type FilesServiceDeps } from "./service";
 
 /**
@@ -72,6 +73,8 @@ export const registerFilesIpc = (carryThreads?: FilesServiceDeps["carryThreads"]
     openPath: (absolute) => shell.openPath(absolute),
     reveal: (absolute) => shell.showItemInFolder(absolute),
     send: (subscriber, event) => {
+      // A peer machine's session: its change goes to the link, not a window.
+      if (peerSubscribers.deliver(subscriber, event)) return;
       const target = webContents.fromId(subscriber);
       if (target !== undefined && !target.isDestroyed()) target.send(IPC_CHANNELS.filesChanged, event);
     },
