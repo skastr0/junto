@@ -193,6 +193,12 @@ jobs:
       - if: ${{ !cancelled() }}
         working-directory: .
         run: bun scripts/native-cli-parity.ts --bin native/cli/target/debug/junto
+      # The machine install lease on Node, taken through this native junto.
+      - if: ${{ !cancelled() }}
+        working-directory: .
+        env:
+          JUNTO_NATIVE_CLI: native/cli/target/debug/junto
+        run: bunx vitest run tests/machine-install.test.ts
 
   free-startup-e2e:
     name: Free startup E2E (${{ matrix.os }})

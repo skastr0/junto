@@ -211,9 +211,9 @@ fn local(command: &str, input: Option<&str>) -> ExitCode {
             let root = exe.parent()?.parent()?.to_path_buf();
             let paths: (PathBuf, PathBuf) =
                 (root.join("bin/node"), root.join("core/machine-local.cjs"));
-            (paths.0.is_file() && paths.1.is_file()).then_some(paths)
+            (paths.0.is_file() && paths.1.is_file()).then_some((exe, paths.0, paths.1))
         });
-    let Some((node, script)) = entry else {
+    let Some((exe, node, script)) = entry else {
         let failure = Failure::new(
             ErrorType::InternalError,
             format!(
@@ -223,15 +223,34 @@ fn local(command: &str, input: Option<&str>) -> ExitCode {
         return envelope::refuse(Some(&format!("machine {command}")), &failure);
     };
     // exec replaces this process: the entry's envelope and exit code are the answer.
+    // The entry takes its install lease through this binary (install_lease).
     let error = std::process::Command::new(node)
         .arg(script)
         .arg(command)
         .args(input)
+        .env("JUNTO_NATIVE_CLI", exe)
         .exec();
     envelope::refuse(
         Some(&format!("machine {command}")),
         &Failure::new(ErrorType::InternalError, error.to_string()),
     )
+}
+
+/// `junto machine install-lease`, run by the machine-local entry: an exclusive
+/// flock on the lease file it hands over as stdin. The lock belongs to that
+/// open file description, so it outlives this process and holds while the
+/// entry keeps the file open; the entry's exit or crash releases it. Exit 0
+/// locked, 1 held by another install, 2 not lockable.
+pub fn install_lease() -> ExitCode {
+    use rustix::fs::{FlockOperation, flock};
+    match flock(std::io::stdin(), FlockOperation::NonBlockingLockExclusive) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(rustix::io::Errno::WOULDBLOCK) => ExitCode::FAILURE,
+        Err(errno) => {
+            envelope::warn(&format!("install lease: {errno}"));
+            ExitCode::from(2)
+        }
+    }
 }
 
 // --- the vault ---

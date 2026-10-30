@@ -39,6 +39,10 @@ fn main() -> ExitCode {
         .collect();
     let words: Vec<&str> = argv.iter().map(String::as_str).collect();
 
+    // The machine-local entry's install lease, which Node cannot take itself.
+    if words == ["machine", "install-lease"] {
+        return commands::machine::install_lease();
+    }
     // early-dispatch.ts: owner refusals and the byte pipes, before any parsing.
     if matches!(
         words.first(),

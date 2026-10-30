@@ -2,11 +2,11 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 import { chmod, mkdir, mkdtemp, readFile, readlink, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
-import { readlinkSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readlinkSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect } from "effect";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const fixture = vi.hoisted(() => ({ home: "", root: "", loaded: false, pid: 0, stopped: false, stopFailure: false, startFailure: false, copiedFrom: "", collideCopy: false, stopSelections: [] as string[], starts: 0, definitionRemoved: false, matchesDesiredPlacement: true }));
 vi.mock("node:os", async original => ({ ...await original<typeof import("node:os")>(), homedir: () => fixture.home }));
@@ -73,13 +73,28 @@ beforeEach(async () => {
 });
 afterEach(async () => { vi.restoreAllMocks(); await rm(scratch, { recursive: true, force: true }); });
 
-// Installation runs in the packaged Bun CLI. The Node test runner launches
-// that runtime to exercise these cases rather than mocking the kernel lease.
-if (typeof Bun === "undefined") it("exercises the installer in its packaged CLI runtime", async () => {
-  await promisify(execFile)("bun", ["--bun", "node_modules/vitest/vitest.mjs", "run", "tests/machine-install.test.ts"], { cwd: process.cwd(), timeout: 30_000, maxBuffer: 256 * 1024 });
-}, 35_000);
-else describe("machine install", () => {
-  it("serializes sends with a kernel lease and reuses an abandoned empty lock directory", async () => {
+// Installation runs on the machine bundle's Node, which takes its kernel lease
+// through the bundle's native junto (install-lock.ts). The lease cases need
+// that binary: JUNTO_NATIVE_CLI, or this checkout's debug build, which the
+// Native CLI job builds and runs this file with. Without it the other cases
+// take their lease from a stand-in that always grants it.
+const nativeCli = resolve(process.env.JUNTO_NATIVE_CLI ?? "native/cli/target/debug/junto");
+const native = existsSync(nativeCli);
+let leaseModule = "";
+beforeAll(async () => {
+  const tools = await mkdtemp(join(tmpdir(), "junto-lease-"));
+  if (native) process.env.JUNTO_NATIVE_CLI = nativeCli;
+  else {
+    process.env.JUNTO_NATIVE_CLI = join(tools, "junto");
+    await writeFile(process.env.JUNTO_NATIVE_CLI, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  }
+  // The lease module as the bundle's Node loads it: bundled, no Bun.
+  leaseModule = join(tools, "install-lock.mjs");
+  await promisify(execFile)("bun", ["build", "src/main/junto/hosts/install-lock.ts", "--target", "node", "--format", "esm", "--outfile", leaseModule], { cwd: process.cwd() });
+});
+
+describe("machine install", () => {
+  it.skipIf(!native)("serializes sends with a kernel lease and reuses an abandoned empty lock directory", async () => {
     await mkdir(join(fixture.root, ".install-lock"), { recursive: true, mode: 0o700 });
     await writeFile(join(fixture.root, "owner.json"), "owned", { mode: 0o600 });
     const handle = await admitInstallLockRoot(fixture.root, "owned");
@@ -93,17 +108,17 @@ else describe("machine install", () => {
     await expect(admitInstallLockRoot(fixture.root, "other")).rejects.toThrow("another Junto installation");
   });
 
-  it("releases the kernel lease when the installer exits without cleanup", async () => {
+  it.skipIf(!native)("releases the kernel lease when the installer on Node exits without cleanup", async () => {
     await mkdir(fixture.root, { mode: 0o700 });
     await writeFile(join(fixture.root, "owner.json"), "owned", { mode: 0o600 });
-    const leaseModule = pathToFileURL(join(process.cwd(), "src/main/junto/hosts/install-lock.ts")).href;
-    const source = `import {acquireInstallLock, admitInstallLockRoot} from ${JSON.stringify(leaseModule)};
+    const source = `import {acquireInstallLock, admitInstallLockRoot} from ${JSON.stringify(pathToFileURL(leaseModule).href)};
 const release = await acquireInstallLock(await admitInstallLockRoot(${JSON.stringify(fixture.root)}, "owned"));
 console.log("locked");
 if (process.argv.at(-1) === "hold") { for await (const _ of process.stdin) {} process.exit(17); }
 await release();`;
-    const environment = { ...process.env, HOME: fixture.home };
-    const child = spawn(process.execPath, ["--eval", source, "hold"], { env: environment, stdio: ["pipe", "pipe", "pipe"] });
+    const environment = { ...process.env, HOME: fixture.home, JUNTO_NATIVE_CLI: nativeCli };
+    const node = ["--input-type=module", "--eval", source];
+    const child = spawn("node", [...node, "hold"], { env: environment, stdio: ["pipe", "pipe", "pipe"] });
     const closed = new Promise<number | null>((resolve, reject) => { child.once("error", reject); child.once("close", resolve); });
     const ready = new Promise<void>((resolve, reject) => {
       let output = "", detail = "";
@@ -113,10 +128,10 @@ await release();`;
     });
     try {
       await ready;
-      await expect(promisify(execFile)(process.execPath, ["--eval", source, "once"], { env: environment })).rejects.toThrow("already being sent");
+      await expect(promisify(execFile)("node", [...node, "once"], { env: environment })).rejects.toThrow("already being sent");
     } finally { child.stdin.end(); await closed; }
     expect(await closed).toBe(17);
-    expect((await promisify(execFile)(process.execPath, ["--eval", source, "once"], { env: environment })).stdout).toBe("locked\n");
+    expect((await promisify(execFile)("node", [...node, "once"], { env: environment })).stdout).toBe("locked\n");
   });
 
   it("refuses a linked lease without touching its target", async () => {

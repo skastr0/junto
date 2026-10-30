@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { constants } from "node:fs";
 import { open, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -7,7 +8,7 @@ import { ensureMachineDirectory, machineHomePath, ownedMachineFile } from "./ins
 declare const lockRootBrand: unique symbol;
 export interface OwnedInstallLockRoot { readonly [lockRootBrand]: true }
 const roots = new WeakMap<OwnedInstallLockRoot, string>();
-/** Which lease check refused an install; the last library load failure stays as the cause. */
+/** Which lease check refused an install; the native lease helper's failure stays as the cause. */
 export const InstallLockCheck = Schema.Literals(["foreign-owner", "unowned-root", "lease-not-owned", "lease-unavailable", "held"]);
 export class InstallLockRefused extends Schema.TaggedError<InstallLockRefused>()("InstallLockRefused", {
   check: InstallLockCheck,
@@ -33,29 +34,23 @@ export const acquireInstallLock = async (handle: OwnedInstallLockRoot): Promise<
   const path = join(directory, "lease");
   await ownedMachineFile(path);
   const file = await open(path, constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
-  let library: { readonly symbols: { readonly flock: (descriptor: number, operation: number) => number }; close: () => void } | undefined;
   try {
     const metadata = await file.stat();
     if (!metadata.isFile() || metadata.uid !== process.getuid?.() || metadata.nlink !== 1 || metadata.mode & 0o077) throw new InstallLockRefused({ check: "lease-not-owned", message: "The install lock is not owned by Junto. Choose another install folder" });
-    // The packaged CLI is Bun. Its built-in FFI holds the kernel lease in this
-    // process, so a crash closes the descriptor and releases it automatically.
-    const { dlopen } = await import("bun:ffi");
-    const paths = process.platform === "darwin" ? ["/usr/lib/libSystem.B.dylib"]
-      : process.platform === "linux" && process.arch === "x64" ? ["/lib/x86_64-linux-gnu/libc.so.6", "/lib64/libc.so.6", "/usr/lib64/libc.so.6"] : [];
-    let loadFailure: unknown;
-    for (const candidate of paths) {
-      // Try the next absolute system library path; the last failure is the cause.
-      try { library = dlopen(candidate, { flock: { args: ["i32", "i32"], returns: "i32" } }); break; } catch (cause) { loadFailure = cause; }
-    }
-    if (!library) throw new InstallLockRefused({ check: "lease-unavailable", message: "The system install lease is unavailable. Check this machine's operating system", ...(loadFailure === undefined ? {} : { cause: loadFailure }) });
-    if (library.symbols.flock(file.fd, 2 | 4) !== 0) throw new InstallLockRefused({ check: "held", message: "Junto is already being sent to this machine. Wait for it to finish, then send again" });
+    // Node has no flock(2). The bundle's native junto takes it on this same
+    // open file description, handed over as its stdin, so the kernel lease
+    // lasts while this process holds the descriptor and a crash releases it.
+    const helper = process.env.JUNTO_NATIVE_CLI;
+    const taken = helper === undefined ? undefined : spawnSync(helper, ["machine", "install-lease"], { stdio: [file.fd, "ignore", "pipe"], encoding: "utf8" });
+    if (taken?.status === 1) throw new InstallLockRefused({ check: "held", message: "Junto is already being sent to this machine. Wait for it to finish, then send again" });
+    if (taken?.status !== 0) throw new InstallLockRefused({ check: "lease-unavailable", message: "The system install lease is unavailable. Check this machine's operating system", ...(taken === undefined ? {} : { cause: taken.error ?? taken.stderr }) });
   } catch (cause) {
-    await file.close(); library?.close(); throw cause;
+    await file.close(); throw cause;
   }
   let released = false;
   return async () => {
     if (released) return;
     released = true;
-    await file.close(); library?.close();
+    await file.close();
   };
 };
