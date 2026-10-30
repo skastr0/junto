@@ -1801,16 +1801,15 @@ const dispatchOp = (
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const sender = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(sender)) return yield* Effect.fail(sender.failure);
+      // One indexed read of what this seat sent, on the mail worker, not a
+      // read of every mailbox on the canvas (775 ms on the factory board).
       const items: Array<Message & { readonly toNodeId: string; readonly to: SeatIdentity }> = [];
-      for (const node of board.nodes.values()) {
-        if (decoded.success.target !== undefined && node.id !== decoded.success.target) continue;
-        for (const message of yield* work.readMailbox(caller.canvasName, node.id).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)))) {
-          if (message.metadata?.fromSeat !== sender.success.seatId &&
-              message.metadata?.fromSeat !== caller.nodeId) continue;
-          items.push({ ...message, toNodeId: node.id, to: seatIdentity(board, node) });
-        }
+      for (const message of yield* sentMailOf(true)) {
+        if (decoded.success.target !== undefined && message.toNodeId !== decoded.success.target) continue;
+        const node = board.nodes.get(asNodeId(message.toNodeId));
+        if (node === undefined) continue;
+        items.push({ ...message, to: seatIdentity(board, node) });
       }
-      items.sort((a, b) => b.messageId.localeCompare(a.messageId));
       return { target: caller.nodeId, items };
     }
 
@@ -2111,6 +2110,8 @@ const dispatchOp = (
         ? { kind: "mail" }
         : { kind: "comments", nodeId: subject.nodeId });
       const text = linked.text;
+      // The reply writes from here: the mark-read, then the reply or comment.
+      yield* beginWrite(fence);
       // Mark the parent mail read on own inbox first (idempotent).
       const marked = yield* work.workMessageMarkRead(
         caller.canvasName,
@@ -2148,7 +2149,6 @@ const dispatchOp = (
         }),
         ...thread,
       };
-      yield* beginWrite(fence);
       const result = toOperator
         ? yield* work.workOperatorReply(
             caller.canvasName,
