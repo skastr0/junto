@@ -273,7 +273,8 @@ export type ArtifactWriteResult =
       readonly artifactId: ItemId;
       readonly version: ArtifactVersion;
     }
-  | { readonly disposition: "queued"; readonly opId: OpId; readonly artifactId: ItemId };
+  /** `message`: behind the authority, why no machine can rule it now, in one line. */
+  | { readonly disposition: "queued"; readonly opId: OpId; readonly artifactId: ItemId; readonly message?: string };
 
 export type ArtifactDisposition = ArtifactWriteResult["disposition"];
 

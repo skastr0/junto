@@ -9,12 +9,16 @@
  */
 import { Context, Effect, Layer, Option, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import { authorityQueueReason, authorityViewOf } from "@shared/authority";
 import { CommandQueueFull, CommandTargetUnknown, type QueuedCommand, type RulingAppliedResult } from "@shared/command-row";
 import type { InstallationId } from "@shared/installation-id";
 import { RULING_WAIT_MS, afterOf, refusalError } from "@shared/resource-command";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { OpId } from "@shared/work-ids";
+import { AUTHORITY_ENABLED } from "@shared/features";
+import { seatStatusTime } from "@shared/seat-status-text";
 import { AutomationRepository } from "../automation/repository";
+import { CanvasAuthorities } from "../fleet/authorities";
 import { MachineRepository } from "../machines/repository";
 import { WorkRepository } from "./repository";
 
@@ -23,7 +27,8 @@ export type SubmitRoute = { readonly kind: "here" } | { readonly kind: "editor";
 
 /** What became of a queued command by the time the write answers. */
 export type QueuedOutcome =
-  | { readonly kind: "queued" }
+  /** `reason`: behind the authority, why no machine can rule it now ("no authority: MacBook asleep since 01:12"). */
+  | { readonly kind: "queued"; readonly reason?: string }
   | { readonly kind: "applied"; readonly ruling: RulingAppliedResult }
   | { readonly kind: "refused"; readonly error: WorkErrorBody; readonly root: OpId };
 
@@ -89,6 +94,22 @@ export const makeResourceSubmitLayer = (
           return machine !== undefined && machine === (yield* machines.value.machineName);
         }).pipe(Effect.orElseSucceed(() => false));
 
+      // Behind the authority, a write that waits says why in one line, from the same read the banner shows (0.11/06 F5).
+      const authorities = yield* Effect.serviceOption(CanvasAuthorities);
+      const queueReason = (canvasName: string): Effect.Effect<string | undefined> =>
+        !AUTHORITY_ENABLED || Option.isNone(authorities)
+          ? Effect.succeed(undefined)
+          : Effect.gen(function* () {
+            const [read] = yield* authorities.value.status(canvasName);
+            if (read === undefined) return undefined;
+            const { machines } = yield* authorities.value.machines();
+            const now = Date.now();
+            return authorityQueueReason(authorityViewOf(read, machines), (at) => seatStatusTime(at, now));
+          }).pipe(
+            // The write is queued either way: a reason that cannot be read is left out, never the write.
+            Effect.catchCause((cause) => Effect.as(Effect.logWarning(`the authority of ${canvasName} could not be read for a queued write`, cause), undefined)),
+          );
+
       const route = (canvasName: string) =>
         Effect.flatMap(canvasRow(canvasName), (row): Effect.Effect<SubmitRoute, WorkErrorBody> => {
           if (row === undefined) {
@@ -135,7 +156,8 @@ export const makeResourceSubmitLayer = (
             if (state.kind === "refused") return { kind: "refused", error: state.error, root: state.ruling.root } as const;
             yield* Effect.sleep(RULING_POLL_MS);
           }
-          return { kind: "queued" } as const;
+          const reason = yield* queueReason(command.canvasName);
+          return reason === undefined ? ({ kind: "queued" } as const) : ({ kind: "queued", reason } as const);
         });
 
       return ResourceSubmit.of({ route, queue });

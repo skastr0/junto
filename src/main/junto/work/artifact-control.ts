@@ -193,7 +193,7 @@ const notBuilt: WorkErrorBody = {
 };
 
 /** What an artifact write came to: ruled here or there, or queued for the editing machine (02). */
-export type ArtifactWriteOutcome = ArtifactSubmitOutcome | { readonly kind: "queued"; readonly opId: OpId };
+export type ArtifactWriteOutcome = ArtifactSubmitOutcome | { readonly kind: "queued"; readonly opId: OpId; readonly reason?: string };
 
 const decodeArtifactFacts = Schema.decodeUnknownResult(Schema.Array(ArtifactFact), { onExcessProperty: "error" });
 
@@ -214,7 +214,7 @@ const queuedOutcome = (
     (outcome): Effect.Effect<ArtifactWriteOutcome, WorkErrorBody> => {
       switch (outcome.kind) {
         case "queued":
-          return Effect.succeed({ kind: "queued", opId: command.opId });
+          return Effect.succeed({ kind: "queued", opId: command.opId, ...(outcome.reason === undefined ? {} : { reason: outcome.reason }) });
         case "refused":
           return Effect.succeed({ kind: "refused", opId: command.opId, error: outcome.error, root: outcome.root });
         case "applied": {
@@ -755,7 +755,12 @@ export const writeResult = (
       return Effect.fail({ ...outcome.error, details: { ...outcome.error.details, opId: outcome.opId } });
     // Durable and will be ruled: a success. `junto op show` reads what became of it.
     case "queued":
-      return Effect.succeed({ disposition: "queued", opId: outcome.opId, artifactId: written.target.itemId! });
+      return Effect.succeed({
+        disposition: "queued",
+        opId: outcome.opId,
+        artifactId: written.target.itemId!,
+        ...(outcome.reason === undefined ? {} : { message: outcome.reason }),
+      });
   }
 };
 

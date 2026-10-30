@@ -139,7 +139,7 @@ const notBuilt = (what: string): WorkErrorBody => ({
 });
 
 /** What a task write came to: ruled here or there, or queued for the editing machine (02). */
-export type TaskWriteOutcome = TaskSubmitOutcome | { readonly kind: "queued"; readonly opId: OpId };
+export type TaskWriteOutcome = TaskSubmitOutcome | { readonly kind: "queued"; readonly opId: OpId; readonly reason?: string };
 
 /**
  * A command queued for the editing machine, as the seat's write answers it.
@@ -158,7 +158,7 @@ const queuedOutcome = (
     (outcome): Effect.Effect<TaskWriteOutcome, WorkErrorBody> => {
       switch (outcome.kind) {
         case "queued":
-          return Effect.succeed({ kind: "queued", opId: command.opId });
+          return Effect.succeed({ kind: "queued", opId: command.opId, ...(outcome.reason === undefined ? {} : { reason: outcome.reason }) });
         case "refused":
           return Effect.succeed({ kind: "refused", opId: command.opId, error: outcome.error, root: outcome.root });
         case "applied": {
@@ -265,7 +265,12 @@ export const writeResultOf = (
       return Effect.fail({ ...outcome.error, details: { ...outcome.error.details, opId } });
     // Durable and will be ruled: a success. `junto op show` reads what became of it.
     case "queued":
-      return Effect.succeed({ disposition: "queued", opId, taskId: written.target.itemId! });
+      return Effect.succeed({
+        disposition: "queued",
+        opId,
+        taskId: written.target.itemId!,
+        ...(outcome.reason === undefined ? {} : { message: outcome.reason }),
+      });
   }
 };
 

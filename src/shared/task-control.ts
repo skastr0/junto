@@ -324,6 +324,7 @@ export type TaskWriteResult =
       readonly state: TaskState;
       readonly deliveryError?: WorkErrorBody;
     }
-  | { readonly disposition: "queued"; readonly opId: OpId; readonly taskId: ItemId };
+  /** `message`: behind the authority, why no machine can rule it now, in one line. */
+  | { readonly disposition: "queued"; readonly opId: OpId; readonly taskId: ItemId; readonly message?: string };
 
 export type TaskDisposition = TaskWriteResult["disposition"];
