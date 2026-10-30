@@ -158,6 +158,8 @@ import { FILE_PROTOCOL_SCHEME_REGISTRATION, installFileProtocol } from "./junto/
 import { makeFilesDraftsSettle } from "./junto/files/drafts-settle";
 import { registerFilesIpc } from "./junto/files/ipc";
 import { makeFilesLinkChannel } from "./junto/files/link";
+import { makeFilesRemote } from "./junto/files/link-client";
+import { holdFilesRemote } from "./junto/files/remote-holder";
 import { carryFileThreads } from "./junto/work/file-thread-paths";
 import { ContentService } from "./junto/content/service";
 import {
@@ -1569,9 +1571,18 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       const inventory = await AppRuntime.runPromise(makeInventoryChannel());
       const nativeConfig = await AppRuntime.runPromise(makeNativeConfigChannel());
       const settings = await AppRuntime.runPromise(makeSettingsChannel());
+      // The window side of Files over the link: one remote, held for the router that picks a node's service by its host.
+      const filesRemote = FILES_REMOTE_ENABLED ? await AppRuntime.runPromise(makeFilesRemote()) : undefined;
+      holdFilesRemote(filesRemote);
+      // Always bound, off in ship: a peer with filesRemote on that finds the channel unbound closes the whole
+      // link, seats and all, so with the feature off the channel is there and refuses every op denied.
       // The service is built later, with the window's Files channels; the channel reads it per request.
-      const files = FILES_REMOTE_ENABLED ? await AppRuntime.runPromise(makeFilesLinkChannel({ service: () => filesService })) : undefined;
-      await AppRuntime.runPromise(link.setChannels({ status: machineStatus.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig, ...(files === undefined ? {} : { files }) }));
+      const files = await AppRuntime.runPromise(makeFilesLinkChannel({
+        enabled: FILES_REMOTE_ENABLED,
+        service: () => filesService,
+        ...(filesRemote === undefined ? {} : { onEvent: filesRemote.onEvent, onOpened: filesRemote.onOpened, onClosed: filesRemote.onClosed }),
+      }));
+      await AppRuntime.runPromise(link.setChannels({ status: machineStatus.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig, files }));
       machineLinkListener = await AppRuntime.runPromise(link.listen(termControlHome));
       if (shutdownAdmissionClosed) machineLinkListener.beginShutdown();
     } catch (error) {

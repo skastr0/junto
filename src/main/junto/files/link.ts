@@ -80,6 +80,13 @@ const answered = <A>(result: FilesResult<A>, then: (value: A) => FilesResponse):
   result.ok ? bounded(then(result.value)) : asRefused(result);
 
 export type FilesLinkOptions = {
+  /**
+   * False while `filesRemote` is off on this machine: the channel is bound all
+   * the same and refuses every op `denied`. An unbound channel would make a
+   * peer that has the feature on close the whole link (an unknown channel is a
+   * bad frame), and the seats on it with it. Default true.
+   */
+  readonly enabled?: boolean;
   /** The service; undefined while the app has not built it yet. */
   readonly service: () => FilesHost | undefined;
   /** The window machine's end: a change under a node it opened here. Unset, events are dropped. */
@@ -139,6 +146,10 @@ export const makeFilesLinkChannel = Effect.fn("FilesLink.make")(function* (optio
   const handleRequest: NonNullable<LinkChannelHandler["handleRequest"]> = (context, raw) => Effect.gen(function* () {
     // Decode here too: direct callers cannot bypass the transport decoder.
     const request = decodeFilesRequest(raw);
+    if (options.enabled === false) {
+      yield* Effect.logInfo("files refused", { op: request._tag, node: request.node, outcome: "denied" });
+      return refusedWith("denied");
+    }
     const admitted = yield* admitFilesPeer(context, request.canvas).pipe(Effect.provideContext(services));
     if (admitted !== "ok") return yield* Effect.logInfo("files refused", { op: request._tag, node: request.node, outcome: admitted }).pipe(Effect.as(refusedWith(admitted)));
     const host = options.service();
@@ -157,7 +168,7 @@ export const makeFilesLinkChannel = Effect.fn("FilesLink.make")(function* (optio
     decodeResponse: decodeFilesResponse,
     decodeEvent: decodeFilesEvent,
     handleRequest,
-    handleEvent: (context, raw) => options.onEvent === undefined ? Effect.void : options.onEvent(context, decodeFilesEvent(raw)),
+    handleEvent: (context, raw) => options.enabled === false || options.onEvent === undefined ? Effect.void : options.onEvent(context, decodeFilesEvent(raw)),
     ...(options.onOpened === undefined ? {} : { opened: options.onOpened }),
     closed: (context) => Effect.sync(() => {
       const id = sessions.get(context.sessionId);

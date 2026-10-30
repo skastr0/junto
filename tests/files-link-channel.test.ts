@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { FilesChanged } from "../src/shared/files";
@@ -10,7 +11,9 @@ import { decodeFilesResponse, FILES_LINK_TEXT_JSON_MAX } from "../src/shared/fil
 import { makeFilesLinkChannel, type FilesHost } from "../src/main/junto/files/link";
 import { makePeerSubscribers, PEER_SUBSCRIBER_BASE } from "../src/main/junto/files/peer-subscribers";
 import { makeFilesService } from "../src/main/junto/files/service";
-import type { LinkChannelContext } from "../src/main/junto/link/types";
+import { LinkHelloSchema } from "../src/main/junto/link/protocol";
+import { makeLinkSession } from "../src/main/junto/link/session";
+import type { LinkChannelContext, LinkChannelHandler } from "../src/main/junto/link/types";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { ModelService } from "../src/main/junto/model/service";
 import { closeMachineLog, installMachineLog, ObservabilityLoggerLive } from "../src/main/junto/observability/logger";
@@ -37,7 +40,7 @@ afterEach(async () => {
   clearMachines();
 });
 
-const fixture = async (options: { readonly editor?: "editor" | "self"; readonly host?: FilesHost } = {}) => {
+const fixture = async (options: { readonly editor?: "editor" | "self"; readonly host?: FilesHost; readonly enabled?: boolean } = {}) => {
   const base = await realpath(await mkdtemp(join(tmpdir(), "junto-files-link-")));
   const root = join(base, "root");
   await mkdir(root, { recursive: true });
@@ -70,7 +73,7 @@ const fixture = async (options: { readonly editor?: "editor" | "self"; readonly 
     names: { isGitRoot: async () => false, gitNames: async () => undefined, walkNames: async (_root, sink) => sink([]), gitIgnored: async () => new Set() },
   });
   const subscribers = makePeerSubscribers();
-  const channel = await runtime.runPromise(makeFilesLinkChannel({ service: () => options.host ?? service, peerSubscribers: subscribers }));
+  const channel = await runtime.runPromise(makeFilesLinkChannel({ service: () => options.host ?? service, peerSubscribers: subscribers, ...(options.enabled === undefined ? {} : { enabled: options.enabled }) }));
   const sent: Array<unknown> = [];
   const context: LinkChannelContext = {
     peer: { build: "same-build", installationId: editor, machineName: "macbook" },
@@ -175,6 +178,48 @@ describe("files channel host", () => {
         { _tag: "Exec", ...f.where },
       ]) expect(() => f.channel.decodeRequest(bad), JSON.stringify(bad)).toThrow();
     });
+  });
+});
+
+describe("files channel while filesRemote is off on the host", () => {
+  const hello = (name: string) => Schema.decodeUnknownSync(LinkHelloSchema)({ build: "a".repeat(64), installationId: `${name}-install`, machineName: name });
+
+  it("is bound and refuses every op denied, without admission, the service or a log of names", async () => {
+    const f = await fixture({ enabled: false });
+    await writeFile(join(f.root, "a.md"), "keep");
+    for (const request of [
+      { _tag: "Open", ...f.where }, { _tag: "List", ...f.where, dir: "" }, { _tag: "Read", ...f.where, path: "a.md" },
+      { _tag: "Trash", ...f.where, path: "a.md" }, { _tag: "Write", ...f.where, path: "a.md", text: "x", base: null },
+    ]) expect(await f.ask(request)).toEqual({ _tag: "Refused", error: "denied" });
+    expect(await readFile(join(f.root, "a.md"), "utf8")).toBe("keep");
+    expect(f.trashed).toEqual([]);
+    // Still a closed decoder: a malformed request is refused at decode, as when it is on.
+    expect(() => f.channel.decodeRequest({ _tag: "List", ...f.where, dir: "/etc" })).toThrow();
+  });
+
+  it("answers a window machine that has it on denied, and the seat traffic on the same link keeps flowing", async () => {
+    const f = await fixture({ enabled: false });
+    const echo: LinkChannelHandler = {
+      decodeRequest: (payload) => payload, decodeResponse: (payload) => payload, decodeEvent: (payload) => payload,
+      handleRequest: (_context, payload) => Effect.succeed(payload),
+    };
+    const toHost = new PassThrough();
+    const toWindow = new PassThrough();
+    const host = makeLinkSession({
+      readable: toHost, writable: toWindow, self: hello("mini"), admit: async () => {}, run: Effect.runPromise,
+      channels: { status: echo, files: f.channel },
+    });
+    const window = makeLinkSession({
+      readable: toWindow, writable: toHost, self: hello("macbook"), admit: async () => {}, run: Effect.runPromise,
+      channels: { status: echo, files: f.channel },
+    });
+    cleanups.push(async () => { await Promise.all([host.close(), window.close()]); });
+    await Promise.all([host.ready, window.ready]);
+    // The host runs the handler against its own admitted peer; the editor check is not reached while the feature is off.
+    expect(await window.request("files", { _tag: "Open", ...f.where })).toEqual({ _tag: "Refused", error: "denied" });
+    expect(await window.request("status", { seat: "start" })).toEqual({ seat: "start" });
+    expect(await window.request("files", { _tag: "List", ...f.where, dir: "" })).toEqual({ _tag: "Refused", error: "denied" });
+    expect(await window.request("status", { seat: "attach" })).toEqual({ seat: "attach" });
   });
 });
 

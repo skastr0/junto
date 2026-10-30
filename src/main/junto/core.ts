@@ -111,10 +111,11 @@ export const startCore = async (options: CoreOptions) => {
     const inventory = await runtime.runPromise(makeInventoryChannel());
     const nativeConfig = await runtime.runPromise(makeNativeConfigChannel());
     const settings = await runtime.runPromise(makeSettingsChannel());
-    // Off in ship: with the feature off the channel is unbound and a peer's frame on it is refused.
+    // Always bound, off in ship: a peer with filesRemote on that finds the channel unbound closes the whole
+    // link, seats and all, so with the feature off the channel is there and refuses every op denied.
     const filesHost = FILES_REMOTE_ENABLED ? makeHeadlessFilesService() : undefined;
-    const files = filesHost === undefined ? undefined : await runtime.runPromise(makeFilesLinkChannel({ service: () => filesHost }));
-    await runtime.runPromise(link.setChannels({ status: status.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig, ...(files === undefined ? {} : { files }) }));
+    const files = await runtime.runPromise(makeFilesLinkChannel({ enabled: FILES_REMOTE_ENABLED, service: () => filesHost }));
+    await runtime.runPromise(link.setChannels({ status: status.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig, files }));
     listener = await runtime.runPromise(link.listen(options.home));
     owner = await startOperatorControlServer({ home: options.home, dispatch: (request) => runtime.runPromise(actions.dispatch(request)) });
     await runtime.runPromise(mail.boot({
