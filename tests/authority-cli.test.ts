@@ -133,5 +133,6 @@ describe("junto authority", () => {
   it("is a root command and a docs section only in a build with authority", () => {
     expect(rootCommandNames().includes("authority")).toBe(AUTHORITY_ENABLED);
     expect(buildConceptsDoc().includes("## Authority")).toBe(AUTHORITY_ENABLED);
+    expect(buildConceptsDoc().includes("answers\n`queued` with a `message`")).toBe(AUTHORITY_ENABLED);
   });
 });

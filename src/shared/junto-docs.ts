@@ -351,6 +351,10 @@ const AUTHORITY_CONCEPT: ReadonlyArray<string> = AUTHORITY_ENABLED
     "the machine, never from a seat: `junto authority status [canvas]`,",
     "`junto authority list <canvas> --order <names>` and `junto authority alone",
     "<canvas>`. A seat that runs one is refused.",
+    "When no machine can take changes, a task or artifact write answers",
+    "`queued` with a `message` saying why, such as `no authority: MacBook asleep",
+    "since 01:12, this machine`. The write is kept and ruled, applied or",
+    "refused, once a machine rules again; `junto op show <opId>` reads its outcome.",
     "",
   ]
   : [];
