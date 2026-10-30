@@ -13,7 +13,7 @@ import {
 } from "@shared/machine-log";
 import { EncodedFailure } from "@shared/failure";
 import { defaultMachineName } from "@shared/machine-name";
-import { observabilityRing } from "./ring";
+import { observabilityRing, type ObservabilityAppendInput } from "./ring";
 import { redactSecretValues } from "../credentials/redact";
 import { knownSecretValues, scrubMessage } from "../credentials/scrub";
 import { decodeEncodedFailure, encodeFailure } from "../failure-encode";
@@ -76,6 +76,27 @@ type LogState = {
   echo: boolean;
 };
 
+/**
+ * Where a row goes when this process has no ring of its own (Electron main,
+ * with the core in its own process): the core appends it to the one ring the
+ * Observability panel reads, so main's boot and window lines are not lost.
+ */
+let forward: ((input: ObservabilityAppendInput) => void) | undefined;
+
+/** Main only, once the core's append operation is reachable. */
+export const setObservabilityForwarder = (next: ((input: ObservabilityAppendInput) => void) | undefined): void => {
+  forward = next;
+};
+
+/** One row to the ring: here, or in the process that owns it. */
+const emit = (input: ObservabilityAppendInput): void => {
+  if (forward !== undefined) {
+    forward(input);
+    return;
+  }
+  observabilityRing.append(input);
+};
+
 const state: LogState = { sink: undefined, machine: defaultMachineName(), process: "app", echo: true };
 
 export type MachineLogInstall = {
@@ -95,7 +116,7 @@ export const installMachineLog = (install: MachineLogInstall): void => {
     process: install.process,
     onWriteFailure: (cause) => {
       const failure = encodeFailure(cause, { machine: state.machine });
-      observabilityRing.append({
+      emit({
         level: "error",
         source: "system",
         message: `the machine log could not be written${failure === undefined ? "" : `: ${failure.tag} ${failure.message}`}`,
@@ -240,7 +261,7 @@ export const writeLog = (input: LogInput): MachineLogRow => {
   };
 
   const shown = failure === undefined ? message : `${message}${message ? " - " : ""}${failure.tag}: ${failure.message}`;
-  observabilityRing.append({
+  emit({
     level: row.level,
     source: row.source,
     message: shown || "(empty)",
