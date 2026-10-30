@@ -3,8 +3,11 @@ import { CoreCallError, runCoreOp, type CoreClient, type CoreFailure, type CoreR
 /**
  * The one ordered port between Electron main and the core process (Wave 3).
  * Main sends calls; the core answers each by id and pushes changes on named
- * channels. Calls and pushes share the port, so a push sent after a commit
- * reaches main after the answer of the call that made it, in commit order.
+ * channels. Calls run at once, as they do in process, so answers come back
+ * in the order their operations finish, not the order they were asked.
+ * Pushes keep the order they were published in, which is commit order; a
+ * push published while an operation runs arrives before that operation's
+ * answer.
  *
  * `CorePort` is the least both ends offer: Electron's `UtilityProcess` and the
  * child's `process.parentPort`, or a `MessagePort` in tests.
