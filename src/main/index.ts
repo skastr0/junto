@@ -163,9 +163,9 @@ import {
   e2ePresentationFromEnv,
 } from "./junto/e2e-presentation";
 
-// TerminalRouter SSH dials need the process RootLayer; bind AppRuntime once
-// so term/router never imports the Electron runtime graph itself.
-// AppRuntime is the sole warm ManagedRuntime for CC main (see runtime.ts §S1):
+// TerminalRouter SSH dials need a runner; bind this process's once, so
+// term/router never imports the Electron runtime graph itself.
+// AppRuntime is the sole warm ManagedRuntime for main (see runtime.ts):
 // boot once → runPromise/runFork with shared Context → dispose on quit.
 // Main's router dials on the SSH transport alone: no database, no core service in main.
 configureTerminalRouterLayeredRunner(sshTransportRouterRunner());

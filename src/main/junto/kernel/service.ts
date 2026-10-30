@@ -15,7 +15,7 @@
 // (main boot): runPromise for Promise seams, runFork for the factory program.
 // Factory control (cycle / claim / deliver / hydrate) is Effect.gen — not an
 // async Promise control plane. Importing AppRuntime here is forbidden
-// (circular: RootLayer includes KernelLive).
+// (circular: the core layer includes KernelLive).
 
 import type { SeatStartCause } from "../term/seat-start-cause";
 import { Cause, Context, Effect, Layer } from "effect";
