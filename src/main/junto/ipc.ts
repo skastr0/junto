@@ -306,7 +306,9 @@ export const registerJuntoIpc = (): void => {
 
   // The holds themselves are the core's, where the cache cut asks: main sends
   // each window's report on and keeps none (core-process/ops/seat-holds.ts).
-  registerOperatorHoldsIpc(privilegedIpc, coreOperatorHolds(core));
+  const operatorHolds = registerOperatorHoldsIpc(privilegedIpc, coreOperatorHolds(core));
+  // A core that starts again has no holds: every window's last report goes again.
+  askOnEveryCore("seats.holds.replay", () => operatorHolds.replay());
 
   // The plane runs in the core, where the seats and their windows are; main
   // asks it for the latest event per binding a renderer hydrates from.

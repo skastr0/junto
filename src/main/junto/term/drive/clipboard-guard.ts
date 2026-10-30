@@ -24,6 +24,8 @@ export type ClipboardGuard = {
   readonly guarded: (bindingId: string) => boolean;
   /** Whether the pasteboard holds only formats the guard accepts. */
   readonly ask: () => Effect.Effect<boolean, ClipboardUnreadable>;
+  /** Runs the ask on the core's one runtime: the drive's port answers a promise, not a fiber. */
+  readonly run: <A>(effect: Effect.Effect<A>) => Promise<A>;
 };
 
 /**
@@ -34,6 +36,6 @@ export const clipboardSafeAssert = (guard: ClipboardGuard): ClipboardSafeAssert 
   async (bindingId: string): Promise<boolean> => {
     if (!guard.guarded(bindingId)) return true;
     // `Effect.result` moves the failure into the value, so this cannot throw.
-    const answered = await Effect.runPromise(Effect.result(guard.ask()));
+    const answered = await guard.run(Effect.result(guard.ask()));
     return Result.isSuccess(answered) ? answered.success : false;
   };

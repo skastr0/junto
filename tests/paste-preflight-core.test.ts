@@ -29,6 +29,7 @@ const assertWith = () =>
         try: () => host.call("clipboard.safeForGrok", {}),
         catch: (cause) => new ClipboardUnreadable({ message: cause instanceof Error ? cause.message : String(cause) }),
       }),
+    run: (effect) => Effect.runPromise(effect),
   });
 
 describe("the paste preflight a guarded seat makes", () => {

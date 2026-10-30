@@ -173,11 +173,3 @@ export const operatorHold = (bindingId: string, now: number): OperatorHold | und
  * the cache window leaves a held seat's session alone.
  */
 export const operatorHolds = (bindingId: string, now: number): boolean => operatorHold(bindingId, now) !== undefined;
-
-/**
- * When the operator's hold on the seat ends, when only typing holds it.
- * Undefined while a window shows the seat (its close is when), or when
- * nothing holds it.
- */
-export const operatorHeldUntil = (bindingId: string, now: number): number | undefined =>
-  operatorHold(bindingId, now)?.until;

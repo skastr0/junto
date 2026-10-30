@@ -22,7 +22,7 @@ import { IPC_CHANNELS } from "../src/shared/ipc";
 import { runCoreOp, type CoreClient } from "../src/main/core-process/client";
 import { coreOperatorHolds } from "../src/main/core-process/main-side/seat-holds";
 import "../src/main/core-process/ops/seat-holds";
-import { operatorHolds, subscribeOperatorTyped } from "../src/main/junto/term/operator-holds";
+import { liveOperatorHolds, operatorHolds, subscribeOperatorTyped } from "../src/main/junto/term/operator-holds";
 import { registerOperatorHoldsIpc } from "../src/main/junto/term/operator-holds-ipc";
 
 const source = (relative: string): string =>
@@ -47,17 +47,20 @@ const wired = () => {
     }) as CoreClient["call"],
   };
   const handlers = new Map<string, (event: IpcMainInvokeEvent, arg: unknown) => unknown>();
-  registerOperatorHoldsIpc(
+  const holds = registerOperatorHoldsIpc(
     { handle: (channel: string, listener: (event: IpcMainInvokeEvent, arg: unknown) => unknown) => { handlers.set(channel, listener); } } as unknown as Pick<IpcMain, "handle">,
     coreOperatorHolds(core),
   );
-  const sender = Object.assign(new EventEmitter(), { id: nextWindowId++ }) as unknown as WebContents & EventEmitter;
+  const windowId = nextWindowId++;
+  const sender = Object.assign(new EventEmitter(), { id: windowId }) as unknown as WebContents & EventEmitter;
   const event = { sender } as IpcMainInvokeEvent;
   const send = async (channel: string, arg: unknown): Promise<void> => {
     await handlers.get(channel)?.(event, arg);
   };
   return {
     core,
+    windowId,
+    replay: holds.replay,
     show: (ids: unknown) => send(IPC_CHANNELS.seatSurfacesOpen, ids),
     type: (id: unknown) => send(IPC_CHANNELS.seatOperatorTyped, id),
     sender,
@@ -102,6 +105,19 @@ describe("the operator's holds in the core", () => {
     await second.show(["hold-closed"]);
     second.sender.emit("destroyed");
     expect(operatorHolds("hold-closed", Date.now())).toBe(false);
+  });
+
+  it("sends the window's seats again to a core that starts with none", async () => {
+    const { show, replay, windowId } = wired();
+    await show(["hold-restart-a", "hold-restart-b"]);
+    expect(operatorHolds("hold-restart-a", Date.now())).toBe(true);
+    // A new core has no holds: every window starts empty there.
+    liveOperatorHolds.dropWindow(windowId);
+    expect(operatorHolds("hold-restart-a", Date.now())).toBe(false);
+    // `core.ready` runs this again; the window still has the seat open.
+    await replay();
+    expect(operatorHolds("hold-restart-a", Date.now())).toBe(true);
+    expect(operatorHolds("hold-restart-b", Date.now())).toBe(true);
   });
 
   it("refuses a report that is not binding ids", async () => {

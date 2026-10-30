@@ -96,6 +96,7 @@ coreOps({
               catch: (cause) =>
                 new ClipboardUnreadable({ message: cause instanceof Error ? cause.message : String(cause) }),
             }),
+          run: (effect) => coreRunner.runPromise(effect),
         }),
       );
       coreMail.seats.onSuspend(() => {
