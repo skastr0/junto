@@ -430,6 +430,9 @@ describe("a step held while its automation's machine was not linked (0.12 S3)", 
     );
     expect(heldRulingWords({ index: 1, ruling: "queued" }, { atWords: at })).toBe("waiting");
     expect(heldRulingWords({ index: 0, ruling: "applied", heldSince: 9 }, { atWords: at })).toBe("applied after waiting from at 9");
+    expect(heldRulingWords({ index: 0, ruling: "applied", heldSince: 9, heldUntil: 40 }, { atWords: at })).toBe(
+      "applied at at 40, after waiting from at 9",
+    );
     expect(heldRulingWords({ index: 0, ruling: "applied" }, { atWords: at })).toBeUndefined();
   });
 

@@ -1471,8 +1471,13 @@ export const heldRulingWords = (ruling: ActionRuling, words: StepWordsContext): 
       return ruling.waitingOn === undefined
         ? "waiting"
         : `waiting for ${nameMachine(ruling.waitingOn.machine)} since ${words.atWords(ruling.waitingOn.since)}`;
-    case "applied":
-      return ruling.heldSince === undefined ? undefined : `applied after waiting from ${words.atWords(ruling.heldSince)}`;
+    case "applied": {
+      if (ruling.heldSince === undefined) return undefined;
+      const from = words.atWords(ruling.heldSince);
+      return ruling.heldUntil === undefined
+        ? `applied after waiting from ${from}`
+        : `applied at ${words.atWords(ruling.heldUntil)}, after waiting from ${from}`;
+    }
     case "refused": {
       if (ruling.movedTo !== undefined) return `not run: the automation moved to ${nameMachine(ruling.movedTo)}`;
       const place = words.elsewhere === undefined ? "" : ` on ${words.elsewhere}`;
