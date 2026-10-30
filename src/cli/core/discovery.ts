@@ -126,7 +126,7 @@ export const msgListSchema: CommandSchemaContract = {
   command: "msg list",
   schema_id: "msg.list.input/v1",
   description:
-    "List this seat's inbox (no target) or a connected mailbox. Own-inbox list marks listed inbound mail read and includes sent mail with readAt; peek lists without marking anything read. Every item names its threadId (and inReplyTo when it answers one). Filters combine: threadId (one thread), from (a seat's name, node id or seat id), unread, since (an ISO 8601 time, or a message id to list what came after it) and text (contains, ignoring case).",
+    "List this seat's inbox (no target) or a connected mailbox. Own-inbox list marks listed inbound mail read and includes sent mail with readAt; peek lists without marking anything read. Every item names its threadId (and inReplyTo when it answers one). Filters combine: threadId (one thread), from (a seat's name, node id or seat id), unread, since (an ISO 8601 time, or a message id to list what came after it) and text (contains, ignoring case). A mailbox lists one page at a time, newest first (a task's thread is read whole, in order): limit (default 50, at most 200) and more and remaining in the answer; before, the id of the last item listed, lists the next page. Only the mail listed is marked read, so unread mail past a page stays unread and unread: true still reaches it.",
   schema: MsgListArgs,
   input_modes: inputModes,
 };

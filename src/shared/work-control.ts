@@ -392,6 +392,10 @@ export const RulingsArgs = Schema.Struct({
 });
 export type RulingsArgs = typeof RulingsArgs.Type;
 
+/** A mail list's page when no limit is named, and the most one page holds. */
+export const MSG_LIST_LIMIT_DEFAULT = 50;
+export const MSG_LIST_LIMIT_MAX = 200;
+
 export const MsgListArgs = Schema.Struct({
   /** Own inbox when omitted, own node id, or `canvas:nodeId`. */
   target: Schema.optionalKey(Schema.String),
@@ -408,12 +412,16 @@ export const MsgListArgs = Schema.Struct({
   text: Schema.optionalKey(Schema.String),
   /** List without marking anything read. */
   peek: Schema.optionalKey(Schema.Boolean),
+  /** At most this many, newest first (default 50, at most 200). */
+  limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: MSG_LIST_LIMIT_MAX }))),
+  /** Only mail older than this message id: the next page after the last one listed. */
+  before: Schema.optionalKey(Schema.String),
 });
 export type MsgListArgs = typeof MsgListArgs.Type;
 
 /** What `msg list` takes, said in a refusal instead of the input that failed. */
 export const MSG_LIST_ARGS_SHAPE =
-  "msg list takes target, taskId, threadId, from, since and text as strings, and unread and peek as true or false";
+  "msg list takes target, taskId, threadId, from, since, text and before as strings, unread and peek as true or false, and limit as a whole number from 1 to 200";
 
 export const MsgSendArgs = Schema.Struct({
   target: Schema.String,

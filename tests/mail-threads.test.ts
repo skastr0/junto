@@ -330,12 +330,36 @@ describe("msg list filters", () => {
       [{ text: "x".repeat(1001) }, "text"],
       [{ unread: SECRET }, "args"],
       [{ peek: SECRET }, "args"],
+      [{ before: SECRET }, "args.before"],
+      [{ limit: 0 }, "args"],
+      [{ limit: 201 }, "args"],
     ] as const) {
       const refused = await call("agent", "msg.list", args);
       expect(refused.ok).toBe(false);
       expect(refused.error).toMatchObject({ type: "InputError", details: { path } });
       expect(JSON.stringify(refused)).not.toContain("secret");
     }
+  });
+
+  it("lists one page newest first; before reads the next; only listed mail is marked read", async () => {
+    const sent: string[] = [];
+    for (const text of ["one", "two", "three", "four", "five"]) {
+      sent.push((await call("peer", "msg.send", { target: "agent", text })).data.messageId);
+    }
+    const newest = [...sent].reverse();
+    const first = await call("agent", "msg.list", { limit: 2 });
+    expect(first.data.items.map((item: any) => item.messageId)).toEqual(newest.slice(0, 2));
+    expect(first.data).toMatchObject({ more: true, remaining: 3 });
+
+    const next = await call("agent", "msg.list", { limit: 2, before: newest[1], peek: true });
+    expect(next.data.items.map((item: any) => item.messageId)).toEqual(newest.slice(2, 4));
+    expect(next.data).toMatchObject({ more: true, remaining: 1 });
+
+    // The page listed is read; the three past it are not, and unread still reaches them.
+    expect(ids(await call("agent", "msg.list", { unread: true, peek: true }))).toEqual(newest.slice(2).sort());
+    const rest = await call("agent", "msg.list");
+    expect(rest.data).toMatchObject({ more: false, remaining: 0 });
+    expect(rest.data.items).toHaveLength(5);
   });
 });
 

@@ -43,6 +43,23 @@ export const sortMessagesNewestFirst = (
   );
 
 /**
+ * One page of mail sorted newest first: the rows older than `before` when it
+ * is named, then at most `limit` of them, with how many older ones remain.
+ */
+export const pageNewestFirst = <M extends { readonly messageId: string }>(
+  newestFirst: ReadonlyArray<M>,
+  page: { readonly limit: number; readonly before?: string },
+): { readonly items: M[]; readonly more: boolean; readonly remaining: number } => {
+  const before = page.before;
+  const older = before === undefined
+    ? newestFirst
+    : newestFirst.filter((row) => compareMessageIdsNewestFirst(before, row.messageId) < 0);
+  const items = older.slice(0, page.limit);
+  const remaining = older.length - items.length;
+  return { items, more: remaining > 0, remaining };
+};
+
+/**
  * Strip C0/C1 controls (and DEL) so a delivered line never carries CSI/ESC
  * inject material into a PTY. Whitespace is collapsed to a single line.
  */

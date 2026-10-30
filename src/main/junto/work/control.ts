@@ -30,7 +30,7 @@ import {
   type OverseerHostRequest,
 } from "@shared/overseer-host-control";
 import type { OverseerHostIdentity, OverseerLiveExecutionConstraint } from "../overseer/live/execution";
-import { sortMessagesNewestFirst } from "@shared/message-delivery";
+import { pageNewestFirst, sortMessagesNewestFirst } from "@shared/message-delivery";
 import {
   MAIL_MESSAGE_ID_SHAPE,
   isMailMessageId,
@@ -74,6 +74,7 @@ import {
   EmptyArgs,
   MsgListArgs,
   MSG_LIST_ARGS_SHAPE,
+  MSG_LIST_LIMIT_DEFAULT,
   MsgReactArgs,
   MsgReadArgs,
   MsgReplyArgs,
@@ -1630,8 +1631,22 @@ const dispatchOp = (
           details: { path: filter.failure.path, expected: filter.failure.expected, retryable: false },
         });
       }
+      const before = decoded.success.before?.trim();
+      if (before !== undefined && !isMailMessageId(before)) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: `before must be ${MAIL_MESSAGE_ID_SHAPE}`,
+          details: { path: "args.before", expected: "ULID", retryable: false },
+        });
+      }
       const matches = mailListMatches(filter.success);
       const filtered = <M extends Message>(items: ReadonlyArray<M>): M[] => items.filter(matches);
+      // One page, newest first: only the rows listed are ever marked read.
+      const pageOf = <M extends Message>(items: ReadonlyArray<M>) =>
+        pageNewestFirst(sortMessagesNewestFirst(filtered(items)) as M[], {
+          limit: decoded.success.limit ?? MSG_LIST_LIMIT_DEFAULT,
+          ...(before === undefined ? {} : { before }),
+        });
       const threadId = filter.success.threadId;
       const threadField = threadId === undefined ? {} : { threadId };
 
@@ -1644,6 +1659,7 @@ const dispatchOp = (
           const on = threadSubjectOf(row);
           return on?.kind === "task" && on.nodeId === task.current.node && on.taskId === task.taskId;
         };
+        // A task's thread is read whole and in order, as a conversation; pages are for mailboxes.
         const rows = (yield* mailboxOf(task.current.node)).filter(onTask);
         return { target: task.current.node, taskId: task.taskId, items: filtered(rows) };
       }
@@ -1659,10 +1675,11 @@ const dispatchOp = (
         }
         const reader = resolveProcessBoundActorRef(read.actorRefs, caller);
         if (Result.isFailure(reader)) return yield* Effect.fail(reader.failure);
-        // Listing marks read, so the filters apply first; a peek marks nothing.
-        const items = filtered(yield* mailboxOf(caller.nodeId));
+        // Listing marks read, so the filters and the page apply first; a peek marks nothing.
+        const page = pageOf(yield* mailboxOf(caller.nodeId));
+        const sentPage = pageOf(yield* sentMailOf(reader.success));
         const overlaid: Message[] = [];
-        for (const item of items) {
+        for (const item of page.items) {
           if (item.role !== "user" || decoded.success.peek === true) {
             overlaid.push(item);
             continue;
@@ -1696,7 +1713,11 @@ const dispatchOp = (
             sortMessagesNewestFirst(overlaid).map(withThread),
             asSeatReadsIt(board, caller.canvasName, caller.nodeId),
           ),
-          sent: filtered(yield* sentMailOf(reader.success)).map(withThread),
+          more: page.more,
+          remaining: page.remaining,
+          sent: sentPage.items.map(withThread),
+          sentMore: sentPage.more,
+          sentRemaining: sentPage.remaining,
         };
       }
 
@@ -1705,10 +1726,13 @@ const dispatchOp = (
       if (Result.isFailure(named)) return yield* Effect.fail(named.failure);
       const gate = requireTarget(board, caller.nodeId, named.success, op);
       if ("type" in gate) return yield* Effect.fail(gate);
+      const page = pageOf(yield* mailboxOf(named.success));
       return {
         target: named.success,
         ...threadField,
-        items: sortMessagesNewestFirst(filtered(yield* mailboxOf(named.success))).map(withThread),
+        items: page.items.map(withThread),
+        more: page.more,
+        remaining: page.remaining,
       };
     }
 
