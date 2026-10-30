@@ -87,8 +87,9 @@ export const readSeatSince = (
     const mailboxes = seatMailboxes(
       nodeId,
       new Set(seats.map((seat) => seat.id as string)),
-      yield* work.readMailbox(canvasName, nodeId),
-      yield* work.readMailSentBy(canvasName, nodeId),
+      // Read on the mail read worker, off main's loop: a read, never inside a write.
+      yield* work.readMailboxSnapshot(canvasName, nodeId),
+      yield* work.readMailSentBySnapshot(canvasName, nodeId),
     );
     const names = new Map(
       [...board.nodes.values()]

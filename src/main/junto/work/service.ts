@@ -12,6 +12,7 @@ import {
   Effect,
   Layer,
   Match,
+  Option,
   Result,
   Schema,
 } from "effect";
@@ -58,6 +59,8 @@ import type {
 import { IntentFactBasis } from "@shared/work-protocol";
 import { MachineRepository } from "../machines/repository";
 import { ContentService } from "../content/service";
+import { StateEngine } from "../state/service";
+import { workerMailReads } from "./mail-read-host";
 import type { ContentOwner } from "../content/manifest";
 import {
   admitLiveOverseer,
@@ -291,6 +294,14 @@ export interface WorkServiceShape {
     readonly readMailBetween: (canvas: string, a: string, b: string, limit: number) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly message: Message }>, WorkServiceError>;
     /** Every mail `sender` wrote into another mailbox on the canvas, with its receipts; `nodeId` is the mailbox it sits in. */
     readonly readMailSentBy: (canvas: string, sender: string) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly message: Message }>, WorkServiceError>;
+    /**
+     * `readMailbox` and `readMailSentBy` as of the last commit, read on the mail
+     * read worker so their SQL and IO wait leave main (mail-read-host.ts). Never
+     * call them inside a write: they do not see its uncommitted rows. Where the
+     * worker cannot answer, they read on main and answer the same.
+     */
+    readonly readMailboxSnapshot: (canvas: string, nodeId: string) => Effect.Effect<ReadonlyArray<Message>, WorkServiceError>;
+    readonly readMailSentBySnapshot: (canvas: string, sender: string) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly message: Message }>, WorkServiceError>;
     readonly workMessageAppend: (
       canvas: string,
       nodeId: string,
@@ -416,6 +427,22 @@ export const WorkLive = Layer.effect(
     // Runtime.runPromise so other ambient lookups cannot reintroduce the
     // empty-Context class of bug.
     const contentService = yield* ContentService;
+    // The mail read worker reads the file this runtime's state engine opened;
+    // a runtime with no engine file reads mail on main.
+    const engine = yield* Effect.serviceOption(StateEngine);
+    const mailReads = Option.isSome(engine) && engine.value.info.path !== ":memory:"
+      ? workerMailReads(engine.value.info.path)
+      : undefined;
+    const offMain = <A, E>(
+      read: () => Promise<A> | undefined,
+      onMain: Effect.Effect<A, E>,
+    ): Effect.Effect<A, WorkServiceError> => {
+      const asked = Effect.suspend(() => {
+        const answer = read();
+        return answer === undefined ? onMain : Effect.tryPromise(() => answer).pipe(Effect.catch(() => onMain));
+      });
+      return asked.pipe(Effect.mapError(toWorkServiceError));
+    };
 
     const installationContext: Effect.Effect<InstallationContext, WorkServiceError> =
       machines.installationId.pipe(
@@ -777,6 +804,10 @@ export const WorkLive = Layer.effect(
       readMailMessage: (canvas, nodeId, messageId) => repository.mailMessage(canvas, nodeId, messageId).pipe(Effect.mapError(toWorkServiceError)),
       readMailBetween: (canvas, a, b, limit) => repository.mailBetween(canvas, a, b, limit).pipe(Effect.mapError(toWorkServiceError)),
       readMailSentBy: (canvas, sender) => repository.mailSentBy(canvas, sender).pipe(Effect.mapError(toWorkServiceError)),
+      readMailboxSnapshot: (canvas, nodeId) =>
+        offMain(() => mailReads?.inbox(canvas, nodeId), repository.mailbox(canvas, nodeId)),
+      readMailSentBySnapshot: (canvas, sender) =>
+        offMain(() => mailReads?.sentBy(canvas, sender), repository.mailSentBy(canvas, sender)),
       workRulingsList: (canvas, nodeId) =>
         Effect.gen(function* () {
           const read = yield* readTopology(canvas);
