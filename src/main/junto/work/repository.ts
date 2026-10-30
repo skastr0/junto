@@ -1613,18 +1613,25 @@ const readMailBetween = Effect.fn("work.mail.between")(function* (
   requestedLimit: number,
 ): Effect.fn.Return<ReadonlyArray<{ readonly nodeId: string; readonly message: MessageValue }>, WorkSqlFailure> {
   const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(200, Math.trunc(requestedLimit))) : WORK_MAIL_PAGE_SIZE;
+  // Each direction is one search of the sender index by its whole key
+  // (canvas, sender, mailbox), newest first and bounded, then the two merge.
+  // As one OR it walked the canvas's mail. INDEXED BY because the planner,
+  // with no statistics, takes the primary key and reads the whole mailbox.
+  const direction = `SELECT mail.node_id,mail.message_id,mail.role,mail.parts_json,
+      mail.task_id,mail.context_id,mail.reference_task_ids_json,mail.metadata_json,
+      (length(mail.message_id)=26 AND mail.message_id NOT GLOB '*[^0-9A-HJKMNP-TV-Z]*') AS ulid
+    FROM work_messages AS mail INDEXED BY work_messages_sender
+    WHERE mail.canvas_name=? AND json_extract(mail.metadata_json,'$.senderNodeId')=? AND mail.node_id=?
+      AND mail.role='user'
+    ORDER BY ulid DESC,mail.message_id DESC LIMIT ?`;
   const rows = yield* SqlSchema.findAll({
     Request: WorkSqlBindings,
     Result: Schema.Struct({ ...MessageRowSchema.fields, node_id: Schema.String }),
-    execute: (bindings) => reader.unsafe(`SELECT mail.node_id,mail.message_id,mail.role,mail.parts_json,
-      mail.task_id,mail.context_id,mail.reference_task_ids_json,mail.metadata_json
-      FROM work_messages AS mail
-      WHERE mail.canvas_name=? AND mail.role='user'
-        AND ((mail.node_id=? AND json_extract(mail.metadata_json,'$.senderNodeId')=?)
-          OR (mail.node_id=? AND json_extract(mail.metadata_json,'$.senderNodeId')=?))
-      ORDER BY (length(mail.message_id)=26 AND mail.message_id NOT GLOB '*[^0-9A-HJKMNP-TV-Z]*') DESC,
-        mail.message_id DESC,mail.node_id LIMIT ?`, bindings),
-  })([canvasName, a, b, b, a, limit]);
+    execute: (bindings) => reader.unsafe(`SELECT node_id,message_id,role,parts_json,
+      task_id,context_id,reference_task_ids_json,metadata_json
+      FROM (SELECT * FROM (${direction}) UNION ALL SELECT * FROM (${direction}))
+      ORDER BY ulid DESC,message_id DESC,node_id LIMIT ?`, bindings),
+  })([canvasName, b, a, limit, canvasName, a, b, limit, limit]);
   return yield* mailRowsWithReceipts(reader, canvasName, rows);
 });
 
