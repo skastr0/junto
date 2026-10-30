@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { colorFgBgFor, resolveThemeMode } from "../src/shared/theme";
-import { defaultSettings, settingsOpFail, settingsOpOk } from "../src/shared/settings";
-import { themePublishDecision } from "../src/main/junto/settings/theme-publish";
+import {
+  currentThemeMode,
+  setSystemPrefersDark,
+  setThemePreference,
+} from "../src/main/junto/theme-state";
 
 describe("theme resolution — one rule for main and renderer", () => {
   it("an explicit preference wins and never consults the OS", () => {
@@ -24,36 +27,14 @@ describe("theme resolution — one rule for main and renderer", () => {
   });
 });
 
-describe("theme preference published from an IPC settings result", () => {
-  const withTheme = (theme: string) => {
-    const base = defaultSettings();
-    return { ...base, appearance: { ...base.appearance, theme } } as ReturnType<
-      typeof defaultSettings
-    >;
-  };
-
-  it("carries the stored preference, so a get never resets main to the OS", () => {
-    // The regression: this result was read for a `value` field it does not
-    // have, so every renderer settingsGet published undefined and a stored
-    // bright spawned harnesses with the dark COLORFGBG hint.
-    const op = settingsOpOk(withTheme("bright"));
-    expect(themePublishDecision(op)).toEqual({
-      kind: "publish",
-      preference: "bright",
-    });
-    expect(
-      colorFgBgFor(
-        resolveThemeMode(
-          (themePublishDecision(op) as { preference: string }).preference,
-          true,
-        ),
-      ),
-    ).toBe("0;15");
-  });
-
-  it("leaves the resolved theme alone when the op failed", () => {
-    expect(themePublishDecision(settingsOpFail("validation", "nope"))).toEqual({
-      kind: "leave",
-    });
+describe("the theme where seats spawn", () => {
+  it("a stored bright gives a light COLORFGBG hint, and an OS flip re-resolves system", () => {
+    setThemePreference("bright");
+    expect(colorFgBgFor(currentThemeMode())).toBe("0;15");
+    setThemePreference("system");
+    setSystemPrefersDark(true);
+    expect(currentThemeMode()).toBe("dark");
+    setSystemPrefersDark(false);
+    expect(currentThemeMode()).toBe("bright");
   });
 });

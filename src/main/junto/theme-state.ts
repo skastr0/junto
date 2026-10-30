@@ -31,8 +31,15 @@ let preference: string | undefined;
 
 const listeners = new Set<(mode: ThemeMode) => void>();
 
+/**
+ * The OS reading once main has said it. Before that, main's own `nativeTheme`
+ * is read; a process without one stays on the dark default.
+ */
+let systemDark: boolean | undefined;
+
 /** OS reading — consulted only to resolve the "system" preference. */
 const systemPrefersDark = (): boolean => {
+  if (systemDark !== undefined) return systemDark;
   try {
     // Lazy require so this module stays importable outside Electron main
     // (unit tests, CLI tooling).
@@ -66,6 +73,15 @@ export const currentThemeMode = (): ThemeMode => current;
 /** Record the operator's stored preference (`dark` | `bright` | `system`). */
 export const setThemePreference = (next: string | undefined): void => {
   preference = next;
+  recompute();
+};
+
+/**
+ * Record the OS reading main sees. A utility process has no `nativeTheme`, so
+ * the core is told; main's own reading is the default until it is.
+ */
+export const setSystemPrefersDark = (dark: boolean): void => {
+  systemDark = dark;
   recompute();
 };
 

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { IPC_CHANNELS } from "@shared/ipc";
 import type { HostsDiscoverPeersResult, HostsOpResult, HostsTestResult } from "@shared/ipc";
 import { core } from "../../core-process/main-client";
-import { MACHINE_PROGRESS, type MachineProgressPushed } from "../../core-process/ops/hosts-ipc";
+import { MACHINE_PROGRESS, type MachineProgressPushed } from "../../core-process/channels";
 import { subscribe as subscribeCore } from "../../core-process/push";
 import {
   HOST_OPERATION_ADMISSIONS,

@@ -1,23 +1,25 @@
+/**
+ * The window's settings channels. Every answer is a core operation
+ * (`core-process/ops/ipc-settings.ts`), already masked for the renderer; main
+ * keeps what is Electron's: the interface size, which is the window's zoom
+ * factor, the login item, the save dialog of a backup export, and the OS
+ * appearance reading, which this process alone can see.
+ *
+ * The stored settings reach this process's own runtime through the core:
+ * `settings.apply` sets the theme preference and the tool directories where
+ * seats are spawned (`core-process/ops/settings-apply.ts`), so main holds no
+ * copy that could disagree.
+ */
 import type { IpcMain, SaveDialogOptions } from "electron";
 import { app, BrowserWindow, dialog, nativeTheme } from "electron";
 import { IPC_CHANNELS } from "@shared/ipc";
-import { refreshThemeFromSystem, setThemePreference } from "../theme-state";
-import { themePublishDecision } from "./theme-publish";
-import { setInterfaceScale } from "../interface-scale";
-import {
-  interfaceScaleOf,
-  redactProvidersForIpc,
-  type Settings,
-  type SettingsOpResult,
-} from "@shared/settings";
-import { setConfiguredToolDirectories } from "../adapters/exec";
+import { interfaceScaleOf, redactProvidersForIpc, type Settings } from "@shared/settings";
 import { askOnEveryCore } from "../../core-process/every-core";
 import { core } from "../../core-process/main-client";
-import { SETTINGS_CHANGED } from "../../core-process/ops/main-index";
+import { SETTINGS_CHANGED } from "../../core-process/channels";
 import { subscribe as subscribeCore } from "../../core-process/push";
-import {
-  createStartupProvider,
-} from "../login-item";
+import { setInterfaceScale } from "../interface-scale";
+import { createStartupProvider } from "../login-item";
 import {
   createStateRecoveryIpcHandlers,
   type StateRecoveryDestinationChoice,
@@ -28,48 +30,22 @@ export const registerSettingsIpc = (
   broadcast: (channel: string, payload: unknown) => void,
 ): void => {
   const startupProvider = createStartupProvider(app);
-  /**
-   * Feed main's theme state. Main owns the resolved theme for the whole app —
-   * every canvas, rendered or not, and every seat spawned with no surface — so
-   * the stored preference has to reach it whenever it loads or changes.
-   */
-  const publishThemePreference = (settings: Settings): void => {
-    setThemePreference(settings.appearance.theme);
-  };
   /** The interface size is main's to apply: it is the window's zoom factor. */
   const publishInterfaceScale = (settings: Settings): void => {
     setInterfaceScale(interfaceScaleOf(settings));
   };
-  const publishToolDirectories = (settings: Settings): void => {
-    setConfiguredToolDirectories(settings.advanced.toolDirectories ?? []);
-  };
-  /** Same publish, from an IPC result. See `themePublishDecision`. */
-  const publishThemeFromOp = (op: SettingsOpResult): void => {
-    const decision = themePublishDecision(op);
-    if (decision.kind === "leave") return;
-    setThemePreference(decision.preference);
-  };
-  const publishToolDirectoriesFromOp = (op: SettingsOpResult): void => {
-    if (op.settings === undefined) return;
-    publishToolDirectories(op.settings);
-  };
-  // Only matters while the preference is "system"; harmless otherwise.
-  nativeTheme.on("updated", () => refreshThemeFromSystem());
+  /** What this process's runtime needs, applied where it runs, with the OS reading only main sees. */
+  const applyToCore = (): Promise<void> =>
+    core.call("settings.apply", { systemPrefersDark: nativeTheme.shouldUseDarkColors }).catch(() => undefined);
 
   const stateRecovery = createStateRecoveryIpcHandlers({
     listBackups: () => core.call("settings.backups", {}),
     exportBackup: (id, destination) => core.call("settings.backupExport", { id, destination }),
   });
   // Every answer comes from the core already masked for the renderer; main
-  // publishes its own part of it (theme, tool directories) on the way out.
-  const published = (op: SettingsOpResult): SettingsOpResult => {
-    publishThemeFromOp(op);
-    publishToolDirectoriesFromOp(op);
-    return op;
-  };
-  ipcMain.handle(IPC_CHANNELS.settingsGet, () => core.call("settings.get", {}).then(published));
-  ipcMain.handle(IPC_CHANNELS.settingsPatch, (_event, patch: unknown) =>
-    core.call("settings.patch", { patch }).then(published));
+  // publishes its own part of it on the way out.
+  ipcMain.handle(IPC_CHANNELS.settingsGet, () => core.call("settings.get", {}));
+  ipcMain.handle(IPC_CHANNELS.settingsPatch, (_event, patch: unknown) => core.call("settings.patch", { patch }));
   // Supervision has its own protected preference command.
   ipcMain.handle(IPC_CHANNELS.settingsSetMachinePreferences, (_event, machine: unknown) =>
     core.call("settings.setMachinePreferences", { machine }));
@@ -85,10 +61,7 @@ export const registerSettingsIpc = (
     core.call("settings.machineCacheWindowsWrite", { input }));
 
   ipcMain.handle(IPC_CHANNELS.settingsReset, (_event, section?: unknown) =>
-    core.call("settings.reset", { section }).then((op) => {
-      publishToolDirectoriesFromOp(op);
-      return op;
-    }));
+    core.call("settings.reset", { section }));
 
   ipcMain.handle(IPC_CHANNELS.loginItemGet, () => startupProvider.get());
   ipcMain.handle(IPC_CHANNELS.loginItemSet, (_event, openAtLogin: unknown) =>
@@ -136,15 +109,21 @@ export const registerSettingsIpc = (
     },
   );
 
+  // Only matters while the preference is "system"; harmless otherwise.
+  nativeTheme.on("updated", () => void applyToCore());
+
   // The settings as they stand, then every change, arrive in order on one
-  // push. The first gives main the theme before any renderer exists, so a seat
-  // woken early is not spawned against the pre-settings default.
+  // push. The first gives the window its interface size before any renderer
+  // exists, so a seat woken early is not spawned against the pre-settings
+  // default.
   subscribeCore(SETTINGS_CHANGED, (payload) => {
     const next = payload as Settings;
-    publishThemePreference(next);
     publishInterfaceScale(next);
-    publishToolDirectories(next);
     broadcast(IPC_CHANNELS.settingsChanged, redactProvidersForIpc(next));
+    void applyToCore();
   });
   askOnEveryCore("settings.watch", () => core.call("settings.watch", {}));
+  // A core that just started has applied no settings yet: this process's
+  // runtime reads them before any seat is woken.
+  askOnEveryCore("settings.apply", () => applyToCore());
 };
