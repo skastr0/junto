@@ -265,9 +265,9 @@ export const validateMacOSRuntimePolicy = (
       "macOS runtime policy must expose only empty and Electron JIT/audio profiles",
     );
   }
-  if (value.machO.length !== 20) {
+  if (value.machO.length !== 21) {
     throw new Error(
-      `macOS runtime policy must name exactly 20 Mach-O objects, got ${value.machO.length}`,
+      `macOS runtime policy must name exactly 21 Mach-O objects, got ${value.machO.length}`,
     );
   }
 
@@ -307,6 +307,7 @@ export const validateMacOSRuntimePolicy = (
 
   for (const cliPath of [
     "Contents/Resources/bin/junto",
+    "Contents/Resources/bin/junto-native",
   ] as const) {
     const cli = value.machO.find(
       (entry) => isRecord(entry) && entry.path === cliPath,
@@ -584,6 +585,22 @@ const requireRegularFile = async (filePath: string): Promise<void> => {
   const metadata = await stat(filePath);
   if (!metadata.isFile() || metadata.size < 1) {
     throw new Error(`required packaged file is missing or empty: ${filePath}`);
+  }
+};
+
+/**
+ * The native junto CLI (0.12, N1) rides in the app called by nothing until
+ * N7. Its version is stamped at build; one that does not answer the app's
+ * own version was built without the stamp.
+ */
+const auditNativeCli = async (binPath: string, plist: unknown): Promise<void> => {
+  const nativeCliPath = path.join(binPath, "junto-native");
+  await requireExecutable(nativeCliPath);
+  const version = isRecord(plist) ? plist.CFBundleShortVersionString : undefined;
+  if (typeof version !== "string") throw new Error("Info.plist has no CFBundleShortVersionString");
+  const answer = runFixedCommand(nativeCliPath, ["--version"]).trim();
+  if (answer !== `junto v${version}`) {
+    throw new Error(`packaged junto-native answers "${answer}", want "junto v${version}"`);
   }
 };
 
@@ -1035,6 +1052,7 @@ export const auditPackagedApp = async (
   } catch {
     throw new Error("plutil returned invalid JSON for Info.plist");
   }
+  await auditNativeCli(binPath, plist);
   validateInfoPlist(
     plist,
     hashAsarHeaderString(getRawHeader(appAsarPath).headerString),
@@ -1071,6 +1089,7 @@ export const auditSourcePackagedApp = async (requestedPath: string) => {
     "-convert", "json", "-o", "-", path.join(appPath, "Contents", "Info.plist"),
   ]));
   validateInfoPlist(plist, hashAsarHeaderString(getRawHeader(asarPath).headerString));
+  await auditNativeCli(path.join(appPath, "Contents", "Resources", "bin"), plist);
   const fuses = validateFuseWire(await getCurrentFuseWire(appPath));
   const objects = await enumerateMachOPaths(appPath);
   validateMachOInventory(objects);

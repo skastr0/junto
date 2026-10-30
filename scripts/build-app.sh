@@ -166,6 +166,18 @@ printf 'junto: building fresh package runtimes …\n'
 "$BUN_EXECUTABLE" "$SCRIPT_DIR/lint-overlay.ts" --bundle
 printf 'junto: standalone CLI → dist/junto …\n'
 "$BUN_EXECUTABLE" "$SCRIPT_DIR/build-standalone-cli.ts" junto
+if [[ "$TARGET" == "mac" ]]; then
+  # The native CLI (0.12, N1), dormant in the app until N7: one step, its own error.
+  printf 'junto: native CLI → dist/native/aarch64-apple-darwin/junto …\n'
+  if ! command -v cargo >/dev/null 2>&1; then
+    printf 'junto: error: native CLI needs cargo; install rustup, and native/cli/rust-toolchain.toml pins 1.98.1\n' >&2
+    exit 1
+  fi
+  if ! "$BUN_EXECUTABLE" "$SCRIPT_DIR/build-native-cli.ts" --target aarch64-apple-darwin; then
+    printf 'junto: error: native CLI build failed (native/cli, cargo build --locked --release); see the cargo output above\n' >&2
+    exit 1
+  fi
+fi
 if [[ "$COMPILE_ONLY" -eq 1 ]]; then
   printf 'junto: compile-only done (fresh runtime cohort + standalone CLI). Skip packaging.\n'
   exit 0
