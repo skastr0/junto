@@ -210,7 +210,26 @@ for (const mode of ["dark", "bright"] as const) {
     console.log(`  ${mode} ${tone}-fg on wash: ${worst.toFixed(2)} (min ${FLOOR}) ${mark}`);
   }
 }
+// Threads (0.11.6): the unread count is ground words on a filled amber-fg pill
+// at 10px, so it holds the text floor; a selected row is drawn by a full 1px
+// amber-fg border on raise-2 and holds the 3 to 1 floor for a non-text mark.
+// The mark form, amber, failed the pill in bright at 3.05.
+const NON_TEXT_FLOOR = 3;
+const THREADS: ReadonlyArray<readonly [string, string, string, number]> = [
+  ["unread count, ground on amber-fg", "ground", "amber-fg", FLOOR],
+  ["selected row border, amber-fg on raise-2", "amber-fg", "raise-2", NON_TEXT_FLOOR],
+];
+console.log("\nthreads report:");
+for (const mode of ["dark", "bright"] as const) {
+  const t = themeRuntime(mode);
+  for (const [label, fg, bg, min] of THREADS) {
+    const ratio = contrastRatio(t[fg]!, t[bg]!);
+    const mark = ratio >= min ? "ok " : "FAIL";
+    if (ratio < min) unreadable = true;
+    console.log(`  ${mode} ${label}: ${ratio.toFixed(2)} (min ${min}) ${mark}`);
+  }
+}
 if (unreadable) {
-  console.error(`\ndim and faint, the label colour words, and the chip tone words must reach ${FLOOR} to 1 in every theme. Raise the token, do not lower the floor.`);
+  console.error(`\ndim and faint, the label colour words, the chip tone words and the threads unread count must reach ${FLOOR} to 1 in every theme, and the selected thread border ${NON_TEXT_FLOOR} to 1. Raise the token, do not lower the floor.`);
   process.exit(1);
 }
