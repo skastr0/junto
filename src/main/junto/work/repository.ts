@@ -1586,17 +1586,28 @@ const readCompanionMail = Effect.fn("work.mail.companion")(function* (
   requestedLimit: number,
 ): Effect.fn.Return<ReadonlyArray<{ readonly nodeId: string; readonly message: MessageValue }>, WorkSqlFailure> {
   const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(200, Math.trunc(requestedLimit))) : WORK_MAIL_PAGE_SIZE;
+  // The seat's own mailbox and what it sent into the others, each one index
+  // search, bounded and newest first, then merged. As one OR it walked the
+  // canvas's mail. A mail to itself sits in its own mailbox, so the sent
+  // side leaves that mailbox out and nothing is listed twice.
+  const columns = `mail.node_id,mail.message_id,mail.role,mail.parts_json,
+      mail.task_id,mail.context_id,mail.reference_task_ids_json,mail.metadata_json,
+      (length(mail.message_id)=26 AND mail.message_id NOT GLOB '*[^0-9A-HJKMNP-TV-Z]*') AS ulid`;
+  const seated = "JOIN seats AS seat ON seat.canvas_name=mail.canvas_name AND seat.id=mail.node_id";
   const rows = yield* SqlSchema.findAll({
     Request: WorkSqlBindings,
     Result: Schema.Struct({ ...MessageRowSchema.fields, node_id: Schema.String }),
-    execute: (bindings) => reader.unsafe(`SELECT mail.node_id,mail.message_id,mail.role,mail.parts_json,
-      mail.task_id,mail.context_id,mail.reference_task_ids_json,mail.metadata_json
-      FROM work_messages AS mail JOIN seats AS seat ON seat.canvas_name=mail.canvas_name AND seat.id=mail.node_id
-      WHERE mail.canvas_name=? AND mail.role='user'
-        AND (mail.node_id=? OR json_extract(mail.metadata_json,'$.senderNodeId')=?)
-      ORDER BY (length(mail.message_id)=26 AND mail.message_id NOT GLOB '*[^0-9A-HJKMNP-TV-Z]*') DESC,
-        mail.message_id DESC,mail.node_id LIMIT ?`, bindings),
-  })([canvasName, nodeId, nodeId, limit]);
+    execute: (bindings) => reader.unsafe(`SELECT node_id,message_id,role,parts_json,
+      task_id,context_id,reference_task_ids_json,metadata_json
+      FROM (SELECT * FROM (SELECT ${columns} FROM work_messages AS mail INDEXED BY work_messages_inbox ${seated}
+          WHERE mail.canvas_name=? AND mail.node_id=? AND mail.role='user'
+          ORDER BY ulid DESC,mail.message_id DESC LIMIT ?)
+        UNION ALL SELECT * FROM (SELECT ${columns} FROM work_messages AS mail INDEXED BY work_messages_sender ${seated}
+          WHERE mail.canvas_name=? AND json_extract(mail.metadata_json,'$.senderNodeId')=? AND mail.node_id<>?
+            AND mail.role='user'
+          ORDER BY ulid DESC,mail.message_id DESC LIMIT ?))
+      ORDER BY ulid DESC,message_id DESC,node_id LIMIT ?`, bindings),
+  })([canvasName, nodeId, limit, canvasName, nodeId, nodeId, limit, limit]);
   return yield* mailRowsWithReceipts(reader, canvasName, rows);
 });
 
