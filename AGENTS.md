@@ -437,12 +437,6 @@ phase, and attention/occupancy are separate planes.
 - **PR test:** no ordinary work capability without reach (resource nodes) or a connected edge (seats, pages), a matching port, and a live generation credential.
 - **Full doctrine:** [`docs/architecture-canvas-physics.md`](docs/architecture-canvas-physics.md).
 
-## Effect law: fix forward
-
-**New and changed code in Junto is written as Effects,** outside React, which owns its own runtime, and the true edges that require a promise or a callback (an `ipcMain.handle` body, a port listener, a Node or Electron API).
-Failures are typed errors (`Schema.TaggedError`), never `throw` or `try`/`catch`. Waiting is `Deferred`, `Effect.timeout` and `Schedule`, never `new Promise` or `async`. An edge is thin: it runs an Effect and hands over the result.
-This is fix forward. Existing code is converted only when it is being changed anyway: no conversion sweeps, and no release waits on one.
-
 ## Discipline
 
 - `~/.junto/state/junto.db` is the only **product** state store. Do not add
