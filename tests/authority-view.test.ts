@@ -1,12 +1,17 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  AUTHORITY_LIST_WAITING,
+  AuthorityListArgs,
+  AuthorityListData,
   AuthorityRead,
   AuthorityStatusData,
   authorityAloneWarning,
   authorityBannerOf,
+  authorityListOf,
   authorityMachineLine,
   authorityPairOf,
+  authorityQueueReason,
   authorityStatusOf,
   authorityViewOf,
   authorityWaitReason,
@@ -237,5 +242,54 @@ describe("status", () => {
     const decoded = Schema.decodeUnknownSync(AuthorityRead)(read());
     expect(decoded.canvas).toBe("factory");
     expect(decoded.members.list).toEqual([mac.installationId, mini.installationId]);
+  });
+});
+
+describe("the queued reason", () => {
+  it("names the listed machines and their states, compactly", () => {
+    const view = authorityViewOf(read(), [mac, mini]);
+    expect(authorityQueueReason(view, clock)).toBe("no authority: this machine, Mac mini asleep since 01:12");
+  });
+
+  it("says nothing while an authority is reachable", () => {
+    const view = authorityViewOf(read({ authorityReachable: true, canCommit: true }), [mac, mini]);
+    expect(authorityQueueReason(view, clock)).toBeUndefined();
+  });
+
+  it("keeps a reachable machine that is not taking changes in the list", () => {
+    const reachable: AuthorityMachineFacts = { ...mini, reach: "reachable", since: null };
+    const view = authorityViewOf(read(), [mac, reachable]);
+    expect(authorityQueueReason(view, clock)).toBe("no authority: this machine, Mac mini reachable but not taking changes");
+  });
+});
+
+describe("the list edit", () => {
+  it("takes one to 32 machine names, never the same one twice", () => {
+    expect(Schema.decodeUnknownSync(AuthorityListArgs)({ canvas: "factory", order: ["macbook"] }).order).toEqual(["macbook"]);
+    expect(() => Schema.decodeUnknownSync(AuthorityListArgs)({ canvas: "factory", order: [] })).toThrow();
+    expect(() => Schema.decodeUnknownSync(AuthorityListArgs)({ canvas: "factory", order: ["macbook", "macbook"] })).toThrow();
+  });
+
+  it("answers what was named and what rules now", () => {
+    const view = authorityViewOf(read({ members: { list: [mac.installationId, mini.installationId] } }), [mac, mini]);
+    const data = authorityListOf({ view, named: [mac, mini] });
+    expect(data).toEqual({
+      canvas: "factory",
+      named: [mac, mini],
+      committed: view.list,
+      pending: false,
+    });
+    expect(() => Schema.decodeUnknownSync(AuthorityListData)(data)).not.toThrow();
+  });
+
+  it("says a joint entry has not committed yet", () => {
+    const view = authorityViewOf(
+      read({ pendingList: { list: [mac.installationId, mini.installationId, vps.installationId], old: [mac.installationId, mini.installationId] } }),
+      [mac, mini, vps],
+    );
+    const data = authorityListOf({ view, named: [mac, mini] });
+    expect(data.pending).toBe(true);
+    expect(data.waiting).toBe(AUTHORITY_LIST_WAITING);
+    expect(data.committed.map((machine) => machine.label)).toEqual(["MacBook", "Mac mini"]);
   });
 });

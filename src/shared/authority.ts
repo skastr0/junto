@@ -239,6 +239,22 @@ export const authorityWaitReason = (
   return `No machine can take changes for ${view.canvas} right now. This write waits and is applied when one is back.${because}`;
 };
 
+/**
+ * The compact reason a queued write carries while no machine can rule it:
+ * "no authority: MacBook asleep since 01:12, Mac mini unreachable". It rides
+ * the write's own queued message, so it names machines without repeating the
+ * sentence the banner shows. Undefined while an authority is reachable: that
+ * write waits on the authority, not on a machine coming back.
+ */
+export const authorityQueueReason = (
+  view: AuthorityView,
+  when: (at: number) => string,
+): string | undefined => {
+  if (view.authorityReachable) return undefined;
+  const states = namedStates(view, when);
+  return states === "" ? "no authority" : `no authority: ${states}`;
+};
+
 export type AuthorityBanner = {
   readonly kind: "read-only" | "waiting";
   readonly title: string;
@@ -378,3 +394,55 @@ export const authorityPairOf = (view: AuthorityView): { readonly other: Authorit
   if (view.list.length !== 2) return { other: null };
   return { other: view.list.find((machine) => machine.installationId !== view.self.installationId) ?? null };
 };
+
+// ---------------------------------------------------------------------------
+// `junto authority list`
+// ---------------------------------------------------------------------------
+
+/**
+ * The operator's ordered list of machines for a canvas, by machine name: the
+ * first is the one that rules while it is reachable. The edit is a joint
+ * entry, so it commits only once a quorum of the old list and the new one
+ * holds it; until then the old list still rules.
+ */
+export const AuthorityListArgs = Schema.Struct({
+  canvas: Schema.String,
+  order: Schema.Array(Schema.String).pipe(
+    Schema.check(Schema.isMinLength(1)),
+    Schema.check(Schema.isMaxLength(32)),
+    Schema.check(Schema.makeFilter((names: ReadonlyArray<string>) =>
+      new Set(names).size === names.length ? undefined : "a machine appears twice in the list",
+    )),
+  ),
+});
+export type AuthorityListArgs = typeof AuthorityListArgs.Type;
+
+/** What `junto authority list` answers: what was named, and what rules now. */
+export const AuthorityListData = Schema.Struct({
+  canvas: Schema.String,
+  /** The machines named, in the operator's order, as this machine resolves them. */
+  named: Schema.Array(AuthorityMachineFacts),
+  /** The list as committed, in its order; this one rules until the joint entry commits. */
+  committed: Schema.Array(AuthorityMachineView),
+  /** True while the joint entry has not committed: the old list still rules. */
+  pending: Schema.Boolean,
+  /** Why the new list is not in force yet, when it is not. */
+  waiting: Schema.optionalKey(Schema.String),
+});
+export type AuthorityListData = typeof AuthorityListData.Type;
+
+/** The one sentence a pending list edit says, so every surface says the same. */
+export const AUTHORITY_LIST_WAITING =
+  "The new list waits for a quorum of the old list and the new one, so both machines must hold it before it rules.";
+
+/** The list command's data, from the view after the edit was proposed. */
+export const authorityListOf = (input: {
+  readonly view: AuthorityView;
+  readonly named: ReadonlyArray<AuthorityMachineFacts>;
+}): AuthorityListData => ({
+  canvas: input.view.canvas,
+  named: input.named,
+  committed: input.view.list,
+  pending: input.view.pending !== null,
+  ...(input.view.pending === null ? {} : { waiting: AUTHORITY_LIST_WAITING }),
+});
