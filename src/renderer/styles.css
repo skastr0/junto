@@ -2373,7 +2373,9 @@ ol.note-md__list > .note-md__li::before {
   display: grid;
   gap: 3px;
   padding: 8px;
-  border-left: 2px solid color-mix(in srgb, var(--color-cyan) 55%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-cyan) 30%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--color-cyan) 8%, transparent);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
@@ -2741,7 +2743,7 @@ button.actor-ledger__item-row:focus-visible {
   align-items: center;
   gap: 14px;
   padding: 12px 16px;
-  border-bottom: 1px solid color-mix(in oklab, var(--color-amber) 35%, transparent);
+  border-bottom: 1px solid var(--color-stroke);
   background: color-mix(in oklab, var(--color-amber) 16%, transparent);
   color: var(--color-ink);
 }
