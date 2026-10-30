@@ -11,7 +11,7 @@
  */
 import type { IpcMain, WebContents } from "electron";
 import { IPC_CHANNELS } from "@shared/ipc";
-import type { OperatorHoldReports } from "../../core-process/ops/seat-holds";
+import type { OperatorHoldReports } from "./operator-holds";
 
 const BINDINGS_MAX = 1_024;
 const isBindingId = (value: unknown): value is string =>

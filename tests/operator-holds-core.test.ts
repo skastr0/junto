@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { runCoreOp, type CoreClient } from "../src/main/core-process/client";
-import { coreOperatorHolds } from "../src/main/core-process/ops/seat-holds";
+import { coreOperatorHolds } from "../src/main/core-process/main-side/seat-holds";
 import "../src/main/core-process/ops/seat-holds";
 import { operatorHolds, subscribeOperatorTyped } from "../src/main/junto/term/operator-holds";
 import { registerOperatorHoldsIpc } from "../src/main/junto/term/operator-holds-ipc";
@@ -118,8 +118,12 @@ describe("the operator's holds in the core", () => {
     const ipc = source("src/main/junto/ipc.ts");
     expect(ipc).toContain("coreOperatorHolds(core)");
     expect(ipc).not.toContain('from "./term/operator-holds"');
-    // The window's half imports no map, and the map's module registers no IPC.
-    expect(source("src/main/junto/term/operator-holds-ipc.ts")).not.toContain("makeOperatorHolds");
+    // Main's half imports the shape of a report, never the map or its module.
+    const port = source("src/main/core-process/main-side/seat-holds.ts");
+    expect(port).toContain("import type { OperatorHoldReports }");
+    expect(port).not.toContain("liveOperatorHolds");
+    // The map stays in the core, where its readers are, and registers no IPC.
+    expect(source("src/main/core-process/ops/seat-holds.ts")).toContain("liveOperatorHolds");
     expect(source("src/main/junto/term/operator-holds.ts")).not.toContain("IpcMain");
   });
 });

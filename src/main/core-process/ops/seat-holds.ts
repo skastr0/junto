@@ -16,17 +16,6 @@
 import { Effect } from "effect";
 import { liveOperatorHolds } from "../../junto/term/operator-holds";
 import { coreOps, type CoreOp } from "../ops";
-import type { CoreClient } from "../client";
-
-/** What the window sends, and all main knows of the holds. */
-export type OperatorHoldReports = {
-  /** The bindings one window shows now, replacing what it said before. */
-  readonly surfaces: (windowId: number, bindingIds: ReadonlyArray<string>) => void | Promise<unknown>;
-  /** The operator typed into a binding's terminal in one window. */
-  readonly typed: (windowId: number, bindingId: string) => void | Promise<unknown>;
-  /** The window closed or reloaded: every hold it had goes. */
-  readonly dropWindow: (windowId: number) => void | Promise<unknown>;
-};
 
 declare module "../ops" {
   interface CoreOps {
@@ -49,11 +38,4 @@ coreOps({
     Effect.sync(() => {
       liveOperatorHolds.dropWindow(windowId);
     }),
-});
-
-/** Main's half: the window's reports, sent to the core that keeps them. */
-export const coreOperatorHolds = (core: CoreClient): OperatorHoldReports => ({
-  surfaces: (windowId, bindingIds) => core.call("seats.holds.surfaces", { windowId, bindingIds }),
-  typed: (windowId, bindingId) => core.call("seats.holds.typed", { windowId, bindingId }),
-  dropWindow: (windowId) => core.call("seats.holds.dropWindow", { windowId }),
 });

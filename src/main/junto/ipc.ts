@@ -92,7 +92,7 @@ import {
   isLiveClaudeResumeSummaryChoice,
 } from "./term/drive/claude-startup";
 import { registerOperatorHoldsIpc } from "./term/operator-holds-ipc";
-import { coreOperatorHolds } from "../core-process/ops/seat-holds";
+import { coreOperatorHolds } from "../core-process/main-side/seat-holds";
 import { removeRegionSecret, saveRegionSecret } from "./region-env/secret-ipc";
 import { regionEnvReport } from "./region-env/report-ipc";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";

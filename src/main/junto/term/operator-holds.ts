@@ -64,6 +64,9 @@ export type OperatorHolds = {
   readonly subscribe: (listener: (change: OperatorHoldChange) => void) => () => void;
 };
 
+/** What the window reports, and all main knows of the holds: they are kept here. */
+export type OperatorHoldReports = Pick<OperatorHolds, "surfaces" | "typed" | "dropWindow">;
+
 export const makeOperatorHolds = (clock: () => number = Date.now): OperatorHolds => {
   const windows = new Map<number, WindowHolds>();
   const listeners = new Set<(change: OperatorHoldChange) => void>();
