@@ -33,7 +33,10 @@
  *   phase and `driftTicks` for clock rates, counted from the send, so it
  *   lapses before a follower that heard that append can stand. A gap of more
  *   than two ticks (a stalled process, a sleeping Mac) ends it: only answers
- *   to appends sent after the gap make the authority fresh again.
+ *   to appends sent after the gap make the authority fresh again. The host
+ *   counts two clocks: the lease side may over-count (a wall clock stepped
+ *   forward ends a lease early), the election side never does (a follower
+ *   that over-counted would stand inside its authority's lease).
  */
 
 export type MachineId = string;
@@ -90,7 +93,7 @@ export type ConsensusOptions = {
   readonly heartbeatTicks: number;
   /** Extra ticks added to each election timeout, so machines that lost the same authority do not stand together; 0 by default. The simulation seeds it. */
   readonly jitter?: () => number;
-  /** Ticks the lease gives up for machines whose clocks run apart; 1 by default. */
+  /** Ticks the lease gives up for machines whose clocks run apart; `ceil(electionTicks * RATE_SPREAD)` by default. */
   readonly driftTicks?: number;
   /** Entries in one append at most. */
   readonly maxEntriesPerAppend?: number;
@@ -119,6 +122,9 @@ export type Status = {
   /** This machine takes a proposal now and can commit it: a fresh authority not handing over. The one definition. */
   readonly canCommit: boolean;
 };
+
+/** How far apart machines' tick rates may run: the lease gives up `ceil(electionTicks * RATE_SPREAD)` ticks for it. */
+export const RATE_SPREAD = 0.05;
 
 /** How far `alone` moves the term: past any term an election reaches, so its term is never shared. */
 export const ALONE_TERM_STRIDE = 2 ** 20;
@@ -210,7 +216,8 @@ export class ConsensusNode {
     this.heartbeatTicks = options.heartbeatTicks;
     this.jitter = options.jitter ?? (() => 0);
     this.maxEntries = options.maxEntriesPerAppend ?? 64;
-    this.leaseTicks = options.electionTicks - 1 - (options.driftTicks ?? 1);
+    this.leaseTicks = options.electionTicks - 1 - (options.driftTicks ?? Math.ceil(options.electionTicks * RATE_SPREAD - 1e-9));
+    if (this.leaseTicks < 1) throw new Error(`an election timeout of ${options.electionTicks} ticks leaves no lease`);
     this.term = options.hardState.term;
     this.votedFor = options.hardState.votedFor;
     this.log = [...options.log];
@@ -285,24 +292,28 @@ export class ConsensusNode {
   // ---- inputs --------------------------------------------------------------
 
   tick(): void {
-    this.elapse(1);
+    this.elapse(1, 1);
   }
 
   /**
-   * `periods` ticks passed since the last call, as the host's clock counted
-   * them; a stall or a sleep is counted when it ends. More than two at once
-   * is a gap: answers to appends sent before it no longer make this authority
-   * fresh.
+   * Ticks passed since the last call, as the host's clocks counted them; a
+   * stall is counted when it ends. `lease` (the larger of the monotonic and
+   * wall clocks) runs the lease, heartbeats and a transfer: over-counting
+   * only ends a lease early. More than two at once is a gap: answers to
+   * appends sent before it no longer make this authority fresh. `election`
+   * (the monotonic clock alone) runs the wait before standing, which must
+   * never over-count: a follower that did would stand inside the lease.
    */
-  elapse(periods: number): void {
-    const ticks = Math.max(0, Math.floor(periods));
-    if (ticks === 0) return;
+  elapse(lease: number, election: number): void {
+    const ticks = Math.max(0, Math.floor(lease));
+    const waited = Math.max(0, Math.floor(election));
     if (ticks > 2) {
       this.freshFrom = this.ticks + 1;
       this.answeredAt.clear();
     }
     this.ticks += ticks;
     if (this.role === "leader") {
+      if (ticks === 0) return;
       this.heartbeatElapsed += ticks;
       if (this.heartbeatElapsed >= this.heartbeatTicks) {
         this.heartbeatElapsed = 0;
@@ -313,7 +324,8 @@ export class ConsensusNode {
       this.considerHandover();
       return;
     }
-    this.elapsed += ticks;
+    if (waited === 0) return;
+    this.elapsed += waited;
     if (this.standing() === undefined) return;
     if (this.elapsed >= this.timeout) this.preCampaign();
   }

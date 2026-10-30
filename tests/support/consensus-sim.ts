@@ -3,9 +3,10 @@
  * a seeded scheduler, a virtual clock, and a network that delays, drops,
  * duplicates and reorders, cuts machines apart and crashes them. Each
  * machine ticks on its own clock, at a rate within `DRIFT` of the others and
- * at its own phase, and can stall (a blocked event loop, a sleeping Mac):
- * it then ticks and reads nothing, and its host counts the periods it missed
- * when the stall ends, as the real tick clock does. Each machine
+ * at its own phase, and can stall (a blocked event loop): it then ticks and
+ * reads nothing, and its host counts the periods it missed when the stall
+ * ends, as the real tick clock does. Its wall clock can be stepped forward,
+ * which the host counts on the lease side only. Each machine
  * is driven exactly as the real driver is: drain `ready()`, persist, send,
  * apply. Every check below runs after every step, so a failure names the
  * tick and the seed that reproduce it.
@@ -18,6 +19,7 @@
  */
 import {
   ConsensusNode,
+  RATE_SPREAD,
   isListQuorum,
   isQuorum,
   type Entry,
@@ -53,8 +55,8 @@ export type Faults = {
 
 export const CALM: Faults = { drop: 0, duplicate: 0, maxDelay: 1 };
 
-/** How far apart machines' clock rates run: well inside the core's `driftTicks` of 1 over an election timeout of 10. */
-export const DRIFT = 0.05;
+/** How far apart machines' clock rates run: the spread the core's lease allows for. */
+export const DRIFT = RATE_SPREAD;
 
 type Stored = { hardState: HardState; log: Entry[] };
 
@@ -77,6 +79,8 @@ export class Cluster {
   private clocks = new Map<MachineId, { readonly rate: number; carried: number }>();
   /** Machines that read and tick nothing until `until`; `missed` is what their clock counted meanwhile. */
   readonly stalls = new Map<MachineId, { readonly until: number; missed: number }>();
+  /** Periods a machine's wall clock was stepped forward by, counted on its next tick. */
+  private wallSteps = new Map<MachineId, number>();
   private inflight: Array<{ readonly at: number; readonly seq: number; readonly message: Message }> = [];
   private seq = 0;
   private wasLeader = new Map<MachineId, number>();
@@ -134,6 +138,11 @@ export class Cluster {
   /** The machine's process stops for `ticks` of cluster time: no tick, no message read. */
   stall(id: MachineId, ticks: number): void {
     this.stalls.set(id, { until: this.now + ticks, missed: 0 });
+  }
+
+  /** The machine's wall clock jumps `periods` ahead (an NTP correction, a clock set by hand); its monotonic clock does not. */
+  stepWall(id: MachineId, periods: number): void {
+    this.wallSteps.set(id, (this.wallSteps.get(id) ?? 0) + periods);
   }
 
   /** Whole periods the machine's clock ran during one tick of cluster time. */
@@ -276,10 +285,12 @@ export class Cluster {
         if (this.now < stall.until) continue;
         // The stall ends: the host counts every period it missed, at once.
         this.stalls.delete(id);
-        this.nodes.get(id)?.elapse(stall.missed + periods);
-      } else {
-        this.nodes.get(id)?.elapse(periods);
       }
+      const monotonic = periods + (stall?.missed ?? 0);
+      // The lease side takes the larger of the monotonic and wall clocks; the election side the monotonic alone.
+      const wall = monotonic + (this.wallSteps.get(id) ?? 0);
+      this.wallSteps.delete(id);
+      this.nodes.get(id)?.elapse(Math.max(monotonic, wall), monotonic);
       this.drain(id);
     }
     // Delivery order is the scheduler's: due messages in a seeded shuffle, which reorders.

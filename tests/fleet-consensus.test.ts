@@ -188,6 +188,37 @@ describe("the wait before standing", () => {
   }, 120_000);
 });
 
+describe("a wall clock stepped forward", () => {
+  it("never makes a pair's fallback stand inside its authority's lease", () => {
+    for (let seed = 150; seed < 210; seed++) {
+      const cluster = new Cluster(seed, ["macbook", "mini"], ["macbook", "mini"]);
+      cluster.jitterTicks = 0;
+      cluster.stepsPerTick = 8;
+      const once = () => {
+        const fresh = [...cluster.nodes.values()].filter(node => !cluster.stalls.has(node.id) && node.status().fresh).map(node => node.id);
+        expect(fresh.length, `seed ${seed}, step ${cluster.now}: ${fresh.join(", ")}`).toBeLessThanOrEqual(1);
+      };
+      cluster.run(200 * 8, once);
+      for (let step = 0; step < 4; step++) {
+        const leader = cluster.leader();
+        const fallback = leader?.id === "macbook" ? "mini" : "macbook";
+        // Three election timeouts ahead, while the authority is inside its lease.
+        cluster.stepWall(fallback, 30);
+        cluster.run(cluster.rng.int(1, 60) * 8, once);
+        if (leader !== undefined) cluster.stepWall(leader.id, 30);
+        cluster.run(cluster.rng.int(20, 60) * 8, once);
+      }
+      expect(cluster.propose("after the steps"), `seed ${seed}`).toBeDefined();
+    }
+  }, 120_000);
+
+  it("refuses an election timeout that leaves no lease", () => {
+    const at = (electionTicks: number) => () => new ConsensusNode({ id: "mini", electionTicks, heartbeatTicks: 1, hardState: { term: 0, votedFor: null, commit: 0 }, log: [] });
+    expect(at(2)).toThrow(/no lease/);
+    expect(at(3)).not.toThrow();
+  });
+});
+
 describe("a gap in the authority's clock", () => {
   const pair = () => {
     const macbook = new ConsensusNode({
@@ -195,7 +226,7 @@ describe("a gap in the authority's clock", () => {
       log: [{ term: 1, index: 1, payload: { kind: "list", members: { list: ["macbook", "mini"] } } }],
     });
     // A pair's first machine stands after one timeout, and wins on the mini's pre-vote and vote.
-    macbook.elapse(10);
+    macbook.elapse(10, 10);
     for (let round = 0; round < 2; round++) {
       for (const message of macbook.ready().messages) {
         if (message.type === "pre-vote") macbook.step({ type: "pre-vote-reply", from: "mini", to: "macbook", term: message.term, granted: true });
@@ -215,12 +246,12 @@ describe("a gap in the authority's clock", () => {
   it("ends the lease: answers to appends sent before a gap of more than two ticks do not count, answers to one sent after do", () => {
     const macbook = pair();
     const before = macbook.ready().messages;
-    macbook.elapse(1);
+    macbook.elapse(1, 1);
     for (const message of before) if (message.type === "append") macbook.step({ type: "append-reply", from: "mini", to: "macbook", term: message.term, success: true, index: message.prevIndex + message.entries.length, at: message.at });
     expect(macbook.status()).toMatchObject({ role: "leader", fresh: true });
     const sentBefore = macbook.ready().messages;
     // Three ticks at once: well inside the lease by the count, but a gap.
-    macbook.elapse(3);
+    macbook.elapse(3, 3);
     expect(macbook.status().fresh).toBe(false);
     for (const message of sentBefore) if (message.type === "append") macbook.step({ type: "append-reply", from: "mini", to: "macbook", term: message.term, success: true, index: message.prevIndex + message.entries.length, at: message.at });
     expect(macbook.status().fresh).toBe(false);
@@ -232,7 +263,7 @@ describe("a gap in the authority's clock", () => {
     const macbook = pair();
     answer(macbook);
     expect(macbook.status().fresh).toBe(true);
-    macbook.elapse(2);
+    macbook.elapse(2, 2);
     expect(macbook.status().fresh).toBe(true);
   });
 });
