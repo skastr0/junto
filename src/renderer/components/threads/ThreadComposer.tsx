@@ -128,6 +128,7 @@ export function ThreadComposer({
           candidates={candidates}
           listLabel={(trigger) => (trigger === "@" ? `Seats connected to ${name}, and pages in reach` : `Tasks and artifacts in reach of ${name}`)}
           aria-label={mode === "new" ? `New thread to ${name}` : "Reply"}
+          placeholder={mode === "new" ? "Write the first line" : "Reply to the thread"}
           data-testid="thread-composer-input"
           onKeyDown={onKeyDown}
         />
