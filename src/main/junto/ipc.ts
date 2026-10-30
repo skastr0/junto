@@ -270,7 +270,7 @@ export const registerJuntoIpc = (): void => {
   registerSettingsIpc(privilegedIpc, broadcast);
   registerShellEnvironmentIpc(privilegedIpc, shellEnvironment, broadcast);
   registerReferencesIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
-  registerViewStateIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
+  registerViewStateIpc(privilegedIpc, broadcast);
   // The renderer's tasks and artifacts: main's stores, main's ruler (resource-ipc.ts).
   const resourcePorts = liveResourceIpcPorts((canvasName) =>
     Effect.tryPromise({

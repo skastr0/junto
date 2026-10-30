@@ -3,60 +3,35 @@
  * changed row, and a push of that write to every window as it lands. Machine
  * local; nothing here is journalled or sent to another machine.
  *
- * The write is decoded from the shared strict union before the store sees it.
- * A write that cannot be decoded, or a store failure, answers `{ ok: false }`
+ * Both handlers are core operations (core-process/ops/ipc-view-state.ts): the
+ * write is decoded from the shared strict union in the core, before the store
+ * sees it, and the core publishes the committed row, which main forwards. A
+ * write that cannot be decoded, or a store failure, answers `{ ok: false }`
  * and the renderer keeps its mirror as it was; a push is sent only after the
  * row committed.
  */
 import type { IpcMain } from "electron";
-import { Effect } from "effect";
 import { IPC_CHANNELS, type ViewStateApplyResult } from "@shared/ipc";
-import { decodeViewStateWrite, type ViewStateReload } from "@shared/view-state";
+import type { ViewStateReload } from "@shared/view-state";
+import { core } from "../../core-process/main-client";
+import { subscribe as onCorePush } from "../../core-process/push";
 import { subscribeViewStateChanges } from "./changes";
-import { ViewStateRepository, type ViewStatePersistenceError } from "./repository";
-
-export type ViewStateRun = <A, E>(effect: Effect.Effect<A, E, ViewStateRepository>) => Promise<A>;
 
 export const registerViewStateIpc = (
   ipc: Pick<IpcMain, "handle">,
   broadcast: (channel: string, payload: unknown) => void,
-  run: ViewStateRun,
 ): void => {
-  ipc.handle(IPC_CHANNELS.viewStateSnapshot, () =>
-    run(Effect.flatMap(ViewStateRepository, (store) => store.snapshot())),
-  );
+  ipc.handle(IPC_CHANNELS.viewStateSnapshot, () => core.call("ipc.viewState.snapshot", {}));
+
+  // The core publishes each committed write; every window reads it as it lands.
+  onCorePush(IPC_CHANNELS.viewStateChanged, (change) => broadcast(IPC_CHANNELS.viewStateChanged, change));
 
   // A node or canvas delete took rows in its transaction; every window reads again.
   subscribeViewStateChanges(() => {
     broadcast(IPC_CHANNELS.viewStateChanged, { area: "reload" } satisfies ViewStateReload);
   });
 
-  ipc.handle(IPC_CHANNELS.viewStateApply, (_event, raw: unknown) => {
-    const decoded = decodeViewStateWrite(raw);
-    if (decoded._tag === "Failure") {
-      return { ok: false, error: "this build does not read that view-state write" } satisfies ViewStateApplyResult;
-    }
-    const write = decoded.success;
-    return run(
-      Effect.flatMap(ViewStateRepository, (store) =>
-        store.write(write).pipe(
-          Effect.flatMap((written): Effect.Effect<ViewStateApplyResult> =>
-            written
-              ? Effect.sync(() => {
-                  // After the row's transaction committed, never before.
-                  broadcast(IPC_CHANNELS.viewStateChanged, write);
-                  return { ok: true } satisfies ViewStateApplyResult;
-                })
-              : Effect.succeed({
-                  ok: false,
-                  error: "the node this row belongs to is gone; the row was not kept",
-                } satisfies ViewStateApplyResult),
-          ),
-          Effect.catch((error: ViewStatePersistenceError) =>
-            Effect.succeed({ ok: false, error: error.message } satisfies ViewStateApplyResult),
-          ),
-        ),
-      ),
-    );
-  });
+  ipc.handle(IPC_CHANNELS.viewStateApply, (_event, raw: unknown): Promise<ViewStateApplyResult> =>
+    core.call("ipc.viewState.apply", { input: raw }),
+  );
 };
