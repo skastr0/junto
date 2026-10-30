@@ -63,10 +63,13 @@ describe("seat awareness product gate", () => {
     const textNode = source("src/renderer/components/nodes/TextNode.tsx");
     expect(textNode).toContain("const seatNode = seatAwarenessOn && (managedTerminal || isAgent);");
     expect(textNode).toContain("useSeatAwarenessOn()");
-    const ipc = source("src/main/junto/ipc.ts");
-    expect(ipc).toContain("if (!seatAwarenessPlane.isEnabled()) {");
-    // Settings changes reach main on the core push (the core holds settings).
-    expect(ipc).toContain("onCorePush(SETTINGS_CHANGED, (next) => applySeatAwareness(next as Settings));");
+    // The window side holds no seat-awareness read any more: f05329a81 moved
+    // the plane into the core. The same resolved predicate gates it there, off
+    // the core's own settings service rather than a push from main.
+    const live = source("src/main/junto/term/seat-awareness-live.ts");
+    expect(live).toContain("const on = resolveSeatAwarenessGate({");
+    expect(live).toContain("if (on === plane.isEnabled()) return;");
+    expect(live).toContain("yield* settings.get.pipe(");
     expect(source("src/renderer/lib/seat-awareness.ts")).toContain(
       "if (!seatAwarenessOnNow()) return;",
     );
