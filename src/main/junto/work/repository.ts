@@ -1611,10 +1611,18 @@ const readCompanionMail = Effect.fn("work.mail.companion")(function* (
   const rest = inbox.length >= limit ? [] : yield* select(`SELECT ${columns} FROM work_messages AS mail ${seated}
     WHERE mail.canvas_name=? AND mail.node_id=? AND NOT ${shaped} AND mail.role='user'
     ORDER BY mail.message_id DESC LIMIT ?`, [canvasName, nodeId, limit - inbox.length]);
-  const sent = yield* select(`SELECT ${columns} FROM work_messages AS mail INDEXED BY work_messages_sender ${seated}
+  // What it sent into the other mailboxes, the same way, by the sender's
+  // message-id index.
+  const sentUlids = yield* select(`SELECT ${columns} FROM work_messages AS mail INDEXED BY work_messages_sender_order ${seated}
+    WHERE mail.canvas_name=? AND json_extract(mail.metadata_json,'$.senderNodeId')=?
+      AND mail.message_id BETWEEN '00000000000000000000000000' AND 'ZZZZZZZZZZZZZZZZZZZZZZZZZZ'
+      AND ${shaped} AND mail.node_id<>? AND mail.role='user'
+    ORDER BY mail.message_id DESC LIMIT ?`, [canvasName, nodeId, nodeId, limit]);
+  const sentRest = sentUlids.length >= limit ? [] : yield* select(`SELECT ${columns} FROM work_messages AS mail INDEXED BY work_messages_sender ${seated}
     WHERE mail.canvas_name=? AND json_extract(mail.metadata_json,'$.senderNodeId')=? AND mail.node_id<>?
-      AND mail.role='user'
-    ORDER BY ulid DESC,mail.message_id DESC LIMIT ?`, [canvasName, nodeId, nodeId, limit]);
+      AND NOT ${shaped} AND mail.role='user'
+    ORDER BY mail.message_id DESC LIMIT ?`, [canvasName, nodeId, nodeId, limit - sentUlids.length]);
+  const sent = [...sentUlids, ...sentRest];
   // SQLite's order: ULIDs first, then ids and mailboxes as bytes.
   const bytes = (a: string, b: string): number => Buffer.compare(Buffer.from(a), Buffer.from(b));
   const rows = [...inbox, ...rest, ...sent]
