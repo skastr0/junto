@@ -20,12 +20,18 @@ Conditions, each a 12 s traced window (`e2e/scenarios/perf-terminal-baseline.spe
 
 - `scroll`: trackpad wheel at 120 Hz over the lead's terminal, nothing streams
 - `scroll-stream`: the same while the lead streams 12 KB/s
-- `type`: 60 presses of Shift+Z, one each 200 ms
+- `type`: a plain line typed into the lead, one key each 200 ms, nothing streams
+- `type-busy`: the same while the fifteen other seats stream 12 KB/s each
 - `watch`: no input while the lead streams 12 KB/s
+
+Every window also pings the app's work control socket at 20 Hz: the main
+process owns every PTY, so its event-loop stalls are added to every key and
+every echo.
 
 Headline metrics are frame cadence (frames presented per second, frame gap p95,
 frames over 16.7 ms) and renderer main-thread cost (busy ms per second, task
-p95, Paint ms per second), plus key-to-screen latency for `type`. Wheel latency
+p95, Paint ms per second), key to echo drawn for the typing conditions, and
+main-process ping p99. Wheel latency
 is reported but does not gate: it includes the rig's CDP input injection.
 
 Numbers only compare on the same machine. Each run waits for the one-minute

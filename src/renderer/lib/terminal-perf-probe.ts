@@ -16,6 +16,9 @@ export type TerminalPerfProbe = {
   readonly rows: () => number;
   /** xterm render passes since registration. */
   readonly renders: () => number;
+  /** performance.now() of the last parsed write (echo arrived) and the last render pass (echo drawn). */
+  readonly parsedAt: () => number;
+  readonly renderedAt: () => number;
 };
 
 type ProbeRegistry = Map<string, TerminalPerfProbe>;
@@ -34,8 +37,14 @@ export const registerTerminalPerfProbe = (
 ): (() => void) => {
   if (!PERF_ENABLED) return () => {};
   let renders = 0;
+  let parsedAt = 0;
+  let renderedAt = 0;
   const onRender = term.onRender(() => {
     renders += 1;
+    renderedAt = performance.now();
+  });
+  const onParsed = term.onWriteParsed(() => {
+    parsedAt = performance.now();
   });
   registry().set(key, {
     visible,
@@ -43,9 +52,12 @@ export const registerTerminalPerfProbe = (
     lines: () => term.buffer.active.length,
     rows: () => term.rows,
     renders: () => renders,
+    parsedAt: () => parsedAt,
+    renderedAt: () => renderedAt,
   });
   return () => {
     onRender.dispose();
+    onParsed.dispose();
     registry().delete(key);
   };
 };

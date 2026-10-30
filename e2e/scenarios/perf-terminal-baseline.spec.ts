@@ -11,10 +11,16 @@
  *
  *   scroll         trackpad wheel at 120 Hz, nothing streams
  *   scroll-stream  the same while the lead streams 12 KB/s
- *   type           60 presses of Shift+Z, one each 200 ms
+ *   type           plain text typed into the lead, one key each 200 ms, nothing streams
+ *   type-busy      the same while the fifteen other seats stream 12 KB/s each
  *   watch          no input while the lead streams 12 KB/s
+ *
+ * Every window also pings the app's work control socket at 20 Hz. The main
+ * process owns every PTY, so a key and its echo wait out whatever holds that
+ * process's event loop; the ping round trip measures exactly that wait.
  */
 import { spawnSync } from "node:child_process";
+import { createConnection } from "node:net";
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { loadavg } from "node:os";
 import { join } from "node:path";
@@ -24,9 +30,9 @@ import { seededHarnessBinDir } from "../harness/agent-harness-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelNote, modelRegion, modelSeat, modelWire } from "../harness/model";
 import type { Node as ModelNode, Wire as ModelWire } from "../../src/shared/model";
-import { summarizeTrace } from "../../scripts/perf-trace-summary";
+import { spread, summarizeTrace } from "../../scripts/perf-trace-summary";
 
-const CONDITIONS = ["scroll", "scroll-stream", "type", "watch"] as const;
+const CONDITIONS = ["scroll", "scroll-stream", "type", "type-busy", "watch"] as const;
 type Condition = (typeof CONDITIONS)[number];
 
 const COND = process.env.PERF_TERMINAL_COND as Condition | undefined;
@@ -39,7 +45,8 @@ const FILL_BPS = 300_000;
 const STREAM_BPS = 12_000;
 const WARMUP_MS = 3_000;
 const WINDOW_MS = 12_000;
-const TYPE_KEY = "Shift+Z";
+// Plain keys, as typed: one capital, spaces, punctuation. The emitter never prints these, so its echo is the only write.
+const TYPED = "Reading the board, typing a plain line: ok then more text.";
 
 const ids = ["lead", ...Array.from({ length: PEERS }, (_, i) => `p${String(i).padStart(2, "0")}`)];
 const seats = ids.map((id, i) =>
@@ -79,6 +86,37 @@ const machine = (): { load1: number; idlePct: number } => {
   const line = top.split("\n").filter((l) => l.startsWith("CPU usage")).pop() ?? "";
   const idle = /([\d.]+)% idle/.exec(line);
   return { load1: loadavg()[0] ?? Number.NaN, idlePct: idle ? Number(idle[1]) : Number.NaN };
+};
+
+/** Ping the work control socket every 50 ms until stop(); round trips in ms. */
+const pingMainLoop = (socketPath: string, token: string): { stop: () => Promise<number[]> } => {
+  const rtts: number[] = [];
+  const socket = createConnection(socketPath);
+  socket.on("error", () => undefined);
+  let buffered = "";
+  let sentAt = 0;
+  let running = true;
+  const send = (): void => {
+    if (!running) return;
+    sentAt = performance.now();
+    socket.write(`${JSON.stringify({ token, op: "ping" })}\n`);
+  };
+  socket.on("data", (chunk) => {
+    buffered += chunk.toString("utf8");
+    while (buffered.includes("\n")) {
+      buffered = buffered.slice(buffered.indexOf("\n") + 1);
+      rtts.push(performance.now() - sentAt);
+      setTimeout(send, 50);
+    }
+  });
+  socket.on("connect", send);
+  return {
+    stop: async () => {
+      running = false;
+      socket.destroy();
+      return rtts;
+    },
+  };
 };
 
 const front = (page: Page) => page.locator(".workbench-pane:not(.workbench-pane--parked) .native-terminal-surface");
@@ -147,7 +185,8 @@ test(`terminal performance baseline, ${COND ?? "none"}`, async () => {
 
     // Fill the lead's scrollback, then settle to the condition's rate.
     const setLead = (bps: number): void => writeFileSync(`${control}.${String(leadPid)}`, JSON.stringify({ bps, seed: 1 }));
-    for (const s of emitters) if (s.pid !== leadPid) writeFileSync(`${control}.${String(s.pid)}`, JSON.stringify({ bps: 0, seed: 1 }));
+    const peerBps = COND === "type-busy" ? STREAM_BPS : 0;
+    for (const s of emitters) if (s.pid !== leadPid) writeFileSync(`${control}.${String(s.pid)}`, JSON.stringify({ bps: peerBps, seed: 1 }));
     setLead(FILL_BPS);
     await sleep(FILL_MS);
     setLead(COND === "scroll-stream" || COND === "watch" ? STREAM_BPS : 0);
@@ -163,13 +202,29 @@ test(`terminal performance baseline, ${COND ?? "none"}`, async () => {
     // In-page probes: every rAF's interval and whether the viewport moved, plus long tasks.
     // Builds without the terminal probe still measure; their viewport and render counts read null.
     const terminal = await page.evaluate(() => {
-      type Probe = { visible(): boolean; viewportY(): number; lines(): number; rows(): number; renders(): number };
+      type Probe = { visible(): boolean; viewportY(): number; lines(): number; rows(): number; renders(): number; parsedAt?(): number; renderedAt?(): number };
       const w = window as unknown as Record<string, any>;
       const probe = [...((w.__juntoTermPerf as Map<string, Probe> | undefined)?.values() ?? [])].find((p) => p.visible());
-      const run = (w.__perfRun = { probe, frames: [] as Array<[number, number]>, longtasks: [] as number[], renders0: probe?.renders() ?? 0, stop: false });
+      const run = (w.__perfRun = {
+        probe, frames: [] as Array<[number, number]>, longtasks: [] as number[], renders0: probe?.renders() ?? 0, stop: false,
+        // Key to echo: keydown, then the first parsed write after it, then the first render after that.
+        key: null as null | { at: number; parsed: number | null }, echoParsed: [] as number[], echoDrawn: [] as number[],
+      });
       new PerformanceObserver((list) => { for (const e of list.getEntries()) run.longtasks.push(e.duration); }).observe({ type: "longtask", buffered: false });
+      window.addEventListener("keydown", (e) => { if (e.key.length === 1) run.key = { at: performance.now(), parsed: null }; }, { capture: true });
       const tick = (t: number): void => {
         run.frames.push([t, probe?.viewportY() ?? -1]);
+        const key = run.key;
+        if (key && probe?.parsedAt && probe.renderedAt) {
+          if (key.parsed === null && probe.parsedAt() > key.at) {
+            key.parsed = probe.parsedAt();
+            run.echoParsed.push(key.parsed - key.at);
+          }
+          if (key.parsed !== null && probe.renderedAt() >= key.parsed) {
+            run.echoDrawn.push(probe.renderedAt() - key.at);
+            run.key = null;
+          }
+        }
         if (!run.stop) requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
@@ -183,15 +238,20 @@ test(`terminal performance baseline, ${COND ?? "none"}`, async () => {
       };
     });
 
+    const lead = emitters.find((s) => s.pid === leadPid)!;
+    const socketPath = lead.env.JUNTO_WORK_SOCKET ?? lead.env.JUNTO_SOCKET;
+    const token = lead.env.JUNTO_WORK_TOKEN;
     const m0 = machine();
+    const pinger = socketPath && token ? pingMainLoop(socketPath, token) : null;
     const tracePath = OUT.replace(/\.json$/, ".trace.json");
     await junto.app.evaluate(({ contentTracing }) => contentTracing.startRecording({
       included_categories: ["toplevel", "devtools.timeline", "blink", "blink.user_timing", "cc", "viz", "gpu", "input", "benchmark", "latencyInfo"],
     }));
     const windowStart = Date.now();
-    if (COND === "type") {
+    if (COND === "type" || COND === "type-busy") {
       for (let i = 0; i < 60; i++) {
-        await page.keyboard.press(TYPE_KEY);
+        const char = TYPED[i % TYPED.length]!;
+        await page.keyboard.press(char === " " ? "Space" : char);
         await sleep(WINDOW_MS / 60);
       }
     } else if (COND === "watch") {
@@ -210,6 +270,7 @@ test(`terminal performance baseline, ${COND ?? "none"}`, async () => {
       await cdp.detach();
     }
     const windowS = (Date.now() - windowStart) / 1000;
+    const pings = (await pinger?.stop()) ?? [];
     await junto.app.evaluate(({ contentTracing }, path) => contentTracing.stopRecording(path), tracePath);
     const m1 = machine();
 
@@ -221,6 +282,8 @@ test(`terminal performance baseline, ${COND ?? "none"}`, async () => {
       const moved = frames.slice(1).filter((f, i) => f[1] !== frames[i]![1]).length;
       const longtasks: number[] = run.longtasks;
       return {
+        echoParsed: run.echoParsed as number[],
+        echoDrawn: run.echoDrawn as number[],
         rafFrames: frames.length,
         rafGaps: gaps,
         framesViewportMoved: run.probe ? moved : null,
@@ -248,7 +311,7 @@ test(`terminal performance baseline, ${COND ?? "none"}`, async () => {
     }));
     await cdp.detach();
 
-    const { rafGaps, ...probe } = inPage;
+    const { rafGaps, echoParsed, echoDrawn, ...probe } = inPage;
     mkdirSync(join(OUT, ".."), { recursive: true });
     writeFileSync(OUT, JSON.stringify({
       condition: COND,
@@ -263,6 +326,10 @@ test(`terminal performance baseline, ${COND ?? "none"}`, async () => {
         gapsOver16_7: rafGaps.filter((g) => g > 16.7).length,
         gapsOver33: rafGaps.filter((g) => g > 33.4).length,
       },
+      // Typed keys only: keydown to echo parsed by xterm, and to the render pass that drew it.
+      echoMs: echoDrawn.length ? { parsed: spread(echoParsed), drawn: spread(echoDrawn), missed: 60 - echoDrawn.length } : null,
+      // Main-process event loop: work control socket ping round trips.
+      mainLoop: pings.length ? { rttMs: spread(pings), over16_7: pings.filter((p) => p > 16.7).length, over50: pings.filter((p) => p > 50).length, stalledMsPerS: Math.round((pings.filter((p) => p > 8.3).reduce((a, b) => a + b, 0) / windowS) * 10) / 10 } : null,
       ...trace,
       paintByNode,
     }, null, 2));

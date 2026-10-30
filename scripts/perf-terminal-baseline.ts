@@ -17,8 +17,9 @@
  * compare prints every metric and exits 1 when a headline metric is worse by
  * more than the tolerance and outside the base's own run spread.
  *
- * Frame cadence and main-thread cost are the headline: they are what the
- * operator feels and they hold steady run to run. Wheel latency includes the
+ * Frame cadence, renderer main-thread cost, key-to-echo latency and the main
+ * process's event-loop stalls are the headline: they are what the operator
+ * feels. Wheel latency includes the
  * rig's CDP injection, so it is reported but never fails a compare.
  */
 import { spawnSync } from "node:child_process";
@@ -28,7 +29,7 @@ import { join } from "node:path";
 
 const ROOT = join(import.meta.dirname, "..");
 const SPEC = "e2e/scenarios/perf-terminal-baseline.spec.ts";
-const CONDITIONS = ["scroll", "scroll-stream", "type", "watch"] as const;
+const CONDITIONS = ["scroll", "scroll-stream", "type", "type-busy", "watch"] as const;
 type Condition = (typeof CONDITIONS)[number];
 
 type RunResult = Record<string, any>;
@@ -44,6 +45,7 @@ const perS = (ms: number | undefined, run: RunResult): number | null => (ms === 
 const ALL = CONDITIONS;
 const MOVING: readonly Condition[] = ["scroll", "scroll-stream", "watch"];
 const SCROLLING: readonly Condition[] = ["scroll", "scroll-stream"];
+const TYPING: readonly Condition[] = ["type", "type-busy"];
 
 const METRICS: readonly Metric[] = [
   { name: "framesPresentedPerS", better: "higher", headline: true, conditions: MOVING, read: (r) => r.frames.presentedPerS },
@@ -58,8 +60,12 @@ const METRICS: readonly Metric[] = [
   { name: "paintMsPerS", better: "lower", headline: true, conditions: ALL, read: (r) => perS(r.main.events.Paint?.ms, r) },
   { name: "compositorUpdateMsPerS", better: "lower", headline: false, conditions: ALL, read: (r) => perS(r.main.events["PaintArtifactCompositor::Update"]?.ms, r) },
   { name: "layoutMsPerS", better: "lower", headline: false, conditions: ALL, read: (r) => perS(r.main.events.Layout?.ms, r) },
-  { name: "keyToScreenP50Ms", better: "lower", headline: true, conditions: ["type"], read: (r) => r.inputLatencyMs.KEY_PRESSED?.p50 },
-  { name: "keyToScreenP95Ms", better: "lower", headline: true, conditions: ["type"], read: (r) => r.inputLatencyMs.KEY_PRESSED?.p95 },
+  { name: "keyToEchoDrawnP50Ms", better: "lower", headline: true, conditions: TYPING, read: (r) => r.echoMs?.drawn.p50 },
+  { name: "keyToEchoDrawnP95Ms", better: "lower", headline: true, conditions: TYPING, read: (r) => r.echoMs?.drawn.p95 },
+  { name: "keyToEchoDrawnMaxMs", better: "lower", headline: false, conditions: TYPING, read: (r) => r.echoMs?.drawn.max },
+  { name: "keyToEchoParsedP95Ms", better: "lower", headline: false, conditions: TYPING, read: (r) => r.echoMs?.parsed.p95 },
+  { name: "mainLoopRttP99Ms", better: "lower", headline: true, conditions: ALL, read: (r) => r.mainLoop?.rttMs.p99 },
+  { name: "mainLoopStalledMsPerS", better: "lower", headline: false, conditions: ALL, read: (r) => r.mainLoop?.stalledMsPerS },
   { name: "wheelToScreenP95Ms", better: "lower", headline: false, conditions: SCROLLING, read: (r) => r.inputLatencyMs.MOUSE_WHEEL?.p95 },
   { name: "viewportMovedFrames", better: "higher", headline: false, conditions: SCROLLING, read: (r) => r.framesViewportMoved },
 ];
