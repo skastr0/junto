@@ -14,7 +14,7 @@ import { SEAT_AWARENESS_COMPILED } from "../src/shared/features";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { defaultSettings, type Settings, type SettingsError } from "../src/shared/settings";
 import type { SeatAwarenessEvent } from "../src/renderer/lib/seat-awareness-contract";
-import { inProcessCore, type CoreRunner } from "./support/in-process-core";
+import { runCoreOp, type CoreClient } from "../src/main/core-process/client";
 import "../src/main/core-process/ops/seat-awareness";
 import { subscribe } from "../src/main/core-process/push";
 import { SettingsService } from "../src/main/junto/settings/service";
@@ -122,7 +122,14 @@ describe("the seat awareness plane in the core", () => {
           Layer.succeed(SettingsService, settings as never),
         ),
       );
-      const core = inProcessCore(runtime as unknown as CoreRunner);
+      // The core's side of the port, in this process: the operations run on its runtime.
+      const core: CoreClient = {
+        call: (async (name: string, input: unknown) => {
+          const answer = await runCoreOp(runtime as never, name, input);
+          if (!answer.ok) throw new Error(answer.failure.message);
+          return answer.value;
+        }) as CoreClient["call"],
+      };
       try {
         expect(await core.call("seats.awareness", {})).toEqual({ enabled: true, events: [WINDOW] });
         expect(start).toHaveBeenCalledTimes(1);
