@@ -123,16 +123,3 @@ export const answerSeatCacheDueHere = async (input: unknown): Promise<SeatCacheD
       : { ok: false, message: CACHE_QUESTION_GONE };
   return answerSeatCacheDue({ canvasName: answer.canvasName, seatId: answer.seatId }, answer.question, answer.answer);
 };
-
-/**
- * The window's side of both: the seats, their views and their questions are
- * the core's, so main asks it by name (ops/seat-cache-due.ts); with the core
- * in main the call runs here at once.
- */
-const askCore = () => import("../../core-process/main-client").then(({ core }) => core);
-
-export const seatCacheDueForWindow = async (): Promise<ReadonlyArray<SeatCacheDue>> =>
-  (await askCore()).call("seatCacheDue.list", {});
-
-export const handleSeatCacheDueAnswer = async (input: unknown): Promise<SeatCacheDueAnswerResult> =>
-  (await askCore()).call("seatCacheDue.answer", { input });
