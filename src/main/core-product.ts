@@ -14,6 +14,8 @@ import { ArtifactRepositoryLive } from "./junto/work/artifact-repository";
 import { TaskRepositoryLive } from "./junto/work/task-repository";
 import { CanvasAuthoritiesLive } from "./junto/fleet/host";
 import { SeatReleaseHealLive } from "./junto/work/seat-release";
+import { AuthorityOwnerControl, makeAuthorityOwnerActions } from "./junto/hosts/authority-owner";
+import { AUTHORITY_ENABLED } from "@shared/features";
 import { RulingRecorderLive } from "./junto/work/ruling-recorder";
 import { ResourceRulerLive } from "./junto/work/resource-ruler";
 import { makeAutomationRepositoryLive } from "./junto/automation/repository";
@@ -104,6 +106,11 @@ export const makeCoreProductLayer = (home: string) => {
     // The editing machine's ruler, over the stores it rules into.
     SshTransportLive, Layer.provideMerge(HostRegistryRows.layer, Layer.provideMerge(ResourceRulerLive, repositories)),
   ));
+  // The operator's authority commands answer on the one host, behind this build's flag.
+  const authorityOwner = Layer.provide(
+    Layer.effect(AuthorityOwnerControl, makeAuthorityOwnerActions({ enabled: AUTHORITY_ENABLED })),
+    authorities,
+  );
   const pause = Layer.provideMerge(PausePlaneLaunchPlayingLive, hosts);
   const occupants = Layer.provideMerge(ActorSeatOccupyLive, pause);
   return Layer.provideMerge(
@@ -113,6 +120,7 @@ export const makeCoreProductLayer = (home: string) => {
       Layer.provideMerge(NativeConfigLive, HarnessInventoryLive),
       // Behind the authority, every canvas's owed seat releases are judged at boot (seat-release.ts).
       SeatReleaseHealLive,
+      authorityOwner,
     ),
     occupants,
   );

@@ -47,6 +47,7 @@ import { makeInventoryChannel } from "./junto/inventory/channel";
 import { makeNativeConfigChannel } from "./junto/inventory/native-channel";
 import { makeSettingsChannel } from "./junto/settings/link-channel";
 import { MachineOwnerControl } from "./junto/hosts/machine-owner";
+import { AuthorityOwnerControl } from "./junto/hosts/authority-owner";
 import { MachineLink, type MachineLinkListener } from "./junto/link/service";
 import { AgentSignalRepository } from "./junto/signals/repository";
 import { raisedHands } from "./junto/signals/raised-hands";
@@ -1537,6 +1538,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       }
       if (!operatorControlEnabledAtLaunch) {
         return operatorRefusal(request, "forbidden", "operator commands need Junto launched with --junto-operator-control");
+      }
+      if (request.op.startsWith("authority.")) {
+        return AppRuntime.runPromise(Effect.flatMap(AuthorityOwnerControl, actions => actions.dispatch(request)));
       }
       if (request.op.startsWith("machine.")) {
         return AppRuntime.runPromise(Effect.flatMap(MachineOwnerControl, actions => actions.dispatch(request)));

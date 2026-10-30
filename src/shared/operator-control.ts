@@ -26,6 +26,7 @@ import {
   MachineLinkOpenInput, MachineLinkOpenData, MachineLinkRevokeInput, MachineLinkRevokeData,
 } from "./machine-link";
 import { MachineVaultTokenData, MachineVaultTokenInput, VaultTokenDelivery } from "./vault";
+import { AuthorityAloneArgs, AuthorityAloneData, AuthorityListArgs, AuthorityListData, AuthorityStatusArgs, AuthorityStatusData } from "./authority";
 
 /** Owner-local control, admitted by OS peer ancestry rather than seat tokens. */
 
@@ -62,9 +63,15 @@ const Diagnostic = Schema.String.pipe(
   Schema.check(Schema.isMaxLength(4_096)),
 );
 
+/** The operator's authority commands (0.11/06 F5); answered only behind AUTHORITY_ENABLED. */
+export const AuthorityOpName = Schema.Literals(["authority.status",
+"authority.alone",
+"authority.list"]);
+export type AuthorityOpName = typeof AuthorityOpName.Type;
+
 export const OperatorOpName = Schema.Literals(["companion.hello",
 "companion.call",
-"companion.events", ...MachineOpName.literals]);
+"companion.events", ...MachineOpName.literals, ...AuthorityOpName.literals]);
 export type OperatorOpName = typeof OperatorOpName.Type;
 
 // --- companion relay (junto companion-stdio <-> app) ---------------------------
@@ -165,6 +172,9 @@ export const OperatorMachineLinkOpenRequest = request("machine.link-open", Machi
 export const OperatorMachineLinkRevokeRequest = request("machine.link-revoke", MachineLinkRevokeInput);
 export const OperatorMachineVaultTokenRequest = request("machine.vault-token", MachineVaultTokenInput);
 export const OperatorMachineVaultReceiveRequest = request("machine.vault-receive", VaultTokenDelivery);
+export const OperatorAuthorityStatusRequest = request("authority.status", AuthorityStatusArgs);
+export const OperatorAuthorityAloneRequest = request("authority.alone", AuthorityAloneArgs);
+export const OperatorAuthorityListRequest = request("authority.list", AuthorityListArgs);
 
 export const OperatorRequestEnvelope = Schema.Union([OperatorCompanionHelloRequest,
 OperatorCompanionCallRequest,
@@ -197,6 +207,9 @@ OperatorMachineLinkOpenRequest,
 OperatorMachineLinkRevokeRequest,
 OperatorMachineVaultTokenRequest,
 OperatorMachineVaultReceiveRequest,
+OperatorAuthorityStatusRequest,
+OperatorAuthorityAloneRequest,
+OperatorAuthorityListRequest,
 ]);
 export type OperatorRequestEnvelope = typeof OperatorRequestEnvelope.Type;
 
@@ -247,6 +260,9 @@ export const OperatorMachineLinkOpenResponse = response("machine.link-open", Mac
 export const OperatorMachineLinkRevokeResponse = response("machine.link-revoke", MachineLinkRevokeData);
 export const OperatorMachineVaultTokenResponse = response("machine.vault-token", MachineVaultTokenData);
 export const OperatorMachineVaultReceiveResponse = response("machine.vault-receive", MachineVaultTokenData);
+export const OperatorAuthorityStatusResponse = response("authority.status", AuthorityStatusData);
+export const OperatorAuthorityAloneResponse = response("authority.alone", AuthorityAloneData);
+export const OperatorAuthorityListResponse = response("authority.list", AuthorityListData);
 
 export const OperatorErrorType = Schema.Literals(["validation", "not_found",
 "conflict",
@@ -315,6 +331,9 @@ OperatorMachineLinkOpenResponse,
 OperatorMachineLinkRevokeResponse,
 OperatorMachineVaultTokenResponse,
 OperatorMachineVaultReceiveResponse,
+OperatorAuthorityStatusResponse,
+OperatorAuthorityAloneResponse,
+OperatorAuthorityListResponse,
 OperatorErrorResponse,]);
 export type OperatorResponseEnvelope = typeof OperatorResponseEnvelope.Type;
 
@@ -322,12 +341,18 @@ export interface OperatorArgsByOp extends MachineArgsByOp {
   readonly "companion.hello": OperatorCompanionHelloArgs;
   readonly "companion.call": OperatorCompanionCallArgs;
   readonly "companion.events": OperatorCompanionEventsArgs;
+  readonly "authority.status": AuthorityStatusArgs;
+  readonly "authority.alone": AuthorityAloneArgs;
+  readonly "authority.list": AuthorityListArgs;
 }
 
 export interface OperatorDataByOp extends MachineDataByOp {
   readonly "companion.hello": OperatorCompanionHelloData;
   readonly "companion.call": OperatorCompanionCallData;
   readonly "companion.events": OperatorCompanionEventsData;
+  readonly "authority.status": AuthorityStatusData;
+  readonly "authority.alone": AuthorityAloneData;
+  readonly "authority.list": AuthorityListData;
 }
 
 export const decodeOperatorRequest = Schema.decodeUnknownResult(
