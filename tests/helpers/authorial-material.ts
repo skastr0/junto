@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import type { CanvasDoc } from "../fixtures/frozen-canvas-types";
-import { bodySha256Of as canvasBodySha256Of } from "../../src/main/junto/work/body-sha256";
+
+/** The exact UTF-8 bytes of a body, unparsed and unnormalized: what a content ref commits to. */
+export const bodySha256Of = (body: string): string =>
+  createHash("sha256").update(body, "utf8").digest("hex");
 
 /** Historical portfolio identity used only by frozen station test fixtures. */
 /** Raw and semantic forms of one document in an authorial generation. */
@@ -57,7 +60,7 @@ export const authorialMaterialForTest = (input: {
     }
   >();
   for (const [name, entry] of input.documents) {
-    const revisionSha256 = canvasBodySha256Of(entry.rawBody);
+    const revisionSha256 = bodySha256Of(entry.rawBody);
     documents.set(name, entry.document);
     storedDocuments.set(name, {
       document: entry.document,

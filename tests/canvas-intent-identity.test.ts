@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bodySha256Of } from "../src/main/junto/work/body-sha256";
-import { intentSha256Of } from "./helpers/authorial-material";
+import { bodySha256Of, intentSha256Of } from "./helpers/authorial-material";
 
 describe("retained projection identity", () => {
   it("hashes exact bytes without parsing or normalizing the body", () => {
