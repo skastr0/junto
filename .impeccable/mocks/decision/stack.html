@@ -5,34 +5,35 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{width:1440px;height:900px;overflow:hidden;background:var(--ground);color:var(--ink);font:11px/1.45 var(--mono)}
 .top{height:44px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid var(--stroke);color:var(--dim)}
-.pill{height:26px;padding:0 10px;display:flex;align-items:center;border:1px solid var(--stroke);border-radius:8px;font-size:10px}
-.region{position:absolute;border:1px solid var(--stroke);border-radius:14px;background:var(--o1)}
+.pill{height:26px;padding:0 10px;display:flex;align-items:center;border:1px solid var(--stroke);border-radius:8px;font-size:11px}
+.region{position:absolute;border:1px solid var(--stroke);border-radius:12px;background:var(--o1)}
 .dim{position:absolute;inset:0;background:color-mix(in oklab,var(--ground) 72%,transparent)}
-.pal{position:absolute;top:27px;left:370px;width:700px;background:var(--raise);border:1px solid var(--stroke);border-radius:12px;box-shadow:0 24px 80px oklch(0.3 0.02 60 / .55);overflow:hidden}
+.pal{position:absolute;top:27px;left:370px;width:700px;background:var(--raise);border:1px solid var(--stroke);border-radius:12px;box-shadow:0 24px 80px oklch(0 0 0 / .55);overflow:hidden}
 .search{height:46px;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--stroke);color:var(--faint);font-size:12px}
 .search .k{margin-left:auto}
-.k{display:inline-flex;align-items:center;height:18px;padding:0 5px;border:1px solid color-mix(in oklab,var(--cyan) 35%,transparent);border-radius:4px;color:var(--cyan);font-size:10px;line-height:1}
+.k{display:inline-flex;align-items:center;height:20px;padding:0 6px;border:1px solid color-mix(in oklab,var(--cyan) 35%,transparent);border-radius:4px;color:var(--cyan);font-size:11px;line-height:1}
 .open{margin:8px;border:1px solid var(--stroke);border-radius:8px;background:var(--raise2)}
 .ohead{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px 0 16px}
 .ohead h1{flex:1;font:600 14px/1.2 var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sel{color:var(--dim)}.saved{color:var(--faint);font-size:10px}
+.sel{color:var(--dim)}.saved{color:var(--faint);font-size:11px}
 .doc{padding:2px 16px 14px;font-size:12px;line-height:1.6;min-height:220px}
 .doc p{margin-bottom:6px}.doc ul{margin:0 0 0 18px}
 .caret{display:inline-block;width:1.5px;height:14px;background:var(--amber);vertical-align:-2px}
-.group{display:flex;align-items:baseline;gap:8px;padding:10px 18px 4px;color:var(--dim);font-size:10px;font-weight:500}
+.group{display:flex;align-items:baseline;gap:8px;padding:10px 18px 4px;color:var(--dim);font-size:11px;font-weight:500}
 .group span{color:var(--faint);font-weight:400}
 .rows{padding:0 6px 6px}
 .slip{display:flex;align-items:center;gap:10px;height:34px;padding:0 12px;border-radius:6px}
 .slip:nth-child(odd){}
 .slip.on{background:var(--o2);height:auto;padding:8px 12px;flex-wrap:wrap}
-.glyph{width:11px;height:14px;border:1.5px solid color-mix(in oklab,oklch(0.80 0.10 288) 80%,transparent);border-radius:2px;flex:none}
+.glyph{width:11px;height:14px;border:1.5px solid oklch(0.80 0.10 288);border-radius:4px;flex:none}
 .t{flex:1;min-width:0;font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.a{color:var(--faint);font-size:10px}
-.routes{flex-basis:100%;display:flex;gap:6px;align-items:center;padding:6px 0 0 24px;color:var(--dim);font-size:10px}
+.a{color:var(--faint);font-size:11px}
+.routes{flex-basis:100%;display:flex;gap:6px;align-items:center;padding:6px 0 0 24px;color:var(--dim);font-size:11px}
 .btn{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border:1px solid var(--stroke);border-radius:6px;background:var(--o1);color:var(--ink);font-size:11px}
-.btn .k{height:16px}
-.foot{display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--stroke);font-size:10px}
+.btn .k{height:18px}
+.foot{display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--stroke);font-size:11px}
 .foot span{display:inline-flex;gap:5px;align-items:center;color:var(--dim)}
+.where{flex:1;color:var(--dim)}.title{font:600 14px/1.3 var(--mono);margin:4px 0 8px}
 </style></head><body>
 <div class="top"><div class="pill">factory</div><div class="pill" style="width:320px">Search nodes</div><div style="margin-left:auto" class="pill">needs you 2</div></div>
 <div class="region" style="left:60px;top:104px;width:560px;height:360px"></div>
@@ -42,9 +43,9 @@ body{width:1440px;height:900px;overflow:hidden;background:var(--ground);color:va
 <div class="pal">
   <div class="search">⌕ Search every artifact <span class="k">⌘L</span></div>
   <div class="open">
-    <div class="ohead"><span class="glyph"></span><h1>Pricing call, Thursday</h1><span class="sel">Document ⌄</span><span class="saved">Saved to Inbox</span></div>
+    <div class="ohead"><span class="glyph"></span><span class="where">Inbox</span><span class="sel">Document ⌄</span><span class="saved">Saved to Inbox</span></div>
     <div class="doc">
-      <p>Pricing call, Thursday</p>
+      <h1 class="title">Pricing call, Thursday</h1>
       <p>Partner tier stays at three seats. Ask product-feed whether task 378 covers the seat count in the invoice view.</p>
       <ul><li>Annual plan: two months free, not a percentage</li><li>Trial runs fourteen days, no card<span class="caret"></span></li></ul>
     </div>

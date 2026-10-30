@@ -5,35 +5,36 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{width:1440px;height:900px;overflow:hidden;background:var(--ground);color:var(--ink);font:11px/1.45 var(--mono)}
 .top{height:44px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid var(--stroke);color:var(--dim)}
-.pill{height:26px;padding:0 10px;display:flex;align-items:center;border:1px solid var(--stroke);border-radius:8px;font-size:10px}
+.pill{height:26px;padding:0 10px;display:flex;align-items:center;border:1px solid var(--stroke);border-radius:8px;font-size:11px}
 .canvas{position:absolute;inset:44px 0 0 0}
-.region{position:absolute;border:1px solid var(--stroke);border-radius:14px;background:var(--o1)}
+.region{position:absolute;border:1px solid var(--stroke);border-radius:12px;background:var(--o1)}
 .region b{position:absolute;top:8px;left:12px;font-size:12px;font-weight:600;color:var(--ink2)}
 .node{position:absolute;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink2)}
 .ring{width:30px;height:30px;border-radius:50%;border:2px solid var(--strokehi)}
 .inbox{position:absolute;left:96px;top:520px;width:250px;padding:10px 12px;border:1px solid color-mix(in oklab,var(--amber) 50%,transparent);border-radius:12px;background:color-mix(in oklab,var(--amber) 10%,transparent)}
-.inbox b{font-size:12px}.inbox span{display:block;color:var(--dim);font-size:10px}
+.inbox b{font-size:12px}.inbox span{display:block;color:var(--dim);font-size:11px}
 .dim{position:absolute;inset:44px 480px 0 0;background:color-mix(in oklab,var(--ground) 38%,transparent)}
-.drawer{position:absolute;top:44px;right:0;bottom:0;width:480px;display:flex;flex-direction:column;background:var(--raise);border-left:1px solid var(--stroke);box-shadow:-24px 0 60px oklch(0.3 0.02 60 / .45)}
+.drawer{position:absolute;top:44px;right:0;bottom:0;width:480px;display:flex;flex-direction:column;background:var(--raise);border-left:1px solid var(--stroke);box-shadow:-24px 0 60px oklch(0 0 0 / .45)}
 .search{height:46px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--stroke);color:var(--faint);font-size:12px}
 .search .k{margin-left:auto}
-.k{display:inline-flex;align-items:center;height:18px;padding:0 5px;border:1px solid color-mix(in oklab,var(--cyan) 35%,transparent);border-radius:4px;color:var(--cyan);font-size:10px;line-height:1}
+.k{display:inline-flex;align-items:center;height:20px;padding:0 6px;border:1px solid color-mix(in oklab,var(--cyan) 35%,transparent);border-radius:4px;color:var(--cyan);font-size:11px;line-height:1}
 .head{height:46px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px 0 20px}
 .head h1{font:600 14px/1.2 var(--mono);flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.sel{color:var(--dim);font-size:11px}.saved{color:var(--faint);font-size:10px}
+.sel{color:var(--dim);font-size:11px}.saved{color:var(--faint);font-size:11px}
 .ib{width:24px;height:24px;display:grid;place-items:center;border-radius:6px;color:var(--dim)}
 .doc{flex:1;min-height:0;padding:6px 20px 16px;font-size:12px;line-height:1.6;color:var(--ink)}
 .doc p{margin-bottom:6px}.doc ul{margin:0 0 6px 18px}.caret{display:inline-block;width:1.5px;height:14px;background:var(--amber);vertical-align:-2px}
 .qhead{display:flex;align-items:baseline;gap:8px;padding:10px 20px 6px;border-top:1px solid var(--stroke)}
-.qhead b{font-size:12px;font-weight:600}.qhead span{color:var(--faint);font-size:10px}
+.qhead b{font-size:12px;font-weight:600}.qhead span{color:var(--faint);font-size:11px}
 .rows{padding:0 6px 6px}
 .row{display:flex;align-items:center;gap:10px;padding:7px 14px;border-radius:6px}
 .row.on{background:var(--o2)}
 .row .t{flex:1;min-width:0;font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.row .a{color:var(--faint);font-size:10px}
-.route{display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 8px;border:1px solid var(--stroke);border-radius:999px;color:var(--ink2);font-size:10px}
-.foot{flex:none;display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--stroke);color:var(--faint);font-size:10px}
+.row .a{color:var(--faint);font-size:11px}
+.route{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border:1px solid var(--stroke);border-radius:999px;color:var(--ink2);font-size:11px}
+.foot{flex:none;display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--stroke);color:var(--faint);font-size:11px}
 .foot span{display:inline-flex;gap:5px;align-items:center;color:var(--dim)}
+.where{flex:1;color:var(--dim)}.title{font:600 14px/1.3 var(--mono);margin:4px 0 8px}
 </style></head><body>
 <div class="top"><div class="pill">factory</div><div class="pill" style="width:320px">Search nodes</div><div style="margin-left:auto" class="pill">needs you 2</div></div>
 <div class="canvas">
@@ -48,9 +49,9 @@ body{width:1440px;height:900px;overflow:hidden;background:var(--ground);color:va
 <div class="dim"></div>
 <aside class="drawer">
   <div class="search">⌕ Search every artifact <span class="k">⌘L</span></div>
-  <div class="head"><h1>Pricing call, Thursday</h1><span class="sel">Document ⌄</span><span class="ib">⇥</span><span class="saved">Saved</span></div>
+  <div class="head"><span class="where">Inbox</span><span class="sel">Document ⌄</span><span class="ib">⇥</span><span class="saved">Saved</span></div>
   <div class="doc">
-    <p>Pricing call, Thursday</p>
+    <h1 class="title">Pricing call, Thursday</h1>
     <p>Partner tier stays at three seats. Ask product-feed whether task 378 covers the seat count in the invoice view.</p>
     <ul><li>Annual plan: two months free, not a percentage</li><li>Trial runs fourteen days, no card</li><li>Follow up with the release notes owner<span class="caret"></span></li></ul>
   </div>

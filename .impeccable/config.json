@@ -1,0 +1,86 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "tiny-text",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/drawer.html"
+        ],
+        "createdAt": "2026-10-30T01:18:17.073Z",
+        "reason": "product-design: Junto's DESIGN.md type scale sets body at 11px and body-lg 12px (src/shared/theme/type.ts); these sketches render that scale"
+      },
+      {
+        "rule": "tiny-text",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/stack.html"
+        ],
+        "createdAt": "2026-10-30T01:18:17.189Z",
+        "reason": "product-design: Junto's DESIGN.md type scale sets body at 11px and body-lg 12px (src/shared/theme/type.ts); these sketches render that scale"
+      },
+      {
+        "rule": "tiny-text",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/desk.html"
+        ],
+        "createdAt": "2026-10-30T01:18:17.265Z",
+        "reason": "product-design: Junto's DESIGN.md type scale sets body at 11px and body-lg 12px (src/shared/theme/type.ts); these sketches render that scale"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/drawer.html"
+        ],
+        "createdAt": "2026-10-30T01:23:25.227Z",
+        "reason": "product-design: flagged rows are fixed-height flex bars with centred content (44/46/40/34px), so the text sits 12px or more inside the hairline"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/stack.html"
+        ],
+        "createdAt": "2026-10-30T01:23:25.286Z",
+        "reason": "product-design: flagged rows are fixed-height flex bars with centred content (44/46/40/34px), so the text sits 12px or more inside the hairline"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/desk.html"
+        ],
+        "createdAt": "2026-10-30T01:23:25.439Z",
+        "reason": "product-design: flagged rows are fixed-height flex bars with centred content (44/46/40/34px), so the text sits 12px or more inside the hairline"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "oklch(0 0 0 / .55)",
+        "createdAt": "2026-10-30T01:23:25.567Z",
+        "reason": "product-design: this is --color-shadow-1 in dark (umbra oklch 0 at 55%, theme.generated.css), written as a literal in the static sketches"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "oklch(0 0 0 / .45)",
+        "files": [
+          ".impeccable/mocks/decision/drawer.html"
+        ],
+        "createdAt": "2026-10-30T01:23:25.768Z",
+        "reason": "product-design: --color-shadow-2 family in dark, umbra oklch 0"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "oklch(0.80 0.10 288)",
+        "files": [
+          ".impeccable/mocks/decision/stack.html"
+        ],
+        "createdAt": "2026-10-30T01:23:34.363Z",
+        "reason": "product-design: --color-violet-fg in dark (theme.generated.css), the artifact document glyph tone"
+      }
+    ]
+  }
+}
