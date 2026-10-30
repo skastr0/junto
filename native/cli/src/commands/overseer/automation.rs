@@ -245,13 +245,11 @@ fn folded(write: Write, mut input: Map<String, Value>) -> Result<Map<String, Val
                         .map(|r| fold_list(r, &format!("{at}.remove")))
                         .transpose()?;
                     if let (Some(add), Some(Value::Array(raw))) = (&add, step.get("remove")) {
-                        let both = raw.iter().position(|one| {
-                            one.as_str()
-                                .and_then(label_of)
-                                .is_some_and(|label| add.contains(&label))
+                        let both = raw.iter().enumerate().find_map(|(at, one)| {
+                            let label = one.as_str().and_then(label_of)?;
+                            add.contains(&label).then_some((at, label))
                         });
-                        if let Some(both) = both {
-                            let label = raw[both].as_str().and_then(label_of).unwrap_or_default();
+                        if let Some((both, label)) = both {
                             return Err(Failure::input(
                                 format!(
                                     "label {label} is both added and removed; name each label once"

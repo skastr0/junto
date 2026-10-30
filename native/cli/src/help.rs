@@ -103,8 +103,11 @@ pub fn show(words: &[&str]) -> ExitCode {
 
 /// The help of one command path, colored as Effect's formatter would color it here.
 fn page(path: &str) -> &'static str {
-    let page = &CORPUS.help[path];
-    if colored() { &page.color } else { &page.plain }
+    // walk only names paths the corpus lists, so a page is always found.
+    CORPUS
+        .help
+        .get(path)
+        .map_or("", |page| if colored() { &page.color } else { &page.plain })
 }
 
 fn print(text: &str) {
