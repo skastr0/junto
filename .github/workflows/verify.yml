@@ -174,7 +174,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - run: rustup show active-toolchain
+      # Installs the channel rust-toolchain.toml pins, before any cargo call.
+      - run: rustup toolchain install
       - run: cargo fmt --check
       - if: ${{ !cancelled() }}
         run: cargo clippy --locked --all-targets -- -D warnings
@@ -182,9 +183,13 @@ jobs:
         run: cargo test --locked
       - if: ${{ !cancelled() }}
         run: cargo build --locked --release
-      # Licences: anything outside deny.toml's allow-list fails the build.
+      # RustSec advisories, bans and sources; no licence check (deny.toml).
       - if: ${{ !cancelled() && runner.os == 'Linux' }}
-        run: cargo install --locked cargo-deny@0.19.0 && cargo deny --locked check
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-deny@0.19.0
+      - if: ${{ !cancelled() && runner.os == 'Linux' }}
+        run: cargo deny --locked check advisories bans sources
 
   free-startup-e2e:
     name: Free startup E2E (${{ matrix.os }})
