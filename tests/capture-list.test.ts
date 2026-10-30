@@ -65,13 +65,15 @@ describe("quick capture's list", () => {
     expect(ids(heads, "plan")).toEqual(["named", "labelled"]);
   });
 
-  it("finds a document by its words, and the quieter line names type and labels", () => {
+  it("finds a document by its words, and the quieter line names its labels", () => {
     const heads = [
       head("words", shelf, { title: "Notes", markdown: "the release checklist", updatedAt: 2 }),
       head("other", shelf, { title: "Something else", labels: ["release"], updatedAt: 1 }),
     ];
     expect(ids(heads, "checklist")).toEqual(["words"]);
-    expect(captureRowsOf(heads, inbox, "")[1]?.detail).toBe("Document, release");
+    expect(captureRowsOf(heads, inbox, "")[1]?.detail).toBe("release");
+    // The type is the row's glyph now: its noun left the line but is still searched.
+    expect(ids(heads, "document")).toEqual(["words", "other"]);
   });
 
   it("says nothing for a word no artifact holds", () => {
