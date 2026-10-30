@@ -65,7 +65,8 @@ describe("seat awareness product gate", () => {
     expect(textNode).toContain("useSeatAwarenessOn()");
     const ipc = source("src/main/junto/ipc.ts");
     expect(ipc).toContain("if (!seatAwarenessPlane.isEnabled()) {");
-    expect(ipc).toContain("settingsForSeed.subscribe(applySeatAwareness);");
+    // Settings changes reach main on the core push (the core holds settings).
+    expect(ipc).toContain("onCorePush(SETTINGS_CHANGED, (next) => applySeatAwareness(next as Settings));");
     expect(source("src/renderer/lib/seat-awareness.ts")).toContain(
       "if (!seatAwarenessOnNow()) return;",
     );

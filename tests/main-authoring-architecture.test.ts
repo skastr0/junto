@@ -107,6 +107,8 @@ describe("main authoring architecture", () => {
       // classified ipc.work.collaboration-ask handler in ipc.ts.
       // The window's signal answers are mail, reached only through the
       // classified ipc.work.signal-answer handler (canvas-model group).
+      // The resource ports read a canvas and a node's comments through it, read only.
+      "src/main/core-process/ops/ipc-resources.ts",
       "src/main/core-process/ops/ipc-signals.ts",
       "src/main/core-process/ops/ipc-threads.ts",
       // The window's work reads: topology, a node's comments and mentions, and

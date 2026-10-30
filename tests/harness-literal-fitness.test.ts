@@ -34,6 +34,11 @@ const KNOWN: readonly { readonly file: string; readonly text: string; readonly w
     text: 'pack.harness !== "codex"',
     why: "the hook ladder, outside the PTY effort",
   },
+  {
+    file: "src/main/core-process/ops/ipc-startup.ts",
+    text: 'seatStateRuntime.machine.getSlot(event.bindingId)?.harness !== "claude"',
+    why: "Claude's attention recovery, moved from junto/ipc.ts where the scan missed it split over two lines",
+  },
 ];
 
 const ids = HARNESS_IDS.map((id) => id.replace(/[-]/g, "\\-")).join("|");

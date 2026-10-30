@@ -41,7 +41,12 @@ vi.mock("../src/main/junto/browser/ipc", () => ({ registerBrowserIpc: vi.fn() })
 vi.mock("../src/main/junto/hosts/ipc", () => ({ registerHostsIpc: vi.fn() }));
 vi.mock("../src/main/junto/settings/ipc", () => ({ registerSettingsIpc: vi.fn() }));
 vi.mock("../src/main/junto/term/ipc", () => ({ registerTerminalIpc: vi.fn() }));
-vi.mock("../src/main/junto/term/plane", () => ({ termPlane: {} }));
+vi.mock("../src/main/junto/term/plane", () => ({ termPlane: {}, TERM_PLANE_IN_THIS_PROCESS: false }));
+// Every core call here answers "executed"; the seat awareness read at registration is not under test.
+vi.mock("../src/main/junto/term/seat-awareness", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  seatAwarenessEnrolled: () => false,
+}));
 
 const handlerFor = (channel: string): InvokeHandler => {
   const handler = electron.handlers.get(channel);

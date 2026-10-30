@@ -36,12 +36,12 @@ it.each([false, true])("receives exact inventoried modes with lost archive execu
       }
       process.stdout.write("accepted\\n");
     `;
-    await writeFile(join(bundle, "bin/junto"), `#!/bin/sh\nexec ${quote(process.execPath)} -e ${quote(inspect)} "$@"\n`);
-    await writeFile(join(bundle, "core/junto.cjs"), "core\n");
-    for (const file of ["bin/node", "bin/junto"]) await chmod(join(bundle, file), 0o755);
-    for (const file of ["core/junto.cjs"]) await chmod(join(bundle, file), 0o644);
+    // The installer runs the bundle's Node on core/machine-local.cjs (machine-commands.ts).
+    await writeFile(join(bundle, "core/machine-local.cjs"), inspect);
+    for (const file of ["bin/node"]) await chmod(join(bundle, file), 0o755);
+    for (const file of ["core/machine-local.cjs"]) await chmod(join(bundle, file), 0o644);
     await writeFile(join(bundle, "manifest.json"), JSON.stringify({ files: await machineBundleFiles(bundle) }));
-    if (lostExecuteBits) for (const file of ["bin/node", "bin/junto"]) await chmod(join(bundle, file), 0o644);
+    if (lostExecuteBits) for (const file of ["bin/node"]) await chmod(join(bundle, file), 0o644);
     const archive = join(root, "package.tgz");
     execFileSync("tar", ["-czf", archive, "-C", bundle, "."]);
     const bytes = await readFile(archive);

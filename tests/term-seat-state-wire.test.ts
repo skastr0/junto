@@ -107,7 +107,8 @@ describe("term seat-state placement wiring", () => {
   it("caches hop-delivered events and hydrates the Command Center snapshot", () => {
     const termIpc = readFileSync("src/main/junto/term/ipc.ts", "utf8");
     const ipc = readFileSync("src/main/junto/ipc.ts", "utf8");
-    expect(termIpc).toContain("rememberRemoteSeatState(payload.event)");
+    // The core remembers each hop-delivered seat state where the plane is bound.
+    expect(readFileSync("src/main/core-process/ops/term-ipc.ts", "utf8")).toContain("rememberRemoteSeatState(payload.event)");
     expect(termIpc).toContain(
       "gate?.broadcast(IPC_CHANNELS.agentSeatStateChanged, payload.event)",
     );

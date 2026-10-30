@@ -13,6 +13,11 @@ import { IPC_CHANNELS, type TerminalParkResult } from "../src/shared/ipc";
 import { registerTerminalIpc } from "../src/main/junto/term/ipc";
 import type { TermPlane } from "../src/main/junto/term/plane";
 import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
+import { Layer, ManagedRuntime } from "effect";
+import { inProcessCore } from "../src/main/core-process/client";
+import { useCoreClient } from "../src/main/core-process/main-client";
+import { bindTermIpcPlane } from "../src/main/core-process/ops/term-ipc";
+import "../src/main/core-process/ops/term-ipc";
 
 vi.mock("electron", () => ({ MessageChannelMain: MessageChannel }));
 
@@ -66,9 +71,13 @@ const rig = (surfaces: boolean | (() => boolean) = true) => {
     }),
     closeSurface: vi.fn(),
   };
+  const plane = { router, host, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane;
+  // The window's handlers ask the core by name; here the core is in process, on this rig's plane.
+  useCoreClient(inProcessCore(ManagedRuntime.make(Layer.empty) as never));
+  unbind = bindTermIpcPlane(plane);
   registerTerminalIpc(
     { handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never,
-    { router, host, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane,
+    plane,
     { isTrustedSender: () => true, broadcast: () => {} },
   );
   const call = (channel: string, ...args: unknown[]) => Promise.resolve(handlers.get(channel)!({ sender }, ...args));
@@ -85,7 +94,12 @@ const rig = (surfaces: boolean | (() => boolean) = true) => {
   return { host, ports, open, park, emit, output, router, sent, during };
 };
 
-afterEach(() => vi.restoreAllMocks());
+let unbind: (() => void) | undefined;
+afterEach(() => {
+  unbind?.();
+  unbind = undefined;
+  vi.restoreAllMocks();
+});
 
 describe("a control view on a surface port", () => {
   it("gets a port for its lease and no output over IPC while it holds it", async () => {

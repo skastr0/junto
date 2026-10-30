@@ -88,7 +88,7 @@ describe("Live Overseer product gate", () => {
   });
 
   it("keeps main composition, preload exposure, and app mounting behind the same gate", () => {
-    expect(readFileSync("src/main/index.ts", "utf8")).toContain("if (LIVE_OVERSEER_ENABLED) {\n        overseerLive = await composeOverseerLive");
+    expect(readFileSync("src/main/index.ts", "utf8")).toContain("if (LIVE_OVERSEER_ENABLED) unregisterOverseerLiveIpc = registerOverseerLiveIpc(coreOverseerLive(core));");
     expect(readFileSync("src/preload/index.ts", "utf8")).toContain("...(LIVE_OVERSEER_ENABLED ? liveApi : {})");
     expect(readFileSync("src/renderer/App.tsx", "utf8")).toContain("{LIVE_OVERSEER_ENABLED && <LiveConversationHost />}");
   });

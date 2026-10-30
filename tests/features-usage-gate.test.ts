@@ -9,7 +9,8 @@ describe("usage product gate", () => {
     const app = readFileSync("src/renderer/App.tsx", "utf8");
 
     expect(preload).toContain("...(USAGE_ENABLED ? usageApi : {})");
-    expect(main).toContain("if (USAGE_ENABLED) usage.start()");
+    // Usage polls in the core, started with the core's startup wiring.
+    expect(readFileSync("src/main/core-process/ops/ipc-startup.ts", "utf8")).toContain("if (USAGE_ENABLED) usage.start()");
     expect(main).toContain("if (USAGE_ENABLED) {");
     expect(app).toContain("USAGE_ENABLED && junto.onUsageChanged");
     expect(app).toContain("USAGE_ENABLED && junto.getUsage");

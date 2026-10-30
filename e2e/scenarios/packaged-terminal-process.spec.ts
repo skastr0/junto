@@ -20,7 +20,7 @@ test("the packaged terminal entry loads node-pty from app.asar.unpacked inside a
   const root = await mkdtemp(join(tmpdir(), "junto-packaged-terminal-"));
   const app = await electron.launch({
     executablePath: join(resolve(APP!), "Contents/MacOS/Junto"),
-    args: [`--user-data-dir=${join(root, "user-data")}`],
+    args: ["--mute-audio", `--user-data-dir=${join(root, "user-data")}`],
     env: { ...(process.env as Record<string, string>), HOME: root, TMPDIR: root, JUNTO_SECRET_STORE: "file", JUNTO_E2E: "1" },
     timeout: 60_000,
   });

@@ -86,6 +86,9 @@ const FAKES_BIN_DIR = join(REPO_ROOT, "e2e/fakes/bin");
 const NODE_BIN_DIR = dirname(process.execPath);
 const SYSTEM_PATH_FLOOR = `${NODE_BIN_DIR}:/usr/bin:/bin:/usr/sbin:/sbin`;
 
+// Each launch in this worker logs main to its own file under JUNTO_E2E_MAIN_LOG.
+let mainLogLaunches = 0;
+
 export interface LaunchOptions {
   readonly demo?: boolean;
   /** Disable external Node TCP/HTTP and Chromium HTTP before product startup. */
@@ -570,7 +573,7 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
     const mainLogDir = process.env.JUNTO_E2E_MAIN_LOG;
     if (mainLogDir !== undefined && mainLogDir.length > 0) {
       mkdirSync(mainLogDir, { recursive: true });
-      const file = join(mainLogDir, `${String(Date.now())}-${String(app.process().pid ?? 0)}.log`);
+      const file = join(mainLogDir, `${String(Date.now())}-${String((mainLogLaunches += 1))}.log`);
       let title = "";
       try {
         title = base.info().titlePath.join(" > ");
