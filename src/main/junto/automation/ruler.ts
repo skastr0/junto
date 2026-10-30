@@ -32,7 +32,9 @@ import {
   type RulingContext,
 } from "@shared/resource-command";
 import type { WorkErrorBody } from "@shared/work-control";
+import { AUTHORITY_ENABLED } from "@shared/features";
 import type { OpId } from "@shared/work-ids";
+import { CanvasAuthorities } from "../fleet/authorities";
 import { ModelService } from "../model/service";
 import { StateTransactionOperation } from "../state/service";
 import type { RulingRecord } from "../work/resource-rulings";
@@ -125,7 +127,7 @@ export const submitAutomationCommand = Effect.fn("automations.submit")(function*
       return { kind: "applied" as const, opId: command.opId, automation: entry.automation, archived: entry.archived, facts };
     });
 
-  return yield* Effect.gen(function* () {
+  const ruleHere = Effect.gen(function* () {
     const prior = yield* rulingRow({ opId: command.opId });
     if (Option.isSome(prior)) {
       const stored = decodeStoredRuling(parse(prior.value.ruling_json));
@@ -194,6 +196,18 @@ export const submitAutomationCommand = Effect.fn("automations.submit")(function*
   }).pipe(
     sql.withTransaction,
     Effect.provideService(StateTransactionOperation, "automations.submit"),
+    Effect.mapError((cause) =>
+      cause instanceof AutomationPersistenceError
+        ? cause
+        : AutomationPersistenceError.make({ operation: "submit", message: cause.message, cause }),
+    ),
+  );
+
+  // Behind the authority a command is judged on its canvas's authority, and lands when its entry applies (0.11/06 F2).
+  const authorities = yield* Effect.serviceOption(CanvasAuthorities);
+  if (!AUTHORITY_ENABLED || Option.isNone(authorities)) return yield* ruleHere;
+  return yield* authorities.value.judge(canvas, ruleHere).pipe(
+    Effect.map((judged) => judged.value),
     Effect.mapError((cause) =>
       cause instanceof AutomationPersistenceError
         ? cause
