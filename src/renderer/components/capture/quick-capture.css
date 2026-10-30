@@ -220,8 +220,11 @@
    heading may not outrank the 14px head. The editor scale elsewhere is
    untouched. */
 .quick-capture .live-markdown .cm-md-h1 {
+  border-bottom: 0;
   font-size: var(--text-title);
   font-weight: 600;
+  letter-spacing: var(--tracking-flat);
+  text-transform: none;
 }
 
 .quick-capture .live-markdown :is(.cm-md-h2, .cm-md-h3) {
