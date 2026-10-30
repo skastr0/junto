@@ -25,6 +25,13 @@
  * Reviewers and dependencies are JSON on the head. Stamps are verdict rows
  * (`work_review_verdicts`, `task-stamps.ts`).
  */
+/**
+ * Task list by state, newest change first, without walking every head of the
+ * canvas (v72, protect the main thread).
+ */
+export const TASK_HEADS_BY_STATE_INDEX_SQL = `CREATE INDEX IF NOT EXISTS task_heads_by_state
+    ON task_heads (canvas_name, state, updated_at, task_id, node_id);`;
+
 export const TASKS_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS task_heads (
     canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
@@ -66,6 +73,8 @@ export const TASKS_STATE_SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS task_heads_by_origin
     ON task_heads (canvas_name, derived_from)
     WHERE derived_from IS NOT NULL;
+
+  ${TASK_HEADS_BY_STATE_INDEX_SQL}
 
   CREATE TABLE IF NOT EXISTS task_layers (
     canvas_name TEXT NOT NULL,

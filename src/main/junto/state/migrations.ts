@@ -80,6 +80,7 @@ import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-
 import { VIEW_CAPTURE_DESK_SCHEMA_SQL, VIEW_CAPTURE_INBOX_SCHEMA_SQL, VIEW_STATE_SCHEMA_SQL } from "../view-state/state-schema";
 import { OPERATOR_MAIL_READS_SCHEMA_SQL } from "../work/mail-reads-state-schema";
 import { WORK_MESSAGES_SENDER_INDEX_SQL, WORK_READ_INDEXES_SQL } from "../work/state-schema";
+import { TASK_HEADS_BY_STATE_INDEX_SQL } from "../work/task-state-schema";
 import {
   actualStateSchemaSha256,
   normalizeSchemaSql,
@@ -889,13 +890,13 @@ export const STATE_SCHEMA_V71_IDENTITY = {
 /**
  * Version 72 indexes the reads that ask the log by kind of fact, and mail by
  * the seat that wrote it (protect the main thread, 0.11.7):
- * `work_events_by_operation`, `work_events_by_item`, `work_messages_actor`
- * and `work_messages_sender_order`.
+ * `work_events_by_operation`, `work_events_by_item`, `work_messages_actor`,
+ * `work_messages_sender_order` and `task_heads_by_state`.
  * Expand only.
  */
 export const STATE_SCHEMA_V72_IDENTITY = {
   actualSchemaSha256:
-    "8673a617a15440d00e35605e0f140f033f2088ebbd3180105fadb04f748c982d",
+    "563d6ddb6b93c3539d15b65d093d80b1cb4f446c6c568a21fcf8653d5a982693",
 } as const satisfies VerifiedStateSchemaIdentity;
 
 export const CURRENT_STATE_SCHEMA_VERSION = 72;
@@ -1478,7 +1479,7 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     name: "index the log by kind of fact, and mail by its writer",
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V71_IDENTITY,
-    migrate: (database) => database.exec(WORK_READ_INDEXES_SQL),
+    migrate: (database) => database.exec(`${WORK_READ_INDEXES_SQL}\n${TASK_HEADS_BY_STATE_INDEX_SQL}`),
   },
 ];
 
