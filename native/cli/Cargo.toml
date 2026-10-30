@@ -12,7 +12,7 @@ name = "junto"
 path = "src/main.rs"
 
 # Few dependencies: blocking std sockets and threads, no async runtime unless
-# the byte pipes (N4) prove they need one. Every one passes deny.toml.
+# the byte pipes (N4) prove they need one.
 [dependencies]
 
 [profile.release]

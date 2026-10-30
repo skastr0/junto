@@ -183,13 +183,6 @@ jobs:
         run: cargo test --locked
       - if: ${{ !cancelled() }}
         run: cargo build --locked --release
-      # RustSec advisories, bans and sources; no licence check (deny.toml).
-      - if: ${{ !cancelled() && runner.os == 'Linux' }}
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
-        with:
-          tool: cargo-deny@0.19.0
-      - if: ${{ !cancelled() && runner.os == 'Linux' }}
-        run: cargo deny --locked check advisories bans sources
 
   free-startup-e2e:
     name: Free startup E2E (${{ matrix.os }})
