@@ -193,6 +193,7 @@ import { coreOverseerLive } from "./core-process/ops/overseer-live";
 import { companionNotePreamble, wireCompanionChanges } from "./junto/companion/wiring";
 import { bindCompanionHost } from "./junto/companion/runtime";
 import { CORE_PROCESS_ENABLED } from "./core-process/host";
+import { splitPlaneRefusal } from "./core-process/plane-guard";
 import { startCoreProcessForMain, type CoreProcessForMain } from "./core-process/main-boot";
 import { overseerPagesOn, type OverseerPages } from "./junto/overseer/pages";
 import { runningBuildIdentity } from "./junto/build-identity";
@@ -1355,6 +1356,15 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // One log path: main console + Effect logger (layer already on AppRuntime)
     // into the ring and this machine's log file under ~/.junto/logs.
     installMachineLog({ home: resolveJuntoHome(), process: "app", echo: true });
+    // A core out of main with the PTYs still here would split the terminal plane: refused, never fallen back from.
+    const refusal = splitPlaneRefusal({ core: CORE_PROCESS_ENABLED, terminal: TERMINAL_PROCESS_ENABLED });
+    if (refusal !== undefined) {
+      console.error(`[boot] ${refusal}`);
+      if (!app.isPackaged) throw new Error(refusal);
+      dialog.showErrorBox("Junto", refusal);
+      app.exit(1);
+      return;
+    }
     // PTYs spawn in their own process from here on (JUNTO_TERMINAL_PROCESS=1).
     if (TERMINAL_PROCESS_ENABLED) {
       terminalProcess = startTerminalProcess();
