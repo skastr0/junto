@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
-import { ModelService } from "../model/service";
-import { seatLaunchState } from "./seat-launch-state";
 import { remoteSeatLaunchOf } from "./seats-client";
 import { cardSeatLaunch } from "./seats-launch";
 import type {
@@ -18,16 +16,14 @@ import {
   type TerminalParkResult,
 } from "@shared/ipc";
 import { isHarnessId } from "@shared/managed-terminal-templates";
-import { asCanvasName } from "@shared/model";
 import type { ControlLease, LocalHostEvent } from "./local-host";
 import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer";
 import type { TermPlane } from "./plane";
 import { injectionSupervisor } from "./injection-supervisor";
 import { onRemoteSeatState, rememberRemoteSeatState } from "./remote-seat-state";
-import { AppRuntime } from "../../runtime";
 import { liveSeatEnvironment } from "../region-env/live";
-import { Effect } from "effect";
-import { MachineRepository } from "../machines/repository";
+import { core } from "../../core-process/main-client";
+import { bindTermIpcSeatControl } from "../../core-process/ops/term-ipc";
 
 type LeaseOwner = {
   readonly lease: ControlLease;
@@ -94,6 +90,8 @@ export const registerTerminalIpc = (
     }
     await gate?.ensureHostAvailable?.(target);
   };
+  // Seat start and stop run as core operations; they use this plane and this step.
+  bindTermIpcSeatControl({ plane, ensureHostAvailable });
 
   const release = (leaseId: string): void => {
     const owner = owners.get(leaseId);
@@ -224,11 +222,7 @@ export const registerTerminalIpc = (
   const readSeat = async (canvas: string, id: string) => {
     if (typeof canvas !== "string" || !canvas.trim() || typeof id !== "string" || !id.trim())
       return deny("terminal ipc: canvas and node id required");
-    const node = await AppRuntime.runPromise(Effect.gen(function* () {
-      const model = yield* ModelService;
-      const current = yield* model.canvas(canvas);
-      return current.nodes.get(id as never);
-    }));
+    const node = await core.call("term.seatNode", { canvas, id });
     if (node?.kind !== "agent" && node?.kind !== "terminal")
       return deny("terminal ipc: this node is not a seat or terminal");
     return node;
@@ -238,7 +232,7 @@ export const registerTerminalIpc = (
     assertTrusted(event);
     const node = await readSeat(input?.canvas, input?.id);
     if (node.kind !== "agent") return { settingsFixed: false };
-    if (router.isLocalHostId(node.host)) return AppRuntime.runPromise(seatLaunchState(input.canvas, node));
+    if (router.isLocalHostId(node.host)) return core.call("term.seatLaunchState", { canvas: input.canvas, node });
     // A seat on another machine: what that machine last said (seats-launch.ts).
     const launch = await remoteSeatLaunchOf(node);
     return launch === undefined ? deny("This seat runs on another machine.") : cardSeatLaunch(launch, Date.now());
@@ -248,9 +242,7 @@ export const registerTerminalIpc = (
     assertTrusted(event);
     const node = await readSeat(input?.canvas, input?.id);
     if (node.kind === "agent") {
-      const { startSeat } = await import("./seat-control");
-      return AppRuntime.runPromise(startSeat({ canvas: asCanvasName(input.canvas), seatId: node.id },
-        { plane, ensureHostAvailable }));
+      return core.call("term.startSeat", { canvas: input.canvas, seatId: node.id });
     }
     const createAdmission = nodeDelete.admitCreate(node.bindingId, node.host);
     await ensureHostAvailable(node.host);
@@ -277,16 +269,14 @@ export const registerTerminalIpc = (
     assertTrusted(event);
     const node = await readSeat(input?.canvas, input?.id);
     if (node.kind !== "agent") return void await stopBinding(node.bindingId, node.host);
-    const { stopSeat } = await import("./seat-control");
-    await AppRuntime.runPromise(stopSeat({ canvas: asCanvasName(input.canvas), seatId: node.id }, { plane }));
+    await core.call("term.stopSeat", { canvas: input.canvas, seatId: node.id });
   });
 
   ipcMain.handle(
     IPC_CHANNELS.managedTerminalModels,
     async (event, harness: string) => {
       assertTrusted(event);
-      const { HarnessInventory } = await import("./templates/harness-inventory");
-      return AppRuntime.runPromise(Effect.flatMap(HarnessInventory, (inventory) => inventory.models(harness)));
+      return core.call("term.harnessModels", { harness });
     },
   );
 
@@ -299,20 +289,7 @@ export const registerTerminalIpc = (
   ipcMain.handle(IPC_CHANNELS.machineInventory, async (event, machine: unknown): Promise<MachineInventoryResult> => {
     assertTrusted(event);
     if (typeof machine !== "string" || !machine.trim()) return deny("machine inventory: a machine name is required");
-    const { HarnessInventory } = await import("./templates/harness-inventory");
-    const { peerInventory } = await import("../inventory/client");
-    return AppRuntime.runPromise(Effect.gen(function* () {
-      const inventory = yield* HarnessInventory;
-      const own = yield* (yield* MachineRepository).machineName.pipe(Effect.orElseSucceed(() => undefined));
-      if (own === undefined || own === machine) return { ok: true, inventory: yield* inventory.machine } satisfies MachineInventoryResult;
-      // A linked machine answers over the link's inventory channel.
-      return yield* peerInventory().inventoryOf(machine);
-    }).pipe(
-      Effect.catchTag("InventoryUnavailableError", (error) => Effect.succeed<MachineInventoryResult>({
-        ok: false,
-        error: { _tag: error._tag, machine: error.machine || machine, reason: error.reason, message: error.message },
-      })),
-    ));
+    return core.call("term.machineInventory", { machine });
   });
 
   // Every machine's harness config, this one included, goes through the same
@@ -324,8 +301,7 @@ export const registerTerminalIpc = (
       || !Array.isArray(request.keys) || !request.keys.every((key) => typeof key === "string"))
       return deny("native settings: machine, harness and keys are required");
     const { machine, harness, keys } = { machine: request.machine, harness: request.harness, keys: request.keys as string[] };
-    const { nativeConfigClient } = await import("../inventory/native-client");
-    return AppRuntime.runPromise(Effect.flatMap(nativeConfigClient, (client) => client.readSettings({ machine, harness, keys })));
+    return core.call("term.nativeSettingsRead", { machine, harness, keys });
   });
 
   ipcMain.handle(IPC_CHANNELS.nativeSettingWrite, async (event, input: unknown): Promise<NativeSettingWriteResult> => {
@@ -334,8 +310,7 @@ export const registerTerminalIpc = (
     if (typeof request?.machine !== "string" || typeof request.harness !== "string" || typeof request.key !== "string")
       return deny("native settings: machine, harness, key and value are required");
     const { machine, harness, key, value } = { machine: request.machine, harness: request.harness, key: request.key, value: request.value };
-    const { nativeConfigClient } = await import("../inventory/native-client");
-    return AppRuntime.runPromise(Effect.flatMap(nativeConfigClient, (client) => client.writeSetting({ machine, harness, key, value })));
+    return core.call("term.nativeSettingWrite", { machine, harness, key, value });
   });
 
   ipcMain.handle(IPC_CHANNELS.managedTerminalHarnesses, async (event) => {

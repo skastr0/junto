@@ -23,7 +23,7 @@ import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
 import { ensureManagedSeatRunning } from "../src/main/junto/term/ensure-managed-seat";
 import { termPlane } from "../src/main/junto/term/plane";
 
-const app = vi.hoisted(() => ({ runPromise: vi.fn() }));
+const app = vi.hoisted(() => ({ runPromise: vi.fn(), runPromiseExit: vi.fn() }));
 vi.mock("../src/main/core-runner", () => ({ coreRunner: app }));
 vi.mock("../src/main/runtime", () => ({ AppRuntime: app }));
 vi.mock("node:crypto", async (original) => {
@@ -36,7 +36,8 @@ import { ensureSeatSessionId } from "../src/main/junto/term/seat-session-before-
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
   while (cleanups.length) await cleanups.pop()!();
-  app.runPromise.mockReset(); vi.restoreAllMocks(); vi.unstubAllEnvs();
+  app.runPromise.mockReset();
+  app.runPromiseExit.mockReset(); vi.restoreAllMocks(); vi.unstubAllEnvs();
 });
 
 const fixture = async () => {
@@ -64,6 +65,7 @@ const fixture = async () => {
   ));
   cleanups.push(() => runtime.dispose());
   app.runPromise.mockImplementation((effect) => runtime.runPromise(effect));
+  app.runPromiseExit.mockImplementation((effect) => runtime.runPromiseExit(effect));
   model = await runtime.runPromise(ModelService);
   sessions = await runtime.runPromise(SeatSessionRepository);
   await runtime.runPromise(Effect.flatMap(MachineRepository, machine => machine.configureName("workbench")));

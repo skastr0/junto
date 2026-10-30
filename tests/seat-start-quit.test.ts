@@ -20,7 +20,7 @@ import { EMPTY_LAUNCH_RECORD } from "../src/shared/region-environment";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 import { seat } from "./support/model-nodes";
 
-const app = vi.hoisted(() => ({ runPromise: vi.fn() }));
+const app = vi.hoisted(() => ({ runPromise: vi.fn(), runPromiseExit: vi.fn() }));
 vi.mock("../src/main/core-runner", () => ({ coreRunner: app }));
 vi.mock("../src/main/runtime", () => ({ AppRuntime: app }));
 import { registerTerminalIpc } from "../src/main/junto/term/ipc";
@@ -35,6 +35,7 @@ const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
   while (cleanups.length) await cleanups.pop()!();
   app.runPromise.mockReset();
+  app.runPromiseExit.mockReset();
   vi.restoreAllMocks();
 });
 
@@ -67,6 +68,7 @@ const fixture = async () => {
     await runtime.dispose();
   });
   app.runPromise.mockImplementation((effect) => runtime.runPromise(effect));
+  app.runPromiseExit.mockImplementation((effect) => runtime.runPromiseExit(effect));
   const model = await runtime.runPromise(ModelService);
   const node = seat("seat", { harness: "codex", launch: { kind: "harness", argv: ["codex"], cwd: root } });
   const command = (input: unknown) => runtime.runPromise(model.command(Schema.decodeUnknownSync(Command)(input), "operator"));

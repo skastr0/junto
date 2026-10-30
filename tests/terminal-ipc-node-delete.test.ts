@@ -2,8 +2,9 @@ import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { Node, type Node as ModelNode } from "../src/shared/model";
-import { Schema } from "effect";
-import { AppRuntime } from "../src/main/runtime";
+import { Effect, Schema } from "effect";
+import { inProcessCore } from "../src/main/core-process/client";
+import { core } from "../src/main/core-process/main-client";
 import * as seatControl from "../src/main/junto/term/seat-control";
 import { registerTerminalIpc } from "../src/main/junto/term/ipc";
 import type { TermPlane } from "../src/main/junto/term/plane";
@@ -29,11 +30,18 @@ const event = { sender };
 
 type Handler = (...args: readonly unknown[]) => unknown;
 
+// Core operations run with no services: the seat read answers `node`, and
+// seat start and stop are the spied seat-control effects.
+const noServices = inProcessCore({ runPromiseExit: (effect) => Effect.runPromiseExit(effect as never) });
+const coreWithSeat = (node: ModelNode | undefined) =>
+  vi.spyOn(core, "call").mockImplementation(((name: string, input: never) =>
+    name === "term.seatNode" ? Promise.resolve(node) : noServices.call(name as never, input)) as typeof core.call);
+
 const harness = (options: {
   readonly ensureHostAvailable?: (hostId: string) => Promise<void>;
   readonly node?: ModelNode;
 } = {}) => {
-  if (options.node) vi.spyOn(AppRuntime, "runPromise").mockResolvedValue(options.node);
+  if (options.node) coreWithSeat(options.node);
   const handlers = new Map<string, Handler>();
   const ipcMain = {
     handle: (channel: string, handler: Handler) => {
@@ -121,9 +129,9 @@ describe("terminal IPC node-delete admission", () => {
     const ensureHostAvailable = vi.fn(async () => {});
     const runtime = harness({ ensureHostAvailable });
     const node = agentNode("codex-mini", "mini", "codex", "mini:codex-mini");
-    const start = vi.spyOn(seatControl, "startSeat");
     const occupied = { bindingId: "codex-mini", status: "running" };
-    vi.spyOn(AppRuntime, "runPromise").mockResolvedValueOnce(node).mockResolvedValueOnce(occupied);
+    const start = vi.spyOn(seatControl, "startSeat").mockReturnValue(Effect.succeed(occupied) as never);
+    coreWithSeat(node);
     expect(await runtime.handler(IPC_CHANNELS.modelStart)(event, {
       id: node.id, canvas: "factory",
     })).toEqual(occupied);
@@ -138,8 +146,8 @@ describe("terminal IPC node-delete admission", () => {
   it("stops an agent seat through seat control, a plain terminal through the router", async () => {
     const runtime = harness();
     const node = agentNode("codex-mini", "mini", "codex", "mini:codex-mini");
-    const stop = vi.spyOn(seatControl, "stopSeat");
-    vi.spyOn(AppRuntime, "runPromise").mockResolvedValueOnce(node).mockResolvedValueOnce({ outcome: "stopping" });
+    const stop = vi.spyOn(seatControl, "stopSeat").mockReturnValue(Effect.succeed({ outcome: "stopping" }) as never);
+    coreWithSeat(node);
     await runtime.handler(IPC_CHANNELS.modelStop)(event, { id: node.id, canvas: "factory" });
     expect(stop).toHaveBeenCalledTimes(1);
     expect(stop).toHaveBeenCalledWith({ canvas: "factory", seatId: node.id }, { plane: expect.anything() });
