@@ -1,14 +1,12 @@
-import { realpath } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute } from "node:path";
 import { ipcMain, shell, webContents, type IpcMainInvokeEvent } from "electron";
-import { Effect } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { parseFilePath, type FilePath, type FilesNodeRef, type FilesResult, type FileStamp } from "@shared/files";
 import { asNodeId } from "@shared/physics/schema";
-import { resolveJuntoHome } from "@shared/junto-home";
 import { trustedRendererIpc } from "../trusted-main-webcontents";
+import { deny, machineName, nodeFacts } from "./host-deps";
 import { workerRootIndex } from "./index-worker-host";
-import { makeFilesService, type FilesNodeFacts, type FilesService, type FilesServiceDeps } from "./service";
+import { makeFilesService, type FilesService, type FilesServiceDeps } from "./service";
 
 /**
  * The Files channels, behind `trustedRendererIpc`: only the app's own
@@ -61,37 +59,6 @@ const withRefPath = <A>(
   if (ref === undefined) return Promise.resolve(noNode);
   const path = parseFilePath(rawPath);
   return path === undefined ? Promise.resolve(invalid) : run(ref, path);
-};
-
-const nodeFacts = async (ref: FilesNodeRef): Promise<FilesNodeFacts | undefined> => {
-  const [{ coreRunner }, { ModelService }] = await Promise.all([
-    import("../../core-runner"),
-    import("../model/service"),
-  ]);
-  const read = await coreRunner.runPromise(
-    Effect.flatMap(ModelService, (model) => model.canvas(ref.canvas)).pipe(Effect.result),
-  );
-  if (read._tag !== "Success") return undefined;
-  const node = read.success.nodes.get(ref.node);
-  return node?.kind === "files" ? { host: node.host, root: node.root } : undefined;
-};
-
-/** Junto's own home, refused inside every root. Read once: it does not move while Junto runs. */
-let denied: Promise<ReadonlyArray<string>> | undefined;
-const deny = (): Promise<ReadonlyArray<string>> => {
-  denied ??= realpath(join(resolveJuntoHome(), ".junto")).then(
-    (real) => [real],
-    () => [join(resolveJuntoHome(), ".junto")],
-  );
-  return denied;
-};
-
-const machineName = async (): Promise<string> => {
-  const [{ coreRunner }, { MachineRepository }] = await Promise.all([
-    import("../../core-runner"),
-    import("../machines/repository"),
-  ]);
-  return coreRunner.runPromise(Effect.flatMap(MachineRepository, (machine) => machine.machineName));
 };
 
 /** Register the Files channels and return the service (the protocol reads bytes through it). */
