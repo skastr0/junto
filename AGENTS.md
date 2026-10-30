@@ -437,6 +437,12 @@ phase, and attention/occupancy are separate planes.
 - **PR test:** no ordinary work capability without reach (resource nodes) or a connected edge (seats, pages), a matching port, and a live generation credential.
 - **Full doctrine:** [`docs/architecture-canvas-physics.md`](docs/architecture-canvas-physics.md).
 
+## Effect law: Junto is written in Effect
+
+**All of Junto's code is written as Effects, with no exceptions, outside two places:** React, which owns its own runtime, and the true edges that require a promise or a callback (an `ipcMain.handle` body, a port listener, a Node or Electron API).
+Failures are typed errors (`Schema.TaggedError`) in the error channel, never `throw` or `try`/`catch`. Waiting is `Deferred`, `Effect.timeout` and `Schedule`, never `new Promise` or `async`. Resources are scoped Layers. Dependencies are in the requirements channel, never `any`. An edge is thin: it runs an Effect and hands over the result, and holds no logic of its own.
+This makes whole classes of bug, such as a call that waits forever or an untyped failure, hard to write by accident. Only the operator changes this law.
+
 ## Discipline
 
 - `~/.junto/state/junto.db` is the only **product** state store. Do not add
