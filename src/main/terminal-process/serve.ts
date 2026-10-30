@@ -121,6 +121,8 @@ export const serveTerminals = (
         const epoch = await captured;
         // Gone, reaped or reused: the signal is dropped, never sent to a pid.
         if (epoch === undefined || !(await epochs.isCurrent(pty.pid, epoch).catch(() => false))) return;
+        // The exit may have been reported while the table was read.
+        if (ptys.get(id) !== pty) return;
         try {
           pty.kill(signal);
         } catch {

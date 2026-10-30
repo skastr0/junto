@@ -130,6 +130,41 @@ describe("the terminal process", () => {
     exit?.({ exitCode: 0 });
   });
 
+  it("a kill whose epoch check is still pending when the exit is reported is dropped", async () => {
+    let exit: ((event: { exitCode: number; signal?: number }) => void) | undefined;
+    const kills: Array<string | undefined> = [];
+    const fake: SpawnPty = () => ({
+      pid: 4243,
+      onExit: (listener: typeof exit) => {
+        exit = listener;
+        return { dispose: () => undefined };
+      },
+      onData: () => ({ dispose: () => undefined }),
+      kill: (signal?: string) => kills.push(signal),
+      write: () => undefined,
+      resize: () => undefined,
+    }) as unknown as ReturnType<SpawnPty>;
+    let answer: ((current: boolean) => void) | undefined;
+    const { port1, port2 } = new MessageChannel();
+    opened.push(port1, port2);
+    serveTerminals(portOf(port2), fake, {
+      capture: async (pid) => ({ pid, startKey: "spawned" }),
+      isCurrent: () => new Promise<boolean>((resolve) => {
+        answer = resolve;
+      }),
+    });
+    const client = terminalClient(portOf(port1));
+    const pty = client.spawn({ command: "/bin/true", args: [], cols: 80, rows: 24 });
+    await pty.pid;
+    pty.kill("SIGTERM");
+    await until(() => answer !== undefined);
+    // The exit lands while ps is still answering; the answer then says current.
+    exit?.({ exitCode: 0 });
+    answer?.(true);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(kills).toEqual([]);
+  });
+
   it("a refused spawn arrives as an error, then an exit", async () => {
     const refusing: SpawnPty = () => {
       throw new Error("posix_spawnp failed");
