@@ -9,7 +9,7 @@ export const buildIdentity = (
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string => {
   const hash = createHash("sha256");
-  const files = ["package.json", "bun.lock", "tsconfig.json", "electron.vite.config.ts", "scripts/build-identity.ts", "scripts/build-machine.ts", "scripts/sign-machine-bundle.mjs", "scripts/machine-release.ts", "scripts/machine-release-catalog.ts", "scripts/machine-release-publication.ts", "scripts/electron-builder-config.mjs", "build/entitlements.machine-runtime.plist", "scripts/machine-bundle-boot.ts", "scripts/machine-bundle-modes.ts", "scripts/build-features.ts", "scripts/build-standalone-cli.ts"];
+  const files = ["package.json", "bun.lock", "tsconfig.json", "electron.vite.config.ts", "scripts/build-identity.ts", "scripts/build-machine.ts", "scripts/sign-machine-bundle.mjs", "scripts/machine-release.ts", "scripts/machine-release-catalog.ts", "scripts/machine-release-publication.ts", "scripts/electron-builder-config.mjs", "build/entitlements.machine-runtime.plist", "scripts/machine-bundle-boot.ts", "scripts/machine-bundle-modes.ts", "scripts/build-features.ts", "scripts/build-standalone-cli.ts", "scripts/build-native-cli.ts", "native/cli/Cargo.toml", "native/cli/Cargo.lock", "native/cli/build.rs", "native/cli/rust-toolchain.toml", "native/cli/.cargo/config.toml"];
   const walk = (directory: string): void => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const file = join(directory, entry.name);
@@ -19,6 +19,7 @@ export const buildIdentity = (
     }
   };
   walk(join(root, "src"));
+  walk(join(root, "native/cli/src"));
   hash.update(resolveBuildFeatures(env).fingerprint);
   for (const file of files.sort()) {
     const bytes = readFileSync(join(root, file));

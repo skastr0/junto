@@ -77,7 +77,7 @@
     "browser": "bun src/cli/main.ts browser",
     "content-transfer": "bun src/cli/main.ts content-transfer",
     "cli": "bun src/cli/main.ts",
-    "cli:build": "bun scripts/build-standalone-cli.ts junto",
+    "cli:build": "bun scripts/build-native-cli.ts --out dist/junto",
     "cli:build:dev": "bun scripts/build-standalone-cli.ts junto-dev",
     "linux:desktop:bootstrap:build": "bun scripts/build-standalone-cli.ts junto-desktop-bootstrap-linux-x64",
     "test:e2e:startup": "scripts/with-app-run-lock.sh sh -c 'JUNTO_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/free-startup.spec.ts \"$@\"' --",

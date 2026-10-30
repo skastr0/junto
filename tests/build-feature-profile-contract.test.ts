@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { FEATURE_CATALOG, SHIP_FEATURES } from "../src/shared/feature-catalog";
 import { standaloneControlBuild } from "../scripts/build-standalone-cli";
+import { nativeFeatureEnv } from "../scripts/build-native-cli";
+import { resolveBuildFeatures } from "../scripts/build-features";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -51,10 +53,17 @@ describe("packaged feature build contract", () => {
     expect(result.stderr).toContain("JUNTO_MAC_TEAM_ID");
   });
 
-  it("defaults the standalone CLI compiler to explicit ship defines", () => {
-    const build = standaloneControlBuild("junto");
+  it("builds the native CLI on explicit ship features", () => {
+    const env = nativeFeatureEnv(resolveBuildFeatures({}));
+    for (const [key, feature] of Object.entries(FEATURE_CATALOG)) {
+      const tier = SHIP_FEATURES[key as keyof typeof SHIP_FEATURES];
+      expect(env[feature.define.replace(/^__|__$/g, "")]).toBe(tier === true ? "1" : tier === false ? "0" : tier);
+    }
+  });
+
+  it("keeps the dev CLI compiler on explicit ship defines", () => {
+    const build = standaloneControlBuild("junto-dev");
     expect(build.profile).toBe("ship");
-    expect(build.output).toBe("dist/junto");
     for (const [key, feature] of Object.entries(FEATURE_CATALOG)) {
       expect(build.featureDefines).toContain(
         `--define=${feature.define}=${JSON.stringify(SHIP_FEATURES[key as keyof typeof SHIP_FEATURES])}`,
@@ -64,7 +73,7 @@ describe("packaged feature build contract", () => {
 
   it("keeps package scripts on the profile-aware standalone compiler", async () => {
     const packageJson = await readFile(path.join(repoRoot, "package.json"), "utf8");
-    expect(packageJson).toContain('"cli:build": "bun scripts/build-standalone-cli.ts junto"');
+    expect(packageJson).toContain('"cli:build": "bun scripts/build-native-cli.ts --out dist/junto"');
     expect(packageJson).not.toContain("browser:build");
     expect(packageJson).not.toContain("station:build");
     expect(packageJson).not.toContain("content:build");

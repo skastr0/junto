@@ -113,14 +113,6 @@ if [[ "$PREFLIGHT_ONLY" -eq 1 ]]; then
 fi
 
 cd "$REPO_ROOT"
-# Compiled CLIs embed Bun itself. Keep its runtime and redistributed notices
-# aligned with the reviewed compiler version, even on a newer developer shell.
-PINNED_BUN_VERSION="$("$BUN_EXECUTABLE" -e 'const manager = require("./package.json").packageManager; if (!/^bun@[0-9]+\.[0-9]+\.[0-9]+$/.test(manager)) throw new Error("packageManager must pin Bun"); process.stdout.write(manager.slice(4))')"
-COMPILER_BUN_VERSION="$("$BUN_EXECUTABLE" --version)"
-if [[ "$COMPILER_BUN_VERSION" != "$PINNED_BUN_VERSION" ]]; then
-  printf 'junto: error: packaging embeds Bun; use the pinned Bun %s (found %s) so runtime notices match\n' "$PINNED_BUN_VERSION" "$COMPILER_BUN_VERSION" >&2
-  exit 1
-fi
 ELECTRON_INSTALLER="$REPO_ROOT/node_modules/electron/install.js"
 NODE_EXECUTABLE="$(type -P node || true)"
 if [[ -z "$NODE_EXECUTABLE" || ! -x "$NODE_EXECUTABLE" ]]; then
@@ -164,22 +156,20 @@ printf 'junto: building fresh package runtimes …\n'
 "$BUN_EXECUTABLE" "$SCRIPT_DIR/package-runtime-provenance.ts" \
   prepare --target "$TARGET" >/dev/null
 "$BUN_EXECUTABLE" "$SCRIPT_DIR/lint-overlay.ts" --bundle
-printf 'junto: standalone CLI → dist/junto …\n'
-"$BUN_EXECUTABLE" "$SCRIPT_DIR/build-standalone-cli.ts" junto
-if [[ "$TARGET" == "mac" ]]; then
-  # The native CLI (0.12, N1), dormant in the app until N7: one step, its own error.
-  printf 'junto: native CLI → dist/native/aarch64-apple-darwin/junto …\n'
-  if ! command -v cargo >/dev/null 2>&1; then
-    printf 'junto: error: native CLI needs cargo; install rustup, and native/cli/rust-toolchain.toml pins 1.98.1\n' >&2
-    exit 1
-  fi
-  if ! "$BUN_EXECUTABLE" "$SCRIPT_DIR/build-native-cli.ts" --target aarch64-apple-darwin; then
-    printf 'junto: error: native CLI build failed (native/cli, cargo build --locked --release); see the cargo output above\n' >&2
-    exit 1
-  fi
+# The native junto CLI (Rust, native/cli) is the app's bin/junto: one step, its own error.
+printf 'junto: native CLI → dist/junto …\n'
+if ! command -v cargo >/dev/null 2>&1; then
+  printf 'junto: error: the native CLI needs cargo; install rustup, and native/cli/rust-toolchain.toml pins the toolchain\n' >&2
+  exit 1
+fi
+NATIVE_TARGET=()
+[[ "$TARGET" == "mac" ]] && NATIVE_TARGET=(--target aarch64-apple-darwin)
+if ! "$BUN_EXECUTABLE" "$SCRIPT_DIR/build-native-cli.ts" "${NATIVE_TARGET[@]+"${NATIVE_TARGET[@]}"}" --out dist/junto; then
+  printf 'junto: error: native CLI build failed (native/cli, cargo build --locked --release); see the cargo output above\n' >&2
+  exit 1
 fi
 if [[ "$COMPILE_ONLY" -eq 1 ]]; then
-  printf 'junto: compile-only done (fresh runtime cohort + standalone CLI). Skip packaging.\n'
+  printf 'junto: compile-only done (fresh runtime cohort + native CLI). Skip packaging.\n'
   exit 0
 fi
 

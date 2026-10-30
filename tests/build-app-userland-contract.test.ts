@@ -8,11 +8,9 @@ describe("app build userland artifact contract", () => {
       new URL("../scripts/build-app.sh", import.meta.url),
       "utf8",
     );
-    const compiledControls = [...build.matchAll(/"\$SCRIPT_DIR\/build-standalone-cli\.ts" ([^\s]+)/gu)].map((match) => match[1]);
-    expect(compiledControls).toEqual(["junto"]);
-    expect(standaloneControlBuild("junto")).toMatchObject({
-      output: "dist/junto", source: "src/cli/main.ts",
-    });
+    // The packaged CLI is the native one; no Bun-compiled control ships.
+    expect(build).not.toContain("build-standalone-cli.ts");
+    expect(build).toMatch(/"\$SCRIPT_DIR\/build-native-cli\.ts" .*--out dist\/junto/u);
     expect(standaloneControlBuild("junto-desktop-bootstrap-linux-x64")).toMatchObject({
       output: "dist/junto-desktop-bootstrap-linux-x64",
       source: "scripts/linux-desktop-bootstrap.ts",

@@ -1,9 +1,7 @@
 /**
- * Compile one packaged control CLI with the resolved feature profile.
- *
- * This is deliberately the only public `bun build --compile` path for the
- * packaged control binaries. A bare `bun run cli:build` must mean the same
- * ship profile as `build-app.sh`, not an ambient source-run profile.
+ * Compile a Bun control binary with the resolved feature profile: the dev
+ * CLI and the Linux desktop bootstrap. The shipped `junto` is the native CLI
+ * (scripts/build-native-cli.ts, `bun run cli:build`), never this.
  */
 import { chmodSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -18,10 +16,6 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const appVersion: string = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")).version;
 
 const controls = {
-  "junto": {
-    source: "src/cli/main.ts",
-    output: "dist/junto",
-  },
   "junto-dev": {
     source: "src/cli/main.ts",
     output: "dist/junto-dev",
@@ -35,7 +29,7 @@ const controls = {
 export type StandaloneControl = keyof typeof controls;
 
 export const standaloneControlBuild = (
-  control: StandaloneControl = "junto",
+  control: StandaloneControl = "junto-dev",
 ) => {
   const selected = controls[control];
   const resolvedFeatures = resolveBuildFeatures(process.env);
@@ -51,7 +45,7 @@ const main = (): void => {
   const [rawControl, ...extraArgs] = process.argv.slice(2);
   if (!rawControl || extraArgs.length > 0 || !(rawControl in controls)) {
     throw new Error(
-      "usage: bun scripts/build-standalone-cli.ts junto|junto-dev|junto-desktop-bootstrap-linux-x64",
+      "usage: bun scripts/build-standalone-cli.ts junto-dev|junto-desktop-bootstrap-linux-x64",
     );
   }
 

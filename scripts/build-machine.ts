@@ -9,8 +9,9 @@ import { Argument, Command } from "effect/unstable/cli";
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { loadJsonInput } from "../src/cli/core/json";
 import { executeJsonCommand } from "../src/cli/core/output";
-import { featureBunDefineArgs, featureViteDefines, resolveBuildFeatures } from "./build-features";
+import { featureViteDefines, resolveBuildFeatures } from "./build-features";
 import { buildIdentity } from "./build-identity";
+import { compileNativeCli, NATIVE_CLI_TARGET_OF } from "./build-native-cli";
 import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
 import { bootRelocatedMachineBundle } from "./machine-bundle-boot";
 import { normalizeMachineBundleModes } from "./machine-bundle-modes";
@@ -143,14 +144,15 @@ export const bundleMachineCore = async (outdir: string, input: {
   if (/createRequire\(\s*["']file:/.test(core)) throw new Error("the core resolves packages from a build-machine path");
 };
 
-/** The machine's bin/junto, as the machine build compiles it: no browser CLI (__JUNTO_MACHINE_BUILD__). */
+/** The machine's bin/junto: the native CLI for the bundle's target, with no browser CLI (JUNTO_MACHINE_BUILD). */
 export const compileMachineCli = (outfile: string, input: {
   readonly target: keyof typeof NODE_DIGESTS;
-  readonly build: string;
   readonly version: string;
   readonly features: ReturnType<typeof resolveBuildFeatures>;
 }): void => {
-  run(process.execPath, ["build", "--compile", `--target=bun-${input.target}`, "--no-compile-autoload-dotenv", "--no-compile-autoload-bunfig", "--no-compile-autoload-tsconfig", "--no-compile-autoload-package-json", "--external=original-fs", ...featureBunDefineArgs(input.features), `--define=APP_VERSION=${JSON.stringify(input.version)}`, `--define=__JUNTO_BUILD_ID__=${JSON.stringify(input.build)}`, "--define=__JUNTO_MACHINE_BUILD__=true", "--outfile", outfile, join(repoRoot, "src/cli/main.ts")], repoRoot);
+  const target = NATIVE_CLI_TARGET_OF[input.target];
+  if (target === undefined) throw new Error(`no native CLI target for ${input.target}`);
+  compileNativeCli(outfile, { target, version: input.version, features: input.features, machine: true });
 };
 
 export const buildMachine = async (input: BuildMachineInput) => {
@@ -176,7 +178,7 @@ export const buildMachine = async (input: BuildMachineInput) => {
       }
     }
     await stageMachinePty(stage, input.target);
-    compileMachineCli(join(stage, "bin/junto"), {target: input.target, build, version: pkg.version, features});
+    compileMachineCli(join(stage, "bin/junto"), {target: input.target, version: pkg.version, features});
     if (buildIdentity(repoRoot) !== build) throw new Error("source changed during build; rebuild this bundle");
     const node = join(stage, "bin/node");
     const nodeMetadata = await lstat(node);
