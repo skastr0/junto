@@ -1,13 +1,13 @@
-/* Quick capture (0.11, 11 Q1): the list on the left, the capture or a
-   preview on the right, one frame inside the operator modal's panel. */
+/* Quick capture (0.11, 11 Q1; 0.12 the triage desk): the captures on the
+   left, the writing in the middle, where it can go on the right, one frame at
+   the size an Artifacts node opens at inside the operator layer. */
 
 .quick-capture {
   display: flex;
   flex-direction: column;
-  /* Cmd+T is Cmd+K with a second pane: Cmd+K's width and a capped height, not
-     the window's (846 of 900 read as a full-bleed page). The fixed height
-     also keeps a filtering list from resizing the frame. */
-  height: min(560px, 100%);
+  /* The workspace measure the operator asked for, at the immersive height: a
+     desk to write at, not the palette-sized popup it started as. */
+  height: 100%;
   min-height: 0;
   /* The surface's base is the scale's body, so no line falls to the browser's
      16px: titles take body-lg, the quieter lines label. */
@@ -17,8 +17,8 @@
 
 .quick-capture__body {
   display: grid;
-  /* Cmd+K's list column, fixed, then the pane that writes. */
-  grid-template-columns: 260px minmax(0, 1fr);
+  /* Captures, the writing, where it can go: the desk's three columns. */
+  grid-template-columns: 280px minmax(0, 1fr) 280px;
   min-height: 0;
   flex: 1;
 }
@@ -178,6 +178,29 @@
   flex-direction: column;
   min-height: 0;
   min-width: 0;
+}
+
+/* Where it can go: the desk's third column, its head on the same 46px line as
+   the search and the writing's head, and the move column's own body under it. */
+.quick-capture__move {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  border-left: 1px solid var(--color-stroke);
+}
+
+.quick-capture__move-head {
+  display: flex;
+  height: 46px;
+  flex: none;
+  align-items: center;
+  margin: 0;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--color-stroke);
+  color: var(--color-ink);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
 }
 
 /* A writing pane shows its caret, not a box. The house ring (live-markdown.css)

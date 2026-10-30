@@ -199,7 +199,8 @@ export function QuickCapture() {
     <OperatorModalShell
       id="capture"
       label="Quick capture"
-      width={700}
+      width={1280}
+      fill
       panelClassName="quick-capture"
       onKeyDown={onKeyDown}
     >
@@ -214,7 +215,8 @@ export function QuickCapture() {
           closeOperatorModal("capture");
         }}
       >
-        <div className="quick-capture__list">
+        <section className="quick-capture__list" aria-labelledby={`${baseId}-captures`}>
+          <h2 className="sr-only" id={`${baseId}-captures`}>Captures</h2>
           <div className="quick-capture__search">
             <Search size={14} aria-hidden />
             <input
@@ -307,8 +309,9 @@ export function QuickCapture() {
               ))
             )}
           </div>
-        </div>
-        <div className="quick-capture__right" ref={rightRef}>
+        </section>
+        <section className="quick-capture__right capture-desk__writing" ref={rightRef} aria-labelledby={`${baseId}-writing`}>
+          <h2 className="sr-only" id={`${baseId}-writing`}>Writing</h2>
           {edit.kind === "new" || (edit.kind === "preview" && previewRow === undefined) ? (
             inbox === undefined ? (
               <CaptureInboxAsk
@@ -349,7 +352,12 @@ export function QuickCapture() {
               </div>
             </div>
           ) : null}
-        </div>
+        </section>
+        <section className="quick-capture__move capture-desk__move" aria-labelledby={`${baseId}-move`}>
+          <h2 className="quick-capture__move-head" id={`${baseId}-move`}>
+            Move to
+          </h2>
+        </section>
       </div>
       <div className="quick-capture__foot">
         <span className="quick-capture__hint">
