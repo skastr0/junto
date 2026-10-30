@@ -46,6 +46,7 @@ const main = async (parent: ParentPort): Promise<void> => {
   const core = await startCore({
     home: boot.home,
     build: boot.build,
+    canvasControl: true,
     ...makeMachineBundleSources({
       home: boot.home,
       build: boot.build,

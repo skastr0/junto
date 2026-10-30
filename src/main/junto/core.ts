@@ -26,8 +26,12 @@ import { termPlane } from "./term/plane";
 import { AgentSignalRepository } from "./signals/repository";
 import { onAgentSignalChanged } from "./signals/changes";
 import { mainAuthoringGate } from "./main-authoring-gate";
+import { startCanvasControlServer, type CanvasControlServer } from "./canvas-control/server";
 
-export type CoreOptions = Omit<MachineCoreOptions, "ready">;
+export type CoreOptions = Omit<MachineCoreOptions, "ready"> & {
+  /** The desktop core also serves canvas edits (`junto canvas`); a headless machine core does not. */
+  readonly canvasControl?: boolean;
+};
 
 /** The installed database is newer than this build; starting would corrupt it. */
 export class CoreSchemaTooNew extends Schema.TaggedError<CoreSchemaTooNew>()("CoreSchemaTooNew", {
@@ -38,7 +42,7 @@ export class CoreSchemaTooNew extends Schema.TaggedError<CoreSchemaTooNew>()("Co
 
 /** A stop that could not finish: the named part still held work, so core state was kept. */
 export class CoreDidNotDrain extends Schema.TaggedError<CoreDidNotDrain>()("CoreDidNotDrain", {
-  part: Schema.Literals(["owner-commands", "seat-work", "writes", "service-children"]),
+  part: Schema.Literals(["owner-commands", "seat-work", "canvas-edits", "writes", "service-children"]),
   remaining: Schema.optionalKey(Schema.Number),
   message: Schema.String,
 }) {}
@@ -58,6 +62,7 @@ export const startCore = async (options: CoreOptions) => {
   let owner: OperatorControlServer | undefined;
   let listener: MachineLinkListener | undefined;
   let work: WorkControlServer | undefined;
+  let canvas: CanvasControlServer | undefined;
   let seatProcesses: Awaited<ReturnType<typeof startCoreSeats>> | undefined;
   let mail: Context.Service.Shape<typeof MachineCoreMail> | undefined;
   let sessions: SeatSessions | undefined;
@@ -73,6 +78,7 @@ export const startCore = async (options: CoreOptions) => {
     owner?.beginShutdown();
     listener?.beginShutdown(cause);
     work?.beginShutdown();
+    canvas?.beginShutdown();
     mail?.seats.suspend();
     sessions?.stop();
     stopSeatReports?.();
@@ -86,6 +92,10 @@ export const startCore = async (options: CoreOptions) => {
       if (work !== undefined) {
         const receipt = await work.close();
         if (!receipt.clean) throw new CoreDidNotDrain({ part: "seat-work", message: "Seat work commands did not drain; core state retained" });
+      }
+      if (canvas !== undefined) {
+        const receipt = await canvas.close();
+        if (!receipt.clean) throw new CoreDidNotDrain({ part: "canvas-edits", message: "Canvas edits did not drain; core state retained" });
       }
       await seatProcesses?.close();
       const writes = await mainAuthoringGate.drain(5_000);
@@ -108,6 +118,9 @@ export const startCore = async (options: CoreOptions) => {
       version: typeof __JUNTO_APP_VERSION__ === "string" ? __JUNTO_APP_VERSION__ : "dev",
       run: effect => runtime.runPromise(effect),
     });
+    if (options.canvasControl === true) {
+      canvas = await startCanvasControlServer({ home: options.home, run: effect => runtime.runPromise(effect) });
+    }
     seatProcesses = await startCoreSeats({ home: options.home });
     const inventory = await runtime.runPromise(makeInventoryChannel());
     const nativeConfig = await runtime.runPromise(makeNativeConfigChannel());
