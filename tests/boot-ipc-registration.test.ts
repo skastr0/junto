@@ -67,12 +67,6 @@ vi.mock("electron", () => {
 vi.mock("../src/main/junto/files/index-worker-host", () => ({ workerRootIndex: () => inert }));
 
 // Some registrars start work on the app runtime; what it does is not under test.
-// Every core call here answers undefined; the seat awareness read at registration is not under test.
-vi.mock("../src/main/junto/term/seat-awareness", async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  seatAwarenessEnrolled: () => false,
-}));
-
 vi.mock("../src/main/runtime", () => ({
   // The core port asks for an Exit, not a value (inProcessCore).
   AppRuntime: { runPromise: async () => undefined, runPromiseExit: async () => ({ _tag: "Success", value: undefined }), runFork: () => undefined },

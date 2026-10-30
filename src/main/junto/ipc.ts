@@ -24,7 +24,7 @@ import { ModelService } from "./model/service";
 import { ModelActorRefs } from "./model/actor-refs";
 import { askOnEveryCore } from "../core-process/every-core";
 import { core } from "../core-process/main-client";
-import { publish as corePublish, subscribe as onCorePush } from "../core-process/push";
+import { subscribe as onCorePush } from "../core-process/push";
 import { asNodeId } from "@shared/model";
 
 import {
@@ -32,7 +32,6 @@ import {
   BROWSER_ENABLED,
   FLEET_UI_ENABLED,
   productNodeKindEnabled,
-  SEAT_AWARENESS_COMPILED,
   TASKS_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
@@ -91,8 +90,6 @@ import {
 } from "@shared/seat-sessions";
 import { isSeatGuidanceSeatId, type SeatGuidanceSetResult } from "@shared/seat-guidance";
 import { SEAT_CACHE_DUE_CHANGED } from "../core-process/ops/ipc-seats";
-import { SETTINGS_CHANGED } from "../core-process/ops/main-index";
-import type { Settings } from "@shared/settings";
 import type { ProfileDeleteResult, ProfileResult, ProfileSaveInput } from "@shared/agent-profiles";
 import type { PortraitOverrideSetResult } from "@shared/portrait-overrides";
 import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
@@ -121,13 +118,6 @@ import {
   isLiveClaudeResumeSummaryChoice,
 } from "./term/drive/claude-startup";
 import { rulePackFor } from "./term/agent-state";
-import {
-  resolveSeatAwarenessGate,
-  seatAwarenessApiKey,
-  seatAwarenessEnrolled,
-  seatAwarenessPlane,
-  SEAT_AWARENESS_ENV,
-} from "./term/seat-awareness";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { registerOperatorHoldsIpc } from "./term/operator-holds";
 import { removeRegionSecret, saveRegionSecret } from "./region-env/secret-ipc";
@@ -390,8 +380,10 @@ export const registerJuntoIpc = (): void => {
 
   registerOperatorHoldsIpc(privilegedIpc);
 
-  privilegedIpc.handle(IPC_CHANNELS.seatAwarenessSnapshot, () =>
-    seatAwarenessPlane.currentEvents(),
+  // The plane runs in the core, where the seats and their windows are; main
+  // asks it for the latest event per binding a renderer hydrates from.
+  privilegedIpc.handle(IPC_CHANNELS.seatAwarenessSnapshot, async () =>
+    (await core.call("seats.awareness", {})).events,
   );
 
   // Seat collaboration — one seat asks a peer for help. The request is an
@@ -401,17 +393,17 @@ export const registerJuntoIpc = (): void => {
   // reaches a seat's mailbox unless the operator asks for it.
   privilegedIpc.handle(
     IPC_CHANNELS.seatCollaborationAsk,
-    (_event, input: unknown): Promise<SeatCollaborationAskResult> => {
+    async (_event, input: unknown): Promise<SeatCollaborationAskResult> => {
       // The live plane is the resolved gate: compiled, and turned on in
-      // Settings, Experimental (or shipped on).
-      if (!seatAwarenessPlane.isEnabled()) {
-        return Promise.resolve({
+      // Settings, Experimental (or shipped on). It runs in the core.
+      if (!(await core.call("seats.awareness", {})).enabled) {
+        return {
           ok: false as const,
           error: "seat collaboration is off: turn on Seat awareness in Settings, Experimental",
-        });
+        };
       }
       const normalized = normalizeSeatCollaborationAsk(input);
-      if (!normalized.ok) return Promise.resolve(normalized);
+      if (!normalized.ok) return normalized;
       const draft = normalized.draft;
       return runMainAuthoring("ipc.work.collaboration-ask", () =>
         core.call("ipc.threads.collaborationAsk", { draft }),
@@ -864,26 +856,9 @@ export const registerJuntoIpc = (): void => {
   // watch, usage, the onboarding nudge's interject and Claude's resume
   // recovery. Main keeps the window's handlers and what only it holds.
 
-  // Advisory seat-awareness sidecar, an experimental feature. Enrollment is
-  // the Settings toggle: a discovered key is not consent. Off, the plane is
-  // not running at all; on with no key it publishes missing_key. The toggle
-  // applies live: a change stops the plane and, when on, starts it again.
-  // Display only, and never on the terminal path.
-  seatAwarenessPlane.subscribe((event) =>
-    corePublish(IPC_CHANNELS.seatAwarenessChanged, event),
-  );
-  const applySeatAwareness = (settings: Settings): void => {
-    if (!SEAT_AWARENESS_COMPILED) return;
-    const on = resolveSeatAwarenessGate({
-      env: process.env[SEAT_AWARENESS_ENV],
-      enrolled: seatAwarenessEnrolled(settings),
-    }).enabled;
-    if (on === seatAwarenessPlane.isEnabled()) return;
-    seatAwarenessPlane.stop();
-    if (on) seatAwarenessPlane.start({ enabled: true, apiKey: seatAwarenessApiKey() });
-  };
-  onCorePush(SETTINGS_CHANGED, (next) => applySeatAwareness(next as Settings));
-  askOnEveryCore("ipc.settings.current", () => core.call("ipc.settings.current", {}).then(applySeatAwareness));
+  // The advisory seat-awareness plane runs in the core, where the seats and
+  // their windows are, and is started from the settings there
+  // (term/seat-awareness-live.ts); its events arrive on the push stream above.
 
   privilegedIpc.handle(IPC_CHANNELS.terminalManagedPrompt, (_event, input: SeatPromptInput) =>
     core.call("ipc.seats.managedPrompt", { input }),
