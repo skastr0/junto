@@ -9,14 +9,14 @@ import { portCore, serveCore, type CorePort } from "../src/main/core-process/por
 import { emitAgentSignalChanged } from "../src/main/junto/signals/changes";
 import { subscribe } from "../src/main/core-process/push";
 import { SettingsService } from "../src/main/junto/settings/service";
-import type { Settings } from "../src/shared/settings";
+import { redactProvidersForIpc, type Settings } from "../src/shared/settings";
 
 // The index.ts request group: answers cross as data, and a change the core
 // watches reaches main through the push bus rather than a callback.
 describe("index.ts core operations", () => {
-  it("reads the settings, and a watch publishes them as they stand, then each change once, however often it is asked", async () => {
+  it("reads the settings, and a watch publishes them as they stand, then each change once, however often it is asked, never with a secret", async () => {
     const listeners: Array<(settings: Settings) => void> = [];
-    const first = { machine: { supervisedPreferred: false } } as unknown as Settings;
+    const first = { machine: { supervisedPreferred: false }, providers: { openai: { apiKey: "sk-first" } } } as unknown as Settings;
     const runtime = ManagedRuntime.make(Layer.succeed(SettingsService, {
       get: Effect.succeed(first),
       subscribe: (listener: (settings: Settings) => void) => {
@@ -28,14 +28,17 @@ describe("index.ts core operations", () => {
     const pushed: Array<unknown> = [];
     const off = subscribe(SETTINGS_CHANGED, (payload) => pushed.push(payload));
     try {
-      expect(await core.call("settings.read", {})).toBe(first);
+      const read = await core.call("settings.read", {});
+      expect(read).toEqual(redactProvidersForIpc(first));
+      expect(JSON.stringify(read)).not.toContain("sk-");
       await core.call("settings.watch", {});
       await core.call("settings.watch", {});
       expect(listeners).toHaveLength(1);
-      const next = { machine: { supervisedPreferred: true } } as unknown as Settings;
+      const next = { machine: { supervisedPreferred: true }, providers: { openai: { apiKey: "sk-next" } } } as unknown as Settings;
       listeners[0]!(next);
-      // Each watch publishes the settings as they stand; changes follow on the same channel.
-      expect(pushed).toEqual([first, first, next]);
+      // Each watch publishes the settings as they stand; changes follow on the same channel, masked.
+      expect(pushed).toEqual([redactProvidersForIpc(first), redactProvidersForIpc(first), redactProvidersForIpc(next)]);
+      expect(JSON.stringify(pushed)).not.toContain("sk-");
     } finally {
       off();
       await runtime.dispose();

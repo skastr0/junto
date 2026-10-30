@@ -3,7 +3,7 @@ import { SqlClient } from "effect/unstable/sql";
 import type { ContentRef } from "@shared/content";
 import type { AgentSignal } from "@shared/agent-signals";
 import type { Canvas } from "@shared/model";
-import type { Settings } from "@shared/settings";
+import { redactProvidersForIpc, type Settings } from "@shared/settings";
 import type { PreambleEvent } from "@shared/preamble";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { ContentService, type ContentOpenForRead } from "../../junto/content/service";
@@ -31,7 +31,7 @@ import { publish } from "../push";
  * shot main takes.
  */
 
-/** Where the settings go on every change, once `settings.watch` started it. */
+/** Where the settings go on every change, provider secrets masked, once `settings.watch` started it. */
 export const SETTINGS_CHANGED = "settings.changed";
 /** A seat's preamble, as the core's work control server takes it, for the window to show. */
 export const WORK_PREAMBLE = "work.preamble";
@@ -125,7 +125,8 @@ coreOps({
         return yield* Effect.forEach(names, (name) => Effect.map(model.canvas(name), (doc) => ({ name, doc })));
       })),
   "model.editsCanvas": ({ canvasName }) => Effect.flatMap(ModelRecords, (records) => records.editsCanvas(canvasName)),
-  "settings.read": () => Effect.flatMap(SettingsService, (settings) => settings.get),
+  // Provider secrets never leave the core: every answer and push is masked, as the window gets it.
+  "settings.read": () => Effect.flatMap(SettingsService, (settings) => Effect.map(settings.get, redactProvidersForIpc)),
   // Subscribed once per core; each watch also publishes the settings as they stand, after the
   // subscription, so a watcher reads every value from the one ordered push stream.
   "settings.watch": () =>
@@ -133,9 +134,9 @@ coreOps({
       Effect.gen(function* () {
         if (!watchingSettings) {
           watchingSettings = true;
-          settings.subscribe((next) => publish(SETTINGS_CHANGED, next));
+          settings.subscribe((next) => publish(SETTINGS_CHANGED, redactProvidersForIpc(next)));
         }
-        publish(SETTINGS_CHANGED, yield* settings.get);
+        publish(SETTINGS_CHANGED, redactProvidersForIpc(yield* settings.get));
       })),
   // Subscribed once per core; every canvas change and removal is published with the document as it is now.
   "model.watchCanvases": () =>
