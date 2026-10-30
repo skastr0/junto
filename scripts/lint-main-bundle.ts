@@ -7,23 +7,27 @@
  *
  * The rule is the overlap itself, not a list of telltale strings: build main
  * and the core, and fail on every module under src/main that both entries
- * link. src/shared modules are contracts one process imports from the other
- * side by design, so they are counted, not ratcheted; modules from
- * node_modules and bundler virtual ids are not project code and are ignored.
- * A few src/main modules are the port bridge itself (`core-process/client.ts`,
- * `port.ts`, `push.ts`), which both sides need to talk; they stay on the
- * ratchet like everything else, and it costs nothing.
+ * link. src/shared modules are contracts one side imports from the other, so
+ * they are counted, not ratcheted; modules from node_modules and bundler
+ * virtual ids are not project code and are ignored.
  *
  * The module lists come from `out/main/bundle-modules.json`, written by
  * scripts/main-bundle-modules.ts during the build: the emitted chunk says
  * *that* the core is in main's bundle, this says *which source file* put it
  * there.
  *
- * Ratchet: `scripts/main-bundle-allowlist.json` lists today's main-side
- * modules that both processes link. The list may only shrink. A module not on
- * it that both link fails; a module on it that they no longer both link fails
- * as stale, so the split closing shows up as entries leaving the file.
- * `--prune` drops the stale entries and writes the list back; it never adds.
+ * Ratchet: `scripts/main-bundle-allowlist.json` names today's main-side
+ * modules that both processes link, in two lists.
+ *   - `stays`: modules both sides need to talk, each with the reason it holds
+ *     no product state (the port, the wire's listener registry, channel
+ *     names). A module holding product state can never be justified here; it
+ *     belongs in `debt` until it leaves main.
+ *   - `debt`: core code main still links. Shrink-only: it goes away as the
+ *     split closes, and the file ends with it empty.
+ * A module in both that is on neither list fails. A listed module that they
+ * no longer both link fails as stale, so closing shows up as entries leaving
+ * the file. `--prune` drops stale `debt` entries and writes the list back; it
+ * never adds, and it refuses to drop a `stays` entry.
  *
  * Run after `electron-vite build`: `bun run lint:main-bundle`.
  */
@@ -39,11 +43,13 @@ const MANIFEST_REL = `${OUT_REL}/bundle-modules.json`;
 const ALLOWLIST_REL = "scripts/main-bundle-allowlist.json";
 
 type Manifest = { readonly entries: Record<string, ReadonlyArray<string>> };
+type Stay = { readonly path: string; readonly why: string };
 type Allowlist = {
   readonly entry: string;
   readonly coreEntry: string;
   readonly why: string;
-  readonly linkedInBoth: ReadonlyArray<string>;
+  readonly stays: ReadonlyArray<Stay>;
+  readonly debt: ReadonlyArray<string>;
 };
 
 const prune = process.argv.includes("--prune");
@@ -68,6 +74,16 @@ const main = (): number => {
     );
     return 1;
   }
+  for (const stay of allowlist.stays) {
+    if (stay.path.trim().length === 0 || stay.why.trim().length === 0) {
+      console.error(`${ALLOWLIST_REL}: every stays entry needs a path and a why: ${JSON.stringify(stay)}`);
+      return 1;
+    }
+    if (allowlist.debt.includes(stay.path)) {
+      console.error(`${ALLOWLIST_REL}: ${stay.path} is in both stays and debt`);
+      return 1;
+    }
+  }
 
   const mainModules = new Set(manifest.entries[ENTRY] ?? []);
   const coreModules = new Set(manifest.entries[CORE_ENTRY] ?? []);
@@ -80,26 +96,33 @@ const main = (): number => {
   const shared = project.filter((module) => module.startsWith("src/shared/"));
   const offenders = new Set(project.filter((module) => module.startsWith("src/main/")));
 
-  const allowed = new Set(allowlist.linkedInBoth);
+  const stayPaths = allowlist.stays.map((stay) => stay.path);
+  const allowed = new Set([...stayPaths, ...allowlist.debt]);
   const added = [...offenders].filter((module) => !allowed.has(module)).sort();
-  const stale = allowlist.linkedInBoth.filter((module) => !offenders.has(module));
+  const staleDebt = allowlist.debt.filter((module) => !offenders.has(module));
+  const staleStays = stayPaths.filter((module) => !offenders.has(module));
 
+  const staysInBoth = stayPaths.filter((module) => offenders.has(module)).length;
+  const debtInBoth = allowlist.debt.filter((module) => offenders.has(module)).length;
   const summary =
     `${ENTRY} and ${CORE_ENTRY} link ${mainModules.size} and ${coreModules.size} modules, ` +
-    `${project.length} in both: ${offenders.size} main-side, ${shared.length} src/shared`;
+    `${project.length} in both: ${offenders.size} main-side ` +
+    `(${staysInBoth} stay, ${debtInBoth} debt, ${added.length} not on the list), ${shared.length} src/shared`;
 
-  if (added.length === 0 && stale.length === 0) {
-    console.log(`ok main-bundle: ${summary}, all main-side modules on the ratchet`);
+  if (added.length === 0 && staleDebt.length === 0 && staleStays.length === 0) {
+    console.log(`ok main-bundle: ${summary}`);
     return 0;
   }
 
-  // --prune only drops what the split already closed; a new overlap still fails.
-  if (added.length === 0 && prune) {
+  // --prune only drops debt the split already closed; a new overlap still fails,
+  // and a stays entry that left the overlap is a design change to read, not erase.
+  if (added.length === 0 && staleStays.length === 0 && prune) {
+    const debt = [...offenders].filter((module) => !stayPaths.includes(module)).sort();
     writeFileSync(
       join(ROOT, ALLOWLIST_REL),
-      `${JSON.stringify({ ...allowlist, linkedInBoth: [...offenders].sort() }, null, 2)}\n`,
+      `${JSON.stringify({ ...allowlist, debt }, null, 2)}\n`,
     );
-    console.log(`ok main-bundle: pruned ${stale.length} module(s) the split closed; ${summary}, all main-side modules on the ratchet`);
+    console.log(`ok main-bundle: pruned ${staleDebt.length} module(s) the split closed; ${summary}`);
     return 0;
   }
 
@@ -108,11 +131,15 @@ const main = (): number => {
     console.error(`  ${added.length} main-side module(s) newly linked into both main and the core:`);
     for (const module of added) console.error(`    ${module}`);
   }
-  if (stale.length > 0) {
+  if (staleDebt.length > 0) {
     console.error(
-      `  ${stale.length} allowlisted module(s) no longer linked by both: drop them from ${ALLOWLIST_REL} so the ratchet shrinks (bun scripts/lint-main-bundle.ts --prune):`,
+      `  ${staleDebt.length} debt module(s) no longer linked by both: drop them so the ratchet shrinks (bun scripts/lint-main-bundle.ts --prune):`,
     );
-    for (const module of stale) console.error(`    ${module}`);
+    for (const module of staleDebt) console.error(`    ${module}`);
+  }
+  if (staleStays.length > 0) {
+    console.error(`  ${staleStays.length} stays module(s) no longer linked by both: either the wire changed, or they belong in debt:`);
+    for (const module of staleStays) console.error(`    ${module}`);
   }
   console.error(`  ${summary}`);
   return 1;

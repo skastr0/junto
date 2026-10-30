@@ -14,7 +14,8 @@
  * Run: `bun run lint:product-name`
  * Exit 0 = clean; exit 1 = violations printed.
  */
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -99,34 +100,34 @@ const LINE_ALLOW: readonly RegExp[] = [
 
 type Hit = { file: string; line: number; text: string };
 
-async function* walk(dir: string): AsyncGenerator<string> {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const ent of entries) {
-    const full = path.join(dir, ent.name);
-    if (ent.isDirectory()) {
-      if (SKIP_DIR_NAMES.has(ent.name)) continue;
-      if (full.includes(`${path.sep}node_modules${path.sep}`)) continue;
-      yield* walk(full);
-      continue;
-    }
-    if (!ent.isFile()) continue;
-    const ext = path.extname(ent.name);
-    const base = path.basename(full);
-    const rel = path.relative(ROOT, full);
-    // This lint encodes the bare-token pattern on purpose.
-    if (rel === `scripts${path.sep}lint-product-name.ts`) {
-      continue;
-    }
-    if (TEXT_EXT.has(ext) || ROOT_TEXT_FILES.has(base) || base.endsWith(".md")) {
-      yield full;
-    }
-  }
-}
+/**
+ * The file set is what git tracks: product source, never a scratch copy or a
+ * build output sitting in the checkout (a seat's .amp/in/build once failed
+ * this lint from outside the repo). A tracked file under a skipped directory
+ * is skipped all the same.
+ */
+const trackedFiles = (): ReadonlyArray<string> => {
+  const listing = execFileSync("git", ["ls-files", "-z"], {
+    cwd: ROOT,
+    maxBuffer: 64 * 1024 * 1024,
+    encoding: "utf8",
+  });
+  return listing
+    .split("\0")
+    .filter((rel) => rel.length > 0)
+    .filter((rel) => {
+      const segments = rel.split("/");
+      if (segments.length > 1 && SKIP_DIR_NAMES.has(segments[0]!)) return false;
+      return true;
+    });
+};
+
+const isTextFile = (rel: string): boolean => {
+  const base = path.basename(rel);
+  // This lint encodes the bare-token pattern on purpose.
+  if (rel === "scripts/lint-product-name.ts") return false;
+  return TEXT_EXT.has(path.extname(base)) || ROOT_TEXT_FILES.has(base) || base.endsWith(".md");
+};
 
 function isAllowedLine(line: string): boolean {
   return LINE_ALLOW.some((re) => re.test(line));
@@ -163,8 +164,9 @@ async function scanFile(file: string): Promise<Hit[]> {
 
 async function main(): Promise<number> {
   const allHits: Hit[] = [];
-  for await (const file of walk(ROOT)) {
-    const hits = await scanFile(file);
+  for (const rel of trackedFiles()) {
+    if (!isTextFile(rel)) continue;
+    const hits = await scanFile(path.join(ROOT, rel));
     allHits.push(...hits);
   }
 
