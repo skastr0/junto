@@ -30,7 +30,7 @@ vi.mock("../src/main/core-process/entry?modulePath", () => ({ default: "/core-en
 
 const { startCoreProcess } = await import("../src/main/core-process/host");
 
-const BOOT = { home: "/home", build: "test", bundlesRoot: "/bundles" };
+const BOOT = { home: "/home", build: "test", bundlesRoot: "/bundles", operatorCommands: false };
 
 beforeEach(() => {
   forks.length = 0;
