@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_OBSERVER_WRITE_INTERVAL_MS,
+  OBSERVER_SNAPSHOT_FLOOR_MS,
   OBSERVER_UNWATCHED_SCROLLBACK,
   OBSERVER_WATCHED_SCROLLBACK,
   SessionObserver,
@@ -1046,5 +1047,74 @@ describe("SessionObserver queue depth", () => {
     expect(emitted).toEqual([]);
     // A settle on a disposed observer resolves rather than hanging.
     await obs.snapshot();
+  });
+});
+
+describe("SessionObserver snapshot floor", () => {
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const landed = async (observer: SessionObserver, seq: bigint) => {
+    while (observer.snapshotNow().seq !== seq) await sleep(1);
+  };
+
+  it("lets one snapshot out per window and the latest grid at its end", async () => {
+    const observer = new SessionObserver({ bindingId: "b", epoch: "e", cols: 80, rows: 24 });
+    const seen: string[] = [];
+    observer.subscribe((snap) => seen.push(snap.text));
+    observer.feed("one\r\n", 1n);
+    await landed(observer, 1n);
+    observer.feed("two\r\n", 2n);
+    await landed(observer, 2n);
+    observer.feed("three\r\n", 3n);
+    await landed(observer, 3n);
+    // The first write goes out at once; the two inside its window wait.
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("one");
+    await sleep(OBSERVER_SNAPSHOT_FLOOR_MS + 20);
+    expect(seen).toHaveLength(2);
+    expect(seen[1]).toContain("three");
+    observer.dispose();
+  });
+
+  it("never holds a write that carries a seat signal", async () => {
+    const observer = new SessionObserver({ bindingId: "b", epoch: "e", cols: 80, rows: 24 });
+    const titles: string[] = [];
+    observer.subscribe((snap) => titles.push(snap.signals.title ?? ""));
+    observer.feed("plain\r\n", 1n);
+    await landed(observer, 1n);
+    observer.feed("\x1b]0;working\x07", 2n);
+    await landed(observer, 2n);
+    expect(titles).toHaveLength(2);
+    expect(titles[1]).toBe("working");
+    observer.dispose();
+  });
+
+  it("a quiet seat snapshots at once again after the window", async () => {
+    const observer = new SessionObserver({ bindingId: "b", epoch: "e", cols: 80, rows: 24 });
+    let emissions = 0;
+    observer.subscribe(() => {
+      emissions += 1;
+    });
+    observer.feed("first\r\n", 1n);
+    await landed(observer, 1n);
+    await sleep(OBSERVER_SNAPSHOT_FLOOR_MS + 10);
+    observer.feed("later\r\n", 2n);
+    await landed(observer, 2n);
+    expect(emissions).toBe(2);
+    observer.dispose();
+  });
+
+  it("a disposed observer lets nothing out at the window's end", async () => {
+    const observer = new SessionObserver({ bindingId: "b", epoch: "e", cols: 80, rows: 24 });
+    let emissions = 0;
+    observer.subscribe(() => {
+      emissions += 1;
+    });
+    observer.feed("one\r\n", 1n);
+    await landed(observer, 1n);
+    observer.feed("two\r\n", 2n);
+    await landed(observer, 2n);
+    observer.dispose();
+    await sleep(OBSERVER_SNAPSHOT_FLOOR_MS + 20);
+    expect(emissions).toBe(1);
   });
 });

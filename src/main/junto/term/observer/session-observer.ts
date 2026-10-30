@@ -149,6 +149,18 @@ const DEFAULT_UNICODE = "6" as const;
 export const DEFAULT_OBSERVER_WRITE_INTERVAL_MS = 200;
 
 /**
+ * At most one snapshot per session in this window, ms, after a write that
+ * carried no seat signal; the last one always goes out at the window's end
+ * and reads the grid then, so listeners are never left on an old screen.
+ * Each snapshot reads every row of the grid, and a seat repainting a spinner
+ * wrote one per chunk: hundreds a second per seat on a busy board. A write
+ * carrying a seat signal (OSC title, OSC 9, a DEC private mode) and the first
+ * write after a quiet window snapshot at once, so no state edge waits.
+ * Nothing the operator sees is drawn from these snapshots.
+ */
+export const OBSERVER_SNAPSHOT_FLOOR_MS = 50;
+
+/**
  * Retained scrollback while a surface is attached — the depth an operator can
  * scroll back through in a node they have open. Unchanged from the value every
  * session used to carry all the time.
@@ -243,6 +255,8 @@ export class SessionObserver {
   private lastWriteStartedAt: number | undefined;
   /** Armed only while buffered bytes are waiting out the sampling floor. */
   private flushTimer: ReturnType<typeof setTimeout> | undefined;
+  private lastEmitAt: number | undefined;
+  private emitTimer: ReturnType<typeof setTimeout> | undefined;
   /** Buffered bytes carry an OSC / DEC-private edge — never hold those back. */
   private pendingSignal = false;
   /** Last time a chunk arrived while the grid was mid-write (producer > parser). */
@@ -480,6 +494,7 @@ export class SessionObserver {
     this.lastWriteStartedAt = Date.now();
     const data = this.pending.join("");
     const seq = this.pendingSeq;
+    const signal = this.pendingSignal;
     this.pending = [];
     this.pendingSeq = undefined;
     this.pendingSignal = false;
@@ -496,7 +511,7 @@ export class SessionObserver {
             this.term.write(data, () => {
               if (seq !== undefined) this.seq = seq;
               this.queueDepth -= 1;
-              this.emitSnapshot();
+              this.emitWritten(signal);
               // Everything that arrived during this write goes out as one
               // follow-up write, so the batch grows with the load — but no
               // sooner than the sampling floor allows.
@@ -522,6 +537,9 @@ export class SessionObserver {
     this.clearFlushTimer();
     this.flushPending();
     await this.writeQueue;
+    // A settled reader also finds every listener on this grid, not on the
+    // last one the snapshot floor let out.
+    if (this.emitTimer !== undefined && !this.disposed) this.emitSnapshot();
   }
 
   /**
@@ -786,6 +804,8 @@ export class SessionObserver {
     if (this.disposed) return;
     this.disposed = true;
     this.clearFlushTimer();
+    if (this.emitTimer !== undefined) clearTimeout(this.emitTimer);
+    this.emitTimer = undefined;
     this.pending = [];
     this.pendingSeq = undefined;
     this.pendingSignal = false;
@@ -809,8 +829,30 @@ export class SessionObserver {
     }
   }
 
-  private emitSnapshot(): void {
+  /** A write landed: snapshot now, or once at the end of the floor window. */
+  private emitWritten(signal: boolean): void {
     if (this.listeners.size === 0) return;
+    const now = Date.now();
+    if (signal || this.lastEmitAt === undefined || now - this.lastEmitAt >= OBSERVER_SNAPSHOT_FLOOR_MS) {
+      this.emitSnapshot();
+      return;
+    }
+    if (this.emitTimer !== undefined) return;
+    const timer = setTimeout(() => {
+      this.emitTimer = undefined;
+      if (!this.disposed) this.emitSnapshot();
+    }, OBSERVER_SNAPSHOT_FLOOR_MS - (now - this.lastEmitAt));
+    (timer as unknown as { unref?: () => void }).unref?.();
+    this.emitTimer = timer;
+  }
+
+  private emitSnapshot(): void {
+    if (this.emitTimer !== undefined) {
+      clearTimeout(this.emitTimer);
+      this.emitTimer = undefined;
+    }
+    if (this.listeners.size === 0) return;
+    this.lastEmitAt = Date.now();
     const snap = this.buildSnapshot();
     for (const listener of this.listeners) {
       try {
