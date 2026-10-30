@@ -125,6 +125,14 @@ const chassisApi: ChassisApi = {
   doctor: () => invoke(IPC_CHANNELS.doctor, IPC_TIMEOUT_MS),
 };
 
+// A surface port (terminal process, phase 3) cannot cross the context
+// bridge. It reaches the page's own window as a message naming the lease it
+// serves, the port moved alongside (src/renderer/lib/terminal-surface-port.ts).
+ipcRenderer.on(IPC_CHANNELS.terminalSurface, (event, payload: { readonly leaseId?: unknown }) => {
+  if (typeof payload?.leaseId !== "string" || event.ports.length !== 1) return;
+  window.postMessage({ type: IPC_CHANNELS.terminalSurface, leaseId: payload.leaseId }, "*", [...event.ports]);
+});
+
 const subscribe = <T>(channel: string, listener: (payload: T) => void) => {
   const wrapped = (_event: IpcRendererEvent, payload: T) => listener(payload);
   ipcRenderer.on(channel, wrapped);

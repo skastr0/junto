@@ -54,6 +54,7 @@ import { seatDeadReason } from "../../lib/seat-recovery";
 import { decodeAgentSeatStateEvent } from "../../lib/agent-seat-state";
 import { offboardEndedLine, seatOffboardProgressOf } from "../../lib/seat-offboard-state";
 import { onTerminalEvent } from "../../lib/terminal-events";
+import { takeSurfacePorts } from "../../lib/terminal-surface-port";
 import { terminal$ } from "../../lib/terminal-state";
 import {
   initialSessionLoadPhase,
@@ -1491,6 +1492,46 @@ export function TerminalSurface({
 
     const discardPending = (): void => {
       pending.length = 0;
+      surfacePending.length = 0;
+    };
+
+    // The surface port (terminal process, phase 3): while this view holds
+    // one, its keys and the seat's output go over it, straight to and from
+    // the PTY, and main sends it no output over IPC. Output on it waits, as
+    // IPC output does, until the screen it follows is painted.
+    let surface: MessagePort | undefined;
+    const surfacePending: string[] = [];
+    let offSurface: (() => void) | undefined;
+    const surfaceOutput = (port: MessagePort, message: { readonly t?: unknown; readonly data?: unknown }): void => {
+      if (port !== surface) return;
+      if (message.t === "out" && typeof message.data === "string") {
+        if (!attachDone || resuming) surfacePending.push(message.data);
+        else term.write(message.data);
+        return;
+      }
+      if (message.t === "end") {
+        surface = undefined;
+        port.close();
+        return;
+      }
+      if (message.t === "gap") {
+        // The terminal process no longer holds what followed this screen:
+        // attach again, which reads a fresh one.
+        surface = undefined;
+        port.close();
+        runAttach();
+      }
+    };
+    const flushSurface = (): void => {
+      if (surfacePending.length > 0) term.write(surfacePending.splice(0).join(""));
+    };
+    const takeSurface = (leaseId: string): void => {
+      offSurface?.();
+      offSurface = takeSurfacePorts(leaseId, (port) => {
+        surface?.close();
+        surface = port;
+        port.onmessage = (event: MessageEvent) => surfaceOutput(port, event.data as { readonly t?: unknown });
+      });
     };
 
     const clearLoad = (): void => {
@@ -1503,7 +1544,9 @@ export function TerminalSurface({
     let readOnly = false;
     const offData = term.onData((data) => {
       const lease = leaseRef.current;
-      if (lease && !readOnly) void api.terminalWrite(lease, data);
+      if (!lease || readOnly) return;
+      if (surface !== undefined) surface.postMessage({ t: "in", data });
+      else void api.terminalWrite(lease, data);
     });
     // The operator's own keys and pastes hold the seat's session for a short
     // grace. Read off the DOM, not onData: onData also carries the terminal's
@@ -1663,6 +1706,7 @@ export function TerminalSurface({
     const finishResume = (): void => {
       resuming = false;
       for (const event of pending.splice(0)) handleLive(event);
+      flushSurface();
     };
     let parkTimer: ReturnType<typeof setTimeout> | undefined;
     const parkNow = (): void => {
@@ -1755,7 +1799,7 @@ export function TerminalSurface({
         }).label,
       );
       void api
-        .terminalAttach({ bindingId, mode: "control", takeover: true, hostId })
+        .terminalAttach({ bindingId, mode: "control", takeover: true, hostId, surface: true })
         .then((raw) => {
           const result = raw as AttachResult;
           if (!alive) {
@@ -1774,6 +1818,10 @@ export function TerminalSurface({
           }
           leaseRef.current = result.lease.leaseId;
           epochRef.current = result.lease.epoch;
+          surface?.close();
+          surface = undefined;
+          surfacePending.length = 0;
+          takeSurface(result.lease.leaseId);
           readOnly = result.lease.mode === "observe";
           // The child's geometry is UNKNOWN until this surface has told it.
           // Seeding from the session snapshot records what the child was at
@@ -1802,6 +1850,7 @@ export function TerminalSurface({
               if (event.type === "output") writeOutput(event);
               if (event.type === "exit") sawExit = true;
             }
+            flushSurface();
             discardPending();
             // An attach that lands on an EXITED generation is a failed start
             // unless the host already replaced it. The one replacement is the
@@ -1994,6 +2043,9 @@ export function TerminalSurface({
       keys?.removeEventListener("paste", typedInto);
       offLeaseEnded?.();
       offEvent();
+      offSurface?.();
+      surface?.close();
+      surface = undefined;
       offSeatState?.();
       for (const t of settleTimers) clearTimeout(t);
       discardPending();
