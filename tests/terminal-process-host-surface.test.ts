@@ -185,6 +185,26 @@ describe("the session host and the terminal process's surface gate", () => {
     await until(() => view.seen.some((message) => message.t === "end"));
   });
 
+  it("a surface starts after what the attach screen held, and repeats none of it", async () => {
+    const { host } = await start();
+    const warm = await control(host);
+    const first = renderer();
+    expect(host.openSurface(warm, first.far)).toBe(true);
+    first.type("echo held-$((6*7))\r");
+    await until(() => first.text().includes("held-42"));
+    host.release(warm);
+    // Let the grid absorb it, so the next attach's screen holds it.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const attached = await host.attach({ bindingId: "b1", mode: "control", takeover: true });
+    if (!attached.ok) throw new Error(attached.message);
+    expect(attached.screen?.serialized).toContain("held-42");
+    const view = renderer();
+    expect(host.openSurface(attached.lease, view.far)).toBe(true);
+    view.type("echo after-$((50+1))\r");
+    await until(() => view.text().includes("after-51"));
+    expect(view.text()).not.toContain("held-42");
+  });
+
   it("refuses a surface for a lease that does not control the session", async () => {
     const { host } = await start();
     const first = await control(host);

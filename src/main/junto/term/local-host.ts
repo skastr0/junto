@@ -297,6 +297,30 @@ type PrimeAgentDaemonReport = Parameters<
   NonNullable<Parameters<PrimeAgentDaemons["start"]>[0]["onReport"]>
 >[0];
 
+/** Output entries a session remembers the PTY chunk of, for a surface to start from. */
+const SURFACE_CHUNK_MEMORY = 4096;
+
+/**
+ * The first PTY chunk a surface must be given after a screen read at `read`:
+ * the chunk after the last output entry that read held. Undefined when that
+ * entry is older than the session remembers, or the PTY is not in the
+ * terminal process; then no surface opens, and the view reads over IPC.
+ */
+const surfaceChunkAfter = (rec: SessionRec, read: bigint): number | undefined => {
+  if (rec.lease?.io.surface === undefined) return undefined;
+  const chunks = rec.surfaceChunks ?? [];
+  for (let i = chunks.length - 1; i >= 0; i--) {
+    const [seq, chunk] = chunks[i]!;
+    if (seq <= read) return chunk + 1;
+  }
+  // Nothing remembered at or before the read: it held no output, unless the
+  // memory has already let go of its first entries.
+  if (chunks.length >= SURFACE_CHUNK_MEMORY) return undefined;
+  const first = chunks[0];
+  // No output entry yet: whatever chunks there were never reached the grid.
+  return first === undefined ? rec.lease.io.surface.lastSeq() + 1 : first[1];
+};
+
 type SessionRec = {
   bindingId: string;
   epoch: string;
@@ -358,6 +382,12 @@ type SessionRec = {
   surfaceGate?: string;
   surfaceHeld?: boolean;
   surfaceCursor?: { readonly leaseId: string; readonly fromSeq: number };
+  /**
+   * Which output chunk of the terminal process each recent output entry was,
+   * as [this session's seq, the PTY's chunk seq], oldest first: a surface
+   * opened on a screen read at one seq starts at the chunk after it.
+   */
+  surfaceChunks?: Array<readonly [bigint, number]>;
   killed: boolean;
   termReceipt: AppProcessSignalReceipt | undefined;
   killReceipt: AppProcessSignalReceipt | undefined;
@@ -1738,9 +1768,9 @@ export class LocalSessionHost extends EventEmitter {
       // every path — give its retention back here or the refcount never drains.
       if (rec.controlLeaseId) this.releaseSurfaceLease(rec.controlLeaseId);
       rec.controlLeaseId = mintLease();
-      const surface = rec.lease?.io.surface;
-      if (surface === undefined) rec.surfaceCursor = undefined;
-      else rec.surfaceCursor = { leaseId: rec.controlLeaseId, fromSeq: surface.lastSeq() + 1 };
+      const read = screenForRec?.seq ?? journal.at(-1)?.seq ?? 0n;
+      const fromSeq = surfaceChunkAfter(rec, read);
+      rec.surfaceCursor = fromSeq === undefined ? undefined : { leaseId: rec.controlLeaseId, fromSeq };
       this.syncSurface(rec);
       // A surface is now painting this session: retain the full scrollback for
       // as long as the lease lives. `screen` above was already serialized from
@@ -2786,6 +2816,12 @@ export class LocalSessionHost extends EventEmitter {
       !this.liveRecords.has(rec)
     ) return;
     rec.seq = rec.seq + 1n;
+    const chunk = rec.lease?.io.surface?.lastSeq();
+    if (chunk !== undefined) {
+      const chunks = (rec.surfaceChunks ??= []);
+      chunks.push([rec.seq, chunk]);
+      if (chunks.length > SURFACE_CHUNK_MEMORY) chunks.splice(0, chunks.length - SURFACE_CHUNK_MEMORY);
+    }
     if (!rec.interfaceSeen && INTERFACE_UP_RE.test(`${rec.sessionCaptureTail.slice(-16)}${data}`)) {
       rec.interfaceSeen = true;
     }
