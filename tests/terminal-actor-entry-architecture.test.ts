@@ -147,7 +147,10 @@ describe("terminal actor entry", () => {
     // by the stored node's id, in the core (term.startSeat).
     expect(agent).toContain('core.call("term.startSeat", { canvas: input.canvas, seatId: node.id })');
     const startOp = between(readSource(SEAT_NODE_OP), '"term.startSeat": ({ canvas, seatId }) =>', '"term.stopSeat"');
-    expect(startOp).toContain("startSeat({ canvas: asCanvasName(canvas), seatId }, seatControl)");
+    // 507f8547a moved the start into term-ipc.ts: it takes the plane this core
+    // bound (planeNow) rather than a seat control handle, and hands it on.
+    expect(startOp).toContain("const plane = yield* planeNow();");
+    expect(startOp).toContain("startSeat({ canvas: asCanvasName(canvas), seatId }, { plane })");
     const control = readSource(SEAT_CONTROL);
     expect(control).toContain("const seats = yield* ActorSeatOccupy;");
     expect(control).toContain("yield* seats.occupy({");
