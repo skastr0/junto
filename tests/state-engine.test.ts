@@ -201,6 +201,28 @@ describe("StateEngine", () => {
     });
   });
 
+  test("gives the state connection a 64 MB page cache and a 256 MB memory map, on every open", async () => {
+    const root = await makeTempDir("junto-state-engine-");
+    const path = join(root, "state", "junto.db");
+    const settings = (runtime: ReturnType<typeof makeRuntime>) => runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        return yield* withSqlRead(sql, Effect.gen(function* () {
+          return {
+            cacheSize: (yield* sql<{ cache_size: number }>`PRAGMA cache_size`)[0]?.cache_size,
+            mmapSize: (yield* sql<{ mmap_size: number }>`PRAGMA mmap_size`)[0]?.mmap_size,
+          };
+        }));
+      }),
+    );
+
+    const first = makeRuntime(path);
+    expect(await settings(first)).toEqual({ cacheSize: -65536, mmapSize: 268435456 });
+    await disposeRuntime(first);
+    // Connection settings do not persist in the file: a reopen must set them again.
+    expect(await settings(makeRuntime(path))).toEqual({ cacheSize: -65536, mmapSize: 268435456 });
+  });
+
   test("treats SQLite-only implementation objects as a fresh authority schema", async () => {
     const root = await makeTempDir("junto-state-sqlite-internal-");
     const path = join(root, "junto.db");
