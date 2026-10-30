@@ -18,6 +18,7 @@
  *    a visible window for debugging with JUNTO_E2E_SHOW=1 (not --junto-headless —
  *    that mode has no authoring renderer at all).
  */
+import { appendFileSync, mkdirSync } from "node:fs";
 import { lstat, readdir, stat, unlink } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { connect } from "node:net";
@@ -564,6 +565,23 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
       kind: "observed",
       witness: observeElectronApplicationClose(app),
     };
+    // JUNTO_E2E_MAIN_LOG=<dir>: every launch's main-process stdout and stderr,
+    // one file per launch, so a run can list what main said went wrong.
+    const mainLogDir = process.env.JUNTO_E2E_MAIN_LOG;
+    if (mainLogDir !== undefined && mainLogDir.length > 0) {
+      mkdirSync(mainLogDir, { recursive: true });
+      const file = join(mainLogDir, `${String(Date.now())}-${String(app.process().pid ?? 0)}.log`);
+      let title = "";
+      try {
+        title = base.info().titlePath.join(" > ");
+      } catch {
+        // launched outside a test
+      }
+      appendFileSync(file, `# ${title}\n`);
+      const tee = (data: Buffer): void => appendFileSync(file, data);
+      app.process().stdout?.on("data", tee);
+      app.process().stderr?.on("data", tee);
+    }
 
     const page = await app.firstWindow();
     if (options.windowContentSize !== undefined) {
