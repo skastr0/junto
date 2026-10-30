@@ -27,7 +27,7 @@
  * Messages are the caller's to send; a canvas this machine rules alone needs
  * none, and settles its own election when opened.
  */
-import { Context, Effect, Option, Schema, Semaphore } from "effect";
+import { Context, Deferred, Effect, Option, Schema, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { ArtifactBody } from "@shared/artifact";
 import { rulingRowOf } from "@shared/command-row";
@@ -356,6 +356,14 @@ export type CanvasAuthority = {
    * then is the batch's answer returned. One batch at a time per canvas.
    */
   readonly judge: <A, E, R>(batch: Effect.Effect<A, E, R>) => Effect.Effect<Judgment<A>, E | FleetDriverError, R>;
+  /**
+   * Wait on an entry (a judged batch's last, a proposal): succeeds once that
+   * (index, term) applies here, at once when it already has. Fails retryable
+   * when a ready cuts it, when another term's entry applies at its index, or
+   * when this handle breaks or closes first. A command sent again after that
+   * failure is answered from its stored ruling if the entry landed after all.
+   */
+  readonly landed: (entry: Pick<Entry, "index" | "term">) => Effect.Effect<void, FleetDriverError>;
   /** Propose an entry (a judged ruling, a structure change); on a canvas this machine rules alone it is committed and applied when this returns. */
   readonly propose: (data: LogData) => Effect.Effect<Entry, FleetDriverError>;
   /**
@@ -439,9 +447,28 @@ const openClaimed = (
       Effect.forEach(callbacks, (callback) =>
         Effect.sync(callback).pipe(Effect.catchDefect((defect) => Effect.logError(`an after-commit listener on ${canvasName} failed`, defect))),
         { discard: true });
+    /** Waits on entries not yet applied, each answered once: applied, cut, replaced, or the handle gone. */
+    const waiters: Array<{ readonly index: number; readonly term: number; readonly done: Deferred.Deferred<void, FleetDriverError> }> = [];
+    const lost = (index: number, term: number, why: string) =>
+      new FleetDriverError({ message: `the entry ${index} of ${canvasName} at term ${term} ${why}`, cause: { index, term }, retryable: true });
+    const answerWaiters = (keep: (waiter: (typeof waiters)[number]) => boolean, answer: (waiter: (typeof waiters)[number]) => FleetDriverError | undefined) => {
+      const due = waiters.filter((waiter) => !keep(waiter));
+      waiters.splice(0, waiters.length, ...waiters.filter(keep));
+      for (const waiter of due) {
+        const error = answer(waiter);
+        Deferred.doneUnsafe(waiter.done, error === undefined ? Effect.void : Effect.fail(error));
+      }
+    };
     // A batch whose entry another authority's history replaced never landed: its listeners hear nothing.
     const appliedThrough = (entries: ReadonlyArray<Entry>, through: number) =>
       Effect.suspend(() => {
+        answerWaiters(
+          (waiter) => waiter.index > through,
+          (waiter) =>
+            entries.some((entry) => entry.index === waiter.index && entry.term === waiter.term)
+              ? undefined
+              : lost(waiter.index, waiter.term, "was replaced by another term's entry"),
+        );
         const due = awaiting.filter((held) => held.index <= through);
         if (due.length === 0) return Effect.void;
         awaiting.splice(0, awaiting.length, ...awaiting.filter((held) => held.index > through));
@@ -453,6 +480,7 @@ const openClaimed = (
       const from = cutOf(ready);
       if (!Number.isFinite(from)) return;
       awaiting.splice(0, awaiting.length, ...awaiting.filter((held) => held.index < from));
+      answerWaiters((waiter) => waiter.index < from, (waiter) => lost(waiter.index, waiter.term, "was cut from the log"));
     };
 
     const apply = (entries: ReadonlyArray<Entry>, through: number) =>
@@ -546,6 +574,7 @@ const openClaimed = (
     // The core ran ahead of what is on disk: only opening the canvas again tells it the truth.
     const breaks = (cause: unknown) => {
       broken = cause instanceof FleetDriverError ? cause : new FleetDriverError({ message: `the authority of ${canvasName} must be opened again`, cause });
+      answerWaiters(() => false, (waiter) => lost(waiter.index, waiter.term, "is unknown: its authority must be opened again"));
       return broken;
     };
 
@@ -664,6 +693,26 @@ const openClaimed = (
         ) as Effect.Effect<Judgment<A>, E | FleetDriverError, R>;
       }));
 
+    /** Registered under the canvas's lock, so no apply runs between reading where the log stands and holding the wait. */
+    const landed = (entry: Pick<Entry, "index" | "term">): Effect.Effect<void, FleetDriverError> =>
+      Effect.flatMap(
+        exclusive(Effect.gen(function* () {
+          if (broken !== undefined) return yield* Effect.fail(lost(entry.index, entry.term, "is unknown: its authority must be opened again"));
+          const consensus = yield* readConsensus(sql, canvasName);
+          if (entry.index > (consensus?.applied_index ?? 0)) {
+            const done = Deferred.makeUnsafe<void, FleetDriverError>();
+            waiters.push({ index: entry.index, term: entry.term, done });
+            return Deferred.await(done);
+          }
+          const [row] = yield* sql<{ term: number }>`SELECT term FROM canvas_log WHERE canvas_name = ${canvasName} AND log_index = ${entry.index}`;
+          return row?.term === entry.term
+            ? Effect.void
+            : Effect.fail(lost(entry.index, entry.term, row === undefined ? "is no longer in the log" : "was replaced by another term's entry"));
+        }).pipe(Effect.mapError((cause) => (cause instanceof FleetDriverError ? cause : failed(`the log of ${canvasName} could not be read`)(cause))))),
+        // Awaited outside the lock: the step that commits it takes the lock.
+        (wait) => wait,
+      );
+
     const guarded = <A>(run: () => A) =>
       Effect.suspend(() => (broken !== undefined ? Effect.fail(broken) : Effect.try({ try: run, catch: refusal })));
 
@@ -682,6 +731,7 @@ const openClaimed = (
     return {
       status: () => node.status(),
       judge,
+      landed,
       propose: (data) => held(() => node.propose(encodeLogData(data))),
       proposeList: (list) => held(() => node.proposeList(list)),
       tick: () => drained(() => node.tick()),
@@ -693,6 +743,7 @@ const openClaimed = (
           if (closed) return;
           closed = true;
           broken ??= new FleetDriverError({ message: `the authority of ${canvasName} was closed`, cause: canvasName });
+          answerWaiters(() => false, (waiter) => lost(waiter.index, waiter.term, "is unknown: its authority was closed"));
           release();
         })),
     } satisfies CanvasAuthority;

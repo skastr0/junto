@@ -932,3 +932,104 @@ describe("the fleet driver drops a lost batch's listeners", () => {
     expect(await held(macbook.store)).toMatchObject({ rulings: [] });
   });
 });
+
+describe("the fleet driver waits on an entry", () => {
+  type Landed = { readonly entries: ReadonlyArray<{ readonly index: number; readonly term: number }> };
+  const judged = (seat: Seat, batch: Effect.Effect<unknown, unknown, unknown>) =>
+    seat.store.runtime.runPromise(seat.authority.judge(batch) as unknown as Effect.Effect<Landed, unknown, never>);
+  /** The wait's answer once it settles: "landed", or the failure's retryable flag and message. */
+  const waitOn = (seat: Seat, entry: { readonly index: number; readonly term: number }) => {
+    let answer: { readonly landed: true } | { readonly landed: false; readonly retryable: unknown; readonly message: string } | undefined;
+    const settled = seat.store.runtime.runPromiseExit(seat.authority.landed(entry)).then((exit) => {
+      if (exit._tag === "Success") answer = { landed: true };
+      else {
+        const error = Cause.squash(exit.cause) as { retryable?: unknown; message?: string };
+        answer = { landed: false, retryable: error.retryable, message: String(error.message) };
+      }
+    });
+    return { settled, answer: () => answer };
+  };
+
+  it("alone, answers at once for an entry already applied, and refuses one of another term at its index", async () => {
+    const store = await makeStore();
+    const authority = await open(store);
+    const seat: Seat = { store, authority, failures: [] };
+    const last = (await judged(seat, createArtifact)).entries.at(-1)!;
+    const wait = waitOn(seat, last);
+    await wait.settled;
+    expect(wait.answer()).toEqual({ landed: true });
+    const other = waitOn(seat, { index: last.index, term: last.term + 1 });
+    await other.settled;
+    expect(other.answer()).toMatchObject({ landed: false, retryable: true, message: expect.stringMatching(/another term/) });
+  });
+
+  it("on a pair, resolves once the fallback's acknowledgement commits and applies the entry", async () => {
+    const pair: Record<string, Seat> = {};
+    for (const id of [SELF, MACBOOK]) {
+      const store = await makeStore(id, [SELF, MACBOOK]);
+      pair[id] = { store, authority: await open(store, id), failures: [] };
+    }
+    let linked = true;
+    const up = () => linked;
+    const mini = pair[SELF]!;
+    for (let round = 0; round < 30 && !mini.authority.status().canCommit; round++) await tickPair(pair, [SELF, MACBOOK], up);
+    linked = false;
+    const last = (await judged(mini, createArtifact)).entries.at(-1)!;
+    const wait = waitOn(mini, last);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Appended, not committed: the wait holds, and holds no lock a step needs.
+    expect(wait.answer()).toBeUndefined();
+    linked = true;
+    for (let round = 0; round < 10 && wait.answer() === undefined; round++) await tickPair(pair, [SELF, MACBOOK], up);
+    await wait.settled;
+    expect(wait.answer()).toEqual({ landed: true });
+    expect(await held(mini.store)).toMatchObject({ rulings: [ARTIFACT_OP] });
+  });
+
+  it("fails retryable when the old leader's entry is cut by the new leader's history", async () => {
+    const pair: Record<string, Seat> = {};
+    for (const id of [MACBOOK, SELF]) {
+      const store = await makeStore(id, [MACBOOK, SELF]);
+      pair[id] = { store, authority: await open(store, id), failures: [] };
+    }
+    let linked = true;
+    const up = () => linked;
+    const macbook = pair[MACBOOK]!;
+    const mini = pair[SELF]!;
+    for (let round = 0; round < 30 && !macbook.authority.status().canCommit; round++) await tickPair(pair, [MACBOOK, SELF], up);
+    await macbook.store.runtime.runPromise(
+      Effect.flatMap(SqlClient.SqlClient, (sql) => sql`UPDATE canvases SET editor_installation_id = ${MACBOOK} WHERE canvas_name = ${CANVAS}`),
+    );
+    linked = false;
+    const last = (await judged(macbook, createArtifact)).entries.at(-1)!;
+    const wait = waitOn(macbook, last);
+
+    // The mini takes over on its casting vote and commits entries of its own at those indices.
+    for (let round = 0; round < 30 && !mini.authority.status().canCommit; round++) await tickPair(pair, [MACBOOK, SELF], up);
+    for (let seq = 1; seq <= 3; seq++) await proposeOn(pair, SELF, seq, up);
+    expect(wait.answer()).toBeUndefined();
+
+    // The link comes back: the MacBook takes the mini's history, and the wait fails, retryable.
+    linked = true;
+    for (let round = 0; round < 10 && wait.answer() === undefined; round++) await tickPair(pair, [SELF, MACBOOK], up);
+    await wait.settled;
+    expect(wait.answer()).toMatchObject({ landed: false, retryable: true, message: expect.stringMatching(/cut|another term/) });
+    expect(macbook.failures).toEqual([]);
+  });
+
+  it("fails retryable when its handle closes first", async () => {
+    const pair: Record<string, Seat> = {};
+    for (const id of [SELF, MACBOOK]) {
+      const store = await makeStore(id, [SELF, MACBOOK]);
+      pair[id] = { store, authority: await open(store, id), failures: [] };
+    }
+    const mini = pair[SELF]!;
+    for (let round = 0; round < 30 && !mini.authority.status().canCommit; round++) await tickPair(pair, [SELF, MACBOOK], () => true);
+    const last = (await judged(mini, createArtifact)).entries.at(-1)!;
+    const wait = waitOn(mini, last);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await mini.store.runtime.runPromise(mini.authority.close());
+    await wait.settled;
+    expect(wait.answer()).toMatchObject({ landed: false, retryable: true, message: expect.stringMatching(/closed/) });
+  });
+});
