@@ -21,7 +21,7 @@ import { mentionItemsOf, useCanvasArtifacts } from "../../lib/mention-items";
 import { useCanvasTasks } from "../../lib/tasks-source";
 import { nodeAt, useCanvas } from "../../lib/use-model";
 import { releaseFocus } from "../../lib/focus-ownership";
-import { Button, Dropdown, ResourceGlyphMark } from "../ui";
+import { Button, Dropdown, IconButton, ResourceGlyphMark } from "../ui";
 import { ArtifactMoveDialog } from "../artifacts/ArtifactMove";
 import { movedLine } from "../artifacts/artifact-move-model";
 import { ArtifactPadEditor } from "../artifacts/ArtifactPadEditor";
@@ -452,10 +452,10 @@ function CaptureWriter({
           </Button>
         ) : null}
         {current !== null && head !== undefined && !readOnly ? (
-          <Button size="sm" variant="chrome" onClick={() => setMoving(true)}>
-            <FolderInput size={13} aria-hidden />
-            Move to…
-          </Button>
+          // A glyph, as in the Artifacts header: at 700 wide the words clipped the title. M in the footer names the key.
+          <IconButton aria-label="Move to…" title="Move to…" aria-haspopup="dialog" size="sm" onClick={() => setMoving(true)}>
+            <FolderInput size={14} />
+          </IconButton>
         ) : null}
         {saved ? (
           <span className="capture-editor__saved" role="status">

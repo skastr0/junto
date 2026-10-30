@@ -227,7 +227,7 @@ describe("a capture", () => {
     await typeInto("Rates for the lease");
     await settle();
     const before = editorView();
-    await act(async () => button("Move to").click());
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Move to…"]')!.click());
     await settle();
     const specs = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((one) => one.textContent?.includes("Specs"))!;
     await act(async () => specs.click());
