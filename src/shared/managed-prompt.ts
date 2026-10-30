@@ -125,10 +125,6 @@ export const isPromptSubmitted = (
   outcome: ManagedPromptOutcome,
 ): boolean => outcome.status === "submitted";
 
-export const isPromptRefused = (
-  outcome: ManagedPromptOutcome,
-): boolean => outcome.status === "refused";
-
 /** True when the attempt put bytes on the PTY — replay is then forbidden in this generation. */
 export const outcomeWrotePhysical = (
   outcome: ManagedPromptOutcome,

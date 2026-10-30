@@ -403,16 +403,6 @@ export const feedSeatChips = (sections: ReadonlyArray<FeedSection>): ReadonlyArr
   return [...chips.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 };
 
-/**
- * Keep only the one region the operator is looking at — `null` picks the open
- * field, `undefined` keeps every region.
- */
-export const feedSectionsInRegion = (
-  sections: ReadonlyArray<FeedSection>,
-  regionId: string | null | undefined,
-): ReadonlyArray<FeedSection> =>
-  regionId === undefined ? sections : sections.filter((section) => section.region.regionId === regionId);
-
 export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
   const { canvasName, nowMs } = input;
   const seatsById = new Map(input.seats.map((entry) => [entry.seat.nodeId, entry] as const));

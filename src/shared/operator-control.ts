@@ -44,7 +44,6 @@ export const OPERATOR_MAX_RESPONSE_BYTES = 544 * 1024;
 export const OPERATOR_PEER_LIMIT_MESSAGE = "operator control peer limit reached";
 /** A companion change wait is a long poll; the call outlives it. */
 export const OPERATOR_COMPANION_WAIT_MAX_MS = 25_000;
-export const OPERATOR_MAX_ERROR_BYTES = 4 * 1024;
 
 export const operatorControlDir = (home: string): string =>
   `${home}/.junto/operator`;

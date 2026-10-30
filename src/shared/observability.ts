@@ -57,10 +57,6 @@ export const ObservabilitySnapshot = Schema.Struct({
 });
 export type ObservabilitySnapshot = typeof ObservabilitySnapshot.Type;
 
-export const defaultObservabilityQuery = (): ObservabilityQuery => ({
-  limit: 200,
-});
-
 export const OBSERVABILITY_LEVEL_RANK: Record<ObservabilityLogLevel, number> = {
   trace: 0,
   debug: 1,

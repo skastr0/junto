@@ -41,7 +41,6 @@ export const CONTROL_HEADERS_TIMEOUT_MS = BROWSER_CONTROL_HEADERS_TIMEOUT_MS;
 export const CONTROL_REQUEST_TIMEOUT_MS = BROWSER_CONTROL_REQUEST_BODY_TIMEOUT_MS;
 export const CONTROL_MAX_BODY_BYTES = BROWSER_CONTROL_MAX_REQUEST_BODY_BYTES;
 export const CONTROL_MAX_RESPONSE_BYTES = BROWSER_CONTROL_MAX_RESPONSE_BYTES;
-export const CONTROL_CLI_REQUEST_TIMEOUT_MS = BROWSER_CLI_REQUEST_TIMEOUT_MS;
 
 // ---------------------------------------------------------------------------
 // Error envelope — Effect Schema TaggedError style: every failure is a struct

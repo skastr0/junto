@@ -52,8 +52,3 @@ export type Opened = typeof Opened.Type;
 
 const strict = { onExcessProperty: "error" } as const;
 
-/** Read what main sent. An unknown field anywhere in it is an error. */
-export const decodeChanged = (input: unknown) =>
-  Schema.decodeUnknownEffect(Changed)(input, strict);
-export const decodeOpened = (input: unknown) =>
-  Schema.decodeUnknownEffect(Opened)(input, strict);

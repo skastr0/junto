@@ -224,9 +224,6 @@ export const experimentalFeatureSpec = (
   return "experimental" in entry ? entry.experimental : undefined;
 };
 
-/** Compiled into the build, whether on or experimental. */
-export const featureCompiled = (tier: FeatureTier): boolean => tier !== false;
-
 /**
  * The one resolved predicate: compiled, and either on in this build or turned
  * on by the operator. Every consumer of a tiered feature reads this.

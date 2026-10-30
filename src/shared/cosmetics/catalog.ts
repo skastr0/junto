@@ -111,11 +111,6 @@ export function installCosmeticPacks(extra: ReadonlyArray<CosmeticPack>): number
   return revision;
 }
 
-/** Bumps whenever the installed packs change; portraits cache by it. */
-export const cosmeticsRevision = (): number => revision;
-
-export const installedCosmeticPacks = (): ReadonlyArray<CosmeticPack> => packs;
-
 /** An item a portrait may wear: present and available, else undefined. */
 export function findCosmetic<S extends CosmeticSlot>(slot: S, key: unknown): CosmeticEntry<S> | undefined {
   if (typeof key !== "string") return undefined;

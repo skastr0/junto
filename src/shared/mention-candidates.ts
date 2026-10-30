@@ -143,6 +143,4 @@ export const filterCandidates = (
   return [...starts, ...contains];
 };
 
-/** The chip's text when the candidate is put in the text. */
-export const mentionChipLabel = (candidate: MentionCandidate, trigger: MentionTrigger): string =>
   trigger === "[[" ? `[[${candidate.title}]]` : candidate.label;

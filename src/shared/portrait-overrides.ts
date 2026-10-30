@@ -11,9 +11,6 @@ const TRAIT_KEYS = ["bodyHue", "accentHue", "shape", "topper", "eyes", "mouth", 
 // A trait is a base id ("toast") or a pack item ("<pack>:<item>").
 const TRAIT_MAX = 72;
 
-/** Largest stored override body; a full config is well under 400 bytes. */
-export const PORTRAIT_OVERRIDE_MAX_JSON = 2048;
-
 /** Longest seat identity (a canvas node id). */
 export const PORTRAIT_SEAT_ID_MAX = 1024;
 

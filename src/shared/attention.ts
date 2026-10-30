@@ -27,23 +27,3 @@ export type AttentionSignal = "fire" | "ice" | "idle" | "empty";
  */
 export type ActorRefResolver = (ref: SinkRef) => ActorRefValue | undefined;
 
-/**
- * The same resolution for a caller that holds the seat's id and already knows
- * the node is a seat.
- */
-export const resolveActorRefAt = (
-  resolver: ActorRefResolver,
-  canvasName: string,
-  nodeId: string,
-): ActorRefValue | undefined => {
-  const actor = resolver({ canvasName, nodeId });
-  if (
-    actor === undefined ||
-    !Schema.is(ActorRef)(actor) ||
-    actor.canvasName !== canvasName ||
-    actor.nodeId !== nodeId
-  ) {
-    return undefined;
-  }
-  return actor;
-};

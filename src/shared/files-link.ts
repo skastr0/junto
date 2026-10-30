@@ -55,8 +55,6 @@ export const HOST_FILES_ERRORS = [
   "exists", "not-dir", "is-dir", "stale", "too-large", "denied", "failed",
 ] as const;
 export type HostFilesError = (typeof HOST_FILES_ERRORS)[number];
-/** Fails to compile when `FilesError` gains a refusal this list does not carry (`unreachable` aside). */
-export const hostErrorsAreComplete: Exclude<FilesError, HostFilesError> extends "unreachable" ? true : never = true;
 export const HostFilesError = Schema.Literals(HOST_FILES_ERRORS);
 
 const Where = { canvas: CanvasName, node: NodeId } as const;

@@ -62,7 +62,6 @@ export const JUNTO_INTRO = `## Junto
 
 You are running inside **Junto** — a collaborative workspace where coding agents work as peers on a shared canvas. The canvas is your operational environment: nodes are work surfaces (${WORK_SURFACE_WORDS.join(", ")}), and regions group them. **Your region is your reach**: the resources in it are there for you to use, with no edge. **Edges join seats**: an edge to another seat is what lets you mail it.${EDGE_EXTRA} Your seat is the node you occupy. All collaboration and work operations go through one CLI: \`junto\`.`;
 
-
 /** The two task sections of since, in the words their lines read. */
 export const SINCE_TASKS_TEACHING = ` Two sections are about tasks. \`your_tasks\` is your open task and any you held that changed: \`Your task #N "Title" is <state> [task #N]\`, \`... is now <state>, changed since your last session\` when its state changed, and \`... was sent on to <node> since your last session, and is <state> there\` when it left your board; \`junto task list --assignee me\` lists them. \`reviews_owed\` is each task in review that waits on your stamp: \`<assignee>'s task #N "Title" is in review and waits on your stamp [task #N]\`, answered with \`junto task stamp <task> approve\` or \`changes\`; \`junto task list --reviewer me\` lists them.`;
 const SINCE_TASKS_LINE = TASKS_ENABLED ? SINCE_TASKS_TEACHING : "";
@@ -326,12 +325,6 @@ export const buildEdgeContracts = (
   targets: readonly ConnectedTarget[] | undefined,
 ): readonly string[] => commandGroupsFor(targets).map(edgeContractSection);
 
-/** One family's reference section, whatever ports the targets hold in others. */
-export const buildEdgeContract = (
-  family: CommandFamily,
-  targets: readonly ConnectedTarget[],
-): string =>
-  commandGroupsFor(targets)
     .filter((group) => group.family === family)
     .map(edgeContractSection)
     .join("\n\n");

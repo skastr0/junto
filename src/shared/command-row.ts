@@ -130,12 +130,6 @@ export const refusalErrorOf = (ruling: RulingRefusedResult): WorkErrorBody => {
   return { ...body, details: { ...body.details, opId: ruling.opId } };
 };
 
-/** The row a command becomes, from the envelope a domain built. */
-export const commandQueuedBody = <Op extends typeof QueuedOp.Type>(command: ResourceCommand<Op>): CommandQueuedResult => ({
-  operation: "command.queued",
-  command,
-});
-
 /** Which ruling a ruling row is, by (writer installation, opId). */
 export const rulingKeyOf = (ruling: RulingResult): CommandKey => commandKey(ruling.writer, ruling.opId);
 

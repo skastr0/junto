@@ -343,9 +343,6 @@ export const contentBounds = (pad: Pad): GeomRect => {
   return unionRects(rects);
 };
 
-export const rectsOverlap = (a: GeomRect, b: GeomRect): boolean =>
-  a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-
 const pointInRect = (point: PadPoint, rect: GeomRect, slop: number): boolean =>
   point.x >= rect.x - slop &&
   point.x <= rect.x + rect.w + slop &&

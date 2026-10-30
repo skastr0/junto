@@ -124,8 +124,3 @@ export const regionMembers = (canvas: Placed, region: Region): ReadonlyArray<Nod
   return found;
 };
 
-/** Regions wholly inside this one, at any depth. */
-export const regionsInside = (canvas: Placed, region: Region): ReadonlyArray<Region> =>
-  nodesOf(canvas, "region").filter(
-    (candidate) => candidate.id !== region.id && frameContains(region, candidate),
-  );

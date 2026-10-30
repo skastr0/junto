@@ -228,18 +228,6 @@ export type ReviewVerdict = typeof ReviewVerdict.Type;
 
 const decodeReviewVerdict = Schema.decodeUnknownOption(ReviewVerdict);
 
-/**
- * Decode one canonical verdict, or undefined when it does not validate. The
- * single codec boundary for verdicts: the renderer delegates here rather than
- * decoding a verdict projection itself.
- */
-export const readReviewVerdict = (
-  value: unknown,
-): ReviewVerdict | undefined => {
-  const option = decodeReviewVerdict(value);
-  return option._tag === "Some" ? option.value : undefined;
-};
-
 /** Domain separator for the subject hash, so hashes never collide across kinds. */
 export const VERDICT_SUBJECT_HASH_DOMAIN = "junto/crew/verdict-subject/v1";
 

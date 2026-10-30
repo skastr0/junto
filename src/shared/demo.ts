@@ -10,8 +10,6 @@ import type { Node, Wire } from "./model";
 // beat-indexed op list at a fixed BPM; the conductor schedules ops against
 // performance.now() and drives the real UI unchanged.
 
-export const DEMO_BPM_DEFAULT = 110;
-
 /** Milliseconds per beat at a given tempo. */
 export const beatMs = (bpm: number): number => 60_000 / bpm;
 

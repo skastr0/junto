@@ -217,19 +217,6 @@ export type ShownNeed<V extends string> = {
 };
 
 /**
- * Every need a surface shows, in ladder order (`needs` is `deriveNeeds`
- * output). For a surface that lists several, such as the feed.
- */
-export const shownNeeds = <V extends string>(
-  needs: readonly Need[],
-  projection: NeedProjection<V>,
-): readonly ShownNeed<V>[] =>
-  needs.flatMap((need) => {
-    const value = projection[need.cause];
-    return value === null ? [] : [{ cause: need.cause, value, level: need.level, urgency: need.urgency }];
-  });
-
-/**
  * A need as a desktop notification: its category, and the ladder level that
  * ranks it. Notifications order by level, never by category, so inside
  * `needsYou` a proven dialog (waiting) outranks an escalation (escalated),

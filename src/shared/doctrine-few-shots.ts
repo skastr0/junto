@@ -51,8 +51,3 @@ export const FEW_SHOT_BLOCKED: DoctrineFewShotPayload = {
   lesson: "One sentence says what you need; --detail says why. Stop and wait: the answer arrives as operator mail.",
 };
 
-export const FEW_SHOT_TASK_LIFECYCLE: readonly DoctrineFewShotPayload[] = [
-  FEW_SHOT_START,
-  FEW_SHOT_PROGRESS,
-  FEW_SHOT_FINISH,
-];

@@ -64,9 +64,6 @@ const hasNul = (bytes: Uint8Array): boolean => bytes.includes(0);
 
 const decodeUtf8 = (bytes: Uint8Array): string => new TextDecoder("utf-8").decode(bytes);
 
-/** An inert SVG's bytes are an image; anything else in SVG clothing is not. */
-export const isInertSvgBytes = (bytes: Uint8Array): boolean => !hasNul(bytes) && isInertSvg(decodeUtf8(bytes));
-
 const TEXT_MEDIA_TYPES: Readonly<Record<string, string>> = {
   md: "text/markdown",
   markdown: "text/markdown",

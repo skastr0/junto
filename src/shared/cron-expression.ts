@@ -171,31 +171,6 @@ const matchesWall = (expr: CronExpression, wall: WallTime): boolean => {
   return matchesField(expr.dayOfWeek, dayOfWeek);
 };
 
-/**
- * Next fire strictly after `afterEpochMs` in local wall time.
- * Caps search at ~2 years (minute steps would be huge — step by 1 minute).
- */
-export const nextCronOccurrence = (
-  raw: string,
-  afterEpochMs: number,
-): number | undefined => {
-  const parsed = parseCronExpression(raw);
-  if ("error" in parsed) return undefined;
-  // Start at the next whole minute after `after`.
-  const start = new Date(afterEpochMs);
-  start.setSeconds(0, 0);
-  start.setMinutes(start.getMinutes() + 1);
-  const limit = start.getTime() + 366 * 2 * 24 * 60 * 60_000;
-  for (
-    let t = start.getTime();
-    t <= limit;
-    t += 60_000
-  ) {
-    if (matchesWall(parsed, localWall(new Date(t)))) return t;
-  }
-  return undefined;
-};
-
 const wallFormats = new Map<string, Intl.DateTimeFormat>();
 
 /** How far `timezone`'s wall clock is ahead of UTC at `epochMs`. */
@@ -262,30 +237,3 @@ export const describeCronExpression = (raw: string): string => {
   return presets[source] ?? source;
 };
 
-export const CRON_PRESETS: ReadonlyArray<{
-  readonly label: string;
-  readonly expression: string;
-}> = [
-  { label: "every 5 minutes", expression: "*/5 * * * *" },
-  { label: "every 15 minutes", expression: "*/15 * * * *" },
-  { label: "every 30 minutes", expression: "*/30 * * * *" },
-  { label: "hourly", expression: "0 * * * *" },
-  { label: "daily 09:00", expression: "0 9 * * *" },
-  { label: "weekdays 09:00", expression: "0 9 * * 1-5" },
-  { label: "Sundays midnight", expression: "0 0 * * 0" },
-];
-
-/** Migrate legacy everyMinutes → expression when possible. */
-export const expressionFromEveryMinutes = (minutes: number): string => {
-  if (!Number.isFinite(minutes) || minutes <= 0) return "*/30 * * * *";
-  const m = Math.round(minutes);
-  if (m === 60) return "0 * * * *";
-  if (m < 60 && 60 % m === 0) return `*/${m} * * * *`;
-  if (m % 60 === 0) {
-    const h = m / 60;
-    if (h < 24 && 24 % h === 0) return `0 */${h} * * *`;
-  }
-  // Fallback: every N minutes via step (best-effort; not exact for N>59).
-  if (m <= 59) return `*/${m} * * * *`;
-  return "0 * * * *";
-};
