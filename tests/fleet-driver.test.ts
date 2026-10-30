@@ -28,7 +28,7 @@ import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { ModelService } from "../src/main/junto/model/service";
 import { StructureCapture } from "../src/main/junto/model/structure-capture";
 import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { PausePlaneLive } from "../src/main/junto/pause-plane";
+import { PausePlaneLive } from "../src/main/junto/pause-plane-live";
 import { FactoryPauseRepositoryLive } from "../src/main/junto/pause/repository";
 import { ReferencesRepositoryLive } from "../src/main/junto/references/repository";
 import { SeatGuidanceRepositoryLive } from "../src/main/junto/seat-guidance/repository";

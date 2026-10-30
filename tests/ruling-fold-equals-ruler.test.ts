@@ -25,7 +25,7 @@ import { ContentService, makeContentServiceLive } from "../src/main/junto/conten
 import { AutomationRepository, makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
 import { submitAutomationCommand } from "../src/main/junto/automation/ruler";
 import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { PausePlaneLive } from "../src/main/junto/pause-plane";
+import { PausePlaneLive } from "../src/main/junto/pause-plane-live";
 import { FactoryPauseRepositoryLive } from "../src/main/junto/pause/repository";
 import { ReferencesRepositoryLive } from "../src/main/junto/references/repository";
 import { SeatGuidanceRepositoryLive } from "../src/main/junto/seat-guidance/repository";

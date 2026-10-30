@@ -65,7 +65,7 @@ const handlerFor = (channel: string): InvokeHandler => {
 const answered: CoreClient = {
   call: ((name: string) => {
     void name;
-    return runtime.runPromiseExit(Effect.void).then((exit) =>
+    return runtime.runPromiseExit(Effect.void).then((exit: Exit.Exit<unknown, unknown>) =>
       Exit.isSuccess(exit) ? (exit.value as never) : Promise.reject(new Error("the core refused the call")));
   }) as CoreClient["call"],
 };

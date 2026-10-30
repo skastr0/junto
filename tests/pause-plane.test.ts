@@ -4,11 +4,8 @@ import {
   FactoryPausePersistenceError,
   FactoryPauseRepository,
 } from "../src/main/junto/pause/repository";
-import {
-  PausePlane,
-  PausePlaneLaunchPlayingLive,
-  PausePlaneLive,
-} from "../src/main/junto/pause-plane";
+import { PausePlane } from "../src/main/junto/pause-plane";
+import { PausePlaneLaunchPlayingLive, PausePlaneLive } from "../src/main/junto/pause-plane-live";
 import {
   PAUSED_CANVAS,
   pauseWasResumed,

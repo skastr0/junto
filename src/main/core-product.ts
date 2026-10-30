@@ -3,7 +3,7 @@ import { Layer } from "effect";
 import { CanvasControlQueries } from "./junto/canvas-control/queries";
 import { ActorSeatOccupyLive } from "./junto/term/actor-seat-occupy-live";
 import { KernelLive } from "./junto/kernel/service";
-import { PausePlaneLaunchPlayingLive } from "./junto/pause-plane";
+import { PausePlaneLaunchPlayingLive } from "./junto/pause-plane-live";
 import { FactoryPauseRepositoryLive } from "./junto/pause/repository";
 import { AgentSignalRepositoryLive } from "./junto/signals/repository";
 import { PortraitOverrideRepositoryLive } from "./junto/portraits/repository";

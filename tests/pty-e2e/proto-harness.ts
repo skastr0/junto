@@ -26,7 +26,8 @@ import { makeInstallOpsLive } from "../../src/main/junto/install-ops/engine";
 import {
   FactoryPauseRepositoryLive,
 } from "../../src/main/junto/pause/repository";
-import { PausePlane, PausePlaneLive } from "../../src/main/junto/pause-plane";
+import { PausePlane } from "../../src/main/junto/pause-plane";
+import { PausePlaneLive } from "../../src/main/junto/pause-plane-live";
 import { ModelStoresLive, seedCanvas } from "../support/seed-canvas";
 
 export const makeProtoRuntime = (root: string) => {
