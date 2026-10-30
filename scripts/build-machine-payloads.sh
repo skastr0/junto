@@ -44,6 +44,9 @@ else
     export PATH="$HOME/.local/bin:$PATH"
     expected="$(bun -e '\''process.stdout.write(require("./package.json").packageManager.slice(4))'\'')"
     [[ "$(bun --version)" == "$expected" ]] || { printf "junto: error: Linux builder must use pinned Bun %s\n" "$expected" >&2; exit 1; }
+    command -v cargo >/dev/null || { printf "junto: error: Linux builder needs rustup for the native CLI\n" >&2; exit 1; }
+    # The checkout is shared with the Mac: cargo builds in a target local to this VM.
+    export CARGO_TARGET_DIR="$HOME/.cache/junto/native-cli-target"
     exec env "$@"
   ' -- "$REPO_ROOT" "${FEATURE_ENV[@]}" bun scripts/build-machine.ts "$LINUX_INPUT"
 fi

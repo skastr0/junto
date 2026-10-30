@@ -96,12 +96,12 @@ build() {
     scripts/app-paths.sh scripts/package-app-macos.sh
   git -c user.name=tcc-mirror -c user.email=tcc-mirror@localhost commit -qm "TCC mirror identity on $commit (export only)"
   # The app carries machine payloads: keep the caller's source for them, else
-  # the build orb the 2026-10-19 run used.
+  # the junto Linux builder orb.
   local orb="${JUNTO_MACHINE_LINUX_ORB:-}" bundles="${JUNTO_MACHINE_BUNDLES:-}"
   while IFS= read -r name; do unset "$name"; done < <(compgen -v JUNTO_)
   export JUNTO_FEATURE_PROFILE=ship JUNTO_PREVIEW_BUILD=1
   if [[ -n "$bundles" ]]; then export JUNTO_MACHINE_BUNDLES="$bundles"
-  else export JUNTO_MACHINE_LINUX_ORB="${orb:-vellum-v015-build-clean}"; fi
+  else export JUNTO_MACHINE_LINUX_ORB="${orb:-junto}"; fi
   bash scripts/build-app.sh --target mac --fast
   printf 'built %s from %s\n' "$(mirror_app)" "$commit"
 }

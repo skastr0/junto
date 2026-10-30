@@ -300,7 +300,8 @@ land; the stub decides step 53.
 ## 6. The cut (on product-lead's word only)
 
 Pre-stage and recheck at the go: Developer ID identity 4452968868, `asc`
-credentials, Orb builder `vellum-v015-build-clean` running, disk room. The
+credentials, Orb builder `junto` running (Bun, Node and rustup; the native
+CLI builds there), disk room. The
 build script `cut-build.sh` lived in my scratchpad and a purge deleted it once;
 recreate it from this recipe if it is gone: archive export of the bump commit
 with its own git dir, `cp -cR` of `node_modules`, delete the
