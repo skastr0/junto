@@ -423,7 +423,10 @@ html[data-theme="bright"] .seat-threads__block {
   font-size: var(--prose-code-size);
 }
 
+/* Same specificity as artifact-markdown's inline code, and later in the
+   cascade: the step wins over its 0.9em. */
 .seat-threads__prose :is(code:not(pre code)) {
+  font-size: var(--prose-code-size);
   border: 0;
   border-radius: var(--radius-sm);
   background: var(--color-overlay-3);
