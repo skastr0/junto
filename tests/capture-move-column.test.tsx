@@ -137,7 +137,7 @@ describe("the Move to column", () => {
   it("is a keyboard path: focus lands on the first route, arrows move, Enter routes the focused one", async () => {
     const id = await triage();
     await mount({ nodeId: INBOX, artifactId: id });
-    act(() => move.focus());
+    act(() => move.focusFirst());
     expect(document.activeElement).toBe(routeButtons()[0]);
     const ops = move.routes.findIndex((route) => route.title === "Ops");
     for (let at = 0; at < ops; at += 1) {

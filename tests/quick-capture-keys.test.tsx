@@ -90,6 +90,15 @@ const search = (): HTMLInputElement => {
   if (field === null) throw new Error("no search field");
   return field;
 };
+/** A query as React sees it: the field's value, then the input event. */
+const type = async (value: string): Promise<void> => {
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    setter?.call(search(), value);
+    search().dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await flush();
+};
 /** The right half's editor, whichever capture it holds. */
 const editor = (): HTMLElement | null => document.querySelector(".quick-capture__right .capture-editor__surface");
 const preview = (): HTMLElement | null => document.querySelector(".quick-capture__preview");
@@ -254,43 +263,77 @@ describe("quick capture's own keys", () => {
     expect(activeTitle()).toBe("Plan");
   });
 
-  it("moves the focused artifact with M from the list, where the keyboard can sit", async () => {
-    await press(search(), bare("ArrowDown"));
-    expect(activeTitle()).toBe("Plan");
-    // The list is its own stop: the keys that act on a row type in the field,
-    // so the keyboard steps into the list for them.
-    expect(list().getAttribute("tabindex")).toBe("0");
-    expect(list().getAttribute("aria-activedescendant")).toBe(activeOption()!.id);
-    act(() => list().focus());
-    expect(document.activeElement).toBe(list());
-    await press(list(), bare("m"));
-    expect(moveTitle()).toBe("Move Plan");
-    // The picker's one other node is Shelf: Enter moves it there.
-    const target = moveDialog()?.querySelector<HTMLElement>('[role="combobox"]') ?? null;
-    expect(target).not.toBeNull();
-    await press(target!, bare("ArrowDown"));
-    await press(target!, bare("Enter"));
+  it("puts the keyboard in Move to on M, on the first suggestion, and routes on Enter", async () => {
+    // A twin in Shelf, same words, and the Inbox capture they are like: Move
+    // to suggests the node holding its like, and the newest Inbox row is first.
+    await seed("shelf", "Twin", "quarterly revenue forecast");
+    await seed("inbox", "Forecast", "quarterly revenue forecast");
     await flush(14);
-    expect(moveTitle()).toBeNull();
-    const shelf = await source.list(CANVAS, id("shelf"));
-    expect(shelf.map((head) => head.artifact.title)).toContain("Plan");
+    const forecastRow = options().find(
+      (row) => row.querySelector(".quick-capture__row-title")?.textContent === "Forecast",
+    );
+    expect(forecastRow).not.toBeUndefined();
+    act(() => forecastRow!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await flush(14);
+    act(() => list().focus());
+    await press(list(), bare("m"));
+    const first = document.querySelector<HTMLElement>('[data-testid="capture-move-suggestion-0"]');
+    expect(first).not.toBeNull();
+    // M never moves on its own: it puts the keyboard on the column's first route.
+    expect(document.activeElement).toBe(first);
+    const before = (await source.list(CANVAS, id("shelf"))).map((head) => head.artifact.title);
+    await press(first!, bare("Enter"));
+    await flush(14);
+    const after = (await source.list(CANVAS, id("shelf"))).map((head) => head.artifact.title);
+    expect(after).toContain("Forecast");
+    expect(after.length).toBe(before.length + 1);
+  });
+
+  it("routes with 1, 2 and 3: 1 sends it, 3 does nothing when only one is offered", async () => {
+    await seed("shelf", "Twin", "quarterly revenue forecast");
+    await seed("inbox", "Forecast", "quarterly revenue forecast");
+    await flush(14);
+    const forecastRow = options().find(
+      (row) => row.querySelector(".quick-capture__row-title")?.textContent === "Forecast",
+    );
+    expect(forecastRow).not.toBeUndefined();
+    act(() => forecastRow!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await flush(14);
+    act(() => list().focus());
+    const before = (await source.list(CANVAS, id("shelf"))).map((head) => head.artifact.title);
+    // Out of range is a no-op, never a guess.
+    await press(list(), bare("3"));
+    await flush(14);
+    const unchanged = (await source.list(CANVAS, id("shelf"))).map((head) => head.artifact.title);
+    expect(unchanged).toEqual(before);
+    await press(list(), bare("1"));
+    await flush(14);
+    const after = (await source.list(CANVAS, id("shelf"))).map((head) => head.artifact.title);
+    expect(after).toContain("Forecast");
+    expect(after.length).toBe(before.length + 1);
   });
 });
 
 describe("quick capture's editor scope", () => {
-  it("keeps bare keys while the caret is in the editor: M types rather than routes", async () => {
+  it("keeps bare keys while the caret is in the editor: M and the numbers type rather than route", async () => {
     const writing = document.activeElement as HTMLElement | null;
     expect(writing?.closest(".capture-editor__surface")).not.toBeNull();
+    const before = (await source.list(CANVAS, id("shelf"))).map((head) => head.artifact.title);
     await press(writing!, bare("m"));
+    await press(writing!, bare("1"));
+    await press(writing!, bare("2"));
     expect(editor()).not.toBeNull();
     expect(preview()).toBeNull();
     expect(moveTitle()).toBeNull();
     expect(isOperatorModalOpen()).toBe(true);
+    const after = (await source.list(CANVAS, id("shelf"))).map((head) => head.artifact.title);
+    expect(after).toEqual(before);
   });
 
   it("does not take a bare key while the operator types in the search field", async () => {
     await press(search(), bare("m"));
-    // m is the field's: no edit, no route, the field keeps the word.
+    await press(search(), bare("1"));
+    // m and 1 are the field's: no edit, no route, the field keeps the word.
     expect(editor()).not.toBeNull();
     expect(preview()).toBeNull();
     expect(openTitle()).toBe("");

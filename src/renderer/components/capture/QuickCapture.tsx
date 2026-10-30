@@ -11,7 +11,6 @@ import { useCaptureInbox } from "../../lib/capture-inbox";
 import { state$ } from "../../lib/state";
 import { closeOperatorModal } from "../../lib/operator-modal";
 import { focusCanvasNode } from "../../lib/command-bar";
-import { useCanvas } from "../../lib/use-model";
 import {
   comboboxFieldAria,
   listboxAria,
@@ -20,13 +19,11 @@ import {
   type ListboxAriaState,
 } from "../../lib/listbox-aria";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
-import { ArtifactMoveDialog } from "../artifacts/ArtifactMove";
 import { Kbd, ResourceGlyphMark } from "../ui";
 import { CaptureEditor, type CaptureArtifactRef } from "./CaptureEditor";
-import { CaptureMoveColumn, useCaptureMove } from "./CaptureMoveColumn";
+import { CaptureMoveColumn, ROUTE_KEYS as CAPTURE_ROUTES, useCaptureMove } from "./CaptureMoveColumn";
 import { CapturePreview } from "./CapturePreview";
 import { CaptureInboxAsk } from "./CaptureInboxAsk";
-import { moveSuggestionsFor } from "./capture-model";
 import { captureRowsOf, type CaptureRow } from "./capture-list";
 import "./quick-capture.css";
 
@@ -88,14 +85,7 @@ export function QuickCapture() {
     edit.kind === "preview" && edit.row !== undefined
       ? rows.find((row) => row.artifactId === edit.row!.artifactId) ?? edit.row
       : undefined;
-  // The open Move to, and the routes it offers: where this artifact's links,
-  // mentions and labels point, and the node holding the artifacts most like it.
-  const [routing, setRouting] = useState<CaptureRow | undefined>(undefined);
-  const canvas = useCanvas(canvasName);
-  const routes = useMemo(
-    () => (routing === undefined ? [] : moveSuggestionsFor(canvas, routing.head, heads)),
-    [routing, canvas, heads],
-  );
+  // The open Move to column owns the routes; the surface only sends keys to it.
   const aria: ListboxAriaState = {
     baseId,
     presentation: "inline",
@@ -200,11 +190,19 @@ export function QuickCapture() {
       setEdit({ kind: "artifact", row: activeRow });
       return;
     }
-    // A bare key: it types in the search field, so it routes only from the
-    // list itself, where the keyboard steps in with Tab.
-    if (keyIs(event.nativeEvent, "inCapture.route") && !isOperatorTyping(event.nativeEvent.target) && activeRow !== undefined) {
+    // Bare keys: they type in the search field and in the writing, so they act
+    // only where no text field has the keyboard. Move to's own buttons take
+    // Enter and the arrows first, and those arrive defaultPrevented above.
+    if (isOperatorTyping(event.nativeEvent.target)) return;
+    if (keyIs(event.nativeEvent, "inCapture.route")) {
       event.preventDefault();
-      setRouting(activeRow);
+      move.focusFirst();
+      return;
+    }
+    const route = CAPTURE_ROUTES.findIndex((id) => keyIs(event.nativeEvent, id));
+    if (route >= 0) {
+      event.preventDefault();
+      move.choose(route);
     }
   };
 
@@ -401,16 +399,6 @@ export function QuickCapture() {
           <Kbd>esc</Kbd> close
         </span>
       </div>
-      {routing === undefined ? null : (
-        <ArtifactMoveDialog
-          canvasName={canvasName}
-          from={routing.nodeId}
-          artifacts={[{ artifactId: routing.artifactId as ItemId, title: rowLabel(routing) }]}
-          suggestions={routes}
-          onCancel={() => setRouting(undefined)}
-          onDone={() => setRouting(undefined)}
-        />
-      )}
     </OperatorModalShell>
   );
 }

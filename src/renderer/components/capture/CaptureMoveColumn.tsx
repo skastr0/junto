@@ -17,7 +17,7 @@ import { moveSuggestionsFor } from "./capture-model";
 import "./capture-move.css";
 
 /** The desk's routes, each on its own key from the key table (1, 2 and 3 unless rebound). */
-const ROUTE_KEYS = ["inCapture.route1", "inCapture.route2", "inCapture.route3"] as const;
+export const ROUTE_KEYS = ["inCapture.route1", "inCapture.route2", "inCapture.route3"] as const;
 const ROUTES = ROUTE_KEYS.length;
 
 /** Route `i`'s key caps as one word, as the footer writes a chord; its number when the table has no row. */
@@ -58,7 +58,7 @@ export type CaptureMove = {
   readonly choose: (i: number) => void;
   readonly pick: (i: number) => void;
   /** The keyboard to the first route, or to Other when there is none. */
-  readonly focus: () => void;
+  readonly focusFirst: () => void;
   /** The full picker, its routes first. */
   readonly other: () => void;
   readonly otherOpen: boolean;
@@ -140,7 +140,7 @@ export function useCaptureMove(canvasName: string, target: CaptureArtifactRef | 
     void move(to);
   };
 
-  const focus = useCallback((): void => {
+  const focusFirst = useCallback((): void => {
     const first = columnRef.current?.querySelector<HTMLElement>("[data-capture-move-option]");
     if (first != null) claimFocus(first, "gesture");
   }, []);
@@ -159,7 +159,7 @@ export function useCaptureMove(canvasName: string, target: CaptureArtifactRef | 
     pick: (i) => {
       if (i !== picked) setPicked(i);
     },
-    focus,
+    focusFirst,
     other: () => {
       if (head !== undefined && !running.current) setOtherOpen(true);
     },
