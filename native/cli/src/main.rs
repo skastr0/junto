@@ -223,9 +223,13 @@ fn usage(error: &clap::Error, words: &[&str]) -> ExitCode {
             json!({ "_tag": "MissingOption", "option": flag.trim_start_matches('-') }),
         ),
         ErrorKind::MissingRequiredArgument => {
-            let name = arg
-                .trim_matches(|c| matches!(c, '<' | '>' | '.'))
-                .to_lowercase();
+            // clap's own name is the field in capitals; a value_name is as written.
+            let named = arg.trim_matches(|c| matches!(c, '<' | '>' | '.'));
+            let name = if named.chars().any(char::is_lowercase) {
+                named.to_string()
+            } else {
+                named.to_lowercase()
+            };
             (
                 format!("Missing required argument: {name}"),
                 json!({ "_tag": "MissingArgument", "argument": name }),
