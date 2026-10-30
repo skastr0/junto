@@ -249,6 +249,56 @@ describe("WorkRepository recent actor-seat operations", () => {
     }
   });
 
+  it("merges mail and receipts newest first under a limit smaller than either", async () => {
+    const local = installation("cc-seat-recent-merge");
+    const { runtime, repository, basis } = await openRepository(local);
+    const seat = actor("4", "merge-worker");
+    for (const minute of [1, 3, 5, 7]) {
+      await runtime.runPromise(
+        appendMailboxMessage(repository, basis, seat, {
+          id: `message-${minute}`,
+          text: `body-${minute}`,
+          at: atMinute(minute),
+        }),
+      );
+    }
+    for (const minute of [2, 4, 6, 8]) {
+      await runtime.runPromise(
+        repository.acceptDelivery({
+          sink: { canvasName, nodeId: "recipient" },
+          basis,
+          receipt: {
+            deliveryId: `delivery-${minute}`,
+            deliveredItem: {
+              kind: "message",
+              itemId: `message-${minute - 1}`,
+              sink: { canvasName, nodeId: "recipient" },
+            },
+            actor: seat,
+            acceptedAt: atMinute(minute),
+          },
+          originAt: atMinute(minute),
+          receivedAt: atMinute(minute),
+        }),
+      );
+    }
+
+    const feed = await runtime.runPromise(
+      repository.recentOpsForSeat({ canvasName, actorSeatId: seat.seatId, limit: 3 }),
+    );
+
+    expect(feed.operations.map(({ appliedAt }) => appliedAt)).toEqual([
+      atMinute(8),
+      atMinute(7),
+      atMinute(6),
+    ]);
+    expect(feed.operations.map(({ operation }) => operation)).toEqual([
+      "delivery.accepted",
+      "message.append",
+      "delivery.accepted",
+    ]);
+  });
+
   it("defaults to 20 entries and hard-caps the limit at 50", async () => {
     const local = installation("cc-seat-recent-limits");
     const { runtime, repository, basis } = await openRepository(local);

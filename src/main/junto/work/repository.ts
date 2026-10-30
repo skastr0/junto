@@ -1965,48 +1965,80 @@ const recentOpsForSeat = Effect.fn("work.recentOpsForSeat")(function* (
     execute: (bindings) =>
       reader.unsafe(
         `
-      WITH fact_rows AS (
-        SELECT
-          fact_event.operation,
-          fact_event.origin_at AS origin_at,
-          fact_event.origin_at AS applied_at,
-          fact_event.received_at AS observed_at,
-          fact_event.item_node_id AS target_node_id,
-          fact_event.item_kind AS item_kind,
-          fact_event.item_id AS item_id,
-          fact.result_json AS result_json,
-          fact_event.event_home,
-          fact_event.entity_home,
-          fact_event.seq
-        FROM work_events AS fact_event
-        JOIN work_facts AS fact
-          ON fact.event_home = fact_event.event_home
-          AND fact.entity_home = fact_event.entity_home
-          AND fact.seq = fact_event.seq
-        WHERE fact_event.record_type = 'fact'
-          AND fact_event.item_canvas_name = ?
-          AND fact_event.operation IN (
-            'task.claim',
-            'message.append',
-            'artifact.publish',
-            'delivery.accepted'
-          )
+      -- One bounded candidate set per operation, each found by the seat
+      -- that acted: mail by its writer, receipts by their actor, claims and
+      -- publishes by their operation, one branch each so the seek uses it. Only the page's rows read a fact body.
+      -- Without this the read parsed every fact of the four operations on
+      -- the canvas before it knew whose it was.
+      WITH candidates AS (
+        SELECT * FROM (
+          SELECT event.event_home, event.entity_home, event.seq, event.operation,
+            event.origin_at, event.received_at, event.item_node_id, event.item_kind, event.item_id
+          FROM work_messages AS mail INDEXED BY work_messages_actor
+          JOIN work_events AS event ON event.event_home = mail.fact_event_home
+            AND event.entity_home = mail.fact_entity_home AND event.seq = mail.fact_seq
+          WHERE mail.canvas_name = ?1 AND mail.actor_seat_id = ?2
+            AND event.record_type = 'fact' AND event.item_canvas_name = ?1
+            AND event.operation = 'message.append'
+          ORDER BY event.origin_at DESC, event.received_at DESC, event.event_home DESC,
+            event.entity_home DESC, length(event.seq) DESC, event.seq DESC
+          LIMIT ?3)
+        UNION ALL SELECT * FROM (
+          SELECT event.event_home, event.entity_home, event.seq, event.operation,
+            event.origin_at, event.received_at, event.item_node_id, event.item_kind, event.item_id
+          FROM work_delivery_receipts AS receipt INDEXED BY work_delivery_receipts_actor
+          JOIN work_events AS event ON event.event_home = receipt.fact_event_home
+            AND event.entity_home = receipt.fact_entity_home AND event.seq = receipt.fact_seq
+          WHERE receipt.actor_seat_id = ?2
+            AND event.record_type = 'fact' AND event.item_canvas_name = ?1
+            AND event.operation = 'delivery.accepted'
+          ORDER BY event.origin_at DESC, event.received_at DESC, event.event_home DESC,
+            event.entity_home DESC, length(event.seq) DESC, event.seq DESC
+          LIMIT ?3)
+        UNION ALL SELECT * FROM (
+          SELECT event.event_home, event.entity_home, event.seq, event.operation,
+            event.origin_at, event.received_at, event.item_node_id, event.item_kind, event.item_id
+          FROM work_events AS event INDEXED BY work_events_by_operation
+          JOIN work_facts AS fact USING (event_home, entity_home, seq)
+          WHERE event.item_canvas_name = ?1 AND event.operation = 'task.claim'
+            AND event.record_type = 'fact'
+            AND json_extract(fact.result_json, '$.claimedBy.seatId') = ?2
+          ORDER BY event.origin_at DESC, event.received_at DESC, event.event_home DESC,
+            event.entity_home DESC, length(event.seq) DESC, event.seq DESC
+          LIMIT ?3)
+        UNION ALL SELECT * FROM (
+          SELECT event.event_home, event.entity_home, event.seq, event.operation,
+            event.origin_at, event.received_at, event.item_node_id, event.item_kind, event.item_id
+          FROM work_events AS event INDEXED BY work_events_by_operation
+          JOIN work_facts AS fact USING (event_home, entity_home, seq)
+          WHERE event.item_canvas_name = ?1 AND event.operation = 'artifact.publish'
+            AND event.record_type = 'fact'
+            AND json_extract(fact.result_json, '$.publishedBy.seatId') = ?2
+          ORDER BY event.origin_at DESC, event.received_at DESC, event.event_home DESC,
+            event.entity_home DESC, length(event.seq) DESC, event.seq DESC
+          LIMIT ?3)
+      ),
+      page AS (
+        SELECT * FROM candidates
+        ORDER BY origin_at DESC, received_at DESC, event_home DESC,
+          entity_home DESC, length(seq) DESC, seq DESC
+        LIMIT ?3
       ),
       attributed AS (
         SELECT
-          *,
-          CASE operation
-            WHEN 'task.claim' THEN
-              json_extract(result_json, '$.claimedBy.seatId')
-            WHEN 'message.append' THEN
-              json_extract(result_json, '$.sentBy.seatId')
-            WHEN 'artifact.publish' THEN
-              json_extract(result_json, '$.publishedBy.seatId')
-            WHEN 'delivery.accepted' THEN
-              json_extract(result_json, '$.receipt.actor.seatId')
-            ELSE NULL
-          END AS actor_seat_id
-        FROM fact_rows
+          page.operation,
+          page.origin_at AS origin_at,
+          page.origin_at AS applied_at,
+          page.received_at AS observed_at,
+          page.item_node_id AS target_node_id,
+          page.item_kind AS item_kind,
+          page.item_id AS item_id,
+          fact.result_json AS result_json,
+          page.event_home,
+          page.entity_home,
+          page.seq
+        FROM page
+        JOIN work_facts AS fact USING (event_home, entity_home, seq)
       )
       SELECT
         operation,
@@ -2041,7 +2073,6 @@ const recentOpsForSeat = Effect.fn("work.recentOpsForSeat")(function* (
           ELSE NULL
         END AS related_node_id
       FROM attributed
-      WHERE actor_seat_id = ?
       ORDER BY
         applied_at DESC,
         observed_at DESC,
@@ -2049,7 +2080,6 @@ const recentOpsForSeat = Effect.fn("work.recentOpsForSeat")(function* (
         entity_home DESC,
         length(seq) DESC,
         seq DESC
-      LIMIT ?
     `,
         bindings,
       ),
