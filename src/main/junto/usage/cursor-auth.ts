@@ -15,8 +15,6 @@ import { join } from "node:path";
 // Secrets never leak: callers pass the raw credential only into request
 // headers, and error strings are scrubbed through redactSecrets().
 
-export const CURSOR_COOKIE_ENV = "CURSOR_COOKIE";
-
 /** Operator-managed cookie file (raw Cookie header text, read-only). */
 export const cursorConfigCookiePath = (home: string = homedir()): string =>
   join(home, ".junto", "config", "cursor-cookie");

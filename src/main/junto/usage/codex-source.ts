@@ -233,9 +233,6 @@ const fetchCodex = async (signal?: AbortSignal): Promise<UsageSnapshot> => {
   }
 };
 
-/** Capability note for doctor / HUD partial labeling — the fetch path is live. */
-export const CODEX_LIMITS_STATUS = "live — chatgpt.com/backend-api/wham/usage via ~/.codex/auth.json (no in-process token refresh)";
-
 export const codexSource: UsageSource = {
   id: "codex",
   detect: Effect.promise(detectCodexAuth),

@@ -851,10 +851,6 @@ const detectAntigravity = async (): Promise<boolean> => {
   }
 };
 
-/** Capability note for doctor / HUD partial labeling. */
-export const ANTIGRAVITY_LIMITS_STATUS =
-  "live - localhost language_server probes (quota summary, user status, command model configs) plus warm agy CLI reuse; remote OAuth plane excluded for v1";
-
 export const antigravitySource: UsageSource = {
   id: "antigravity",
   detect: Effect.promise(detectAntigravity),

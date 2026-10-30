@@ -611,5 +611,3 @@ export const makeOllamaSource = (
   fetch: Effect.promise((signal) => fetchOllama(readOperator(), signal)),
 });
 
-/** Default instance: no operator tier (env vars only). */
-export const ollamaSource: UsageSource = makeOllamaSource();

@@ -803,10 +803,6 @@ const detectOpenCodeGo = async (
   }
 };
 
-/** Capability note for doctor / HUD partial labeling. */
-export const OPENCODE_GO_LIMITS_STATUS =
-  "live web windows via opencode.ai/zen/go/v1/usage (OPENCODE_API_KEY or auth.json); local opencode.db cost reader via system sqlite3";
-
 /**
  * Build the OpenCode Go usage source over an operator-credential reader.
  * `readOperator` returns the Settings > Providers opencodeGo section (raw
@@ -820,5 +816,3 @@ export const makeOpencodeGoSource = (
   fetch: Effect.promise(makeFetchOpenCodeGo(readOperator)),
 });
 
-/** Default instance: no operator tier (env var / CLI auth.json / local db). */
-export const opencodeGoSource: UsageSource = makeOpencodeGoSource();

@@ -630,5 +630,3 @@ const fetchOpenRouter = async (
   }
 };
 
-/** Default instance: no operator tier (env var / key files only). */
-export const openrouterSource: UsageSource = makeOpenRouterSource();

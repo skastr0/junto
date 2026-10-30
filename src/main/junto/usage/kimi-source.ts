@@ -663,10 +663,6 @@ const fetchKimi = async (
   }
 };
 
-/** Capability note for doctor / HUD partial labeling. */
-export const KIMI_LIMITS_STATUS =
-  "live - kimi.com billing/membership endpoints via KIMI_AUTH_TOKEN, or api.kimi.com coding usages via KIMI_CODE_API_KEY / ~/.kimi-code credentials";
-
 /**
  * Build the Kimi usage source over an operator-credential reader.
  * `readOperator` returns the Settings > Providers kimi section (raw values,

@@ -435,5 +435,3 @@ export const makeCopilotSource = (
   fetch: Effect.promise(makeFetchCopilot(readOperator)),
 });
 
-/** Default instance: no operator tier (env / gh CLI / hosts.yml). */
-export const copilotSource: UsageSource = makeCopilotSource();
