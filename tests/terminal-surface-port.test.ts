@@ -43,6 +43,15 @@ describe("surface ports for a lease", () => {
     expect(taken).toEqual([early, later]);
   });
 
+  it("holds a port that arrives before any view has asked, from the moment the module loads", async () => {
+    const { takeSurfacePorts } = await import("../src/renderer/lib/terminal-surface-port");
+    // Main posts the port before it answers the attach: nothing has asked yet.
+    const first = post("lease-1");
+    const taken: unknown[] = [];
+    takeSurfacePorts("lease-1", (port) => taken.push(port));
+    expect(taken).toEqual([first]);
+  });
+
   it("ignores a message that did not come from this window", async () => {
     const { takeSurfacePorts } = await import("../src/renderer/lib/terminal-surface-port");
     const taken: unknown[] = [];

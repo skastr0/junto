@@ -1502,6 +1502,36 @@ export function TerminalSurface({
     let surface: MessagePort | undefined;
     const surfacePending: string[] = [];
     let offSurface: (() => void) | undefined;
+    // Keys posted to the port that the terminal process has not said it
+    // took: a port that closes under them loses them, and they go again over
+    // IPC, first, in order.
+    const untaken: string[] = [];
+    // Keys typed while a gap reattaches: no lease takes them until it answers.
+    const heldKeys: string[] = [];
+    let reattaching = false;
+    // IPC writes still in flight: a key goes to the port only behind them,
+    // so keys reach the PTY in the order they were typed.
+    let ipcWrites = 0;
+    const writeOverIpc = (lease: string, data: string): void => {
+      ipcWrites += 1;
+      void api.terminalWrite(lease, data).catch(() => undefined).finally(() => {
+        ipcWrites -= 1;
+      });
+    };
+    const sendKey = (data: string): void => {
+      if (reattaching) {
+        heldKeys.push(data);
+        return;
+      }
+      const lease = leaseRef.current;
+      if (!lease || readOnly) return;
+      if (surface !== undefined && ipcWrites === 0) {
+        untaken.push(data);
+        surface.postMessage({ t: "in", data });
+        return;
+      }
+      writeOverIpc(lease, data);
+    };
     const surfaceOutput = (port: MessagePort, message: { readonly t?: unknown; readonly data?: unknown }): void => {
       if (port !== surface) return;
       if (message.t === "out" && typeof message.data === "string") {
@@ -1509,18 +1539,34 @@ export function TerminalSurface({
         else term.write(message.data);
         return;
       }
+      if (message.t === "took") {
+        untaken.shift();
+        return;
+      }
       if (message.t === "end") {
         surface = undefined;
         port.close();
+        const lease = leaseRef.current;
+        for (const data of untaken.splice(0)) if (lease) writeOverIpc(lease, data);
         return;
       }
       if (message.t === "gap") {
         // The terminal process no longer holds what followed this screen:
-        // attach again, which reads a fresh one.
+        // attach again, which reads a fresh one. Keys typed until it answers,
+        // and any the port did not take, go to the new lease.
         surface = undefined;
         port.close();
+        heldKeys.unshift(...untaken.splice(0));
+        reattaching = true;
         runAttach();
       }
+    };
+    /** A reattach answered: what was typed meanwhile goes to the new lease, or nowhere. */
+    const reattached = (lease: string | undefined): void => {
+      if (!reattaching) return;
+      reattaching = false;
+      const keys = heldKeys.splice(0);
+      if (lease && !readOnly) for (const data of keys) writeOverIpc(lease, data);
     };
     const flushSurface = (): void => {
       if (surfacePending.length > 0) term.write(surfacePending.splice(0).join(""));
@@ -1543,10 +1589,7 @@ export function TerminalSurface({
     // whose lease ended, keeps its keys: they go nowhere, not to the canvas.
     let readOnly = false;
     const offData = term.onData((data) => {
-      const lease = leaseRef.current;
-      if (!lease || readOnly) return;
-      if (surface !== undefined) surface.postMessage({ t: "in", data });
-      else void api.terminalWrite(lease, data);
+      sendKey(data);
     });
     // The operator's own keys and pastes hold the seat's session for a short
     // grace. Read off the DOM, not onData: onData also carries the terminal's
@@ -1809,6 +1852,7 @@ export function TerminalSurface({
             return;
           }
           if (!result.ok || !result.lease) {
+            reattached(undefined);
             setStatus(result.message ?? "not running");
             attachDone = true;
             clearLoad();
@@ -1821,8 +1865,10 @@ export function TerminalSurface({
           surface?.close();
           surface = undefined;
           surfacePending.length = 0;
+          untaken.length = 0;
           takeSurface(result.lease.leaseId);
           readOnly = result.lease.mode === "observe";
+          reattached(result.lease.leaseId);
           // The child's geometry is UNKNOWN until this surface has told it.
           // Seeding from the session snapshot records what the child was at
           // some earlier moment, and if the pane has since changed size the
@@ -1947,6 +1993,7 @@ export function TerminalSurface({
         })
         .catch((error: unknown) => {
           if (!alive) return;
+          reattached(undefined);
           setStatus(error instanceof Error ? error.message : String(error));
           attachDone = true;
           clearLoad();

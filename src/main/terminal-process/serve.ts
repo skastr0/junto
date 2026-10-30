@@ -173,13 +173,19 @@ export const serveTerminals = (
     }
     endSurface(surfaces, open.leaseId);
     const oldest = surfaces.ring[0]?.seq ?? surfaces.seq + 1;
-    if (open.fromSeq < oldest && open.fromSeq <= surfaces.seq) surface.post({ t: "gap" });
-    else for (const chunk of surfaces.ring) if (chunk.seq >= open.fromSeq) surface.post({ t: "out", ...chunk });
+    if (open.fromSeq < oldest && open.fromSeq <= surfaces.seq) {
+      // A gap ends the port: the view reattaches, and a key it posted here
+      // takes no "took", so it goes again to the new lease, once.
+      surface.post({ t: "gap" });
+      return surface.close();
+    }
+    for (const chunk of surfaces.ring) if (chunk.seq >= open.fromSeq) surface.post({ t: "out", ...chunk });
     const stop = surface.listen((message) => {
       if (message.t !== "in") return;
       // Operator presence is the signal, not delivery: the core hears every
       // key as it arrives, a refused or held one included, before any gate.
       port.post({ kind: "push", channel: TerminalSurface.typing, payload: { id: open.id, leaseId: open.leaseId, data: message.data } });
+      surface.post({ t: "took" });
       keyed(open.id, open, message.data);
     });
     surfaces.open.set(open.leaseId, { port: surface, stop });

@@ -101,8 +101,14 @@ export type TerminalInput = { readonly id: number; readonly leaseId: string; rea
 /** On a surface port: the terminal process to the renderer. */
 export type SurfaceOut =
   | { readonly t: "out"; readonly seq: number; readonly data: string }
-  /** The chunks from `fromSeq` are gone from the ring: read the screen again. */
+  /** The chunks from `fromSeq` are gone from the ring: read the screen again. The port closes. */
   | { readonly t: "gap" }
+  /**
+   * One key arrived here, in order. A key the view posted that never got this
+   * was lost with the port (it closed under it), and the view sends it again
+   * over IPC.
+   */
+  | { readonly t: "took" }
   | { readonly t: "end" };
 
 /** On a surface port: the renderer to the terminal process. */

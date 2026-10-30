@@ -23,14 +23,22 @@ const arrived = (event: MessageEvent): void => {
   waiting.set(data.leaseId, port);
 };
 
+/**
+ * Listening starts when this module loads, before any attach is asked: main
+ * posts a port before it answers the attach that minted its lease, so the
+ * port can arrive first. A window with no message events (a test's stand-in)
+ * gets no ports; its views read and type over IPC.
+ */
+export const listenForSurfacePorts = (): void => {
+  if (listening || typeof window === "undefined" || typeof window.addEventListener !== "function") return;
+  listening = true;
+  window.addEventListener("message", arrived);
+};
+listenForSurfacePorts();
+
 /** Take every surface port for this lease, the one waiting first. */
 export const takeSurfacePorts = (leaseId: string, take: (port: MessagePort) => void): (() => void) => {
-  // A window with no message events (a test's stand-in) gets no ports: its
-  // views read and type over IPC.
-  if (!listening && typeof window.addEventListener === "function") {
-    listening = true;
-    window.addEventListener("message", arrived);
-  }
+  listenForSurfacePorts();
   takers.set(leaseId, take);
   const early = waiting.get(leaseId);
   if (early !== undefined) {

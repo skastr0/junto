@@ -244,7 +244,23 @@ describe("surface ports in the terminal process", () => {
     const behind = surface(big.served, flood.id, "lease-3", 1);
     await until(() => behind.seen.length > 0);
     expect(behind.seen[0]).toEqual({ t: "gap" });
+    // The gap ends the port: a key typed after it is not taken, so the view sends it again elsewhere.
+    flood.gate({ leaseId: "lease-3", epoch: "1" });
+    behind.type("go\r");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(behind.seen).toEqual([{ t: "gap" }]);
     flood.kill("SIGKILL");
+  });
+
+  it("says it took each key, in order, gated or not", async () => {
+    const { served, client } = setup();
+    const pty = cat(client);
+    await pty.pid;
+    const view = surface(served, pty.id, "lease-1");
+    view.type("a");
+    view.type("b");
+    await until(() => view.seen.filter((message) => message.t === "took").length === 2);
+    pty.kill("SIGKILL");
   });
 
   it("an exit or a lease end closes the surface", async () => {
