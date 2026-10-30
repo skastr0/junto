@@ -107,8 +107,8 @@ export type ArtifactMarkdownProps = {
  * Render artifact text as CommonMark plus the GFM extensions commonly emitted
  * by agents (tables, task lists, strikethrough, and autolinks).
  *
- * Raw HTML is deliberately skipped. Artifacts are agent-provided content and
- * must remain inert when they are opened in the renderer.
+ * Raw HTML is never rendered: a tag reads as the literal text the writer
+ * typed, so "From <author>:" keeps its <author> and a <script> stays inert.
  */
 export const ArtifactMarkdown = memo(function ArtifactMarkdown({
   source,
@@ -124,7 +124,6 @@ export const ArtifactMarkdown = memo(function ArtifactMarkdown({
     <div className={shellClass} data-testid="artifact-markdown">
       <Markdown
         remarkPlugins={[remarkGfm]}
-        skipHtml
         urlTransform={drawn.urlTransform}
         components={drawn.components}
       >
