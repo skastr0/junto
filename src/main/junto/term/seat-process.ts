@@ -298,6 +298,13 @@ export const makeLocalSeatProcess = (
             ),
           catch: asClientError,
         });
+        // The spawn and its events are synchronous; its exact process identity
+        // is proven without holding the canvas thread, and this start hands the
+        // seat out only once it is.
+        yield* Effect.tryPromise({
+          try: () => host.awaitStartIdentity(bindingId, created.epoch),
+          catch: asClientError,
+        });
         // An already-resolved exit witness settles on the promise queue. Its
         // fail-open replacement must become the returned head, not the dead
         // resume generation that createAgentSeat initially handed us.

@@ -555,6 +555,8 @@ export const startTermControlServer = async (
             nodeId: actor.nodeId,
             label: actorReq.label,
           });
+          // This machine answers "started" only once the exact identity is bound.
+          await host.awaitStartIdentity(bindingId, summary.epoch);
           if (
             !sessionActorMatches(summary, actor) ||
             summary.canvasName !== actor.canvasName ||

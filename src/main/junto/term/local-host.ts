@@ -970,6 +970,8 @@ export class LocalSessionHost extends EventEmitter {
    * another viewer's retention.
    */
   private readonly surfaceLeases = new Map<string, string>();
+  /** One identity flight per live generation, so every waiter sees one `ps`. */
+  private readonly seatIdentityFlights = new WeakMap<SessionRec, Promise<void>>();
   private readonly primeDaemons: PrimeAgentDaemons | undefined;
   private readonly shellEnvironment: Pick<ShellEnvironment, "settled" | "generation">;
   private readonly operatorInterlock: OperatorInterlock;
@@ -1125,6 +1127,50 @@ export class LocalSessionHost extends EventEmitter {
     // replacement was already running (Reopen then attached instantly).
     const head = this.sessions.get(bindingId);
     return head ? this.summaryOf(head) : opened;
+  }
+
+  /**
+   * One generation's identity bind, started by the start and awaited by whoever
+   * hands the seat out. One flight per generation: the observation is a `ps`
+   * fork, and a start that waited for it inline was the slowest block one seat
+   * put on the canvas thread.
+   */
+  private seatIdentityFlight(rec: SessionRec): Promise<void> {
+    const existing = this.seatIdentityFlights.get(rec);
+    if (existing !== undefined) return existing;
+    const flight = (async () => {
+      try {
+        await this.bindPtyProcessIdentityAsync(rec);
+      } catch (error) {
+        this.recordPostSpawnFailure(rec, error);
+        this.requestStop(rec, "terminal_setup_failed");
+        // The actor occupation answers with a typed failure, as it did when the
+        // bind ran inline; a geography terminal settles on its exited summary.
+        if (rec.harness !== undefined) {
+          throw seatOccupationFailedError(rec.bindingId, rec.epoch, error);
+        }
+      }
+    })();
+    // A start that never waits must not leave an unhandled rejection behind;
+    // the failure itself is already on the seat and in the journal.
+    void flight.catch(() => undefined);
+    this.seatIdentityFlights.set(rec, flight);
+    return flight;
+  }
+
+  /**
+   * Wait for the generation a start just opened to hold its exact process
+   * identity. Every start that hands a terminal or seat out awaits this, so a
+   * generation is never reported started before its identity is proven, while
+   * the `ps` fork it needs never runs on the thread that draws the canvas.
+   */
+  async awaitStartIdentity(bindingId: string, epoch: string): Promise<void> {
+    const rec = this.sessions.get(bindingId);
+    // A generation that ended or was replaced while it was starting has
+    // nothing left to bind: the one that replaced it binds its own.
+    if (rec === undefined || rec.epoch !== epoch) return;
+    if (rec.killed || sessionStatusOf(rec) === "exited") return;
+    await this.seatIdentityFlight(rec);
   }
 
   private open(
@@ -1398,11 +1444,12 @@ export class LocalSessionHost extends EventEmitter {
         (event) => this.observeExit(rec, event.code, event.signal),
         (error) => this.observeWitnessFailure(rec, error),
       );
-      // The terminal is a second exact generation for the same principal. A
-      // missing/failed bind is a setup failure, never permission to run ambient.
-      if (!this.bindPtyProcessIdentity(rec)) {
-        throw new Error("terminal process identity bind failed");
-      }
+      // The terminal is a second exact generation for the same principal. The
+      // bind starts here and is not waited for: it is a `ps` fork, and holding
+      // the canvas thread for it was the slowest block one seat start cost.
+      // Both start callers await `awaitStartIdentity` before handing the seat
+      // out, and a bind that cannot be proven still tears the seat down.
+      this.seatIdentityFlight(rec);
       // Publish the generation credential once the lease is live. Anchors may
       // still be missing; bindCanvas completes those and publishes then.
       if (!this.publishSeatCredential(rec)) {
@@ -3160,6 +3207,42 @@ export class LocalSessionHost extends EventEmitter {
       );
       return false;
     }
+  }
+
+  /**
+   * The exact generation identity, observed without holding the thread.
+   *
+   * Same rule as `bindPtyProcessIdentity`, and the same observation: only the
+   * wait moved. Undefined when there is nothing to bind.
+   */
+  private async bindPtyProcessIdentityAsync(rec: SessionRec): Promise<void> {
+    const principal = this.processPrincipal(rec);
+    if (principal === undefined) return;
+    if (rec.pid === undefined || sessionStatusOf(rec) !== "running") {
+      throw new Error("terminal process identity bind failed");
+    }
+    const identities = getProcessIdentityMap();
+    const startKey = await identities.observeStartKeyAsync(rec.pid);
+    if (startKey === undefined) {
+      throw new Error("terminal process identity bind failed");
+    }
+    // The start key was observed a moment ago; `bindGeneration` still refuses
+    // a pid that has gone and a live pid bound to another principal.
+    const binding = identities.bindGeneration(rec.pid, principal, startKey);
+    if (binding === undefined) {
+      throw new Error("terminal process identity bind failed");
+    }
+    // A generation stopped or replaced while its key was being read keeps no
+    // binding: nothing may authorize a signal for it afterwards.
+    if (rec.killed || sessionStatusOf(rec) !== "running" || this.sessions.get(rec.bindingId) !== rec) {
+      try {
+        getProcessIdentityMap().unbindGeneration(binding);
+      } catch (error) {
+        console.error(`[term] superseded identity revoke failed for ${rec.bindingId}@${rec.epoch}:`, error);
+      }
+      return;
+    }
+    rec.ptyIdentityBinding = binding;
   }
 
   private bindAllProcessIdentities(rec: SessionRec): boolean {

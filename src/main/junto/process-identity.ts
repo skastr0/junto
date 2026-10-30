@@ -1,4 +1,4 @@
-import { readSingleProcessEpochSnapshot } from "./process-epoch";
+import { readSingleProcessEpochSnapshot, readSingleProcessEpochSnapshotAsync } from "./process-epoch";
 
 // Main's record of the processes it started for seats and terminals.
 //
@@ -48,10 +48,21 @@ export interface ProcessIdentityBinding {
 
 export interface ProcessIdentityMap {
   readonly bind: (pid: number, principal: ProcessPrincipal) => boolean;
+  /**
+   * Bind a live pid to the principal that owns it. `startKey` is an
+   * observation the caller already took; absent means observe it now.
+   */
   readonly bindGeneration: (
     pid: number,
     principal: ProcessPrincipal,
+    startKey?: string,
   ) => ProcessIdentityBinding | undefined;
+  /**
+   * This map's own start-key observation, awaited: one `ps` for the default
+   * map, and an injected reader for a test map. The await is the point — a
+   * seat start must not block the canvas thread for it.
+   */
+  readonly observeStartKeyAsync: (pid: number) => Promise<string | undefined>;
   readonly unbind: (pid: number) => void;
   readonly unbindGeneration: (binding: ProcessIdentityBinding) => boolean;
   readonly unbindPrincipal: (match: ProcessPrincipal) => void;
@@ -91,6 +102,18 @@ export const readProcessStartKey = (pid: number): string | undefined => {
   return startKey === undefined || startKey.length === 0 ? undefined : startKey;
 };
 
+/**
+ * The same answer as `readProcessStartKey`, asked without holding the caller's
+ * thread for a `ps` fork. A seat start needs the binding before it hands the
+ * seat out, not before it continues.
+ */
+export const readProcessStartKeyAsync = async (pid: number): Promise<string | undefined> => {
+  if (!Number.isInteger(pid) || pid <= 0) return undefined;
+  const rows = await readSingleProcessEpochSnapshotAsync(pid);
+  const startKey = rows?.find((row) => row.pid === pid)?.startKey;
+  return startKey === undefined || startKey.length === 0 ? undefined : startKey;
+};
+
 export const processAlive = (pid: number): boolean => {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
@@ -104,6 +127,8 @@ export const processAlive = (pid: number): boolean => {
 export interface ProcessIdentityMapOptions {
   readonly processAlive?: (pid: number) => boolean;
   readonly readProcessStartKey?: (pid: number) => string | undefined;
+  /** Awaited start key; defaults to the async single-pid observation. */
+  readonly readProcessStartKeyAsync?: (pid: number) => Promise<string | undefined>;
 }
 
 export const makeProcessIdentityMap = (
@@ -114,6 +139,13 @@ export const makeProcessIdentityMap = (
   const listeners = new Set<(principal: ProcessPrincipal) => void>();
   const isAlive = options.processAlive ?? processAlive;
   const startKeyOf = options.readProcessStartKey ?? readProcessStartKey;
+  // An injected reader describes how this map observes keys, so it answers both
+  // shapes; only the default observation has a synchronous and an awaited form.
+  const startKeyOfAsync =
+    options.readProcessStartKeyAsync ??
+    (options.readProcessStartKey === undefined
+      ? readProcessStartKeyAsync
+      : async (pid: number) => options.readProcessStartKey!(pid));
 
   const notify = (principal: ProcessPrincipal): void => {
     for (const listener of listeners) listener(principal);
@@ -129,6 +161,7 @@ export const makeProcessIdentityMap = (
   const bindRecord = (
     pid: number,
     principal: ProcessPrincipal,
+    observedStartKey?: string,
   ): BoundRecord | undefined => {
     if (!Number.isInteger(pid) || pid <= 0) return undefined;
     // At least one anchor, or the principal names nobody. A binding-only
@@ -140,7 +173,7 @@ export const makeProcessIdentityMap = (
       }
     }
     if (!isAlive(pid)) return undefined;
-    const startKey = startKeyOf(pid);
+    const startKey = observedStartKey ?? startKeyOf(pid);
     if (startKey === undefined) return undefined;
     const existing = byPid.get(pid);
     if (
@@ -165,8 +198,9 @@ export const makeProcessIdentityMap = (
   const bindGeneration = (
     pid: number,
     principal: ProcessPrincipal,
+    startKey?: string,
   ): ProcessIdentityBinding | undefined => {
-    const record = bindRecord(pid, principal);
+    const record = bindRecord(pid, principal, startKey);
     if (record === undefined) return undefined;
     const binding: ProcessIdentityBinding = {
       [ProcessIdentityBindingTypeId]: ProcessIdentityBindingTypeId,
@@ -177,6 +211,12 @@ export const makeProcessIdentityMap = (
     Object.freeze(binding);
     bindings.set(binding, record);
     return binding;
+  };
+
+  /** This map's start-key observation, without the calling thread. */
+  const observeStartKeyAsync = async (pid: number): Promise<string | undefined> => {
+    if (!Number.isInteger(pid) || pid <= 0) return undefined;
+    return startKeyOfAsync(pid);
   };
 
   const unbindGeneration = (binding: ProcessIdentityBinding): boolean => {
@@ -228,6 +268,7 @@ export const makeProcessIdentityMap = (
   return {
     bind,
     bindGeneration,
+    observeStartKeyAsync,
     unbind,
     unbindGeneration,
     unbindPrincipal,

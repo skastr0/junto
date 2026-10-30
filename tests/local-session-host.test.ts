@@ -767,7 +767,7 @@ describe("LocalSessionHost", () => {
     });
     const host = hostWith(fake, { primeDaemons: daemons.manager });
 
-    host.createAgentSeat({
+    const created = host.createAgentSeat({
       bindingId: "prime-ordered",
       harness: "prime-agent",
       agentKey: "local:prime",
@@ -779,6 +779,8 @@ describe("LocalSessionHost", () => {
       canvasName: "factory",
       nodeId: "prime-node",
     });
+    // The start hands the seat out only once its identity is bound.
+    await host.awaitStartIdentity("prime-ordered", created.epoch);
 
     expect(order.slice(0, 4)).toEqual([
       "daemon:start:prime-ordered",
@@ -970,7 +972,7 @@ describe("LocalSessionHost", () => {
       exitOnSignal: false,
     }));
     const host = hostWith(fake, { primeDaemons: daemons.manager });
-    host.createAgentSeat({
+    const created = host.createAgentSeat({
       bindingId: "prime-client-exit",
       harness: "prime-agent",
       agentKey: "local:prime-client-exit",
@@ -978,6 +980,7 @@ describe("LocalSessionHost", () => {
       canvasName: "factory",
       nodeId: "prime-client-exit-node",
     });
+    await host.awaitStartIdentity("prime-client-exit", created.epoch);
 
     fake.controllers[0]?.exit();
     await vi.waitFor(() =>
@@ -1037,6 +1040,7 @@ describe("LocalSessionHost", () => {
       canvasName: "factory",
       nodeId: "prime-crash-node",
     });
+    await host.awaitStartIdentity("prime-crash", created.epoch);
     expect(identities.snapshot()).toHaveLength(2);
 
     daemons.records[0]?.crash();
@@ -1097,9 +1101,10 @@ describe("LocalSessionHost", () => {
       } else {
         // Post-spawn failure: the actor occupation rejects fail-closed with a
         // typed failure while the process is torn down exactly as before.
-        expect(() => host.createAgentSeat(input)).toThrow(
-          SeatOccupationFailedError,
-        );
+        const started = host.createAgentSeat(input);
+        await expect(
+          host.awaitStartIdentity(input.bindingId, started.epoch),
+        ).rejects.toBeInstanceOf(SeatOccupationFailedError);
         expect(fake.controllers).toHaveLength(1);
         expect(fake.controllers[0]?.signals).toEqual(["SIGTERM"]);
         await vi.waitFor(() =>
@@ -1640,7 +1645,7 @@ describe("LocalSessionHost", () => {
     }));
     const host = hostWith(fake, { primeDaemons: daemons.manager });
     for (const suffix of ["a", "b"] as const) {
-      host.createAgentSeat({
+      const started = host.createAgentSeat({
         bindingId: `prime-${suffix}`,
         harness: "prime-agent",
         agentKey: `local:prime-${suffix}`,
@@ -1648,6 +1653,7 @@ describe("LocalSessionHost", () => {
         canvasName: "factory",
         nodeId: `prime-${suffix}-node`,
       });
+      await host.awaitStartIdentity(`prime-${suffix}`, started.epoch);
     }
     expect(fake.controllers.map((controller) =>
       controller.spec.env?.FAKE_PRIME_SOCKET,
@@ -1716,6 +1722,7 @@ describe("LocalSessionHost", () => {
       expect(host.get(input.bindingId)?.status).toBe("exited"),
     );
     const replacement = host.createAgentSeat(input);
+    await host.awaitStartIdentity(input.bindingId, replacement.epoch);
     expect(replacement.epoch).not.toBe(old.epoch);
     daemons.records[1]?.report({
       state: "idle",
@@ -1959,6 +1966,7 @@ describe("LocalSessionHost", () => {
     const host = hostWith(fake, { killGraceMs: 2 });
 
     const first = host.create({ bindingId: "replace", canvasName: "main", nodeId: "term" });
+    await host.awaitStartIdentity("replace", first.epoch);
     expect(first.status).toBe("running");
     expect(identities.resolve(pid)).toEqual({
       bindingId: "replace",
@@ -2272,6 +2280,9 @@ describe("LocalSessionHost", () => {
         nodeId: "term-node",
       });
       expect(created.status).toBe("running");
+      // A thrown identity bind settles the start it belongs to; the generation
+      // is torn down exactly as it was when the bind ran inline.
+      await host.awaitStartIdentity(`post-spawn-${failureAt}`, created.epoch);
       expect(fake.controllers[0]?.signals[0]).toBe("SIGTERM");
       expect(host.runningCount()).toBe(1);
 
@@ -2442,6 +2453,7 @@ describe("LocalSessionHost", () => {
       const { fake, host } = stuckHost();
       const input = agentSeat("stuck-seat");
       const first = host.createAgentSeat(input);
+      await host.awaitStartIdentity(input.bindingId, first.epoch);
       expect(identities.snapshot()).toHaveLength(1);
 
       host.kill(input.bindingId);
@@ -2450,6 +2462,7 @@ describe("LocalSessionHost", () => {
       await vi.advanceTimersByTimeAsync(30);
 
       const second = host.createAgentSeat(input);
+      await host.awaitStartIdentity(input.bindingId, second.epoch);
       expect(second.epoch).not.toBe(first.epoch);
       expect(second).toMatchObject({ status: "running" });
       expect(second.stopping).toBeUndefined();
@@ -2683,14 +2696,16 @@ describe("LocalSessionHost", () => {
       expect(events.some((event) => event.data?.includes("the rest of its last turn"))).toBe(false);
     });
 
-    it("loses its seat identity at the detach, remembered as offboarded; the fresh process gets its own", () => {
+    it("loses its seat identity at the detach, remembered as offboarded; the fresh process gets its own", async () => {
       const identities = makeSyntheticIdentityMap();
       setProcessIdentityMapForTests(identities);
       const { host, input } = seated();
+      await host.awaitStartIdentity(input.bindingId, host.get(input.bindingId)!.epoch);
       expect(identities.snapshot().map((entry) => entry.pid)).toEqual([71_000]);
       host.drain(input.bindingId);
       expect(identities.snapshot()).toEqual([]);
       host.createAgentSeat(input);
+      await host.awaitStartIdentity(input.bindingId, host.get(input.bindingId)!.epoch);
       expect(identities.snapshot().map((entry) => entry.pid)).toEqual([71_001]);
     });
 

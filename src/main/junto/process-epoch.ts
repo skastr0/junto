@@ -256,6 +256,29 @@ const rememberSharedSinglePid = (
 };
 
 /**
+ * The one rule for a single-pid answer, whichever runner asked: a failure, a
+ * complaint on stderr, an unexpected status, an unparseable body, or a row
+ * about anything but the asked-about pid is an unavailable observation.
+ */
+const validateSinglePidResult = (
+  result: ProcessEpochPsResult,
+  pid: number,
+): readonly ProcessEpochRow[] | undefined => {
+  if (
+    result.error !== undefined ||
+    result.stdout === undefined ||
+    (result.stderr ?? "").trim() !== "" ||
+    (result.status !== 0 && result.status !== 1)
+  ) return undefined;
+  const rows = parseProcessEpochRows(result.stdout);
+  if (rows === undefined) return undefined;
+  if (rows.length === 0) return [];
+  // A single-pid query that answered about anything else is incoherent.
+  if (rows.length !== 1 || rows[0]!.pid !== pid) return undefined;
+  return rows;
+};
+
+/**
  * Answer one pid's epoch question with a single-pid `ps`, so the cost is the
  * asked-about process rather than the machine's whole process table.
  *
@@ -297,20 +320,60 @@ export const readSingleProcessEpochSnapshot = (
   } catch {
     return undefined;
   }
-  if (
-    result.error !== undefined ||
-    result.stdout === undefined ||
-    (result.stderr ?? "").trim() !== "" ||
-    (result.status !== 0 && result.status !== 1)
-  ) return undefined;
-
-  const rows = parseProcessEpochRows(result.stdout);
+  const rows = validateSinglePidResult(result, pid);
   if (rows === undefined) return undefined;
-  if (rows.length === 0) return [];
-  // A single-pid query that answered about anything else is incoherent.
-  if (rows.length !== 1 || rows[0]!.pid !== pid) return undefined;
-  if (runPs === systemPsRunner) rememberSharedSinglePid(pid, rows);
+  if (runPs === systemPsRunner && rows.length > 0) rememberSharedSinglePid(pid, rows);
   return rows;
+};
+
+/**
+ * One pid's epoch question without the `ps` fork on the caller's thread: the
+ * observation this answers is the seat start's slowest synchronous block, and
+ * every caller only needs it before it acts, not before it continues.
+ *
+ * Concurrent asks for the same pid share one read; the entry dies when the
+ * read settles, so a later ask (and a later pid reuse) reads again.
+ */
+const pendingSinglePid = new Map<number, Promise<readonly ProcessEpochRow[] | undefined>>();
+
+export const readSingleProcessEpochSnapshotAsync = async (
+  pid: number,
+  runPs: ProcessEpochPsAsyncRunner = systemPsAsyncRunner,
+): Promise<readonly ProcessEpochRow[] | undefined> => {
+  if (!Number.isSafeInteger(pid) || pid < 1) return undefined;
+  if (runPs === systemPsAsyncRunner) {
+    const shared = sharedSinglePid;
+    if (shared?.pid === pid) return shared.rows;
+    const pending = pendingSinglePid.get(pid);
+    if (pending !== undefined) return pending;
+  }
+  const read = (async (): Promise<readonly ProcessEpochRow[] | undefined> => {
+    const ps = resolveSystemPs();
+    if (ps === undefined) return undefined;
+    try {
+      const rows = validateSinglePidResult(await runPs({
+        command: ps,
+        args: ["-p", String(pid), "-o", PS_COLUMNS],
+        env: psEnv(),
+        timeoutMs: PS_TIMEOUT_MS,
+        maxBuffer: PS_ROW_MAX_BUFFER,
+      }), pid);
+      if (rows !== undefined && runPs === systemPsAsyncRunner && rows.length > 0) {
+        rememberSharedSinglePid(pid, rows);
+      }
+      return rows;
+    } catch {
+      return undefined;
+    }
+  })();
+  if (runPs === systemPsAsyncRunner) {
+    const settled = pendingSinglePid;
+    settled.set(pid, read);
+    void read.finally(() => {
+      if (settled.get(pid) === read) settled.delete(pid);
+    });
+  }
+  return read;
 };
 
 /**
