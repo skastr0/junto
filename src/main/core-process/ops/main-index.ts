@@ -23,6 +23,7 @@ import {
 } from "../../junto/work/page-box-comment";
 import { coreOps, type CoreOp } from "../ops";
 import { publish } from "../push";
+import { RESOURCE_CHANGED, RESOURCE_THREAD_CHANGED } from "./ipc-resources";
 import { MACHINE_PROGRESS } from "./hosts-ipc";
 
 /**
@@ -62,6 +63,8 @@ export const WINDOW_CHANNELS = [
   LIVE_CHANGED,
   SEAT_THREAD_READ_CHANGED,
   MAIL_WAITING,
+  RESOURCE_CHANGED,
+  RESOURCE_THREAD_CHANGED,
   // The model watches publish on the window's own channel names (ipc-watch.ts).
   IPC_CHANNELS.modelChanged,
   IPC_CHANNELS.modelCanvasesChanged,

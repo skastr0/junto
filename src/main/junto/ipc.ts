@@ -43,8 +43,6 @@ import { registerViewStateIpc } from "./view-state/ipc";
 import { shellEnvironment } from "./shell-environment";
 import { registerShellEnvironmentIpc } from "./shell-environment/ipc";
 import { registerReferencesIpc } from "./references/ipc";
-import { installArtifactMove, moveArtifacts } from "./work/artifact-move";
-import { liveResourceIpcPorts, registerResourceIpc } from "./work/resource-ipc";
 import { registerAutomationIpc } from "./automation/ipc";
 import { registerArtifactLinksIpc } from "./work/artifact-links-ipc";
 import { registerMentionIpc } from "./work/mention-ipc";
@@ -104,6 +102,14 @@ import type { CheckoutWatchSupervisor } from "./work/checkout-watch-live";
 import { registerTerminalIpc } from "./term/ipc";
 import { registerGitIpc } from "./git/ipc";
 import { serveSignalTools } from "../core-process/ops/ipc-signals";
+import {
+  registerResourceIpcCore,
+  RESOURCE_CHANGED,
+  RESOURCE_THREAD_CHANGED,
+  type ResourceChangedPush,
+  type ResourceThreadChangedPush,
+} from "../core-process/ops/ipc-resources";
+import { installArtifactMove } from "./work/artifact-move";
 import { resolvedSpawnEnv } from "./adapters/exec";
 import { runTool } from "./region-env/tool";
 import { harnessRecordFor } from "../../shared/harness-records";
@@ -264,32 +270,13 @@ export const registerJuntoIpc = (): void => {
   registerGitIpc(privilegedIpc);
   registerSettingsIpc(privilegedIpc, broadcast);
   registerShellEnvironmentIpc(privilegedIpc, shellEnvironment, broadcast);
-  registerReferencesIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
+  registerReferencesIpc(privilegedIpc, broadcast);
   registerViewStateIpc(privilegedIpc, broadcast);
-  // The renderer's tasks and artifacts: main's stores, main's ruler (resource-ipc.ts).
-  const resourcePorts = liveResourceIpcPorts((canvasName) =>
-    Effect.tryPromise({
-      try: async () => (await core.call("ipc.work.topology", { canvasName })).canvas,
-      catch: () => ({
-        type: "InternalError" as const,
-        message: `canvas ${canvasName} could not be read`,
-        details: { retryable: true },
-      }),
-    }),
-    // A task's or an artifact's comments, held at its node: read only.
-    (canvasName, nodeId) =>
-      Effect.tryPromise({
-        try: () => core.call("ipc.work.mailbox", { canvasName, nodeId }),
-        catch: () => ({
-          type: "InternalError" as const,
-          message: `the comments on ${nodeId} could not be read`,
-          details: { retryable: true },
-        }),
-      }));
-  registerResourceIpc(
+  // The renderer's tasks and artifacts: the core's stores and the core's
+  // ruler (ops/ipc-resources.ts), told to the window as a change lands.
+  registerResourceIpcCore(
     privilegedIpc,
-    (effect) => AppRuntime.runPromise(effect),
-    resourcePorts,
+    core,
     broadcast,
     { task: TASKS_ENABLED, artifact: ARTIFACTS_ENABLED, file: productNodeKindEnabled("files") },
     {
@@ -298,8 +285,17 @@ export const registerJuntoIpc = (): void => {
       thread: (operation) => runMainAuthoring("ipc.resource.thread-post", operation),
     },
   );
-  // Moving artifacts (0.11.1, 10): the overseer and the window run the same move, each under its caller's authoring label.
-  installArtifactMove((input, by) => AppRuntime.runPromise(moveArtifacts(resourcePorts, input, by)));
+  subscribeCore(RESOURCE_CHANGED, (event) => {
+    const notice = event as ResourceChangedPush;
+    broadcast(notice.channel, { canvasName: notice.canvasName });
+  });
+  subscribeCore(RESOURCE_THREAD_CHANGED, (event) => {
+    const notice = event as ResourceThreadChangedPush;
+    broadcast(notice.channel, { canvasName: notice.canvasName, kind: notice.kind });
+  });
+  // Moving artifacts (0.11.1, 10): the overseer and the window run the same
+  // move, each under its caller's authoring label, ruled by the core.
+  installArtifactMove((input, by) => core.call("ipc.resource.move", { input, by }));
   registerAutomationIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
   // Where each seat, task, artifact and page is mentioned (work/mention-ipc.ts).
   registerMentionIpc(privilegedIpc, (effect) => AppRuntime.runPromise(effect), {
