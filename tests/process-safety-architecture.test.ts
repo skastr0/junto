@@ -392,6 +392,12 @@ describe("machine-safety architecture", () => {
       "src/main/junto/term/seats-link.ts:host.kill",
       // Owned child only: codesign/plutil admit timeout.
       "src/main/junto/update/admit-mac-app.ts:child.kill",
+      // The terminal process (protect the main thread): the plane's PTY signal
+      // crosses the port by its channel name, and the far side signals only a
+      // PTY it spawned and has not seen exit, so a reused pid is never hit.
+      "src/main/terminal-process/client.ts:forbidden-reference:TerminalInbound.kill",
+      "src/main/terminal-process/serve.ts:forbidden-reference:TerminalInbound.kill",
+      "src/main/terminal-process/serve.ts:ptys.get(id)?.kill",
     ]);
   });
 
