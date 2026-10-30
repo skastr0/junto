@@ -189,6 +189,7 @@ import {
 } from "./junto/companion/service";
 import { broadcastCompanionDevices, electronCompanionClipboard, registerCompanionIpc } from "./junto/companion/ipc";
 import { coreCompanionSettings } from "./core-process/ops/companion";
+import { coreOverseerLive } from "./core-process/ops/overseer-live";
 import { companionNotePreamble, wireCompanionChanges } from "./junto/companion/wiring";
 import { bindCompanionHost } from "./junto/companion/runtime";
 import { CORE_PROCESS_ENABLED } from "./core-process/host";
@@ -1556,6 +1557,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         captureApplicationPage,
         clipboard: electronCompanionClipboard,
       });
+      if (LIVE_OVERSEER_ENABLED) unregisterOverseerLiveIpc = registerOverseerLiveIpc(coreOverseerLive(core));
     } else {
     const coordinator = makeOperatorCoordinator();
     // The phone companion reaches the app over this same owner-only socket,

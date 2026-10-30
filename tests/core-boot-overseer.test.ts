@@ -4,7 +4,7 @@ import { startCore } from "../src/main/junto/core";
 import type { OverseerPages } from "../src/main/junto/overseer/pages";
 
 // The core starts once per process, so the desktop core's overseer is its own file.
-it("composes the overseer in the core on the page port it is given, and lets it go on close", async () => {
+it("composes the overseer and the live overseer in the core, on the page port it is given, and lets them go on close", async () => {
   const home = await mkdtemp("/tmp/junto-core-");
   const beginDelete = vi.fn();
   const finishDelete = vi.fn();
@@ -20,7 +20,10 @@ it("composes the overseer in the core on the page port it is given, and lets it 
       build: "c".repeat(64),
       bundles: {},
       overseer: { captureApplicationPage: async () => ({ ok: false, unavailable: true, reason: "no window" }), pages },
+      overseerLive: true,
     });
+    // The live overseer is composed in the core too, and answers there.
+    expect(await core.overseerLive!.liveSnapshot()).toBeDefined();
     const prepared = await core.overseer!.native.prepareOverseerNodeDelete([{ kind: "page", canvasName: "factory", nodeId: "p1" }]);
     expect(prepared.ok).toBe(true);
     expect(beginDelete).toHaveBeenCalledWith("junto://canvas/factory?node=p1", expect.stringMatching(/^odl-/u));

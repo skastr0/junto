@@ -9,5 +9,6 @@ import "./browser";
 import "./overseer-pages";
 import "./operator";
 import "./companion";
+import "./overseer-live";
 import "./ipc-model";
 import "./ipc-work";

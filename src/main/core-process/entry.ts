@@ -20,6 +20,8 @@ import { hostCaptureApplicationPage, hostOverseerPages } from "./ops/overseer-pa
 import { AGENT_SIGNAL_CHANGED, COMPANION_DEVICES, publishWindowBroadcasts } from "./ops/main-index";
 import { companionE2eEnvironment, readCompanionEnvironment } from "../junto/companion/service";
 import { bindOperatorListening } from "./ops/operator";
+import { bindOverseerLive } from "./ops/overseer-live";
+import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import "./ops/index";
 
 export type CoreBoot = {
@@ -65,6 +67,7 @@ const main = async (parent: ParentPort): Promise<void> => {
     canvasControl: true,
     overseer: { captureApplicationPage: hostCaptureApplicationPage(host), pages: hostOverseerPages(host) },
     onPreamble: broadcasts.onPreamble,
+    overseerLive: LIVE_OVERSEER_ENABLED,
     operator: { listen: boot.operatorCommands ? "always" : "on-demand", commands: boot.operatorCommands },
     companion: {
       appVersion: boot.app.version,
@@ -82,6 +85,7 @@ const main = async (parent: ParentPort): Promise<void> => {
     }),
   });
   bindOperatorListening(core.ensureOperatorListening);
+  bindOverseerLive(core.overseerLive);
   started(core.runtime);
   served.push("core.ready", {});
   const stop = (): void => {

@@ -28,6 +28,7 @@ import { onAgentSignalChanged } from "./signals/changes";
 import { mainAuthoringGate } from "./main-authoring-gate";
 import { startCanvasControlServer, type CanvasControlServer } from "./canvas-control/server";
 import { composeOverseer, type OverseerComposition } from "./overseer/composition";
+import { composeOverseerLive } from "./overseer/live/composition";
 import type { ApplicationCaptureResult } from "./overseer/native";
 import type { OverseerPages } from "./overseer/pages";
 import type { PreambleEvent } from "@shared/preamble";
@@ -48,6 +49,8 @@ export type CoreOptions = Omit<MachineCoreOptions, "ready"> & {
     readonly captureApplicationPage: () => Promise<ApplicationCaptureResult>;
     readonly pages: OverseerPages;
   };
+  /** The desktop core runs the live overseer, and its work control server takes the live seat's calls. */
+  readonly overseerLive?: boolean;
   /** A seat's preamble as the work control server takes it, for the window. */
   readonly onPreamble?: (event: PreambleEvent) => void;
   /**
@@ -113,6 +116,7 @@ export const startCore = async (options: CoreOptions) => {
   let work: WorkControlServer | undefined;
   let canvas: CanvasControlServer | undefined;
   let overseer: OverseerComposition | undefined;
+  let overseerLive: Awaited<ReturnType<typeof composeOverseerLive>> | undefined;
   let companion: CompanionService | undefined;
   let stopCompanion: (() => void) | undefined;
   let seatProcesses: Awaited<ReturnType<typeof startCoreSeats>> | undefined;
@@ -158,6 +162,7 @@ export const startCore = async (options: CoreOptions) => {
       }
       await seatProcesses?.close();
       overseer?.dispose();
+      await overseerLive?.dispose();
       stopCompanion?.();
       const writes = await mainAuthoringGate.drain(5_000);
       if (writes.remaining.length > 0) {
@@ -181,11 +186,13 @@ export const startCore = async (options: CoreOptions) => {
         pagePort: options.overseer.pages,
       });
     }
+    if (options.overseerLive === true) overseerLive = await composeOverseerLive((effect) => runtime.runPromise(effect));
     work = await startWorkControlServer({
       home: options.home, workHome: workControlDir(options.home),
       version: typeof __JUNTO_APP_VERSION__ === "string" ? __JUNTO_APP_VERSION__ : "dev",
       run: effect => runtime.runPromise(effect),
       ...(overseer === undefined ? {} : { onOverseer: overseer.onOverseer }),
+      ...(overseerLive === undefined ? {} : { onOverseerLive: overseerLive.onHost, validateOverseerLive: overseerLive.validateOperation }),
       ...(options.onPreamble === undefined && options.companion === undefined ? {} : {
         onPreamble: (event: PreambleEvent) => {
           if (options.companion !== undefined) companionNotePreamble(event);
@@ -290,7 +297,7 @@ export const startCore = async (options: CoreOptions) => {
         runtime.runPromise(Effect.flatMap(AgentSignalRepository, (signals) => signals.listSeat({ canvasName, nodeId }))),
     });
     admitted = true;
-    return { runtime, close, overseer, ensureOperatorListening, ready: () => admitted && !stopping && ownerReady() && listener!.ready() };
+    return { runtime, close, overseer, overseerLive, ensureOperatorListening, ready: () => admitted && !stopping && ownerReady() && listener!.ready() };
   } catch (cause) {
     // The start failure is the reason worth keeping; a stop that also fails is logged beside it.
     await close().catch((closeCause: unknown) => {

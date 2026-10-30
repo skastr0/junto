@@ -38,6 +38,8 @@ export const WORK_PREAMBLE = "work.preamble";
 export const AGENT_SIGNAL_CHANGED = "signals.changed";
 /** The paired phones, after any change, for Settings. */
 export const COMPANION_DEVICES = "companion.devices";
+/** The live overseer's snapshot on every change, once `live.watch` started it. */
+export const LIVE_CHANGED = "live.changed";
 /** A canvas changed, with the document as it is now, or was removed; once `model.watchCanvases` started it. */
 export const CANVAS_CHANGED = "model.canvasChanged";
 /** A canvas's play state, as it stands and on every change, once `pause.watch` started it. */
@@ -47,7 +49,7 @@ export type CanvasChangedPush = { readonly canvas: string; readonly next: Canvas
 export type PauseChangedPush = { readonly canvas: string; readonly playing: boolean };
 
 /** Every channel main forwards to the window. */
-export const WINDOW_CHANNELS = [SETTINGS_CHANGED, WORK_PREAMBLE, AGENT_SIGNAL_CHANGED, COMPANION_DEVICES, CANVAS_CHANGED, PAUSE_CHANGED] as const;
+export const WINDOW_CHANNELS = [SETTINGS_CHANGED, WORK_PREAMBLE, AGENT_SIGNAL_CHANGED, COMPANION_DEVICES, CANVAS_CHANGED, PAUSE_CHANGED, LIVE_CHANGED] as const;
 
 /**
  * Main's side, once the core runs in its own process: each window push from
