@@ -27,10 +27,18 @@ import { AgentSignalRepository } from "./signals/repository";
 import { onAgentSignalChanged } from "./signals/changes";
 import { mainAuthoringGate } from "./main-authoring-gate";
 import { startCanvasControlServer, type CanvasControlServer } from "./canvas-control/server";
+import { composeOverseer, type OverseerComposition } from "./overseer/composition";
+import type { ApplicationCaptureResult } from "./overseer/native";
+import type { OverseerPages } from "./overseer/pages";
 
 export type CoreOptions = Omit<MachineCoreOptions, "ready"> & {
   /** The desktop core also serves canvas edits (`junto canvas`); a headless machine core does not. */
   readonly canvasControl?: boolean;
+  /** The desktop core runs the overseer, asking main for the window's pixels and the browser's pages. */
+  readonly overseer?: {
+    readonly captureApplicationPage: () => Promise<ApplicationCaptureResult>;
+    readonly pages: OverseerPages;
+  };
 };
 
 /** The installed database is newer than this build; starting would corrupt it. */
@@ -63,6 +71,7 @@ export const startCore = async (options: CoreOptions) => {
   let listener: MachineLinkListener | undefined;
   let work: WorkControlServer | undefined;
   let canvas: CanvasControlServer | undefined;
+  let overseer: OverseerComposition | undefined;
   let seatProcesses: Awaited<ReturnType<typeof startCoreSeats>> | undefined;
   let mail: Context.Service.Shape<typeof MachineCoreMail> | undefined;
   let sessions: SeatSessions | undefined;
@@ -98,6 +107,7 @@ export const startCore = async (options: CoreOptions) => {
         if (!receipt.clean) throw new CoreDidNotDrain({ part: "canvas-edits", message: "Canvas edits did not drain; core state retained" });
       }
       await seatProcesses?.close();
+      overseer?.dispose();
       const writes = await mainAuthoringGate.drain(5_000);
       if (writes.remaining.length > 0) {
         throw new CoreDidNotDrain({ part: "writes", remaining: writes.remaining.length, message: "Core writes did not drain; core state retained" });
@@ -113,10 +123,18 @@ export const startCore = async (options: CoreOptions) => {
     releaseRunner = installCoreRunner(runtime);
     const [actions, link, status, rows, seats, coreMail] = await runtime.runPromise(Effect.all([MachineOwnerControl, MachineLink, MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail]));
     mail = coreMail;
+    if (options.overseer !== undefined) {
+      overseer = await composeOverseer({
+        run: (effect, runOptions) => runtime.runPromise(effect, runOptions),
+        captureApplicationPage: options.overseer.captureApplicationPage,
+        pagePort: options.overseer.pages,
+      });
+    }
     work = await startWorkControlServer({
       home: options.home, workHome: workControlDir(options.home),
       version: typeof __JUNTO_APP_VERSION__ === "string" ? __JUNTO_APP_VERSION__ : "dev",
       run: effect => runtime.runPromise(effect),
+      ...(overseer === undefined ? {} : { onOverseer: overseer.onOverseer }),
     });
     if (options.canvasControl === true) {
       canvas = await startCanvasControlServer({ home: options.home, run: effect => runtime.runPromise(effect) });
@@ -154,7 +172,7 @@ export const startCore = async (options: CoreOptions) => {
         runtime.runPromise(Effect.flatMap(AgentSignalRepository, (signals) => signals.listSeat({ canvasName, nodeId }))),
     });
     admitted = true;
-    return { runtime, close, ready: () => admitted && !stopping && owner!.ready() && listener!.ready() };
+    return { runtime, close, overseer, ready: () => admitted && !stopping && owner!.ready() && listener!.ready() };
   } catch (cause) {
     // The start failure is the reason worth keeping; a stop that also fails is logged beside it.
     await close().catch((closeCause: unknown) => {

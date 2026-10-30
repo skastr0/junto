@@ -14,7 +14,8 @@ import { makeMachineBundleSources } from "../junto/hosts/machine-bundle-download
 import { startCore } from "../junto/core";
 import { serveCore, type CoreMessage, type CorePort } from "./port";
 import { forwardPublishes } from "./push";
-import { useHostClient } from "./host-ops";
+import { host, useHostClient } from "./host-ops";
+import { hostCaptureApplicationPage, hostOverseerPages } from "./ops/overseer-pages";
 import "./ops/index";
 
 export type CoreBoot = {
@@ -47,6 +48,7 @@ const main = async (parent: ParentPort): Promise<void> => {
     home: boot.home,
     build: boot.build,
     canvasControl: true,
+    overseer: { captureApplicationPage: hostCaptureApplicationPage(host), pages: hostOverseerPages(host) },
     ...makeMachineBundleSources({
       home: boot.home,
       build: boot.build,

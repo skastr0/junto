@@ -210,11 +210,13 @@ export const composeOverseer = async (input: {
   readonly run: OverseerRunPromise;
   readonly captureApplicationPage: () => Promise<ApplicationCaptureResult>;
   readonly pages?: BrowserSessionService;
+  /** The browser as a port, when it is in another process (the core asks main); wins over `pages`. */
+  readonly pagePort?: OverseerPages;
   readonly sourceInstallationId?: InstallationId;
 }): Promise<OverseerComposition> => {
   // The overseer's view of the browser sessions, kept with them so every dispatch sees the same one.
   const pagesHolder: { current: OverseerPages | undefined } = {
-    current: input.pages === undefined ? undefined : overseerPagesOn(input.pages),
+    current: input.pagePort ?? (input.pages === undefined ? undefined : overseerPagesOn(input.pages)),
   };
   const liveGrant = createDispatchGrant(input.run, input.sourceInstallationId);
 
