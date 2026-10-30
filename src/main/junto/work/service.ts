@@ -61,6 +61,7 @@ import { MachineRepository } from "../machines/repository";
 import { ContentService } from "../content/service";
 import { StateEngine } from "../state/service";
 import { workerMailReads } from "./mail-read-host";
+import { type MailPage, type MailPageQuery, pageOfInbox, pageOfSent } from "./mail-read-sql";
 import type { ContentOwner } from "../content/manifest";
 import {
   admitLiveOverseer,
@@ -302,6 +303,12 @@ export interface WorkServiceShape {
      */
     readonly readMailboxSnapshot: (canvas: string, nodeId: string) => Effect.Effect<ReadonlyArray<Message>, WorkServiceError>;
     readonly readMailSentBySnapshot: (canvas: string, sender: string) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly message: Message }>, WorkServiceError>;
+    /**
+     * One page of each, newest first, as `msg list` pages: with no filter only
+     * the page's rows are read. Same rules as the snapshot reads above.
+     */
+    readonly readMailboxPageSnapshot: (canvas: string, nodeId: string, page: MailPageQuery) => Effect.Effect<MailPage<Message>, WorkServiceError>;
+    readonly readMailSentByPageSnapshot: (canvas: string, sender: string, page: MailPageQuery) => Effect.Effect<MailPage<{ readonly nodeId: string; readonly message: Message }>, WorkServiceError>;
     readonly workMessageAppend: (
       canvas: string,
       nodeId: string,
@@ -808,6 +815,16 @@ export const WorkLive = Layer.effect(
         offMain(() => mailReads?.inbox(canvas, nodeId), repository.mailbox(canvas, nodeId)),
       readMailSentBySnapshot: (canvas, sender) =>
         offMain(() => mailReads?.sentBy(canvas, sender), repository.mailSentBy(canvas, sender)),
+      readMailboxPageSnapshot: (canvas, nodeId, page) =>
+        offMain(
+          () => mailReads?.inboxPage(canvas, nodeId, page),
+          repository.mailbox(canvas, nodeId).pipe(Effect.map((messages) => pageOfInbox(messages, page))),
+        ),
+      readMailSentByPageSnapshot: (canvas, sender, page) =>
+        offMain(
+          () => mailReads?.sentByPage(canvas, sender, page),
+          repository.mailSentBy(canvas, sender).pipe(Effect.map((rows) => pageOfSent(rows, page))),
+        ),
       workRulingsList: (canvas, nodeId) =>
         Effect.gen(function* () {
           const read = yield* readTopology(canvas);

@@ -6,7 +6,7 @@
  */
 import { DatabaseSync } from "node:sqlite";
 import { parentPort, workerData } from "node:worker_threads";
-import { readInbox, readSentBy } from "./mail-read-sql";
+import { readInbox, readInboxPage, readSentBy, readSentByPage } from "./mail-read-sql";
 import type { MailReadAnswer, MailReadRequest, MailReadWorkerData } from "./mail-read-host";
 
 const serve = (port: NonNullable<typeof parentPort>): void => {
@@ -25,9 +25,14 @@ const serve = (port: NonNullable<typeof parentPort>): void => {
   port.on("message", (request: MailReadRequest) => {
     let answer: MailReadAnswer;
     try {
+      const database = open();
       const value = request.read === "inbox"
-        ? readInbox(open(), request.canvasName, request.nodeId)
-        : readSentBy(open(), request.canvasName, request.nodeId);
+        ? readInbox(database, request.canvasName, request.nodeId)
+        : request.read === "sentBy"
+          ? readSentBy(database, request.canvasName, request.nodeId)
+          : request.read === "inboxPage"
+            ? readInboxPage(database, request.canvasName, request.nodeId, request.page)
+            : readSentByPage(database, request.canvasName, request.nodeId, request.page);
       answer = { id: request.id, ok: true, value };
     } catch (error) {
       answer = { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error) };

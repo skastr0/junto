@@ -20,7 +20,7 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { mailboxMessageDeliveryId, mailboxMessageReadId } from "../src/main/junto/work/mailbox-receipts";
 import { canvasReceiptBasis, stampMailboxDeliveryReceipt } from "../src/main/junto/work/delivery-receipts";
-import { readInbox, readSentBy } from "../src/main/junto/work/mail-read-sql";
+import { readInbox, readInboxPage, readSentBy, readSentByPage, pageOfInbox, pageOfSent } from "../src/main/junto/work/mail-read-sql";
 import { THIS_MACHINE } from "./support/machines";
 import { NoTasksLive } from "./support/no-tasks";
 
@@ -91,6 +91,82 @@ it("the worker's mailbox and sent-mail reads equal the repository's on one datab
       const first = adaSent.find((row) => row.message.messageId === "01M65000000000000000000001")!;
       expect(first.message.metadata?.deliveredAt).toBeTypeOf("number");
       expect(first.message.metadata?.readAt).toBeTypeOf("number");
+    } finally {
+      database.close();
+    }
+  } finally {
+    await runtime.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("the worker's page reads answer the page of the whole read, stamps included", async () => {
+  const root = await mkdtemp(join(tmpdir(), "junto-mail-read-page-"));
+  const path = join(root, "junto.db");
+  const modelLive = Layer.provideMerge(Layer.provide(ModelLive, ModelDependents.empty), makeStateEngineLive(path));
+  const runtime = ManagedRuntime.make(Layer.provideMerge(Layer.mergeAll(WorkRepositoryLive, NoTasksLive), modelLive));
+  try {
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
+    await runtime.runPromise(sql.withTransaction(Effect.gen(function* () {
+      yield* sql`INSERT INTO known_installations VALUES ('read-home','2026-10-29')`;
+      yield* sql`INSERT INTO installation VALUES (1,'read-home','2026-10-29')`;
+      yield* sql`INSERT INTO machine_configuration(singleton, machine_name, supervised_preferred, configured_at) VALUES (1, ${THIS_MACHINE}, 1, '2026-10-29')`;
+    })));
+    const model = await runtime.runPromise(ModelService);
+    const repo = await runtime.runPromise(WorkRepository);
+    const refs = await runtime.runPromise(ModelActorRefs);
+    const command = Schema.decodeUnknownSync(Command);
+    await runtime.runPromise(model.command(command({ _tag: "CreateCanvas", canvas: "factory" }), "operator"));
+    await runtime.runPromise(model.command(command({ _tag: "Add", canvas: "factory", nodes: ["ada", "bo", "cy"].map((id) => ({
+      kind: "agent", id, x: 0, y: 0, width: 200, height: 100, z: 0, label: id,
+      agentKey: `local:${id}`, bindingId: `binding-${id}`, host: THIS_MACHINE, harness: "claude", overseer: false,
+    })), wires: [] }), "operator"));
+    const actors = await runtime.runPromise(refs.read("factory"));
+    const actor = (id: string) => actors.find((ref) => ref.nodeId === id)!;
+    const send = (from: string, to: string, messageId: string) =>
+      runtime.runPromise(repo.appendMessage({
+        sink: { canvasName: "factory", nodeId: to },
+        basis: canvasReceiptBasis({ canvasName: "factory", seq: 1 }),
+        sentBy: actor(from), destination: { kind: "mailbox" },
+        message: {
+          messageId, role: "user", parts: [{ kind: "text", text: `${from} to ${to}` }],
+          contextId: "factory", metadata: { senderNodeId: from, fromSeat: actor(from).seatId },
+        },
+      }));
+    const ids = [
+      "01M65000000000000000000011", "01M65000000000000000000012", "01M65000000000000000000013",
+      "01M65000000000000000000014", "01M65000000000000000000015",
+    ];
+    for (const id of ids) await send("ada", "bo", id);
+    await send("bo", "ada", "01M65000000000000000000016");
+    for (const id of ids.slice(-2)) {
+      expect(await runtime.runPromise(stampMailboxDeliveryReceipt({
+        canvas: "factory", nodeId: "bo", messageId: id,
+        deliveryId: mailboxMessageDeliveryId("factory", "bo", id),
+      }))).toBe(true);
+    }
+
+    const database = new DatabaseSync(path, { open: true, readOnly: true });
+    try {
+      const query = { limit: 2, filter: {} } as const;
+      const whole = pageOfInbox(readInbox(database, "factory", "bo"), { limit: 2, filter: {} });
+      const page = readInboxPage(database, "factory", "bo", { limit: 2, filter: {} });
+      expect(page).toEqual(whole);
+      expect(page.items).toHaveLength(2);
+      expect(page).toMatchObject({ more: true, remaining: 3 });
+      // The page carries its stamps: delivered on the two mailed first, nil on the rest.
+      for (const item of page.items) expect(item.metadata?.deliveredAt).toBeTypeOf("number");
+
+      const cursor = page.items[1]?.messageId;
+      const next = readInboxPage(database, "factory", "bo", { limit: 2, before: cursor, filter: {} });
+      expect(next).toEqual(pageOfInbox(readInbox(database, "factory", "bo"), { limit: 2, before: cursor, filter: {} }));
+
+      expect(readSentByPage(database, "factory", "ada", query)).toEqual(
+        pageOfSent(readSentBy(database, "factory", "ada"), query),
+      );
+      const filtered = readInboxPage(database, "factory", "bo", { limit: 50, filter: { text: "ada to bo" } });
+      expect(filtered.items).toHaveLength(5);
+      expect(filtered).toEqual(pageOfInbox(readInbox(database, "factory", "bo"), { limit: 50, filter: { text: "ada to bo" } }));
     } finally {
       database.close();
     }

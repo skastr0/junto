@@ -1,11 +1,11 @@
 import type { Worker } from "node:worker_threads";
 import type { Message } from "@shared/work-model";
 import createMailReadWorker from "./mail-read-worker?nodeWorker";
-import type { SentMail } from "./mail-read-sql";
+import type { MailPage, MailPageQuery, SentMail } from "./mail-read-sql";
 
 /**
  * Main's side of the mail read worker (`mail-read-worker.ts`): a seat's
- * mailbox and its sent mail, read off main's loop from junto.db's last
+ * mailbox and its sent mail, whole or one page, read off main's loop from junto.db's last
  * commit. The worker starts on the first read and is unref'd, so it never
  * holds the process open.
  *
@@ -19,13 +19,21 @@ import type { SentMail } from "./mail-read-sql";
 
 export type MailReadWorkerData = { readonly path: string };
 
-export type MailReadRequest = {
+type MailReadTarget = {
   readonly id: number;
-  readonly read: "inbox" | "sentBy";
   readonly canvasName: string;
-  /** The mailbox for `inbox`, the sender for `sentBy`. */
+  /** The mailbox for an inbox read, the sender for a sent read. */
   readonly nodeId: string;
 };
+
+export type MailReadRequest =
+  | (MailReadTarget & { readonly read: "inbox" })
+  | (MailReadTarget & { readonly read: "sentBy" })
+  | (MailReadTarget & { readonly read: "inboxPage"; readonly page: MailPageQuery })
+  | (MailReadTarget & { readonly read: "sentByPage"; readonly page: MailPageQuery });
+
+/** A request before the host numbers it. */
+type Unnumbered<T> = T extends unknown ? Omit<T, "id"> : never;
 
 export type MailReadAnswer =
   | { readonly id: number; readonly ok: true; readonly value: unknown }
@@ -34,6 +42,8 @@ export type MailReadAnswer =
 export type MailReads = {
   readonly inbox: (canvasName: string, nodeId: string) => Promise<ReadonlyArray<Message>>;
   readonly sentBy: (canvasName: string, sender: string) => Promise<ReadonlyArray<SentMail>>;
+  readonly inboxPage: (canvasName: string, nodeId: string, page: MailPageQuery) => Promise<MailPage<Message>>;
+  readonly sentByPage: (canvasName: string, sender: string, page: MailPageQuery) => Promise<MailPage<SentMail>>;
 };
 
 /** A read the worker has not answered by then falls back to main. */
@@ -96,7 +106,7 @@ export const workerMailReads = (path: string): MailReads => {
     return worker;
   };
 
-  const ask = (read: MailReadRequest["read"], canvasName: string, nodeId: string): Promise<unknown> =>
+  const ask = (request: Unnumbered<MailReadRequest>): Promise<unknown> =>
     new Promise((resolve, reject) => {
       let worker: Worker;
       try {
@@ -112,12 +122,15 @@ export const workerMailReads = (path: string): MailReads => {
       }, READ_TIMEOUT_MS);
       timer.unref?.();
       pending.set(id, { resolve, reject, timer });
-      const request: MailReadRequest = { id, read, canvasName, nodeId };
-      worker.postMessage(request);
+      worker.postMessage({ ...request, id } as MailReadRequest);
     });
 
   return {
-    inbox: (canvasName, nodeId) => ask("inbox", canvasName, nodeId) as Promise<ReadonlyArray<Message>>,
-    sentBy: (canvasName, sender) => ask("sentBy", canvasName, sender) as Promise<ReadonlyArray<SentMail>>,
+    inbox: (canvasName, nodeId) => ask({ read: "inbox", canvasName, nodeId }) as Promise<ReadonlyArray<Message>>,
+    sentBy: (canvasName, sender) => ask({ read: "sentBy", canvasName, nodeId: sender }) as Promise<ReadonlyArray<SentMail>>,
+    inboxPage: (canvasName, nodeId, page) =>
+      ask({ read: "inboxPage", canvasName, nodeId, page }) as Promise<MailPage<Message>>,
+    sentByPage: (canvasName, sender, page) =>
+      ask({ read: "sentByPage", canvasName, nodeId: sender, page }) as Promise<MailPage<SentMail>>,
   };
 };

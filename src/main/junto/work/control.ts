@@ -30,7 +30,7 @@ import {
   type OverseerHostRequest,
 } from "@shared/overseer-host-control";
 import type { OverseerHostIdentity, OverseerLiveExecutionConstraint } from "../overseer/live/execution";
-import { pageNewestFirst, sortMessagesNewestFirst } from "@shared/message-delivery";
+import { sortMessagesNewestFirst } from "@shared/message-delivery";
 import {
   MAIL_MESSAGE_ID_SHAPE,
   isMailMessageId,
@@ -1260,11 +1260,6 @@ const dispatchOp = (
 
     const mailboxOf = (nodeId: string) =>
       work.readMailbox(caller.canvasName, nodeId).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
-    // msg list reads the last commit on the worker thread's read-only
-    // connection, so its SQL and IO wait leave main; reach and authority are
-    // still decided here, before and after.
-    const mailboxSnapshotOf = (nodeId: string) =>
-      work.readMailboxSnapshot(caller.canvasName, nodeId).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
     // What this seat sent into every other mailbox, newest first.
     // One indexed read by the sender's node stamp (work_messages_sender), as
     // since reads it, instead of every mailbox on the canvas. Mail older than
@@ -1649,12 +1644,6 @@ const dispatchOp = (
       }
       const matches = mailListMatches(filter.success);
       const filtered = <M extends Message>(items: ReadonlyArray<M>): M[] => items.filter(matches);
-      // One page, newest first: only the rows listed are ever marked read.
-      const pageOf = <M extends Message>(items: ReadonlyArray<M>, cursor: string | undefined = before) =>
-        pageNewestFirst(sortMessagesNewestFirst(filtered(items)) as M[], {
-          limit: decoded.success.limit ?? MSG_LIST_LIMIT_DEFAULT,
-          ...(cursor === undefined ? {} : { before: cursor }),
-        });
       const threadId = filter.success.threadId;
       const threadField = threadId === undefined ? {} : { threadId };
 
@@ -1683,9 +1672,25 @@ const dispatchOp = (
         }
         const reader = resolveProcessBoundActorRef(read.actorRefs, caller);
         if (Result.isFailure(reader)) return yield* Effect.fail(reader.failure);
-        // Listing marks read, so the filters and the page apply first; a peek marks nothing.
-        const page = pageOf(yield* mailboxSnapshotOf(caller.nodeId));
-        const sentPage = pageOf(yield* sentMailOf(true), sentBefore);
+        // Listing marks read, so the filters and the page apply first; a peek
+        // marks nothing. The page is read as a page: with no filter only its
+        // rows and their receipts are read, not the whole mailbox nor the
+        // whole sent history.
+        const limit = decoded.success.limit ?? MSG_LIST_LIMIT_DEFAULT;
+        const page = yield* work
+          .readMailboxPageSnapshot(caller.canvasName, caller.nodeId, {
+            limit,
+            ...(before === undefined ? {} : { before }),
+            filter: filter.success,
+          })
+          .pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
+        const sentPage = yield* work
+          .readMailSentByPageSnapshot(caller.canvasName, caller.nodeId, {
+            limit,
+            ...(sentBefore === undefined ? {} : { before: sentBefore }),
+            filter: filter.success,
+          })
+          .pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
         const overlaid: Message[] = [];
         for (const item of page.items) {
           if (item.role !== "user" || decoded.success.peek === true) {
@@ -1723,7 +1728,7 @@ const dispatchOp = (
           ),
           more: page.more,
           remaining: page.remaining,
-          sent: sentPage.items.map(withThread),
+          sent: sentPage.items.map((row) => withThread({ ...row.message, toNodeId: row.nodeId })),
           sentMore: sentPage.more,
           sentRemaining: sentPage.remaining,
         };
@@ -1734,7 +1739,13 @@ const dispatchOp = (
       if (Result.isFailure(named)) return yield* Effect.fail(named.failure);
       const gate = requireTarget(board, caller.nodeId, named.success, op);
       if ("type" in gate) return yield* Effect.fail(gate);
-      const page = pageOf(yield* mailboxSnapshotOf(named.success));
+      const page = yield* work
+        .readMailboxPageSnapshot(caller.canvasName, named.success, {
+          limit: decoded.success.limit ?? MSG_LIST_LIMIT_DEFAULT,
+          ...(before === undefined ? {} : { before }),
+          filter: filter.success,
+        })
+        .pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
       return {
         target: named.success,
         ...threadField,
