@@ -10,7 +10,8 @@
  *   `scheduler_interval_firings` and keyed by automation, and the firing
  *   history in one row. The claim key is unique per automation and cause, so
  *   a restart can never fire one slot or one transition twice; a `run` claims
- *   its own firing id.
+ *   its own firing id. `rev` counts the revisions a firing crossed on the
+ *   exchange, 0 its first state worth showing.
  */
 const CANVAS_NAME_CHECK = `
       CHECK (
@@ -51,7 +52,15 @@ export const AUTOMATION_RULING_CURSORS_SQL = `
   ) STRICT, WITHOUT ROWID;
 `;
 
-export const AUTOMATION_STATE_SCHEMA_SQL = `
+/**
+ * The revision a firing's row last carried across the exchange (0.11, 05
+ * S3): rev 0 is the first state worth showing, each later crossing the next
+ * rev. Rows written before the exchange existed read 0.
+ */
+export const AUTOMATION_FIRING_REV_COLUMN_SQL =
+  "rev INTEGER NOT NULL DEFAULT 0 CHECK (rev >= 0)";
+
+const automationStateSchema = (firingRev: string) => `
   CREATE TABLE IF NOT EXISTS automations (
     canvas_name TEXT NOT NULL${CANVAS_NAME_CHECK},
     automation_id TEXT NOT NULL${ULID_CHECK("automation_id")},
@@ -92,10 +101,17 @@ export const AUTOMATION_STATE_SCHEMA_SQL = `
         AND json_type(firing_json) = 'object'
         AND length(CAST(firing_json AS BLOB)) <= 65536
       ),
-    PRIMARY KEY (canvas_name, automation_id, cause_kind, claim_key),
+${firingRev}    PRIMARY KEY (canvas_name, automation_id, cause_kind, claim_key),
     UNIQUE (canvas_name, firing_id)
   ) STRICT, WITHOUT ROWID;
 
   CREATE INDEX IF NOT EXISTS automation_firings_newest
     ON automation_firings(canvas_name, automation_id, firing_id);
 `;
+
+/** The store as step 28 made it; frozen, so that step never moves. */
+export const AUTOMATION_V28_STATE_SCHEMA_SQL = automationStateSchema("");
+
+export const AUTOMATION_STATE_SCHEMA_SQL = automationStateSchema(
+  `    ${AUTOMATION_FIRING_REV_COLUMN_SQL},\n`,
+);

@@ -11,7 +11,7 @@ import {
   PEERS_STATE_SCHEMA_SQL,
   STUBS_V30_STATE_SCHEMA_SQL,
 } from "../model/state-schema";
-import { AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_RULING_CURSORS_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../automation/state-schema";
+import { AUTOMATION_FIRING_REV_COLUMN_SQL, AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_RULING_CURSORS_SQL, AUTOMATION_V28_STATE_SCHEMA_SQL } from "../automation/state-schema";
 import { TASK_SEAT_RELEASES_SQL } from "../work/task-state-schema";
 import { MACHINE_CODE_ALLOWANCES_SQL } from "../automation/code-allowance-schema";
 import { MACHINE_PEER_BINDING_COLUMN_SQL } from "../machines/state-schema";
@@ -844,7 +844,17 @@ export const STATE_SCHEMA_V67_IDENTITY = {
     "6fef2c2b4e57055dc27e318650d4ec998fc90433f543c710fe89ad26ff675add",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 67;
+/**
+ * Version 68 lets a firing's row carry its revision across the exchange
+ * (0.11, 05 S3): `automation_firings` gains `rev`, 0 on every firing already
+ * held. Expand only.
+ */
+export const STATE_SCHEMA_V68_IDENTITY = {
+  actualSchemaSha256:
+    "00145a0d60bba343419cfd7fe369d07cce00d69fc2d6f11207da2cca732494c3",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 68;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -852,7 +862,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 67;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V67_IDENTITY;
+  STATE_SCHEMA_V68_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1023,7 +1033,7 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V27_IDENTITY,
     migrate: (database) => {
       database.exec(AUTOMATION_BOARDS_STATE_SCHEMA_SQL);
-      database.exec(AUTOMATION_STATE_SCHEMA_SQL);
+      database.exec(AUTOMATION_V28_STATE_SCHEMA_SQL);
     },
   },
   {
@@ -1384,6 +1394,15 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V66_IDENTITY,
     migrate: (database) => database.exec(FLEET_STRUCTURE_LOG_STATE_SCHEMA_SQL),
+  },
+  {
+    fromVersion: 67,
+    toVersion: 68,
+    name: "keep a firing's revision",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V67_IDENTITY,
+    migrate: (database) =>
+      database.exec(`ALTER TABLE automation_firings ADD COLUMN ${AUTOMATION_FIRING_REV_COLUMN_SQL}`),
   },
 ];
 

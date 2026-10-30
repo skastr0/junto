@@ -396,3 +396,9 @@ export const STATE_SCHEMA_V67_SQL = stepped(
   STATE_SCHEMA_V66_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 67)!.migrate,
 );
+
+/** Step 68 adds `automation_firings.rev`, the revision a firing crossed on the exchange (0.11, 05 S3). */
+export const STATE_SCHEMA_V68_SQL = stepped(
+  STATE_SCHEMA_V67_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 68)!.migrate,
+);
