@@ -85,7 +85,8 @@ test("eef594efc borders, dark: task error, task notice, threads selected row, fi
       page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") logs.push(m.text().slice(0, 300)); });
       await title.fill("x".repeat(240));
       await title.press("Enter");
-      await page.getByTestId("task-detail").locator(".task-facts").click().catch(() => undefined);
+      // Enter and a click beside it left the field focused in the last run, so the blur that commits is sent outright.
+      if (await title.evaluate((el) => el === document.activeElement)) await title.evaluate((el) => (el as HTMLInputElement).blur());
       await page.waitForTimeout(1500);
       await page.screenshot({ path: join(SHOTS, "1x-after-long-title.png") });
       read["1-after-long-title"] = { title: await title.inputValue(), logs };
@@ -139,11 +140,16 @@ test("eef594efc borders, dark: task error, task notice, threads selected row, fi
     await escapeAll();
     await step("4 file comment row hovered", async () => {
       const modal = await openFilesModal(page);
-      await openInTree(modal, stage.fixture.paths.markdown);
+      // A line thread draws its row after the line; a whole-file thread does not.
+      await openInTree(modal, "src/big.ts");
+      const editor = modal.getByRole("textbox", { name: "src/big.ts", exact: true });
+      await editor.click();
+      await page.keyboard.press("Meta+ArrowUp");
+      for (let line = 1; line < 3; line += 1) await page.keyboard.press("ArrowDown");
+      await modal.getByRole("button", { name: "Comment on line 3", exact: true }).click({ timeout: 10_000 });
       const composer = modal.getByLabel("New comment");
       if (!(await composer.isVisible())) await modal.locator(".artifact-comments-edge").click({ timeout: 10_000 });
       await expect(composer).toBeVisible({ timeout: 10_000 });
-      await composer.click();
       await composer.fill("This line reads the old row label.");
       await composer.press("Meta+Enter");
       const row = modal.getByTestId("file-comment-row").first();
