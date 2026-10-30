@@ -309,17 +309,17 @@ export const registerJuntoIpc = (): void => {
   // The renderer's tasks and artifacts: main's stores, main's ruler (resource-ipc.ts).
   const resourcePorts = liveResourceIpcPorts((canvasName) =>
     Effect.tryPromise({
-      try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readTopology(canvasName))),
+      try: async () => (await core.call("ipc.work.topology", { canvasName })).canvas,
       catch: () => ({
         type: "InternalError" as const,
         message: `canvas ${canvasName} could not be read`,
         details: { retryable: true },
       }),
-    }).pipe(Effect.map((read) => read.canvas)),
+    }),
     // A task's or an artifact's comments, held at its node: read only.
     (canvasName, nodeId) =>
       Effect.tryPromise({
-        try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readMailbox(canvasName, nodeId))),
+        try: () => core.call("ipc.work.mailbox", { canvasName, nodeId }),
         catch: () => ({
           type: "InternalError" as const,
           message: `the comments on ${nodeId} could not be read`,
@@ -345,16 +345,21 @@ export const registerJuntoIpc = (): void => {
   registerMentionIpc(privilegedIpc, (effect) => AppRuntime.runPromise(effect), {
     topology: (canvasName) =>
       Effect.tryPromise({
-        try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readTopology(canvasName))),
+        try: async () => (await core.call("ipc.work.topology", { canvasName })).canvas,
         catch: () => ({
           type: "InternalError" as const,
           message: `canvas ${canvasName} could not be read`,
           details: { retryable: true },
         }),
-      }).pipe(Effect.map((read) => read.canvas)),
+      }),
     read: (canvasName, key, limit, after) =>
       Effect.tryPromise({
-        try: () => AppRuntime.runPromise(Effect.flatMap(SqlClient.SqlClient, (sql) => readMentions(sql, canvasName, key, limit, after))),
+        try: () => core.call("ipc.work.mentions", {
+          canvasName,
+          key,
+          limit,
+          ...(after === undefined ? {} : { after }),
+        }),
         catch: () => ({
           type: "InternalError" as const,
           message: `the mentions on canvas ${canvasName} could not be read`,
@@ -369,13 +374,13 @@ export const registerJuntoIpc = (): void => {
     {
       topology: (canvasName) =>
         Effect.tryPromise({
-          try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readTopology(canvasName))),
+          try: async () => (await core.call("ipc.work.topology", { canvasName })).canvas,
           catch: () => ({
             type: "InternalError" as const,
             message: `canvas ${canvasName} could not be read`,
             details: { retryable: true },
           }),
-        }).pipe(Effect.map((read) => read.canvas)),
+        }),
     },
     broadcast,
   );
