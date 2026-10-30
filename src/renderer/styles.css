@@ -1928,6 +1928,11 @@ html[data-surface-motion="paused"] .junto-node[data-seat-attention="true"]::afte
   overflow: hidden;
   font-feature-settings: "ss01" 1, "zero" 1;
 }
+/* Text that runs past the note fades over its last line, never cut through
+   its glyphs; a note that fits is not marked (lib/note-overflow.ts). */
+.note-md[data-overflows] {
+  mask-image: linear-gradient(to bottom, var(--color-ground) calc(100% - 1lh), transparent);
+}
 .note-md--empty {
   color: var(--color-dim);
   font-size: 11px;

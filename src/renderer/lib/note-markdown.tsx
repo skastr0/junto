@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
-import { createElement, memo } from "react";
+import { createElement, memo, useLayoutEffect, useRef } from "react";
 import { parseContentObjectUrl } from "@shared/content-url";
 import { ContentMedia } from "../components/work/ContentMedia";
+import { watchNoteOverflow } from "./note-overflow";
 
 // Lightweight, dependency-free markdown for freeform note nodes.
 // Raw source is stored; this renders a safe subset when the node is unselected.
@@ -245,12 +246,15 @@ function renderInline(tokens: ReadonlyArray<InlineToken>, keyPrefix: string): Re
 // with the same note body (e.g. selection chrome around an unselected note).
 export const NoteMarkdown = memo(function NoteMarkdown({ source }: { readonly source: string }) {
   const blocks = parseBlocks(source);
+  const ref = useRef<HTMLDivElement>(null);
+  // New blocks are new elements to watch, so the watch follows the source.
+  useLayoutEffect(() => (ref.current === null ? undefined : watchNoteOverflow(ref.current)), [source]);
   if (blocks.length === 0) {
     return <div className="note-md note-md--empty">empty note</div>;
   }
 
   return (
-    <div className="note-md">
+    <div ref={ref} className="note-md">
       {blocks.map((block, index) => {
         const key = `b-${index}`;
         switch (block.kind) {
