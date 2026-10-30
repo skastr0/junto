@@ -7,7 +7,7 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { modelFixture, modelSeat, modelWire, type ModelFixture } from "./model";
-import { prepareIsolatedHarnessLaunch } from "../../src/main/junto/term/isolated-harness-launch";
+import { prepareIsolatedHarnessLaunch } from "../../tests/pty-e2e/isolated-harness-launch";
 import { templateFor } from "../../src/shared/managed-terminal-templates";
 import type { Sandbox } from "./sandbox";
 import { seededHarnessBinDir } from "./agent-harness-fixture";

@@ -7,7 +7,7 @@ import {
   prepareIsolatedHarnessLaunch,
   realHarnessBinaryDir,
   seedIsolatedAuthFiles,
-} from "../src/main/junto/term/isolated-harness-launch";
+} from "./pty-e2e/isolated-harness-launch";
 import { HARNESS_MAIL_TRANSPORT } from "../src/shared/managed-terminal-templates";
 
 describe("prepareIsolatedHarnessLaunch", () => {

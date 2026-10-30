@@ -1,6 +1,10 @@
 /**
- * Node-owned isolated harness launch for capture and generated-canvas E2E.
- * Renderer must not import this module (uses node:fs / path).
+ * Isolated harness launch for capture and generated-canvas E2E: a throwaway
+ * home with an overlay and the declared credential files, and the PATH that
+ * finds the real harness binary first.
+ *
+ * Test-side on purpose: nothing in the app launches an isolated harness, so
+ * this lives with the pty capture harness rather than under src/main.
  *
  * operatorHome is injected by the caller (os.homedir() at the Node boundary).
  * credentialFiles are the only operator files that may be copied.
@@ -15,7 +19,7 @@ import {
   type HarnessId,
   type IsolatedCaptureRequest,
   type IsolatedHarnessLaunch,
-} from "../../../shared/managed-terminal-templates";
+} from "../../src/shared/managed-terminal-templates";
 
 const AUTH_SEED_DENIED =
   /(?:^|\/)(?:sessions?|history|settings|config\.toml|transcripts|projects)(?:\/|$)/i;

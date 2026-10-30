@@ -63,9 +63,9 @@ import {
   isolatedSpawnRuntimeEnv,
   isHarnessId,
 } from "../../src/shared/managed-terminal-templates";
-import { seedIsolatedAuthFiles } from "../../src/main/junto/term/isolated-harness-launch";
+import { seedIsolatedAuthFiles } from "./isolated-harness-launch";
 
-export { seedIsolatedAuthFiles } from "../../src/main/junto/term/isolated-harness-launch";
+export { seedIsolatedAuthFiles } from "./isolated-harness-launch";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..", "..");
