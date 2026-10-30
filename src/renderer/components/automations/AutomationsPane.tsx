@@ -39,6 +39,7 @@ import {
   editDraft,
   finishDraft,
   firingWords,
+  heldRulingWords,
   historyOrder,
   answerIsLong,
   signalAnswerOf,
@@ -79,6 +80,7 @@ import { useSignalsById } from "../../lib/automation-signals";
 import { AutomationEditor } from "./AutomationEditor";
 import { AutomationCodeEditor, codeTemplate } from "./AutomationCodeEditor";
 import { useTargetNames } from "../../lib/automation-names";
+import { useThisMachineName } from "../../lib/machines";
 import "./automations.css";
 
 type Editing = {
@@ -184,6 +186,8 @@ function FiringHistory({
   readonly focused?: string | undefined;
 }) {
   const ordered = useMemo(() => historyOrder(firings), [firings]);
+  // A firing written on another machine says which one; this machine's own firings do not.
+  const here = useThisMachineName();
   // A signal step's ruling names its signal; what became of it is the signal's row, read here.
   const signalIds = useMemo(
     () =>
@@ -221,12 +225,15 @@ function FiringHistory({
                 >
                   {timeWords(firing.at)}
                 </time>
-                <span>{firingWords(firing)}</span>
+                <span>{firingWords(firing, here)}</span>
               </div>
               {firing.outcome.kind === "fired"
                 ? firing.outcome.actions.map((ruling) => {
                     const signal = ruling.ruling === "raised" ? signals.get(ruling.signalId) : undefined;
-                    const words = codeRulingWords(ruling) ?? signalRulingWords(ruling, signal, timeWords);
+                    const words =
+                      codeRulingWords(ruling) ??
+                      signalRulingWords(ruling, signal, timeWords) ??
+                      heldRulingWords(ruling, timeWords);
                     const answer = signalAnswerOf(signal);
                     return words === undefined ? null : (
                       <div key={ruling.index} className="automation-history__step">

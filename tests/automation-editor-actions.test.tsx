@@ -15,6 +15,8 @@ import {
   editDraft,
   finishDraft,
   firingWords,
+  heldRulingWords,
+  historyOrder,
   newDraft,
   signalRulingWords,
   signalAnswerOf,
@@ -407,6 +409,52 @@ describe("the prompt action in the editor", () => {
     if (!finished.ok) throw new Error(finished.problems.map((problem) => problem.message).join("; "));
     expect(finished.definition.then).toEqual([
       { kind: "prompt", to: { kind: "seat", nodeId: asNodeId("agent-a") }, text: "{{fired.at}}: check the release." },
+    ]);
+  });
+});
+
+describe("a step held while its automation's machine was not linked (0.12 S3)", () => {
+  const at = (ms: number): string => `at ${ms}`;
+  const firing = (over: Partial<Firing>): Firing => ({
+    firingId: ItemId.make("01JFFFFFFFFFFFFFFFFFFFFFF1"),
+    automationId: id,
+    at: 1_700_000_000_000,
+    cause: { kind: "run" },
+    outcome: { kind: "fired", actions: [] },
+    ...over,
+  });
+
+  it("says what an action waits on, and that it waited once it went", () => {
+    expect(heldRulingWords({ index: 1, ruling: "queued", waitingOn: { machine: "mac-mini", since: 9 } }, at)).toBe(
+      "waiting on mac-mini since at 9",
+    );
+    expect(heldRulingWords({ index: 1, ruling: "queued" }, at)).toBe("waiting");
+    expect(heldRulingWords({ index: 0, ruling: "applied", heldSince: 9 }, at)).toBe("applied after waiting since at 9");
+    expect(heldRulingWords({ index: 0, ruling: "applied" }, at)).toBeUndefined();
+  });
+
+  it("names a refusal's reason, where a move took the automation, and that it waited first", () => {
+    expect(heldRulingWords({ index: 2, ruling: "refused", reason: "not_available" }, at)).toBe("not run: it is not available");
+    expect(heldRulingWords({ index: 2, ruling: "refused", reason: "not_permitted", movedTo: "mini" }, at)).toBe(
+      "not run: the automation moved to mini",
+    );
+    expect(heldRulingWords({ index: 2, ruling: "refused", reason: "not_permitted", heldSince: 4 }, at)).toBe(
+      "not run after waiting since at 4: it is not permitted",
+    );
+    expect(heldRulingWords({ index: 0, ruling: "continued", output: {}, durationMs: 1 }, at)).toBeUndefined();
+  });
+
+  it("names the machine on a firing that ran elsewhere, and keeps firing-id order when two clocks disagree", () => {
+    expect(firingWords(firing({ machine: "macbook" }), "macbook")).toBe("Run by hand, fired, 0 of 0 actions applied");
+    expect(firingWords(firing({ machine: "mini" }), "macbook")).toBe("Run by hand on mini, fired, 0 of 0 actions applied");
+    expect(firingWords(firing({}))).toBe("Run by hand, fired, 0 of 0 actions applied");
+
+    // The newer firing by id has the earlier clock: the id decides, as it does across machines.
+    const earlierClock = firing({ firingId: ItemId.make("01JFFFFFFFFFFFFFFFFFFFFFF2"), at: 100 });
+    const laterClock = firing({ firingId: ItemId.make("01JFFFFFFFFFFFFFFFFFFFFFF1"), at: 900 });
+    expect(historyOrder([laterClock, earlierClock]).map((one) => one.firingId)).toEqual([
+      earlierClock.firingId,
+      laterClock.firingId,
     ]);
   });
 });

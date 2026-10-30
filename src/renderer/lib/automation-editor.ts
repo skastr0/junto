@@ -52,7 +52,7 @@ import {
 import { AGENT_SIGNAL_MAX_DETAIL_LENGTH, AGENT_SIGNAL_MAX_TEXT_LENGTH } from "@shared/wire/agent-signals";
 import { ARTIFACT_MAX_TITLE_LENGTH } from "@shared/artifact";
 import { parseValueFormat, VALUE_FORMATS } from "@shared/automation-formats";
-import type { Refusal } from "@shared/resource-command";
+import type { Refusal, RefusalReason } from "@shared/resource-command";
 import { ARTIFACT_LABEL_RULE, ARTIFACT_LABELS_MAX, artifactLabelOf, artifactLabelsMatch, artifactLabelsOf, type ArtifactLabel } from "@shared/artifact-labels";
 import type { NodeId } from "@shared/physics/schema";
 import type { ContentRef } from "@shared/wire/content-ref";
@@ -1429,6 +1429,52 @@ export const codeRulingWords = (ruling: ActionRuling): string | undefined => {
   }
 };
 
+/** What a refusal's reason says on a step line, in the operator's words: no reasons a seat or a domain wrote. */
+const stepRefusalWords: Readonly<Record<RefusalReason, string>> = {
+  not_in_reach: "it is outside its reach",
+  not_permitted: "it is not permitted",
+  unknown_target: "the target is gone",
+  invalid_input: "its values are not valid",
+  invalid_transition: "the target cannot do that now",
+  already_held: "it is held elsewhere",
+  reviewer_is_author: "a review cannot name its author",
+  stale: "it was edited since",
+  rebase_conflict: "it conflicts with a newer edit",
+  depends_on_refused: "an earlier step it needs was refused",
+  not_available: "it is not available",
+  queue_full: "the queue is full",
+};
+
+/**
+ * A step's ruling while its automation's machine was not linked (0.12 S3):
+ * an action still waiting names the machine and since when; one that waited
+ * and then went says both; a refused step names why, and a move mid-firing
+ * says where the automation went. Undefined for a ruling that says nothing
+ * more than the firing's own line, or that a code step or a signal step
+ * already says in its own words.
+ */
+export const heldRulingWords = (ruling: ActionRuling, atWords: (at: number) => string): string | undefined => {
+  switch (ruling.ruling) {
+    case "queued":
+      return ruling.waitingOn === undefined
+        ? "waiting"
+        : `waiting on ${ruling.waitingOn.machine} since ${atWords(ruling.waitingOn.since)}`;
+    case "applied":
+      return ruling.heldSince === undefined ? undefined : `applied after waiting since ${atWords(ruling.heldSince)}`;
+    case "refused": {
+      const why = ruling.movedTo === undefined ? stepRefusalWords[ruling.reason] : `the automation moved to ${ruling.movedTo}`;
+      return ruling.heldSince === undefined ? `not run: ${why}` : `not run after waiting since ${atWords(ruling.heldSince)}: ${why}`;
+    }
+    case "raised":
+    case "continued":
+    case "stopped":
+    case "failed":
+      return undefined;
+    default:
+      return ruling satisfies never;
+  }
+};
+
 /** A signal's own sentence, short enough for a history line. */
 const signalTextWords = (text: string): string => {
   const flat = text.replace(/\s+/gu, " ").trim();
@@ -1500,8 +1546,14 @@ export const signalAnswerOf = (signal: AgentSignal | undefined): SignalAnswerSho
 export const ANSWER_SHORT_MAX = 160;
 export const answerIsLong = (text: string): boolean => text.length > ANSWER_SHORT_MAX || text.includes("\n");
 
-export const firingWords = (firing: Firing): string => {
-  const cause = causeWords(firing.cause);
+/**
+ * One line of the firing history: `Scheduled, fired, 2 of 2 actions applied`.
+ * A firing that ran on another machine says so: `Scheduled on mac-mini, ...`.
+ * `here` is this machine's short name; a firing that names none stays local.
+ */
+export const firingWords = (firing: Firing, here?: string): string => {
+  const ran = firing.machine === undefined || firing.machine === here ? "" : ` on ${firing.machine}`;
+  const cause = `${causeWords(firing.cause)}${ran}`;
   switch (firing.outcome.kind) {
     case "fired": {
       const actions = firing.outcome.actions;
@@ -1529,7 +1581,11 @@ export const firingWords = (firing: Firing): string => {
   }
 };
 
-/** Newest first, a stable order for equal times. */
+/**
+ * Newest first by firing id alone. A firing mints its ULID on the machine it
+ * runs on, and only that machine writes its later revisions, so this order is
+ * stable when two machines' clocks disagree and a settle stays where it began.
+ */
 export const historyOrder = (firings: ReadonlyArray<Firing>): ReadonlyArray<Firing> =>
-  [...firings].sort((a, b) => b.at - a.at || (a.firingId < b.firingId ? 1 : a.firingId > b.firingId ? -1 : 0));
+  [...firings].sort((a, b) => (a.firingId < b.firingId ? 1 : a.firingId > b.firingId ? -1 : 0));
 

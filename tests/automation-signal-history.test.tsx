@@ -171,3 +171,27 @@ describe("a signal step in the automation's history", () => {
     expect(document.body.textContent).not.toContain("DEPLOY_TOKEN");
   });
 });
+
+describe("a step held while its machine was not linked (0.12 S3)", () => {
+  it("names the machine the firing ran on, the step that waits, and why a step did not run", async () => {
+    source.record(canvas, {
+      firingId: ItemId.make("01JFFFFFFFFFFFFFFFFFFFFFF9"),
+      automationId,
+      at: 1_700_000_000_000,
+      cause: { kind: "run" },
+      outcome: {
+        kind: "fired",
+        actions: [
+          { index: 0, ruling: "queued", waitingOn: { machine: "mac-mini", since: 1_700_000_060_000 } },
+          { index: 1, ruling: "refused", reason: "not_permitted", movedTo: "mini" },
+        ],
+      },
+      machine: "mini",
+    });
+    await render();
+    await row();
+    expect(document.body.textContent).toContain("Run by hand on mini");
+    expect(document.body.textContent).toContain("Step 1 waiting on mac-mini since");
+    expect(document.body.textContent).toContain("Step 2 not run: the automation moved to mini");
+  });
+});
