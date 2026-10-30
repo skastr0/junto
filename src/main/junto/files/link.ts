@@ -84,6 +84,9 @@ export type FilesLinkOptions = {
   readonly service: () => FilesHost | undefined;
   /** The window machine's end: a change under a node it opened here. Unset, events are dropped. */
   readonly onEvent?: (context: LinkEventContext, event: FilesEvent) => Effect.Effect<void, unknown>;
+  /** The window machine's end: the link to a machine came up, or went down. */
+  readonly onOpened?: (context: LinkEventContext) => Effect.Effect<void, unknown>;
+  readonly onClosed?: (context: LinkEventContext) => Effect.Effect<void, unknown>;
   readonly peerSubscribers?: ReturnType<typeof makePeerSubscribers>;
 };
 
@@ -155,13 +158,14 @@ export const makeFilesLinkChannel = Effect.fn("FilesLink.make")(function* (optio
     decodeEvent: decodeFilesEvent,
     handleRequest,
     handleEvent: (context, raw) => options.onEvent === undefined ? Effect.void : options.onEvent(context, decodeFilesEvent(raw)),
+    ...(options.onOpened === undefined ? {} : { opened: options.onOpened }),
     closed: (context) => Effect.sync(() => {
       const id = sessions.get(context.sessionId);
       if (id === undefined) return;
       sessions.delete(context.sessionId);
       options.service()?.closeSubscriber(id);
       subscribers.release(id);
-    }),
+    }).pipe(Effect.andThen(options.onClosed?.(context) ?? Effect.void)),
   };
   return handler;
 });
