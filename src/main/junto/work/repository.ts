@@ -1590,24 +1590,37 @@ const readCompanionMail = Effect.fn("work.mail.companion")(function* (
   // search, bounded and newest first, then merged. As one OR it walked the
   // canvas's mail. A mail to itself sits in its own mailbox, so the sent
   // side leaves that mailbox out and nothing is listed twice.
+  const shaped = "(length(mail.message_id)=26 AND mail.message_id NOT GLOB '*[^0-9A-HJKMNP-TV-Z]*')";
   const columns = `mail.node_id,mail.message_id,mail.role,mail.parts_json,
       mail.task_id,mail.context_id,mail.reference_task_ids_json,mail.metadata_json,
-      (length(mail.message_id)=26 AND mail.message_id NOT GLOB '*[^0-9A-HJKMNP-TV-Z]*') AS ulid`;
+      ${shaped} AS ulid`;
   const seated = "JOIN seats AS seat ON seat.canvas_name=mail.canvas_name AND seat.id=mail.node_id";
-  const rows = yield* SqlSchema.findAll({
+  const select = (sql: string, bindings: ReadonlyArray<string | number>) => SqlSchema.findAll({
     Request: WorkSqlBindings,
-    Result: Schema.Struct({ ...MessageRowSchema.fields, node_id: Schema.String }),
-    execute: (bindings) => reader.unsafe(`SELECT node_id,message_id,role,parts_json,
-      task_id,context_id,reference_task_ids_json,metadata_json
-      FROM (SELECT * FROM (SELECT ${columns} FROM work_messages AS mail INDEXED BY work_messages_inbox ${seated}
-          WHERE mail.canvas_name=? AND mail.node_id=? AND mail.role='user'
-          ORDER BY ulid DESC,mail.message_id DESC LIMIT ?)
-        UNION ALL SELECT * FROM (SELECT ${columns} FROM work_messages AS mail INDEXED BY work_messages_sender ${seated}
-          WHERE mail.canvas_name=? AND json_extract(mail.metadata_json,'$.senderNodeId')=? AND mail.node_id<>?
-            AND mail.role='user'
-          ORDER BY ulid DESC,mail.message_id DESC LIMIT ?))
-      ORDER BY ulid DESC,message_id DESC,node_id LIMIT ?`, bindings),
-  })([canvasName, nodeId, limit, canvasName, nodeId, nodeId, limit, limit]);
+    Result: Schema.Struct({ ...MessageRowSchema.fields, node_id: Schema.String, ulid: Schema.Number }),
+    execute: (values) => reader.unsafe(sql, values),
+  })(bindings);
+  // The mailbox's ULID-shaped ids newest first, by its primary key within the
+  // ULID alphabet's range: a page, never a sort of the whole mailbox. Any
+  // other id sorts after every ULID, so it is read only to fill a short page.
+  const inbox = yield* select(`SELECT ${columns} FROM work_messages AS mail ${seated}
+    WHERE mail.canvas_name=? AND mail.node_id=?
+      AND mail.message_id BETWEEN '00000000000000000000000000' AND 'ZZZZZZZZZZZZZZZZZZZZZZZZZZ'
+      AND ${shaped} AND mail.role='user'
+    ORDER BY mail.message_id DESC LIMIT ?`, [canvasName, nodeId, limit]);
+  const rest = inbox.length >= limit ? [] : yield* select(`SELECT ${columns} FROM work_messages AS mail ${seated}
+    WHERE mail.canvas_name=? AND mail.node_id=? AND NOT ${shaped} AND mail.role='user'
+    ORDER BY mail.message_id DESC LIMIT ?`, [canvasName, nodeId, limit - inbox.length]);
+  const sent = yield* select(`SELECT ${columns} FROM work_messages AS mail INDEXED BY work_messages_sender ${seated}
+    WHERE mail.canvas_name=? AND json_extract(mail.metadata_json,'$.senderNodeId')=? AND mail.node_id<>?
+      AND mail.role='user'
+    ORDER BY ulid DESC,mail.message_id DESC LIMIT ?`, [canvasName, nodeId, nodeId, limit]);
+  // SQLite's order: ULIDs first, then ids and mailboxes as bytes.
+  const bytes = (a: string, b: string): number => Buffer.compare(Buffer.from(a), Buffer.from(b));
+  const rows = [...inbox, ...rest, ...sent]
+    .sort((a, b) => b.ulid - a.ulid || bytes(b.message_id, a.message_id) || bytes(a.node_id, b.node_id))
+    .slice(0, limit)
+    .map(({ ulid: _ulid, ...row }) => row);
   return yield* mailRowsWithReceipts(reader, canvasName, rows);
 });
 

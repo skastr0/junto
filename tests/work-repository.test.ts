@@ -51,6 +51,8 @@ const fixtureSeatNodeIds: ReadonlyArray<string> = [
   "companion-seat",
   "companion-peer",
   "companion-unrelated",
+  "companion-order-seat",
+  "companion-order-peer",
 ];
 const fixtureNodes = fixtureSeatNodeIds.map((id, index) =>
   seat(id, { y: index * 120, width: 240, height: 100, bindingId: `binding-${id}` as never }));
@@ -236,6 +238,36 @@ describe("WorkRepository v2 local authority", () => {
     expect((await runtime.runPromise(repository.companionMail("factory", seat, 0))).map((row) => row.message.messageId)).toEqual([id(3)]);
     expect(await runtime.runPromise(repository.companionMail("another-canvas", seat, 2))).toEqual([]);
     await expect(runtime.runPromise(repository.companionMail("factory", seat, 3))).rejects.toThrow();
+  });
+
+  it("lists companion mail ULIDs first, newest first, and reads other ids only to fill a short page", async () => {
+    const seat = "companion-order-seat";
+    const peer = "companion-order-peer";
+    const ulid = (digit: number) => "0".repeat(25) + digit;
+    const append = async (target: string, messageId: string, sender: string) => {
+      await runtime.runPromise(repository.appendMessage({
+        sink: { canvasName: "factory", nodeId: target }, basis: authorialBasis, sentBy: { ...actor, nodeId: sender },
+        destination: { kind: "mailbox" }, message: { messageId, role: "user",
+          parts: [{ kind: "text", text: messageId }], metadata: { senderNodeId: sender } },
+        originAt: observedAt, receivedAt: observedAt,
+      }));
+    };
+    await append(seat, ulid(1), peer);
+    await append(seat, "plain-a", peer);
+    await append(seat, ulid(4), peer);
+    await append(seat, "plain-b", peer);
+    await append(peer, ulid(3), seat);
+    await append(peer, "plain-c", seat);
+    const listed = async (limit: number) =>
+      (await runtime.runPromise(repository.companionMail("factory", seat, limit))).map((row) => [row.nodeId, row.message.messageId]);
+    // A full ULID page from the mailbox reads no other id.
+    expect(await listed(2)).toEqual([[seat, ulid(4)], [peer, ulid(3)]]);
+    // Short: every ULID first, then the other ids newest first, both sides.
+    expect(await listed(6)).toEqual([
+      [seat, ulid(4)], [peer, ulid(3)], [seat, ulid(1)],
+      [peer, "plain-c"], [seat, "plain-b"], [seat, "plain-a"],
+    ]);
+    expect(await listed(4)).toEqual([[seat, ulid(4)], [peer, ulid(3)], [seat, ulid(1)], [peer, "plain-c"]]);
   });
 
   it("persists ContentRef parts on new mail", async () => {
