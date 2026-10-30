@@ -104,9 +104,11 @@ describe("threadHeadline", () => {
   it("composes the row's line: the tags gone, each long id its own run, the rest as written", () => {
     const runs = threadHeadline(`From product-lead, landed ${ULID} today`, ["product-lead"]);
     expect(runs.filter((segment) => segment.id !== undefined)).toEqual([{ text: ULID, id: ULID }]);
-    expect(words(`From product-lead, landed ${ULID} today`, ["product-lead"])).toBe(`landed ${ULID} today`);
+    expect(words(`From product-lead, landed ${ULID} today`, ["product-lead"])).toBe(`Landed ${ULID} today`);
     expect(words("Review ask, from product-feed: the Needs you feed's filters", ["product-feed"])).toBe(
       "Review ask, the Needs you feed's filters",
     );
+    // An address or an identifier that opens the line keeps its own case.
+    expect(words("From product-lead, junto.db is the only store", ["product-lead"])).toBe("junto.db is the only store");
   });
 });

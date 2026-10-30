@@ -88,10 +88,18 @@ export const idSegments = (text: string): ReadonlyArray<IdSegment> => {
 };
 
 /**
+ * A head that lost its tag opens with a capital: "operator request for 0.11.6"
+ * reads as a sentence once "From product-lead," is gone. Only a plain word is
+ * capitalised, so an address or an identifier that opens the line is kept.
+ */
+const sentenceCase = (text: string): string =>
+  /^[a-z]{3,}(?=\s|,|:)/u.test(text) ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+
+/**
  * A list row's or a header's line, as the runs it is drawn from: the tags gone,
  * each long id its own run so the surface can draw it as the token whose whole
  * value stays in the document. Never a cut string: a row is a button whose
  * name is its text, and copy and a screen reader must get the whole id.
  */
 export const threadHeadline = (text: string, known: ReadonlyArray<string>): ReadonlyArray<IdSegment> =>
-  idSegments(stripHeadTag(stripAuthorPreamble(text, known), known));
+  idSegments(sentenceCase(stripHeadTag(stripAuthorPreamble(text, known), known)));
