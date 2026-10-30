@@ -5,6 +5,7 @@ import {
   it,
   vi,
 } from "vitest";
+import { Exit } from "effect";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { actorRefFixture } from "./helpers/actor-ref-fixtures";
 
@@ -23,8 +24,8 @@ const electron = vi.hoisted(() => ({
 
 const runtime = vi.hoisted(() => ({
   runPromise: vi.fn(async (_effect: unknown): Promise<string> => "executed"),
-  // The core port asks for an Exit, not a value (inProcessCore).
-  runPromiseExit: vi.fn(async (_effect: unknown) => ({ _tag: "Success" as const, value: "executed" })),
+  // The core port asks for an Exit, not a value (inProcessCore); beforeEach sets the value.
+  runPromiseExit: vi.fn(),
   runFork: vi.fn(),
 }));
 
@@ -65,6 +66,7 @@ beforeEach(async () => {
     import("../src/main/core-process/main-client"),
     import("./support/in-process-core"),
   ]);
+  runtime.runPromiseExit.mockImplementation(async () => Exit.succeed("executed"));
   useCoreClient(inProcessCore(runtime));
 });
 

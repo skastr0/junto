@@ -1,5 +1,5 @@
 import type { ArtifactMoveRun } from "@shared/artifact-move";
-import { coreArtifactMove } from "../../core-process/ops/ipc-resources";
+import { coreArtifactMove } from "../work/artifact-move-core";
 
 /**
  * The seam to the operator's artifact move (docs/plans/0.11/10 M1), which

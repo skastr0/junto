@@ -45,16 +45,13 @@ import {
   listArtifacts,
   listTasks,
   listThreads,
-  liveResourceIpcPorts,
   pendingArtifacts,
   pendingTasks,
   postThread,
   taskContext,
   type ResourceAuthoring,
-  type ResourceIpcPorts,
 } from "../../junto/work/resource-ipc";
-import { WorkService } from "../../junto/work/service";
-import { coreRunner } from "../../core-runner";
+import { workResourcePorts as withPorts } from "../../junto/work/resource-ports";
 import {
   RESOURCE_CHANGED,
   RESOURCE_THREAD_CHANGED,
@@ -91,35 +88,6 @@ const decoded = <S extends Schema.Top>(schema: S, input: unknown) =>
     S["Type"],
     Schema.SchemaError
   >;
-
-/**
- * The ports, built on the work service the core holds: a canvas read and a
- * node's comments, both read only.
- */
-const withPorts = <A, E>(
-  use: (ports: ResourceIpcPorts) => Effect.Effect<A, E>,
-): Effect.Effect<A, E, WorkService> =>
-  Effect.map(WorkService, (work) =>
-    liveResourceIpcPorts(
-      (canvasName: string) =>
-        work.readTopology(canvasName).pipe(
-          Effect.map((read) => read.canvas),
-          Effect.mapError(() => ({
-            type: "InternalError" as const,
-            message: `canvas ${canvasName} could not be read`,
-            details: { retryable: true },
-          })),
-        ),
-      (canvasName: string, nodeId: string) =>
-        work.readMailbox(canvasName, nodeId).pipe(
-          Effect.mapError(() => ({
-            type: "InternalError" as const,
-            message: `the comments on ${nodeId} could not be read`,
-            details: { retryable: true },
-          })),
-        ),
-    ),
-  ).pipe(Effect.flatMap(use));
 
 // The notices a write leaves. Told from here so any surface's write reaches
 // the window; main relays both onto the channels the window listens to.
@@ -215,11 +183,3 @@ coreOps({
     ),
   "ipc.resource.move": ({ input, by }) => withPorts((ports) => moveArtifacts(ports, input, by)),
 });
-
-/**
- * The operator's artifact move, run here, where the store is. The overseer's
- * `artifact.move` and the window's "Move to…" reach the same `moveArtifacts`;
- * the window crosses the port, the overseer is already in this process.
- */
-export const coreArtifactMove: ArtifactMoveRun = (input, by) =>
-  coreRunner.runPromise(withPorts((ports) => moveArtifacts(ports, input, by)));

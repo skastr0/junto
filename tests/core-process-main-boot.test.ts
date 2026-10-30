@@ -5,6 +5,8 @@ import type { CoreRunner } from "./support/in-process-core";
 import { portCore, serveCore, type CorePort } from "../src/main/core-process/port";
 import { subscribe } from "../src/main/core-process/push";
 import { AGENT_SIGNAL_CHANGED, WORK_PREAMBLE } from "../src/main/core-process/channels";
+// The operations the served core answers: entry.ts imports this registry at boot.
+import "../src/main/core-process/ops/index";
 import { SettingsService } from "../src/main/junto/settings/service";
 
 vi.mock("electron", () => ({ utilityProcess: { fork: () => { throw new Error("no utilityProcess in tests"); } } }));
@@ -40,6 +42,7 @@ it("hooks main up to a core in its own process: calls go to it, its pushes reach
     pages: () => undefined,
     captureApplicationPage: async () => ({ ok: true, png: new Uint8Array([7]) }),
     clipboard: { readText: () => clip, writeText: (text) => { clip = text; }, clear: () => { clip = ""; } },
+    clipboardFormats: () => ["text/plain"],
     start: () => ({ ...portCore(portOf(port1)), stop: () => { stopped += 1; } }),
   });
   const seen: Array<[string, unknown]> = [];

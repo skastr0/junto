@@ -1,6 +1,8 @@
 import { Effect } from "effect";
 import { afterEach, expect, it, vi } from "vitest";
 import { coreOpBody } from "../src/main/core-process/ops";
+// The group registers its bodies where the core boots (entry.ts): one line here too.
+import "../src/main/core-process/ops/index";
 import { coreFilesRemote } from "../src/main/core-process/main-side/files-remote";
 import { FILES_REMOTE_CHANGED } from "../src/main/core-process/channels";
 import { publish } from "../src/main/core-process/push";

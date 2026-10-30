@@ -11,6 +11,8 @@ import { WINDOW_CHANNELS } from "../src/main/core-process/main-side/window-pushe
  * WINDOW_CHANNELS: the port relays exactly those (relayWindowPushes).
  */
 const OPS = "src/main/core-process/ops";
+/** Where the channel names live now: a publisher names one, it does not define it. */
+const CHANNELS = "src/main/core-process/channels.ts";
 
 const channelValue = (token: string, declared: ReadonlyMap<string, string>): string | undefined => {
   const ipc = /^IPC_CHANNELS\.(\w+)$/u.exec(token);
@@ -49,7 +51,7 @@ it("every channel a core publisher publishes is a window channel", () => {
   const files = publishers().map((entry) => entry.name);
   // Channel constants a group or this suite declares, by name.
   const declared = new Map<string, string>();
-  for (const source of sources) {
+  for (const source of [...sources, readFileSync(CHANNELS, "utf8")]) {
     for (const [, name, value] of source.matchAll(/export const ([A-Z][A-Z0-9_]*) = "([^"]*)";/gu)) {
       declared.set(name!, value!);
     }
