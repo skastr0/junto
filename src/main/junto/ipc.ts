@@ -42,7 +42,7 @@ import { registerAutomationIpc } from "./automation/ipc";
 import { registerArtifactLinksIpc } from "./work/artifact-links-ipc";
 import { registerMentionIpc } from "./work/mention-ipc";
 import { WIRE_TRAFFIC } from "../core-process/channels";
-import { registerObservabilityIpc } from "./observability";
+import { registerObservabilityIpc } from "./observability/ipc";
 import { registerUpdateIpc } from "./update/ipc";
 import type { AgentSignal } from "@shared/agent-signals";
 import type { SeatPromptInput } from "./work/seat-prompt";
