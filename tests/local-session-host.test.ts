@@ -960,6 +960,79 @@ describe("LocalSessionHost", () => {
     );
   });
 
+  it("an offboard during the identity observation leaves the pid unresolved", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const identities = makeSyntheticIdentityMap();
+    setProcessIdentityMapForTests({
+      ...identities,
+      observeStartKeyAsync: async (pid) => {
+        await gate;
+        return identities.observeStartKeyAsync(pid);
+      },
+    });
+    const pid = trackSyntheticPid(63_300);
+    const fake = makeFakeTerminalProcessAuthority(() => ({ pid, exitOnSignal: "SIGTERM" }));
+    const host = hostWith(fake);
+    const input = {
+      bindingId: "offboarded-during-bind",
+      harness: "codex" as const,
+      agentKey: "local:offboarded-during-bind",
+      launch: { kind: "harness" as const, argv: ["/usr/local/bin/codex"], cwd: "/tmp" },
+      canvasName: "factory",
+      nodeId: "offboarded-during-bind-node",
+    };
+
+    const created = host.createAgentSeat(input);
+    const identity = host.awaitStartIdentity(input.bindingId, created.epoch);
+    // The generation is offboarded while its start key is still being read. It
+    // keeps running to finish its turn, so only the revoked mark stands between
+    // it and a binding that would resolve its pid to the seat again.
+    expect(host.drain(input.bindingId)).toBeDefined();
+    release();
+
+    await expect(identity).resolves.toBeUndefined();
+    expect(identities.resolve(pid)).toBeUndefined();
+    expect(identities.snapshot()).toEqual([]);
+  });
+
+  it("a detach during the identity observation leaves no binding behind", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const identities = makeSyntheticIdentityMap();
+    setProcessIdentityMapForTests({
+      ...identities,
+      observeStartKeyAsync: async (pid) => {
+        await gate;
+        return identities.observeStartKeyAsync(pid);
+      },
+    });
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(63_200),
+      exitOnSignal: "SIGTERM",
+    }));
+    const host = hostWith(fake);
+    const input = {
+      bindingId: "detached-during-bind",
+      harness: "codex" as const,
+      agentKey: "local:detached-during-bind",
+      launch: { kind: "harness" as const, argv: ["/usr/local/bin/codex"], cwd: "/tmp" },
+      canvasName: "factory",
+      nodeId: "detached-during-bind-node",
+    };
+
+    const created = host.createAgentSeat(input);
+    const identity = host.awaitStartIdentity(input.bindingId, created.epoch);
+    // The seat detaches mid-observation: its identities are revoked, the record
+    // stays (the process is still there), so nothing else would stop a late bind.
+    host.bindCanvas(input.bindingId, null);
+    release();
+
+    await expect(identity).resolves.toBeUndefined();
+    expect(identities.snapshot()).toEqual([]);
+    expect(host.get(input.bindingId)?.status).toBe("running");
+  });
+
   it("a stop during the identity observation is a plain stop, never a setup failure", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });

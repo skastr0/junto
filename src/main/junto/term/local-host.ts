@@ -314,6 +314,11 @@ type SessionRec = {
   ptyIdentityBinding: ProcessIdentityBinding | undefined;
   daemonIdentityBinding: ProcessIdentityBinding | undefined;
   /**
+   * This generation's identities were revoked (a stop, a detach, a rebind), so
+   * a start whose observation is still in flight must not bind afterwards.
+   */
+  identitiesRevoked: boolean;
+  /**
    * Seat generation credential minted before spawn and injected into the seat
    * environment. Published to the registry once the lease is live and canvas
    * anchors are known; revoked when the generation ends.
@@ -1160,9 +1165,14 @@ export class LocalSessionHost extends EventEmitter {
 
   /**
    * Wait for the generation a start just opened to hold its exact process
-   * identity. Every start that hands a terminal or seat out awaits this, so a
-   * generation is never reported started before its identity is proven, while
-   * the `ps` fork it needs never runs on the thread that draws the canvas.
+   * identity, so the `ps` fork behind it never runs on the thread that draws
+   * the canvas.
+   *
+   * The operator's seat start (seat-process) and the machine control plane await
+   * this before they hand the seat out. A geography `create` from the window and
+   * a fail-open respawn run the flight on their own: their caller gets the live
+   * summary at once, the bind lands a moment later, and a bind that cannot be
+   * proven still tears that generation down and revokes its credential.
    */
   async awaitStartIdentity(bindingId: string, epoch: string): Promise<void> {
     const rec = this.sessions.get(bindingId);
@@ -1284,6 +1294,7 @@ export class LocalSessionHost extends EventEmitter {
       pid: undefined,
       ptyIdentityBinding: undefined,
       daemonIdentityBinding: undefined,
+      identitiesRevoked: false,
       seatCredential,
       seatCredentialLive: false,
       primeDaemon: undefined,
@@ -1452,6 +1463,11 @@ export class LocalSessionHost extends EventEmitter {
       this.seatIdentityFlight(rec);
       // Publish the generation credential once the lease is live. Anchors may
       // still be missing; bindCanvas completes those and publishes then.
+      //
+      // The identity flight may still be unanswered here, and that window is
+      // harmless: the credential is what admits a seat's commands, and the
+      // identity map only guards signals, which travel on the lease (forceKill)
+      // and never on a map lookup. A bind that does not answer revokes both.
       if (!this.publishSeatCredential(rec)) {
         throw new Error("terminal seat credential publish failed");
       }
@@ -2334,6 +2350,7 @@ export class LocalSessionHost extends EventEmitter {
 
   /** Revoke the record's identities as offboarded (see process-identity). */
   private offboardProcessIdentities(rec: SessionRec): void {
+    rec.identitiesRevoked = true;
     this.revokeSeatCredential(rec, "offboarded");
     const identities = getProcessIdentityMap();
     const bindings = [rec.daemonIdentityBinding, rec.ptyIdentityBinding].filter(
@@ -3217,7 +3234,7 @@ export class LocalSessionHost extends EventEmitter {
    */
   /** The generation this record names is no longer the one on its binding. */
   private generationGone(rec: SessionRec): boolean {
-    return rec.killed || sessionStatusOf(rec) === "exited" ||
+    return rec.killed || rec.identitiesRevoked || sessionStatusOf(rec) === "exited" ||
       this.sessions.get(rec.bindingId) !== rec;
   }
 
@@ -3322,6 +3339,7 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   private revokeProcessIdentities(rec: SessionRec, options?: { keepSeatCredential?: boolean }): void {
+    rec.identitiesRevoked = true;
     if (options?.keepSeatCredential !== true) {
       this.revokeSeatCredential(rec);
     }
