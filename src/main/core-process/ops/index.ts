@@ -17,6 +17,7 @@ import "./ipc-model";
 import "./ipc-work";
 import "./ipc-status";
 import "./ipc-content";
+import "./hosts-ipc";
 import "./ipc-watch";
 import "./ipc-seats";
 import "./ipc-view-state";

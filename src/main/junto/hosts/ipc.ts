@@ -1,34 +1,16 @@
-import type { IpcMain } from "electron";
-import { Effect, Option, Result } from "effect";
+import type { IpcMain, WebContents } from "electron";
+import { randomUUID } from "node:crypto";
 import { IPC_CHANNELS } from "@shared/ipc";
-import type {
-  DiscoveredPeer,
-  HostsDiscoverPeersResult,
-  HostsOpResult,
-  HostsTestResult,
-} from "@shared/ipc";
-import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
-import { endpointHostToken, type TailscalePeer } from "@shared/tailscale-peers";
-import { AppRuntime } from "../../runtime";
-import { HostsService } from "./service";
-import { MachineOwnerControl } from "./machine-owner";
-import { dispatchMachineIpcCommand } from "./machine-ipc-command";
-import { OPERATOR_PROTOCOL_VERSION, type OperatorResponseEnvelope } from "@shared/operator-control";
-import { tailscalePeerCache } from "./tailscale-peers";
+import type { HostsDiscoverPeersResult, HostsOpResult, HostsTestResult } from "@shared/ipc";
+import { core } from "../../core-process/main-client";
+import { MACHINE_PROGRESS, type MachineProgressPushed } from "../../core-process/ops/hosts-ipc";
+import { subscribe as subscribeCore } from "../../core-process/push";
 import {
   HOST_OPERATION_ADMISSIONS,
   HostOperationShutdownRefused,
   hostOperationGate,
   type HostOperationGate,
 } from "./shutdown";
-const toOp = (
-  either: Result.Result<ReadonlyArray<unknown>, RemoteHostsError>,
-): HostsOpResult => {
-  if (Result.isSuccess(either)) {
-    return { ok: true, hosts: either.success as HostsOpResult["hosts"] };
-  }
-  return { ok: false, code: either.failure.code, message: either.failure.message };
-};
 
 const surfaceShutdownRefusal = <A>(
   operation: Promise<A>,
@@ -39,211 +21,62 @@ const surfaceShutdownRefusal = <A>(
     throw error;
   });
 
-const stripDnsDots = (value: string): string => value.replace(/\.+$/, "");
-
-const firstDnsLabelOf = (value: string): string =>
-  stripDnsDots(value.trim().toLowerCase()).split(".")[0] ?? "";
-
-/** Lowercase tokens that identify an enrolled host (id, endpoint). */
-const enrolledTokens = (
-  hosts: ReadonlyArray<RemoteHost>,
-): ReadonlySet<string> => {
-  const tokens = new Set<string>();
-  for (const host of hosts) {
-    tokens.add(host.id.toLowerCase());
-    const endpointToken = endpointHostToken(host.sshEndpoint);
-    if (endpointToken) {
-      tokens.add(endpointToken.toLowerCase());
-      const label = firstDnsLabelOf(endpointToken);
-      if (label) tokens.add(label);
-    }
-  }
-  return tokens;
-};
-
-const peerIsEnrolled = (
-  peer: TailscalePeer,
-  tokens: ReadonlySet<string>,
-): boolean => {
-  if (peer.hostName && tokens.has(peer.hostName.trim().toLowerCase())) {
-    return true;
-  }
-  if (peer.dnsName) {
-    const dns = stripDnsDots(peer.dnsName.trim().toLowerCase());
-    if (tokens.has(dns) || tokens.has(firstDnsLabelOf(peer.dnsName))) {
-      return true;
-    }
-  }
-  return peer.ipv4 !== undefined && tokens.has(peer.ipv4);
-};
-
-const toDiscoveredPeer = (peer: TailscalePeer): DiscoveredPeer | undefined => {
-  const dns = peer.dnsName ? stripDnsDots(peer.dnsName.trim()) : undefined;
-  const name =
-    peer.hostName?.trim() ||
-    (peer.dnsName ? firstDnsLabelOf(peer.dnsName) : "") ||
-    peer.ipv4;
-  if (!name) return undefined;
-  const addresses = [dns, peer.ipv4].filter(
-    (value): value is string => typeof value === "string" && value.length > 0,
-  );
-  return {
-    name,
-    addresses,
-    online: peer.online === true,
-    ...(peer.os ? { os: peer.os } : {}),
-  };
-};
-
-const DISCOVER_PEERS_EMPTY: HostsDiscoverPeersResult = {
-  ok: true,
-  peers: [],
-};
+const DISCOVER_PEERS_EMPTY: HostsDiscoverPeersResult = { ok: true, peers: [] };
 
 export const registerHostsIpc = (
   ipcMain: IpcMain,
   operations: HostOperationGate = hostOperationGate,
 ): void => {
+  // A running command's progress goes only to the window whose call asked for it.
+  const senders = new Map<string, WebContents>();
+  subscribeCore(MACHINE_PROGRESS, (payload) => {
+    const pushed = payload as MachineProgressPushed;
+    const sender = senders.get(pushed.requestId);
+    if (sender !== undefined && !sender.isDestroyed()) sender.send(IPC_CHANNELS.machineProgress, pushed.progress);
+  });
 
-  ipcMain.handle(IPC_CHANNELS.machineCommand, (event, input: unknown) =>
-    AppRuntime.runPromise(Effect.gen(function* () {
-      const actions = yield* Effect.serviceOption(MachineOwnerControl);
-      if (Option.isNone(actions)) return {
-        protocol: OPERATOR_PROTOCOL_VERSION, ok: false,
-        error: { type: "runtime_down", message: "Machine control is not ready", details: { retryable: false } },
-      } satisfies OperatorResponseEnvelope;
-      return yield* dispatchMachineIpcCommand(actions.value, input, progress => {
-        if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.machineProgress, progress);
-      });
-    })),
-  );
+  ipcMain.handle(IPC_CHANNELS.machineCommand, (event, input: unknown) => {
+    const requestId = randomUUID();
+    senders.set(requestId, event.sender);
+    return core.call("ipc.hosts.command", { input, requestId }).finally(() => senders.delete(requestId));
+  });
 
   ipcMain.handle(IPC_CHANNELS.hostsList, () =>
     surfaceShutdownRefusal(
-      operations.run(HOST_OPERATION_ADMISSIONS.list, () =>
-        AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const hosts = yield* HostsService;
-            const result = yield* Effect.result(hosts.list);
-            return toOp(result as never);
-          }),
-        ),
-      ),
-      (error) => ({ ok: false, code: error.code, message: error.message }),
+      operations.run(HOST_OPERATION_ADMISSIONS.list, () => core.call("ipc.hosts.list", {})),
+      (error) =>
+        ({ ok: false, code: error.code, message: error.message }) satisfies HostsOpResult,
     ),
   );
 
   // Tailscale mesh peers not yet enrolled. Read path — mirrors hostsList
-  // gating (registry-read admission). Degrades to an empty peer list; the
-  // tailscale CLI being absent is never an error surface.
+  // gating (registry-read admission). Degrades to an empty peer list.
   ipcMain.handle(IPC_CHANNELS.hostsDiscoverPeers, () =>
     surfaceShutdownRefusal(
-      operations.run(HOST_OPERATION_ADMISSIONS.list, () =>
-        AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const hosts = yield* HostsService;
-            const listed = yield* Effect.result(hosts.list);
-            if (listed._tag === "Failure") {
-              yield* Effect.logWarning("machines could not be read; discovery cannot hide enrolled peers", listed.failure);
-            }
-            const enrolled =
-              listed._tag === "Success"
-                ? enrolledTokens(listed.success)
-                : new Set<string>();
-            const snapshot = yield* Effect.promise(() =>
-              tailscalePeerCache.refresh(),
-            );
-            if (!snapshot) return DISCOVER_PEERS_EMPTY;
-            const peers = snapshot.peers
-              .filter((peer) => !peerIsEnrolled(peer, enrolled))
-              .map(toDiscoveredPeer)
-              .filter((peer): peer is DiscoveredPeer => peer !== undefined);
-            return { ok: true, peers } satisfies HostsDiscoverPeersResult;
-          }).pipe(
-            // Discovery never throws (HostsDiscoverPeersResult); a failure is logged, then no peers.
-            Effect.catchCause((cause) => Effect.logWarning("machine discovery failed; no peers are shown", cause).pipe(Effect.as(DISCOVER_PEERS_EMPTY))),
-            Effect.annotateLogs({ area: "machines", operation: "discover-peers" }),
-          ),
-        ),
-      ),
+      operations.run(HOST_OPERATION_ADMISSIONS.list, () => core.call("ipc.hosts.discoverPeers", {})),
       () => DISCOVER_PEERS_EMPTY,
     ),
   );
 
   ipcMain.handle(IPC_CHANNELS.hostsUpsert, (_event, input: unknown) =>
     surfaceShutdownRefusal(
-      operations.run(HOST_OPERATION_ADMISSIONS.upsert, () =>
-        AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const hosts = yield* HostsService;
-            const result = yield* Effect.result(hosts.upsert(input));
-            return toOp(result as never);
-          }),
-        ),
-      ),
-      (error) => ({ ok: false, code: error.code, message: error.message }),
+      operations.run(HOST_OPERATION_ADMISSIONS.upsert, () => core.call("ipc.hosts.upsert", { input })),
+      (error) =>
+        ({ ok: false, code: error.code, message: error.message }) satisfies HostsOpResult,
     ),
   );
 
   ipcMain.handle(IPC_CHANNELS.hostsRemove, (_event, id: unknown) =>
     surfaceShutdownRefusal(
-      operations.run(HOST_OPERATION_ADMISSIONS.remove, () =>
-        AppRuntime.runPromise(
-          Effect.gen(function* () {
-            if (typeof id !== "string" || id.length === 0) {
-              return {
-                ok: false,
-                code: "validation",
-                message: "host id required",
-              } satisfies HostsOpResult;
-            }
-            const hosts = yield* HostsService;
-            const result = yield* Effect.result(hosts.remove(id));
-            return toOp(result as never);
-          }),
-        ),
-      ),
-      (error) => ({ ok: false, code: error.code, message: error.message }),
+      operations.run(HOST_OPERATION_ADMISSIONS.remove, () => core.call("ipc.hosts.remove", { id })),
+      (error) =>
+        ({ ok: false, code: error.code, message: error.message }) satisfies HostsOpResult,
     ),
   );
 
   ipcMain.handle(IPC_CHANNELS.hostsTest, (_event, id: unknown) =>
     surfaceShutdownRefusal(
-      operations.run(HOST_OPERATION_ADMISSIONS.test, () =>
-        AppRuntime.runPromise(
-          Effect.gen(function* () {
-            if (typeof id !== "string" || id.length === 0) {
-              return {
-                ok: false,
-                detail: "host id required",
-                code: "validation",
-                message: "host id required",
-              } satisfies HostsTestResult;
-            }
-            const hosts = yield* HostsService;
-            const startedAt = Date.now();
-            const result = yield* Effect.result(hosts.test(id));
-            const latencyMs = Date.now() - startedAt;
-            if (result._tag === "Success") {
-              return {
-                ok: result.success.ok,
-                detail: result.success.detail,
-                latencyMs,
-                ...(result.success.reachability === undefined
-                  ? {}
-                  : { reachability: result.success.reachability }),
-
-              } satisfies HostsTestResult;
-            }
-            return {
-              ok: false,
-              detail: result.failure.message,
-              code: result.failure.code,
-              message: result.failure.message,
-            } satisfies HostsTestResult;
-          }),
-        ),
-      ),
+      operations.run(HOST_OPERATION_ADMISSIONS.test, () => core.call("ipc.hosts.test", { id })),
       (error) =>
         ({
           ok: false,
@@ -253,5 +86,4 @@ export const registerHostsIpc = (
         }) satisfies HostsTestResult,
     ),
   );
-
 };
