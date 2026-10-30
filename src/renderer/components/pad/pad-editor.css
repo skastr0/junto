@@ -207,7 +207,7 @@
 .pad-error {
   flex: none;
   padding: 6px 12px;
-  border-bottom: 1px solid color-mix(in oklab, var(--color-crimson) 34%, transparent);
+  border-bottom: 1px solid var(--color-stroke);
   background: color-mix(in oklab, var(--color-crimson) 8%, transparent);
   color: var(--color-crimson-fg);
   font-size: 11px;
