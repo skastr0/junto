@@ -30,6 +30,7 @@ import { startCanvasControlServer, type CanvasControlServer } from "./canvas-con
 import { composeOverseer, type OverseerComposition } from "./overseer/composition";
 import type { ApplicationCaptureResult } from "./overseer/native";
 import type { OverseerPages } from "./overseer/pages";
+import type { PreambleEvent } from "@shared/preamble";
 
 export type CoreOptions = Omit<MachineCoreOptions, "ready"> & {
   /** The desktop core also serves canvas edits (`junto canvas`); a headless machine core does not. */
@@ -39,6 +40,8 @@ export type CoreOptions = Omit<MachineCoreOptions, "ready"> & {
     readonly captureApplicationPage: () => Promise<ApplicationCaptureResult>;
     readonly pages: OverseerPages;
   };
+  /** A seat's preamble as the work control server takes it, for the window. */
+  readonly onPreamble?: (event: PreambleEvent) => void;
 };
 
 /** The installed database is newer than this build; starting would corrupt it. */
@@ -135,6 +138,7 @@ export const startCore = async (options: CoreOptions) => {
       version: typeof __JUNTO_APP_VERSION__ === "string" ? __JUNTO_APP_VERSION__ : "dev",
       run: effect => runtime.runPromise(effect),
       ...(overseer === undefined ? {} : { onOverseer: overseer.onOverseer }),
+      ...(options.onPreamble === undefined ? {} : { onPreamble: options.onPreamble }),
     });
     if (options.canvasControl === true) {
       canvas = await startCanvasControlServer({ home: options.home, run: effect => runtime.runPromise(effect) });

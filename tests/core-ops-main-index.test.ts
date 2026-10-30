@@ -1,7 +1,8 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { describe, expect, it } from "vitest";
 import { inProcessCore, type CoreRunner } from "../src/main/core-process/client";
-import { SETTINGS_CHANGED } from "../src/main/core-process/ops/main-index";
+import { AGENT_SIGNAL_CHANGED, SETTINGS_CHANGED, WORK_PREAMBLE, publishWindowBroadcasts } from "../src/main/core-process/ops/main-index";
+import { emitAgentSignalChanged } from "../src/main/junto/signals/changes";
 import { subscribe } from "../src/main/core-process/push";
 import { SettingsService } from "../src/main/junto/settings/service";
 import type { Settings } from "../src/shared/settings";
@@ -48,6 +49,23 @@ describe("index.ts core operations", () => {
       expect(checked).toMatchObject({ ok: false, code: "invalid" });
     } finally {
       await runtime.dispose();
+    }
+  });
+
+  it("publishes the window's broadcasts on their channels until stopped", () => {
+    const seen: Array<[string, unknown]> = [];
+    const offs = [WORK_PREAMBLE, AGENT_SIGNAL_CHANGED].map((channel) => subscribe(channel, (payload) => seen.push([channel, payload])));
+    const broadcasts = publishWindowBroadcasts();
+    try {
+      const preamble = { preambleId: "p1", canvasName: "factory", nodeId: "seat", text: "hello", expiresAt: 1 };
+      const signal = { canvasName: "factory", nodeId: "seat", kind: "blocked" } as never;
+      broadcasts.onPreamble(preamble);
+      emitAgentSignalChanged(signal);
+      broadcasts.stop();
+      emitAgentSignalChanged(signal);
+      expect(seen).toEqual([[WORK_PREAMBLE, preamble], [AGENT_SIGNAL_CHANGED, signal]]);
+    } finally {
+      for (const off of offs) off();
     }
   });
 });

@@ -17,6 +17,7 @@ import type { CoreRunner } from "./client";
 import { forwardPublishes } from "./push";
 import { host, useHostClient } from "./host-ops";
 import { hostCaptureApplicationPage, hostOverseerPages } from "./ops/overseer-pages";
+import { publishWindowBroadcasts } from "./ops/main-index";
 import "./ops/index";
 
 export type CoreBoot = {
@@ -51,11 +52,13 @@ const main = async (parent: ParentPort): Promise<void> => {
   const served = serveCore(parentCorePort(parent), new Promise<CoreRunner>((resolve) => { started = resolve; }));
   forwardPublishes(served.push);
   useHostClient(served.host);
+  const broadcasts = publishWindowBroadcasts();
   const core = await startCore({
     home: boot.home,
     build: boot.build,
     canvasControl: true,
     overseer: { captureApplicationPage: hostCaptureApplicationPage(host), pages: hostOverseerPages(host) },
+    onPreamble: broadcasts.onPreamble,
     ...makeMachineBundleSources({
       home: boot.home,
       build: boot.build,

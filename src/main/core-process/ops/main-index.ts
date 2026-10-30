@@ -4,12 +4,14 @@ import type { ContentRef } from "@shared/content";
 import type { AgentSignal } from "@shared/agent-signals";
 import type { Canvas } from "@shared/model";
 import type { Settings } from "@shared/settings";
+import type { PreambleEvent } from "@shared/preamble";
 import { ContentService, type ContentOpenForRead } from "../../junto/content/service";
 import { ModelRecords } from "../../junto/model/records";
 import { ModelService } from "../../junto/model/service";
 import { resolveNodeRef, type ResolvedNodeRef } from "../../junto/node-ref-resolver";
 import { SettingsService } from "../../junto/settings/service";
 import { AgentSignalRepository } from "../../junto/signals/repository";
+import { onAgentSignalChanged } from "../../junto/signals/changes";
 import { carryFileThreads } from "../../junto/work/file-thread-paths";
 import {
   checkSeatPageBox,
@@ -29,6 +31,20 @@ import { publish } from "../push";
 
 /** Where the settings go on every change, once `settings.watch` started it. */
 export const SETTINGS_CHANGED = "settings.changed";
+/** A seat's preamble, as the core's work control server takes it, for the window to show. */
+export const WORK_PREAMBLE = "work.preamble";
+/** Every agent signal the core writes, for the window and the raised hands. */
+export const AGENT_SIGNAL_CHANGED = "signals.changed";
+
+/**
+ * The window's broadcasts from a core in its own process: each signal change
+ * is published as it happens, and the work control server's preamble hook
+ * publishes too. Returns that hook, and the stop for the signal subscription.
+ */
+export const publishWindowBroadcasts = (): { readonly onPreamble: (event: PreambleEvent) => void; readonly stop: () => void } => ({
+  onPreamble: (event) => publish(WORK_PREAMBLE, event),
+  stop: onAgentSignalChanged((signal) => publish(AGENT_SIGNAL_CHANGED, signal)),
+});
 
 type PageBoxPosted = Effect.Success<ReturnType<typeof postSeatPageShot>>;
 
