@@ -95,7 +95,7 @@ const input = JSON.parse(process.argv[2]);
 input.bundle = root;
 fs.writeFileSync(process.argv[3], JSON.stringify(input), {mode: 384});
 ' "$stage/package" "$2" "$stage/input.json"
-"$stage/package/bin/junto" machine install-local "@$stage/input.json"
+"$stage/package/bin/node" "$stage/package/core/machine-local.cjs" install-local "@$stage/input.json"
 `;
 
 /** Copy is an isolated SSH stream, with arguments quoted by the SSH compiler. */
@@ -120,7 +120,7 @@ export const placeBoatMachineKey = (
 ) => Effect.gen(function* () {
   if (![location.juntoHome, location.installRoot].every(path => /^\/[^\u0000-\u001f\u007f]*$/.test(path))) return yield* new SshCommandInputError({ check: "install-paths", message: "a machine key needs absolute install paths" });
   const command = yield* makeRemoteCommand("/usr/bin/env", [
-    `JUNTO_HOME=${location.juntoHome}`, `${location.installRoot}/current/bin/junto`, "machine", "boat-key-local",
+    `JUNTO_HOME=${location.juntoHome}`, `${location.installRoot}/current/bin/node`, `${location.installRoot}/current/core/machine-local.cjs`, "boat-key-local",
   ]);
   return oneShotWithStdin(target, command, input);
 });

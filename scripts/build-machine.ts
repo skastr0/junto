@@ -144,6 +144,26 @@ export const bundleMachineCore = async (outdir: string, input: {
   if (/createRequire\(\s*["']file:/.test(core)) throw new Error("the core resolves packages from a build-machine path");
 };
 
+/**
+ * What runs on a machine's own files (src/main/machine-local.ts), bundled
+ * into `outdir/machine-local.cjs` for the bundle's Node: install, uninstall
+ * and a Boat machine's key, which the native bin/junto hands to it.
+ */
+export const bundleMachineLocal = async (outdir: string, input: {
+  readonly build: string;
+  readonly version: string;
+  readonly features: ReturnType<typeof resolveBuildFeatures>;
+}): Promise<void> => {
+  const result = await Bun.build({
+    entrypoints: [join(repoRoot, "src/main/machine-local.ts")], outdir, naming: "machine-local.cjs", target: "node", format: "cjs",
+    external: ["node-pty", "electron"],
+    define: { "process.env.NODE_ENV": JSON.stringify("production"), __JUNTO_BUILD_ID__: JSON.stringify(input.build), __JUNTO_APP_VERSION__: JSON.stringify(input.version), __JUNTO_MACHINE_BUILD__: "true", ...featureViteDefines(input.features) },
+  }).catch((error: unknown) => { throw MachineBundleBuildFailed.from(error); });
+  if (!result.success) throw MachineBundleBuildFailed.from(new AggregateError(result.logs, "Bundle failed"));
+  const local = await readFile(join(outdir, "machine-local.cjs"), "utf8");
+  if (/(?:__require|require)\s*\(\s*["']electron["']\s*\)/.test(local)) throw new Error("the machine-local entry imports Electron");
+};
+
 /** The machine's bin/junto: the native CLI for the bundle's target, with no browser CLI (JUNTO_MACHINE_BUILD). */
 export const compileMachineCli = (outfile: string, input: {
   readonly target: keyof typeof NODE_DIGESTS;
@@ -168,6 +188,7 @@ export const buildMachine = async (input: BuildMachineInput) => {
     await mkdir(join(stage, "core"), {recursive: true});
     await stageOfficialMachineNode(input.target, stage, resolve(input.cache ?? join(homedir(), ".cache/junto/node")));
     await bundleMachineCore(join(stage, "core"), {build, version: pkg.version, features});
+    await bundleMachineLocal(join(stage, "core"), {build, version: pkg.version, features});
     for (const dependency of ["@xterm/headless", "@xterm/addon-serialize"]) {
       const source = join(repoRoot, "node_modules", dependency);
       const metadata = JSON.parse(await readFile(join(source, "package.json"), "utf8")) as {main:string};
