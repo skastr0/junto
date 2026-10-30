@@ -9,6 +9,7 @@ import * as seatControl from "../src/main/junto/term/seat-control";
 import { registerTerminalIpc } from "../src/main/junto/term/ipc";
 import type { TermPlane } from "../src/main/junto/term/plane";
 import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
+import { ModelService } from "../src/main/junto/model/service";
 import type { HarnessId } from "../src/shared/managed-terminal-templates";
 
 /** Polls until the check passes (bun has no vi.waitFor). */
@@ -33,9 +34,14 @@ type Handler = (...args: readonly unknown[]) => unknown;
 // Core operations run with no services: the seat read answers `node`, and
 // seat start and stop are the spied seat-control effects.
 const noServices = inProcessCore({ runPromiseExit: (effect) => Effect.runPromiseExit(effect as never) });
-const coreWithSeat = (node: ModelNode | undefined) =>
-  vi.spyOn(core, "call").mockImplementation(((name: string, input: never) =>
-    name === "term.seatNode" ? Promise.resolve(node) : noServices.call(name as never, input)) as typeof core.call);
+// The terminal start reads the seat again in the core, after its admission.
+const coreWithSeat = (node: ModelNode | undefined) => {
+  const canvas = { nodes: new Map(node === undefined ? [] : [[node.id, node]]) };
+  const withSeat = inProcessCore({ runPromiseExit: (effect) =>
+    Effect.runPromiseExit(Effect.provideService(effect as never, ModelService, { canvas: () => Effect.succeed(canvas) } as never) as never) });
+  return vi.spyOn(core, "call").mockImplementation(((name: string, input: never) =>
+    name === "term.seatNode" ? Promise.resolve(node) : withSeat.call(name as never, input)) as typeof core.call);
+};
 
 const harness = (options: {
   readonly ensureHostAvailable?: (hostId: string) => Promise<void>;

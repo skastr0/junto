@@ -5,12 +5,20 @@
  */
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Effect } from "effect";
+import { inProcessCore } from "../src/main/core-process/client";
+import { core } from "../src/main/core-process/main-client";
 import { IPC_CHANNELS, type TerminalParkResult } from "../src/shared/ipc";
 import { registerTerminalIpc } from "../src/main/junto/term/ipc";
 import type { TermPlane } from "../src/main/junto/term/plane";
 import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
 import { OBSERVER_WATCHED_SCROLLBACK } from "../src/main/junto/term/observer/session-observer";
 import { TERMINAL_BOUNDS } from "../src/shared/settings";
+
+// The terminal ops run on the plane this test binds; they need no service.
+const noServices = inProcessCore({ runPromiseExit: (effect) => Effect.runPromiseExit(effect as never) });
+const stubCore = () => vi.spyOn(core, "call").mockImplementation(((name: string, input: never) =>
+  noServices.call(name as never, input)) as typeof core.call);
 
 type Handler = (...args: readonly unknown[]) => unknown;
 
@@ -48,6 +56,7 @@ const rig = () => {
     release: vi.fn(async () => {}),
     setTerminalEnvironment: vi.fn(),
   });
+  stubCore();
   registerTerminalIpc(
     { handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never,
     { router, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane,

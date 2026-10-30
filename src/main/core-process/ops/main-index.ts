@@ -24,6 +24,7 @@ import {
 import { coreOps, type CoreOp } from "../ops";
 import { publish } from "../push";
 import { RESOURCE_CHANGED, RESOURCE_THREAD_CHANGED } from "./ipc-resources";
+import { TERM_EVENT, TERM_LEASE_ENDED, TERM_SEAT_STATE } from "./term-ipc";
 import { WIRE_TRAFFIC } from "./ipc-wire-traffic";
 import { MACHINE_PROGRESS } from "./hosts-ipc";
 
@@ -78,6 +79,10 @@ export const WINDOW_CHANNELS = [
   IPC_CHANNELS.seatAwarenessChanged,
   // A running machine command's progress, for the window whose call asked.
   MACHINE_PROGRESS,
+  // The terminal plane's events, a linked view's end and a remote seat's state (term/ipc.ts).
+  TERM_EVENT,
+  TERM_LEASE_ENDED,
+  TERM_SEAT_STATE,
 ] as const;
 
 /**

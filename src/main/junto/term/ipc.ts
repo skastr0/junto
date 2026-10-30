@@ -314,7 +314,7 @@ export const registerTerminalIpc = (
     if (node.kind === "agent") {
       return core.call("term.startSeat", { canvas: input.canvas, seatId: node.id });
     }
-    await ensureHostAvailable(node.host);
+    // The core takes the delete admission before it waits for the host.
     return core.call("term.startTerminal", { canvas: input.canvas, node });
   });
 
