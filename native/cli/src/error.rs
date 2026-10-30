@@ -57,6 +57,9 @@ pub enum ErrorType {
     OperatorProtocolError,
     #[serde(rename = "internal_error", skip_deserializing)]
     OperatorInternalError,
+    /// machine vault-token: the token was not placed on the machine.
+    #[serde(skip_deserializing)]
+    VaultTokenNotPlaced,
 }
 
 /// A failure: printed as the `error` of the failure envelope.
