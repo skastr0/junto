@@ -150,8 +150,9 @@
 
 .quick-capture__preview-title {
   margin: 0;
-  font-family: var(--font-display);
+  font-family: var(--font-body);
   font-size: var(--text-title);
+  font-weight: 600;
   color: var(--color-ink);
 }
 
@@ -212,4 +213,18 @@
   border-bottom: 1px solid var(--color-stroke);
   color: var(--color-ink);
   vertical-align: top;
+}
+
+/* Headings step down in this surface, in the preview and the editor alike so
+   Enter does not resize a line. The capture's title is the first line, so a
+   heading may not outrank the 14px head. The editor scale elsewhere is
+   untouched. */
+.quick-capture .live-markdown .cm-md-h1 {
+  font-size: var(--text-title);
+  font-weight: 600;
+}
+
+.quick-capture .live-markdown :is(.cm-md-h2, .cm-md-h3) {
+  font-size: var(--text-body-lg);
+  font-weight: 600;
 }
