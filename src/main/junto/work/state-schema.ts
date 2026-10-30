@@ -7,6 +7,18 @@
  * its id. The journal is immutable; every other table here can be rebuilt
  * from it or holds a reader's own position.
  */
+
+/**
+ * The mail a seat sent sits in its recipients' mailboxes, found by the
+ * sender's stamp (`readMailSentBy`, for onboard and `junto since`). Without
+ * this the read walks every mail on the canvas and parses its metadata;
+ * node_id and position serve its order.
+ * The expression must stay the one that query filters on, the same JSON
+ * path included, or SQLite does not use the index.
+ */
+export const WORK_MESSAGES_SENDER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS work_messages_sender
+    ON work_messages(canvas_name, json_extract(metadata_json,'$.senderNodeId'), node_id, position);`;
+
 export const WORK_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS work_event_sequences (
     event_home TEXT NOT NULL,
@@ -575,6 +587,8 @@ export const WORK_STATE_SCHEMA_SQL = `
 
   CREATE INDEX IF NOT EXISTS work_messages_inbox
     ON work_messages(canvas_name, node_id, position);
+
+  ${WORK_MESSAGES_SENDER_INDEX_SQL}
 
   CREATE INDEX IF NOT EXISTS work_artifacts_node
     ON work_artifacts(canvas_name, node_id, artifact_id);

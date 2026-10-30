@@ -79,6 +79,7 @@ import {
 import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-models-state-schema";
 import { VIEW_CAPTURE_DESK_SCHEMA_SQL, VIEW_CAPTURE_INBOX_SCHEMA_SQL, VIEW_STATE_SCHEMA_SQL } from "../view-state/state-schema";
 import { OPERATOR_MAIL_READS_SCHEMA_SQL } from "../work/mail-reads-state-schema";
+import { WORK_MESSAGES_SENDER_INDEX_SQL } from "../work/state-schema";
 import {
   actualStateSchemaSha256,
   normalizeSchemaSql,
@@ -864,7 +865,17 @@ export const STATE_SCHEMA_V69_IDENTITY = {
     "e1196ee1e21ec6c5116d9227a30c9a38084b16a4b5d22bf38f7c80b61c99aee1",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 69;
+/**
+ * Version 70 indexes mail by its sender's stamp (0.12, msg list and since
+ * off the whole canvas): `work_messages_sender`, so the mail one seat sent
+ * is read from an index instead of a walk of every mail. Expand only.
+ */
+export const STATE_SCHEMA_V70_IDENTITY = {
+  actualSchemaSha256:
+    "dd84cfc7f7edfe690b0c25d5669ded74fe293a5afe10d24e44e3dacd132497d7",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 70;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -872,7 +883,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 69;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V69_IDENTITY;
+  STATE_SCHEMA_V70_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1421,6 +1432,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V68_IDENTITY,
     migrate: (database) => database.exec(VIEW_CAPTURE_DESK_SCHEMA_SQL),
+  },
+  {
+    fromVersion: 69,
+    toVersion: 70,
+    name: "index mail by its sender",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V69_IDENTITY,
+    migrate: (database) => database.exec(WORK_MESSAGES_SENDER_INDEX_SQL),
   },
 ];
 
