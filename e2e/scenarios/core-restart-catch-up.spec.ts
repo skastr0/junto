@@ -12,12 +12,12 @@
  * log carries each window's report (`[seats] window <id> shows <bindings>`),
  * which is where a report sent again after the restart is read.
  *
- * The canvas change comes from the built CLI, typed in an overseer seat. No CLI
- * command writes settings, so the setting is patched through the bridge; its
- * answer never reaches onSettingsChanged, only the new core's push does.
+ * Both changes after the restart come through the window itself: a canvas
+ * command and a settings patch, each answered by the new core, whose push is
+ * what the window draws. A settings answer never reaches onSettingsChanged, so
+ * the push is the only way that assertion can pass.
  */
-import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
@@ -49,7 +49,8 @@ const windowReports = (log: string): ReadonlyArray<{ readonly at: number; readon
 
 test("a window and its seat's hold survive the core being killed", async () => {
   test.setTimeout(300_000);
-  const logDir = mkdtempSync(join(tmpdir(), "junto-core-restart-"));
+  mkdirSync(join(process.cwd(), "test-results"), { recursive: true });
+  const logDir = mkdtempSync(join(process.cwd(), "test-results", "core-restart-log-"));
   process.env.JUNTO_E2E_MAIN_LOG = logDir;
   const junto = await launchJunto({
     windowContentSize: { width: 1400, height: 880 },
@@ -64,7 +65,10 @@ test("a window and its seat's hold survive the core being killed", async () => {
     await crewOccupySeat(page, CANVAS, O, seat);
     await grantOverseer(page, CANVAS, "overseer");
 
-    // Opening the seat's terminal is what makes the window report it to the core.
+    // Opening the seat's terminal in the window is what makes it report the
+    // binding to the core; a seat the window does not show is not held.
+    await page.locator('.react-flow__node[data-id="overseer"]').dblclick();
+    await expect(page.locator(".xterm").first()).toBeVisible({ timeout: 30_000 });
     await expect
       .poll(() => windowReports(coreLog(logDir)).length, { timeout: 60_000 })
       .toBeGreaterThan(0);
@@ -97,9 +101,19 @@ test("a window and its seat's hold survive the core being killed", async () => {
       }, { timeout: 120_000 })
       .toBe(true);
 
-    // A canvas change from the CLI after the core returned reaches the open window.
-    const created = await seat.cli(["overseer", "node", "create", JSON.stringify({ node: { kind: "note", text: "Written after the restart.", x: 0, y: 0, width: 220, height: 84 } })]);
-    expect(created.exitCode, `${created.stdout.slice(0, 300)} ${created.stderr.slice(0, 300)}`).toBe(0);
+    // A canvas change after the core returned reaches the open window: the
+    // window's own authoring path, through main to the new core and back on
+    // its push.
+    const noteId = "after-restart";
+    const added = await page.evaluate(async (id) => {
+      return window.junto!.modelCommand({
+        _tag: "Add",
+        canvas: "corerestart",
+        nodes: [{ id, kind: "note", text: "Written after the restart.", x: 40, y: 320, width: 220, height: 84, z: 0 }],
+        wires: [],
+      } as never);
+    }, noteId);
+    expect(added, "the new core took the window's authoring").toBeTruthy();
     await expect(page.getByText("Written after the restart.")).toBeVisible({ timeout: 15_000 });
 
     // A setting changed after the core returned reaches the window on the new core's push.

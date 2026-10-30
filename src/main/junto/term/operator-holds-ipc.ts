@@ -32,9 +32,17 @@ export type OperatorHoldWindows = {
 export const registerOperatorHoldsIpc = (
   ipc: Pick<IpcMain, "handle">,
   holds: OperatorHoldReports,
+  /** Whether a drop is still worth sending: false once authorial admission has closed, when the core is going away. */
+  admitting: () => boolean = () => true,
 ): OperatorHoldWindows => {
   const watched = new Set<number>();
   const showing = new Map<number, ReadonlyArray<string>>();
+  // A drop nobody awaits: the holds die with the core, so a refusal is the
+  // answer, not a fault. At quit admission is closed and nothing is sent at all.
+  const drop = (windowId: number): void => {
+    if (!admitting()) return;
+    void Promise.resolve(holds.dropWindow(windowId)).catch(() => undefined);
+  };
   const watch = (sender: WebContents): number => {
     const id = sender.id;
     if (watched.has(id)) return id;
@@ -42,16 +50,16 @@ export const registerOperatorHoldsIpc = (
     sender.on("did-start-navigation", (_event, _url, inPlace, isMainFrame) => {
       if (isMainFrame && !inPlace) {
         showing.delete(id);
-        void holds.dropWindow(id);
+        drop(id);
       }
     });
     sender.on("render-process-gone", () => {
       showing.delete(id);
-      void holds.dropWindow(id);
+      drop(id);
     });
     sender.once("destroyed", () => {
       showing.delete(id);
-      void holds.dropWindow(id);
+      drop(id);
       watched.delete(id);
     });
     return id;

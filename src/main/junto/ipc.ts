@@ -306,7 +306,12 @@ export const registerJuntoIpc = (): void => {
 
   // The holds themselves are the core's, where the cache cut asks: main sends
   // each window's report on and keeps none (core-process/ops/seat-holds.ts).
-  const operatorHolds = registerOperatorHoldsIpc(privilegedIpc, coreOperatorHolds(core));
+  const operatorHolds = registerOperatorHoldsIpc(
+    privilegedIpc,
+    coreOperatorHolds(core),
+    // Once admission closes the app is going: the core takes its holds with it.
+    () => mainAuthoringGate.snapshot().phase === "open",
+  );
   // A core that starts again has no holds: every window's last report goes again.
   askOnEveryCore("seats.holds.replay", () => operatorHolds.replay());
 
