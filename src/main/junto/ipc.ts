@@ -2,8 +2,6 @@ import { canvasReceiptBasis } from "./work/delivery-receipts";
 import { readPageShot } from "./work/page-shot-read";
 import { purgeOperatorPageShot } from "./work/page-shot-purge";
 import type { PageShotPurged, PageShotPurgeRequest } from "@shared/page-shot";
-import { WorkItemQuery, WorkAttentionQuery, WorkSinkQuery } from "@shared/work-sinks";
-import { WorkMailQuery } from "@shared/work-mail";
 import { app, BrowserWindow, clipboard, ipcMain, nativeImage, shell } from "electron";
 import { Effect, Option, Result, Schema, Stream } from "effect";
 import {
@@ -1122,31 +1120,18 @@ export const registerJuntoIpc = (): void => {
   );
 
   privilegedIpc.handle(IPC_CHANNELS.workItem, (_event, input: unknown) =>
-    AppRuntime.runPromise(Effect.gen(function* () {
-      const query = yield* Schema.decodeUnknownEffect(WorkItemQuery, { onExcessProperty: "error" })(input);
-      return yield* (yield* WorkRepository).taskItem(query);
-    })),
+    core.call("ipc.work.item", { input }),
   );
   privilegedIpc.handle(IPC_CHANNELS.workAttention, (_event, input: unknown) =>
-    AppRuntime.runPromise(Effect.gen(function* () {
-      const query = yield* Schema.decodeUnknownEffect(WorkAttentionQuery, { onExcessProperty: "error" })(input);
-      return yield* (yield* WorkRepository).attentionSnapshot(query);
-    })),
+    core.call("ipc.work.attention", { input }),
   );
 
   privilegedIpc.handle(IPC_CHANNELS.workSinkPage, (_event, input: unknown) =>
-    AppRuntime.runPromise(Effect.gen(function* () {
-      const query = yield* Schema.decodeUnknownEffect(WorkSinkQuery, { onExcessProperty: "error" })(input);
-      return yield* (yield* WorkRepository).sinkPage(query);
-    })),
+    core.call("ipc.work.sinkPage", { input }),
   );
 
   privilegedIpc.handle(IPC_CHANNELS.workMailPage, (_event, input: unknown) =>
-    AppRuntime.runPromise(Effect.gen(function* () {
-      const query = yield* Schema.decodeUnknownEffect(WorkMailQuery, { onExcessProperty: "error" })(input);
-      const repository = yield* WorkRepository;
-      return yield* repository.mailPage(query);
-    })),
+    core.call("ipc.work.mailPage", { input }),
   );
 
   privilegedIpc.handle(
@@ -1157,12 +1142,7 @@ export const registerJuntoIpc = (): void => {
       nodeId: string,
       limit?: number,
     ) =>
-      AppRuntime.runPromise(
-        Effect.gen(function* () {
-          const work = yield* WorkService;
-          return yield* work.workSeatRecentOps(canvas, nodeId, limit);
-        }),
-      ),
+      core.call("ipc.work.seatRecentOps", { canvas, nodeId, ...(limit === undefined ? {} : { limit }) }),
   );
 
   AppRuntime.runFork(Effect.flatMap(ModelService, (model) => model.changes.pipe(

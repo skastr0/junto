@@ -16,6 +16,11 @@ it("every group ipc.ts calls is registered by ops/index", () => {
     "ipc.work.topology",
     "ipc.work.mailbox",
     "ipc.work.mentions",
+    "ipc.work.item",
+    "ipc.work.attention",
+    "ipc.work.sinkPage",
+    "ipc.work.mailPage",
+    "ipc.work.seatRecentOps",
   ];
   for (const name of names) expect(coreOpBody(name), name).toBeTypeOf("function");
 });
