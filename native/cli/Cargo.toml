@@ -19,6 +19,15 @@ clap = { version = "4.5", default-features = false, features = ["std", "derive",
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
 ulid = "1"
+# The attach path (N3): content digests, byte pieces, and link URLs as WHATWG parses them.
+base64 = "0.22"
+sha2 = "0.10"
+url = "2"
+# Times as Date.parse reads and toISOString writes them.
+jiff = "0.2"
+# The byte pipes (N4) and browser: open flags and statvfs without unsafe, and an HTTP/1.1 response head.
+httparse = "1"
+rustix = { version = "1", features = ["fs"] }
 
 [profile.release]
 lto = true

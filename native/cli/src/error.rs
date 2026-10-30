@@ -28,6 +28,17 @@ pub enum ErrorType {
     BatchFailed,
     #[serde(skip_deserializing)]
     UncertainCompletion,
+    // An overseer operation's own refusal, printed as its inner `ok:false` names it.
+    #[serde(skip_deserializing)]
+    Forbidden,
+    #[serde(skip_deserializing)]
+    InvalidArguments,
+    #[serde(skip_deserializing)]
+    NotFound,
+    #[serde(skip_deserializing)]
+    Conflict,
+    #[serde(skip_deserializing)]
+    Unsupported,
 }
 
 /// A failure: printed as the `error` of the failure envelope.

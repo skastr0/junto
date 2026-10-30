@@ -3,12 +3,15 @@
 //! exit codes and the socket. Every decision stays with the runtime behind
 //! the socket, which decodes each request again and rules on it.
 
+mod attach;
 mod batch;
 mod commands;
 mod envelope;
 mod error;
+mod features;
 mod help;
 mod input;
+mod operator;
 mod wire;
 
 use std::process::ExitCode;
@@ -50,6 +53,14 @@ fn main() -> ExitCode {
         ["link", rest @ ..] => commands::pipes::link(rest),
         ["companion-stdio", rest @ ..] => commands::pipes::companion_stdio(rest),
         ["content-transfer", rest @ ..] => commands::pipes::content_transfer(rest),
+        ["browser", ..] if features::MACHINE_BUILD => {
+            eprintln!("junto browser: the browser runs in the desktop app, not on a Junto Remote machine");
+            ExitCode::from(2)
+        }
+        [first, ..] if features::disabled_group(first).is_some() => {
+            eprintln!("junto {first}: disabled in this Junto build");
+            ExitCode::from(2)
+        }
         _ if help::asked(&words) => help::show(&words),
         _ => match Cli::try_parse_from(std::iter::once("junto").chain(words.iter().copied())) {
             Ok(cli) => cli.root.run(),

@@ -1,0 +1,10 @@
+# The shipped feature profile (bun scripts/build-features.ts --bun-define-args),
+# so a plain `cargo build` matches the product. The release build sets each
+# from the resolved profile; a variable already set wins over these.
+[env]
+JUNTO_BROWSER_ENABLED = "1"
+JUNTO_ARTIFACTS_ENABLED = "1"
+JUNTO_TASKS_ENABLED = "1"
+JUNTO_AUTHORITY_ENABLED = "0"
+JUNTO_VAULT_ENABLED = "0"
+JUNTO_LIVE_OVERSEER_ENABLED = "0"
