@@ -32,7 +32,7 @@ const OPEN_TASK_LIMIT = 10_000;
 export type CheckoutWatchCompositionOptions = {
   readonly model: Pick<Context.Service.Shape<typeof ModelService>, "listCanvases" | "canvas">;
   readonly actorRefs: Pick<Context.Service.Shape<typeof ModelActorRefs>, "read">;
-  readonly settings: Pick<SettingsServiceApi, "get">;
+  readonly settings: Pick<SettingsServiceApi, "get" | "subscribe">;
   readonly host: Pick<LocalSessionHost, "get">;
   readonly crew: Pick<CrewRepositoryShape, "recordCheckoutObservation">;
   readonly workRepository: Pick<WorkRepositoryShape, "publishCheckoutReceipts">;
@@ -97,7 +97,14 @@ export const makeCheckoutWatchComposition = (
   let stopped = false;
   // Only a seat on this machine has a checkout here. A machine that holds a
   // copy of a canvas holds none of its boards, so it claims nothing there.
-  const machineName = options.settings.get.pipe(Effect.map((settings) => settings.machine.name));
+  // The name is read once, then followed as settings change: a pass never
+  // reads all settings again.
+  let thisMachineName: string | undefined;
+  options.settings.subscribe((settings) => { thisMachineName = settings.machine.name; });
+  const machineName = Effect.suspend(() => thisMachineName !== undefined
+    ? Effect.succeed(thisMachineName)
+    // A change seen while the first read ran is newer than that read.
+    : options.settings.get.pipe(Effect.map((settings) => thisMachineName ??= settings.machine.name)));
 
   const readClaims = (canvasName: string) => Effect.gen(function* () {
     const thisMachine = yield* machineName;
