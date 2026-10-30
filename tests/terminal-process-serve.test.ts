@@ -240,6 +240,16 @@ describe("the terminal process", () => {
     expect(seen.errors).toEqual(["posix_spawnp failed"]);
   });
 
+  it("a core that is gone hangs up every PTY it held", async () => {
+    const { client, served } = pair();
+    const cat = client.spawn({ command: "/bin/cat", args: [], cols: 80, rows: 24, env });
+    const seen = record(cat);
+    await cat.pid;
+    served.lost();
+    expect((await seen.exit).signal).toBe(1);
+    expect(served.live()).toBe(0);
+  });
+
   it("a lost terminal process exits every terminal it held", async () => {
     const { client } = pair();
     const cat = client.spawn({ command: "/bin/cat", args: [], cols: 80, rows: 24, env });

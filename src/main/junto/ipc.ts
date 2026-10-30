@@ -143,7 +143,7 @@ import { onSeatViewQuestions } from "./term/seat-views";
 import { regionEnvReport } from "./region-env/report-ipc";
 import { wireFactorySupervisor } from "./term/factory-delivery-composition";
 import { terminalObserverPlane } from "./term/observer";
-import { termPlane } from "./term/plane";
+import { TERM_PLANE_IN_THIS_PROCESS, termPlane } from "./term/plane";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 import { trustedRendererIpc } from "./trusted-main-webcontents";
 import {
@@ -263,7 +263,8 @@ export const registerJuntoIpc = (): void => {
     core.call("ipc.model.actorRefs", { input }),
   );
 
-  registerTerminalIpc(privilegedIpc, termPlane, {
+  // With the core in its own process the plane is the core's: main binds none.
+  registerTerminalIpc(privilegedIpc, TERM_PLANE_IN_THIS_PROCESS ? termPlane : undefined, {
     isTrustedSender: isTrustedMainWebContents,
     broadcast,
   });

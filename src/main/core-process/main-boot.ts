@@ -1,3 +1,7 @@
+import { hostOps } from "./host-ops";
+import { TERMINAL_CONNECT } from "../terminal-process/protocol";
+import type { TerminalProcessForCore } from "../terminal-process/host";
+import type {} from "../terminal-process/core-side";
 import type { ApplicationCaptureResult } from "../junto/overseer/native";
 import type { OverseerPages } from "../junto/overseer/pages";
 import type { CoreBoot } from "./entry";
@@ -31,6 +35,8 @@ export const startCoreProcessForMain = (input: {
   readonly clipboard: CompanionClipboard;
   /** Tests start a core over a MessageChannel instead of a utilityProcess. */
   readonly start?: (boot: CoreBoot) => PortCoreClient & { readonly stop: () => void; readonly postSurface?: (message: PortedCoreMessage, port: unknown) => boolean };
+  /** The terminal process the core's plane drives: main hands the core each port to it. */
+  readonly terminals?: TerminalProcessForCore;
 }): CoreProcessForMain => {
   const started = (input.start ?? startCoreProcess)(input.boot);
   useCoreClient(started);
@@ -42,9 +48,19 @@ export const startCoreProcessForMain = (input: {
   if (postSurface !== undefined) {
     useCoreSurfacePlane(coreSurfacePlane({ postSurface, onPush: started.onPush, call: (name, request) => started.call(name, request) }));
   }
+  // The core asks for its port to the terminal process as it boots, and is
+  // handed a new one each time the terminal process starts again.
+  const terminals = input.terminals;
+  const giveTerminals = (): boolean =>
+    terminals !== undefined && postSurface !== undefined &&
+    postSurface({ kind: "push", channel: TERMINAL_CONNECT, payload: {} }, terminals.connect());
+  const stopTerminalHost = hostOps({ "terminal.connect": async () => giveTerminals() });
+  const stopRestart = terminals?.onRestart(() => void giveTerminals()) ?? (() => undefined);
   return {
     client: started,
     stop: () => {
+      stopRestart();
+      stopTerminalHost();
       useCoreSurfacePlane(undefined);
       stopClipboard();
       stopHost();

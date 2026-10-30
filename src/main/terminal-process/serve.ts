@@ -104,6 +104,7 @@ export const serveTerminals = (
   readonly live: () => number;
   /** A surface port arrived with its `pty.surface` message. */
   readonly openSurface: (open: TerminalSurfaceOpen, surface: SurfacePort) => void;
+  readonly lost: () => void;
 } => {
   const ptys = new Map<number, IPty>();
   // Taken at spawn; a PTY whose epoch could not be read is never signalled.
@@ -322,5 +323,10 @@ export const serveTerminals = (
     }
   });
 
-  return { close, live: () => ptys.size, openSurface };
+  /** The core on this port is gone: every PTY it held is hung up, as its terminal closing would. */
+  const lost = (): void => {
+    for (const id of [...ptys.keys()]) inbound(TerminalInbound.kill, { id, signal: "SIGHUP" } satisfies TerminalKill);
+  };
+
+  return { close, live: () => ptys.size, openSurface, lost };
 };

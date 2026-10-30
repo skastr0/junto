@@ -19,6 +19,8 @@ import { installCoreRunner } from "../core-runner";
 import { startWorkControlServer, type WorkControlServer } from "./work/control";
 import { workControlDir } from "@shared/work-control";
 import { startCoreSeats } from "./term/core-seats";
+import { connectCoreTerminals } from "../terminal-process/core-side";
+import { bindTermIpcPlane } from "../core-process/ops/term-ipc";
 import { startSeatSessions, type SeatSessions } from "./seat-sessions/start-seat-sessions";
 import { wireSeatReports } from "./term/agent-state/seat-reports";
 import { seatStateRuntime } from "./term/agent-state/runtime";
@@ -121,6 +123,7 @@ export const startCore = async (options: CoreOptions) => {
   let companion: CompanionService | undefined;
   let stopCompanion: (() => void) | undefined;
   let seatProcesses: Awaited<ReturnType<typeof startCoreSeats>> | undefined;
+  let unbindTermIpcPlane: (() => void) | undefined;
   let mail: Context.Service.Shape<typeof MachineCoreMail> | undefined;
   let sessions: SeatSessions | undefined;
   let stopSeatReports: (() => void) | undefined;
@@ -161,6 +164,7 @@ export const startCore = async (options: CoreOptions) => {
         const receipt = await canvas.close();
         if (!receipt.clean) throw new CoreDidNotDrain({ part: "canvas-edits", message: "Canvas edits did not drain; core state retained" });
       }
+      unbindTermIpcPlane?.();
       await seatProcesses?.close();
       overseer?.dispose();
       await overseerLive?.dispose();
@@ -206,7 +210,13 @@ export const startCore = async (options: CoreOptions) => {
     if (options.canvasControl === true) {
       canvas = await startCanvasControlServer({ home: options.home, run: effect => runtime.runPromise(effect) });
     }
+    // The core in its own process: one terminal plane, here, whose PTYs run in
+    // the terminal process over a port main hands it, never in this process.
+    const parent = (process as unknown as { parentPort?: Parameters<typeof connectCoreTerminals>[0] }).parentPort;
+    if (parent !== undefined) await connectCoreTerminals(parent);
     seatProcesses = await startCoreSeats({ home: options.home });
+    // The window's terminal ops ask this plane by name, and its events reach the window as core pushes.
+    if (parent !== undefined) unbindTermIpcPlane = bindTermIpcPlane(termPlane);
     const inventory = await runtime.runPromise(makeInventoryChannel());
     const nativeConfig = await runtime.runPromise(makeNativeConfigChannel());
     const settings = await runtime.runPromise(makeSettingsChannel());

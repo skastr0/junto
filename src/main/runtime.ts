@@ -17,7 +17,7 @@ import { termControlSocketPath } from "@shared/term-control";
 import { CodexLive, CodexService } from "./services/codex";
 import { AppInfoLive, AppInfoService } from "./services/app-info";
 import { ModelService } from "./junto/model/service";
-import { termPlane } from "./junto/term/plane";
+import { TERM_PLANE_IN_THIS_PROCESS, termPlane } from "./junto/term/plane";
 import {
   assessNativeTerminalDoctor,
   probeNativeTerminalReadiness,
@@ -129,7 +129,7 @@ export const buildDoctorReport = Effect.gen(function* () {
     { concurrency: "unbounded" },
   );
 
-  const running = termPlane.router.runningCount();
+  const running = TERM_PLANE_IN_THIS_PROCESS ? termPlane.router.runningCount() : 0;
   const sockOk = existsSync(termControlSocketPath());
   const nativeTerminalProbe = yield* Effect.promise(() =>
     probeNativeTerminalReadiness()

@@ -1013,6 +1013,8 @@ export class LocalSessionHost extends EventEmitter {
    * another viewer's retention.
    */
   private readonly surfaceLeases = new Map<string, string>();
+  /** An observe lease's first surface reads from the chunk after its attach screen. */
+  private readonly observeCursors = new Map<string, number>();
   /** One identity flight per live generation, so every waiter sees one `ps`. */
   private readonly seatIdentityFlights = new WeakMap<SessionRec, Promise<void>>();
   private readonly primeDaemons: PrimeAgentDaemons | undefined;
@@ -1796,6 +1798,8 @@ export class LocalSessionHost extends EventEmitter {
 
     const observeLeaseId = mintLease();
     this.retainSurfaceLease(observeLeaseId, rec.bindingId);
+    const observeFrom = surfaceChunkAfter(rec, screenForRec?.seq ?? journal.at(-1)?.seq ?? 0n);
+    if (observeFrom !== undefined) this.observeCursors.set(observeLeaseId, observeFrom);
     return {
       ok: true,
       lease: {
@@ -1835,13 +1839,14 @@ export class LocalSessionHost extends EventEmitter {
     // Surface retention is lease-scoped, never record-scoped: a session that
     // exited while a node was open must still give the scrollback back.
     this.releaseSurfaceLease(lease.leaseId);
+    this.observeCursors.delete(lease.leaseId);
     const rec = this.sessions.get(lease.bindingId);
     if (!rec) return;
     if (lease.mode === "control" && rec.controlLeaseId === lease.leaseId) {
       rec.controlLeaseId = undefined;
       this.syncSurface(rec);
     }
-    if (lease.mode === "control") rec.lease?.io.surface?.endSurface(lease.leaseId);
+    rec.lease?.io.surface?.endSurface(lease.leaseId);
   }
 
   /**
@@ -1862,13 +1867,19 @@ export class LocalSessionHost extends EventEmitter {
     const surface = rec?.lease?.io.surface;
     const fromSeq = rec === undefined
       ? undefined
-      : options.read === undefined
-        ? rec.surfaceCursor?.leaseId === lease.leaseId ? rec.surfaceCursor.fromSeq : undefined
-        : surfaceChunkAfter(rec, options.read);
+      : options.read !== undefined
+        ? surfaceChunkAfter(rec, options.read)
+        : lease.mode === "observe"
+          ? this.observeCursors.get(lease.leaseId)
+          : rec.surfaceCursor?.leaseId === lease.leaseId ? rec.surfaceCursor.fromSeq : undefined;
+    // An observe lease's port carries output only: the gate names control
+    // leases, so a key typed on it never reaches the PTY.
+    const current = lease.mode === "control"
+      ? rec?.controlLeaseId === lease.leaseId
+      : this.surfaceLeases.get(lease.leaseId) === lease.bindingId;
     if (
       rec === undefined || surface === undefined || fromSeq === undefined ||
-      lease.mode !== "control" || rec.controlLeaseId !== lease.leaseId ||
-      lease.epoch !== rec.epoch
+      !current || lease.epoch !== rec.epoch
     ) {
       port.close();
       return undefined;

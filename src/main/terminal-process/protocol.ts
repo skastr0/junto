@@ -9,6 +9,14 @@
  * it carries that id. Inputs and payloads are structured-clone data.
  */
 
+/**
+ * Main to the terminal process, with a port moved beside it: serve a core on
+ * it (the core in its own process). The PTYs spawned over a port live as long
+ * as it does: a core that goes takes its terminals with it, as a stopped main
+ * took its in-process PTYs.
+ */
+export const TERMINAL_CONNECT = "pty.connect";
+
 /** The one call: start a PTY. Answers its pid, or fails with the spawn's message. */
 export const TERMINAL_SPAWN = "pty.spawn";
 

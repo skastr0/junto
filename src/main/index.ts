@@ -42,7 +42,7 @@ import { appMenuTemplate } from "./junto/app-menu";
 import { appProcessBlocksAppExit, appProcessPlane, describeAppProcessStraggler } from "./junto/app-process-plane";
 import { AppRuntime, setMachineControlReadiness } from "./runtime";
 import { core } from "./core-process/main-client";
-import { startTerminalProcess, TERMINAL_PROCESS_ENABLED } from "./terminal-process/host";
+import { startTerminalProcess, startTerminalProcessForCore, TERMINAL_PROCESS_ENABLED } from "./terminal-process/host";
 import { useTerminalProcess } from "./terminal-process/use";
 import { subscribe as subscribeCore } from "./core-process/push";
 import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, COMPANION_DEVICES, SETTINGS_CHANGED, WORK_PREAMBLE, type CanvasChangedPush } from "./core-process/ops/main-index";
@@ -84,7 +84,7 @@ import {
   FILES_REMOTE_ENABLED,
   LIVE_OVERSEER_ENABLED,
 } from "@shared/features";
-import { termPlane, termPlaneBlocksAppExit } from "./junto/term/plane";
+import { TERM_PLANE_IN_THIS_PROCESS, termPlane, termPlaneBlocksAppExit } from "./junto/term/plane";
 import { configureTerminalRouterLayeredRunner, sshTransportRouterRunner } from "./junto/term/router";
 import { resolveBrowserPageTarget } from "./junto/browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./junto/browser/control";
@@ -463,6 +463,7 @@ let hostOperationsDrain:
   | Promise<Awaited<ReturnType<typeof hostOperationsShutdown.drainOnQuit>>>
   | undefined;
 let terminalProcess: ReturnType<typeof startTerminalProcess> | undefined;
+let terminalsForCore: ReturnType<typeof startTerminalProcessForCore> | undefined;
 let termPlaneShutdown: Promise<Awaited<ReturnType<typeof termPlane.drainOnQuit>>> | undefined;
 let adapterShutdown:
   | Promise<Awaited<ReturnType<typeof terminateAdapterChildrenOnQuit>>>
@@ -1365,7 +1366,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       return;
     }
     // PTYs spawn in their own process from here on (JUNTO_TERMINAL_PROCESS=1).
-    if (TERMINAL_PROCESS_ENABLED) {
+    // With the core in its own process, main serves no terminal: it hands the core a port to them.
+    if (TERMINAL_PROCESS_ENABLED && CORE_PROCESS_ENABLED) terminalsForCore = startTerminalProcessForCore();
+    else if (TERMINAL_PROCESS_ENABLED) {
       terminalProcess = startTerminalProcess();
       useTerminalProcess(terminalProcess);
     }
@@ -1568,6 +1571,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         pages: () => coreProcessPages,
         captureApplicationPage,
         clipboard: electronCompanionClipboard,
+        ...(terminalsForCore === undefined ? {} : { terminals: terminalsForCore }),
       });
       if (LIVE_OVERSEER_ENABLED) unregisterOverseerLiveIpc = registerOverseerLiveIpc(coreOverseerLive(core));
     } else {
@@ -2034,7 +2038,7 @@ const beginShutdownAdmission = (reason: string): void => {
   overseerComposition = undefined;
   workControl?.beginShutdown();
   hostOperationsShutdown.beginShutdown();
-  termPlane.beginShutdown(reason);
+  if (TERM_PLANE_IN_THIS_PROCESS) termPlane.beginShutdown(reason);
   appProcessPlane.beginShutdown();
 };
 
@@ -2203,6 +2207,8 @@ const formatTermPlaneRetention = (
     .join("; ");
 
 const requireCleanTermPlaneShutdown = async (reason: string): Promise<void> => {
+  // The core's plane drains in the core as it stops.
+  if (!TERM_PLANE_IN_THIS_PROCESS) return;
   const receipt = await (termPlaneShutdown ??= termPlane.drainOnQuit(reason));
   if (receipt.clean) return;
   // Bounded unclean receipts are observations, not permanent facts. Clear so
@@ -2272,6 +2278,7 @@ const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
   coreProcess = undefined;
   // Every PTY it held is drained above; the terminal process goes last.
   terminalProcess?.stop();
+  terminalsForCore?.stop();
 };
 
 const disposeRuntime = (): Promise<void> => {
@@ -2384,7 +2391,7 @@ const quiesceSignalRenderer = (generation: number): void => {
 
 const collectLiveWorkSnapshot = () =>
   assessLiveWork({
-    localTerminalSessionCount: termPlane.router.runningCount(),
+    localTerminalSessionCount: TERM_PLANE_IN_THIS_PROCESS ? termPlane.router.runningCount() : 0,
   });
 
 /** Cancel left the process with no UI — give the operator a surface back. */

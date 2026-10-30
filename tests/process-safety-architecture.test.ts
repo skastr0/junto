@@ -362,6 +362,9 @@ describe("machine-safety architecture", () => {
       "src/main/core-process/host.ts:child?.kill",
       // The same child, killed when it has not said core.ready by its boot deadline.
       "src/main/core-process/host.ts:forked.kill",
+      // The window's terminal kill, asked of the core's plane by name: the
+      // same owned-session stop through the router that term/ipc.ts made.
+      "src/main/core-process/ops/term-ipc.ts:plane.router.kill",
       "src/main/junto/app-process-plane.ts:forbidden-reference:child.kill",
       "src/main/junto/app-process-plane.ts:forbidden-reference:pty.kill",
       "src/main/junto/app-process-plane.ts:forbidden-reference:record.kill",
@@ -386,7 +389,6 @@ describe("machine-safety architecture", () => {
       // through the router, the same owned-session stop as terminal IPC.
       "src/main/junto/seat-sessions/rotate.ts:termPlane.router.kill",
       "src/main/junto/term/control-server.ts:host.kill",
-      "src/main/junto/term/ipc.ts:router.kill",
       "src/main/junto/term/router.ts:c.kill",
       "src/main/junto/term/router.ts:this.local.kill",
       // The one agent-seat stop the window and the owner commands share: a
@@ -404,6 +406,11 @@ describe("machine-safety architecture", () => {
       // The terminal utilityProcess, Electron's own child, stopped at quit after
       // the plane drained every PTY it held.
       "src/main/terminal-process/host.ts:child?.kill",
+      // The same, for the terminal process main forks for a core in its own process.
+      "src/main/terminal-process/host.ts:child?.kill",
+      "src/main/terminal-process/serve.ts:forbidden-reference:TerminalInbound.kill",
+      // A core that is gone: each PTY it held is hung up through the same
+      // epoch-checked signal path, never signalled by pid alone.
       "src/main/terminal-process/serve.ts:forbidden-reference:TerminalInbound.kill",
       "src/main/terminal-process/serve.ts:pty.kill",
     ]);
