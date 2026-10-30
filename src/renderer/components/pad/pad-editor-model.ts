@@ -109,7 +109,6 @@ export const HANDLE_VIEW_PX = 8;
  * more on screen. A bigger pad opens at its top left; zoom out by hand.
  */
 export const FIT_ZOOM_MIN = 0.6;
-export const SIDE_VIEW_PX = 5;
 export const HIT_VIEW_PX = 4;
 
 export type EditorKeyAction =
@@ -425,25 +424,6 @@ export const nearestSide = (shape: PadShape, point: PadPoint): PadSide => {
   return best;
 };
 
-export const sideHit = (
-  shape: PadShape,
-  point: PadPoint,
-  slop: number,
-): PadSide | undefined => {
-  const side = nearestSide(shape, point);
-  const onTop = Math.abs(point.y - shape.y) <= slop;
-  const onBottom = Math.abs(point.y - (shape.y + shape.h)) <= slop;
-  const onLeft = Math.abs(point.x - shape.x) <= slop;
-  const onRight = Math.abs(point.x - (shape.x + shape.w)) <= slop;
-  const inX = point.x >= shape.x - slop && point.x <= shape.x + shape.w + slop;
-  const inY = point.y >= shape.y - slop && point.y <= shape.y + shape.h + slop;
-  if (side === "top" && onTop && inX) return "top";
-  if (side === "bottom" && onBottom && inX) return "bottom";
-  if (side === "left" && onLeft && inY) return "left";
-  if (side === "right" && onRight && inY) return "right";
-  return undefined;
-};
-
 export const upsertShapePatch = (shape: PadShape): PadPatch => ({
   op: "upsert",
   layer: "shape",
@@ -685,7 +665,4 @@ export const shapeById = (pad: Pad, id: string): PadShape | undefined =>
 
 export const imageById = (pad: Pad, id: string): PadImage | undefined =>
   pad.images.find((image) => image.id === id);
-
-export const inkById = (pad: Pad, id: string): PadInk | undefined =>
-  pad.inks.find((ink) => ink.id === id);
 

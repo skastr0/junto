@@ -49,13 +49,6 @@ const canvasNow = (): Canvas => modelStore.canvasOf(state$.canvasName.peek());
 
 const liveNodeIds = (canvas: Canvas): string[] => [...canvas.nodes.keys()];
 
-/**
- * Opportunistic hotbar leases are **actors only** (crew role): a seat. Notes,
- * tasks, regions, pages and the rest never auto-lease. Operator fixed slots
- * (⌘1–9) remain unrestricted.
- */
-export const isLeaseActor = (node: Node | undefined): boolean => node?.kind === "agent";
-
 const leaseEligibleActorIds = (canvas: Canvas): Set<string> =>
   new Set(nodesOf(canvas, "agent").map((seat) => seat.id as string));
 

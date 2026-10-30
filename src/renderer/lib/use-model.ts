@@ -1,6 +1,6 @@
 import { use$ } from "@legendapp/state/react";
 import { useEffect } from "react";
-import type { Node, NodeKind, NodeOf, Wire } from "@shared/model";
+import type { Node, NodeKind, NodeOf } from "@shared/model";
 import type { Canvas } from "@shared/model/canvas";
 import { titleOf } from "@shared/model/title";
 import { getJuntoApi } from "./junto-api";
@@ -56,10 +56,6 @@ export const useNodeFieldOf = <K extends NodeKind, T>(
 ): T | undefined =>
   useNodeValue(canvas, id, (node) => (node?.kind === kind ? read(node as NodeOf<K>) : undefined));
 
-/** Node ids in paint order. Changes when a node is added, removed or restacked. */
-export const useNodeIds = (canvas: string): ReadonlyArray<string> =>
-  use$(modelStore.canvas$(canvas).nodeIds);
-
 /** A whole canvas, followed: its nodes and wires as the store has them now. */
 export const useCanvas = (canvas: string): Canvas =>
   use$(() => {
@@ -69,9 +65,3 @@ export const useCanvas = (canvas: string): Canvas =>
     return modelStore.canvasOf(canvas);
   });
 
-export const useWire = (canvas: string, id: string): Wire | undefined =>
-  use$(modelStore.wire$(canvas, id));
-
-/** Wire ids. Changes when a wire is added or removed. */
-export const useWireIds = (canvas: string): ReadonlyArray<string> =>
-  use$(modelStore.canvas$(canvas).wireIds);

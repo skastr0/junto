@@ -13,7 +13,7 @@
  */
 import type { NodeKind } from "@shared/model/kinds";
 import type { NodeId } from "@shared/physics/schema";
-import { matchMention, mentionKey, mentionLink, mentionedOnce, mentionsOf, type MentionRef } from "@shared/mention";
+import { mentionKey, mentionLink, mentionedOnce, mentionsOf, type MentionRef } from "@shared/mention";
 
 import type { MentionCandidate, MentionTrigger } from "@shared/mention-candidates";
 import { filterCandidates, triggerOf } from "@shared/mention-candidates";
@@ -27,10 +27,7 @@ export type DraftPiece =
 
 export type MentionDraft = ReadonlyArray<DraftPiece>;
 
-
 export const candidateKey = (candidate: Pick<MentionCandidate, "ref">): string => mentionKey(candidate.ref);
-
-export const EMPTY_DRAFT: MentionDraft = [];
 
 const pieceShown = (piece: DraftPiece): string => (piece.kind === "text" ? piece.text : piece.label);
 

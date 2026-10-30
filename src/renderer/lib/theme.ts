@@ -48,22 +48,12 @@ export const HUE_TEXT = {
 // active theme mode (dark/bright) in inline styles instead of freezing to
 // dark-mode hexes at module load. Canvas 2D consumers use themeFor(mode)
 // directly.
-export const GROUND = "var(--color-ground)";
 export const RAISE = "var(--color-raise)";
-export const RAISE_2 = "var(--color-raise-2)";
-export const INSET = "var(--color-inset)";
 export const WELL = "var(--color-well)";
 export const INK = "var(--color-ink)";
-export const INK_2 = "var(--color-ink-2)";
 export const DIM = "var(--color-dim)";
 export const FAINT = "var(--color-faint)";
 export const GREEN = "var(--color-green)";
-
-// Translucent card fill — ink at low alpha over the field.
-export const CARD_FILL = "var(--color-overlay-1)";
-export const CARD_FILL_HI = "var(--color-overlay-2)";
-export const STROKE = "var(--color-stroke)";
-export const STROKE_HI = "var(--color-stroke-hi)";
 
 // A node colour: a preset digit or hex. Palette colours
 // (shared/canvas-colors.ts) resolve to CSS variable references so they follow
@@ -100,7 +90,3 @@ export function withAlpha(color: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-// Per-source accent for entity chips / status dots. Live plane is hermes-only.
-export const SOURCE_HUE: Record<string, string> = {
-  hermes: "var(--color-orange)",
-};

@@ -94,7 +94,6 @@ export const parseNoteSurfaceId = (id: string): string | null =>
     ? id.slice(NOTE_SURFACE_PREFIX.length)
     : null;
 
-
 export const dock$ = observable({
   registry: initialWorkbenchState() as WorkbenchState,
   /** canonical junto:// ref -> display payload for browser slots. */
@@ -576,4 +575,3 @@ export const stopDockBrowser = async (ref: string): Promise<boolean> => {
   }
 };
 
-export const dockSurfaces = (): ReadonlyArray<WorkSurface> => dock$.registry.peek().surfaces;

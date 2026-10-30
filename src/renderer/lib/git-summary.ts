@@ -131,9 +131,6 @@ export const closeSeatGitDetail = (nodeId: string): void => {
 /** Whether the git detail is open for this seat. */
 export const useSeatGitDetailOpen = (nodeId: string): boolean => use$(() => detailSeat$.get() === nodeId);
 
-/** How many folders are being read right now; zero when nothing shows git. */
-export const watchedGitFolders = (): number => watches.size;
-
 /** The live summary for a folder while this component is mounted. */
 export const useGitSummary = (folder: string | undefined): GitSummary | undefined => {
   useEffect(() => (folder ? retainGitSummary(folder) : undefined), [folder]);

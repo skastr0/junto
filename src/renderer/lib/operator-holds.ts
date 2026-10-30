@@ -37,7 +37,3 @@ export const reportOperatorTyped = (bindingId: string, now: number = Date.now())
   if (typeof report === "function") void report(bindingId).catch(() => undefined);
 };
 
-/** Test helper: forget when each binding's typing was last told. */
-export const resetOperatorTypedReports = (): void => {
-  lastTypedReport.clear();
-};

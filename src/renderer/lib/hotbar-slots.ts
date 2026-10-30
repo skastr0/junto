@@ -76,14 +76,8 @@ export type HotbarSlots = typeof HotbarSlots.Type;
 export const emptyHotbarSlots = (): HotbarSlot[] =>
   Array.from({ length: HOTBAR_SLOT_COUNT }, () => ({ kind: "empty" as const }));
 
-export const isEmptySlot = (slot: HotbarSlot): slot is EmptyHotbarSlot =>
-  slot.kind === "empty";
-
 export const isFixedSlot = (slot: HotbarSlot): slot is FixedHotbarSlot =>
   slot.kind === "fixed";
-
-export const isGroupSlot = (slot: HotbarSlot): slot is GroupHotbarSlot =>
-  slot.kind === "group";
 
 /** Operator-owned: fixed or group. Leases never displace these. */
 export const isOperatorSlot = (
@@ -96,12 +90,6 @@ export type SingleHotbarSlot = FixedHotbarSlot | LeasedHotbarSlot | EvictedHotba
 /** A slot that holds exactly one node (fixed, leased, or evicted). */
 export const isSingleSlot = (slot: HotbarSlot): slot is SingleHotbarSlot =>
   slot.kind === "fixed" || slot.kind === "leased" || slot.kind === "evicted";
-
-export const isLeasedSlot = (slot: HotbarSlot): slot is LeasedHotbarSlot =>
-  slot.kind === "leased";
-
-export const isEvictedSlot = (slot: HotbarSlot): slot is EvictedHotbarSlot =>
-  slot.kind === "evicted";
 
 /** Soft-hold or empty — new opportunistic leases may take this index. */
 export const isFillableSlot = (slot: HotbarSlot): boolean =>
@@ -182,17 +170,6 @@ export function assignFixedSlot(
   );
   const next = [...cleared];
   next[clamped] = { kind: "fixed", nodeId };
-  return padSlots(next);
-}
-
-/** Clear one index to empty (operator unassign / lease drop). */
-export function clearHotbarSlotAt(
-  slots: ReadonlyArray<HotbarSlot>,
-  slotIndex: number,
-): HotbarSlot[] {
-  const clamped = Math.max(0, Math.min(HOTBAR_SLOT_COUNT - 1, slotIndex));
-  const next = [...slots];
-  next[clamped] = { kind: "empty" };
   return padSlots(next);
 }
 

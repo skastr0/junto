@@ -210,10 +210,3 @@ export const workFocusSizeKeyForSurfaces = (
 export const focusChromeVisible = (state: WorkbenchState): boolean =>
   state.surfaces.length > 1 && workFocusSizeKeyForSurfaces(state.surfaces) !== "terminal";
 
-export const workbenchInteractiveSurface = (
-  state: WorkbenchState,
-): WorkSurface | undefined => state.surfaces.find((s) => isInteractiveSurface(s.kind));
-
-export const workbenchBrowserSurfaces = (
-  state: WorkbenchState,
-): ReadonlyArray<WorkSurface> => state.surfaces.filter((s) => s.kind === "browser");

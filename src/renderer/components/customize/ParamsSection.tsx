@@ -9,7 +9,7 @@ import {
   sanitizeExtraArgs,
   type HarnessHelpFlag,
 } from "@shared/launch-extra-args";
-import { isHarnessId, templateFor, type HarnessId } from "@shared/managed-terminal-templates";
+import { templateFor, type HarnessId } from "@shared/managed-terminal-templates";
 import { paramSpec, type HarnessParams } from "@shared/harness-domain";
 import { HARNESS_RECORDS } from "@shared/harness-records";
 import {
@@ -462,6 +462,3 @@ export function StartParamsToolbarAction({ seatId }: { readonly seatId: string }
   );
 }
 
-/** True when the node is a managed seat whose harness is a known template. */
-export const hasStartParams = (harness: string | undefined): boolean =>
-  harness !== undefined && isHarnessId(harness);

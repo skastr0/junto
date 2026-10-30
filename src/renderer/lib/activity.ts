@@ -92,11 +92,3 @@ export function browserActivity(input: {
   return { mode: "static", tone: SEVERITY_TONE.idle, label: "idle" };
 }
 
-export function loadingActivity(
-  loading: boolean,
-  label = "loading",
-): ActivitySpec {
-  return loading
-    ? { mode: "wave", tone: SEVERITY_TONE.working, label }
-    : { mode: "static", tone: SEVERITY_TONE.idle, label: "ready" };
-}

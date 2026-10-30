@@ -128,7 +128,6 @@ export const closeSeatCollaboration = (nodeId: string): void => {
 export const SEAT_COLLABORATION_HEADING = "collaboration";
 export const SEAT_COLLABORATION_IDLE_WHY = "connected and idle";
 export const SEAT_COLLABORATION_ASK_PREFIX = "Ask";
-export const SEAT_COLLABORATION_ASKED_LINE = "asked";
 export const SEAT_COLLABORATION_ANSWERED_LINE = "answered";
 export const SEAT_COLLABORATION_WAITING_LINE = "waiting for a reply";
 export const SEAT_COLLABORATION_UNAVAILABLE_LINE =

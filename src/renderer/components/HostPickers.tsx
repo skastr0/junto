@@ -5,63 +5,11 @@ import { useEffect, useState } from "react";
 import type { BrowserProfileInfo, JuntoApi, JuntoBrowserApi, JuntoTerminalApi } from "@shared/ipc";
 import { Select } from "./ui";
 import { getJuntoApi } from "../lib/junto-api";
-import { loadSetUpMachines, machineLabel } from "../lib/machines";
-import { state$ } from "../lib/state";
 
 type HostOpt = { readonly value: string; readonly label: string };
 type BrowserApi = (JuntoApi & Partial<JuntoTerminalApi> & Partial<JuntoBrowserApi>) | undefined;
 
 /** Why the machine a row already names is not among the ones offered. */
-const whyNotOffered = (name: string): string =>
-  state$.machines.peek().some((machine) => machine.id === name) ? "not set up" : "not in your machines";
-
-export function MachineSelect({
-  value,
-  onChange,
-  ariaLabel,
-  dense = true,
-  placeholder = "Choose a machine",
-}: {
-  readonly value: string;
-  readonly onChange: (hostId: string) => void;
-  readonly ariaLabel: string;
-  readonly dense?: boolean;
-  readonly placeholder?: string;
-}) {
-  const [options, setOptions] = useState<ReadonlyArray<HostOpt>>([]);
-
-  useEffect(() => {
-    let current = true;
-    // Only a machine that is set up can be chosen.
-    void loadSetUpMachines().then((machines) => {
-      if (!current) return;
-      const offered = machines
-        .map((machine) => ({ value: machine.id, label: machine.label.trim() || machine.id }));
-      setOptions(
-        value && !offered.some((option) => option.value === value)
-          ? [{ value, label: `${machineLabel(value)} (${whyNotOffered(value)})` }, ...offered]
-          : offered,
-      );
-    });
-    return () => {
-      current = false;
-    };
-  }, [value]);
-
-  // A machine is always a real name when set. Empty means not chosen yet
-  // (the placeholder), never a "none" option.
-  return (
-    <Select
-      dense={dense}
-      aria-label={ariaLabel}
-      value={value}
-      options={options}
-      placeholder={placeholder}
-      onChange={onChange}
-    />
-  );
-}
-
 export function BrowserProfileSelect({
   value,
   onChange,

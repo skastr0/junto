@@ -561,4 +561,3 @@ export const canvasPerformance = {
   recordProcessSample: (sample: Omit<ProcessSample, "atMs"> & { readonly atMs?: number }): void => activeRecorder?.recordProcessSample(sample),
 };
 
-export const performanceDelta = subtract;

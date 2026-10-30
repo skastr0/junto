@@ -18,7 +18,7 @@ import { useEffect, useRef, useState } from "react";
 import { Result, Schema } from "effect";
 import { canonicalJson } from "@shared/work-canonical-json";
 import type { ContentRef } from "@shared/content";
-import { type ArtifactBody, type ArtifactOp, ruleArtifactEdit, type ArtifactVersion, type ArtifactVersionRecord } from "@shared/artifact";
+import { type ArtifactBody, type ArtifactOp, ruleArtifactEdit, type ArtifactVersionRecord } from "@shared/artifact";
 import {
   artifactDomain,
   type ArtifactEntry,
@@ -55,9 +55,7 @@ export type ArtifactRuling = ArtifactApplyOutcome;
 /** Where the node reads and writes artifacts: main's API, or the stand-in with the same shape. */
 export type ArtifactsSource = ArtifactResourceApi;
 
-
 export type { ArtifactPendingWrite };
-
 
 /** Rule one op under a fresh op id. `artifactId` is the artifact; on `create` the caller mints it. */
 export const applyArtifactOp = (
@@ -66,7 +64,6 @@ export const applyArtifactOp = (
   artifactId: ItemId,
   op: ArtifactOp,
 ): Promise<ArtifactRuling> => artifactsSource().apply(canvasName, nodeId, artifactId, mintOpId(), op);
-
 
 /**
  * The stand-in's body ref: a 256-bit FNV-1a digest of the canonical body,
@@ -273,10 +270,6 @@ const NONE: ReadonlyArray<never> = [];
 
 export const useNodeArtifacts = (canvasName: string, nodeId: NodeId): ReadonlyArray<ArtifactHead> =>
   useSourced(() => artifactsSource().list(canvasName, nodeId), NONE, canvasName, nodeId);
-
-/** The node's artifacts once read, undefined until then: "none there" told apart from "not read yet". */
-export const useNodeArtifactsRead = (canvasName: string, nodeId: NodeId): ReadonlyArray<ArtifactHead> | undefined =>
-  useSourced<ReadonlyArray<ArtifactHead> | undefined>(() => artifactsSource().list(canvasName, nodeId), undefined, canvasName, nodeId);
 
 /**
  * How many live (unarchived) artifacts a node holds, for its card's glance.

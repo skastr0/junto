@@ -68,10 +68,6 @@ export const settingsMachineIn = (
 /** Show `name` on every machine-scoped Settings page. */
 export const chooseSettingsMachine = (name: string): void => chosen$.set(name);
 
-/** The machine shown, as of now. */
-export const settingsMachine = (): SettingsMachine =>
-  settingsMachineIn(chosen$.peek(), state$.machines.peek(), state$.machineFacts.peek(), state$.settings.machine.name.peek());
-
 /** The machine shown, kept current. */
 export const useSettingsMachine = (): SettingsMachine => {
   const chosen = use$(chosen$);

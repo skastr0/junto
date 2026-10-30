@@ -51,17 +51,6 @@ export const mailDeliveryOf = (message: Message): MailDelivery =>
 export const mailDeliveryLabel = (delivery: MailDelivery): string =>
   delivery === "delivered" ? "delivered" : "waiting for seat";
 
-export const mailKindLabel = (kind: MailKind): string => {
-  switch (kind) {
-    case "notice":
-      return "notice";
-    case "prompt":
-      return "prompt";
-    case "receipt":
-      return "receipt";
-  }
-};
-
 export const mailEvidenceLabel = (ref: MailEvidenceRef): string => {
   switch (ref.kind) {
     case "commit":

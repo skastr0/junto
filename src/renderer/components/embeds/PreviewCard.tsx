@@ -15,9 +15,6 @@ const S = SeatUrgency.group;
 /** The box a pad card starts at; the host may resize it, and the card fills whatever it is given. */
 export const PREVIEW_CARD_BOX = { width: 288, height: 72 } as const;
 
-/** The block embed's one height, every kind and every load state alike: a document lays it out once. */
-export const PREVIEW_BLOCK_HEIGHT = 72;
-
 export type PreviewCardSize = "block" | "card";
 
 export type PreviewCardProps = PreviewCardFace & {

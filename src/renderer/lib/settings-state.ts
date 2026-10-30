@@ -128,4 +128,3 @@ export const setMachinePreferences = async (machine: MachinePreferencesPatch): P
   }
 };
 
-export const settingsSnapshot = (): Settings => state$.settings.peek();

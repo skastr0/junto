@@ -25,10 +25,6 @@ export const sectionOpen = (
   map: SectionOpenMap = sidebarSections$.open.peek(),
 ): boolean => map[key] ?? fallback;
 
-export const setSectionOpen = (key: string, open: boolean): void => {
-  sidebarSections$.open[key].set(open);
-};
-
 export const requestSectionReveal = (nodeId: string, section: string): void => {
   sidebarSections$.reveal.set({ nodeId, section });
 };
