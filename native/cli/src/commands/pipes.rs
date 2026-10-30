@@ -5,8 +5,7 @@
 
 use std::process::ExitCode;
 
-use super::Pending;
-
+mod companion;
 mod content_transfer;
 mod link;
 
@@ -18,8 +17,8 @@ pub fn link(args: &[&str]) -> ExitCode {
     link::run(args)
 }
 
-pub fn companion_stdio(_args: &[&str]) -> ExitCode {
-    Pending::refuse("companion-stdio")
+pub fn companion_stdio(args: &[&str]) -> ExitCode {
+    companion::run(args)
 }
 
 pub fn content_transfer(args: &[&str]) -> ExitCode {

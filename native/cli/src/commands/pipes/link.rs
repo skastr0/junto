@@ -28,7 +28,10 @@ impl Opener {
 
     /// The one first line, before any byte from the far end.
     fn line(&self) -> String {
-        format!("{}\n", serde_json::json!({ "type": "opener", "installationId": self.0 }))
+        format!(
+            "{}\n",
+            serde_json::json!({ "type": "opener", "installationId": self.0 })
+        )
     }
 }
 
@@ -61,7 +64,7 @@ pub fn run(args: &[&str]) -> ExitCode {
 /// ending ends the socket's write half; the far end closing ends the relay.
 fn relay(path: &std::path::Path, opener: Option<&Opener>) -> io::Result<()> {
     let mut socket = UnixStream::connect(path)
-        .map_err(|e| io::Error::new(e.kind(), format!("connect {e} {}", path.display())))?;
+        .map_err(|e| io::Error::new(e.kind(), format!("connect {} {}", wire::errno_name(&e), path.display())))?;
     if let Some(opener) = opener {
         socket.write_all(opener.line().as_bytes())?;
     }
@@ -102,7 +105,13 @@ mod tests {
     fn reads_the_opener_from_argv_alone() {
         assert!(matches!(parse(&[]), Ok(None)));
         assert!(matches!(parse(&["--opener", "inst-1.a:b_c"]), Ok(Some(_))));
-        for bad in [&["--opener"][..], &["--opener", ""], &["--opener", "-x"], &["x"], &["--opener", "a", "b"]] {
+        for bad in [
+            &["--opener"][..],
+            &["--opener", ""],
+            &["--opener", "-x"],
+            &["x"],
+            &["--opener", "a", "b"],
+        ] {
             assert!(parse(bad).is_err(), "{bad:?}");
         }
         assert!(Opener::parse(&"a".repeat(129)).is_none());
