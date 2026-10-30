@@ -61,19 +61,30 @@ export const TerminalSurface = {
   open: "pty.surface",
   /** Core to terminal process: the lease ended; close its port. */
   close: "pty.surfaceEnd",
-  /** Core to terminal process: whether keys may reach the PTY at all. */
+  /** Core to terminal process: the one lease whose keys may reach the PTY, or none. */
   gate: "pty.gate",
   /** Core to terminal process: a managed submission span holds keys; they replay at release. */
   hold: "pty.hold",
+  /** Terminal process to core: a key arrived from a surface, before any gate decided it. */
+  typing: "pty.typing",
   /** Terminal process to core: a key reached the PTY from a surface. */
   input: "pty.input",
 } as const;
 
-export type TerminalSurfaceOpen = { readonly id: number; readonly leaseId: string; readonly fromSeq: number };
+/** A control lease as the gate names it: the lease and the generation it controls. */
+export type SurfaceLease = { readonly leaseId: string; readonly epoch: number };
+
+export type TerminalSurfaceOpen = SurfaceLease & { readonly id: number; readonly fromSeq: number };
 export type TerminalSurfaceClose = { readonly id: number; readonly leaseId: string };
-export type TerminalGate = { readonly id: number; readonly writable: boolean };
+/**
+ * Each key is checked against the controlling lease, as the in-process write
+ * is (local-host.ts write): a takeover is one gate push, and a stale or second
+ * surface writes nothing even before its port is closed.
+ */
+export type TerminalGate = { readonly id: number; readonly lease: SurfaceLease | null };
 export type TerminalHold = { readonly id: number; readonly held: boolean };
-export type TerminalInput = { readonly id: number; readonly data: string };
+/** `pty.typing` and `pty.input` alike: which lease sent what. */
+export type TerminalInput = { readonly id: number; readonly leaseId: string; readonly data: string };
 
 /** On a surface port: the terminal process to the renderer. */
 export type SurfaceOut =

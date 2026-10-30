@@ -1,9 +1,11 @@
 /**
  * Surface ports in the terminal process (phase 3): a key from a surface port
  * reaches the PTY and its echo comes back on the same port, with nothing on
- * the core's side in between, and the core hears the key after it landed.
- * The core's gate is closed until it opens it; a held span queues keys and
- * writes them in order at release; a closed gate drops what was held. A
+ * the core's side in between. The core hears every key as it arrives,
+ * refused ones included, and again once it landed. Only the lease the core's
+ * gate names writes, key by key: closed until named, a second or stale lease
+ * dropped. A held span queues keys and writes them in order at release, each
+ * checked again; a closed gate drops what was held. A
  * surface opened late is given the output it missed from the ring, or told
  * there is a gap; an exit or a lease end closes it. Real PTYs.
  */
@@ -47,14 +49,17 @@ const setup = (spawnPty: SpawnPty = realPty) => {
   opened.push(port1, port2);
   const served = serveTerminals(portOf(port2), spawnPty);
   const inputs: string[] = [];
+  const typing: string[] = [];
   port1.on("message", (message: CoreMessage) => {
-    if (message.kind === "push" && message.channel === TerminalSurface.input) inputs.push((message.payload as TerminalInput).data);
+    if (message.kind !== "push") return;
+    if (message.channel === TerminalSurface.input) inputs.push((message.payload as TerminalInput).data);
+    if (message.channel === TerminalSurface.typing) typing.push((message.payload as TerminalInput).data);
   });
-  return { served, client: terminalClient(portOf(port1)), inputs };
+  return { served, client: terminalClient(portOf(port1)), inputs, typing };
 };
 
 /** The renderer's end: everything the surface was sent, and a way to type. */
-const surface = (served: ReturnType<typeof setup>["served"], id: number, leaseId: string, fromSeq = 1) => {
+const surface = (served: ReturnType<typeof setup>["served"], id: number, leaseId: string, fromSeq = 1, epoch = 1) => {
   const { port1, port2 } = new MessageChannel();
   opened.push(port1, port2);
   const far: SurfacePort = {
@@ -67,13 +72,15 @@ const surface = (served: ReturnType<typeof setup>["served"], id: number, leaseId
   };
   const seen: SurfaceOut[] = [];
   port1.on("message", (message: SurfaceOut) => seen.push(message));
-  served.openSurface({ id, leaseId, fromSeq }, far);
+  served.openSurface({ id, leaseId, epoch, fromSeq }, far);
   return {
     seen,
     text: () => seen.flatMap((message) => (message.t === "out" ? [message.data] : [])).join(""),
     type: (data: string) => port1.postMessage({ t: "in", data }),
   };
 };
+
+const lease1 = { leaseId: "lease-1", epoch: 1 };
 
 const env = { PATH: process.env.PATH, TERM: "xterm-256color" };
 const cat = (client: ReturnType<typeof setup>["client"]) => client.spawn({ command: "/bin/cat", args: [], cols: 80, rows: 24, env });
@@ -83,7 +90,7 @@ describe("surface ports in the terminal process", () => {
     const { served, client, inputs } = setup();
     const pty = cat(client);
     await pty.pid;
-    pty.gate(true);
+    pty.gate(lease1);
     await settle();
     const lead = surface(served, pty.id, "lease-1");
     lead.type("hello\r");
@@ -103,7 +110,7 @@ describe("surface ports in the terminal process", () => {
     await settle();
     expect(lead.text()).toBe("");
     expect(inputs).toEqual([]);
-    pty.gate(true);
+    pty.gate(lease1);
     // The gate and the key cross different ports; a key wins no race to it.
     await settle();
     lead.type("after\r");
@@ -116,7 +123,7 @@ describe("surface ports in the terminal process", () => {
     const { served, client, inputs } = setup();
     const pty = cat(client);
     await pty.pid;
-    pty.gate(true);
+    pty.gate(lease1);
     pty.hold(true);
     await settle();
     const lead = surface(served, pty.id, "lease-1");
@@ -134,16 +141,81 @@ describe("surface ports in the terminal process", () => {
     const { served, client, inputs } = setup();
     const pty = cat(client);
     await pty.pid;
-    pty.gate(true);
+    pty.gate(lease1);
     pty.hold(true);
     await settle();
     const lead = surface(served, pty.id, "lease-1");
     lead.type("held\r");
     await settle();
-    pty.gate(false);
+    pty.gate(null);
     pty.hold(false);
     await settle();
     expect(lead.text()).toBe("");
+    expect(inputs).toEqual([]);
+    pty.kill("SIGKILL");
+  });
+
+  it("a second lease on an open gate writes nothing, and the core still hears it type", async () => {
+    const { served, client, inputs, typing } = setup();
+    const pty = cat(client);
+    await pty.pid;
+    pty.gate(lease1);
+    await settle();
+    const lead = surface(served, pty.id, "lease-1");
+    const other = surface(served, pty.id, "lease-2");
+    other.type("intruder\r");
+    lead.type("owner\r");
+    await until(() => lead.text().includes("owner"));
+    await settle();
+    expect(lead.text()).not.toContain("intruder");
+    expect(inputs).toEqual(["owner\r"]);
+    expect(typing).toEqual(expect.arrayContaining(["intruder\r", "owner\r"]));
+    pty.kill("SIGKILL");
+  });
+
+  it("a lease of another generation writes nothing", async () => {
+    const { served, client, inputs } = setup();
+    const pty = cat(client);
+    await pty.pid;
+    pty.gate(lease1);
+    await settle();
+    const stale = surface(served, pty.id, "lease-1", 1, 0);
+    stale.type("stale\r");
+    await settle();
+    expect(inputs).toEqual([]);
+    pty.kill("SIGKILL");
+  });
+
+  it("a held key from a lease that lost control is dropped at release", async () => {
+    const { served, client, inputs, typing } = setup();
+    const pty = cat(client);
+    await pty.pid;
+    pty.gate(lease1);
+    pty.hold(true);
+    await settle();
+    const lead = surface(served, pty.id, "lease-1");
+    const next = surface(served, pty.id, "lease-2");
+    lead.type("from the old lease\r");
+    await until(() => typing.length === 1);
+    // Taken over while the span held the key.
+    pty.gate({ leaseId: "lease-2", epoch: 1 });
+    pty.hold(false);
+    await settle();
+    next.type("from the new lease\r");
+    await until(() => next.text().includes("from the new lease"));
+    expect(next.text()).not.toContain("old lease");
+    expect(inputs).toEqual(["from the new lease\r"]);
+    pty.kill("SIGKILL");
+  });
+
+  it("a refused key still reaches the core as typing", async () => {
+    const { served, client, inputs, typing } = setup();
+    const pty = cat(client);
+    await pty.pid;
+    const lead = surface(served, pty.id, "lease-1");
+    lead.type("x");
+    await until(() => typing.length === 1);
+    expect(typing).toEqual(["x"]);
     expect(inputs).toEqual([]);
     pty.kill("SIGKILL");
   });
@@ -152,7 +224,7 @@ describe("surface ports in the terminal process", () => {
     const { served, client } = setup();
     const pty = client.spawn({ command: "/bin/sh", args: ["-c", "printf early; read go; printf late"], cols: 80, rows: 24, env });
     await pty.pid;
-    pty.gate(true);
+    pty.gate(lease1);
     const first = surface(served, pty.id, "lease-1");
     await until(() => first.text().includes("early"));
     const late = surface(served, pty.id, "lease-2", 1);

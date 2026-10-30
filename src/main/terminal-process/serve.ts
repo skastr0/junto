@@ -19,6 +19,7 @@ import {
   type TerminalHold,
   type TerminalSurfaceClose,
   type TerminalSurfaceOpen,
+  type SurfaceLease,
 } from "./protocol";
 
 /**
@@ -73,17 +74,18 @@ export const SURFACE_RING_BYTES = 256 * 1024;
 type Chunk = { readonly seq: number; readonly data: string };
 
 /**
- * A PTY's surfaces. Keys reach the PTY only while the core's gate is open; a
- * managed submission span holds them, and they reach it in order at release.
- * Gates start closed: no key is written before the core has said it may be.
+ * A PTY's surfaces. A key reaches the PTY only from the lease the core's gate
+ * names, checked key by key; a managed submission span holds keys, and each
+ * is checked again at release, in order. Gates start closed: no key is
+ * written before the core has named a lease.
  */
 type Surfaces = {
   seq: number;
   ring: Chunk[];
   ringBytes: number;
-  writable: boolean;
+  controller: SurfaceLease | null;
   held: boolean;
-  readonly heldKeys: string[];
+  readonly heldKeys: Array<SurfaceLease & { readonly data: string }>;
   readonly open: Map<string, { readonly port: SurfacePort; readonly stop: () => void }>;
 };
 
@@ -106,12 +108,14 @@ export const serveTerminals = (
   const push = (channel: string, payload: TerminalData | TerminalExitEvent | TerminalError): void =>
     port.post({ kind: "push", channel, payload });
 
-  const keyed = (id: number, data: string): void => {
+  const keyed = (id: number, from: SurfaceLease, data: string): void => {
     const pty = ptys.get(id);
     const surfaces = surfacesOf.get(id);
-    if (pty === undefined || surfaces === undefined || !surfaces.writable) return;
+    if (pty === undefined || surfaces === undefined) return;
+    const controller = surfaces.controller;
+    if (controller === null || controller.leaseId !== from.leaseId || controller.epoch !== from.epoch) return;
     if (surfaces.held) {
-      surfaces.heldKeys.push(data);
+      surfaces.heldKeys.push({ ...from, data });
       return;
     }
     try {
@@ -120,7 +124,7 @@ export const serveTerminals = (
       return push(TerminalOutbound.error, { id, message: errorMessage(error) });
     }
     // The core keeps the input clock; the key itself never waited for it.
-    port.post({ kind: "push", channel: TerminalSurface.input, payload: { id, data } });
+    port.post({ kind: "push", channel: TerminalSurface.input, payload: { id, leaseId: from.leaseId, data } });
   };
 
   const endSurface = (surfaces: Surfaces, leaseId: string): void => {
@@ -156,7 +160,11 @@ export const serveTerminals = (
     if (open.fromSeq < oldest && open.fromSeq <= surfaces.seq) surface.post({ t: "gap" });
     else for (const chunk of surfaces.ring) if (chunk.seq >= open.fromSeq) surface.post({ t: "out", ...chunk });
     const stop = surface.listen((message) => {
-      if (message.t === "in") keyed(open.id, message.data);
+      if (message.t !== "in") return;
+      // Operator presence is the signal, not delivery: the core hears every
+      // key as it arrives, a refused or held one included, before any gate.
+      port.post({ kind: "push", channel: TerminalSurface.typing, payload: { id: open.id, leaseId: open.leaseId, data: message.data } });
+      keyed(open.id, open, message.data);
     });
     surfaces.open.set(open.leaseId, { port: surface, stop });
   };
@@ -176,7 +184,7 @@ export const serveTerminals = (
     });
     ptys.set(input.id, pty);
     epochOf.set(input.id, epochs.capture(pty.pid).catch(() => undefined));
-    surfacesOf.set(input.id, { seq: 0, ring: [], ringBytes: 0, writable: false, held: false, heldKeys: [], open: new Map() });
+    surfacesOf.set(input.id, { seq: 0, ring: [], ringBytes: 0, controller: null, held: false, heldKeys: [], open: new Map() });
     // The exit witness first, then the stream, as the plane installs them.
     pty.onExit(({ exitCode, signal }) => {
       ptys.delete(input.id);
@@ -212,12 +220,12 @@ export const serveTerminals = (
       return;
     }
     if (channel === TerminalSurface.gate) {
-      const { id, writable } = payload as TerminalGate;
+      const { id, lease } = payload as TerminalGate;
       const surfaces = surfacesOf.get(id);
       if (surfaces === undefined) return;
-      surfaces.writable = writable;
+      surfaces.controller = lease;
       // A closed gate drops what a span was holding; nothing may reach the PTY.
-      if (!writable) surfaces.heldKeys.length = 0;
+      if (lease === null) surfaces.heldKeys.length = 0;
       return;
     }
     if (channel === TerminalSurface.hold) {
@@ -225,7 +233,8 @@ export const serveTerminals = (
       const surfaces = surfacesOf.get(id);
       if (surfaces === undefined) return;
       surfaces.held = held;
-      if (!held) for (const data of surfaces.heldKeys.splice(0)) keyed(id, data);
+      // Each held key is checked again: its lease may have lost control.
+      if (!held) for (const { data, ...from } of surfaces.heldKeys.splice(0)) keyed(id, from, data);
       return;
     }
     if (channel === TerminalSurface.close) {

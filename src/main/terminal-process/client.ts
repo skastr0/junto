@@ -10,6 +10,7 @@ import {
   type TerminalExitEvent,
   type TerminalSpawnInput,
   type TerminalSpawnOutput,
+  type SurfaceLease,
 } from "./protocol";
 
 /**
@@ -32,8 +33,8 @@ export type RemoteTerminal = {
   readonly onData: (listener: (data: string) => void) => () => void;
   readonly onExit: (listener: (event: RemoteTerminalExit) => void) => () => void;
   readonly onError: (listener: (error: Error) => void) => () => void;
-  /** Phase 3: whether keys from a surface may reach the PTY. Closed until said. */
-  readonly gate: (writable: boolean) => void;
+  /** Phase 3: the one lease whose surface keys may reach the PTY, or none. Closed until said. */
+  readonly gate: (lease: SurfaceLease | null) => void;
   /** Phase 3: a managed span holds surface keys; release writes them in order. */
   readonly hold: (held: boolean) => void;
   /** Phase 3: a lease ended; its surface port closes. */
@@ -129,7 +130,7 @@ export const terminalClient = (port: CorePort): TerminalClient => {
         onData: subscribe(id, (terminal) => terminal.data),
         onExit: subscribe(id, (terminal) => terminal.exit),
         onError: subscribe(id, (terminal) => terminal.error),
-        gate: (writable) => post(TerminalSurface.gate, { id, writable }),
+        gate: (lease) => post(TerminalSurface.gate, { id, lease }),
         hold: (held) => post(TerminalSurface.hold, { id, held }),
         endSurface: (leaseId) => post(TerminalSurface.close, { id, leaseId }),
       };
