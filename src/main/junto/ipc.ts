@@ -119,10 +119,7 @@ import { clipboardFormatsAreSafeForGrok } from "./term/drive/clipboard-safe";
 import {
   isLiveClaudeResumeSummaryChoice,
 } from "./term/drive/claude-startup";
-import {
-  rulePackFor,
-  seatStateRuntime,
-} from "./term/agent-state";
+import { rulePackFor } from "./term/agent-state";
 import {
   resolveSeatAwarenessGate,
   seatAwarenessApiKey,
@@ -131,9 +128,7 @@ import {
   SEAT_AWARENESS_ENV,
 } from "./term/seat-awareness";
 import { isHarnessId } from "@shared/managed-terminal-templates";
-import { mergeSeatStateSnapshot, remoteSeatStateEvents } from "./term/remote-seat-state";
 import { registerOperatorHoldsIpc } from "./term/operator-holds";
-import { injectionSupervisor } from "./term/injection-supervisor";
 import { removeRegionSecret, saveRegionSecret } from "./region-env/secret-ipc";
 import {
   handleSeatCacheDueAnswer,
@@ -386,19 +381,12 @@ export const registerJuntoIpc = (): void => {
   );
 
   privilegedIpc.handle(IPC_CHANNELS.agentSeatStateSnapshot, () =>
-    mergeSeatStateSnapshot(seatStateRuntime.currentEvents()),
+    core.call("ipc.threads.seatStates", {}),
   );
 
   privilegedIpc.handle(IPC_CHANNELS.agentSeatViewed, async (_event, bindingId: unknown) => {
     if (typeof bindingId !== "string" || bindingId.length === 0) return;
-    if (seatStateRuntime.snapshot(bindingId) !== undefined) {
-      seatStateRuntime.viewed(bindingId);
-      return;
-    }
-    // A seat on another machine: its machine holds the turn, so the view goes there.
-    const remote = remoteSeatStateEvents().find((event) => event.bindingId === bindingId);
-    if (remote === undefined || remote.state === "gone") return;
-    await core.call("ipc.threads.remoteSeatViewed", { bindingId, epoch: remote.epoch });
+    await core.call("ipc.threads.seatViewed", { bindingId });
   });
 
   registerOperatorHoldsIpc(privilegedIpc);
@@ -927,18 +915,15 @@ export const registerJuntoIpc = (): void => {
     (_event, canvasName: unknown, seatId: unknown, mode: unknown): Promise<SeatOffboardAskResult> =>
       core.call("ipc.seats.offboardAsk", { canvasName, seatId, mode }),
   );
-  injectionSupervisor.subscribeOnboarding((event) =>
+  subscribeCore(IPC_CHANNELS.seatOnboardingChanged, (event) =>
     broadcast(IPC_CHANNELS.seatOnboardingChanged, event),
   );
   privilegedIpc.handle(IPC_CHANNELS.seatOnboardingSnapshot, () =>
-    injectionSupervisor.currentOnboarding(),
+    core.call("ipc.threads.onboarding", {}),
   );
   privilegedIpc.handle(IPC_CHANNELS.seatOnboardNudge, (_event, canvasName: unknown, seatId: unknown) =>
     core.call("ipc.seats.onboardNudge", { canvasName, seatId }),
   );
-  seatStateRuntime.subscribe((event) => {
-    broadcast(IPC_CHANNELS.agentSeatStateChanged, event);
-  });
 };
 
 /** Browser-only IPC is installed after cold profile recovery succeeds. */

@@ -27,7 +27,12 @@ import {
   type SeatCollaborationAskResult,
   type SeatCollaborationDraft,
 } from "@shared/seat-collaboration";
+import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
+import type { SeatOnboardingEvent } from "@shared/seat-onboarding-status";
 import { ModelService } from "../../junto/model/service";
+import { seatStateRuntime } from "../../junto/term/agent-state";
+import { injectionSupervisor } from "../../junto/term/injection-supervisor";
+import { mergeSeatStateSnapshot, remoteSeatStateEvents } from "../../junto/term/remote-seat-state";
 import { makeSeatsProcessClient, remoteSeatMachine } from "../../junto/term/seats-client";
 import { markRead, onReadChanged, readPoints, unreadTotal } from "../../junto/work/mail-reads";
 import { messageDelivery } from "../../junto/work/message-delivery";
@@ -60,8 +65,12 @@ declare module "../ops" {
     "ipc.threads.write": CoreOp<Input, OperatorThreadSent | { readonly written: OperatorThreadWritten; readonly canvasName: string; readonly nodeId: string }>;
     "ipc.threads.deliver": CoreOp<{ readonly canvasName: string; readonly nodeId: string; readonly written: OperatorThreadWritten }, OperatorThreadSent>;
     "ipc.threads.collaborationAsk": CoreOp<{ readonly draft: SeatCollaborationDraft }, SeatCollaborationAskResult>;
-    /** A view of a seat on another machine goes to that machine, which holds the turn; never fails. */
-    "ipc.threads.remoteSeatViewed": CoreOp<{ readonly bindingId: string; readonly epoch: string }, void>;
+    /** Every seat's state: this core's seats, and those its linked machines told it of. */
+    "ipc.threads.seatStates": CoreOp<Record<string, never>, ReadonlyArray<AgentSeatStateEvent>>;
+    /** The operator viewed a seat. Its machine holds the turn, so a view of another machine's goes there; never fails. */
+    "ipc.threads.seatViewed": CoreOp<{ readonly bindingId: string }, void>;
+    /** Every seat's last settled onboarding status. */
+    "ipc.threads.onboarding": CoreOp<Record<string, never>, ReadonlyArray<SeatOnboardingEvent>>;
     "ipc.threads.mailWaiting": CoreOp<Record<string, never>, ReadonlyArray<MailWaitingFact>>;
     "ipc.threads.watch": CoreOp<Record<string, never>, void>;
   }
@@ -134,8 +143,14 @@ coreOps({
       if (!result.ok) return { ok: false as const, error: result.message };
       return { ok: true as const, requestId };
     }),
-  "ipc.threads.remoteSeatViewed": ({ bindingId, epoch }) =>
-    remoteSeatMachine(bindingId).pipe(
+  "ipc.threads.seatStates": () => Effect.sync(() => mergeSeatStateSnapshot(seatStateRuntime.currentEvents())),
+  "ipc.threads.onboarding": () => Effect.sync(() => injectionSupervisor.currentOnboarding()),
+  "ipc.threads.seatViewed": ({ bindingId }) => {
+    if (seatStateRuntime.snapshot(bindingId) !== undefined) return Effect.sync(() => { seatStateRuntime.viewed(bindingId); });
+    const remote = remoteSeatStateEvents().find((event) => event.bindingId === bindingId);
+    if (remote === undefined || remote.state === "gone") return Effect.void;
+    const epoch = remote.epoch;
+    return remoteSeatMachine(bindingId).pipe(
       Effect.tapCause((cause) => Effect.logWarning("seat view not sent: its machine could not be read", cause)),
       Effect.annotateLogs({ area: "seats", seat: bindingId }),
       Effect.orElseSucceed(() => undefined),
@@ -144,7 +159,8 @@ coreOps({
           ? Effect.void
           : Effect.promise(() => makeSeatsProcessClient(machine).viewed(bindingId, epoch).catch(() => false))),
       Effect.asVoid,
-    ),
+    );
+  },
   "ipc.threads.mailWaiting": () => Effect.sync(() => messageDelivery.mailWaiting()),
   // Subscribed once per core.
   "ipc.threads.watch": () =>

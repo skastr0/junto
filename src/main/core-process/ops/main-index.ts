@@ -82,6 +82,7 @@ export const WINDOW_CHANNELS = [
   IPC_CHANNELS.kernelChanged,
   IPC_CHANNELS.automationsChanged,
   IPC_CHANNELS.seatOffboardProgress,
+  IPC_CHANNELS.seatOnboardingChanged,
   // A running machine command's progress, for the window whose call asked.
   MACHINE_PROGRESS,
   // The terminal plane's events, a linked view's end and a remote seat's state (term/ipc.ts).

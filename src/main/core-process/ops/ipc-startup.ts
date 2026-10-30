@@ -73,6 +73,8 @@ coreOps({
         else if (current) noticeCanvases.set(event.canvas, current);
       });
 
+      injectionSupervisor.subscribeOnboarding((event) => publish(IPC_CHANNELS.seatOnboardingChanged, event));
+
       const coreMail = yield* MachineCoreMail;
       const settings = yield* SettingsService;
       let suspended = false;
