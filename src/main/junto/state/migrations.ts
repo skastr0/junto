@@ -911,7 +911,9 @@ export const STATE_SCHEMA_V73_IDENTITY = {
     "98f97313235d1de083a5625f39fcb13a67bc34b7b4b8e2c5c21858edb2ad7ebe",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 73;
+import { CURRENT_STATE_SCHEMA_VERSION } from "./schema-version";
+
+export { CURRENT_STATE_SCHEMA_VERSION };
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an

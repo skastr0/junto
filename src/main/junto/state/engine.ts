@@ -3,7 +3,6 @@ import {
   lstatSync,
   mkdirSync,
 } from "node:fs";
-import { resolveJuntoHome } from "@shared/junto-home";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Context, Effect, Layer, Option, Semaphore } from "effect";
@@ -23,7 +22,6 @@ import {
   WorkMutationContext,
   type WorkMutationScope,
 } from "../work/mutation-seam";
-import { demoStateDatabasePath } from "../demo/runtime-isolation";
 import { reconcilePendingStateBackups } from "./backup";
 import { runStateBackup } from "./backup-host";
 import {
@@ -64,17 +62,9 @@ const stateEngineError = (
       cause,
     });
 
-/**
- * Resolve the sole product database. Demo mode receives only a process-minted
- * ephemeral database; no environment variable can redirect product authority.
- * Tests that exercise a StateEngine directly inject a path into
- * makeStateEngineLive instead of creating a second runtime convention.
- */
-export const stateDatabasePath = (): string =>
-  resolve(
-    demoStateDatabasePath() ??
-      join(resolveJuntoHome(), ".junto", "state", "junto.db"),
-  );
+/** The product database path lives on its own so a read-only probe can ask for it. */
+import { stateDatabasePath } from "./database-path";
+export { stateDatabasePath };
 
 const assertRealDirectory = (path: string): void => {
   mkdirSync(path, { recursive: true, mode: STATE_DIRECTORY_MODE });

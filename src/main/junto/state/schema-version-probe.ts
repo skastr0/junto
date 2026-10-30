@@ -10,8 +10,8 @@
 import { existsSync, lstatSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { stateDatabasePath } from "./engine";
-import { CURRENT_STATE_SCHEMA_VERSION } from "./migrations";
+import { stateDatabasePath } from "./database-path";
+import { CURRENT_STATE_SCHEMA_VERSION } from "./schema-version";
 
 export type InstalledStateSchemaProbe =
   | { readonly kind: "missing" }
