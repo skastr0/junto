@@ -22,6 +22,7 @@ Conditions, each a 12 s traced window (`e2e/scenarios/perf-terminal-baseline.spe
 - `scroll-stream`: the same while the lead streams 12 KB/s
 - `type`: a plain line typed into the lead, one key each 200 ms, nothing streams
 - `type-busy`: the same while the fifteen other seats stream 12 KB/s each
+- `type-stall`: the same as `type` while main's event loop is held 300 ms of each second
 - `watch`: no input while the lead streams 12 KB/s
 
 Every window also pings the app's work control socket at 20 Hz: the main

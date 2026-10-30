@@ -30,7 +30,9 @@ import { join } from "node:path";
 const ROOT = join(import.meta.dirname, "..");
 const SPEC = "e2e/scenarios/perf-terminal-baseline.spec.ts";
 const CONDITIONS = ["scroll", "scroll-stream", "type", "type-busy", "watch"] as const;
-type Condition = (typeof CONDITIONS)[number];
+// Run only when named: main held 300 ms of each second (terminal process, phase 3).
+const ON_REQUEST = ["type-stall"] as const;
+type Condition = (typeof CONDITIONS)[number] | (typeof ON_REQUEST)[number];
 
 type RunResult = Record<string, any>;
 type Metric = {
@@ -45,7 +47,7 @@ const perS = (ms: number | undefined, run: RunResult): number | null => (ms === 
 const ALL = CONDITIONS;
 const MOVING: readonly Condition[] = ["scroll", "scroll-stream", "watch"];
 const SCROLLING: readonly Condition[] = ["scroll", "scroll-stream"];
-const TYPING: readonly Condition[] = ["type", "type-busy"];
+const TYPING: readonly Condition[] = ["type", "type-busy", "type-stall"];
 
 const METRICS: readonly Metric[] = [
   { name: "framesPresentedPerS", better: "higher", headline: true, conditions: MOVING, read: (r) => r.frames.presentedPerS },
@@ -107,7 +109,7 @@ const run = async (args: string[]): Promise<void> => {
   if (!label) throw new Error("run needs --label <name>");
   const runs = Number(flag(args, "runs") ?? 3);
   const conditions = (flag(args, "conditions")?.split(",") ?? [...CONDITIONS]) as Condition[];
-  for (const c of conditions) if (!CONDITIONS.includes(c)) throw new Error(`unknown condition ${c}`);
+  for (const c of conditions) if (![...CONDITIONS, ...ON_REQUEST].includes(c)) throw new Error(`unknown condition ${c}`);
   const maxLoad = Number(flag(args, "max-load") ?? cpus().length);
   const out = flag(args, "out") ?? join(ROOT, "docs/research/perf-baselines", `terminal-${label}.json`);
   const stampPath = join(ROOT, "out/build-source.json");

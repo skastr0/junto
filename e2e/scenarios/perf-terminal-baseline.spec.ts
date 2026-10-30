@@ -13,6 +13,7 @@
  *   scroll-stream  the same while the lead streams 12 KB/s
  *   type           plain text typed into the lead, one key each 200 ms, nothing streams
  *   type-busy      the same while the fifteen other seats stream 12 KB/s each
+ *   type-stall     the same as type while main's event loop is held 300 ms of each second
  *   watch          no input while the lead streams 12 KB/s
  *
  * Every window also pings the app's work control socket at 20 Hz. The main
@@ -32,7 +33,7 @@ import { modelFixture, modelNote, modelRegion, modelSeat, modelWire } from "../h
 import type { Node as ModelNode, Wire as ModelWire } from "../../src/shared/model";
 import { spread, summarizeTrace } from "../../scripts/perf-trace-summary";
 
-const CONDITIONS = ["scroll", "scroll-stream", "type", "type-busy", "watch"] as const;
+const CONDITIONS = ["scroll", "scroll-stream", "type", "type-busy", "type-stall", "watch"] as const;
 type Condition = (typeof CONDITIONS)[number];
 
 const COND = process.env.PERF_TERMINAL_COND as Condition | undefined;
@@ -247,8 +248,18 @@ test(`terminal performance baseline, ${COND ?? "none"}`, async () => {
     await junto.app.evaluate(({ contentTracing }) => contentTracing.startRecording({
       included_categories: ["toplevel", "devtools.timeline", "blink", "blink.user_timing", "cc", "viz", "gpu", "input", "benchmark", "latencyInfo"],
     }));
+    // Main held 300 ms of each second, as a long sync task holds it: with the
+    // terminal process, keys and echo cross no main turn and should not wait.
+    if (COND === "type-stall") {
+      await junto.app.evaluate(() => {
+        (globalThis as { __perfStall?: ReturnType<typeof setInterval> }).__perfStall = setInterval(() => {
+          const until = Date.now() + 300;
+          while (Date.now() < until) { /* hold the loop */ }
+        }, 1_000);
+      });
+    }
     const windowStart = Date.now();
-    if (COND === "type" || COND === "type-busy") {
+    if (COND === "type" || COND === "type-busy" || COND === "type-stall") {
       for (let i = 0; i < 60; i++) {
         const char = TYPED[i % TYPED.length]!;
         await page.keyboard.press(char === " " ? "Space" : char);
@@ -270,6 +281,9 @@ test(`terminal performance baseline, ${COND ?? "none"}`, async () => {
       await cdp.detach();
     }
     const windowS = (Date.now() - windowStart) / 1000;
+    if (COND === "type-stall") {
+      await junto.app.evaluate(() => clearInterval((globalThis as { __perfStall?: ReturnType<typeof setInterval> }).__perfStall));
+    }
     const pings = (await pinger?.stop()) ?? [];
     await junto.app.evaluate(({ contentTracing }, path) => contentTracing.stopRecording(path), tracePath);
     const m1 = machine();
