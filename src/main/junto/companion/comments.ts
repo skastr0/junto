@@ -15,7 +15,7 @@ import { outcomeFail, outcomeOk, type CompanionBackend, type CompanionOutcome } 
 import { companionCommentsPage } from "@shared/companion-comments";
 import { ThreadPostDraft } from "@shared/resource-ipc";
 import type { ItemId } from "@shared/wire/ids";
-import { AppRuntime } from "../../runtime";
+import { CompanionRuntime } from "./runtime";
 import { mainAuthoringGate } from "../main-authoring-gate";
 import { commentOnArtifact } from "../work/artifact-control";
 import { listThreads, liveResourceIpcPorts } from "../work/resource-ipc";
@@ -25,7 +25,7 @@ import { WorkService } from "../work/service";
 const ports = liveResourceIpcPorts(
   (canvasName) =>
     Effect.tryPromise({
-      try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readTopology(canvasName))),
+      try: () => CompanionRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readTopology(canvasName))),
       catch: (): WorkErrorBody => ({
         type: "InternalError",
         message: `canvas ${canvasName} could not be read`,
@@ -34,7 +34,7 @@ const ports = liveResourceIpcPorts(
     }).pipe(Effect.map((read) => read.canvas)),
   (canvasName, nodeId) =>
     Effect.tryPromise({
-      try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readMailbox(canvasName, nodeId))),
+      try: () => CompanionRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readMailbox(canvasName, nodeId))),
       catch: (): WorkErrorBody => ({
         type: "InternalError",
         message: `the comments on ${nodeId} could not be read`,
@@ -64,7 +64,7 @@ const unreadable = (): CompanionOutcome<never> => outcomeFail("internal", "The c
 
 export const companionCommentBackend: Pick<CompanionBackend, "comments" | "comment"> = {
   comments: async (args) => {
-    const read = await AppRuntime.runPromise(
+    const read = await CompanionRuntime.runPromise(
       Effect.result(
         Effect.gen(function* () {
           const head = yield* headOf(args.canvasName, args.subject.artifactId);
@@ -95,7 +95,7 @@ export const companionCommentBackend: Pick<CompanionBackend, "comments" | "comme
     const post = decoded.success;
     const written = await mainAuthoringGate
       .run("companion.comment", () =>
-        AppRuntime.runPromise(
+        CompanionRuntime.runPromise(
           Effect.result(
             Effect.gen(function* () {
               const canvas = yield* ports.topology(args.canvasName);

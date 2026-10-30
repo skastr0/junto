@@ -17,7 +17,7 @@ import type { CompanionArgsByOp, CompanionResultByOp } from "@shared/wire/compan
 import type { Artifact, ArtifactBody, ArtifactOp } from "@shared/wire/artifact";
 import type { ContentRef } from "@shared/wire/content-ref";
 import type { ItemId } from "@shared/wire/ids";
-import { AppRuntime } from "../../runtime";
+import { CompanionRuntime } from "./runtime";
 import { mainAuthoringGate } from "../main-authoring-gate";
 import { applyArtifact, colourArtifactLabel, liveResourceIpcPorts } from "../work/resource-ipc";
 import { WorkService } from "../work/service";
@@ -29,7 +29,7 @@ import { artifactStageSeat } from "./stage";
 const ports = liveResourceIpcPorts(
   (canvasName) =>
     Effect.tryPromise({
-      try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readTopology(canvasName))),
+      try: () => CompanionRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readTopology(canvasName))),
       catch: (): WorkErrorBody => ({
         type: "InternalError",
         message: `canvas ${canvasName} could not be read`,
@@ -38,7 +38,7 @@ const ports = liveResourceIpcPorts(
     }).pipe(Effect.map((read) => read.canvas)),
   (canvasName, nodeId) =>
     Effect.tryPromise({
-      try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readMailbox(canvasName, nodeId))),
+      try: () => CompanionRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readMailbox(canvasName, nodeId))),
       catch: (): WorkErrorBody => ({
         type: "InternalError",
         message: `the artifacts on ${nodeId} could not be read`,
@@ -114,7 +114,7 @@ export const companionArtifactWriteBackend: Pick<CompanionBackend, "artifactAppl
     if (itemOp && args.artifactId === undefined) return outcomeFail("invalid", "An artifact write names its artifact.");
     const written = await mainAuthoringGate
       .run("companion.artifact.apply", () =>
-        AppRuntime.runPromise(
+        CompanionRuntime.runPromise(
           Effect.result(
             Effect.gen(function* () {
               const outcome =

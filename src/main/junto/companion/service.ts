@@ -56,7 +56,7 @@ import {
   type OperatorRequestEnvelope,
   type OperatorResponseEnvelope,
 } from "@shared/operator-control";
-import { AppRuntime } from "../../runtime";
+import { CompanionRuntime } from "./runtime";
 import {
   AuthorizedKeysError,
   companionDevicesIn,
@@ -172,7 +172,7 @@ const keyFailure = (error: unknown, path: string): Pick<KeyLog, "reason" | "path
   return { reason: "io", path, ...(typeof code === "string" && /^E[A-Z0-9]{1,20}$/u.test(code) ? { code } : {}) };
 };
 
-const runOnApp = <A, E>(effect: Effect.Effect<A, E, CompanionDeviceRepository>): Promise<A> => AppRuntime.runPromise(effect);
+const runOnApp = <A, E>(effect: Effect.Effect<A, E, CompanionDeviceRepository>): Promise<A> => CompanionRuntime.runPromise(effect);
 
 const success = (
   request: { readonly id: string; readonly op: "companion.hello" | "companion.call" | "companion.events" },

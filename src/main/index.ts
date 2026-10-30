@@ -191,6 +191,7 @@ import {
 } from "./junto/companion/service";
 import { broadcastCompanionDevices, registerCompanionIpc } from "./junto/companion/ipc";
 import { companionNotePreamble, wireCompanionChanges } from "./junto/companion/wiring";
+import { bindCompanionHost } from "./junto/companion/runtime";
 import { findPackagedSandboxDisablingSwitch } from "./junto/packaged-sandbox-policy";
 import {
   applyE2eMacOsFocusIsolation,
@@ -1506,6 +1507,16 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // command. The socket listens when launched in operator control mode, or
     // while a phone is paired (never on a Remote). Opened for a phone alone,
     // it answers the companion ops and refuses every other.
+    // The companion runs on this process's core until the core has its own process.
+    bindCompanionHost({
+      runPromise: (effect) => AppRuntime.runPromise(effect),
+      showSignal: (signal) => {
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (window.isDestroyed() || window.webContents.isDestroyed() || !isTrustedMainWebContents(window.webContents)) continue;
+          window.webContents.send(IPC_CHANNELS.agentSignal, signal);
+        }
+      },
+    });
     const companion = makeCompanionService({
             appVersion: app.getVersion(),
             environment: () =>

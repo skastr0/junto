@@ -20,7 +20,7 @@ import {
 } from "@shared/mention-candidates";
 import { mentionableNodesFrom } from "@shared/mention-reach";
 import { COMPANION_MENTION_CANDIDATES_MAX, type CompanionMentionCandidate } from "@shared/wire/companion-artifacts";
-import { AppRuntime } from "../../runtime";
+import { CompanionRuntime } from "./runtime";
 import { ModelService } from "../model/service";
 import { withSqlRead } from "../state/sql-read";
 import { ArtifactRepository } from "../work/artifact-repository";
@@ -37,7 +37,7 @@ type CanvasItems = {
 
 /** The canvas and the items its task boards and Artifacts nodes hold; undefined when there is no such canvas. */
 const canvasItems = (canvasName: string): Promise<CanvasItems | undefined> =>
-  AppRuntime.runPromise(
+  CompanionRuntime.runPromise(
     Effect.gen(function* () {
       const model = yield* ModelService;
       const tasks = yield* TaskRepository;
@@ -77,7 +77,7 @@ const canvasItems = (canvasName: string): Promise<CanvasItems | undefined> =>
 
 /** The seats wired to this one, an `@` from a seat: read on the canvas's own wires. */
 const connectedSeats = (canvasName: string, nodeId: string) =>
-  AppRuntime.runPromise(mentionableSeats(canvasName, nodeId).pipe(Effect.catch(() => Effect.succeed([]))));
+  CompanionRuntime.runPromise(mentionableSeats(canvasName, nodeId).pipe(Effect.catch(() => Effect.succeed([]))));
 
 /** A candidate as the phone reads it: kind, label, bare title, and where it sits when that is not the label. */
 const wireCandidate = (candidate: NamedMentionCandidate): CompanionMentionCandidate => ({

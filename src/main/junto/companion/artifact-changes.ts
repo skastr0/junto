@@ -14,7 +14,7 @@ import type { CompanionChanges } from "./changes";
 import type { ArtifactChange } from "../work/resource-changes";
 import type { CompanionArtifactChanged } from "@shared/wire/companion-artifacts";
 import { COMPANION_ARTIFACT_EDIT_MAX_BYTES } from "@shared/wire/companion-artifacts";
-import { AppRuntime } from "../../runtime";
+import { CompanionRuntime } from "./runtime";
 import { ModelService } from "../model/service";
 import { ArtifactRepository } from "../work/artifact-repository";
 
@@ -24,7 +24,7 @@ const encoder = new TextEncoder();
 let tail: Promise<unknown> = Promise.resolve();
 
 const readHead = (canvasName: string, artifactId: Parameters<CompanionChanges["noteArtifact"]>[0]["artifact"]["artifactId"]) =>
-  AppRuntime.runPromise(
+  CompanionRuntime.runPromise(
     Effect.flatMap(ArtifactRepository, (repository) => repository.head(canvasName, artifactId)).pipe(
       Effect.map(Option.getOrUndefined),
       Effect.catch(() => Effect.succeed(undefined)),
@@ -46,7 +46,7 @@ export type ScannedHead = {
 
 /** Every artifact head a canvas's Artifacts nodes hold now, as the list reads them. */
 const scanHeads = async (canvasName: string): Promise<ReadonlyArray<ScannedHead>> => {
-  const heads = await AppRuntime.runPromise(
+  const heads = await CompanionRuntime.runPromise(
     Effect.gen(function* () {
       const repository = yield* ArtifactRepository;
       const nodes = yield* Effect.flatMap(ModelService, (model) => model.canvas(canvasName)).pipe(

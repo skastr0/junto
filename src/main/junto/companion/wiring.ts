@@ -7,7 +7,7 @@
  */
 import { Effect } from "effect";
 import type { PreambleEvent } from "@shared/preamble";
-import { AppRuntime } from "../../runtime";
+import { CompanionRuntime } from "./runtime";
 import { ModelService } from "../model/service";
 import { WorkRepository } from "../work/repository";
 import { PausePlane } from "../pause-plane";
@@ -29,7 +29,7 @@ let changesRef: CompanionChanges | undefined;
 
 export const wireCompanionChanges = async (changes: CompanionChanges): Promise<() => void> => {
   changesRef = changes;
-  const [model, work, pause] = await AppRuntime.runPromise(Effect.all([ModelService, WorkRepository, PausePlane]));
+  const [model, work, pause] = await CompanionRuntime.runPromise(Effect.all([ModelService, WorkRepository, PausePlane]));
   const offs = [
     // A thread names its seats and canvas, so a canvas change is a mail change too.
     model.subscribeChanges(() => changes.bump("mail")),

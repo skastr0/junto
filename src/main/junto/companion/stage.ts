@@ -14,7 +14,7 @@ import type { ContentStageResult } from "@shared/content-stage";
 import { mailThreadOf } from "@shared/crew";
 import type { ContentRef } from "@shared/wire/content-ref";
 import { operatorActorRef } from "@shared/work-reference";
-import { AppRuntime } from "../../runtime";
+import { CompanionRuntime } from "./runtime";
 import { ModelService } from "../model/service";
 import { ContentService } from "../content/service";
 import { contentStageOwner, contentStagerFor, type ContentStageError, type ContentStageSeat } from "../content/stage";
@@ -51,7 +51,7 @@ const STAGE_REFUSAL: Readonly<Record<ContentStageError["code"], CompanionOutcome
 };
 
 const canvasExists = (canvasName: string): Promise<boolean> =>
-  AppRuntime.runPromise(
+  CompanionRuntime.runPromise(
     Effect.flatMap(ModelService, (model) => model.listCanvases()).pipe(
       Effect.map((names) => names.some((name) => name === canvasName)),
       Effect.catch(() => Effect.succeed(false)),
@@ -67,7 +67,7 @@ const canvasExists = (canvasName: string): Promise<boolean> =>
  * ref answered is the store's.
  */
 export const mailContentRef = (sha256: string): Promise<ContentRef | undefined> =>
-  AppRuntime.runPromise(
+  CompanionRuntime.runPromise(
     Effect.gen(function* () {
       const content = yield* Effect.serviceOption(ContentService);
       if (Option.isNone(content)) return undefined;
@@ -97,7 +97,7 @@ export const companionStageBackend: Pick<CompanionBackend, "stagePiece" | "admit
     if (purpose !== undefined && purpose.canvasName !== canvasName)
       return Promise.resolve(outcomeFail<ContentStageResult>("invalid", "That piece is for another canvas's artifacts."));
     const seat = purpose?.for === "artifact" ? artifactStageSeat(canvasName) : operatorSeat(canvasName);
-    return AppRuntime.runPromise(
+    return CompanionRuntime.runPromise(
       Effect.gen(function* () {
         const content = yield* Effect.serviceOption(ContentService);
         if (Option.isNone(content)) return outcomeFail<ContentStageResult>("unavailable", "The Mac's file store is not open.");
@@ -109,7 +109,7 @@ export const companionStageBackend: Pick<CompanionBackend, "stagePiece" | "admit
 
   admitStage: async (canvasName, byteLength) => {
     if (!(await canvasExists(canvasName))) return outcomeFail("not-found", "No such canvas.");
-    return AppRuntime.runPromise(
+    return CompanionRuntime.runPromise(
       Effect.gen(function* () {
         const content = yield* Effect.serviceOption(ContentService);
         if (Option.isNone(content)) return outcomeFail<void>("unavailable", "The Mac's file store is not open.");
@@ -120,7 +120,7 @@ export const companionStageBackend: Pick<CompanionBackend, "stagePiece" | "admit
   },
 
   dropStaged: (canvasName, stageId) =>
-    AppRuntime.runPromise(
+    CompanionRuntime.runPromise(
       Effect.gen(function* () {
         const content = yield* Effect.serviceOption(ContentService);
         if (Option.isNone(content)) return;

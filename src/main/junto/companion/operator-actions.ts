@@ -15,24 +15,21 @@
  * drains and refuses phone writes like any other.
  */
 
-import { BrowserWindow } from "electron";
 import { Effect } from "effect";
 import type { AgentSignal } from "@shared/agent-signals";
 import type { ContentRef } from "@shared/wire/content-ref";
 import { asNodeId } from "@shared/model";
 import { mailExtensionMetadata } from "@shared/crew";
-import { IPC_CHANNELS } from "@shared/ipc";
 import { makeUserMessage } from "@shared/task";
 import { operatorActorRef } from "@shared/work-reference";
 import { ulid } from "ulid";
-import { AppRuntime } from "../../runtime";
+import { CompanionRuntime, showCompanionSignal } from "./runtime";
 import { ModelService } from "../model/service";
 import { mainAuthoringGate } from "../main-authoring-gate";
 import { AgentSignalRepository } from "../signals/repository";
 import { answerAgentSignal, dismissAgentSignal, replyAgentSignal } from "../signals/operator";
 import { raisedHands } from "../signals/raised-hands";
 import { liveArtifactPorts } from "../work/artifact-control";
-import { isTrustedMainWebContents } from "../trusted-main-webcontents";
 import { messageDelivery } from "../work/message-delivery";
 import { WorkService } from "../work/service";
 
@@ -45,15 +42,10 @@ export type OperatorActionResult<A> =
       readonly signal?: AgentSignal;
     };
 
-const broadcastSignal = (signal: AgentSignal): void => {
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (window.isDestroyed() || window.webContents.isDestroyed() || !isTrustedMainWebContents(window.webContents)) continue;
-    window.webContents.send(IPC_CHANNELS.agentSignal, signal);
-  }
-};
+const broadcastSignal = showCompanionSignal;
 
 const currentSignal = (signalId: string): Promise<AgentSignal | undefined> =>
-  AppRuntime.runPromise(
+  CompanionRuntime.runPromise(
     Effect.flatMap(AgentSignalRepository, (signals) => signals.get(signalId)).pipe(
       Effect.catch(() => Effect.succeed(undefined)),
     ),
@@ -75,7 +67,7 @@ export const answerSignalAsOperator = async (
 ): Promise<OperatorActionResult<AgentSignal>> => {
   const result = await mainAuthoringGate
     .run("companion.signal-answer", () =>
-      AppRuntime.runPromise(answerAgentSignal(signalId, text, { silent: quiet, attachments })),
+      CompanionRuntime.runPromise(answerAgentSignal(signalId, text, { silent: quiet, attachments })),
     )
     .catch((error: unknown) => ({ ok: false as const, message: error instanceof Error ? error.message : "answer failed" }));
   if (!result.ok) return refusal(signalId, result.message);
@@ -105,11 +97,11 @@ export const replySignalArtifactAsOperator = async (
   if (before.state !== "open") return { ok: false, reason: "conflict", message: `That signal is already ${before.state}.`, signal: before };
   const result = await mainAuthoringGate
     .run("companion.signal-reply", () =>
-      AppRuntime.runPromise(
+      CompanionRuntime.runPromise(
         replyAgentSignal(signalId, { kind: "artifact", markdown, replyId }, {
           topology: (canvasName: string) =>
             Effect.tryPromise({
-              try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readTopology(canvasName))),
+              try: () => CompanionRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readTopology(canvasName))),
               catch: () => ({
                 type: "InternalError" as const,
                 message: `canvas ${canvasName} could not be read`,
@@ -135,7 +127,7 @@ export const dismissSignalAsOperator = async (signalId: string): Promise<Operato
   if (before === undefined) return { ok: false, reason: "not-found", message: `No signal ${signalId}.` };
   if (before.state !== "open") return { ok: false, reason: "conflict", message: `That signal is already ${before.state}.`, signal: before };
   const result = await mainAuthoringGate
-    .run("companion.signal-dismiss", () => AppRuntime.runPromise(dismissAgentSignal(signalId)))
+    .run("companion.signal-dismiss", () => CompanionRuntime.runPromise(dismissAgentSignal(signalId)))
     .catch((error: unknown) => ({ ok: false as const, message: error instanceof Error ? error.message : "dismiss failed" }));
   if (!result.ok) return refusal(signalId, result.message);
   raisedHands.note(result.signal);

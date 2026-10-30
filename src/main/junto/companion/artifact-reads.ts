@@ -9,7 +9,7 @@
  * canvas's Artifacts boards, and then tells every open window to read its view
  * state again, so the desktop's next Cmd+T already uses what the phone chose.
  */
-import { Effect, Option, type ManagedRuntime } from "effect";
+import { Effect, Option } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { outcomeFail, outcomeOk, type CompanionBackend } from "@shared/companion-core";
 import { asNodeId, type Canvas } from "@shared/model";
@@ -37,7 +37,7 @@ import {
   type CompanionArtifactVersion,
 } from "@shared/wire/companion-artifact-reads";
 import { reachChange, reachLine } from "@renderer/components/artifacts/artifact-move-model";
-import { AppRuntime } from "../../runtime";
+import { CompanionRuntime, type CompanionServices } from "./runtime";
 import { ModelService } from "../model/service";
 import { withSqlRead } from "../state/sql-read";
 import { publishViewStateChange } from "../view-state/changes";
@@ -330,10 +330,10 @@ export const makeArtifactReadBackend = (
 });
 
 /** What the running app provides to an effect. */
-type AppServices = typeof AppRuntime extends ManagedRuntime.ManagedRuntime<infer R, infer _E> ? R : never;
+type AppServices = CompanionServices;
 
 const orUndefined = <A>(effect: Effect.Effect<A, unknown, AppServices>): Promise<A | undefined> =>
-  AppRuntime.runPromise(effect.pipe(Effect.catch(() => Effect.succeed(undefined))));
+  CompanionRuntime.runPromise(effect.pipe(Effect.catch(() => Effect.succeed(undefined))));
 
 /** How many artifacts each node holds, live and archived, in one read. */
 const countsByNode = (canvasName: string) =>
@@ -359,7 +359,7 @@ const countsByNode = (canvasName: string) =>
 const resourcePorts = liveResourceIpcPorts(
   (canvasName) =>
     Effect.tryPromise({
-      try: () => AppRuntime.runPromise(Effect.flatMap(ModelService, (model) => model.canvas(canvasName))),
+      try: () => CompanionRuntime.runPromise(Effect.flatMap(ModelService, (model) => model.canvas(canvasName))),
       catch: () => ({ type: "InternalError" as const, message: `canvas ${canvasName} could not be read`, details: { retryable: true } }),
     }),
   () => Effect.fail({ type: "InternalError" as const, message: "mailboxes are not read here", details: { retryable: false } }),

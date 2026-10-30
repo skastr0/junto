@@ -15,7 +15,7 @@ import { companionSendRefusal, companionThreadPage, companionThreadRead, compani
 import { OperatorThreadSend, seatMailThreadEntries, type MailThreadsInput } from "@shared/mail-threads";
 import { messageIdTimeMs } from "@shared/message-delivery";
 import { asNodeId } from "@shared/model";
-import { AppRuntime } from "../../runtime";
+import { CompanionRuntime } from "./runtime";
 import { mainAuthoringGate } from "../main-authoring-gate";
 import { ModelService } from "../model/service";
 import { markRead, readPoints } from "../work/mail-reads";
@@ -23,7 +23,7 @@ import { deliverOperatorThreadMail, seatThreadsInput, sendOperatorThreadMail } f
 
 /** Undefined when the canvas holds this agent seat; otherwise the refusal. */
 const seatMissing = (canvasName: string, nodeId: string): Promise<CompanionOutcome<never> | undefined> =>
-  AppRuntime.runPromise(
+  CompanionRuntime.runPromise(
     Effect.gen(function* () {
       const read = yield* Effect.result((yield* ModelService).canvas(canvasName));
       if (read._tag === "Failure") return outcomeFail("not-found", "No such canvas.");
@@ -34,7 +34,7 @@ const seatMissing = (canvasName: string, nodeId: string): Promise<CompanionOutco
 
 /** A seat's threads with the operator's read points in them, so each summary counts its unread. */
 const readThreadsInput = (canvasName: string, nodeId: string): Promise<MailThreadsInput> =>
-  AppRuntime.runPromise(
+  CompanionRuntime.runPromise(
     Effect.gen(function* () {
       const input = yield* seatThreadsInput(canvasName);
       const points = yield* readPoints(canvasName, nodeId);
@@ -52,7 +52,7 @@ export const companionThreadBackend: Pick<CompanionBackend, "threads" | "thread"
   thread: async (canvasName, nodeId, threadId, page) => {
     const missing = await seatMissing(canvasName, nodeId);
     if (missing !== undefined) return missing;
-    const thread = companionThreadPage(await AppRuntime.runPromise(seatThreadsInput(canvasName)), nodeId, threadId, page);
+    const thread = companionThreadPage(await CompanionRuntime.runPromise(seatThreadsInput(canvasName)), nodeId, threadId, page);
     if (thread === undefined) return outcomeFail("not-found", "That thread is not one of this seat's.");
     return outcomeOk(thread);
   },
@@ -60,12 +60,12 @@ export const companionThreadBackend: Pick<CompanionBackend, "threads" | "thread"
   threadRead: async (canvasName, nodeId, threadId, through) => {
     const missing = await seatMissing(canvasName, nodeId);
     if (missing !== undefined) return missing;
-    const messages = seatMailThreadEntries(await AppRuntime.runPromise(seatThreadsInput(canvasName)), nodeId).get(threadId);
+    const messages = seatMailThreadEntries(await CompanionRuntime.runPromise(seatThreadsInput(canvasName)), nodeId).get(threadId);
     if (messages === undefined) return outcomeFail("not-found", "That thread is not one of this seat's.");
     if (through !== undefined && !messages.some((message) => message.messageId === through)) {
       return outcomeFail("invalid", "That mail is not in this thread.");
     }
-    const point = await AppRuntime.runPromise(markRead(canvasName, nodeId, threadId, through));
+    const point = await CompanionRuntime.runPromise(markRead(canvasName, nodeId, threadId, through));
     if (point === undefined) return outcomeFail("internal", "The thread could not be marked read.");
     const read = companionThreadRead(await readThreadsInput(canvasName, nodeId), nodeId, threadId);
     return read === undefined ? outcomeFail("not-found", "That thread is not one of this seat's.") : outcomeOk(read);
@@ -82,7 +82,7 @@ export const companionThreadBackend: Pick<CompanionBackend, "threads" | "thread"
     });
     if (Result.isFailure(decoded)) return outcomeFail("invalid", "That mail could not be read.");
     const written = await mainAuthoringGate
-      .run("companion.mail-send", () => AppRuntime.runPromise(sendOperatorThreadMail(decoded.success)))
+      .run("companion.mail-send", () => CompanionRuntime.runPromise(sendOperatorThreadMail(decoded.success)))
       .catch(() => ({ ok: false as const, reason: "failed" as const, message: "" }));
     const sent = await deliverOperatorThreadMail(canvasName, nodeId, written);
     if (!sent.ok) {

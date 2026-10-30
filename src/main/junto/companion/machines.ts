@@ -26,7 +26,7 @@ import type { MachineHarnesses, MachineListData, MachineOwnStatus, MachinePeerSt
 import { isValidMachineName } from "@shared/machine-identity";
 import type { MachineLogRead } from "@shared/machine-log";
 import { OPERATOR_PROTOCOL_VERSION, type OperatorRequestEnvelope } from "@shared/operator-control";
-import { AppRuntime } from "../../runtime";
+import { CompanionRuntime } from "./runtime";
 import { MachineOwnerControl } from "../hosts/machine-owner";
 import { noteMachinesChanged } from "../hosts/machine-changes";
 import { tailscalePeerCache } from "../hosts/tailscale-peers";
@@ -41,7 +41,7 @@ type Owned<A> = { readonly ok: true; readonly data: A } | { readonly ok: false; 
 
 const owner = async <A>(op: OperatorRequestEnvelope["op"], args: object): Promise<Owned<A>> => {
   const request = { protocol: OPERATOR_PROTOCOL_VERSION, id: `companion.${ulid()}`, op, args } as OperatorRequestEnvelope;
-  const response = await AppRuntime.runPromise(Effect.flatMap(MachineOwnerControl, (actions) => actions.dispatch(request)));
+  const response = await CompanionRuntime.runPromise(Effect.flatMap(MachineOwnerControl, (actions) => actions.dispatch(request)));
   return response.ok ? { ok: true, data: (response as unknown as { readonly data: A }).data } : { ok: false, type: response.error.type };
 };
 

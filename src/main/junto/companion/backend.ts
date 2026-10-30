@@ -62,7 +62,7 @@ import { feedSettings, quietNotesOf } from "@shared/settings";
 import { THREAD_HEALTH_LABEL, THREAD_HEALTH_TONE, THREAD_HEALTH_TTL_MS, type ThreadHealthReading } from "@shared/thread-health";
 import { mailboxRows, recentOpAtMs, recentOpLabel } from "@renderer/lib/actor-ledger";
 import type { WorkSeatRecentOp } from "@shared/work-recent-ops";
-import { AppRuntime } from "../../runtime";
+import { CompanionRuntime } from "./runtime";
 import { unreadTotals } from "../work/mail-reads";
 import { makeSeatUnread } from "./seat-unread";
 import { ContentService } from "../content/service";
@@ -117,7 +117,7 @@ type CanvasView = {
 };
 
 const readView = async (canvasName: string, includeWork = true): Promise<CanvasView | undefined> => {
-  const read = await AppRuntime.runPromise(Effect.gen(function* () {
+  const read = await CompanionRuntime.runPromise(Effect.gen(function* () {
     const model = yield* ModelService;
     const taskStore = yield* TaskRepository;
     const sql = yield* SqlClient.SqlClient;
@@ -128,12 +128,12 @@ const readView = async (canvasName: string, includeWork = true): Promise<CanvasV
     }));
   }).pipe(Effect.catch(() => Effect.succeed(undefined))));
   if (read === undefined) return undefined;
-  const signals = await AppRuntime.runPromise(listCanvasAgentSignals(canvasName).pipe(Effect.catch(() => Effect.succeed([] as ReadonlyArray<AgentSignal>))));
+  const signals = await CompanionRuntime.runPromise(listCanvasAgentSignals(canvasName).pipe(Effect.catch(() => Effect.succeed([] as ReadonlyArray<AgentSignal>))));
   return { ...read, signals };
 };
 
 const canvasNames = (): Promise<ReadonlyArray<string>> =>
-  AppRuntime.runPromise(
+  CompanionRuntime.runPromise(
     Effect.flatMap(ModelService, (model) => model.listCanvases()).pipe(
       Effect.catch(() => Effect.succeed([] as ReadonlyArray<string>)),
     ),
@@ -229,7 +229,7 @@ const processOf = (binding: string | undefined): "running" | "starting" | "stopp
 };
 
 /** Each seat's unread total, the desktop badge's count, read once per canvas and change for every phone. */
-const seatUnread = makeSeatUnread((canvasName, nodeIds) => AppRuntime.runPromise(unreadTotals(canvasName, nodeIds)));
+const seatUnread = makeSeatUnread((canvasName, nodeIds) => CompanionRuntime.runPromise(unreadTotals(canvasName, nodeIds)));
 /** New mail or a moved read point on the canvas: its seats' unread totals are read again. */
 export const forgetSeatUnread = seatUnread.forget;
 
@@ -294,7 +294,7 @@ const ACTIVITY_KIND: Readonly<Record<WorkSeatRecentOp["operation"], CompanionAct
 } as Readonly<Record<WorkSeatRecentOp["operation"], CompanionActivity["kind"]>>;
 
 const activityFor = async (canvasName: string, canvas: Canvas, nodeId: string): Promise<ReadonlyArray<CompanionActivity>> => {
-  const feed = await AppRuntime.runPromise(
+  const feed = await CompanionRuntime.runPromise(
     Effect.flatMap(WorkService, (work) => work.workSeatRecentOps(canvasName, nodeId, COMPANION_SEAT_HISTORY_LIMIT)).pipe(
       Effect.catch(() => Effect.succeed(undefined)),
     ),
@@ -445,7 +445,7 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
   canvases: async () => {
     const now = Date.now();
     const names = await canvasNames();
-    const pause = await AppRuntime.runPromise(Effect.map(PausePlane, (plane) => plane));
+    const pause = await CompanionRuntime.runPromise(Effect.map(PausePlane, (plane) => plane));
     const active = desktopActiveCanvas();
     const out: CompanionCanvas[] = [];
     for (const name of names) {
@@ -488,7 +488,7 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
     const unread = await seatUnread.totals(canvasName, agentSeatIds(view));
     const seat = seatsFor(canvasName, view, Date.now(), unread).find((candidate) => candidate.nodeId === nodeId);
     if (!seat) return outcomeFail("not-found", "No such seat.");
-    const signals = await AppRuntime.runPromise(
+    const signals = await CompanionRuntime.runPromise(
       Effect.flatMap(AgentSignalRepository, (repository) => repository.listSeat({ canvasName, nodeId })).pipe(
         Effect.catch(() => Effect.succeed([] as ReadonlyArray<AgentSignal>)),
       ),
@@ -500,7 +500,7 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
       preambles: livePreambles(canvasName, nodeId),
       signals: [...signals].sort((a, b) => b.createdAt - a.createdAt).slice(0, COMPANION_SEAT_HISTORY_LIMIT),
       activity: await activityFor(canvasName, view.canvas, nodeId),
-      connected: companionConnected(await AppRuntime.runPromise(mentionableSeats(canvasName, nodeId))),
+      connected: companionConnected(await CompanionRuntime.runPromise(mentionableSeats(canvasName, nodeId))),
     });
   },
 
@@ -514,7 +514,7 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
     const view = await readView(canvasName, false);
     if (!view) return outcomeFail("not-found", "No such canvas.");
     if (view.canvas.nodes.get(asNodeId(nodeId))?.kind !== "agent") return outcomeFail("not-found", "No such seat.");
-    const mailboxes = await AppRuntime.runPromise(Effect.gen(function* () {
+    const mailboxes = await CompanionRuntime.runPromise(Effect.gen(function* () {
       const repository = yield* WorkRepository;
       const rows = yield* repository.companionMail(canvasName, nodeId, limit);
       const mailboxes = new Map<string, Message[]>();
@@ -528,7 +528,7 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
   },
 
   quickReplies: async () => {
-    const settings = await AppRuntime.runPromise(Effect.flatMap(SettingsService, (service) => service.get));
+    const settings = await CompanionRuntime.runPromise(Effect.flatMap(SettingsService, (service) => service.get));
     return outcomeOk({
       replies: feedSettings(settings).quickReplies,
       quietNotes: quietNotesOf(settings),
@@ -542,7 +542,7 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
   },
 
   portrait: async (portraitIdentity, size, theme, format) => {
-    const overrides = await AppRuntime.runPromise(
+    const overrides = await CompanionRuntime.runPromise(
       Effect.flatMap(PortraitOverrideRepository, (repository) => repository.list()).pipe(
         Effect.catch(() => Effect.succeed({} as Record<string, never>)),
       ),
@@ -559,7 +559,7 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
 
   contentRange: async (ref, offset, length) => {
     // The manifest's receipt first, as the desktop's own open; then a confined read of the range.
-    const bytes = await AppRuntime.runPromise(
+    const bytes = await CompanionRuntime.runPromise(
       Effect.gen(function* () {
         const content = yield* ContentService;
         const opened = yield* content.openForRead(ref);
@@ -575,7 +575,7 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
     if (!view) return outcomeFail("not-found", "No such canvas.");
     const seats = seatsFor(args.canvasName, view, Date.now());
     const artifactOf = async (artifactId: NonNullable<MentionTarget["item"]>) =>
-      AppRuntime.runPromise(
+      CompanionRuntime.runPromise(
         Effect.flatMap(ArtifactRepository, (repository) => repository.head(args.canvasName, artifactId)).pipe(
           Effect.map(Option.getOrUndefined),
           Effect.catch(() => Effect.succeed(undefined)),
@@ -672,7 +672,7 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
       return Number.isFinite(at) ? { atMs: at, messageId, nodeId } : undefined;
     })();
     if (args.before !== undefined && after === undefined) return outcomeFail("invalid", "That page cursor is not one this list gave.");
-    const read = await AppRuntime.runPromise(
+    const read = await CompanionRuntime.runPromise(
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
         const bodies =
