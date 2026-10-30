@@ -12,6 +12,7 @@ import {
 import { OVERLAY_PREVIEW_MODE, overlayAlias, overlayDepsPlugin, resolveOverlay } from "./scripts/overlay";
 import { preloadBundleGuard } from "./scripts/preload-bundle-guard";
 import { electronNamespaceImports } from "./scripts/electron-namespace-imports";
+import { mainBundleModules } from "./scripts/main-bundle-modules";
 
 export default defineConfig(({ command, mode }) => {
   // Plus is preview-only until checkout and entitlement delivery are released.
@@ -51,7 +52,7 @@ export default defineConfig(({ command, mode }) => {
 
   return {
     main: {
-      plugins: [clearBuildSourceStamp(process.cwd()), externalizeDepsPlugin(), overlayDepsPlugin(overlay), electronNamespaceImports()],
+      plugins: [clearBuildSourceStamp(process.cwd()), externalizeDepsPlugin(), overlayDepsPlugin(overlay), electronNamespaceImports(), mainBundleModules(process.cwd())],
       resolve: { alias },
       define: productDefines,
       // The core process entry is built with main, not as a `?modulePath`
