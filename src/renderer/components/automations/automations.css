@@ -426,6 +426,5 @@
 /* The firing a surface opened on (the feed's card): marked, not shouting. */
 .automation-history__row[data-focused] {
   border-radius: var(--radius-sm);
-  background: color-mix(in oklab, var(--color-amber) 8%, transparent);
-  box-shadow: inset 2px 0 0 var(--color-amber-fg);
+  background: var(--color-overlay-2);
 }
