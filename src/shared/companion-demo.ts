@@ -272,12 +272,12 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
     if (op.edit.type === "pad") return op.edit.patches.flatMap((p) => (p.op === "upsert" && p.layer === "image" ? [p.image.ref] : []));
     return [];
   };
-  const mutableArtifacts = DEMO_ARTIFACTS as Array<{
+  const mutableArtifacts = structuredClone(DEMO_ARTIFACTS) as Array<{
     head: { -readonly [K in keyof Artifact]: Artifact[K] };
     body: ArtifactBody;
     versions: Array<ArtifactVersionRecord>;
   }>;
-  const mutableColours = DEMO_ARTIFACT_LABEL_COLOURS as Record<string, Record<string, ArtifactLabelColour | undefined>>;
+  const mutableColours = structuredClone(DEMO_ARTIFACT_LABEL_COLOURS) as Record<string, Record<string, ArtifactLabelColour | undefined>>;
   const OPERATOR_AUTHOR = { kind: "operator" } as const;
 
   const now = (): number => clock;
@@ -357,7 +357,7 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
   };
 
   const known = (canvasName: string) => canvasName === DEMO_CANVAS;
-  const demoArtifactReads = makeDemoArtifactReads(CANVAS, known);
+  const demoArtifactReads = makeDemoArtifactReads(CANVAS, known, mutableArtifacts, mutableColours as typeof DEMO_ARTIFACT_LABEL_COLOURS);
   const artifactsNodeIds = new Set(
     [...CANVAS.nodes.values()].filter((node) => node.kind === "artifacts").map((node) => node.id as string),
   );
@@ -669,7 +669,7 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
     },
     comments: async (args) => {
       if (!known(args.canvasName)) return outcomeFail("not-found", "No such canvas.");
-      if (!DEMO_ARTIFACTS.some((artifact) => artifact.head.artifactId === args.subject.artifactId)) {
+      if (!mutableArtifacts.some((artifact) => artifact.head.artifactId === args.subject.artifactId)) {
         return outcomeFail("not-found", "That artifact is not on this canvas.");
       }
       const held = commentThreads.filter((thread) => thread.artifactId === args.subject.artifactId);
@@ -682,7 +682,7 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
     },
     comment: async (args) => {
       if (!known(args.canvasName)) return outcomeFail("not-found", "No such canvas.");
-      if (!DEMO_ARTIFACTS.some((artifact) => artifact.head.artifactId === args.subject.artifactId)) {
+      if (!mutableArtifacts.some((artifact) => artifact.head.artifactId === args.subject.artifactId)) {
         return outcomeFail("not-found", "That artifact is not on this canvas.");
       }
       const replayed = commentOps.get(args.opId);
@@ -727,7 +727,7 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
         ...candidatesOfNodes(CANVAS, mentionableNodesFrom(CANVAS, from), {
           tasksOf: () => [{ id: DEMO_TASK_PRICING as ItemId, title: "launch pricing", number: 1, note: "backlog" }],
           artifactsOf: (nodeId) =>
-            DEMO_ARTIFACTS.filter((artifact) => artifact.head.nodeId === nodeId && !artifact.head.archived).map((artifact) => ({
+            mutableArtifacts.filter((artifact) => artifact.head.nodeId === nodeId && !artifact.head.archived).map((artifact) => ({
               id: artifact.head.artifactId,
               title: artifact.head.title,
             })),
@@ -785,7 +785,7 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
           continue;
         }
         if (node.kind === "artifacts") {
-          const artifact = target.item === undefined ? undefined : DEMO_ARTIFACTS.find((held) => held.head.artifactId === target.item);
+          const artifact = target.item === undefined ? undefined : mutableArtifacts.find((held) => held.head.artifactId === target.item);
           faces.push(
             artifact === undefined
               ? { kind: "missing", label, reason: "gone", of: "artifact" }
@@ -817,7 +817,7 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
       const bodies =
         target.kind !== "artifact"
           ? []
-          : DEMO_ARTIFACTS.flatMap((held) => {
+          : mutableArtifacts.flatMap((held) => {
               if (held.body.type !== "document") return [];
               const line = held.body.markdown
                 .split("\n")

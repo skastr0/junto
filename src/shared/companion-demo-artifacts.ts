@@ -11,9 +11,9 @@ import { titleOf } from "./model/title";
 import { feedRegionForCanvas } from "./operator-feed";
 import { artifactText, type ArtifactBody } from "./wire/artifact";
 import type { ContentRef } from "./wire/content-ref";
-import { artifactLabelsMatch } from "./wire/artifact-labels";
+import { artifactLabelsMatch, type ArtifactLabelColour } from "./wire/artifact-labels";
 import { COMPANION_ARTIFACT_GET_BUDGET_BYTES, COMPANION_ARTIFACT_HISTORY_DEFAULT, COMPANION_ARTIFACT_SNIPPET_MAX, COMPANION_ARTIFACTS_LIST_DEFAULT } from "./wire/companion-artifact-reads";
-import { DEMO_ARTIFACT_LABEL_COLOURS, DEMO_ARTIFACTS, DEMO_RESOURCE_NODES } from "./wire/companion-demo-fixture";
+import { DEMO_ARTIFACTS, DEMO_RESOURCE_NODES, type DemoArtifact } from "./wire/companion-demo-fixture";
 import type { CompanionArtifactNode } from "./wire/companion-artifact-reads";
 
 /** The Inbox the demo starts with: the fixture's node of that name. */
@@ -54,6 +54,8 @@ const contentRefsOf = (body: ArtifactBody): ReadonlyArray<ContentRef> =>
 export const makeDemoArtifactReads = (
   canvas: Canvas,
   isDemoCanvas: (canvasName: string) => boolean,
+  artifacts: ReadonlyArray<DemoArtifact>,
+  colourTable: Readonly<Record<string, Readonly<Record<string, ArtifactLabelColour>>>>,
 ): Pick<
   CompanionBackend,
   "artifactContentRef" | "artifactNodes" | "artifactList" | "artifactGet" | "artifactHistory" | "artifactPending" | "artifactMoveCheck" | "inboxSet"
@@ -63,21 +65,21 @@ export const makeDemoArtifactReads = (
 
   const nodeFacts = (nodeId: string): CompanionArtifactNode => {
     const node = canvas.nodes.get(asNodeId(nodeId))!;
-    const held = DEMO_ARTIFACTS.filter((artifact) => artifact.head.nodeId === nodeId);
+    const held = artifacts.filter((artifact) => artifact.head.nodeId === nodeId);
     return {
       nodeId: asNodeId(nodeId),
       title: titleOf(node),
       region: feedRegionForCanvas(canvas, nodeId),
       live: held.filter((artifact) => !artifact.head.archived).length,
       archived: held.filter((artifact) => artifact.head.archived).length,
-      labelColours: DEMO_ARTIFACT_LABEL_COLOURS[nodeId] ?? {},
+      labelColours: colourTable[nodeId] ?? {},
     };
   };
 
   return {
     artifactContentRef: async (sha256) =>
       BODY_BYTES.get(sha256)?.ref ??
-      DEMO_ARTIFACTS.flatMap((held) => held.versions.flatMap((record) => contentRefsOf(record.body))).find((ref) => ref.sha256 === sha256),
+      artifacts.flatMap((held) => held.versions.flatMap((record) => contentRefsOf(record.body))).find((ref) => ref.sha256 === sha256),
     artifactNodes: async (canvasName) => {
       if (!isDemoCanvas(canvasName)) return outcomeFail("not-found", "No such canvas.");
       return outcomeOk({
@@ -91,7 +93,7 @@ export const makeDemoArtifactReads = (
         return outcomeFail("not-found", "That is not one of this canvas's Artifacts nodes.");
       }
       const word = args.query?.trim().toLowerCase() ?? "";
-      const rows = DEMO_ARTIFACTS.filter(({ head, body }) =>
+      const rows = artifacts.filter(({ head, body }) =>
         (args.nodeId === undefined || head.nodeId === args.nodeId) &&
         head.archived === (args.archived ?? false) &&
         (args.type === undefined || head.type === args.type) &&
@@ -122,12 +124,12 @@ export const makeDemoArtifactReads = (
     },
     artifactGet: async (args) => {
       if (!isDemoCanvas(args.canvasName)) return outcomeFail("not-found", "No such canvas.");
-      const held = DEMO_ARTIFACTS.find(({ head }) => head.artifactId === args.artifactId);
+      const held = artifacts.find(({ head }) => head.artifactId === args.artifactId);
       if (held === undefined) return outcomeFail("not-found", "That artifact is not on this canvas.");
       const shown = args.version ?? held.head.version;
       const record = held.versions.find((candidate) => candidate.version === shown);
       if (record === undefined) return outcomeFail("not-found", "That artifact has no such version.");
-      const colours = DEMO_ARTIFACT_LABEL_COLOURS[held.head.nodeId] ?? {};
+      const colours = colourTable[held.head.nodeId] ?? {};
       const labelColours = Object.fromEntries(held.head.labels.flatMap((label) => (colours[label] === undefined ? [] : [[label, colours[label]] as const])));
       const result = {
         artifact: held.head,
@@ -140,7 +142,7 @@ export const makeDemoArtifactReads = (
     },
     artifactHistory: async (args) => {
       if (!isDemoCanvas(args.canvasName)) return outcomeFail("not-found", "No such canvas.");
-      const held = DEMO_ARTIFACTS.find(({ head }) => head.artifactId === args.artifactId);
+      const held = artifacts.find(({ head }) => head.artifactId === args.artifactId);
       if (held === undefined) return outcomeFail("not-found", "That artifact is not on this canvas.");
       // The fixture keeps each version's body, not its edit: a link and a file only ever replace whole, the rest are patched.
       const wholeOnly = held.head.type === "link" || held.head.type === "file";
@@ -167,7 +169,7 @@ export const makeDemoArtifactReads = (
     artifactMoveCheck: async (args) => {
       if (!isDemoCanvas(args.canvasName)) return outcomeFail("not-found", "No such canvas.");
       if (!artifactsNodes.some((node) => node.id === args.to)) return outcomeFail("not-found", "That is not one of this canvas's Artifacts nodes.");
-      const moving = args.artifactIds.map((id) => DEMO_ARTIFACTS.find(({ head }) => head.artifactId === id));
+      const moving = args.artifactIds.map((id) => artifacts.find(({ head }) => head.artifactId === id));
       if (moving.some((held) => held === undefined)) return outcomeFail("not-found", "That artifact is not on this canvas.");
       const leaving = moving.filter((held) => held!.head.nodeId !== args.to).length;
       if (args.to !== "art-launch" || leaving === 0) return outcomeOk({});
