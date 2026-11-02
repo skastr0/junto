@@ -21,6 +21,16 @@ import { modelFixture, modelSeat } from "../harness/model";
 const CANVAS = "quitliveseat";
 const SEAT = modelSeat({ id: "scout", label: "Scout", x: 480, y: 40 });
 
+/** Whether a process is still there; a reused pid is a false positive, so brief. */
+const pidAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 test("quit with a running seat names it, then drains the core and leaves", async () => {
   test.setTimeout(120_000);
   const junto = await launchJunto({
@@ -41,7 +51,9 @@ test("quit with a running seat names it, then drains the core and leaves", async
     await expect(junto.page.locator('.react-flow__node[data-id="scout"]')).toBeVisible({ timeout: 30_000 });
     await crewPlayFactory(junto.page);
     // A real PTY, in the core's plane, occupied by a seat.
-    await crewOccupySeat(junto.page, CANVAS, SEAT, crewSeat(junto.sandbox, CANVAS, "scout"));
+    const seat = crewSeat(junto.sandbox, CANVAS, "scout");
+    await crewOccupySeat(junto.page, CANVAS, SEAT, seat);
+    const running = await seat.ready();
 
     // The operator's quit, from main's own app object: before-quit asks the
     // core what is running before it decides, and the harness accepts the
@@ -56,6 +68,11 @@ test("quit with a running seat names it, then drains the core and leaves", async
     // core drains its plane, the terminals stop last) and the app exits.
     await expect.poll(() => lines.join("\n"), { timeout: 30_000 }).toContain("dispose: child processes");
     await expect.poll(() => lines.join("\n"), { timeout: 30_000 }).toContain("quit, exit code 0");
+    // The seat's PTY child left with the quit: an orderly quit hangs every PTY
+    // up, so nothing a seat was running outlives the app.
+    await expect
+      .poll(() => pidAlive(running.pid), { message: "the seat's process after the quit", timeout: 20_000 })
+      .toBe(false);
     console.log(`quit-with-seat lines:\n${lines.join("\n")}`);
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");

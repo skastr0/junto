@@ -8,7 +8,7 @@
 import { createRequire } from "node:module";
 import type { CoreMessage, CorePort } from "../core-process/port";
 import { serveTerminals, type SurfacePort } from "./serve";
-import { TERMINAL_CONNECT, TerminalSurface, type SurfaceIn, type TerminalSurfaceOpen } from "./protocol";
+import { TERMINAL_CONNECT, TerminalInbound, TerminalSurface, type SurfaceIn, type TerminalSurfaceOpen } from "./protocol";
 
 /** Electron's MessagePortMain, as a utilityProcess is given one. */
 type PortMain = {
@@ -72,6 +72,12 @@ if (parent !== undefined) {
   parent.on("message", (event) => {
     const message = event.data as CoreMessage;
     const port = event.ports?.[0];
+    // The parent's orderly quit reaches the PTYs even when a core is attached
+    // and owns the port: hang up, then leave, so main's wait sees an exit.
+    if (message.kind === "push" && message.channel === TerminalInbound.shutdown) {
+      void served.hangupAll().finally(() => process.exit(0));
+      return;
+    }
     if (message.kind !== "push" || message.channel !== TERMINAL_CONNECT || port === undefined) return;
     const core = corePort(port);
     served.attach(core);

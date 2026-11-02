@@ -2,7 +2,7 @@ import { MessageChannelMain, utilityProcess, type MessagePortMain, type UtilityP
 import { Effect, Option, Schema } from "effect";
 import terminalEntryPath from "./entry?modulePath";
 import type { CoreMessage } from "../core-process/port";
-import { TERMINAL_CONNECT } from "./protocol";
+import { TERMINAL_CONNECT, TerminalInbound } from "./protocol";
 import { terminalClient, type TerminalClient } from "./client";
 
 /** How long a stopping terminal process has to report its exit before it is killed again. */
@@ -143,9 +143,12 @@ export const startTerminalProcessForCore = (): TerminalProcessForCore => {
       stopping = true;
       const leaving = child;
       if (leaving === undefined) return Effect.void;
-      // Signal now, and let the effect only wait: a stop takes effect whether
-      // or not the caller runs what it returns.
-      leaving.kill();
+      // Orderly quit: the parent asks for the hangup first, so every PTY is
+      // signalled while its owner is still alive to do it. The process leaves
+      // by itself once the hangups have landed; the wait below is on that exit.
+      // A core that crashed before this could not hang anything up, and the
+      // PTYs it left running would otherwise outlive the quit.
+      leaving.postMessage({ kind: "push", channel: TerminalInbound.shutdown, payload: {} });
       return Effect.suspend(() =>
         exited(leaving, () => gone.has(leaving)).pipe(
           Effect.timeoutOption(STOP_DEADLINE_MS),

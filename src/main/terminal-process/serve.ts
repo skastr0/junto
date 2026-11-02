@@ -135,6 +135,8 @@ export const serveTerminals = (
   readonly attach: (core: CorePort) => void;
   /** This core's port closed. No effect on a core already replaced. */
   readonly detach: (core: CorePort) => void;
+  /** Orderly quit: every PTY gets its hangup, and the promise settles after. */
+  readonly hangupAll: () => Promise<void>;
 } => {
   const ptys = new Map<number, IPty>();
   // Taken at spawn; a PTY whose epoch could not be read is never signalled.
@@ -289,6 +291,34 @@ export const serveTerminals = (
     return pty.pid;
   };
 
+  /**
+   * One PTY gets one signal, and the promise settles once it was decided: the
+   * epoch is read first, so a pid that was reaped or reused is never signalled.
+   */
+  const signalPty = async (id: number, signal: NodeJS.Signals | undefined): Promise<void> => {
+    const pty = ptys.get(id);
+    const captured = epochOf.get(id);
+    if (pty === undefined || captured === undefined) return;
+    const epoch = await captured;
+    // Gone, reaped or reused: the signal is dropped, never sent to a pid.
+    if (epoch === undefined || !(await epochs.isCurrent(pty.pid, epoch).catch(() => false))) return;
+    // The exit may have been reported while the table was read.
+    if (ptys.get(id) !== pty) return;
+    try {
+      pty.kill(signal);
+    } catch {
+      // The child is already gone; its exit witness reports it.
+    }
+  };
+
+  /**
+   * Orderly quit: every PTY gets its hangup, and the promise settles when each
+   * one has been decided, so the process can leave knowing the signals landed.
+   */
+  const hangupAll = async (): Promise<void> => {
+    await Promise.all([...ptys.keys()].map((id) => signalPty(id, "SIGHUP")));
+  };
+
   const inbound = (channel: string, payload: unknown): void => {
     if (channel === TerminalInbound.write) {
       const { id, data } = payload as TerminalWrite;
@@ -369,26 +399,12 @@ export const serveTerminals = (
       return;
     }
     if (channel === TerminalInbound.hangupAll) {
-      for (const id of [...ptys.keys()]) inbound(TerminalInbound.kill, { id, signal: "SIGHUP" } satisfies TerminalKill);
+      void hangupAll();
       return;
     }
     if (channel === TerminalInbound.kill) {
       const { id, signal } = payload as TerminalKill;
-      const pty = ptys.get(id);
-      const captured = epochOf.get(id);
-      if (pty === undefined || captured === undefined) return;
-      void (async () => {
-        const epoch = await captured;
-        // Gone, reaped or reused: the signal is dropped, never sent to a pid.
-        if (epoch === undefined || !(await epochs.isCurrent(pty.pid, epoch).catch(() => false))) return;
-        // The exit may have been reported while the table was read.
-        if (ptys.get(id) !== pty) return;
-        try {
-          pty.kill(signal);
-        } catch {
-          // The child is already gone; its exit witness reports it.
-        }
-      })();
+      void signalPty(id, signal);
     }
   };
 
@@ -432,5 +448,5 @@ export const serveTerminals = (
 
   if (port !== undefined) attach(port);
 
-  return { close: () => { if (core !== undefined) detach(core); }, live: () => ptys.size, openSurface, attach, detach };
+  return { close: () => { if (core !== undefined) detach(core); }, live: () => ptys.size, openSurface, attach, detach, hangupAll };
 };

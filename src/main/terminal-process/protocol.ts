@@ -70,8 +70,16 @@ export const TerminalInbound = {
   kill: "pty.kill",
   /** The core has handled this many more output characters of the terminal. */
   ack: "pty.ack",
-  /** Orderly quit: hang up every PTY. A port closing does not. */
+  /**
+   * Orderly quit: hang up every PTY. A port closing does not. The core asks
+   * this when it drains; the parent asks it when the core is gone.
+   */
   hangupAll: "pty.hangupAll",
+  /**
+   * The parent's orderly quit: hang up every PTY, then leave. Answered by no
+   * one: the process's exit is the answer, and main waits on it.
+   */
+  shutdown: "pty.shutdown",
   /**
    * The core heard this terminal's `pty.exit`. Only then does the terminal
    * process forget it; until then a new core's `pty.adopt` still names it.
