@@ -35,6 +35,10 @@ const ISOLATE_HINTS = [
   /node:sqlite/,
   // A complete core owns SQLite, routing caches, and monotonic shutdown state.
   /\bstartCore\b/,
+  // Building the core runtime in process binds the process's own singletons:
+  // the terminal plane's product-automation suspension among them. A second
+  // file in a reused worker binds a second one and the plane refuses it.
+  /\bmakeCoreRuntime\s*\(/,
   /makeStateEngineLive/,
   /StateEngineLive/,
   /vi\.stubEnv\(/,
