@@ -187,7 +187,7 @@ describe("browser startup recovery gate", () => {
     );
   });
 
-  it("exits nonzero with the fixed diagnostic and no window on startup failure", () => {
+  it("reports a browser startup failure through the startup dialog and opens no window", () => {
     const ready = indexSrc.slice(indexSrc.indexOf("app.whenReady().then"));
     const failure = ready.slice(
       ready.indexOf("} catch (startupError) {", ready.indexOf("startBrowserComposition(")),
@@ -195,12 +195,11 @@ describe("browser startup recovery gate", () => {
     );
     expect(failure.startsWith("} catch (startupError) {")).toBe(true);
     expect(failure).toContain("BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE");
-    expect(failure).toContain(
-      'exitAfterDetach(1, "browser-composition-startup-failure")',
-    );
-    expect(failure).toMatch(
-      /exitAfterDetach\(1, "browser-composition-startup-failure"\);\s*return;/,
-    );
+    // Authority is dropped and the failure is rethrown: the startup chain's
+    // own catch names it in the dialog, then exits 1. Never a window first.
+    expect(failure).toContain("browserComposition = undefined;");
+    expect(failure).toMatch(/throw startupError;/u);
     expect(failure).not.toContain("createWindow(");
+    expect(ready).toContain('exitAfterDetach(1, "startup-failure")');
   });
 });
