@@ -4,7 +4,7 @@ import type {
   ShellEnvironmentStatus,
 } from "@shared/shell-environment";
 import type { ToolRunner } from "../region-env/tool";
-import { mergePath, pathDirs } from "./path";
+import { mergePath, pathDirs } from "@shared/spawn-path";
 import { shellStartupFiles } from "./staleness";
 import { probeShellEnvironment, SHELL_ENVIRONMENT_TIMEOUT_MS } from "./probe";
 

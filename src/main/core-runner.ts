@@ -8,7 +8,8 @@ import type { MachineLink } from "./junto/link/service";
 import type { HostsService } from "./junto/hosts/service";
 import type { VaultTokens } from "./junto/vault/repository";
 import type { WorkService } from "./junto/work/service";
-import { shellEnvironment } from "./junto/shell-environment";
+import { homedir } from "node:os";
+import { mergePath } from "@shared/spawn-path";
 
 type CoreServices = ModelService | MachineRepository | SeatSessionRepository | SqlClient.SqlClient | MachineLink | HostsService | VaultTokens | WorkService;
 
@@ -49,19 +50,32 @@ export interface CoreReads {
   readonly vaultScope: () => Promise<{ readonly vault: string } | undefined>;
   /** The environment a spawn in this process uses: the core's resolved shell env in the core, an op in main. */
   readonly spawnEnv: () => Promise<Record<string, string | undefined>>;
+  /**
+   * The same environment for a spawn options literal that cannot await. In the
+   * core it is what the shell read applied; in main, which holds no shell
+   * environment, the inherited PATH merged with the floor.
+   */
+  readonly spawnEnvNow: () => NodeJS.ProcessEnv;
 }
 
 const coreNotRunning = (): Promise<never> =>
   Promise.reject(new Error("Junto core is not running"));
+
+/** The floor a spawn starts from before any shell read: inherited PATH, merged. */
+export const floorSpawnEnv = (): NodeJS.ProcessEnv => ({
+  ...process.env,
+  PATH: mergePath({ currentPath: process.env.PATH, home: homedir() }),
+});
 
 let reads: CoreReads = {
   canvas: coreNotRunning,
   machineName: coreNotRunning,
   vaultScope: coreNotRunning,
   // A spawn never throws because this process has no core: it takes the
-  // environment this process last applied, or the inherited PATH and the
-  // floor. The other reads fail closed; a spawn has to work.
-  spawnEnv: async () => ({ ...shellEnvironment.environmentNow() }),
+  // inherited PATH and the floor. The other reads fail closed; a spawn has to
+  // work.
+  spawnEnv: async () => floorSpawnEnv(),
+  spawnEnvNow: floorSpawnEnv,
 };
 
 /** Core only: answer these reads on the runtime this process installs. */
@@ -74,4 +88,5 @@ export const coreReads: CoreReads = {
   machineName: () => reads.machineName(),
   vaultScope: () => reads.vaultScope(),
   spawnEnv: () => reads.spawnEnv(),
+  spawnEnvNow: () => reads.spawnEnvNow(),
 };

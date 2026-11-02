@@ -119,8 +119,11 @@ import {
   resolveHarnessExecutable,
   supportedHostProbedFlags,
 } from "./templates/harness-install";
-import { configuredToolDirectories } from "../adapters/exec";
-import { shellEnvironment, type ShellEnvironment } from "../shell-environment";
+import {
+  configuredToolDirectories,
+  shellEnvironment,
+  type ShellEnvironment,
+} from "../shell-environment";
 import { launchSecretValues, registerKnownSecrets, releaseKnownSecrets } from "../credentials/scrub";
 import { buildManagedSeatInject, resolveWorkHomeForSeat } from "./templates/seat-env";
 import {

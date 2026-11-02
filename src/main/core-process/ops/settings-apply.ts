@@ -10,7 +10,7 @@
  */
 import { Effect, Option } from "effect";
 import { SettingsService } from "../../junto/settings/service";
-import { setConfiguredToolDirectories } from "../../junto/adapters/exec";
+import { setConfiguredToolDirectories } from "../../junto/shell-environment";
 import { setSystemPrefersDark, setThemePreference } from "../../junto/theme-state";
 import { coreOps, type CoreOp } from "../ops";
 

@@ -4,7 +4,7 @@ import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { setConfiguredToolDirectories } from "../src/main/junto/adapters/exec";
+import { setConfiguredToolDirectories } from "../src/main/junto/shell-environment";
 import {
   probeManagedHarnessInstalls,
   resetManagedHarnessInstallCacheForTests,

@@ -1,4 +1,4 @@
-import { installCoreReads } from "../core-runner";
+import { floorSpawnEnv, installCoreReads } from "../core-runner";
 import { CoreCallError, type CoreClient } from "./client";
 
 /**
@@ -31,5 +31,8 @@ export const useCoreClient = (client: CoreClient): void => {
     vaultScope: () => core.call("core.vaultScope", {}),
     // A spawn in main asks each time: a read held from boot would go stale.
     spawnEnv: () => core.call("ipc.shellEnvironment.env", {}),
+    // A spawn options literal cannot await: the inherited PATH and the floor,
+    // which is what main holds before it can ask.
+    spawnEnvNow: floorSpawnEnv,
   });
 };

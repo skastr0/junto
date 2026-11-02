@@ -6,6 +6,9 @@
  */
 import { Effect } from "effect";
 import { coreRunner, installCoreReads, type CoreReads } from "../core-runner";
+import { shellEnvironment } from "../junto/shell-environment";
+
+const shellEnvironmentNow = (): NodeJS.ProcessEnv => shellEnvironment.environmentNow();
 
 export const installInProcessCoreReads = (): void => {
   const reads: CoreReads = {
@@ -40,6 +43,11 @@ export const installInProcessCoreReads = (): void => {
     spawnEnv: async () => {
       const { shellEnvironment } = await import("../junto/shell-environment");
       return { ...(await shellEnvironment.ensure()) };
+    },
+    spawnEnvNow: () => {
+      // The module is already loaded by the async read above on every spawn
+      // path; the sync caller may still be the first, so take it statically.
+      return { ...shellEnvironmentNow() };
     },
   };
   installCoreReads(reads);

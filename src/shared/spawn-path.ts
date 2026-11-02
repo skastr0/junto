@@ -1,3 +1,8 @@
+/**
+ * The PATH a spawn starts from, pure: the operator's shell PATH over the
+ * inherited one, over operator tool dirs, over a guaranteed floor. Shared by
+ * main and the core, which both merge it; it holds no state and loads nothing.
+ */
 import { delimiter, join } from "node:path";
 
 // Well-known install roots, in priority order. This is the guaranteed floor:

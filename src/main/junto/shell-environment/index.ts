@@ -19,7 +19,7 @@ import { operatorShell, SHELL_ENVIRONMENT_SWITCH_KEY } from "./probe";
 import { fileMtimeMs } from "./staleness";
 
 export { makeShellEnvironment, diffVariableNames, type ShellEnvironment, type ShellEnvironmentState } from "./environment";
-export { mergePath, pathDirs, staticPathDirs } from "./path";
+export { mergePath, pathDirs, staticPathDirs } from "@shared/spawn-path";
 export { shellStartupFiles } from "./staleness";
 export {
   operatorShell,
@@ -53,3 +53,10 @@ export const shellEnvironment = makeShellEnvironment({
   log: (line) => console.log(line),
   warn: (line) => console.warn(line),
 });
+
+/** Operator-configured tool directories. Detection and launch both read this. */
+export const configuredToolDirectories = (): ReadonlyArray<string> =>
+  shellEnvironment.toolDirectories();
+
+export const setConfiguredToolDirectories = (directories: ReadonlyArray<string>): void =>
+  shellEnvironment.setToolDirectories(directories);

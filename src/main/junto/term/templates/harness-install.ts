@@ -25,7 +25,7 @@ import { isOverseerHarness } from "@shared/harness-records";
 import { harnessRuntimeRecordFor } from "../harness-record";
 import { parseHelpFlags } from "@shared/launch-extra-args";
 import type { ManagedTerminalFlagsResult } from "@shared/ipc";
-import { configuredToolDirectories } from "../../adapters/exec";
+import { configuredToolDirectories } from "../../shell-environment";
 import { shellEnvironment } from "../../shell-environment";
 import { juntoCliPathPrefixes } from "./seat-env";
 

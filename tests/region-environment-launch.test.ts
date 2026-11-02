@@ -17,7 +17,7 @@ import {
   type EnvSourceResolver,
   type SourceResolution,
 } from "../src/shared/region-environment";
-import { setConfiguredToolDirectories } from "../src/main/junto/adapters/exec";
+import { setConfiguredToolDirectories } from "../src/main/junto/shell-environment";
 import {
   makeRegionEnvironmentResolution,
 } from "../src/main/junto/region-env/resolve";
