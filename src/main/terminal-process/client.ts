@@ -171,6 +171,7 @@ export const terminalClient = (
     }
     if (message.channel === TerminalOutbound.exit) {
       const { id, code, signal } = message.payload as TerminalExitEvent;
+      post(TerminalInbound.exitAck, { id });
       return exited(id, { code, signal });
     }
     if (message.channel === TerminalOutbound.error) {

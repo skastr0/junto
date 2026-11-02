@@ -305,6 +305,59 @@ describe("the terminal process", () => {
     expect(await Effect.runPromise(nextCore(served).adopt())).toEqual([]);
   });
 
+  it("an exit posted to a core that died before its port closed is still named by the next adopt", async () => {
+    const { port1, port2 } = new MessageChannel();
+    opened.push(port1, port2);
+    let dead = false;
+    const dying = portOf(port2);
+    const served = serveTerminals({ post: (message) => { if (!dead) dying.post(message); }, listen: dying.listen }, realPty);
+    const client = terminalClient(portOf(port1));
+    const shell = client.spawn({ command: "/bin/sh", args: ["-c", "sleep 0.2; exit 4"], cols: 80, rows: 24, env });
+    const pid = (await shell.pid)!;
+    // The core is gone, but its port has not closed: the exit is posted into nothing.
+    dead = true;
+    await until(() => served.live() === 0);
+    await settleTurn();
+    served.detach(dying);
+    const next = nextCore(served);
+    const [taken] = await Effect.runPromise(next.adopt());
+    expect(taken!.adopted).toMatchObject({ pid, exit: { code: 4 } });
+    expect((await record(taken!.terminal).exit).code).toBe(4);
+    await settleTurn();
+    expect(await Effect.runPromise(nextCore(served).adopt())).toEqual([]);
+  });
+
+  it("history keeps the newest handled output under its bound, cut on a chunk boundary", async () => {
+    let emit: ((data: string) => void) | undefined;
+    const fake: SpawnPty = () => ({
+      pid: 4246,
+      onExit: () => ({ dispose: () => undefined }),
+      onData: (listener: (data: string) => void) => {
+        emit = listener;
+        return { dispose: () => undefined };
+      },
+      pause: () => undefined,
+      resume: () => undefined,
+      kill: () => undefined,
+      write: () => undefined,
+      resize: () => undefined,
+    }) as unknown as ReturnType<SpawnPty>;
+    const { client, served } = pair(fake);
+    const terminal = client.spawn({ command: "/bin/true", args: [], cols: 80, rows: 24 });
+    const seen = record(terminal);
+    await terminal.pid;
+    // 650 KiB handled against a 512 KiB bound: the first chunk goes, and so
+    // must the whole second, since keeping part of it would cut mid-chunk.
+    const chunks = ["a".repeat(100 * 1024), "b".repeat(450 * 1024), "c".repeat(100 * 1024)];
+    for (const chunk of chunks) emit!(chunk);
+    await until(() => seen.output().length === 650 * 1024);
+    await settleTurn();
+    served.close();
+    const [taken] = await Effect.runPromise(nextCore(served).adopt());
+    expect(taken!.adopted.seq).toBe(3);
+    expect(taken!.adopted.history).toBe(chunks[2]);
+  });
+
   it("with no core a PTY reads to the high mark and stops, and every chunk reaches the next core", async () => {
     let emit: ((data: string) => void) | undefined;
     const calls: string[] = [];

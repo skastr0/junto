@@ -72,12 +72,18 @@ export const TerminalInbound = {
   ack: "pty.ack",
   /** Orderly quit: hang up every PTY. A port closing does not. */
   hangupAll: "pty.hangupAll",
+  /**
+   * The core heard this terminal's `pty.exit`. Only then does the terminal
+   * process forget it; until then a new core's `pty.adopt` still names it.
+   */
+  exitAck: "pty.exitAck",
 } as const;
 
 export type TerminalWrite = { readonly id: number; readonly data: string };
 export type TerminalResize = { readonly id: number; readonly cols: number; readonly rows: number };
 export type TerminalKill = { readonly id: number; readonly signal?: NodeJS.Signals };
 export type TerminalAck = { readonly id: number; readonly chars: number };
+export type TerminalExitAck = { readonly id: number };
 
 /**
  * Backpressure: a PTY whose output the core has not handled past the high

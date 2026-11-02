@@ -13,6 +13,7 @@ import {
   type TerminalExitEvent,
   type TerminalAck,
   type TerminalAdopted,
+  type TerminalExitAck,
   type TerminalKill,
   TERMINAL_UNACKED_HIGH,
   TERMINAL_UNACKED_LOW,
@@ -225,10 +226,13 @@ export const serveTerminals = (
     surfaces.open.set(open.leaseId, { port: surface, stop });
   };
 
-  /** Told to the core; the record goes once all its output is handled, so a new core still hears it. */
+  /**
+   * Told to the core. The record stays until the core acknowledges the exit:
+   * a port can die after this post and before its close is seen, and the
+   * next core's adopt must still name the PTY.
+   */
   const deliverExit = (id: number, link: CoreLink): void => {
     push(TerminalOutbound.exit, { id, ...link.exit! });
-    if (link.unacked.length === 0) links.delete(id);
   };
 
   const adopt = (): readonly TerminalAdopted[] =>
@@ -324,10 +328,6 @@ export const serveTerminals = (
         link.historyChars += chunk.data.length;
       }
       while (link.historyChars > TERMINAL_HISTORY_CHARS) link.historyChars -= link.history.shift()!.data.length;
-      if (link.exit !== undefined && link.delivering && link.unacked.length === 0) {
-        links.delete(id);
-        return;
-      }
       if (link.paused && link.chars < TERMINAL_UNACKED_LOW) {
         link.paused = false;
         try {
@@ -360,6 +360,12 @@ export const serveTerminals = (
       const { id, leaseId } = payload as TerminalSurfaceClose;
       const surfaces = surfacesOf.get(id);
       if (surfaces !== undefined) endSurface(surfaces, leaseId);
+      return;
+    }
+    if (channel === TerminalInbound.exitAck) {
+      // Everything before the exit reached that core on the same ordered port.
+      const { id } = payload as TerminalExitAck;
+      if (links.get(id)?.exit !== undefined) links.delete(id);
       return;
     }
     if (channel === TerminalInbound.hangupAll) {
