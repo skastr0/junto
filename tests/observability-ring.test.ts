@@ -13,7 +13,14 @@ import {
 } from "../src/shared/settings";
 import { Schema, Result } from "effect";
 import { makeObservabilityRing, observabilityRing } from "../src/main/junto/observability/ring";
-import { ObservabilityEffectLogger } from "../src/main/junto/observability/logger";
+import {
+  ObservabilityEffectLogger,
+  setLogRowSink,
+} from "../src/main/junto/observability/logger";
+
+// The core installs its own ring as the row sink when it loads
+// (core-process/ops/observability.ts); the logger itself names no ring.
+setLogRowSink((row) => observabilityRing.append(row));
 
 const entry = (
   partial: Partial<ObservabilityLogEntry> & Pick<ObservabilityLogEntry, "message">,

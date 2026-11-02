@@ -13,7 +13,7 @@ import {
 } from "@shared/machine-log";
 import { EncodedFailure } from "@shared/failure";
 import { defaultMachineName } from "@shared/machine-name";
-import { observabilityRing, type ObservabilityAppendInput } from "./ring";
+import type { ObservabilityAppendInput } from "./ring";
 import { redactSecretValues } from "../credentials/redact";
 import { knownSecretValues, scrubMessage } from "../credentials/scrub";
 import { decodeEncodedFailure, encodeFailure } from "../failure-encode";
@@ -88,13 +88,26 @@ export const setObservabilityForwarder = (next: ((input: ObservabilityAppendInpu
   forward = next;
 };
 
+/**
+ * The process's own ring, installed by the core that owns it. Main installs
+ * none: a row there goes to the core's ring or nowhere, never into a second
+ * ring nothing reads.
+ */
+let rowSink: ((input: ObservabilityAppendInput) => void) | undefined;
+
+export const setLogRowSink = (
+  next: ((input: ObservabilityAppendInput) => void) | undefined,
+): void => {
+  rowSink = next;
+};
+
 /** One row to the ring: here, or in the process that owns it. */
 const emit = (input: ObservabilityAppendInput): void => {
   if (forward !== undefined) {
     forward(input);
     return;
   }
-  observabilityRing.append(input);
+  rowSink?.(input);
 };
 
 const state: LogState = { sink: undefined, machine: defaultMachineName(), process: "app", echo: true };

@@ -13,6 +13,7 @@ import {
 } from "@shared/observability";
 import { OBSERVABILITY_CLEARED, OBSERVABILITY_LOG } from "../channels";
 import { observabilityRing, type ObservabilityAppendInput } from "../../junto/observability/ring";
+import { setLogRowSink } from "../../junto/observability/logger";
 import { coreOps, type CoreOp } from "../ops";
 import { publish } from "../push";
 
@@ -34,6 +35,10 @@ declare module "../ops" {
 
 /** Explorers watching: the ring always captures, the push is only sent while one is. */
 let watching = 0;
+
+// This process logs into its own ring: the one copy the panel reads. Main
+// installs no ring; its rows arrive on `observability.append`.
+setLogRowSink((entry) => observabilityRing.append(entry));
 
 observabilityRing.subscribe((entry) => {
   if (watching > 0) publish(OBSERVABILITY_LOG, entry);
