@@ -44,3 +44,18 @@ for (const seedRetiredCommercialState of [false, true]) {
     }
   });
 }
+
+test("opens a fresh home with the first-run introduction", async () => {
+  const junto = await launchJunto({ firstRunIntro: true, offline: true });
+  try {
+    const { page } = junto;
+    // The introduction is the first thing a fresh home paints. If the
+    // renderer's React dispatcher is split, the tree throws before this
+    // mounts, and the window stays empty.
+    await expect(page.getByTestId("first-run-intro-slide")).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId("first-run-intro-skip").click();
+    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+  } finally {
+    await junto.close();
+  }
+});
