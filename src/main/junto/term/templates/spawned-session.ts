@@ -11,6 +11,9 @@
  *   seat steals the session of the seat that started just before it.
  * - A session from another workspace is never this seat's.
  * - An excluded id (this seat's own draining session) is never taken.
+ * - Where the seat's process says which session file it holds open, only
+ *   that session can be the seat's; time and workspace cannot tell two seats
+ *   in one folder apart.
  * - Among the rest, the store says how to choose: the earliest, the newest,
  *   or only when exactly one remains. Ties go to the first one read.
  *
@@ -63,6 +66,12 @@ export type SpawnedSessionStore = {
   readonly pick: "earliest" | "newest" | "unique";
   /** A stored id this store could have minted. */
   readonly isSessionId: (value: string) => boolean;
+  /**
+   * For a harness that keeps its session file open while it runs: the id of
+   * the session whose file this is, when it is one of this store's. A file
+   * the seat's own process holds open is that seat's, whatever its time.
+   */
+  readonly heldSessionId?: (path: string, home: string) => string | undefined;
 };
 
 export type SpawnedSessionInput = {
@@ -77,6 +86,8 @@ export type SpawnedSessionInput = {
   readonly tmpDir?: string;
   /** Session ids that are known not to be this seat's (a draining session). */
   readonly exclude?: ReadonlySet<string>;
+  /** When set, only these ids can be the seat's (the ones its process holds open). */
+  readonly only?: ReadonlySet<string>;
 };
 
 const trimmed = (path: string): string => path.replace(/\/+$/, "");
@@ -121,7 +132,10 @@ export const discoverSpawnedSession = (
   };
   const mine = scan.candidates.filter(
     (candidate) =>
-      candidate.startedAtMs >= floorMs && !input.exclude?.has(candidate.id) && inWorkspace(candidate),
+      candidate.startedAtMs >= floorMs &&
+      !input.exclude?.has(candidate.id) &&
+      (input.only === undefined || input.only.has(candidate.id)) &&
+      inWorkspace(candidate),
   );
   if (store.pick === "unique") return mine.length === 1 ? mine[0]!.id : undefined;
   let best: SpawnedSessionCandidate | undefined;

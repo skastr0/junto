@@ -222,6 +222,7 @@ export const startSeatSessions = async (input: SeatSessionsInput): Promise<SeatS
       // start time, so a seat cannot claim the session of the seat that
       // started just before it in the same directory.
       const live = termPlane.host.get(bindingId);
+      const pid = payload.pid ?? live?.pid;
       capture.watch({
         bindingId,
         harness,
@@ -229,6 +230,8 @@ export const startSeatSessions = async (input: SeatSessionsInput): Promise<SeatS
         nodeId: live?.nodeId ?? "",
         cwd: live?.cwd ?? "",
         spawnedAtMs: Date.now(),
+        // Two seats in one folder are told apart by the file each process holds.
+        ...(pid === undefined ? {} : { pid }),
         // A session still winding down on this seat is never the fresh one's.
         excludeSessionIds: drain.drainingSessionIds(live?.nodeId ?? ""),
       });

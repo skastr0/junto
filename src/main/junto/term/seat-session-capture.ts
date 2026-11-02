@@ -7,6 +7,8 @@
  * boundaries, capture reads the harness's session store for the session started
  * in this seat's workspace after this seat spawned, then writes it to the node
  * so a cold wake resumes that exact session instead of starting a fresh one.
+ * Where the harness keeps its session file open (Codex), the file the seat's
+ * own process holds is the answer, so two seats in one folder each get theirs.
  *
  * Once per binding. A seat that already carries an id never looks again, and a
  * seat whose capture landed stops watching — the store walk is cheap, but a
@@ -16,6 +18,7 @@
 
 import { sessionStoreFor } from "./session-existence";
 import { writeSeatSessionId } from "./seat-session-id";
+import { openFilesOfProcessTree, type OpenFilesOf } from "./process-open-files";
 import { discoverSpawnedSession, type SpawnedSessionStore } from "./templates/spawned-session";
 
 /**
@@ -37,10 +40,15 @@ type Watch = {
   readonly nodeId: string;
   readonly cwd: string;
   readonly spawnedAtMs: number;
+  /** The seat's own process, when it runs on this machine. */
+  readonly pid?: number;
   readonly discovery: SpawnedSessionStore;
   /** Sessions still running in this workspace that belong to no fresh seat. */
   readonly exclude: ReadonlySet<string>;
   settled: boolean;
+  /** The session this watch has claimed, which no sibling may take. */
+  claimed?: string;
+  inFlight?: Promise<string | undefined>;
 };
 
 export class SeatSessionCapture {
@@ -49,9 +57,11 @@ export class SeatSessionCapture {
   // sibling. The durable writer also checks the whole current portfolio.
   private readonly owners = new Map<string, Watch>();
   private readonly home: () => string;
+  private readonly openFiles: OpenFilesOf;
 
-  constructor(home: () => string) {
+  constructor(home: () => string, openFiles: OpenFilesOf = openFilesOfProcessTree) {
     this.home = home;
+    this.openFiles = openFiles;
   }
 
   /**
@@ -66,6 +76,8 @@ export class SeatSessionCapture {
     readonly nodeId: string;
     readonly cwd: string;
     readonly spawnedAtMs: number;
+    /** The seat's process on this machine; its open files name its session. */
+    readonly pid?: number;
     readonly existingSessionId?: string;
     /**
      * Session ids this seat must never take: its own earlier sessions that
@@ -89,6 +101,7 @@ export class SeatSessionCapture {
       nodeId: input.nodeId,
       cwd: input.cwd,
       spawnedAtMs: input.spawnedAtMs,
+      ...(input.pid === undefined ? {} : { pid: input.pid }),
       discovery,
       exclude: new Set(
         (input.excludeSessionIds ?? [])
@@ -111,21 +124,62 @@ export class SeatSessionCapture {
   async attempt(bindingId: string): Promise<string | undefined> {
     const watch = this.watching.get(bindingId);
     if (!watch || watch.settled) return undefined;
+    // Boundaries arrive faster than a process's open files can be listed:
+    // one look at a time, and a caller arriving meanwhile shares its answer.
+    if (watch.inFlight) return watch.inFlight;
+    const look = this.look(bindingId, watch).finally(() => {
+      if (watch.inFlight === look) delete watch.inFlight;
+    });
+    watch.inFlight = look;
+    return look;
+  }
+
+  /** The sessions the seat's own process holds open, or undefined when it cannot be told. */
+  private async held(watch: Watch): Promise<ReadonlySet<string> | undefined> {
+    const heldSessionId = watch.discovery.heldSessionId;
+    if (heldSessionId === undefined || watch.pid === undefined) return undefined;
+    const files = await this.openFiles(watch.pid).catch(() => undefined);
+    if (files === undefined) return undefined;
+    const ids = new Set<string>();
+    for (const file of files) {
+      const id = heldSessionId(file, watch.home);
+      if (id !== undefined) ids.add(id);
+    }
+    return ids;
+  }
+
+  private async look(bindingId: string, watch: Watch): Promise<string | undefined> {
+    // A session another seat here has claimed is never this one's; leaving
+    // it in would leave the earliest pick on it for good.
+    const exclude = new Set(watch.exclude);
+    for (const owner of this.owners.values()) {
+      if (owner === watch || owner.home !== watch.home || owner.harness !== watch.harness) continue;
+      if (owner.claimed !== undefined) exclude.add(owner.claimed);
+    }
+    // Asked only where there is a process to ask: otherwise the look stays
+    // synchronous up to the write, as it always was.
+    const askProcess = watch.discovery.heldSessionId !== undefined && watch.pid !== undefined;
+    const held = askProcess ? await this.held(watch) : undefined;
+    if (this.watching.get(bindingId) !== watch || watch.settled) return undefined;
     const sessionId = discoverSpawnedSession(watch.discovery, {
       cwd: watch.cwd,
       spawnedAtMs: watch.spawnedAtMs,
       home: watch.home,
-      exclude: watch.exclude,
+      exclude,
+      ...(held === undefined ? {} : { only: held }),
     });
     // Undefined is the normal early answer: these harnesses write their store
-    // asynchronously, so the next boundary tries again.
+    // asynchronously, so the next boundary tries again. A seat whose process
+    // holds no session file yet has not started its first turn.
     if (sessionId === undefined) return undefined;
     // Whatever a discovery does with `exclude`, an excluded id is never taken.
-    if (watch.exclude.has(sessionId)) return undefined;
+    if (exclude.has(sessionId)) return undefined;
     const candidateKey = JSON.stringify([watch.home, watch.harness, sessionId]);
     const owner = this.owners.get(candidateKey);
     if (owner !== undefined && owner !== watch) return undefined;
-    if (owner === undefined) {
+    // The file the seat's own process holds open settles it; only a pick by
+    // workspace and time has to make way for a sibling that could claim it.
+    if (owner === undefined && held === undefined) {
       // One candidate does not mean one eligible seat. Do not choose whichever
       // callback happens first while another watch can claim the same id.
       for (const other of this.watching.values()) {
@@ -137,7 +191,10 @@ export class SeatSessionCapture {
           exclude: other.exclude,
         }) === sessionId) return undefined;
       }
+    }
+    if (owner === undefined) {
       this.owners.set(candidateKey, watch);
+      watch.claimed = sessionId;
     }
     // Claim the slot before awaiting, so two boundaries arriving together
     // cannot both write.

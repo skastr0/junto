@@ -12,12 +12,18 @@
  * the operator's root thread). A thread Codex spawned itself names its parent
  * under `source.subagent`. The day directories are local dates.
  *
+ * Codex 0.166 mints the thread when the TUI starts but writes the rollout
+ * only when the first turn starts, seconds later, and keeps it open for the
+ * life of the session (probed on 0.166.0: a seat's codex held its rollout on
+ * one descriptor for two days). So the file a seat's process holds open is
+ * the seat's own, and two seats in one folder cannot take each other's.
+ *
  * Read-only: readdir of the day directories the seat has lived through, and
  * the first line of each rollout touched since it spawned.
  */
 
-import { closeSync, openSync, readdirSync, readSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { closeSync, openSync, readdirSync, readSync, realpathSync, statSync } from "node:fs";
+import { basename, join, relative } from "node:path";
 import {
   discoverSpawnedSession,
   isUuid,
@@ -74,6 +80,20 @@ const dayDirs = (root: string, fromMs: number, toMs: number): string[] => {
   return dirs;
 };
 
+/** Open-file listings name real paths (`/private/tmp`), so the root is compared both ways. */
+const isWithin = (root: string, path: string): boolean => {
+  const inside = (base: string): boolean => {
+    const rel = relative(base, path);
+    return rel.length > 0 && !rel.startsWith("..") && !rel.startsWith("/");
+  };
+  if (inside(root)) return true;
+  try {
+    return inside(realpathSync(root));
+  } catch {
+    return false;
+  }
+};
+
 type Meta = { readonly id: string; readonly cwd: string; readonly createdMs: number; readonly root: boolean };
 
 const readMeta = (path: string): Meta | undefined => {
@@ -120,6 +140,12 @@ export const CODEX_SPAWNED_SESSIONS: SpawnedSessionStore = {
   isSessionId: isCodexSessionId,
   sameWorkspace: "real",
   pick: "earliest",
+  heldSessionId: (path, home) => {
+    if (!ROLLOUT_FILE.test(basename(path))) return undefined;
+    if (!isWithin(join(home, ".codex", "sessions"), path)) return undefined;
+    const meta = readMeta(path);
+    return meta?.root ? meta.id : undefined;
+  },
   scan: ({ home, floorMs, nowMs }) => {
     const candidates: SpawnedSessionCandidate[] = [];
     for (const dir of dayDirs(join(home, ".codex", "sessions"), floorMs, nowMs)) {
