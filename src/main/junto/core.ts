@@ -1,4 +1,4 @@
-import { Context, Effect, Exit, Schema, Scope } from "effect";
+import { Context, Effect, Schema } from "effect";
 import { join } from "node:path";
 import type { CoreRuntime, MachineCoreOptions } from "../core-runtime";
 import { makeCoreRuntime } from "../core-runtime";
@@ -23,6 +23,7 @@ import { installInProcessCoreReads } from "../core-process/in-process-reads";
 import { startWorkControlServer, type WorkControlServer } from "./work/control";
 import { workControlDir } from "@shared/work-control";
 import { startCoreSeats, adoptCoreTerminals } from "./term/core-seats";
+import { runStopSteps } from "../stop-scope";
 import { enforceBootRefusal } from "./boot-guard";
 import { reconcileSeatsLostToCoreRestart } from "./term/seat-reconcile";
 import { connectCoreTerminals } from "../terminal-process/core-side";
@@ -153,15 +154,12 @@ export const startCore = async (options: CoreOptions) => {
   /** Opens the operator socket once; the desktop asks when a phone pairs. */
   let ensureOperatorListening: () => Promise<void> = () => Promise.resolve();
   let closeFlight: Promise<void> | undefined;
-  /** What the shutdown finalizers named; the first one is thrown once the scope has closed. */
-  const shutdownFailures: unknown[] = [];
   /**
    * `cause` says why this core stops; each linked machine reads it in the close frame.
    *
-   * The stop is one Effect scope of finalizers, not a sequence of awaits: every
-   * step runs even when an earlier one failed, and the first failure is the one
-   * reported. Steps read top to bottom in the order they run; the scope runs
-   * them in reverse registration order, so they are registered bottom to top.
+   * The stop is one scope of finalizers (stop-scope.ts): every step runs even
+   * when an earlier one failed, and the first failure is the one reported.
+   * Steps read top to bottom in the order they run.
    */
   const close = (cause?: unknown): Promise<void> => {
     if (closeFlight !== undefined) return closeFlight;
@@ -235,18 +233,7 @@ export const startCore = async (options: CoreOptions) => {
           releaseRunner?.();
         },
       ];
-      const scope = Effect.runSync(Scope.make());
-      for (const step of [...steps].reverse()) {
-        Effect.runSync(Scope.addFinalizer(scope, Effect.promise(async () => {
-          try {
-            await step();
-          } catch (error) {
-            shutdownFailures.push(error);
-          }
-        })));
-      }
-      await Effect.runPromise(Scope.close(scope, Exit.void));
-      if (shutdownFailures.length > 0) throw shutdownFailures[0];
+      await runStopSteps(steps);
     })();
     return closeFlight;
   };

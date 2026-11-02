@@ -38,7 +38,7 @@ import {
   resolvedSpawnEnv,
   terminateAdapterChildrenOnQuit,
 } from "./junto/adapters/exec";
-import { Effect, Exit, Scope } from "effect";
+import { runStopSteps } from "./stop-scope";
 import { appMenuTemplate } from "./junto/app-menu";
 import { appProcessBlocksAppExit, appProcessPlane, describeAppProcessStraggler } from "./junto/app-process-plane";
 import { enforceBootRefusal } from "./junto/boot-guard";
@@ -1913,23 +1913,15 @@ const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
     // here, not swallowed.
     ["dispose: child processes", requireCleanChildrenShutdown],
   ];
-  const failures: unknown[] = [];
-  const scope = Effect.runSync(Scope.make());
-  for (const [label, step] of [...steps].reverse()) {
-    Effect.runSync(Scope.addFinalizer(scope, Effect.promise(async () => {
-      try {
-        await step();
-      } catch (error) {
-        failures.push(error);
-      } finally {
-        // A step that failed still names its phase: the log is the record of
-        // how far the stop got before it reported.
-        lap(label);
-      }
-    })));
-  }
-  await Effect.runPromise(Scope.close(scope, Exit.void));
-  if (failures.length > 0) throw failures[0];
+  // A step that failed still names its phase: the log is the record of how far
+  // the stop got before it reported.
+  await runStopSteps(steps.map(([label, step]) => async () => {
+    try {
+      await step();
+    } finally {
+      lap(label);
+    }
+  }));
 };
 
 const disposeRuntime = (): Promise<void> => {
