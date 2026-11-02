@@ -817,6 +817,28 @@ export const PROVIDER_SECRET_FIELDS: Readonly<
   cursor: ["cookieHeader"],
 };
 
+/**
+ * The credential slots the released provider_credential_bindings table
+ * accepts. Frozen history: the released CHECK constraint names exactly these,
+ * so a provider added later gets its own table (openai) instead of widening it.
+ */
+export const PROVIDER_CREDENTIAL_SLOT_VALUES = [
+  "openrouter/apiKey",
+  "openrouter/managementApiKey",
+  "synthetic/apiKey",
+  "kimi/authToken",
+  "kimi/apiKey",
+  "devin/bearerToken",
+  "opencodeGo/apiKey",
+  "copilot/token",
+  "ollama/sessionCookie",
+  "ollama/apiKey",
+  "cursor/cookieHeader",
+] as const;
+
+/** Added in schema 23; the released provider slot constraint stays frozen. */
+export const OPENAI_CREDENTIAL_SLOT_VALUES = ["openai/apiKey"] as const;
+
 export const defaultProviders = (): ProvidersSettings => ({ enabledSources: [] });
 
 /**

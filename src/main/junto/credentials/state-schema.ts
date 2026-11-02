@@ -4,21 +4,16 @@
  * Secret values never live in SQLite. This table records which OS-vault
  * generation currently represents an operator override so settings JSON can
  * stay non-secret and product backups can omit credential material.
+ *
+ * The slot names are shared settings data, not DDL: the scrub that redacts
+ * historical values reads the same frozen list, and must not load this file.
  */
+import {
+  OPENAI_CREDENTIAL_SLOT_VALUES,
+  PROVIDER_CREDENTIAL_SLOT_VALUES,
+} from "@shared/settings";
 
-export const PROVIDER_CREDENTIAL_SLOT_VALUES = [
-  "openrouter/apiKey",
-  "openrouter/managementApiKey",
-  "synthetic/apiKey",
-  "kimi/authToken",
-  "kimi/apiKey",
-  "devin/bearerToken",
-  "opencodeGo/apiKey",
-  "copilot/token",
-  "ollama/sessionCookie",
-  "ollama/apiKey",
-  "cursor/cookieHeader",
-] as const;
+export { OPENAI_CREDENTIAL_SLOT_VALUES, PROVIDER_CREDENTIAL_SLOT_VALUES };
 
 const SLOT_SQL_LIST = PROVIDER_CREDENTIAL_SLOT_VALUES.map(
   (slot) => `'${slot}'`,
@@ -43,9 +38,6 @@ export const PROVIDER_CREDENTIAL_BINDINGS_SQL = `
     ON provider_credential_bindings(slot)
     WHERE lifecycle = 'active';
 `;
-
-/** Added in schema 23; the released provider slot constraint stays frozen. */
-export const OPENAI_CREDENTIAL_SLOT_VALUES = ["openai/apiKey"] as const;
 
 export const OPENAI_CREDENTIAL_BINDINGS_SQL = `
   CREATE TABLE IF NOT EXISTS openai_credential_bindings (

@@ -1,11 +1,12 @@
 import {
   MASKED_SECRET,
+  OPENAI_CREDENTIAL_SLOT_VALUES,
+  PROVIDER_CREDENTIAL_SLOT_VALUES,
   PROVIDER_SECTION_KEYS,
   PROVIDER_SECRET_FIELDS,
   type ProviderSectionKey,
   type ProvidersSettings,
 } from "@shared/settings";
-import { OPENAI_CREDENTIAL_SLOT_VALUES, PROVIDER_CREDENTIAL_SLOT_VALUES } from "./state-schema";
 
 export type ProviderCredentialSlot =
   (typeof PROVIDER_CREDENTIAL_SLOT_VALUES)[number]
