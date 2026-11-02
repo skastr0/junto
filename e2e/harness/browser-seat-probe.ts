@@ -37,11 +37,15 @@ export interface SeatProbeAnswer {
 export interface SeatProbeIdentity {
   readonly pid: number;
   readonly nodeRef: string;
+  readonly seat: string;
   readonly workHome: string;
   readonly home: string;
   readonly argv: ReadonlyArray<string>;
   /** The credential has the shape the core mints, and the seat holds it. */
   readonly credentialShape: boolean;
+  readonly credentialLength: number;
+  readonly credentialPrefix: string;
+  readonly credentialForeign: ReadonlyArray<number | undefined>;
   readonly tokenPath: string;
   readonly socketPath: string;
 }
@@ -70,6 +74,15 @@ const tokenPath = path.join(home, ".junto", "browser", "control.token");
 const credential = (process.env.JUNTO_WORK_TOKEN || "").trim();
 const mode = process.argv[2] === "replay" ? "replay" : "seat";
 const log = path.join(dir, "attempts.ndjson");
+
+// The app also probes the harness binary it finds on PATH ('--help',
+// 'sandbox --help', 'debug models') before it ever spawns a seat. Those runs
+// carry no seat environment: answer like a small CLI and leave no trace, so
+// only the seat's own process writes what it saw.
+if (mode === "seat" && credential === "") {
+  process.stdout.write("codex\\n");
+  process.exit(0);
+}
 
 fs.mkdirSync(dir, { recursive: true });
 
@@ -141,10 +154,16 @@ const seat = async () => {
   writeJson("seat.json", {
     pid: process.pid,
     nodeRef: process.env.JUNTO_NODE_REF || "",
+    seat: process.env.JUNTO_SEAT || "",
     workHome: process.env.JUNTO_WORK_HOME || "",
     home,
-    argv: process.argv.slice(2),
+    argv: process.argv.slice(0),
     credentialShape: /^junto-seat-[A-Za-z0-9_-]{43}$/.test(credential),
+    // Never the value: how long it is, the constant prefix, and every
+    // character outside the credential's own alphabet, as code points.
+    credentialLength: credential.length,
+    credentialPrefix: credential.slice(0, 11),
+    credentialForeign: [...new Set(credential.split("").filter((ch) => !/[A-Za-z0-9_-]/.test(ch)).map((ch) => ch.codePointAt(0)))],
     tokenPath,
     socketPath,
   });

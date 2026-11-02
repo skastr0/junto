@@ -27,10 +27,11 @@ import {
 } from "../harness/browser-seat-probe";
 import { waitForControlDoctor, readSandboxControlToken, sandboxControlSocketPath } from "../harness/browser-control-client";
 import { launchJunto } from "../harness/launch";
-import { modelFixture, modelNode, modelSeat, modelWire } from "../harness/model";
+import { installModelFixture, modelFixture, modelNode, modelSeat, modelWire } from "../harness/model";
 import { OFFBOARDED_SESSION_MESSAGE } from "../../src/main/junto/process-identity";
 
-const CANVAS = "browser-seat-credential";
+/** The canvas this scenario installs into when the app has none yet. */
+const CANVAS_FALLBACK = "browser-seat-credential";
 const SEAT = "a1";
 const PAGE = "p1";
 const PAGE_URL = "https://example.com/";
@@ -67,19 +68,7 @@ const readAttempts = async (home: string): Promise<ReadonlyArray<SeatAttempt>> =
 
 test("a real seat is admitted with its own credential, and refused once its generation ends", async () => {
   test.setTimeout(180_000);
-  const nodes = [
-    modelSeat({ id: SEAT, label: "credential seat", x: 0, y: 0 }),
-    // A page node as the model has it: the page is local by nature, so it
-    // names no machine.
-    modelNode({
-      kind: "page", id: PAGE, url: PAGE_URL, profile: PROFILE, onRemove: "kill-session",
-      x: 300, y: 0, width: 240, height: 80, z: 0,
-    }),
-  ];
   const junto = await launchJunto({
-    seedModels: {
-      [CANVAS]: modelFixture(nodes, [modelWire("e1", SEAT, PAGE, "navigates", nodes)]),
-    },
     seedHarnessInstalls: ["codex"],
     afterSeed: installBrowserSeatProbe,
   });
@@ -94,9 +83,32 @@ test("a real seat is admitted with its own credential, and refused once its gene
       await readSandboxControlToken(home),
     );
 
+    // The seat's machine is the app's own name, read from the app: a seat
+    // assigned to another machine never drives a page here.
+    const machine = await page.evaluate(async () => {
+      const listed = await window.junto!.hostsList?.();
+      return listed?.hosts?.find((host) => host.isThisMachine)?.id ?? "";
+    });
+    expect(machine, "this machine has a name the app knows").not.toBe("");
+
+    const nodes = [
+      modelSeat({ id: SEAT, label: "credential seat", host: machine, x: 0, y: 0 }),
+      // A page node as the model has it: the page is local by nature, so it
+      // names no machine.
+      modelNode({
+        kind: "page", id: PAGE, url: PAGE_URL, profile: PROFILE, onRemove: "kill-session",
+        x: 300, y: 0, width: 240, height: 80, z: 0,
+      }),
+    ];
+    const canvas = await installModelFixture(
+      page,
+      modelFixture(nodes, [modelWire("e1", SEAT, PAGE, "navigates", nodes)]),
+      CANVAS_FALLBACK,
+    );
+
     const started = await page.evaluate(
-      ([canvas, id]) => window.junto!.modelStart({ canvas, id }),
-      [CANVAS, SEAT] as const,
+      ([name, id]) => window.junto!.modelStart({ canvas: name, id }),
+      [canvas, SEAT] as const,
     );
     expect(started, "the operator's start of the seat").toBeTruthy();
 
@@ -108,30 +120,44 @@ test("a real seat is admitted with its own credential, and refused once its gene
       })
       .toBe(true);
     const identity = (await readSeatProbeFile<SeatProbeIdentity>(home, "seat.json"))!;
-    expect(identity.credentialShape, "the seat holds a generation credential").toBe(true);
-    expect(identity.nodeRef, "the seat knows its node").toBe(`${CANVAS}:${SEAT}`);
-    expect(identity.argv[0], "the app spawned the seat's harness").toContain("codex");
+    expect(identity.credentialShape, JSON.stringify(identity)).toBe(true);
+    expect(identity.nodeRef, "the seat knows its node").toBe(`${canvas}:${SEAT}`);
+    expect(identity.seat, "the seat knows its key").toBe(BINDING);
 
     await expect
-      .poll(async () => await readSeatProbeFile<SeatProbeAnswer>(home, "admitted.json"), {
-        message: "the seat's own call is admitted",
+      .poll(async () => await readSeatProbeFile<SeatProbeAnswer | null>(home, "admitted.json"), {
+        message: "the seat's own call is answered",
         timeout: 60_000,
       })
       .not.toBeUndefined();
-    const admitted = (await readSeatProbeFile<SeatProbeAnswer>(home, "admitted.json"))!;
+    const admitted = (await readSeatProbeFile<SeatProbeAnswer | null>(home, "admitted.json"))!;
+    if (admitted === null) {
+      throw new Error(
+        `the seat was never admitted: ${JSON.stringify((await readAttempts(home)).slice(-4))}`,
+      );
+    }
     expect(admitted.error, "no refusal for a live seat").toBeNull();
     expect(admitted.status, "the seat's own call, admitted").toBe(200);
     expect(admitted.ok).toBe(true);
     // Admitted as this seat, and only for the page its edge names.
     const rows = admitted.data as ReadonlyArray<{ readonly canvas: string; readonly nodeId: string; readonly url: string; readonly profile: string }>;
     expect(rows.map((row) => row.nodeId), "the page this seat's edge reaches").toEqual([PAGE]);
-    expect(rows[0]).toMatchObject({ canvas: CANVAS, url: PAGE_URL, profile: PROFILE });
+    expect(rows[0]).toMatchObject({ canvas, url: PAGE_URL, profile: PROFILE });
 
     // No credential value reaches the window, in the page or in any text.
     const leaked = await page.evaluate(() =>
       /junto-seat-[A-Za-z0-9_-]{43}/u.test(document.documentElement.outerHTML),
     );
     expect(leaked, "no credential value in the window").toBe(false);
+
+    // The seat's detached child is already presenting the same credential, so
+    // the refusal below is the same credential's, not a fresh process's.
+    await expect
+      .poll(
+        async () => (await readAttempts(home)).some((attempt) => attempt.from === "replay" && attempt.ok),
+        { message: "the seat's replayer is admitted before the stop", timeout: 30_000 },
+      )
+      .toBe(true);
 
     // The operator's Stop ends the generation, and the core revokes it.
     const stoppedAt = Date.now();
