@@ -222,7 +222,12 @@ export const startSeatSessions = async (input: SeatSessionsInput): Promise<SeatS
       // start time, so a seat cannot claim the session of the seat that
       // started just before it in the same directory.
       const live = termPlane.host.get(bindingId);
-      const pid = payload.pid ?? live?.pid;
+      // The terminal process names the PTY's pid a turn after it announces
+      // the spawn, so the watch reads it at each look, from this generation.
+      const pid = (): number | undefined => {
+        const now = termPlane.host.get(bindingId);
+        return now?.epoch === payload.epoch ? (now.pid ?? payload.pid) : undefined;
+      };
       capture.watch({
         bindingId,
         harness,
@@ -231,7 +236,7 @@ export const startSeatSessions = async (input: SeatSessionsInput): Promise<SeatS
         cwd: live?.cwd ?? "",
         spawnedAtMs: Date.now(),
         // Two seats in one folder are told apart by the file each process holds.
-        ...(pid === undefined ? {} : { pid }),
+        pid,
         // A session still winding down on this seat is never the fresh one's.
         excludeSessionIds: drain.drainingSessionIds(live?.nodeId ?? ""),
       });

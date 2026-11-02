@@ -40,8 +40,8 @@ type Watch = {
   readonly nodeId: string;
   readonly cwd: string;
   readonly spawnedAtMs: number;
-  /** The seat's own process, when it runs on this machine. */
-  readonly pid?: number;
+  /** The seat's own process, when it runs on this machine and has named its pid. */
+  readonly pid?: () => number | undefined;
   readonly discovery: SpawnedSessionStore;
   /** Sessions still running in this workspace that belong to no fresh seat. */
   readonly exclude: ReadonlySet<string>;
@@ -76,8 +76,12 @@ export class SeatSessionCapture {
     readonly nodeId: string;
     readonly cwd: string;
     readonly spawnedAtMs: number;
-    /** The seat's process on this machine; its open files name its session. */
-    readonly pid?: number;
+    /**
+     * The seat's process on this machine; its open files name its session.
+     * Read at each look: a PTY in the terminal process names its pid a turn
+     * after the spawn is announced.
+     */
+    readonly pid?: () => number | undefined;
     readonly existingSessionId?: string;
     /**
      * Session ids this seat must never take: its own earlier sessions that
@@ -137,8 +141,9 @@ export class SeatSessionCapture {
   /** The sessions this process holds open, or undefined when it cannot be told. */
   private async heldBy(watch: Watch): Promise<ReadonlySet<string> | undefined> {
     const heldSessionId = watch.discovery.heldSessionId;
-    if (heldSessionId === undefined || watch.pid === undefined) return undefined;
-    const files = await this.openFiles(watch.pid).catch(() => undefined);
+    const pid = watch.pid?.();
+    if (heldSessionId === undefined || pid === undefined) return undefined;
+    const files = await this.openFiles(pid).catch(() => undefined);
     if (files === undefined) return undefined;
     const ids = new Set<string>();
     for (const file of files) {
@@ -174,7 +179,7 @@ export class SeatSessionCapture {
     }
     // Asked only where there is a process to ask: otherwise the look stays
     // synchronous up to the write, as it always was.
-    const askProcess = watch.discovery.heldSessionId !== undefined && watch.pid !== undefined;
+    const askProcess = watch.discovery.heldSessionId !== undefined && watch.pid?.() !== undefined;
     const held = askProcess ? await this.held(watch) : undefined;
     if (this.watching.get(bindingId) !== watch || watch.settled) return undefined;
     // A file the seat's own process holds settles it. Holding none yet (a

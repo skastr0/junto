@@ -123,8 +123,8 @@ afterEach(async () => {
 });
 
 const watchBoth = (capture: SeatSessionCapture, t0: number, pids: { a?: number; b?: number }) => {
-  capture.watch({ bindingId: seatA.bindingId, harness: "codex", canvasName: "proof", nodeId: seatA.id, cwd: sandbox.root, spawnedAtMs: t0, ...(pids.a ? { pid: pids.a } : {}) });
-  capture.watch({ bindingId: seatB.bindingId, harness: "codex", canvasName: "proof", nodeId: seatB.id, cwd: sandbox.root, spawnedAtMs: t0 + 500, ...(pids.b ? { pid: pids.b } : {}) });
+  capture.watch({ bindingId: seatA.bindingId, harness: "codex", canvasName: "proof", nodeId: seatA.id, cwd: sandbox.root, spawnedAtMs: t0, ...(pids.a ? { pid: () => pids.a } : {}) });
+  capture.watch({ bindingId: seatB.bindingId, harness: "codex", canvasName: "proof", nodeId: seatB.id, cwd: sandbox.root, spawnedAtMs: t0 + 500, ...(pids.b ? { pid: () => pids.b } : {}) });
 };
 
 it("each seat binds the rollout its own process holds, whichever is written first", { timeout: 30_000 }, async () => {
@@ -169,6 +169,25 @@ it("the later seat never takes the first seat's rollout while its own is unwritt
   expect(await current(seatB.id, seatB.bindingId)).toMatchObject({ sessionId: B });
 });
 
+it("a pid named after the spawn is read at the look, not at the watch", { timeout: 30_000 }, async () => {
+  const t0 = Date.now() - 5_000;
+  const a = await codexSeat(A, new Date(t0 + 300));
+  const b = await codexSeat(B, new Date(t0 + 800));
+  // The terminal process names a PTY's pid a turn after the spawn is announced.
+  const named: { a?: number; b?: number } = {};
+  const capture = new SeatSessionCapture(() => sandbox.homeDir);
+  capture.watch({ bindingId: seatA.bindingId, harness: "codex", canvasName: "proof", nodeId: seatA.id, cwd: sandbox.root, spawnedAtMs: t0, pid: () => named.a });
+  capture.watch({ bindingId: seatB.bindingId, harness: "codex", canvasName: "proof", nodeId: seatB.id, cwd: sandbox.root, spawnedAtMs: t0 + 500, pid: () => named.b });
+  named.a = a.pid;
+  named.b = b.pid;
+
+  await b.write();
+  expect(await capture.attempt(seatA.bindingId)).toBeUndefined();
+  expect(await capture.attempt(seatB.bindingId)).toBe(B);
+  await a.write();
+  expect(await capture.attempt(seatA.bindingId)).toBe(A);
+});
+
 it("without a process to ask, a claimed rollout no longer blocks the sibling's own", { timeout: 30_000 }, async () => {
   const t0 = Date.now() - 5_000;
   const a = await codexSeat(A, new Date(t0 + 300));
@@ -194,7 +213,7 @@ it("a seat whose process holds no rollout still takes one no sibling holds", { t
   const t0 = Date.now() - 5_000;
   const a = await codexSeat(A, new Date(t0 + 300));
   const capture = new SeatSessionCapture(() => sandbox.homeDir);
-  capture.watch({ bindingId: seatA.bindingId, harness: "codex", canvasName: "proof", nodeId: seatA.id, cwd: sandbox.root, spawnedAtMs: t0, pid: a.pid });
+  capture.watch({ bindingId: seatA.bindingId, harness: "codex", canvasName: "proof", nodeId: seatA.id, cwd: sandbox.root, spawnedAtMs: t0, pid: () => a.pid });
   // A Codex that closes its rollout between writes: the file is there, held by no one.
   const minted = new Date(t0 + 300);
   await writeFile(join(dayDir(minted), `rollout-${minted.getTime()}-${A}.jsonl`), `${JSON.stringify({ type: "session_meta", payload: { id: A, timestamp: minted.toISOString(), cwd: sandbox.root, source: "cli", thread_source: "user" } })}\n`);
@@ -210,7 +229,7 @@ it("one look at a time: boundaries arriving together share one answer", { timeou
     const { openFilesOfProcessTree } = await import("../src/main/junto/term/process-open-files");
     return openFilesOfProcessTree(pid);
   });
-  capture.watch({ bindingId: seatA.bindingId, harness: "codex", canvasName: "proof", nodeId: seatA.id, cwd: sandbox.root, spawnedAtMs: t0, pid: a.pid });
+  capture.watch({ bindingId: seatA.bindingId, harness: "codex", canvasName: "proof", nodeId: seatA.id, cwd: sandbox.root, spawnedAtMs: t0, pid: () => a.pid });
   await a.write();
   const answers = await Promise.all([1, 2, 3].map(() => capture.attempt(seatA.bindingId)));
   expect(answers).toEqual([A, A, A]);
