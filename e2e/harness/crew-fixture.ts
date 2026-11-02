@@ -196,6 +196,7 @@ const paint = () => {
 };
 
 let appliedScreenRequest;
+let heldRollout;
 const applyControl = () => {
   let c;
   try {
@@ -205,6 +206,14 @@ const applyControl = () => {
   }
   if (typeof c.submit === "string") submit = c.submit;
   if (typeof c.paste === "string") paste = c.paste;
+  // A rollout the spec names: written once and held open for the life of the
+  // process, the way codex 0.166 holds its own.
+  if (c.rollout && typeof c.rollout.path === "string" && heldRollout === undefined) {
+    fs.mkdirSync(path.dirname(c.rollout.path), { recursive: true });
+    heldRollout = fs.openSync(c.rollout.path, "a");
+    fs.writeSync(heldRollout, String(c.rollout.line || ""));
+    ev("rollout", { path: c.rollout.path });
+  }
   if (typeof c.exit === "number") {
     ev("exit", { code: c.exit });
     process.exit(c.exit);
@@ -555,6 +564,8 @@ export class CrewSeat {
     readonly submit?: "ack" | "hold" | "ignore";
     readonly paste?: "echo" | "swallow";
     readonly exit?: number;
+    /** Write this rollout once and hold it open, as codex does. */
+    readonly rollout?: { readonly path: string; readonly line: string };
   }): Promise<void> {
     const path = join(this.dir, "control.json");
     const prior = (await readJsonFile<Record<string, unknown>>(path)) ?? {};
