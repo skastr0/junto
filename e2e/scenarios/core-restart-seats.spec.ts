@@ -18,6 +18,14 @@
  *      again after the view is reopened, and what it printed while no core
  *      ran arrives after the adoption
  *
+ * A PTY the adoption cannot claim is part of the contract too, and the host
+ * holds it: one whose spawn meta this build cannot read, or whose binding the
+ * new core already has, is left running with a warning (never hung up on a
+ * guess). Reconcile then reports that seat gone while its process still runs —
+ * a core that cannot name a terminal must not claim it — and an orderly quit's
+ * `pty.hangupAll` is what reaches it. This app run cannot plant such a meta;
+ * the host-level contract is in local-host.test.ts.
+ *
  *   bun run cli:build && bun run test:e2e:fast e2e/scenarios/core-restart-seats.spec.ts
  */
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -179,15 +187,17 @@ test("a running seat keeps its terminal across a core crash", async () => {
       .poll(() => page.evaluate(() => (window as unknown as { __restart: { restarted: number } }).__restart.restarted), { timeout: 150_000 })
       .toBeGreaterThan(0);
 
-    const after = await measure("after");
-
-    // Mail after the restart: the sender's own credential is admitted, and the
-    // mail reaches the running receiver's PTY.
+    // Mail after the restart, before anything is typed into the seat: a draft
+    // holds delivery back by design, and this proof is about admission and the
+    // adopted terminal, not about the draft rule. The sender's own credential
+    // is admitted, and the mail reaches the running receiver's PTY.
     const MAIL = "mail-after-the-restart";
     const sent = await sender.op("msg.send", { target: OVERSEER.id, text: MAIL }, { awaitMs: 20_000 });
     await expect
       .poll(async () => seat.stdinLog(), { message: "the mail is typed into the running seat", timeout: 60_000 })
       .toContain(MAIL);
+
+    const after = await measure("after");
 
     // Nothing printed is lost: the pre-crash line comes back only from the
     // seeded history, and the gap line arrives with the adopted handle.
@@ -199,10 +209,9 @@ test("a running seat keeps its terminal across a core crash", async () => {
     await expect(page.locator(SURFACE)).toHaveCount(0);
     await page.locator('.react-flow__node[data-id="overseer"]').dblclick();
     await expect(page.locator(SURFACE)).toBeVisible({ timeout: 30_000 });
-    const reopened = await expect
+    await expect
       .poll(async () => squash(await transcriptText(page)), { message: "a view reopened after the crash paints the rebuilt screen", timeout: 30_000 })
       .toContain(squash("before-crash-line"));
-    void reopened;
     expect(squash(await transcriptText(page)), "the gap output is on the reopened screen").toContain(squash("while-no-core-line"));
 
     const seatPid = (await seat.ready()).pid;

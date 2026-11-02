@@ -41,6 +41,8 @@ import {
   TerminalObserverPlane,
 } from "../src/main/junto/term/observer";
 import { SeatOccupationFailedError } from "../src/shared/terminal-seat-occupancy";
+import type { AdoptedTerminal } from "../src/main/terminal-process/client";
+import { getSeatCredentialRegistry } from "../src/main/junto/work/seat-credentials";
 import type { PrimeAgentReporterReport } from "../src/main/junto/term/prime-agent-reporter";
 
 const hosts: LocalSessionHost[] = [];
@@ -2960,6 +2962,191 @@ describe("LocalSessionHost", () => {
       expect(daemons.records[0]?.stopReasons).toEqual([]);
       host.stopDraining(drained.drainKey, "settled");
       expect(daemons.records[0]?.stopReasons).toEqual(["offboard_drain_settled"]);
+    });
+  });
+
+  describe("adoption of the terminals a previous core left running", () => {
+    const SEAT_CREDENTIAL = `junto-seat-${"A".repeat(43)}`;
+
+    const adoptedMeta = (bindingId: string): unknown => ({
+      version: 1,
+      kind: "agent",
+      bindingId,
+      epoch: "ep_adopted_generation",
+      hostId: "adoption-test-machine",
+      canvasName: "factory",
+      nodeId: "adopted-node",
+      agentKey: "local:adopted",
+      harness: "codex",
+      label: "Adopted",
+      cwd: "/tmp",
+      cols: 100,
+      rows: 30,
+      createdAt: 1_700_000_000_000,
+      shellEnvironmentGeneration: 1,
+      regionEnvironment: { fingerprint: "empty", names: {}, folders: [] },
+      credential: { credential: SEAT_CREDENTIAL, generationId: "gen-adopted" },
+    });
+
+    /** One PTY the terminal process kept, with the listeners the core attaches. */
+    const keptTerminal = (id: number, pid: number, meta: unknown) => {
+      const dataListeners = new Set<(data: string) => void>();
+      const exitListeners = new Set<(event: AppTerminalExit) => void>();
+      const terminal = {
+        id,
+        pid: Promise.resolve(pid),
+        write: vi.fn(),
+        resize: vi.fn(),
+        kill: vi.fn(),
+        onData: (listener: (data: string) => void) => {
+          dataListeners.add(listener);
+          return () => dataListeners.delete(listener);
+        },
+        onExit: (listener: (event: AppTerminalExit) => void) => {
+          exitListeners.add(listener);
+          return () => exitListeners.delete(listener);
+        },
+        onError: () => () => undefined,
+        gate: vi.fn(),
+        hold: vi.fn(),
+        endSurface: vi.fn(),
+        openSurface: vi.fn(),
+        lastSeq: () => 7,
+        onTyping: () => () => undefined,
+        onInput: () => () => undefined,
+        fence: () => Promise.resolve(),
+      };
+      const entry = {
+        terminal,
+        meta,
+        adopted: {
+          id,
+          pid,
+          cols: 100,
+          rows: 30,
+          meta,
+          history: "history the last core handled",
+          seq: 7,
+        },
+      } as unknown as AdoptedTerminal;
+      return {
+        entry,
+        emitData: (data: string) => {
+          for (const listener of [...dataListeners]) listener(data);
+        },
+      };
+    };
+
+    /** The central plane as adoption sees it: registers the kept PTY, signals never. */
+    const adoptingAuthority = () => {
+      let registered = 0;
+      const signalled: string[] = [];
+      const authority: LocalTerminalProcessAuthority = {
+        spawnTerminal: () => {
+          throw new Error("unexpected spawn during adoption");
+        },
+        adoptTerminal: (_spec, terminal, listeners) => {
+          registered += 1;
+          let resolveExit!: (event: AppTerminalExit) => void;
+          const exited = new Promise<AppTerminalExit>((resolve) => {
+            resolveExit = resolve;
+          });
+          terminal.onData((data) => listeners.onData(data));
+          terminal.onExit((event) => {
+            listeners.onExit(event);
+            resolveExit(event);
+          });
+          return {
+            generation: registered,
+            source: "adoption-test",
+            purpose: "adopted",
+            backend: "pty",
+            io: {
+              pidForDiagnostics: undefined,
+              pidReady: terminal.pid,
+              exited,
+              write: (data: string) => terminal.write(data),
+              resize: (cols: number, rows: number) => terminal.resize(cols, rows),
+              onData: (listener: (data: string) => void) => terminal.onData(listener),
+              onExit: (listener: (event: AppTerminalExit) => void) => terminal.onExit(listener),
+              onError: () => () => undefined,
+            },
+          } as unknown as AppTerminalLease;
+        },
+        terminate: (_lease, reason) => {
+          signalled.push(`TERM:${reason}`);
+          return {
+            signal: "SIGTERM", reason, attempted: true,
+            decision: { ok: true, mode: "child" }, via: "child.kill",
+          };
+        },
+        forceTerminate: (_lease, reason) => {
+          signalled.push(`KILL:${reason}`);
+          return {
+            signal: "SIGKILL", reason, attempted: true,
+            decision: { ok: true, mode: "child" }, via: "child.kill",
+          };
+        },
+      };
+      return { authority, registered: () => registered, signalled };
+    };
+
+    it("rebuilds the session from its spawn meta and the credential the seat still presents", async () => {
+      const { authority } = adoptingAuthority();
+      const plane = new TerminalObserverPlane();
+      const host = new LocalSessionHost(authority, { observerPlane: plane });
+      hosts.push(host);
+      const kept = keptTerminal(1, 60_001, adoptedMeta("adopted-seat"));
+
+      const receipt = host.adoptFromTerminalProcess([kept.entry]);
+
+      expect(receipt).toEqual({ adopted: 1, skipped: 0 });
+      expect(host.get("adopted-seat")).toMatchObject({
+        bindingId: "adopted-seat",
+        epoch: "ep_adopted_generation",
+        status: "running",
+        pid: 60_001,
+        nodeId: "adopted-node",
+      });
+      // The seat's own credential is the one the new core admits, not a new one.
+      expect(getSeatCredentialRegistry().lookup(SEAT_CREDENTIAL)).toMatchObject({
+        status: "live",
+        generationId: "gen-adopted",
+      });
+      // A view attaching now paints the screen the old core had handled.
+      const attached = await host.attach({ bindingId: "adopted-seat", mode: "observe" });
+      expect(attached.ok).toBe(true);
+      if (attached.ok) expect(attached.screen?.serialized ?? "").toContain("history the last core handled");
+      // Output the last core never handled arrives on the adopted handle.
+      kept.emitData("late output");
+      await Promise.resolve();
+      expect(host.get("adopted-seat")?.status).toBe("running");
+    });
+
+    it("leaves a terminal whose meta it cannot read running, and never signals it", () => {
+      const { authority, registered, signalled } = adoptingAuthority();
+      const host = new LocalSessionHost(authority, { observerPlane: new TerminalObserverPlane() });
+      hosts.push(host);
+      const kept = keptTerminal(2, 60_002, { version: 99, bindingId: "unreadable" });
+
+      const receipt = host.adoptFromTerminalProcess([kept.entry]);
+
+      expect(receipt).toEqual({ adopted: 0, skipped: 1 });
+      expect(host.get("unreadable")).toBeUndefined();
+      expect(registered()).toBe(0);
+      expect(signalled).toEqual([]);
+    });
+
+    it("skips a binding the core already holds", () => {
+      const { authority, registered } = adoptingAuthority();
+      const host = new LocalSessionHost(authority, { observerPlane: new TerminalObserverPlane() });
+      hosts.push(host);
+      const first = keptTerminal(3, 60_003, adoptedMeta("twice-adopted"));
+      const second = keptTerminal(4, 60_004, adoptedMeta("twice-adopted"));
+
+      expect(host.adoptFromTerminalProcess([first.entry, second.entry])).toEqual({ adopted: 1, skipped: 1 });
+      expect(registered()).toBe(1);
+      expect(host.get("twice-adopted")).toMatchObject({ status: "running", pid: 60_003 });
     });
   });
 });

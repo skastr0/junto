@@ -235,11 +235,11 @@ export const startCore = async (options: CoreOptions) => {
     if (parent !== undefined) await connectCoreTerminals(parent);
     seatProcesses = await startCoreSeats({ home: options.home });
     // The window's terminal ops ask this plane by name, and its events reach the window as core pushes.
-    if (parent !== undefined) unbindTermIpcPlane = bindTermIpcPlane(termPlane);
-    // The terminals the last core left running come back here, before anything
-    // can spawn and with the window listening, so a seat keeps its process,
-    // its credential and its screen across a core crash.
+    // The terminals the last core left running come back first: a new client
+    // numbers its spawns from 1, so a spawn admitted before the adopt could
+    // collide with a PTY that is still running there.
     await adoptCoreTerminals();
+    if (parent !== undefined) unbindTermIpcPlane = bindTermIpcPlane(termPlane);
     // A seated seat this core did not get back is over, with its reason, so no
     // card keeps the last core's ring for a process that is not there.
     await runtime.runPromise(reconcileSeatsLostToCoreRestart());

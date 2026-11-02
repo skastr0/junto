@@ -978,10 +978,13 @@ export const resolveLaunch = (
         ? sandboxSocketAllowArgs(
             sandboxTemplate,
             workControlSocketPath(resolveWorkHomeForSeat(env)),
-            // Per spawn: a fixed name could be widened by a [permissions.<name>]
-            // table already in the operator's Codex config (Codex deep-merges
-            // -c keys into it).
-            `${sandboxAllow.profile}-${randomBytes(4).toString("hex")}`,
+            // Per spawn, 8 random bytes. Codex deep-merges -c keys into a
+            // [permissions.<name>] table the operator's config already holds,
+            // so a config holding the exact name drawn here would still widen
+            // the grant. The name cannot be predicted: a seat would have to
+            // guess it and write ~/.codex/config.toml, which its sandbox
+            // denies.
+            `${sandboxAllow.profile}-${randomBytes(8).toString("hex")}`,
           )
         : [];
     return Result.succeed({
@@ -1758,7 +1761,11 @@ export class LocalSessionHost extends EventEmitter {
         (event) => this.observeExit(rec, event.code, event.signal),
         (error) => this.observeWitnessFailure(rec, error),
       );
-      this.seatIdentityFlight(rec);
+      // No identity flight: an adopted PTY is signalled by the terminal
+      // process over its own lease, and the identity map's rebinding is a
+      // `ps` read whose failure stops a generation. Stopping a seat that is
+      // already running because this core could not re-observe its pid would
+      // be a crash turned into a kill.
       // The surface gate is deliberately not touched: the terminal process
       // still holds the gate the last core set, so a view that was open keeps
       // typing until it attaches again and takes the new control lease.
