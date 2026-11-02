@@ -146,9 +146,14 @@ describe("canvas quit durability wiring", () => {
     // junto/term/core-seats.ts starts the plane, drains it once, and throws
     // only when host-owned local PTY generations were retained.
     const coreSeats = readFileSync(join(import.meta.dirname, "..", "src/main/junto/term/core-seats.ts"), "utf8");
-    expect(coreSeats).toContain("closeFlight ??= termPlane.drainOnQuit(reason)");
-    expect(coreSeats).toContain("termPlaneBlocksAppExit(receipt)");
-    expect(coreSeats).toContain("throw new Error");
+    expect(coreSeats).toContain("closeFlight ??= (async () => {");
+    expect(coreSeats).toContain("await termPlane.drainOnQuit(reason)");
+    expect(coreSeats).toContain("if (termPlaneBlocksAppExit(receipt)) {");
+    expect(coreSeats).toContain("throw new Error(`Seat processes did not stop:");
+    // An orderly quit also hangs up what this core did not rebuild; a crash
+    // never does, so a port closing leaves the terminals running.
+    expect(coreSeats).toContain("terminalProcess()?.hangupAll()");
+    expect(coreSeats).not.toContain("function hangupAll");
     // Main's exit paths still cut admission before detach and exit, and a
     // blocked direct exit gives the operator a surface back.
     const directStart = source.indexOf("const exitAfterDetach");
