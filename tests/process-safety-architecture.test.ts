@@ -410,13 +410,11 @@ describe("machine-safety architecture", () => {
       // The terminal utilityProcess, Electron's own child, stopped at quit after
       // the plane drained every PTY it held.
       "src/main/terminal-process/host.ts:child?.kill",
-      // The same child, signalled through its own handle when stop is asked and
-      // again if it has not exited by the stop deadline.
+      // The same child, signalled through its own handle only if it has not
+      // left by the stop deadline; a stop first asks it to hang up and exit.
       "src/main/terminal-process/host.ts:leaving.kill",
-      "src/main/terminal-process/host.ts:leaving.kill",
-      "src/main/terminal-process/serve.ts:forbidden-reference:TerminalInbound.kill",
-      // An orderly quit: each PTY is hung up through the same epoch-checked
-      // signal path, never signalled by pid alone.
+      // The core's kill, and an orderly quit's hangup, both reach the PTY
+      // through one epoch-checked signal path, never by pid alone.
       "src/main/terminal-process/serve.ts:forbidden-reference:TerminalInbound.kill",
       "src/main/terminal-process/serve.ts:pty.kill",
     ]);
