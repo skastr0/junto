@@ -16,7 +16,11 @@ import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/
 // Keep the public writer's app-runtime boundary while executing its actual
 // Effect against a disposable, fully composed canvas authority store.
 const app = vi.hoisted(() => ({ runPromise: vi.fn() }));
-vi.mock("../src/main/core-runner", () => ({ coreRunner: app }));
+// Spread the real module: a later export must not break this file at load.
+vi.mock("../src/main/core-runner", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/main/core-runner")>()),
+  coreRunner: app,
+}));
 import { writeSeatSessionId } from "../src/main/junto/term/seat-session-id";
 
 const SESSION = "1787761861883-1787761861883720000-7afaf80c8f5acd35";

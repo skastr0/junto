@@ -24,7 +24,12 @@ import { ensureManagedSeatRunning } from "../src/main/junto/term/ensure-managed-
 import { termPlane } from "../src/main/junto/term/plane";
 
 const app = vi.hoisted(() => ({ runPromise: vi.fn(), runPromiseExit: vi.fn() }));
-vi.mock("../src/main/core-runner", () => ({ coreRunner: app, installCoreReads: vi.fn() }));
+// Spread the real module: a later export must not break this file at load.
+vi.mock("../src/main/core-runner", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/main/core-runner")>()),
+  coreRunner: app,
+  installCoreReads: vi.fn(),
+}));
 vi.mock("../src/main/runtime", () => ({ AppRuntime: app }));
 vi.mock("node:crypto", async (original) => {
   const actual = await original<typeof import("node:crypto")>();

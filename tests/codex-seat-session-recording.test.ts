@@ -12,7 +12,11 @@ import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../src/mai
 import { THIS_MACHINE } from "./support/machines";
 
 const app = vi.hoisted(() => ({ runPromise: vi.fn() }));
-vi.mock("../src/main/core-runner", () => ({ coreRunner: app }));
+// Spread the real module: a later export must not break this file at load.
+vi.mock("../src/main/core-runner", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/main/core-runner")>()),
+  coreRunner: app,
+}));
 import { SeatSessionCapture } from "../src/main/junto/term/seat-session-capture";
 
 it("captures a Codex rollout into the machine's private pin without changing the canvas", async () => {

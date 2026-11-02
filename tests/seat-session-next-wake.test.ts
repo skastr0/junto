@@ -27,7 +27,11 @@ import { installHermeticHarnessBins } from "./helpers/hermetic-harness-bins";
 import { seedThisMachine, clearMachines } from "./support/seed-this-machine";
 
 const app = vi.hoisted(() => ({ runPromise: vi.fn() }));
-vi.mock("../src/main/core-runner", () => ({ coreRunner: app }));
+// Spread the real module: a later export must not break this file at load.
+vi.mock("../src/main/core-runner", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/main/core-runner")>()),
+  coreRunner: app,
+}));
 import { ensureSeatSessionId } from "../src/main/junto/term/seat-session-before-start";
 import type { SeatThreadResult } from "../src/main/junto/term/amp-seat-thread";
 import { writeSeatSessionId } from "../src/main/junto/term/seat-session-id";

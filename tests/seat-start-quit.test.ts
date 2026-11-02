@@ -21,7 +21,12 @@ import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-proces
 import { seat } from "./support/model-nodes";
 
 const app = vi.hoisted(() => ({ runPromise: vi.fn(), runPromiseExit: vi.fn() }));
-vi.mock("../src/main/core-runner", () => ({ coreRunner: app, installCoreReads: vi.fn() }));
+// Spread the real module: a later export must not break this file at load.
+vi.mock("../src/main/core-runner", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/main/core-runner")>()),
+  coreRunner: app,
+  installCoreReads: vi.fn(),
+}));
 vi.mock("../src/main/runtime", () => ({ AppRuntime: app }));
 import { registerTerminalIpc } from "../src/main/junto/term/ipc";
 import { bindTermIpcPlane } from "../src/main/core-process/ops/term-ipc";
