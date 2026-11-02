@@ -14,6 +14,7 @@ import { makeMachineBundleSources } from "../junto/hosts/machine-bundle-download
 import { startCore } from "../junto/core";
 import { type CoreMessage, type CorePort } from "./port";
 import { runCoreOp, serveCore, type CoreRunner } from "./serve";
+import { stopCoreOnSignal } from "./core-stop";
 import { forwardPublishes, publish } from "./push";
 import { host, useHostClient } from "./host-ops";
 import { hostCaptureApplicationPage, hostOverseerPages } from "./ops/overseer-pages";
@@ -106,7 +107,7 @@ const main = async (parent: ParentPort): Promise<void> => {
   const stop = (): void => {
     // Main stops the core; nothing will answer a host call still out.
     served.failHost("Electron main stopped the Junto core");
-    void core.close().finally(() => process.exit(0));
+    stopCoreOnSignal(() => core.close());
   };
   process.once("SIGTERM", stop);
 };
