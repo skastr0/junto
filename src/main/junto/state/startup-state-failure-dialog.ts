@@ -6,8 +6,10 @@
  * GitHub issues, and a sanitized technical fragment. Never offers wipe/reset.
  */
 
+import { existsSync, writeFileSync } from "node:fs";
 import { dialog } from "electron";
 import { PRODUCT_NAME } from "@shared/product-name";
+import { WorkSocketPathTooLong } from "../work/socket-path";
 
 /** Operator-facing location of the sole durable store (tilde form). */
 export const OPERATOR_STATE_DIR_DISPLAY = "~/.junto/state/" as const;
@@ -140,11 +142,32 @@ export const buildStartupStateFailureCopy = (input: {
   readonly logDirDisplay?: string;
 }): StartupStateFailureCopy => {
   const stateDir = input.stateDirDisplay ?? OPERATOR_STATE_DIR_DISPLAY;
-  const technical = sanitizeTechnicalErrorFragment(
-    extractStartupFailureText(input.error),
-  );
+  const workSocket = input.error instanceof WorkSocketPathTooLong
+    ? { path: input.error.path, bytes: input.error.bytes, limit: input.error.limit }
+    : undefined;
+  const technical = workSocket === undefined
+    ? sanitizeTechnicalErrorFragment(extractStartupFailureText(input.error))
+    : `work socket path ${workSocket.bytes} bytes, limit ${workSocket.limit}: ${workSocket.path}`;
 
   const title = "Could not start";
+  if (workSocket !== undefined) {
+    return {
+      title,
+      message: `${PRODUCT_NAME} could not start its work socket`,
+      detail: [
+        `The work socket path is ${workSocket.bytes} bytes, over the ${workSocket.limit}-byte limit for a local socket:`,
+        workSocket.path,
+        "",
+        `Move ${PRODUCT_NAME}'s home to a shorter path, then launch it again.`,
+        "",
+        `Your data was not deleted. It is still on disk at ${stateDir}`,
+        "",
+        `If this keeps happening, open an issue at ${ISSUES_URL} with the technical details below.`,
+        "",
+        `Technical: ${technical}`,
+      ].join("\n"),
+    };
+  }
   if (input.coreUnavailable === true) {
     const logDir = input.logDirDisplay ?? OPERATOR_LOG_DIR_DISPLAY;
     return {
@@ -196,12 +219,36 @@ export const runStartupStateFailureDialog = async (input: {
     ...(input.coreUnavailable === undefined ? {} : { coreUnavailable: input.coreUnavailable }),
   });
 
-  const technical = sanitizeTechnicalErrorFragment(
-    extractStartupFailureText(input.error),
-  );
+  const technical = input.error instanceof WorkSocketPathTooLong
+    ? `work socket path ${input.error.bytes} bytes, limit ${input.error.limit}: ${input.error.path}`
+    : sanitizeTechnicalErrorFragment(
+      extractStartupFailureText(input.error),
+    );
   console.error(
-    `[startup] state/data open failure (${technical})`,
+    `[startup] startup failure (${technical})`,
   );
+
+  // E2E only: a long-path boot failure is immediate, before a window exists.
+  // Write the exact dialog copy and hold until the spec releases it, so the
+  // spec reads what the operator would see without racing a native dialog.
+  const probeFile = process.env.JUNTO_E2E === "1"
+    ? process.env.JUNTO_E2E_STARTUP_DIALOG_FILE
+    : undefined;
+  if (probeFile !== undefined && probeFile.length > 0) {
+    writeFileSync(
+      probeFile,
+      `${JSON.stringify({ title: copy.title, message: copy.message, detail: copy.detail, buttons: ["Quit"] })}\n`,
+      { encoding: "utf8", mode: 0o600 },
+    );
+    const release = process.env.JUNTO_E2E_STARTUP_DIALOG_RELEASE;
+    if (release !== undefined && release.length > 0) {
+      const deadline = Date.now() + 60_000;
+      while (Date.now() < deadline && !existsSync(release)) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+    return { action: "quit", reason: "startup-state-failure-e2e-probe" };
+  }
 
   if (input.headless) {
     return { action: "quit", reason: "startup-state-failure-headless" };

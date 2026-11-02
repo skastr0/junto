@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { workControlDir } from "@shared/work-control";
 import { hostOps } from "./host-ops";
 import { TERMINAL_CONNECT } from "../terminal-process/protocol";
 import type { TerminalProcessForCore } from "../terminal-process/host";
@@ -9,6 +10,7 @@ import type { CoreBoot } from "./entry";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { askEveryCoreAsk } from "./every-core";
 import { startCoreProcess, type CoreDidNotStop } from "./host";
+import { assertWorkControlSocketPathFits } from "../junto/work/socket-path";
 import { publish } from "./push";
 import { useCoreClient } from "./main-client";
 import { relayWindowPushes } from "./main-side/window-pushes";
@@ -46,6 +48,11 @@ export const startCoreProcessForMain = (input: {
   /** The terminal process the core's plane drives: main hands the core each port to it. */
   readonly terminals?: TerminalProcessForCore;
 }): CoreProcessForMain => {
+  // The core's work socket is <home>/.junto/work/control.sock. Refuse a path
+  // that cannot bind before the fork: otherwise the core exits before ready,
+  // restarts, and the app only reaches the generic core-unavailable dialog
+  // without naming the path or the limit.
+  assertWorkControlSocketPathFits(workControlDir(input.boot.home));
   const started = (input.start ?? startCoreProcess)(input.boot);
   useCoreClient(started);
   // Each core that says ready is asked what main asks of every core; after the

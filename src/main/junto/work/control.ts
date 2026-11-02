@@ -253,6 +253,7 @@ import {
   removeOwnedControlSocketPath,
   type ControlSocketPathIdentity,
 } from "../control-filesystem";
+import { assertWorkControlSocketPathFits } from "./socket-path";
 // Local work control plane for agents: NDJSON over a Unix domain socket at
 // ~/.junto/work/control.sock. Seat generation credential + edge authz;
 // mutations route through WorkService. One admission path, no second identity.
@@ -2919,6 +2920,7 @@ export const startWorkControlServer = async (
   runtime: WorkControlRuntime = {},
 ): Promise<WorkControlServer> => {
   const workHome = resolveWorkHome(options.home, options.workHome);
+  assertWorkControlSocketPathFits(workHome);
   prepareControlDirectory(workHome);
 
   const socketPath = workControlSocketPath(workHome);
