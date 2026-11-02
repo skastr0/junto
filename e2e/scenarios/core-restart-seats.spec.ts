@@ -73,7 +73,7 @@ test.fixme("a running seat's four ways into Junto, before and after the core is 
     await expect(page.locator(".xterm").first()).toBeVisible({ timeout: 30_000 });
     const terminal = page.locator(".xterm").first();
 
-    const measure = async (phase: "before" | "after") => {
+    const measure = async (phase: "before" | "after" | "after-reopen") => {
       // 1. The seat's own work control socket, with the credential it was spawned with.
       const op = await seat
         .op("ping", {}, { awaitMs: 20_000 })
