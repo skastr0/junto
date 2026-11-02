@@ -25,6 +25,7 @@ import "./ipc-wire-traffic";
 import "./ipc-status";
 import "./ipc-content";
 import "./hosts-ipc";
+import "./git-ipc";
 import "./ipc-watch";
 import "./ipc-seats";
 import "./seat-holds";
