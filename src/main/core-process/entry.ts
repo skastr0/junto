@@ -12,6 +12,7 @@
 import { getCompiledMachineReleaseCatalog } from "@shared/machine-release";
 import { makeMachineBundleSources } from "../junto/hosts/machine-bundle-download";
 import { startCore } from "../junto/core";
+import { enforceBootRefusal } from "../junto/boot-guard";
 import { type CoreMessage, type CorePort } from "./port";
 import { runCoreOp, serveCore, type CoreRunner } from "./serve";
 import { stopCoreOnSignal } from "./core-stop";
@@ -57,6 +58,11 @@ export const parentCorePort = (parent: ParentPort): CorePort => ({
 
 const main = async (parent: ParentPort): Promise<void> => {
   const boot = JSON.parse(process.argv.at(-1) ?? "{}") as CoreBoot;
+  // A process entry refuses before it opens anything: a launch that inherited
+  // a seat's identity, or an E2E launch pointed at the operator's real home,
+  // never reaches the database, a log or a socket (src/shared/e2e-sandbox.ts).
+  // startCore stays a library function; its callers in tests are not entries.
+  enforceBootRefusal({ juntoHome: boot.home });
   // The core's own pid, first in its log: whoever runs it (main, a test, the
   // operator reading the log) learns which process is the core from here.
   console.info(`[core] pid ${String(process.pid)}`);

@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { runningBuildIdentity } from "./junto/build-identity";
 import { startCore } from "./junto/core";
+import { enforceBootRefusal } from "./junto/boot-guard";
 import { declareMachineCoreOwnsSessions } from "./junto/term/managed-spawn-plan";
 import { armMainThreadBudget } from "./junto/observability/main-thread-budget";
 import { installMachineLog, installObservabilityConsoleHook } from "./junto/observability/logger";
@@ -17,6 +18,10 @@ const home = resolveJuntoHome();
 declareMachineCoreOwnsSessions(process.env);
 
 const main = async (): Promise<void> => {
+  // A machine core is a process entry too: one started from a seat's shell
+  // carries the seat's identity, and refuses here before it opens the
+  // database, its log or a socket (src/shared/e2e-sandbox.ts).
+  enforceBootRefusal({ juntoHome: home });
   // The log file is this core's record. Its service stdio is an unbounded
   // file, so nothing is echoed there but the fixed lines below.
   installMachineLog({ home, process: "core", echo: false });
