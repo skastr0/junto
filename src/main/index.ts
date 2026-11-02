@@ -38,6 +38,7 @@ import {
   resolvedSpawnEnv,
   terminateAdapterChildrenOnQuit,
 } from "./junto/adapters/exec";
+import { Effect, Exit, Scope } from "effect";
 import { appMenuTemplate } from "./junto/app-menu";
 import { appProcessBlocksAppExit, appProcessPlane, describeAppProcessStraggler } from "./junto/app-process-plane";
 import { AppRuntime } from "./runtime";
@@ -1886,20 +1887,39 @@ const requireCleanAppProcessShutdown = async (): Promise<void> => {
 const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
   const { lap } = quitPhases;
   quitPhases.mark("runtime dispose begins");
-  await requireCleanHostOperationsShutdown();
-  lap("dispose: host operations");
-  await requireCleanBrowserShutdown(reason);
-  lap("dispose: browser");
-  await requireCleanAdapterShutdown();
-  lap("dispose: adapters");
-  await requireCleanAppProcessShutdown();
-  lap("dispose: app processes");
-  // Closing the children's scope runs the core's finalizer first (it drains
-  // its own sockets, plane and stores, then exits) and the terminal process's
-  // last. A child that hangs fails tagged out of the finalizer and is named
-  // here, not swallowed.
-  await requireCleanChildrenShutdown();
-  lap("dispose: child processes");
+  // One scope owns the stop: every drain is a finalizer, so a failed one skips
+  // nothing — the core and the terminal process are still told to stop even
+  // when an earlier drain failed — and the first failure is the one reported.
+  // Steps read top to bottom in the order they run; the scope runs them in
+  // reverse registration order, so they are registered bottom to top.
+  const steps: ReadonlyArray<readonly [string, () => Promise<void>]> = [
+    ["dispose: host operations", requireCleanHostOperationsShutdown],
+    ["dispose: browser", () => requireCleanBrowserShutdown(reason)],
+    ["dispose: adapters", requireCleanAdapterShutdown],
+    ["dispose: app processes", requireCleanAppProcessShutdown],
+    // Closing the children's scope runs the core's finalizer first (it drains
+    // its own sockets, plane and stores, then exits) and the terminal process's
+    // last. A child that hangs fails tagged out of the finalizer and is named
+    // here, not swallowed.
+    ["dispose: child processes", requireCleanChildrenShutdown],
+  ];
+  const failures: unknown[] = [];
+  const scope = Effect.runSync(Scope.make());
+  for (const [label, step] of [...steps].reverse()) {
+    Effect.runSync(Scope.addFinalizer(scope, Effect.promise(async () => {
+      try {
+        await step();
+      } catch (error) {
+        failures.push(error);
+      } finally {
+        // A step that failed still names its phase: the log is the record of
+        // how far the stop got before it reported.
+        lap(label);
+      }
+    })));
+  }
+  await Effect.runPromise(Scope.close(scope, Exit.void));
+  if (failures.length > 0) throw failures[0];
 };
 
 const disposeRuntime = (): Promise<void> => {
