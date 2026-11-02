@@ -2,7 +2,8 @@ import type { BrowserStopReceipt } from "@shared/browser";
 import type { BrowserSessionInfo } from "@shared/ipc";
 import { asNodeId } from "@shared/model";
 import type { ResolvedPageTarget } from "../browser/page-target";
-import { pageOriginGuard, type BrowserResult, type BrowserSessionService, type BrowserTargetRevalidator } from "../browser/sessions";
+import { pageOriginGuard } from "../browser/page-origin";
+import type { BrowserResult, BrowserSessionService, BrowserTargetRevalidator } from "../browser/sessions";
 
 /** A live page session, as the overseer names one. */
 export type OverseerPageSession = { readonly owner: string; readonly sessionId: string };

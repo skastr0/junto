@@ -19,6 +19,7 @@ import { decodePageViewport, viewportRectOf, type Rect } from "@shared/page-box"
 import { admitSeat, initialPageDriving, reducePageDriving, type PageDriving } from "@shared/page-driver";
 import { SEAT_CODE_NOTICE, type BrowserNavigationBlock, type BrowserSeatCodeNotice } from "@shared/browser-chrome";
 import type { BrowserTopLevelNavigationRejection } from "./web-policy";
+import { exactBrowserOrigin, exactBrowserUrl, type BrowserGuestTopLevelGuard } from "./page-origin";
 import type { BrowserTouchedOriginStore } from "./touched-origins";
 import type { NodeId } from "@shared/model/base";
 import type { BrowserTabId } from "@shared/browser-tab";
@@ -262,15 +263,6 @@ interface ActiveOperation {
   /** The seat this operation marks as driving the page while it runs. */
   readonly seatNodeId?: NodeId;
 }
-
-/** Where a guest's grant lets the page go; absent, the guest is not origin-bound. */
-export type BrowserGuestTopLevelGuard = (url: string) => boolean;
-
-/** A guard bound to one page's own origin, as its node names it. */
-export const pageOriginGuard = (pageUrl: string): BrowserGuestTopLevelGuard => {
-  const origin = exactBrowserOrigin(pageUrl);
-  return (url) => origin !== undefined && exactBrowserOrigin(url) === origin;
-};
 
 /** A box comment's shot as main took it: a PNG of the box, and where the page was. */
 export interface BrowserPageBoxShot {
@@ -633,28 +625,6 @@ const sameTarget = (left: ResolvedPageTarget, right: ResolvedPageTarget): boolea
   left.nodeId === right.nodeId &&
   left.url === right.url &&
   left.profile === right.profile;
-
-const exactBrowserUrl = (url: string): string | undefined => {
-  if (!isUtf8WithinLimit(url, BROWSER_MAX_URL_BYTES)) return undefined;
-  try {
-    const parsed = new URL(url);
-    if (
-      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
-      parsed.username !== "" ||
-      parsed.password !== ""
-    ) {
-      return undefined;
-    }
-    return parsed.href;
-  } catch {
-    return undefined;
-  }
-};
-
-const exactBrowserOrigin = (url: string): string | undefined => {
-  const exactUrl = exactBrowserUrl(url);
-  return exactUrl === undefined ? undefined : new URL(exactUrl).origin;
-};
 
 const isAborted = (signal?: AbortSignal): boolean => signal?.aborted ?? false;
 
