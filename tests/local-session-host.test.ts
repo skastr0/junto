@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Result } from "effect";
 import type {
   AppProcessSignalReceipt,
+  AppTerminalExit,
   AppTerminalLease,
 } from "../src/main/junto/app-process-plane";
 import { homedir, tmpdir } from "node:os";
