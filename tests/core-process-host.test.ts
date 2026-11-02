@@ -53,6 +53,26 @@ describe("the core process host", () => {
     core.stop();
   });
 
+  it("forks the entry an E2E launch names, and never outside an E2E run", () => {
+    forkedPaths.length = 0;
+    try {
+      process.env.JUNTO_E2E = "1";
+      process.env.JUNTO_E2E_CORE_ENTRY = "/tmp/core-that-fails-at-boot.mjs";
+      const scenario = startCoreProcess(BOOT);
+      expect(forkedPaths).toEqual(["/tmp/core-that-fails-at-boot.mjs"]);
+      scenario.stop();
+
+      delete process.env.JUNTO_E2E;
+      forkedPaths.length = 0;
+      const product = startCoreProcess(BOOT);
+      expect(forkedPaths).toEqual(["/a/out/main/core-process.js"]);
+      product.stop();
+    } finally {
+      delete process.env.JUNTO_E2E;
+      delete process.env.JUNTO_E2E_CORE_ENTRY;
+    }
+  });
+
   it("kills a core that is not ready by its boot deadline, fails its calls, and starts another", async () => {
     const core = startCoreProcess(BOOT);
     const call = core.call("model.canvases" as never, {} as never);

@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 // A namespace import: this module shares a chunk the core process loads, where
 // electron has no main-only exports, so no named binding may be checked at load.
 import * as electron from "electron";
@@ -17,6 +17,19 @@ import { portCore, type CoreMessage, type PortCoreClient } from "./port";
  * that has not said `core.ready` 120 s after its fork is killed, so a boot that
  * neither finishes nor exits fails its waiting calls and starts again.
  */
+
+/**
+ * The entry a boot forks: the build beside main's index.js, unless an E2E
+ * scenario asks for its own entry (a core that fails at boot) through
+ * JUNTO_E2E_CORE_ENTRY. The override is read only in an E2E run and only as
+ * an absolute path, so a product run can fork nothing but its own build.
+ */
+const coreEntryFor = (boot: CoreBoot): string => {
+  const override = process.env.JUNTO_E2E === "1" ? process.env.JUNTO_E2E_CORE_ENTRY : undefined;
+  return override !== undefined && isAbsolute(override)
+    ? override
+    : join(boot.app.appPath, "out", "main", "core-process.js");
+};
 
 const RESTART_FIRST_MS = 1_000;
 const RESTART_MAX_MS = 30_000;
@@ -114,7 +127,7 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
     if (stopping) return;
     // The entry is built beside main's index.js (electron.vite.config.ts), while
     // this module lands in a chunk under out/main/chunks: resolve from boot's app root.
-    const forked = electron.utilityProcess.fork(join(boot.app.appPath, "out", "main", "core-process.js"), [JSON.stringify(boot)], { serviceName: "Junto Core", stdio: "inherit" });
+    const forked = electron.utilityProcess.fork(coreEntryFor(boot), [JSON.stringify(boot)], { serviceName: "Junto Core", stdio: "inherit" });
     child = forked;
     startedAt = Date.now();
     for (const message of held.splice(0)) forked.postMessage(message);
