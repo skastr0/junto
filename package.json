@@ -311,6 +311,8 @@
     "@babel/core": "7.29.7",
     "browserslist": "4.28.9",
     "baseline-browser-mapping": "2.11.22",
-    "@effect/platform-node-shared": "4.0.0-rc.112"
+    "@effect/platform-node-shared": "4.0.0-rc.112",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
   }
 }
