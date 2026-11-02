@@ -170,7 +170,11 @@ describe("V4-ENTRY managed runtime domain entry", () => {
     expect(cc).not.toMatch(/AppRuntime\.run(Promise|Fork)/);
     // The window's own ipc.ts is a thin shell: every domain read asks the core by name.
     expect(ipc).toMatch(/core\.call\(/);
-    expect(juntoIpc).toMatch(/AppRuntime\.runPromise/);
+    // junto/ipc.ts became the same shell in 7b5990251: it asks the core by name
+    // and holds no runtime of its own, so the rule it must keep is the shell's,
+    // not the warm-runtime one it used to keep.
+    expect(juntoIpc).toMatch(/core\.call\(/);
+    expect(juntoIpc).not.toMatch(/AppRuntime\.run(Promise|Fork)/);
 
     // Keep the construction sites explicit: the desktop shell and the windowless core.
     // Pure-Node scan: CI runners do not all ship ripgrep.
@@ -200,8 +204,8 @@ describe("V4-ENTRY managed runtime domain entry", () => {
       constructions.join("\n"),
     ).toEqual([
       "src/main/core-runtime.ts",
-      // Main's terminal router dials on the SSH transport alone (sshTransportRouterRunner).
-      "src/main/junto/term/router.ts",
+      // Main's terminal router makes no runtime of its own any more: 2f64c200f
+      // took its SSH runner out, so the shell and the core are the only sites.
       "src/main/runtime.ts",
     ]);
   });

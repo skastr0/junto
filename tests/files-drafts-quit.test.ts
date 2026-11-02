@@ -154,7 +154,9 @@ describe("quit and close ask about Files drafts first", () => {
     expect(signalPath).toBeGreaterThan(0);
     expect(settle).toBeGreaterThan(signalPath);
     expect(block.slice(settle)).toMatch(/if \(!leave\) \{\s+quitConfirmed = false;\s+recreateWindowIfEmpty\(\);\s+return;/u);
-    expect(block.indexOf("confirmLiveWorkThenQuit();", settle)).toBeGreaterThan(settle);
+    // 93e1c3ed1 made the live-work check a caught call, so a failed prompt
+    // cannot strand the quit; the order it holds is still drafts first.
+    expect(block.indexOf("void confirmLiveWorkThenQuit()", settle)).toBeGreaterThan(settle);
   });
 
   it("asks before the canvas flush when the window closes, and Cancel keeps it", () => {
