@@ -90,6 +90,13 @@ const shipProfileTests = (): string[] =>
     .sort()
     .map((name) => `tests/${name}`);
 
+// out/ is one per checkout, and every seat's build and app run writes or
+// reads it: the build and the launch below queue on the machine's app-run
+// lock (scripts/app-run-lock.sh) instead of failing while another holds it.
+const appRunLockWait = {
+  JUNTO_APP_RUN_LOCK_WAIT: process.env.JUNTO_APP_RUN_LOCK_WAIT ?? "1800",
+};
+
 // electron-vite must not run beside tests: both download Electron and write
 // under out/.
 await allMustPass([
@@ -114,11 +121,14 @@ await allMustPass([
   },
 ]);
 
-// Both bundles: the window's, then the core's own (electron.core.vite.config.ts).
-// One Rollup build with both entries gave them shared chunks, and core code
-// rode chunks the window loads.
 await allMustPass([
-  { name: "build:bundles", cmd: ["bun", "scripts/build-bundles.ts"] },
+  {
+    // One command builds both bundles: the window's, then the core's own
+    // (electron.core.vite.config.ts); see scripts/build-bundles.ts.
+    name: "build:bundles",
+    cmd: ["scripts/with-app-run-lock.sh", "bun", "scripts/build-bundles.ts"],
+    env: appRunLockWait,
+  },
 ]);
 
 // The build above resolved JUNTO_OVERLAY; unset, out/ must hold no overlay.
@@ -133,14 +143,21 @@ await allMustPass([
 // In a shared checkout HEAD moves under a running verify, so the launch
 // expects the commit this build stamped, not whatever HEAD is by then.
 if (process.env.CI !== "true") {
-  const stamp = JSON.parse(readFileSync(join(ROOT, "out", "build-source.json"), "utf8")) as {
-    readonly sourceCommit?: string;
-  };
+  let built: string;
+  try {
+    const stamp = JSON.parse(readFileSync(join(ROOT, "out", "build-source.json"), "utf8")) as {
+      readonly sourceCommit?: string;
+    };
+    built = stamp.sourceCommit ?? "";
+  } catch {
+    console.error("verify: first window FAIL: out/ has no build stamp; another build replaced it after this one");
+    process.exit(1);
+  }
   await allMustPass([
     {
       name: "first window",
       cmd: ["scripts/run-e2e.sh", "e2e/scenarios/free-startup.spec.ts"],
-      env: { JUNTO_E2E_EXPECT_COMMIT: stamp.sourceCommit ?? "" },
+      env: { ...appRunLockWait, JUNTO_E2E_EXPECT_COMMIT: built },
     },
   ]);
 }
