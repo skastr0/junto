@@ -382,7 +382,6 @@ let coreProcessPages: OverseerPages | undefined;
 let unregisterOverseerLiveIpc: (() => void) | undefined;
 let rendererWindowAdmissionReady = false;
 let productRuntimeStarted = false;
-let operatorFleetReady = false;
 let shutdownAdmissionClosed = false;
 let shutdownReason = "app_quit";
 let browserShutdown: Promise<Awaited<ReturnType<BrowserComposition["drainOnQuit"]>>> | undefined;
@@ -1670,7 +1669,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     }
 
     productRuntimeStarted = true;
-    operatorFleetReady = true;
     nodeRefOwnerReady = true;
     activatePendingNodeRef();
     rendererWindowAdmissionReady = true;
@@ -1729,7 +1727,6 @@ const beginShutdownAdmission = (reason: string): void => {
   shutdownReason = reason;
   if (shutdownAdmissionClosed) return;
   shutdownAdmissionClosed = true;
-  operatorFleetReady = false;
   nodeRefOwnerReady = false;
   pendingNodeRefUri = undefined;
   activeNodeRefDelivery = undefined;
