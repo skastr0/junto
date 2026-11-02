@@ -11,11 +11,33 @@
 
 /**
  * Main to the terminal process, with a port moved beside it: serve a core on
- * it (the core in its own process). The PTYs spawned over a port live as long
- * as it does: a core that goes takes its terminals with it, as a stopped main
- * took its in-process PTYs.
+ * it (the core in its own process). A port that closes leaves its PTYs
+ * running, detached, for the next core to adopt: a core crash kills no agent.
  */
 export const TERMINAL_CONNECT = "pty.connect";
+
+/**
+ * The first thing a new core asks on its new port. Answers every PTY held,
+ * exited ones with their exit; then every PTY's unacknowledged output follows
+ * as ordinary `pty.data`, oldest first, then any held exit as `pty.exit`.
+ */
+export const TERMINAL_ADOPT = "pty.adopt";
+
+export type TerminalAdopted = {
+  readonly id: number;
+  readonly pid: number;
+  readonly cols: number;
+  readonly rows: number;
+  readonly meta: unknown;
+  /** Output the last core handled, up to TERMINAL_HISTORY_CHARS, cut on a chunk boundary. */
+  readonly history: string;
+  /** The last chunk `history` holds; what follows it arrives as `pty.data`. */
+  readonly seq: number;
+  readonly exit?: { readonly code: number | undefined; readonly signal: number | undefined };
+};
+
+/** Handled output kept per PTY so a new core can seed the screen it lost (the core's MAX_JOURNAL_BYTES). */
+export const TERMINAL_HISTORY_CHARS = 512 * 1024;
 
 /** The one call: start a PTY. Answers its pid, or fails with the spawn's message. */
 export const TERMINAL_SPAWN = "pty.spawn";
@@ -28,6 +50,8 @@ export type TerminalSpawnInput = {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly cols: number;
   readonly rows: number;
+  /** Stored opaque, and given back by `pty.adopt`. Structured-clone data. */
+  readonly meta?: unknown;
 };
 
 export type TerminalSpawnOutput = { readonly pid: number | undefined };
@@ -46,6 +70,8 @@ export const TerminalInbound = {
   kill: "pty.kill",
   /** The core has handled this many more output characters of the terminal. */
   ack: "pty.ack",
+  /** Orderly quit: hang up every PTY. A port closing does not. */
+  hangupAll: "pty.hangupAll",
 } as const;
 
 export type TerminalWrite = { readonly id: number; readonly data: string };
@@ -56,7 +82,9 @@ export type TerminalAck = { readonly id: number; readonly chars: number };
 /**
  * Backpressure: a PTY whose output the core has not handled past the high
  * mark stops being read, so its child blocks on a full terminal as it would
- * if the core read it in process; it is read again below the low mark.
+ * if the core read it in process; it is read again below the low mark. Output
+ * not yet handled is kept, so a core that dies loses none of it: with no core
+ * a PTY reads to the high mark and its child blocks until one adopts it.
  * Characters, as the output strings count them.
  */
 export const TERMINAL_UNACKED_HIGH = 1024 * 1024;

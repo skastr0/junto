@@ -1,5 +1,5 @@
 import type { CoreMessage, CorePort } from "../core-process/port";
-import { terminalClient, type TerminalClient } from "./client";
+import { TerminalAdoptFailed, terminalClient, type TerminalClient } from "./client";
 
 /** Electron's MessagePortMain, as the core process is handed one. */
 export type TerminalPortMain = {
@@ -41,6 +41,10 @@ export const terminalsOverPorts = (): TerminalClient & { readonly connect: (port
       if (current === undefined) throw new Error("the Junto terminal process is not connected");
       return current.spawn(input);
     },
+    adopt: () => current === undefined
+      ? Promise.reject(new TerminalAdoptFailed({ message: "the Junto terminal process is not connected" }))
+      : current.adopt(),
+    hangupAll: () => current?.hangupAll(),
     fail: (reason) => current?.fail(reason),
   };
 };

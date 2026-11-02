@@ -2,7 +2,9 @@ import type { IPty } from "node-pty";
 import type { CoreMessage, CorePort } from "../core-process/port";
 import { readSingleProcessEpochSnapshotAsync, type ChildProcessEpoch } from "../junto/process-epoch";
 import {
+  TERMINAL_ADOPT,
   TERMINAL_FENCE,
+  TERMINAL_HISTORY_CHARS,
   TERMINAL_SPAWN,
   TerminalInbound,
   TerminalOutbound,
@@ -10,6 +12,7 @@ import {
   type TerminalError,
   type TerminalExitEvent,
   type TerminalAck,
+  type TerminalAdopted,
   type TerminalKill,
   TERMINAL_UNACKED_HIGH,
   TERMINAL_UNACKED_LOW,
@@ -93,10 +96,33 @@ type Surfaces = {
   readonly open: Map<string, { readonly port: SurfacePort; readonly stop: () => void }>;
 };
 
+/** What the core has of one PTY's output: what it handled, what it has not, and its exit once there is one. */
+type CoreLink = {
+  readonly pid: number;
+  readonly meta: unknown;
+  cols: number;
+  rows: number;
+  lastSeq: number;
+  readonly history: Chunk[];
+  historyChars: number;
+  /** Posted to the core and not acknowledged, or waiting for one to adopt it, in seq order. */
+  readonly unacked: Chunk[];
+  chars: number;
+  paused: boolean;
+  /** False from the moment a core is lost until the next one adopts this PTY. */
+  delivering: boolean;
+  exit?: { readonly code: number | undefined; readonly signal: number | undefined };
+};
+
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
+/**
+ * `port` is the first core's, or undefined to wait for `attach`. A core's port
+ * can go and another come: every PTY, its surfaces, gates and holds stay as
+ * they are, and the new core takes them back with `pty.adopt`.
+ */
 export const serveTerminals = (
-  port: CorePort,
+  port: CorePort | undefined,
   spawnPty: SpawnPty,
   epochs: PtyEpochs = systemEpochs,
 ): {
@@ -104,16 +130,20 @@ export const serveTerminals = (
   readonly live: () => number;
   /** A surface port arrived with its `pty.surface` message. */
   readonly openSurface: (open: TerminalSurfaceOpen, surface: SurfacePort) => void;
-  readonly lost: () => void;
+  /** A core's port arrived; any core before it is gone. */
+  readonly attach: (core: CorePort) => void;
+  /** This core's port closed. No effect on a core already replaced. */
+  readonly detach: (core: CorePort) => void;
 } => {
   const ptys = new Map<number, IPty>();
   // Taken at spawn; a PTY whose epoch could not be read is never signalled.
   const epochOf = new Map<number, Promise<ChildProcessEpoch | undefined>>();
   const surfacesOf = new Map<number, Surfaces>();
-  // Output sent to the core and not yet handled there, and whether the PTY is paused for it.
-  const unacked = new Map<number, { chars: number; paused: boolean }>();
+  const links = new Map<number, CoreLink>();
+  let core: CorePort | undefined;
+  let stopListening: (() => void) | undefined;
   const push = (channel: string, payload: TerminalData | TerminalExitEvent | TerminalError): void =>
-    port.post({ kind: "push", channel, payload });
+    core?.post({ kind: "push", channel, payload });
 
   const keyed = (id: number, from: SurfaceLease, data: string): void => {
     const pty = ptys.get(id);
@@ -131,7 +161,7 @@ export const serveTerminals = (
       return push(TerminalOutbound.error, { id, message: errorMessage(error) });
     }
     // The core keeps the input clock; the key itself never waited for it.
-    port.post({ kind: "push", channel: TerminalSurface.input, payload: { id, leaseId: from.leaseId, data } });
+    core?.post({ kind: "push", channel: TerminalSurface.input, payload: { id, leaseId: from.leaseId, data } });
   };
 
   const endSurface = (surfaces: Surfaces, leaseId: string): void => {
@@ -153,12 +183,14 @@ export const serveTerminals = (
       surfaces.ringBytes -= surfaces.ring.shift()!.data.length;
     }
     for (const { port: surface } of surfaces.open.values()) surface.post({ t: "out", seq, data });
-    push(TerminalOutbound.data, { id, data, seq });
-    const owed = unacked.get(id);
-    if (owed === undefined) return;
-    owed.chars += data.length;
-    if (!owed.paused && owed.chars > TERMINAL_UNACKED_HIGH) {
-      owed.paused = true;
+    const link = links.get(id);
+    if (link === undefined) return;
+    link.lastSeq = seq;
+    link.unacked.push({ seq, data });
+    link.chars += data.length;
+    if (link.delivering) push(TerminalOutbound.data, { id, data, seq });
+    if (!link.paused && link.chars > TERMINAL_UNACKED_HIGH) {
+      link.paused = true;
       try {
         ptys.get(id)?.pause();
       } catch {
@@ -186,11 +218,34 @@ export const serveTerminals = (
       if (message.t !== "in") return;
       // Operator presence is the signal, not delivery: the core hears every
       // key as it arrives, a refused or held one included, before any gate.
-      port.post({ kind: "push", channel: TerminalSurface.typing, payload: { id: open.id, leaseId: open.leaseId, data: message.data } });
+      core?.post({ kind: "push", channel: TerminalSurface.typing, payload: { id: open.id, leaseId: open.leaseId, data: message.data } });
       surface.post({ t: "took" });
       keyed(open.id, open, message.data);
     });
     surfaces.open.set(open.leaseId, { port: surface, stop });
+  };
+
+  /** Told to the core; the record goes once all its output is handled, so a new core still hears it. */
+  const deliverExit = (id: number, link: CoreLink): void => {
+    push(TerminalOutbound.exit, { id, ...link.exit! });
+    if (link.unacked.length === 0) links.delete(id);
+  };
+
+  const adopt = (): readonly TerminalAdopted[] =>
+    [...links].map(([id, link]) => ({
+      id, pid: link.pid, cols: link.cols, rows: link.rows, meta: link.meta,
+      history: link.history.map((chunk) => chunk.data).join(""),
+      seq: link.history.at(-1)?.seq ?? (link.unacked[0] === undefined ? link.lastSeq : link.unacked[0].seq - 1),
+      ...(link.exit === undefined ? {} : { exit: link.exit }),
+    }));
+
+  /** After the adopt answer, on the same ordered port: what the last core never handled, then held exits. */
+  const redeliver = (): void => {
+    for (const [id, link] of links) {
+      link.delivering = true;
+      for (const chunk of link.unacked) push(TerminalOutbound.data, { id, ...chunk });
+      if (link.exit !== undefined) deliverExit(id, link);
+    }
   };
 
   const spawn = (input: TerminalSpawnInput): number | undefined => {
@@ -208,17 +263,23 @@ export const serveTerminals = (
     });
     ptys.set(input.id, pty);
     epochOf.set(input.id, epochs.capture(pty.pid).catch(() => undefined));
-    unacked.set(input.id, { chars: 0, paused: false });
+    links.set(input.id, {
+      pid: pty.pid, meta: input.meta, cols: input.cols, rows: input.rows, lastSeq: 0,
+      history: [], historyChars: 0, unacked: [], chars: 0, paused: false, delivering: true,
+    });
     surfacesOf.set(input.id, { seq: 0, ring: [], ringBytes: 0, controller: null, held: false, heldKeys: [], open: new Map() });
     // The exit witness first, then the stream, as the plane installs them.
     pty.onExit(({ exitCode, signal }) => {
       ptys.delete(input.id);
       epochOf.delete(input.id);
-      unacked.delete(input.id);
       const surfaces = surfacesOf.get(input.id);
       surfacesOf.delete(input.id);
       if (surfaces !== undefined) for (const leaseId of [...surfaces.open.keys()]) endSurface(surfaces, leaseId);
-      push(TerminalOutbound.exit, { id: input.id, code: exitCode ?? undefined, signal: signal ?? undefined });
+      const link = links.get(input.id);
+      if (link === undefined) return;
+      // Held for the next core while there is none.
+      link.exit = { code: exitCode ?? undefined, signal: signal ?? undefined };
+      if (link.delivering) deliverExit(input.id, link);
     });
     pty.onData((data) => output(input.id, data));
     return pty.pid;
@@ -240,6 +301,11 @@ export const serveTerminals = (
       const { id, cols, rows } = payload as TerminalResize;
       try {
         ptys.get(id)?.resize(cols, rows);
+        const link = links.get(id);
+        if (link !== undefined) {
+          link.cols = cols;
+          link.rows = rows;
+        }
       } catch (error) {
         push(TerminalOutbound.error, { id, message: errorMessage(error) });
       }
@@ -247,11 +313,23 @@ export const serveTerminals = (
     }
     if (channel === TerminalInbound.ack) {
       const { id, chars } = payload as TerminalAck;
-      const owed = unacked.get(id);
-      if (owed === undefined) return;
-      owed.chars = Math.max(0, owed.chars - chars);
-      if (owed.paused && owed.chars < TERMINAL_UNACKED_LOW) {
-        owed.paused = false;
+      const link = links.get(id);
+      if (link === undefined) return;
+      link.chars = Math.max(0, link.chars - chars);
+      // Acknowledgements come whole chunks at a time, in order.
+      for (let left = chars; left > 0 && link.unacked[0] !== undefined && link.unacked[0].data.length <= left;) {
+        const chunk = link.unacked.shift()!;
+        left -= chunk.data.length;
+        link.history.push(chunk);
+        link.historyChars += chunk.data.length;
+      }
+      while (link.historyChars > TERMINAL_HISTORY_CHARS) link.historyChars -= link.history.shift()!.data.length;
+      if (link.exit !== undefined && link.delivering && link.unacked.length === 0) {
+        links.delete(id);
+        return;
+      }
+      if (link.paused && link.chars < TERMINAL_UNACKED_LOW) {
+        link.paused = false;
         try {
           ptys.get(id)?.resume();
         } catch {
@@ -284,6 +362,10 @@ export const serveTerminals = (
       if (surfaces !== undefined) endSurface(surfaces, leaseId);
       return;
     }
+    if (channel === TerminalInbound.hangupAll) {
+      for (const id of [...ptys.keys()]) inbound(TerminalInbound.kill, { id, signal: "SIGHUP" } satisfies TerminalKill);
+      return;
+    }
     if (channel === TerminalInbound.kill) {
       const { id, signal } = payload as TerminalKill;
       const pty = ptys.get(id);
@@ -304,29 +386,45 @@ export const serveTerminals = (
     }
   };
 
-  const close = port.listen((message: CoreMessage) => {
+  const received = (from: CorePort) => (message: CoreMessage): void => {
     if (message.kind === "push") return inbound(message.channel, message.payload);
     if (message.kind !== "call") return;
     if (message.name === TERMINAL_FENCE) {
-      port.post({ kind: "answer", id: message.id, ok: true, value: {} });
+      from.post({ kind: "answer", id: message.id, ok: true, value: {} });
+      return;
+    }
+    if (message.name === TERMINAL_ADOPT) {
+      from.post({ kind: "answer", id: message.id, ok: true, value: adopt() });
+      redeliver();
       return;
     }
     if (message.name !== TERMINAL_SPAWN) {
-      port.post({ kind: "answer", id: message.id, ok: false, failure: { tag: "UnknownTerminalOp", message: `no terminal operation named ${message.name}` } });
+      from.post({ kind: "answer", id: message.id, ok: false, failure: { tag: "UnknownTerminalOp", message: `no terminal operation named ${message.name}` } });
       return;
     }
     try {
       const pid = spawn(message.input as TerminalSpawnInput);
-      port.post({ kind: "answer", id: message.id, ok: true, value: { pid } });
+      from.post({ kind: "answer", id: message.id, ok: true, value: { pid } });
     } catch (error) {
-      port.post({ kind: "answer", id: message.id, ok: false, failure: { tag: "TerminalBackendUnavailable", message: errorMessage(error) } });
+      from.post({ kind: "answer", id: message.id, ok: false, failure: { tag: "TerminalBackendUnavailable", message: errorMessage(error) } });
     }
-  });
-
-  /** The core on this port is gone: every PTY it held is hung up, as its terminal closing would. */
-  const lost = (): void => {
-    for (const id of [...ptys.keys()]) inbound(TerminalInbound.kill, { id, signal: "SIGHUP" } satisfies TerminalKill);
   };
 
-  return { close, live: () => ptys.size, openSurface, lost };
+  const detach = (gone: CorePort): void => {
+    if (core !== gone) return;
+    stopListening?.();
+    stopListening = undefined;
+    core = undefined;
+    for (const link of links.values()) link.delivering = false;
+  };
+
+  const attach = (next: CorePort): void => {
+    if (core !== undefined) detach(core);
+    core = next;
+    stopListening = next.listen(received(next));
+  };
+
+  if (port !== undefined) attach(port);
+
+  return { close: () => { if (core !== undefined) detach(core); }, live: () => ptys.size, openSurface, attach, detach };
 };

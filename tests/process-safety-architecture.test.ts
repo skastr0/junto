@@ -415,8 +415,8 @@ describe("machine-safety architecture", () => {
       "src/main/terminal-process/host.ts:leaving.kill",
       "src/main/terminal-process/host.ts:leaving.kill",
       "src/main/terminal-process/serve.ts:forbidden-reference:TerminalInbound.kill",
-      // A core that is gone: each PTY it held is hung up through the same
-      // epoch-checked signal path, never signalled by pid alone.
+      // An orderly quit: each PTY is hung up through the same epoch-checked
+      // signal path, never signalled by pid alone.
       "src/main/terminal-process/serve.ts:forbidden-reference:TerminalInbound.kill",
       "src/main/terminal-process/serve.ts:pty.kill",
     ]);

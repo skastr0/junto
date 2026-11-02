@@ -240,12 +240,114 @@ describe("the terminal process", () => {
     expect(seen.errors).toEqual(["posix_spawnp failed"]);
   });
 
-  it("a core that is gone hangs up every PTY it held", async () => {
+  /** A new core's port on the same terminal process. */
+  const nextCore = (served: ReturnType<typeof serveTerminals>) => {
+    const { port1, port2 } = new MessageChannel();
+    opened.push(port1, port2);
+    served.attach(portOf(port2));
+    return terminalClient(portOf(port1));
+  };
+
+  const running = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  it("a core that is gone leaves its PTY running; the next core adopts it with its screen, and loses no output", async () => {
+    const { client, served } = pair();
+    const meta = { bindingId: "seat-a" };
+    const shell = client.spawn({ command: "/bin/sh", args: ["-c", "printf before; sleep 0.3; printf during; exec cat"], cols: 80, rows: 24, env, meta });
+    const seen = record(shell);
+    const pid = (await shell.pid)!;
+    await until(() => seen.output().includes("before"));
+    await settleTurn();
+    served.close();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(running(pid)).toBe(true);
+    expect(served.live()).toBe(1);
+
+    const next = nextCore(served);
+    const [taken] = await next.adopt();
+    expect(taken!.meta).toEqual(meta);
+    expect(taken!.adopted).toMatchObject({ pid, cols: 80, rows: 24, meta, seq: 1, history: "before" });
+    expect(taken!.adopted.exit).toBeUndefined();
+    const after = record(taken!.terminal);
+    await until(() => after.output().includes("during"));
+    taken!.terminal.write("typed after\r");
+    await until(() => after.output().includes("typed after"));
+    expect(after.output().match(/during/g)).toHaveLength(1);
+    expect(after.output()).not.toContain("before");
+    // A spawn on the new core does not take the adopted id.
+    const other = next.spawn({ command: "/bin/echo", args: ["other"], cols: 80, rows: 24, env });
+    expect(other.id).toBeGreaterThan(taken!.terminal.id);
+    taken!.terminal.kill("SIGKILL");
+    expect((await after.exit).signal).toBe(9);
+  });
+
+  it("an exit while no core is there is held, after its output, for the next one", async () => {
+    const { client, served } = pair();
+    const shell = client.spawn({ command: "/bin/sh", args: ["-c", "sleep 0.2; printf bye; exit 3"], cols: 80, rows: 24, env });
+    const pid = (await shell.pid)!;
+    served.close();
+    await until(() => served.live() === 0);
+    const next = nextCore(served);
+    const [taken] = await next.adopt();
+    expect(taken!.adopted).toMatchObject({ pid, exit: { code: 3 } });
+    const after = record(taken!.terminal);
+    expect((await after.exit).code).toBe(3);
+    expect(after.output()).toContain("bye");
+    await settleTurn();
+    expect(await nextCore(served).adopt()).toEqual([]);
+  });
+
+  it("with no core a PTY reads to the high mark and stops, and every chunk reaches the next core", async () => {
+    let emit: ((data: string) => void) | undefined;
+    const calls: string[] = [];
+    const fake: SpawnPty = () => ({
+      pid: 4245,
+      onExit: () => ({ dispose: () => undefined }),
+      onData: (listener: (data: string) => void) => {
+        emit = listener;
+        return { dispose: () => undefined };
+      },
+      pause: () => calls.push("pause"),
+      resume: () => calls.push("resume"),
+      kill: () => undefined,
+      write: () => undefined,
+      resize: () => undefined,
+    }) as unknown as ReturnType<SpawnPty>;
+    const { client, served } = pair(fake);
+    await client.spawn({ command: "/bin/true", args: [], cols: 80, rows: 24 }).pid;
+    served.close();
+    const chunk = "x".repeat(64 * 1024);
+    for (let i = 0; i < 17; i++) emit!(chunk);
+    expect(calls).toEqual(["pause"]);
+    const [taken] = await nextCore(served).adopt();
+    const after = record(taken!.terminal);
+    await until(() => after.output().length === 17 * chunk.length);
+    await until(() => calls.length === 2);
+    expect(calls).toEqual(["pause", "resume"]);
+  });
+
+  it("an adopt the terminal process never answers fails tagged when it is lost", async () => {
+    const { port1, port2 } = new MessageChannel();
+    opened.push(port1, port2);
+    const orphan = terminalClient(portOf(port1));
+    const asked = orphan.adopt();
+    orphan.fail("the terminal process exited");
+    await expect(asked).rejects.toMatchObject({ _tag: "TerminalAdoptFailed", message: "the terminal process exited" });
+  });
+
+  it("an orderly quit hangs up every PTY", async () => {
     const { client, served } = pair();
     const cat = client.spawn({ command: "/bin/cat", args: [], cols: 80, rows: 24, env });
     const seen = record(cat);
     await cat.pid;
-    served.lost();
+    client.hangupAll();
     expect((await seen.exit).signal).toBe(1);
     expect(served.live()).toBe(0);
   });

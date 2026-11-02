@@ -1,11 +1,14 @@
+import { Effect, Schema } from "effect";
 import { portCore } from "../core-process/port";
 import type { CoreMessage, CorePort } from "../core-process/port";
 import {
+  TERMINAL_ADOPT,
   TERMINAL_FENCE,
   TERMINAL_SPAWN,
   TerminalInbound,
   TerminalOutbound,
   TerminalSurface,
+  type TerminalAdopted,
   type TerminalData,
   type TerminalError,
   type TerminalExitEvent,
@@ -59,8 +62,25 @@ export type RemoteTerminal = {
 
 export type RemoteTerminalSpawn = Omit<TerminalSpawnInput, "id">;
 
+/** A PTY a new core took back from the terminal process, with what it was spawned with. */
+export type AdoptedTerminal = { readonly terminal: RemoteTerminal; readonly meta: unknown; readonly adopted: TerminalAdopted };
+
+/** The terminal process did not answer `pty.adopt`: it is gone, or refused the call. */
+export class TerminalAdoptFailed extends Schema.TaggedError<TerminalAdoptFailed>()("TerminalAdoptFailed", {
+  message: Schema.String,
+}) {}
+
 export type TerminalClient = {
   readonly spawn: (input: RemoteTerminalSpawn) => RemoteTerminal;
+  /**
+   * A new core's first ask on its port: a handle for every PTY the terminal
+   * process kept. Each handle holds its output and exit until it has both a
+   * data and an exit listener; then they arrive as they would from a spawn.
+   * Rejects with TerminalAdoptFailed.
+   */
+  readonly adopt: () => Promise<ReadonlyArray<AdoptedTerminal>>;
+  /** Orderly quit: hang up every PTY. */
+  readonly hangupAll: () => void;
   /** The terminal process is gone: every live terminal reports an exit. */
   readonly fail: (reason: string) => void;
 };
@@ -72,6 +92,8 @@ type Live = {
   readonly typing: Set<(input: TerminalInput) => void>;
   readonly input: Set<(input: TerminalInput) => void>;
   seq: number;
+  /** An adopted terminal's messages, until it has its listeners. */
+  early?: CoreMessage[];
 };
 
 const each = <A>(listeners: ReadonlySet<(value: A) => void>, value: A): void => {
@@ -120,8 +142,15 @@ export const terminalClient = (
     handled.clear();
   };
 
-  port.listen((message: CoreMessage) => {
+  // Set while an adopt is out: what follows its answer may reach this side first.
+  let adopting: CoreMessage[] | undefined;
+  const receive = (message: CoreMessage): void => {
     if (message.kind !== "push") return;
+    if (message.channel === TerminalOutbound.data || message.channel === TerminalOutbound.exit) {
+      const terminal = live.get((message.payload as { readonly id: number }).id);
+      if (terminal === undefined) return void adopting?.push(message);
+      if (terminal.early !== undefined) return void terminal.early.push(message);
+    }
     if (message.channel === TerminalOutbound.data) {
       const { id, data, seq } = message.payload as TerminalData;
       const terminal = live.get(id);
@@ -149,17 +178,70 @@ export const terminalClient = (
       const { id, message: text } = message.payload as TerminalError;
       failed(id, text);
     }
-  });
+  };
+  port.listen(receive);
 
   const subscribe = <A>(id: number, pick: (terminal: Live) => Set<(value: A) => void>) => (listener: (value: A) => void) => {
     const terminal = live.get(id);
     if (terminal === undefined) return () => undefined;
     pick(terminal).add(listener);
+    if (terminal.early !== undefined && terminal.data.size > 0 && terminal.exit.size > 0) {
+      const early = terminal.early;
+      delete terminal.early;
+      early.forEach(receive);
+    }
     return () => pick(terminal).delete(listener);
+  };
+
+  const handleOf = (id: number, pid: Promise<number | undefined>): RemoteTerminal => ({
+    id,
+    pid,
+    write: (data) => post(TerminalInbound.write, { id, data }),
+    resize: (cols, rows) => post(TerminalInbound.resize, { id, cols, rows }),
+    kill: (signal) => post(TerminalInbound.kill, { id, ...(signal === undefined ? {} : { signal }) }),
+    onData: subscribe(id, (terminal) => terminal.data),
+    onExit: subscribe(id, (terminal) => terminal.exit),
+    onError: subscribe(id, (terminal) => terminal.error),
+    gate: (lease) => post(TerminalSurface.gate, { id, lease }),
+    hold: (held) => post(TerminalSurface.hold, { id, held }),
+    endSurface: (leaseId) => post(TerminalSurface.close, { id, leaseId }),
+    openSurface: (lease, fromSeq, surface) => {
+      if (transfer === undefined) throw new Error("this terminal process cannot take a surface port");
+      transfer({ kind: "push", channel: TerminalSurface.open, payload: { id, ...lease, fromSeq } }, surface);
+    },
+    lastSeq: () => live.get(id)?.seq ?? 0,
+    onTyping: subscribe(id, (terminal) => terminal.typing),
+    onInput: subscribe(id, (terminal) => terminal.input),
+    fence: () => (calls.call as (name: string, input: unknown) => Promise<unknown>)(TERMINAL_FENCE, {}).then(() => undefined, () => undefined),
+  });
+
+  const adopt = (): Effect.Effect<ReadonlyArray<AdoptedTerminal>, TerminalAdoptFailed> => {
+    const arrived: CoreMessage[] = [];
+    adopting = arrived;
+    return Effect.tryPromise({
+      try: () => (calls.call as (name: string, input: unknown) => Promise<readonly TerminalAdopted[]>)(TERMINAL_ADOPT, {}),
+      catch: (cause) => new TerminalAdoptFailed({ message: cause instanceof Error ? cause.message : String(cause) }),
+    }).pipe(
+      Effect.map((answer) => answer.map((adopted) => {
+        nextId = Math.max(nextId, adopted.id + 1);
+        live.set(adopted.id, { data: new Set(), exit: new Set(), error: new Set(), typing: new Set(), input: new Set(), seq: adopted.seq, early: [] });
+        return { terminal: handleOf(adopted.id, Promise.resolve(adopted.pid)), meta: adopted.meta, adopted };
+      })),
+      // What arrived behind the answer goes to the handles it names, in order.
+      Effect.tap(() => Effect.sync(() => {
+        adopting = undefined;
+        arrived.forEach(receive);
+      })),
+      Effect.ensuring(Effect.sync(() => {
+        if (adopting === arrived) adopting = undefined;
+      })),
+    );
   };
 
 
   return {
+    adopt: () => Effect.runPromise(adopt()),
+    hangupAll: () => post(TerminalInbound.hangupAll, {}),
     spawn: (input) => {
       const id = nextId++;
       live.set(id, { data: new Set(), exit: new Set(), error: new Set(), typing: new Set(), input: new Set(), seq: 0 });
@@ -172,27 +254,7 @@ export const terminalClient = (
         });
       // A refused spawn is reported on the terminal; the pid's own rejection is for a waiter.
       pid.catch(() => undefined);
-      return {
-        id,
-        pid,
-        write: (data) => post(TerminalInbound.write, { id, data }),
-        resize: (cols, rows) => post(TerminalInbound.resize, { id, cols, rows }),
-        kill: (signal) => post(TerminalInbound.kill, { id, ...(signal === undefined ? {} : { signal }) }),
-        onData: subscribe(id, (terminal) => terminal.data),
-        onExit: subscribe(id, (terminal) => terminal.exit),
-        onError: subscribe(id, (terminal) => terminal.error),
-        gate: (lease) => post(TerminalSurface.gate, { id, lease }),
-        hold: (held) => post(TerminalSurface.hold, { id, held }),
-        endSurface: (leaseId) => post(TerminalSurface.close, { id, leaseId }),
-        openSurface: (lease, fromSeq, surface) => {
-          if (transfer === undefined) throw new Error("this terminal process cannot take a surface port");
-          transfer({ kind: "push", channel: TerminalSurface.open, payload: { id, ...lease, fromSeq } }, surface);
-        },
-        lastSeq: () => live.get(id)?.seq ?? 0,
-        onTyping: subscribe(id, (terminal) => terminal.typing),
-        onInput: subscribe(id, (terminal) => terminal.input),
-        fence: () => (calls.call as (name: string, input: unknown) => Promise<unknown>)(TERMINAL_FENCE, {}).then(() => undefined, () => undefined),
-      };
+      return handleOf(id, pid);
     },
     fail: (reason) => {
       calls.fail(reason);
