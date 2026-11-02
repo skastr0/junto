@@ -10,6 +10,7 @@ import {
   OBSERVABILITY_RING_CAPACITY,
   matchesObservabilityQuery,
 } from "@shared/observability";
+import { setLogRowSink } from "./logger";
 
 export type ObservabilityAppendInput = {
   readonly level: ObservabilityLogLevel;
@@ -131,6 +132,13 @@ export const makeObservabilityRing = (
 
 /** Singleton for the app process (Command Center + Remote share one process). */
 export const observabilityRing = makeObservabilityRing();
+
+/**
+ * The ring is this process's row sink: the logger names no ring, so a process
+ * that has one (this one) captures every row it writes, and main, which has
+ * none, forwards its rows to the core instead.
+ */
+setLogRowSink((row) => observabilityRing.append(row));
 
 /** Convenience for call sites outside Effect (console bridge, crash handlers). */
 export const recordObservabilityLog = (

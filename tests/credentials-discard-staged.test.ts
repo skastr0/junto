@@ -1,15 +1,8 @@
 import { Effect, Logger, ManagedRuntime } from "effect";
 import { expect, it } from "vitest";
 import { discardStaged } from "../src/main/junto/credentials/coordinator";
-import {
-  ObservabilityEffectLogger,
-  setLogRowSink,
-} from "../src/main/junto/observability/logger";
+import { ObservabilityEffectLogger } from "../src/main/junto/observability/logger";
 import { observabilityRing } from "../src/main/junto/observability/ring";
-
-// The core installs its own ring as the row sink when it loads
-// (core-process/ops/observability.ts); the logger itself names no ring.
-setLogRowSink((row) => observabilityRing.append(row));
 
 it("logs a staged rollback that fails, scrubbed, and keeps going", async () => {
   observabilityRing.clear();
