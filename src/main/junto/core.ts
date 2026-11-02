@@ -19,6 +19,7 @@ import { startOperatorControlServer, type OperatorControlServer } from "./operat
 import { evaluateSchemaCompatibility, probeInstalledStateSchema } from "./state/schema-version-probe";
 import { quiesceServiceChildrenOnQuit } from "../services/process";
 import { installCoreRunner } from "../core-runner";
+import { installInProcessCoreReads } from "../core-process/in-process-reads";
 import { startWorkControlServer, type WorkControlServer } from "./work/control";
 import { workControlDir } from "@shared/work-control";
 import { startCoreSeats } from "./term/core-seats";
@@ -198,6 +199,7 @@ export const startCore = async (options: CoreOptions) => {
   };
   try {
     releaseRunner = installCoreRunner(runtime);
+    installInProcessCoreReads();
     // The terminal router's SSH dials run on the core that owns the terminal plane.
     configureTerminalRouterLayeredRunner((effect) => runtime.runPromise(effect as never));
     const [actions, link, status, rows, seats, coreMail] = await runtime.runPromise(Effect.all([MachineOwnerControl, MachineLink, MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail]));

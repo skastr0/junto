@@ -44,6 +44,7 @@ import { NativeConfigLive } from "./junto/native-config/service";
 import { ProductModelDependentsLive } from "./junto/view-state/model-dependents";
 import { ViewStateRepositoryLive } from "./junto/view-state/repository";
 import { ModelLive } from "./junto/model/layer";
+import { VaultTokensLive } from "./junto/vault/repository";
 import { CodexLive } from "./services/codex";
 import { SeatAwarenessLive } from "./junto/term/seat-awareness-live";
 
@@ -86,6 +87,9 @@ export const makeCoreProductLayer = (home: string) => {
       Layer.provideMerge(UsageLive, settings),
       settings,
       MachineRepositoryLive,
+      // This machine's vault scope records: the machine name to vault map a
+      // spawn reads before it uses the vault token file.
+      VaultTokensLive,
       OpRepositoryLive,
       // The operator's arrangement: machine-local rows, written as it changes.
       ViewStateRepositoryLive,
