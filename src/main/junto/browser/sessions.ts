@@ -721,7 +721,7 @@ export class BrowserSessionService {
 
   constructor(
     private readonly adapter: BrowserViewAdapter,
-    private readonly thisMachineName: () => string | undefined,
+    private readonly thisMachineName: () => Promise<string | undefined>,
     private readonly profiles: BrowserProfileServiceApi,
     private readonly now: () => number = Date.now,
     private readonly generateSessionId: () => string = randomUUID,
@@ -762,10 +762,11 @@ export class BrowserSessionService {
 
   /**
    * This machine's name, for local control admission: a seat assigned to
-   * another machine never drives a page here. `undefined` until the machine
-   * list hydrates, and admission fails closed.
+   * another machine never drives a page here. Asked of the core, which owns
+   * the machine record; a core that cannot answer leaves admission failing
+   * closed.
    */
-  machineName(): string | undefined {
+  machineName(): Promise<string | undefined> {
     return this.thisMachineName();
   }
 

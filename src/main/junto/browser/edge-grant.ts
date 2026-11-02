@@ -135,10 +135,12 @@ export interface EdgeGrantDependencies {
   readonly wallNow?: () => number;
   readonly ttlMs?: number;
   /**
-   * Browser composition supplies this from its local session service. A
-   * caller assigned to another machine never gets a secret: pages are local.
+   * Browser composition supplies this from the core's machine record. A caller
+   * assigned to another machine never gets a secret: pages are local. It is
+   * async because main holds no copy of that name, and a name it cannot read
+   * fails closed.
    */
-  readonly machineName: () => string | undefined;
+  readonly machineName: () => Promise<string | undefined>;
   /**
    * Whether this machine edits the canvas. Pages live on the editing machine,
    * so a page on a canvas held as a copy is never admitted, whatever the copy
@@ -333,7 +335,7 @@ export const makeEdgeGrantService = (
         : resolveBrowserCallerFromProcess(detail.next, canvasName, entry.processPrincipal);
       const callerAdmitted = nextCaller?.ok === true
         && nextCaller.principal.nodeId === entry.callerNodeId
-        && admitsCallerOnThisMachine(detail.next!, entry.callerNodeId) === undefined;
+        && callerDenialFor(detail.next!, entry.callerNodeId, knownMachineName) === undefined;
       const lost =
         !callerAdmitted
           ? allTargetsLost(entry.targets, canvasName, entry.callerNodeId)
@@ -385,11 +387,18 @@ export const makeEdgeGrantService = (
     );
   };
 
-  const admitsCallerOnThisMachine = (
+  /**
+   * The machine name this grant last read, kept for the synchronous canvas
+   * change path: admission may await the core, invalidation cannot. A name
+   * nobody has read yet fails closed, which tears every target down.
+   */
+  let knownMachineName: string | undefined;
+
+  const callerDenialFor = (
     doc: Canvas,
     callerNodeId: string,
+    machineName: string | undefined,
   ): EdgeGrantResult | undefined => {
-    const machineName = dependencies.machineName();
     const caller = doc.nodes.get(asNodeId(callerNodeId));
     if (
       machineName === undefined ||
@@ -402,6 +411,15 @@ export const makeEdgeGrantService = (
       );
     }
     return undefined;
+  };
+
+  const admitsCallerOnThisMachine = async (
+    doc: Canvas,
+    callerNodeId: string,
+  ): Promise<EdgeGrantResult | undefined> => {
+    const machineName = await dependencies.machineName().catch(() => undefined);
+    if (machineName !== undefined) knownMachineName = machineName;
+    return callerDenialFor(doc, callerNodeId, machineName);
   };
 
   const admitPrincipal = async (
@@ -456,7 +474,7 @@ export const makeEdgeGrantService = (
     }
 
     const match = matches[0]!;
-    const callerDenial = admitsCallerOnThisMachine(match.doc, match.callerNodeId);
+    const callerDenial = await admitsCallerOnThisMachine(match.doc, match.callerNodeId);
     if (callerDenial !== undefined) return callerDenial;
     if (!(await dependencies.editsCanvas(match.canvasName).catch(() => false))) {
       return fail(

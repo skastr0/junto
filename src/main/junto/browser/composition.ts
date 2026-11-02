@@ -35,7 +35,7 @@ import {
   type BrowserViewAdapter,
   type BrowserUiShutdownDrainReceipt,
 } from "./sessions";
-import { hostsSnapshot } from "../hosts/snapshot";
+import { coreReads } from "../../core-runner";
 
 // Browser composition without ceremony: sessions + profiles + internal
 // capability registry (edge-grant leases only). Product access is
@@ -452,8 +452,8 @@ export interface BrowserCompositionRuntime {
   readonly profileGate?: BrowserProfileGate;
   readonly storagePlatform?: BrowserProfileStoragePlatform;
   readonly viewAdapter?: BrowserViewAdapter;
-  /** This machine's name; `undefined` until the machine list hydrates. */
-  readonly machineName?: () => string | undefined;
+  /** This machine's name, asked of the core; `undefined` when it cannot answer. */
+  readonly machineName?: () => Promise<string | undefined>;
   readonly makeStorageLifecycle?: (
     dependencies: BrowserProfileStorageDependencies,
   ) => BrowserProfileStorageLifecycle;
@@ -480,9 +480,16 @@ export const clearTouchedServiceWorkersAtStart = async (
   await store.remove(touched);
 };
 
-/** The one row the machine list marks as its own, read on every admission. */
-const thisMachineName = (): string | undefined =>
-  hostsSnapshot().find((host) => host.isThisMachine)?.id;
+/**
+ * The name this machine holds, for local browser admission. The machine record
+ * lives in the core, and main's own hosts snapshot is never hydrated (the
+ * hosts service moved to the core), so reading that snapshot here compared
+ * every seat against an empty map and refused every caller. This is the same
+ * read the Files service uses (junto/files/host-deps.ts): ask the core, and
+ * fail closed when it cannot answer.
+ */
+const thisMachineName = (): Promise<string | undefined> =>
+  coreReads.machineName().catch(() => undefined);
 
 class BindOnce<T extends object> {
   #bound = false;

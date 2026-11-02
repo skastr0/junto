@@ -129,7 +129,7 @@ describe.runIf(!BROWSER_ENABLED)("browser edge-grant, browser gated off", () => 
         capabilities,
         listCanvasModels: async () => [{ name: "work", doc: browserCanvas(true) }],
         resolvePageTarget: async () => ({ ok: true, data: TARGET }),
-        machineName: () => "studio",
+        machineName: async () => "studio",
         editsCanvas: async () => true,
       });
       await expect(edgeGrant.admitPrincipal({ agentKey: "local:default" })).resolves.toMatchObject({ ok: false });
@@ -366,7 +366,7 @@ describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", ()
         throw new Error("database unavailable");
       },
       resolvePageTarget: async () => ({ ok: true, data: TARGET }),
-      machineName: () => "studio",
+      machineName: async () => "studio",
       editsCanvas: async () => true,
     });
 
@@ -387,7 +387,7 @@ describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", ()
       capabilities,
       listCanvasModels: async () => [{ name: "work", doc: doc }],
       resolvePageTarget: async () => ({ ok: true, data: TARGET }),
-      machineName: () => "studio",
+      machineName: async () => "studio",
       editsCanvas: async () => true,
     });
 
@@ -406,7 +406,7 @@ describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", ()
       capabilities,
       listCanvasModels: async () => [{ name: "work", doc: doc }],
       resolvePageTarget: async () => ({ ok: true, data: TARGET }),
-      machineName: () => "studio",
+      machineName: async () => "studio",
       editsCanvas: async (canvasName) => {
         asked.push(canvasName);
         return false;
@@ -428,7 +428,7 @@ describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", ()
       capabilities,
       listCanvasModels: async () => [{ name: "work", doc: doc }],
       resolvePageTarget: async () => ({ ok: true, data: TARGET }),
-      machineName: () => "studio",
+      machineName: async () => "studio",
       editsCanvas: async () => {
         throw new Error("records unavailable");
       },

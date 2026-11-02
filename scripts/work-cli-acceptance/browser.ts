@@ -68,7 +68,7 @@ export const browserArea: AcceptanceArea = {
       () => {
         throw new Error("the acceptance core has no window to host a page view");
       },
-      () => MACHINE,
+      async () => MACHINE,
       makeBrowserProfileService(sql, join(dirname(outside), "browser-profiles")),
     );
     const capabilities = makeBrowserCapabilityRegistry({ onTerminate: (notice) => sessions.destroyOwnerSessions(notice.auditId, "ended") });
@@ -88,7 +88,7 @@ export const browserArea: AcceptanceArea = {
         lookup: async (credential) => credentials.lookup(credential),
         onEvent: (listener) => credentials.subscribe(listener),
       },
-      machineName: () => MACHINE,
+      machineName: async () => MACHINE,
       editsCanvas: (name) => run(Effect.flatMap(ModelRecords, (records) => records.editsCanvas(name))),
       sessions: { destroyOwnerTargetSessions: (owner, ref, reason) => sessions.destroyOwnerTargetSessions(owner, ref, reason) },
     });
