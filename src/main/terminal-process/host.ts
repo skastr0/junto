@@ -148,7 +148,11 @@ export const startTerminalProcessForCore = (): TerminalProcessForCore => {
       // by itself once the hangups have landed; the wait below is on that exit.
       // A core that crashed before this could not hang anything up, and the
       // PTYs it left running would otherwise outlive the quit.
-      leaving.postMessage({ kind: "push", channel: TerminalInbound.shutdown, payload: {} });
+      try {
+        leaving.postMessage({ kind: "push", channel: TerminalInbound.shutdown, payload: {} });
+      } catch {
+        // The child is already gone: its exit is the answer, and the wait sees it.
+      }
       return Effect.suspend(() =>
         exited(leaving, () => gone.has(leaving)).pipe(
           Effect.timeoutOption(STOP_DEADLINE_MS),
