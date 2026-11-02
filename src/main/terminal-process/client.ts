@@ -76,9 +76,8 @@ export type TerminalClient = {
    * A new core's first ask on its port: a handle for every PTY the terminal
    * process kept. Each handle holds its output and exit until it has both a
    * data and an exit listener; then they arrive as they would from a spawn.
-   * Rejects with TerminalAdoptFailed.
    */
-  readonly adopt: () => Promise<ReadonlyArray<AdoptedTerminal>>;
+  readonly adopt: () => Effect.Effect<ReadonlyArray<AdoptedTerminal>, TerminalAdoptFailed>;
   /** Orderly quit: hang up every PTY. */
   readonly hangupAll: () => void;
   /** The terminal process is gone: every live terminal reports an exit. */
@@ -215,7 +214,7 @@ export const terminalClient = (
     fence: () => (calls.call as (name: string, input: unknown) => Promise<unknown>)(TERMINAL_FENCE, {}).then(() => undefined, () => undefined),
   });
 
-  const adopt = (): Effect.Effect<ReadonlyArray<AdoptedTerminal>, TerminalAdoptFailed> => {
+  const adopt = (): Effect.Effect<ReadonlyArray<AdoptedTerminal>, TerminalAdoptFailed> => Effect.suspend(() => {
     const arrived: CoreMessage[] = [];
     adopting = arrived;
     return Effect.tryPromise({
@@ -236,11 +235,11 @@ export const terminalClient = (
         if (adopting === arrived) adopting = undefined;
       })),
     );
-  };
+  });
 
 
   return {
-    adopt: () => Effect.runPromise(adopt()),
+    adopt,
     hangupAll: () => post(TerminalInbound.hangupAll, {}),
     spawn: (input) => {
       const id = nextId++;

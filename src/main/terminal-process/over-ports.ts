@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { CoreMessage, CorePort } from "../core-process/port";
 import { TerminalAdoptFailed, terminalClient, type TerminalClient } from "./client";
 
@@ -42,7 +43,7 @@ export const terminalsOverPorts = (): TerminalClient & { readonly connect: (port
       return current.spawn(input);
     },
     adopt: () => current === undefined
-      ? Promise.reject(new TerminalAdoptFailed({ message: "the Junto terminal process is not connected" }))
+      ? Effect.fail(new TerminalAdoptFailed({ message: "the Junto terminal process is not connected" }))
       : current.adopt(),
     hangupAll: () => current?.hangupAll(),
     fail: (reason) => current?.fail(reason),

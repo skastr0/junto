@@ -6,6 +6,7 @@
  * arrives as an error and then an exit, and a lost terminal process exits
  * every terminal it held.
  */
+import { Effect } from "effect";
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it } from "vitest";
@@ -271,7 +272,7 @@ describe("the terminal process", () => {
     expect(served.live()).toBe(1);
 
     const next = nextCore(served);
-    const [taken] = await next.adopt();
+    const [taken] = await Effect.runPromise(next.adopt());
     expect(taken!.meta).toEqual(meta);
     expect(taken!.adopted).toMatchObject({ pid, cols: 80, rows: 24, meta, seq: 1, history: "before" });
     expect(taken!.adopted.exit).toBeUndefined();
@@ -295,13 +296,13 @@ describe("the terminal process", () => {
     served.close();
     await until(() => served.live() === 0);
     const next = nextCore(served);
-    const [taken] = await next.adopt();
+    const [taken] = await Effect.runPromise(next.adopt());
     expect(taken!.adopted).toMatchObject({ pid, exit: { code: 3 } });
     const after = record(taken!.terminal);
     expect((await after.exit).code).toBe(3);
     expect(after.output()).toContain("bye");
     await settleTurn();
-    expect(await nextCore(served).adopt()).toEqual([]);
+    expect(await Effect.runPromise(nextCore(served).adopt())).toEqual([]);
   });
 
   it("with no core a PTY reads to the high mark and stops, and every chunk reaches the next core", async () => {
@@ -326,7 +327,7 @@ describe("the terminal process", () => {
     const chunk = "x".repeat(64 * 1024);
     for (let i = 0; i < 17; i++) emit!(chunk);
     expect(calls).toEqual(["pause"]);
-    const [taken] = await nextCore(served).adopt();
+    const [taken] = await Effect.runPromise(nextCore(served).adopt());
     const after = record(taken!.terminal);
     await until(() => after.output().length === 17 * chunk.length);
     await until(() => calls.length === 2);
@@ -337,7 +338,7 @@ describe("the terminal process", () => {
     const { port1, port2 } = new MessageChannel();
     opened.push(port1, port2);
     const orphan = terminalClient(portOf(port1));
-    const asked = orphan.adopt();
+    const asked = Effect.runPromise(orphan.adopt());
     orphan.fail("the terminal process exited");
     await expect(asked).rejects.toMatchObject({ _tag: "TerminalAdoptFailed", message: "the terminal process exited" });
   });
