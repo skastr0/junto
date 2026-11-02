@@ -34,6 +34,13 @@ const SECOND = "01a19e22-e07d-76a0-845f-47b748e059ea";
 const first = modelSeat({ id: "seat-lookout", key: "local:seat-lookout", label: "lookout", x: 80, y: 80 });
 const second = modelSeat({ id: "seat-scout", key: "local:seat-scout", label: "scout", x: 420, y: 80 });
 
+/** The folder a seat opens in; the rollout records it. */
+const folderOf = (seat: typeof first): string => {
+  const cwd = seat.launch?.cwd;
+  if (!cwd) throw new Error(`seat ${seat.id} has no launch folder`);
+  return cwd;
+};
+
 const data = (envelope: WorkEnvelope): Record<string, any> => {
   expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
   return (envelope as { data?: Record<string, any> }).data ?? {};
@@ -52,7 +59,7 @@ const rollout = (home: string, id: string, ready: CrewSeatReady, cwd: string) =>
 
 test("two Codex seats in one folder each bind their own rollout, and offboard names it", async ({}, testInfo) => {
   test.setTimeout(240_000);
-  expect(first.launch!.cwd, "the two seats share one folder").toBe(second.launch!.cwd);
+  expect(folderOf(first), "the two seats share one folder").toBe(folderOf(second));
   const junto = await launchJunto({
     seedModels: { [CANVAS]: modelFixture([first, second]) },
     afterSeed: installCrewSeatHarness,
@@ -80,7 +87,7 @@ test("two Codex seats in one folder each bind their own rollout, and offboard na
 
     // The second seat's first turn starts first: its rollout is the only one
     // in the folder, and the first seat must not take it.
-    await scout.control({ rollout: rollout(sandbox.homeDir, SECOND, scoutReady, second.launch!.cwd) });
+    await scout.control({ rollout: rollout(sandbox.homeDir, SECOND, scoutReady, folderOf(second)) });
     await boundary(lookout);
     await boundary(scout);
     await expect.poll(() => readSeatSession(sandbox, second.id),
@@ -88,7 +95,7 @@ test("two Codex seats in one folder each bind their own rollout, and offboard na
     expect(readSeatSession(sandbox, first.id), "the first seat took nothing that is not its own").toBeUndefined();
 
     // The first seat's rollout lands, stamped before the second's.
-    await lookout.control({ rollout: rollout(sandbox.homeDir, FIRST, lookoutReady, first.launch!.cwd) });
+    await lookout.control({ rollout: rollout(sandbox.homeDir, FIRST, lookoutReady, folderOf(first)) });
     await boundary(lookout);
     await expect.poll(() => readSeatSession(sandbox, first.id),
       { message: "the first seat bound its own rollout", timeout: 30_000 }).toBe(FIRST);
