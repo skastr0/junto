@@ -98,7 +98,7 @@ import {
 } from "./junto/process-signal-termination";
 import { createQuitPhaseLog } from "./junto/quit-phase-log";
 import { quitMarkerPath, requestLockAfterQuittingHolder, writeQuitMarker } from "./junto/quit-marker";
-import { readProcessStartKey } from "./junto/process-identity";
+import { readProcessStartKey } from "./junto/process-identity-facts";
 import { readUnsharedProcessStartKey } from "./junto/process-epoch";
 import {
   isTrustedMainWebContents,

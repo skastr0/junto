@@ -4,10 +4,8 @@ import {
   readSingleProcessEpochSnapshot,
   setProcessEpochReaderForTests,
 } from "../src/main/junto/process-epoch";
-import {
-  makeProcessIdentityMap,
-  readProcessStartKey,
-} from "../src/main/junto/process-identity";
+import { makeProcessIdentityMap } from "../src/main/junto/process-identity";
+import { readProcessStartKey } from "../src/main/junto/process-identity-facts";
 
 const line = (pid: number): string =>
   `${pid} ${pid} Wed Jul 22 04:36:13 2026`;

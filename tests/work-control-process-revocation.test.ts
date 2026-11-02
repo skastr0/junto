@@ -12,11 +12,8 @@ import {
   type WorkServiceShape,
 } from "../src/main/junto/work/service";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
-import {
-  OFFBOARDED_SESSION_MESSAGE,
-  makeProcessIdentityMap,
-  type ProcessPrincipal,
-} from "../src/main/junto/process-identity";
+import { makeProcessIdentityMap, type ProcessPrincipal } from "../src/main/junto/process-identity";
+import { OFFBOARDED_SESSION_MESSAGE } from "../src/main/junto/process-identity-facts";
 import {
   makeSeatCredentialRegistry,
   mintSeatCredential,

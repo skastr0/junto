@@ -1,4 +1,4 @@
-import { readSingleProcessEpochSnapshot, readSingleProcessEpochSnapshotAsync } from "./process-epoch";
+import { readProcessStartKey, readProcessStartKeyAsync } from "./process-identity-facts";
 
 // Main's record of the processes it started for seats and terminals.
 //
@@ -96,24 +96,6 @@ const samePrincipal = (a: ProcessPrincipal, b: ProcessPrincipal): boolean =>
  * `lstart`, not a second `ps`. A later turn reads again, so pid reuse still
  * fails the comparison.
  */
-export const readProcessStartKey = (pid: number): string | undefined => {
-  if (!Number.isInteger(pid) || pid <= 0) return undefined;
-  const startKey = readSingleProcessEpochSnapshot(pid)?.find((row) => row.pid === pid)?.startKey;
-  return startKey === undefined || startKey.length === 0 ? undefined : startKey;
-};
-
-/**
- * The same answer as `readProcessStartKey`, asked without holding the caller's
- * thread for a `ps` fork. A seat start needs the binding before it hands the
- * seat out, not before it continues.
- */
-export const readProcessStartKeyAsync = async (pid: number): Promise<string | undefined> => {
-  if (!Number.isInteger(pid) || pid <= 0) return undefined;
-  const rows = await readSingleProcessEpochSnapshotAsync(pid);
-  const startKey = rows?.find((row) => row.pid === pid)?.startKey;
-  return startKey === undefined || startKey.length === 0 ? undefined : startKey;
-};
-
 export const processAlive = (pid: number): boolean => {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
@@ -308,10 +290,3 @@ export const setProcessIdentityMapForTests = (
 ): void => {
   sharedMap = map;
 };
-
-/**
- * What a caller hears once its seat has moved on to a fresh session and it
- * is only being allowed to finish its turn.
- */
-export const OFFBOARDED_SESSION_MESSAGE =
-  "This session has offboarded. Its seat has moved on to a fresh session.";

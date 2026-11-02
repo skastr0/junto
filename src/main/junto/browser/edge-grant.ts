@@ -9,10 +9,8 @@ import {
 } from "./capabilities";
 import { resolveBrowserCallerFromProcess } from "./process-bind";
 import type { PageTargetResolver } from "./page-target";
-import {
-  OFFBOARDED_SESSION_MESSAGE,
-  type ProcessPrincipal,
-} from "../process-identity";
+import type { ProcessPrincipal } from "../process-identity";
+import { OFFBOARDED_SESSION_MESSAGE } from "../process-identity-facts";
 import type { SeatCredentialEvent, SeatCredentialLookup } from "../work/seat-credentials";
 import { core } from "../../core-process/main-client";
 import { subscribe as onCorePush } from "../../core-process/push";

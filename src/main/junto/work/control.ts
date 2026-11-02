@@ -230,10 +230,8 @@ import { closingFence } from "../term/closing-fence";
 import { injectionSupervisor } from "../term/injection-supervisor";
 import { readMachineLog, seatLogScope } from "../observability/log-file";
 import { logMachine } from "../observability/logger";
-import {
-  OFFBOARDED_SESSION_MESSAGE,
-  type ProcessPrincipal,
-} from "../process-identity";
+import type { ProcessPrincipal } from "../process-identity";
+import { OFFBOARDED_SESSION_MESSAGE } from "../process-identity-facts";
 import {
   getSeatCredentialRegistry,
   type SeatCredentialRegistry,

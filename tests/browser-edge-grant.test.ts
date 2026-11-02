@@ -32,10 +32,8 @@ import {
   type BrowserViewHandle,
 } from "../src/main/junto/browser/sessions";
 import { localBrowserTestMachineName } from "./browser-test-machine";
-import {
-  type ProcessPrincipal,
-  OFFBOARDED_SESSION_MESSAGE,
-} from "../src/main/junto/process-identity";
+import type { ProcessPrincipal } from "../src/main/junto/process-identity";
+import { OFFBOARDED_SESSION_MESSAGE } from "../src/main/junto/process-identity-facts";
 import {
   makeSeatCredentialRegistry,
   mintSeatCredential,
