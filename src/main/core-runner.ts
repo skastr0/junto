@@ -8,6 +8,7 @@ import type { MachineLink } from "./junto/link/service";
 import type { HostsService } from "./junto/hosts/service";
 import type { VaultTokens } from "./junto/vault/repository";
 import type { WorkService } from "./junto/work/service";
+import { shellEnvironment } from "./junto/shell-environment";
 
 type CoreServices = ModelService | MachineRepository | SeatSessionRepository | SqlClient.SqlClient | MachineLink | HostsService | VaultTokens | WorkService;
 
@@ -57,7 +58,10 @@ let reads: CoreReads = {
   canvas: coreNotRunning,
   machineName: coreNotRunning,
   vaultScope: coreNotRunning,
-  spawnEnv: coreNotRunning,
+  // A spawn never throws because this process has no core: it takes the
+  // environment this process last applied, or the inherited PATH and the
+  // floor. The other reads fail closed; a spawn has to work.
+  spawnEnv: async () => ({ ...shellEnvironment.environmentNow() }),
 };
 
 /** Core only: answer these reads on the runtime this process installs. */
