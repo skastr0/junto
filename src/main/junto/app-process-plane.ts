@@ -130,6 +130,23 @@ export interface AppTerminalSpawnSpec {
   readonly env?: Readonly<NodeJS.ProcessEnv>;
   readonly cols: number;
   readonly rows: number;
+  /**
+   * Opaque spawn meta, stored by the terminal process and handed back by
+   * `pty.adopt` so a new core can rebuild the record this PTY belongs to
+   * (term/seat-spawn-meta.ts). Ignored by an in-process PTY.
+   */
+  readonly meta?: unknown;
+}
+
+/**
+ * Listeners the adopting core attaches before the terminal process replays
+ * what the last core never handled: an adopted handle holds its output until
+ * it has a data and an exit listener, and the replay is synchronous, so the
+ * record's own listeners must be in place before `adoptTerminal` returns.
+ */
+export interface AppTerminalAdoptionListeners {
+  readonly onData: (data: string) => void;
+  readonly onExit: (event: AppTerminalExit) => void;
 }
 
 export interface AppTerminalExit {
@@ -293,6 +310,16 @@ export interface AppProcessPlane {
   readonly spawnChild: (spec: AppProcessChildSpawnSpec) => AppProcessLease;
   readonly spawnGroup: (spec: AppProcessGroupSpawnSpec) => AppProcessLease;
   readonly spawnTerminal: (spec: AppTerminalSpawnSpec) => AppTerminalLease;
+  /**
+   * Take a PTY the terminal process kept alive across a core crash
+   * (`pty.adopt`), registering it for signal authority exactly as a spawn is.
+   * The adoption listeners are attached before any queued output is replayed.
+   */
+  readonly adoptTerminal: (
+    spec: AppTerminalSpawnSpec,
+    terminal: RemoteTerminal,
+    listeners: AppTerminalAdoptionListeners,
+  ) => AppTerminalLease;
   readonly spawnOutlivingDaemon: (
     spec: AppOutlivingDaemonSpec,
   ) => AppOutlivingDaemonHandoff;
@@ -933,6 +960,7 @@ export const createAppProcessPlane = (
   const registerTerminal = (
     spec: AppTerminalSpawnSpec,
     backend: TerminalBackend,
+    adoption?: AppTerminalAdoptionListeners,
   ): AppTerminalLease => {
     const owned = admitChildProcess({
       source: spec.source,
@@ -1100,6 +1128,14 @@ export const createAppProcessPlane = (
     const lease = Object.freeze(leaseValue);
     terminalLeases.set(lease, record);
 
+    // An adopting core's own listeners are in place before the attach: an
+    // adopted handle replays what the last core never handled synchronously,
+    // and none of it may land before a listener is there to take it.
+    if (adoption !== undefined) {
+      record.dataListeners.add(adoption.onData);
+      record.exitListeners.add(adoption.onExit);
+    }
+
     const attachment = backend.attach({ onData, onExit, onError });
     record.cleanupListeners = attachment.cleanup;
     // A hostile backend can synchronously terminate while attaching.
@@ -1188,6 +1224,7 @@ export const createAppProcessPlane = (
         ...(spec.env === undefined ? {} : { env: { ...spec.env } }),
         cols: spec.cols,
         rows: spec.rows,
+        ...(spec.meta === undefined ? {} : { meta: spec.meta }),
       })));
     }
     let pty: IPty | undefined;
@@ -1212,6 +1249,20 @@ export const createAppProcessPlane = (
     // Listener/facade setup happens after native spawn. Once PTY
     // spawn succeeds, a setup failure tears down this exact owned process.
     return registerTerminal(spec, makePtyBackend(pty));
+  };
+
+  /**
+   * A PTY the terminal process kept alive while no core ran. It is registered
+   * as any spawn is: an opaque signal sink the terminal process guards, an
+   * exit witness, and the same quit-drain accounting.
+   */
+  const adoptTerminal = (
+    spec: AppTerminalSpawnSpec,
+    terminal: RemoteTerminal,
+    listeners: AppTerminalAdoptionListeners,
+  ): AppTerminalLease => {
+    assertSpawnAllowed();
+    return registerTerminal(spec, makeRemotePtyBackend(terminal), listeners);
   };
 
   const spawnOutlivingDaemon = (
@@ -1416,6 +1467,7 @@ export const createAppProcessPlane = (
     spawnChild,
     spawnGroup,
     spawnTerminal,
+    adoptTerminal,
     spawnOutlivingDaemon,
     terminate: (lease, reason) => signalLease(lease, "SIGTERM", reason),
     forceTerminate: (lease, reason) => signalLease(lease, "SIGKILL", reason),

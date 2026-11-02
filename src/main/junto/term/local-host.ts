@@ -79,6 +79,12 @@ import {
   type AppTerminalLease,
   type AppTerminalSpawnSpec,
 } from "../app-process-plane";
+import type { AdoptedTerminal } from "../../terminal-process/client";
+import {
+  SEAT_SPAWN_META_VERSION,
+  seatSpawnMetaOf,
+  type SeatSpawnMeta,
+} from "./seat-spawn-meta";
 import {
   terminalObserverPlane,
   type TerminalObserverPlane,
@@ -292,7 +298,7 @@ export type JournalEntry =
 
 export type LocalTerminalProcessAuthority = Pick<
   AppProcessPlane,
-  "spawnTerminal" | "terminate" | "forceTerminate"
+  "spawnTerminal" | "adoptTerminal" | "terminate" | "forceTerminate"
 >;
 
 type PrimeDaemonCleanupState = "none" | "pending" | "clean" | "failed";
@@ -1490,6 +1496,40 @@ export class LocalSessionHost extends EventEmitter {
     }
 
     let lease: AppTerminalLease;
+    // What a new core needs to take this PTY back if this core dies: the
+    // record it belongs to and the credential the seat already presents
+    // (seat-spawn-meta.ts). The terminal process stores it and hands it back
+    // on `pty.adopt`; it decides nothing from it.
+    const spawnMeta: SeatSpawnMeta = {
+      version: SEAT_SPAWN_META_VERSION,
+      kind: seat.kind === "agent" ? "agent" : "terminal",
+      bindingId,
+      epoch,
+      hostId: rec.hostId,
+      ...(canvasName === undefined ? {} : { canvasName }),
+      ...(nodeId === undefined ? {} : { nodeId }),
+      ...(agentKey === undefined ? {} : { agentKey }),
+      ...(harness === undefined ? {} : { harness }),
+      ...(input.label === undefined ? {} : { label: input.label }),
+      ...(input.title === undefined ? {} : { title: input.title }),
+      ...(rec.processName === undefined ? {} : { processName: rec.processName }),
+      cwd: terminalLaunch.cwd,
+      cols,
+      rows,
+      createdAt: rec.createdAt,
+      shellEnvironmentGeneration: rec.shellEnvironmentGeneration,
+      ...(rec.resumeAttempt ? { resumeAttempt: true } : {}),
+      ...(terminalLaunch.env.TZ === undefined ? {} : { timeZone: terminalLaunch.env.TZ }),
+      regionEnvironment: rec.regionEnvironment,
+      ...(seatCredential === undefined
+        ? {}
+        : {
+            credential: {
+              credential: seatCredential.credential,
+              generationId: seatCredential.generationId,
+            },
+          }),
+    };
     try {
       const spec: AppTerminalSpawnSpec = {
         source: `term:${bindingId}`,
@@ -1500,6 +1540,7 @@ export class LocalSessionHost extends EventEmitter {
         env: terminalLaunch.env,
         cols,
         rows,
+        meta: spawnMeta,
       };
       lease = this.processAuthority.spawnTerminal(spec);
     } catch (err) {
@@ -1610,6 +1651,258 @@ export class LocalSessionHost extends EventEmitter {
     // Prefer the map head: fail-open may have swapped the binding mid-open.
     const head = this.sessions.get(bindingId);
     return this.summaryOf(head && this.liveRecords.has(head) ? head : rec);
+  }
+
+  /**
+   * Take back the terminals the terminal process kept while no core ran.
+   *
+   * A PTY outlives the core that spawned it, and its `pty.spawn` meta carries
+   * the record it belongs to (seat-spawn-meta.ts). The next core adopts every
+   * PTY it finds: it rebuilds the session from that meta, seeds the journal and
+   * the headless grid from the output the last core had handled, publishes the
+   * generation credential the running seat still presents, and reports the
+   * generation running. A seat that never noticed the crash keeps its mailbox,
+   * its `junto` CLI and its screen; output the last core never handled arrives
+   * on the adopted handle, and the record's listeners are in place before any
+   * of it is replayed.
+   *
+   * A PTY whose meta this build cannot read is left running and named: nothing
+   * is hung up on a guess.
+   */
+  adoptFromTerminalProcess(adopted: ReadonlyArray<AdoptedTerminal>): {
+    readonly adopted: number;
+    readonly skipped: number;
+  } {
+    if (this.shuttingDown) throw new Error("terminal host shutting down");
+    let taken = 0;
+    let skipped = 0;
+    for (const entry of adopted) {
+      const meta = seatSpawnMetaOf(entry.meta);
+      if (meta === undefined || this.sessions.get(meta.bindingId) !== undefined) {
+        skipped += 1;
+        console.warn(
+          `[term] terminal ${String(entry.adopted.id)} (pid ${String(entry.adopted.pid)}) has no record this core can rebuild; left running`,
+        );
+        continue;
+      }
+      const rec = this.adoptedRecord(meta, entry);
+      this.sessions.set(rec.bindingId, rec);
+      this.liveRecords.add(rec);
+      // An exit the adopt answer already names is handled once, on its
+      // `pty.exit` (the terminal process keeps it until a core acknowledges
+      // it). The record is built so that exit has somewhere to land, but this
+      // core must not report a running generation it knows is gone.
+      const exitedAlready = entry.adopted.exit !== undefined;
+      if (meta.credential !== undefined) {
+        // The seat's environment still holds this value; a log must never.
+        registerKnownSecrets(
+          knownSecretsOwner(rec),
+          launchSecretValues([meta.credential.credential], {}),
+        );
+      }
+      // Output the last core never handled is replayed synchronously as the
+      // adopted handle gets its listeners. Buffered here, it is written to the
+      // journal and the grid after the seeded history, in its own order.
+      const replayed: Array<{ readonly data: string; readonly seq: number }> = [];
+      let lease: AppTerminalLease | undefined;
+      try {
+        lease = this.processAuthority.adoptTerminal(
+          {
+            source: `term:${rec.bindingId}`,
+            purpose: `adopted terminal ${rec.bindingId}@${rec.epoch}`,
+            command: meta.processName ?? "terminal",
+            cwd: meta.cwd,
+            cols: rec.cols,
+            rows: rec.rows,
+          },
+          entry.terminal,
+          {
+            onData: (data) => {
+              if (lease === undefined) replayed.push({ data, seq: entry.terminal.lastSeq() });
+              else this.observeData(rec, data);
+            },
+            // The exit is witnessed by `rec.exitWitness` below, resolved by
+            // this same adoption; this listener only lets the replay begin.
+            onExit: () => undefined,
+          },
+        );
+      } catch (error) {
+        this.sessions.delete(rec.bindingId);
+        this.liveRecords.delete(rec);
+        releaseKnownSecrets(knownSecretsOwner(rec));
+        skipped += 1;
+        console.error(
+          `[term] adopted terminal ${rec.bindingId}@${rec.epoch} could not be registered; its process is left running:`,
+          error,
+        );
+        continue;
+      }
+      rec.lease = lease;
+      rec.backend = lease.backend;
+      rec.exitWitness = lease.io.exited;
+      if (rec.pid === undefined) rec.pid = lease.io.pidForDiagnostics;
+      void lease.io.pidReady?.then((pid) => {
+        if (rec.pid === undefined && rec.lease === lease) rec.pid = pid;
+      });
+      lease.io.surface?.onTyping(({ data }) => {
+        if (isOperatorTyping(data)) this.operatorInterlock.noteInput(rec.bindingId);
+      });
+      void rec.exitWitness.then(
+        (event) => this.observeExit(rec, event.code, event.signal),
+        (error) => this.observeWitnessFailure(rec, error),
+      );
+      this.seatIdentityFlight(rec);
+      // The surface gate is deliberately not touched: the terminal process
+      // still holds the gate the last core set, so a view that was open keeps
+      // typing until it attaches again and takes the new control lease.
+      if (!exitedAlready) {
+        if (!this.publishSeatCredential(rec)) {
+          console.error(
+            `[term] adopted seat ${rec.bindingId}@${rec.epoch} could not publish its generation credential; its CLI will be refused until the seat restarts`,
+          );
+        }
+        this.observerPlane.attach({
+          bindingId: rec.bindingId,
+          epoch: rec.epoch,
+          cols: rec.cols,
+          rows: rec.rows,
+        });
+        this.seedAdoptedHistory(rec, entry.adopted.history, entry.adopted.seq);
+        if (rec.harness !== undefined) {
+          seatStateRuntime.bindHarness(
+            rec.bindingId,
+            rec.harness,
+            rec.epoch,
+            meta.timeZone === undefined ? undefined : processTimeZone(meta.timeZone),
+          );
+        }
+        this.emitEvent({
+          type: "session",
+          bindingId: rec.bindingId,
+          epoch: rec.epoch,
+          status: "starting",
+        });
+        this.emitEvent({
+          type: "session",
+          bindingId: rec.bindingId,
+          epoch: rec.epoch,
+          status: "running",
+          pid: rec.pid,
+        });
+      }
+      for (const { data, seq } of replayed) this.observeData(rec, data, seq);
+      taken += 1;
+    }
+    if (taken > 0 || skipped > 0) {
+      console.info(
+        `[term] adopted ${String(taken)} terminal(s) a previous core left running${skipped === 0 ? "" : `; ${String(skipped)} left alone`}`,
+      );
+    }
+    return { adopted: taken, skipped };
+  }
+
+  /**
+   * A seat the previous core was running that came back to this one as
+   * nothing: the terminal process did not name a PTY for it, so there is no
+   * process to adopt and no exit to witness. Its generation is over.
+   *
+   * The seat state machine is told `gone` with the reason — the tombstone a
+   * generation that ended already publishes — and the window hears the
+   * session exit, so a card that kept the last core's ring goes off instead of
+   * reading as running. A binding this host holds is refused: an adopted
+   * generation is never reported lost.
+   */
+  reportLostGeneration(input: {
+    readonly bindingId: string;
+    readonly reason: string;
+  }): boolean {
+    if (this.shuttingDown) return false;
+    if (this.sessions.get(input.bindingId) !== undefined) return false;
+    const event = seatStateRuntime.machine.force(input.bindingId, "gone", input.reason);
+    this.safeEmitEvent({
+      type: "session",
+      bindingId: input.bindingId,
+      epoch: event.epoch,
+      status: "exited",
+    });
+    return true;
+  }
+
+  /** The record a `pty.adopt` meta names, before its PTY is registered. */
+  private adoptedRecord(meta: SeatSpawnMeta, entry: AdoptedTerminal): SessionRec {
+    return {
+      bindingId: meta.bindingId,
+      epoch: meta.epoch,
+      hostId: meta.hostId,
+      phase: SessionPhase.Live({ surface: "native" }),
+      lease: undefined,
+      exitWitness: undefined,
+      listenerCleanups: [],
+      pid: entry.adopted.pid,
+      ptyIdentityBinding: undefined,
+      daemonIdentityBinding: undefined,
+      identitiesRevoked: false,
+      seatCredential: meta.credential,
+      seatCredentialLive: false,
+      primeDaemon: undefined,
+      primeDaemonStopFlight: undefined,
+      primeDaemonCleanupState: "none",
+      primeDaemonCleanupError: undefined,
+      cols: entry.adopted.cols,
+      rows: entry.adopted.rows,
+      cwd: meta.cwd,
+      ...(meta.title === undefined ? {} : { title: meta.title }),
+      ...(meta.processName === undefined ? {} : { processName: meta.processName }),
+      ...(meta.label === undefined ? {} : { label: meta.label }),
+      backend: undefined,
+      ...(meta.canvasName === undefined ? {} : { canvasName: meta.canvasName }),
+      ...(meta.nodeId === undefined ? {} : { nodeId: meta.nodeId }),
+      ...(meta.agentKey === undefined ? {} : { agentKey: meta.agentKey }),
+      ...(meta.harness !== undefined && isHarnessId(meta.harness) ? { harness: meta.harness } : {}),
+      detached: meta.canvasName === undefined,
+      createdAt: meta.createdAt,
+      seq: 0n,
+      journal: [],
+      journalBytes: 0,
+      controlLeaseId: undefined,
+      killed: false,
+      termReceipt: undefined,
+      killReceipt: undefined,
+      sessionCaptureTail: "",
+      programStatus: new ProgramStatusScanner(),
+      escalationTimer: undefined,
+      unconfirmedStop: undefined,
+      draining: undefined,
+      stopCause: undefined,
+      interfaceSeen: false,
+      resumeAttempt: meta.resumeAttempt === true,
+      resumeFailureSeen: false,
+      failOpenUsed: false,
+      regionEnvironment: meta.regionEnvironment,
+      shellEnvironmentGeneration: meta.shellEnvironmentGeneration,
+    };
+  }
+
+  /**
+   * The output the previous core had already handled, put back into the journal
+   * and the headless grid. Silent by construction: no output event, no session
+   * capture, no program-status report — a seat resumed on a new core is not
+   * told its own history again, and nothing in it can name a session twice.
+   */
+  private seedAdoptedHistory(
+    rec: SessionRec,
+    history: string,
+    chunkSeq: number,
+  ): void {
+    if (history.length === 0) return;
+    rec.seq = rec.seq + 1n;
+    this.pushJournal(rec, { seq: rec.seq, type: "output", data: history });
+    const chunks = (rec.surfaceChunks ??= []);
+    chunks.push([rec.seq, chunkSeq]);
+    if (chunks.length > SURFACE_CHUNK_MEMORY) {
+      chunks.splice(0, chunks.length - SURFACE_CHUNK_MEMORY);
+    }
+    this.observerPlane.feed(rec.bindingId, history, rec.seq);
   }
 
   list(): readonly TerminalSessionSummary[] {
@@ -2866,14 +3159,16 @@ export class LocalSessionHost extends EventEmitter {
     });
   }
 
-  private observeData(rec: SessionRec, data: string): void {
+  private observeData(rec: SessionRec, data: string, chunkSeq?: number): void {
     if (
       rec.killed ||
       sessionStatusOf(rec) !== "running" ||
       !this.liveRecords.has(rec)
     ) return;
     rec.seq = rec.seq + 1n;
-    const chunk = rec.lease?.io.surface?.lastSeq();
+    // An adopted terminal's replayed output carries the PTY chunk it was, as
+    // the terminal process named it, before the lease was in hand.
+    const chunk = chunkSeq ?? rec.lease?.io.surface?.lastSeq();
     if (chunk !== undefined) {
       const chunks = (rec.surfaceChunks ??= []);
       chunks.push([rec.seq, chunk]);

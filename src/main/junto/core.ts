@@ -22,7 +22,8 @@ import { installCoreRunner } from "../core-runner";
 import { installInProcessCoreReads } from "../core-process/in-process-reads";
 import { startWorkControlServer, type WorkControlServer } from "./work/control";
 import { workControlDir } from "@shared/work-control";
-import { startCoreSeats } from "./term/core-seats";
+import { startCoreSeats, adoptCoreTerminals } from "./term/core-seats";
+import { reconcileSeatsLostToCoreRestart } from "./term/seat-reconcile";
 import { connectCoreTerminals } from "../terminal-process/core-side";
 import { bindTermIpcPlane } from "../core-process/ops/term-ipc";
 import { startSeatSessions, type SeatSessions } from "./seat-sessions/start-seat-sessions";
@@ -235,6 +236,13 @@ export const startCore = async (options: CoreOptions) => {
     seatProcesses = await startCoreSeats({ home: options.home });
     // The window's terminal ops ask this plane by name, and its events reach the window as core pushes.
     if (parent !== undefined) unbindTermIpcPlane = bindTermIpcPlane(termPlane);
+    // The terminals the last core left running come back here, before anything
+    // can spawn and with the window listening, so a seat keeps its process,
+    // its credential and its screen across a core crash.
+    await adoptCoreTerminals();
+    // A seated seat this core did not get back is over, with its reason, so no
+    // card keeps the last core's ring for a process that is not there.
+    await runtime.runPromise(reconcileSeatsLostToCoreRestart());
     const inventory = await runtime.runPromise(makeInventoryChannel());
     const nativeConfig = await runtime.runPromise(makeNativeConfigChannel());
     const settings = await runtime.runPromise(makeSettingsChannel());

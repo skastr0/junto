@@ -149,6 +149,9 @@ const makePlane = (controls: readonly FakeLeaseControl[], options: {
     spawnTerminal: vi.fn(() => {
       throw new Error("unexpected spawnTerminal");
     }),
+    adoptTerminal: vi.fn(() => {
+      throw new Error("unexpected adoptTerminal");
+    }),
     spawnOutlivingDaemon: vi.fn(() => {
       throw new Error("unexpected daemon");
     }),

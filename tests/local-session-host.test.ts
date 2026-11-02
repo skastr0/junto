@@ -2437,6 +2437,9 @@ describe("LocalSessionHost", () => {
     });
     const authority: LocalTerminalProcessAuthority = {
       spawnTerminal: () => lease,
+      adoptTerminal: () => {
+        throw new Error("unreachable");
+      },
       terminate: (_lease, reason) => receipt("SIGTERM", reason),
       forceTerminate: (_lease, reason) => receipt("SIGKILL", reason),
     };
@@ -2464,6 +2467,9 @@ describe("LocalSessionHost", () => {
     const authority: LocalTerminalProcessAuthority = {
       spawnTerminal: () => {
         throw new Error("spawn refused");
+      },
+      adoptTerminal: () => {
+        throw new Error("unreachable");
       },
       terminate: () => {
         throw new Error("unreachable");

@@ -215,6 +215,11 @@ export const makeFakeTerminalProcessAuthority = (
   return {
     authority: {
       spawnTerminal,
+      // Adoption belongs to a terminal process that outlived a core; this fake
+      // owns only what the host asked it to spawn in this process.
+      adoptTerminal: () => {
+        throw new Error("fake terminal process authority does not adopt");
+      },
       terminate: (lease, reason) => signal(lease as AppTerminalLease, "SIGTERM", reason),
       forceTerminate: (lease, reason) => signal(lease as AppTerminalLease, "SIGKILL", reason),
     },
