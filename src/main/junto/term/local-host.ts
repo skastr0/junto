@@ -13,7 +13,10 @@ import { basename, isAbsolute, join, resolve } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { Result } from "effect";
 import { LIVE_OVERSEER_ENABLED } from "@shared/features";
-import type { ManagedSpawnIntent } from "@shared/managed-terminal-launch";
+import {
+  sandboxSocketAllowArgs,
+  type ManagedSpawnIntent,
+} from "@shared/managed-terminal-launch";
 import {
   isHarnessId,
   templateFor,
@@ -113,7 +116,7 @@ import {
 import { configuredToolDirectories } from "../adapters/exec";
 import { shellEnvironment, type ShellEnvironment } from "../shell-environment";
 import { launchSecretValues, registerKnownSecrets, releaseKnownSecrets } from "../credentials/scrub";
-import { buildManagedSeatInject } from "./templates/seat-env";
+import { buildManagedSeatInject, resolveWorkHomeForSeat } from "./templates/seat-env";
 import {
   PROGRAM_STATUS_ENV,
   PROGRAM_STATUS_QUERY_REPLY,
@@ -949,9 +952,28 @@ export const resolveLaunch = (
       ).length > 0
         ? folders.flatMap((folder) => [addDirFlag, folder])
         : [];
+    // The seat's own tools must reach Junto's work socket from inside the
+    // harness's sandbox; without this the seat has no mail, no feedback and no
+    // offboard. Only when this installed binary's `sandbox --help` proves the
+    // capability, so an older install launches exactly as it did before.
+    const sandboxTemplate = isHarnessId(seat.harness)
+      ? templateFor(seat.harness)
+      : undefined;
+    const sandboxAllow = sandboxTemplate?.argvSpec.sandboxSocketAllow;
+    const sandboxArgs =
+      sandboxTemplate !== undefined &&
+      sandboxAllow !== undefined &&
+      supportedHostProbedFlags(
+        launchFile,
+        [sandboxAllow.probeFlag],
+        env.PATH ?? process.env.PATH,
+        ["sandbox"],
+      ).length > 0
+        ? sandboxSocketAllowArgs(sandboxTemplate, resolveWorkHomeForSeat(env))
+        : [];
     return Result.succeed({
       file: launchFile,
-      args: [...probedFlags, ...folderArgs, ...argv.slice(1)],
+      args: [...probedFlags, ...sandboxArgs, ...folderArgs, ...argv.slice(1)],
       cwd,
       env,
     });

@@ -305,6 +305,37 @@ export const withModelEffortSlug = (model: string, effort: string): string => {
   return `${nextBase}${brackets}`;
 };
 
+/**
+ * `-c` overrides that open the harness's own sandbox to Junto's work home and
+ * nothing else, or none when the template declares no such allowance.
+ *
+ * The socket allowlist is ONE inline TOML table: a path holds dots, and a
+ * dotted `-c` key would split it. The seat's network stays off, so the grant
+ * is the socket root alone (Codex 0.166.0: an allowlisted root connects, every
+ * other socket and TCP still fail with EPERM).
+ */
+export const sandboxSocketAllowArgs = (
+  template: ManagedTerminalTemplate,
+  workHome: string,
+): readonly string[] => {
+  const allow = template.argvSpec.sandboxSocketAllow;
+  const root = workHome.trim();
+  if (allow === undefined || root.length === 0) return [];
+  const profile = allow.profile;
+  return [
+    "-c",
+    "features.network_proxy=true",
+    "-c",
+    `default_permissions=${JSON.stringify(profile)}`,
+    "-c",
+    `permissions.${profile}.extends=${JSON.stringify(allow.parent)}`,
+    "-c",
+    `permissions.${profile}.network.enabled=true`,
+    "-c",
+    `permissions.${profile}.network.unix_sockets={${JSON.stringify(root)}="allow"}`,
+  ];
+};
+
 /** Template dials in argv order. How each one is spelled comes from the harness's params. */
 const DIAL_ORDER: readonly Exclude<HarnessParamKey, "extraArgs">[] = [
   "profile",

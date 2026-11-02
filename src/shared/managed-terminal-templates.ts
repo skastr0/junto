@@ -174,6 +174,23 @@ export type ArgvSpec = {
    * variables and no extra folders.
    */
   readonly addDirFlag?: string;
+  /**
+   * How the harness's own sandbox is told that Junto's work home is reachable.
+   * A harness that sandboxes the commands its model runs must allow that one
+   * Unix socket root, or every `junto` call in the seat dies with
+   * `connect EPERM` and the seat has no mail, no feedback and no offboard.
+   * Codex 0.154+ applies its `:workspace` permission profile by default,
+   * which denies every AF_UNIX connect (measured on 0.166.0), so the spawn
+   * names a profile that extends `parent`, keeps the seat's network off, and
+   * allows only the work home. Argv only: no harness config is written.
+   * Emitted only when the installed binary's `sandbox --help` lists
+   * `probeFlag`, so an older install still launches.
+   */
+  readonly sandboxSocketAllow?: {
+    readonly probeFlag: string;
+    readonly profile: string;
+    readonly parent: string;
+  };
 };
 
 /**
@@ -862,6 +879,18 @@ export const CODEX_TEMPLATE: ManagedTerminalTemplate = {
     permissionModeFlag: "-a",
     resumeMode: "subcommand",
     addDirFlag: "--add-dir",
+    // Codex's default `:workspace` profile denies every AF_UNIX connect, so
+    // `junto` in a seat fails with `connect EPERM` on the work control socket
+    // (0.166.0; 0.154.0 behaves the same). The named profile extends
+    // `:workspace` unchanged and allows exactly the work home; its network
+    // stays off for everything else (TCP and every other socket measured
+    // EPERM). `--allow-unix-socket` on `codex sandbox --help` is the proof
+    // that this build's sandbox can express the rule at all.
+    sandboxSocketAllow: {
+      probeFlag: "--allow-unix-socket",
+      profile: "junto",
+      parent: ":workspace",
+    },
     // No session pin; the thread id is CAPTURED (SessionStart /
     // CODEX_THREAD_ID / notify) and proven against ~/.codex/sessions before
     // it is ever used to resume.

@@ -188,14 +188,18 @@ const helpTextOf = (
  * The template's `hostProbedFlags` this installed binary actually accepts,
  * in template order. Fail-soft: a probe that errors or times out yields no
  * flags, so the seat launches exactly as it did before the flag existed.
+ *
+ * `subcommand` reads that command's own `--help`, for a capability the root
+ * command never lists (`codex sandbox --allow-unix-socket`).
  */
 export const supportedHostProbedFlags = (
   executable: string,
   flags: readonly string[],
   pathEnv?: string,
+  subcommand: readonly string[] = [],
 ): readonly string[] => {
   if (flags.length === 0) return [];
-  const help = helpTextOf(executable, pathEnv);
+  const help = helpTextOf(executable, pathEnv, subcommand);
   if (help === "") return [];
   return flags.filter((flag) => {
     const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
