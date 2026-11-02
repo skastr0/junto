@@ -60,7 +60,7 @@ import {
   type ProcessIdentityBinding,
   type ProcessPrincipal,
 } from "../process-identity";
-import { WORK_TOKEN_ENV } from "@shared/work-control";
+import { WORK_TOKEN_ENV, workControlSocketPath } from "@shared/work-control";
 import {
   getSeatCredentialRegistry,
   mintSeatCredential,
@@ -975,7 +975,14 @@ export const resolveLaunch = (
         env.PATH ?? process.env.PATH,
         ["sandbox"],
       ).length > 0
-        ? sandboxSocketAllowArgs(sandboxTemplate, resolveWorkHomeForSeat(env))
+        ? sandboxSocketAllowArgs(
+            sandboxTemplate,
+            workControlSocketPath(resolveWorkHomeForSeat(env)),
+            // Per spawn: a fixed name could be widened by a [permissions.<name>]
+            // table already in the operator's Codex config (Codex deep-merges
+            // -c keys into it).
+            `${sandboxAllow.profile}-${randomBytes(4).toString("hex")}`,
+          )
         : [];
     return Result.succeed({
       file: launchFile,

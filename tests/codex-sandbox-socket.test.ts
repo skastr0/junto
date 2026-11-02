@@ -22,7 +22,8 @@ import {
   supportedHostProbedFlags,
 } from "../src/main/junto/term/templates/harness-install";
 
-const WORK_HOME = "/Users/operator/.junto/work";
+const WORK_SOCKET = "/Users/operator/.junto/work/control.sock";
+const PROFILE = "junto-1a2b3c4d";
 
 const fakeCodex = (sandboxHelp: string): string => {
   const bin = join(mkdtempSync(join(tmpdir(), "junto-codex-sandbox-")), "codex");
@@ -34,45 +35,46 @@ const fakeCodex = (sandboxHelp: string): string => {
   return bin;
 };
 
+const SANDBOX_HELP = [
+  "Run commands within a Codex-provided sandbox",
+  "      --allow-unix-socket <ALLOW_UNIX_SOCKETS>",
+  "          Allow the sandboxed command to bind/connect AF_UNIX sockets rooted at this path",
+].join("\n");
+
 describe("a Codex seat reaches Junto's work socket from its own sandbox", () => {
   afterEach(() => resetHostProbedFlagCacheForTests());
 
-  it("names a profile that extends :workspace and allows only the work home", () => {
-    expect(sandboxSocketAllowArgs(CODEX_TEMPLATE, WORK_HOME)).toEqual([
+  it("names a profile that extends :workspace and allows only the work socket", () => {
+    expect(sandboxSocketAllowArgs(CODEX_TEMPLATE, WORK_SOCKET, PROFILE)).toEqual([
       "-c",
       "features.network_proxy=true",
       "-c",
-      'default_permissions="junto"',
+      `default_permissions=${JSON.stringify(PROFILE)}`,
       "-c",
-      'permissions.junto.extends=":workspace"',
+      `permissions.${PROFILE}.extends=":workspace"`,
       "-c",
-      "permissions.junto.network.enabled=true",
+      `permissions.${PROFILE}.network.enabled=true`,
       "-c",
-      `permissions.junto.network.unix_sockets={${JSON.stringify(WORK_HOME)}="allow"}`,
+      `permissions.${PROFILE}.network.unix_sockets={${JSON.stringify(WORK_SOCKET)}="allow"}`,
     ]);
   });
 
-  it("keeps the socket root in one inline table, so its dots are not a config key path", () => {
-    const args = sandboxSocketAllowArgs(CODEX_TEMPLATE, WORK_HOME);
+  it("keeps the socket path in one inline table, so its dots are not a config key path", () => {
+    const args = sandboxSocketAllowArgs(CODEX_TEMPLATE, WORK_SOCKET, PROFILE);
     expect(args.at(-1)).toBe(
-      `permissions.junto.network.unix_sockets={${JSON.stringify(WORK_HOME)}="allow"}`,
+      `permissions.${PROFILE}.network.unix_sockets={${JSON.stringify(WORK_SOCKET)}="allow"}`,
     );
   });
 
-  it("emits nothing for a harness with no sandbox of its own, or with no work home", () => {
-    expect(sandboxSocketAllowArgs(CLAUDE_TEMPLATE, WORK_HOME)).toEqual([]);
-    expect(sandboxSocketAllowArgs(CODEX_TEMPLATE, "  ")).toEqual([]);
+  it("emits nothing for a harness with no sandbox of its own, or with no socket or name", () => {
+    expect(sandboxSocketAllowArgs(CLAUDE_TEMPLATE, WORK_SOCKET, PROFILE)).toEqual([]);
+    expect(sandboxSocketAllowArgs(CODEX_TEMPLATE, "  ", PROFILE)).toEqual([]);
+    expect(sandboxSocketAllowArgs(CODEX_TEMPLATE, WORK_SOCKET, "  ")).toEqual([]);
   });
 
   it("probes the sandbox subcommand, so a binary without the capability launches as before", () => {
     const probe = CODEX_TEMPLATE.argvSpec.sandboxSocketAllow!.probeFlag;
-    const supported = fakeCodex(
-      [
-        "Run commands within a Codex-provided sandbox",
-        "      --allow-unix-socket <ALLOW_UNIX_SOCKETS>",
-        "          Allow the sandboxed command to bind/connect AF_UNIX sockets rooted at this path",
-      ].join("\n"),
-    );
+    const supported = fakeCodex(SANDBOX_HELP);
     expect(supportedHostProbedFlags(supported, [probe], undefined, ["sandbox"])).toEqual([
       probe,
     ]);
@@ -82,13 +84,8 @@ describe("a Codex seat reaches Junto's work socket from its own sandbox", () => 
     expect(supportedHostProbedFlags(older, [probe], undefined, ["sandbox"])).toEqual([]);
   });
 
-  it("rides a Codex seat's spawn argv with the work home it was given", () => {
-    const bin = fakeCodex(
-      [
-        "Run commands within a Codex-provided sandbox",
-        "      --allow-unix-socket <ALLOW_UNIX_SOCKETS>",
-      ].join("\n"),
-    );
+  it("rides a Codex seat's spawn argv with the socket it was given", () => {
+    const bin = fakeCodex(SANDBOX_HELP);
     const previous = process.env.JUNTO_WORK_HOME;
     process.env.JUNTO_WORK_HOME = "/tmp/junto-work-proof";
     try {
@@ -100,23 +97,49 @@ describe("a Codex seat reaches Junto's work socket from its own sandbox", () => 
           launch: { kind: "harness", argv: [bin, "resume", "abc"], cwd: "/tmp" },
         }),
       );
+      const profile = /^default_permissions="(junto-[0-9a-f]{8})"$/u.exec(launch.args[3] ?? "")?.[1];
+      expect(profile).toBeDefined();
       expect(launch.args).toEqual([
         "-c",
         "features.network_proxy=true",
         "-c",
-        'default_permissions="junto"',
+        `default_permissions="${profile!}"`,
         "-c",
-        'permissions.junto.extends=":workspace"',
+        `permissions.${profile!}.extends=":workspace"`,
         "-c",
-        "permissions.junto.network.enabled=true",
+        `permissions.${profile!}.network.enabled=true`,
         "-c",
-        'permissions.junto.network.unix_sockets={"/tmp/junto-work-proof"="allow"}',
+        `permissions.${profile!}.network.unix_sockets={"/tmp/junto-work-proof/control.sock"="allow"}`,
         "resume",
         "abc",
       ]);
     } finally {
       if (previous === undefined) delete process.env.JUNTO_WORK_HOME;
       else process.env.JUNTO_WORK_HOME = previous;
+    }
+  });
+
+  it("gives every spawn a profile name no config can predefine", () => {
+    const bin = fakeCodex(SANDBOX_HELP);
+    const spawn = (): readonly string[] =>
+      Result.getOrThrow(
+        resolveLaunch({
+          kind: "agent",
+          harness: "codex",
+          agentKey: "local:codex",
+          launch: { kind: "harness", argv: [bin], cwd: "/tmp" },
+        }),
+      ).args;
+    const first = spawn();
+    const second = spawn();
+    const profileOf = (args: readonly string[]): string =>
+      /^default_permissions="(junto-[0-9a-f]+)"$/u.exec(args[3] ?? "")?.[1] ?? "";
+    expect(profileOf(first)).toMatch(/^junto-[0-9a-f]{8}$/u);
+    expect(profileOf(second)).toMatch(/^junto-[0-9a-f]{8}$/u);
+    expect(profileOf(first)).not.toBe(profileOf(second));
+    // Every key names that same profile: a merge target cannot be shared.
+    for (const arg of first.filter((value) => value.startsWith("permissions."))) {
+      expect(arg).toContain(`.${profileOf(first)}.`);
     }
   });
 });

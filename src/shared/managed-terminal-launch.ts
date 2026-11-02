@@ -306,22 +306,27 @@ export const withModelEffortSlug = (model: string, effort: string): string => {
 };
 
 /**
- * `-c` overrides that open the harness's own sandbox to Junto's work home and
- * nothing else, or none when the template declares no such allowance.
+ * `-c` overrides that open the harness's own sandbox to Junto's work control
+ * socket and nothing else, or none when the template declares no allowance.
  *
- * The socket allowlist is ONE inline TOML table: a path holds dots, and a
- * dotted `-c` key would split it. The seat's network stays off, so the grant
- * is the socket root alone (Codex 0.166.0: an allowlisted root connects, every
- * other socket and TCP still fail with EPERM).
+ * `profileName` is the caller's per-spawn name: Codex deep-merges `-c` keys
+ * into a `[permissions.<name>]` table an operator config already defines, so
+ * a fixed name could be widened by that config. The allowlist is ONE inline
+ * TOML table (a path holds dots, and a dotted `-c` key would split it) and
+ * names the socket file, not its directory: a sibling socket in the same
+ * directory still fails with EPERM. The seat's network stays off otherwise
+ * (Codex 0.166.0 measured: the socket connects, every other socket and TCP
+ * do not).
  */
 export const sandboxSocketAllowArgs = (
   template: ManagedTerminalTemplate,
-  workHome: string,
+  socketPath: string,
+  profileName: string,
 ): readonly string[] => {
   const allow = template.argvSpec.sandboxSocketAllow;
-  const root = workHome.trim();
-  if (allow === undefined || root.length === 0) return [];
-  const profile = allow.profile;
+  const socket = socketPath.trim();
+  const profile = profileName.trim();
+  if (allow === undefined || socket.length === 0 || profile.length === 0) return [];
   return [
     "-c",
     "features.network_proxy=true",
@@ -332,7 +337,7 @@ export const sandboxSocketAllowArgs = (
     "-c",
     `permissions.${profile}.network.enabled=true`,
     "-c",
-    `permissions.${profile}.network.unix_sockets={${JSON.stringify(root)}="allow"}`,
+    `permissions.${profile}.network.unix_sockets={${JSON.stringify(socket)}="allow"}`,
   ];
 };
 

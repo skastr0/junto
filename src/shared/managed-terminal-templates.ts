@@ -175,19 +175,23 @@ export type ArgvSpec = {
    */
   readonly addDirFlag?: string;
   /**
-   * How the harness's own sandbox is told that Junto's work home is reachable.
-   * A harness that sandboxes the commands its model runs must allow that one
-   * Unix socket root, or every `junto` call in the seat dies with
+   * How the harness's own sandbox is told that Junto's work control socket is
+   * reachable. A harness that sandboxes the commands its model runs must allow
+   * that one socket, or every `junto` call in the seat dies with
    * `connect EPERM` and the seat has no mail, no feedback and no offboard.
    * Codex 0.154+ applies its `:workspace` permission profile by default,
    * which denies every AF_UNIX connect (measured on 0.166.0), so the spawn
    * names a profile that extends `parent`, keeps the seat's network off, and
-   * allows only the work home. Argv only: no harness config is written.
-   * Emitted only when the installed binary's `sandbox --help` lists
-   * `probeFlag`, so an older install still launches.
+   * allows only the socket file. The profile name carries a per-spawn random
+   * suffix: Codex deep-merges `-c` keys into a `[permissions.<name>]` table a
+   * config already defines, so a fixed name could be widened by one. Argv
+   * only: no harness config is written. Emitted only when the installed
+   * binary's `sandbox --help` lists `probeFlag`, so an older install launches
+   * exactly as it did before.
    */
   readonly sandboxSocketAllow?: {
     readonly probeFlag: string;
+    /** Profile name prefix; the spawn appends a random suffix. */
     readonly profile: string;
     readonly parent: string;
   };
