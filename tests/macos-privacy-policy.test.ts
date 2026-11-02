@@ -82,6 +82,7 @@ describe("macOS privacy policy", () => {
     const entry = read("src/main/junto/shell-environment/index.ts");
     const tool = read("src/main/junto/region-env/tool.ts");
     const exec = read("src/main/junto/adapters/exec.ts");
+    const coreEnvironmentOps = read("src/main/core-process/ops/shell-environment.ts");
     const docs = read("docs/macos-privacy.md");
 
     // One probe: `$SHELL -l -i -c` printing a framed `env -0`, an owned
@@ -97,14 +98,15 @@ describe("macOS privacy policy", () => {
     expect(entry).toContain("runTool,");
     expect(entry).toContain('join(resolveJuntoHome(), ".junto")');
     expect(`${probe}${entry}`).not.toMatch(/cwd: homedir\(\)/u);
-    // One read path, shared by the start-up ensure() and an explicit
-    // refresh(); exec.ts only asks the module. Nothing polls.
+    // One read path, in the copy that spawns. The core answers a spawn's
+    // environment by name; exec.ts asks the core and keeps no read of its own.
     expect([...environment.matchAll(/await probeShellEnvironment\(/gu)]).toHaveLength(1);
     expect(environment.indexOf("await probeShellEnvironment(")).toBeGreaterThan(
       environment.indexOf("const read = async"),
     );
     expect(exec).not.toContain("probeShellEnvironment");
-    expect(exec).toContain("shellEnvironment.ensure()");
+    expect(exec).toContain("coreReads.spawnEnv()");
+    expect(coreEnvironmentOps).toContain("shellEnvironment.ensure()");
     expect(`${environment}${entry}`).not.toMatch(/setInterval|watch\(/u);
     // The doc says what runs and why, and how to turn it off.
     expect(docs).toContain("JUNTO_RESOLVING_ENVIRONMENT=1");
