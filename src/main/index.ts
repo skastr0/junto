@@ -41,6 +41,7 @@ import {
 import { Effect, Exit, Scope } from "effect";
 import { appMenuTemplate } from "./junto/app-menu";
 import { appProcessBlocksAppExit, appProcessPlane, describeAppProcessStraggler } from "./junto/app-process-plane";
+import { enforceBootRefusal } from "./junto/boot-guard";
 import { AppRuntime } from "./runtime";
 import { core } from "./core-process/main-client";
 import { startChildren, takeChildStopFailures, type Children } from "./core-process/children";
@@ -193,6 +194,15 @@ app.commandLine.appendSwitch("disable-renderer-accessibility");
     app.commandLine.appendSwitch("disable-features", [...disabled, "BackForwardCache"].join(","));
   }
 }
+
+// An E2E launch that can see the operator's real home, socket or credential
+// must not boot at all: print why and exit before a database, a log or a
+// socket opens (src/shared/e2e-sandbox.ts). This is the tripwire the two
+// process.env-spreading specs would have hit.
+enforceBootRefusal({
+  juntoHome: resolveJuntoHome(),
+  userData: app.getPath("userData"),
+});
 
 // Managed browser partitions use an app-owned CONNECT proxy. Do not install
 // process-wide proxy-server / no-proxy-server switches: they restamp Session

@@ -301,6 +301,10 @@ test("a real Codex seat reaches Junto from inside its own sandbox", async () => 
       writeFileSync(join(sandbox.homeDir, ".codex", "config.toml"), codexConfig);
     },
     extraEnv: {
+      // The one opt-in that lets this spec run the real Codex binary: without
+      // it an E2E seat refuses a harness outside the sandbox
+      // (src/shared/e2e-sandbox.ts).
+      JUNTO_REAL_CODEX_SOCKET: "1",
       PATH: `${dirname(binary)}:${dirname(process.execPath)}:/usr/bin:/bin:/usr/sbin:/sbin`,
     },
   });

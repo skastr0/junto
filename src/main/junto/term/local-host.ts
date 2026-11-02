@@ -17,6 +17,7 @@ import {
   sandboxSocketAllowArgs,
   type ManagedSpawnIntent,
 } from "@shared/managed-terminal-launch";
+import { e2eHarnessRefusal } from "@shared/e2e-sandbox";
 import {
   isHarnessId,
   templateFor,
@@ -936,6 +937,18 @@ export const resolveLaunch = (
       );
     }
     const launchFile = resolvedFile ?? fileTarget;
+    // In an E2E run a seat runs only a harness the sandbox holds: the operator's
+    // own install would spend their account and reach their machine. A spec that
+    // needs the real binary opts in by name (src/shared/e2e-sandbox.ts).
+    const sandboxRefusal = e2eHarnessRefusal({
+      env: process.env,
+      harness: seat.harness,
+      file: launchFile,
+      realHome: os.userInfo().homedir,
+    });
+    if (sandboxRefusal !== undefined) {
+      return Result.fail(unresolvable(sandboxRefusal.reason, sandboxRefusal.reason));
+    }
     // Version-dependent structural flags (Codex `--no-daemon`): added only
     // when this installed binary lists them, and never twice.
     const probedFlags = supportedHostProbedFlags(

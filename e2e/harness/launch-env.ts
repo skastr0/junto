@@ -41,6 +41,12 @@ export interface LaunchEnvironmentInput {
   readonly path: string;
   /** JUNTO_DEMO=1 for a demo-isolated launch. */
   readonly demo?: boolean;
+  /**
+   * The sandbox's own bin dirs, colon separated: the harness resolves a seat's
+   * binary from here and nowhere else in an E2E run (src/shared/e2e-sandbox.ts).
+   * A real install is outside it on purpose, and only a named opt-in reaches it.
+   */
+  readonly sandboxPath?: string;
   /** A spec's own overrides, applied last, so a spec that sets PATH still wins. */
   readonly extraEnv?: Readonly<Record<string, string>>;
 }
@@ -72,5 +78,6 @@ export const launchEnvironment = (input: LaunchEnvironmentInput): Record<string,
     : input.rendererUrl,
   ...(input.demo === true ? { JUNTO_DEMO: "1" } : {}),
   PATH: input.path,
+  ...(input.sandboxPath === undefined ? {} : { JUNTO_E2E_SANDBOX_PATH: input.sandboxPath }),
   ...input.extraEnv,
 });

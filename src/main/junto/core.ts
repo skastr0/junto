@@ -23,6 +23,7 @@ import { installInProcessCoreReads } from "../core-process/in-process-reads";
 import { startWorkControlServer, type WorkControlServer } from "./work/control";
 import { workControlDir } from "@shared/work-control";
 import { startCoreSeats, adoptCoreTerminals } from "./term/core-seats";
+import { enforceBootRefusal } from "./boot-guard";
 import { reconcileSeatsLostToCoreRestart } from "./term/seat-reconcile";
 import { connectCoreTerminals } from "../terminal-process/core-side";
 import { bindTermIpcPlane } from "../core-process/ops/term-ipc";
@@ -116,6 +117,10 @@ export class CoreDidNotDrain extends Schema.TaggedError<CoreDidNotDrain>()("Core
 
 /** Both shells use this owner/link lifecycle; it creates no canvas. */
 export const startCore = async (options: CoreOptions) => {
+  // An E2E core inherits main's environment, and its own `JUNTO_HOME` may come
+  // from a launcher main never saw. Refuse before the schema probe opens the
+  // database, a log or a socket (src/shared/e2e-sandbox.ts).
+  enforceBootRefusal({ juntoHome: options.home });
   const schema = evaluateSchemaCompatibility(probeInstalledStateSchema(join(options.home, ".junto", "state", "junto.db")));
   if (!schema.ok) {
     throw new CoreSchemaTooNew({

@@ -28,6 +28,7 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { modelFixture, modelNode } from "../harness/model";
 import type { ManagedLaunchChoices } from "../../src/shared/managed-terminal-launch";
+import { realHarnessOptInEnv } from "../../src/shared/e2e-sandbox";
 import { seatParts } from "../../src/shared/model/seat-parts";
 import { templateFor, type HarnessId } from "../../src/shared/managed-terminal-templates";
 import type { TerminalSessionSummary } from "../../src/shared/terminal";
@@ -241,6 +242,9 @@ for (const c of CASES) {
       SHELL: process.env.SHELL ?? "/bin/zsh",
       JUNTO_HOME_OWNS_SESSIONS: "1",
       JUNTO_PTY_TRACE: "1",
+      // A real binary on purpose: an E2E seat admits one only when the spec
+      // names the harness it means to run (src/shared/e2e-sandbox.ts).
+      [realHarnessOptInEnv(c.harness)]: "1",
     };
     const junto = await launchJunto({
       // The sandbox tree becomes Junto's home; HOME stays the operator's.

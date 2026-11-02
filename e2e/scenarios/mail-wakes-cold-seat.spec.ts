@@ -128,6 +128,9 @@ test("mail wakes a cold seat and honors an operator stop", async () => {
     HOME: homedir(),
     SHELL: process.env.SHELL ?? "/bin/zsh",
     JUNTO_HOME_OWNS_SESSIONS: "1",
+    // A real Claude Code on purpose: an E2E seat admits one only when the spec
+    // names the harness it means to run (src/shared/e2e-sandbox.ts).
+    JUNTO_REAL_CLAUDE_SOCKET: "1",
   };
   const junto = await launchJunto({
     afterSeed: async (sandbox) => {

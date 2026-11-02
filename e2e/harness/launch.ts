@@ -509,6 +509,7 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
       tempRoot: sandbox.root,
       rendererUrl: server.url,
       path: `${seededHarnessBinDir(sandbox)}:${FAKES_BIN_DIR}:${SYSTEM_PATH_FLOOR}`,
+      sandboxPath: `${seededHarnessBinDir(sandbox)}:${FAKES_BIN_DIR}`,
       ...(options.demo === true ? { demo: true } : {}),
       ...(options.extraEnv === undefined ? {} : { extraEnv: options.extraEnv }),
     });
