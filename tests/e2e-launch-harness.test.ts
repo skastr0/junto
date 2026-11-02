@@ -7,6 +7,7 @@ import {
   type HarnessCleanupOperations,
   type HarnessCleanupTimeouts,
 } from "../e2e/harness/launch";
+import { inheritedEnvForLaunch, launchEnvironment } from "../e2e/harness/launch-env";
 import type { RendererServer } from "../e2e/harness/renderer-server";
 import type { Sandbox } from "../e2e/harness/sandbox";
 
@@ -336,5 +337,75 @@ describe("Junto e2e harness cleanup", () => {
       "sandbox.destroy",
       "sandbox.exists",
     ]);
+  });
+});
+
+describe("launch environment isolation", () => {
+  it("drops every inherited JUNTO_ variable, known today or added later", () => {
+    const env = launchEnvironment({
+      inherited: {
+        PATH: "/operator/bin:/usr/bin",
+        HOME: "/Users/operator",
+        LANG: "en_US.UTF-8",
+        // The seat this run is executed from. None of these may reach an app.
+        JUNTO_HOME: "/Users/operator/.junto",
+        JUNTO_WORK_TOKEN: "seat-credential",
+        JUNTO_WORK_HOME: "/Users/operator/.junto/work",
+        JUNTO_CLI: "/usr/local/bin/junto",
+        JUNTO_NODE_REF: "junto://canvas/factory?node=agent-1",
+        // Not a key anyone lists today: the prefix is the rule.
+        JUNTO_SOMETHING_ADDED_NEXT_MONTH: "1",
+      },
+      home: "/tmp/e2e-home",
+      tempRoot: "/tmp/e2e-root",
+      rendererUrl: "http://127.0.0.1:5199/",
+      path: "/repo/e2e/fakes/bin:/usr/bin:/bin",
+    });
+
+    expect(Object.keys(env).filter((key) => key.startsWith("JUNTO_")).sort()).toEqual([
+      "JUNTO_E2E",
+      "JUNTO_SECRET_STORE",
+    ]);
+    expect(env.JUNTO_E2E).toBe("1");
+    expect(env.JUNTO_SECRET_STORE).toBe("file");
+    expect(env.JUNTO_HOME).toBeUndefined();
+    expect(env.JUNTO_WORK_TOKEN).toBeUndefined();
+    expect(env.JUNTO_CLI).toBeUndefined();
+    expect(env.JUNTO_SOMETHING_ADDED_NEXT_MONTH).toBeUndefined();
+    // The launch's own roots, never the operator's.
+    expect(env.HOME).toBe("/tmp/e2e-home");
+    expect(env.TMPDIR).toBe("/tmp/e2e-root");
+    expect(env.TMP).toBe("/tmp/e2e-root");
+    expect(env.TEMP).toBe("/tmp/e2e-root");
+    expect(env.SHELL).toBe("/bin/sh");
+    expect(env.PATH).toBe("/repo/e2e/fakes/bin:/usr/bin:/bin");
+    expect(env.ELECTRON_RENDERER_URL).toBe("http://127.0.0.1:5199");
+  });
+
+  it("lets a spec's own extraEnv win last, and still never an inherited JUNTO_ key", () => {
+    const env = launchEnvironment({
+      inherited: { JUNTO_HOME: "/Users/operator/.junto", PATH: "/operator/bin" },
+      home: "/tmp/e2e-home",
+      tempRoot: "/tmp/e2e-root",
+      rendererUrl: "http://127.0.0.1:5199",
+      path: "/fakes/bin",
+      extraEnv: { PATH: "/spec/bin", JUNTO_DEMO: "1" },
+    });
+    expect(env.PATH).toBe("/spec/bin");
+    expect(env.JUNTO_DEMO).toBe("1");
+    expect(env.JUNTO_HOME).toBeUndefined();
+  });
+
+  it("keeps a demo launch marked and an ordinary launch unmarked", () => {
+    const base = {
+      inherited: {},
+      home: "/tmp/h",
+      tempRoot: "/tmp/r",
+      rendererUrl: "http://127.0.0.1:1",
+      path: "/fakes/bin",
+    } as const;
+    expect(inheritedEnvForLaunch({ JUNTO_SEAT: "s", KEEP: "1" })).toEqual({ KEEP: "1" });
+    expect(launchEnvironment({ ...base, demo: true }).JUNTO_DEMO).toBe("1");
+    expect(launchEnvironment(base).JUNTO_DEMO).toBeUndefined();
   });
 });

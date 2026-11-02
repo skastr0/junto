@@ -46,6 +46,7 @@ import {
 } from "./sandbox";
 import type { ModelFixture } from "./model";
 import type { NestedCanvasFixture } from "./nested-canvas-fixture";
+import { launchEnvironment } from "./launch-env";
 import { startRendererServer, type RendererServer } from "./renderer-server";
 
 // Scripts always invoke playwright from the repo root (package.json
@@ -499,54 +500,18 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
 
     server = await startRendererServer(RENDERER_DIR);
 
-    // Drop live seat / work-control env that a factory agent inherits. Spreading
-    // process.env would otherwise point the e2e app at the operator's real
-    // ~/.junto/work lock (JUNTO_WORK_HOME) and fail work-control startup.
-    const inherited = { ...(process.env as Record<string, string>) };
-    for (const key of [
-      "JUNTO_HOME",
-      "JUNTO_WORK_HOME",
-      "JUNTO_WORK_SOCKET",
-      "JUNTO_SOCKET",
-      "JUNTO_NODE_REF",
-      "JUNTO_SEAT",
-      "JUNTO_TOKEN",
-      "JUNTO_WORK_TOKEN",
-    ] as const) {
-      delete inherited[key];
-    }
-
-    const env: Record<string, string> = {
-      ...inherited,
-      HOME: sandbox.homeDir,
-      // Demo isolation mints junto-demo-runtime-* under os.tmpdir().
-      // Pin TMPDIR to this launch's sandbox so two workers cannot seed each
-      // other's newest demo database. The demo file is SQLite, not a UDS.
-      TMPDIR: sandbox.root,
-      TMP: sandbox.root,
-      TEMP: sandbox.root,
-      SHELL: "/bin/sh",
-      JUNTO_E2E: "1",
-      // Junto's own secrets go to owner-only files under this launch's
-      // throwaway home. Never the operator's real Keychain or keyring.
-      JUNTO_SECRET_STORE: "file",
-      // Match electron-vite's real development contract exactly. It supplies
-      // the loopback authority without a trailing slash; using a normalized
-      // test-only URL here previously hid a black-window startup regression.
-      ELECTRON_RENDERER_URL: server.url.endsWith("/")
-        ? server.url.slice(0, -1)
-        : server.url,
-      ...(options.demo ? { JUNTO_DEMO: "1" } : {}),
-      // Restrict PATH to e2e/fakes/bin + the system floor on every launch — no
-      // operator CLI, no real host, no AI tokens. Never opt-in: app boot
-      // unconditionally starts the usage-HUD poller (ipc.ts), which probes the
-      // native sources the moment any scenario window opens, demo or not. This is
-      // one of the isolation invariants at the top of this file, not a
-      // per-spec choice. `extraEnv.PATH` (if a spec ever sets it) still wins —
-      // it's applied after.
-      PATH: `${seededHarnessBinDir(sandbox)}:${FAKES_BIN_DIR}:${SYSTEM_PATH_FLOOR}`,
-      ...options.extraEnv,
-    };
+    // A test app inherits nothing from the JUNTO_* family: a seat's own
+    // JUNTO_HOME, JUNTO_WORK_TOKEN, JUNTO_CLI or any future one would point it
+    // at the operator's live home, socket or identity (e2e/harness/launch-env.ts).
+    const env = launchEnvironment({
+      inherited: process.env,
+      home: sandbox.homeDir,
+      tempRoot: sandbox.root,
+      rendererUrl: server.url,
+      path: `${seededHarnessBinDir(sandbox)}:${FAKES_BIN_DIR}:${SYSTEM_PATH_FLOOR}`,
+      ...(options.demo === true ? { demo: true } : {}),
+      ...(options.extraEnv === undefined ? {} : { extraEnv: options.extraEnv }),
+    });
 
     application = { kind: "launch-unobserved" };
     const app = await electron.launch({
