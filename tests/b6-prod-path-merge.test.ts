@@ -1,6 +1,6 @@
-import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import {
   mergePath,
@@ -244,11 +244,17 @@ describe("resolvedSpawnEnv", () => {
   });
 
   it("adopts the operator shell's environment once, from an app-owned cwd, over the floor", async () => {
-    vi.stubEnv("SHELL", fakeShell(DUMP));
+    const runs = join(mkdtempSync(join(tmpdir(), "junto-probe-runs-")), "runs");
+    scratch.push(dirname(runs));
+    vi.stubEnv("SHELL", fakeShell(`${DUMP}\nprintf 'probe\\n' >> "${runs}"`));
     vi.stubEnv("JUNTO_SHELL_ENVIRONMENT", "");
     const juntoHome = process.env.JUNTO_HOME;
     // The module reads its switch as it loads: a fresh copy, with the probe on.
     vi.resetModules();
+    // Main asks the core for this environment; here the core's own reads are
+    // the ones installed, so the read below is the one a spawn takes.
+    const { installInProcessCoreReads } = await import("../src/main/core-process/in-process-reads");
+    installInProcessCoreReads();
     const { resolvedSpawnEnv } = await import("../src/main/junto/adapters/exec");
     const env = await resolvedSpawnEnv();
     const dirs = split(env.PATH ?? "");
@@ -262,8 +268,10 @@ describe("resolvedSpawnEnv", () => {
     expect(process.env.JUNTO_HOME).toBe(juntoHome);
     expect(process.env.PWD).not.toBe("/rc/cwd");
     expect(env.PROBE_CWD).toBe(realpathSync(join(juntoHome!, ".junto")));
-    // Memoized: a second call returns the same object without a second probe.
+    // Resolved once per start: a second read answers the same environment and
+    // spawns no second shell. The object itself is a copy per call.
     const again = await resolvedSpawnEnv();
-    expect(again).toBe(env);
+    expect(again).toEqual(env);
+    expect(readFileSync(runs, "utf8").trim().split("\n")).toHaveLength(1);
   });
 });
