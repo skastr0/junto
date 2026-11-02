@@ -41,7 +41,6 @@ import {
   type BrowserAutomationPrincipal,
   type BrowserCapabilityRegistry,
 } from "../src/main/junto/browser/capabilities";
-import { makeProcessIdentityMap } from "../src/main/junto/process-identity";
 import { localBrowserTestMachineName } from "./browser-test-machine";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 
@@ -90,7 +89,6 @@ const admittingEdgeGrant = (
   secret: string,
   expectedPrincipal: BrowserAutomationPrincipal,
 ): EdgeGrantService => ({
-  processMap: makeProcessIdentityMap(),
   admitCredential: vi.fn(async () => ({
     ok: true as const,
     secret,
@@ -113,7 +111,6 @@ const admittingEdgeGrant = (
 });
 
 const denyingEdgeGrant = (): EdgeGrantService => ({
-  processMap: makeProcessIdentityMap(),
   admitCredential: async () => ({
     ok: false,
     denial: "process_unbound",
@@ -472,7 +469,6 @@ describe("browser control Unix transport", () => {
     let reentered: Promise<unknown> | undefined;
     let clearCalls = 0;
     const edgeGrant: EdgeGrantService = {
-      processMap: makeProcessIdentityMap(),
       admitCredential: async () => ({
         ok: false,
         denial: "closed",
@@ -692,7 +688,6 @@ describe("browser control Unix transport", () => {
     let admissionCalls = 0;
     let clearCalls = 0;
     const edgeGrant: EdgeGrantService = {
-      processMap: makeProcessIdentityMap(),
       admitCredential: async () => {
         admissionCalls += 1;
         edgeStarted.resolve();

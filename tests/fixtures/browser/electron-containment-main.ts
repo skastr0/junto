@@ -41,7 +41,6 @@ import {
   makeBrowserTestOnlyExactOriginGrant,
 } from "../../../src/main/junto/browser/web-policy";
 import {
-  makeProcessIdentityMap,
   type ProcessPrincipal,
 } from "../../../src/main/junto/process-identity";
 import { formatNodeRef } from "../../../src/shared/node-ref";
@@ -83,8 +82,6 @@ const canvasPayload = requiredArgument("canvas-payload");
 const revokeMarkerPath = requiredArgument("revoke-marker-path");
 const admissionModePath = requiredArgument("admission-mode-path");
 const shutdownRequestPath = requiredArgument("shutdown-request-path");
-const terminalPeerPid = Number(requiredArgument("terminal-peer-pid"));
-const unboundPeerPid = Number(requiredArgument("unbound-peer-pid"));
 
 for (const [name, path] of [
   ["browser-root", browserRoot],
@@ -97,12 +94,6 @@ for (const [name, path] of [
   ["shutdown-request-path", shutdownRequestPath],
 ] as const) {
   if (!isAbsolute(path)) throw new Error(`${name} must be absolute`);
-}
-for (const [name, pid] of [
-  ["terminal-peer-pid", terminalPeerPid],
-  ["unbound-peer-pid", unboundPeerPid],
-] as const) {
-  if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error(`${name} must be a live pid`);
 }
 
 const canvasName = "browser-containment";
@@ -191,8 +182,6 @@ const admittingEdgeGrant = (
   admitModePath: string,
   onAdmission: (entry: EdgeAdmissionAudit) => void,
   onDenial: (mode: "terminal" | "unbound", result: Extract<EdgeGrantResult, { readonly ok: false }>) => void,
-  probePeerPid: number,
-  processBoundPrincipal: ProcessPrincipal,
 ): EdgeGrantService => {
   const recordProcessBoundAdmission = (
     result: Extract<EdgeGrantResult, { readonly ok: true }>,
@@ -238,21 +227,13 @@ const admittingEdgeGrant = (
   };
 
   return {
-    processMap: processBoundEdgeGrant.processMap,
     admitCredential: async (credential) => {
       const mode = await readAdmitMode(admitModePath);
       if (mode === "terminal" || mode === "unbound") {
-        if (mode === "unbound") processBoundEdgeGrant.processMap.unbind(probePeerPid);
-        try {
-          const result = await processBoundEdgeGrant.admitCredential(credential);
-          if (result.ok) throw new Error(`${mode} peer unexpectedly received browser authority`);
-          onDenial(mode, result);
-          return result;
-        } finally {
-          if (mode === "unbound" && !processBoundEdgeGrant.processMap.bind(probePeerPid, processBoundPrincipal)) {
-            throw new Error("dedicated browser probe could not restore its live process binding");
-          }
-        }
+        const result = await processBoundEdgeGrant.admitCredential(credential);
+        if (result.ok) throw new Error(`${mode} peer unexpectedly received browser authority`);
+        onDenial(mode, result);
+        return result;
       }
       if (mode !== "process-bound") {
         return admitTuple(mode as Exclude<AdmitMode, "process-bound" | "terminal" | "unbound">);
@@ -692,32 +673,17 @@ void app.whenReady().then(async () => {
   });
 
   // The dedicated Electron binary is launched by node_modules/electron/cli.js,
-  // whose parent is this probe. Register that observed, live launcher process
-  // in the same main-owned map production uses for ACP children. No PID,
-  // node ref, host, or capability is accepted from a control request.
-  const probePeerPid = process.ppid;
+  // whose parent is this probe. The peer's identity is the seat credential it
+  // presents; no PID, node ref, host, or capability is accepted from a control
+  // request.
   const processBoundPrincipal: ProcessPrincipal = Object.freeze({ agentKey: "browser-containment-probe",
     canvasName,
     nodeId: "probe-agent",
   });
-  const processMap = makeProcessIdentityMap();
-  if (!processMap.bind(probePeerPid, processBoundPrincipal)) {
-    throw new Error("dedicated browser probe could not register its live launcher process");
-  }
-  if (!processMap.bind(terminalPeerPid, { bindingId: "browser-containment-terminal-peer",
-    canvasName,
-    nodeId: "probe-terminal",
-  })) {
-    throw new Error("dedicated browser probe could not register its live terminal peer");
-  }
-  if (processMap.resolve(unboundPeerPid) !== undefined) {
-    throw new Error("dedicated browser probe unbound peer unexpectedly had a direct identity");
-  }
   const processBoundEdgeGrant = makeEdgeGrantService({
     capabilities,
     resolvePageTarget,
     listCanvasModels,
-    processMap,
     machineName: localBrowserTestMachineName,
     editsCanvas: async () => true,
   });
@@ -793,8 +759,6 @@ void app.whenReady().then(async () => {
       admissionModePath,
       recordEdgeAdmission,
       recordEdgeDenial,
-      probePeerPid,
-      processBoundPrincipal,
     ),
   });
   await writeCapabilityHandoff({

@@ -84,7 +84,10 @@ export const browserArea: AcceptanceArea = {
       capabilities,
       resolvePageTarget,
       listCanvasModels,
-      credentials,
+      credentials: {
+        lookup: async (credential) => credentials.lookup(credential),
+        onEvent: (listener) => credentials.subscribe(listener),
+      },
       machineName: () => MACHINE,
       editsCanvas: (name) => run(Effect.flatMap(ModelRecords, (records) => records.editsCanvas(name))),
       sessions: { destroyOwnerTargetSessions: (owner, ref, reason) => sessions.destroyOwnerTargetSessions(owner, ref, reason) },

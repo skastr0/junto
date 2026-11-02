@@ -1839,8 +1839,6 @@ const main = async (): Promise<void> => {
       `--revoke-marker-path=${options.revokeMarkerPath}`,
       `--admission-mode-path=${options.admissionModePath}`,
       `--shutdown-request-path=${options.shutdownRequestPath}`,
-      `--terminal-peer-pid=${terminalProbe.pid}`,
-      `--unbound-peer-pid=${unboundProbe.pid}`,
     ];
   const electronArguments = makeElectronArguments({
     auditPath,
