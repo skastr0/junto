@@ -10,9 +10,9 @@ export {
   writeLog,
 } from "./logger";
 export {
+  appendScrubbed,
   makeObservabilityRing,
   observabilityRing,
-  recordObservabilityLog,
   type ObservabilityAppendInput,
   type ObservabilityRing,
 } from "./ring";

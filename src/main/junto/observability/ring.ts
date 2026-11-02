@@ -156,8 +156,3 @@ export const appendScrubbed = (input: ObservabilityAppendInput): ObservabilityLo
     message: scrubMessage(input.message),
     ...(input.spans === undefined ? {} : { spans: input.spans.map((span) => scrubMessage(span)) }),
   });
-
-/** Convenience for call sites outside Effect (console bridge, crash handlers). */
-export const recordObservabilityLog = (
-  input: ObservabilityAppendInput,
-): ObservabilityLogEntry => observabilityRing.append(input);
