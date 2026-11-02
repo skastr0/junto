@@ -40,7 +40,11 @@ export default defineConfig(({ command, mode }) => {
     },
     renderer: {
       root: ".",
-      resolve: { alias },
+      // One React for the whole renderer. Without this, a fresh install can
+      // resolve the app's `react` and the copy `react-dom` requires as two
+      // modules: the root renders with one dispatcher and every hook reads
+      // the other, so the first component throws on a null `useEffect`.
+      resolve: { alias, dedupe: ["react", "react-dom"] },
       define: productDefines,
       plugins: [overlayDepsPlugin(overlay), react(), tailwindcss(), writeBuildSourceStamp(process.cwd())],
       // The dev server may serve overlay files from outside this repository.
