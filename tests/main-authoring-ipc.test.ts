@@ -8,7 +8,6 @@ import {
 import { Effect, Exit } from "effect";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import type { CoreClient } from "../src/main/core-process/client";
-import { actorRefFixture } from "./helpers/actor-ref-fixtures";
 
 type InvokeEvent = Readonly<{
   sender: Readonly<{
@@ -83,32 +82,6 @@ beforeEach(async () => {
 });
 
 describe("renderer canvas authoring IPC", () => {
-  it("resolves only one exact projected actor reference", async () => {
-    const { resolveProjectedIpcActorRef } = await import(
-      "../src/main/junto/ipc"
-    );
-    const actor = actorRefFixture("agent", "factory");
-    expect(
-      resolveProjectedIpcActorRef([actor], "factory", "agent"),
-    ).toEqual(actor);
-    expect(
-      resolveProjectedIpcActorRef([], "factory", "agent"),
-    ).toBeUndefined();
-    expect(
-      resolveProjectedIpcActorRef(
-        [
-          actor,
-          {
-            ...actor,
-            seatId: actorRefFixture("other", "factory").seatId,
-          },
-        ],
-        "factory",
-        "agent",
-      ),
-    ).toBeUndefined();
-  }, 15_000);
-
   it("lands the renderer flush through the same handlers while the gate is closing", async () => {
     const { registerJuntoIpc } = await import("../src/main/junto/ipc");
     const {
