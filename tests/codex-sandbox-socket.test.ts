@@ -23,7 +23,7 @@ import {
 } from "../src/main/junto/term/templates/harness-install";
 
 const WORK_SOCKET = "/Users/operator/.junto/work/control.sock";
-const PROFILE = "junto-1a2b3c4d";
+const PROFILE = "junto-1a2b3c4d5e6f7a8b";
 
 const fakeCodex = (sandboxHelp: string): string => {
   const bin = join(mkdtempSync(join(tmpdir(), "junto-codex-sandbox-")), "codex");
@@ -97,7 +97,7 @@ describe("a Codex seat reaches Junto's work socket from its own sandbox", () => 
           launch: { kind: "harness", argv: [bin, "resume", "abc"], cwd: "/tmp" },
         }),
       );
-      const profile = /^default_permissions="(junto-[0-9a-f]{8})"$/u.exec(launch.args[3] ?? "")?.[1];
+      const profile = /^default_permissions="(junto-[0-9a-f]{16})"$/u.exec(launch.args[3] ?? "")?.[1];
       expect(profile).toBeDefined();
       expect(launch.args).toEqual([
         "-c",
@@ -134,8 +134,8 @@ describe("a Codex seat reaches Junto's work socket from its own sandbox", () => 
     const second = spawn();
     const profileOf = (args: readonly string[]): string =>
       /^default_permissions="(junto-[0-9a-f]+)"$/u.exec(args[3] ?? "")?.[1] ?? "";
-    expect(profileOf(first)).toMatch(/^junto-[0-9a-f]{8}$/u);
-    expect(profileOf(second)).toMatch(/^junto-[0-9a-f]{8}$/u);
+    expect(profileOf(first)).toMatch(/^junto-[0-9a-f]{16}$/u);
+    expect(profileOf(second)).toMatch(/^junto-[0-9a-f]{16}$/u);
     expect(profileOf(first)).not.toBe(profileOf(second));
     // Every key names that same profile: a merge target cannot be shared.
     for (const arg of first.filter((value) => value.startsWith("permissions."))) {
