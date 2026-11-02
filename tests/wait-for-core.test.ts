@@ -4,6 +4,7 @@
  * is what keeps a restarting core from taking the app down before the window.
  */
 import { expect, it } from "vitest";
+import { BrowserProfileError } from "../src/main/junto/browser/profiles";
 import { CoreCallError } from "../src/main/core-process/client";
 import { awaitCore, isCoreUnavailable } from "../src/main/core-process/wait-for-core";
 
@@ -44,4 +45,22 @@ it("names the two ways a core can be missing, and nothing else", () => {
   expect(isCoreUnavailable(new CoreCallError("x", "CoreClientMissing", "none installed"))).toBe(true);
   expect(isCoreUnavailable(new CoreCallError("x", "SettingsError", "bad"))).toBe(false);
   expect(isCoreUnavailable(new Error("boom"))).toBe(false);
+});
+
+it("sees a core refusal through the wrappers a caller put around it", () => {
+  const wrapper = new Error("browser security initialization failed; browser startup blocked");
+  wrapper.cause = new BrowserProfileError({
+    message: "browser profile registry unavailable",
+    code: "io",
+    cause: stopped(),
+  });
+  expect(isCoreUnavailable(wrapper)).toBe(true);
+
+  const refusedWrapper = new Error("browser security initialization failed; browser startup blocked");
+  refusedWrapper.cause = new BrowserProfileError({
+    message: "browser profile registry unavailable",
+    code: "io",
+    cause: refused(),
+  });
+  expect(isCoreUnavailable(refusedWrapper)).toBe(false);
 });

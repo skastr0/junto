@@ -16,8 +16,20 @@ export const CORE_STARTUP_WAIT_MS = 60_000;
 const RETRY_MS = 250;
 
 /** Whether a call failed because no core answered, rather than because the core refused it. */
-export const isCoreUnavailable = (error: unknown): boolean =>
-  error instanceof CoreCallError && (error.tag === "CoreStopped" || error.tag === "CoreClientMissing");
+export const isCoreUnavailable = (error: unknown): boolean => {
+  // A caller that wraps the refusal (the browser composition wraps its profile
+  // registry failure) still names the core as what did not answer: walk the
+  // cause chain to the failure that was actually observed.
+  let current: unknown = error;
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (current instanceof CoreCallError) return current.tag === "CoreStopped" || current.tag === "CoreClientMissing";
+    if (typeof current !== "object" || current === null) return false;
+    const cause = (current as { readonly cause?: unknown }).cause;
+    if (cause === undefined || cause === current) return false;
+    current = cause;
+  }
+  return false;
+};
 
 export type AwaitCoreOptions = {
   readonly deadlineMs?: number;

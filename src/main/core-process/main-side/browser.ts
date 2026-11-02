@@ -25,7 +25,7 @@ const unprofiled = <A>(call: () => Promise<Profiled<A>>): Effect.Effect<A, Brows
       // The composition starts before the window exists: a core still coming up
       // is waited out, and only a real refusal is the registry being unavailable.
       try: () => awaitCore(call),
-      catch: () => new BrowserProfileError({ message: "browser profile registry unavailable", code: "io" }),
+      catch: (cause) => new BrowserProfileError({ message: "browser profile registry unavailable", code: "io", cause }),
     }),
     (answer) => (answer.ok ? Effect.succeed(answer.value) : Effect.fail(new BrowserProfileError({ message: answer.message, ...(answer.code === undefined ? {} : { code: answer.code }) }))),
   );

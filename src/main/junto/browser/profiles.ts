@@ -73,6 +73,8 @@ export class BrowserProfileError extends Schema.TaggedError<BrowserProfileError>
     "forbidden",
     "corrupt",
     "pending_wipe",])),
+    /** What a wrap preserved: a transport refusal stays recognizable as one. */
+    cause: Schema.optionalKey(Schema.Defect()),
   },
 ) {}
 
