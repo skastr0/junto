@@ -11,6 +11,7 @@ import {
   matchesObservabilityQuery,
 } from "@shared/observability";
 import { setLogRowSink } from "./logger";
+import { scrubMessage } from "../credentials/scrub";
 
 export type ObservabilityAppendInput = {
   readonly level: ObservabilityLogLevel;
@@ -139,6 +140,22 @@ export const observabilityRing = makeObservabilityRing();
  * none, forwards its rows to the core instead.
  */
 setLogRowSink((row) => observabilityRing.append(row));
+
+/**
+ * A row that arrived from another process. It was scrubbed by the process that
+ * wrote it, with what that process knows; it is scrubbed again here, where the
+ * known-secret registry lives, so a value only the core holds (a seat's
+ * credential, a machine key) cannot land in the ring through a main-side row.
+ * Message and spans are text; annotations are ids and validated names, which
+ * the scrub's long-run rule would erase, so they are left as their writer sent
+ * them.
+ */
+export const appendScrubbed = (input: ObservabilityAppendInput): ObservabilityLogEntry =>
+  observabilityRing.append({
+    ...input,
+    message: scrubMessage(input.message),
+    ...(input.spans === undefined ? {} : { spans: input.spans.map((span) => scrubMessage(span)) }),
+  });
 
 /** Convenience for call sites outside Effect (console bridge, crash handlers). */
 export const recordObservabilityLog = (

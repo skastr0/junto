@@ -12,7 +12,7 @@ import {
   type ObservabilitySnapshot,
 } from "@shared/observability";
 import { OBSERVABILITY_CLEARED, OBSERVABILITY_LOG } from "../channels";
-import { observabilityRing, type ObservabilityAppendInput } from "../../junto/observability/ring";
+import { appendScrubbed, observabilityRing, type ObservabilityAppendInput } from "../../junto/observability/ring";
 import { coreOps, type CoreOp } from "../ops";
 import { publish } from "../push";
 
@@ -76,5 +76,6 @@ coreOps({
       watching = Math.max(0, watching - 1);
       return {};
     }),
-  "observability.append": ({ entry }) => Effect.sync(() => void observabilityRing.append(entry)),
+  // Scrubbed again in this process: the registry of known secret values lives here.
+  "observability.append": ({ entry }) => Effect.sync(() => void appendScrubbed(entry)),
 });

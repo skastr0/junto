@@ -7,7 +7,7 @@
  */
 import { Effect } from "effect";
 import { BOAT_LEASE_RENEW_MS, BOAT_LEASE_SECONDS } from "@shared/boat";
-import { registerKnownSecrets } from "../credentials/scrub";
+import { registerKnownSecrets } from "../credentials/known-secrets";
 import { boatFailureMessage, makeBoatClient, type BoatFetch, type BoatRun } from "./client";
 import { readBoatMachineSelf } from "./files";
 

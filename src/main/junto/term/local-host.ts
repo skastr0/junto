@@ -124,7 +124,8 @@ import {
   shellEnvironment,
   type ShellEnvironment,
 } from "../shell-environment";
-import { launchSecretValues, registerKnownSecrets, releaseKnownSecrets } from "../credentials/scrub";
+import { launchSecretValues } from "../credentials/scrub";
+import { registerKnownSecrets, releaseKnownSecrets } from "../credentials/known-secrets";
 import { buildManagedSeatInject, resolveWorkHomeForSeat } from "./templates/seat-env";
 import {
   PROGRAM_STATUS_ENV,

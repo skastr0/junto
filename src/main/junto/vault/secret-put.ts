@@ -25,7 +25,7 @@ import {
   type VaultPermissions,
 } from "@shared/vault";
 import type { AgentSignal } from "@shared/agent-signals";
-import { registerKnownSecrets, releaseKnownSecrets } from "../credentials/scrub";
+import { registerKnownSecrets, releaseKnownSecrets } from "../credentials/known-secrets";
 import { MachineRepository } from "../machines/repository";
 import { regionSecrets, type RegionSecrets } from "../region-env/secret-store";
 import { opServiceAccountEnv } from "../region-env/sources";

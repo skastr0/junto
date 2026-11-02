@@ -43,12 +43,11 @@ import { WORK_TOKEN_ENV } from "@shared/work-control";
 import {
   knownSecretValues,
   launchSecretValues,
-  registerKnownSecrets,
-  releaseKnownSecrets,
   scrubMessage,
   StderrTail,
   type ScrubbedTail,
 } from "../credentials/scrub";
+import { registerKnownSecrets, releaseKnownSecrets } from "../credentials/known-secrets";
 import { appProcessPlane, type AppProcessExit, type AppProcessLease } from "../app-process-plane";
 import type { ContentServiceShape } from "../content/service";
 import { juntoCliPathPrefixes } from "../term/templates/seat-env";

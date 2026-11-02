@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
-import { knownSecretValues, launchSecretValues, registerKnownSecrets, releaseKnownSecrets, scrubMessage, scrubText, StderrTail } from "../src/main/junto/credentials/scrub";
+import { knownSecretValues, launchSecretValues, scrubMessage, scrubText, StderrTail } from "../src/main/junto/credentials/scrub";
+import { registerKnownSecrets, releaseKnownSecrets } from "../src/main/junto/credentials/known-secrets";
 
 const tail = (text: string, known?: ReadonlyArray<string | undefined>) => {
   const window = new StderrTail();

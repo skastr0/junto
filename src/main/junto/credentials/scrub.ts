@@ -110,17 +110,17 @@ const replaceShapes = (text: string): string => {
 };
 
 /**
- * Values live on this machine that no failure or log may carry: each
- * generation's resolved secrets and its credential live in the seat's child
- * environment, not this process's, so the launch path registers them here and
- * the generation's end removes them.
+ * Values live on this machine that no failure or log may carry are registered
+ * by the process that holds them (known-secrets.ts, the core's), which installs
+ * itself here as the known-value source on load. This module holds no registry
+ * of its own, so a process that registers nothing (main) links no secret state.
  */
-const registered = new Map<string, ReadonlyArray<string>>();
-/** `owner` names the holder, such as "seat:<bindingId>@<epoch>"; a second call replaces its set. */
-export const registerKnownSecrets = (owner: string, values: Iterable<string | undefined>): void => {
-  registered.set(owner, [...values].filter((value): value is string => value !== undefined && value.length > 0));
+let installedSecretValues: (() => ReadonlyArray<string>) | undefined;
+
+/** One source per process; a process that registers nothing installs none. */
+export const setKnownSecretValuesSource = (next: (() => ReadonlyArray<string>) | undefined): void => {
+  installedSecretValues = next;
 };
-export const releaseKnownSecrets = (owner: string): void => { registered.delete(owner); };
 
 /**
  * The known values one launch holds: its secrets and credential (searched from
@@ -141,13 +141,16 @@ export const launchSecretValues = (
   return values;
 };
 
-/** Step 3's known values: the caller's, every registered set, and this process's environment. */
+/**
+ * Step 3's known values: the caller's, this process's environment, and whatever
+ * the process installed as its source (the core's registry; main installs none).
+ */
 export const knownSecretValues = (
   secrets: ReadonlyArray<string | undefined> = [],
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): ReadonlyArray<string | undefined> => {
   const values = [...launchSecretValues(secrets, environment)];
-  for (const set of registered.values()) values.push(...set);
+  if (installedSecretValues !== undefined) values.push(...installedSecretValues());
   return values;
 };
 

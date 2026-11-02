@@ -26,7 +26,7 @@ import {
   MachineVaultTokenData, VaultName, VaultTokenSecret, vaultView,
   type MachineVaultTokenInput, type VaultTokenDelivery, type VaultLiveness, type VaultPermissions, type VaultTokenOrigin,
 } from "@shared/vault";
-import { registerKnownSecrets, releaseKnownSecrets } from "../credentials/scrub";
+import { registerKnownSecrets, releaseKnownSecrets } from "../credentials/known-secrets";
 import { MachineRepository } from "../machines/repository";
 import { HostsService } from "../hosts/service";
 import { parseHostSshRoute, SshTransport } from "../ssh";

@@ -9,7 +9,7 @@ import { lstat, mkdir, readFile, rename, rm, unlink, writeFile } from "node:fs/p
 import { join } from "node:path";
 import { Schema } from "effect";
 import { VaultTokenSecret } from "@shared/vault";
-import { registerKnownSecrets } from "../credentials/scrub";
+import { registerKnownSecrets } from "../credentials/known-secrets";
 
 export class VaultTokenFileRefused extends Schema.TaggedError<VaultTokenFileRefused>()("VaultTokenFileRefused", {
   check: Schema.Literals(["not-owned", "not-directory", "not-file", "unreadable"]),
