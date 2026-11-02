@@ -1,5 +1,4 @@
-import type { HostsOpResult } from "@shared/ipc";
-import { TERMINAL_HOST_CAPABILITY } from "@shared/remote-hosts";
+import { TERMINAL_HOST_CAPABILITY, type RemoteHost } from "@shared/remote-hosts";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import { paramSpec } from "@shared/harness-domain";
 import { HARNESS_RECORDS } from "@shared/harness-records";
@@ -47,7 +46,7 @@ export type AgentHostChoice = {
   readonly label: string;
 };
 
-type EnrolledHost = NonNullable<HostsOpResult["hosts"]>[number];
+type EnrolledHost = RemoteHost;
 
 const labelOf = (host: EnrolledHost): string => host.label.trim() || host.id;
 

@@ -84,10 +84,11 @@ test("a real seat is admitted with its own credential, and refused once its gene
     );
 
     // The seat's machine is the app's own name, read from the app: a seat
-    // assigned to another machine never drives a page here.
+    // assigned to another machine never drives a page here. Settings is where
+    // main puts it (renderer/lib/machines.ts thisMachineName).
     const machine = await page.evaluate(async () => {
-      const listed = await window.junto!.hostsList?.();
-      return listed?.hosts?.find((host) => host.isThisMachine)?.id ?? "";
+      const read = await window.junto!.settingsGet();
+      return read.ok ? (read.settings?.machine.name ?? "") : "";
     });
     expect(machine, "this machine has a name the app knows").not.toBe("");
 

@@ -905,7 +905,6 @@ const demoApi: JuntoDemoApi = {
 };
 
 const hostsApi: JuntoHostsApi = {
-  hostsList: () => invoke(IPC_CHANNELS.hostsList, IPC_TIMEOUT_MS),
   machineCommand: (request) => invoke(IPC_CHANNELS.machineCommand, MACHINE_COMMAND_TIMEOUT_MS, request),
   onMachineProgress: (listener) => subscribe<MachineCommandProgress>(IPC_CHANNELS.machineProgress, listener),
 };

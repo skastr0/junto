@@ -49,7 +49,6 @@ export type {
 } from "./browser";
 import type { DoctorReport } from "./contracts";
 import type { ExecutionGraphSnapshot } from "./execution-graph";
-import type { RemoteHost } from "./remote-hosts";
 import type { OperatorRequestEnvelope, OperatorResponseEnvelope } from "./operator-control";
 import type { MachineCommandProgress } from "./machine-progress";
 import type { Task } from "./work-model";
@@ -402,13 +401,6 @@ export const IPC_CHANNELS = {
   // OS login item (Electron get/setLoginItemSettings)
   loginItemGet: "junto:login-item-get",
   loginItemSet: "junto:login-item-set",
-  // remote host registry (app-owned SQLite state)
-  hostsList: "junto:hosts-list",
-  /** Tailscale peers visible on the mesh but not yet enrolled. */
-  hostsDiscoverPeers: "junto:hosts-discover-peers",
-  hostsUpsert: "junto:hosts-upsert",
-  hostsRemove: "junto:hosts-remove",
-  hostsTest: "junto:hosts-test",
   // The Machines window: one closed owner machine command, and the steps of
   // a send or an update in flight (main -> renderer).
   machineCommand: "junto:machine-command",
@@ -1099,8 +1091,6 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
 
 /** The machines surface. Omitted from preload while the fleetUi flag is off. */
 export interface JuntoHostsApi {
-  /** The machine list, for the pickers on the canvas. It changes nothing. */
-  readonly hostsList: () => Promise<HostsOpResult>;
   /**
    * One closed owner machine command, the same one `junto machine` sends.
    * Main decodes the request and answers in the owner envelope; the window
@@ -1119,29 +1109,6 @@ export interface JuntoUsageApi {
   readonly onUsageChanged: (listener: (state: UsageState) => void) => () => void;
 }
 
-export interface HostsOpResult {
-  readonly ok: boolean;
-  readonly hosts?: ReadonlyArray<RemoteHost>;
-  readonly code?: string;
-  readonly message?: string;
-}
-
-/** A Tailscale mesh peer not yet enrolled in the host registry. */
-export interface DiscoveredPeer {
-  readonly name: string;
-  readonly addresses: ReadonlyArray<string>;
-  readonly online: boolean;
-  readonly os?: string;
-}
-
-/** hostsDiscoverPeers — degrades to `{ ok: true, peers: [] }`, never throws. */
-export interface HostsDiscoverPeersResult {
-  readonly ok: boolean;
-  readonly peers?: ReadonlyArray<DiscoveredPeer>;
-  readonly code?: string;
-  readonly message?: string;
-}
-
 /** OS login-item state from Electron getLoginItemSettings. */
 export interface LoginItemState {
   readonly openAtLogin: boolean;
@@ -1157,18 +1124,6 @@ export interface LoginItemOpResult {
   readonly ok: boolean;
   readonly provider: StartupProvider;
   readonly state?: LoginItemState;
-  readonly message?: string;
-}
-
-export interface HostsTestResult {
-  readonly ok: boolean;
-  readonly detail: string;
-  /** Round-trip ms of the probe (present on probe success/failure paths). */
-  readonly latencyMs?: number;
-  /** Raw SSH link truth — `ok` is the strict all-checks verdict; this is
-   * whether the host answered at all (remote probes only). */
-  readonly reachability?: "reachable" | "unreachable" | "unknown";
-  readonly code?: string;
   readonly message?: string;
 }
 

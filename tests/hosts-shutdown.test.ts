@@ -1,21 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { IpcMain } from "electron";
-import { IPC_CHANNELS } from "../src/shared/ipc";
-
-import { registerHostsIpc } from "../src/main/junto/hosts/ipc";
+import { describe, expect, it } from "vitest";
 import {
   HOST_OPERATION_ADMISSIONS,
   HostOperationShutdownRefused,
   createHostOperationGate,
 } from "../src/main/junto/hosts/shutdown";
-
-type InvokeHandler = (event: unknown, ...args: ReadonlyArray<unknown>) => unknown;
-
-const runtime = vi.hoisted(() => ({
-  runPromise: vi.fn(),
-}));
-
-vi.mock("../src/main/runtime", () => ({ AppRuntime: runtime }));
 
 const deferred = <A>() => {
   let resolve!: (value: A) => void;
@@ -187,52 +175,4 @@ describe("host operation shutdown gate", () => {
       retained: 0,
     });
   });
-});
-
-describe("host IPC shutdown admission", () => {
-  const handlers = new Map<string, InvokeHandler>();
-
-  beforeEach(() => {
-    handlers.clear();
-    runtime.runPromise.mockReset();
-  });
-
-  const register = (shutdownDeadlineMs = 100) => {
-    const gate = createHostOperationGate({ shutdownDeadlineMs });
-    const ipcMain = {
-      handle: vi.fn((channel: string, handler: InvokeHandler) => {
-        handlers.set(channel, handler);
-      }),
-    } as unknown as IpcMain;
-    registerHostsIpc(ipcMain, gate);
-    return gate;
-  };
-
-  const invoke = (channel: string, ...args: ReadonlyArray<unknown>): unknown => {
-    const handler = handlers.get(channel);
-    if (handler === undefined) throw new Error(`${channel} handler not registered`);
-    return handler({}, ...args);
-  };
-
-  it("routes every host IPC handler through the synchronous shutdown cut", async () => {
-    const gate = register();
-    gate.beginShutdown();
-
-    const calls = [
-      [IPC_CHANNELS.hostsList],
-      [IPC_CHANNELS.hostsUpsert, { id: "studio" }],
-      [IPC_CHANNELS.hostsRemove, "studio"],
-      [IPC_CHANNELS.hostsTest, "studio"],
-    ] as const;
-
-    for (const [channel, ...args] of calls) {
-      await expect(invoke(channel, ...args)).resolves.toMatchObject({
-        ok: false,
-        code: "shutdown",
-        message: expect.stringContaining("shutdown is active"),
-      });
-    }
-    expect(runtime.runPromise).not.toHaveBeenCalled();
-  });
-
 });
