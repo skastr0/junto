@@ -143,11 +143,20 @@ export const startTerminalProcessForCore = (): TerminalProcessForCore => {
       stopping = true;
       const leaving = child;
       if (leaving === undefined) return Effect.void;
-      // Orderly quit: the parent asks for the hangup first, so every PTY is
-      // signalled while its owner is still alive to do it. The process leaves
-      // by itself once the hangups have landed; the wait below is on that exit.
-      // A core that crashed before this could not hang anything up, and the
-      // PTYs it left running would otherwise outlive the quit.
+      // Which hangup is authoritative: with a live core, the core's. Its drain
+      // posts `pty.hangupAll` on its own port (junto/term/core-seats.ts) before
+      // it exits, and the children scope runs the core's finalizer before this
+      // one, so by the time this stop runs the PTYs have been hung up by their
+      // owner. This `pty.shutdown` is the backstop for a core that is already
+      // gone — crashed or killed — whose PTYs kept running, detached, for the
+      // next core to adopt; an orderly quit must not leave them behind.
+      //
+      // A second hangup is safe. `pty.hangupAll` walks the PTYs the process
+      // still holds: a PTY whose exit has arrived has left that table, and one
+      // whose exit has not is signalled only if its pid is still the child that
+      // was spawned (the epoch guard). So either hangup may run first, and both
+      // may run: the worst a repeat is, is a second SIGHUP to the same child,
+      // never a signal to a pid that was reaped or reused.
       try {
         leaving.postMessage({ kind: "push", channel: TerminalInbound.shutdown, payload: {} });
       } catch {
