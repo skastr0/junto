@@ -1,4 +1,4 @@
-import { Context, Effect, Schema } from "effect";
+import { Context, Effect, Exit, Schema, Scope } from "effect";
 import { join } from "node:path";
 import type { CoreRuntime, MachineCoreOptions } from "../core-runtime";
 import { makeCoreRuntime } from "../core-runtime";
@@ -148,7 +148,16 @@ export const startCore = async (options: CoreOptions) => {
   /** Opens the operator socket once; the desktop asks when a phone pairs. */
   let ensureOperatorListening: () => Promise<void> = () => Promise.resolve();
   let closeFlight: Promise<void> | undefined;
-  /** `cause` says why this core stops; each linked machine reads it in the close frame. */
+  /** What the shutdown finalizers named; the first one is thrown once the scope has closed. */
+  const shutdownFailures: unknown[] = [];
+  /**
+   * `cause` says why this core stops; each linked machine reads it in the close frame.
+   *
+   * The stop is one Effect scope of finalizers, not a sequence of awaits: every
+   * step runs even when an earlier one failed, and the first failure is the one
+   * reported. Steps read top to bottom in the order they run; the scope runs
+   * them in reverse registration order, so they are registered bottom to top.
+   */
   const close = (cause?: unknown): Promise<void> => {
     if (closeFlight !== undefined) return closeFlight;
     stopping = true;
@@ -167,34 +176,72 @@ export const startCore = async (options: CoreOptions) => {
     closeFlight = (async () => {
       // A socket still opening lands in `owner` first, so it closes with the rest.
       await ownerStart?.catch(() => undefined);
-      if (owner !== undefined) {
-        const receipt = await owner.close();
-        if (!receipt.clean) throw new CoreDidNotDrain({ part: "owner-commands", message: "Owner commands did not drain; core state retained" });
+      const steps: ReadonlyArray<() => Promise<void>> = [
+        async () => {
+          if (owner !== undefined) {
+            const receipt = await owner.close();
+            if (!receipt.clean) throw new CoreDidNotDrain({ part: "owner-commands", message: "Owner commands did not drain; core state retained" });
+          }
+        },
+        async () => {
+          if (listener !== undefined) await listener.close(cause);
+        },
+        async () => {
+          if (work !== undefined) {
+            const receipt = await work.close();
+            if (!receipt.clean) throw new CoreDidNotDrain({ part: "seat-work", message: "Seat work commands did not drain; core state retained" });
+          }
+        },
+        async () => {
+          if (canvas !== undefined) {
+            const receipt = await canvas.close();
+            if (!receipt.clean) throw new CoreDidNotDrain({ part: "canvas-edits", message: "Canvas edits did not drain; core state retained" });
+          }
+        },
+        async () => {
+          unbindTermIpcPlane?.();
+        },
+        async () => {
+          await seatProcesses?.close();
+        },
+        async () => {
+          overseer?.dispose();
+          await overseerLive?.dispose();
+        },
+        async () => {
+          stopCompanion?.();
+          // The phone's idle long poll lets go before the process ends.
+          companion?.changes.close();
+        },
+        async () => {
+          const writes = await mainAuthoringGate.drain(5_000);
+          if (writes.remaining.length > 0) {
+            throw new CoreDidNotDrain({ part: "writes", remaining: writes.remaining.length, message: "Core writes did not drain; core state retained" });
+          }
+        },
+        async () => {
+          await runtime.dispose();
+        },
+        async () => {
+          const children = await quiesceServiceChildrenOnQuit();
+          if (!children.clean) throw new CoreDidNotDrain({ part: "service-children", message: "Core service children did not drain" });
+        },
+        async () => {
+          releaseRunner?.();
+        },
+      ];
+      const scope = Effect.runSync(Scope.make());
+      for (const step of [...steps].reverse()) {
+        Effect.runSync(Scope.addFinalizer(scope, Effect.promise(async () => {
+          try {
+            await step();
+          } catch (error) {
+            shutdownFailures.push(error);
+          }
+        })));
       }
-      if (listener !== undefined) await listener.close(cause);
-      if (work !== undefined) {
-        const receipt = await work.close();
-        if (!receipt.clean) throw new CoreDidNotDrain({ part: "seat-work", message: "Seat work commands did not drain; core state retained" });
-      }
-      if (canvas !== undefined) {
-        const receipt = await canvas.close();
-        if (!receipt.clean) throw new CoreDidNotDrain({ part: "canvas-edits", message: "Canvas edits did not drain; core state retained" });
-      }
-      unbindTermIpcPlane?.();
-      await seatProcesses?.close();
-      overseer?.dispose();
-      await overseerLive?.dispose();
-      stopCompanion?.();
-      // The phone's idle long poll lets go before the process ends.
-      companion?.changes.close();
-      const writes = await mainAuthoringGate.drain(5_000);
-      if (writes.remaining.length > 0) {
-        throw new CoreDidNotDrain({ part: "writes", remaining: writes.remaining.length, message: "Core writes did not drain; core state retained" });
-      }
-      await runtime.dispose();
-      const children = await quiesceServiceChildrenOnQuit();
-      if (!children.clean) throw new CoreDidNotDrain({ part: "service-children", message: "Core service children did not drain" });
-      releaseRunner?.();
+      await Effect.runPromise(Scope.close(scope, Exit.void));
+      if (shutdownFailures.length > 0) throw shutdownFailures[0];
     })();
     return closeFlight;
   };
