@@ -190,6 +190,17 @@ it("without a process to ask, a claimed rollout no longer blocks the sibling's o
   expect(await current(seatB.id, seatB.bindingId)).toMatchObject({ sessionId: B });
 });
 
+it("a seat whose process holds no rollout still takes one no sibling holds", { timeout: 30_000 }, async () => {
+  const t0 = Date.now() - 5_000;
+  const a = await codexSeat(A, new Date(t0 + 300));
+  const capture = new SeatSessionCapture(() => sandbox.homeDir);
+  capture.watch({ bindingId: seatA.bindingId, harness: "codex", canvasName: "proof", nodeId: seatA.id, cwd: sandbox.root, spawnedAtMs: t0, pid: a.pid });
+  // A Codex that closes its rollout between writes: the file is there, held by no one.
+  const minted = new Date(t0 + 300);
+  await writeFile(join(dayDir(minted), `rollout-${minted.getTime()}-${A}.jsonl`), `${JSON.stringify({ type: "session_meta", payload: { id: A, timestamp: minted.toISOString(), cwd: sandbox.root, source: "cli", thread_source: "user" } })}\n`);
+  expect(await capture.attempt(seatA.bindingId)).toBe(A);
+});
+
 it("one look at a time: boundaries arriving together share one answer", { timeout: 30_000 }, async () => {
   const t0 = Date.now() - 5_000;
   const a = await codexSeat(A, new Date(t0 + 300));

@@ -134,8 +134,8 @@ export class SeatSessionCapture {
     return look;
   }
 
-  /** The sessions the seat's own process holds open, or undefined when it cannot be told. */
-  private async held(watch: Watch): Promise<ReadonlySet<string> | undefined> {
+  /** The sessions this process holds open, or undefined when it cannot be told. */
+  private async heldBy(watch: Watch): Promise<ReadonlySet<string> | undefined> {
     const heldSessionId = watch.discovery.heldSessionId;
     if (heldSessionId === undefined || watch.pid === undefined) return undefined;
     const files = await this.openFiles(watch.pid).catch(() => undefined);
@@ -146,6 +146,22 @@ export class SeatSessionCapture {
       if (id !== undefined) ids.add(id);
     }
     return ids;
+  }
+
+  /**
+   * What the processes say: the sessions this seat's process holds open, and
+   * those its siblings' processes hold. Undefined when this seat's cannot be
+   * asked.
+   */
+  private async held(
+    watch: Watch,
+  ): Promise<{ readonly mine: ReadonlySet<string>; readonly siblings: ReadonlySet<string> } | undefined> {
+    const siblings = [...this.watching.values()].filter(
+      (other) => other !== watch && other.harness === watch.harness && other.home === watch.home,
+    );
+    const [mine, ...theirs] = await Promise.all([watch, ...siblings].map((one) => this.heldBy(one)));
+    if (mine === undefined) return undefined;
+    return { mine, siblings: new Set(theirs.flatMap((ids) => [...(ids ?? [])])) };
   }
 
   private async look(bindingId: string, watch: Watch): Promise<string | undefined> {
@@ -161,16 +177,21 @@ export class SeatSessionCapture {
     const askProcess = watch.discovery.heldSessionId !== undefined && watch.pid !== undefined;
     const held = askProcess ? await this.held(watch) : undefined;
     if (this.watching.get(bindingId) !== watch || watch.settled) return undefined;
+    // A file the seat's own process holds settles it. Holding none yet (a
+    // Codex before its first turn, or one that closes its file), it still
+    // never takes a file a sibling's process holds, and the pick by workspace
+    // and time decides among the rest.
+    const decisive = held !== undefined && held.mine.size > 0;
+    for (const id of held?.siblings ?? []) exclude.add(id);
     const sessionId = discoverSpawnedSession(watch.discovery, {
       cwd: watch.cwd,
       spawnedAtMs: watch.spawnedAtMs,
       home: watch.home,
       exclude,
-      ...(held === undefined ? {} : { only: held }),
+      ...(decisive ? { only: held.mine } : {}),
     });
     // Undefined is the normal early answer: these harnesses write their store
-    // asynchronously, so the next boundary tries again. A seat whose process
-    // holds no session file yet has not started its first turn.
+    // asynchronously, so the next boundary tries again.
     if (sessionId === undefined) return undefined;
     // Whatever a discovery does with `exclude`, an excluded id is never taken.
     if (exclude.has(sessionId)) return undefined;
@@ -179,7 +200,7 @@ export class SeatSessionCapture {
     if (owner !== undefined && owner !== watch) return undefined;
     // The file the seat's own process holds open settles it; only a pick by
     // workspace and time has to make way for a sibling that could claim it.
-    if (owner === undefined && held === undefined) {
+    if (owner === undefined && !decisive) {
       // One candidate does not mean one eligible seat. Do not choose whichever
       // callback happens first while another watch can claim the same id.
       for (const other of this.watching.values()) {
