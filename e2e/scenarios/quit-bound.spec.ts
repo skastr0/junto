@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { _electron as electron } from "playwright-core";
 import { expect, launchJunto, test } from "../harness/launch";
+import { inheritedEnvForLaunch } from "../harness/launch-env";
 
 const QUIT_BOUND_MS = 15_000;
 
@@ -42,6 +43,8 @@ test("control: a bare Electron window quits within the bound", async () => {
   const userData = await mkdtemp(join(tmpdir(), "junto-quit-control-"));
   const app = await electron.launch({
     args: [join(process.cwd(), "e2e/fakes/bare-electron"), `--user-data-dir=${userData}`, "--mute-audio"],
+    // No env means the parent env: a seat's JUNTO_* variables would ride in.
+    env: inheritedEnvForLaunch(process.env),
   });
   const child = app.process();
   try {

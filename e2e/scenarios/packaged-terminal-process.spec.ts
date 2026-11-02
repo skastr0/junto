@@ -11,6 +11,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { _electron as electron, expect, test } from "@playwright/test";
+import { inheritedEnvForLaunch } from "../harness/launch-env";
 
 const APP = process.env.JUNTO_PACKAGED_APP;
 
@@ -21,7 +22,8 @@ test("the packaged terminal entry loads node-pty from app.asar.unpacked inside a
   const app = await electron.launch({
     executablePath: join(resolve(APP!), "Contents/MacOS/Junto"),
     args: ["--mute-audio", `--user-data-dir=${join(root, "user-data")}`],
-    env: { ...(process.env as Record<string, string>), HOME: root, TMPDIR: root, JUNTO_SECRET_STORE: "file", JUNTO_E2E: "1" },
+    // A seat runs this spec: none of its JUNTO_* variables may reach the app.
+    env: { ...inheritedEnvForLaunch(process.env), HOME: root, TMPDIR: root, JUNTO_SECRET_STORE: "file", JUNTO_E2E: "1" },
     timeout: 60_000,
   });
   try {

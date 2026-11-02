@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { _electron as electron } from "playwright-core";
 import { expect, launchJunto, test, type JuntoHandle } from "../harness/launch";
+import { inheritedEnvForLaunch } from "../harness/launch-env";
 import { createSandbox, destroySandbox, type Sandbox } from "../harness/sandbox";
 import { modelFixture, modelSeat } from "../harness/model";
 
@@ -89,7 +90,8 @@ test("a core that never starts shows the startup dialog, then quits", async () =
     executablePath: ELECTRON_BINARY,
     args: [REPO_ROOT, `--user-data-dir=${sandbox.userDataDir}`, "--mute-audio"],
     env: {
-      ...process.env,
+      // A seat runs this spec: none of its JUNTO_* variables may reach the app.
+      ...inheritedEnvForLaunch(process.env),
       HOME: sandbox.homeDir,
       TMPDIR: sandbox.root,
       TMP: sandbox.root,

@@ -19,6 +19,7 @@ import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { expect, launchJunto, test } from "../harness/launch";
+import { inheritedEnvForLaunch } from "../harness/launch-env";
 
 const SHOTS = join(process.cwd(), "test-results", "companion");
 const PHONE_KEY = "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBE2eFakePhoneKeyForE2E=";
@@ -32,8 +33,8 @@ const realKeysDigest = (): string => {
 /** A phone stand-in: the real CLI relay, driven over stdio. */
 const runPhone = (home: string, deviceId: string, lines: ReadonlyArray<string>) =>
   new Promise<ReadonlyArray<Record<string, any>>>((resolve, reject) => {
-    const env: NodeJS.ProcessEnv = { ...process.env, HOME: home };
-    delete env.JUNTO_HOME;
+    // A phone is no seat: none of this seat's own JUNTO_* identity reaches it.
+    const env: NodeJS.ProcessEnv = { ...inheritedEnvForLaunch(process.env), HOME: home };
     const child = spawn("bun", [join(process.cwd(), "src/cli/main.ts"), "companion-stdio", "--device", deviceId], {
       env,
       stdio: ["pipe", "pipe", "pipe"],

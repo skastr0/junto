@@ -1,5 +1,7 @@
 import { EventEmitter } from "node:events";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   cleanupJuntoHarness,
@@ -407,5 +409,78 @@ describe("launch environment isolation", () => {
     expect(inheritedEnvForLaunch({ JUNTO_SEAT: "s", KEEP: "1" })).toEqual({ KEEP: "1" });
     expect(launchEnvironment({ ...base, demo: true }).JUNTO_DEMO).toBe("1");
     expect(launchEnvironment(base).JUNTO_DEMO).toBeUndefined();
+  });
+});
+
+describe("every e2e launch of the app filters the inherited environment", () => {
+  const E2E = join(import.meta.dirname, "..", "e2e");
+
+  const files = (directory: string): string[] =>
+    readdirSync(directory).flatMap((name) => {
+      const full = join(directory, name);
+      if (statSync(full).isDirectory()) return files(full);
+      return /\.(ts|tsx)$/u.test(name) ? [full] : [];
+    });
+
+  /** Whitespace out, so formatting cannot hide a raw spread. */
+  const compact = (text: string): string => text.replace(/\s+/gu, "");
+
+  const launchers = files(E2E).filter((file) => compact(readFileSync(file, "utf8")).includes("electron.launch("));
+
+  it("finds the launch sites (a guard against the guard passing on an empty set)", () => {
+    expect(launchers.length).toBeGreaterThanOrEqual(9);
+  });
+
+  it("never spreads process.env into a launched app, cast or not", () => {
+    const offending = launchers.filter((file) => {
+      const text = compact(readFileSync(file, "utf8"));
+      return text.includes("...process.env") || text.includes("...(process.env");
+    });
+    expect(offending).toEqual([]);
+  });
+
+  it("builds every launch env through the harness filter, or from the launched app's own env", () => {
+    // Three accepted shapes, each named in the file it uses:
+    //   - the harness filter on this process's env (a raw launch, or launchJunto);
+    //   - an env read out of the first app the harness launched, which is already
+    //     filtered, for a relaunch that must match the app it replaces.
+    const unfiltered = launchers.filter((file) => {
+      const text = compact(readFileSync(file, "utf8"));
+      const harnessFilter = text.includes("inheritedEnvForLaunch(process.env)") || text.includes("launchEnvironment(");
+      const appOwnEnv = (text.includes("mainEnvOf(") || text.includes(".app.evaluate(") || text.includes(".evaluate(()=>"))
+        && text.includes("Object.entries(process.env)");
+      return !harnessFilter && !appOwnEnv;
+    });
+    expect(unfiltered).toEqual([]);
+  });
+});
+
+describe("every e2e companion CLI launch filters the seat's identity", () => {
+  const E2E = join(import.meta.dirname, "..", "e2e");
+  const files = (directory: string): string[] =>
+    readdirSync(directory).flatMap((name) => {
+      const full = join(directory, name);
+      if (statSync(full).isDirectory()) return files(full);
+      return /\.(ts|tsx)$/u.test(name) ? [full] : [];
+    });
+  const compact = (text: string): string => text.replace(/\s+/gu, "");
+
+  it("drops every JUNTO_ variable from a spawned companion, or says why it keeps the seat's", () => {
+    // The companion is a phone, not a seat. Seat spawns (crew-fixture,
+    // browser-seat-probe) carry the seat credential on purpose and live in
+    // e2e/harness; this rule is for scenario files that start the phone.
+    // Two specs spawn the phone CLI directly; companion-artifacts-verify goes
+    // through harness/companion-walk.Phone, which takes the env its caller built
+    // (that caller strips every JUNTO_ key), so it has no spawn of its own.
+    const phones = files(join(E2E, "scenarios"))
+      .filter((file) => compact(readFileSync(file, "utf8")).includes("src/cli/main.ts"));
+    expect(phones.length).toBeGreaterThanOrEqual(2);
+    const leaking = phones.filter((file) => {
+      const text = compact(readFileSync(file, "utf8"));
+      const filters = text.includes("inheritedEnvForLaunch(process.env)")
+        || text.includes('key.startsWith("JUNTO_")');
+      return !filters;
+    });
+    expect(leaking).toEqual([]);
   });
 });
