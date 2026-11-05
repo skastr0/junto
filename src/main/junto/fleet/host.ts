@@ -10,10 +10,12 @@
  */
 import { Effect, Layer, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import { IPC_CHANNELS } from "@shared/ipc";
 import type { AuthorityMachineFacts, AuthorityMemberList, AuthorityRead } from "@shared/authority";
 import type { InstallationId } from "@shared/installation-id";
 import { MachineRepository } from "../machines/repository";
 import { RulingRecorder } from "../work/ruling-recorder";
+import { publish } from "../../core-process/push";
 import { CanvasAuthorities } from "./authorities";
 import { FleetDriverError, judgingCanvas, openCanvasAuthority, outsideTransactions, type CanvasAuthority } from "./driver";
 
@@ -161,13 +163,18 @@ export const makeCanvasAuthorities = Effect.gen(function* () {
         return yield* Effect.fail(new FleetDriverError({ message: "a machine appears twice in the list", cause: order }));
       }
       yield* authority.proposeList(list);
+      announceChange();
       return yield* readOf(canvasName);
     });
+
+  /** The authority view reads again: the list edit and the fork are the only changes until a link carries peers' terms. */
+  const announceChange = (): void => publish(IPC_CHANNELS.authorityChanged, {});
 
   const alone = (canvasName: string): Effect.Effect<AuthorityRead, FleetDriverError> =>
     Effect.gen(function* () {
       const authority = yield* authorityOf(canvasName);
       yield* authority.alone();
+      announceChange();
       return yield* readOf(canvasName);
     });
 

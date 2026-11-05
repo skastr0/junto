@@ -697,6 +697,7 @@ export const registerJuntoIpc = (): void => {
     IPC_CHANNELS.usageChanged,
     IPC_CHANNELS.kernelChanged,
     IPC_CHANNELS.coreRestarted,
+    IPC_CHANNELS.authorityChanged,
   ]) onCorePush(channel, (payload) => broadcast(channel, payload));
   askOnEveryCore("ipc.watch.model", () => core.call("ipc.watch.model", {}));
   askOnEveryCore("ipc.watch.modelCanvases", () => core.call("ipc.watch.modelCanvases", {}));

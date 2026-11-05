@@ -167,6 +167,8 @@ export const CORE_PUSHES = {
   [IPC_CHANNELS.seatOffboardProgress]: carries<SeatOffboardProgress>(),
   [IPC_CHANNELS.seatOnboardingChanged]: carries<SeatOnboardingEvent>(),
   [IPC_CHANNELS.coreRestarted]: carries<Record<string, never>>(),
+  // A canvas's authority list changed (fleet/host.ts); the window reads it again.
+  [IPC_CHANNELS.authorityChanged]: carries<Record<string, never>>(),
 } as const;
 
 /** Every channel on the core bus. */

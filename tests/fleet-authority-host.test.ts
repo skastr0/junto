@@ -31,6 +31,8 @@ import { authorityListOf, authorityViewOf } from "../src/shared/authority";
 import type { InstallationId } from "../src/shared/installation-id";
 import { FleetDriverError } from "../src/main/junto/fleet/driver";
 import { seedCanvasRows } from "./support/seed-canvas";
+import { subscribe } from "../src/main/core-process/push";
+import { IPC_CHANNELS } from "../src/shared/ipc";
 
 const SELF = "mini" as InstallationId;
 const BOOK = "install-book" as InstallationId;
@@ -159,6 +161,25 @@ describe("the authority host read", () => {
       expect(read.canCommit).toBe(true);
       expect(read.role).toBe("leader");
     } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("tells the window the authority changed after the list edit and the fork, and not after a read", async () => {
+    const runtime = await opened();
+    let heard = 0;
+    const stop = subscribe(IPC_CHANNELS.authorityChanged, () => { heard += 1; });
+    try {
+      await runtime.runPromise(Effect.flatMap(CanvasAuthorities, (host) => host.status()));
+      expect(heard).toBe(0);
+      await runtime.runPromise(Effect.flatMap(CanvasAuthorities, (host) => host.setList("factory", ["mini", "book"])));
+      expect(heard).toBe(1);
+      await runtime.runPromise(Effect.flatMap(CanvasAuthorities, (host) => host.alone("pair")));
+      expect(heard).toBe(2);
+      await runtime.runPromise(Effect.result(Effect.flatMap(CanvasAuthorities, (host) => host.setList("factory", ["nope"]))));
+      expect(heard).toBe(2);
+    } finally {
+      stop();
       await runtime.dispose();
     }
   });
