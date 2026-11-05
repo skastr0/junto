@@ -10,13 +10,20 @@
  * stop. The op bodies never reach for main's state themselves.
  */
 import { Effect } from "effect";
-import type { FactoryPauseSetResult, RegionEnvReportResult, RegionEnvStaleSeatsResult } from "@shared/ipc";
+import type {
+  FactoryPauseSetResult,
+  RegionEnvRemoveSecretResult,
+  RegionEnvReportResult,
+  RegionEnvSaveSecretResult,
+  RegionEnvStaleSeatsResult,
+} from "@shared/ipc";
 import type { CanvasPauseState } from "@shared/pause";
 import { buildOnboardNudge } from "@shared/managed-terminal-injection";
 import type { SeatOnboardNudgeResult } from "@shared/seat-onboarding-status";
 import { coreRunner } from "../../core-runner";
 import { PausePlane } from "../../junto/pause-plane";
 import { regionEnvReport, regionEnvStaleSeats } from "../../junto/region-env/report-ipc";
+import { removeRegionSecret, saveRegionSecret } from "../../junto/region-env/secret-ipc";
 import { appendSeatPrompt, type SeatPromptInput, type SeatPromptResult } from "../../junto/work/seat-prompt";
 import { coreOps, type CoreOp } from "../ops";
 import type { SeatSessions } from "../../junto/seat-sessions/start-seat-sessions";
@@ -76,6 +83,9 @@ declare module "../ops" {
       { readonly canvasName: unknown; readonly regionId: unknown },
       RegionEnvReportResult
     >;
+    /** The region screen's save: the value crosses once, and the answer is only its id. */
+    "ipc.regionEnv.saveSecret": CoreOp<{ readonly input: unknown }, RegionEnvSaveSecretResult>;
+    "ipc.regionEnv.removeSecret": CoreOp<{ readonly secretId: unknown }, RegionEnvRemoveSecretResult>;
     "ipc.seats.regionEnvStaleSeats": CoreOp<
       { readonly canvasName: unknown; readonly regionId: unknown },
       RegionEnvStaleSeatsResult
@@ -124,6 +134,9 @@ coreOps({
   // service that holds it here.
   "ipc.regionEnv.report": ({ canvasName, regionId }) =>
     Effect.promise(() => regionEnvReport(canvasName, regionId)),
+  // The secret store opens in the core, the one process that reads it for a seat's launch.
+  "ipc.regionEnv.saveSecret": ({ input }) => Effect.sync(() => saveRegionSecret(input)),
+  "ipc.regionEnv.removeSecret": ({ secretId }) => Effect.sync(() => removeRegionSecret(secretId)),
   "ipc.seats.regionEnvStaleSeats": ({ canvasName, regionId }) =>
     Effect.promise(() => regionEnvStaleSeats(canvasName, regionId)),
   "ipc.seats.factoryPauseState": ({ canvas }) =>

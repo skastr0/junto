@@ -89,7 +89,6 @@ import {
 } from "./term/drive/claude-startup";
 import { registerOperatorHoldsIpc } from "./term/operator-holds-ipc";
 import { coreOperatorHolds } from "../core-process/main-side/seat-holds";
-import { removeRegionSecret, saveRegionSecret } from "./region-env/secret-ipc";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 import { trustedRendererIpc } from "./trusted-main-webcontents";
 import {
@@ -577,14 +576,15 @@ export const registerJuntoIpc = (): void => {
     },
   );
 
-  // Region environment: Junto's own secret store on this machine. The value
-  // arrives once and no handler returns it. An install-local store like seat
-  // guidance (no canvas authoring), so it runs outside the main-authoring gate.
+  // Region environment: Junto's own secret store on this machine, held by the
+  // core. The value arrives once and no answer returns it. An install-local
+  // store like seat guidance (no canvas authoring), so it runs outside the
+  // main-authoring gate.
   privilegedIpc.handle(IPC_CHANNELS.regionEnvSaveSecret, (_event, input: unknown) =>
-    saveRegionSecret(input),
+    core.call("ipc.regionEnv.saveSecret", { input }),
   );
   privilegedIpc.handle(IPC_CHANNELS.regionEnvRemoveSecret, (_event, secretId: unknown) =>
-    removeRegionSecret(secretId),
+    core.call("ipc.regionEnv.removeSecret", { secretId }),
   );
   // Read-only: names, kinds, origins and status of what a region resolves to.
   privilegedIpc.handle(
