@@ -139,7 +139,6 @@ import {
 } from "@shared/trusted-renderer-origin";
 import { loadStationSupervisor } from "./junto/supervision/select";
 import { installUpdateHostHooks } from "./junto/update";
-import { hostOperationsShutdown } from "./junto/hosts/shutdown";
 import {
   operatorControlEnabledFromInitialArgv,
 } from "./junto/operator-control";
@@ -396,9 +395,6 @@ let productRuntimeStarted = false;
 let shutdownAdmissionClosed = false;
 let shutdownReason = "app_quit";
 let browserShutdown: Promise<Awaited<ReturnType<BrowserComposition["drainOnQuit"]>>> | undefined;
-let hostOperationsDrain:
-  | Promise<Awaited<ReturnType<typeof hostOperationsShutdown.drainOnQuit>>>
-  | undefined;
 let adapterShutdown:
   | Promise<Awaited<ReturnType<typeof terminateAdapterChildrenOnQuit>>>
   | undefined;
@@ -1753,7 +1749,6 @@ const beginShutdownAdmission = (reason: string): void => {
 
   unregisterOverseerLiveIpc?.();
   unregisterOverseerLiveIpc = undefined;
-  hostOperationsShutdown.beginShutdown();
   appProcessPlane.beginShutdown();
 };
 
@@ -1850,16 +1845,6 @@ const requireCleanBrowserShutdown = async (reason: string): Promise<void> => {
   if (BROWSER_ENABLED) await browserCompositionHost.shutdown();
 };
 
-const requireCleanHostOperationsShutdown = async (): Promise<void> => {
-  const receipt = await (hostOperationsDrain ??= hostOperationsShutdown.drainOnQuit());
-  if (!receipt.clean) {
-    hostOperationsDrain = undefined;
-    throw new Error(
-      `host operations shutdown retained ${receipt.retainedLabels.join(", ") || "active work"}`,
-    );
-  }
-};
-
 const requireCleanChildrenShutdown = async (): Promise<void> => {
   const children = coreChildren;
   coreChildren = undefined;
@@ -1903,7 +1888,6 @@ const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
   // Steps read top to bottom in the order they run; the scope runs them in
   // reverse registration order, so they are registered bottom to top.
   const steps: ReadonlyArray<readonly [string, () => Promise<void>]> = [
-    ["dispose: host operations", requireCleanHostOperationsShutdown],
     ["dispose: browser", () => requireCleanBrowserShutdown(reason)],
     ["dispose: adapters", requireCleanAdapterShutdown],
     ["dispose: app processes", requireCleanAppProcessShutdown],
