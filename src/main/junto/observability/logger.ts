@@ -77,37 +77,20 @@ type LogState = {
 };
 
 /**
- * Where a row goes when this process has no ring of its own (Electron main,
- * with the core in its own process): the core appends it to the one ring the
- * Observability panel reads, so main's boot and window lines are not lost.
+ * Where this process's rows go, as its boot says: the core appends them to its
+ * ring, the one the Observability panel reads; Electron main forwards them to
+ * the core, so main's boot and window lines are not lost. Until a process
+ * says, and after main's quit begins, a row goes to the log file and console
+ * only.
  */
-let forward: ((input: ObservabilityAppendInput) => void) | undefined;
+let rows: ((input: ObservabilityAppendInput) => void) | undefined;
 
-/** Main only, once the core's append operation is reachable. */
-export const setObservabilityForwarder = (next: ((input: ObservabilityAppendInput) => void) | undefined): void => {
-  forward = next;
+export const sendLogRowsTo = (next: ((input: ObservabilityAppendInput) => void) | undefined): void => {
+  rows = next;
 };
 
-/**
- * The process's own ring, installed by the core that owns it. Main installs
- * none: a row there goes to the core's ring or nowhere, never into a second
- * ring nothing reads.
- */
-let rowSink: ((input: ObservabilityAppendInput) => void) | undefined;
-
-export const setLogRowSink = (
-  next: ((input: ObservabilityAppendInput) => void) | undefined,
-): void => {
-  rowSink = next;
-};
-
-/** One row to the ring: here, or in the process that owns it. */
 const emit = (input: ObservabilityAppendInput): void => {
-  if (forward !== undefined) {
-    forward(input);
-    return;
-  }
-  rowSink?.(input);
+  rows?.(input);
 };
 
 const state: LogState = { sink: undefined, machine: defaultMachineName(), process: "app", echo: true };

@@ -10,7 +10,6 @@ import {
   OBSERVABILITY_RING_CAPACITY,
   matchesObservabilityQuery,
 } from "@shared/observability";
-import { setLogRowSink } from "./logger";
 import { scrubMessage } from "../credentials/scrub";
 
 export type ObservabilityAppendInput = {
@@ -134,12 +133,6 @@ export const makeObservabilityRing = (
 /** Singleton for the app process (Command Center + Remote share one process). */
 export const observabilityRing = makeObservabilityRing();
 
-/**
- * The ring is this process's row sink: the logger names no ring, so a process
- * that has one (this one) captures every row it writes, and main, which has
- * none, forwards its rows to the core instead.
- */
-setLogRowSink((row) => observabilityRing.append(row));
 
 /**
  * A row that arrived from another process. It was scrubbed by the process that

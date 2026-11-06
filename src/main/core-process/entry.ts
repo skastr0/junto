@@ -29,6 +29,8 @@ import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import "./ops/index";
 import { armMainThreadBudget } from "../junto/observability/main-thread-budget";
 import { startSqlTimingLog } from "../junto/observability/sql-timing-log";
+import { sendLogRowsTo } from "../junto/observability/logger";
+import { observabilityRing } from "../junto/observability/ring";
 import type { TerminalPortMain } from "../terminal-process/over-ports";
 
 export type CoreBoot = {
@@ -66,6 +68,8 @@ const main = async (parent: ParentPort): Promise<void> => {
   // never reaches the database, a log or a socket (src/shared/e2e-sandbox.ts).
   // startCore stays a library function; its callers in tests are not entries.
   enforceBootRefusal({ juntoHome: boot.home });
+  // Every row this process writes lands in its ring, the one the panel reads.
+  sendLogRowsTo((row) => observabilityRing.append(row));
   // The core's own pid, first in its log: whoever runs it (main, a test, the
   // operator reading the log) learns which process is the core from here.
   console.info(`[core] pid ${String(process.pid)}`);

@@ -9,7 +9,8 @@ import { noWindowHost, useHostClient } from "./core-process/core-host";
 import { enforceBootRefusal } from "./junto/boot-guard";
 import { declareMachineCoreOwnsSessions } from "./junto/term/managed-spawn-plan";
 import { armMainThreadBudget } from "./junto/observability/main-thread-budget";
-import { installMachineLog, installObservabilityConsoleHook } from "./junto/observability/logger";
+import { installMachineLog, installObservabilityConsoleHook, sendLogRowsTo } from "./junto/observability/logger";
+import { observabilityRing } from "./junto/observability/ring";
 import { machineLogDir } from "./junto/observability/log-file";
 import { LinkUnavailable } from "./junto/link/types";
 
@@ -28,6 +29,8 @@ const main = async (): Promise<void> => {
   // The log file is this core's record. Its service stdio is an unbounded
   // file, so nothing is echoed there but the fixed lines below.
   installMachineLog({ home, process: "core", echo: false });
+  // Every row this core writes lands in its ring, as the app core's do.
+  sendLogRowsTo((row) => observabilityRing.append(row));
   installObservabilityConsoleHook({ echo: false });
   // The 4ms assertion is a development instrument. Bun's bundler inlines
   // NODE_ENV as "development", so without this every installed core reports

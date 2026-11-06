@@ -53,3 +53,12 @@ it("core reads: only the core holds them, installed by startCore; main asks its 
   expect(runner).not.toMatch(/floorSpawnEnv|coreNotRunning/u);
   expect(read("src/main/junto/core.ts")).toContain("installInProcessCoreReads");
 });
+
+it("log rows: one destination per process, chosen by its boot; loading the ring installs nothing", () => {
+  expect(ENTRY).toContain("sendLogRowsTo((row) => observabilityRing.append(row))");
+  expect(HEADLESS).toContain("sendLogRowsTo((row) => observabilityRing.append(row))");
+  expect(read("src/main/junto/observability/ipc.ts")).toContain("sendLogRowsTo((entry) =>");
+  const logger = read("src/main/junto/observability/logger.ts");
+  expect(logger).not.toMatch(/setObservabilityForwarder|setLogRowSink|rowSink/u);
+  expect(read("src/main/junto/observability/ring.ts")).not.toMatch(/sendLogRowsTo|setLogRowSink/u);
+});
