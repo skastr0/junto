@@ -89,8 +89,10 @@ describe("the core process's own plane at stop", () => {
 
   it("the plane drains even when the core's close failed, and the close's failure is the one reported", async () => {
     const failure = new Error("Core writes did not drain; core state retained");
+    const clean = plane({ clean: true, stragglers: [] });
     await expect(closeCoreProcess(async () => {
       throw failure;
-    })).rejects.toBe(failure);
+    }, clean)).rejects.toBe(failure);
+    expect(clean.drained()).toBe(1);
   });
 });

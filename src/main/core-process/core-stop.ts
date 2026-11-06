@@ -44,8 +44,10 @@ export const drainCoreProcessPlane = async (plane: Pick<AppProcessPlane, "drainO
 };
 
 /** Close the core, then drain its plane; the drain runs even when the close failed. */
-export const closeCoreProcess = (close: () => Promise<void>): Promise<void> =>
-  runStopSteps([close, () => drainCoreProcessPlane()]);
+export const closeCoreProcess = (
+  close: () => Promise<void>,
+  plane: Pick<AppProcessPlane, "drainOnQuit"> = appProcessPlane,
+): Promise<void> => runStopSteps([close, () => drainCoreProcessPlane(plane)]);
 
 export const stopCoreOnSignal = (
   close: () => Promise<void>,
