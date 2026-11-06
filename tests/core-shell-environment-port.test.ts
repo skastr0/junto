@@ -14,8 +14,6 @@ import { publish } from "../src/main/core-process/push";
 import { subscribe } from "../src/main/core-process/main-side/core-pushes";
 import { shellEnvironment } from "../src/main/junto/shell-environment";
 import { registerShellEnvironmentIpc } from "../src/main/junto/shell-environment/ipc";
-import { resolvedSpawnEnv } from "../src/main/junto/adapters/spawn-env";
-import { CoreCallError } from "../src/main/core-process/client";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 
 const STATUS = { _tag: "Applied", generation: 2, shell: "/bin/zsh", variables: [], failures: [] };
@@ -41,20 +39,6 @@ describe("the shell environment over the core", () => {
     const ensure = vi.spyOn(shellEnvironment, "ensure").mockResolvedValue({ PATH: "/bin/zsh" } as never);
     expect(await core.call("ipc.shellEnvironment.env", {})).toEqual({ PATH: "/bin/zsh" });
     expect(ensure).toHaveBeenCalledTimes(1);
-  });
-
-  it("reads the env at spawn time, so a refresh reaches the next main-side spawn", async () => {
-    let path = "/opt/a/bin";
-    useCoreClient({ call: async (name: string) => (name === "ipc.shellEnvironment.env" ? { PATH: path, HOME: "/home/op" } : STATUS) } as never);
-    expect((await resolvedSpawnEnv()).PATH).toBe("/opt/a/bin");
-    // The operator refreshed; nothing is cached in main.
-    path = "/opt/b/bin";
-    expect((await resolvedSpawnEnv()).PATH).toBe("/opt/b/bin");
-  });
-
-  it("fails the spawn with the core's typed error, never with main's own env", async () => {
-    useCoreClient({ call: async (name: string) => { throw new CoreCallError(name, "CoreRestarting", "the core is not answering"); } } as never);
-    await expect(resolvedSpawnEnv()).rejects.toBeInstanceOf(CoreCallError);
   });
 
   it("lets main relay the core's answer and its change push", async () => {

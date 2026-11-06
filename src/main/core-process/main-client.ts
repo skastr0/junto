@@ -1,4 +1,3 @@
-import { floorSpawnEnv, installCoreReads } from "../core-runner";
 import { CoreCallError, type CoreClient } from "./client";
 
 /**
@@ -19,20 +18,7 @@ export const core: CoreClient = {
   },
 };
 
-/**
- * Boot only: route every call to the core process. Main then has no core
- * runtime, so the shared reads (`coreReads`) ask the core by name too.
- */
+/** Boot only: route every call to the core process. */
 export const useCoreClient = (client: CoreClient): void => {
   current = client;
-  installCoreReads({
-    canvas: (canvasName) => core.call("core.canvas", { canvasName }),
-    machineName: () => core.call("core.machineName", {}),
-    vaultScope: () => core.call("core.vaultScope", {}),
-    // A spawn in main asks each time: a read held from boot would go stale.
-    spawnEnv: () => core.call("ipc.shellEnvironment.env", {}),
-    // A spawn options literal cannot await: the inherited PATH and the floor,
-    // which is what main holds before it can ask.
-    spawnEnvNow: floorSpawnEnv,
-  });
 };

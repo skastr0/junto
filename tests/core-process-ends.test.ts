@@ -44,3 +44,12 @@ it("terminals: each core boot chooses where its PTYs run, and nothing infers it 
   expect(core).not.toMatch(/\(process as unknown as \{ parentPort/u);
   expect(read("src/main/terminal-process/use.ts")).not.toMatch(/process\.type|parentPort/u);
 });
+
+it("core reads: only the core holds them, installed by startCore; main asks its own client", () => {
+  expect(read("src/main/core-process/main-client.ts")).not.toMatch(/installCoreReads|core-runner/u);
+  expect(read("src/main/junto/browser/composition.ts")).not.toMatch(/core-runner/u);
+  const runner = read("src/main/core-runner.ts");
+  // No pre-boot default: a read before startCore throws, a spawn's included.
+  expect(runner).not.toMatch(/floorSpawnEnv|coreNotRunning/u);
+  expect(read("src/main/junto/core.ts")).toContain("installInProcessCoreReads");
+});

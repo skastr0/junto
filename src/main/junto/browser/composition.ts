@@ -35,7 +35,7 @@ import {
   type BrowserViewAdapter,
   type BrowserUiShutdownDrainReceipt,
 } from "./sessions";
-import { coreReads } from "../../core-runner";
+import { core } from "../../core-process/main-client";
 
 // Browser composition without ceremony: sessions + profiles + internal
 // capability registry (edge-grant leases only). Product access is
@@ -489,7 +489,7 @@ export const clearTouchedServiceWorkersAtStart = async (
  * fail closed when it cannot answer.
  */
 const thisMachineName = (): Promise<string | undefined> =>
-  coreReads.machineName().catch(() => undefined);
+  core.call("core.machineName", {}).catch(() => undefined);
 
 class BindOnce<T extends object> {
   #bound = false;

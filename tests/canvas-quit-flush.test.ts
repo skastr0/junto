@@ -152,7 +152,7 @@ describe("canvas quit durability wiring", () => {
     expect(coreSeats).toContain("throw new Error(`Seat processes did not stop:");
     // An orderly quit also hangs up what this core did not rebuild; a crash
     // never does, so a port closing leaves the terminals running.
-    expect(coreSeats).toContain("terminalProcess()?.hangupAll()");
+    expect(coreSeats).toContain("terminalProcessClient()?.hangupAll()");
     expect(coreSeats).not.toContain("function hangupAll");
     // Main's exit paths still cut admission before detach and exit, and a
     // blocked direct exit gives the operator a surface back.
