@@ -29,6 +29,7 @@ import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import "./ops/index";
 import { armMainThreadBudget } from "../junto/observability/main-thread-budget";
 import { startSqlTimingLog } from "../junto/observability/sql-timing-log";
+import type { TerminalPortMain } from "../terminal-process/over-ports";
 
 export type CoreBoot = {
   readonly home: string;
@@ -43,7 +44,7 @@ export type CoreBoot = {
 
 type ParentPort = {
   readonly postMessage: (message: unknown) => void;
-  readonly on: (event: "message", listener: (event: { readonly data: unknown; readonly ports?: ReadonlyArray<{ readonly close: () => void }> }) => void) => void;
+  readonly on: (event: "message", listener: (event: { readonly data: unknown; readonly ports?: ReadonlyArray<TerminalPortMain & { readonly close: () => void }> }) => void) => void;
   readonly off: (event: "message", listener: (event: { readonly data: unknown }) => void) => void;
 };
 
@@ -91,6 +92,7 @@ const main = async (parent: ParentPort): Promise<void> => {
     home: boot.home,
     build: boot.build,
     canvasControl: true,
+    windowTerminals: { parent },
     overseer: { captureApplicationPage: hostCaptureApplicationPage(host), pages: hostOverseerPages(host) },
     onPreamble: broadcasts.onPreamble,
     overseerLive: LIVE_OVERSEER_ENABLED,

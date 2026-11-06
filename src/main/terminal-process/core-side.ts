@@ -1,7 +1,7 @@
 import { host } from "../core-process/core-host";
 import { TERMINAL_CONNECT } from "./protocol";
 import { terminalsOverPorts, type TerminalPortMain } from "./over-ports";
-import { useTerminalProcess } from "./use";
+import { placeTerminals } from "./use";
 
 declare module "../core-process/host-ops" {
   interface HostOps {
@@ -10,7 +10,7 @@ declare module "../core-process/host-ops" {
   }
 }
 
-type ParentPort = {
+export type CoreParentPort = {
   readonly on: (event: "message", listener: (event: { readonly data: unknown; readonly ports?: readonly TerminalPortMain[] }) => void) => void;
 };
 
@@ -21,9 +21,9 @@ type ParentPort = {
  * the boot resumes has its terminals. A later port (the terminal process
  * started again) replaces the last.
  */
-export const connectCoreTerminals = async (parent: ParentPort): Promise<void> => {
+export const connectCoreTerminals = async (parent: CoreParentPort): Promise<void> => {
   const terminals = terminalsOverPorts();
-  useTerminalProcess(terminals);
+  placeTerminals({ kind: "process", client: terminals });
   let first!: () => void;
   const connected = new Promise<void>((resolve) => { first = resolve; });
   parent.on("message", (event) => {

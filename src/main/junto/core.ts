@@ -27,7 +27,8 @@ import { workControlDir } from "@shared/work-control";
 import { startCoreSeats, adoptCoreTerminals } from "./term/core-seats";
 import { runStopSteps } from "../stop-scope";
 import { reconcileSeatsLostToCoreRestart } from "./term/seat-reconcile";
-import { connectCoreTerminals } from "../terminal-process/core-side";
+import { connectCoreTerminals, type CoreParentPort } from "../terminal-process/core-side";
+import { placeTerminals } from "../terminal-process/use";
 import { bindTermIpcPlane } from "../core-process/ops/term-ipc";
 import { startSeatSessions, type SeatSessions } from "./seat-sessions/start-seat-sessions";
 import { wireSeatReports } from "./term/agent-state/seat-reports";
@@ -67,6 +68,13 @@ export type CoreOptions = Omit<MachineCoreOptions, "ready"> & {
     readonly captureApplicationPage: () => Promise<ApplicationCaptureResult>;
     readonly pages: OverseerPages;
   };
+  /**
+   * The desktop core, in its own process under Electron main: its PTYs run in
+   * the terminal process over a port main hands it on this parent port, and
+   * its terminal ops serve the window. Without it the core is windowless and
+   * its PTYs run in its own process.
+   */
+  readonly windowTerminals?: { readonly parent: CoreParentPort };
   /** The desktop core runs the live overseer, and its work control server takes the live seat's calls. */
   readonly overseerLive?: boolean;
   /** A seat's preamble as the work control server takes it, for the window. */
@@ -275,17 +283,19 @@ export const startCore = async (options: CoreOptions) => {
     if (options.canvasControl === true) {
       canvas = await startCanvasControlServer({ home: options.home, run: effect => runtime.runPromise(effect) });
     }
-    // The core in its own process: one terminal plane, here, whose PTYs run in
-    // the terminal process over a port main hands it, never in this process.
-    const parent = (process as unknown as { parentPort?: Parameters<typeof connectCoreTerminals>[0] }).parentPort;
-    if (parent !== undefined) await connectCoreTerminals(parent);
+    // One terminal plane, here. The desktop core's PTYs run in the terminal
+    // process over a port main hands it, never in this process; a windowless
+    // core's run in this process.
+    const windowTerminals = options.windowTerminals;
+    if (windowTerminals !== undefined) await connectCoreTerminals(windowTerminals.parent);
+    else placeTerminals({ kind: "here" });
     seatProcesses = await startCoreSeats({ home: options.home });
     // The window's terminal ops ask this plane by name, and its events reach the window as core pushes.
     // The terminals the last core left running come back first: a new client
     // numbers its spawns from 1, so a spawn admitted before the adopt could
     // collide with a PTY that is still running there.
     await adoptCoreTerminals();
-    if (parent !== undefined) unbindTermIpcPlane = bindTermIpcPlane(termPlane);
+    if (windowTerminals !== undefined) unbindTermIpcPlane = bindTermIpcPlane(termPlane);
     // A seated seat this core did not get back is over, with its reason, so no
     // card keeps the last core's ring for a process that is not there.
     await runtime.runPromise(reconcileSeatsLostToCoreRestart());

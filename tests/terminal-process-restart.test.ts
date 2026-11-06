@@ -67,10 +67,10 @@ const fakeFork = () => {
 
 const { startTerminalProcess } = await import("../src/main/terminal-process/host");
 const { createAppProcessPlane } = await import("../src/main/junto/app-process-plane");
-const { useTerminalProcess } = await import("../src/main/terminal-process/use");
+const { placeTerminals } = await import("../src/main/terminal-process/use");
 
 afterEach(() => {
-  useTerminalProcess(undefined);
+  placeTerminals({ kind: "here" });
   for (const fork of forks.splice(0)) for (const pid of fork.pids) {
     try {
       process.kill(pid, "SIGKILL");
@@ -102,7 +102,7 @@ const spec = {
 describe("a terminal process that dies", () => {
   it("exits every PTY it held, and the next spawn starts a new one that works", async () => {
     const terminals = startTerminalProcess();
-    useTerminalProcess(terminals);
+    placeTerminals({ kind: "process", client: terminals });
     const plane = createAppProcessPlane({ termGraceMs: 200, killGraceMs: 200 });
     const first = plane.spawnTerminal(spec);
     const second = plane.spawnTerminal(spec);

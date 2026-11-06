@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { coreRunner } from "../../core-runner";
 import { resolvedSpawnEnv } from "../adapters/spawn-env";
-import { terminalProcess } from "../../terminal-process/use";
+import { terminalProcessClient } from "../../terminal-process/use";
 import { termPlane, termPlaneBlocksAppExit } from "./plane";
 
 /**
@@ -19,7 +19,7 @@ import { termPlane, termPlaneBlocksAppExit } from "./plane";
  * the window. The terminal process's refusal is a typed failure, handled here.
  */
 export const adoptCoreTerminals = async (): Promise<void> => {
-  const terminals = terminalProcess();
+  const terminals = terminalProcessClient();
   if (terminals === undefined) return;
   try {
     await coreRunner.runPromise(
@@ -65,7 +65,7 @@ export const startCoreSeats = async (options: { readonly home: string }) => {
           // the last core whose record this one never rebuilt, or one a stop
           // released while its process was still alive. A crash never does
           // this: a port closing leaves the terminals running.
-          terminalProcess()?.hangupAll();
+          terminalProcessClient()?.hangupAll();
         }
       })();
       return closeFlight;

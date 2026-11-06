@@ -12,7 +12,7 @@ import type { CoreMessage, CorePort } from "../src/main/core-process/port";
 import { createAppProcessPlane, type AppTerminalLease } from "../src/main/junto/app-process-plane";
 import { serveTerminals, type SpawnPty } from "../src/main/terminal-process/serve";
 import { terminalClient } from "../src/main/terminal-process/client";
-import { useTerminalProcess } from "../src/main/terminal-process/use";
+import { placeTerminals } from "../src/main/terminal-process/use";
 
 const nodePty = createRequire(import.meta.url)("node-pty") as typeof import("node-pty");
 
@@ -27,7 +27,7 @@ const portOf = (port: MessagePort): CorePort => ({
 
 const opened: MessagePort[] = [];
 afterEach(() => {
-  useTerminalProcess(undefined);
+  placeTerminals({ kind: "here" });
   for (const port of opened.splice(0)) port.close();
 });
 
@@ -41,7 +41,7 @@ const install = () => {
     return pty;
   };
   const served = serveTerminals(portOf(port2), spawnPty);
-  useTerminalProcess(terminalClient(portOf(port1)));
+  placeTerminals({ kind: "process", client: terminalClient(portOf(port1)) });
   return { served, spawned };
 };
 

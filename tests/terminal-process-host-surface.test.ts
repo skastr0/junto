@@ -15,7 +15,7 @@ import { LocalSessionHost } from "../src/main/junto/term/local-host";
 import { OperatorInterlock } from "../src/main/junto/term/drive/operator-interlock";
 import { serveTerminals, type SpawnPty, type SurfacePort } from "../src/main/terminal-process/serve";
 import { terminalClient } from "../src/main/terminal-process/client";
-import { useTerminalProcess } from "../src/main/terminal-process/use";
+import { placeTerminals } from "../src/main/terminal-process/use";
 import { TerminalSurface, type SurfaceOut, type TerminalGate, type TerminalHold, type TerminalSurfaceOpen } from "../src/main/terminal-process/protocol";
 import { makeThisMachine } from "../src/shared/remote-hosts";
 import { hostsSnapshot, setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
@@ -35,7 +35,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   for (const host of hosts.splice(0)) await host.shutdownAll("test");
-  useTerminalProcess(undefined);
+  placeTerminals({ kind: "here" });
   for (const port of opened.splice(0)) port.close();
   setHostsSnapshot(initialHosts);
   process.env.SHELL = initialShell;
@@ -77,9 +77,9 @@ const install = () => {
     listen: core.listen,
   };
   // Moved behind every spawn on the same port, as the utilityProcess does.
-  useTerminalProcess(terminalClient(recording, (message, surface) => {
+  placeTerminals({ kind: "process", client: terminalClient(recording, (message, surface) => {
     port1.postMessage({ ...message, surface }, [surface as MessagePort]);
-  }));
+  }) });
   return { gates, holds };
 };
 

@@ -1,39 +1,34 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { terminalProcess, useTerminalProcess } from "../src/main/terminal-process/use";
+import type { TerminalClient } from "../src/main/terminal-process/client";
+import { placeTerminals, terminalPlace, terminalProcessClient } from "../src/main/terminal-process/use";
 
 /**
- * The PTY slot's law: an unfilled client means this process spawns live, and
- * that is only true off Electron main. Main holding no client must fail
- * loudly, not spawn a PTY on its own thread.
+ * Where a process's PTYs run is its boot's choice, never inferred from which
+ * process it is. A process whose boot chose nothing (Electron main) holds no
+ * terminals, so a spawn there throws instead of running on its thread.
  */
-const asElectronMain = (main: boolean): void => {
-  Object.defineProperty(process, "type", {
-    value: main ? "browser" : undefined,
-    configurable: true,
-    writable: true,
-  });
-};
-
 afterEach(() => {
-  useTerminalProcess(undefined);
-  asElectronMain(false);
+  // The unit tests' own place (vitest-setup-one-process.ts).
+  placeTerminals({ kind: "here" });
 });
 
-describe("the terminal process slot", () => {
-  it("spawns in this process under node, the terminal process and the windowless core", () => {
-    expect(process.type).toBeUndefined();
-    expect(terminalProcess()).toBeUndefined();
+describe("where this process's terminals run", () => {
+  it("runs them here when the boot says here, with no terminal process client", () => {
+    placeTerminals({ kind: "here" });
+    expect(terminalPlace()).toEqual({ kind: "here" });
+    expect(terminalProcessClient()).toBeUndefined();
   });
 
-  it("fails loudly on Electron main when nothing installed a terminal client", () => {
-    asElectronMain(true);
-    expect(() => terminalProcess()).toThrow(/never on main/u);
+  it("runs them in the terminal process when the boot hands it the client", () => {
+    const client = { spawn: () => undefined } as unknown as TerminalClient;
+    placeTerminals({ kind: "process", client });
+    expect(terminalProcessClient()).toBe(client);
   });
 
-  it("answers the installed client even on Electron main", () => {
-    asElectronMain(true);
-    const client = { spawn: () => undefined } as unknown as Parameters<typeof useTerminalProcess>[0];
-    useTerminalProcess(client);
-    expect(terminalProcess()).toBe(client);
+  it("decides by no process identity: the module reads neither process.type nor parentPort", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("src/main/terminal-process/use.ts", "utf8");
+    expect(source).not.toMatch(/process\.type|parentPort|\(process as/u);
+    expect(readFileSync("src/main/junto/core.ts", "utf8")).not.toMatch(/\(process as unknown as \{ parentPort/u);
   });
 });

@@ -29,7 +29,7 @@ import {
   type SignalOwnedResult,
 } from "./process-signal";
 import type { RemoteTerminal } from "../terminal-process/client";
-import { terminalProcess } from "../terminal-process/use";
+import { terminalPlace } from "../terminal-process/use";
 
 export const APP_PROCESS_PLANE_QUIESCING_ERROR =
   "app process plane is shutting down";
@@ -1215,9 +1215,9 @@ export const createAppProcessPlane = (
 
   const spawnTerminal = (spec: AppTerminalSpawnSpec): AppTerminalLease => {
     assertSpawnAllowed();
-    const terminals = terminalProcess();
-    if (terminals !== undefined) {
-      return registerTerminal(spec, makeRemotePtyBackend(terminals.spawn({
+    const place = terminalPlace();
+    if (place.kind === "process") {
+      return registerTerminal(spec, makeRemotePtyBackend(place.client.spawn({
         command: spec.command,
         args: [...(spec.args ?? [])],
         ...(spec.cwd === undefined ? {} : { cwd: spec.cwd }),

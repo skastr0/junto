@@ -34,3 +34,13 @@ it("host operations: main runs the bodies, the core holds the client, the protoc
   // The port answers host calls with what its owner hands it, never a registry of its own.
   expect(read("src/main/core-process/port.ts")).not.toMatch(/from "[^"]*host-op-bodies"|runHostOp/u);
 });
+
+it("terminals: each core boot chooses where its PTYs run, and nothing infers it from the process", () => {
+  // The desktop core hands startCore its parent port; the windowless core hands nothing and runs them here.
+  expect(ENTRY).toContain("windowTerminals: { parent }");
+  expect(HEADLESS).not.toContain("windowTerminals");
+  const core = read("src/main/junto/core.ts");
+  expect(core).toContain('else placeTerminals({ kind: "here" })');
+  expect(core).not.toMatch(/\(process as unknown as \{ parentPort/u);
+  expect(read("src/main/terminal-process/use.ts")).not.toMatch(/process\.type|parentPort/u);
+});
