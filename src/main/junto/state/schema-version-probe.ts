@@ -10,7 +10,8 @@
 import { existsSync, lstatSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { stateDatabasePath } from "./database-path";
+import { isDemoMode } from "../demo/mode";
+import { productStateDatabasePath } from "./product-database-path";
 import { CURRENT_STATE_SCHEMA_VERSION } from "./schema-version";
 
 export type InstalledStateSchemaProbe =
@@ -48,7 +49,10 @@ const isRegularFile = (path: string): boolean => {
 export const probeInstalledStateSchema = (
   configuredPath?: string,
 ): InstalledStateSchemaProbe => {
-  const path = resolve(configuredPath ?? stateDatabasePath());
+  // A demo run's database is the core's, minted empty for this run: nothing
+  // is installed for a gate to read.
+  if (configuredPath === undefined && isDemoMode()) return { kind: "missing" };
+  const path = resolve(configuredPath ?? productStateDatabasePath());
   if (!existsSync(path)) return { kind: "missing" };
   if (!isRegularFile(path)) {
     return {

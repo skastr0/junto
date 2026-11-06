@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { staticPathDirs } from "../src/main/junto/adapters/exec";
+import { staticPathDirs } from "../src/main/junto/adapters/spawn-env";
 import {
   defaultSettings,
 } from "../src/shared/settings";
@@ -81,7 +81,7 @@ describe("macOS privacy policy", () => {
     const environment = read("src/main/junto/shell-environment/environment.ts");
     const entry = read("src/main/junto/shell-environment/index.ts");
     const tool = read("src/main/junto/region-env/tool.ts");
-    const exec = read("src/main/junto/adapters/exec.ts");
+    const exec = read("src/main/junto/adapters/spawn-env.ts");
     const coreEnvironmentOps = read("src/main/core-process/ops/shell-environment.ts");
     const docs = read("docs/macos-privacy.md");
 

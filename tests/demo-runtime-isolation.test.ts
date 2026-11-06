@@ -137,8 +137,8 @@ describe("demo runtime isolation", () => {
   });
 
   it("releases the demo capability after the sole runtime owner disposes", () => {
-    const indexSource = readFileSync(
-      join(import.meta.dirname, "..", "src", "main", "index.ts"),
+    const coreSource = readFileSync(
+      join(import.meta.dirname, "..", "src", "main", "junto", "core.ts"),
       "utf8",
     );
     const engineSource = readFileSync(
@@ -154,8 +154,10 @@ describe("demo runtime isolation", () => {
       "utf8",
     );
 
-    expect(indexSource).toContain(
-      ".finally(releaseDemoRuntimeIsolation)",
+    // The core mints the demo directory, so the core releases it, after its
+    // runtime has closed SQLite.
+    expect(coreSource).toMatch(
+      /await runtime\.dispose\(\);[\s\S]{0,120}releaseDemoRuntimeIsolation\(\);/u,
     );
     expect(engineSource).not.toContain("JUNTO_E2E");
     expect(engineSource).not.toContain("VITEST");

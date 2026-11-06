@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { coreRunner } from "../../core-runner";
-import { resolvedSpawnEnv } from "../adapters/exec";
+import { resolvedSpawnEnv } from "../adapters/spawn-env";
 import { terminalProcess } from "../../terminal-process/use";
 import { termPlane, termPlaneBlocksAppExit } from "./plane";
 

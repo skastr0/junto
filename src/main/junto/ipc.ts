@@ -82,7 +82,7 @@ import {
   type ResourceChangedPush,
   type ResourceThreadChangedPush,
 } from "../core-process/channels";
-import { resolvedSpawnEnv } from "./adapters/exec";
+import { resolvedSpawnEnv } from "./adapters/spawn-env";
 import { runTool } from "./region-env/tool";
 import {
   isLiveClaudeResumeSummaryChoice,

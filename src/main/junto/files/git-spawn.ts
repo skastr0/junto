@@ -1,4 +1,4 @@
-import { resolvedSpawnEnv, resolvedSpawnEnvSync } from "../adapters/exec";
+import { resolvedSpawnEnv, resolvedSpawnEnvSync } from "../adapters/spawn-env";
 import { spawnServiceChild } from "../../services/process";
 import { makeNameSources, type GitRun, type NameSources } from "./sources";
 

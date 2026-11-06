@@ -28,7 +28,7 @@ vi.mock("node:child_process", async (importOriginal) => ({
   spawn: mocks.spawn,
 }));
 
-vi.mock("../src/main/junto/adapters/exec", () => ({
+vi.mock("../src/main/junto/adapters/spawn-env", () => ({
   resolvedSpawnEnv: mocks.resolvedSpawnEnv,
 }));
 

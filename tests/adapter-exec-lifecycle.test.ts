@@ -158,19 +158,21 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
     expect(source).not.toMatch(/original-process-group|process-tree.*clean/iu);
   });
 
-  it("routes normal quit and direct app.exit paths through adapter quiescence", () => {
+  it("drains adapters in the core's close, the one process that spawns them", () => {
     const indexSource = readFileSync(
       join(import.meta.dirname, "..", "src/main/index.ts"),
       "utf8",
     );
-    const admissionStart = indexSource.indexOf("const beginShutdownAdmission");
-    const admissionEnd = indexSource.indexOf("const logUnfinishedDrain", admissionStart);
-    const admissionBlock = indexSource.slice(admissionStart, admissionEnd);
+    const coreSource = readFileSync(
+      join(import.meta.dirname, "..", "src/main/junto/core.ts"),
+      "utf8",
+    );
+    const closeBlock = coreSource.slice(coreSource.indexOf("const close = (cause"));
 
-    expect(admissionBlock.indexOf("terminateAdapterChildrenOnQuit()"))
-      .toBeGreaterThanOrEqual(0);
-    expect(admissionBlock.indexOf("terminateAdapterChildrenOnQuit()"))
-      .toBeLessThan(admissionBlock.indexOf("appProcessPlane.beginShutdown()"));
+    expect(indexSource).not.toContain("terminateAdapterChildrenOnQuit");
+    expect(closeBlock.indexOf("await terminateAdapterChildrenOnQuit()")).toBeGreaterThanOrEqual(0);
+    expect(closeBlock.indexOf("await terminateAdapterChildrenOnQuit()"))
+      .toBeLessThan(closeBlock.indexOf("await runtime.dispose()"));
     expect(indexSource).toMatch(
       /app\.on\("before-quit",[\s\S]*detachRuntimeOnQuit\("before-quit"\)/u,
     );

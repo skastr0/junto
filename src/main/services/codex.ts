@@ -1,6 +1,6 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
-import { resolvedSpawnEnv } from "../junto/adapters/exec";
+import { resolvedSpawnEnv } from "../junto/adapters/spawn-env";
 import { runProcess } from "./process";
 
 export class CodexError extends Schema.TaggedError<CodexError>()("CodexError", {

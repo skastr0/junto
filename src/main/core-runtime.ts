@@ -17,7 +17,7 @@ import { homedir } from "node:os";
 import { VAULT_ENABLED } from "@shared/features";
 import { makeVaultSetup } from "./junto/vault/setup";
 import { runTool } from "./junto/region-env/tool";
-import { resolvedSpawnEnv } from "./junto/adapters/exec";
+import { resolvedSpawnEnv } from "./junto/adapters/spawn-env";
 import { machinePackageCliDir } from "./junto/term/templates/seat-env";
 import { automationRunnerLayer, makeCoreProductLayer } from "./core-product";
 import { MachineLink } from "./junto/link/service";

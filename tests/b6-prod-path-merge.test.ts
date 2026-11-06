@@ -6,7 +6,7 @@ import {
   mergePath,
   resolvedSpawnEnvSync,
   staticPathDirs,
-} from "../src/main/junto/adapters/exec";
+} from "../src/main/junto/adapters/spawn-env";
 import { runTool } from "../src/main/junto/region-env/tool";
 import { probeShellEnvironment, shellEnvironmentFromProbeOutput } from "../src/main/junto/shell-environment";
 
@@ -255,7 +255,7 @@ describe("resolvedSpawnEnv", () => {
     // the ones installed, so the read below is the one a spawn takes.
     const { installInProcessCoreReads } = await import("../src/main/core-process/in-process-reads");
     installInProcessCoreReads();
-    const { resolvedSpawnEnv } = await import("../src/main/junto/adapters/exec");
+    const { resolvedSpawnEnv } = await import("../src/main/junto/adapters/spawn-env");
     const env = await resolvedSpawnEnv();
     const dirs = split(env.PATH ?? "");
     // The shell's PATH leads; the static floor still backs it.

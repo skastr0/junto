@@ -34,10 +34,6 @@ import {
   shouldPinUnpackagedElectronUserData,
   unpackagedElectronUserDataPath,
 } from "@shared/junto-home";
-import {
-  resolvedSpawnEnv,
-  terminateAdapterChildrenOnQuit,
-} from "./junto/adapters/exec";
 import { runStopSteps } from "./stop-scope";
 import { appMenuTemplate } from "./junto/app-menu";
 import { appProcessBlocksAppExit, appProcessPlane, describeAppProcessStraggler } from "./junto/app-process-plane";
@@ -58,7 +54,6 @@ import {
   recordSystemLog,
 } from "./junto/observability/logger";
 import { startSqlTimingLog } from "./junto/observability/sql-timing-log";
-import { releaseDemoRuntimeIsolation } from "./junto/demo/runtime-isolation";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
 import { resolveControlHome } from "./junto/control-home";
 import { registerDemoIpcHandlers } from "./junto/demo/ipc";
@@ -395,9 +390,6 @@ let productRuntimeStarted = false;
 let shutdownAdmissionClosed = false;
 let shutdownReason = "app_quit";
 let browserShutdown: Promise<Awaited<ReturnType<BrowserComposition["drainOnQuit"]>>> | undefined;
-let adapterShutdown:
-  | Promise<Awaited<ReturnType<typeof terminateAdapterChildrenOnQuit>>>
-  | undefined;
 let appProcessShutdown:
   | Promise<Awaited<ReturnType<typeof appProcessPlane.drainOnQuit>>>
   | undefined;
@@ -1745,7 +1737,6 @@ const beginShutdownAdmission = (reason: string): void => {
   // Browser product lock: quit detaches owned browser views and closes
   // automation/control admission only through the aggregate composition drain.
   browserShutdown ??= browserComposition?.drainOnQuit(reason);
-  adapterShutdown ??= terminateAdapterChildrenOnQuit();
 
   unregisterOverseerLiveIpc?.();
   unregisterOverseerLiveIpc = undefined;
@@ -1856,14 +1847,6 @@ const requireCleanChildrenShutdown = async (): Promise<void> => {
   if (failure !== undefined) throw failure;
 };
 
-const requireCleanAdapterShutdown = async (): Promise<void> => {
-  const receipt = await (adapterShutdown ??= terminateAdapterChildrenOnQuit());
-  if (!receipt.settled) {
-    adapterShutdown = undefined;
-    throw new Error(`adapter shutdown retained ${receipt.pending} operation(s)`);
-  }
-};
-
 const requireCleanAppProcessShutdown = async (): Promise<void> => {
   const receipt = await (appProcessShutdown ??= appProcessPlane.drainOnQuit());
   if (!receipt.clean) {
@@ -1889,7 +1872,6 @@ const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
   // reverse registration order, so they are registered bottom to top.
   const steps: ReadonlyArray<readonly [string, () => Promise<void>]> = [
     ["dispose: browser", () => requireCleanBrowserShutdown(reason)],
-    ["dispose: adapters", requireCleanAdapterShutdown],
     ["dispose: app processes", requireCleanAppProcessShutdown],
     // Closing the children's scope runs the core's finalizer first (it drains
     // its own sockets, plane and stores, then exits) and the terminal process's
@@ -1915,7 +1897,6 @@ const disposeRuntime = (): Promise<void> => {
   runtimeDispose ??= drainRuntimeOnQuit(shutdownReason)
     .then(() => AppRuntime.dispose())
     .then(() => quitPhases.lap("dispose: effect runtime"))
-    .finally(releaseDemoRuntimeIsolation)
     .catch((error) => {
       console.error("[runtime] dispose failed:", error);
     });
@@ -1932,8 +1913,7 @@ const disposeRuntime = (): Promise<void> => {
 const disposeRuntimeFailClosed = (reason: string): Promise<void> => {
   if (runtimeDisposed) return Promise.resolve();
   const work = drainRuntimeOnQuit(reason)
-    .then(() => AppRuntime.dispose())
-    .finally(releaseDemoRuntimeIsolation);
+    .then(() => AppRuntime.dispose());
   // Share the singleton so a later soft dispose does not re-enter.
   runtimeDispose ??= work.catch((error) => {
     console.error(`[runtime] dispose failed (${reason}):`, error);

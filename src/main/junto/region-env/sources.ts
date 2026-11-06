@@ -24,7 +24,7 @@ import type {
   SourceContext,
   SourceResolution,
 } from "@shared/region-environment";
-import { resolvedSpawnEnv } from "../adapters/exec";
+import { resolvedSpawnEnv } from "../adapters/spawn-env";
 import { ENV_NAME, parseDotenv } from "./dotenv";
 import { regionSecrets, type RegionSecrets } from "./secret-store";
 import { runTool, type ToolResult, type ToolRunner } from "./tool";

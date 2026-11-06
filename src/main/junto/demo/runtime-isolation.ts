@@ -39,8 +39,8 @@ export const demoStateDatabasePath = (): string | undefined =>
     : undefined;
 
 /**
- * Release the exact directory capability minted above. Main invokes this only
- * after AppRuntime disposal has closed SQLite; the exit hook covers boot
+ * Release the exact directory capability minted above. The core invokes this
+ * after its runtime disposal has closed SQLite; the exit hook covers boot
  * failures before the normal shutdown path is installed.
  */
 export const releaseDemoRuntimeIsolation = (): void => {

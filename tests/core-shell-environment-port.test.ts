@@ -13,7 +13,7 @@ import { SHELL_ENVIRONMENT_CHANGED } from "../src/main/core-process/channels";
 import { publish, subscribe } from "../src/main/core-process/push";
 import { shellEnvironment } from "../src/main/junto/shell-environment";
 import { registerShellEnvironmentIpc } from "../src/main/junto/shell-environment/ipc";
-import { resolvedSpawnEnv } from "../src/main/junto/adapters/exec";
+import { resolvedSpawnEnv } from "../src/main/junto/adapters/spawn-env";
 import { CoreCallError } from "../src/main/core-process/client";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 

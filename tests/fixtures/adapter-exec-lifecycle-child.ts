@@ -3,15 +3,17 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type * as AdapterExecModule from "../../src/main/junto/adapters/exec";
+import type * as SpawnEnvModule from "../../src/main/junto/adapters/spawn-env";
 import type * as AppProcessPlaneModule from "../../src/main/junto/app-process-plane";
 import type * as ProcessEpochModule from "../../src/main/junto/process-epoch";
 
 const adapterExecModulePath = "../../src/main/junto/adapters/exec" + ".ts";
 const {
-  resolvedSpawnEnv,
   runCli,
   terminateAdapterChildrenOnQuit,
 } = (await import(adapterExecModulePath)) as typeof AdapterExecModule;
+const spawnEnvModulePath = "../../src/main/junto/adapters/spawn-env" + ".ts";
+const { resolvedSpawnEnv } = (await import(spawnEnvModulePath)) as typeof SpawnEnvModule;
 const appProcessPlaneModulePath = "../../src/main/junto/app-process-plane" + ".ts";
 const { appProcessPlane } = (await import(
   appProcessPlaneModulePath

@@ -1,6 +1,6 @@
-import { join, resolve } from "node:path";
-import { resolveJuntoHome } from "@shared/junto-home";
+import { resolve } from "node:path";
 import { demoStateDatabasePath } from "../demo/runtime-isolation";
+import { productStateDatabasePath } from "./product-database-path";
 
 /**
  * Resolve the sole product database. Demo mode receives only a process-minted
@@ -13,7 +13,4 @@ import { demoStateDatabasePath } from "../demo/runtime-isolation";
  * process that asks.
  */
 export const stateDatabasePath = (): string =>
-  resolve(
-    demoStateDatabasePath() ??
-      join(resolveJuntoHome(), ".junto", "state", "junto.db"),
-  );
+  resolve(demoStateDatabasePath() ?? productStateDatabasePath());

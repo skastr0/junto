@@ -1,7 +1,7 @@
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { Effect, Layer } from "effect";
 import { resolveJuntoHome } from "@shared/junto-home";
-import { resolvedSpawnEnv, resolvedSpawnEnvSync } from "../adapters/exec";
+import { resolvedSpawnEnv, resolvedSpawnEnvSync } from "../adapters/spawn-env";
 import { causeChain, describeCause } from "../failure-encode";
 import { sshMuxControlDir } from "./control-dir";
 import { ProcessSpawnerLive } from "./process-spawner";

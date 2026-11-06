@@ -18,6 +18,8 @@ import { MachineLink, type MachineLinkListener } from "./link/service";
 import { startOperatorControlServer, type OperatorControlServer } from "./operator-control";
 import { evaluateSchemaCompatibility, probeInstalledStateSchema } from "./state/schema-version-probe";
 import { quiesceServiceChildrenOnQuit } from "../services/process";
+import { terminateAdapterChildrenOnQuit } from "./adapters/exec";
+import { releaseDemoRuntimeIsolation } from "./demo/runtime-isolation";
 import { installCoreRunner } from "../core-runner";
 import { installInProcessCoreReads } from "../core-process/in-process-reads";
 import { startWorkControlServer, type WorkControlServer } from "./work/control";
@@ -110,7 +112,7 @@ export class CoreSchemaTooNew extends Schema.TaggedError<CoreSchemaTooNew>()("Co
 
 /** A stop that could not finish: the named part still held work, so core state was kept. */
 export class CoreDidNotDrain extends Schema.TaggedError<CoreDidNotDrain>()("CoreDidNotDrain", {
-  part: Schema.Literals(["owner-commands", "seat-work", "canvas-edits", "writes", "service-children"]),
+  part: Schema.Literals(["owner-commands", "seat-work", "canvas-edits", "writes", "adapters", "service-children"]),
   remaining: Schema.optionalKey(Schema.Number),
   message: Schema.String,
 }) {}
@@ -203,6 +205,14 @@ export const startCore = async (options: CoreOptions) => {
           await seatProcesses?.close();
         },
         async () => {
+          // Adapter CLIs (usage, inventory, tailscale, git watch) run only here:
+          // their work settles and their children are told to stop.
+          const adapters = await terminateAdapterChildrenOnQuit();
+          if (!adapters.settled) {
+            throw new CoreDidNotDrain({ part: "adapters", remaining: adapters.pending, message: "Adapter operations did not settle" });
+          }
+        },
+        async () => {
           overseer?.dispose();
           await overseerLive?.dispose();
         },
@@ -219,6 +229,8 @@ export const startCore = async (options: CoreOptions) => {
         },
         async () => {
           await runtime.dispose();
+          // The demo database closed with the runtime; its directory goes now.
+          releaseDemoRuntimeIsolation();
         },
         async () => {
           const children = await quiesceServiceChildrenOnQuit();
