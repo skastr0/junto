@@ -14,7 +14,7 @@ import { IPC_CHANNELS } from "@shared/ipc";
 import type { FilesChanged, FilesResult } from "@shared/files";
 import { trustedRendererIpc } from "../trusted-main-webcontents";
 import { core } from "../../core-process/main-client";
-import { subscribe as subscribeCore } from "../../core-process/push";
+import { subscribe as subscribeCore } from "../../core-process/main-side/core-pushes";
 import { FILES_CHANGED, type FilesChangedPush } from "../../core-process/channels";
 import { hostOps } from "../../core-process/host-ops";
 import type { FileBytesReader } from "./bytes";

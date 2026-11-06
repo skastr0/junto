@@ -8,7 +8,7 @@ import { app, type IpcMain } from "electron";
 import { IPC_CHANNELS } from "@shared/ipc";
 import type { ObservabilityLogEntry, ObservabilitySnapshot } from "@shared/observability";
 import { core } from "../../core-process/main-client";
-import { subscribe as onCorePush } from "../../core-process/push";
+import { subscribe as onCorePush } from "../../core-process/main-side/core-pushes";
 import { OBSERVABILITY_CLEARED, OBSERVABILITY_LOG, type ObservabilityCleared } from "../../core-process/channels";
 import { setObservabilityForwarder } from "./logger";
 

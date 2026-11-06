@@ -17,7 +17,7 @@ import { interfaceScaleOf, redactProvidersForIpc, type Settings } from "@shared/
 import { askOnEveryCore } from "../../core-process/every-core";
 import { core } from "../../core-process/main-client";
 import { SETTINGS_CHANGED } from "../../core-process/channels";
-import { subscribe as subscribeCore } from "../../core-process/push";
+import { subscribe as subscribeCore } from "../../core-process/main-side/core-pushes";
 import { setInterfaceScale } from "../interface-scale";
 import { createStartupProvider } from "../login-item";
 import {

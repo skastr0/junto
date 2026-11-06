@@ -31,7 +31,7 @@ import { authorityListOf, authorityViewOf } from "../src/shared/authority";
 import type { InstallationId } from "../src/shared/installation-id";
 import { FleetDriverError } from "../src/main/junto/fleet/driver";
 import { seedCanvasRows } from "./support/seed-canvas";
-import { subscribe } from "../src/main/core-process/push";
+import { subscribe } from "../src/main/core-process/main-side/core-pushes";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 
 const SELF = "mini" as InstallationId;

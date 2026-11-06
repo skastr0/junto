@@ -13,7 +13,7 @@ import type { ProcessPrincipal } from "../process-identity";
 import { OFFBOARDED_SESSION_MESSAGE } from "../process-identity-facts";
 import type { SeatCredentialEvent, SeatCredentialLookup } from "../work/seat-credentials";
 import { core } from "../../core-process/main-client";
-import { subscribe as onCorePush } from "../../core-process/push";
+import { subscribe as onCorePush } from "../../core-process/main-side/core-pushes";
 import { SEAT_CREDENTIAL_CHANGED } from "../../core-process/channels";
 import { isThisMachine } from "@shared/machine-identity";
 import { parseNodeRef } from "@shared/node-ref";

@@ -3,7 +3,7 @@ import { IPC_CHANNELS } from "@shared/ipc";
 import type { ShellEnvironmentChange } from "@shared/shell-environment";
 import { core } from "../../core-process/main-client";
 import { SHELL_ENVIRONMENT_CHANGED } from "../../core-process/channels";
-import { subscribe as onCorePush } from "../../core-process/push";
+import { subscribe as onCorePush } from "../../core-process/main-side/core-pushes";
 
 /**
  * Onboarding and Settings read what the core took from the shell, and ask for a

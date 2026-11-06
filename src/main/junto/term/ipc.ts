@@ -16,7 +16,7 @@ import { isHarnessId } from "@shared/managed-terminal-templates";
 import type { ControlLease, LocalHostEvent } from "./local-host";
 import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer";
 import { core } from "../../core-process/main-client";
-import { subscribe as subscribeCore } from "../../core-process/push";
+import { subscribe as subscribeCore } from "../../core-process/main-side/core-pushes";
 import { TERM_EVENT, TERM_LEASE_ENDED, TERM_SEAT_STATE } from "../../core-process/channels";
 import { coreSurfacePlaneInUse } from "../../core-process/main-side/term-surface";
 

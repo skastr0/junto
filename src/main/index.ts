@@ -41,7 +41,7 @@ import { enforceBootRefusal } from "./junto/boot-guard";
 import { AppRuntime } from "./runtime";
 import { core } from "./core-process/main-client";
 import { startChildren, takeChildStopFailures, type Children } from "./core-process/children";
-import { subscribe as subscribeCore } from "./core-process/push";
+import { subscribe as subscribeCore } from "./core-process/main-side/core-pushes";
 import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, COMPANION_DEVICES, SETTINGS_CHANGED, WORK_PREAMBLE, type CanvasChangedPush } from "./core-process/channels";
 import { coreBrowserProfileStore, coreTouchedOriginStore } from "./core-process/main-side/browser";
 import { isCoreUnavailable } from "./core-process/wait-for-core";

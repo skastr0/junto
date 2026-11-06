@@ -7,7 +7,7 @@ import type { IpcMain } from "electron";
 import { MENTION_IPC_CHANNELS } from "@shared/mention-ipc-channels";
 import type { MentionsChanged } from "@shared/mention-ipc";
 import { core } from "../../core-process/main-client";
-import { subscribe as onCorePush } from "../../core-process/push";
+import { subscribe as onCorePush } from "../../core-process/main-side/core-pushes";
 
 /** The list on its channel, and every added backlink told to the windows. Returns the unsubscribe. */
 export const registerMentionIpc = (

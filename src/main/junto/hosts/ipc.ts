@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { core } from "../../core-process/main-client";
 import { MACHINE_PROGRESS, type MachineProgressPushed } from "../../core-process/channels";
-import { subscribe as subscribeCore } from "../../core-process/push";
+import { subscribe as subscribeCore } from "../../core-process/main-side/core-pushes";
 
 export const registerHostsIpc = (ipcMain: IpcMain): void => {
   // A running command's progress goes only to the window whose call asked for it.

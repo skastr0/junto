@@ -3,7 +3,7 @@ import { app, BrowserWindow, ipcMain, nativeImage, shell } from "electron";
 import { Effect, Result, Schema } from "effect";
 import type { MailReadPoint, OperatorThreadSent } from "@shared/mail-threads";
 import { MAIL_WAITING, SEAT_THREAD_READ_CHANGED } from "../core-process/channels";
-import { subscribe as subscribeCore } from "../core-process/push";
+import { subscribe as subscribeCore } from "../core-process/main-side/core-pushes";
 import { OperatorAttachments, type OperatorContentPutResult } from "@shared/operator-attachments";
 import { SignalReply } from "@shared/signal-reply";
 import { SignalSecretPutRequest } from "@shared/vault";
@@ -19,7 +19,7 @@ import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
 import { askOnEveryCore } from "../core-process/every-core";
 import { core } from "../core-process/main-client";
-import { subscribe as onCorePush } from "../core-process/push";
+import { subscribe as onCorePush } from "../core-process/main-side/core-pushes";
 
 import {
   ARTIFACTS_ENABLED,

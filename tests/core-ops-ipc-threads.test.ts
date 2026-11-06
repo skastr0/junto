@@ -2,7 +2,7 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { expect, it, vi } from "vitest";
 import { inProcessCore, type CoreRunner } from "./support/in-process-core";
 import { MAIL_WAITING, SEAT_THREAD_READ_CHANGED } from "../src/main/core-process/channels";
-import { subscribe } from "../src/main/core-process/push";
+import { subscribe } from "../src/main/core-process/main-side/core-pushes";
 import { ModelService } from "../src/main/junto/model/service";
 import { messageDelivery } from "../src/main/junto/work/message-delivery";
 

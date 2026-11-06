@@ -17,7 +17,7 @@ import type { SeatAwarenessEvent } from "../src/renderer/lib/seat-awareness-cont
 import { runCoreOp } from "../src/main/core-process/serve";
 import type { CoreClient } from "../src/main/core-process/client";
 import "../src/main/core-process/ops/seat-awareness";
-import { subscribe } from "../src/main/core-process/push";
+import { subscribe } from "../src/main/core-process/main-side/core-pushes";
 import { SettingsService } from "../src/main/junto/settings/service";
 import {
   SEAT_AWARENESS_ENV,

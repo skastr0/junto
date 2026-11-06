@@ -4,7 +4,7 @@ import { expect, it, vi } from "vitest";
 import type { CoreRunner } from "./support/in-process-core";
 import { portCore, type CorePort } from "../src/main/core-process/port";
 import { serveCore } from "../src/main/core-process/serve";
-import { subscribe } from "../src/main/core-process/push";
+import { subscribe } from "../src/main/core-process/main-side/core-pushes";
 import { AGENT_SIGNAL_CHANGED, WORK_PREAMBLE } from "../src/main/core-process/channels";
 // The operations the served core answers: entry.ts imports this registry at boot.
 import "../src/main/core-process/ops/index";

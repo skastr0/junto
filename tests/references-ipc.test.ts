@@ -13,7 +13,7 @@ import { IPC_CHANNELS } from "../src/shared/ipc";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { ReferencesRepository, ReferencesRepositoryLive } from "../src/main/junto/references/repository";
 import { runCoreOp } from "../src/main/core-process/serve";
-import { subscribe as onCorePush } from "../src/main/core-process/push";
+import { subscribe as onCorePush } from "../src/main/core-process/main-side/core-pushes";
 import { coreOpBody } from "../src/main/core-process/ops";
 import "../src/main/core-process/ops/index";
 

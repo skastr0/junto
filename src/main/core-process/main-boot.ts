@@ -11,7 +11,7 @@ import { IPC_CHANNELS } from "@shared/ipc";
 import { askEveryCoreAsk } from "./every-core";
 import { startCoreProcess, type CoreDidNotStop } from "./host";
 import { assertWorkControlSocketPathFits } from "../junto/work/socket-path";
-import { publish } from "./push";
+import { deliverPush } from "./main-side/core-pushes";
 import { useCoreClient } from "./main-client";
 import { relayWindowPushes } from "./main-side/window-pushes";
 import { serveOverseerHost } from "./main-side/overseer-pages";
@@ -62,7 +62,7 @@ export const startCoreProcessForMain = (input: {
     const restarted = readies > 0;
     readies += 1;
     askEveryCoreAsk(() => {
-      if (restarted) publish(IPC_CHANNELS.coreRestarted, {});
+      if (restarted) deliverPush(IPC_CHANNELS.coreRestarted, {});
     });
   });
   const stopRelay = relayWindowPushes(started);

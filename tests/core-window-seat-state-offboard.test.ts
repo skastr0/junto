@@ -9,7 +9,7 @@ import { inProcessCore, type CoreRunner } from "./support/in-process-core";
 import { bindTermIpcPlane } from "../src/main/core-process/ops/term-ipc";
 import { TERM_SEAT_STATE } from "../src/main/core-process/channels";
 import "../src/main/core-process/ops/seat-cache-due";
-import { subscribe } from "../src/main/core-process/push";
+import { subscribe } from "../src/main/core-process/main-side/core-pushes";
 import { seatStateRuntime } from "../src/main/junto/term/agent-state";
 import { setOperatorOffboard } from "../src/main/junto/seat-sessions/operator-offboard";
 

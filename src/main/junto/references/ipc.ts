@@ -17,7 +17,7 @@ import type {
 } from "@shared/references";
 import { askOnEveryCore } from "../../core-process/every-core";
 import { core } from "../../core-process/main-client";
-import { subscribe as onCorePush } from "../../core-process/push";
+import { subscribe as onCorePush } from "../../core-process/main-side/core-pushes";
 
 export const registerReferencesIpc = (
   ipcMain: Pick<IpcMain, "handle">,

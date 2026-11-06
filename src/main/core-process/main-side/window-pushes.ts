@@ -6,14 +6,14 @@
  * new push cannot be published without a window hearing it.
  */
 import { CORE_PUSH_CHANNELS } from "../channels";
-import { publishCarried } from "../push";
+import { deliverPush } from "./core-pushes";
 
 /**
  * Each push the core sent on the port reaches main's subscribers on the push
  * bus, as a publish in this process would. Returns the stop.
  */
 export const relayWindowPushes = (client: { readonly onPush: (channel: string, listener: (payload: unknown) => void) => () => void }): (() => void) => {
-  const stops = CORE_PUSH_CHANNELS.map((channel) => client.onPush(channel, (payload) => publishCarried(channel, payload)));
+  const stops = CORE_PUSH_CHANNELS.map((channel) => client.onPush(channel, (payload) => deliverPush(channel, payload)));
   return () => {
     for (const stop of stops) stop();
   };

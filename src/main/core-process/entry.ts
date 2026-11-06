@@ -16,7 +16,7 @@ import { enforceBootRefusal } from "../junto/boot-guard";
 import { type CoreMessage, type CorePort } from "./port";
 import { runCoreOp, serveCore, type CoreRunner } from "./serve";
 import { closeCoreProcess, stopCoreOnSignal } from "./core-stop";
-import { forwardPublishes, publish } from "./push";
+import { publish, sendPushesTo } from "./push";
 import { host, useHostClient } from "./host-ops";
 import { hostCaptureApplicationPage, hostOverseerPages } from "./ops/overseer-pages";
 import { AGENT_SIGNAL_CHANGED, COMPANION_DEVICES } from "./channels";
@@ -78,7 +78,7 @@ const main = async (parent: ParentPort): Promise<void> => {
   // publish, and a call from main waits until the core can run it.
   let started!: (runner: CoreRunner) => void;
   const served = serveCore(parentCorePort(parent), new Promise<CoreRunner>((resolve) => { started = resolve; }));
-  forwardPublishes(served.push);
+  sendPushesTo(served.push);
   // A view's surface port, beside its message: the core's plane hands it on to the terminal process.
   parent.on("message", (event) => {
     const message = event.data as { readonly kind?: unknown } | undefined;

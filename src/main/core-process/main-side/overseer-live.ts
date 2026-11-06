@@ -7,7 +7,7 @@ import type { LiveAttention, LiveSnapshot, LiveStartInput, LiveStartResult } fro
 import { LIVE_CHANGED } from "../channels";
 import type { CoreClient } from "../client";
 import { askOnEveryCore } from "../every-core";
-import { subscribe } from "../push";
+import { subscribe } from "./core-pushes";
 import type { LiveService } from "../ops/overseer-live";
 
 /** The live overseer as the window's IPC reaches it in the core process. */

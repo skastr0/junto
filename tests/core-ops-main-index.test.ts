@@ -10,7 +10,7 @@ import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { portCore, type CorePort } from "../src/main/core-process/port";
 import { serveCore } from "../src/main/core-process/serve";
 import { emitAgentSignalChanged } from "../src/main/junto/signals/changes";
-import { subscribe } from "../src/main/core-process/push";
+import { subscribe } from "../src/main/core-process/main-side/core-pushes";
 import { SettingsService } from "../src/main/junto/settings/service";
 import { redactProvidersForIpc, type Settings } from "../src/shared/settings";
 

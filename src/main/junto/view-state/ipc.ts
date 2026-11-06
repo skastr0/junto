@@ -13,7 +13,7 @@
 import type { IpcMain } from "electron";
 import { IPC_CHANNELS, type ViewStateApplyResult } from "@shared/ipc";
 import { core } from "../../core-process/main-client";
-import { subscribe as onCorePush } from "../../core-process/push";
+import { subscribe as onCorePush } from "../../core-process/main-side/core-pushes";
 
 export const registerViewStateIpc = (
   ipc: Pick<IpcMain, "handle">,

@@ -6,7 +6,7 @@ import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, it } from "vitest";
 import { coreOpBody } from "../src/main/core-process/ops";
 import "../src/main/core-process/ops/ipc-automation";
-import { subscribe as subscribePushes } from "../src/main/core-process/push";
+import { subscribe as subscribePushes } from "../src/main/core-process/main-side/core-pushes";
 import { AutomationRunnerLive, AutomationRunnerService } from "../src/main/junto/automation/live";
 import type {
   AutomationApplyResponse,

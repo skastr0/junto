@@ -1,42 +1,26 @@
 /**
- * Changes the core announces, by channel (Wave 3). A core service publishes;
- * main listens on the core port for every channel in the registry
- * (`channels.ts`) and republishes here, where the handlers that send to a
- * window subscribe. In the core, `publish` posts on the port
- * (`serveCore(...).push`); in main it calls this process's subscribers.
+ * The core's end of the push channels (Wave 3): a core service announces a
+ * change by channel, and it leaves on the core's one port to main. Main's end
+ * is `main-side/core-pushes.ts`; the two share only the registry
+ * (`channels.ts`), which types both: a channel not in it does not compile, and
+ * a payload that is not that channel's does not compile either.
  *
- * The registry types both ends: a channel not in it does not compile, and a
- * payload that is not that channel's does not compile either.
+ * Only the core loads this module. Its entry sends pushes on its port; a
+ * windowless core, which has no window to hear them, says so and sends them
+ * nowhere. A publish before either is a boot-order bug, so it throws.
  */
 import type { CorePushChannel, CorePushOf } from "./channels";
 
-type Listener = (payload: unknown) => void;
-const listeners = new Map<CorePushChannel, Set<Listener>>();
-let forward: ((channel: CorePushChannel, payload: unknown) => void) | undefined;
+type Send = (channel: CorePushChannel, payload: unknown) => void;
+
+let send: Send | undefined;
 
 export const publish = <K extends CorePushChannel>(channel: K, payload: CorePushOf<K>): void => {
-  if (forward !== undefined) return forward(channel, payload);
-  for (const listener of listeners.get(channel) ?? []) listener(payload);
+  if (send === undefined) throw new Error(`Junto core published ${channel} before its boot chose where pushes go`);
+  send(channel, payload);
 };
 
-export const subscribe = <K extends CorePushChannel>(
-  channel: K,
-  listener: (payload: CorePushOf<K>) => void,
-): (() => void) => {
-  const set = listeners.get(channel) ?? new Set<Listener>();
-  listeners.set(channel, set);
-  // The map is keyed by channel: a listener here is read only under its own key.
-  set.add(listener as Listener);
-  return () => set.delete(listener as Listener);
-};
-
-/** Publish the given channel on this bus. The port hands over what it carried. */
-export const publishCarried = (channel: CorePushChannel, payload: unknown): void => {
-  if (forward !== undefined) return forward(channel, payload);
-  for (const listener of listeners.get(channel) ?? []) listener(payload);
-};
-
-/** In the core process: send every publish over the port instead. */
-export const forwardPublishes = (send: (channel: CorePushChannel, payload: unknown) => void): void => {
-  forward = send;
+/** Core boot only: where every publish goes from now on. */
+export const sendPushesTo = (next: Send): void => {
+  send = next;
 };

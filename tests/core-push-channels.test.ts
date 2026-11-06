@@ -5,7 +5,7 @@ import { IPC_CHANNELS } from "../src/shared/ipc";
 import { MENTION_IPC_CHANNELS } from "../src/shared/mention-ipc-channels";
 import { CORE_PUSHES, CORE_PUSH_CHANNELS } from "../src/main/core-process/channels";
 import { relayWindowPushes } from "../src/main/core-process/main-side/window-pushes";
-import { subscribe } from "../src/main/core-process/push";
+import { subscribe } from "../src/main/core-process/main-side/core-pushes";
 import { portCore, type CorePort } from "../src/main/core-process/port";
 import { serveCore } from "../src/main/core-process/serve";
 import { MessageChannel } from "node:worker_threads";
@@ -64,7 +64,7 @@ it("every channel a core publisher names is in the registry", () => {
   const registered = new Set<string>(CORE_PUSH_CHANNELS);
   let publishes = 0;
   for (const [index, source] of sources.entries()) {
-    for (const match of source.matchAll(/publish(?:Carried)?\(\s*([^,\s)]+)/gu)) {
+    for (const match of source.matchAll(/publish\(\s*([^,\s)]+)/gu)) {
       const token = match[1]!;
       // A lowercase token is a loop variable over channels the file declares;
       // its names are checked where the list is built, not here.
@@ -114,4 +114,15 @@ it("main relays every registered channel, and a backlink reaches it through the 
     port1.close();
     port2.close();
   }
+});
+
+it("each core boot chooses where pushes go, and main holds only its own end", () => {
+  // The core entry sends on its port; the windowless core sends nowhere, on purpose.
+  expect(readFileSync("src/main/core-process/entry.ts", "utf8")).toContain("sendPushesTo(served.push)");
+  expect(readFileSync("src/main/headless.ts", "utf8")).toContain("sendPushesTo(() => {})");
+  // One end per process: neither holds the other's half or a switch between them.
+  const coreEnd = readFileSync("src/main/core-process/push.ts", "utf8");
+  const mainEnd = readFileSync("src/main/core-process/main-side/core-pushes.ts", "utf8");
+  expect(coreEnd).not.toMatch(/subscribe|listeners/u);
+  expect(mainEnd).not.toMatch(/\bpublish\b|sendPushesTo/u);
 });
