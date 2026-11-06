@@ -27,6 +27,8 @@ import { bindOverseerLive } from "./ops/overseer-live";
 import { openCoreSurface, type SurfaceOpenMessage } from "./ops/term-surface";
 import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import "./ops/index";
+import { armMainThreadBudget } from "../junto/observability/main-thread-budget";
+import { startSqlTimingLog } from "../junto/observability/sql-timing-log";
 
 export type CoreBoot = {
   readonly home: string;
@@ -66,6 +68,12 @@ const main = async (parent: ParentPort): Promise<void> => {
   // The core's own pid, first in its log: whoever runs it (main, a test, the
   // operator reading the log) learns which process is the core from here.
   console.info(`[core] pid ${String(process.pid)}`);
+  // The 4ms assertion on the core's own thread, where SQLite and the kernel
+  // run: armed in a dev run, silent when packaged unless JUNTO_BUDGET says
+  // otherwise. Armed, the top statements by time land in
+  // ~/.junto/logs/sql-timing.json every minute and on exit.
+  armMainThreadBudget({ enabled: !boot.app.packaged });
+  startSqlTimingLog({ home: boot.home });
   // The port opens before the core boots: what boots may already ask main and
   // publish, and a call from main waits until the core can run it.
   let started!: (runner: CoreRunner) => void;

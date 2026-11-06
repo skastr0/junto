@@ -52,7 +52,6 @@ import {
   recordRendererConsole,
   recordSystemLog,
 } from "./junto/observability/logger";
-import { startSqlTimingLog } from "./junto/observability/sql-timing-log";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
 import { resolveControlHome } from "./junto/control-home";
 import { registerDemoIpcHandlers } from "./junto/demo/ipc";
@@ -1280,11 +1279,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     installMachineLog({ home: resolveJuntoHome(), process: "app", echo: true });
     installObservabilityConsoleHook();
     // The 4ms invariant, asserted at the source. Dev runs are armed; a
-    // packaged app stays silent unless JUNTO_BUDGET says otherwise.
+    // packaged app stays silent unless JUNTO_BUDGET says otherwise. SQL runs
+    // in the core, which writes its own sql-timing.json.
     armMainThreadBudget({ enabled: !app.isPackaged });
-    // With the budget armed, the top statements by main-thread time land in
-    // ~/.junto/logs/sql-timing.json every minute and on exit.
-    startSqlTimingLog({ home: resolveJuntoHome() });
     recordSystemLog(
       `${PRODUCT_NAME} ready - ${app.isPackaged ? "packaged" : "dev"} - ${app.getVersion() || "0.0.0"} - ${overlayManifest.name}`,
     );
