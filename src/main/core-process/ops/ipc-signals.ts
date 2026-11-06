@@ -5,9 +5,9 @@
  * the store's own change, pushed from one place, so these only answer the
  * caller.
  *
- * `op` and the login shell are main's, so the secret write asks main for the
- * two it cannot do here (a tool run and the login PATH); the value never
- * crosses that call, only the tool call does.
+ * The secret write runs its tool (`op`, `security`, `secret-tool`) on the
+ * core's own process plane with the core's login PATH, as the region secret
+ * store does.
  */
 import { Effect, Schema } from "effect";
 import { homedir } from "node:os";
@@ -28,7 +28,8 @@ import { putSignalSecret } from "../../junto/vault/secret-put";
 import { liveArtifactPorts } from "../../junto/work/artifact-control";
 import { messageDelivery } from "../../junto/work/message-delivery";
 import { WorkService } from "../../junto/work/service";
-import { host } from "../host-ops";
+import { resolvedSpawnEnv } from "../../junto/adapters/spawn-env";
+import { runTool } from "../../junto/region-env/tool";
 import { coreOps, type CoreOp } from "../ops";
 
 declare module "../ops" {
@@ -104,7 +105,7 @@ coreOps({
     Effect.tap(putSignalSecret(request, {
       home: resolveJuntoHome(),
       userHome: homedir(),
-      run: (call) => host.call("signals.tool.run", { call }),
-      path: () => host.call("signals.tool.path", {}),
+      run: runTool,
+      path: async () => (await resolvedSpawnEnv()).PATH,
     }), deliverIntoSeat),
 });

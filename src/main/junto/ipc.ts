@@ -74,7 +74,6 @@ import type { ProfileDeleteResult, ProfileResult, ProfileSaveInput } from "@shar
 import type { PortraitOverrideSetResult } from "@shared/portrait-overrides";
 import { registerTerminalIpc } from "./term/ipc";
 import { registerGitIpc } from "./git/ipc";
-import { serveSignalTools } from "../core-process/main-side/signals";
 import { registerResourceIpcCore } from "../core-process/main-side/resources";
 import {
   RESOURCE_CHANGED,
@@ -82,8 +81,6 @@ import {
   type ResourceChangedPush,
   type ResourceThreadChangedPush,
 } from "../core-process/channels";
-import { resolvedSpawnEnv } from "./adapters/spawn-env";
-import { runTool } from "./region-env/tool";
 import {
   isLiveClaudeResumeSummaryChoice,
 } from "./term/drive/claude-startup";
@@ -130,14 +127,6 @@ const runMainAuthoring = <A>(
   label: MainAuthoringLabel,
   operation: () => Promise<A>,
 ): Promise<A> => mainAuthoringGate.run(label, operation);
-
-// The secret write's tool run and login PATH stay main's: the core asks for
-// them by host call, and main's half is registered here, once, whichever
-// process the core runs in.
-serveSignalTools({
-  run: (call) => runTool(call),
-  path: async () => (await resolvedSpawnEnv()).PATH,
-});
 
 export const registerJuntoIpc = (): void => {
   const privilegedIpc = trustedRendererIpc(ipcMain);
