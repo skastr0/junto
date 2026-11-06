@@ -11,7 +11,7 @@ import { CompanionRuntime } from "./runtime";
 import { ModelService } from "../model/service";
 import { WorkRepository } from "../work/repository";
 import { PausePlane } from "../pause-plane";
-import { raisedHands } from "../signals/raised-hands";
+import { onAgentSignalChanged } from "../signals/changes";
 import { seatStateRuntime } from "../term/agent-state";
 import { onMachinesChanged } from "../hosts/machine-changes";
 import { onRemoteSeatState } from "../term/remote-seat-state";
@@ -43,7 +43,8 @@ export const wireCompanionChanges = async (changes: CompanionChanges): Promise<(
     onRemoteSeatState(() => changes.bump()),
     onMachinesChanged(() => changes.bump()),
     seatAwarenessPlane.subscribe(() => changes.bump()),
-    raisedHands.onSignal((signal) => changes.noteSignal(signal)),
+    // Every committed signal write, whichever path made it.
+    onAgentSignalChanged((signal) => changes.noteSignal(signal)),
     messageDelivery.subscribeDelivered((event) => {
       if (event.failed) noteMailFailure(event.messageId);
       changes.bump("mail");

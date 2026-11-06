@@ -45,7 +45,6 @@ import { subscribe as subscribeCore } from "./core-process/push";
 import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, COMPANION_DEVICES, SETTINGS_CHANGED, WORK_PREAMBLE, type CanvasChangedPush } from "./core-process/channels";
 import { coreBrowserProfileStore, coreTouchedOriginStore } from "./core-process/main-side/browser";
 import { isCoreUnavailable } from "./core-process/wait-for-core";
-import { raisedHands } from "./junto/signals/raised-hands";
 import { armMainThreadBudget } from "./junto/observability/main-thread-budget";
 import {
   installMachineLog,
@@ -1449,7 +1448,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       window.webContents.send(IPC_CHANNELS.preamble, event);
     };
     const showAgentSignal = (signal: AgentSignal): void => {
-      raisedHands.note(signal);
       sendAgentSignal(signal);
     };
     // A core in its own process sends these on the push stream; in this
@@ -1548,9 +1546,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       return;
     }
 
-    // Hands already raised before this boot: agent → relay announce wires
-    // watch them. Signal writes from here on are noted as they happen.
-    askOnEveryCore("signals.raisedHands", () => core.call("signals.raisedHands", {}).then(raisedHands.hydrate));
     powerMonitor.on("resume", () => {
       if (shutdownAdmissionClosed) return;
       try {

@@ -3,7 +3,7 @@
  *
  * - answering a signal runs the same `answerAgentSignal` program (the answer
  *   becomes operator mail naming the signal, then the signal is answered),
- *   notes it in the raised-hands index, broadcasts it to the desktop, and
+ *   broadcasts it to the desktop, and
  *   types the mail into the seat through `messageDelivery`; a quiet answer
  *   runs it silent, as the desktop quiet send does: no mail, the seat is not
  *   woken, and an empty one is recorded as an acknowledgement;
@@ -28,7 +28,6 @@ import { ModelService } from "../model/service";
 import { mainAuthoringGate } from "../main-authoring-gate";
 import { AgentSignalRepository } from "../signals/repository";
 import { answerAgentSignal, dismissAgentSignal, replyAgentSignal } from "../signals/operator";
-import { raisedHands } from "../signals/raised-hands";
 import { liveArtifactPorts } from "../work/artifact-control";
 import { messageDelivery } from "../work/message-delivery";
 import { WorkService } from "../work/service";
@@ -71,7 +70,6 @@ export const answerSignalAsOperator = async (
     )
     .catch((error: unknown) => ({ ok: false as const, message: error instanceof Error ? error.message : "answer failed" }));
   if (!result.ok) return refusal(signalId, result.message);
-  raisedHands.note(result.signal);
   broadcastSignal(result.signal);
   if (result.messageId !== undefined) {
     void messageDelivery.deliver(result.signal.canvasName, result.signal.nodeId, result.messageId).catch(() => undefined);
@@ -114,7 +112,6 @@ export const replySignalArtifactAsOperator = async (
     )
     .catch((error: unknown) => ({ ok: false as const, message: error instanceof Error ? error.message : "reply failed" }));
   if (!result.ok) return { ok: false, reason: "invalid", message: result.message.slice(0, 500) };
-  raisedHands.note(result.signal);
   broadcastSignal(result.signal);
   if (result.messageId !== undefined) {
     void messageDelivery.deliver(result.signal.canvasName, result.signal.nodeId, result.messageId).catch(() => undefined);
@@ -130,7 +127,6 @@ export const dismissSignalAsOperator = async (signalId: string): Promise<Operato
     .run("companion.signal-dismiss", () => CompanionRuntime.runPromise(dismissAgentSignal(signalId)))
     .catch((error: unknown) => ({ ok: false as const, message: error instanceof Error ? error.message : "dismiss failed" }));
   if (!result.ok) return refusal(signalId, result.message);
-  raisedHands.note(result.signal);
   broadcastSignal(result.signal);
   return { ok: true, value: result.signal };
 };

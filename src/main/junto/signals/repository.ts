@@ -132,11 +132,6 @@ export class AgentSignalRepository extends Context.Service<AgentSignalRepository
     readonly countClosedSeat: (
       seat: AgentSignalSeat,
     ) => Effect.Effect<number, AgentSignalRepositoryError>;
-    /** Every open blocked or escalate signal, on every canvas: raised hands. */
-    readonly listRaisedHands: Effect.Effect<
-      ReadonlyArray<AgentSignal>,
-      AgentSignalRepositoryError
-    >;
     /** Open signals plus recent history for every seat on a canvas. */
     readonly listCanvas: (
       canvasName: string,
@@ -472,12 +467,6 @@ export const AgentSignalRepositoryLive: Layer.Layer<
       execute: (seat) => sql.unsafe(`SELECT COUNT(*) AS closed FROM agent_signals
         WHERE canvas_name = ? AND node_id = ? AND state <> 'open'`, [seat.canvasName, seat.nodeId]),
     });
-    const raisedHandsRows = SqlSchema.findAll({
-      Request: Schema.Void,
-      Result: SignalRow,
-      execute: () => sql.unsafe(`SELECT ${COLUMNS} FROM agent_signals
-        WHERE state = 'open' AND kind IN ('blocked', 'escalate')`),
-    });
 
     const raise = Effect.fn("agent-signals.raise")(function* (input: RaiseAgentSignal) {
       const signalId = input.signalId ?? ulid();
@@ -537,10 +526,6 @@ export const AgentSignalRepositoryLive: Layer.Layer<
     const listCanvas = Effect.fn("agent-signals.list-canvas")(function* (canvasName: string) {
       return (yield* listRows(["canvas_name = ?", [canvasName]])).map(fromRow);
     }, Effect.mapError(persistence("list canvas")));
-
-    const listRaisedHands = Effect.fn("agent-signals.list-raised-hands")(function* () {
-      return (yield* raisedHandsRows(undefined)).map(fromRow);
-    }, Effect.mapError(persistence("list raised hands")))();
 
     const get = Effect.fn("agent-signals.get")(function* (signalId: string) {
       const signal = yield* readOne(signalId);
@@ -707,7 +692,6 @@ export const AgentSignalRepositoryLive: Layer.Layer<
         ),
       listSeat,
       countClosedSeat,
-      listRaisedHands,
       listCanvas,
       get,
       answer: (signalId, text, files, reply) => told(answer(signalId, text, files, reply)),

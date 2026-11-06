@@ -1,7 +1,6 @@
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import type { ContentRef } from "@shared/content";
-import type { AgentSignal } from "@shared/agent-signals";
 import type { Canvas } from "@shared/model";
 import { redactProvidersForIpc, type Settings } from "@shared/settings";
 import type { PreambleEvent } from "@shared/preamble";
@@ -11,7 +10,6 @@ import { ModelService } from "../../junto/model/service";
 import { PausePlane } from "../../junto/pause-plane";
 import { resolveNodeRef, type ResolvedNodeRef } from "../../junto/node-ref-resolver";
 import { SettingsService } from "../../junto/settings/service";
-import { AgentSignalRepository } from "../../junto/signals/repository";
 import { onAgentSignalChanged } from "../../junto/signals/changes";
 import { carryFileThreads } from "../../junto/work/file-thread-paths";
 import {
@@ -64,7 +62,6 @@ declare module "../ops" {
       { readonly canvasName: string; readonly nodeId: string; readonly from: string; readonly to: string },
       void
     >;
-    "signals.raisedHands": CoreOp<Record<string, never>, ReadonlyArray<AgentSignal>>;
     "pageBox.check": CoreOp<SeatPageBoxTarget, Effect.Success<ReturnType<typeof checkSeatPageBox>>>;
     "pageBox.post": CoreOp<{ readonly request: SeatPageBoxTarget; readonly shot: SeatPageShot }, PageBoxPosted>;
   }
@@ -110,7 +107,6 @@ coreOps({
   "content.openForRead": ({ ref }) => Effect.flatMap(ContentService, (content) => content.openForRead(ref)),
   "files.carryThreads": ({ canvasName, nodeId, from, to }) =>
     Effect.flatMap(SqlClient.SqlClient, (sql) => carryFileThreads(sql, canvasName, nodeId, from, to)).pipe(Effect.asVoid),
-  "signals.raisedHands": () => Effect.flatMap(AgentSignalRepository, (signals) => signals.listRaisedHands),
   "pageBox.check": (request) => checkSeatPageBox(request),
   "pageBox.post": ({ request, shot }) => postSeatPageShot(request, shot),
 });

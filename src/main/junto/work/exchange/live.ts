@@ -40,7 +40,6 @@ import { StateTransactionOperation } from "../../state/service";
 import { onSeatGuidanceChanged } from "../../seat-guidance/changes";
 import { SeatGuidanceRepository } from "../../seat-guidance/repository";
 import { onAgentSignalChanged } from "../../signals/changes";
-import { raisedHands } from "../../signals/raised-hands";
 import { AgentSignalRepository } from "../../signals/repository";
 import { WorkRepository, type ArrivedAutomationFiring } from "../repository";
 import { HeldSeatControls } from "./seat-controls";
@@ -492,7 +491,6 @@ export const makeLiveRowExchange = (
           Effect.tap((taken) => (taken === undefined ? Effect.void : releaseSignalAttachments(taken))),
           Effect.map((taken) => {
             if (taken === undefined) return;
-            raisedHands.note(taken);
             options.signalTaken?.(taken);
           }),
         ),
