@@ -77,6 +77,9 @@ test("[fake-tui] the seat toolbar messages a sleeping seat, which wakes and rece
     await expect(open).toBeVisible();
 
     // The name's tooltip goes below the seat, clear of the toolbar above it.
+    // The click above lands on the name and its press hides the tip; the
+    // pointer comes back onto the name from outside, as a hand would.
+    await page.mouse.move(5, 5);
     await card.getByText("Ada", { exact: true }).first().hover();
     const tip = page.locator(".junto-tooltip[data-positioned='true']");
     await expect(tip).toHaveText("Ada");
