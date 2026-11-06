@@ -30,7 +30,7 @@ import {
 
 /**
  * What `src/main/index.ts` asks the core on a request: a node ref, the
- * settings, a content read, a file move's threads, the raised hands, the
+ * settings, a content read, a file move's threads, the
  * canvases for an edge grant, and a seat's box comment either side of the
  * shot main takes.
  */

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { stopCoreOnSignal } from "../src/main/core-process/core-stop";
+import { closeCoreProcess, drainCoreProcessPlane, stopCoreOnSignal } from "../src/main/core-process/core-stop";
+import type { AppProcessDrainResult, AppProcessStraggler } from "../src/main/junto/app-process-plane";
 
 const harness = () => {
   const exits: number[] = [];
@@ -46,5 +47,50 @@ describe("the core's stop signal", () => {
     await settled();
     expect(logged).toEqual([{ message: "[core] stop failed:", error: failure }]);
     expect(exits).toEqual([1]);
+  });
+});
+
+const straggler = (source: string, state: AppProcessStraggler["state"]): AppProcessStraggler => ({
+  generation: 1,
+  source,
+  purpose: "test",
+  mode: "group",
+  state,
+  pid: 4242,
+});
+
+const plane = (result: AppProcessDrainResult) => {
+  let drained = 0;
+  return {
+    drained: () => drained,
+    drainOnQuit: async () => {
+      drained += 1;
+      return result;
+    },
+  };
+};
+
+describe("the core process's own plane at stop", () => {
+  it("a clean plane drains quietly", async () => {
+    const clean = plane({ clean: true, stragglers: [] });
+    await expect(drainCoreProcessPlane(clean)).resolves.toBeUndefined();
+    expect(clean.drained()).toBe(1);
+  });
+
+  it("an unverifiable read-only adapter CLI is logged, never a failed stop", async () => {
+    const leftover = plane({ clean: false, stragglers: [straggler("adapter.cli", "ownership-unverified")] });
+    await expect(drainCoreProcessPlane(leftover)).resolves.toBeUndefined();
+  });
+
+  it("a child that could hold work fails the stop, named", async () => {
+    const leftover = plane({ clean: false, stragglers: [straggler("region-env.tool", "running")] });
+    await expect(drainCoreProcessPlane(leftover)).rejects.toThrow(/retained 1 child generation\(s\): region-env\.tool:test@1 pid=4242/u);
+  });
+
+  it("the plane drains even when the core's close failed, and the close's failure is the one reported", async () => {
+    const failure = new Error("Core writes did not drain; core state retained");
+    await expect(closeCoreProcess(async () => {
+      throw failure;
+    })).rejects.toBe(failure);
   });
 });

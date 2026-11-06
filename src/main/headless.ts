@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { runningBuildIdentity } from "./junto/build-identity";
 import { startCore } from "./junto/core";
+import { closeCoreProcess } from "./core-process/core-stop";
 import { enforceBootRefusal } from "./junto/boot-guard";
 import { declareMachineCoreOwnsSessions } from "./junto/term/managed-spawn-plan";
 import { armMainThreadBudget } from "./junto/observability/main-thread-budget";
@@ -46,7 +47,7 @@ const main = async (): Promise<void> => {
     closing = true;
     // The service manager stopping this core is the first fact a reader of either log needs.
     console.info(`[core] Junto core is stopping: it received ${signal}`);
-    void core.close(new LinkUnavailable({ reason: "shutting-down", message: `This machine's Junto core is stopping: it received ${signal}` })).then(() => { process.exitCode = 0; }, (cause: unknown) => {
+    void closeCoreProcess(() => core.close(new LinkUnavailable({ reason: "shutting-down", message: `This machine's Junto core is stopping: it received ${signal}` }))).then(() => { process.exitCode = 0; }, (cause: unknown) => {
       console.error("[core] Junto could not stop cleanly", cause);
       process.stderr.write(`Junto could not stop cleanly; the reason is in ${machineLogDir(home)}\n`);
       process.exitCode = 1;
