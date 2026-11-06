@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { CoreCallError, type CoreClient, type CoreFailure } from "./client";
-import { runHostOp, type HostFailure } from "./host-ops";
+import type { AnswerHost, HostFailure } from "./host-ops";
 
 /**
  * The one ordered port between Electron main and the core process (Wave 3).
@@ -66,13 +66,23 @@ export type PortCoreClient = CoreClient & {
   readonly fail: (reason: string) => void;
 };
 
-export const portCore = (port: CorePort): PortCoreClient => {
+/**
+ * The answer for a port whose far end may ask no host operation (the terminal
+ * process asks the core nothing of Electron): each such call refuses.
+ */
+export const refuseHostCalls: AnswerHost = async (name) => ({
+  ok: false,
+  failure: { tag: "UnknownHostOp", message: `no host operation is answered on this port: ${name}` },
+});
+
+/** `answerHost` answers the host calls the far end asks: main's bodies, or `refuseHostCalls`. */
+export const portCore = (port: CorePort, answerHost: AnswerHost): PortCoreClient => {
   let nextId = 1;
   const pending = new Map<number, { readonly name: string; readonly resolve: (value: never) => void; readonly reject: (error: Error) => void }>();
   const listeners = new Map<string, Set<(payload: unknown) => void>>();
   port.listen((message) => {
     if (message.kind === "hostCall") {
-      void runHostOp(message.name, message.input).then((answer) => postAnswer(port, answer.ok
+      void answerHost(message.name, message.input).then((answer) => postAnswer(port, answer.ok
         ? { kind: "hostAnswer", id: message.id, ok: true, value: answer.value }
         : { kind: "hostAnswer", id: message.id, ok: false, failure: answer.failure }));
       return;

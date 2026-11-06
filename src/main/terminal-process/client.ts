@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { portCore } from "../core-process/port";
+import { portCore, refuseHostCalls } from "../core-process/port";
 import type { CoreMessage, CorePort } from "../core-process/port";
 import {
   TERMINAL_ADOPT,
@@ -114,7 +114,7 @@ export const terminalClient = (
   port: CorePort,
   transfer?: (message: CoreMessage, surface: unknown) => void,
 ): TerminalClient => {
-  const calls = portCore(port);
+  const calls = portCore(port, refuseHostCalls);
   const live = new Map<number, Live>();
   let nextId = 1;
 

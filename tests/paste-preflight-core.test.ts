@@ -13,7 +13,7 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { harnessRecordFor } from "../src/shared/harness-records";
-import { host } from "../src/main/core-process/host-ops";
+import { host } from "../src/main/core-process/core-host";
 import { serveClipboardFormats } from "../src/main/core-process/main-side/clipboard";
 import { ClipboardUnreadable, clipboardSafeAssert } from "../src/main/junto/term/drive/clipboard-guard";
 

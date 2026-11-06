@@ -61,8 +61,8 @@ export default defineConfig({
       resolve(__dirname, "tests/vitest-setup-junto-home.ts"),
       // No-op unless the lane runner hands over the disabled tests.
       resolve(__dirname, "tests/vitest-setup-disabled-tests.ts"),
-      // The core's pushes reach main's subscribers, as the port relay does.
-      resolve(__dirname, "tests/vitest-setup-core-pushes.ts"),
+      // The core and main joined in one process: pushes and host calls.
+      resolve(__dirname, "tests/vitest-setup-one-process.ts"),
     ],
   },
   resolve: {

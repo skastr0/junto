@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { workControlDir } from "@shared/work-control";
-import { hostOps } from "./host-ops";
+import { hostOps } from "./main-side/host-op-bodies";
 import { TERMINAL_CONNECT } from "../terminal-process/protocol";
 import type { TerminalProcessForCore } from "../terminal-process/host";
 import type {} from "../terminal-process/core-side";

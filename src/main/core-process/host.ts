@@ -7,6 +7,7 @@ import { Effect, Option, Schema } from "effect";
 import type { PortedCoreMessage } from "./main-side/term-surface";
 import type { CoreBoot } from "./entry";
 import { portCore, type CoreMessage, type PortCoreClient } from "./port";
+import { runHostOp } from "./main-side/host-op-bodies";
 
 /**
  * Main's side of the core process (Wave 3). It forks `entry.ts` as an
@@ -115,7 +116,7 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
       handlers.add(handler);
       return () => handlers.delete(handler);
     },
-  });
+  }, runHostOp);
 
   let booting: ReturnType<typeof setTimeout> | undefined;
   client.onPush("core.ready", () => {

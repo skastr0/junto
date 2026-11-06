@@ -36,7 +36,7 @@ import { messageDelivery } from "../../junto/work/message-delivery";
 import { TaskRepository } from "../../junto/work/task-repository";
 import { bindSeatIpc, seatOnOfCore } from "./ipc-seats";
 import { coreOps, type CoreOp } from "../ops";
-import { host } from "../host-ops";
+import { host } from "../core-host";
 import { harnessRecordFor } from "@shared/harness-records";
 import { seatStateRuntime } from "../../junto/term/agent-state/runtime";
 import { ClipboardUnreadable, clipboardSafeAssert } from "../../junto/term/drive/clipboard-guard";

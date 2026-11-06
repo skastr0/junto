@@ -17,7 +17,7 @@ import { type CoreMessage, type CorePort } from "./port";
 import { runCoreOp, serveCore, type CoreRunner } from "./serve";
 import { closeCoreProcess, stopCoreOnSignal } from "./core-stop";
 import { publish, sendPushesTo } from "./push";
-import { host, useHostClient } from "./host-ops";
+import { host, useHostClient } from "./core-host";
 import { hostCaptureApplicationPage, hostOverseerPages } from "./ops/overseer-pages";
 import { AGENT_SIGNAL_CHANGED, COMPANION_DEVICES } from "./channels";
 import { publishWindowBroadcasts } from "./ops/main-index";

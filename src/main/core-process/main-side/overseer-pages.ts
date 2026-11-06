@@ -12,7 +12,8 @@ import type { BrowserResult } from "../../junto/browser/sessions";
 import type { ApplicationCaptureResult } from "../../junto/overseer/native";
 import type { OverseerPages, OverseerPageSession } from "../../junto/overseer/pages";
 import type { CoreClient } from "../client";
-import { hostOps, type HostOp } from "../host-ops";
+import type { HostOp } from "../host-ops";
+import { hostOps } from "./host-op-bodies";
 
 type Session = { readonly owner: string; readonly sessionId: string };
 type Signalled = { readonly callId: number };

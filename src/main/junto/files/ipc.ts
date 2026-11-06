@@ -16,7 +16,7 @@ import { trustedRendererIpc } from "../trusted-main-webcontents";
 import { core } from "../../core-process/main-client";
 import { subscribe as subscribeCore } from "../../core-process/main-side/core-pushes";
 import { FILES_CHANGED, type FilesChangedPush } from "../../core-process/channels";
-import { hostOps } from "../../core-process/host-ops";
+import { hostOps } from "../../core-process/main-side/host-op-bodies";
 import type { FileBytesReader } from "./bytes";
 import type { FileBytesResolver } from "./protocol";
 

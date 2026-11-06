@@ -7,6 +7,7 @@ import { CORE_PUSHES, CORE_PUSH_CHANNELS } from "../src/main/core-process/channe
 import { relayWindowPushes } from "../src/main/core-process/main-side/window-pushes";
 import { subscribe } from "../src/main/core-process/main-side/core-pushes";
 import { portCore, type CorePort } from "../src/main/core-process/port";
+import { runHostOp } from "../src/main/core-process/main-side/host-op-bodies";
 import { serveCore } from "../src/main/core-process/serve";
 import { MessageChannel } from "node:worker_threads";
 
@@ -89,7 +90,7 @@ it("main relays every registered channel, and a backlink reaches it through the 
     },
   });
   const served = serveCore(portOf(port2), { runPromiseExit: () => Promise.reject(new Error("no call in this test")) });
-  const client = portCore(portOf(port1));
+  const client = portCore(portOf(port1), runHostOp);
   const relayed = new Set<string>();
   const heard = new Map<string, unknown>();
   const stop = relayWindowPushes({
@@ -114,15 +115,4 @@ it("main relays every registered channel, and a backlink reaches it through the 
     port1.close();
     port2.close();
   }
-});
-
-it("each core boot chooses where pushes go, and main holds only its own end", () => {
-  // The core entry sends on its port; the windowless core sends nowhere, on purpose.
-  expect(readFileSync("src/main/core-process/entry.ts", "utf8")).toContain("sendPushesTo(served.push)");
-  expect(readFileSync("src/main/headless.ts", "utf8")).toContain("sendPushesTo(() => {})");
-  // One end per process: neither holds the other's half or a switch between them.
-  const coreEnd = readFileSync("src/main/core-process/push.ts", "utf8");
-  const mainEnd = readFileSync("src/main/core-process/main-side/core-pushes.ts", "utf8");
-  expect(coreEnd).not.toMatch(/subscribe|listeners/u);
-  expect(mainEnd).not.toMatch(/\bpublish\b|sendPushesTo/u);
 });

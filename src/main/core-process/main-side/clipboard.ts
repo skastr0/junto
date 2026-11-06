@@ -7,7 +7,8 @@
  * ImageIO to decode the payloads.
  */
 import { clipboardFormatsAreSafeForGrok } from "../../junto/term/drive/clipboard-safe";
-import { hostOps, type HostOp } from "../host-ops";
+import type { HostOp } from "../host-ops";
+import { hostOps } from "./host-op-bodies";
 
 declare module "../host-ops" {
   interface HostOps {

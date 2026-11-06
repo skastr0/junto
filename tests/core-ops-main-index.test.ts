@@ -8,6 +8,7 @@ import { ModelService } from "../src/main/junto/model/service";
 import { PausePlane } from "../src/main/junto/pause-plane";
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { portCore, type CorePort } from "../src/main/core-process/port";
+import { runHostOp } from "../src/main/core-process/main-side/host-op-bodies";
 import { serveCore } from "../src/main/core-process/serve";
 import { emitAgentSignalChanged } from "../src/main/junto/signals/changes";
 import { subscribe } from "../src/main/core-process/main-side/core-pushes";
@@ -91,7 +92,7 @@ describe("index.ts core operations", () => {
     const { port1, port2 } = new MessageChannel();
     const runtime = ManagedRuntime.make(Layer.empty);
     const served = serveCore(portOf(port2), runtime as unknown as CoreRunner);
-    const stopRelay = relayWindowPushes(portCore(portOf(port1)));
+    const stopRelay = relayWindowPushes(portCore(portOf(port1), runHostOp));
     const seen: Array<[string, unknown]> = [];
     const offs = ([WORK_PREAMBLE, AGENT_SIGNAL_CHANGED] as const).map((channel) => subscribe(channel, (payload) => seen.push([channel, payload])));
     try {

@@ -2,9 +2,11 @@ import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { Context, Data, Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { coreOps, type CoreOp, type CoreOpBody } from "../src/main/core-process/ops";
-import { portCore, type CorePort } from "../src/main/core-process/port";
+import { portCore, refuseHostCalls, type CorePort } from "../src/main/core-process/port";
+import { runHostOp } from "../src/main/core-process/main-side/host-op-bodies";
 import { serveCore } from "../src/main/core-process/serve";
-import { HostCallError, hostOps, inProcessHost, type HostOp } from "../src/main/core-process/host-ops";
+import { type HostOp } from "../src/main/core-process/host-ops";
+import { hostOps } from "../src/main/core-process/main-side/host-op-bodies";
 
 // One operation group, registered as a group under ops/ registers its own.
 class Counter extends Context.Service<Counter, { readonly add: (n: number) => Effect.Effect<number> }>()("test/Counter") {}
@@ -63,7 +65,7 @@ describe("core operations", () => {
       void runtime.dispose();
     });
     const served = serveCore(portOf(port2), runtime);
-    const core = portCore(portOf(port1));
+    const core = portCore(portOf(port1), runHostOp);
     const pushed: Array<unknown> = [];
     core.onPush("test.changed", (payload) => pushed.push(payload));
 
@@ -84,7 +86,7 @@ describe("core operations", () => {
       void runtime.dispose();
     });
     serveCore(portOf(port2), runtime);
-    const core = portCore(portOf(port1));
+    const core = portCore(portOf(port1), runHostOp);
     await expect(core.call("test.uncloneable", {})).rejects.toMatchObject({ tag: "CoreAnswerNotCloneable" });
     await expect(core.call("test.add", { n: 2 })).resolves.toEqual({ total: 2 });
     await expect(core.call("test.add", { n: 1, read: () => 1 } as never)).rejects.toMatchObject({ tag: "CoreInputNotCloneable" });
@@ -98,7 +100,7 @@ describe("core operations", () => {
       void runtime.dispose();
     });
     const served = serveCore(portOf(port2), runtime);
-    const core = portCore(portOf(port1));
+    const core = portCore(portOf(port1), runHostOp);
     const pushed: Array<unknown> = [];
     core.onPush("test.changed", (payload) => pushed.push(payload));
     await expect(served.host.call("test.shot", { scale: 1, read: () => 1 } as never)).rejects.toMatchObject({ tag: "HostInputNotCloneable" });
@@ -111,7 +113,7 @@ describe("core operations", () => {
   it("a stopped core rejects every call in flight", async () => {
     const { port1 } = new MessageChannel();
     opened.push(() => port1.close());
-    const core = portCore(portOf(port1));
+    const core = portCore(portOf(port1), runHostOp);
     const call = core.call("test.add", { n: 1 });
     core.fail("the core process exited");
     await expect(call).rejects.toMatchObject({ tag: "CoreStopped" });
@@ -130,13 +132,24 @@ describe("core operations", () => {
         },
       }));
 
-    it("in process: main's body answers, and a failure keeps its tag", async () => {
+    it("main's end: a body answers, a failure keeps its tag, and an unknown name refuses", async () => {
       register();
-      expect(await inProcessHost.call("test.shot", { scale: 2 })).toEqual({ bytes: [2, 4, 6] });
-      const refused = await inProcessHost.call("test.hostRefuse", {}).catch((error: unknown) => error);
-      expect(refused).toBeInstanceOf(HostCallError);
-      expect(refused).toMatchObject({ operation: "test.hostRefuse", tag: "NoWindow", message: "no window" });
-      await expect(inProcessHost.call("nope" as never, {} as never)).rejects.toMatchObject({ tag: "UnknownHostOp" });
+      expect(await runHostOp("test.shot", { scale: 2 })).toEqual({ ok: true, value: { bytes: [2, 4, 6] } });
+      expect(await runHostOp("test.hostRefuse", {})).toEqual({ ok: false, failure: { tag: "NoWindow", message: "no window" } });
+      expect(await runHostOp("nope", {})).toMatchObject({ ok: false, failure: { tag: "UnknownHostOp" } });
+    });
+
+    it("a port that answers no host operation refuses each one", async () => {
+      register();
+      const runtime = runtimeWith();
+      const { port1, port2 } = new MessageChannel();
+      opened.push(() => {
+        port1.close();
+        void runtime.dispose();
+      });
+      const served = serveCore(portOf(port2), runtime);
+      portCore(portOf(port1), refuseHostCalls);
+      await expect(served.host.call("test.shot", { scale: 1 })).rejects.toMatchObject({ tag: "UnknownHostOp" });
     });
 
     it("over a port: the core's call reaches main's body and its answer comes back, beside main's own calls", async () => {
@@ -148,7 +161,7 @@ describe("core operations", () => {
         void runtime.dispose();
       });
       const served = serveCore(portOf(port2), runtime);
-      const core = portCore(portOf(port1));
+      const core = portCore(portOf(port1), runHostOp);
       const [shot, added] = await Promise.all([served.host.call("test.shot", { scale: 3 }), core.call("test.add", { n: 1 })]);
       expect(shot).toEqual({ bytes: [3, 6, 9] });
       expect(added).toEqual({ total: 1 });
@@ -165,7 +178,7 @@ describe("core operations", () => {
       });
       let started!: (runner: typeof runtime) => void;
       const served = serveCore(portOf(port2), new Promise<typeof runtime>((resolve) => { started = resolve; }));
-      const core = portCore(portOf(port1));
+      const core = portCore(portOf(port1), runHostOp);
       let answered = false;
       const early = core.call("test.add", { n: 2 }).then((value) => {
         answered = true;

@@ -1,4 +1,4 @@
-import { host } from "../core-process/host-ops";
+import { host } from "../core-process/core-host";
 import { TERMINAL_CONNECT } from "./protocol";
 import { terminalsOverPorts, type TerminalPortMain } from "./over-ports";
 import { useTerminalProcess } from "./use";

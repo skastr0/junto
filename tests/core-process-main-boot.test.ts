@@ -3,6 +3,7 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { expect, it, vi } from "vitest";
 import type { CoreRunner } from "./support/in-process-core";
 import { portCore, type CorePort } from "../src/main/core-process/port";
+import { runHostOp } from "../src/main/core-process/main-side/host-op-bodies";
 import { serveCore } from "../src/main/core-process/serve";
 import { subscribe } from "../src/main/core-process/main-side/core-pushes";
 import { AGENT_SIGNAL_CHANGED, WORK_PREAMBLE } from "../src/main/core-process/channels";
@@ -44,7 +45,7 @@ it("hooks main up to a core in its own process: calls go to it, its pushes reach
     captureApplicationPage: async () => ({ ok: true, png: new Uint8Array([7]) }),
     clipboard: { readText: () => clip, writeText: (text) => { clip = text; }, clear: () => { clip = ""; } },
     clipboardFormats: () => ["text/plain"],
-    start: () => ({ ...portCore(portOf(port1)), stop: () => Effect.sync(() => { stopped += 1; }) }),
+    start: () => ({ ...portCore(portOf(port1), runHostOp), stop: () => Effect.sync(() => { stopped += 1; }) }),
   });
   const seen: Array<[string, unknown]> = [];
   const offs = ([WORK_PREAMBLE, AGENT_SIGNAL_CHANGED] as const).map((channel) => subscribe(channel, (payload) => seen.push([channel, payload])));

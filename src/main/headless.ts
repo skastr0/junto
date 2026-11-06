@@ -5,6 +5,7 @@ import { runningBuildIdentity } from "./junto/build-identity";
 import { startCore } from "./junto/core";
 import { closeCoreProcess } from "./core-process/core-stop";
 import { sendPushesTo } from "./core-process/push";
+import { noWindowHost, useHostClient } from "./core-process/core-host";
 import { enforceBootRefusal } from "./junto/boot-guard";
 import { declareMachineCoreOwnsSessions } from "./junto/term/managed-spawn-plan";
 import { armMainThreadBudget } from "./junto/observability/main-thread-budget";
@@ -35,6 +36,8 @@ const main = async (): Promise<void> => {
   // A windowless core has no main and no window: what it announces is for
   // nobody, so its pushes go nowhere, on purpose.
   sendPushesTo(() => {});
+  // Nor Electron: a host call refuses with that reason instead of waiting.
+  useHostClient(noWindowHost);
   const entry = resolve(process.argv[1] ?? process.execPath);
   const packageRoot = dirname(dirname(entry));
   const nativeTarget = `${process.platform}-${process.arch}`;

@@ -4,7 +4,8 @@ import type { NotifyReport } from "@shared/desktop-notifications";
 import { companionService, type CompanionClipboard } from "../../junto/companion/service";
 import { noteDesktopReport } from "../../junto/companion/desktop-report";
 import { companionSettingsOn, type CompanionSettings } from "../../junto/companion/settings";
-import { host, hostOps, type HostOp } from "../host-ops";
+import type { HostOp } from "../host-ops";
+import { host } from "../core-host";
 import { coreOps, type CoreOp } from "../ops";
 
 /**

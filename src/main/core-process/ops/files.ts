@@ -31,7 +31,8 @@ import { readerOfHandle, type FileBytesReader } from "../../junto/files/bytes";
 import { makeFilesService, type FilesService } from "../../junto/files/service";
 import { coreRunner } from "../../core-runner";
 import { FILES_CHANGED, type FilesChangedPush } from "../channels";
-import { host, hostOps, type HostOp } from "../host-ops";
+import type { HostOp } from "../host-ops";
+import { host } from "../core-host";
 import { coreOps, type CoreOp } from "../ops";
 import { publish } from "../push";
 

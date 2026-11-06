@@ -2,6 +2,7 @@ import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { Layer, ManagedRuntime } from "effect";
 import { afterEach, expect, it } from "vitest";
 import { portCore, type CorePort } from "../src/main/core-process/port";
+import { runHostOp } from "../src/main/core-process/main-side/host-op-bodies";
 import { serveCore } from "../src/main/core-process/serve";
 import { hostCaptureApplicationPage, hostOverseerPages } from "../src/main/core-process/ops/overseer-pages";
 import { serveOverseerHost } from "../src/main/core-process/main-side/overseer-pages";
@@ -31,7 +32,7 @@ const wire = (pages: Partial<OverseerPages> | undefined) => {
   const runtime = ManagedRuntime.make(Layer.empty);
   const { port1, port2 } = new MessageChannel();
   const served = serveCore(portOf(port2), runtime as unknown as CoreRunner);
-  const core = portCore(portOf(port1));
+  const core = portCore(portOf(port1), runHostOp);
   const stop = serveOverseerHost({
     core,
     pages: () => pages as OverseerPages | undefined,

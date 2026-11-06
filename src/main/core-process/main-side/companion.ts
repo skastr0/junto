@@ -7,7 +7,8 @@
 import type { CompanionClipboard } from "../../junto/companion/service";
 import type { CompanionSettings } from "../../junto/companion/settings";
 import type { CoreClient } from "../client";
-import { hostOps, type HostOp } from "../host-ops";
+import type { HostOp } from "../host-ops";
+import { hostOps } from "./host-op-bodies";
 
 declare module "../host-ops" {
   interface HostOps {
