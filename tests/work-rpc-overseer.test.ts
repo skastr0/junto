@@ -202,6 +202,13 @@ describe("the overseer contract across the work socket", () => {
     expect(answered.error.type).toBe("InternalError");
   });
 
+  it("answers what v1 wrote: a key holding undefined left out, a date as its string", async () => {
+    const at = new Date("2026-11-07T12:00:00.000Z");
+    execute.mockImplementation(async (request) => ({ ok: true, operation: request.operation, data: { harness: "codex", model: undefined, at } }));
+    const answered = await raw(tokens[OVERSEER]!, "overseer", { operation: "agent.get", args: { nodeId: SEAT } });
+    expect(answered.data).toEqual({ ok: true, operation: "agent.get", data: { harness: "codex", at: at.toISOString() } });
+  });
+
   it("refuses the request byte limit before it reads the request", async () => {
     const refused = await raw(tokens[OVERSEER]!, "overseer", { operation: "status", args: { pad: "x".repeat(1024 * 1024) } });
     expect(refused.error).toEqual({ type: "InputError", message: "overseer request exceeds the request byte limit", details: { retryable: false } });

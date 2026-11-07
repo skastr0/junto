@@ -101,6 +101,10 @@ export const OverseerHandlers = OverseerServed.toLayer(
             return execute(request, { canvasName: caller.canvasName, nodeId: caller.nodeId }, signal, live);
           },
         );
+        // v1 wrote the executor's answer as JSON text, so a key holding
+        // undefined was left out and a date went as its string. The answer is
+        // that JSON, which the contract encodes as it is.
+        const answer = JSON.parse(JSON.stringify(result)) as OverseerResult;
         const settle = live?.settle;
         if (settle !== undefined) {
           // The answer stands whether or not its receipt was recorded.
@@ -109,7 +113,7 @@ export const OverseerHandlers = OverseerServed.toLayer(
             catch: (error): WorkErrorBody => ({ type: "InternalError", message: error instanceof Error ? error.message : "Live receipt could not be recorded" }),
           }).pipe(Effect.result);
         }
-        return result;
+        return answer;
       }).pipe(Effect.mapError(workFailure)),
     "overseer.live": (request) =>
       Effect.gen(function* () {
