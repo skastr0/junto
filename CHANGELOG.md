@@ -2,6 +2,57 @@
 
 ## Unreleased
 
+## 0.11.9 — 2026-11-07
+
+No database change: 0.11.9 opens the same version 73 as 0.11.8.
+
+- A core crash no longer takes the seats with it. A terminal lives in Junto's
+  terminal process, not in the core, so when the core dies the next core takes
+  over every terminal still running and rebuilds each seat's session, and the
+  window catches up with no relaunch. The holds on seats survive it too.
+- A core that fails at start no longer closes the app silently: the startup
+  failure dialog names the core and where its log is, then the app quits.
+- Quitting hangs up every terminal before the terminal process leaves, and the
+  terminal process leaves as soon as its quit is done instead of being killed
+  after 10 seconds.
+- The window, the main process, the core, the terminal process and the `junto`
+  command now speak to each other through typed contracts. A change on one side
+  fails the build on the other, and `junto` refuses an argument its contract
+  does not name, in the core's own words.
+- Tracing: the installed app records what each of its processes costs and can
+  trace itself on demand, with OpenTelemetry tracing across main, the core, the
+  terminal process and the window. The Observability panel reads the core's own
+  log.
+- Codex seats reach the work socket from their own sandbox, and each one binds
+  the session its own process holds, never a sibling's.
+- The core keeps the list of known secrets and scrubs them from every log row it
+  records.
+- The phone hears every seat signal again.
+- Lowering a cache window in Settings now turns a resting seat's card to "fresh
+  next" at the new window.
+- Unlinking a second task from an artifact before the first is settled no
+  longer brings the first one back.
+
+Proven by the release gate in the real app, on Linux: typing in a terminal and
+seeing what it printed, a seat that waits on you showing so on its card and in
+Needs you, Cmd+K to a seat, the document left open coming back after a full
+quit, a core crash with its seats kept running, a core that fails at start
+showing its dialog, mail delivered once across a quit and a reopen, a write at
+quit being there after the restart, Delete standing down under a modal, undo
+and redo, saving files, drafts kept at quit, phone pairing, offboarding, and
+seat sessions resuming.
+
+Known gaps in 0.11.9:
+
+- On Linux, 15 commands have no key chord: zoom in, out and reset, close the
+  front view, the rail, the switcher, urgency, git review, jump to a group and
+  the mirrors. 0.11.8 had the same gap.
+- A screen reader names the attention ring by an internal rule, not in words.
+- No end-to-end test on this build proves the human overseer toggle or native
+  window capture; unit tests hold their parts.
+- Not rechecked for this release, from 0.11.8: the switcher orders seats by
+  recency though it is labelled by need, and key echo in a terminal was 15.8 ms.
+
 ## 0.11.8 — 2026-10-30
 
 No database change: 0.11.8 opens the same version 73 as 0.11.7.
