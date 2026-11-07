@@ -1,5 +1,6 @@
 import { Argument, Command, Flag } from "effect/cli";
 import { Effect, Option, Schema } from "effect";
+import type { Rpc } from "effect/rpc";
 import { mintItemId } from "../../shared/resource-command";
 import {
   TASK_ARGS,
@@ -8,6 +9,28 @@ import {
   isTaskWriteOp,
   type TaskControlOp,
 } from "../../shared/task-control";
+import {
+  TaskArchive,
+  TaskAssign,
+  TaskCancel,
+  TaskCheck,
+  TaskComment,
+  TaskCreate,
+  TaskDepend,
+  TaskEdit,
+  TaskFinish,
+  TaskList,
+  TaskPause,
+  TaskResume,
+  TaskReviewerAdd,
+  TaskReviewerRemove,
+  TaskShow,
+  TaskStamp,
+  TaskStampPolicy,
+  TaskStart,
+  TaskUnassign,
+  TaskUndepend,
+} from "../../contract/work/task";
 import { CHECK_OUTPUT_TAIL_MAX, STAMPS_REQUIRED_MAX, TASK_HANDOFF_MAX, TASK_STATES } from "../../shared/task-model";
 import type {
   CommandCapability,
@@ -20,7 +43,7 @@ import { loadJsonInput } from "../core/json";
 import { opIdFlag, opIdOf } from "../core/op-id";
 import { executeJsonCommand } from "../core/output";
 import { readSource, sourceOf } from "../core/signal-input";
-import { WorkSocket } from "../core/socket";
+import { callWorkRpc } from "../core/socket";
 import { taskWaitCommand } from "./seat";
 import { taskRulesCommand } from "./work";
 
@@ -39,31 +62,37 @@ const timeoutFlag = Flag.Int("timeout").pipe(
 
 const taskArg = Argument.String("task").pipe(Argument.withDescription("A task: #42, its id, or a junto:// ref"));
 
-const call = (op: TaskControlOp, args: unknown, timeout: Option.Option<number>) =>
-  Effect.gen(function* () {
-    const socket = yield* WorkSocket;
-    return yield* socket.call(op, args, Option.getOrUndefined(timeout));
-  });
+/** One verb's call through its contract (`src/contract/work/task.ts`). */
+const call = <R extends Parameters<typeof callWorkRpc>[0]>(
+  rpc: R,
+  args: Rpc.Payload<R>,
+  timeout: Option.Option<number>,
+) => callWorkRpc(rpc, args, Option.getOrUndefined(timeout));
 
-/** One verb's call: the args it names, with an opId when it writes. */
-const run = (
+/** A read verb's call: the args it names. */
+const read = <R extends Parameters<typeof call>[0]>(verb: string, rpc: R, args: Rpc.Payload<R>, timeout: Option.Option<number>) =>
+  executeJsonCommand(`task ${verb}`, call(rpc, args, timeout));
+
+/** A write verb's call: the args it names, with the opId it mints or --op-id names. */
+const write = <R extends Parameters<typeof call>[0]>(
   verb: string,
-  op: TaskControlOp,
-  args: Record<string, unknown>,
+  rpc: R,
+  args: Omit<Rpc.Payload<R>, "opId">,
   opId: Option.Option<string>,
   timeout: Option.Option<number>,
 ) =>
   executeJsonCommand(
     `task ${verb}`,
     Effect.gen(function* () {
-      const written = isTaskWriteOp(op) ? { opId: yield* opIdOf(opId), ...args } : args;
-      return yield* call(op, written, timeout);
+      return yield* call(rpc, { opId: yield* opIdOf(opId), ...args } as Rpc.Payload<R>, timeout);
     }),
   );
 
 /** Flags left out stay out of the args, so main's schema sees only what was named. */
-const present = (fields: Record<string, Option.Option<unknown>>): Record<string, unknown> =>
-  Object.fromEntries(Object.entries(fields).flatMap(([key, value]) => (Option.isSome(value) ? [[key, value.value]] : [])));
+const present = <F extends Record<string, Option.Option<unknown>>>(
+  fields: F,
+): { -readonly [K in keyof F]?: F[K] extends Option.Option<infer A> ? A : never } =>
+  Object.fromEntries(Object.entries(fields).flatMap(([key, value]) => (Option.isSome(value) ? [[key, value.value]] : []))) as never;
 
 const DESCRIPTIONS = {
   list: "Tasks on every task node in this seat's reach, or on the one named by --node, newest change first. --reviewer lists the reviews a seat owes, longest waiting first.",
@@ -111,14 +140,14 @@ const listCommand = Command.make(
     timeout: timeoutFlag,
   },
   ({ node, state, assignee, reviewer, limit, after, timeout }) =>
-    run("list", "task.list", {
+    read("list", TaskList, {
       ...present({ node, assignee, reviewer, limit, after }),
       ...(state.length === 0 ? {} : { state }),
-    }, Option.none(), timeout),
+    }, timeout),
 ).pipe(Command.withDescription(DESCRIPTIONS.list));
 
 const showCommand = Command.make("show", { task: taskArg, timeout: timeoutFlag }, ({ task, timeout }) =>
-  run("show", "task.show", { task }, Option.none(), timeout)).pipe(Command.withDescription(DESCRIPTIONS.show));
+  read("show", TaskShow, { task }, timeout)).pipe(Command.withDescription(DESCRIPTIONS.show));
 
 const bodyFlag = Flag.String("body").pipe(Flag.optional, Flag.withDescription("Markdown body"));
 
@@ -133,7 +162,7 @@ const createCommand = Command.make(
     timeout: timeoutFlag,
   },
   ({ title, body, node, stamps, opId, timeout }) =>
-    run("create", "task.create", { taskId: mintItemId(), title, ...present({ body, node, stamps }) }, opId, timeout),
+    write("create", TaskCreate, { taskId: mintItemId(), title, ...present({ body, node, stamps }) }, opId, timeout),
 ).pipe(Command.withDescription(DESCRIPTIONS.create));
 
 const editCommand = Command.make(
@@ -145,7 +174,7 @@ const editCommand = Command.make(
     opId: opIdFlag,
     timeout: timeoutFlag,
   },
-  ({ task, title, body, opId, timeout }) => run("edit", "task.edit", { task, ...present({ title, body }) }, opId, timeout),
+  ({ task, title, body, opId, timeout }) => write("edit", TaskEdit, { task, ...present({ title, body }) }, opId, timeout),
 ).pipe(Command.withDescription(DESCRIPTIONS.edit));
 
 const assignCommand = Command.make(
@@ -156,13 +185,22 @@ const assignCommand = Command.make(
     opId: opIdFlag,
     timeout: timeoutFlag,
   },
-  ({ task, seat, opId, timeout }) => run("assign", "task.assign", { task, ...present({ seat }) }, opId, timeout),
+  ({ task, seat, opId, timeout }) => write("assign", TaskAssign, { task, ...present({ seat }) }, opId, timeout),
 ).pipe(Command.withDescription(DESCRIPTIONS.assign));
 
-/** The verbs that name one task and nothing else. */
+/** The verbs that name one task and nothing else, each by its op. */
+const ONE = {
+  unassign: TaskUnassign,
+  start: TaskStart,
+  pause: TaskPause,
+  resume: TaskResume,
+  cancel: TaskCancel,
+  archive: TaskArchive,
+} as const;
+
 const oneCommand = (verb: "unassign" | "start" | "pause" | "resume" | "cancel" | "archive") =>
   Command.make(verb, { task: taskArg, opId: opIdFlag, timeout: timeoutFlag }, ({ task, opId, timeout }) =>
-    run(verb, opOf(verb), { task }, opId, timeout)).pipe(Command.withDescription(DESCRIPTIONS[verb]));
+    write(verb, ONE[verb], { task }, opId, timeout)).pipe(Command.withDescription(DESCRIPTIONS[verb]));
 
 const repeated = (name: string, description: string) => Flag.String(name).pipe(Flag.atLeast(0), Flag.withDescription(description));
 
@@ -215,7 +253,7 @@ const finishCommand = Command.make(
       Effect.gen(function* () {
         const evidence = yield* evidenceOf({ artifact, commit, claim });
         const handoff = Option.isSome(note) ? { handoff: yield* handoffOf(note.value) } : {};
-        return yield* call("task.finish", { opId: yield* opIdOf(opId), task, ...present({ next }), ...evidence, ...handoff }, timeout);
+        return yield* call(TaskFinish, { opId: yield* opIdOf(opId), task, ...present({ next }), ...evidence, ...handoff }, timeout);
       }),
     ),
 ).pipe(Command.withDescription(DESCRIPTIONS.finish));
@@ -283,7 +321,7 @@ const checkCommand = Command.make(
       "task check",
       Effect.gen(function* () {
         const reported = yield* checkResultsOf({ outgoing, incoming, results });
-        return yield* call("task.check", { opId: yield* opIdOf(opId), task, ...present({ next }), results: reported }, timeout);
+        return yield* call(TaskCheck, { opId: yield* opIdOf(opId), task, ...present({ next }), results: reported }, timeout);
       }),
     ),
 ).pipe(Command.withDescription(DESCRIPTIONS.check));
@@ -297,7 +335,7 @@ const dependCommand = (verb: "depend" | "undepend") =>
       opId: opIdFlag,
       timeout: timeoutFlag,
     },
-    ({ task, on, opId, timeout }) => run(verb, opOf(verb), { task, on }, opId, timeout),
+    ({ task, on, opId, timeout }) => write(verb, verb === "depend" ? TaskDepend : TaskUndepend, { task, on }, opId, timeout),
   ).pipe(Command.withDescription(DESCRIPTIONS[verb]));
 
 const reviewerVerb = (verb: "add" | "remove") =>
@@ -310,7 +348,7 @@ const reviewerVerb = (verb: "add" | "remove") =>
       timeout: timeoutFlag,
     },
     ({ task, reviewer, opId, timeout }) =>
-      run(`reviewer ${verb}`, opOf(`reviewer-${verb}`), { task, ...present({ reviewer }) }, opId, timeout),
+      write(`reviewer ${verb}`, verb === "add" ? TaskReviewerAdd : TaskReviewerRemove, { task, ...present({ reviewer }) }, opId, timeout),
   ).pipe(Command.withDescription(DESCRIPTIONS[`reviewer-${verb}`]));
 
 const reviewerCommand = Command.make("reviewer").pipe(
@@ -326,7 +364,7 @@ const stampPolicyCommand = Command.make(
     opId: opIdFlag,
     timeout: timeoutFlag,
   },
-  ({ task, required, opId, timeout }) => run("stamp-policy", "task.stamp-policy", { task, required }, opId, timeout),
+  ({ task, required, opId, timeout }) => write("stamp-policy", TaskStampPolicy, { task, required }, opId, timeout),
 ).pipe(Command.withDescription(DESCRIPTIONS["stamp-policy"]));
 
 const stampCommand = Command.make(
@@ -344,7 +382,7 @@ const stampCommand = Command.make(
   ({ task, verdict, text, subjectHash, opId, timeout }) =>
     verdict === "changes" && Option.isNone(text)
       ? executeJsonCommand("task stamp", Effect.fail(new InputError({ message: "changes says what to change: add --text", path: "text" })))
-      : run("stamp", "task.stamp", { task, verdict, ...present({ text, subjectHash }) }, opId, timeout),
+      : write("stamp", TaskStamp, { task, verdict, ...present({ text, subjectHash }) }, opId, timeout),
 ).pipe(Command.withDescription(DESCRIPTIONS.stamp));
 
 const commentCommand = Command.make(
@@ -355,7 +393,7 @@ const commentCommand = Command.make(
     opId: opIdFlag,
     timeout: timeoutFlag,
   },
-  ({ task, text, opId, timeout }) => run("comment", "task.comment", { task, text }, opId, timeout),
+  ({ task, text, opId, timeout }) => write("comment", TaskComment, { task, text }, opId, timeout),
 ).pipe(Command.withDescription(DESCRIPTIONS.comment));
 
 export const taskCommand = Command.make("task").pipe(

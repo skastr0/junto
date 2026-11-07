@@ -4,7 +4,6 @@ import {
   type MsgPromptArgs,
   type MsgSendArgs,
   RulingsArgs,
-  type WorkOpName,
 } from "../../shared/work-control";
 import { mintOpId } from "../../shared/resource-command";
 import type { OpId } from "../../shared/work-ids";
@@ -14,8 +13,9 @@ import { DEFAULT_TIMEOUT_MS } from "../core/constants";
 import { loadJsonInput } from "../core/json";
 import { executeJsonCommand } from "../core/output";
 import { MsgList, MsgPrompt, MsgReact, MsgRead, MsgReply, MsgSend, MsgSent } from "../../contract/work/msg";
+import { Rulings, TaskRules } from "../../contract/work/task";
 import { Preamble } from "../../contract/work/seat";
-import { WorkSocket, callWorkRpc } from "../core/socket";
+import { callWorkRpc } from "../core/socket";
 
 const toUndefined = <A>(value: Option.Option<A>) =>
   Option.isSome(value) ? value.value : undefined;
@@ -38,17 +38,6 @@ const timeoutOption = Flag.Int("timeout").pipe(
   Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
 );
 
-/** Domain call — identity is process-bind on the server, not a payload claim. */
-const callDomain = <A>(
-  op: WorkOpName,
-  item: A,
-  timeout?: number,
-) =>
-  Effect.gen(function* () {
-    const socket = yield* WorkSocket;
-    return yield* socket.call(op, item, timeout);
-  });
-
 // --- task ---
 
 /** `task rules`, registered by the task command (./task.ts). */
@@ -68,7 +57,7 @@ export const taskRulesCommand = Command.make(
           return yield* Effect.fail(new InputError({ message: "name a task, or --node, not both", path: Option.isSome(task) ? "node" : "task" }));
         }
         const item = Option.isSome(task) ? { task: task.value } : { node: Option.getOrThrow(node) };
-        return yield* callDomain("task.rules", item, toUndefined(timeout));
+        return yield* callWorkRpc(TaskRules, item, toUndefined(timeout));
       }),
     ),
 ).pipe(
@@ -90,7 +79,7 @@ export const rulingsCommand = Command.make(
           onSome: (value) => (value.trim().length === 0 ? "{}" : value),
         });
         const item = yield* loadJsonInput(RulingsArgs, raw);
-        return yield* callDomain("rulings", item, toUndefined(timeout));
+        return yield* callWorkRpc(Rulings, item, toUndefined(timeout));
       }),
     ),
 ).pipe(

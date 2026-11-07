@@ -1,0 +1,97 @@
+{
+  "op": "task.comment",
+  "payload": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "opId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "task": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "A task: #42, its id, or a junto:// ref"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64000
+        }
+      },
+      "required": [
+        "opId",
+        "task",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  },
+  "success": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "disposition": {
+          "type": "string",
+          "enum": [
+            "applied"
+          ]
+        },
+        "opId": {
+          "type": "string"
+        },
+        "taskId": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "messageId": {
+          "type": "string"
+        },
+        "notified": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unlinked": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "token": {
+                "type": "string"
+              },
+              "nearest": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "token",
+              "nearest"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "disposition",
+        "opId",
+        "taskId",
+        "threadId",
+        "messageId",
+        "notified"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

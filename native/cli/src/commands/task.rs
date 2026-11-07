@@ -3,7 +3,9 @@
 //! `junto://` ref; a seat is `@name`, its name or id, or `me`; main resolves
 //! both. Every write carries its opId, minted here unless `--op-id` names the
 //! one a timed-out write returned. Each request's keys go out in the order
-//! task.ts builds them, so the frame matches the TypeScript CLI's.
+//! task.ts builds them, so the frame matches the TypeScript CLI's. Each op's
+//! args are one plain struct that refuses a field it does not name, checked
+//! against the op's published schema (crate::contract).
 
 use std::marker::PhantomData;
 use std::process::ExitCode;
@@ -28,7 +30,7 @@ const WAIT_DEFAULT_MS: u64 = 60_000;
 const WAIT_MAX_MS: u64 = 600_000;
 
 /// TASK_STATES (src/shared/task-model.ts).
-#[derive(Debug, Clone, Copy, ValueEnum, Serialize)]
+#[derive(Debug, Clone, Copy, ValueEnum, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 enum State {
     Backlog,
@@ -41,7 +43,7 @@ enum State {
     Archived,
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum, Serialize)]
+#[derive(Debug, Clone, Copy, ValueEnum, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum Verdict {
     Approve,
@@ -57,7 +59,8 @@ enum Side {
 
 // --- reads -------------------------------------------------------------------
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ListArgs {
     #[serde(skip_serializing_if = "Option::is_none")]
     node: Option<String>,
@@ -69,22 +72,25 @@ struct ListArgs {
     limit: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     after: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     state: Vec<State>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ShowArgs {
     task: String,
 }
 
-/// A bounded wait for a task to reach a state.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
+/// A bounded wait for a task to reach a state. This CLI always names the
+/// bound; the op takes none as its default.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct WaitArgs {
     task: String,
     until: String,
-    timeout_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timeout_ms: Option<u64>,
 }
 
 /// The rules where a task sits, or a task node's own.
@@ -104,12 +110,12 @@ ops! {
 
 // --- writes ------------------------------------------------------------------
 
-/// A write verb's own keys, and the op that rules them.
+/// A write verb's own keys, and the op that rules them (artifact.rs's verbs).
 pub(super) trait Verb: Serialize {
     const OP: &'static str;
 }
 
-/// A write as sent: its opId first, then the verb's keys.
+/// An artifact write as sent: its opId first, then the verb's keys.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Write<V> {
@@ -150,23 +156,29 @@ markers! {
 }
 
 /// unassign, start, pause, resume, cancel and archive name one task.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct One<M> {
+    op_id: OpId,
     task: String,
     #[serde(skip)]
     op: PhantomData<M>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Dependency<M> {
+    op_id: OpId,
     task: String,
     on: String,
     #[serde(skip)]
     op: PhantomData<M>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ReviewerArgs<M> {
+    op_id: OpId,
     task: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     reviewer: Option<String>,
@@ -174,19 +186,10 @@ struct ReviewerArgs<M> {
     op: PhantomData<M>,
 }
 
-impl<M: Op> Verb for One<M> {
-    const OP: &'static str = M::OP;
-}
-impl<M: Op> Verb for Dependency<M> {
-    const OP: &'static str = M::OP;
-}
-impl<M: Op> Verb for ReviewerArgs<M> {
-    const OP: &'static str = M::OP;
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CreateArgs {
+    op_id: OpId,
     task_id: String,
     title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -197,8 +200,10 @@ struct CreateArgs {
     stamps: Option<i64>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct EditArgs {
+    op_id: OpId,
     task: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<String>,
@@ -206,26 +211,28 @@ struct EditArgs {
     body: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AssignArgs {
+    op_id: OpId,
     task: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     seat: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ArtifactCite {
     node_id: String,
     artifact_id: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 struct Git {
     commits: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Claim {
     rule_id: String,
@@ -233,17 +240,19 @@ struct Claim {
 }
 
 /// CompletionEvidence (src/shared/work-model.ts), as the finish flags build it.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 struct Evidence {
     artifacts: Vec<ArtifactCite>,
     #[serde(skip_serializing_if = "Option::is_none")]
     git: Option<Git>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     claims: Vec<Claim>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct FinishArgs {
+    op_id: OpId,
     task: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     next: Option<String>,
@@ -262,23 +271,28 @@ struct CheckResult {
     output_tail: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CheckArgs {
+    op_id: OpId,
     task: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     next: Option<String>,
     results: Vec<CheckResult>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct StampPolicyArgs {
+    op_id: OpId,
     task: String,
     required: i64,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct StampArgs {
+    op_id: OpId,
     task: String,
     verdict: Verdict,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -287,19 +301,27 @@ struct StampArgs {
     subject_hash: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CommentArgs {
+    op_id: OpId,
     task: String,
     text: String,
 }
 
-macro_rules! verbs {
+/// Each task write carries its opId, so a failed send names it.
+macro_rules! writes {
     ($($ty:ty => $op:literal),+ $(,)?) => {
-        $(impl Verb for $ty { const OP: &'static str = $op; })+
+        $(impl Request for $ty {
+            const OP: &'static str = $op;
+            fn op_id(&self) -> Option<&OpId> {
+                Some(&self.op_id)
+            }
+        })+
     };
 }
 
-verbs! {
+writes! {
     CreateArgs => "task.create",
     EditArgs => "task.edit",
     AssignArgs => "task.assign",
@@ -309,6 +331,19 @@ verbs! {
     StampArgs => "task.stamp",
     CommentArgs => "task.comment",
 }
+
+macro_rules! shared_writes {
+    ($($ty:ident),+ $(,)?) => {
+        $(impl<M: Op> Request for $ty<M> {
+            const OP: &'static str = M::OP;
+            fn op_id(&self) -> Option<&OpId> {
+                Some(&self.op_id)
+            }
+        })+
+    };
+}
+
+shared_writes!(One, Dependency, ReviewerArgs);
 
 // --- the command line --------------------------------------------------------
 
@@ -511,25 +546,27 @@ pub(super) fn write<V: Verb>(flags: WriteFlags, verb: V) -> Answer {
     wire::call(&args, flags.timeout.into()).map(Into::into)
 }
 
+/// A task write: its args, made with the opId it carries.
+fn send<A: Request>(flags: WriteFlags, args: impl FnOnce(OpId) -> A) -> Answer {
+    let args = args(op_id(flags.op_id.as_deref())?);
+    wire::call(&args, flags.timeout.into()).map(Into::into)
+}
+
 fn one<M: Op>(OneTask { task, flags }: OneTask) -> Answer {
-    write(
-        flags,
-        One::<M> {
-            task,
-            op: PhantomData,
-        },
-    )
+    send(flags, |op_id| One::<M> {
+        op_id,
+        task,
+        op: PhantomData,
+    })
 }
 
 fn dependency<M: Op>(DependFlags { task, on, flags }: DependFlags) -> Answer {
-    write(
-        flags,
-        Dependency::<M> {
-            task,
-            on,
-            op: PhantomData,
-        },
-    )
+    send(flags, |op_id| Dependency::<M> {
+        op_id,
+        task,
+        on,
+        op: PhantomData,
+    })
 }
 
 fn reviewer<M: Op>(
@@ -539,14 +576,12 @@ fn reviewer<M: Op>(
         flags,
     }: ReviewerFlags,
 ) -> Answer {
-    write(
-        flags,
-        ReviewerArgs::<M> {
-            task,
-            reviewer,
-            op: PhantomData,
-        },
-    )
+    send(flags, |op_id| ReviewerArgs::<M> {
+        op_id,
+        task,
+        reviewer,
+        op: PhantomData,
+    })
 }
 
 /// A bounded wait (lowerTaskWait): the socket's bound sits above the wait's own.
@@ -559,7 +594,7 @@ fn wait(task: String, until: String, timeout: Option<&str>) -> Answer {
         &WaitArgs {
             task,
             until,
-            timeout_ms,
+            timeout_ms: Some(timeout_ms),
         },
         duration::socket_timeout_for(timeout_ms),
     )
@@ -763,16 +798,14 @@ impl Run for Task {
                 let task_id = ulid::Ulid::new().to_string();
                 (
                     "task create",
-                    write(
-                        flags,
-                        CreateArgs {
-                            task_id,
-                            title,
-                            body,
-                            node,
-                            stamps,
-                        },
-                    ),
+                    send(flags, |op_id| CreateArgs {
+                        op_id,
+                        task_id,
+                        title,
+                        body,
+                        node,
+                        stamps,
+                    }),
                 )
             }
             Command::Edit {
@@ -780,10 +813,19 @@ impl Run for Task {
                 title,
                 body,
                 flags,
-            } => ("task edit", write(flags, EditArgs { task, title, body })),
-            Command::Assign { task, seat, flags } => {
-                ("task assign", write(flags, AssignArgs { task, seat }))
-            }
+            } => (
+                "task edit",
+                send(flags, |op_id| EditArgs {
+                    op_id,
+                    task,
+                    title,
+                    body,
+                }),
+            ),
+            Command::Assign { task, seat, flags } => (
+                "task assign",
+                send(flags, |op_id| AssignArgs { op_id, task, seat }),
+            ),
             Command::Unassign(c) => ("task unassign", one::<Unassign>(c)),
             Command::Start(c) => ("task start", one::<Start>(c)),
             Command::Pause(c) => ("task pause", one::<Pause>(c)),
@@ -801,16 +843,19 @@ impl Run for Task {
             } => {
                 let finish = evidence(&artifact, commit, &claim).and_then(|evidence| {
                     let handoff = note.as_deref().map(handoff).transpose()?;
-                    Ok(FinishArgs {
-                        task,
-                        next,
-                        evidence,
-                        handoff,
-                    })
+                    Ok((evidence, handoff))
                 });
                 (
                     "task finish",
-                    finish.and_then(|finish| write(flags, finish)),
+                    finish.and_then(|(evidence, handoff)| {
+                        send(flags, |op_id| FinishArgs {
+                            op_id,
+                            task,
+                            next,
+                            evidence,
+                            handoff,
+                        })
+                    }),
                 )
             }
             Command::Check {
@@ -825,14 +870,12 @@ impl Run for Task {
                 (
                     "task check",
                     check.and_then(|results| {
-                        write(
-                            flags,
-                            CheckArgs {
-                                task,
-                                next,
-                                results,
-                            },
-                        )
+                        send(flags, |op_id| CheckArgs {
+                            op_id,
+                            task,
+                            next,
+                            results,
+                        })
                     }),
                 )
             }
@@ -850,7 +893,11 @@ impl Run for Task {
                 flags,
             } => (
                 "task stamp-policy",
-                write(flags, StampPolicyArgs { task, required }),
+                send(flags, |op_id| StampPolicyArgs {
+                    op_id,
+                    task,
+                    required,
+                }),
             ),
             Command::Stamp {
                 task,
@@ -864,21 +911,20 @@ impl Run for Task {
                         "changes says what to change: add --text",
                         "text",
                     )),
-                    _ => write(
-                        flags,
-                        StampArgs {
-                            task,
-                            verdict,
-                            text,
-                            subject_hash,
-                        },
-                    ),
+                    _ => send(flags, |op_id| StampArgs {
+                        op_id,
+                        task,
+                        verdict,
+                        text,
+                        subject_hash,
+                    }),
                 };
                 ("task stamp", answer)
             }
-            Command::Comment { task, text, flags } => {
-                ("task comment", write(flags, CommentArgs { task, text }))
-            }
+            Command::Comment { task, text, flags } => (
+                "task comment",
+                send(flags, |op_id| CommentArgs { op_id, task, text }),
+            ),
             Command::Rules {
                 task,
                 node,
@@ -939,5 +985,33 @@ mod tests {
                 .ok(),
             Some(-2)
         );
+    }
+}
+
+#[cfg(test)]
+mod contract {
+    crate::contract::parity! {
+        list: super::ListArgs => "task.list",
+        show: super::ShowArgs => "task.show",
+        wait: super::WaitArgs => "task.wait",
+        create: super::CreateArgs => "task.create",
+        edit: super::EditArgs => "task.edit",
+        assign: super::AssignArgs => "task.assign",
+        unassign: super::One<super::Unassign> => "task.unassign",
+        start: super::One<super::Start> => "task.start",
+        pause: super::One<super::Pause> => "task.pause",
+        resume: super::One<super::Resume> => "task.resume",
+        finish: super::FinishArgs => "task.finish",
+        check: super::CheckArgs => "task.check",
+        cancel: super::One<super::Cancel> => "task.cancel",
+        archive: super::One<super::Archive> => "task.archive",
+        depend: super::Dependency<super::Depend> => "task.depend",
+        undepend: super::Dependency<super::Undepend> => "task.undepend",
+        reviewer_add: super::ReviewerArgs<super::ReviewerAdd> => "task.reviewer-add",
+        reviewer_remove: super::ReviewerArgs<super::ReviewerRemove> => "task.reviewer-remove",
+        stamp_policy: super::StampPolicyArgs => "task.stamp-policy",
+        stamp: super::StampArgs => "task.stamp",
+        comment: super::CommentArgs => "task.comment",
+        rulings: crate::commands::work::RulingsArgs => "rulings",
     }
 }
