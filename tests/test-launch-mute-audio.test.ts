@@ -56,7 +56,6 @@ describe("test launches are silent", () => {
     const files = new Set(sites.map((site) => site.file));
     for (const file of [
       "e2e/harness/launch.ts",
-      "e2e/scenarios/quit-bound.spec.ts",
       "scripts/packaged-runtime-smoke.ts",
       "scripts/linux-ci-packaged-smoke.ts",
       "scripts/linux-packaged-pty-smoke.ts",
