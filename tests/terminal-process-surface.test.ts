@@ -18,7 +18,7 @@ import { TerminalRpcs } from "../src/contract/terminal/rpcs";
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it } from "vitest";
-import type { TerminalLink, TerminalLinkMessage, TerminalLinkPort } from "../src/contract/terminal/protocol";
+import type { TerminalLink, TerminalLinkMessage } from "../src/contract/terminal/protocol";
 import type { Command, Event, ParentCommand } from "../src/contract/terminal/messages";
 import type { SurfaceIn, SurfaceOut } from "../src/contract/terminal/surface";
 import {
@@ -72,12 +72,15 @@ const linkOf = (port: MessagePort): TerminalLink<SurfacePort> => ({
   },
 });
 
-const portOf = (port: MessagePort): TerminalLinkPort => ({
+/** A link end as the client holds it: a node port moves a surface port inside the posted value. */
+const clientLinkOf = (port: MessagePort): TerminalLink<MessagePort> => ({
   post: (message) => port.postMessage(message),
+  transfer: (frame, surface) => port.postMessage({ ...frame, port: surface }, [surface]),
   listen: (handler) => {
-    port.on("message", handler);
+    const on = (message: TerminalLinkMessage) => handler(message, undefined);
+    port.on("message", on);
     port.start();
-    return () => port.off("message", handler);
+    return () => port.off("message", on);
   },
 });
 
@@ -158,9 +161,7 @@ const setup = (spawnPty: SpawnPty = realPty) => {
   opened.push(port1, port2);
   const server = boot(spawnPty);
   server.attach(linkOf(port2), 1);
-  return { server, core: coreOf(port1), client: terminalClient(portOf(port1), (message, surface) =>
-    port1.postMessage({ ...(message as object), port: surface }, [surface as MessagePort]),
-  ) };
+  return { server, core: coreOf(port1), client: terminalClient(clientLinkOf(port1)) };
 };
 
 const spawn = (core: ReturnType<typeof coreOf>, id: number, command: string, args: readonly string[] = []) =>

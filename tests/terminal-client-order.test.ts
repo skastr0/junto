@@ -12,7 +12,7 @@ import { RpcServer } from "effect/rpc";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { terminalClient, type RemoteTerminalExit } from "../src/node/terminals/client";
 import type { Command, Event, EventFrame } from "../src/contract/terminal/messages";
-import type { TerminalLinkMessage, TerminalLinkPort } from "../src/contract/terminal/protocol";
+import type { TerminalLink, TerminalLinkMessage } from "../src/contract/terminal/protocol";
 import { TERMINAL_LINK_VERSION, TerminalRpcs, type TerminalAdoption, type TerminalFenced } from "../src/contract/terminal/rpcs";
 import { serverProtocol, type PortMessage, type RpcPort } from "../src/shared/rpc-port";
 
@@ -22,12 +22,12 @@ const scopes: Scope.Closeable[] = [];
 type Answers = { adoption?: TerminalAdoption; fenced?: TerminalFenced };
 
 const link = (answers: Answers = {}) => {
-  const handlers = new Set<(message: TerminalLinkMessage) => void>();
+  const handlers = new Set<(message: TerminalLinkMessage, port: unknown) => void>();
   const posted: TerminalLinkMessage[] = [];
   // The stub terminal process: its RPC server hears the client's calls and answers on the same link.
   const serverHandlers = new Set<(message: PortMessage) => void>();
   const server: RpcPort = {
-    post: (message) => { for (const handler of handlers) handler(message as TerminalLinkMessage); },
+    post: (message) => { for (const handler of handlers) handler(message as TerminalLinkMessage, undefined); },
     listen: (handler) => {
       serverHandlers.add(handler);
       return () => serverHandlers.delete(handler);
@@ -46,7 +46,8 @@ const link = (answers: Answers = {}) => {
     ),
     scope,
   ));
-  const port: TerminalLinkPort = {
+  const port: TerminalLink<unknown> = {
+    transfer: (frame) => void posted.push(frame),
     post: (message) => {
       posted.push(message);
       if (message.kind === "rpc") for (const handler of serverHandlers) handler(message);
@@ -58,15 +59,15 @@ const link = (answers: Answers = {}) => {
   };
   const send = (message: Event): void => {
     const frame: EventFrame = { kind: "event", message };
-    for (const handler of handlers) handler(frame as unknown as TerminalLinkMessage);
+    for (const handler of handlers) handler(frame as unknown as TerminalLinkMessage, undefined);
   };
   /** The commands posted with this tag, in order. */
   const commands = (tag: Command["_tag"]) =>
     posted.flatMap((message) => (message.kind === "command" && message.message._tag === tag ? [message.message] : []));
-  return { port, send, commands, deliver: (message: unknown) => { for (const handler of handlers) handler(message as TerminalLinkMessage); } };
+  return { port, send, commands, deliver: (message: unknown) => { for (const handler of handlers) handler(message as TerminalLinkMessage, undefined); } };
 };
 
-const spawned = (port: TerminalLinkPort) => {
+const spawned = (port: TerminalLink<unknown>) => {
   const terminal = terminalClient(port).spawn({ command: "/bin/cat", args: [], cols: 80, rows: 24 });
   const output: string[] = [];
   const exits: RemoteTerminalExit[] = [];
@@ -153,15 +154,6 @@ describe("the terminal client applies events by number", () => {
     deliver({ kind: "event", message: { _tag: "exit", id: terminal.id, afterSeq: 0, code: 0, signal: undefined, extra: true } });
     expect(exits).toEqual([]);
     expect(error).toHaveBeenCalledTimes(2);
-  });
-
-  it("still reads the old pushes, in the order they came", () => {
-    const { port, deliver } = link();
-    const { terminal, output, exits } = spawned(port);
-    deliver({ kind: "push", channel: "pty.data", payload: { id: terminal.id, data: "a", seq: 1 } });
-    deliver({ kind: "push", channel: "pty.exit", payload: { id: terminal.id, code: 1, signal: undefined } });
-    expect(output).toEqual(["a"]);
-    expect(exits).toEqual([{ code: 1, signal: undefined }]);
   });
 
   it("a fence waits for its own terminal's key events through the k the terminal process names", async () => {

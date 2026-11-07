@@ -3,31 +3,61 @@
  * MessageChannel: the terminal process decodes what the core asks, closed,
  * so a payload of the wrong shape is refused at its edge and never reaches a
  * spawn; the core decodes the answer; a core of another link version adopts
- * nothing and leaves the PTYs running; a command posted before its spawn
- * reaches the terminal process waits for it, and one for a refused spawn goes
- * with the refusal.
+ * nothing and leaves the PTYs running; a command frame posted before its
+ * spawn reaches the terminal process waits for it, and one for a refused
+ * spawn goes with the refusal. The server is the real one, through its layer.
  */
 import { MessageChannel, type MessagePort } from "node:worker_threads";
-import { Effect, Exit, Result, Schema } from "effect";
+import { Context, Effect, Exit, Layer, Result, Schema, Scope } from "effect";
 import { RpcClient, type RpcClientError, type RpcGroup } from "effect/rpc";
 import { afterEach, describe, expect, it } from "vitest";
-import { clientProtocol } from "../src/shared/rpc-port";
-import { TerminalInbound, type TerminalLink, type TerminalLinkMessage, type TerminalLinkPort } from "../src/contract/terminal/protocol";
+import { clientProtocol, type RpcPort } from "../src/shared/rpc-port";
+import type { TerminalLink, TerminalLinkMessage } from "../src/contract/terminal/protocol";
 import { TERMINAL_LINK_VERSION, TerminalAdopted, TerminalFenced, TerminalRpcs } from "../src/contract/terminal/rpcs";
 import { TerminalAck, TerminalConnect, TerminalData, TerminalExit, TerminalInput, TerminalResize, TerminalSurfaceOpen, TerminalTyping } from "../src/contract/terminal/messages";
-import { serveTerminals, type SpawnPty } from "../src/terminal/serve";
+import { CoreLink, PidEpochs, PtySpawner, TerminalServer, type SpawnPty, type SurfacePort } from "../src/terminal/serve";
 import { commandEdge, eventEdge, parentEdge } from "../src/contract/terminal/edge";
-import type { Command, CommandHandlers, Event, EventHandlers, ParentCommandHandlers } from "../src/contract/terminal/messages";
+import type { Command, CommandHandlers, Event, EventHandlers, ParentCommandHandlers, PortlessCommandFrame } from "../src/contract/terminal/messages";
 
 const opened: MessagePort[] = [];
-afterEach(() => {
+const scopes: Scope.Closeable[] = [];
+afterEach(async () => {
   for (const port of opened.splice(0)) port.close();
+  for (const scope of scopes.splice(0)) await Effect.runPromise(Scope.close(scope, Exit.void));
 });
 
-const linkOf = (port: MessagePort): TerminalLinkPort => ({
+/** The terminal process's end of a core link. No test here opens a surface, so no port rides in. */
+const servedLinkOf = (port: MessagePort): TerminalLink<SurfacePort> => ({
+  post: (message) => port.postMessage(message),
+  transfer: () => {
+    throw new Error("the terminal process posts no port on the link");
+  },
+  listen: (handler) => {
+    const on = (message: TerminalLinkMessage) => handler(message, undefined);
+    port.on("message", on);
+    port.start();
+    return () => port.off("message", on);
+  },
+});
+
+/** The core's end, raw: its RPC through the port, its commands posted as frames, and the events it hears. */
+type CoreEnd = RpcPort & {
+  readonly command: (message: PortlessCommandFrame["message"]) => void;
+  readonly onEvent: (handler: (event: Event) => void) => () => void;
+};
+
+const coreEndOf = (port: MessagePort): CoreEnd => ({
   post: (message) => port.postMessage(message),
   listen: (handler) => {
-    const on = (message: TerminalLinkMessage) => handler(message);
+    port.on("message", handler);
+    port.start();
+    return () => port.off("message", handler);
+  },
+  command: (message) => port.postMessage({ kind: "command", message } satisfies PortlessCommandFrame),
+  onEvent: (handler) => {
+    const on = (message: TerminalLinkMessage) => {
+      if (message.kind === "event") handler(message.message);
+    };
     port.on("message", on);
     return () => port.off("message", on);
   },
@@ -54,17 +84,26 @@ const recordingPty = () => {
   return { spawned, written, spawnPty };
 };
 
-const link = (spawnPty: SpawnPty) => {
+/** The real server through its layer, with no parent and no process table, attached to one core. */
+const link = (spawnPty: SpawnPty): CoreEnd => {
   const { port1, port2 } = new MessageChannel();
   opened.push(port1, port2);
-  serveTerminals(linkOf(port2), spawnPty, { capture: async () => undefined, isCurrent: async () => false });
-  return linkOf(port1);
+  const scope = Effect.runSync(Scope.make());
+  scopes.push(scope);
+  const deps = Layer.mergeAll(
+    Layer.succeed(PtySpawner, spawnPty),
+    Layer.succeed(PidEpochs, { capture: async () => undefined, isCurrent: async () => false }),
+    Layer.succeed(CoreLink, { parentAsCore: undefined, listenParent: () => () => undefined }),
+  );
+  const context = Effect.runSync(Layer.buildWithScope(Layer.provideMerge(TerminalServer.layer, deps), scope));
+  Context.get(context, TerminalServer).attach(servedLinkOf(port2), 1);
+  return coreEndOf(port1);
 };
 
 type Calls = RpcClient.RpcClient<RpcGroup.Rpcs<typeof TerminalRpcs>, RpcClientError.RpcClientError>;
 
 /** One call on a fresh client of the group, in its own scope. */
-const ask = <A, E>(core: TerminalLinkPort, call: (calls: Calls) => Effect.Effect<A, E>) =>
+const ask = <A, E>(core: RpcPort, call: (calls: Calls) => Effect.Effect<A, E>) =>
   Effect.runPromiseExit(Effect.scoped(
     RpcClient.make(TerminalRpcs).pipe(
       Effect.provideServiceEffect(RpcClient.Protocol, clientProtocol(core)),
@@ -118,8 +157,9 @@ describe("the terminal link's calls", () => {
   it("holds a write posted before its spawn, and drops one whose spawn was refused", async () => {
     const pty = recordingPty();
     const core = link(pty.spawnPty);
-    core.post({ kind: "push", channel: TerminalInbound.write, payload: { id: 1, data: "before the spawn" } });
-    core.post({ kind: "push", channel: TerminalInbound.write, payload: { id: 2, data: "for a refused spawn" } });
+    // Spawn is each terminal's command 1, so its first command after it is 2.
+    core.command({ _tag: "write", id: 1, n: 2, data: "before the spawn" });
+    core.command({ _tag: "write", id: 2, n: 2, data: "for a refused spawn" });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(pty.written).toEqual([]);
     await ask(core, (calls) => calls.TerminalSpawn({ id: 2, command: "/refused", args: [], cols: 80, rows: 24 }));
@@ -136,16 +176,14 @@ describe("the terminal link's calls", () => {
     expect(adopted).toMatchObject({ _tag: "Success", value: { nextId: 6 } });
     // Id 3 was never spawned here and is below 6: it is not held.
     const errors: unknown[] = [];
-    core.listen((message) => {
-      if (message.kind === "event" && message.message._tag === "error") {
-        errors.push({ id: message.message.id, message: message.message.message });
-      }
+    core.onEvent((event) => {
+      if (event._tag === "error") errors.push({ id: event.id, message: event.message });
     });
-    core.post({ kind: "push", channel: TerminalInbound.write, payload: { id: 3, data: "for an id no core spawns" } });
+    core.command({ _tag: "write", id: 3, n: 2, data: "for an id no core spawns" });
     await until(() => errors.length > 0);
     expect(errors).toEqual([{ id: 3, message: "terminal process already exited" }]);
     // Id 6 may still be spawned: its write waits for it.
-    core.post({ kind: "push", channel: TerminalInbound.write, payload: { id: 6, data: "for the next spawn" } });
+    core.command({ _tag: "write", id: 6, n: 2, data: "for the next spawn" });
     await ask(core, (calls) => calls.TerminalSpawn({ id: 6, command: "/bin/cat", args: [], cols: 80, rows: 24 }));
     await until(() => pty.written.length > 0);
     expect(pty.written).toEqual(["for the next spawn"]);

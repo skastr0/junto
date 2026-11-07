@@ -8,19 +8,8 @@ import {
   type TerminalExitStatus,
   type TerminalSpawnInput,
 } from "../../contract/terminal/rpcs";
-import {
-  TerminalOutbound,
-  TerminalSurface,
-  type TerminalData as LegacyData,
-  type TerminalError,
-  type TerminalExitEvent,
-  type SurfaceLease,
-  type TerminalInput as LegacyInput,
-  type TerminalLinkMessage,
-  type TerminalLinkPort,
-  type TerminalPush,
-} from "../../contract/terminal/protocol";
-import type { Command, EventFrame, EventHandlers, TerminalInput, TerminalTyping } from "../../contract/terminal/messages";
+import type { TerminalLink } from "../../contract/terminal/protocol";
+import type { Command, EventHandlers, SurfaceLease, TerminalInput, TerminalTyping } from "../../contract/terminal/messages";
 import { eventEdge } from "../../contract/terminal/edge";
 
 /**
@@ -118,8 +107,6 @@ type Live = {
   /** The last chunk applied. */
   seq: number;
   readonly pending: Map<number, string>;
-  /** The highest chunk received, applied or waiting. */
-  received: number;
   heldExit?: { readonly afterSeq: number; readonly status: RemoteTerminalExit };
   /** The last key event applied: 0 for a spawn, the adoption's `lastK` for an adopted terminal. */
   k: number;
@@ -148,17 +135,16 @@ const messageOf = (error: unknown): string =>
   textOf(typeof error === "object" && error !== null && "reason" in error ? error.reason : undefined) ?? textOf(error) ?? String(error);
 
 /**
- * `transfer` posts one message with a port moved alongside it, which the
- * link port cannot: Electron's `UtilityProcess.postMessage(message, [port])`.
- * Without it no surface can be opened.
+ * `link` is the core's end of the terminal link: frames go out on `post`, a
+ * surface port goes beside its `surfaceOpen` on `transfer`, and events and
+ * RPC replies come in on `listen`. `P` is a port as its transport holds one.
  *
  * `context` is the program's own, and every call on the link runs on it:
  * `Terminals` hands the client the core's. A test that builds a client
  * alone runs its calls on an empty one.
  */
-export const terminalClient = (
-  port: TerminalLinkPort,
-  transfer?: (message: TerminalLinkMessage, surface: unknown) => void,
+export const terminalClient = <P>(
+  link: TerminalLink<P>,
   context: Context.Context<never> = Context.empty(),
 ): TerminalClient => {
   const live = new Map<number, Live>();
@@ -168,7 +154,7 @@ export const terminalClient = (
   // terminal process is gone, which fails every call still waiting.
   const rpcListeners = new Set<(message: PortMessage) => void>();
   const rpcPort: RpcPort = {
-    post: (message) => port.post(message),
+    post: (message) => link.post(message),
     listen: (handler) => {
       rpcListeners.add(handler);
       return () => rpcListeners.delete(handler);
@@ -211,7 +197,7 @@ export const terminalClient = (
     return n;
   };
   const command = (message: DistributiveOmit<PortlessCommand, "n">): void =>
-    port.post({ kind: "command", message: { ...message, n: nextN(message.id) } as PortlessCommand });
+    link.post({ kind: "command", message: { ...message, n: nextN(message.id) } as PortlessCommand });
 
   // Handled output is acknowledged once per turn, every terminal at once, so
   // a PTY is read only as fast as this side keeps up (backpressure). The ack
@@ -283,7 +269,6 @@ export const terminalClient = (
       const terminal = known(event.id, () => events.data(event));
       if (terminal === undefined || event.seq <= terminal.seq || terminal.pending.has(event.seq)) return;
       terminal.pending.set(event.seq, event.data);
-      terminal.received = Math.max(terminal.received, event.seq);
       advance(event.id, terminal);
     },
     exit: (event) => {
@@ -302,42 +287,14 @@ export const terminalClient = (
   };
   const eventOf = eventEdge(events);
 
-  /**
-   * The old one-way channels, until the terminal process posts event frames
-   * only. They arrive in the order they were posted: an exit follows every
-   * chunk received, and a key event applies as it comes.
-   */
-  const legacy = (message: TerminalPush): void => {
-    if (message.channel === TerminalOutbound.data) {
-      const { id, data, seq } = message.payload as LegacyData;
-      return events.data({ _tag: "data", id, seq, data });
-    }
-    if (message.channel === TerminalOutbound.exit) {
-      const { id, code, signal } = message.payload as TerminalExitEvent;
-      const terminal = known(id, () => legacy(message));
-      if (terminal !== undefined) events.exit({ _tag: "exit", id, afterSeq: terminal.received, code, signal });
-      return;
-    }
-    if (message.channel === TerminalOutbound.error) {
-      const { id, message: text } = message.payload as TerminalError;
-      return events.error({ _tag: "error", id, message: text });
-    }
-    if (message.channel === TerminalSurface.typing || message.channel === TerminalSurface.input) {
-      const input = message.payload as LegacyInput;
-      const terminal = known(input.id, () => legacy(message));
-      if (terminal !== undefined) each(message.channel === TerminalSurface.typing ? terminal.typing : terminal.input, input);
-    }
-  };
-
-  port.listen((message) => {
-    const frame = message as TerminalLinkMessage | EventFrame;
-    if (frame.kind === "push") return legacy(frame);
-    if (frame.kind === "event") {
-      const refused = eventOf(frame.message);
+  link.listen((message) => {
+    if (message.kind === "event") {
+      const refused = eventOf(message.message);
       if (Result.isFailure(refused)) console.error(`[term] the terminal process sent an event this core refuses: ${refused.failure.tag} ${refused.failure.message}`);
       return;
     }
-    for (const listener of [...rpcListeners]) listener(frame);
+    if (message.kind === "command") return;
+    for (const listener of [...rpcListeners]) listener(message);
   });
 
   const subscribe = <A>(id: number, pick: (terminal: Live) => Set<(value: A) => void>) => (listener: (value: A) => void) => {
@@ -353,7 +310,7 @@ export const terminalClient = (
 
   const fresh = (seq: number, k: number, ready: boolean): Live => ({
     data: new Set(), exit: new Set(), error: new Set(), typing: new Set(), input: new Set(),
-    seq, pending: new Map(), received: seq, k, pendingKeys: new Map(), fences: [], ready,
+    seq, pending: new Map(), k, pendingKeys: new Map(), fences: [], ready,
   });
 
   /**
@@ -383,8 +340,7 @@ export const terminalClient = (
     hold: (held) => command({ _tag: "hold", id, held }),
     endSurface: (leaseId) => command({ _tag: "surfaceEnd", id, leaseId }),
     openSurface: (lease, fromSeq, surface) => {
-      if (transfer === undefined) throw new Error("this terminal process cannot take a surface port");
-      transfer({ kind: "command", message: { _tag: "surfaceOpen", id, n: nextN(id), leaseId: lease.leaseId, epoch: lease.epoch, fromSeq } }, surface);
+      link.transfer({ kind: "command", message: { _tag: "surfaceOpen", id, n: nextN(id), leaseId: lease.leaseId, epoch: lease.epoch, fromSeq } }, surface as P);
     },
     lastSeq: () => live.get(id)?.seq ?? 0,
     onTyping: subscribe(id, (terminal) => terminal.typing),
@@ -424,7 +380,7 @@ export const terminalClient = (
 
   return {
     adopt,
-    hangupAll: () => port.post({ kind: "command", message: { _tag: "hangupAll" } }),
+    hangupAll: () => link.post({ kind: "command", message: { _tag: "hangupAll" } }),
     spawn: (input) => {
       const id = nextId++;
       live.set(id, fresh(0, 0, true));

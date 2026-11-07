@@ -1,5 +1,5 @@
 import { Context, Effect } from "effect";
-import type { TerminalLinkMessage, TerminalLinkPort } from "../../contract/terminal/protocol";
+import type { TerminalLink, TerminalLinkMessage } from "../../contract/terminal/protocol";
 import { TerminalAdoptFailed, terminalClient, type TerminalClient } from "../../node/terminals/client";
 
 /** Electron's MessagePortMain, as the core process is handed one. */
@@ -23,15 +23,17 @@ export const terminalsOverPorts = (
   let current: TerminalClient | undefined;
   return {
     connect: (port) => {
-      const link: TerminalLinkPort = {
+      // No event carries a port: the terminal process moves none to the core.
+      const link: TerminalLink<unknown> = {
         post: (message) => port.postMessage(message),
+        transfer: (frame, surface) => port.postMessage(frame, [surface]),
         listen: (handler) => {
-          const on = (event: { readonly data: unknown }) => handler(event.data as TerminalLinkMessage);
+          const on = (event: { readonly data: unknown }) => handler(event.data as TerminalLinkMessage, undefined);
           port.on("message", on);
           return () => port.off("message", on);
         },
       };
-      const client = terminalClient(link, (message, surface) => port.postMessage(message, [surface]), context);
+      const client = terminalClient(link, context);
       current?.fail("the Junto terminal process was replaced");
       current = client;
       port.on("close", () => {

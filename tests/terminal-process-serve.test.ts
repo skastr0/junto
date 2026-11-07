@@ -7,8 +7,7 @@
  *
  * A terminal's commands apply in their `n` order — a gap is held, a repeat
  * dropped — and an adopted terminal takes its first command's `n` as the
- * base it continues from. While a core still posts the old pushes, they
- * apply as they come; the events out are `EventFrame`s either way.
+ * base it continues from; the events out are `EventFrame`s.
  */
 import { Context, Effect, Exit, Layer, Scope } from "effect";
 import { RpcClient } from "effect/rpc";
@@ -20,8 +19,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import type {
   TerminalLink,
   TerminalLinkMessage,
-  TerminalLinkPort,
-  TerminalPush,
 } from "../src/contract/terminal/protocol";
 import type { Command, Event, ParentCommand } from "../src/contract/terminal/messages";
 import type { SurfaceOut } from "../src/contract/terminal/surface";
@@ -30,8 +27,6 @@ import {
   PidEpochs,
   PtySpawner,
   TerminalServer,
-  serveTerminals,
-  type PtyEpochs,
   type SpawnPty,
   type SurfacePort,
 } from "../src/terminal/serve";
@@ -78,27 +73,27 @@ const linkOf = (port: MessagePort): TerminalLink<SurfacePort> => ({
   },
 });
 
-/** A link end as the client holds it: the old port shape while the client still posts pushes. */
-const portOf = (port: MessagePort): TerminalLinkPort => ({
+/** A link end as the client holds it: a node port moves a surface port inside the posted value. */
+const clientLinkOf = (port: MessagePort): TerminalLink<MessagePort> => ({
   post: (message) => port.postMessage(message),
+  transfer: (frame, surface) => port.postMessage({ ...frame, port: surface }, [surface]),
   listen: (handler) => {
-    port.on("message", handler);
+    const on = (message: TerminalLinkMessage) => handler(message, undefined);
+    port.on("message", on);
     port.start();
-    return () => port.off("message", handler);
+    return () => port.off("message", on);
   },
 });
 
 /**
  * A raw core end, for the tests that drive the frames themselves: every
- * event frame and push collected, commands posted with or without the port
- * they carry, the RPC group answered through the same port.
+ * event frame collected, commands posted with or without the port they
+ * carry, the RPC group answered through the same port.
  */
 const coreOf = (port: MessagePort) => {
   const events: Event[] = [];
-  const pushes: TerminalPush[] = [];
   port.on("message", (message: TerminalLinkMessage) => {
     if (message.kind === "event") events.push(message.message);
-    else if (message.kind === "push") pushes.push(message);
   });
   port.start();
   const scope = Effect.runSync(Scope.make());
@@ -126,13 +121,11 @@ const coreOf = (port: MessagePort) => {
   };
   return {
     events,
-    pushes,
     calls,
     n,
     command: (message: Command) => port.postMessage({ kind: "command", message }),
     surfaceOpen: (message: Extract<Command, { readonly _tag: "surfaceOpen" }>, surface: MessagePort) =>
       port.postMessage({ kind: "command", message, port: surface }, [surface]),
-    push: (channel: string, payload: unknown) => port.postMessage({ kind: "push", channel, payload }),
   };
 };
 
@@ -172,7 +165,7 @@ const pair = (spawnPty: SpawnPty = realPty) => {
   opened.push(port1, port2);
   const { server } = boot(spawnPty);
   server.attach(linkOf(port2), 1);
-  return { server, client: terminalClient(portOf(port1)), core: coreOf(port1) };
+  return { server, client: terminalClient(clientLinkOf(port1)), core: coreOf(port1) };
 };
 
 const record = (terminal: RemoteTerminal) => {
@@ -265,11 +258,12 @@ describe("the terminal process", () => {
     let alive = true;
     const { port1, port2 } = new MessageChannel();
     opened.push(port1, port2);
-    serveTerminals(portOf(port2), reaped, {
+    const { server } = boot(reaped, Layer.succeed(PidEpochs, {
       capture: async (pid) => ({ pid, startKey: "spawned" }),
       isCurrent: async () => alive,
-    });
-    const client = terminalClient(portOf(port1));
+    }));
+    server.attach(linkOf(port2), 1);
+    const client = terminalClient(clientLinkOf(port1));
     const pty = client.spawn({ command: "/bin/true", args: [], cols: 80, rows: 24 });
     await pty.pid;
     pty.kill("SIGTERM");
@@ -299,13 +293,14 @@ describe("the terminal process", () => {
     let answer: ((current: boolean) => void) | undefined;
     const { port1, port2 } = new MessageChannel();
     opened.push(port1, port2);
-    serveTerminals(portOf(port2), fake, {
+    const { server } = boot(fake, Layer.succeed(PidEpochs, {
       capture: async (pid) => ({ pid, startKey: "spawned" }),
       isCurrent: () => new Promise<boolean>((resolve) => {
         answer = resolve;
       }),
-    });
-    const client = terminalClient(portOf(port1));
+    }));
+    server.attach(linkOf(port2), 1);
+    const client = terminalClient(clientLinkOf(port1));
     const pty = client.spawn({ command: "/bin/true", args: [], cols: 80, rows: 24 });
     await pty.pid;
     pty.kill("SIGTERM");
@@ -359,52 +354,6 @@ describe("the terminal process", () => {
     expect(calls).toEqual(["pause", "resume"]);
   });
 
-  it("an old `pty.ack` push still counts the characters it names, while a core posts it", async () => {
-    let emit: ((data: string) => void) | undefined;
-    const calls: string[] = [];
-    const fake: SpawnPty = () => ({
-      pid: 4248,
-      onExit: () => ({ dispose: () => undefined }),
-      onData: (listener: (data: string) => void) => {
-        emit = listener;
-        return { dispose: () => undefined };
-      },
-      pause: () => calls.push("pause"),
-      resume: () => calls.push("resume"),
-      kill: () => undefined,
-      write: () => undefined,
-      resize: () => undefined,
-    }) as unknown as ReturnType<SpawnPty>;
-    const { port1, port2 } = new MessageChannel();
-    opened.push(port1, port2);
-    serveTerminals(portOf(port2), fake, { capture: async () => undefined, isCurrent: async () => false });
-    const rpc: RpcPort = {
-      post: (message) => port1.postMessage(message),
-      listen: (handler) => {
-        port1.on("message", handler);
-        return () => port1.off("message", handler);
-      },
-    };
-    void Effect.runPromise(Effect.scoped(
-      RpcClient.make(TerminalRpcs).pipe(
-        Effect.provideServiceEffect(RpcClient.Protocol, clientProtocol(rpc)),
-        Effect.flatMap((calls) => calls.TerminalSpawn({ id: 1, command: "/bin/true", args: [], cols: 80, rows: 24 })),
-      ),
-    ));
-    await until(() => emit !== undefined);
-    const chunk = "x".repeat(64 * 1024);
-    for (let i = 0; i < 16; i++) emit!(chunk);
-    emit!(chunk);
-    expect(calls).toEqual(["pause"]);
-    emit!(chunk);
-    port1.postMessage({ kind: "push", channel: "pty.ack", payload: { id: 1, chars: 12 * 64 * 1024 } });
-    await settleTurn();
-    expect(calls).toEqual(["pause"]);
-    port1.postMessage({ kind: "push", channel: "pty.ack", payload: { id: 1, chars: 4 * 64 * 1024 } });
-    await until(() => calls.length === 2);
-    expect(calls).toEqual(["pause", "resume"]);
-  });
-
   it("a core that keeps up acknowledges what it handled, so a fast stream is never paused", async () => {
     const calls: string[] = [];
     const spawnPty: SpawnPty = (command, args, options) => {
@@ -445,7 +394,7 @@ describe("the terminal process", () => {
     const { port1, port2 } = new MessageChannel();
     opened.push(port1, port2);
     connected.connect(linkOf(port2), generation);
-    return { client: terminalClient(portOf(port1)), core: coreOf(port1) };
+    return { client: terminalClient(clientLinkOf(port1)), core: coreOf(port1) };
   };
 
   const running = (pid: number): boolean => {
@@ -462,7 +411,7 @@ describe("the terminal process", () => {
     opened.push(port1, port2);
     const connected = boot(realPty);
     connected.connect(linkOf(port2), 1);
-    const client = terminalClient(portOf(port1));
+    const client = terminalClient(clientLinkOf(port1));
     const meta = { bindingId: "seat-a" };
     const shell = client.spawn({ command: "/bin/sh", args: ["-c", "printf before; sleep 0.3; printf during; exec cat"], cols: 80, rows: 24, env, meta });
     const seen = record(shell);
@@ -497,7 +446,7 @@ describe("the terminal process", () => {
     opened.push(port1, port2);
     const connected = boot(realPty);
     connected.connect(linkOf(port2), 1);
-    const client = terminalClient(portOf(port1));
+    const client = terminalClient(clientLinkOf(port1));
     const shell = client.spawn({ command: "/bin/sh", args: ["-c", "sleep 0.2; printf bye; exit 3"], cols: 80, rows: 24, env });
     const pid = (await shell.pid)!;
     port2.close();
@@ -526,7 +475,7 @@ describe("the terminal process", () => {
     };
     const connected = boot(realPty);
     connected.connect(dying, 1);
-    const client = terminalClient(portOf(port1));
+    const client = terminalClient(clientLinkOf(port1));
     const shell = client.spawn({ command: "/bin/sh", args: ["-c", "sleep 0.2; exit 4"], cols: 80, rows: 24, env });
     const pid = (await shell.pid)!;
     // The core is gone, but its port has not closed: the exit is posted into nothing.
@@ -561,7 +510,7 @@ describe("the terminal process", () => {
     opened.push(port1, port2);
     const connected = boot(fake, Layer.succeed(PidEpochs, { capture: async () => undefined, isCurrent: async () => false }));
     connected.connect(linkOf(port2), 1);
-    const client = terminalClient(portOf(port1));
+    const client = terminalClient(clientLinkOf(port1));
     const terminal = client.spawn({ command: "/bin/true", args: [], cols: 80, rows: 24 });
     const seen = record(terminal);
     await terminal.pid;
@@ -597,7 +546,7 @@ describe("the terminal process", () => {
     opened.push(port1, port2);
     const connected = boot(fake, Layer.succeed(PidEpochs, { capture: async () => undefined, isCurrent: async () => false }));
     connected.connect(linkOf(port2), 1);
-    await terminalClient(portOf(port1)).spawn({ command: "/bin/true", args: [], cols: 80, rows: 24 }).pid;
+    await terminalClient(clientLinkOf(port1)).spawn({ command: "/bin/true", args: [], cols: 80, rows: 24 }).pid;
     port2.close();
     const chunk = "x".repeat(64 * 1024);
     for (let i = 0; i < 17; i++) emit!(chunk);
@@ -613,7 +562,7 @@ describe("the terminal process", () => {
   it("an adopt the terminal process never answers fails tagged when it is lost", async () => {
     const { port1, port2 } = new MessageChannel();
     opened.push(port1, port2);
-    const orphan = terminalClient(portOf(port1));
+    const orphan = terminalClient(clientLinkOf(port1));
     const asked = Effect.runPromise(orphan.adopt());
     orphan.fail("the terminal process exited");
     await expect(asked).rejects.toMatchObject({ _tag: "TerminalAdoptFailed", message: "the terminal process exited" });

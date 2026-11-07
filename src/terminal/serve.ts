@@ -21,22 +21,11 @@ import type {
 } from "../contract/terminal/messages";
 import {
   TERMINAL_HISTORY_CHARS,
-  TerminalInbound,
-  TerminalSurface,
   TERMINAL_UNACKED_HIGH,
   TERMINAL_UNACKED_LOW,
-  type TerminalAck as LegacyAck,
-  type TerminalExitAck as LegacyExitAck,
-  type TerminalGate as LegacyGate,
-  type TerminalHold as LegacyHold,
-  type TerminalKill as LegacyKill,
   type TerminalLink,
   type TerminalLinkPort,
-  type TerminalResize as LegacyResize,
-  type TerminalSurfaceClose as LegacySurfaceClose,
   type TerminalSurfaceOpen as LegacySurfaceOpen,
-  type TerminalWrite as LegacyWrite,
-  type TerminalPush,
 } from "../contract/terminal/protocol";
 import type { SurfaceIn, SurfaceOut } from "../contract/terminal/surface";
 
@@ -49,8 +38,7 @@ import type { SurfaceIn, SurfaceOut } from "../contract/terminal/surface";
  * edge for the control tags and passed typed for the hot ones (`write`,
  * `ack`). Every command for a terminal carries `n`, its control number — a
  * spawn counts as 1 — and commands apply in `n` order per terminal: a gap is
- * held, a repeat dropped. While the old push channels are still posted by a
- * core that has not moved, they arrive without `n` and apply as they come.
+ * held, a repeat dropped.
  *
  * Its events are the `Event` union: output carries `seq`, an exit `afterSeq`,
  * a key `k`, each placed by number on the far side.
@@ -439,30 +427,6 @@ const openServer = (spawnPty: SpawnPty, epochs: PtyEpochs): {
     }
   };
 
-  /** The old acknowledgement, a count of handled characters, while a core still posts it. */
-  const ackChars = (id: number, chars: number): void => {
-    const link = links.get(id);
-    if (link === undefined) return;
-    link.chars = Math.max(0, link.chars - chars);
-    // Acknowledgements come whole chunks at a time, in order.
-    for (let left = chars; left > 0 && link.unacked[0] !== undefined && link.unacked[0].data.length <= left;) {
-      const chunk = link.unacked.shift()!;
-      left -= chunk.data.length;
-      link.acked = Math.max(link.acked, chunk.seq);
-      link.history.push(chunk);
-      link.historyChars += chunk.data.length;
-    }
-    while (link.historyChars > TERMINAL_HISTORY_CHARS) link.historyChars -= link.history.shift()!.data.length;
-    if (link.paused && link.chars < TERMINAL_UNACKED_LOW) {
-      link.paused = false;
-      try {
-        ptys.get(id)?.pty.resume();
-      } catch {
-        // An exiting PTY has nothing left to resume.
-      }
-    }
-  };
-
   const gate = (id: number, lease: { readonly leaseId: string; readonly epoch: string } | null): void => {
     const surfaces = surfacesOf.get(id);
     if (surfaces === undefined) return;
@@ -576,53 +540,6 @@ const openServer = (spawnPty: SpawnPty, epochs: PtyEpochs): {
   };
 
   const onCommandFrame = commandEdge<SurfacePort>(commands);
-
-  /** The old push channels, while a core still posts them: the same commands, without `n`, applied as they come. */
-  const onLegacy = (message: TerminalPush, surface: SurfacePort | undefined): void => {
-    const { channel, payload } = message;
-    const id = (payload as { readonly id?: unknown } | undefined)?.id;
-    if (typeof id === "number" && awaited(id)) return wait(id, () => onLegacy(message, surface), () => endPortFor(surface));
-    if (channel === TerminalSurface.open) {
-      if (surface !== undefined) openSurface(payload as LegacySurfaceOpen, surface);
-      return;
-    }
-    if (channel === TerminalInbound.write) {
-      const { id, data } = payload as LegacyWrite;
-      return write(id, data);
-    }
-    if (channel === TerminalInbound.resize) {
-      const { id, cols, rows } = payload as LegacyResize;
-      return resize(id, cols, rows);
-    }
-    if (channel === TerminalInbound.ack) {
-      const { id, chars } = payload as LegacyAck;
-      return ackChars(id, chars);
-    }
-    if (channel === TerminalSurface.gate) {
-      const { id, lease } = payload as LegacyGate;
-      return gate(id, lease);
-    }
-    if (channel === TerminalSurface.hold) {
-      const { id, held } = payload as LegacyHold;
-      return hold(id, held);
-    }
-    if (channel === TerminalSurface.close) {
-      const { id, leaseId } = payload as LegacySurfaceClose;
-      return surfaceEnd(id, leaseId);
-    }
-    if (channel === TerminalInbound.exitAck) {
-      const { id } = payload as LegacyExitAck;
-      return exitAck(id);
-    }
-    if (channel === TerminalInbound.hangupAll) {
-      void hangupAll();
-      return;
-    }
-    if (channel === TerminalInbound.kill) {
-      const { id, signal } = payload as LegacyKill;
-      void signalPty(id, signal);
-    }
-  };
 
   /**
    * The spawn of `id` was decided: what waited for it runs, or goes with a
@@ -762,7 +679,11 @@ const openServer = (spawnPty: SpawnPty, epochs: PtyEpochs): {
         if (Result.isFailure(refused)) console.error(`[terminal] a command the link refuses reached it: ${refused.failure.tag} ${refused.failure.message}`);
         return;
       }
-      if (message.kind === "push") return onLegacy(message, surface);
+      // A push is from a peer that missed the migration: it applies nothing.
+      if (message.kind === "push") {
+        console.error(`[terminal] a push reached the frame-only link: ${message.channel}`);
+        return;
+      }
       joined.deliver(message);
     });
     peer = joined;

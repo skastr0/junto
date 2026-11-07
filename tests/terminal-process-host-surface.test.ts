@@ -10,7 +10,7 @@ import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Context, Effect, Exit, Layer, Scope } from "effect";
-import type { TerminalLink, TerminalLinkMessage, TerminalLinkPort } from "../src/contract/terminal/protocol";
+import type { TerminalLink, TerminalLinkMessage } from "../src/contract/terminal/protocol";
 import { createAppProcessPlane } from "../src/node/app-process-plane";
 import { LocalSessionHost } from "../src/core/term/local-host";
 import { OperatorInterlock } from "../src/core/term/drive/operator-interlock";
@@ -90,7 +90,9 @@ const install = () => {
   const gates: Array<TerminalGate["lease"]> = [];
   const holds: boolean[] = [];
   const core = asCore(port1);
-  const recording: TerminalLinkPort = {
+  const recording: TerminalLink<MessagePort> = {
+    // Moved behind every spawn on the same port, as the utilityProcess does.
+    transfer: (frame, surface) => port1.postMessage({ ...frame, port: surface }, [surface]),
     post: (message) => {
       if (message.kind === "command" && message.message._tag === "gate") gates.push(message.message.lease);
       if (message.kind === "command" && message.message._tag === "hold") holds.push(message.message.held);
@@ -98,17 +100,14 @@ const install = () => {
     },
     listen: core.listen,
   };
-  // Moved behind every spawn on the same port, as the utilityProcess does.
-  placeTerminals({ kind: "process", client: terminalClient(recording, (message, surface) => {
-    port1.postMessage({ ...(message as object), port: surface }, [surface as MessagePort]);
-  }) });
+  placeTerminals({ kind: "process", client: terminalClient(recording) });
   return { gates, holds };
 };
 
-const asCore = (port: MessagePort): TerminalLinkPort => ({
+const asCore = (port: MessagePort): Pick<TerminalLink<MessagePort>, "post" | "listen"> => ({
   post: (message) => port.postMessage(message),
   listen: (handler) => {
-    const on = (message: TerminalLinkMessage) => handler(message);
+    const on = (message: TerminalLinkMessage) => handler(message, undefined);
     port.on("message", on);
     return () => port.off("message", on);
   },

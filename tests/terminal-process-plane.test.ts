@@ -7,29 +7,49 @@
  */
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { createRequire } from "node:module";
+import { Context, Effect, Exit, Layer, Scope } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import type { TerminalLinkMessage, TerminalLinkPort } from "../src/contract/terminal/protocol";
+import type { TerminalLink, TerminalLinkMessage } from "../src/contract/terminal/protocol";
 import { createAppProcessPlane, type AppTerminalLease } from "../src/node/app-process-plane";
-import { serveTerminals, type SpawnPty } from "../src/terminal/serve";
+import { CoreLink, PidEpochs, PtySpawner, TerminalServer, type SpawnPty } from "../src/terminal/serve";
 import { terminalClient } from "../src/node/terminals/client";
 import { placeTerminals } from "../src/node/terminals/use";
 
 const nodePty = createRequire(import.meta.url)("node-pty") as typeof import("node-pty");
 
-const portOf = (port: MessagePort): TerminalLinkPort => ({
+/** One end of the link over a node port. This plane opens no surface, so neither end moves a port. */
+const linkOf = <P>(port: MessagePort): TerminalLink<P> => ({
   post: (message) => port.postMessage(message),
+  transfer: () => {
+    throw new Error("the plane test opens no surface");
+  },
   listen: (handler) => {
-    const on = (message: TerminalLinkMessage) => handler(message);
+    const on = (message: TerminalLinkMessage) => handler(message, undefined);
     port.on("message", on);
     return () => port.off("message", on);
   },
 });
 
 const opened: MessagePort[] = [];
-afterEach(() => {
+const scopes: Scope.Closeable[] = [];
+afterEach(async () => {
   placeTerminals({ kind: "here" });
+  for (const scope of scopes.splice(0)) await Effect.runPromise(Scope.close(scope, Exit.void));
   for (const port of opened.splice(0)) port.close();
 });
+
+/** The real terminal server through its layer, with the parent stubbed. */
+const boot = (spawnPty: SpawnPty) => {
+  const scope = Effect.runSync(Scope.make());
+  scopes.push(scope);
+  const deps = Layer.mergeAll(
+    Layer.succeed(PtySpawner, spawnPty),
+    PidEpochs.live,
+    Layer.succeed(CoreLink, { parentAsCore: undefined, listenParent: () => () => undefined }),
+  );
+  const context = Effect.runSync(Layer.buildWithScope(Layer.provideMerge(TerminalServer.layer, deps), scope));
+  return Context.get(context, TerminalServer);
+};
 
 const install = () => {
   const { port1, port2 } = new MessageChannel();
@@ -40,8 +60,9 @@ const install = () => {
     spawned.push(pty.pid);
     return pty;
   };
-  const served = serveTerminals(portOf(port2), spawnPty);
-  placeTerminals({ kind: "process", client: terminalClient(portOf(port1)) });
+  const served = boot(spawnPty);
+  served.attach(linkOf(port2), 1);
+  placeTerminals({ kind: "process", client: terminalClient(linkOf(port1)) });
   return { served, spawned };
 };
 
