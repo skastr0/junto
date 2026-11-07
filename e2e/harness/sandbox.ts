@@ -12,7 +12,7 @@ import { SqlClient } from "effect/sql";
 import { ModelService } from "../../src/core/model/service";
 import { WorkModelDependentsLive } from "../../src/core/work/model-dependents";
 import { Command } from "../../src/shared/model";
-import { modelSeedCommands, type ModelFixture } from "./model";
+import { modelSeedCommands, placeOnMachine, type ModelFixture } from "./model";
 import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../../src/core/seat-sessions/repository";
 import type { SeatClockRecord } from "../../src/core/seat-sessions/operator-offboard";
 import {
@@ -123,16 +123,6 @@ export const writeFixtureRetiredCommercialState = async (
   }
 };
 
-/** The fixture with every node it placed on THIS_MACHINE placed on `machineName`. */
-const onMachine = (fixture: ModelFixture, machineName: string): ModelFixture =>
-  machineName === THIS_MACHINE
-    ? fixture
-    : {
-        ...fixture,
-        nodes: fixture.nodes.map((node) =>
-          "host" in node && node.host === THIS_MACHINE ? { ...node, host: machineName } : node),
-      };
-
 /** Seed a disposable database through ModelService, then close its owner. */
 export const writeFixtureModel = async (
   sandbox: Sandbox, name: string, fixture: ModelFixture, databasePath?: string,
@@ -157,7 +147,7 @@ export const writeFixtureModel = async (
         Effect.map((stored) => stored.configuration.name),
         Effect.catch(() => machine.machineName),
       );
-      const placed = onMachine(fixture, machineName);
+      const placed = placeOnMachine(fixture, machineName);
       yield* sql.withTransaction(Effect.gen(function* () {
         const exists = (yield* model.listCanvases()).some((canvas) => canvas === name);
         if (exists) yield* model.command(Schema.decodeUnknownSync(Command)({ _tag: "RemoveCanvas", canvas: name }), "operator");

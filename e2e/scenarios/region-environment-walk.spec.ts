@@ -1387,6 +1387,9 @@ test("S8 inheritance: an outer name is inherited, an inner one overrides it, and
 });
 
 test("S9 errors [fake-tui]: a missing Keychain item reads red with a reason, the seat still starts, and Required blocks the region", async ({}, testInfo) => {
+  // Keychain is macOS only: elsewhere every Keychain source reads "Keychain
+  // items exist only on macOS.", so the missing item this step names never shows.
+  test.skip(process.platform !== "darwin", "Keychain sources exist only on macOS");
   test.setTimeout(300_000);
   // Made up, and looked up only: a read that finds nothing.
   const item = `junto-e2e-no-such-item-${Math.random().toString(36).slice(2, 10)}`;
