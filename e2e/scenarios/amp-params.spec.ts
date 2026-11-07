@@ -106,7 +106,7 @@ for (const theme of ["Dark", "Bright"] as const) {
     await expect(fresh.getByText("Choices for this seat's next Amp session. Mode and startup flags are set when it is created.", { exact: true })).toBeVisible();
     await expect(preview).toHaveText("amp --no-ide -m low");
     await fresh.getByRole("button", { name: "Save", exact: true }).scrollIntoViewIfNeeded();
-    await fresh.getByRole("button", { name: "Mode", exact: true }).click();
+    await fresh.locator('button[aria-label="Mode"]').click();
     await expect(page.getByRole("option", { name: "eclipse", exact: true })).toBeVisible();
     await expect(page.getByRole("option", { name: "__custom_mode__", exact: true })).toBeVisible();
     await page.screenshot({ path: join(SHOTS, `${tag}-creation-modes.png`) });
@@ -115,7 +115,7 @@ for (const theme of ["Dark", "Bright"] as const) {
     await page.getByRole("option", { name: "__custom_mode__", exact: true }).click();
     await expect(preview).toHaveText("amp --no-ide -m __custom_mode__");
     await expect(fresh.getByRole("textbox", { name: "Mode key or label" })).toHaveCount(0);
-    await fresh.getByRole("button", { name: "Mode", exact: true }).click();
+    await fresh.locator('button[aria-label="Mode"]').click();
     await page.getByRole("option", { name: "other key or label…", exact: true }).click();
     const custom = fresh.getByRole("textbox", { name: "Mode key or label" });
     await custom.fill("Review label");
@@ -136,7 +136,7 @@ for (const theme of ["Dark", "Bright"] as const) {
     const creationMode = existing.getByRole("textbox", { name: "Creation mode" });
     await expect(creationMode).toHaveValue("low");
     await expect(creationMode).toHaveAttribute("readonly", "");
-    await expect(existing.getByRole("button", { name: "Mode", exact: true })).toHaveCount(0);
+    await expect(existing.locator('button[aria-label="Mode"]')).toHaveCount(0);
     await expect(existing.getByRole("button", { name: /^--features/ })).toBeDisabled();
     await expect(existing.getByRole("button", { name: /^--executor/ })).toBeDisabled();
     await expect(existing.getByRole("button", { name: /^--execute/ })).toBeDisabled();
