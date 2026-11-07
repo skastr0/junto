@@ -8,6 +8,7 @@ import type { LiveSnapshot } from "../src/shared/overseer-live";
 import { LiveConversationBody } from "../src/window/components/live/LiveConversation";
 import { canStartOverseerLive, openOverseerLive, overseerLive$, readLiveAttention } from "../src/window/lib/overseer-live-state";
 import { state$ } from "../src/window/lib/state";
+import { LIVE_OVERSEER_ENABLED } from "../src/shared/features";
 
 const snapshot: LiveSnapshot = {
   sessionId: "s1", canvasName: "Factory", nodeId: "overseer", connectionEpoch: 2,
@@ -53,13 +54,13 @@ describe("live conversation controls", () => {
 
 describe("live conversation seat and attention", () => {
   const seat = seatNode("o1", { label: "Overseer", overseer: true, harness: "junto-overseer" });
-  it("requires a granted native controller seat and never upgrades an ordinary worker", () => {
+  it.runIf(LIVE_OVERSEER_ENABLED)("requires a granted native controller seat and never upgrades an ordinary worker", () => {
     expect(canStartOverseerLive(seat)).toBe(true);
     expect(canStartOverseerLive({ ...seat, overseer: false })).toBe(false);
     expect(canStartOverseerLive({ ...seat, harness: "codex" })).toBe(false);
   });
 
-  it("eligibility in the window never grants anything: main refuses an eligible seat without its live grant", () => {
+  it.runIf(LIVE_OVERSEER_ENABLED)("eligibility in the window never grants anything: main refuses an eligible seat without its live grant", () => {
     expect(canStartOverseerLive(seat)).toBe(true);
     const admitted = resolveOverseerActor(
       { canvasName: "Factory", nodeId: seat.id },
@@ -73,7 +74,7 @@ describe("live conversation seat and attention", () => {
     expect(seat.overseer).toBe(true);
   });
 
-  it("does not replace a call's occupant when another seat is opened", () => {
+  it.runIf(LIVE_OVERSEER_ENABLED)("does not replace a call's occupant when another seat is opened", () => {
     overseerLive$.target.set(null);
     openOverseerLive({ canvasName: "Factory", nodeId: "first", title: "First" });
     openOverseerLive({ canvasName: "Factory", nodeId: "second", title: "Second" });
@@ -81,6 +82,14 @@ describe("live conversation seat and attention", () => {
     expect(overseerLive$.expanded.peek()).toBe(true);
     overseerLive$.target.set(null);
     overseerLive$.expanded.set(false);
+  });
+
+  // A profile without the live overseer (ship) offers no call at all.
+  it.runIf(!LIVE_OVERSEER_ENABLED)("offers no live call where the feature is off: no seat qualifies and opening one does nothing", () => {
+    expect(canStartOverseerLive(seat)).toBe(false);
+    overseerLive$.target.set(null);
+    openOverseerLive({ canvasName: "Factory", nodeId: "first", title: "First" });
+    expect(overseerLive$.target.peek()).toBeNull();
   });
 
   it("captures selected IDs without moving the viewport or changing selection", () => {
