@@ -53,7 +53,6 @@
     "test:e2e": "scripts/with-app-run-lock.sh sh -c 'JUNTO_FEATURE_PROFILE=all-on bun run build:bundles && scripts/run-e2e.sh e2e/scenarios/free-startup.spec.ts \"$@\"' --",
     "test:e2e:fast": "scripts/run-e2e.sh",
     "test:e2e:full": "scripts/with-app-run-lock.sh sh -c 'JUNTO_FEATURE_PROFILE=all-on bun run build:bundles && scripts/run-e2e.sh --all \"$@\"' --",
-    "test:e2e:perf": "scripts/with-app-run-lock.sh sh -c 'JUNTO_FEATURE_PROFILE=all-on bun run build:bundles && scripts/run-e2e.sh e2e/scenarios/canvas-interaction-perf.spec.ts \"$@\"' --",
     "test:browser:electron": "bun scripts/browser-electron-containment-probe.ts",
     "test:browser:crash-recovery": "bun scripts/browser-electron-renderer-crash-recovery-probe.ts",
     "test:browser:profile-wipe": "bun scripts/browser-electron-profile-wipe-probe.ts",

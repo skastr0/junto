@@ -152,8 +152,6 @@ const ALLOWED: readonly Allowed[] = [
 
   // Fixtures.
   { file: "src/shared/wire/companion-demo-fixture.ts", name: "DEMO_SEATS", rule: "names", reason: "demo seats for the phone's showcase; data, not an order" },
-  { file: "e2e/scenarios/canvas-seat-states.spec.ts", name: "seats", rule: "names", reason: "an e2e scenario's seats; data, not an order" },
-  { file: "e2e/scenarios/canvas-seat-states.spec.ts", name: "signalEvents", rule: "names", reason: "an e2e scenario's events; data, not an order" },
 
   // Ranks of other things.
   { file: "src/shared/harness-domain/status.ts", name: "RANK", rule: "table", reason: `signal source precedence; ${NOT_URGENCY}` },
