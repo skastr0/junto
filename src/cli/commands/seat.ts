@@ -20,22 +20,15 @@ import {
   type TaskWaitArgs,
   type TaskWaitUntil,
 } from "../../shared/task-control";
-import type { WorkOpName } from "../../shared/work-control";
 import { parseWaitFor } from "../core/duration";
 import { InputError } from "../core/errors";
 import { executeJsonCommand } from "../core/output";
 import { SeatRead, SeatWait } from "../../contract/work/seat";
-import { WorkSocket, callWorkRpc } from "../core/socket";
+import { TaskWait } from "../../contract/work/task";
+import { callWorkRpc } from "../core/socket";
 
 const toUndefined = <A>(value: Option.Option<A>) =>
   Option.isSome(value) ? value.value : undefined;
-
-/** Domain call — identity is process-bind on the server, not a payload claim. */
-const callDomain = <A>(op: WorkOpName, item: A, timeout?: number) =>
-  Effect.gen(function* () {
-    const socket = yield* WorkSocket;
-    return yield* socket.call(op, item, timeout);
-  });
 
 const SEAT_WAIT_UNTIL: ReadonlyArray<SeatWaitUntil> = [
   "idle",
@@ -480,7 +473,7 @@ export const taskWaitCommand = Command.make(
           timeout: toUndefined(timeout),
         });
         if (!lowered.ok) return yield* Effect.fail(lowered.error);
-        return yield* callDomain("task.wait", lowered.args, lowered.socketTimeoutMs);
+        return yield* callWorkRpc(TaskWait, lowered.args, lowered.socketTimeoutMs);
       }),
     ),
 ).pipe(
