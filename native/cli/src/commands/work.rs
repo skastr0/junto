@@ -59,3 +59,10 @@ impl Run for Rulings {
         envelope::print("rulings", answer)
     }
 }
+
+#[cfg(test)]
+mod contract {
+    crate::contract::parity! {
+        preamble: super::PreambleArgs => "preamble",
+    }
+}

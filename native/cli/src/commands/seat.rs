@@ -5,7 +5,7 @@
 use std::process::ExitCode;
 
 use clap::{Args, Subcommand};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::Run;
 use crate::duration::{
@@ -53,7 +53,7 @@ fn max_seconds(raw: Option<&str>) -> Result<u64> {
 }
 
 /// A state a wait answers on.
-#[derive(Serialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum SeatUntil {
     Idle,
@@ -85,38 +85,31 @@ impl SeatUntil {
     }
 }
 
-/// Who a wait watches: one seat, or every authorized peer.
-#[derive(Serialize)]
-pub enum Watch {
-    #[serde(rename = "target")]
-    Seat(String),
-    #[serde(rename = "any")]
-    Any(bool),
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
+/// A wait on one seat (`target`) or on every authorized peer (`any`); the
+/// lowering sets exactly one.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WaitArgs {
-    #[serde(flatten)]
-    watch: Watch,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    any: Option<bool>,
     until: SeatUntil,
-    timeout_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timeout_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     after: Option<String>,
 }
 
-/// A read of one seat's screen, or of every peer without screens.
-#[derive(Serialize)]
-#[serde(untagged)]
-pub enum ReadArgs {
-    Brief { brief: bool },
-    Seat(SeatRead),
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SeatRead {
-    target: String,
+/// A read of one seat's screen (`target`), or of every peer without screens
+/// (`brief`); the lowering sets exactly one.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReadArgs {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    brief: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     lines: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -142,7 +135,7 @@ struct Lowered<A> {
 
 /// lowerSeatWait: `seat wait <seat|--any> --until <state> [--timeout] [--after]`.
 fn lower_wait(flags: Wait) -> Result<Lowered<WaitArgs>> {
-    let watch = match (flags.seat, flags.any) {
+    let (target, any) = match (flags.seat, flags.any) {
         (Some(_), true) => {
             return Err(Failure::input(
                 "seat wait takes a seat argument or --any, not both",
@@ -163,8 +156,8 @@ fn lower_wait(flags: Wait) -> Result<Lowered<WaitArgs>> {
                     .and("next_step", "junto seat wait <seat> --until idle"),
             );
         }
-        (Some(seat), false) => Watch::Seat(seat),
-        (None, true) => Watch::Any(true),
+        (Some(seat), false) => (Some(seat), None),
+        (None, true) => (None, Some(true)),
     };
     let until = SeatUntil::parse(&flags.until)?;
     if flags.after.is_some() && until != SeatUntil::Replied {
@@ -181,9 +174,10 @@ fn lower_wait(flags: Wait) -> Result<Lowered<WaitArgs>> {
     )?;
     Ok(Lowered {
         args: WaitArgs {
-            watch,
+            target,
+            any,
             until,
-            timeout_ms,
+            timeout_ms: Some(timeout_ms),
             after: flags.after,
         },
         socket: socket_timeout(timeout_ms),
@@ -213,7 +207,15 @@ fn lower_read(flags: Read) -> Result<Lowered<ReadArgs>> {
             ));
         }
         return Ok(Lowered {
-            args: ReadArgs::Brief { brief: true },
+            args: ReadArgs {
+                target: None,
+                brief: Some(true),
+                lines: None,
+                since: None,
+                since_generation: None,
+                follow: None,
+                max_seconds: None,
+            },
             socket: socket_timeout(SEAT_READ_DEFAULT_TIMEOUT_MS),
         });
     }
@@ -267,14 +269,15 @@ fn lower_read(flags: Read) -> Result<Lowered<ReadArgs>> {
         SEAT_READ_DEFAULT_TIMEOUT_MS
     };
     Ok(Lowered {
-        args: ReadArgs::Seat(SeatRead {
-            target,
+        args: ReadArgs {
+            target: Some(target),
+            brief: None,
             lines: flags.lines,
             since,
             since_generation: flags.since_generation,
             follow: flags.follow.then_some(true),
             max_seconds: flags.follow.then_some(seconds),
-        }),
+        },
         socket: socket_timeout(budget_ms),
     })
 }
@@ -379,5 +382,23 @@ mod tests {
             wire_of(lower_read(read)),
             r#"[{"target":"lead","lines":5,"follow":true,"maxSeconds":30},35000]"#
         );
+        let brief = Read {
+            seat: None,
+            brief: true,
+            lines: None,
+            since: None,
+            since_generation: None,
+            follow: false,
+            max_seconds: None,
+        };
+        assert_eq!(wire_of(lower_read(brief)), r#"[{"brief":true},35000]"#);
+    }
+}
+
+#[cfg(test)]
+mod contract {
+    crate::contract::parity! {
+        wait: super::WaitArgs => "seat.wait",
+        read: super::ReadArgs => "seat.read",
     }
 }
