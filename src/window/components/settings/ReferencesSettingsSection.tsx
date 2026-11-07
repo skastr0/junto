@@ -7,8 +7,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Plus } from "lucide-react";
-import { REFERENCE_NAME_MAX, type ReferenceSummary, type StoredReference } from "@shared/references";
-import { getJuntoApi } from "../../lib/junto-api";
+import { APP_REFERENCE_PLACE, REFERENCE_NAME_MAX, type ReferenceSummary, type StoredReference } from "@shared/references";
+import { ReferencesWindow } from "../../../contract/window/references";
+import { follow, useWindowRuntime, useWindowService } from "../../rpc/runtime";
 import { state$ } from "../../lib/state";
 import { BriefingDocument } from "../briefing/BriefingDocument";
 import { Button, ConfirmDialog, Input } from "../ui";
@@ -46,7 +47,8 @@ function ReferenceEditor({
   readonly name: string | undefined;
   readonly onDone: () => void;
 }) {
-  const api = getJuntoApi();
+  const runtime = useWindowRuntime();
+  const references = useWindowService(ReferencesWindow);
   const canvasName = use$(state$.canvasName);
   // What is stored (EMPTY for a new one; undefined while it loads).
   const [base, setBase] = useState<Draft | undefined>(name === undefined ? EMPTY : undefined);
@@ -61,13 +63,16 @@ function ReferenceEditor({
   dirtyRef.current = dirty;
 
   useEffect(() => {
-    if (name === undefined || !api) return;
-    const load = async (first: boolean): Promise<void> => {
-      const read = await api.referencesRead({ name }).catch(() => null);
+    if (name === undefined) return;
+    // The reference as stored, then as it stands after each change to it.
+    let first = true;
+    const shown = (read: StoredReference | null): void => {
+      const opening = first;
+      first = false;
       const next = read ? draftOf(read) : null;
-      if (first || !dirtyRef.current) {
+      if (opening || !dirtyRef.current) {
         if (next === null) {
-          if (!first) onDone();
+          if (!opening) onDone();
           return;
         }
         setBase(next);
@@ -77,25 +82,23 @@ function ReferenceEditor({
         setTheirs(next);
       }
     };
-    void load(true);
-    return api.onReferencesChanged?.((event) => {
-      if (event.kind === "reference" && event.name === name && event.canvasName === undefined) void load(false);
-    });
-  }, [api, name, onDone]);
+    return follow(runtime, references.ReferencesReadFollow({ place: APP_REFERENCE_PLACE, name }), shown);
+  }, [runtime, references, name, onDone]);
 
   const conflict = theirs !== undefined && base !== undefined && (theirs === null || !same(theirs, base)) && dirty;
 
   const save = async (): Promise<void> => {
-    if (!api || !dirty || conflict) return;
+    if (!dirty || conflict) return;
     setSaving(true);
     setProblem(undefined);
     const description = draft.description.trim();
-    const result = await api
-      .referencesWrite({
+    const result = await runtime
+      .runPromise(references.ReferencesWrite({
+        place: APP_REFERENCE_PLACE,
         name: draft.name.trim(),
         body: draft.body,
         ...(description.length > 0 ? { description } : {}),
-      })
+      }))
       .catch((error: unknown) => ({ ok: false as const, message: error instanceof Error ? error.message : String(error) }));
     setSaving(false);
     if (!result.ok) {
@@ -106,10 +109,10 @@ function ReferenceEditor({
   };
 
   const remove = async (): Promise<void> => {
-    if (!api || name === undefined) return;
+    if (name === undefined) return;
     setSaving(true);
-    const result = await api
-      .referencesDelete({ name })
+    const result = await runtime
+      .runPromise(references.ReferencesDelete({ place: APP_REFERENCE_PLACE, name }))
       .catch((error: unknown) => ({ ok: false as const, message: error instanceof Error ? error.message : String(error) }));
     setSaving(false);
     setAsking(false);
@@ -228,26 +231,20 @@ function ReferenceEditor({
 }
 
 export function ReferencesSettingsSection() {
-  const api = getJuntoApi();
+  const runtime = useWindowRuntime();
+  const references = useWindowService(ReferencesWindow);
   const [list, setList] = useState<ReadonlyArray<ReferenceSummary>>();
   // What the editor holds: a reference's name, "" for a new one, or closed.
   const [editing, setEditing] = useState<string>();
 
-  const read = useCallback(async (): Promise<void> => {
-    setList((await api?.referencesList().catch(() => [])) ?? []);
-  }, [api]);
+  // The app-wide references, then as they stand after each change there.
+  useEffect(
+    () => follow(runtime, references.ReferencesListFollow({ place: APP_REFERENCE_PLACE }), setList, () => setList([])),
+    [runtime, references],
+  );
 
-  useEffect(() => {
-    void read();
-    return api?.onReferencesChanged?.((event) => {
-      if (event.kind === "reference" && event.canvasName === undefined) void read();
-    });
-  }, [api, read]);
-
-  const close = useCallback(() => {
-    setEditing(undefined);
-    void read();
-  }, [read]);
+  // The list follows the store, so closing the editor reads nothing.
+  const close = useCallback(() => setEditing(undefined), []);
 
   if (editing !== undefined) {
     return <ReferenceEditor key={editing} name={editing === "" ? undefined : editing} onDone={close} />;

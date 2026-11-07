@@ -3,6 +3,7 @@
  * server per window, so a group here without a handler fails main's compile,
  * and a client of a group missing here fails the window's (`windowClient`).
  */
+import { ReferencesWindowRpcs } from "./references";
 import { UpdateWindowRpcs } from "./update";
 
-export const WindowRpcs = UpdateWindowRpcs;
+export const WindowRpcs = UpdateWindowRpcs.merge(ReferencesWindowRpcs);

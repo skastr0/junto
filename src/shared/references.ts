@@ -61,7 +61,7 @@ export type ReferenceReadResult = ScopedReference;
 /** Where a reference is kept: the app, or one region of one canvas. */
 export const ReferencePlace = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("app") }),
-  Schema.Struct({ kind: Schema.Literal("region"), canvasName: Schema.String, regionId: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("region"), canvasName: Schema.NonEmptyString, regionId: Schema.NonEmptyString }),
 ]);
 export type ReferencePlace = typeof ReferencePlace.Type;
 

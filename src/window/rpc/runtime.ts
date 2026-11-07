@@ -8,13 +8,14 @@
  * arrives, so a component reads a service on its first render.
  */
 import { createContext, useContext, useMemo } from "react";
-import { type Context, Layer, ManagedRuntime } from "effect";
+import { type Context, Effect, Fiber, Layer, ManagedRuntime, Stream } from "effect";
 import type { RpcPort } from "@shared/rpc-port";
 import { WindowLink } from "../../contract/window/link";
+import { ReferencesWindow } from "../../contract/window/references";
 import { UpdateWindow } from "../../contract/window/update";
 import { UpdateState } from "../lib/update-state";
 
-export const WindowClientsLive = Layer.mergeAll(UpdateWindow.layer);
+export const WindowClientsLive = Layer.mergeAll(UpdateWindow.layer, ReferencesWindow.layer);
 
 export const WindowServicesLive = Layer.mergeAll(UpdateState.layer).pipe(Layer.provideMerge(WindowClientsLive));
 
@@ -38,4 +39,26 @@ export const useWindowRuntime = (): WindowRuntime => {
 export const useWindowService = <I extends WindowServices, S>(service: Context.Key<I, S>): S => {
   const runtime = useWindowRuntime();
   return useMemo(() => runtime.runSync(service), [runtime, service]);
+};
+
+/**
+ * Follow a stream on the window's runtime, handing each element to `onItem`;
+ * `onEnd` hears a failure, or the link going. Returns the stop, for an
+ * effect's cleanup.
+ */
+export const follow = <A, E>(
+  runtime: WindowRuntime,
+  stream: Stream.Stream<A, E, WindowServices>,
+  onItem: (item: A) => void,
+  onEnd?: () => void,
+): (() => void) => {
+  const following = runtime.runFork(
+    stream.pipe(
+      Stream.runForEach((item) => Effect.sync(() => onItem(item))),
+      Effect.catchCause(() => Effect.sync(() => onEnd?.())),
+    ),
+  );
+  return () => {
+    runtime.runFork(Fiber.interrupt(following));
+  };
 };

@@ -15,7 +15,6 @@ export {
   type AdmitStagedMacAppOptions,
 } from "./admit-mac-app";
 export { UpdateError, updateError } from "./errors";
-export { registerUpdateIpc } from "./ipc";
 export { makePlatformUpdateProvider } from "./platform";
 export type { UpdateHostHooks, UpdateInstall, UpdateProvider } from "./provider";
 export {

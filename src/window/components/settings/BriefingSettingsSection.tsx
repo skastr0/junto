@@ -4,10 +4,11 @@
  * CLAUDE.md. An overseer may write it too, so the page reads again on every
  * change and never saves an edit over a text the operator has not seen.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { AppBriefing } from "@shared/references";
-import { getJuntoApi } from "../../lib/junto-api";
+import { ReferencesWindow } from "../../../contract/window/references";
+import { follow, useWindowRuntime, useWindowService } from "../../rpc/runtime";
 import { state$ } from "../../lib/state";
 import { BriefingDocument } from "../briefing/BriefingDocument";
 import { Button } from "../ui";
@@ -15,7 +16,8 @@ import { ChangedElsewhere, ImportFileButton, appendText } from "./text-edit";
 import "./texts-settings.css";
 
 export function BriefingSettingsSection() {
-  const api = getJuntoApi();
+  const runtime = useWindowRuntime();
+  const references = useWindowService(ReferencesWindow);
   const canvasName = use$(state$.canvasName);
   // The text as stored, and the edit on top of it (undefined: no edit open).
   const [stored, setStored] = useState<AppBriefing | null>();
@@ -27,18 +29,15 @@ export function BriefingSettingsSection() {
   const draftRef = useRef(draft);
   draftRef.current = draft;
 
-  const read = useCallback(async (): Promise<void> => {
-    const next = (await api?.appBriefingRead().catch(() => null)) ?? null;
-    if (draftRef.current === undefined) setStored(next);
-    else setTheirs(next);
-  }, [api]);
-
+  // The briefing as stored, then as it stands after each change; a store
+  // that cannot be read shows as no briefing.
   useEffect(() => {
-    void read();
-    return api?.onReferencesChanged?.((event) => {
-      if (event.kind === "briefing") void read();
-    });
-  }, [api, read]);
+    const shown = (next: AppBriefing | null): void => {
+      if (draftRef.current === undefined) setStored(next);
+      else setTheirs(next);
+    };
+    return follow(runtime, references.ReferencesBriefingFollow(), shown, () => shown(null));
+  }, [runtime, references]);
 
   const body = stored?.body ?? "";
   const text = draft ?? body;
@@ -55,11 +54,11 @@ export function BriefingSettingsSection() {
   }, [theirs, dirty]);
 
   const save = async (): Promise<void> => {
-    if (!api || !dirty || conflict) return;
+    if (!dirty || conflict) return;
     setSaving(true);
     setProblem(undefined);
-    const result = await api
-      .appBriefingWrite(text)
+    const result = await runtime
+      .runPromise(references.ReferencesBriefingWrite({ body: text }))
       .catch((error: unknown) => ({ ok: false as const, message: error instanceof Error ? error.message : String(error) }));
     setSaving(false);
     if (!result.ok) {

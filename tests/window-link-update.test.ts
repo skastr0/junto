@@ -7,7 +7,7 @@
  * the contract does not name is refused at main's edge, and a page with no
  * bridge fails at once.
  */
-import { Context, Effect, Exit, Fiber, Layer, Option, Schema } from "effect";
+import { Context, Effect, Exit, Fiber, Layer, Option, Schema, Stream } from "effect";
 import { Rpc, RpcClient, RpcGroup } from "effect/rpc";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
@@ -23,8 +23,24 @@ const { UpdateService } = await import("../src/app/update/service");
 const { UpdateError } = await import("../src/app/update/errors");
 const { pageLink } = await import("../src/window/rpc/link");
 const { makeWindowRuntime } = await import("../src/window/rpc/runtime");
-const { UpdateWindow } = await import("../src/contract/window/update");
+const { UpdateWindow, UpdateWindowRpcs } = await import("../src/contract/window/update");
 const { UpdateState } = await import("../src/window/lib/update-state");
+
+const { ReferencesWindowRpcs } = await import("../src/contract/window/references");
+
+/** The window's whole group: references answer nothing here, they are not under test. */
+const withoutReferences = <E, R>(update: Layer.Layer<Rpc.ToHandler<RpcGroup.Rpcs<typeof UpdateWindowRpcs>>, E, R>) =>
+  Layer.merge(
+    update,
+    ReferencesWindowRpcs.toLayer({
+      ReferencesBriefingWrite: () => Effect.die("not under test"),
+      ReferencesWrite: () => Effect.die("not under test"),
+      ReferencesDelete: () => Effect.die("not under test"),
+      ReferencesBriefingFollow: () => Stream.die("not under test"),
+      ReferencesListFollow: () => Stream.die("not under test"),
+      ReferencesReadFollow: () => Stream.die("not under test"),
+    }),
+  );
 
 const idle = idleUpdateStatus("1.0.0");
 const checking: UpdateStatus = { ...idle, phase: "checking" };
@@ -94,7 +110,7 @@ afterEach(async () => {
 const linked = (updates: ReturnType<typeof fakeUpdates>) => {
   const { port1, port2 } = new MessageChannel();
   const server = Effect.runFork(
-    Layer.launch(windowServer(heldForServer(mainLinkOf(port1)), updateWindowHandlers("1.0.0", { host: {} as never, provider: {} as never }).pipe(Layer.provide(updates.layer)))),
+    Layer.launch(windowServer(heldForServer(mainLinkOf(port1)), withoutReferences(updateWindowHandlers("1.0.0", { host: {} as never, provider: {} as never }).pipe(Layer.provide(updates.layer))))),
   );
   const { page, bridge } = pageWith(port2);
   const runtime = makeWindowRuntime(pageLink(bridge, page));
@@ -154,7 +170,7 @@ describe("the update group over a window's link", () => {
     const Drifted = RpcGroup.make(Rpc.make("UpdateCheck", { payload: { force: Schema.Boolean }, success: UpdateStatus }));
     const { port1, port2 } = new MessageChannel();
     const server = Effect.runFork(
-      Layer.launch(windowServer(heldForServer(mainLinkOf(port1)), updateWindowHandlers("1.0.0", { host: {} as never, provider: {} as never }).pipe(Layer.provide(updates.layer)))),
+      Layer.launch(windowServer(heldForServer(mainLinkOf(port1)), withoutReferences(updateWindowHandlers("1.0.0", { host: {} as never, provider: {} as never }).pipe(Layer.provide(updates.layer))))),
     );
     cleanups.push(async () => {
       await Effect.runPromise(Fiber.interrupt(server));

@@ -30,7 +30,6 @@ import { registerSettingsIpc } from "./settings/ipc";
 import { mainIndexCalls } from "./core-process/main-index-ipc";
 import { registerViewStateIpc } from "./view-state/ipc";
 import { registerShellEnvironmentIpc } from "./shell-environment/ipc";
-import { registerReferencesIpc } from "./references/ipc";
 import { registerLibraryIpc } from "./library/library-ipc";
 import { registerContentIpc } from "./content/content-ipc";
 import { registerAutomationIpc } from "./automation/ipc";
@@ -43,7 +42,8 @@ import { registerStatusIpc } from "./status/status-ipc";
 import { registerSignalsIpc } from "./signals/signals-ipc";
 import { WIRE_TRAFFIC } from "../contract/core/channels";
 import { registerObservabilityIpc } from "./observability/ipc";
-import { registerUpdateIpc } from "./update/ipc";
+import { registerWindowLink } from "./window/ipc";
+import { windowHandlers } from "./window/handlers-ipc";
 import type { AgentSignal } from "@shared/agent-signals";
 import { readSignalAttachmentPreview } from "./signals/attachment-preview";
 import {
@@ -126,7 +126,6 @@ export const registerJuntoIpc = (boot: MainBoot): void => {
   registerGitIpc(privilegedIpc, boot.core);
   registerSettingsIpc(privilegedIpc, broadcast, boot.core);
   registerShellEnvironmentIpc(privilegedIpc, broadcast, boot.core);
-  registerReferencesIpc(privilegedIpc, broadcast, boot.core);
   registerViewStateIpc(privilegedIpc, broadcast, boot.core);
   // The renderer's tasks and artifacts: the core's stores and the core's
   // ruler (ops/ipc-resources.ts), told to the window as a change lands.
@@ -170,12 +169,8 @@ export const registerJuntoIpc = (boot: MainBoot): void => {
   }
   // The status reads: the authority banner, a canvas digest, usage and the kernel snapshot.
   registerStatusIpc(privilegedIpc, boot.core);
-  registerUpdateIpc(
-    privilegedIpc,
-    broadcast,
-    app.getVersion(),
-    boot.update,
-  );
+  // Every window group main serves or forwards, on each window's link (window/ipc.ts).
+  registerWindowLink(privilegedIpc, windowHandlers({ currentVersion: app.getVersion(), install: boot.update, core: boot.core }));
   // The holds themselves are the core's, where the cache cut asks: main sends
   // each window's report on and keeps none (core-process/ops/seat-holds.ts).
   const operatorHolds = registerOperatorHoldsIpc(

@@ -10,15 +10,12 @@
  * The window's server therefore runs outside the app runtime: a server forked
  * on it would be interrupted by step 2, the very call it is answering.
  */
-import { Cause, Effect, Exit, Layer, Queue, Stream } from "effect";
+import { Cause, Effect, Exit, Queue, Stream } from "effect";
 import { UpdateWindowRpcs } from "../../contract/window/update";
 import { decodeUpdateStatus, type AvailableRelease, type UpdateErrorCode, type UpdateStatus } from "@shared/update";
-import { AppRuntime } from "../runtime";
 import { UpdateError } from "./errors";
 import type { UpdateInstall } from "./provider";
 import { finalizeInstallAfterQuiesce, UpdateService } from "./service";
-import { registerWindowLink } from "../window/ipc";
-import type { IpcMain } from "electron";
 
 const errorStatus = (
   currentVersion: string,
@@ -105,27 +102,3 @@ export const updateWindowHandlers = (currentVersion: string, install: UpdateInst
       };
     }),
   );
-
-/**
- * The update service of the app runtime, as a Layer for the window's server,
- * which runs outside that runtime (see above).
- */
-const appUpdateService = Layer.effect(
-  UpdateService,
-  Effect.promise(() => AppRuntime.runPromise(Effect.gen(function* () {
-    return yield* UpdateService;
-  }))),
-);
-
-/**
- * Serves the window link with the update group, until the hub registers the
- * link with every window group itself (mailed to canvas-lead). The broadcast
- * it is handed is unused: the window follows `UpdateStates`.
- */
-export const registerUpdateIpc = (
-  ipcMain: IpcMain,
-  _broadcast: (channel: string, payload: unknown) => void,
-  currentVersion: string,
-  install: UpdateInstall,
-): void =>
-  registerWindowLink(ipcMain, updateWindowHandlers(currentVersion, install).pipe(Layer.provide(appUpdateService)));

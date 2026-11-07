@@ -3,6 +3,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
+import { Effect, Layer, ManagedRuntime, Stream } from "effect";
+import { ReferencesWindow } from "../src/contract/window/references";
+import { WindowRuntimeContext, type WindowRuntime } from "../src/window/rpc/runtime";
 import { asCanvasName } from "../src/shared/model";
 import { RegionBriefingEditor } from "../src/window/components/InspectorFields";
 import { BriefingSettingsSection } from "../src/window/components/settings/BriefingSettingsSection";
@@ -84,16 +87,22 @@ describe("a briefing written as a document", () => {
   const rest = () => act(() => new Promise((resolve) => setTimeout(resolve, REST)));
 
   it("the app briefing is named, reads as read only while it loads, then opens on the stored text", async () => {
-    let answer: (value: { body: string }) => void = () => undefined;
-    (window as { junto?: unknown }).junto = {
-      appBriefingRead: () => new Promise((resolve) => (answer = resolve)),
-      onReferencesChanged: () => () => undefined,
-    };
-    await draw(<BriefingSettingsSection />);
+    let answer: (value: { body: string; updatedAt: number }) => void = () => undefined;
+    // The window's runtime, its references client answering the briefing's follow when the test says.
+    const runtime = ManagedRuntime.make(
+      Layer.succeed(ReferencesWindow, {
+        ReferencesBriefingFollow: () => Stream.fromEffect(Effect.promise(() => new Promise((resolve) => (answer = resolve)))),
+      } as never),
+    ) as unknown as WindowRuntime;
+    await draw(
+      <WindowRuntimeContext.Provider value={runtime}>
+        <BriefingSettingsSection />
+      </WindowRuntimeContext.Provider>,
+    );
     expect(content().getAttribute("aria-label")).toBe("App briefing");
     expect(host.querySelector(".live-markdown")!.getAttribute("aria-label")).toBe("App briefing, document");
     expect(content().getAttribute("aria-readonly")).toBe("true");
-    await act(async () => answer({ body: "How we work." }));
+    await act(async () => answer({ body: "How we work.", updatedAt: 1 }));
     expect(content().getAttribute("aria-readonly")).toBe("false");
     expect(editor().state.doc.toString()).toBe("How we work.");
   });

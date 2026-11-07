@@ -9,8 +9,10 @@
  * never meet another window's, or the ids of its own earlier load.
  */
 import { MessageChannelMain, type IpcMain, type MessagePortMain } from "electron";
-import { Effect, Fiber, Layer } from "effect";
-import { RpcServer, type Rpc, type RpcGroup } from "effect/rpc";
+import { Effect, Fiber, Layer, Queue, Stream } from "effect";
+import { RpcClientError, RpcServer, type Rpc, type RpcClient, type RpcGroup } from "effect/rpc";
+import type { CorePushChannel, CorePushOf } from "../../contract/core/channels";
+import { subscribe as onCorePush } from "../core-process/main-side/core-pushes";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { heldForServer, serverProtocol, type PortMessage, type RpcPort } from "@shared/rpc-port";
 import { WindowLink } from "../../contract/window/link";
@@ -65,3 +67,53 @@ export const registerWindowLink = (ipc: IpcMain, handlers: WindowHandlers): void
     sender.postMessage(IPC_CHANNELS.windowLink, null, [port2]);
   });
 };
+
+/**
+ * A core call as a window handler answers it: a core that left before it
+ * answered is a defect of this call, not one of the group's own errors, which
+ * the window matches by tag.
+ */
+export const fromCore = <A, E, R>(call: Effect.Effect<A, E | RpcClientError.RpcClientError, R>): Effect.Effect<A, Exclude<E, RpcClientError.RpcClientError>, R> =>
+  call.pipe(
+    Effect.catchIf((error): error is RpcClientError.RpcClientError => error instanceof RpcClientError.RpcClientError, (error) => Effect.die(error)),
+  ) as Effect.Effect<A, Exclude<E, RpcClientError.RpcClientError>, R>;
+
+/**
+ * Main's handlers for a core group the window calls as it is: each rpc goes
+ * to main's client of that group, unchanged. The window's client and the
+ * core's handlers share the group's rpc values, so a change to one fails the
+ * other's compile, and main writes no code per call.
+ */
+export const forwardTo = <Rpcs extends Rpc.Any>(
+  group: RpcGroup.RpcGroup<Rpcs>,
+  client: RpcClient.RpcClient<Rpcs, RpcClientError.RpcClientError>,
+): Forwarded<Rpcs> => {
+  const calls = client as unknown as Record<string, (payload: unknown) => Effect.Effect<unknown, unknown>>;
+  return Object.fromEntries(
+    [...group.requests.keys()].map((tag) => [tag, (payload: unknown) => fromCore(calls[tag]!(payload))]),
+  ) as unknown as Forwarded<Rpcs>;
+};
+
+/** A forward's handlers, each asking nothing of the server it runs in. */
+type Forwarded<Rpcs extends Rpc.Any> = { readonly [Current in Rpcs as Current["_tag"]]: Rpc.ToHandlerFn<Current, never> };
+
+/**
+ * A follow stream: `read` now, then again after each push on `channel` that
+ * `when` keeps. It subscribes before the first read, so no change is missed,
+ * and a burst of pushes coalesces into one read, since each read is whole.
+ */
+export const following = <K extends CorePushChannel, A, E, R>(
+  channel: K,
+  read: Effect.Effect<A, E, R>,
+  when: (push: CorePushOf<K>) => boolean = () => true,
+): Stream.Stream<A, E, R> =>
+  Stream.unwrap(
+    Effect.gen(function* () {
+      const changed = yield* Queue.sliding<true>(1);
+      const off = onCorePush(channel, (push) => {
+        if (when(push)) Queue.offerUnsafe(changed, true);
+      });
+      yield* Effect.addFinalizer(() => Effect.sync(off));
+      return Stream.make(true).pipe(Stream.concat(Stream.fromQueue(changed)), Stream.mapEffect(() => read));
+    }),
+  );
