@@ -142,3 +142,19 @@ export const FilesEvent = Schema.Union([
   Schema.Struct({ node: NodeId, kind: Schema.Literal("closed"), error: HostFilesError }),
 ]);
 export type FilesEvent = typeof FilesEvent.Type;
+
+/**
+ * A change under a node opened on another machine, as the window machine says
+ * it: the host's own `FilesEvent`, or the one thing only this end can say, that
+ * the link to the machine went down (`unreachable` never crosses the link). The
+ * core push `files.remoteChanged` carries this schema's Type, so the link's
+ * event and the push are one schema, not two shapes kept alike.
+ */
+export const FilesRemoteChange = Schema.Struct({
+  machine: Schema.String,
+  change: Schema.Union([
+    FilesEvent,
+    Schema.Struct({ node: NodeId, kind: Schema.Literal("closed"), error: Schema.Literal("unreachable"), machine: Schema.String, lastReachedAt: Schema.NullOr(Schema.Finite) }),
+  ]),
+});
+export type RemoteChange = typeof FilesRemoteChange.Type;

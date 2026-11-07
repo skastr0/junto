@@ -1,5 +1,6 @@
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { FilesRefused, fitsOneFrame, HOST_FILES_ERRORS, FILES_LINK_TEXT_JSON_MAX } from "../src/shared/files-link";
+import { FilesRefused, FilesRemoteChange, fitsOneFrame, HOST_FILES_ERRORS, FILES_LINK_TEXT_JSON_MAX } from "../src/shared/files-link";
 import { FilesLink } from "../src/core/files/link";
 
 /** One op's codecs: the ones the session decodes with at receipt and encodes with when it sends. */
@@ -82,6 +83,19 @@ describe("the files link wire", () => {
     expect(decodeFilesEvent(moved)).toEqual(moved);
     for (const bad of [{ from: "/abs", to: "b.md" }, { from: "a.md", to: "../b.md" }, { from: "a.md" }, { from: "a.md", to: "b.md", via: "x" }])
       expect(() => decodeFilesEvent({ ...moved, moves: [bad] }), JSON.stringify(bad)).toThrow();
+  });
+
+  it("makes the push's payload from the link's event, adding only the link's own unreachable", () => {
+    const decode = Schema.decodeUnknownSync(FilesRemoteChange, { onExcessProperty: "error" });
+    for (const change of [
+      { node: "files-1", kind: "paths", paths: ["a.md"] }, { node: "files-1", kind: "reset" }, { node: "files-1", kind: "back" },
+      { node: "files-1", kind: "closed", error: "root-missing" },
+      { node: "files-1", kind: "closed", error: "unreachable", machine: "mini", lastReachedAt: null },
+      { node: "files-1", kind: "closed", error: "unreachable", machine: "mini", lastReachedAt: 7000 },
+    ]) expect(decode({ machine: "mini", change })).toEqual({ machine: "mini", change });
+    // Each member is the link's event as it is: what the link refuses, the push refuses.
+    for (const change of [{ node: "files-1", kind: "paths", paths: ["../x"] }, { node: "files-1", kind: "closed", error: "unreachable" }])
+      expect(() => decode({ machine: "mini", change })).toThrow();
   });
 
   it("measures what fits one frame as JSON", () => {

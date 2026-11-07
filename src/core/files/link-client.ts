@@ -1,9 +1,9 @@
 import { Effect } from "effect";
 import type {
-  FileEntry, FileImported, FilePath, FileRead, FilesChanged, FilesCount, FilesNodeRef, FilesResult, FilesRoot,
+  FileEntry, FileImported, FilePath, FileRead, FilesCount, FilesNodeRef, FilesResult, FilesRoot,
   FilesSearchResult, FileStamp,
 } from "@shared/files";
-import { FilesLinkClosed, FilesRefused, fitsOneFrame, type FilesEvent } from "@shared/files-link";
+import { FilesLinkClosed, FilesRefused, fitsOneFrame, type FilesEvent, type RemoteChange } from "@shared/files-link";
 import type { NodeId } from "@shared/physics/schema";
 import { linkClient } from "../link/contract";
 import type { LinkEventContext, MachineLinkError } from "../link/types";
@@ -24,7 +24,7 @@ import { FilesLink } from "./link";
  * save in flight when the link drops is refused `unreachable`, never queued.
  */
 
-export type RemoteChange = { readonly machine: string; readonly change: FilesChanged };
+export type { RemoteChange };
 
 /** Link failures that mean no usable link; the rest are this call failing. */
 const NO_LINK_TAGS: ReadonlySet<string> = new Set(["LinkClosed", "LinkPeerNotPinned", "LinkBuildMismatch", "LinkHelloRefused"]);
@@ -51,7 +51,7 @@ export const makeFilesRemote = Effect.fn("FilesRemote.make")(function* (options:
   const watching = new Map<string, Map<NodeId, string>>();
   const listeners = new Set<(change: RemoteChange) => void>();
 
-  const emit = (machine: string, change: FilesChanged): void => {
+  const emit = (machine: string, change: RemoteChange["change"]): void => {
     for (const listener of listeners) listener({ machine, change });
   };
   const unreachable = (machine: string) => ({ ok: false, error: "unreachable", machine, lastReachedAt: reached.get(machine) ?? null }) as const;
@@ -109,7 +109,7 @@ export const makeFilesRemote = Effect.fn("FilesRemote.make")(function* (options:
       }
       if (result.error === "unreachable") return;
       forget(machine, node);
-      emit(machine, { node: node, kind: "closed", error: result.error } as FilesChanged);
+      emit(machine, { node: node, kind: "closed", error: result.error });
     }
   };
 
@@ -121,7 +121,7 @@ export const makeFilesRemote = Effect.fn("FilesRemote.make")(function* (options:
     if (watching.get(machine)?.has(event.node) !== true) return;
     reached.set(machine, now());
     if (event.kind === "closed") forget(machine, event.node);
-    emit(machine, event as FilesChanged);
+    emit(machine, event);
   });
 
   const onOpened = (context: LinkEventContext): Effect.Effect<void> => Effect.sync(() => {
