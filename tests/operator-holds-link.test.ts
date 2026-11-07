@@ -13,12 +13,12 @@ const testLog = makeTestLog();
 import { machineLogDir } from "../src/node/observability/log-file";
 import { makeOperatorHolds, subscribeOperatorTyped, type OperatorHoldSource } from "../src/core/term/operator-holds";
 import { TerminalRouter } from "../src/core/term/router";
-import { makeSeatViews, type SeatViewResponse, type SeatViews } from "../src/core/term/seat-views";
+import { makeSeatViews, type SeatViews } from "../src/core/term/seat-views";
 import type { AttachQuestion, SeatsViewFrame } from "../src/core/term/seat-attach";
 import type { SeatsChannelOptions } from "../src/core/term/seats-link";
 import { unwrapSeatsFailure } from "../src/core/term/seats-failure";
 import { OPERATOR_TYPING_GRACE_MS } from "../src/shared/operator-hold";
-import { eventually, miniSeat, seatsRequest, twoCoreCanvas as canvas, twoCoreProcess, twoCores } from "./support/two-cores";
+import { eventually, miniSeat, twoCoreCanvas as canvas, twoCoreProcess, twoCores } from "./support/two-cores";
 import type { Log } from "../src/node/observability/logger";
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -49,17 +49,14 @@ const linked = async (cacheQuestions?: SeatsChannelOptions["cacheQuestions"], lo
   views = makeSeatViews({
     locate: async (bindingId) => bindingId === miniSeat.bindingId
       ? { machine: "mini", canvas, seatId: miniSeat.id, harness: miniSeat.harness } : undefined,
-    request: async (_machine, payload, operationId) => {
-      try {
-        return await seatsRequest(cores.bookEnd, payload, operationId) as SeatViewResponse;
-      } catch (cause) { throw unwrapSeatsFailure(cause); }
-    },
+    request: (_machine, payload, operationId) =>
+      cores.bookEnd.request("seats", payload, operationId).catch((cause: unknown) => { throw unwrapSeatsFailure(cause); }),
     sendEvent: (_machine, payload) => cores.bookEnd.sendEvent("seats", payload),
   }, windows);
   const router = new TerminalRouter(cores.book.host);
   router.setSeatViews(views);
   cleanups.push(async () => { router.setSeatViews(undefined); router.beginShutdown(); });
-  const started = await seatsRequest(cores.bookEnd, { _tag: "Start", canvas, seatId: miniSeat.id }) as { generation: string };
+  const started = await cores.bookEnd.request("seats", { _tag: "Start", canvas, seatId: miniSeat.id }) as { generation: string };
   const attach = async (mode: "control" | "observe" = "control") => {
     const attached = await router.attach({ bindingId: miniSeat.bindingId, mode, takeover: true, hostId: "mini" });
     if (!attached.ok) throw new Error(attached.message);
@@ -134,25 +131,25 @@ describe("the operator's hold across the link", () => {
 describe("the Hold request on the seat's machine", () => {
   const attached = async (mode: "control" | "observe", log?: Log) => {
     const pair = await linked(undefined, log);
-    const view = await seatsRequest(pair.bookEnd, { _tag: "Attach", canvas, seatId: miniSeat.id,
+    const view = await pair.bookEnd.request("seats", { _tag: "Attach", canvas, seatId: miniSeat.id,
       generation: pair.started.generation, mode, takeover: true }) as { readonly handle: string };
     return { ...pair, handle: view.handle };
   };
 
   it("answers Held, and an observing view may be shown but not typed into", async () => {
     const pair = await attached("observe");
-    expect(await seatsRequest(pair.bookEnd, { _tag: "Hold", handle: pair.handle, open: true, typed: false }))
+    expect(await pair.bookEnd.request("seats", { _tag: "Hold", handle: pair.handle, open: true, typed: false }))
       .toEqual({ _tag: "Held", handle: pair.handle, accepted: true });
     expect(pair.held(0)).toBe(true);
-    await expect(seatsRequest(pair.bookEnd, { _tag: "Hold", handle: pair.handle, open: true, typed: true }))
+    await expect(pair.bookEnd.request("seats", { _tag: "Hold", handle: pair.handle, open: true, typed: true }))
       .rejects.toMatchObject({ detail: { _tag: "SeatAttachObserveOnly" } });
   });
 
   it("refuses a handle it does not hold and any field past handle, open and typed", async () => {
     const pair = await attached("control", testLog.log);
-    await expect(seatsRequest(pair.bookEnd, { _tag: "Hold", handle: "A".repeat(22), open: true, typed: false }))
+    await expect(pair.bookEnd.request("seats", { _tag: "Hold", handle: "A".repeat(22), open: true, typed: false }))
       .rejects.toMatchObject({ detail: { _tag: "SeatAttachUnknown" } });
-    await expect(seatsRequest(pair.bookEnd, { _tag: "Hold", handle: pair.handle, open: true, typed: false, window: 1 }))
+    await expect(pair.bookEnd.request("seats", { _tag: "Hold", handle: pair.handle, open: true, typed: false, window: 1 }))
       .rejects.toBeDefined();
     expect(pair.held(0)).toBe(false);
   });
@@ -163,8 +160,8 @@ describe("the Hold request on the seat's machine", () => {
     testLog.log.openFile({ home });
     const pair = await attached("control", testLog.log);
     for (let i = 0; i < 3; i++)
-      await seatsRequest(pair.bookEnd, { _tag: "Hold", handle: pair.handle, open: i % 2 === 0, typed: true });
-    await expect(seatsRequest(pair.bookEnd, { _tag: "Hold", handle: "B".repeat(22), open: true, typed: false }))
+      await pair.bookEnd.request("seats", { _tag: "Hold", handle: pair.handle, open: i % 2 === 0, typed: true });
+    await expect(pair.bookEnd.request("seats", { _tag: "Hold", handle: "B".repeat(22), open: true, typed: false }))
       .rejects.toBeDefined();
     const log = await readFile(join(machineLogDir(home), "core.jsonl"), "utf8");
     expect(log).toContain("seat attach opened");
@@ -232,7 +229,7 @@ describe("the cache question across the link", () => {
     expect(pair.views().questions()).toEqual([]);
     await eventually(() => expect(framesOf(pair, "CacheSettled")).toEqual([{ _tag: "CacheSettled", handle: due!.handle, question: Q1 }]));
     // Settled: the same id again is refused, typed, and settles nothing.
-    await expect(seatsRequest(pair.bookEnd, { _tag: "CacheAnswer", handle: due!.handle, question: Q1, answer: "keep" }))
+    await expect(pair.bookEnd.request("seats", { _tag: "CacheAnswer", handle: due!.handle, question: Q1, answer: "keep" }))
       .rejects.toMatchObject({ detail: { _tag: "SeatCacheQuestionUnknown" } });
     expect(await pair.views().answer(Q1, "keep")).toMatchObject({ ok: false });
   });
@@ -253,7 +250,7 @@ describe("the cache question across the link", () => {
   it("an observing view is never asked and cannot answer; a question of another process is not asked and settles nothing", async () => {
     const hub = questionHub();
     const pair = await linked(hub.port);
-    const request = (payload: { readonly _tag: string } & Record<string, unknown>) => seatsRequest(pair.bookEnd, payload);
+    const request = (payload: Record<string, unknown>) => pair.bookEnd.request("seats", payload);
     const watch = await request({ _tag: "Attach", canvas, seatId: miniSeat.id, generation: pair.started.generation,
       mode: "observe" }) as { readonly handle: string };
     await request({ _tag: "Hold", handle: watch.handle, open: true, typed: false });
@@ -289,7 +286,7 @@ describe("the cache question across the link", () => {
     await eventually(() => expect(pair.views().questions()).toHaveLength(1));
     const [due] = framesOf(pair, "CacheDue");
     expect(await pair.views().answer(Q1, "keep")).toEqual({ ok: true });
-    await expect(seatsRequest(pair.bookEnd, { _tag: "CacheAnswer", handle: due!.handle, question: Q1, answer: "keep" }))
+    await expect(pair.bookEnd.request("seats", { _tag: "CacheAnswer", handle: due!.handle, question: Q1, answer: "keep" }))
       .rejects.toBeDefined();
     const log = await readFile(join(machineLogDir(home), "core.jsonl"), "utf8");
     expect(log).toContain("seat attach opened");

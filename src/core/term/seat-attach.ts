@@ -28,14 +28,14 @@ const Int = (minimum: number, maximum: number) => Schema.Int.pipe(Schema.check(S
 const Mode = Schema.Literals(["control", "observe"]);
 
 export const SeatsAttach = Schema.Struct({
-  canvas: CanvasName, seatId: NodeId, generation: Generation, mode: Mode,
+  _tag: Schema.Literal("Attach"), canvas: CanvasName, seatId: NodeId, generation: Generation, mode: Mode,
   takeover: Schema.optionalKey(Schema.Boolean),
 });
-export const SeatsInput = Schema.Struct({ handle: AttachHandle, data: Bytes });
+export const SeatsInput = Schema.Struct({ _tag: Schema.Literal("Input"), handle: AttachHandle, data: Bytes });
 export const SeatsResize = Schema.Struct({
-  handle: AttachHandle, cols: Int(2, 1000), rows: Int(1, 500),
+  _tag: Schema.Literal("Resize"), handle: AttachHandle, cols: Int(2, 1000), rows: Int(1, 500),
 });
-export const SeatsDetach = Schema.Struct({ handle: AttachHandle });
+export const SeatsDetach = Schema.Struct({ _tag: Schema.Literal("Detach"), handle: AttachHandle });
 /**
  * The operator's hold on the seat, from the machine editing its canvas: a
  * window there shows this view (open), or the operator just typed into it
@@ -43,7 +43,7 @@ export const SeatsDetach = Schema.Struct({ handle: AttachHandle });
  * Closed: exactly these fields, nothing added without remote-security.
  */
 export const SeatsHold = Schema.Struct({
-  handle: AttachHandle, open: Schema.Boolean, typed: Schema.Boolean,
+  _tag: Schema.Literal("Hold"), handle: AttachHandle, open: Schema.Boolean, typed: Schema.Boolean,
 });
 /**
  * The auto cache mode's question, asked by the seat's machine on a control
@@ -54,9 +54,11 @@ export const SeatsHold = Schema.Struct({
 export const CacheQuestion = Schema.String.pipe(Schema.check(Schema.isPattern(CACHE_QUESTION_PATTERN)));
 /** The operator's answer on the view the question came on: the literal fresh or keep. */
 export const SeatsCacheAnswer = Schema.Struct({
-  handle: AttachHandle, question: CacheQuestion,
+  _tag: Schema.Literal("CacheAnswer"), handle: AttachHandle, question: CacheQuestion,
   answer: Schema.Literals(SEAT_CACHE_DUE_ANSWERS),
 });
+export const SeatsAttachRequest = Schema.Union([SeatsAttach, SeatsInput, SeatsResize, SeatsDetach, SeatsHold, SeatsCacheAnswer]);
+export type SeatsAttachRequest = typeof SeatsAttachRequest.Type;
 
 export const SeatsAttached = Schema.Struct({
   _tag: Schema.Literal("Attached"), canvas: CanvasName, seatId: NodeId, machine: MachineName,
@@ -71,6 +73,7 @@ export const SeatsHeld = Schema.Struct({ _tag: Schema.Literal("Held"), handle: A
 export const SeatsCacheAnswered = Schema.Struct({
   _tag: Schema.Literal("CacheAnswered"), handle: AttachHandle, question: CacheQuestion, cut: Schema.Boolean,
 });
+export const SeatsAttachResponse = Schema.Union([SeatsAttached, SeatsWritten, SeatsResized, SeatsDetached, SeatsHeld, SeatsCacheAnswered]);
 
 export const SeatsScreen = Schema.Struct({
   _tag: Schema.Literal("Screen"), handle: AttachHandle, seq: Seq, part: Int(0, 1023), last: Schema.Boolean, data: Bytes,
@@ -189,8 +192,6 @@ export type SeatAttachmentsOptions = {
   readonly host: AttachHost;
   /** Runs a send on the channel's runtime. */
   readonly run: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
-  /** One frame to the peer on its link session, sent as the seats contract's event. */
-  readonly sendEvent: (context: LinkEventContext, frame: SeatsViewFrame) => Effect.Effect<void, unknown>;
   /** The clock a Hold's typing is received on. */
   readonly now?: () => number;
   /** The cache questions open on this machine's seats now. None by default. */
@@ -238,7 +239,7 @@ export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
     attachment.sending = true;
     attachment.sent += 1n;
     inFlight.set(session, (inFlight.get(session) ?? 0) + 1);
-    void run(options.sendEvent(attachment.context, frame)).then(
+    void run(attachment.context.sendEvent("seats", frame)).then(
       () => { attachment.sending = false; pump(attachment); },
       () => { attachment.sending = false; end(attachment, "link-closed", false); },
     );
@@ -289,7 +290,7 @@ export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
     const session = attachment.context.sessionId;
     inFlight.set(session, Math.max(0, (inFlight.get(session) ?? 0) - Number(attachment.sent - attachment.acked)));
     if (notify && !attachment.context.signal.aborted)
-      void run(options.sendEvent(attachment.context, { _tag: "Ended", handle: attachment.handle, reason,
+      void run(attachment.context.sendEvent("seats", { _tag: "Ended", handle: attachment.handle, reason,
         ...(exit?.code === undefined ? {} : { code: exit.code }),
         ...(exit?.signal === undefined ? {} : { signal: exit.signal }) })).catch(() => undefined);
     void run(logEnded(attachment, reason));
@@ -309,7 +310,7 @@ export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
       question.generation === attachment.generation && question.canvasName === attachment.canvas &&
       question.seatId === attachment.seatId);
     const send = (frame: SeatsQuestionFrame) =>
-      void run(options.sendEvent(attachment.context, frame)).catch(() => undefined);
+      void run(attachment.context.sendEvent("seats", frame)).catch(() => undefined);
     for (const question of [...attachment.noticed]) {
       if (question === asked?.question) continue;
       attachment.noticed.delete(question);

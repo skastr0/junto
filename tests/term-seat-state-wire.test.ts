@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   reviveTermAuthSeatState,
   reviveTermHostEvent,
 } from "../src/core/term/control-client";
 import {
-  makeRemoteSeatState,
   mergeSeatStateSnapshot,
+  rememberRemoteSeatState,
+  resetRemoteSeatState,
 } from "../src/core/term/remote-seat-state";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import { sessionActorMatches } from "../src/shared/terminal";
@@ -34,7 +35,9 @@ const reviveRemote = () => {
   return revived;
 };
 
-const makeState = makeRemoteSeatState;
+afterEach(() => {
+  resetRemoteSeatState();
+});
 
 describe("term seat-state hop decode", () => {
   it("revives a Mini observer event for Command Center cards", () => {
@@ -71,23 +74,21 @@ describe("term seat-state hop decode", () => {
 
 describe("term seat-state Command Center snapshot", () => {
   it("includes a revived Remote hop event the local runtime never saw", () => {
-    const state = makeState();
     const revived = reviveRemote();
-    state.remember(revived.event);
-    expect(mergeSeatStateSnapshot([], state.events())).toEqual([revived.event]);
+    rememberRemoteSeatState(revived.event);
+    expect(mergeSeatStateSnapshot([])).toEqual([revived.event]);
   });
 
   it("lets the spawn-host event win on the same bindingId", () => {
-    const state = makeState();
     const revived = reviveRemote();
-    state.remember(revived.event);
+    rememberRemoteSeatState(revived.event);
     const local: AgentSeatStateEvent = {
       ...revived.event,
       state: "idle",
       reason: "rule:grid_idle",
       at: 1_700_000_000_100,
     };
-    expect(mergeSeatStateSnapshot([local], state.events())).toEqual([local]);
+    expect(mergeSeatStateSnapshot([local])).toEqual([local]);
   });
 });
 
@@ -106,7 +107,7 @@ describe("term seat-state placement wiring", () => {
   it("caches hop-delivered events and hydrates the Command Center snapshot", () => {
     const termIpc = readFileSync("src/app/term/ipc.ts", "utf8");
     // The core remembers each hop-delivered seat state where the plane is bound.
-    expect(readFileSync("src/core/ops/term-ipc.ts", "utf8")).toContain("remoteState.remember(payload.event)");
+    expect(readFileSync("src/core/ops/term-ipc.ts", "utf8")).toContain("rememberRemoteSeatState(payload.event)");
     expect(termIpc).toContain(
       "gate?.broadcast(IPC_CHANNELS.agentSeatStateChanged, payload.event)",
     );
@@ -114,7 +115,7 @@ describe("term seat-state placement wiring", () => {
     // the window asks ThreadsSeatStates, and the core merges the hops it
     // kept with the events its own plane saw.
     expect(readFileSync("src/core/ops/ipc-threads.ts", "utf8")).toContain(
-      "ThreadsSeatStates: () => Effect.sync(() => mergeSeatStateSnapshot(seatStateRuntime.currentEvents(), remoteState.events()))",
+      "ThreadsSeatStates: () => Effect.sync(() => mergeSeatStateSnapshot(seatStateRuntime.currentEvents()))",
     );
   });
 

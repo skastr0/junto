@@ -13,7 +13,7 @@ import { makeTestLog } from "./support/test-log";
 const testLog = makeTestLog();
 import { machineLogDir } from "../src/node/observability/log-file";
 import { ATTACH_CREDITS, BACKLOG_LIMIT_UNITS, type SeatsStreamFrame, type SeatsViewFrame } from "../src/core/term/seat-attach";
-import { eventually, miniSeat, seatsRequest, twoCoreCanvas as canvas, twoCoreProcess, twoCores } from "./support/two-cores";
+import { eventually, miniSeat, twoCoreCanvas as canvas, twoCoreProcess, twoCores } from "./support/two-cores";
 import type { Log } from "../src/node/observability/logger";
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -36,9 +36,9 @@ const attachedPair = async (options: { readonly holdAcks?: boolean; readonly log
     void cores.bookEnd.sendEvent("seats", { _tag: "Ack", handle: frame.handle, upTo: frame.seq });
   };
   if (options.holdAcks !== true) ack = (_context, frame) => ackFrame(frame);
-  const started = await seatsRequest(cores.bookEnd, { _tag: "Start", canvas, seatId: miniSeat.id }) as { generation: string };
+  const started = await cores.bookEnd.request("seats", { _tag: "Start", canvas, seatId: miniSeat.id }) as { generation: string };
   const attach = (mode: "control" | "observe", takeover?: boolean) =>
-    seatsRequest(cores.bookEnd, { _tag: "Attach", canvas, seatId: miniSeat.id, generation: started.generation, mode,
+    cores.bookEnd.request("seats", { _tag: "Attach", canvas, seatId: miniSeat.id, generation: started.generation, mode,
       ...(takeover === undefined ? {} : { takeover }) }) as Promise<Attached>;
   const output = (handle: string) => frames
     .filter((frame): frame is Extract<SeatsStreamFrame, { _tag: "Output" | "Screen" }> =>
@@ -60,16 +60,16 @@ describe("seat attach over the link", () => {
     controller.emitData("hello from the mini\r\n");
     await eventually(() => expect(pair.output(view.handle)).toContain("hello from the mini"));
 
-    expect(await seatsRequest(pair.bookEnd, { _tag: "Input", handle: view.handle, data: "echo typed\r" }))
+    expect(await pair.bookEnd.request("seats", { _tag: "Input", handle: view.handle, data: "echo typed\r" }))
       .toEqual({ _tag: "Written", handle: view.handle, accepted: true });
     expect(controller.writes.join("")).toContain("echo typed\r");
-    expect(await seatsRequest(pair.bookEnd, { _tag: "Resize", handle: view.handle, cols: 120, rows: 40 }))
+    expect(await pair.bookEnd.request("seats", { _tag: "Resize", handle: view.handle, cols: 120, rows: 40 }))
       .toEqual({ _tag: "Resized", handle: view.handle, accepted: true });
     expect(controller.resizes).toContainEqual({ cols: 120, rows: 40 });
 
-    expect(await seatsRequest(pair.bookEnd, { _tag: "Detach", handle: view.handle }))
+    expect(await pair.bookEnd.request("seats", { _tag: "Detach", handle: view.handle }))
       .toEqual({ _tag: "Detached", handle: view.handle });
-    await expect(seatsRequest(pair.bookEnd, { _tag: "Input", handle: view.handle, data: "late" }))
+    await expect(pair.bookEnd.request("seats", { _tag: "Input", handle: view.handle, data: "late" }))
       .rejects.toMatchObject({ detail: { _tag: "SeatAttachUnknown" } });
     // The released lease is free again on the mini: a local window takes control without takeover.
     expect(await pair.mini.host.attach({ bindingId: miniSeat.bindingId, mode: "control" })).toMatchObject({ ok: true });
@@ -78,9 +78,9 @@ describe("seat attach over the link", () => {
   it("an observing view refuses input and resize, typed, and writes nothing", async () => {
     const pair = await attachedPair();
     const view = await pair.attach("observe");
-    await expect(seatsRequest(pair.bookEnd, { _tag: "Input", handle: view.handle, data: "nope" }))
+    await expect(pair.bookEnd.request("seats", { _tag: "Input", handle: view.handle, data: "nope" }))
       .rejects.toMatchObject({ detail: { _tag: "SeatAttachObserveOnly" } });
-    await expect(seatsRequest(pair.bookEnd, { _tag: "Resize", handle: view.handle, cols: 90, rows: 30 }))
+    await expect(pair.bookEnd.request("seats", { _tag: "Resize", handle: view.handle, cols: 90, rows: 30 }))
       .rejects.toMatchObject({ detail: { _tag: "SeatAttachObserveOnly" } });
     expect(pair.mini.fake.controllers[0]!.writes.join("")).not.toContain("nope");
   });
@@ -90,9 +90,9 @@ describe("seat attach over the link", () => {
     const first = await pair.attach("control", true);
     const second = await pair.attach("control", true);
     await eventually(() => expect(pair.frames).toContainEqual({ _tag: "Ended", handle: first.handle, reason: "replaced" }));
-    await expect(seatsRequest(pair.bookEnd, { _tag: "Input", handle: first.handle, data: "x" }))
+    await expect(pair.bookEnd.request("seats", { _tag: "Input", handle: first.handle, data: "x" }))
       .rejects.toMatchObject({ detail: { _tag: "SeatAttachUnknown" } });
-    expect(await seatsRequest(pair.bookEnd, { _tag: "Input", handle: second.handle, data: "y" }))
+    expect(await pair.bookEnd.request("seats", { _tag: "Input", handle: second.handle, data: "y" }))
       .toMatchObject({ accepted: true });
   });
 
@@ -153,10 +153,10 @@ describe("seat attach over the link", () => {
     const view = await pair.attach("control", true);
     const typed = "typed-password-4f9a2c";
     const printed = "printed-token-8b1e7d";
-    await seatsRequest(pair.bookEnd, { _tag: "Input", handle: view.handle, data: typed });
+    await pair.bookEnd.request("seats", { _tag: "Input", handle: view.handle, data: typed });
     pair.mini.fake.controllers[0]!.emitData(printed);
     await eventually(() => expect(pair.output(view.handle)).toContain(printed));
-    await seatsRequest(pair.bookEnd, { _tag: "Detach", handle: view.handle });
+    await pair.bookEnd.request("seats", { _tag: "Detach", handle: view.handle });
     const log = await readFile(join(machineLogDir(home), "core.jsonl"), "utf8");
     expect(log).toContain("seat attach opened");
     expect(log).not.toContain(typed);

@@ -16,8 +16,7 @@ import { makeStateEngineLive } from "../src/core/state/engine";
 import { ActorSeatOccupy, makeActorSeatOccupy } from "../src/core/term/actor-seat-occupy";
 import { LocalSessionHost } from "../src/core/term/local-host";
 import { noSeatEnvironment, type SeatEnvironmentResolver } from "../src/core/term/seat-process";
-import { makeSeatsChannel, SeatsLink, type SeatsChannelOptions } from "../src/core/term/seats-link";
-import { RemoteSeatStateLive } from "../src/core/term/remote-seat-state";
+import { makeSeatsChannel, type SeatsChannelOptions } from "../src/core/term/seats-link";
 import { makeSeatsProcessClient } from "../src/core/term/seats-client";
 import { SeatsFailure } from "../src/core/term/seats-failure";
 import {
@@ -128,7 +127,7 @@ const fixture = async (options: {
   }));
   // As the core builds it: forked fibers (occupy's own run) log through the machine logger.
   const runtime = ManagedRuntime.make(seatsLog.withLogger(Layer.provideMerge(
-    Layer.mergeAll(actors, RemoteSeatStateLive), Layer.provideMerge(ModelStoresLive, repositories),
+    actors, Layer.provideMerge(ModelStoresLive, repositories),
   )));
   cleanups.push(async () => {
     await host.shutdownAll("test_cleanup");
@@ -158,45 +157,22 @@ const fixture = async (options: {
     sendEvent: sent, close: () => Effect.void,
     request: () => Effect.die("the start receiver must not send requests"),
   };
-  /** The session's half of a request: the tag's own codec decodes the payload, then the handler runs. */
-  const decodePayload = (raw: { readonly _tag: string } & Record<string, unknown>) => {
-    const { _tag: tag, ...payload } = raw;
-    const wire = SeatsLink.requests.get(tag);
-    if (wire === undefined) throw new Error(`no seats request ${tag}`);
-    return { tag, payload: wire.payload.decode(payload) };
-  };
-  const start = async (raw: unknown = request, caller = context) => {
-    const { tag, payload } = decodePayload(raw as { readonly _tag: string } & Record<string, unknown>);
-    return runtime.runPromise(channel.handleRequest(tag, caller, payload).pipe(Effect.provide(seatsLog.loggerLayer)));
-  };
-  /** An event as the session hands it to the channel: decoded by the contract's event codec. */
-  const decodeEvent = (wire: unknown) => f_channel_events(channel).decode(wire);
-  /** A response as the session hands it to the caller: decoded by the tag's success codec. */
-  const decodeResponse = (tag: string, value: unknown) => {
-    const wire = SeatsLink.requests.get(tag);
-    if (wire === undefined) throw new Error(`no seats request ${tag}`);
-    return wire.success.decode(value);
-  };
-  return { host, fake, runtime, channel, controller, context, start, decodeEvent, decodePayload, decodeResponse, pin, copy, sent };
-};
-
-const f_channel_events = (channel: { readonly contract: { readonly events: { readonly decode: (json: unknown) => unknown } | undefined } }) => {
-  const events = channel.contract.events;
-  if (events === undefined) throw new Error("the seats contract carries no events");
-  return events;
+  const start = (raw: unknown = request, caller = context) =>
+    runtime.runPromise(channel.handleRequest(caller, raw).pipe(Effect.provide(seatsLog.loggerLayer)));
+  return { host, fake, runtime, channel, controller, context, start, pin, copy, sent };
 };
 
 const linkedClient = (f: Awaited<ReturnType<typeof fixture>>) => {
   const host = Schema.decodeUnknownSync(RemoteHost)({
     id: THIS_MACHINE, label: "Mini", isThisMachine: false, sshEndpoint: "mini", capabilities: ["terminal"],
   });
-  const requestLink = vi.fn((_machine: string, _channel: string, payload: unknown, options?: { readonly operationId?: string; readonly tag?: string }) =>
-    // What the link does with a channel failure: encode it under the contract's
-    // failure schema, send it, and decode it closed as the requester's detail.
-    f.channel.handleRequest(options?.tag ?? "", { ...f.context, ...(options?.operationId ? { operationId: options.operationId } : {}) }, payload)
+  const requestLink = vi.fn((_machine: string, _channel: string, payload: unknown, options?: { readonly operationId?: string }) =>
+    // What the link does with a channel failure: encode it under the channel's
+    // failureSchema, send it, and decode it closed as the requester's detail.
+    f.channel.handleRequest({ ...f.context, ...(options?.operationId ? { operationId: options.operationId } : {}) }, payload)
       .pipe(Effect.mapError((cause) => {
-        const detail = Schema.decodeUnknownSync(SeatsFailure)(
-          JSON.parse(JSON.stringify(Schema.encodeSync(SeatsFailure)(cause as SeatsFailure))));
+        const schema = f.channel.failureSchema!;
+        const detail = Schema.decodeUnknownSync(schema)(JSON.parse(JSON.stringify(Schema.encodeSync(schema)(cause))));
         const operationId = options?.operationId ?? "link-minted";
         return new LinkRequestFailed({ machine: THIS_MACHINE, channel: "seats", operationId,
           failure: encodeError(cause, { machine: THIS_MACHINE, operationId }), detail, message: String(cause) });
@@ -259,17 +235,17 @@ describe("seats link state", () => {
     const f = await fixture({ nodes: [localSeat, remote], publishState: (event) => { published.push(event); } });
     const wire = { _tag: "SeatState", canvas, seatId: remote.id, machine: "macbook", epoch: "ep_9",
       state: "idle", confidence: "low", at: 5, reason: "idle" };
-    await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.decodeEvent(wire)));
+    await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.channel.decodeEvent(wire)));
     expect(published).toEqual([{ bindingId: remote.bindingId, epoch: "ep_9", state: "idle", reason: "idle",
       confidence: "low", at: 5, harness: remote.harness }]);
     // A state for a seat the sender does not run is refused and logged, never a
     // handler failure: the link session closes the whole link on one.
     await f.runtime.runPromise(f.channel.handleEvent!(f.context,
-      f.decodeEvent({ ...wire, seatId: localSeat.id })));
-    expect(() => f.decodeEvent({ ...wire, reason: "hook:free text" })).toThrow();
+      f.channel.decodeEvent({ ...wire, seatId: localSeat.id })));
+    expect(() => f.channel.decodeEvent({ ...wire, reason: "hook:free text" })).toThrow();
     // A canvas this machine does not hold: dropped quietly, not a failure.
     await f.runtime.runPromise(f.channel.handleEvent!(f.context,
-      f.decodeEvent({ ...wire, canvas: asCanvasName("not-held-here") })));
+      f.channel.decodeEvent({ ...wire, canvas: asCanvasName("not-held-here") })));
     expect(published).toHaveLength(1);
   });
 });
@@ -306,13 +282,13 @@ describe("seats link status", () => {
     const status = toSeatsStatus(agentSeatStatusOf({ ...stateEvent("x"), status: blocked() })!, Date.now())!;
     const wire = { _tag: "SeatState", canvas, seatId: remote.id, machine: "macbook", epoch: "ep_9",
       state: "attention", confidence: "high", at: 5, reason: "attention", status };
-    await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.decodeEvent(wire)));
+    await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.channel.decodeEvent(wire)));
     expect(agentSeatStatusOf(published[0])?.snapshot).toMatchObject({
       seat: remote.bindingId, status: { _tag: "Blocked", reason: { _tag: "Error", kind: "auth" } },
     });
     expect(agentSeatStatusOf(published[0])?.snapshot.sessionId).toBeUndefined();
     // A status with a field the wire does not name: that event is refused and logged, the link stays.
-    await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.decodeEvent({
+    await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.channel.decodeEvent({
       ...wire, status: { ...status, snapshot: { ...status.snapshot, transcriptPath: "/etc/passwd" } },
     })).pipe(Effect.provide(seatsLog.loggerLayer)));
     expect(published).toHaveLength(1);
@@ -328,11 +304,11 @@ describe("seats link status", () => {
     expect(await f.start({ ...request, _tag: "Viewed", generation: "ep_none" })).toEqual({
       _tag: "Vacant", canvas, seatId: localSeat.id, machine: THIS_MACHINE,
     });
-    const started = f.decodeResponse("Start", await f.start()) as { generation: string };
+    const started = f.channel.decodeResponse(await f.start()) as { generation: string };
     await expect(f.start({ ...request, _tag: "Viewed", generation: "old" }))
       .rejects.toMatchObject({ _tag: "SeatEpochChanged", expectedEpoch: "old", actualEpoch: started.generation });
     expect(await linked.client.viewed(localSeat.bindingId, started.generation, "op-view-1")).toBe(true);
-    expect(linked.requestLink.mock.calls.at(-1)?.[3]).toEqual({ operationId: "op-view-1", tag: "Viewed" });
+    expect(linked.requestLink.mock.calls.at(-1)?.[3]).toEqual({ operationId: "op-view-1" });
     expect(await linked.client.viewed(localSeat.bindingId, started.generation, "op-view-2")).toBe(false);
     expect(viewed).toEqual([localSeat.bindingId, localSeat.bindingId]);
 
@@ -397,7 +373,7 @@ describe("seats link launch state", () => {
 
     const remote = seat("mac-seat", { host: "macbook", agentKey: "macbook:mac-seat" });
     const receiver = await fixture({ nodes: [localSeat, remote] });
-    await receiver.runtime.runPromise(receiver.channel.handleEvent!(receiver.context, receiver.decodeEvent({
+    await receiver.runtime.runPromise(receiver.channel.handleEvent!(receiver.context, receiver.channel.decodeEvent({
       _tag: "SeatState", canvas, seatId: remote.id, machine: "macbook", epoch: "ep_9",
       state: "idle", confidence: "high", at: 5, reason: "idle", launch,
     })));
@@ -420,11 +396,11 @@ describe("seats link launch state", () => {
     const wire = { _tag: "SeatState", canvas, seatId: remote.id, machine: "macbook", epoch: "ep_9",
       state: "idle", confidence: "high", at: 5, reason: "idle", launch: toSeatsLaunch(warm(), Date.now()) };
     await f.runtime.runPromise(f.channel.opened!(f.context));
-    await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.decodeEvent(wire)));
+    await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.channel.decodeEvent(wire)));
     expect(published).toHaveLength(1);
     expect(heldRemoteSeatLaunch(remote.bindingId, "macbook", Date.now())).toMatchObject({ settingsFixed: true, nextTurn: { fresh: false } });
     // Over its bound: that event is refused and logged, the link stays and the answer held stays.
-    await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.decodeEvent({
+    await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.channel.decodeEvent({
       ...wire, epoch: "ep_10", launch: { settingsFixed: true, nextTurn: { fresh: false, freshInMs: Number.MAX_SAFE_INTEGER } },
     })).pipe(Effect.provide(seatsLog.loggerLayer)));
     expect(published).toHaveLength(1);
@@ -446,7 +422,7 @@ describe("seats link start", () => {
       harness: broken.harness, agentKey: broken.agentKey,
       spawnIntent: { documentLaunch: broken.launch!, resumeRequested: false },
     }, "op-start-1");
-    expect(linked.requestLink.mock.calls.map((call) => call[3])).toEqual([{ operationId: "op-start-1", tag: "Start" }]);
+    expect(linked.requestLink.mock.calls.map((call) => call[3])).toEqual([{ operationId: "op-start-1" }]);
     expect(live).toMatchObject({
       bindingId: broken.bindingId, hostId: THIS_MACHINE, nodeId: broken.id, status: "exited",
       exitReason: "spawn_failed", epoch: f.host.get(broken.bindingId)?.epoch,
@@ -489,7 +465,7 @@ describe("seats link start", () => {
     "rejects peer-supplied %s before session preparation", async (field) => {
       const f = await fixture();
       const raw = { ...request, [field]: "not-a-launch-grant" };
-      expect(() => f.decodePayload(raw as { readonly _tag: string } & Record<string, unknown>)).toThrow();
+      expect(() => f.channel.decodeRequest(raw)).toThrow();
       await expect(f.start(raw)).rejects.toThrow();
       expect(f.pin).not.toHaveBeenCalled();
       expect(f.fake.controllers).toHaveLength(0);
@@ -607,12 +583,12 @@ describe("seats link start", () => {
     expect(await f.start({ ...request, _tag: "Stop" })).toEqual({
       _tag: "Vacant", canvas, seatId: localSeat.id, machine: THIS_MACHINE,
     });
-    const started = f.decodeResponse("Start", await f.start()) as { generation: string };
+    const started = f.channel.decodeResponse(await f.start()) as { generation: string };
     await expect(f.start({ ...request, _tag: "Stop", generation: "old" }))
       .rejects.toMatchObject({ _tag: "SeatEpochChanged", expectedEpoch: "old", actualEpoch: started.generation });
     expect(f.fake.controllers[0]!.signals).toEqual([]);
     expect(await linked.client.stop(localSeat.bindingId, "op-stop-1")).toBe(true);
-    expect(linked.requestLink.mock.calls.at(-1)?.[3]).toEqual({ operationId: "op-stop-1", tag: "Stop" });
+    expect(linked.requestLink.mock.calls.at(-1)?.[3]).toEqual({ operationId: "op-stop-1" });
     expect(f.fake.controllers[0]!.signals).toContain("SIGTERM");
   });
 
@@ -643,7 +619,7 @@ describe("seats link start", () => {
     await expect(f.start({ ...request, _tag: "Activate", generation: "old" })).rejects.toThrow("vacant");
     expect(f.pin).not.toHaveBeenCalled();
     expect(f.fake.controllers).toHaveLength(0);
-    const started = f.decodeResponse("Start", await f.start()) as { generation: string };
+    const started = f.channel.decodeResponse(await f.start()) as { generation: string };
     expect(await f.start({ ...request, _tag: "Get" })).toEqual(started);
     expect(await f.start({ ...request, _tag: "Activate", generation: started.generation })).toEqual(started);
     await expect(f.start({ ...request, _tag: "Activate", generation: "old" })).rejects.toThrow("generation changed");
@@ -656,9 +632,9 @@ describe("seats link start", () => {
     const host = Schema.decodeUnknownSync(RemoteHost)({
       id: THIS_MACHINE, label: "Mini", isThisMachine: false, sshEndpoint: "mini", capabilities: ["terminal"],
     });
-    const requestLink = vi.fn((_machine: string, channel: string, payload: unknown, options?: { readonly tag?: string }) => {
+    const requestLink = vi.fn((_machine: string, channel: string, payload: unknown) => {
       expect(channel).toBe("seats");
-      return f.channel.handleRequest(options?.tag ?? "", f.context, payload).pipe(Effect.mapError((cause) =>
+      return f.channel.handleRequest(f.context, payload).pipe(Effect.mapError((cause) =>
         new LinkUnavailable({ reason: "not-linked", message: cause instanceof Error ? cause.message : String(cause) })));
     });
     const unused = Effect.die("unused machine operation");
@@ -683,10 +659,8 @@ describe("seats link start", () => {
     });
     expect(live).toMatchObject({ bindingId: localSeat.bindingId, nodeId: localSeat.id, hostId: THIS_MACHINE, status: "running" });
     expect(await client.get(localSeat.bindingId)).toEqual(live);
-    expect(requestLink.mock.calls.map((call) => [call[3]?.tag, call[2]])).toEqual([
-      ["Get", { canvas, seatId: localSeat.id }],
-      ["Start", { canvas, seatId: localSeat.id }],
-      ["Get", { canvas, seatId: localSeat.id }],
+    expect(requestLink.mock.calls.map((call) => call[2])).toEqual([
+      { ...request, _tag: "Get" }, request, { ...request, _tag: "Get" },
     ]);
     expect(f.fake.controllers[0]?.spec.cwd).toBe(tmpdir());
     expect(f.fake.controllers[0]?.spec.command).not.toContain("untrusted");

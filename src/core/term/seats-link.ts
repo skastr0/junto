@@ -6,10 +6,9 @@ import {
 import type { BindingId } from "@shared/harness-domain";
 import { CanvasName, NodeId, type NodeOf } from "@shared/model";
 import type { TerminalSessionSummary } from "@shared/terminal";
+import { MachineName } from "@shared/machine-control";
 import { isThisMachine } from "@shared/machine-name";
 import type { LinkChannelContext, LinkChannelHandler, LinkEventContext } from "../link/types";
-import { bindLinkChannel, type LinkContractChannel } from "../link/contract";
-import { LogService } from "../../node/observability/logger";
 import { MachineRepository } from "../machines/repository";
 import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
@@ -19,16 +18,11 @@ import { makeManagedSpawnIntent } from "./managed-spawn-plan";
 import { termPlane } from "./plane";
 import { runOnSeatStartTurn } from "./seat-start-turn";
 import {
-  ATTACH_LIMIT, makeSeatAttachments, SeatsAttach, SeatsAttached, SeatsCacheAnswer,
-  SeatsCacheAnswered, SeatsDetach, SeatsDetached, SeatsHeld, SeatsHold, SeatsInput, SeatsResized, SeatsResize,
-  SeatsWritten, type AttachQuestion, type SeatsViewFrame,
+  ATTACH_LIMIT, makeSeatAttachments, SeatsAttach, SeatsAttachEvent, SeatsAttachRequest, SeatsAttachResponse,
+  SeatsCacheAnswer, SeatsDetach, SeatsHold, SeatsInput, SeatsResize, type AttachQuestion, type SeatsViewFrame,
 } from "./seat-attach";
 import { addOperatorHoldSource, type OperatorHoldSource } from "./operator-holds";
-import { readLocalWindow, type SeatGrid, SeatsRead } from "./seat-read-window";
-import {
-  SeatsActivate, SeatsEvent, SeatsGet, SeatsGetAnswer, SeatsLink, SeatsReadAnswer, SeatsStart,
-  SeatsStarted, SeatsStateEvent, SeatsStop, SeatsStopAnswer, SeatsViewed, SeatsViewedAnswer,
-} from "./seats-contract";
+import { readLocalWindow, type SeatGrid, SeatsRead, SeatsReadWindow } from "./seat-read-window";
 import {
   asSeatsFailure, clipText, type SeatsFailureWhere, SeatAttachLimit, SeatAttachObserveOnly, SeatAttachRefused,
   SeatAttachUnknown, SeatCacheQuestionUnknown, SeatCanvasEditorMismatch, SeatChangedWhilePreparing, SeatEpochChanged, SeatExited,
@@ -37,7 +31,7 @@ import {
   SeatStopRefused,
 } from "./seats-failure";
 import {
-  decodeSeatsLaunch, fromSeatsLaunch, toSeatsLaunch, type RemoteSeatLaunch, type SeatLaunchState,
+  decodeSeatsLaunch, fromSeatsLaunch, SeatsLaunchState, toSeatsLaunch, type RemoteSeatLaunch, type SeatLaunchState,
 } from "./seats-launch";
 import { seatLaunchState } from "./seat-launch-state";
 import {
@@ -48,30 +42,81 @@ import { SeatSessionRepository } from "../seat-sessions/repository";
 import { decodeSeatsStatus, fromSeatsStatus, statusIssueAt, toSeatsStatus } from "./seats-status";
 import { forgetRemoteSeatLaunches, openedRemoteSeatLaunches, rememberRemoteSeatLaunch } from "./remote-seat-launch";
 import { seatStateRuntime } from "./agent-state/runtime";
-import { RemoteSeatState } from "./remote-seat-state";
+import { publishRemoteSeatState, remoteSeatLinkLost } from "./remote-seat-state";
 import type { InstallationId } from "@shared/installation-id";
 import type { LocalSessionHost } from "./local-host";
 
-export * from "./seats-contract";
+const Generation = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(256)));
 
+export const SeatsStart = Schema.Struct({
+  _tag: Schema.Literal("Start"), canvas: CanvasName, seatId: NodeId,
+});
+export const SeatsGet = Schema.Struct({
+  _tag: Schema.Literal("Get"), canvas: CanvasName, seatId: NodeId,
+});
+export const SeatsActivate = Schema.Struct({
+  _tag: Schema.Literal("Activate"), canvas: CanvasName, seatId: NodeId,
+  generation: Generation,
+});
+/** Stop the seat's occupant; with a generation, only that one. */
+export const SeatsStop = Schema.Struct({
+  _tag: Schema.Literal("Stop"), canvas: CanvasName, seatId: NodeId,
+  generation: Schema.optionalKey(Generation),
+});
+/** The operator viewed the seat's occupant: its finished turn is no longer unseen. */
+export const SeatsViewed = Schema.Struct({
+  _tag: Schema.Literal("Viewed"), canvas: CanvasName, seatId: NodeId,
+  generation: Generation,
+});
+export const SeatsRequest = Schema.Union([SeatsStart, SeatsGet, SeatsActivate, SeatsStop, SeatsViewed, SeatsRead,
+  SeatsAttach, SeatsInput, SeatsResize, SeatsDetach, SeatsHold, SeatsCacheAnswer]);
+export const SeatsStarted = Schema.Struct({
+  _tag: Schema.Literal("Started"), canvas: CanvasName, seatId: NodeId,
+  machine: MachineName, handle: Generation, generation: Generation,
+  createdAt: Schema.Number,
+  status: Schema.Literals(["starting", "running"]),
+});
+export const SeatsVacant = Schema.Struct({
+  _tag: Schema.Literal("Vacant"), canvas: CanvasName, seatId: NodeId, machine: MachineName,
+  /** Get only: what the seat's next start and turn do, decided here (seats-launch.ts). */
+  launch: Schema.optionalKey(SeatsLaunchState),
+});
+export const SeatsStopping = Schema.Struct({
+  _tag: Schema.Literal("Stopping"), canvas: CanvasName, seatId: NodeId, machine: MachineName,
+  generation: Generation,
+});
+/** A view landed on that generation; changed when it cleared anything. */
+export const SeatsSeen = Schema.Struct({
+  _tag: Schema.Literal("Seen"), canvas: CanvasName, seatId: NodeId, machine: MachineName,
+  generation: Generation, changed: Schema.Boolean,
+});
+/** What a seat request (start, get, activate, stop, view) answers. */
+export const SeatsSeatResponse = Schema.Union([SeatsStarted, SeatsVacant, SeatsStopping, SeatsSeen]);
+export const SeatsResponse = Schema.Union([...SeatsSeatResponse.members, SeatsReadWindow, ...SeatsAttachResponse.members]);
+
+/**
+ * A seat's state, sent by the machine that runs it to the machine that edits
+ * its canvas, so the seat's ring has a producer there. reason is a rule id or
+ * the state's own word: free text (a hook's words, an error) stays home.
+ */
+export const SeatsStateEvent = Schema.Struct({
+  _tag: Schema.Literal("SeatState"), canvas: CanvasName, seatId: NodeId, machine: MachineName,
+  epoch: Generation,
+  state: Schema.Literals(["idle", "working", "attention", "unknown", "gone"]),
+  confidence: Schema.Literals(["high", "low"]),
+  at: Schema.Number,
+  reason: Schema.String.pipe(Schema.check(Schema.isPattern(/^(rule:[A-Za-z0-9_.:-]{1,128}|idle|working|attention|unknown|gone)$/))),
+  /**
+   * The seat's status (seats-status.ts). Read on arrival with its own closed
+   * schema, so a status that does not read refuses its event, not the link.
+   */
+  status: Schema.optionalKey(Schema.Unknown),
+  /** What the seat's next start and turn do (seats-launch.ts), read on arrival the same way. */
+  launch: Schema.optionalKey(Schema.Unknown),
+});
+export type SeatsStateEvent = typeof SeatsStateEvent.Type;
+export const SeatsEvent = Schema.Union([SeatsStateEvent, ...SeatsAttachEvent.members]);
 const RULE_REASON = /^rule:[A-Za-z0-9_.:-]{1,128}$/;
-
-/** A seat request as its handler reads it: the contract's tag beside its payload. */
-type SeatRequest =
-  | (typeof SeatsStart.Type & { readonly _tag: "Start" })
-  | (typeof SeatsGet.Type & { readonly _tag: "Get" })
-  | (typeof SeatsActivate.Type & { readonly _tag: "Activate" })
-  | (typeof SeatsStop.Type & { readonly _tag: "Stop" })
-  | (typeof SeatsViewed.Type & { readonly _tag: "Viewed" })
-  | (typeof SeatsRead.Type & { readonly _tag: "Read" });
-/** An attach request as its handler reads it. */
-type AttachRequest =
-  | (typeof SeatsAttach.Type & { readonly _tag: "Attach" })
-  | (typeof SeatsInput.Type & { readonly _tag: "Input" })
-  | (typeof SeatsResize.Type & { readonly _tag: "Resize" })
-  | (typeof SeatsDetach.Type & { readonly _tag: "Detach" })
-  | (typeof SeatsHold.Type & { readonly _tag: "Hold" })
-  | (typeof SeatsCacheAnswer.Type & { readonly _tag: "CacheAnswer" });
 
 type Handle = {
   readonly peer: LinkChannelContext["peer"];
@@ -127,14 +172,12 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
   const records = yield* ModelRecords;
   const machines = yield* MachineRepository;
   const occupants = yield* ActorSeatOccupy;
-  const remoteState = yield* RemoteSeatState;
-  const log = yield* LogService;
   const run = Effect.runPromiseWith(yield* Effect.context<never>());
   const host = options.host ?? termPlane.host;
   const pin = options.pin ?? ensureSeatSessionId;
   const seatStates = options.seatStates ?? seatStateRuntime;
-  const publishState = options.publishState ?? ((event: AgentSeatStateEvent, machine: InstallationId) => remoteState.publish(event, machine));
-  const linkLost = options.linkLost ?? ((machine: InstallationId) => remoteState.linkLost(machine));
+  const publishState = options.publishState ?? publishRemoteSeatState;
+  const linkLost = options.linkLost ?? remoteSeatLinkLost;
   // Read in this runtime, never through the window's: the core bundle must not reach Electron.
   const sessions = yield* Effect.serviceOption(SeatSessionRepository);
   const launchState = options.launchState ?? (Option.isNone(sessions) ? async () => undefined
@@ -158,7 +201,6 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
   const questions = options.cacheQuestions ??
     { current: seatCacheQuestions, subscribe: subscribeSeatCacheQuestions, answer: answerSeatCacheQuestion };
   const attachments = makeSeatAttachments({ host, run, questions: questions.current,
-    sendEvent: (context, frame) => context.sendEvent(SeatsLink.channel, frame),
     ...(options.now === undefined ? {} : { now: options.now }) });
   // A peer's view held by its operator holds the seat's session here, where it is cut.
   (options.addHoldSource ?? addOperatorHoldSource)((bindingId, now) => attachments.heldBy(bindingId, now));
@@ -247,15 +289,15 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
    * or a log row here: Input and Hold are counted at debug, never their data.
    */
   const answerAttach = Effect.fn("SeatsLink.attach")(function* (context: LinkChannelContext,
-    request: AttachRequest, machine: string) {
+    request: typeof SeatsAttachRequest.Type, machine: string) {
     if (request._tag === "Attach") {
       const where = { machine, canvas: request.canvas, seatId: request.seatId };
       const admitted = yield* admitSeat(context, where);
       if (attachments.count(context) >= ATTACH_LIMIT)
         return yield* new SeatAttachLimit({ ...where, limit: ATTACH_LIMIT,
           message: `This machine already holds ${ATTACH_LIMIT} views for that machine.` });
-      const opened = yield* Effect.uninterruptible(Effect.promise(() => attachments.open(context,
-        { canvas: request.canvas, seatId: request.seatId, machine, bindingId: admitted.seat.bindingId }, request)));
+      const opened = yield* Effect.promise(() => attachments.open(context,
+        { canvas: request.canvas, seatId: request.seatId, machine, bindingId: admitted.seat.bindingId }, request));
       if (!opened.ok)
         return yield* (opened.epoch !== undefined
           ? new SeatEpochChanged({ ...where, expectedEpoch: request.generation, actualEpoch: opened.epoch, message: opened.message })
@@ -316,7 +358,7 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
   model.subscribeCanvasesChanges(recheckViews);
 
   const answer = Effect.fn("SeatsLink.request")(function* (context: LinkChannelContext,
-    request: SeatRequest, machine: string, trace: { occupied: boolean } = { occupied: false }) {
+    request: Exclude<typeof SeatsRequest.Type, typeof SeatsAttachRequest.Type>, machine: string, trace: { occupied: boolean } = { occupied: false }) {
     const where = { machine, canvas: request.canvas, seatId: request.seatId };
     const admit = () => admitSeat(context, where);
     const initial = yield* admit();
@@ -383,72 +425,33 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
       return yield* new SeatSessionUnavailable({ ...where, reason: clipText(prepared.reason),
         message: clipText(`This seat could not start: ${prepared.reason}`) });
     yield* beforeSpawn;
-    // Once occupy takes the spawn it finishes even if the request is interrupted:
-    // a half-started seat reports its own outcome through its state events.
-    return yield* Effect.uninterruptible(Effect.gen(function* () {
-      const start = occupants.occupy({
-        canvasName: request.canvas, nodeId: initial.seat.id, bindingId: initial.seat.bindingId,
-        hostId: initial.name, harness: initial.seat.harness, agentKey: initial.seat.agentKey,
-        label: initial.seat.label, beforeSpawn,
-        ...(context.operationId === undefined ? {} : { operationId: context.operationId }),
-        spawnIntent: makeManagedSpawnIntent({ nodeId: initial.seat.id, harness: initial.seat.harness,
-          agentKey: initial.seat.agentKey, documentLaunch: initial.seat.launch,
-          cwd: initial.seat.launch?.cwd, sessionId: prepared.sessionId || undefined, resume: !prepared.minted }),
-      });
-      // From here occupy logs the start's outcome under its operation id.
-      trace.occupied = true;
-      const live = yield* Effect.tryPromise({
-        try: () => runOnSeatStartTurn(() => run(start)),
-        catch: (cause) => asSeatsFailure(where, cause),
-      });
-      yield* beforeSpawn;
-      return yield* reply(context, request.canvas, initial.seat, initial.name, live);
-    }));
+    const start = occupants.occupy({
+      canvasName: request.canvas, nodeId: initial.seat.id, bindingId: initial.seat.bindingId,
+      hostId: initial.name, harness: initial.seat.harness, agentKey: initial.seat.agentKey,
+      label: initial.seat.label, beforeSpawn,
+      ...(context.operationId === undefined ? {} : { operationId: context.operationId }),
+      spawnIntent: makeManagedSpawnIntent({ nodeId: initial.seat.id, harness: initial.seat.harness,
+        agentKey: initial.seat.agentKey, documentLaunch: initial.seat.launch,
+        cwd: initial.seat.launch?.cwd, sessionId: prepared.sessionId || undefined, resume: !prepared.minted }),
+    });
+    // From here occupy logs the start's outcome under its operation id.
+    trace.occupied = true;
+    const live = yield* Effect.tryPromise({
+      try: () => runOnSeatStartTurn(() => run(start)),
+      catch: (cause) => asSeatsFailure(where, cause),
+    });
+    yield* beforeSpawn;
+    return yield* reply(context, request.canvas, initial.seat, initial.name, live);
   });
 
-  /**
-   * A seat request served and logged as it was: the contract decoded the
-   * payload with the tag's schema, and the answer is checked against the
-   * tag's success schema before it crosses.
-   */
-  const serveSeat = (context: LinkChannelContext, request: SeatRequest): Effect.Effect<unknown, SeatsFailure> =>
-    Effect.gen(function* () {
-      // A failed read of this machine's own name falls back to the log's, as the inventory channel does.
-      const machine = yield* machines.machineName.pipe(Effect.orElseSucceed(() => log.machine()));
-      const where = { machine, canvas: request.canvas, seatId: request.seatId };
-      const kind = request._tag === "Start" ? "start" : request._tag === "Stop" ? "stop"
-        : request._tag === "Viewed" ? "view" : request._tag === "Read" ? "read" : "activation";
-      // Every start, activation and stop is logged on this machine with its outcome.
-      const trace = { occupied: false };
-      const answered = answer(context, request, machine, trace).pipe(
-        Effect.mapError((cause) => asSeatsFailure(where, cause)));
-      // A start that reached occupy is logged there once; one refused before it is logged here.
-      const logged = request._tag === "Start";
-      // A read logs "seat read" itself, with its line count.
-      return yield* (request._tag === "Get" ? answered : request._tag === "Read" ? answered.pipe(
-        Effect.tapCause((cause) => Effect.logWarning("seat read failed", cause))) : answered.pipe(
-        Effect.tap(() => logged && trace.occupied ? Effect.void : Effect.logInfo(`seat ${kind} answered`)),
-        Effect.tapCause((cause) => logged && trace.occupied ? Effect.void : Effect.logError(`seat ${kind} failed`, cause)),
-      )).pipe(
-        Effect.annotateLogs({ area: "seats", seat: request.seatId, canvas: request.canvas, request: request._tag,
-          peer: context.peer.machineName,
-          ...(context.operationId === undefined ? {} : { operationId: context.operationId }) }),
-      );
-    });
-
-  const serveAttach = (context: LinkChannelContext, request: AttachRequest): Effect.Effect<unknown, SeatsFailure> =>
-    Effect.gen(function* () {
-      const machine = yield* machines.machineName.pipe(Effect.orElseSucceed(() => log.machine()));
-      // The seat a failure names: the request's own for Attach, the held view's for the rest.
-      // With no held view the only failure is SeatAttachUnknown, which names no seat.
-      const heldAttachment = request._tag === "Attach" ? null : attachments.held(context, request.handle);
-      const where = request._tag === "Attach"
-          ? { machine, canvas: request.canvas, seatId: request.seatId }
-          : heldAttachment != null
-              ? { machine, canvas: heldAttachment.canvas, seatId: heldAttachment.seatId }
-              : { machine, canvas: "" as CanvasName, seatId: "" as NodeId };
+  const handleRequest: NonNullable<LinkChannelHandler["handleRequest"]> = (context, raw) => Effect.gen(function* () {
+    // Decode unknown here too: direct callers cannot bypass the transport decoder.
+    const request = yield* Schema.decodeUnknownEffect(SeatsRequest)(raw, { onExcessProperty: "error" });
+    // A failed read of this machine's own name keeps its own typed error.
+    const machine = yield* machines.machineName;
+    if (request._tag === "Attach" || request._tag === "Input" || request._tag === "Resize" || request._tag === "Detach"
+      || request._tag === "Hold" || request._tag === "CacheAnswer")
       return yield* answerAttach(context, request, machine).pipe(
-        Effect.mapError((cause) => asSeatsFailure(where, cause)),
         Effect.tapCause((cause) => request._tag === "Input" || request._tag === "Resize" || request._tag === "Hold"
           || request._tag === "CacheAnswer" ? Effect.void
           : Effect.logWarning(`seat attach ${request._tag === "Attach" ? "refused" : "detach failed"}`, cause)),
@@ -456,10 +459,26 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
           ...(request._tag === "Attach" ? { seat: request.seatId, canvas: request.canvas } : {}),
           ...(context.operationId === undefined ? {} : { operationId: context.operationId }) }),
       );
-    });
-
-  const replyOf = <S extends Schema.Top>(schema: S) => (reply: unknown) =>
-    Schema.decodeUnknownEffect(schema)(reply, { onExcessProperty: "error" }).pipe(Effect.orDie);
+    const where = { machine, canvas: request.canvas, seatId: request.seatId };
+    const kind = request._tag === "Start" ? "start" : request._tag === "Stop" ? "stop"
+      : request._tag === "Viewed" ? "view" : request._tag === "Read" ? "read" : "activation";
+    // Every start, activation and stop is logged on this machine with its outcome.
+    const trace = { occupied: false };
+    const answered = answer(context, request, machine, trace).pipe(
+      Effect.mapError((cause) => asSeatsFailure(where, cause)));
+    // A start that reached occupy is logged there once; one refused before it is logged here.
+    const logged = request._tag === "Start";
+    // A read logs "seat read" itself, with its line count.
+    return yield* (request._tag === "Get" ? answered : request._tag === "Read" ? answered.pipe(
+      Effect.tapCause((cause) => Effect.logWarning("seat read failed", cause))) : answered.pipe(
+      Effect.tap(() => logged && trace.occupied ? Effect.void : Effect.logInfo(`seat ${kind} answered`)),
+      Effect.tapCause((cause) => logged && trace.occupied ? Effect.void : Effect.logError(`seat ${kind} failed`, cause)),
+    )).pipe(
+      Effect.annotateLogs({ area: "seats", seat: request.seatId, canvas: request.canvas, request: request._tag,
+        peer: context.peer.machineName,
+        ...(context.operationId === undefined ? {} : { operationId: context.operationId }) }),
+    );
+  });
   /** Send one of this machine's seat states to the peer, when the peer edits that seat's canvas. */
   const forwardState = Effect.fn("SeatsLink.forwardState")(function* (context: LinkEventContext, event: AgentSeatStateEvent) {
     if (context.signal.aborted) return;
@@ -473,13 +492,13 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
         const status = local === undefined ? undefined : toSeatsStatus(local, Date.now());
         // An exit carries none: the seat's next start is answered once it has no occupant (Get).
         const launch = event.state === "gone" ? undefined : yield* launchWire(name, node);
-        const wire: SeatsStateEvent = {
+        const wire = yield* Schema.encodeUnknownEffect(SeatsStateEvent)({
           _tag: "SeatState", canvas: name, seatId: node.id, machine, epoch: event.epoch, state: event.state,
           confidence: event.confidence, at: event.at, reason: RULE_REASON.test(event.reason) ? event.reason : event.state,
           ...(status === undefined ? {} : { status }),
           ...(launch === undefined ? {} : { launch }),
-        };
-        yield* context.sendEvent(SeatsLink.channel, wire);
+        });
+        yield* context.sendEvent("seats", wire);
         sent = true;
         yield* Effect.logInfo("seat state sent").pipe(Effect.annotateLogs({
           seat: node.id, canvas: name, epoch: event.epoch, state: event.state }));
@@ -510,7 +529,8 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
   });
 
   /** A seat state from the machine that runs the seat: accepted only for that machine's own seat. */
-  const handleEvent = (received: typeof SeatsEvent.Type, context: LinkEventContext): Effect.Effect<void, unknown> => Effect.gen(function* () {
+  const handleEvent: NonNullable<LinkChannelHandler["handleEvent"]> = (context, payload) => Effect.gen(function* () {
+    const received = yield* Schema.decodeUnknownEffect(SeatsEvent)(payload, { onExcessProperty: "error" });
     if (received._tag === "Ack") return attachments.ack(context, received.handle, BigInt(received.upTo));
     if (received._tag !== "SeatState") {
       // Display only: never seat state, a log row or disk. No view holding it: dropped.
@@ -562,61 +582,13 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
       epoch: event.epoch, state: event.state }));
   }).pipe(Effect.withSpan("SeatsLink.state"));
 
-  const channel: LinkContractChannel = bindLinkChannel(SeatsLink, {
-    requests: {
-      /**
-       * Not idempotent: spawns the seat's occupant. Interrupted before occupy
-       * takes it, nothing runs; once occupy takes it the spawn finishes
-       * uninterruptibly and a repeat Start answers the live occupant or its
-       * typed refusal.
-       */
-      Start: (payload, context) => serveSeat(context, { _tag: "Start", ...payload }).pipe(Effect.flatMap(replyOf(SeatsStarted))),
-      /** Idempotent: reads the occupant, or the seat vacant with what its next start does. */
-      Get: (payload, context) => serveSeat(context, { _tag: "Get", ...payload }).pipe(Effect.flatMap(replyOf(SeatsGetAnswer))),
-      /**
-       * Not idempotent: acknowledges the occupant of that generation. A half
-       * run leaves the occupant as it was; a repeat answers Started for the
-       * same generation or SeatEpochChanged.
-       */
-      Activate: (payload, context) => serveSeat(context, { _tag: "Activate", ...payload }).pipe(Effect.flatMap(replyOf(SeatsStarted))),
-      /**
-       * Not idempotent: kills the occupant. Interrupted, the kill may already
-       * have run; the seat's state events report it, and a repeat answers
-       * Vacant or Stopping for what is left.
-       */
-      Stop: (payload, context) => serveSeat(context, { _tag: "Stop", ...payload }).pipe(Effect.flatMap(replyOf(SeatsStopAnswer))),
-      /**
-       * Not idempotent: clears the occupant's unseen finished turn. A half
-       * run clears it or not; a repeat answers Seen with changed false.
-       */
-      Viewed: (payload, context) => serveSeat(context, { _tag: "Viewed", ...payload }).pipe(Effect.flatMap(replyOf(SeatsViewedAnswer))),
-      /** Idempotent: reads the seat's settled grid; terminal text never enters a failure or a log. */
-      Read: (payload, context) => serveSeat(context, { _tag: "Read", ...payload }).pipe(Effect.flatMap(replyOf(SeatsReadAnswer))),
-      /**
-       * Not idempotent: leases the terminal and registers the view. Once the
-       * open finishes uninterruptibly the view exists even if its answer is
-       * dropped; it ends with the link or an explicit Detach.
-       */
-      Attach: (payload, context) => serveAttach(context, { _tag: "Attach", ...payload }).pipe(Effect.flatMap(replyOf(SeatsAttached))),
-      /**
-       * Not idempotent: writes terminal bytes once. Interrupted, bytes already
-       * written stay written; the peer resends what its own state lacks.
-       */
-      Input: (payload, context) => serveAttach(context, { _tag: "Input", ...payload }).pipe(Effect.flatMap(replyOf(SeatsWritten))),
-      /** Not idempotent: resizes the leased terminal once; a repeat resizes it again to the same size. */
-      Resize: (payload, context) => serveAttach(context, { _tag: "Resize", ...payload }).pipe(Effect.flatMap(replyOf(SeatsResized))),
-      /** Idempotent: ends the view; a repeat finds no such view and answers SeatAttachUnknown. */
-      Detach: (payload, context) => serveAttach(context, { _tag: "Detach", ...payload }).pipe(Effect.flatMap(replyOf(SeatsDetached))),
-      /** Not idempotent: sets the operator's hold on the view; a repeat sets it again. */
-      Hold: (payload, context) => serveAttach(context, { _tag: "Hold", ...payload }).pipe(Effect.flatMap(replyOf(SeatsHeld))),
-      /**
-       * Not idempotent: the first answer settles the open question once, for
-       * this view's seat and generation; a repeat answers
-       * SeatCacheQuestionUnknown and cuts nothing.
-       */
-      CacheAnswer: (payload, context) => serveAttach(context, { _tag: "CacheAnswer", ...payload }).pipe(Effect.flatMap(replyOf(SeatsCacheAnswered))),
-    },
-    event: handleEvent,
+  return {
+    failureSchema: SeatsFailure as Schema.Codec<unknown, unknown>,
+    decodeRequest: Schema.decodeUnknownSync(SeatsRequest, { onExcessProperty: "error" }),
+    decodeResponse: Schema.decodeUnknownSync(SeatsResponse, { onExcessProperty: "error" }),
+    decodeEvent: Schema.decodeUnknownSync(SeatsEvent, { onExcessProperty: "error" }),
+    handleRequest,
+    handleEvent,
     opened,
     closed: (context) => Effect.sync(() => {
       forget(context);
@@ -624,6 +596,5 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
       stateSubscriptions.get(context.signal)?.();
       stateSubscriptions.delete(context.signal);
     }),
-  });
-  return channel;
+  } satisfies LinkChannelHandler;
 });

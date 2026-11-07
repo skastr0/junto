@@ -20,7 +20,7 @@ const ReadText = Schema.String.pipe(Schema.check(Schema.makeFilter((text: string
 
 /** The editing machine reads the seat's settled grid: its last lines. */
 export const SeatsRead = Schema.Struct({
-  canvas: CanvasName, seatId: NodeId,
+  _tag: Schema.Literal("Read"), canvas: CanvasName, seatId: NodeId,
   lines: Schema.optionalKey(Count(SEAT_READ_MAX_LINES).pipe(Schema.check(Schema.isGreaterThan(0)))),
 });
 /** The grid's last lines, clipped from the top to the byte cap. */

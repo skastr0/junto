@@ -10,7 +10,6 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { makeLinkSession } from "../../src/core/link/session";
 import { LinkHelloSchema } from "../../src/core/link/protocol";
-import type { LinkSession } from "../../src/core/link/types";
 import { MachineRepository, makeMachineRepositoryLive } from "../../src/core/machines/repository";
 import { ModelService } from "../../src/core/model/service";
 import { makeTestLog } from "./test-log";
@@ -23,7 +22,6 @@ import { ActorSeatOccupy, makeActorSeatOccupy } from "../../src/core/term/actor-
 import { LocalSessionHost } from "../../src/core/term/local-host";
 import { noSeatEnvironment } from "../../src/core/term/seat-process";
 import { makeSeatsChannel, type SeatsChannelOptions } from "../../src/core/term/seats-link";
-import { RemoteSeatStateLive } from "../../src/core/term/remote-seat-state";
 import { WorkRepositoryLive } from "../../src/core/work/repository";
 import { setSeatCredentialRegistryForTests } from "../../src/core/work/seat-credentials";
 import { InstallationId } from "../../src/shared/installation-id";
@@ -64,19 +62,6 @@ export const twoCoreProcess = (): (() => void) => {
   };
 };
 
-/**
- * A seats request over the test link, written the old way (`_tag` inside the
- * payload): the contract's tag crosses beside the payload, as the session takes it.
- */
-export const seatsRequest = (
-  end: Pick<LinkSession, "request">,
-  payload: { readonly _tag: string } & Record<string, unknown>,
-  operationId?: string,
-): Promise<unknown> => {
-  const { _tag: tag, ...body } = payload;
-  return end.request("seats", body, operationId, tag);
-};
-
 /** Polls until the check passes (bun has no vi.waitFor). */
 export const eventually = async (check: () => void, timeoutMs = 3_000): Promise<void> => {
   const deadline = Date.now() + timeoutMs;
@@ -106,8 +91,7 @@ const core = async (name: string, nodes: ReadonlyArray<Node>, channel: SeatsChan
   const { log: ownLog } = makeTestLog({ machine: name });
   const log = sharedLog ?? ownLog;
   const runtime = ManagedRuntime.make(log.withLogger(
-    Layer.provideMerge(actors, Layer.provideMerge(ModelStoresLive,
-      Layer.provideMerge(repositories, RemoteSeatStateLive)))));
+    Layer.provideMerge(actors, Layer.provideMerge(ModelStoresLive, repositories))));
   cleanups.push(async () => {
     await host.shutdownAll("test_cleanup");
     await runtime.dispose();
