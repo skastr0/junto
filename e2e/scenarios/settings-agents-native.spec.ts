@@ -4,7 +4,6 @@ import { join } from "node:path";
 import type { ElectronApplication, Page } from "@playwright/test";
 import { IPC_CHANNELS } from "../../src/shared/ipc";
 import { OPERATOR_PROTOCOL_VERSION } from "../../src/shared/operator-control";
-import { seededHarnessBinDir } from "../harness/agent-harness-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
 
 // Agents, Providers and Name and startup follow the machine the page head
@@ -23,10 +22,6 @@ const seeded = {
     { value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
   ],
   afterSeed: async (sandbox: { homeDir: string }) => {
-    const bin = seededHarnessBinDir(sandbox as never);
-    await mkdir(bin, { recursive: true });
-    // The operator's real claude binary answers --version; nothing else is read.
-    await writeFile(join(bin, "claude"), '#!/bin/sh\ncase "$1" in --version) echo "2.1.302 (Claude Code)";; esac\nexit 0\n', { mode: 0o755 });
     await mkdir(join(sandbox.homeDir, ".claude"), { recursive: true });
     await writeFile(
       join(sandbox.homeDir, ".claude", "settings.json"),
