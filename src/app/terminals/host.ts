@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { app, MessageChannelMain, utilityProcess, type MessagePortMain, type UtilityProcess } from "electron";
 import { Context, Effect, Option, Schema } from "effect";
 import { TerminalHostRpcs } from "../../contract/host/terminal";
-import { TERMINAL_CONNECT, TerminalInbound } from "../../contract/terminal/protocol";
+import type { ParentFrame, TerminalConnect, TerminalShutdown } from "../../contract/terminal/messages";
 
 /**
  * The terminal process's entry, a declared entry of the build beside the
@@ -66,6 +66,8 @@ export const startTerminalProcessForCore = (): TerminalProcessForCore => {
   let stopping = false;
   let stops = 0;
   let startedAt = 0;
+  /** Main's count of the cores it handed a port: the terminal process attaches only a higher one (rule 4). */
+  let generation = 0;
   /** Children that have already emitted `exit`; a stop waits on nothing for them. */
   const gone = new WeakSet<UtilityProcess>();
   const restarted = new Set<() => void>();
@@ -96,7 +98,8 @@ export const startTerminalProcessForCore = (): TerminalProcessForCore => {
         return port2;
       }
       child ??= fork();
-      child.postMessage({ kind: "push", channel: TERMINAL_CONNECT, payload: {} }, [port1]);
+      const frame: ParentFrame<TerminalConnect> = { kind: "parent", message: { _tag: "connect", generation: ++generation } };
+      child.postMessage(frame, [port1]);
       return port2;
     },
     onRestart: (listener) => {
@@ -111,7 +114,7 @@ export const startTerminalProcessForCore = (): TerminalProcessForCore => {
       // posts `pty.hangupAll` on its own port (junto/term/core-seats.ts) before
       // it exits, and the children scope runs the core's finalizer before this
       // one, so by the time this stop runs the PTYs have been hung up by their
-      // owner. This `pty.shutdown` is the backstop for a core that is already
+      // owner. This `shutdown` frame is the backstop for a core that is already
       // gone — crashed or killed — whose PTYs kept running, detached, for the
       // next core to adopt; an orderly quit must not leave them behind.
       //
@@ -122,7 +125,8 @@ export const startTerminalProcessForCore = (): TerminalProcessForCore => {
       // may run: the worst a repeat is, is a second SIGHUP to the same child,
       // never a signal to a pid that was reaped or reused.
       try {
-        leaving.postMessage({ kind: "push", channel: TerminalInbound.shutdown, payload: {} });
+        const frame: ParentFrame<TerminalShutdown> = { kind: "parent", message: { _tag: "shutdown" } };
+        leaving.postMessage(frame);
       } catch {
         // The child is already gone: its exit is the answer, and the wait sees it.
       }
