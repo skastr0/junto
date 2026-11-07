@@ -13,6 +13,7 @@ import { modelFixture, modelSeat, modelMessagesWire } from "../harness/model";
  */
 
 import { expect, launchJunto, test } from "../harness/launch";
+import { MAC, mod } from "../harness/keys";
 
 const CANVAS = "actor-mirrors";
 
@@ -88,28 +89,37 @@ test("connections rail mirrors swap the modal and Cmd+] cycles the ring", async 
       page.locator(".workbench-pane--parked .native-terminal-surface"),
     ).toHaveCount(1);
 
-    // Ring is [alpha, bravo, charlie] anchored at the hub. Cmd+] from bravo
-    // reaches charlie, then wraps to alpha; Cmd+[ steps back to charlie.
-    await page.keyboard.press("Meta+]");
-    await expect(front.locator("header").first()).toContainText("Charlie peer", {
-      timeout: 20_000,
-    });
-    await page.keyboard.press("Meta+]");
-    await expect(front.locator("header").first()).toContainText("Alpha hub", {
-      timeout: 20_000,
-    });
-    await page.keyboard.press("Meta+[");
-    await expect(front.locator("header").first()).toContainText("Charlie peer", {
-      timeout: 20_000,
-    });
-    await expect(
-      page.locator(".workbench-pane--parked .native-terminal-surface"),
-    ).toHaveCount(2);
+    // The ring keys are Cmd+] and Cmd+[ on macOS and have no chord elsewhere
+    // (key-table.ts mirrors.next and mirrors.previous, other: []).
+    if (MAC) {
+      // Ring is [alpha, bravo, charlie] anchored at the hub. Cmd+] from bravo
+      // reaches charlie, then wraps to alpha; Cmd+[ steps back to charlie.
+      await page.keyboard.press(mod("]"));
+      await expect(front.locator("header").first()).toContainText("Charlie peer", {
+        timeout: 20_000,
+      });
+      await page.keyboard.press(mod("]"));
+      await expect(front.locator("header").first()).toContainText("Alpha hub", {
+        timeout: 20_000,
+      });
+      await page.keyboard.press(mod("["));
+      await expect(front.locator("header").first()).toContainText("Charlie peer", {
+        timeout: 20_000,
+      });
+      await expect(
+        page.locator(".workbench-pane--parked .native-terminal-surface"),
+      ).toHaveCount(2);
 
-    await page.screenshot({
-      path: testInfo.outputPath("after_cycle.png"),
-      fullPage: false,
-    });
+      await page.screenshot({
+        path: testInfo.outputPath("after_cycle.png"),
+        fullPage: false,
+      });
+    } else {
+      testInfo.annotations.push({
+        type: "skipped step",
+        description: "Cmd+] and Cmd+[ ring cycling: the app gives mirrors.next and mirrors.previous no chord off macOS (key-table.ts, other: [])",
+      });
+    }
 
     // Modal semantics: one Close press dismisses the whole stack — front pane
     // AND both parked mirror views — never one press per cycled actor.
