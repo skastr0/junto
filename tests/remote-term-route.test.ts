@@ -12,11 +12,7 @@ import { hostsSnapshot, setHostsSnapshot } from "../src/main/junto/hosts/snapsho
 import { createSshProgramCompiler } from "../src/main/junto/ssh/program";
 import { SshTransport, type LocalForwardSocket } from "../src/main/junto/ssh/service";
 import { LocalSessionHost } from "../src/main/junto/term/local-host";
-import {
-  configureTerminalRouterLayeredRunner,
-  resetTerminalRouterLayeredRunnerForTests,
-  TerminalRouter,
-} from "../src/main/junto/term/router";
+import { TerminalRouter } from "../src/main/junto/term/router";
 import { makeThisMachine } from "../src/shared/remote-hosts";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
@@ -29,7 +25,6 @@ afterEach(async () => {
   for (const router of routers.splice(0)) router.beginShutdown();
   for (const host of localHosts.splice(0)) await host.shutdownAll("test");
   setHostsSnapshot(initialHosts);
-  resetTerminalRouterLayeredRunnerForTests();
 });
 
 const studio = (juntoHome?: string) => ({
@@ -74,13 +69,13 @@ const dialing = (juntoHome?: string) => {
     warm: () => Effect.void,
     teardown: () => Effect.void,
   });
-  configureTerminalRouterLayeredRunner((effect) =>
-    Effect.runPromise(effect.pipe(Effect.provideService(SshTransport, transport)) as Effect.Effect<never>));
+  const layeredRunner = (effect: Effect.Effect<unknown, unknown, SshTransport>) =>
+    Effect.runPromise(effect.pipe(Effect.provideService(SshTransport, transport)) as Effect.Effect<never>);
   const local = new LocalSessionHost(
     makeFakeTerminalProcessAuthority(() => ({ pid: undefined, exitOnSignal: false })).authority,
     { killGraceMs: 5, shutdownGraceMs: 5, lateExitGraceMs: 5 },
   );
-  const router = new TerminalRouter(local);
+  const router = new TerminalRouter(local, { layeredRunner });
   localHosts.push(local);
   routers.push(router);
   setHostsSnapshot([makeThisMachine("workbench"), studio(juntoHome)]);

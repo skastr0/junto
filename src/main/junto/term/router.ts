@@ -70,28 +70,6 @@ export type TerminalRouterLayeredRunner = <A, E>(
   effect: Effect.Effect<A, E, SshTransport>,
 ) => Promise<A>;
 
-let configuredLayeredRunner: TerminalRouterLayeredRunner | undefined;
-
-export const configureTerminalRouterLayeredRunner = (
-  runner: TerminalRouterLayeredRunner,
-): void => {
-  configuredLayeredRunner = runner;
-};
-
-export const resetTerminalRouterLayeredRunnerForTests = (): void => {
-  configuredLayeredRunner = undefined;
-};
-
-// Effects that need the SSH transport.
-const runLayered = async <A, E>(
-  effect: Effect.Effect<A, E, SshTransport>,
-): Promise<A> => {
-  const runner = configuredLayeredRunner;
-  if (runner === undefined) {
-    throw new Error("terminal router layered runner is not configured");
-  }
-  return runner(effect);
-};
 
 /**
  * R=never Scope.make/close — empty Context is correct (no product services).
@@ -151,6 +129,11 @@ export interface TerminalRouterRuntime {
   readonly shutdownDeadlineMs?: number;
   /** Tests may lower, never raise, host-cut proof and route-retirement time. */
   readonly maintenanceDeadlineMs?: number;
+  /**
+   * Where a dial's SSH effect runs: the runtime that owns the terminal plane.
+   * The plane passes it once; this module holds no runner of its own.
+   */
+  readonly layeredRunner?: TerminalRouterLayeredRunner;
 }
 
 declare const terminalRouterMaintenanceLeaseBrand: unique symbol;
@@ -270,6 +253,8 @@ export const remapRemoteAttach = (
 });
 
 export class TerminalRouter extends EventEmitter {
+  /** The runtime a dial's SSH effect runs on, given once by the plane that builds this router. */
+  private readonly layeredRunner: TerminalRouterLayeredRunner | undefined;
   private readonly remotes = new Map<string, RemoteEntry>();
   private readonly connecting = new Map<
     string,
@@ -325,6 +310,7 @@ export class TerminalRouter extends EventEmitter {
     runtime: TerminalRouterRuntime = {},
   ) {
     super();
+    this.layeredRunner = runtime.layeredRunner;
     this.shutdownDeadlineMs = boundedRuntimeValue(
       runtime.shutdownDeadlineMs,
       ROUTER_SHUTDOWN_DEADLINE_MS,
@@ -898,6 +884,15 @@ export class TerminalRouter extends EventEmitter {
    * Synchronously revoke dial/control admission. Remote station sessions are
    * deliberately untouched; only local clients and SSH-forward scopes close.
    */
+  /** Effects that need the SSH transport run on the plane's runtime. */
+  private async runLayered<A, E>(effect: Effect.Effect<A, E, SshTransport>): Promise<A> {
+    const runner = this.layeredRunner;
+    if (runner === undefined) {
+      throw new Error("terminal router layered runner is not configured");
+    }
+    return runner(effect);
+  }
+
   beginShutdown(): void {
     if (this.quiescing) return;
     this.quiescing = true;
@@ -1160,7 +1155,7 @@ export class TerminalRouter extends EventEmitter {
     }
 
     try {
-      const pair = await runLayered(
+      const pair = await this.runLayered(
         Effect.gen(function* () {
           const ssh = yield* SshTransport;
           const host = findHostById(hostId);

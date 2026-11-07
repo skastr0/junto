@@ -38,7 +38,6 @@ import { terminalObserverPlane } from "./term/observer";
 import { onSeatViewQuestions } from "./term/seat-views";
 import { watchSeatReadiness } from "./term/onboard-nudge-interject";
 import { termPlane } from "./term/plane";
-import { configureTerminalRouterLayeredRunner } from "./term/router";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { publish } from "../core-process/push";
 import { bindCoreSeatSessions } from "../core-process/ops/ipc-seats";
@@ -255,8 +254,6 @@ export const startCore = async (options: CoreOptions) => {
   try {
     releaseRunner = installCoreRunner(runtime);
     installInProcessCoreReads();
-    // The terminal router's SSH dials run on the core that owns the terminal plane.
-    configureTerminalRouterLayeredRunner((effect) => runtime.runPromise(effect as never));
     const [actions, link, status, rows, seats, coreMail] = await runtime.runPromise(Effect.all([MachineOwnerControl, MachineLink, MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail]));
     mail = coreMail;
     if (options.overseer !== undefined) {

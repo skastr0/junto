@@ -1,3 +1,4 @@
+import { coreRunner } from "../../core-runner";
 import { seatStateRuntime } from "./agent-state";
 import { seatAwarenessPlane } from "./seat-awareness";
 import { LocalSessionHost } from "./local-host";
@@ -136,7 +137,8 @@ export class TermPlane {
     this.reporter =
       reporter ??
       (production ? primeAgentReporterPlane : new PrimeAgentReporterPlane());
-    this.router = new TerminalRouter(this.host);
+    // A dial's SSH effect runs on the core that owns this plane, never a shell runtime.
+    this.router = new TerminalRouter(this.host, { layeredRunner: coreRunner.runPromise });
     // A seat on a linked machine is viewed over the seats channel; a test
     // host has no linked seats, so it holds no views.
     this.seatViews = production ? makeSeatViews(linkSeatViewTransport()) : undefined;

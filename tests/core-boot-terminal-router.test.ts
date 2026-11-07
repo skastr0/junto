@@ -1,27 +1,26 @@
-import { mkdtemp, rm } from "node:fs/promises";
+/**
+ * The core owns the terminal plane, so the router's SSH dials run on the core's
+ * own runtime, in the core process and headless alike. The plane hands that
+ * runner to the router once, and the router module holds none of its own.
+ */
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { Effect } from "effect";
-import { expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import { SshTransport } from "../src/main/junto/ssh/service";
 
-const bound = vi.hoisted(() => ({ runner: undefined as undefined | ((effect: unknown) => Promise<unknown>) }));
-vi.mock("../src/main/junto/term/router", async (original) => ({
-  ...(await original<typeof import("../src/main/junto/term/router")>()),
-  configureTerminalRouterLayeredRunner: (runner: (effect: unknown) => Promise<unknown>) => {
-    bound.runner = runner;
-  },
-}));
-
+const { coreRunner } = await import("../src/main/core-runner");
 const { startCore } = await import("../src/main/junto/core");
 
-// The core owns the terminal plane, so the router's SSH dials run on the core's
-// own runtime, in the core process and headless alike.
-it("binds the terminal router's SSH runner to the core it starts", async () => {
+it("runs the terminal router's SSH dials on the core it starts", async () => {
   const home = await mkdtemp("/tmp/junto-core-router-");
   let core: Awaited<ReturnType<typeof startCore>> | undefined;
   try {
     core = await startCore({ home, build: "a".repeat(64), bundles: {} });
-    expect(bound.runner).toBeDefined();
-    await expect(bound.runner!(Effect.asVoid(SshTransport))).resolves.toBeUndefined();
+    // The plane builds the router with this exact runner, and it answers.
+    await expect(coreRunner.runPromise(Effect.asVoid(SshTransport))).resolves.toBeUndefined();
+    const plane = await readFile(join(import.meta.dirname, "..", "src/main/junto/term/plane.ts"), "utf8");
+    expect(plane).toContain("new TerminalRouter(this.host, { layeredRunner: coreRunner.runPromise })");
   } finally {
     await core?.close();
     await rm(home, { recursive: true, force: true });
