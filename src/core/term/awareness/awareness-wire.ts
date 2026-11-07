@@ -4,7 +4,7 @@
  *
  * This is the one translation site between the producer half (the scheduler's
  * `AwarenessAdvisory`) and the renderer contract
- * (`src/window/lib/seat-awareness-contract.ts`). The contract is imported as
+ * (`src/shared/seat-awareness-contract.ts`). The contract is imported as
  * TYPES only: nothing here re-implements a rule the contract already states,
  * and the renderer decoder remains the authority on what is well formed. A
  * unit test feeds every advisory variant through this adapter and through the
@@ -31,7 +31,7 @@ import type {
   SeatAwarenessEvent,
   SeatAwarenessEvidenceLine,
   SeatAwarenessUnavailableReason,
-} from "@window/lib/seat-awareness-contract";
+} from "@shared/seat-awareness-contract";
 import { Option, Schema } from "effect";
 import { ThreadHealthReading } from "@shared/thread-health";
 import type { AwarenessAdvisory } from "./scheduler";

@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Result, Schema } from "effect";
 import {
   OffboardRules,
   OffboardRulesPatch,
@@ -1654,12 +1654,13 @@ export class SettingsError extends Schema.TaggedError<SettingsError>()("Settings
 
 // Wire result for IPC. Same ok/code/message shape as browser ops, with a
 // monomorphic `settings` payload (always the full aggregate, never generic data).
-export interface SettingsOpResult {
-  readonly ok: boolean;
-  readonly settings?: Settings;
-  readonly code?: SettingsErrorCode;
-  readonly message?: string;
-}
+export const SettingsOpResult = Schema.Struct({
+  ok: Schema.Boolean,
+  settings: Schema.optionalKey(Settings),
+  code: Schema.optionalKey(SettingsErrorCode),
+  message: Schema.optionalKey(Schema.String),
+});
+export type SettingsOpResult = typeof SettingsOpResult.Type;
 
 /** Hard ceiling for the serialized settings payload (prefs stay small). */
 export const SETTINGS_MAX_SERIALIZED_BYTES = 64 * 1024;
@@ -1677,3 +1678,42 @@ export const settingsOpFail = (
   code,
   message,
 });
+
+// ---------------------------------------------------------------------------
+// Main's edge
+// ---------------------------------------------------------------------------
+//
+// What the window sends is decoded closed here, in main, before it is handed
+// to the core; a value this build does not read is answered as the window
+// reads every refusal, and never sent.
+
+const isPlainObject = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+/** A settings patch from the window, decoded closed, or the answer that refuses it. */
+export const settingsPatchFromWindow = (raw: unknown): Result.Result<SettingsPatch, SettingsOpResult> =>
+  // Reject non-objects early so IPC cannot pass arrays/primitives that would
+  // otherwise produce opaque schema trees.
+  !isPlainObject(raw)
+    ? Result.fail(settingsOpFail("validation", "settings patch must be a plain object"))
+    : Schema.decodeUnknownResult(SettingsPatch)(raw, { onExcessProperty: "error" }).pipe(
+      Result.mapError((error) => settingsOpFail("validation", `settings patch invalid: ${error.message}`)),
+    );
+
+/** A machine preferences patch from the window, decoded closed, or the answer that refuses it. */
+export const machinePreferencesFromWindow = (raw: unknown): Result.Result<MachinePreferencesPatch, SettingsOpResult> =>
+  !isPlainObject(raw)
+    ? Result.fail(settingsOpFail("validation", "machine preferences patch must be a plain object"))
+    : Schema.decodeUnknownResult(MachinePreferencesPatch)(raw, { onExcessProperty: "error" }).pipe(
+      Result.mapError((error) => settingsOpFail("validation", `machine preferences patch invalid: ${error.message}`)),
+    );
+
+/** The section a reset names: none resets every section; a name this build does not know is refused. */
+export const settingsResetSectionFromWindow = (
+  raw: unknown,
+): Result.Result<SettingsSectionKey | undefined, SettingsOpResult> =>
+  raw === undefined || raw === null || raw === ""
+    ? Result.succeed(undefined)
+    : Schema.decodeUnknownResult(SettingsSectionKey)(raw, { onExcessProperty: "error" }).pipe(
+      Result.mapError(() => settingsOpFail("validation", "settings reset section is invalid")),
+    );

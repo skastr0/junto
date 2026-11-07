@@ -167,16 +167,20 @@ describe("V4-ENTRY managed runtime domain entry", () => {
 
     expect(core).toMatch(/makeCoreRuntime/);
     expect(core).toMatch(/runtime\.runPromise/);
-    // The desktop shell builds no core: it starts the core process and asks it by name.
+    // The desktop shell builds no core: it starts the core process and builds
+    // main's typed clients of it.
     expect(cc).toMatch(/startCoreProcessForMain\(/);
+    expect(cc).toMatch(/buildCoreClients\(/);
     expect(cc).not.toMatch(/AppRuntime\.run(Promise|Fork)/);
-    // The window's own ipc.ts is a thin shell: every domain read asks the core by name.
-    expect(ipc).toMatch(/core\.call\(/);
-    // junto/ipc.ts became the same shell in 7b5990251: it asks the core by name
-    // and holds no runtime of its own, so the rule it must keep is the shell's,
-    // not the warm-runtime one it used to keep.
-    expect(juntoIpc).toMatch(/core\.call\(/);
+    // The window's own ipc.ts is a thin shell: every domain read goes through
+    // main's typed client of a core group.
+    expect(ipc).toMatch(/Context\.get\(boot\.core, HostsCore\)/);
+    // junto/ipc.ts is the same shell: it hands each registrar main's clients of
+    // the core and holds no runtime of its own, and nothing in either asks the
+    // core by name any more.
+    expect(juntoIpc).toMatch(/boot\.core/);
     expect(juntoIpc).not.toMatch(/AppRuntime\.run(Promise|Fork)/);
+    for (const shell of [ipc, juntoIpc]) expect(shell).not.toMatch(/core\.call\(/);
 
     // Keep the construction sites explicit: the desktop shell and the windowless core.
     // Pure-Node scan: CI runners do not all ship ripgrep.

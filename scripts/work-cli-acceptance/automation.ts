@@ -5,10 +5,12 @@
  * and writes none: the overseer gate refuses its write before any ruler sees
  * it.
  */
-import { Effect, Schema } from "effect";
+import { Effect, Layer, Schema } from "effect";
+import { RpcTest } from "effect/rpc";
 import { SqlClient } from "effect/sql";
-import { coreOpBody } from "../../src/core/ops";
-import "../../src/core/ops/ipc-automation";
+import { AutomationApplyAsk, AutomationRpcs } from "../../src/contract/core/automation";
+import { AutomationHandlers } from "../../src/core/ops/ipc-automation";
+import { CorePushes } from "../../src/core/push";
 import { ModelService } from "../../src/core/model/service";
 import { overseerAutomationExamples } from "../../src/cli/commands/overseer-automation";
 import { Command } from "../../src/shared/model";
@@ -39,12 +41,19 @@ export const automationArea: AcceptanceArea = {
       wires: [],
     }), "operator"));
     const automationId = mintItemId();
-    // The pane's write, as main makes it: the core operation of that name.
-    const operatorApply = (canvasName: string, input: unknown): Promise<AutomationApplyResponse> => {
-      const body = coreOpBody("ipc.automation.apply");
-      if (body === undefined) throw new Error("no core operation named ipc.automation.apply");
-      return inApp.runPromise(body({ canvasName, input } as never) as never);
-    };
+    // The pane's write, as main makes it: the ask decoded closed, then the automation group's apply on the core's handlers.
+    // No window is open here, so the pushes the handlers make are heard by no one.
+    const noWindow = Layer.succeed(CorePushes, { publish: () => Effect.void });
+    const operatorApply = (canvasName: string, input: unknown): Promise<AutomationApplyResponse> =>
+      inApp.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const ask = yield* Schema.decodeUnknownEffect(AutomationApplyAsk, { onExcessProperty: "error" })({ canvasName, request: input });
+            const client = yield* RpcTest.makeClient(AutomationRpcs);
+            return yield* client.AutomationApply(ask);
+          }),
+        ).pipe(Effect.provide(Layer.provide(AutomationHandlers, noWindow))),
+      );
     const created = await operatorApply(canvas, {
       nodeId: NODE,
       automationId,

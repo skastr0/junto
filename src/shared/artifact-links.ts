@@ -9,13 +9,15 @@
  * targets are artifacts on the canvas it is projecting, and reads the titles
  * from there.
  */
-import type { ArtifactBody, ArtifactType } from "./artifact";
+import { Schema } from "effect";
+import type { ArtifactBody } from "./artifact";
 import { mentionLinksOf, type MentionTarget } from "./mention";
-import type { NodeId } from "./physics/schema";
-import type { ItemId } from "./work-ids";
+import { ArtifactType } from "./wire/artifact";
+import { ItemId, NodeId } from "./wire/ids";
 
 /** An artifact named by the node that shows it and the artifact's own id. */
-export type ArtifactLinkRef = { readonly nodeId: NodeId; readonly artifactId: ItemId };
+export const ArtifactLinkRef = Schema.Struct({ nodeId: NodeId, artifactId: ItemId });
+export type ArtifactLinkRef = typeof ArtifactLinkRef.Type;
 
 /** How long the text around a link is kept: a line a reader can read, not the whole body. */
 export const ARTIFACT_LINK_LINE_MAX = 240;
@@ -31,17 +33,18 @@ export type BodyLinkAt = {
 };
 
 /** An artifact whose body links the one asked about: what "Linked from" lists. */
-export type LinkedFromBody = {
+export const LinkedFromBody = Schema.Struct({
   /** The artifact holding the link. */
-  readonly source: ArtifactLinkRef;
+  source: ArtifactLinkRef,
   /** Its title as it stands now. */
-  readonly title: string;
-  readonly type: ArtifactType;
+  title: Schema.String,
+  type: ArtifactType,
   /** The line the link is on, as the body holds it now, cut to the line bound. */
-  readonly line: string;
+  line: Schema.String,
   /** Epoch ms of the version the link was read from. */
-  readonly at: number;
-};
+  at: Schema.Number,
+});
+export type LinkedFromBody = typeof LinkedFromBody.Type;
 
 /** A link's key, as a projection stores the pair: the two ids, never a title. */
 export const artifactLinkKeyOf = (ref: ArtifactLinkRef): string => `${ref.nodeId}\u0000${ref.artifactId}`;

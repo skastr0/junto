@@ -4,9 +4,9 @@
  * and encodes it itself, so no source metadata survives, and it is judged
  * from its own bytes before it is stored.
  */
+import { Schema } from "effect";
+import { ContentRef } from "./wire/content-ref";
 
-/** How long box drawing waits for the operator's drag before it ends with no box. */
-export const PAGE_BOX_DRAW_MS = 5 * 60_000;
 
 /** The most a shot holds. */
 export const PAGE_SHOT_MAX_BYTES = 2 * 1024 * 1024;
@@ -71,10 +71,38 @@ export const PAGE_SHOT_REFUSED: Readonly<Record<PageShotRefusal, string>> = {
 /** What a page box comment shows in place of a shot the operator removed. */
 export const PAGE_SHOT_REMOVED = "Screenshot removed. The comment stays.";
 
+/**
+ * A page box comment: the page node it is held at, and the comment itself
+ * or a reply in its thread. Its shot is read, or purged, by this name.
+ */
+export const PageShotAt = Schema.Struct({
+  canvasName: Schema.String,
+  /** The page node the comment is held at. */
+  nodeId: Schema.String,
+  /** The comment, or a reply in its thread. */
+  messageId: Schema.String,
+});
+export type PageShotAt = typeof PageShotAt.Type;
+
 /** The comment whose shot the operator removes: a reply names its thread's comment. */
-export type PageShotPurgeRequest = { readonly canvasName: string; readonly nodeId: string; readonly messageId: string };
+export const PageShotPurgeRequest = PageShotAt;
+export type PageShotPurgeRequest = PageShotAt;
+
+/** What reading a comment's shot answers: the shot, or why there is none. */
+export const PageShotRead = Schema.Union([
+  Schema.Struct({ ok: Schema.Literal(true), ref: ContentRef, bytes: Schema.Uint8Array }),
+  /** No such comment, or it names no shot. */
+  Schema.Struct({ ok: Schema.Literal(false), reason: Schema.Literal("not-named") }),
+  /** The comment names a shot its thread's root no longer holds, or the store has no good copy. */
+  Schema.Struct({ ok: Schema.Literal(false), reason: Schema.Literal("missing") }),
+  /** The operator purged the comment's shot. The comment and its text stay. */
+  Schema.Struct({ ok: Schema.Literal(false), reason: Schema.Literal("removed") }),
+]);
+export type PageShotRead = typeof PageShotRead.Type;
 
 /** `already`: it was removed before, and nothing new crossed. */
-export type PageShotPurged =
-  | { readonly ok: true; readonly messageId: string; readonly already: boolean }
-  | { readonly ok: false; readonly message: string };
+export const PageShotPurged = Schema.Union([
+  Schema.Struct({ ok: Schema.Literal(true), messageId: Schema.String, already: Schema.Boolean }),
+  Schema.Struct({ ok: Schema.Literal(false), message: Schema.String }),
+]);
+export type PageShotPurged = typeof PageShotPurged.Type;

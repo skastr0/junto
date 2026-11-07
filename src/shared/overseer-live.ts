@@ -23,47 +23,58 @@ export const LiveStartInput = Schema.Struct({
 });
 export type LiveStartInput = typeof LiveStartInput.Type;
 
-export interface LiveTranscriptEntry {
-  readonly id: string;
-  readonly speaker: "operator" | "overseer";
-  readonly text: string;
-}
-export interface LiveActionEntry {
-  readonly id: string;
-  readonly requestId: string;
-  readonly label: string;
-  readonly status: string;
-  readonly targetRefs: ReadonlyArray<string>;
-}
-export interface LiveRequestEntry {
-  readonly requestId: string;
-  readonly intentRevision: number;
-  readonly text: string;
-  readonly status: string;
-}
-export interface LiveSnapshot {
-  readonly sessionId: string | null;
-  readonly canvasName: string | null;
-  readonly nodeId: string | null;
-  readonly connectionEpoch: number;
-  readonly connection: "closed" | "connecting" | "ready" | "disconnected";
-  readonly authority: "active" | "revoked";
-  readonly controller: "idle" | "interpreting" | "working" | "waiting-approval";
-  readonly actionsStopped?: boolean;
-  readonly elapsedSeconds: number;
-  readonly voiceCostUsd: number;
-  readonly limitSeconds: number;
-  readonly transcript: ReadonlyArray<LiveTranscriptEntry>;
-  readonly requests: ReadonlyArray<LiveRequestEntry>;
-  readonly actions: ReadonlyArray<LiveActionEntry>;
-  readonly message?: string;
-}
-export interface LiveStartResult {
-  readonly sessionId: string;
-  readonly connectionEpoch: number;
-  readonly answerSdp: string;
-  readonly snapshot: LiveSnapshot;
-}
+export const LiveTranscriptEntry = Schema.Struct({
+  id: Schema.String,
+  speaker: Schema.Literals(["operator", "overseer"]),
+  text: Schema.String,
+});
+export type LiveTranscriptEntry = typeof LiveTranscriptEntry.Type;
+
+export const LiveActionEntry = Schema.Struct({
+  id: Schema.String,
+  requestId: Schema.String,
+  label: Schema.String,
+  status: Schema.String,
+  targetRefs: Schema.Array(Schema.String),
+});
+export type LiveActionEntry = typeof LiveActionEntry.Type;
+
+export const LiveRequestEntry = Schema.Struct({
+  requestId: Schema.String,
+  intentRevision: Schema.Number,
+  text: Schema.String,
+  status: Schema.String,
+});
+export type LiveRequestEntry = typeof LiveRequestEntry.Type;
+
+/** Where the live session stands, as the window shows it and the core pushes it on every change. */
+export const LiveSnapshot = Schema.Struct({
+  sessionId: Schema.NullOr(Schema.String),
+  canvasName: Schema.NullOr(Schema.String),
+  nodeId: Schema.NullOr(Schema.String),
+  connectionEpoch: Schema.Number,
+  connection: Schema.Literals(["closed", "connecting", "ready", "disconnected"]),
+  authority: Schema.Literals(["active", "revoked"]),
+  controller: Schema.Literals(["idle", "interpreting", "working", "waiting-approval"]),
+  actionsStopped: Schema.optionalKey(Schema.Boolean),
+  elapsedSeconds: Schema.Number,
+  voiceCostUsd: Schema.Number,
+  limitSeconds: Schema.Number,
+  transcript: Schema.Array(LiveTranscriptEntry),
+  requests: Schema.Array(LiveRequestEntry),
+  actions: Schema.Array(LiveActionEntry),
+  message: Schema.optionalKey(Schema.String),
+});
+export type LiveSnapshot = typeof LiveSnapshot.Type;
+
+export const LiveStartResult = Schema.Struct({
+  sessionId: Schema.String,
+  connectionEpoch: Schema.Number,
+  answerSdp: Schema.String,
+  snapshot: LiveSnapshot,
+});
+export type LiveStartResult = typeof LiveStartResult.Type;
+
 export interface OverseerLiveApi {
   readonly liveStart: (input: LiveStartInput) => Promise<LiveStartResult>;
   readonly liveEnd: (sessionId: string) => Promise<LiveSnapshot>;

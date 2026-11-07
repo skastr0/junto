@@ -39,7 +39,7 @@ import {
   type CollaborationSeatFacts,
   type SeatCollaborationPeer,
 } from "../../lib/seat-collaboration";
-import type { SeatAwarenessAssessment } from "../../lib/seat-awareness-contract";
+import type { SeatAwarenessAssessment } from "@shared/seat-awareness-contract";
 import { seatAwareness$ } from "../../lib/seat-awareness";
 import { inPaintOrder, type Seat } from "@shared/model";
 import { state$ } from "../../lib/state";

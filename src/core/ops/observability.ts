@@ -1,81 +1,50 @@
 /**
- * The Observability panel's reads (junto/observability/ipc.ts). The ring is
- * the core's, where every service row is written; Electron main's own lines
- * arrive on `observability.append` (its logger forwards them) so boot and
- * window rows are not lost. A new entry is published only while a panel is
- * watching, so a closed panel costs no push.
+ * The core's handlers of the observability group
+ * (src/contract/core/observability.ts). The ring is the core's, where every
+ * service row is written; Electron main's own lines arrive on
+ * `ObservabilityAppend` (its logger forwards them) so boot and window rows
+ * are not lost. A new entry is published only while a panel is watching, so a
+ * closed panel costs no push.
  */
-import { Effect, Schema } from "effect";
-import {
-  ObservabilityQuery,
-  type ObservabilityLogEntry,
-  type ObservabilitySnapshot,
-} from "@shared/observability";
+import { Effect } from "effect";
 import { OBSERVABILITY_CLEARED, OBSERVABILITY_LOG } from "../../contract/core/channels";
-import { appendScrubbed, observabilityRing, type ObservabilityAppendInput } from "../observability/ring";
-import { coreOps, type CoreOp } from "../ops";
-import { publish } from "../push";
+import { ObservabilityRpcs } from "../../contract/core/observability";
+import { appendScrubbed, observabilityRing } from "../observability/ring";
+import { CorePushes } from "../push";
 
-/** One entry a panel receives while it watches. */
-export type ObservabilityPush = ObservabilityLogEntry;
-
-type Clear = { readonly newestId: number; readonly total: number; readonly dropped: number };
-
-declare module "../ops" {
-  interface CoreOps {
-    "observability.query": CoreOp<{ readonly query: unknown }, ObservabilitySnapshot>;
-    "observability.clear": CoreOp<Record<string, never>, ObservabilitySnapshot>;
-    "observability.watch": CoreOp<Record<string, never>, ObservabilitySnapshot>;
-    "observability.unwatch": CoreOp<Record<string, never>, Record<string, never>>;
-    /** Electron main's own rows, appended here where the ring lives. */
-    "observability.append": CoreOp<{ readonly entry: ObservabilityAppendInput }, void>;
-  }
-}
-
-/** Explorers watching: the ring always captures, the push is only sent while one is. */
-let watching = 0;
-
-observabilityRing.subscribe((entry) => {
-  if (watching > 0) publish(OBSERVABILITY_LOG, entry);
-});
-
-/** Drop present-but-undefined keys (IPC / object literals break exact optionals). */
-const stripUndefinedKeys = (raw: unknown): unknown => {
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return raw;
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (value !== undefined) out[key] = value;
-  }
-  return out;
-};
-
-coreOps({
-  "observability.query": ({ query }) =>
-    Effect.sync(() => {
-      if (query === undefined || query === null) return observabilityRing.query();
-      // Soft-fail: a query this build does not read answers the ring unfiltered.
-      const decoded = Schema.decodeUnknownResult(ObservabilityQuery)(stripUndefinedKeys(query));
-      return decoded._tag === "Failure" ? observabilityRing.query() : observabilityRing.query(decoded.success);
-    }),
-  "observability.clear": () =>
-    Effect.sync(() => {
-      observabilityRing.clear();
-      const snapshot = observabilityRing.query({ limit: 1 });
-      if (watching > 0) {
-        publish(OBSERVABILITY_CLEARED, { newestId: 0, total: 0, dropped: 0 } satisfies Clear);
-      }
-      return snapshot;
-    }),
-  "observability.watch": () =>
-    Effect.sync(() => {
-      watching += 1;
-      return observabilityRing.query({ limit: 500 });
-    }),
-  "observability.unwatch": () =>
-    Effect.sync(() => {
-      watching = Math.max(0, watching - 1);
-      return {};
-    }),
-  // Scrubbed again in this process: the registry of known secret values lives here.
-  "observability.append": ({ entry }) => Effect.sync(() => void appendScrubbed(entry)),
-});
+export const ObservabilityHandlers = ObservabilityRpcs.toLayer(
+  Effect.gen(function* () {
+    const pushes = yield* CorePushes;
+    /** Panels watching this server: the ring always captures, the push is only sent while one is. */
+    let watching = 0;
+    yield* Effect.acquireRelease(
+      Effect.sync(() =>
+        observabilityRing.subscribe((entry) => {
+          if (watching > 0) Effect.runSync(pushes.publish(OBSERVABILITY_LOG, entry));
+        }),
+      ),
+      (stop) => Effect.sync(stop),
+    );
+    return {
+      ObservabilityQuery: ({ query }) => Effect.sync(() => observabilityRing.query(query)),
+      ObservabilityClear: () =>
+        Effect.gen(function* () {
+          observabilityRing.clear();
+          const snapshot = observabilityRing.query({ limit: 1 });
+          if (watching > 0) yield* pushes.publish(OBSERVABILITY_CLEARED, { newestId: 0, total: 0, dropped: 0 });
+          return snapshot;
+        }),
+      ObservabilityWatch: () =>
+        Effect.sync(() => {
+          watching += 1;
+          return observabilityRing.query({ limit: 500 });
+        }),
+      ObservabilityUnwatch: () =>
+        Effect.sync(() => {
+          watching = Math.max(0, watching - 1);
+        }),
+      // Scrubbed again in this process: the registry of known secret values lives here.
+      ObservabilityAppend: ({ entry }) => Effect.sync(() => void appendScrubbed(entry)),
+    };
+  }),
+);

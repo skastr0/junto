@@ -4,7 +4,7 @@ import type { ResourceIpcApi } from "./resource-ipc";
 import type { MachineInventory } from "./harness-domain/inventory";
 import type { AuthorityWindowData } from "./authority";
 import type { NativeSettingWrite } from "./harness-domain/native-config";
-import type { MachineCacheWindows, MachineProviders, MachineRecord } from "./machine-settings";
+import type { MachineCacheWindows, MachineProviders, MachineRecord, MachineSettingsNoAnswer } from "./machine-settings";
 import type { WorkAttentionSnapshot } from "./work-attention";
 import type { WorkItemQuery, WorkAttentionQuery, WorkSinkChanged } from "./work-sinks";
 import type { CanvasesChanged, Changed, Command, Opened } from "./model";
@@ -140,7 +140,14 @@ import type {
   ReferencesChangedEvent,
   StoredReference,
 } from "./references";
-import type { SourceReport, StaleSeat } from "./region-environment";
+import type {
+  FactoryPauseSetResult as FactoryPauseSetResultSchema,
+  RegionEnvRemoveSecretResult as RegionEnvRemoveSecretResultSchema,
+  RegionEnvReportResult as RegionEnvReportResultSchema,
+  RegionEnvSaveSecretInput as RegionEnvSaveSecretInputSchema,
+  RegionEnvSaveSecretResult as RegionEnvSaveSecretResultSchema,
+  RegionEnvStaleSeatsResult as RegionEnvStaleSeatsResultSchema,
+} from "../contract/core/seats";
 import type {
   OffboardMode,
   SeatOffboardAskResult,
@@ -155,6 +162,9 @@ import type {
   ProfilesChanged,
 } from "./agent-profiles";
 import type { NotifyCue, NotifyReport, NotifyTarget } from "./desktop-notifications";
+import type { CanvasSummary as CanvasSummarySchema } from "../contract/core/model";
+import type { AgentSignalOperatorResult as AgentSignalOperatorResultSchema } from "../contract/core/signals";
+import type { DigestResult as DigestResultSchema } from "../contract/core/status";
 import type { ShellEnvironmentChange, ShellEnvironmentStatus } from "./shell-environment";
 import type { SeatCacheWindow, SeatNextTurn } from "./seat-next-launch";
 import type { OverseerLiveApi } from "./overseer-live";
@@ -170,9 +180,7 @@ export type {
   ObservabilitySnapshot,
 } from "./observability";
 
-export type AgentSignalOperatorResult =
-  | { readonly ok: true; readonly signal: AgentSignal; readonly messageId?: string }
-  | { readonly ok: false; readonly message: string };
+export type AgentSignalOperatorResult = typeof AgentSignalOperatorResultSchema.Type;
 
 export type AgentSignalAnswerOptions = {
   /**
@@ -541,10 +549,7 @@ export interface ChassisApi {
   readonly doctor: () => Promise<DoctorReport>;
 }
 
-export interface CanvasSummary {
-  readonly name: string;
-  readonly modifiedAt: string;
-}
+export type CanvasSummary = typeof CanvasSummarySchema.Type;
 
 export interface CanvasFlushRequest {
   readonly requestId: string;
@@ -578,9 +583,7 @@ export interface CanvasQuiesceAndFlushOutcome {
 export interface CanvasQuiesceAndFlushResult
   extends CanvasQuiesceAndFlushRequest, CanvasQuiesceAndFlushOutcome {}
 
-export interface DigestResult {
-  readonly digest: string;
-}
+export type DigestResult = typeof DigestResultSchema.Type;
 
 // --- kernel state types (wire) -----------------------------------------------
 
@@ -602,9 +605,7 @@ export interface KernelSnapshot {
 // fresh post-write state so the renderer never re-derives; a refused write
 // (state fault, failed persist) changed nothing anywhere and carries the
 // reason for the operator to see inline — never swallowed.
-export type FactoryPauseSetResult =
-  | { readonly ok: true; readonly state: CanvasPauseState }
-  | { readonly ok: false; readonly error: string };
+export type FactoryPauseSetResult = typeof FactoryPauseSetResultSchema.Type;
 
 export type WorkErrorCode =
   | "canvas_not_found"
@@ -651,30 +652,14 @@ export interface NodeRefOpenedDelivery extends NodeRefOpenedEvent {
   readonly deliveryId: string;
 }
 
-export type RegionEnvSaveSecretInput = {
-  /** The region the source lives in. Context only; not stored. */
-  readonly regionId: string;
-  /** The variable name. Context only; not a key. */
-  readonly name: string;
-  /** Crosses IPC once. Never returned by any call. */
-  readonly value: string;
-  /** Present: replace the value behind this id. Absent: mint a new id. */
-  readonly secretId?: string;
-};
+/** The value crosses IPC once and is never returned by any call. */
+export type RegionEnvSaveSecretInput = typeof RegionEnvSaveSecretInputSchema.Type;
 /** `message` is shown to the operator as is: plain words, no secret material. */
-export type RegionEnvSaveSecretResult =
-  | { readonly ok: true; readonly secretId: string }
-  | { readonly ok: false; readonly message: string };
-export type RegionEnvRemoveSecretResult =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly message: string };
+export type RegionEnvSaveSecretResult = typeof RegionEnvSaveSecretResultSchema.Type;
+export type RegionEnvRemoveSecretResult = typeof RegionEnvRemoveSecretResultSchema.Type;
 /** Names, kinds, origins and status. Never a value. */
-export type RegionEnvReportResult =
-  | { readonly ok: true; readonly report: ReadonlyArray<SourceReport> }
-  | { readonly ok: false; readonly message: string };
-export type RegionEnvStaleSeatsResult =
-  | { readonly ok: true; readonly seats: ReadonlyArray<StaleSeat> }
-  | { readonly ok: false; readonly message: string };
+export type RegionEnvReportResult = typeof RegionEnvReportResultSchema.Type;
+export type RegionEnvStaleSeatsResult = typeof RegionEnvStaleSeatsResultSchema.Type;
 
 export type MenuYield = "none" | "switcher" | "all";
 
@@ -1191,22 +1176,8 @@ export type NativeSettingWriteResult =
   | { readonly ok: true; readonly value: boolean | string | number }
   | { readonly ok: false; readonly error: NativeSettingFailure };
 
-/** A machine-scoped settings answer, from that machine's own core. */
-export type MachineSettingsResult<A> =
-  | { readonly ok: true; readonly value: A }
-  | {
-    readonly ok: false;
-    readonly error: {
-      readonly _tag: "MachineSettingsUnavailableError";
-      readonly machine: string;
-      readonly reason: "unreachable" | "failed";
-      readonly message: string;
-      /** The typed failure behind the reason, e.g. LinkUnavailable or SettingsNoSeatHere. */
-      readonly failure?: string;
-      /** The operation both machines logged this request under. */
-      readonly operationId?: string;
-    };
-  };
+/** A machine-scoped settings answer, from that machine's own core (`machineSettingsResult`, shared/machine-settings.ts). */
+export type MachineSettingsResult<A> = { readonly ok: true; readonly value: A } | MachineSettingsNoAnswer;
 
 export interface ManagedTerminalModelsResult {
   readonly models: readonly ManagedTerminalModelOption[];

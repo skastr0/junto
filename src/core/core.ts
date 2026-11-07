@@ -43,7 +43,6 @@ import { watchSeatReadiness } from "./term/onboard-nudge-interject";
 import { termPlane } from "./term/plane";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { publish } from "./push";
-import { bindCoreSeatSessions } from "./ops/ipc-seats";
 import { AgentSignalRepository } from "./signals/repository";
 import { onAgentSignalChanged } from "./signals/changes";
 import { mainAuthoringGate } from "../node/main-authoring-gate";
@@ -186,7 +185,6 @@ export const startCore = async (options: CoreOptions) => {
     work?.beginShutdown();
     canvas?.beginShutdown();
     mail?.seats.suspend();
-    bindCoreSeatSessions(undefined);
     holdFilesRemote(undefined);
     sessions?.stop();
     stopSeatReports?.();
@@ -399,7 +397,6 @@ export const startCore = async (options: CoreOptions) => {
       publish: (progress) => publish(IPC_CHANNELS.seatOffboardProgress, progress),
       publishDue: () => publish(SEAT_CACHE_DUE_CHANGED, null),
     });
-    bindCoreSeatSessions(sessions);
     // A seat's declared signals (blocked, escalate, feedback) ride its own
     // snapshot, as in the window, so a seat waiting on the operator is
     // exempt from the cut here too.
@@ -439,7 +436,7 @@ export const startCore = async (options: CoreOptions) => {
       stopSeatViewQuestionPushes();
     };
     admitted = true;
-    return { runtime, close, overseer, overseerLive, ensureOperatorListening, ready: () => admitted && !stopping && ownerReady() && listener!.ready() };
+    return { runtime, close, overseer, overseerLive, seatSessions: sessions, ensureOperatorListening, ready: () => admitted && !stopping && ownerReady() && listener!.ready() };
   } catch (cause) {
     // The start failure is the reason worth keeping; a stop that also fails is logged beside it.
     await close().catch((closeCause: unknown) => {

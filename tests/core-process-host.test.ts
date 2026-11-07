@@ -75,7 +75,7 @@ describe("the core process host", () => {
 
   it("kills a core that is not ready by its boot deadline, fails its calls, and starts another", async () => {
     const core = startCoreProcess(BOOT);
-    const call = core.call("model.canvases" as never, {} as never);
+    const call = core.call("test.call" as never, {} as never);
     const failed = call.catch((error: unknown) => error);
     await vi.advanceTimersByTimeAsync(119_000);
     expect(forks[0]!.killed).toBe(0);
@@ -100,10 +100,10 @@ describe("the core process host", () => {
     const core = startCoreProcess(BOOT);
     forks[0]!.kill();
     await vi.advanceTimersByTimeAsync(0);
-    void core.call("model.canvases" as never, {} as never).catch(() => undefined);
+    void core.call("test.call" as never, {} as never).catch(() => undefined);
     expect(forks).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(forks[1]!.posted).toEqual([expect.objectContaining({ kind: "call", name: "model.canvases" })]);
+    expect(forks[1]!.posted).toEqual([expect.objectContaining({ kind: "call", name: "test.call" })]);
     core.stop();
   });
 
@@ -130,7 +130,7 @@ describe("the core process host", () => {
     const core = startCoreProcess(BOOT);
     core.stop();
     await vi.advanceTimersByTimeAsync(0);
-    const late = core.call("model.canvases" as never, {} as never).catch((error: unknown) => error);
+    const late = core.call("test.call" as never, {} as never).catch((error: unknown) => error);
     await vi.advanceTimersByTimeAsync(0);
     expect(await late).toMatchObject({ tag: "CoreStopped" });
   });

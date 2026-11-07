@@ -1,10 +1,26 @@
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Effect, Exit, Layer, Option, Scope } from "effect";
+import { RpcTest } from "effect/rpc";
 import { expect, it, vi } from "vitest";
-import { inProcessCore, type CoreRunner } from "./support/in-process-core";
 import { MAIL_WAITING, SEAT_THREAD_READ_CHANGED } from "../src/contract/core/channels";
-import { subscribe } from "../src/app/core-process/main-side/core-pushes";
+import { ThreadsRpcs } from "../src/contract/core/threads";
+import { MachineRepository } from "../src/core/machines/repository";
+import { ModelNotFound, ModelRecords } from "../src/core/model/records";
 import { ModelService } from "../src/core/model/service";
+import { CorePushes } from "../src/core/push";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import { messageDelivery } from "../src/core/work/message-delivery";
+import { WorkRepository } from "../src/core/work/repository";
+import { WorkService } from "../src/core/work/service";
+import {
+  decodeOperatorThreadSend,
+  decodeSeatThreadMarkRead,
+  decodeSeatThreadsPageQuery,
+} from "../src/shared/mail-threads";
+import { asCanvasName } from "../src/shared/model/base";
+import { asNodeId } from "../src/shared/physics/schema";
 
 const readListeners = vi.hoisted(() => [] as Array<(change: unknown) => void>);
 vi.mock("../src/core/work/mail-reads", async (original) => ({
@@ -12,39 +28,110 @@ vi.mock("../src/core/work/mail-reads", async (original) => ({
   onReadChanged: (listener: (change: unknown) => void) => (readListeners.push(listener), () => undefined),
 }));
 
-await import("../src/core/ops/ipc-threads");
+const { ThreadsHandlers } = await import("../src/core/ops/ipc-threads");
 
-// The window's threads ask the core by name; renderer input is decoded there, and
-// read points and waiting mail come back as pushes, subscribed once.
-it("answers thread asks in the core, refuses what does not decode, and pushes read points and waiting mail", async () => {
-  const runtime = ManagedRuntime.make(Layer.succeed(ModelService, {
-    canvas: () => Effect.fail(new Error("no such canvas")),
-  } as never));
-  const core = inProcessCore(runtime as unknown as CoreRunner);
+const THREAD = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+
+/** A member this test never reaches: reaching it fails the test, loudly. */
+const unreached = (member: string) => () => Effect.die(`${member}: the threads test never reaches it`);
+const unsubscribed = (member: string) => (): (() => void) => {
+  throw new Error(`${member}: the threads test never subscribes`);
+};
+
+/**
+ * What the threads handlers read beside the model: every canvas read fails
+ * with the model's own not-found, so each ask stops there. Members a mock
+ * leaves out die when reached; the members it must name fail the same way.
+ */
+const services = Layer.mergeAll(
+  Layer.mock(ModelService, {
+    canvas: (name) => Effect.fail(new ModelNotFound({ what: "canvas", id: name })),
+    subscribeChanges: unsubscribed("ModelService.subscribeChanges"),
+    subscribeCanvasesChanges: unsubscribed("ModelService.subscribeCanvasesChanges"),
+  }),
+  Layer.mock(ModelRecords, {}),
+  Layer.mock(MachineRepository, {}),
+  Layer.mock(WorkService, {
+    subscribeTopologyChanges: unsubscribed("WorkService.subscribeTopologyChanges"),
+    subscribeWorkChanges: unsubscribed("WorkService.subscribeWorkChanges"),
+    subscribeMailChanges: unsubscribed("WorkService.subscribeMailChanges"),
+  }),
+  Layer.mock(WorkRepository, {
+    seatControlRows: {
+      outcome: unreached("WorkRepository.seatControlRows.outcome"),
+      recentForSeat: unreached("WorkRepository.seatControlRows.recentForSeat"),
+      record: unreached("WorkRepository.seatControlRows.record"),
+      settle: unreached("WorkRepository.seatControlRows.settle"),
+      pending: unreached("WorkRepository.seatControlRows.pending"),
+      control: unreached("WorkRepository.seatControlRows.control"),
+    },
+    subscribeChanges: unsubscribed("WorkRepository.subscribeChanges"),
+  }),
+);
+
+// What the renderer sends is decoded closed at main's edge, so the core is only
+// handed input that decoded; that is where a malformed ask is refused.
+it("refuses at main's edge what does not decode", () => {
+  expect(decodeSeatThreadMarkRead({ canvasName: "factory" })._tag).toBe("Failure");
+  expect(decodeOperatorThreadSend({ text: "hi" })._tag).toBe("Failure");
+  expect(decodeSeatThreadsPageQuery({ nope: true })._tag).toBe("Failure");
+});
+
+// The window's threads ask the core through the threads group; read points and
+// waiting mail come back as pushes, subscribed once per core.
+it("answers thread asks in the core, and pushes read points and waiting mail once the watch started", async () => {
+  const pushed: Array<readonly [string, unknown]> = [];
   const waiting: Array<(fact: unknown) => void> = [];
   const spy = vi.spyOn(messageDelivery, "subscribeMailWaiting").mockImplementation((listener) => (waiting.push(listener as never), () => undefined));
-  const seen: Array<[string, unknown]> = [];
-  const offs = ([SEAT_THREAD_READ_CHANGED, MAIL_WAITING] as const).map((channel) => subscribe(channel, (payload) => seen.push([channel, payload])));
+  const scope = await Effect.runPromise(Scope.make());
+  // The read points' SQL client: the core's own, on a database of this test's.
+  const dir = await mkdtemp(join(tmpdir(), "junto-threads-"));
   try {
-    expect(await core.call("ipc.threads.markRead", { input: { canvasName: "factory" } })).toBeUndefined();
-    expect(await core.call("ipc.threads.write", { input: { text: "hi" } })).toEqual({ ok: false, reason: "invalid", message: "That mail could not be read." });
-    await expect(core.call("ipc.threads.list", { input: { nope: true } })).rejects.toThrow();
-    expect(await core.call("ipc.threads.collaborationAsk", {
-      draft: { canvas: "factory", sourceNodeId: "a", targetNodeId: "b" } as never,
-    })).toEqual({ ok: false, error: "canvas \"factory\" could not be read" });
+    const handlers = await Effect.runPromise(
+      Layer.buildWithScope(
+        ThreadsHandlers.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.succeed(CorePushes, { publish: (channel, payload) => Effect.sync(() => void pushed.push([channel, payload])) }),
+              services,
+              makeStateEngineLive(join(dir, "junto.db")),
+            ),
+          ),
+        ),
+        scope,
+      ),
+    );
+    const threads = await Effect.runPromise(
+      RpcTest.makeClient(ThreadsRpcs).pipe(Effect.provideContext(handlers), Effect.provideService(Scope.Scope, scope)),
+    );
+    const seat = asNodeId("a");
+    const factory = asCanvasName("factory");
 
-    await core.call("ipc.threads.watch", {});
-    await core.call("ipc.threads.watch", {});
+    // A mark never fails: a refusal is null.
+    expect(await Effect.runPromise(threads.ThreadsMarkRead({ canvasName: factory, nodeId: seat, threadId: THREAD }))).toBeNull();
+    // A read the core cannot make fails with the contract's error.
+    const listed = await Effect.runPromiseExit(threads.ThreadsList({ canvasName: factory, nodeId: seat }));
+    expect(Option.map(Exit.findErrorOption(listed), (error) => error._tag)).toEqual(Option.some("ThreadsUnavailable"));
+    expect(
+      await Effect.runPromise(
+        threads.ThreadsCollaborationAsk({
+          draft: { canvas: "factory", sourceNodeId: "a", sourceLabel: "A", targetNodeId: "b", targetLabel: "B", question: "q", why: "", evidence: [] },
+        }),
+      ),
+    ).toEqual({ ok: false, error: "canvas \"factory\" could not be read" });
+
+    await Effect.runPromise(threads.ThreadsWatch());
+    await Effect.runPromise(threads.ThreadsWatch());
     expect([readListeners.length, waiting.length]).toEqual([1, 1]);
     readListeners[0]!({ canvasName: "factory", threadId: "t1" });
     waiting[0]!({ canvasName: "factory", nodeId: "n1" });
-    expect(seen).toEqual([
+    expect(pushed).toEqual([
       [SEAT_THREAD_READ_CHANGED, { canvasName: "factory", threadId: "t1" }],
       [MAIL_WAITING, { canvasName: "factory", nodeId: "n1" }],
     ]);
   } finally {
-    for (const off of offs) off();
     spy.mockRestore();
-    await runtime.dispose();
+    await Effect.runPromise(Scope.close(scope, Exit.void));
+    await rm(dir, { recursive: true, force: true });
   }
 });

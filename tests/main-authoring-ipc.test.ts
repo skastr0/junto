@@ -118,13 +118,13 @@ describe("renderer canvas authoring IPC", () => {
     const edit = { _tag: "Edit", canvas: "final", id: "note", change: { kind: "note", text: "saved" } };
 
     await expect(command(sender, edit)).resolves.toBe("executed");
-    const callsAfterOrdinary = runtime.runPromiseExit.mock.calls.length;
+    // Main's model client runs each command on main's runtime (model/model-ipc.ts).
+    const callsAfterOrdinary = runtime.runPromise.mock.calls.length;
 
     // Quit still admits the same model command path for the open draft.
     mainAuthoringGate.beginFinalFlush();
     await expect(command(sender, edit)).resolves.toBe("executed");
-    expect(runtime.runPromiseExit).toHaveBeenCalledTimes(callsAfterOrdinary + 1);
-    expect(runtime.runPromiseExit).toHaveBeenCalledTimes(callsAfterOrdinary + 1);
+    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 1);
 
     expect(() => command({ sender: {
       id: 72, isDestroyed: () => false, getURL: () => "junto-app://renderer/index.html",
@@ -132,6 +132,6 @@ describe("renderer canvas authoring IPC", () => {
 
     mainAuthoringGate.close();
     await expect(command(sender, edit)).rejects.toBeInstanceOf(MainAuthoringRefused);
-    expect(runtime.runPromiseExit).toHaveBeenCalledTimes(callsAfterOrdinary + 1);
+    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 1);
   });
 });

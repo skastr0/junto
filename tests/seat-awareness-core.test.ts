@@ -5,18 +5,19 @@
  * (0.11.7). This holds the core to it: the plane starts from the settings as the
  * core finds them, follows the gate as they change, publishes each event as a
  * core push, and answers the window's snapshot and the collaboration gate from
- * the operation `seats.awareness`.
+ * the awareness group (src/contract/core/seat-awareness.ts).
  */
 import { readFileSync } from "node:fs";
 import { Effect, Layer, ManagedRuntime } from "effect";
+import { RpcTest } from "effect/rpc";
+import type { IpcMain, IpcMainInvokeEvent } from "electron";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SEAT_AWARENESS_COMPILED } from "../src/shared/features";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { defaultSettings, type Settings, type SettingsError } from "../src/shared/settings";
-import type { SeatAwarenessEvent } from "../src/window/lib/seat-awareness-contract";
-import { runCoreOp } from "../src/core/serve";
-import type { CoreClient } from "../src/contract/core/client";
-import "../src/core/ops/seat-awareness";
+import type { SeatAwarenessEvent } from "../src/shared/seat-awareness-contract";
+import { SeatAwarenessCore, SeatAwarenessRpcs } from "../src/contract/core/seat-awareness";
+import { SeatAwarenessHandlers } from "../src/core/ops/seat-awareness";
 import { subscribe } from "../src/app/core-process/main-side/core-pushes";
 import { SettingsService } from "../src/core/settings/service";
 import {
@@ -25,6 +26,10 @@ import {
   type SeatAwarenessPlaneStartOptions,
 } from "../src/core/term/seat-awareness";
 import { makeSeatAwarenessLive } from "../src/core/term/seat-awareness-live";
+
+vi.mock("../src/app/runtime", () => ({ AppRuntime: ManagedRuntime.make(Layer.empty) }));
+
+const { registerSeatAwarenessIpc } = await import("../src/app/term/seat-awareness-ipc");
 
 const source = (relative: string): string =>
   readFileSync(new URL(`../${relative}`, import.meta.url), "utf8");
@@ -100,7 +105,8 @@ describe("the seat awareness plane in the core", () => {
   it("answers the window's snapshot and the collaboration gate from the core", () => {
     const ipc = source("src/app/ipc.ts");
     // Main asks; it never holds a plane it has no seats to feed.
-    expect(ipc).toContain('core.call("seats.awareness", {})');
+    expect(ipc).toContain("registerSeatAwarenessIpc(privilegedIpc, boot.core)");
+    expect(ipc).toContain("await seatAwareness.enabled()");
     expect(ipc).not.toContain("seatAwarenessPlane");
     // The core starts it: entry.ts boots startCore, which builds the product layer.
     expect(source("src/core/entry.ts")).toContain("startCore(");
@@ -117,22 +123,25 @@ describe("the seat awareness plane in the core", () => {
       const { settings, change } = fakeSettings();
       const heard: unknown[] = [];
       const stopHearing = subscribe(IPC_CHANNELS.seatAwarenessChanged, (payload) => heard.push(payload));
+      // The core's side of the group, in this process: main's client reaches its handlers.
       const runtime = ManagedRuntime.make(
-        Layer.provide(
-          makeSeatAwarenessLive({ plane }),
-          Layer.succeed(SettingsService, settings as never),
+        Layer.effect(SeatAwarenessCore, RpcTest.makeClient(SeatAwarenessRpcs)).pipe(
+          Layer.provide(SeatAwarenessHandlers),
+          Layer.provide(makeSeatAwarenessLive({ plane })),
+          Layer.provide(Layer.succeed(SettingsService, settings as never)),
         ),
       );
-      // The core's side of the port, in this process: the operations run on its runtime.
-      const core: CoreClient = {
-        call: (async (name: string, input: unknown) => {
-          const answer = await runCoreOp(runtime as never, name, input);
-          if (!answer.ok) throw new Error(answer.failure.message);
-          return answer.value;
-        }) as CoreClient["call"],
-      };
+      const handlers = new Map<string, (event: IpcMainInvokeEvent) => unknown>();
+      const ipc = {
+        handle: (channel: string, listener: (event: IpcMainInvokeEvent) => unknown) => {
+          handlers.set(channel, listener);
+        },
+      } as unknown as Pick<IpcMain, "handle">;
       try {
-        expect(await core.call("seats.awareness", {})).toEqual({ enabled: true, events: [WINDOW] });
+        const gate = registerSeatAwarenessIpc(ipc, await runtime.context());
+        const snapshot = () => handlers.get(IPC_CHANNELS.seatAwarenessSnapshot)?.({} as IpcMainInvokeEvent);
+        expect(await snapshot()).toEqual([WINDOW]);
+        expect(await gate.enabled()).toBe(true);
         expect(start).toHaveBeenCalledTimes(1);
 
         emit(WINDOW);
@@ -141,14 +150,14 @@ describe("the seat awareness plane in the core", () => {
         // The operator turns it off: the plane stops, and the gate says so.
         process.env[SEAT_AWARENESS_ENV] = "off";
         change(defaultSettings());
-        await vi.waitFor(async () => expect((await core.call("seats.awareness", {})).enabled).toBe(false));
+        await vi.waitFor(async () => expect(await gate.enabled()).toBe(false));
         expect(plane.isEnabled()).toBe(false);
 
         // Turned on again, it starts again.
         process.env[SEAT_AWARENESS_ENV] = "on";
         change(defaultSettings());
         await vi.waitFor(() => expect(start).toHaveBeenCalledTimes(2));
-        expect(await core.call("seats.awareness", {})).toMatchObject({ enabled: true });
+        expect(await gate.enabled()).toBe(true);
       } finally {
         stopHearing();
         await runtime.dispose();

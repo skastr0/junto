@@ -1,95 +1,34 @@
 /**
- * What the window reads through the work core (junto/ipc.ts): a canvas
- * topology for the resource, mention and link ports, a node's comments, a
- * node's mentions, and the window's own work pages. A topology answer is the
- * canvas itself, which crosses the port as plain data (maps and arrays),
- * never a service; the page answers keep the repository's shapes.
+ * The core's handlers of the work group (src/contract/core/work.ts): one
+ * task, the attention snapshot, a page of a node's mail, a seat's recent
+ * operations, and the artifacts whose body links one artifact. Main decoded
+ * each query at its edge; the answers keep the repository's shapes, which
+ * the contract names.
  */
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import { SqlClient } from "effect/sql";
-import type { LinkedFromBody } from "@shared/artifact-links";
-import { ArtifactLinksInput } from "@shared/artifact-links-ipc";
-import { asNodeId, type Canvas } from "@shared/model";
-import type { ItemId } from "@shared/work-ids";
-import type { Message } from "@shared/work-model";
+import { WorkReadFailed, WorkRpcs } from "../../contract/core/work";
 import { linkedFromBodies } from "../work/body-links";
-import { WorkAttentionQuery, WorkItemQuery } from "@shared/work-sinks";
-import { WorkMailQuery } from "@shared/work-mail";
-import type { MentionAfter, MentionRow } from "../work/mention-backlinks";
-import { readMentions } from "../work/mention-backlinks";
 import { WorkRepository } from "../work/repository";
 import { WorkService } from "../work/service";
-import { coreOps, type CoreOp } from "../ops";
 
-declare module "../ops" {
-  interface CoreOps {
-    "ipc.work.topology": CoreOp<{ readonly canvasName: string }, { readonly canvas: Canvas }>;
-    "ipc.work.mailbox": CoreOp<
-      { readonly canvasName: string; readonly nodeId: string },
-      ReadonlyArray<Message>
-    >;
-    "ipc.work.mentions": CoreOp<
-      {
-        readonly canvasName: string;
-        readonly key: string;
-        readonly limit: number;
-        readonly after?: MentionAfter;
-      },
-      ReadonlyArray<MentionRow>
-    >;
-    /** The window's work pages; their answers are the repository's own shapes. */
-    "ipc.work.item": CoreOp<{ readonly input: unknown }, unknown>;
-    "ipc.work.attention": CoreOp<{ readonly input: unknown }, unknown>;
-    "ipc.work.mailPage": CoreOp<{ readonly input: unknown }, unknown>;
-    "ipc.work.seatRecentOps": CoreOp<
-      { readonly canvas: string; readonly nodeId: string; readonly limit?: number },
-      unknown
-    >;
-    /** The artifacts whose body links one artifact (`work/body-links.ts`), read where the store is. */
-    "ipc.work.artifactLinks": CoreOp<{ readonly input: unknown }, ReadonlyArray<LinkedFromBody>>;
-  }
-}
+/** A read that failed, in its own words, or its tag when it has none. */
+const readFailed = (error: unknown): WorkReadFailed => {
+  const message = error instanceof Error ? error.message : String(error);
+  const tag = typeof error === "object" && error !== null && "_tag" in error ? String(error._tag) : "the work store could not be read";
+  return new WorkReadFailed({ message: message.length > 0 ? message : tag });
+};
 
-/** A renderer argument, decoded in the core where the query is used. */
-const decode = <S extends Schema.Top>(schema: S, input: unknown) =>
-  Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })(input);
-
-coreOps({
-  "ipc.work.topology": ({ canvasName }) =>
-    Effect.map(
-      Effect.flatMap(WorkService, (work) => work.readTopology(canvasName)),
-      (read) => ({ canvas: read.canvas }),
-    ),
-  "ipc.work.mailbox": ({ canvasName, nodeId }) =>
-    Effect.flatMap(WorkService, (work) => work.readMailbox(canvasName, nodeId)),
-  "ipc.work.mentions": ({ canvasName, key, limit, after }) =>
-    Effect.flatMap(SqlClient.SqlClient, (sql) => readMentions(sql, canvasName, key, limit, after)),
-  "ipc.work.item": ({ input }) =>
-    Effect.gen(function* () {
-      const query = yield* decode(WorkItemQuery, input);
-      return yield* (yield* WorkRepository).taskItem(query);
-    }),
-  "ipc.work.attention": ({ input }) =>
-    Effect.gen(function* () {
-      const query = yield* decode(WorkAttentionQuery, input);
-      return yield* (yield* WorkRepository).attentionSnapshot(query);
-    }),
-  "ipc.work.mailPage": ({ input }) =>
-    Effect.gen(function* () {
-      const query = yield* decode(WorkMailQuery, input);
-      return yield* (yield* WorkRepository).mailPage(query);
-    }),
-  "ipc.work.seatRecentOps": ({ canvas, nodeId, limit }) =>
+export const WorkHandlers = WorkRpcs.toLayer({
+  WorkItem: (query) => Effect.flatMap(WorkRepository, (work) => work.taskItem(query)).pipe(Effect.mapError(readFailed)),
+  WorkAttention: (query) => Effect.flatMap(WorkRepository, (work) => work.attentionSnapshot(query)).pipe(Effect.mapError(readFailed)),
+  WorkMailPage: (query) => Effect.flatMap(WorkRepository, (work) => work.mailPage(query)).pipe(Effect.mapError(readFailed)),
+  WorkSeatRecentOps: ({ canvas, nodeId, limit }) =>
     Effect.flatMap(WorkService, (work) => work.workSeatRecentOps(canvas, nodeId, limit)),
-  "ipc.work.artifactLinks": ({ input }) =>
+  WorkArtifactLinks: ({ canvasName, nodeId, artifactId }) =>
     Effect.gen(function* () {
-      const decoded = yield* decode(ArtifactLinksInput, input);
-      const work = yield* WorkService;
-      const read = yield* work.readTopology(decoded.canvasName);
+      const read = yield* (yield* WorkService).readTopology(canvasName);
       const sql = yield* SqlClient.SqlClient;
-      return yield* linkedFromBodies(sql, read.canvas, decoded.canvasName, {
-        nodeId: asNodeId(decoded.nodeId),
-        artifactId: decoded.artifactId as ItemId,
-      });
-    }),
+      return yield* linkedFromBodies(sql, read.canvas, canvasName, { nodeId, artifactId });
+    }).pipe(Effect.mapError(readFailed)),
 });

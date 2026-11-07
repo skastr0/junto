@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Layer, ManagedRuntime } from "effect";
 import type { IpcMain } from "electron";
 import { IPC_CHANNELS, type BrowserSessionInfo } from "../src/shared/ipc";
 import { BROWSER_MAX_REF_BYTES } from "../src/shared/browser-limits";
@@ -13,6 +14,10 @@ import {
 } from "../src/app/browser/sessions";
 import type { BrowserProfileServiceApi } from "../src/node/browser/profiles";
 import { localBrowserTestMachineName } from "./browser-test-machine";
+import { unansweredCoreClients } from "./support/core-clients";
+
+// The registrar runs its calls on main's runtime; this one holds nothing, and Electron's app is never read.
+vi.mock("../src/app/runtime", () => ({ AppRuntime: ManagedRuntime.make(Layer.empty) }));
 
 type InvokeHandler = (event: unknown, ...args: ReadonlyArray<unknown>) => unknown;
 const PAGE_REF = "junto://canvas/work?node=page-1";
@@ -46,7 +51,7 @@ describe("browser IPC bounds ingress", () => {
   }));
   const confirmProfileWipe = vi.fn(async () => false);
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.restoreAllMocks();
     handlers.clear();
     resolvePageTarget.mockClear();
@@ -69,6 +74,7 @@ describe("browser IPC bounds ingress", () => {
       ipcMain,
       browserSessions,
       () => [],
+      await unansweredCoreClients(),
       resolvePageTarget,
       confirmProfileWipe,
     );

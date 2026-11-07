@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { RpcTest } from "effect/rpc";
 import { SqlClient } from "effect/sql";
 import { afterEach, expect, it, vi } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
@@ -36,15 +37,29 @@ vi.mock("node:crypto", async (original) => {
   return { ...actual, randomUUID: vi.fn(actual.randomUUID) };
 });
 import { registerTerminalIpc } from "../src/app/term/ipc";
-import { bindTermIpcPlane } from "../src/core/ops/term-ipc";
-import "../src/core/ops/term-ipc";
+import { TermCore, TermRpcs } from "../src/contract/core/term-ipc";
+import { TermTemplatesCore, TermTemplatesRpcs } from "../src/contract/core/term-templates";
+import { bindTermIpcPlane, TermIpcPlane, TermPlaneHandlers } from "../src/core/ops/term-ipc";
+import { TermTemplatesHandlers } from "../src/core/ops/term-templates";
 import { ensureSeatSessionId } from "../src/core/term/seat-session-before-start";
-import { useCoreClient } from "../src/app/core-process/main-client";
-import { inProcessCore } from "./support/in-process-core";
 
-// Main runs no operation body: the test installs the core the app installs at
-// boot, run on the fixture's runtime.
-useCoreClient(inProcessCore(app));
+// The handlers on the test's plane and model. A handler that reads a service
+// this test does not give fails when it is asked; none of those is asked here.
+const termHandlers = TermPlaneHandlers as never as Layer.Layer<
+  Layer.Success<typeof TermPlaneHandlers>,
+  never,
+  TermIpcPlane | ModelService
+>;
+
+// Main runs no handler: its clients reach the core's terminal handlers on the
+// fixture's runtime, as the app's reach the core's over the port.
+const termClients = (plane: { readonly router: unknown; readonly nodeDelete: unknown }) => Layer.mergeAll(
+  Layer.effect(TermCore, RpcTest.makeClient(TermRpcs)),
+  Layer.effect(TermTemplatesCore, RpcTest.makeClient(TermTemplatesRpcs)),
+).pipe(
+  Layer.provide(Layer.mergeAll(termHandlers, TermTemplatesHandlers)),
+  Layer.provide(Layer.succeed(TermIpcPlane, plane as never)),
+);
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -62,7 +77,10 @@ const fixture = async () => {
   const recordedAtOccupy: Array<string | undefined> = [];
   let model: ModelService["Service"];
   let sessions: SeatSessionRepository["Service"];
-  const runtime = ManagedRuntime.make(Layer.mergeAll(
+  const router = Object.assign(new EventEmitter(), { thisMachineName: () => "workbench", setTerminalEnvironment: () => {}, isLocalHostId: () => true });
+  // The plane is the core's; the test binds it and gives it to the handlers.
+  const plane = { router, nodeDelete: new TerminalNodeDeleteService(router as never) };
+  const runtime = ManagedRuntime.make(termClients(plane).pipe(Layer.provideMerge(Layer.mergeAll(
     Layer.succeed(ActorSeatOccupy, ActorSeatOccupy.of({
       occupancy: () => Effect.succeed({ kind: "vacant" } as never),
       occupy: (spec) => Effect.gen(function* () {
@@ -75,7 +93,7 @@ const fixture = async () => {
     })),
     Layer.provideMerge(Layer.provide(ModelService.layer, ModelDependents.empty),
       Layer.provideMerge(Layer.mergeAll(makeSeatSessionRepositoryLive(), makeMachineRepositoryLive({ defaultName: () => "workbench" })), makeStateEngineLive(join(root, "state.db")))),
-  ));
+  ))));
   cleanups.push(() => runtime.dispose());
   app.runPromise.mockImplementation((effect) => runtime.runPromise(effect));
   app.runPromiseExit.mockImplementation((effect) => runtime.runPromiseExit(effect));
@@ -88,12 +106,10 @@ const fixture = async () => {
 
   const node = seat("subject", { host: "workbench", harness: "codex", launch: { kind: "harness", argv: ["codex"], cwd: root } });
   await command({ _tag: "Add", canvas: "proof", nodes: [node], wires: [] });
-  const router = Object.assign(new EventEmitter(), { thisMachineName: () => "workbench", setTerminalEnvironment: () => {}, isLocalHostId: () => true });
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
-  // The plane is the core's; the test binds it where the operations run.
-  bindTermIpcPlane({ router, nodeDelete: new TerminalNodeDeleteService(router as never) } as never);
+  bindTermIpcPlane(plane as never);
   registerTerminalIpc({ handle: (channel: string, handler: (...args: unknown[]) => unknown) => handlers.set(channel, handler) } as never,
-    { isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => undefined });
+    { isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => undefined }, await runtime.context());
   const start = () => Promise.resolve(handlers.get(IPC_CHANNELS.modelStart)!(
     { sender: { isDestroyed: () => false, send: () => {} } }, { canvas: "proof", id: "subject" }));
   const current = async () => (await runtime.runPromise(model.open("proof"))).nodes[0]!;

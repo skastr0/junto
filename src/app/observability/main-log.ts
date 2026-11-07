@@ -3,16 +3,23 @@
  * reads them and where `appendScrubbed` scrubs them again with the registry
  * only the core holds; main knows no secret values, so it hands its log none.
  *
- * A value, not a slot: it is built here, with the forwarder it uses, and every
- * main module that logs imports this instance.
+ * A value, not a slot: it is built here, and every main module that logs
+ * imports this instance. Each row waits on `mainRows` until main's client of
+ * the core sends it (`observability/ipc.ts`), so boot's rows reach the panel
+ * too; the newest ring's worth is kept while none is sent.
  */
-import { core } from "../core-process/main-client";
+import { Effect, Queue } from "effect";
+import { OBSERVABILITY_RING_CAPACITY, type ObservabilityAppendInput } from "@shared/observability";
 import { createLogger } from "../../node/observability/logger";
+
+export const mainRows: Queue.Queue<ObservabilityAppendInput> = Effect.runSync(
+  Queue.sliding<ObservabilityAppendInput>(OBSERVABILITY_RING_CAPACITY),
+);
 
 export const mainLog = createLogger({
   process: "app",
   echo: true,
   sink: (entry) => {
-    void core.call("observability.append", { entry }).catch(() => undefined);
+    Queue.offerUnsafe(mainRows, entry);
   },
 });

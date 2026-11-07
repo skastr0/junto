@@ -1,5 +1,5 @@
 /**
- * The operator's holds, recorded in the core (junto/ipc.ts).
+ * The core's handlers of the operator's holds (src/contract/core/seat-holds.ts).
  *
  * The window says which terminals it shows and when the operator typed into
  * one; everything that asks lives here, where the seats and their views run:
@@ -14,30 +14,22 @@
  * keeps no map of its own.
  */
 import { Effect } from "effect";
+import { SeatHoldsRpcs } from "../../contract/core/seat-holds";
 import { liveOperatorHolds } from "../term/operator-holds";
-import { coreOps, type CoreOp } from "../ops";
 
-declare module "../ops" {
-  interface CoreOps {
-    "seats.holds.surfaces": CoreOp<{ readonly windowId: number; readonly bindingIds: ReadonlyArray<string> }, void>;
-    "seats.holds.typed": CoreOp<{ readonly windowId: number; readonly bindingId: string }, void>;
-    "seats.holds.dropWindow": CoreOp<{ readonly windowId: number }, void>;
-  }
-}
-
-coreOps({
-  "seats.holds.surfaces": ({ windowId, bindingIds }) =>
+export const SeatHoldsHandlers = SeatHoldsRpcs.toLayer({
+  SeatHoldsSurfaces: ({ windowId, bindingIds }) =>
     Effect.sync(() => {
       liveOperatorHolds.surfaces(windowId, bindingIds);
       // The window's report, in the core's own log: a core that starts again is
       // sent it again (junto/ipc.ts), and the log is where that shows.
       console.info(`[seats] window ${String(windowId)} shows ${bindingIds.length === 0 ? "nothing" : bindingIds.join(" ")}`);
     }),
-  "seats.holds.typed": ({ windowId, bindingId }) =>
+  SeatHoldsTyped: ({ windowId, bindingId }) =>
     Effect.sync(() => {
       liveOperatorHolds.typed(windowId, bindingId);
     }),
-  "seats.holds.dropWindow": ({ windowId }) =>
+  SeatHoldsDropWindow: ({ windowId }) =>
     Effect.sync(() => {
       liveOperatorHolds.dropWindow(windowId);
     }),

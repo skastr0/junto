@@ -61,7 +61,7 @@ import {
   type SeatAwarenessControlState,
   type SeatAwarenessEvent,
   type SeatAwarenessUnavailableReason,
-} from "./seat-awareness-contract";
+} from "@shared/seat-awareness-contract";
 import type { ActivityTone } from "./activity";
 import { onSeatAwarenessToggle, seatAwarenessOnNow } from "./experimental-features";
 import { getJuntoApi } from "./junto-api";

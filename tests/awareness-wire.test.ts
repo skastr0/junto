@@ -19,7 +19,7 @@ import {
   SEAT_AWARENESS_SNAPSHOT_CHANNEL,
   decodeSeatAwarenessEvent,
   type SeatAwarenessEvent,
-} from "../src/window/lib/seat-awareness-contract";
+} from "../src/shared/seat-awareness-contract";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import {
   SEAT_AWARENESS_UNOBSERVED_DIGEST,

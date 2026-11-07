@@ -1,5 +1,5 @@
 import { Result, Schema } from "effect";
-import { decodeProfileBody, type AgentProfileBody } from "./agent-profiles";
+import { AgentProfileBody, decodeProfileBody } from "./agent-profiles";
 import { recoverDocumentLaunchChoices } from "./launch-choices";
 import { isHarnessId } from "./managed-terminal-templates";
 
@@ -35,17 +35,18 @@ const required = (max: number) =>
 const finite = Schema.Number.pipe(Schema.check(Schema.isFinite()));
 
 /** One member of the squad: a profile placed at an offset. */
-export type SquadSeat = {
+export const SquadSeat = Schema.Struct({
   /** Template-local id ("s0", "s1", ...); edges refer to seats by it. */
-  readonly key: string;
-  readonly profile: AgentProfileBody;
+  key: Schema.String,
+  profile: AgentProfileBody,
   /** Offset from the squad's top-left corner. */
-  readonly dx: number;
-  readonly dy: number;
-  readonly width: number;
-  readonly height: number;
-  readonly color?: string;
-};
+  dx: Schema.Number,
+  dy: Schema.Number,
+  width: Schema.Number,
+  height: Schema.Number,
+  color: Schema.optionalKey(Schema.String),
+});
+export type SquadSeat = typeof SquadSeat.Type;
 
 const SquadSeatFrame = Schema.Struct({
   key: required(16),
@@ -72,10 +73,11 @@ export const SquadEdge = Schema.Struct({
 export type SquadEdge = typeof SquadEdge.Type;
 
 /** The template itself, as stored in `body_json`. */
-export type SquadBody = {
-  readonly seats: ReadonlyArray<SquadSeat>;
-  readonly edges: ReadonlyArray<SquadEdge>;
-};
+export const SquadBody = Schema.Struct({
+  seats: Schema.Array(SquadSeat),
+  edges: Schema.Array(SquadEdge),
+});
+export type SquadBody = typeof SquadBody.Type;
 
 const SquadBodyFrame = Schema.Struct({
   seats: Schema.Array(SquadSeatFrame).pipe(
@@ -95,18 +97,21 @@ export const SquadName = Schema.String.pipe(
   ),
 );
 
-export type Squad = SquadBody & {
-  readonly squadId: string;
-  readonly name: string;
-  readonly createdAt: number;
-  readonly updatedAt: number;
-};
+export const Squad = Schema.Struct({
+  ...SquadBody.fields,
+  squadId: Schema.String,
+  name: Schema.String,
+  createdAt: Schema.Number,
+  updatedAt: Schema.Number,
+});
+export type Squad = typeof Squad.Type;
 
 /** Save a new squad. A save never replaces one; a taken name is refused. */
-export type SquadSaveInput = {
-  readonly name: string;
-  readonly body: SquadBody;
-};
+export const SquadSaveInput = Schema.Struct({
+  name: Schema.String,
+  body: SquadBody,
+});
+export type SquadSaveInput = typeof SquadSaveInput.Type;
 
 export type SquadResult =
   | { readonly ok: true; readonly squad: Squad }

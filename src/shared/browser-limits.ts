@@ -143,3 +143,10 @@ export const parseBrowserSurfaceBounds = (
   }
   return { ok: true, value: { x, y, width, height } };
 };
+
+/**
+ * How long box drawing waits for the operator's drag before it ends with no
+ * box. Here, in a module with no imports, because the sandboxed preload reads
+ * it and may load no Effect.
+ */
+export const PAGE_BOX_DRAW_MS = 5 * 60_000;

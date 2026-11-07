@@ -1,4 +1,5 @@
-import type { NodeId } from "./physics/schema";
+import { Schema } from "effect";
+import { NodeId } from "./wire/ids";
 
 /**
  * The Files node's reach into its folder (0.11, F2): what the renderer may
@@ -18,14 +19,17 @@ import type { NodeId } from "./physics/schema";
  * another disk.
  */
 
-declare const filePathBrand: unique symbol;
-
 /**
  * A path relative to the node's root: `/` separated, no leading or trailing
  * `/`, no empty, `.` or `..` segment, no backslash or NUL. The empty string
- * is the root itself. Made only by `parseFilePath` (or `ROOT_PATH`).
+ * is the root itself. Made only by `parseFilePath` (or `ROOT_PATH`), and it
+ * crosses the core's port only as this Schema.
  */
-export type FilePath = string & { readonly [filePathBrand]: "FilePath" };
+export const FilePath = Schema.String.pipe(
+  Schema.check(Schema.makeFilter((raw) => isFilePath(raw) || "a path relative to the node's root")),
+  Schema.brand("FilePath"),
+);
+export type FilePath = typeof FilePath.Type;
 
 export const ROOT_PATH = "" as FilePath;
 
@@ -37,17 +41,13 @@ export const FILE_PATH_MAX = 4096;
 /** Longest segment: the common filesystem name limit. */
 export const FILE_NAME_MAX = 255;
 
+const isFilePath = (raw: string): boolean =>
+  raw === "" ||
+  (raw.length <= FILE_PATH_MAX && !raw.includes("\\") && !raw.includes("\0") && raw.split("/").every(isFileName));
+
 /** The relative path, or undefined when it is not one. */
-export const parseFilePath = (raw: unknown): FilePath | undefined => {
-  if (typeof raw !== "string") return undefined;
-  if (raw === "") return ROOT_PATH;
-  if (raw.length > FILE_PATH_MAX) return undefined;
-  if (raw.includes("\\") || raw.includes("\0")) return undefined;
-  for (const segment of raw.split("/")) {
-    if (!isFileName(segment)) return undefined;
-  }
-  return raw as FilePath;
-};
+export const parseFilePath = (raw: unknown): FilePath | undefined =>
+  typeof raw === "string" && isFilePath(raw) ? (raw as FilePath) : undefined;
 
 /** One segment: a name a rename may give, with no `/`. */
 export const isFileName = (raw: string): boolean =>
@@ -73,21 +73,25 @@ export const parentOf = (path: FilePath): FilePath => {
 export const baseName = (path: FilePath): string => path.slice(path.lastIndexOf("/") + 1);
 
 /** The version of a file a reader saw. A write names it and is refused `stale` when the file moved on. */
-export type FileStamp = { readonly mtimeMs: number; readonly size: number };
+export const FileStamp = Schema.Struct({ mtimeMs: Schema.Finite, size: Schema.Natural });
+export type FileStamp = typeof FileStamp.Type;
 
 export const sameStamp = (a: FileStamp, b: FileStamp): boolean =>
   a.mtimeMs === b.mtimeMs && a.size === b.size;
 
-export type FileEntry = { readonly path: FilePath; readonly dir: boolean; readonly stamp: FileStamp };
+export const FileEntry = Schema.Struct({ path: FilePath, dir: Schema.Boolean, stamp: FileStamp });
+export type FileEntry = typeof FileEntry.Type;
 
 /** Text reads stop here; a larger text file reads `too-large`. Binaries have no cap: their bytes go over `junto-file:`. */
 export const FILE_TEXT_MAX_BYTES = 5 * 1024 * 1024;
 
-export type FileRead =
-  | { readonly kind: "text"; readonly text: string; readonly stamp: FileStamp }
+export const FileRead = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("text"), text: Schema.String, stamp: FileStamp }),
   /** Bytes are not read here: load them from `fileUrl(node, path)`. `mime` is `fileMime(path)`. */
-  | { readonly kind: "binary"; readonly mime: string; readonly stamp: FileStamp }
-  | { readonly kind: "too-large"; readonly size: number; readonly stamp: FileStamp };
+  Schema.Struct({ kind: Schema.Literal("binary"), mime: Schema.String, stamp: FileStamp }),
+  Schema.Struct({ kind: Schema.Literal("too-large"), size: Schema.Natural, stamp: FileStamp }),
+]);
+export type FileRead = typeof FileRead.Type;
 
 /**
  * Why a call was refused. Closed: the renderer switches on it.
@@ -104,67 +108,134 @@ export type FileRead =
  * - `denied`: the filesystem refused permission.
  * - `failed`: anything else; the reason stays in main's log, never here.
  */
-export type FilesError =
-  | "no-node"
-  | "elsewhere"
-  | "unreachable"
-  | "root-missing"
-  | "invalid-path"
-  | "outside-root"
-  | "not-found"
-  | "exists"
-  | "not-dir"
-  | "is-dir"
-  | "stale"
-  | "too-large"
-  | "denied"
-  | "failed";
+export const FilesRefusedError = Schema.Literals([
+  "no-node",
+  "elsewhere",
+  "root-missing",
+  "invalid-path",
+  "outside-root",
+  "not-found",
+  "exists",
+  "not-dir",
+  "is-dir",
+  "stale",
+  "too-large",
+  "denied",
+  "failed",
+]);
+export const FilesError = Schema.Union([FilesRefusedError, Schema.Literal("unreachable")]);
+export type FilesError = typeof FilesError.Type;
 
 /**
  * Why a call was refused. Only `unreachable` carries more: the machine the
  * node lives on (its `host`) and when its link last answered, epoch ms, or
  * null when it never has, so the node can say when it was last reached.
  */
-export type FilesRefusal =
-  | { readonly error: Exclude<FilesError, "unreachable"> }
-  | { readonly error: "unreachable"; readonly machine: string; readonly lastReachedAt: number | null };
+export const FilesRefusal = Schema.Union([
+  Schema.Struct({ error: FilesRefusedError }),
+  Schema.Struct({ error: Schema.Literal("unreachable"), machine: Schema.String, lastReachedAt: Schema.NullOr(Schema.Finite) }),
+]);
+export type FilesRefusal = typeof FilesRefusal.Type;
 
 export type FilesResult<A> = { readonly ok: true; readonly value: A } | ({ readonly ok: false } & FilesRefusal);
 
+/** The Schema of a `FilesResult`: an answer the window reads as data, a refusal included. */
+export const FilesResult = <A extends Schema.Top>(value: A) =>
+  Schema.Union([
+    Schema.Struct({ ok: Schema.Literal(true), value }),
+    Schema.Struct({ ok: Schema.Literal(false), error: FilesRefusedError }),
+    Schema.Struct({
+      ok: Schema.Literal(false),
+      error: Schema.Literal("unreachable"),
+      machine: Schema.String,
+      lastReachedAt: Schema.NullOr(Schema.Finite),
+    }),
+  ]);
+
 /** Which Files node a call is for. */
-export type FilesNodeRef = { readonly canvas: string; readonly node: NodeId };
+export const FilesNodeRef = Schema.Struct({
+  canvas: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(512))),
+  node: NodeId,
+});
+export type FilesNodeRef = typeof FilesNodeRef.Type;
 
 /** The node's folder as `open` finds it. `name` is the root's last segment, for the header. */
-export type FilesRoot = { readonly name: string; readonly repo: boolean };
+export const FilesRoot = Schema.Struct({ name: Schema.String, repo: Schema.Boolean });
+export type FilesRoot = typeof FilesRoot.Type;
 
 /** Filename search: the best `FILES_SEARCH_LIMIT` files under the root for a query. */
 export const FILES_SEARCH_LIMIT = 50;
 
-export type FileMatch = {
-  readonly path: FilePath;
+export const FileMatch = Schema.Struct({
+  path: FilePath,
   /** Indexes into `path` of the matched characters, ascending, for highlighting. */
-  readonly positions: ReadonlyArray<number>;
-};
+  positions: Schema.Array(Schema.Natural),
+});
+export type FileMatch = typeof FileMatch.Type;
 
-export type FilesSearchResult =
-  | {
-      readonly kind: "results";
-      readonly query: string;
-      readonly matches: ReadonlyArray<FileMatch>;
-      /** Files under the root the index holds. */
-      readonly total: number;
-    }
+export const FilesSearchResult = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("results"),
+    query: Schema.String,
+    matches: Schema.Array(FileMatch),
+    /** Files under the root the index holds. */
+    total: Schema.Natural,
+  }),
   /** A newer search from the same window for the same node took its place. Drop it. */
-  | { readonly kind: "superseded"; readonly query: string };
+  Schema.Struct({ kind: Schema.Literal("superseded"), query: Schema.String }),
+]);
+export type FilesSearchResult = typeof FilesSearchResult.Type;
 
 /** How many files are under a root, for the card. `capped`: the count stopped at `FILES_COUNT_CAP` (a home folder, say). */
-export type FilesCount = { readonly files: number; readonly capped: boolean };
+export const FilesCount = Schema.Struct({ files: Schema.Natural, capped: Schema.Boolean });
+export type FilesCount = typeof FilesCount.Type;
 
 /** A count outside a git work tree stops here. */
 export const FILES_COUNT_CAP = 100_000;
 
 /** One dropped item copied in, by the name it got (` 2`, ` 3` when the name was taken). */
-export type FileImported = { readonly path: FilePath; readonly dir: boolean };
+export const FileImported = Schema.Struct({ path: FilePath, dir: Schema.Boolean });
+export type FileImported = typeof FileImported.Type;
+
+/** The most a single import call may name; a dropped path is held before it is one. */
+export const FILES_IMPORT_MAX_SOURCES = 1000;
+/** Longest OS path an import or a drop names, in UTF-16 units. */
+export const FILES_SOURCE_MAX = 4096;
+
+/** OS paths to copy from: what the preload saw on a real drop, bounded in number and length, none holding a NUL. */
+export const FilesSources = Schema.Array(
+  Schema.String.pipe(
+    Schema.check(Schema.isMaxLength(FILES_SOURCE_MAX)),
+    Schema.check(Schema.makeFilter((source) => !source.includes("\0") || "an OS path with no NUL")),
+  ),
+).pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(FILES_IMPORT_MAX_SOURCES)));
+export type FilesSources = typeof FilesSources.Type;
+
+/** The longest filename query a search takes. */
+export const FILES_QUERY_MAX = 1024;
+
+/**
+ * What main decodes from a window before it asks the core, each closed. A
+ * path is decoded with `parseFilePath`. Main answers the refusal the window
+ * shows (`no-node` for a ref, `invalid-path` for anything else) and never
+ * hands the core what did not decode.
+ */
+export const decodeFilesNodeRef = Schema.decodeUnknownResult(FilesNodeRef, { onExcessProperty: "error" });
+export const decodeFilesSources = Schema.decodeUnknownResult(FilesSources, { onExcessProperty: "error" });
+export const decodeFilesSearch = Schema.decodeUnknownResult(
+  Schema.Struct({
+    query: Schema.String.pipe(Schema.check(Schema.isMaxLength(FILES_QUERY_MAX))),
+    seq: Schema.Int,
+  }),
+  { onExcessProperty: "error" },
+);
+/** `base: null` is a save that writes the file back after it was deleted under a draft. */
+export const decodeFilesWriteBody = Schema.decodeUnknownResult(
+  Schema.Struct({ text: Schema.String, base: Schema.NullOr(FileStamp) }),
+  { onExcessProperty: "error" },
+);
+export const decodeFilesDir = Schema.decodeUnknownResult(Schema.Boolean, { onExcessProperty: "error" });
+export const decodeFilesName = Schema.decodeUnknownResult(Schema.String, { onExcessProperty: "error" });
 
 /**
  * Main -> renderer: something changed under an open node's root. Paths are

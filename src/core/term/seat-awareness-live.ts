@@ -17,7 +17,7 @@ import { Context, Effect, Layer, Queue, Schema } from "effect";
 import { SEAT_AWARENESS_COMPILED } from "@shared/features";
 import { IPC_CHANNELS } from "@shared/ipc";
 import type { Settings } from "@shared/settings";
-import type { SeatAwarenessEvent } from "@window/lib/seat-awareness-contract";
+import type { SeatAwarenessEvent } from "@shared/seat-awareness-contract";
 import { publish } from "../push";
 import { SettingsService } from "../settings/service";
 import {

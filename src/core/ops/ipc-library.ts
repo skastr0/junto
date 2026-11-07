@@ -1,76 +1,54 @@
 /**
- * The window's library reads and writes (junto/ipc.ts): a signal named by a
+ * The core's handlers of the library group (src/contract/core/library.ts):
+ * the window's library reads and writes (junto/ipc.ts). A signal named by a
  * preview, a page box comment's shot, a signal's files pulled from the seat's
  * machine, seat guidance, squads and agent profiles. Each answer is plain
- * data; a repository refusal crosses as a CoreCallError carrying its message,
+ * data; a repository refusal fails with `LibraryRefused` carrying its message,
  * which the window shows as before.
  */
 import { Effect, Option } from "effect";
-import type { AgentProfile, ProfileSaveInput } from "@shared/agent-profiles";
-import type { SeatGuidance, SeatGuidanceMap } from "@shared/seat-guidance";
-import type { Squad, SquadSaveInput } from "@shared/squads";
-import type { AgentSignal } from "@shared/wire/agent-signals";
-import type { ContentRef } from "@shared/wire/content-ref";
+import { LibraryRefused, LibraryRpcs } from "../../contract/core/library";
 import { ProfileRepository } from "../profiles/repository";
 import { SeatGuidanceRepository } from "../seat-guidance/repository";
 import { SignalFilePuller } from "../signals/file-puller";
 import { AgentSignalRepository } from "../signals/repository";
 import { SquadRepository } from "../squads/repository";
-import { readPageShot, type PageShotAt, type PageShotRead } from "../work/page-shot-read";
-import { coreOps, type CoreOp } from "../ops";
+import { readPageShot } from "../work/page-shot-read";
 
-declare module "../ops" {
-  interface CoreOps {
-    "ipc.library.signal": CoreOp<{ readonly signalId: string }, AgentSignal | undefined>;
-    "ipc.library.pageShot": CoreOp<PageShotAt, PageShotRead>;
-    "ipc.library.pullSignalFiles": CoreOp<
-      { readonly signal: AgentSignal; readonly away: ReadonlyArray<ContentRef> },
-      AgentSignal | undefined
-    >;
-    "ipc.library.guidanceList": CoreOp<Record<string, never>, SeatGuidanceMap>;
-    "ipc.library.guidanceSet": CoreOp<{ readonly seatId: string; readonly guidance: unknown }, SeatGuidance | null>;
-    "ipc.library.squadsList": CoreOp<Record<string, never>, ReadonlyArray<Squad>>;
-    "ipc.library.squadSave": CoreOp<{ readonly name: string; readonly body: SquadSaveInput["body"] }, Squad>;
-    "ipc.library.squadRename": CoreOp<{ readonly squadId: string; readonly name: string }, Squad>;
-    "ipc.library.squadRemove": CoreOp<{ readonly squadId: string }, string>;
-    "ipc.library.profilesList": CoreOp<Record<string, never>, ReadonlyArray<AgentProfile>>;
-    "ipc.library.profileSave": CoreOp<{ readonly profileId?: string; readonly body: ProfileSaveInput["body"] }, AgentProfile>;
-    "ipc.library.profileRename": CoreOp<{ readonly profileId: string; readonly name: string }, AgentProfile>;
-    "ipc.library.profileRemove": CoreOp<{ readonly profileId: string }, string>;
-  }
-}
+/** What the repository refused or failed on, in its own words. */
+const refused = (error: { readonly message: string }) => new LibraryRefused({ message: error.message });
 
-coreOps({
-  "ipc.library.signal": ({ signalId }) =>
-    Effect.flatMap(AgentSignalRepository, (signals) => signals.get(signalId)).pipe(
-      Effect.map((signal): AgentSignal | undefined => signal),
-      Effect.orElseSucceed(() => undefined),
-    ),
-  "ipc.library.pageShot": (at) => readPageShot(at),
-  // Only the operator's open of a file reaches here: the seat's machine is asked for it now.
-  "ipc.library.pullSignalFiles": ({ signal, away }) =>
-    Effect.serviceOption(SignalFilePuller).pipe(
-      Effect.flatMap((puller) =>
-        Option.isNone(puller)
-          ? Effect.succeed(undefined)
-          : Effect.forEach(away, (ref) => puller.value.pull({ signal, ref })).pipe(
-              Effect.andThen(Effect.flatMap(AgentSignalRepository, (signals) => signals.get(signal.signalId))),
-            ),
-      ),
-      Effect.orElseSucceed(() => undefined),
-    ),
-  "ipc.library.guidanceList": () => Effect.flatMap(SeatGuidanceRepository, (repository) => repository.list()),
-  "ipc.library.guidanceSet": ({ seatId, guidance }) =>
-    Effect.flatMap(SeatGuidanceRepository, (repository) => repository.set(seatId, guidance)),
-  "ipc.library.squadsList": () => Effect.flatMap(SquadRepository, (repository) => repository.list()),
-  "ipc.library.squadSave": (input) => Effect.flatMap(SquadRepository, (repository) => repository.save(input)),
-  "ipc.library.squadRename": ({ squadId, name }) =>
-    Effect.flatMap(SquadRepository, (repository) => repository.rename(squadId, name)),
-  "ipc.library.squadRemove": ({ squadId }) => Effect.flatMap(SquadRepository, (repository) => repository.remove(squadId)),
-  "ipc.library.profilesList": () => Effect.flatMap(ProfileRepository, (repository) => repository.list()),
-  "ipc.library.profileSave": (input) => Effect.flatMap(ProfileRepository, (repository) => repository.save(input)),
-  "ipc.library.profileRename": ({ profileId, name }) =>
-    Effect.flatMap(ProfileRepository, (repository) => repository.rename(profileId, name)),
-  "ipc.library.profileRemove": ({ profileId }) =>
-    Effect.flatMap(ProfileRepository, (repository) => repository.remove(profileId)),
-});
+export const LibraryHandlers = LibraryRpcs.toLayer(
+  Effect.gen(function* () {
+    const signals = yield* AgentSignalRepository;
+    const guidance = yield* SeatGuidanceRepository;
+    const squads = yield* SquadRepository;
+    const profiles = yield* ProfileRepository;
+    return {
+      LibrarySignal: ({ signalId }) => signals.get(signalId).pipe(Effect.orElseSucceed(() => null)),
+      LibraryPageShot: (at) => readPageShot(at),
+      // Only the operator's open of a file reaches here: the seat's machine is asked for it now.
+      LibraryPullSignalFiles: ({ signal, away }) =>
+        Effect.serviceOption(SignalFilePuller).pipe(
+          Effect.flatMap((puller) =>
+            Option.isNone(puller)
+              ? Effect.succeed(null)
+              : Effect.forEach(away, (ref) => puller.value.pull({ signal, ref })).pipe(
+                  Effect.andThen(signals.get(signal.signalId)),
+                ),
+          ),
+          Effect.orElseSucceed(() => null),
+        ),
+      LibraryGuidanceList: () => guidance.list().pipe(Effect.mapError(refused)),
+      LibraryGuidanceSet: ({ seatId, guidance: next }) => guidance.set(seatId, next).pipe(Effect.mapError(refused)),
+      LibrarySquadsList: () => squads.list().pipe(Effect.mapError(refused)),
+      LibrarySquadSave: (input) => squads.save(input).pipe(Effect.mapError(refused)),
+      LibrarySquadRename: ({ squadId, name }) => squads.rename(squadId, name).pipe(Effect.mapError(refused)),
+      LibrarySquadRemove: ({ squadId }) => squads.remove(squadId).pipe(Effect.mapError(refused)),
+      LibraryProfilesList: () => profiles.list().pipe(Effect.mapError(refused)),
+      LibraryProfileSave: (input) => profiles.save(input).pipe(Effect.mapError(refused)),
+      LibraryProfileRename: ({ profileId, name }) => profiles.rename(profileId, name).pipe(Effect.mapError(refused)),
+      LibraryProfileRemove: ({ profileId }) => profiles.remove(profileId).pipe(Effect.mapError(refused)),
+    };
+  }),
+);

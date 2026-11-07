@@ -1,5 +1,5 @@
 import { Notification, app, ipcMain, shell, type BrowserWindow } from "electron";
-import { Schema } from "effect";
+import { Context, Effect, Schema } from "effect";
 import {
   NOTIFY_CATEGORIES,
   type NotifyCategory,
@@ -10,7 +10,8 @@ import { IPC_CHANNELS } from "@shared/ipc";
 import { UrgencyLevel } from "@shared/wire/urgency";
 import { NotificationSettings } from "@shared/settings";
 import { trustedRendererIpc } from "../trusted-main-webcontents";
-import { core } from "../core-process/main-client";
+import { CompanionCore } from "../../contract/core/companion";
+import { AppRuntime } from "../runtime";
 import { createNotificationPlane, type NotificationPlane } from "./plane";
 
 const MAX_SUBJECTS = 500;
@@ -64,12 +65,15 @@ export const decodeNotifyReport = (raw: unknown): NotifyReport | undefined => {
 
 /**
  * Register the notification channels and return the plane. `window` is the
- * trusted Command Center window, re-read on every use.
+ * trusted Command Center window, re-read on every use; `core` holds the
+ * companion group the desktop's report goes on to.
  */
 export const registerNotificationIpc = (options: {
   readonly window: () => BrowserWindow | undefined;
   readonly enabled: boolean;
+  readonly core: Context.Context<CompanionCore>;
 }): NotificationPlane => {
+  const companion = Context.get(options.core, CompanionCore);
   const send = (channel: string, payload: unknown): void => {
     const window = options.window();
     if (window === undefined || window.isDestroyed() || window.webContents.isDestroyed()) return;
@@ -102,9 +106,11 @@ export const registerNotificationIpc = (options: {
     // it runs, in the core (`companion/backend.ts`): main says what the
     // window said. A report the core missed costs the phone a guess, never the
     // window's notifications, so the answer stands.
-    await core.call("companion.desktopReport", { report }).catch((error: unknown) => {
-      console.error("[companion] the desktop report did not reach the core:", error);
-    });
+    await AppRuntime.runPromise(
+      companion.CompanionDesktopReport({ report }).pipe(
+        Effect.catchCause((cause) => Effect.sync(() => console.error("[companion] the desktop report did not reach the core:", cause))),
+      ),
+    );
     return { ok: true as const };
   });
   privilegedIpc.handle(IPC_CHANNELS.notificationsTest, () => plane.test());

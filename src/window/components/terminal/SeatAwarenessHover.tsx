@@ -24,7 +24,7 @@
  */
 
 import type { ReactNode } from "react";
-import type { SeatAwarenessAssessment } from "../../lib/seat-awareness-contract";
+import type { SeatAwarenessAssessment } from "@shared/seat-awareness-contract";
 import {
   SEAT_AWARENESS_AVAILABILITY_TONE,
   SEAT_AWARENESS_EXCERPT_LABEL,

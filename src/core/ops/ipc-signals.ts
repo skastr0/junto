@@ -1,9 +1,9 @@
 /**
- * The operator's signals (junto/ipc.ts): a canvas's signals, an answer typed
- * into its seat, a handed-in reply, a dismissal, and the value a secret form
- * asks for. Each answer is plain data; the window hears of a change through
- * the store's own change, pushed from one place, so these only answer the
- * caller.
+ * The core's handlers of the signals group (src/contract/core/signals.ts): a
+ * canvas's signals, an answer typed into its seat, a handed-in reply, a
+ * dismissal, and the value a secret form asks for. Each answer is plain
+ * data; the window hears of a change through the store's own change, pushed
+ * from one place, so these only answer the caller.
  *
  * The secret write runs its tool (`op`, `security`, `secret-tool`) on the
  * core's own process plane with the core's login PATH, as the region secret
@@ -11,18 +11,13 @@
  */
 import { Effect, Schema } from "effect";
 import { homedir } from "node:os";
-import type { AgentSignal } from "@shared/agent-signals";
 import { resolveJuntoHome } from "@shared/junto-home";
-import type { ContentRef } from "@shared/wire/content-ref";
-import type { SignalReply } from "@shared/signal-reply";
-import type { SignalSecretPutRequest, SignalSecretPutResult } from "@shared/vault";
-import { AgentSignalRepository } from "../signals/repository";
+import { SignalsRpcs, SignalsUnavailable } from "../../contract/core/signals";
 import {
   answerAgentSignal,
   dismissAgentSignal,
   listCanvasAgentSignals,
   replyAgentSignal,
-  type SignalOperatorResult,
 } from "../signals/operator";
 import { putSignalSecret } from "../vault/secret-put";
 import { liveArtifactPorts } from "../work/artifact-control";
@@ -30,36 +25,18 @@ import { messageDelivery } from "../work/message-delivery";
 import { WorkService } from "../work/service";
 import { resolvedSpawnEnv } from "../adapters/spawn-env";
 import { runTool } from "../region-env/tool";
-import { coreOps, type CoreOp } from "../ops";
-
-declare module "../ops" {
-  interface CoreOps {
-    "ipc.signals.list": CoreOp<{ readonly canvasName: string }, ReadonlyArray<AgentSignal>>;
-    "ipc.signals.answer": CoreOp<
-      {
-        readonly signalId: string;
-        readonly text: string;
-        readonly silent: boolean;
-        readonly attachments: ReadonlyArray<ContentRef>;
-      },
-      SignalOperatorResult
-    >;
-    "ipc.signals.reply": CoreOp<
-      { readonly signalId: string; readonly reply: SignalReply },
-      SignalOperatorResult
-    >;
-    "ipc.signals.dismiss": CoreOp<{ readonly signalId: string }, SignalOperatorResult>;
-    "ipc.signals.secretPut": CoreOp<
-      { readonly request: SignalSecretPutRequest },
-      SignalSecretPutResult
-    >;
-  }
-}
 
 /** A delivery this process could not make; the mail waits in the mailbox either way. */
 class SeatDeliveryLost extends Schema.TaggedError<SeatDeliveryLost>()("SeatDeliveryLost", {
   message: Schema.String,
 }) {}
+
+/** The store failed, in its own words, or its tag when it has none. */
+const unavailable = (error: unknown): SignalsUnavailable => {
+  const message = error instanceof Error ? error.message : String(error);
+  const tag = typeof error === "object" && error !== null && "_tag" in error ? String(error._tag) : "the signals could not be read";
+  return new SignalsUnavailable({ message: message.length > 0 ? message : tag });
+};
 
 /**
  * Type an answer's mail into its seat here, where delivery is configured
@@ -81,12 +58,12 @@ const deliverIntoSeat = (answer: {
   }).pipe(Effect.ignore);
 };
 
-coreOps({
-  "ipc.signals.list": ({ canvasName }) => listCanvasAgentSignals(canvasName),
-  "ipc.signals.answer": ({ signalId, text, silent, attachments }) =>
-    Effect.tap(answerAgentSignal(signalId, text, { silent, attachments }), deliverIntoSeat),
-  "ipc.signals.reply": ({ signalId, reply }) =>
-    Effect.tap(Effect.flatMap(WorkService, (work) =>
+export const SignalsHandlers = SignalsRpcs.toLayer({
+  SignalsList: ({ canvasName }) => listCanvasAgentSignals(canvasName).pipe(Effect.mapError(unavailable)),
+  SignalsAnswer: ({ signalId, text, silent, attachments }) =>
+    answerAgentSignal(signalId, text, { silent, attachments }).pipe(Effect.tap(deliverIntoSeat), Effect.mapError(unavailable)),
+  SignalsReply: ({ signalId, reply }) =>
+    Effect.flatMap(WorkService, (work) =>
       replyAgentSignal(signalId, reply, {
         topology: (canvasName) =>
           work.readTopology(canvasName).pipe(
@@ -99,13 +76,13 @@ coreOps({
           ),
         artifacts: liveArtifactPorts,
       }),
-    ), deliverIntoSeat),
-  "ipc.signals.dismiss": ({ signalId }) => dismissAgentSignal(signalId),
-  "ipc.signals.secretPut": ({ request }) =>
-    Effect.tap(putSignalSecret(request, {
+    ).pipe(Effect.tap(deliverIntoSeat), Effect.mapError(unavailable)),
+  SignalsDismiss: ({ signalId }) => dismissAgentSignal(signalId).pipe(Effect.mapError(unavailable)),
+  SignalsSecretPut: ({ request }) =>
+    putSignalSecret(request, {
       home: resolveJuntoHome(),
       userHome: homedir(),
       run: runTool,
       path: async () => (await resolvedSpawnEnv()).PATH,
-    }), deliverIntoSeat),
+    }).pipe(Effect.tap(deliverIntoSeat), Effect.mapError(unavailable)),
 });

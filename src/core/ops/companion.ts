@@ -1,34 +1,16 @@
-import { Effect } from "effect";
-import type { CompanionDeviceRecord, CompanionKeyRestore, CompanionPairStart, CompanionStatus } from "@shared/companion-devices";
-import type { NotifyReport } from "@shared/desktop-notifications";
-import { companionService, type CompanionClipboard } from "../companion/service";
-import { noteDesktopReport } from "../companion/desktop-report";
-import { companionSettingsOn, type CompanionSettings } from "../companion/settings";
-import type { HostOp } from "../host-ops";
-import { host } from "../core-host";
-import { coreOps, type CoreOp } from "../ops";
-
 /**
+ * The core's handlers of the companion group (src/contract/core/companion.ts):
  * Settings, Companion, against the companion in the core. The clipboard is
  * main's: Copy link writes it by host operation, and a pairing that ends takes
  * its link off again only if the clipboard still holds it, which main checks.
  */
-
-type Device = { readonly deviceId: string };
-
-declare module "../ops" {
-  interface CoreOps {
-    "companion.status": CoreOp<Record<string, never>, CompanionStatus>;
-    "companion.startPairing": CoreOp<Record<string, never>, CompanionPairStart>;
-    "companion.cancelPairing": CoreOp<Device, void>;
-    "companion.copyLink": CoreOp<Device, boolean>;
-    "companion.devices": CoreOp<Record<string, never>, ReadonlyArray<CompanionDeviceRecord>>;
-    "companion.remove": CoreOp<Device, { readonly ok: boolean; readonly message?: string }>;
-    "companion.restore": CoreOp<{ readonly target: string }, CompanionKeyRestore>;
-    /** What the desktop last told its window: the phone companion reads it here, beside it. */
-    "companion.desktopReport": CoreOp<{ readonly report: NotifyReport }, void>;
-  }
-}
+import { Effect } from "effect";
+import { CompanionRpcs } from "../../contract/core/companion";
+import { companionService, type CompanionClipboard } from "../companion/service";
+import { noteDesktopReport } from "../companion/desktop-report";
+import { companionSettingsOn } from "../companion/settings";
+import type { HostOp } from "../host-ops";
+import { host } from "../core-host";
 
 declare module "../host-ops" {
   interface HostOps {
@@ -38,37 +20,40 @@ declare module "../host-ops" {
   }
 }
 
-let written: string | undefined;
 const sent = (call: Promise<void>): void => {
   void call.catch((error: unknown) => console.error("[companion] clipboard not reached:", error));
 };
 
-/** The clipboard as the core holds it: what it last wrote, and main's own check before a clear. */
-const hostClipboard: CompanionClipboard = {
-  readText: () => written ?? "",
-  writeText: (text) => {
-    written = text;
-    sent(host.call("clipboard.write", { text }));
-  },
-  clear: () => {
-    if (written === undefined) return;
-    const text = written;
-    written = undefined;
-    sent(host.call("clipboard.clearIf", { text }));
-  },
-};
-
-const settings = companionSettingsOn(companionService, hostClipboard);
-
-coreOps({
-  "companion.status": () => Effect.promise(() => settings.status()),
-  "companion.startPairing": () => Effect.promise(() => settings.startPairing()),
-  "companion.cancelPairing": ({ deviceId }) => Effect.promise(() => settings.cancelPairing(deviceId)),
-  "companion.copyLink": ({ deviceId }) => Effect.promise(() => settings.copyLink(deviceId)),
-  "companion.devices": () => Effect.promise(() => settings.devices()),
-  "companion.remove": ({ deviceId }) => Effect.promise(() => settings.remove(deviceId)),
-  "companion.restore": ({ target }) => Effect.promise(() => settings.restore(target)),
-  // The desktop's report is written here, where the companion reads it
-  // (`desktop-report.ts`): main sends what its window reported.
-  "companion.desktopReport": ({ report }) => Effect.sync(() => noteDesktopReport(report)),
-});
+export const CompanionHandlers = CompanionRpcs.toLayer(
+  Effect.sync(() => {
+    // What this server last wrote to main's clipboard: the clipboard as the
+    // core holds it, and the text main checks before it clears.
+    let written: string | undefined;
+    const clipboard: CompanionClipboard = {
+      readText: () => written ?? "",
+      writeText: (text) => {
+        written = text;
+        sent(host.call("clipboard.write", { text }));
+      },
+      clear: () => {
+        if (written === undefined) return;
+        const text = written;
+        written = undefined;
+        sent(host.call("clipboard.clearIf", { text }));
+      },
+    };
+    const settings = companionSettingsOn(companionService, clipboard);
+    return {
+      CompanionStatus: () => Effect.promise(() => settings.status()),
+      CompanionStartPairing: () => Effect.promise(() => settings.startPairing()),
+      CompanionCancelPairing: ({ deviceId }) => Effect.promise(() => settings.cancelPairing(deviceId)),
+      CompanionCopyLink: ({ deviceId }) => Effect.promise(() => settings.copyLink(deviceId)),
+      CompanionDevices: () => Effect.promise(() => settings.devices()),
+      CompanionRemove: ({ deviceId }) => Effect.promise(() => settings.remove(deviceId)),
+      CompanionRestore: ({ target }) => Effect.promise(() => settings.restore(target)),
+      // The desktop's report is written here, where the companion reads it
+      // (`desktop-report.ts`): main sends what its window reported.
+      CompanionDesktopReport: ({ report }) => Effect.sync(() => noteDesktopReport(report)),
+    };
+  }),
+);

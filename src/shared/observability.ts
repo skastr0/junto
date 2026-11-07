@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Result, Schema } from "effect";
 
 /**
  * Process-local observability surface for the developer logs explorer.
@@ -56,6 +56,37 @@ export const ObservabilitySnapshot = Schema.Struct({
   entries: Schema.Array(ObservabilityLogEntry),
 });
 export type ObservabilitySnapshot = typeof ObservabilitySnapshot.Type;
+
+/**
+ * One row as a process hands it to the core's ring, before the ring gives it
+ * an id: Electron main's own rows cross the port in this shape.
+ */
+export const ObservabilityAppendInput = Schema.Struct({
+  level: ObservabilityLogLevel,
+  source: ObservabilityLogSource,
+  message: Schema.String,
+  ts: Schema.optionalKey(Schema.Number),
+  fiber: Schema.optionalKey(Schema.String),
+  spans: Schema.optionalKey(Schema.Array(Schema.String)),
+  annotations: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+});
+export type ObservabilityAppendInput = typeof ObservabilityAppendInput.Type;
+
+/** Drop present-but-undefined keys (IPC / object literals break exact optionals). */
+const withoutUndefinedKeys = (raw: unknown): unknown =>
+  raw === null || typeof raw !== "object" || Array.isArray(raw)
+    ? raw
+    : Object.fromEntries(Object.entries(raw).filter(([, value]) => value !== undefined));
+
+/**
+ * A panel's query at main's edge, decoded closed. Soft: none, or a query this
+ * build does not read, asks for the ring unfiltered.
+ */
+export const observabilityQueryFromWindow = (raw: unknown): ObservabilityQuery | undefined => {
+  if (raw === undefined || raw === null) return undefined;
+  const decoded = Schema.decodeUnknownResult(ObservabilityQuery)(withoutUndefinedKeys(raw), { onExcessProperty: "error" });
+  return Result.isSuccess(decoded) ? decoded.success : undefined;
+};
 
 export const OBSERVABILITY_LEVEL_RANK: Record<ObservabilityLogLevel, number> = {
   trace: 0,

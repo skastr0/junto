@@ -37,7 +37,7 @@
 import { Context, Effect, Exit, Layer, Scope } from "effect";
 import { SEAT_AWARENESS_COMPILED, seatAwarenessOn } from "@shared/features";
 import type { Settings } from "@shared/settings";
-import type { SeatAwarenessEvent } from "@window/lib/seat-awareness-contract";
+import type { SeatAwarenessEvent } from "@shared/seat-awareness-contract";
 import { seatStateRuntime } from "./agent-state";
 import { terminalObserverPlane } from "./observer";
 import { seatAwarenessEventsForAdvisory } from "./awareness/awareness-wire";

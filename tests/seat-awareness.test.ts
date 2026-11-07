@@ -36,7 +36,7 @@ import {
   type SeatAwarenessEvidenceLine,
   type SeatAwarenessEvent,
   type SeatAwarenessWindowEvent,
-} from "../src/window/lib/seat-awareness-contract";
+} from "../src/shared/seat-awareness-contract";
 import {
   SEAT_AWARENESS_ACTIVITY_COPY,
   SEAT_AWARENESS_ATTRIBUTION,

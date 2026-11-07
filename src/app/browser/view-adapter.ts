@@ -9,11 +9,11 @@ import {
   BROWSER_MAX_EVAL_RESULT_DEPTH,
   BROWSER_MAX_EVAL_RESULT_NODES,
   isUtf8WithinLimit,
+  PAGE_BOX_DRAW_MS,
 } from "@shared/browser-limits";
 import type { BrowserSurfaceBounds } from "@shared/ipc";
 import type { BrowserViewAdapter, BrowserViewHandle } from "./sessions";
 import { BOX_OVERLAY_PARTITION, BOX_OVERLAY_SCRIPT, BOX_OVERLAY_URL, drawnBoxOf } from "./box-overlay";
-import { PAGE_BOX_DRAW_MS } from "@shared/page-shot";
 import type {
   BrowserCompositionHostWindow,
   BrowserCompositionViewBinder,

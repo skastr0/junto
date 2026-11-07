@@ -7,12 +7,15 @@
 // LAW: a canvas with no recorded play decision is PAUSED. The crew is
 // born paused, always; the first play is an explicit operator confirmation.
 
-export type CanvasPauseState = {
+import { Schema } from "effect";
+
+export const CanvasPauseState = Schema.Struct({
   /** false = paused. Absence of a record decodes to false — paused. */
-  readonly playing: boolean;
+  playing: Schema.Boolean,
   /** Latch for the first-play confirmation. */
-  readonly everPlayed: boolean;
-};
+  everPlayed: Schema.Boolean,
+});
+export type CanvasPauseState = typeof CanvasPauseState.Type;
 
 export type PauseChangeListener = (
   canvas: string,

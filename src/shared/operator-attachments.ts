@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { ContentStageArgs, type ContentStageResult } from "./content-stage";
+import { ContentStageArgs, ContentStageResult } from "./content-stage";
 import { CanvasName } from "./model/base";
 import { ContentRef } from "./wire/content-ref";
 
@@ -50,9 +50,11 @@ export const OperatorContentPut = Schema.Struct({
 });
 export type OperatorContentPut = typeof OperatorContentPut.Encoded;
 
-export type OperatorContentPutResult =
-  | { readonly ok: true; readonly result: ContentStageResult }
-  | { readonly ok: false; readonly message: string };
+export const OperatorContentPutResult = Schema.Union([
+  Schema.Struct({ ok: Schema.Literal(true), result: ContentStageResult }),
+  Schema.Struct({ ok: Schema.Literal(false), message: Schema.String }),
+]);
+export type OperatorContentPutResult = typeof OperatorContentPutResult.Type;
 
 /** A size as a reader says it: bytes, KB or MB. */
 export const attachmentSizeLabel = (byteLength: number): string => {

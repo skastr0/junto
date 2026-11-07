@@ -2,17 +2,28 @@ import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { Node, type Node as ModelNode } from "../src/shared/model";
-import { Effect, Schema } from "effect";
-import { inProcessCore } from "./support/in-process-core";
-import { core } from "../src/app/core-process/main-client";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { RpcTest } from "effect/rpc";
 import * as seatControl from "../src/core/term/seat-control";
-import { registerTerminalIpc } from "../src/app/term/ipc";
-import { bindTermIpcPlane } from "../src/core/ops/term-ipc";
-import "../src/core/ops/term-ipc";
-import type { TermPlane } from "../src/core/term/plane";
+import { TermCore, TermRpcs } from "../src/contract/core/term-ipc";
+import { TermTemplatesCore, TermTemplatesRpcs } from "../src/contract/core/term-templates";
+import { TermIpcPlane, TermPlaneHandlers } from "../src/core/ops/term-ipc";
+import { TermTemplatesHandlers } from "../src/core/ops/term-templates";
 import { TerminalNodeDeleteService } from "../src/core/term/node-delete";
 import { ModelService } from "../src/core/model/service";
 import type { HarnessId } from "../src/shared/managed-terminal-templates";
+
+vi.mock("../src/app/runtime", () => ({ AppRuntime: ManagedRuntime.make(Layer.empty) }));
+
+const { registerTerminalIpc } = await import("../src/app/term/ipc");
+
+// The handlers on the test's plane and model. A handler that reads a service
+// this test does not give fails when it is asked; none of those is asked here.
+const termHandlers = TermPlaneHandlers as never as Layer.Layer<
+  Layer.Success<typeof TermPlaneHandlers>,
+  never,
+  TermIpcPlane | ModelService
+>;
 
 const sender = {
   isDestroyed: () => false,
@@ -22,22 +33,13 @@ const event = { sender };
 
 type Handler = (...args: readonly unknown[]) => unknown;
 
-// Core operations run with no services: the seat read answers `node`, and
-// seat start and stop are the spied seat-control effects.
-const noServices = inProcessCore({ runPromiseExit: (effect) => Effect.runPromiseExit(effect as never) });
-// The terminal start reads the seat again in the core, after its admission.
-const coreWithSeat = (node: ModelNode | undefined) => {
-  const canvas = { nodes: new Map(node === undefined ? [] : [[node.id, node]]) };
-  const withSeat = inProcessCore({ runPromiseExit: (effect) =>
-    Effect.runPromiseExit(Effect.provideService(effect as never, ModelService, { canvas: () => Effect.succeed(canvas) } as never) as never) });
-  return vi.spyOn(core, "call").mockImplementation(((name: string, input: never) =>
-    name === "term.seatNode" ? Promise.resolve(node) : withSeat.call(name as never, input)) as typeof core.call);
-};
+const runtimes: Array<ManagedRuntime.ManagedRuntime<TermCore | TermTemplatesCore, never>> = [];
 
-const harness = (options: {
-  readonly node?: ModelNode;
-} = {}) => {
-  if (options.node) coreWithSeat(options.node);
+// The core's side of the groups, in this process: the seat read answers the
+// seat the test put on the canvas, and seat start and stop are the spied
+// seat-control effects.
+const harness = async () => {
+  let seat: ModelNode | undefined;
   const handlers = new Map<string, Handler>();
   const ipcMain = {
     handle: (channel: string, handler: Handler) => {
@@ -65,18 +67,39 @@ const harness = (options: {
     release: vi.fn(),
     setTerminalEnvironment: vi.fn(),
   });
-  // The plane is the core's; the test binds it where the operations run.
-  bindTermIpcPlane({ router, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane);
+  // The plane is the core's; the test gives the handlers its own.
+  const plane = { router, nodeDelete: new TerminalNodeDeleteService(router as never) };
+  const model = {
+    canvas: () => Effect.succeed({ nodes: new Map(seat === undefined ? [] : [[seat.id, seat]]) }),
+  };
+  const runtime = ManagedRuntime.make(
+    Layer.mergeAll(
+      Layer.effect(TermCore, RpcTest.makeClient(TermRpcs)),
+      Layer.effect(TermTemplatesCore, RpcTest.makeClient(TermTemplatesRpcs)),
+    ).pipe(
+      Layer.provide(Layer.mergeAll(termHandlers, TermTemplatesHandlers)),
+      Layer.provide(Layer.succeed(TermIpcPlane, plane as never)),
+      Layer.provide(Layer.succeed(ModelService, model as never)),
+    ),
+  );
+  runtimes.push(runtime);
   registerTerminalIpc(
     ipcMain as never,
     { isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => undefined },
+    await runtime.context(),
   );
   const handler = (channel: string): Handler => {
     const value = handlers.get(channel);
     if (value === undefined) throw new Error(`missing handler ${channel}`);
     return value;
   };
-  return { handler, router };
+  return {
+    handler,
+    router,
+    place: (node: ModelNode) => {
+      seat = node;
+    },
+  };
 };
 
 const geographyNode = (bindingId: string, host: string): ModelNode => Schema.decodeUnknownSync(Node)({
@@ -88,15 +111,18 @@ const agentNode = (bindingId: string, host: string, harness: HarnessId, agentKey
   host, bindingId, harness, agentKey, overseer: false,
   launch: { kind: "harness", argv: [harness] },
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(async () => {
+  vi.restoreAllMocks();
+  for (const runtime of runtimes.splice(0)) await runtime.dispose();
+});
 
 describe("terminal IPC node-delete admission", () => {
   it("starts an agent seat through seat control, never through the router", async () => {
-    const runtime = harness();
+    const runtime = await harness();
     const node = agentNode("codex-mini", "mini", "codex", "mini:codex-mini");
     const occupied = { bindingId: "codex-mini", status: "running" };
     const start = vi.spyOn(seatControl, "startSeat").mockReturnValue(Effect.succeed(occupied) as never);
-    coreWithSeat(node);
+    runtime.place(node);
     expect(await runtime.handler(IPC_CHANNELS.modelStart)(event, {
       id: node.id, canvas: "factory",
     })).toEqual(occupied);
@@ -106,10 +132,10 @@ describe("terminal IPC node-delete admission", () => {
   });
 
   it("stops an agent seat through seat control, a plain terminal through the router", async () => {
-    const runtime = harness();
+    const runtime = await harness();
     const node = agentNode("codex-mini", "mini", "codex", "mini:codex-mini");
     const stop = vi.spyOn(seatControl, "stopSeat").mockReturnValue(Effect.succeed({ outcome: "stopping" }) as never);
-    coreWithSeat(node);
+    runtime.place(node);
     await runtime.handler(IPC_CHANNELS.modelStop)(event, { id: node.id, canvas: "factory" });
     expect(stop).toHaveBeenCalledTimes(1);
     expect(stop).toHaveBeenCalledWith({ canvas: "factory", seatId: node.id }, { plane: expect.anything() });

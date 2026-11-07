@@ -1,3 +1,4 @@
+import type { SeatGuidance as SeatGuidanceSchema, SeatGuidanceMap as SeatGuidanceMapSchema } from "../contract/core/library";
 import { PORTRAIT_SEAT_ID_MAX } from "./portrait-overrides";
 
 /**
@@ -18,13 +19,10 @@ export const SEAT_SOUL_MAX = 4000;
 export const SEAT_INSTRUCTIONS_MAX = 8000;
 export const SEAT_GUIDANCE_SEAT_ID_MAX = PORTRAIT_SEAT_ID_MAX;
 
-export type SeatGuidance = {
-  readonly soul?: string;
-  readonly instructions?: string;
-};
+export type SeatGuidance = typeof SeatGuidanceSchema.Type;
 
 /** Seat id -> guidance, as the renderer holds it. */
-export type SeatGuidanceMap = Readonly<Record<string, SeatGuidance>>;
+export type SeatGuidanceMap = typeof SeatGuidanceMapSchema.Type;
 
 export type SeatGuidanceSetResult =
   | { readonly ok: true; readonly seatId: string; readonly guidance: SeatGuidance | null }

@@ -48,6 +48,7 @@ import { isCoreUnavailable } from "./core-process/wait-for-core";
 import { armMainThreadBudget } from "../node/observability/main-thread-budget";
 import { startPerfObservation, type PerfObservation } from "./observability/perf-observation";
 import { mainLog } from "./observability/main-log";
+import { mainIndexCalls, type MainIndexCalls } from "./core-process/main-index-ipc";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc-handlers";
 import { resolveControlHome } from "./control-home";
 import { registerDemoIpcHandlers } from "./demo/ipc";
@@ -65,11 +66,12 @@ import {
   BROWSER_ENABLED,
   LIVE_OVERSEER_ENABLED,
 } from "@shared/features";
-import { resolveBrowserPageTarget } from "./browser/ipc";
+import { browserPageTargetResolver } from "./browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./browser/control";
 import { captureTrustedWindowPng } from "./overseer/window-png";
 import { registerOverseerLiveIpc } from "./overseer/live/ipc";
 import { makeEdgeGrantService } from "./browser/edge-grant";
+import { coreSeatCredentials } from "./browser/seat-credentials-ipc";
 import { evaluateSchemaCompatibility } from "../node/state/schema-version-probe";
 import { runStartupStateFailureDialog } from "./state/startup-state-failure-dialog";
 import { ensureSchemaCompatibleOrRecover } from "./update/startup-schema-recovery";
@@ -108,6 +110,7 @@ import {
   QUIT_CONFIRM_ACCEPT_INDEX,
   type LiveWorkSnapshot,
 } from "./quit-live-work";
+import { coreTerminalSessions } from "./term/ipc";
 import { mainAuthoringGate } from "../node/main-authoring-gate";
 import {
   installTrustedRendererPermissionPolicy,
@@ -133,8 +136,9 @@ import {
 } from "../node/operator-control";
 import { broadcastCompanionDevices, electronCompanionClipboard, registerCompanionIpc } from "./companion/ipc";
 import { coreOverseerLive } from "./core-process/main-side/overseer-live";
-import { askOnEveryCore, askOnLaterCores } from "./core-process/every-core";
+import { askOnLaterCores } from "./core-process/every-core";
 import { buildCoreClients, startCoreProcessForMain } from "./core-process/main-boot";
+import { coreMachineName } from "./core-process/core-reads-ipc";
 import { overseerPagesOn, type OverseerPages } from "../node/overseer/pages";
 import { runningBuildIdentity } from "../node/build-identity";
 import type { CompanionDeviceRecord } from "@shared/companion-devices";
@@ -248,7 +252,13 @@ app.on(
 );
 installBrowserEgressProxyAuth(app);
 
-const nodeRefIngress = makeNodeRefIngress((ref) => core.call("model.resolveNodeRef", { ref }));
+// What boot asks the core, once boot built main's clients of it (core-process/main-index-ipc.ts):
+// a node ref that arrives before then waits for them, rather than failing for want of a core.
+let resolveCoreAsks!: (asks: MainIndexCalls) => void;
+const coreAsksBuilt = new Promise<MainIndexCalls>((resolve) => {
+  resolveCoreAsks = resolve;
+});
+const nodeRefIngress = makeNodeRefIngress((ref) => coreAsksBuilt.then((asks) => asks.resolveNodeRef(ref)));
 
 let nodeRefOwnerReady = false;
 let pendingNodeRefUri: NodeRefKey | undefined;
@@ -379,6 +389,8 @@ let browserControl: BrowserControlServer | undefined;
 let coreChildren: Children | undefined;
 let coreProcessPages: OverseerPages | undefined;
 let unregisterOverseerLiveIpc: (() => void) | undefined;
+/** Main's side of the live overseer, once main's clients of the core are built. */
+let liveOverseer: ReturnType<typeof coreOverseerLive> | undefined;
 let rendererWindowAdmissionReady = false;
 let productRuntimeStarted = false;
 let shutdownAdmissionClosed = false;
@@ -1007,7 +1019,8 @@ const createWindow = () => {
   // The live overseer runs in the core; a lost renderer still ends its session,
   // asked for by name (core-process/main-side/overseer-live.ts).
   const endLostLiveMedia = (): void => {
-    const service = coreOverseerLive(core);
+    const service = liveOverseer;
+    if (service === undefined) return;
     void service.liveSnapshot().then((snapshot) => snapshot.sessionId !== null
       ? service.liveEnd(snapshot.sessionId) : undefined).catch(() => undefined);
   };
@@ -1188,10 +1201,10 @@ const recoverRendererSurface = (
 // A packaged station enters only through its installed platform supervisor.
 // Provider observations are status-only: neither launchd pid nor systemd
 // MainPID ever becomes process-signal authority in this process.
-const ensureSupervised = async (): Promise<boolean> => {
+const ensureSupervised = async (asks: MainIndexCalls): Promise<boolean> => {
   if (!app.isPackaged) return true; // dev runs are never rerouted
   try {
-    const machine = (await core.call("settings.read", {})).machine;
+    const machine = await asks.machine();
     if (!machine.supervisedPreferred) return true;
   } catch { return true; }
   const supervisor = await loadStationSupervisor();
@@ -1339,11 +1352,10 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         showAppMenu();
       };
       showAppMenuWith(undefined);
-      // The settings as they stand and every change after arrive in order on one push channel.
+      // The settings as they stand and every change after arrive in order on one push channel;
+      // the settings group's watch asks every core for them (settings/ipc.ts).
       subscribeCore(SETTINGS_CHANGED, (next) => showAppMenuWith(next as Settings));
-      askOnEveryCore("settings.watch", () => core.call("settings.watch", {}));
     }
-    if (!(await ensureSupervised())) return;
     if (shutdownAdmissionClosed) return;
 
     try {
@@ -1477,8 +1489,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       clipboardFormats: () => clipboard.availableFormats(),
       terminals,
     }));
-    if (LIVE_OVERSEER_ENABLED) unregisterOverseerLiveIpc = registerOverseerLiveIpc(coreOverseerLive(core));
     const coreClients = await buildCoreClients(coreChildren.core.link);
+    liveOverseer = coreOverseerLive(coreClients);
+    if (LIVE_OVERSEER_ENABLED) unregisterOverseerLiveIpc = registerOverseerLiveIpc(liveOverseer);
 
     // UpdateService host hooks: release SQLite before quitAndInstall, and
     // relaunch without Squirrel install when finalize fails after quiesce.
@@ -1516,8 +1529,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     });
     registerDemoIpcHandlers();
     // Settings reads the phones from wherever the companion runs.
-    registerCompanionIpc();
+    registerCompanionIpc(coreClients);
     notificationPlane ??= registerNotificationIpc({
+      core: coreClients,
       window: currentTrustedMainWindow,
       // No banners, badge, or bounce from an isolated harness run; a visible
       // run (JUNTO_E2E_SHOW=1) is someone watching, and may see them.
@@ -1527,13 +1541,19 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     if (notifyWindow !== undefined) notificationPlane.attach(notifyWindow);
     if (shutdownAdmissionClosed) return;
 
+    // What this boot asks the core, on main's clients of it (core-process/main-index-ipc.ts).
+    const coreAsks = mainIndexCalls(coreClients);
+    resolveCoreAsks(coreAsks);
+    // A packaged station enters only through its installed platform supervisor,
+    // and only the core can say whether this machine prefers one.
+    if (!(await ensureSupervised(coreAsks))) return;
+    if (shutdownAdmissionClosed) return;
+
     // Content stream protocol: renderer media loads ContentRefs without Base64.
     // Handler resolves through ContentService (manifest + path); never opens DB
     // from the renderer and never exposes host paths in the URL.
     try {
-      installContentProtocol(session.defaultSession.protocol, async (ref) => {
-        return core.call("content.openForRead", { ref });
-      }, (request) => remoteVideos.handle(request));
+      installContentProtocol(session.defaultSession.protocol, (ref) => coreAsks.openForRead(ref), (request) => remoteVideos.handle(request));
     } catch (error) {
       console.error("[content-protocol] failed to install:", error);
       exitAfterDetach(1, "content-protocol-startup-failure");
@@ -1545,8 +1565,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     try {
       // The Files service, its router and its index worker run in the core;
       // main serves the channels, the shell, and these bytes in chunks.
-      registerFilesIpc();
-      installFileProtocol(session.defaultSession.protocol, coreFileBytes());
+      registerFilesIpc(coreClients);
+      installFileProtocol(session.defaultSession.protocol, coreFileBytes(coreClients));
     } catch (error) {
       console.error("[files-protocol] failed to install:", error);
       exitAfterDetach(1, "files-protocol-startup-failure");
@@ -1571,7 +1591,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         async (composition) => {
           const listCanvasModels = async () => {
             try {
-              return await core.call("model.canvases", {});
+              return await coreAsks.canvases();
             } catch (cause) {
               // No canvases means no edge grant: the read fails closed, and says why.
               console.error("[browser-automation] canvases could not be listed; edge grants refuse until they can", cause);
@@ -1580,10 +1600,11 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           };
           const edgeGrant = makeEdgeGrantService({
             capabilities: composition.registry,
-            resolvePageTarget: resolveBrowserPageTarget,
+            credentials: coreSeatCredentials(coreClients),
+            resolvePageTarget: browserPageTargetResolver(coreClients),
             listCanvasModels,
             machineName: () => composition.sessions.machineName(),
-            editsCanvas: (canvasName) => core.call("model.editsCanvas", { canvasName }),
+            editsCanvas: (canvasName) => coreAsks.editsCanvas(canvasName),
             // Edge-delete (I10): same destroy path as capability terminate, but
             // keyed by (owner, page-ref) so sibling edges stay live.
             sessions: {
@@ -1610,41 +1631,42 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             stopCanvasChanged();
             stopCoreRestarted();
           };
-          await core.call("model.watchCanvases", {});
-          askOnLaterCores("model.watchCanvases", () => core.call("model.watchCanvases", {}));
+          await coreAsks.watchCanvases();
+          askOnLaterCores("model.watchCanvases", () => coreAsks.watchCanvases());
           if (admissionCleanupRan) acquiredCanvasUnsubscribe();
           else canvasUnsubscribe = acquiredCanvasUnsubscribe;
 
           browserControl = await startBrowserControlServer({
             sessions: composition.sessions,
             capabilities: composition.registry,
-            resolvePageTarget: resolveBrowserPageTarget,
+            resolvePageTarget: browserPageTargetResolver(coreClients),
             version: app.getVersion(),
             home: browserControlHome,
             edgeGrant,
             listCanvasModels,
             // The work socket's pause source, read in the core on every request; never cached here.
-            canvasPlaying: (canvasName) => core.call("pause.playing", { canvas: canvasName }),
+            canvasPlaying: (canvasName) => coreAsks.canvasPlaying(canvasName),
             // A seat's box comment, posted as the seat the grant names.
             postPageBoxComment: (input) =>
               // The core checks and posts; the shot is Electron's, so main takes it between.
               mainAuthoringGate.run("control.browser.box-comment", async () => {
                 const { signal, ...request } = input;
-                const checked = await core.call("pageBox.check", request);
+                const checked = await coreAsks.pageBoxCheck(request);
                 if (!checked.ok) return checked;
                 const shot = await composition.sessions.captureBoxForOwner(input.owner, input.sessionId, input.rect, signal);
                 if (!shot.ok) return shot;
-                return core.call("pageBox.post", { request, shot: shot.data });
+                return coreAsks.pageBoxPost(request, shot.data);
               }),
           });
           composition.bindControlShutdown(browserControl);
-          registerBrowserIpcHandlers(composition.sessions);
+          registerBrowserIpcHandlers(composition.sessions, coreClients);
           coreProcessPages = overseerPagesOn(composition.sessions);
         },
         {
-          profileStore: coreBrowserProfileStore(core),
-          touchedOrigins: coreTouchedOriginStore(core),
+          profileStore: coreBrowserProfileStore(coreClients),
+          touchedOrigins: coreTouchedOriginStore(coreClients),
           viewAdapter: browserViewAttachmentTarget.adapter,
+          machineName: coreMachineName(coreClients),
         },
       );
       if (shutdownAdmissionClosed) {
@@ -2003,11 +2025,11 @@ const quiesceSignalRenderer = (generation: number): void => {
 
 /**
  * What is still running, as the core sees it: main holds no session, so the
- * count is a core call (term.list) filtered to the statuses a quit would end.
- * A core that does not answer is unknown, never zero, and unknown warns.
+ * count is the core's TermList filtered to the statuses a quit would end.
+ * No core, or one that does not answer, is unknown, never zero, and unknown warns.
  */
 const collectLiveWorkSnapshot = (): Promise<LiveWorkSnapshot> =>
-  probeLiveWork(() => core.call("term.list", {}));
+  probeLiveWork(coreTerminalSessions(() => coreChildren?.core.link));
 
 /** Cancel left the process with no UI — give the operator a surface back. */
 const recreateWindowIfEmpty = (): void => {

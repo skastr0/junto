@@ -36,7 +36,7 @@ describe("operator control main lifecycle", () => {
 
   // The operator listener's admission cut and its drain receipt are behaviour,
   // proved against the server itself in operator-control-server.test.ts: the
-  // core opens that socket now (operator.ensureListening), so main has no
+  // core opens that socket now (ensureOperatorListening, in core.ts), so main has no
   // listener to cut. What is left in the shell is its own runtime.
 
   it("disposes the shell's one runtime after the drains", () => {

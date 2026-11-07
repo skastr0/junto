@@ -1,12 +1,13 @@
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
-import { Result } from "effect";
+import { Effect, Result } from "effect";
+import { RpcTest } from "effect/rpc";
 import { expect, it } from "vitest";
 import { startCore } from "../src/core/core";
 import { companionService } from "../src/core/companion/service";
-import { coreCompanionSettings } from "../src/app/core-process/main-side/companion";
-import { inProcessCore, type CoreRunner } from "./support/in-process-core";
+import { CompanionRpcs } from "../src/contract/core/companion";
+import { CompanionHandlers } from "../src/core/ops/companion";
 import { decodeOperatorResponse, encodeOperatorFrame, operatorControlSocketPath, type OperatorRequestEnvelope } from "../src/shared/operator-control";
 
 const ask = (home: string, request: OperatorRequestEnvelope) =>
@@ -38,16 +39,33 @@ it("answers a phone from the core: the companion is built there and the socket r
       operator: { listen: "on-demand", commands: false },
       companion: {
         appVersion: "0.0.0-test",
-        environment: async () => ({ remoteLogin: "off", hosts: [], station: "test" }) as never,
+        environment: async () => ({
+          remoteLogin: "off",
+          hostKey: undefined,
+          tailscale: undefined,
+          localName: "test",
+          lanAddresses: [],
+          hosts: [],
+          user: "test",
+          station: "test",
+          juntoPath: undefined,
+        }),
         onDevicesChanged: (next) => devices.push(next),
         showSignal: () => undefined,
       },
     });
-    expect(await companionService()!.devices()).toEqual([]);
-    // Settings reads the phones and this Mac's readiness from the core's companion, by name.
-    const settings = coreCompanionSettings(inProcessCore(core.runtime as unknown as CoreRunner));
-    expect(await settings.devices()).toEqual([]);
-    expect(await settings.status()).toMatchObject({ available: true, station: "test" });
+    expect(await companionService()?.devices()).toEqual([]);
+    // Settings reads the phones and this Mac's readiness from the core's companion, through the companion group.
+    const [phones, status] = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const settings = yield* RpcTest.makeClient(CompanionRpcs);
+          return [yield* settings.CompanionDevices(), yield* settings.CompanionStatus()] as const;
+        }),
+      ).pipe(Effect.provide(CompanionHandlers)),
+    );
+    expect(phones).toEqual([]);
+    expect(status).toMatchObject({ available: true, station: "test" });
     // No phone is paired, so boot left the socket closed.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(existsSync(operatorControlSocketPath(home))).toBe(false);

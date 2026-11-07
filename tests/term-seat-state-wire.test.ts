@@ -112,10 +112,10 @@ describe("term seat-state placement wiring", () => {
       "gate?.broadcast(IPC_CHANNELS.agentSeatStateChanged, payload.event)",
     );
     // The snapshot the Command Center reads is the core's since e92f443b4:
-    // the window asks ipc.threads.seatStates, and the core merges the hops it
+    // the window asks ThreadsSeatStates, and the core merges the hops it
     // kept with the events its own plane saw.
     expect(readFileSync("src/core/ops/ipc-threads.ts", "utf8")).toContain(
-      '"ipc.threads.seatStates": () => Effect.sync(() => mergeSeatStateSnapshot(seatStateRuntime.currentEvents()))',
+      "ThreadsSeatStates: () => Effect.sync(() => mergeSeatStateSnapshot(seatStateRuntime.currentEvents()))",
     );
   });
 

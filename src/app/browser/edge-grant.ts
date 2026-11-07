@@ -12,9 +12,6 @@ import type { PageTargetResolver } from "../../core/browser/page-target";
 import type { ProcessPrincipal } from "../../core/process-identity";
 import { OFFBOARDED_SESSION_MESSAGE } from "../../node/process-identity-facts";
 import type { SeatCredentialEvent, SeatCredentialLookup } from "../../core/work/seat-credentials";
-import { core } from "../core-process/main-client";
-import { subscribe as onCorePush } from "../core-process/main-side/core-pushes";
-import { SEAT_CREDENTIAL_CHANGED } from "../../contract/core/channels";
 import { isThisMachine } from "@shared/machine-identity";
 import { parseNodeRef } from "@shared/node-ref";
 import {
@@ -128,7 +125,11 @@ export interface EdgeGrantSessionTeardown {
 export interface EdgeGrantDependencies {
   readonly capabilities: BrowserCapabilityRegistry;
   readonly resolvePageTarget: PageTargetResolver;
-  /** Where seat credentials are read, and how their ends are heard (the core's registry). */
+  /**
+   * Where seat credentials are read, and how their ends are heard: the core's
+   * registry (`coreSeatCredentials`, browser/seat-credentials-ipc.ts). A
+   * composition given none admits no seat: every credential is a stranger.
+   */
   readonly credentials?: SeatCredentialPort;
   readonly wallNow?: () => number;
   readonly ttlMs?: number;
@@ -202,17 +203,16 @@ export type SeatCredentialPort = {
   readonly onEvent: (listener: (event: SeatCredentialEvent) => void) => () => void;
 };
 
-/** Main's side: the core's registry by name, and its changes on the push bus. */
-const coreCredentials = (): SeatCredentialPort => ({
-  lookup: (credential) => core.call("seatCredential.lookup", { credential }),
-  onEvent: (listener) =>
-    onCorePush(SEAT_CREDENTIAL_CHANGED, (event) => listener(event as SeatCredentialEvent)),
-});
+/** No registry: every credential is a stranger, and no generation ends here. */
+const noCredentials: SeatCredentialPort = {
+  lookup: async () => ({ status: "unknown" }),
+  onEvent: () => () => undefined,
+};
 
 export const makeEdgeGrantService = (
   dependencies: EdgeGrantDependencies,
 ): EdgeGrantService => {
-  const credentials = dependencies.credentials ?? coreCredentials();
+  const credentials = dependencies.credentials ?? noCredentials;
   const wallNow = dependencies.wallNow ?? Date.now;
   const ttlMs = dependencies.ttlMs ?? EDGE_GRANT_TTL_MS;
   const cache = new Map<string, CacheEntry>();

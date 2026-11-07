@@ -3,12 +3,12 @@ import { CODE_STEPS_ENABLED } from "../src/shared/features";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Effect, Layer, ManagedRuntime, Result, Schema } from "effect";
 import { Reactivity } from "effect/reactivity";
 import { SqlClient } from "effect/sql";
 import { describe, expect, it } from "vitest";
-import { coreOpBody } from "../src/core/ops";
-import "../src/core/ops/ipc-automation";
+import { AutomationCodePutAsk } from "../src/contract/core/automation";
+import { putAutomationCode, readAutomationCode } from "../src/core/ops/ipc-automation";
 import { makeContentServiceLive } from "../src/core/content/service";
 import { makeInstallOpsLive } from "../src/core/install-ops/engine";
 import { makeStateEngineLive } from "../src/core/state/engine";
@@ -24,8 +24,6 @@ import {
   type Action,
   type ActionRuling,
   type Automation,
-  type AutomationCodePutResponse,
-  type AutomationCodeReadResponse,
   AutomationId,
   type AutomationOp,
   AutomationVersion,
@@ -286,25 +284,14 @@ describe("the editor's code channels", () => {
       ),
     );
     try {
-      // The pane's client: both channels are the core operation of that name.
-      const call = <A>(name: string, input: unknown): Promise<A> => {
-        const body = coreOpBody(name);
-        if (body === undefined) throw new Error(`no core operation named ${name}`);
-        return runtime.runPromise(body(input as never) as Effect.Effect<A, never, never>);
-      };
-      const handlers = {
-        codePut: (canvasName: unknown, input: unknown) =>
-          call<AutomationCodePutResponse>("ipc.automation.codePut", { canvasName, input }),
-        codeRead: (canvasName: unknown, input: unknown) =>
-          call<AutomationCodeReadResponse>("ipc.automation.codeRead", { canvasName, input }),
-      };
       const text = 'import { cont } from "junto/automation";\ncont({ count: 3 });\n';
-      const put = await handlers.codePut("factory", { text });
+      const put = await runtime.runPromise(putAutomationCode("factory", text));
       if (put.kind !== "put") throw new Error(put.refusal.message);
       expect(put.ref.byteLength).toBe(new TextEncoder().encode(text).byteLength);
-      expect(await handlers.codeRead("factory", { ref: put.ref })).toEqual({ kind: "read", text });
-      expect(await handlers.codeRead("factory", { ref: source("f") })).toMatchObject({ kind: "refused", refusal: { reason: "not_available" } });
-      await expect(handlers.codePut("factory", { text: "" })).rejects.toThrow();
+      expect(await runtime.runPromise(readAutomationCode(put.ref))).toEqual({ kind: "read", text });
+      expect(await runtime.runPromise(readAutomationCode(source("f")))).toMatchObject({ kind: "refused", refusal: { reason: "not_available" } });
+      // The editor's ask is read closed before the core is asked: no text at all is no program.
+      expect(Result.isFailure(Schema.decodeUnknownResult(AutomationCodePutAsk, { onExcessProperty: "error" })({ canvasName: "factory", request: { text: "" } }))).toBe(true);
     } finally {
       await runtime.dispose();
       await rm(dir, { recursive: true, force: true });

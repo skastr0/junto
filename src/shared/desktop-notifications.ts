@@ -1,5 +1,6 @@
-import type { NotificationSettings } from "./settings";
-import { rankOf, type UrgencyLevel, type UrgencyRank } from "./wire/urgency";
+import { Schema } from "effect";
+import { NotificationSettings } from "./settings";
+import { rankOf, UrgencyLevel, type UrgencyRank } from "./wire/urgency";
 
 /**
  * Desktop notifications: what reaches the operator while Junto is not the
@@ -27,29 +28,33 @@ import { rankOf, type UrgencyLevel, type UrgencyRank } from "./wire/urgency";
  */
 
 export const NOTIFY_CATEGORIES = ["blocked", "failed", "needsYou", "done"] as const;
-export type NotifyCategory = (typeof NOTIFY_CATEGORIES)[number];
+export const NotifyCategory = Schema.Literals(NOTIFY_CATEGORIES);
+export type NotifyCategory = typeof NotifyCategory.Type;
 
 /** One open need on the canvas, as the renderer reports it. */
-export type NotifySubject = {
+export const NotifySubject = Schema.Struct({
   /** Stable per need: a feed item id, `done:<node>:<at>`, `failed:<node>:<epoch>`, `stopped:<node>:<since>`. */
-  readonly key: string;
-  readonly category: NotifyCategory;
+  key: Schema.String,
+  category: NotifyCategory,
   /** The need's level on the urgency ladder, which ranks it (`notifyNeed` in `need-surfaces.ts`). */
-  readonly level: UrgencyLevel;
-  readonly canvasName: string;
-  readonly nodeId: string;
-  readonly seatName: string;
+  level: UrgencyLevel,
+  canvasName: Schema.String,
+  nodeId: Schema.String,
+  seatName: Schema.String,
   /** One line, the way the feed says it. */
-  readonly text: string;
-};
+  text: Schema.String,
+});
+export type NotifySubject = typeof NotifySubject.Type;
 
-export type NotifyReport = {
-  readonly canvasName: string;
-  readonly subjects: ReadonlyArray<NotifySubject>;
+/** What the window reports of its open canvas: main posts from it, and the phone companion reads it in the core. */
+export const NotifyReport = Schema.Struct({
+  canvasName: Schema.String,
+  subjects: Schema.Array(NotifySubject),
   /** Needs-you count for the Dock badge: the ⌘I feed's own count. */
-  readonly badge: number;
-  readonly prefs: NotificationSettings;
-};
+  badge: Schema.Number,
+  prefs: NotificationSettings,
+});
+export type NotifyReport = typeof NotifyReport.Type;
 
 /** Where a click lands: one seat's focus view, or the feed. */
 export type NotifyTarget =

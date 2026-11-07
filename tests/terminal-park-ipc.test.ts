@@ -5,22 +5,48 @@
  */
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Effect } from "effect";
-import { inProcessCore } from "./support/in-process-core";
-import { core } from "../src/app/core-process/main-client";
+import { Layer, ManagedRuntime } from "effect";
+import { RpcTest } from "effect/rpc";
 import { IPC_CHANNELS, type TerminalParkResult } from "../src/shared/ipc";
-import { registerTerminalIpc } from "../src/app/term/ipc";
-import { bindTermIpcPlane } from "../src/core/ops/term-ipc";
-import "../src/core/ops/term-ipc";
+import { TermCore, TermRpcs } from "../src/contract/core/term-ipc";
+import { TermTemplatesCore, TermTemplatesRpcs } from "../src/contract/core/term-templates";
+import { bindTermIpcPlane, TermIpcPlane, TermPlaneHandlers } from "../src/core/ops/term-ipc";
+import { TermTemplatesHandlers } from "../src/core/ops/term-templates";
 import type { TermPlane } from "../src/core/term/plane";
 import { TerminalNodeDeleteService } from "../src/core/term/node-delete";
+import { ModelService } from "../src/core/model/service";
 import { OBSERVER_WATCHED_SCROLLBACK } from "../src/core/term/observer/session-observer";
 import { TERMINAL_BOUNDS } from "../src/shared/settings";
 
-// The terminal ops run on the plane this test binds; they need no service.
-const noServices = inProcessCore({ runPromiseExit: (effect) => Effect.runPromiseExit(effect as never) });
-const stubCore = () => vi.spyOn(core, "call").mockImplementation(((name: string, input: never) =>
-  noServices.call(name as never, input)) as typeof core.call);
+vi.mock("../src/app/runtime", () => ({ AppRuntime: ManagedRuntime.make(Layer.empty) }));
+
+const { registerTerminalIpc } = await import("../src/app/term/ipc");
+
+// The handlers on the test's plane and model. A handler that reads a service
+// this test does not give fails when it is asked; none of those is asked here.
+const termHandlers = TermPlaneHandlers as never as Layer.Layer<
+  Layer.Success<typeof TermPlaneHandlers>,
+  never,
+  TermIpcPlane | ModelService
+>;
+
+const runtimes: Array<ManagedRuntime.ManagedRuntime<TermCore | TermTemplatesCore, never>> = [];
+
+// The terminal handlers run on the plane this test gives them; they read no model.
+const termCore = (plane: Pick<TermPlane, "router" | "nodeDelete">) => {
+  const runtime = ManagedRuntime.make(
+    Layer.mergeAll(
+      Layer.effect(TermCore, RpcTest.makeClient(TermRpcs)),
+      Layer.effect(TermTemplatesCore, RpcTest.makeClient(TermTemplatesRpcs)),
+    ).pipe(
+      Layer.provide(Layer.mergeAll(termHandlers, TermTemplatesHandlers)),
+      Layer.provide(Layer.succeed(TermIpcPlane, plane)),
+      Layer.provide(Layer.succeed(ModelService, {} as never)),
+    ),
+  );
+  runtimes.push(runtime);
+  return runtime.context();
+};
 
 type Handler = (...args: readonly unknown[]) => unknown;
 
@@ -34,7 +60,7 @@ const eventually = async (check: () => void, timeoutMs = 2_000): Promise<void> =
   }
 };
 
-const rig = () => {
+const rig = async () => {
   const sent: { readonly channel: string; readonly payload: unknown }[] = [];
   const sender = Object.assign(new EventEmitter(), {
     isDestroyed: () => false,
@@ -58,12 +84,13 @@ const rig = () => {
     release: vi.fn(async () => {}),
     setTerminalEnvironment: vi.fn(),
   });
-  stubCore();
-  // The plane is the core's; the test binds it where the operations run.
-  bindTermIpcPlane({ router, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane);
+  // The plane is the core's; the test binds its events and gives it to the handlers.
+  const plane = { router, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane;
+  bindTermIpcPlane(plane);
   registerTerminalIpc(
     { handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never,
     { isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => undefined },
+    await termCore(plane),
   );
   const call = (channel: string, ...args: unknown[]) => Promise.resolve(handlers.get(channel)!(event, ...args));
   const open = async (bindingId: string): Promise<string> => {
@@ -85,11 +112,14 @@ const rig = () => {
   return { router, sent, open, park, emit, outputBytes };
 };
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(async () => {
+  vi.restoreAllMocks();
+  for (const runtime of runtimes.splice(0)) await runtime.dispose();
+});
 
 describe("a hidden terminal parks its stream", () => {
   it("sends the renderer the bytes of the visible terminal only, with ten opened and hidden", async () => {
-    const view = rig();
+    const view = await rig();
     const visible = await view.open("seat-0");
     const hidden: string[] = [];
     for (let index = 1; index <= 10; index += 1) hidden.push(await view.open(`seat-${index}`));
@@ -107,7 +137,7 @@ describe("a hidden terminal parks its stream", () => {
   });
 
   it("keeps the lease while parked, and still sends the events that are not output", async () => {
-    const view = rig();
+    const view = await rig();
     const lease = await view.open("seat");
     await view.park(lease, true);
     view.router.emit("event", { type: "exit", bindingId: "seat", epoch: "epoch-seat", seq: 2n });
@@ -118,7 +148,7 @@ describe("a hidden terminal parks its stream", () => {
   });
 
   it("catches up a view that missed output from the main grid, through an observe lease it gives back", async () => {
-    const view = rig();
+    const view = await rig();
     const lease = await view.open("seat");
     await view.park(lease, true);
     view.emit("seat", 1n, "missed");
@@ -141,7 +171,7 @@ describe("a hidden terminal parks its stream", () => {
   });
 
   it("unparks a view that missed nothing without reading the grid", async () => {
-    const view = rig();
+    const view = await rig();
     const lease = await view.open("seat");
     await view.park(lease, true);
     expect(await view.park(lease, false)).toEqual({ ok: true, missed: false });
@@ -149,7 +179,7 @@ describe("a hidden terminal parks its stream", () => {
   });
 
   it("delivers output already batched before the park", async () => {
-    const view = rig();
+    const view = await rig();
     const lease = await view.open("seat");
     view.emit("seat", 1n, "before");
     await view.park(lease, true);
@@ -157,7 +187,7 @@ describe("a hidden terminal parks its stream", () => {
   });
 
   it("refuses a lease this window does not hold", async () => {
-    const view = rig();
+    const view = await rig();
     expect(await view.park("lease-unknown", true)).toEqual({ ok: false });
   });
 

@@ -1,21 +1,23 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Cause, Effect, Exit, Layer, ManagedRuntime, Schema } from "effect";
+import { Cause, Effect, Exit, Layer, ManagedRuntime, Schema, Scope } from "effect";
+import { RpcTest } from "effect/rpc";
 import { SqlClient } from "effect/sql";
 import { describe, expect, it } from "vitest";
-import { coreOpBody } from "../src/core/ops";
-import "../src/core/ops/ipc-automation";
+import {
+  AutomationApplyAsk,
+  AutomationCodePutAsk,
+  AutomationCodeReadAsk,
+  AutomationFiringsAsk,
+  AutomationListAsk,
+  AutomationRpcs,
+} from "../src/contract/core/automation";
+import { AutomationHandlers } from "../src/core/ops/ipc-automation";
+import { CorePushes } from "../src/core/push";
 import { subscribe as subscribePushes } from "../src/app/core-process/main-side/core-pushes";
 import { AutomationRunnerLive, AutomationRunnerService } from "../src/core/automation/live";
 import { noBoatWakeLayer } from "./support/no-boat";
-import type {
-  AutomationApplyResponse,
-  AutomationCodePutResponse,
-  AutomationCodeReadResponse,
-  AutomationFiringsResponse,
-  AutomationListResponse,
-} from "../src/shared/automation";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { taskCanvasEnv } from "../src/core/work/task-control";
 import { rulingContextOf } from "../src/shared/ruling-context";
@@ -60,24 +62,28 @@ const definition: AutomationDefinition = {
 // The real recorder: a ruling's row and its fact, whose seq is the order change triggers read rulings in.
 const recorder = Layer.provideMerge(RulingRecorderLive, WorkRepositoryLive);
 
-/** The pane's client as main has it: every answer is the core operation of that name. */
-const automationOps = (run: <A, E>(effect: Effect.Effect<A, E, never>) => Promise<A>) => {
-  const call = <A>(name: string, input: unknown): Promise<A> => {
-    const body = coreOpBody(name);
-    if (body === undefined) throw new Error(`no core operation named ${name}`);
-    return run(body(input as never) as Effect.Effect<A, never, never>);
-  };
+const clientOf = () => RpcTest.makeClient(AutomationRpcs);
+type AutomationClient = Effect.Success<ReturnType<typeof clientOf>>;
+
+/** The pane's client as main has it: what the pane sends is decoded closed, then the group's client asks the core's handlers. */
+const automationOps = (client: AutomationClient) => {
+  const closed = { onExcessProperty: "error" } as const;
+  const decodeList = Schema.decodeUnknownEffect(AutomationListAsk, closed);
+  const decodeFirings = Schema.decodeUnknownEffect(AutomationFiringsAsk, closed);
+  const decodeApply = Schema.decodeUnknownEffect(AutomationApplyAsk, closed);
+  const decodeCodePut = Schema.decodeUnknownEffect(AutomationCodePutAsk, closed);
+  const decodeCodeRead = Schema.decodeUnknownEffect(AutomationCodeReadAsk, closed);
   return {
     list: (canvasName: unknown, input: unknown) =>
-      call<AutomationListResponse>("ipc.automation.list", { canvasName, input }),
+      Effect.runPromise(decodeList({ canvasName, request: input }).pipe(Effect.flatMap((ask) => client.AutomationList(ask)))),
     firings: (canvasName: unknown, input: unknown) =>
-      call<AutomationFiringsResponse>("ipc.automation.firings", { canvasName, input }),
+      Effect.runPromise(decodeFirings({ canvasName, request: input }).pipe(Effect.flatMap((ask) => client.AutomationFirings(ask)))),
     apply: (canvasName: unknown, input: unknown) =>
-      call<AutomationApplyResponse>("ipc.automation.apply", { canvasName, input }),
+      Effect.runPromise(decodeApply({ canvasName, request: input }).pipe(Effect.flatMap((ask) => client.AutomationApply(ask)))),
     codePut: (canvasName: unknown, input: unknown) =>
-      call<AutomationCodePutResponse>("ipc.automation.codePut", { canvasName, input }),
+      Effect.runPromise(decodeCodePut({ canvasName, request: input }).pipe(Effect.flatMap((ask) => client.AutomationCodePut(ask)))),
     codeRead: (canvasName: unknown, input: unknown) =>
-      call<AutomationCodeReadResponse>("ipc.automation.codeRead", { canvasName, input }),
+      Effect.runPromise(decodeCodeRead({ canvasName, request: input }).pipe(Effect.flatMap((ask) => client.AutomationCodeRead(ask)))),
   };
 };
 
@@ -129,18 +135,25 @@ const run = async (
         yield* model.command(command({ _tag: "Add", canvas: "factory", nodes: [node, tasks, artifacts, seat(SEAT)], wires: [] }), "operator");
       }),
     );
+    // The core's handlers, listening for writes while this scope is open, as the core's server does.
+    const scope = await Effect.runPromise(Scope.make());
+    const served = await runtime.runPromise(Layer.buildWithScope(Layer.provide(AutomationHandlers, CorePushes.live), scope));
+    const client = await runtime.runPromise(
+      clientOf().pipe(Effect.provide(served), Effect.provideService(Scope.Scope, scope)),
+    );
     const changed: AutomationsChanged[] = [];
     const stopPushes = subscribePushes(IPC_CHANNELS.automationsChanged, (event) => changed.push(event as AutomationsChanged));
     const exec = (statement: string) => runtime.runPromise(Effect.flatMap(SqlClient.SqlClient, (sql) => sql.unsafe(statement)).pipe(Effect.asVoid));
     try {
       await test(
-        automationOps((effect) => runtime.runPromise(effect as Effect.Effect<never, never, never>)),
+        automationOps(client),
         changed,
         exec,
         (effect) => runtime.runPromise(effect),
       );
     } finally {
       stopPushes();
+      await Effect.runPromise(Scope.close(scope, Exit.void));
     }
   } finally {
     await runtime.dispose();

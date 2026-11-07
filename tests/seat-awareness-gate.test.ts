@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   decodeSeatAwarenessEvent,
   type SeatAwarenessEvent,
-} from "../src/window/lib/seat-awareness-contract";
+} from "../src/shared/seat-awareness-contract";
 import { SEAT_AWARENESS_TIER } from "../src/shared/features";
 import { defaultSettings, type Settings } from "../src/shared/settings";
 import {

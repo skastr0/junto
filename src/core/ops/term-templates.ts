@@ -1,16 +1,16 @@
 /**
- * The window's terminal-picker reads (term/ipc.ts): the managed harnesses
- * installed on this machine, their profiles, and the launch flags a harness
- * offers. They ask the filesystem and the shells, so they run in the core,
- * where the terminal plane's own spawn paths already read the same templates.
+ * The core's handlers of the picker reads (src/contract/core/term-templates.ts):
+ * the managed harnesses installed on this machine, their profiles, and the
+ * launch flags a harness offers. They ask the filesystem and the shells, so
+ * they run in the core, where the terminal plane's own spawn paths already
+ * read the same templates.
  */
 import { Effect } from "effect";
-import type { HarnessId } from "@shared/managed-terminal-templates";
 import type { ManagedTerminalFlagsResult, ManagedTerminalProfilesResult } from "@shared/ipc";
+import { TermTemplatesRpcs } from "../../contract/core/term-templates";
 import type { HarnessInstallProbe } from "../term/templates/harness-install";
 import { harnessLaunchFlags, probeManagedHarnessInstalls } from "../term/templates/harness-install";
 import { enumerateManagedProfiles } from "../term/templates/enumerate-dispatch";
-import { coreOps, type CoreOp } from "../ops";
 
 /** A probe that throws answers nothing installed, as the window showed before. */
 const probed = <A>(ask: () => Promise<A>, empty: A): Effect.Effect<A> =>
@@ -18,22 +18,14 @@ const probed = <A>(ask: () => Promise<A>, empty: A): Effect.Effect<A> =>
     Effect.orElseSucceed(() => empty),
   );
 
-declare module "../ops" {
-  interface CoreOps {
-    "term.managedProfiles": CoreOp<Record<string, never>, ManagedTerminalProfilesResult>;
-    "term.harnessInstalls": CoreOp<Record<string, never>, { readonly harnesses: ReadonlyArray<HarnessInstallProbe> }>;
-    "term.harnessFlags": CoreOp<{ readonly harness: HarnessId; readonly cwd?: string }, ManagedTerminalFlagsResult>;
-  }
-}
-
-coreOps({
-  "term.managedProfiles": () =>
+export const TermTemplatesHandlers = TermTemplatesRpcs.toLayer({
+  TermTemplatesManagedProfiles: () =>
     probed<ManagedTerminalProfilesResult>(() => enumerateManagedProfiles(), { profiles: [], source: "empty" }),
-  "term.harnessInstalls": () =>
+  TermTemplatesHarnessInstalls: () =>
     Effect.map(
       probed<ReadonlyArray<HarnessInstallProbe>>(() => probeManagedHarnessInstalls(), []),
       (harnesses) => ({ harnesses }),
     ),
-  "term.harnessFlags": ({ harness, cwd }) =>
+  TermTemplatesHarnessFlags: ({ harness, cwd }) =>
     probed<ManagedTerminalFlagsResult>(() => harnessLaunchFlags(harness, cwd), { installed: false, flags: [] }),
 });

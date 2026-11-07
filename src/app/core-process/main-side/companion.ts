@@ -1,12 +1,11 @@
 /**
- * Main's side of the phone companion: Settings reaches the companion in the
- * core by name, and the system clipboard, which is main's, is served to the
- * core by host operation. A pairing that ends takes its link off the
- * clipboard only if the clipboard still holds it, which main checks.
+ * Main's side of the phone companion's clipboard: the system clipboard, which
+ * is main's, is served to the core by host operation. A pairing that ends
+ * takes its link off the clipboard only if the clipboard still holds it,
+ * which main checks. Settings reaches the companion itself through the
+ * core's companion group (`contract/core/companion.ts`).
  */
 import type { CompanionClipboard } from "../../../core/companion/service";
-import type { CompanionSettings } from "../../../core/companion/settings";
-import type { CoreClient } from "../../../contract/core/client";
 import type { HostOp } from "../../../core/host-ops";
 import { hostOps } from "./host-op-bodies";
 
@@ -17,17 +16,6 @@ declare module "../../../core/host-ops" {
     "clipboard.clearIf": HostOp<{ readonly text: string }, void>;
   }
 }
-
-/** Settings as main reaches the companion in the core process. */
-export const coreCompanionSettings = (core: CoreClient): CompanionSettings => ({
-  status: () => core.call("companion.status", {}),
-  startPairing: () => core.call("companion.startPairing", {}),
-  cancelPairing: (deviceId) => core.call("companion.cancelPairing", { deviceId }),
-  copyLink: (deviceId) => core.call("companion.copyLink", { deviceId }),
-  devices: () => core.call("companion.devices", {}),
-  remove: (deviceId) => core.call("companion.remove", { deviceId }),
-  restore: (target) => core.call("companion.restore", { target }),
-});
 
 /** Main's side: the system clipboard for the core's Copy link. Returns the removal. */
 export const serveCompanionClipboard = (clipboard: CompanionClipboard): (() => void) =>

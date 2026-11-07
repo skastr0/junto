@@ -32,7 +32,7 @@ import type { Settings } from "@shared/settings";
 import type { UsageState } from "@shared/usage";
 import type { ViewStateEvent } from "@shared/view-state";
 import type { WireTrafficEvent } from "@shared/wire-traffic";
-import type { SeatAwarenessEvent } from "@window/lib/seat-awareness-contract";
+import type { SeatAwarenessEvent } from "../../shared/seat-awareness-contract";
 import type { FilesChanged } from "@shared/files";
 import type { RemoteChange } from "../../core/files/link-client";
 import type { ActorRefsChanged } from "../../core/model/actor-refs";
@@ -46,11 +46,11 @@ export const WORK_PREAMBLE = "work.preamble";
 export const AGENT_SIGNAL_CHANGED = "signals.changed";
 /** The paired phones, after any change, for Settings. */
 export const COMPANION_DEVICES = "companion.devices";
-/** The live overseer's snapshot on every change, once `live.watch` started it. */
+/** The live overseer's snapshot on every change, from the moment the core's server starts. */
 export const LIVE_CHANGED = "live.changed";
-/** A mail thread's read point moved, from any surface, once `ipc.threads.watch` started it. */
+/** A mail thread's read point moved, from any surface, once `ThreadsWatch` started it. */
 export const SEAT_THREAD_READ_CHANGED = "threads.readChanged";
-/** Mail held on a seat past its wait, once `ipc.threads.watch` started it. */
+/** Mail held on a seat past its wait, once `ThreadsWatch` started it. */
 export const MAIL_WAITING = "mail.waiting";
 /** A canvas changed, with the document as it is now, or was removed; once `model.watchCanvases` started it. */
 export const CANVAS_CHANGED = "model.canvasChanged";

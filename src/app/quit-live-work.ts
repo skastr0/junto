@@ -37,7 +37,8 @@ export interface LiveSessionLike {
 
 /**
  * Ask whoever owns the terminals what is running. The caller passes the ask
- * (main: `core.call("term.list", {})`), so both answers are testable here: the
+ * (main: `coreTerminalSessions`, the terminal group's `TermList`, term/ipc.ts),
+ * so both answers are testable here: the
  * count, and the unknown that must warn rather than assume zero.
  */
 export const probeLiveWork = async (

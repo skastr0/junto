@@ -1,28 +1,19 @@
 /**
- * The window's backlinks read (work/mention-ipc.ts): where a seat, a task, an
- * artifact or a page is mentioned, read from `work_mentions` and named
- * against the canvas as it is now. Every added backlink is published here as
- * its write commits, and main relays that to the windows.
+ * The core's handlers of the mention group (src/contract/core/mention-ipc.ts):
+ * where a seat, a task, an artifact or a page is mentioned, read from
+ * `work_mentions` and named against the canvas as it is now. Every added
+ * backlink, from any writer, is published through `CorePushes` as its write
+ * commits, for as long as the server runs, and main relays it to the windows.
  */
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import { SqlClient } from "effect/sql";
 import { MENTION_IPC_CHANNELS } from "@shared/mention-ipc-channels";
-import { MentionListInput, type MentionPage } from "@shared/mention-ipc";
 import type { WorkErrorBody } from "@shared/work-control";
+import { MentionRpcs, MentionsUnreadable } from "../../contract/core/mention-ipc";
 import { onMentionsChanged, readMentions, type MentionAfter } from "../work/mention-backlinks";
 import { listMentions, type MentionIpcPorts } from "../work/mentions";
 import { WorkService } from "../work/service";
-import { coreOps, type CoreOp } from "../ops";
-import { publish } from "../push";
-
-declare module "../ops" {
-  interface CoreOps {
-    "ipc.mention.list": CoreOp<{ readonly input: unknown }, MentionPage>;
-  }
-}
-
-// Every added backlink, from any writer, reaches the panes as it commits.
-onMentionsChanged((canvasName) => publish(MENTION_IPC_CHANNELS.changed, { canvasName }));
+import { CorePushes } from "../push";
 
 const unreadable = (canvasName: string) => (): WorkErrorBody => ({
   type: "InternalError",
@@ -42,10 +33,20 @@ const ports: MentionIpcPorts<SqlClient.SqlClient | WorkService> = {
     ),
 };
 
-coreOps({
-  "ipc.mention.list": ({ input }) =>
-    Effect.gen(function* () {
-      const decoded = yield* Schema.decodeUnknownEffect(MentionListInput)(input, { onExcessProperty: "error" });
-      return yield* listMentions(ports, decoded);
-    }),
-});
+export const MentionHandlers = MentionRpcs.toLayer(
+  Effect.gen(function* () {
+    const pushes = yield* CorePushes;
+    // Every added backlink reaches the panes as it commits; the listener
+    // leaves with the server.
+    yield* Effect.acquireRelease(
+      Effect.sync(() =>
+        onMentionsChanged((canvasName) => void Effect.runFork(pushes.publish(MENTION_IPC_CHANNELS.changed, { canvasName }))),
+      ),
+      (stop) => Effect.sync(stop),
+    );
+    return {
+      MentionList: (input) =>
+        listMentions(ports, input).pipe(Effect.mapError((error) => new MentionsUnreadable({ message: error.message }))),
+    };
+  }),
+);

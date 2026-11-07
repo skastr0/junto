@@ -117,6 +117,23 @@ ContentCorrupt,
 ContentUnavailable,]);
 export type ContentAvailability = typeof ContentAvailability.Type;
 
+/**
+ * What opening an object for a streaming read gives: the verified object's
+ * path, size and media type, or why it cannot be read now.
+ */
+export const ContentOpenForRead = Schema.Union([
+  Schema.Struct({
+    state: Schema.Literal("verified"),
+    path: Schema.String,
+    byteLength: Schema.Number,
+    mediaType: Schema.String,
+  }),
+  ContentMissing,
+  ContentCorrupt,
+  ContentUnavailable,
+]);
+export type ContentOpenForRead = typeof ContentOpenForRead.Type;
+
 /** Work part that names bytes in the content store (no inline payload). */
 export const ContentPart = Schema.Struct({
   kind: Schema.Literal("content"),

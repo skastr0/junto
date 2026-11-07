@@ -15,23 +15,6 @@ export type { AgentSeatState } from "./wire/seat-activity";
 
 export type AgentSeatConfidence = "high" | "low";
 
-export type AgentSeatStateEvent = {
-  readonly bindingId: string;
-  readonly epoch: string;
-  readonly state: AgentSeatState;
-  readonly reason: string;
-  readonly confidence: AgentSeatConfidence;
-  readonly at: number;
-  readonly harness?: string;
-  /**
-   * The seat's status in the harness-domain vocabulary, which `state`
-   * projects (agent-state/projection.ts). Absent on an event published by
-   * a build before it, and on the tombstone of a generation moved off its
-   * seat, whose snapshot moved with it.
-   */
-  readonly status?: AgentSeatStatusWire;
-};
-
 /**
  * A seat's status as it rides the seat-state plane: its folded snapshot and
  * the most urgent need derived from it (harness-domain topNeed), encoded
@@ -44,6 +27,30 @@ export const AgentSeatStatus = Schema.Struct({
 });
 export type AgentSeatStatus = typeof AgentSeatStatus.Type;
 export type AgentSeatStatusWire = typeof AgentSeatStatus.Encoded;
+
+/** One seat's state event, as the window reads it and as a core hands it to main. */
+export const AgentSeatStateEvent = Schema.Struct({
+  bindingId: Schema.String,
+  epoch: Schema.String,
+  state: Schema.Literals(["idle", "working", "attention", "unknown", "gone"]),
+  reason: Schema.String,
+  confidence: Schema.Literals(["high", "low"]),
+  at: Schema.Number,
+  harness: Schema.optionalKey(Schema.String),
+  /**
+   * The seat's status in the harness-domain vocabulary, which `state`
+   * projects (agent-state/projection.ts). Absent on an event published by
+   * a build before it, and on the tombstone of a generation moved off its
+   * seat, whose snapshot moved with it. Carried in its encoded form.
+   */
+  status: Schema.optionalKey(Schema.toEncoded(AgentSeatStatus)),
+});
+export type AgentSeatStateEvent = typeof AgentSeatStateEvent.Type;
+
+// The wire's state and confidence are the model's vocabularies.
+const sameState: [AgentSeatStateEvent["state"]] extends [AgentSeatState] ? ([AgentSeatState] extends [AgentSeatStateEvent["state"]] ? true : false) : false = true;
+const sameConfidence: [AgentSeatStateEvent["confidence"]] extends [AgentSeatConfidence] ? ([AgentSeatConfidence] extends [AgentSeatStateEvent["confidence"]] ? true : false) : false = true;
+void [sameState, sameConfidence];
 
 export const encodeAgentSeatStatus = Schema.encodeSync(AgentSeatStatus);
 

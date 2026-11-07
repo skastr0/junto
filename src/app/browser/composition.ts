@@ -35,7 +35,6 @@ import {
   type BrowserViewAdapter,
   type BrowserUiShutdownDrainReceipt,
 } from "./sessions";
-import { core } from "../core-process/main-client";
 
 // Browser composition without ceremony: sessions + profiles + internal
 // capability registry (edge-grant leases only). Product access is
@@ -452,8 +451,14 @@ export interface BrowserCompositionRuntime {
   readonly profileGate?: BrowserProfileGate;
   readonly storagePlatform?: BrowserProfileStoragePlatform;
   readonly viewAdapter?: BrowserViewAdapter;
-  /** This machine's name, asked of the core; `undefined` when it cannot answer. */
-  readonly machineName?: () => Promise<string | undefined>;
+  /**
+   * This machine's name, asked of the core; `undefined` when it cannot answer.
+   * The machine record lives in the core, and main's own hosts snapshot is
+   * never hydrated (the hosts service moved to the core), so reading that
+   * snapshot compared every seat against an empty map and refused every
+   * caller. The caller asks the core and fails closed when it cannot answer.
+   */
+  readonly machineName: () => Promise<string | undefined>;
   readonly makeStorageLifecycle?: (
     dependencies: BrowserProfileStorageDependencies,
   ) => BrowserProfileStorageLifecycle;
@@ -479,17 +484,6 @@ export const clearTouchedServiceWorkersAtStart = async (
   );
   await store.remove(touched);
 };
-
-/**
- * The name this machine holds, for local browser admission. The machine record
- * lives in the core, and main's own hosts snapshot is never hydrated (the
- * hosts service moved to the core), so reading that snapshot here compared
- * every seat against an empty map and refused every caller. This is the same
- * read the Files service uses (junto/files/host-deps.ts): ask the core, and
- * fail closed when it cannot answer.
- */
-const thisMachineName = (): Promise<string | undefined> =>
-  core.call("core.machineName", {}).catch(() => undefined);
 
 class BindOnce<T extends object> {
   #bound = false;
@@ -550,7 +544,7 @@ export const startBrowserComposition = async (
     });
     const sessions = new BrowserSessionService(
       viewAdapter,
-      runtime.machineName ?? thisMachineName,
+      runtime.machineName,
       profiles,
       Date.now,
       randomUUID,

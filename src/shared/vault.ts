@@ -5,7 +5,7 @@
  * service-account token per machine.
  */
 import { Schema } from "effect";
-import type { AgentSignal } from "./agent-signals";
+import { AgentSignal } from "./wire/agent-signals";
 
 /**
  * A 1Password vault name as Junto passes it. Never `:` or `,`, which would add
@@ -61,15 +61,23 @@ export const SIGNAL_SECRET_PUT_REASONS = [
   "op-missing",
   "store-failed",
 ] as const;
-export type SignalSecretPutReason = (typeof SIGNAL_SECRET_PUT_REASONS)[number];
+export const SignalSecretPutReason = Schema.Literals(SIGNAL_SECRET_PUT_REASONS);
+export type SignalSecretPutReason = typeof SignalSecretPutReason.Type;
 
 /**
  * The answer, names only. `ok` with no signal means the value is set but the
  * answer was not recorded, so the signal stays open and the pane says so.
  */
-export type SignalSecretPutResult =
-  | { readonly ok: true; readonly item: string; readonly signal?: AgentSignal; readonly messageId?: string }
-  | { readonly ok: false; readonly reason: SignalSecretPutReason; readonly message: string };
+export const SignalSecretPutResult = Schema.Union([
+  Schema.Struct({
+    ok: Schema.Literal(true),
+    item: Schema.String,
+    signal: Schema.optionalKey(AgentSignal),
+    messageId: Schema.optionalKey(Schema.String),
+  }),
+  Schema.Struct({ ok: Schema.Literal(false), reason: SignalSecretPutReason, message: Schema.String }),
+]);
+export type SignalSecretPutResult = typeof SignalSecretPutResult.Type;
 
 /** Does this `op://` reference point inside the vault, by its exact name. */
 export const isRefInVault = (ref: string, vault: string): boolean => ref.startsWith(`op://${vault}/`);

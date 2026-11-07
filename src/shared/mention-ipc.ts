@@ -1,9 +1,9 @@
 import { Schema } from "effect";
-import type { MailMessageId } from "./crew";
+import { MailMessageId } from "./crew";
 import { MentionRef } from "./mention";
-import type { NodeId } from "./physics/schema";
-import type { ThreadPostAuthor } from "./resource-ipc";
-import type { ResourceSubject } from "./wire/thread-subject";
+import { ActorSeatId } from "./wire/resource-actor";
+import { NodeId } from "./wire/ids";
+import { ResourceSubject } from "./wire/thread-subject";
 
 /**
  * Backlinks over IPC (docs/plans/0.10/03 section 3): where a seat, a task,
@@ -34,25 +34,39 @@ export const MentionListInput = Schema.Struct({
   page: Schema.optionalKey(MentionPageRequest),
 });
 
-/** One place a thing is mentioned. */
-export type MentionedIn = {
-  readonly messageId: MailMessageId;
-  readonly threadId: MailMessageId;
-  /** The node whose mail holds the row: a seat's, or the task, artifacts or page node a comment is on. */
-  readonly mailbox: NodeId;
-  /** The task, artifact or page the row comments on; none for a seat's mail. */
-  readonly subject?: ResourceSubject;
-  /** Who wrote it, named as the canvas names them now. */
-  readonly author: ThreadPostAuthor;
-  /** Epoch ms the row was written: its message id's time. */
-  readonly at: number;
-};
+/**
+ * Who wrote a mentioning row, with the name to show: a seat and the operator
+ * as they wrote, an automation by its node. The same three a thread post
+ * names (`ThreadPostAuthor` in `resource-ipc.ts`).
+ */
+export const MentionAuthor = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("seat"), seatId: ActorSeatId, nodeId: NodeId, name: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("operator"), name: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("automation"), nodeId: NodeId, name: Schema.String }),
+]);
+export type MentionAuthor = typeof MentionAuthor.Type;
 
-export type MentionPage = {
-  readonly entries: ReadonlyArray<MentionedIn>;
+/** One place a thing is mentioned. */
+export const MentionedIn = Schema.Struct({
+  messageId: MailMessageId,
+  threadId: MailMessageId,
+  /** The node whose mail holds the row: a seat's, or the task, artifacts or page node a comment is on. */
+  mailbox: NodeId,
+  /** The task, artifact or page the row comments on; none for a seat's mail. */
+  subject: Schema.optionalKey(ResourceSubject),
+  /** Who wrote it, named as the canvas names them now. */
+  author: MentionAuthor,
+  /** Epoch ms the row was written: its message id's time. */
+  at: Schema.Number,
+});
+export type MentionedIn = typeof MentionedIn.Type;
+
+export const MentionPage = Schema.Struct({
+  entries: Schema.Array(MentionedIn),
   /** Pass as `before` for the next page; absent on the last one. */
-  readonly next?: MentionCursor;
-};
+  next: Schema.optionalKey(MentionCursor),
+});
+export type MentionPage = typeof MentionPage.Type;
 
 /** Said to every window after a commit adds a backlink on a canvas. */
 export type MentionsChanged = { readonly canvasName: string };

@@ -86,9 +86,10 @@ describe("main boot IPC registration", () => {
     const { registerFilesIpc } = await import("../src/app/files/ipc");
     const { registerOverseerLiveIpc } = await import("../src/app/overseer/live/ipc");
 
-    // In src/app/index.ts boot order.
+    // In src/app/index.ts boot order, on main's clients of a core that never answers.
+    const core = await unansweredCoreClients();
     registerIpcHandlers({
-      core: await unansweredCoreClients(),
+      core,
       surfacePlanes: { current: () => undefined },
       update: {
         host: { quiesceForInstall: async () => undefined, relaunchWithoutInstall: () => undefined },
@@ -96,12 +97,12 @@ describe("main boot IPC registration", () => {
       },
     });
     registerDemoIpcHandlers();
-    registerCompanionIpc();
-    registerNotificationIpc({ window: () => undefined, enabled: false });
-    registerFilesIpc();
+    registerCompanionIpc(core);
+    registerNotificationIpc({ window: () => undefined, enabled: false, core });
+    registerFilesIpc(core);
     // Behind LIVE_OVERSEER_ENABLED, and once the browser composition is up.
     registerOverseerLiveIpc(inert as Parameters<typeof registerOverseerLiveIpc>[0]);
-    registerBrowserIpcHandlers(inert as Parameters<typeof registerBrowserIpcHandlers>[0]);
+    registerBrowserIpcHandlers(inert as Parameters<typeof registerBrowserIpcHandlers>[0], core);
 
     const ipcMain = electron.ipcMain as FakeIpcMain;
     expect(ipcMain.handlers.size).toBeGreaterThan(50);

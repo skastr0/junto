@@ -9,6 +9,7 @@
  * `junto offboard` writes those notes; `junto onboard` hands the latest back
  * to the next session so it knows what came before and where to look.
  */
+import { Schema } from "effect";
 import type { SessionLocationMissing } from "./harness-domain";
 import type { OffboardBy } from "./seat-offboard";
 
@@ -224,22 +225,28 @@ export const newestSessionsFirst = (
 export const SEAT_OFFBOARD_STAGES = ["asked", "saved", "resting", "started", "waiting", "failed"] as const;
 export type SeatOffboardStage = (typeof SEAT_OFFBOARD_STAGES)[number];
 
-export type SeatOffboardProgress = {
-  readonly seatId: string;
-  readonly canvasName: string;
-  readonly mode: OffboardMode;
-  readonly stage: SeatOffboardStage;
-  readonly at: number;
+export const SeatOffboardProgress = Schema.Struct({
+  seatId: Schema.String,
+  canvasName: Schema.String,
+  mode: Schema.Literals(OFFBOARD_MODES),
+  stage: Schema.Literals(SEAT_OFFBOARD_STAGES),
+  at: Schema.Number,
   /** When the operator asked for this offboard; absent when the agent chose it. */
-  readonly askedAt?: number;
-  readonly message?: string;
+  askedAt: Schema.optionalKey(Schema.Number),
+  message: Schema.optionalKey(Schema.String),
   /**
    * Who ended the session. Absent: the seat's own agent, with `junto offboard`.
    * Otherwise it was closed from outside the session (see shared/seat-offboard.ts).
    */
-  readonly by?: "agent" | "operator" | "overseer" | "automatic";
+  by: Schema.optionalKey(Schema.Literals(["agent", "operator", "overseer", "automatic"])),
   /** False when the session was closed without notes. Absent: notes were written. */
-  readonly notes?: boolean;
-};
+  notes: Schema.optionalKey(Schema.Boolean),
+});
+export type SeatOffboardProgress = typeof SeatOffboardProgress.Type;
 
-export type SeatOffboardAskResult = { readonly ok: true } | { readonly ok: false; readonly message: string };
+/** The operator's offboard ask: sent, or why not in the operator's words. */
+export const SeatOffboardAskResult = Schema.Union([
+  Schema.Struct({ ok: Schema.Literal(true) }),
+  Schema.Struct({ ok: Schema.Literal(false), message: Schema.String }),
+]);
+export type SeatOffboardAskResult = typeof SeatOffboardAskResult.Type;

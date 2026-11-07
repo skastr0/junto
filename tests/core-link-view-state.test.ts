@@ -11,14 +11,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { Context, Effect, Exit, Layer, ManagedRuntime, Option, Scope } from "effect";
+import { RpcServer } from "effect/rpc";
 import { SqlClient } from "effect/sql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
-import { heldForServer, type PortMessage, type RpcPort } from "../src/shared/rpc-port";
+import { heldForServer, serverProtocol, type PortMessage, type RpcPort } from "../src/shared/rpc-port";
 import { CoreLink } from "../src/contract/core/link";
-import { ViewStateCore } from "../src/contract/core/view-state";
+import { ViewStateCore, ViewStateRpcs } from "../src/contract/core/view-state";
 import { CoreClientsLive } from "../src/app/core-process/clients";
-import { CoreServerLive } from "../src/core/link";
+import { ViewStateHandlers } from "../src/core/ops/ipc-view-state";
 import { CorePushes } from "../src/core/push";
 import { makeStateEngineLive } from "../src/core/state/engine";
 import { ViewStateRepositoryLive } from "../src/core/view-state/repository";
@@ -53,11 +54,17 @@ let pushes: Array<readonly [string, unknown]>;
 
 const machineAt = (root: string) => Layer.provideMerge(ViewStateRepositoryLive, makeStateEngineLive(join(root, "junto.db")));
 
-/** The core's server on its end of the channel, in the core runtime's scope. */
+/**
+ * A core server of the view-state group alone on its end of the channel, in
+ * the core runtime's scope: the core's own server (src/core/link.ts) answers
+ * every group, and this runtime holds only the view-state store.
+ */
 const serve = (link: RpcPort) =>
   core.runPromise(
     Layer.buildWithScope(
-      CoreServerLive.pipe(
+      RpcServer.layer(ViewStateRpcs).pipe(
+        Layer.provide(ViewStateHandlers),
+        Layer.provide(Layer.effect(RpcServer.Protocol, Effect.flatMap(CoreLink, serverProtocol))),
         Layer.provide([
           Layer.succeed(CoreLink, link),
           Layer.succeed(CorePushes, { publish: (channel, payload) => Effect.sync(() => void pushes.push([channel, payload])) }),

@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { RpcTest } from "effect/rpc";
 import { SqlClient } from "effect/sql";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
@@ -29,15 +30,29 @@ vi.mock("../src/core/core-runner", async (importOriginal) => ({
 }));
 vi.mock("../src/app/runtime", () => ({ AppRuntime: app }));
 import { registerTerminalIpc } from "../src/app/term/ipc";
-import { bindTermIpcPlane } from "../src/core/ops/term-ipc";
-import "../src/core/ops/term-ipc";
+import { TermCore, TermRpcs } from "../src/contract/core/term-ipc";
+import { TermTemplatesCore, TermTemplatesRpcs } from "../src/contract/core/term-templates";
+import { bindTermIpcPlane, TermIpcPlane, TermPlaneHandlers } from "../src/core/ops/term-ipc";
+import { TermTemplatesHandlers } from "../src/core/ops/term-templates";
 import { writeSeatSessionId } from "../src/core/term/seat-session-id";
-import { useCoreClient } from "../src/app/core-process/main-client";
-import { inProcessCore } from "./support/in-process-core";
 
-// Main runs no operation body: the test installs the core the app installs at
-// boot, run on the fixture's runtime.
-useCoreClient(inProcessCore(app));
+// The handlers on the test's plane and model. A handler that reads a service
+// this test does not give fails when it is asked; none of those is asked here.
+const termHandlers = TermPlaneHandlers as never as Layer.Layer<
+  Layer.Success<typeof TermPlaneHandlers>,
+  never,
+  TermIpcPlane | ModelService
+>;
+
+// Main runs no handler: its clients reach the core's terminal handlers on the
+// fixture's runtime, as the app's reach the core's over the port.
+const termClients = (plane: TermPlane) => Layer.mergeAll(
+  Layer.effect(TermCore, RpcTest.makeClient(TermRpcs)),
+  Layer.effect(TermTemplatesCore, RpcTest.makeClient(TermTemplatesRpcs)),
+).pipe(
+  Layer.provide(Layer.mergeAll(termHandlers, TermTemplatesHandlers)),
+  Layer.provide(Layer.succeed(TermIpcPlane, plane)),
+);
 
 const deferred = <A>() => {
   let resolve!: (value: A) => void;
@@ -68,13 +83,13 @@ const fixture = async () => {
     clientForOccupy: async () => { throw new Error("unexpected remote start"); },
     seatEnvironment: () => { entered.resolve(); return environment.promise; },
   });
-  const runtime = ManagedRuntime.make(Layer.mergeAll(
+  const runtime = ManagedRuntime.make(termClients(plane).pipe(Layer.provideMerge(Layer.mergeAll(
     Layer.succeed(ActorSeatOccupy, occupy),
     Layer.provideMerge(
       Layer.provide(ModelService.layer, ModelDependents.empty),
       Layer.provideMerge(Layer.mergeAll(makeMachineRepositoryLive({ defaultName: () => "workbench" }), makeSeatSessionRepositoryLive()), makeStateEngineLive(join(root, "state.db"))),
     ),
-  ));
+  ))));
   cleanups.push(async () => {
     environment.resolve({ env: {}, folders: [], record: EMPTY_LAUNCH_RECORD });
     await plane.drainOnQuit("test cleanup");
@@ -94,7 +109,7 @@ const fixture = async () => {
   bindTermIpcPlane(plane);
   registerTerminalIpc({ handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never, {
     isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => undefined,
-  });
+  }, await runtime.context());
   const start = () => Promise.resolve(handlers.get(IPC_CHANNELS.modelStart)!(
     { sender: { isDestroyed: () => false, send: () => {} } },
     { canvas: "quit", id: "seat" },

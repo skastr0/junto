@@ -9,7 +9,7 @@ import type { BindingId } from "../src/shared/model";
 import { seat } from "./support/model-nodes";
 import { ThreadHealthSection } from "../src/window/components/terminal/ThreadHealthSection";
 import { applySeatAwarenessEvent, resetSeatAwareness } from "../src/window/lib/seat-awareness";
-import type { SeatAwarenessAssessment } from "../src/window/lib/seat-awareness-contract";
+import type { SeatAwarenessAssessment } from "../src/shared/seat-awareness-contract";
 
 const node = seat("seat-1", { bindingId: "bind-1" as BindingId, label: "yakjev-1" });
 

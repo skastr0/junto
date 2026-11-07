@@ -10,23 +10,54 @@ import { EventEmitter } from "node:events";
 import { MessageChannel } from "node:worker_threads";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IPC_CHANNELS, type TerminalParkResult } from "../src/shared/ipc";
-import { registerTerminalIpc } from "../src/app/term/ipc";
 import type { TermPlane } from "../src/core/term/plane";
 import type { SurfacePlane } from "../src/app/core-process/main-side/term-surface";
 import { TerminalNodeDeleteService } from "../src/core/term/node-delete";
 import { Layer, ManagedRuntime } from "effect";
-import { inProcessCore } from "./support/in-process-core";
-import { useCoreClient } from "../src/app/core-process/main-client";
-import { bindTermIpcPlane } from "../src/core/ops/term-ipc";
-import "../src/core/ops/term-ipc";
+import { RpcTest } from "effect/rpc";
+import { TermCore, TermRpcs } from "../src/contract/core/term-ipc";
+import { TermTemplatesCore, TermTemplatesRpcs } from "../src/contract/core/term-templates";
+import { bindTermIpcPlane, TermIpcPlane, TermPlaneHandlers } from "../src/core/ops/term-ipc";
+import { TermTemplatesHandlers } from "../src/core/ops/term-templates";
+import { ModelService } from "../src/core/model/service";
 
 vi.mock("electron", () => ({ MessageChannelMain: MessageChannel }));
+vi.mock("../src/app/runtime", () => ({ AppRuntime: ManagedRuntime.make(Layer.empty) }));
+
+const { registerTerminalIpc } = await import("../src/app/term/ipc");
+
+// The handlers on the test's plane and model. A handler that reads a service
+// this test does not give fails when it is asked; none of those is asked here.
+const termHandlers = TermPlaneHandlers as never as Layer.Layer<
+  Layer.Success<typeof TermPlaneHandlers>,
+  never,
+  TermIpcPlane | ModelService
+>;
+
+const runtimes: Array<ManagedRuntime.ManagedRuntime<TermCore | TermTemplatesCore, never>> = [];
+
+// The window's handlers ask the core's terminal group; here the core is in
+// process, its handlers on the rig's plane.
+const termCore = (plane: Pick<TermPlane, "router" | "nodeDelete">) => {
+  const runtime = ManagedRuntime.make(
+    Layer.mergeAll(
+      Layer.effect(TermCore, RpcTest.makeClient(TermRpcs)),
+      Layer.effect(TermTemplatesCore, RpcTest.makeClient(TermTemplatesRpcs)),
+    ).pipe(
+      Layer.provide(Layer.mergeAll(termHandlers, TermTemplatesHandlers)),
+      Layer.provide(Layer.succeed(TermIpcPlane, plane)),
+      Layer.provide(Layer.succeed(ModelService, {} as never)),
+    ),
+  );
+  runtimes.push(runtime);
+  return runtime.context();
+};
 
 type Handler = (...args: readonly unknown[]) => unknown;
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 80));
 
-const rig = (surfaces: boolean | (() => boolean) = true) => {
+const rig = async (surfaces: boolean | (() => boolean) = true) => {
   const during: Array<() => void> = [];
   const sent: { readonly channel: string; readonly payload: unknown }[] = [];
   const ports: { readonly leaseId: string }[] = [];
@@ -76,8 +107,6 @@ const rig = (surfaces: boolean | (() => boolean) = true) => {
     closeSurface: vi.fn(),
   };
   const plane = { router, host, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane;
-  // The window's handlers ask the core by name; here the core is in process, on this rig's plane.
-  useCoreClient(inProcessCore(ManagedRuntime.make(Layer.empty) as never));
   unbind = bindTermIpcPlane(plane);
   // Main's surface ports reach the core: here the core is the same process, and
   // this stands in for its plane handing the port to the terminal process.
@@ -88,6 +117,7 @@ const rig = (surfaces: boolean | (() => boolean) = true) => {
   registerTerminalIpc(
     { handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never,
     { isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => surfacePlane },
+    await termCore(plane),
   );
   const call = (channel: string, ...args: unknown[]) => Promise.resolve(handlers.get(channel)!({ sender }, ...args));
   const open = async (surface = true): Promise<string> => {
@@ -104,15 +134,16 @@ const rig = (surfaces: boolean | (() => boolean) = true) => {
 };
 
 let unbind: (() => void) | undefined;
-afterEach(() => {
+afterEach(async () => {
   unbind?.();
   unbind = undefined;
   vi.restoreAllMocks();
+  for (const runtime of runtimes.splice(0)) await runtime.dispose();
 });
 
 describe("a control view on a surface port", () => {
   it("gets a port for its lease and no output over IPC while it holds it", async () => {
-    const view = rig();
+    const view = await rig();
     const lease = await view.open();
     expect(view.ports).toEqual([{ leaseId: lease }]);
     view.emit(10n, "over the port");
@@ -124,7 +155,7 @@ describe("a control view on a surface port", () => {
   });
 
   it("gives the port up when hidden and gets one that starts after the repainted screen when shown", async () => {
-    const view = rig();
+    const view = await rig();
     const lease = await view.open();
     await view.park(lease, true);
     // The view's port is given up by its own stop, which closes it in the core.
@@ -143,7 +174,7 @@ describe("a control view on a surface port", () => {
 
   it("a view whose new port does not open still gets the output that flowed while its screen was read", async () => {
     let opens = 0;
-    const view = rig(() => (opens += 1) === 1);
+    const view = await rig(() => (opens += 1) === 1);
     const lease = await view.open();
     await view.park(lease, true);
     view.during.push(() => view.emit(10n, "during the read"));
@@ -158,7 +189,7 @@ describe("a control view on a surface port", () => {
   });
 
   it("a view hidden again while its screen was read gets no port until it is shown", async () => {
-    const view = rig();
+    const view = await rig();
     const lease = await view.open();
     await view.park(lease, true);
     let parkedAgain: Promise<unknown> | undefined;
@@ -176,7 +207,7 @@ describe("a control view on a surface port", () => {
   });
 
   it("reads over IPC when its PTY is not in the terminal process", async () => {
-    const view = rig(false);
+    const view = await rig(false);
     await view.open();
     expect(view.ports).toEqual([]);
     view.emit(10n, "over ipc");
@@ -185,7 +216,7 @@ describe("a control view on a surface port", () => {
   });
 
   it("never gets a port it did not ask for", async () => {
-    const view = rig();
+    const view = await rig();
     await view.open(false);
     expect(view.host.openSurface).not.toHaveBeenCalled();
     view.emit(10n, "over ipc");

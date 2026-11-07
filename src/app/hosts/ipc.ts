@@ -1,11 +1,21 @@
 import type { IpcMain, WebContents } from "electron";
 import { randomUUID } from "node:crypto";
+import { Context } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
-import { core } from "../core-process/main-client";
 import { MACHINE_PROGRESS, type MachineProgressPushed } from "../../contract/core/channels";
+import { HostsCore } from "../../contract/core/hosts-ipc";
 import { subscribe as subscribeCore } from "../core-process/main-side/core-pushes";
+import { AppRuntime } from "../runtime";
 
-export const registerHostsIpc = (ipcMain: IpcMain): void => {
+/**
+ * The one machine command the window sends, asked of the core's hosts group
+ * (src/contract/core/hosts-ipc.ts). The input stays as the window sent it:
+ * the core decodes it closed against the owner's request union and refuses
+ * what is not a machine command, and answers every refusal in the owner
+ * envelope, so nothing here judges it.
+ */
+export const registerHostsIpc = (ipcMain: IpcMain, core: Context.Context<HostsCore>): void => {
+  const hosts = Context.get(core, HostsCore);
   // A running command's progress goes only to the window whose call asked for it.
   const senders = new Map<string, WebContents>();
   subscribeCore(MACHINE_PROGRESS, (payload) => {
@@ -17,6 +27,6 @@ export const registerHostsIpc = (ipcMain: IpcMain): void => {
   ipcMain.handle(IPC_CHANNELS.machineCommand, (event, input: unknown) => {
     const requestId = randomUUID();
     senders.set(requestId, event.sender);
-    return core.call("ipc.hosts.command", { input, requestId }).finally(() => senders.delete(requestId));
+    return AppRuntime.runPromise(hosts.HostsCommand({ input, requestId })).finally(() => senders.delete(requestId));
   });
 };

@@ -23,6 +23,7 @@
  * return path.
  */
 
+import { Schema } from "effect";
 import { messageBriefText, messageIdTimeMs } from "./message-delivery";
 import type { Message } from "./work-model";
 
@@ -40,24 +41,24 @@ export const SEAT_COLLABORATION_WHY_MAX = 200;
 export const SEAT_COLLABORATION_EVIDENCE_MAX = 4;
 export const SEAT_COLLABORATION_EVIDENCE_LINE_MAX = 200;
 
-export type SeatCollaborationDraft = {
-  readonly canvas: string;
-  readonly sourceNodeId: string;
-  readonly sourceLabel: string;
-  readonly targetNodeId: string;
-  readonly targetLabel: string;
-  readonly question: string;
-  readonly why: string;
-  readonly evidence: readonly string[];
-};
+export const SeatCollaborationDraft = Schema.Struct({
+  canvas: Schema.String,
+  sourceNodeId: Schema.String,
+  sourceLabel: Schema.String,
+  targetNodeId: Schema.String,
+  targetLabel: Schema.String,
+  question: Schema.String,
+  why: Schema.String,
+  evidence: Schema.Array(Schema.String),
+});
+export type SeatCollaborationDraft = typeof SeatCollaborationDraft.Type;
 
 /** Mail writes return their identity; mailbox events deliver the updated rows. */
-export type SeatCollaborationAskResult =
-  | {
-      readonly ok: true;
-      readonly requestId: string;
-    }
-  | { readonly ok: false; readonly error: string };
+export const SeatCollaborationAskResult = Schema.Union([
+  Schema.Struct({ ok: Schema.Literal(true), requestId: Schema.String }),
+  Schema.Struct({ ok: Schema.Literal(false), error: Schema.String }),
+]);
+export type SeatCollaborationAskResult = typeof SeatCollaborationAskResult.Type;
 
 export type SeatCollaborationReply = {
   readonly messageId: string;

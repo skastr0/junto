@@ -1,6 +1,9 @@
+import { Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({}));
+// The registrar module runs its calls on main's runtime; this one holds nothing, and Electron's app is never read.
+vi.mock("../src/app/runtime", () => ({ AppRuntime: ManagedRuntime.make(Layer.empty) }));
 
 import type { BrowserWindow } from "electron";
 import { URGENT_SETTLE_MS, type NotifySubject } from "../src/shared/desktop-notifications";

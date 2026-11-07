@@ -24,7 +24,7 @@ import {
 import type {
   SeatAwarenessAssessment,
   SeatAwarenessEvidenceLine,
-} from "../src/window/lib/seat-awareness-contract";
+} from "../src/shared/seat-awareness-contract";
 import {
   applySeatAwarenessEvent,
   awarenessForBinding,

@@ -74,7 +74,7 @@ export const startCoreProcessForMain = (input: {
     });
   });
   const stopRelay = relayWindowPushes(started);
-  const stopHost = serveOverseerHost({ core: started, pages: input.pages, captureApplicationPage: input.captureApplicationPage });
+  const stopHost = serveOverseerHost({ link: started.link, pages: input.pages, captureApplicationPage: input.captureApplicationPage });
   const stopClipboard = serveCompanionClipboard(input.clipboard);
   // A guarded seat's paste preflight: the core asks, main reads the pasteboard's formats.
   const stopClipboardFormats = serveClipboardFormats({ availableFormats: input.clipboardFormats });

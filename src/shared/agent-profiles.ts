@@ -1,5 +1,6 @@
+import { Schema } from "effect";
 import { EXTRA_ARG_MAX_LENGTH, EXTRA_ARGS_MAX } from "./launch-extra-args";
-import { normalizePortraitOverride, type PortraitOverride } from "./portrait-overrides";
+import { normalizePortraitOverride, PortraitOverride } from "./portrait-overrides";
 import {
   SEAT_INSTRUCTIONS_MAX,
   SEAT_SOUL_MAX,
@@ -28,36 +29,40 @@ export const PROFILES_MAX = 200;
 const HARNESS_MAX = 32;
 const DIAL_MAX = 200;
 
-export type AgentProfileBody = {
+export const AgentProfileBody = Schema.Struct({
   /** The seat's name, and the profile's name in the picker. */
-  readonly name: string;
-  readonly harness: string;
-  readonly model?: string;
-  readonly effort?: string;
+  name: Schema.String,
+  harness: Schema.String,
+  model: Schema.optionalKey(Schema.String),
+  effort: Schema.optionalKey(Schema.String),
   /** Named agent mode (Amp). */
-  readonly mode?: string;
-  readonly permissionMode?: string;
+  mode: Schema.optionalKey(Schema.String),
+  permissionMode: Schema.optionalKey(Schema.String),
   /** Extra harness arguments beyond the dials, one argv token each. */
-  readonly extraArgs?: readonly string[];
+  extraArgs: Schema.optionalKey(Schema.Array(Schema.String)),
   /** Hermes profile the harness runs as. */
-  readonly harnessProfile?: string;
+  harnessProfile: Schema.optionalKey(Schema.String),
   /** Fully resolved character, so a fresh node draws the same face. */
-  readonly portrait?: PortraitOverride;
-  readonly soul?: string;
-  readonly instructions?: string;
-};
+  portrait: Schema.optionalKey(PortraitOverride),
+  soul: Schema.optionalKey(Schema.String),
+  instructions: Schema.optionalKey(Schema.String),
+});
+export type AgentProfileBody = typeof AgentProfileBody.Type;
 
-export type AgentProfile = AgentProfileBody & {
-  readonly profileId: string;
-  readonly createdAt: number;
-  readonly updatedAt: number;
-};
+export const AgentProfile = Schema.Struct({
+  ...AgentProfileBody.fields,
+  profileId: Schema.String,
+  createdAt: Schema.Number,
+  updatedAt: Schema.Number,
+});
+export type AgentProfile = typeof AgentProfile.Type;
 
 /** Save a new profile (no id) or replace an existing one's configuration. */
-export type ProfileSaveInput = {
-  readonly profileId?: string;
-  readonly body: AgentProfileBody;
-};
+export const ProfileSaveInput = Schema.Struct({
+  profileId: Schema.optionalKey(Schema.String),
+  body: AgentProfileBody,
+});
+export type ProfileSaveInput = typeof ProfileSaveInput.Type;
 
 export type ProfileResult =
   | { readonly ok: true; readonly profile: AgentProfile }

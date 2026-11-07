@@ -1149,10 +1149,20 @@ export type AutomationFiringsResponse = typeof AutomationFiringsResponse.Type;
 export const AutomationApplyRequest = Schema.Struct({ nodeId: NodeId, automationId: AutomationId, op: AutomationOp });
 export type AutomationApplyRequest = typeof AutomationApplyRequest.Type;
 
+/** A ruler's refusal as the pane reads it: the reason, in words, and what would have worked. */
+export const AutomationRefusal = Schema.Struct({
+  reason: RefusalReason,
+  message: Schema.String,
+  expected: Schema.optionalKey(Schema.Unknown),
+  next_step: Schema.optionalKey(Schema.String),
+});
+
 /** Applied (the head it left, absent once archived) or refused with its reason; never queued (apply.ts). */
-export type AutomationApplyResponse =
-  | { readonly kind: "applied"; readonly automation?: Automation }
-  | { readonly kind: "refused"; readonly refusal: Refusal };
+export const AutomationApplyResponse = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("applied"), automation: Schema.optionalKey(Automation) }),
+  Schema.Struct({ kind: Schema.Literal("refused"), refusal: AutomationRefusal }),
+]);
+export type AutomationApplyResponse = typeof AutomationApplyResponse.Type;
 
 /**
  * A code step's program put in the content store: the editor puts it on save,
@@ -1165,16 +1175,20 @@ export const AutomationCodePutRequest = Schema.Struct({
   ),
 });
 export type AutomationCodePutRequest = typeof AutomationCodePutRequest.Type;
-export type AutomationCodePutResponse =
-  | { readonly kind: "put"; readonly ref: ContentRef }
-  | { readonly kind: "refused"; readonly refusal: Refusal };
+export const AutomationCodePutResponse = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("put"), ref: ContentRef }),
+  Schema.Struct({ kind: Schema.Literal("refused"), refusal: AutomationRefusal }),
+]);
+export type AutomationCodePutResponse = typeof AutomationCodePutResponse.Type;
 
 /** A code step's program read back as text, from this machine's content store. */
 export const AutomationCodeReadRequest = Schema.Struct({ ref: ContentRef });
 export type AutomationCodeReadRequest = typeof AutomationCodeReadRequest.Type;
-export type AutomationCodeReadResponse =
-  | { readonly kind: "read"; readonly text: string }
-  | { readonly kind: "refused"; readonly refusal: Refusal };
+export const AutomationCodeReadResponse = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("read"), text: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("refused"), refusal: AutomationRefusal }),
+]);
+export type AutomationCodeReadResponse = typeof AutomationCodeReadResponse.Type;
 
 /** Sent to every window after a committed change to a node's automations. */
 export type AutomationsChanged = { readonly canvasName: string; readonly nodeId: NodeId };

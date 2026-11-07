@@ -1,22 +1,18 @@
 /**
- * The window's seat-awareness reads, answered by the core (junto/ipc.ts).
+ * The core's handler of the window's seat-awareness read
+ * (src/contract/core/seat-awareness.ts).
  *
  * The plane and the seats it reads live in the core process, so main asks for
  * the snapshot and for the collaboration gate rather than owning a plane it
- * cannot feed. One operation answers both: the enabled check is the same
- * snapshot the renderer hydrates from, so the two cannot disagree.
+ * cannot feed. One call answers both: the enabled check is the same snapshot
+ * the renderer hydrates from, so the two cannot disagree.
  */
 import { Effect } from "effect";
-import { SeatAwareness, type SeatAwarenessSnapshot } from "../term/seat-awareness-live";
-import { coreOps, type CoreOp } from "../ops";
+import { SeatAwarenessRpcs } from "../../contract/core/seat-awareness";
+import { SeatAwareness } from "../term/seat-awareness-live";
 
-declare module "../ops" {
-  interface CoreOps {
-    /** The live gate, and the latest event per binding for the window's hydration. */
-    "seats.awareness": CoreOp<Record<string, never>, SeatAwarenessSnapshot>;
-  }
-}
-
-coreOps({
-  "seats.awareness": () => Effect.flatMap(SeatAwareness, (awareness) => awareness.snapshot()),
-});
+export const SeatAwarenessHandlers = SeatAwarenessRpcs.toLayer(
+  Effect.map(SeatAwareness, (awareness) => ({
+    SeatAwarenessSnapshot: () => awareness.snapshot(),
+  })),
+);

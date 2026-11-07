@@ -2,10 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Layer, ManagedRuntime, Schema } from "effect";
-import { inProcessCore, type CoreRunner } from "./support/in-process-core";
-import "../src/core/ops/main-index";
-import { PausePlane } from "../src/core/pause-plane";
+import { ManagedRuntime, Schema } from "effect";
 import { BindingId } from "../src/shared/model/kinds";
 import { SqlClient } from "effect/sql";
 import type { Canvas } from "../src/shared/model";
@@ -202,11 +199,9 @@ describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", ()
             },
           }),
     });
-    // The pause plane as the work socket reads it, in the core on every request; flipped per test.
+    // The pause plane as the work socket reads it on every request; flipped per test. The core's
+    // read itself is the main-index group's (tests/core-rpc-main-index.test.ts).
     const pause = { playing: true };
-    const core = inProcessCore(ManagedRuntime.make(Layer.succeed(PausePlane, {
-      stateFor: (canvasName: string) => ({ playing: canvasName === "work" && pause.playing, everPlayed: true }),
-    } as never)) as unknown as CoreRunner);
     const handlers = makeControlHandlers({
       sessions,
       capabilities,
@@ -215,7 +210,7 @@ describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", ()
       listDocuments: listCanvasModels,
       shotsDir: join(root, "shots"),
       edgeGrant,
-      canvasPlaying: (canvasName) => core.call("pause.playing", { canvas: canvasName }),
+      canvasPlaying: async (canvasName) => canvasName === "work" && pause.playing,
     });
     return { handlers, edgeGrant, capabilities, pause };
   };

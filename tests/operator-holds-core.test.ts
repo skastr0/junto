@@ -9,44 +9,43 @@
  * reports never reached the cut and a seat the operator was watching could be
  * offboarded under their hands.
  *
- * This drives the real boundary: main's ipcMain handler, the core operation it
- * calls, and the holds the core reads. One process cannot hold two maps, so the
+ * This drives the real boundary: main's ipcMain handler, the holds group it
+ * calls (src/contract/core/seat-holds.ts), and the holds the core reads. One process cannot hold two maps, so the
  * split is also pinned in the source: main keeps none.
  */
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { Layer, ManagedRuntime } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { RpcTest } from "effect/rpc";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import { IPC_CHANNELS } from "../src/shared/ipc";
-import { runCoreOp } from "../src/core/serve";
-import type { CoreClient } from "../src/contract/core/client";
-import { coreOperatorHolds } from "../src/app/core-process/main-side/seat-holds";
-import "../src/core/ops/seat-holds";
+import { SeatHoldsCore, SeatHoldsRpcs } from "../src/contract/core/seat-holds";
+import { SeatHoldsHandlers } from "../src/core/ops/seat-holds";
 import { liveOperatorHolds, operatorHolds, subscribeOperatorTyped } from "../src/core/term/operator-holds";
 import { registerOperatorHoldsIpc } from "../src/app/term/operator-holds-ipc";
+
+vi.mock("../src/app/runtime", () => ({ AppRuntime: ManagedRuntime.make(Layer.empty) }));
+
+const { coreOperatorHolds } = await import("../src/app/core-process/main-side/seat-holds");
 
 const source = (relative: string): string =>
   readFileSync(new URL(`../${relative}`, import.meta.url), "utf8");
 
 let nextWindowId = 9_400;
-const runtimes: Array<ManagedRuntime.ManagedRuntime<never, never>> = [];
+const runtimes: Array<ManagedRuntime.ManagedRuntime<SeatHoldsCore, never>> = [];
 
 afterEach(async () => {
   for (const runtime of runtimes.splice(0)) await runtime.dispose();
 });
 
-const wired = () => {
-  const runtime = ManagedRuntime.make(Layer.empty);
-  runtimes.push(runtime as never);
-  // The core's side of the port, in this process: the operations run on its runtime.
-  const core: CoreClient = {
-    call: (async (name: string, input: unknown) => {
-      const answer = await runCoreOp(runtime as never, name, input);
-      if (!answer.ok) throw new Error(answer.failure.message);
-      return answer.value;
-    }) as CoreClient["call"],
-  };
+const wired = async () => {
+  // The core's side of the group, in this process: main's client reaches its handlers.
+  const runtime = ManagedRuntime.make(
+    Layer.effect(SeatHoldsCore, RpcTest.makeClient(SeatHoldsRpcs)).pipe(Layer.provide(SeatHoldsHandlers)),
+  );
+  runtimes.push(runtime);
+  const core = await runtime.context();
   const handlers = new Map<string, (event: IpcMainInvokeEvent, arg: unknown) => unknown>();
   const holds = registerOperatorHoldsIpc(
     { handle: (channel: string, listener: (event: IpcMainInvokeEvent, arg: unknown) => unknown) => { handlers.set(channel, listener); } } as unknown as Pick<IpcMain, "handle">,
@@ -59,7 +58,6 @@ const wired = () => {
     await handlers.get(channel)?.(event, arg);
   };
   return {
-    core,
     windowId,
     replay: holds.replay,
     show: (ids: unknown) => send(IPC_CHANNELS.seatSurfacesOpen, ids),
@@ -70,7 +68,7 @@ const wired = () => {
 
 describe("the operator's holds in the core", () => {
   it("holds the seats a window shows, at the cut that asks", async () => {
-    const { show } = wired();
+    const { show } = await wired();
     await show(["hold-shown-a", "hold-shown-b"]);
     const now = Date.now();
     expect(operatorHolds("hold-shown-a", now)).toBe(true);
@@ -82,7 +80,7 @@ describe("the operator's holds in the core", () => {
   });
 
   it("warms the clock of a seat the operator types into", async () => {
-    const { type } = wired();
+    const { type } = await wired();
     const warmed: string[] = [];
     const off = subscribeOperatorTyped((bindingId) => warmed.push(bindingId));
     try {
@@ -95,21 +93,21 @@ describe("the operator's holds in the core", () => {
   });
 
   it("drops every hold a window had when it reloads or closes", async () => {
-    const first = wired();
+    const first = await wired();
     await first.show(["hold-reloaded"]);
     await first.type("hold-reloaded-typed");
     first.sender.emit("did-start-navigation", {}, "app://junto", false, true);
     expect(operatorHolds("hold-reloaded", Date.now())).toBe(false);
     expect(operatorHolds("hold-reloaded-typed", Date.now())).toBe(false);
 
-    const second = wired();
+    const second = await wired();
     await second.show(["hold-closed"]);
     second.sender.emit("destroyed");
     expect(operatorHolds("hold-closed", Date.now())).toBe(false);
   });
 
   it("sends the window's seats again to a core that starts with none", async () => {
-    const { show, replay, windowId } = wired();
+    const { show, replay, windowId } = await wired();
     await show(["hold-restart-a", "hold-restart-b"]);
     expect(operatorHolds("hold-restart-a", Date.now())).toBe(true);
     // A new core has no holds: every window starts empty there.
@@ -122,7 +120,7 @@ describe("the operator's holds in the core", () => {
   });
 
   it("refuses a report that is not binding ids", async () => {
-    const { show, type } = wired();
+    const { show, type } = await wired();
     await show("hold-not-a-list");
     await show([42, "", "hold-valid"]);
     await type(42);
@@ -133,7 +131,7 @@ describe("the operator's holds in the core", () => {
 
   it("keeps no map in main: the reports go to the core, which keeps them", () => {
     const ipc = source("src/app/ipc.ts");
-    expect(ipc).toContain("coreOperatorHolds(core)");
+    expect(ipc).toContain("coreOperatorHolds(boot.core)");
     expect(ipc).not.toContain('from "./term/operator-holds"');
     // Main's half imports the shape of a report, never the map or its module.
     const port = source("src/app/core-process/main-side/seat-holds.ts");

@@ -4,9 +4,9 @@
  * The sidecar asks a fixed pack of narrow typed questions about a bounded
  * window of terminal evidence and publishes the answers as advisory display.
  * This file is the wire shape and nothing else: the renderer store
- * (`seat-awareness.ts`) owns hygiene and presentation, and main/preload own
- * the producers. It is deliberately local to the renderer because the parent
- * thread wires the real channels; nothing here writes IPC.
+ * (`src/window/lib/seat-awareness.ts`) owns hygiene and presentation, and
+ * the core owns the producers. It is shared because the core's producers, the
+ * core's contract and the window all read it; nothing here writes IPC.
  *
  * Authority boundary (binding):
  *   Awareness is display only. It may never change deterministic seat events,

@@ -183,7 +183,8 @@ export const threadEntriesOfMailbox = (
 };
 
 /** The operator's read point in a thread: the newest mail read, and when it was read, on the Mac clock. */
-export type MailReadPoint = { readonly through: string; readonly at: number };
+export const MailReadPoint = Schema.Struct({ through: Schema.String, at: Schema.Number });
+export type MailReadPoint = typeof MailReadPoint.Type;
 
 /** `a` is later than `b` in a thread's order. */
 export const mailAfter = (a: Pick<Entry, "at" | "messageId">, b: Pick<Entry, "at" | "messageId">): boolean => byAge(a, b) > 0;
@@ -471,17 +472,24 @@ export const OperatorThreadSend = Schema.Struct({
 export type OperatorThreadSend = typeof OperatorThreadSend.Encoded;
 export type OperatorThreadSendDecoded = typeof OperatorThreadSend.Type;
 
-export type OperatorThreadSent =
-  | {
-      readonly ok: true;
-      readonly messageId: string;
-      readonly threadId: string;
-      readonly delivery: "delivered" | "waiting_for_seat" | "failed";
-    }
-  | { readonly ok: false; readonly reason: "not-found" | "invalid" | "failed"; readonly message: string };
+export const OperatorThreadSent = Schema.Union([
+  Schema.Struct({
+    ok: Schema.Literal(true),
+    messageId: Schema.String,
+    threadId: Schema.String,
+    delivery: Schema.Literals(["delivered", "waiting_for_seat", "failed"]),
+  }),
+  Schema.Struct({
+    ok: Schema.Literal(false),
+    reason: Schema.Literals(["not-found", "invalid", "failed"]),
+    message: Schema.String,
+  }),
+]);
+export type OperatorThreadSent = typeof OperatorThreadSent.Type;
 
 /** A seat a mention may name: wired to the seat by an edge. */
-export type MentionableSeat = { readonly nodeId: string; readonly name: string };
+export const MentionableSeat = Schema.Struct({ nodeId: Schema.String, name: Schema.String });
+export type MentionableSeat = typeof MentionableSeat.Type;
 
 export const SeatThreadsQuery = Schema.Struct({
   canvasName: CanvasName,
@@ -551,3 +559,14 @@ export type SeatThreadMarkReadDecoded = typeof SeatThreadMarkRead.Type;
 
 /** A read point moved: the thread, and every seat it is a thread of, so each seat's count is read again. */
 export type MailReadChanged = { readonly canvasName: string; readonly threadId: string; readonly seats: ReadonlyArray<string> };
+
+// ---- The renderer's input, decoded at main's edge ----
+
+/** Each query as the renderer sends it, decoded with excess keys refused: what main hands the core. */
+const closed = { onExcessProperty: "error" } as const;
+export const decodeSeatThreadsPageQuery = Schema.decodeUnknownResult(SeatThreadsPageQuery, closed);
+export const decodeSeatThreadPageQuery = Schema.decodeUnknownResult(SeatThreadPageQuery, closed);
+export const decodeSeatThreadsQuery = Schema.decodeUnknownResult(SeatThreadsQuery, closed);
+export const decodeSeatThreadReadsQuery = Schema.decodeUnknownResult(SeatThreadReadsQuery, closed);
+export const decodeSeatThreadMarkRead = Schema.decodeUnknownResult(SeatThreadMarkRead, closed);
+export const decodeOperatorThreadSend = Schema.decodeUnknownResult(OperatorThreadSend, closed);

@@ -15,7 +15,6 @@ import { publish } from "../push";
 import type { Canvas } from "@shared/model";
 import type { UsageState } from "@shared/usage";
 import { USAGE_ENABLED } from "@shared/features";
-import { onboardNudgeRefusal } from "@shared/seat-onboarding-status";
 import { redactProvidersForIpc, type Settings } from "@shared/settings";
 import { coreRunner } from "../core-runner";
 import { MachineCoreMail } from "../core-runtime";
@@ -34,7 +33,6 @@ import { canvasReceiptBasis } from "../work/delivery-receipts";
 import { onCanvasChangeForEdgeMap } from "../work/edge-map-notify";
 import { messageDelivery } from "../work/message-delivery";
 import { TaskRepository } from "../work/task-repository";
-import { bindSeatIpc, seatOnOfCore } from "./ipc-seats";
 import { coreOps, type CoreOp } from "../ops";
 import { host } from "../core-host";
 import { harnessRecordFor } from "@shared/harness-records";
@@ -140,17 +138,6 @@ coreOps({
         composerVerdict: (bindingId) => seatStateRuntime.composerVerdict(bindingId),
         subscribeSnapshots: (listener) => terminalObserverPlane.subscribeGlobal(listener),
       });
-      // The operator's nudge asks this core's plane for the seat, its running state and the interject.
-      bindSeatIpc({
-        seatOn: (target) => seatOnOfCore(target),
-        seatRunning: (bindingId) => termPlane.host.get(bindingId)?.status === "running",
-        interjectNudge: async (bindingId, text) => {
-          const outcome = await interjectOnboardNudge(bindingId, text);
-          return outcome === "written" ? { ok: true as const } : { ok: false as const, message: onboardNudgeRefusal(outcome) };
-        },
-        noteNudged: (bindingId) => injectionSupervisor.noteNudgeDelivered(bindingId),
-      });
-
       checkoutWatch = makeCheckoutWatchComposition({
         model,
         actorRefs: yield* ModelActorRefs,

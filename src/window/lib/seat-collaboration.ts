@@ -28,7 +28,7 @@ import type {
   SeatAwarenessAssessment,
   SeatAwarenessAvailability,
   SeatAwarenessConcern,
-} from "./seat-awareness-contract";
+} from "@shared/seat-awareness-contract";
 import { getJuntoApi } from "./junto-api";
 import { SEAT_AWARENESS_ACTIVITY_COPY, SEAT_AWARENESS_CONCERN_COPY } from "./seat-awareness";
 

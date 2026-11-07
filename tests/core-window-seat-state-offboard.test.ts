@@ -3,12 +3,13 @@
  * seat's state on the push main forwards to the window, and the buttons are
  * answered by the operation the core installed.
  */
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Effect } from "effect";
+import { RpcTest } from "effect/rpc";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { inProcessCore, type CoreRunner } from "./support/in-process-core";
 import { bindTermIpcPlane } from "../src/core/ops/term-ipc";
 import { TERM_SEAT_STATE } from "../src/contract/core/channels";
-import "../src/core/ops/seat-cache-due";
+import { SeatCacheDueRpcs } from "../src/contract/core/seat-cache-due";
+import { SeatCacheDueHandlers } from "../src/core/ops/seat-cache-due";
 import { subscribe } from "../src/app/core-process/main-side/core-pushes";
 import { seatStateRuntime } from "../src/core/term/agent-state";
 import { setOperatorOffboard } from "../src/core/seat-sessions/operator-offboard";
@@ -39,16 +40,20 @@ describe("the window hears the core's seats", () => {
   });
 
   it("answers the offboard buttons from the operation the core installed", async () => {
-    const runtime = ManagedRuntime.make(Layer.empty);
-    const core = inProcessCore(runtime as unknown as CoreRunner);
     const status = vi.fn(async () => [{ seatId: "seat", now: { allowed: true } }]);
     const run = vi.fn(async () => ({ results: [] }));
     setOperatorOffboard({ status, run } as never);
-    expect(await core.call("seatOffboard.status", { canvasName: "factory", seatIds: ["seat"] }))
-      .toEqual([{ seatId: "seat", now: { allowed: true } }]);
-    expect(status).toHaveBeenCalledWith("factory", ["seat"]);
-    await core.call("seatOffboard.run", { input: { canvasName: "factory", seatIds: ["seat"], action: "now" } });
-    expect(run).toHaveBeenCalledWith({ canvasName: "factory", seatIds: ["seat"], action: "now" }, "operator");
-    await Effect.runPromise(Effect.promise(() => runtime.dispose()));
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const client = yield* RpcTest.makeClient(SeatCacheDueRpcs);
+          expect(yield* client.SeatCacheDueOffboardStatus({ canvasName: "factory", seatIds: ["seat"] }))
+            .toEqual([{ seatId: "seat", now: { allowed: true } }]);
+          expect(status).toHaveBeenCalledWith("factory", ["seat"]);
+          yield* client.SeatCacheDueOffboardRun({ input: { canvasName: "factory", seatIds: ["seat"], action: "now" } });
+          expect(run).toHaveBeenCalledWith({ canvasName: "factory", seatIds: ["seat"], action: "now" }, "operator");
+        }),
+      ).pipe(Effect.provide(SeatCacheDueHandlers)),
+    );
   });
 });

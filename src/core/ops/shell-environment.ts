@@ -1,31 +1,33 @@
 /**
- * The shell environment, answered where the spawns are. The core's own copy of
- * the service is the one that writes process.env for every harness launch, so
- * the status the window shows, the operator's refresh and the change push all
+ * The shell environment, answered where the spawns are (the shell environment
+ * group, src/contract/core/shell-environment.ts). The core's own copy of the
+ * service is the one that writes process.env for every harness launch, so the
+ * status the window shows, the operator's refresh and the change push all
  * come from here; main relays and keeps no instance.
  */
 import { Effect } from "effect";
-import type { ShellEnvironmentStatus } from "@shared/shell-environment";
-import { shellEnvironment } from "../shell-environment";
 import { SHELL_ENVIRONMENT_CHANGED } from "../../contract/core/channels";
-import { publish } from "../push";
-import { coreOps, type CoreOp } from "../ops";
+import { ShellEnvironmentRpcs } from "../../contract/core/shell-environment";
+import { CorePushes } from "../push";
+import { shellEnvironment } from "../shell-environment";
 
-declare module "../ops" {
-  interface CoreOps {
-    "ipc.shellEnvironment.status": CoreOp<Record<string, never>, ShellEnvironmentStatus>;
-    "ipc.shellEnvironment.refresh": CoreOp<Record<string, never>, ShellEnvironmentStatus>;
-    /** The environment a spawn uses now, resolved here where the spawns are. */
-    "ipc.shellEnvironment.env": CoreOp<Record<string, never>, Record<string, string | undefined>>;
-  }
-}
+export const ShellEnvironmentHandlers = ShellEnvironmentRpcs.toLayer(
+  Effect.gen(function* () {
+    const pushes = yield* CorePushes;
+    // The copy that spawns is the one whose changes the window shows, for as
+    // long as the server answers.
+    yield* Effect.acquireRelease(
+      Effect.sync(() => shellEnvironment.onChange((change) => Effect.runSync(pushes.publish(SHELL_ENVIRONMENT_CHANGED, change)))),
+      (stop) => Effect.sync(stop),
+    );
+    return {
+      ShellEnvironmentStatus: () => Effect.promise(() => shellEnvironment.status()),
+      ShellEnvironmentRefresh: () => Effect.promise(() => shellEnvironment.refresh("operator")),
+    };
+  }),
+);
 
-// The copy that spawns is the one whose changes the window shows.
-shellEnvironment.onChange((change) => publish(SHELL_ENVIRONMENT_CHANGED, change));
-
-coreOps({
-  "ipc.shellEnvironment.status": () => Effect.promise(() => shellEnvironment.status()),
-  // The operator asked for a fresh read: the next spawn uses it.
-  "ipc.shellEnvironment.refresh": () => Effect.promise(() => shellEnvironment.refresh("operator")),
-  "ipc.shellEnvironment.env": () => Effect.promise(async () => ({ ...(await shellEnvironment.ensure()) })),
-});
+/** The environment a spawn uses now, resolved here where the spawns are. */
+export const spawnEnvironment: Effect.Effect<Record<string, string | undefined>> = Effect.promise(async () => ({
+  ...(await shellEnvironment.ensure()),
+}));

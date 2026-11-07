@@ -7,16 +7,17 @@
  */
 import { Schema } from "effect";
 import type { ArtifactLinkRef, LinkedFromBody } from "./artifact-links";
-
+import { ItemId, NodeId } from "./wire/ids";
 
 export { ARTIFACT_LINKS_IPC_CHANNELS } from "./artifact-links-ipc-channels";
 
-/** The artifact asked about: the node that shows it and its own id. */
+/** The artifact asked about: the node that shows it and its own id, a ULID as every artifact's is. */
 export const ArtifactLinksInput = Schema.Struct({
   canvasName: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(128))),
-  nodeId: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(256))),
-  artifactId: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64))),
+  nodeId: NodeId,
+  artifactId: ItemId,
 });
+export type ArtifactLinksInput = typeof ArtifactLinksInput.Type;
 
 /** Said to every window after a body link lands or leaves on a canvas. */
 export type ArtifactLinksChanged = { readonly canvasName: string };

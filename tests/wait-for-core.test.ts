@@ -1,46 +1,22 @@
 /**
- * A core call made while the core is starting again is waited out, and one the
- * core itself refused is not (core-process/wait-for-core.ts). The distinction
- * is what keeps a restarting core from taking the app down before the window.
+ * A failure because no core answered is told apart from a refusal the core
+ * itself answered (core-process/wait-for-core.ts), so the startup dialog names
+ * the core only when it is what did not answer.
  */
 import { expect, it } from "vitest";
 import { BrowserProfileError } from "../src/node/browser/profiles";
+import { RpcClientError } from "effect/rpc";
 import { CoreCallError } from "../src/contract/core/client";
-import { awaitCore, isCoreUnavailable } from "../src/app/core-process/wait-for-core";
+import { isCoreUnavailable } from "../src/app/core-process/wait-for-core";
 
 const stopped = (): CoreCallError => new CoreCallError("browser.profiles.initialize", "CoreStopped", "the Junto core process exited with code 1");
 const refused = (): CoreCallError => new CoreCallError("browser.profiles.initialize", "BrowserProfileError", "no such profile");
 
-it("waits out a core that is starting again, then answers", async () => {
-  let calls = 0;
-  const value = await awaitCore(async () => {
-    calls += 1;
-    if (calls < 3) throw stopped();
-    return "ready";
-  }, { wait: async () => undefined, retryMs: 0 });
-  expect(value).toBe("ready");
-  expect(calls).toBe(3);
-});
-
-it("does not wait out a refusal the core itself answered", async () => {
-  let calls = 0;
-  await expect(awaitCore(async () => {
-    calls += 1;
-    throw refused();
-  }, { wait: async () => undefined })).rejects.toThrow("no such profile");
-  expect(calls).toBe(1);
-});
-
-it("gives up once the core has had its time", async () => {
-  let calls = 0;
-  await expect(awaitCore(async () => {
-    calls += 1;
-    throw stopped();
-  }, { deadlineMs: 0, wait: async () => undefined })).rejects.toThrow("exited with code 1");
-  expect(calls).toBe(1);
-});
-
-it("names the two ways a core can be missing, and nothing else", () => {
+it("names the ways a core can be missing, and nothing else", () => {
+  const left = new RpcClientError.RpcClientError({
+    reason: new RpcClientError.RpcClientDefect({ message: "the Junto core process exited with code 1", cause: undefined }),
+  });
+  expect(isCoreUnavailable(left)).toBe(true);
   expect(isCoreUnavailable(new CoreCallError("x", "CoreStopped", "gone"))).toBe(true);
   expect(isCoreUnavailable(new CoreCallError("x", "CoreClientMissing", "none installed"))).toBe(true);
   expect(isCoreUnavailable(new CoreCallError("x", "SettingsError", "bad"))).toBe(false);

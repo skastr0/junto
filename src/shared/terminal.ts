@@ -166,53 +166,54 @@ export const terminalBindingOf = (node: Node | undefined): ResolvedTerminalBindi
 };
 
 /** Runtime summary for inventory / quit dialog (never canvas). */
-export type TerminalSessionSummary = {
-  readonly bindingId: string;
-  readonly epoch: string;
-  readonly hostId: string;
-  readonly status: TerminalSessionStatus;
+export const TerminalSessionSummary = Schema.Struct({
+  bindingId: Schema.String,
+  epoch: Schema.String,
+  hostId: Schema.String,
+  status: TerminalSessionStatus,
   /**
    * Process termination was requested and interaction authority is revoked,
    * but the exact exit witness has not settled yet.
    */
-  readonly stopping?: true;
-  readonly title?: string;
+  stopping: Schema.optional(Schema.Literal(true)),
+  title: Schema.optional(Schema.String),
   /**
    * Best-effort live process label for canvas chrome: OSC window title when
    * the harness sets one, else spawn argv basename. Never required for
    * correctness — display only.
    */
-  readonly processName?: string;
-  readonly cwd?: string;
-  readonly pid?: number;
-  readonly detached: boolean;
-  readonly canvasName?: string;
-  readonly nodeId?: string;
-  readonly createdAt: number;
-  readonly label?: string;
+  processName: Schema.optional(Schema.String),
+  cwd: Schema.optional(Schema.String),
+  pid: Schema.optional(Schema.Number),
+  detached: Schema.Boolean,
+  canvasName: Schema.optional(Schema.String),
+  nodeId: Schema.optional(Schema.String),
+  createdAt: Schema.Number,
+  label: Schema.optional(Schema.String),
   /** Runtime backend; production admits only the native PTY path. */
-  readonly backend?: "pty";
+  backend: Schema.optional(Schema.Literal("pty")),
   /**
    * Pre-ownership failure class. Absent on clean post-run exits.
    * `cli-missing` is distinct from idle "stopped" on the canvas.
    */
-  readonly exitReason?: "cli-missing" | "spawn_failed";
+  exitReason: Schema.optional(Schema.Literals(["cli-missing", "spawn_failed"])),
   /**
    * Operator-facing explanation of why this generation ended: the refusal
    * when `exitReason` is set, else how an agent harness exited and the last
    * line it printed.
    */
-  readonly exitMessage?: string;
+  exitMessage: Schema.optional(Schema.String),
   /** Actor identity stamped when this generation was occupied as a seat. */
-  readonly harness?: string;
-  readonly agentKey?: string;
+  harness: Schema.optional(Schema.String),
+  agentKey: Schema.optional(Schema.String),
   /**
    * The shell environment generation this process started with. Below the
    * current one (shellEnvironment.status()), it started before the shell
    * changed and keeps what it had.
    */
-  readonly shellEnvironmentGeneration?: number;
-};
+  shellEnvironmentGeneration: Schema.optional(Schema.Number),
+});
+export type TerminalSessionSummary = typeof TerminalSessionSummary.Type;
 
 /** True when a hop/get reply bound the actor we asked Mini to occupy. */
 export const sessionActorMatches = (

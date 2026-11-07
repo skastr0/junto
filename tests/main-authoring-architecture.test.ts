@@ -72,6 +72,11 @@ describe("main authoring architecture", () => {
       // mail to that seat's mailbox.
       "ipc.work.collaboration-ask",
       "ipc.work.message-append",
+      // The operator's answer, hand-in and dismissal of a signal, each
+      // admitted through the gate the signals registrar is handed.
+      "ipc.work.signal-answer",
+      "ipc.work.signal-dismiss",
+      "ipc.work.signal-reply",
       // The operator's secret form value goes to the region's vault.
       "ipc.work.signal-secret-put",
       // Mail threads: the operator writes in a seat's thread, mentions included.

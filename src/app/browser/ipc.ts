@@ -18,9 +18,11 @@ import {
   parseBrowserSessionId,
   parseBrowserSurfaceBounds,
 } from "@shared/browser-limits";
+import { Context, Predicate } from "effect";
 import type { BrowserSessionService } from "./sessions";
-import { core } from "../core-process/main-client";
-import type { PageTargetResolver } from "../../core/browser/page-target";
+import { BrowserCore } from "../../contract/core/browser";
+import { AppRuntime } from "../runtime";
+import type { PageTargetResolver, PageTargetResult } from "../../core/browser/page-target";
 import type { OperatorPageBoxDrawn } from "../../core/work/page-box-comment";
 import { operatorPageOf } from "../../node/work/operator-page";
 import { mainAuthoringGate } from "../../node/main-authoring-gate";
@@ -31,7 +33,14 @@ const BOX_COMMENT_TEXT_MAX = 64 * 1024;
 /** A staged shot's id as main minted it: a ULID. */
 const isShotId = (value: unknown): value is string => typeof value === "string" && /^[0-9A-HJKMNP-TV-Z]{26}$/u.test(value);
 
-export const resolveBrowserPageTarget: PageTargetResolver = (ref) => core.call("browser.pageTarget", { ref });
+/** A page ref resolved against the canvases, by the core's browser group. Only a string can name a page. */
+export const browserPageTargetResolver = (core: Context.Context<BrowserCore>): PageTargetResolver => {
+  const browser = Context.get(core, BrowserCore);
+  return (ref) =>
+    Predicate.isString(ref)
+      ? AppRuntime.runPromise(browser.BrowserPageTarget({ ref }))
+      : Promise.resolve<PageTargetResult>({ ok: false, code: "invalid", message: "canonical page ref required" });
+};
 
 const invalidArguments = (message = "unexpected arguments") => ({
   ok: false as const,
@@ -116,12 +125,14 @@ export const registerBrowserIpc = (
   ipcMain: IpcMain,
   browserSessions: BrowserSessionService,
   webContentsGetter: () => Iterable<WebContents>,
-  pageTargetResolver: PageTargetResolver = resolveBrowserPageTarget,
+  core: Context.Context<BrowserCore>,
+  pageTargetResolver: PageTargetResolver = browserPageTargetResolver(core),
   profileWipeConfirmation: BrowserProfileWipeConfirmation = confirmBrowserProfileWipe,
 ): void => {
+  const browser = Context.get(core, BrowserCore);
   // Settings.browser is the sole durable SoT for pool limits. Installation is
   // intentionally delayed until cold profile recovery admits browser IPC.
-  browserSessions.setPoolLimitsProvider(() => core.call("browser.poolLimits", {}));
+  browserSessions.setPoolLimitsProvider(() => AppRuntime.runPromise(browser.BrowserPoolLimits()));
   browserSessions.setSink((session) => {
     for (const contents of webContentsGetter()) {
       contents.send(IPC_CHANNELS.browserSessionChanged, session);
@@ -141,7 +152,7 @@ export const registerBrowserIpc = (
   browserSessions.subscribeSessionChanges((session) => {
     if (session.state !== "destroyed") return;
     void browserSessions
-      .retainUiIngress("box-release", core.call("pageBox.releaseSession", { sessionId: session.sessionId }))
+      .retainUiIngress("box-release", AppRuntime.runPromise(browser.BrowserPageBoxReleaseSession({ sessionId: session.sessionId })))
       .catch(() => undefined);
   });
 
@@ -176,20 +187,21 @@ export const registerBrowserIpc = (
       return { ok: false, code: drawn.code === "invalid" || drawn.code === "result_too_large" ? "invalid" : "failed", message: drawn.message };
     }
     if (drawn.data === undefined) return { ok: true, data: { kind: "ended" } };
-    return core.call("pageBox.stage", { sessionId, page, shot: drawn.data });
+    return AppRuntime.runPromise(browser.BrowserPageBoxStage({ sessionId, page, shot: drawn.data }));
   });
   onPage(IPC_CHANNELS.browserBoxPost, [3], (sessionId, [shotId, text]) => {
     if (!isShotId(shotId)) return invalidArguments("a staged shot's id is required");
     if (typeof text !== "string" || text.trim() === "" || text.length > BOX_COMMENT_TEXT_MAX) {
       return invalidArguments("a comment's text is required");
     }
-    return mainAuthoringGate.run("ipc.browser.box-comment", () =>
-      core.call("pageBox.operatorPost", { page: operatorPageOf(browserSessions, sessionId), sessionId, shotId, text }),
-    );
+    return mainAuthoringGate.run("ipc.browser.box-comment", () => {
+      const page = operatorPageOf(browserSessions, sessionId);
+      return AppRuntime.runPromise(browser.BrowserPageBoxPost({ ...(page === undefined ? {} : { page }), sessionId, shotId, text }));
+    });
   });
   onPage(IPC_CHANNELS.browserBoxDiscard, [2], async (sessionId, [shotId]) => {
     if (!isShotId(shotId)) return invalidArguments("a staged shot's id is required");
-    await core.call("pageBox.discard", { sessionId, shotId });
+    await AppRuntime.runPromise(browser.BrowserPageBoxDiscard({ sessionId, shotId }));
     return { ok: true as const, data: null };
   });
   onPage(IPC_CHANNELS.browserGoto, [2, 3], (sessionId, [url, tab]) => {

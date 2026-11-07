@@ -322,7 +322,8 @@ export type CapabilityBadges = {
  * isolation, credentials, or a picker currently cannot prove notice
  * acceptance. Hooks that only report idle/state are not a native channel.
  */
-export type MailTypedNoticeSupport = "working" | "unavailable-setup";
+export const MailTypedNoticeSupport = Schema.Literals(["working", "unavailable-setup"]);
+export type MailTypedNoticeSupport = typeof MailTypedNoticeSupport.Type;
 
 /**
  * Per-harness mail delivery facts consumed by harness list / doctor.
@@ -335,12 +336,13 @@ export type MailTypedNoticeSupport = "working" | "unavailable-setup";
  * readAt, repliedAt, reactedAt, generation) live on the message attempt,
  * never here. Legacy deliveredAt maps to notifiedAt only.
  */
-export type MailTransportSpec = {
-  readonly nativeChannel: boolean;
-  readonly typedNotice: MailTypedNoticeSupport;
-  readonly typedNoticeQualified: boolean;
-  readonly pullOnly: true;
-};
+export const MailTransportSpec = Schema.Struct({
+  nativeChannel: Schema.Boolean,
+  typedNotice: MailTypedNoticeSupport,
+  typedNoticeQualified: Schema.Boolean,
+  pullOnly: Schema.Literal(true),
+});
+export type MailTransportSpec = typeof MailTransportSpec.Type;
 
 /** Exact tiers for harness list / doctor. Same facts as MailTransportSpec, not parallel keys. */
 export type MailTransportTiers = {
@@ -357,38 +359,41 @@ export const mailTransportTiers = (spec: MailTransportSpec): MailTransportTiers 
   t3PullOnly: spec.pullOnly,
 });
 
-export type IsolationHomePin = {
-  readonly envKey: string;
+export const IsolationHomePin = Schema.Struct({
+  envKey: Schema.String,
   /** Path relative to the isolated capture home. */
-  readonly homeRelative: string;
-};
+  homeRelative: Schema.String,
+});
+export type IsolationHomePin = typeof IsolationHomePin.Type;
 
 /**
  * One operator-home relative file that may be copied into a throwaway home.
  * Directories, settings, sessions, and history are not representable here.
  */
-export type IsolationCredentialFile = {
-  readonly operatorRelative: string;
-  readonly isolatedRelative: string;
-};
+export const IsolationCredentialFile = Schema.Struct({
+  operatorRelative: Schema.String,
+  isolatedRelative: Schema.String,
+});
+export type IsolationCredentialFile = typeof IsolationCredentialFile.Type;
 
 /**
  * How a disposable capture/test home relocates this harness's config and
  * session state. Tests inherit only `credentialEnv` and `credentialFiles`
  * from the operator process; they never copy history or settings files.
  */
-export type IsolationSpec = {
-  readonly homePins: readonly IsolationHomePin[];
-  readonly credentialEnv: readonly string[];
-  readonly credentialFiles: readonly IsolationCredentialFile[];
-  readonly captureHome: "isolated" | "unsupported";
-  readonly limitation?: string;
+export const IsolationSpec = Schema.Struct({
+  homePins: Schema.Array(IsolationHomePin),
+  credentialEnv: Schema.Array(Schema.String),
+  credentialFiles: Schema.Array(IsolationCredentialFile),
+  captureHome: Schema.Literals(["isolated", "unsupported"]),
+  limitation: Schema.optional(Schema.String),
   /**
    * The harness keeps its sign-in in the OS keychain, so a machine whose
    * keychain cannot be reached cannot sign it in.
    */
-  readonly keychainLogin?: true;
-};
+  keychainLogin: Schema.optional(Schema.Literal(true)),
+});
+export type IsolationSpec = typeof IsolationSpec.Type;
 
 const MAIL_T2_WORKING: MailTransportSpec = {
   nativeChannel: false,

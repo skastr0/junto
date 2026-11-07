@@ -15,21 +15,28 @@
  * canvas, as the ruler does for every writer.
  */
 import { Schema } from "effect";
-import type { ActorSeatId } from "./actor-seat";
-import { ArtifactOp, ArtifactVersion, type ArtifactBody, type ArtifactVersionRecord } from "./artifact";
+import { ActorSeatId } from "./actor-seat";
+import {
+  Artifact,
+  ArtifactBody,
+  ArtifactOp,
+  ArtifactVersion,
+  type ArtifactVersionRecord,
+} from "./artifact";
 import { MailMessageId } from "./crew";
-import type { ArtifactEntry, ArtifactFact } from "./artifact-domain";
+import { ArtifactFact, type ArtifactEntry } from "./artifact-domain";
 import type { ArtifactMoveRecord } from "./artifact-move";
-import { ArtifactLabelColour, type ArtifactLabelColours } from "./artifact-labels";
+import { ArtifactLabel, ArtifactLabelColour, type ArtifactLabelColours } from "./artifact-labels";
 import type { OpOverlay } from "./op-control";
 import { NodeId } from "./physics/schema";
 import { RefusalReason } from "./resource-command";
 import type { TaskDomainEnv } from "./task-machine";
 import {
   TASK_REFUSAL_REASON,
+  TASK_STATES,
   TaskCommandWire,
+  taskNodeId,
   type SeatNodeId,
-  type StampPolicy,
   type TaskCommand,
   type TaskId,
   type TaskNodeId,
@@ -37,10 +44,11 @@ import {
   type TaskRefusalDetail,
   type TaskView,
 } from "./task-model";
-import type { WorkErrorBody } from "./work-control";
-import { ItemId, OpId } from "./work-ids";
-import { Anchor, RelativePath, type PlaceAnchor } from "./wire/thread-subject";
-import type { ContentRef } from "./wire/content-ref";
+import { WorkErrorBody } from "./work-control";
+import { CompletionEvidence } from "./work-model";
+import { ItemId, OpId, TaskNumber } from "./work-ids";
+import { Anchor, PlaceAnchor, RelativePath } from "./wire/thread-subject";
+import { ContentRef } from "./wire/content-ref";
 
 // ── channels ───────────────────────────────────────────────────────────────
 
@@ -63,9 +71,27 @@ export type ResourceApplyOutcome<Applied extends object = {}> =
  * assignment, a stamp request) did not go. A resend is answered as a replay
  * and sends nothing, so the pane says so instead of retrying.
  */
-export type TaskApplyOutcome = ResourceApplyOutcome<{ readonly deliveryError?: WorkErrorBody }>;
+const AppliedOutcome = Schema.Struct({ kind: Schema.Literal("applied"), opId: OpId });
+const RefusedOutcome = Schema.Struct({ kind: Schema.Literal("refused"), opId: OpId, error: WorkErrorBody });
+const QueuedOutcome = Schema.Struct({ kind: Schema.Literal("queued"), opId: OpId });
+
+/** `ResourceApplyOutcome` as it crosses the core's port. */
+export const ResourceApplyOutcomeWire = Schema.Union([AppliedOutcome, RefusedOutcome, QueuedOutcome]);
+
+export const TaskApplyOutcome = Schema.Union([
+  Schema.Struct({ ...AppliedOutcome.fields, deliveryError: Schema.optionalKey(WorkErrorBody) }),
+  RefusedOutcome,
+  QueuedOutcome,
+]);
+export type TaskApplyOutcome = typeof TaskApplyOutcome.Type;
+
 /** `facts` is empty when a resend is answered from the stored ruling: nothing changed again. */
-export type ArtifactApplyOutcome = ResourceApplyOutcome<{ readonly facts: ReadonlyArray<ArtifactFact> }>;
+export const ArtifactApplyOutcome = Schema.Union([
+  Schema.Struct({ ...AppliedOutcome.fields, facts: Schema.Array(ArtifactFact) }),
+  RefusedOutcome,
+  QueuedOutcome,
+]);
+export type ArtifactApplyOutcome = typeof ArtifactApplyOutcome.Type;
 
 /**
  * One of this machine's writes to a node's items that the editing machine
@@ -86,6 +112,138 @@ export type TaskPendingWrite = {
   readonly command: TaskCommandWire;
   readonly overlay?: OpOverlay;
 };
+
+// ── the answers as Schemas ─────────────────────────────────────────────────
+//
+// The core answers the window's reads over its port, so each answer is a
+// Schema that both ends decode closed. The model's own types stay where they
+// are (they carry brands a Schema cannot); each Schema below names the same
+// fields with plain ids, and the checks after it fail the compile when the
+// model gains a field the wire does not carry, since an encode drops it silently.
+
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+
+const RefusalWire = Schema.Struct({
+  reason: RefusalReason,
+  message: Schema.String,
+  expected: Schema.optionalKey(Schema.Unknown),
+  next_step: Schema.optionalKey(Schema.String),
+});
+
+/** What the writing machine reads of a queued write over its last ruled state (`OpOverlay`). */
+export const OpOverlayWire = Schema.Union([
+  Schema.Struct({ status: Schema.Literal("pending") }),
+  Schema.Struct({ status: Schema.Literal("at_risk"), refusal: RefusalWire }),
+  Schema.Struct({ status: Schema.Literal("at_risk"), waiting: Schema.Literal("base_not_pulled"), root: OpId }),
+]);
+
+export const TaskPendingWriteWire = Schema.Struct({
+  opId: OpId,
+  taskId: ItemId,
+  command: TaskCommandWire,
+  overlay: Schema.optionalKey(OpOverlayWire),
+});
+
+export const ArtifactPendingWriteWire = Schema.Struct({
+  opId: OpId,
+  artifactId: ItemId,
+  op: ArtifactOp,
+  overlay: Schema.optionalKey(OpOverlayWire),
+});
+
+const ReviewerWire = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("seat"), seat: NodeId }),
+  Schema.Struct({ kind: Schema.Literal("operator") }),
+]);
+
+const StampWire = Schema.Struct({
+  reviewer: ReviewerWire,
+  verdict: Schema.Literals(["approve", "changes"]),
+  epoch: Schema.Number,
+  subjectHash: Schema.optionalKey(Schema.String),
+  text: Schema.optionalKey(Schema.String),
+  at: Schema.Number,
+});
+
+const CheckResultWire = Schema.Struct({
+  checkId: Schema.String,
+  side: Schema.Literals(["outgoing", "incoming"]),
+  command: Schema.String,
+  exitCode: Schema.Number,
+  outputTail: Schema.String,
+  epoch: Schema.Number,
+  destination: Schema.optionalKey(NodeId),
+  at: Schema.Number,
+});
+
+const TaskCoreWire = Schema.Struct({
+  state: Schema.Literals(TASK_STATES),
+  node: NodeId,
+  assignee: Schema.optionalKey(NodeId),
+  epoch: Schema.Number,
+  stampPolicy: Schema.Struct({ required: Schema.Number }),
+  reviewers: Schema.Array(ReviewerWire),
+  stamps: Schema.Array(StampWire),
+  checks: Schema.optionalKey(Schema.Array(CheckResultWire)),
+  next: Schema.optionalKey(NodeId),
+  evidence: Schema.optionalKey(CompletionEvidence),
+  handoff: Schema.optionalKey(Schema.String),
+  archivedFrom: Schema.optionalKey(Schema.Literals(["done", "canceled"])),
+});
+
+const TaskLinkWire = Schema.Struct({
+  taskId: ItemId,
+  number: Schema.optionalKey(TaskNumber),
+  node: NodeId,
+});
+
+/** One task as readers show it (`TaskView`), with the node ids plain. */
+export const TaskViewWire = Schema.Struct({
+  taskId: ItemId,
+  number: Schema.optionalKey(TaskNumber),
+  title: Schema.String,
+  body: Schema.optionalKey(Schema.String),
+  current: TaskCoreWire,
+  layers: Schema.Array(Schema.Struct({ ...TaskCoreWire.fields, closedAt: Schema.Number })),
+  dependsOn: Schema.Array(ItemId),
+  createdAt: Schema.Number,
+  updatedAt: Schema.Number,
+  stateSince: Schema.Number,
+  pending: Schema.optionalKey(Schema.Struct({ opId: Schema.String })),
+  derivedFrom: Schema.optionalKey(TaskLinkWire),
+  derived: Schema.optionalKey(Schema.Array(TaskLinkWire)),
+});
+
+/** An artifact as listed (`ArtifactHead`). */
+export const ArtifactHeadWire = Schema.Struct({
+  artifact: Artifact,
+  body: Schema.NullOr(ArtifactBody),
+  bodyRef: ContentRef,
+});
+
+/** The colours set in one Artifacts node, by label (`ArtifactLabelColours`). */
+export const ArtifactLabelColoursWire = Schema.Record(ArtifactLabel, ArtifactLabelColour);
+
+const labelColoursFitWire: Same<ArtifactLabelColours, typeof ArtifactLabelColoursWire.Type> = true;
+const taskViewFitsWire: TaskView extends typeof TaskViewWire.Type ? true : false = true;
+const taskViewHasNoOtherField: Same<keyof TaskView, keyof typeof TaskViewWire.Type> = true;
+const taskCoreHasNoOtherField: Same<keyof TaskView["current"], keyof typeof TaskCoreWire.Type> = true;
+const overlayFitsWire: OpOverlay extends typeof OpOverlayWire.Type ? true : false = true;
+const taskPendingFitsWire: TaskPendingWrite extends typeof TaskPendingWriteWire.Type ? true : false = true;
+const artifactPendingFitsWire: ArtifactPendingWrite extends typeof ArtifactPendingWriteWire.Type ? true : false = true;
+const artifactHeadFitsWire: ArtifactHead extends typeof ArtifactHeadWire.Type ? true : false = true;
+const resourceOutcomeFitsWire: ResourceApplyOutcome extends typeof ResourceApplyOutcomeWire.Type ? true : false = true;
+void [
+  labelColoursFitWire,
+  taskViewFitsWire,
+  taskViewHasNoOtherField,
+  taskCoreHasNoOtherField,
+  overlayFitsWire,
+  taskPendingFitsWire,
+  artifactPendingFitsWire,
+  artifactHeadFitsWire,
+  resourceOutcomeFitsWire,
+];
 
 /**
  * Said to every window after a write to a canvas's tasks or artifacts, by
@@ -135,15 +293,17 @@ export { TaskCommandWire };
  * task node (region-reach). A pane builds its `TaskDomainEnv` from it
  * (`taskEnvOf`) to check a command before it sends it; main rules again.
  */
-export type TaskCanvasFacts = {
-  readonly downstream: Readonly<Record<TaskNodeId, ReadonlyArray<TaskNodeId>>>;
-  readonly stampDefaults: Readonly<Record<TaskNodeId, StampPolicy>>;
+export const TaskCanvasFacts = Schema.Struct({
+  downstream: Schema.Record(Schema.String, Schema.Array(NodeId)),
+  stampDefaults: Schema.Record(Schema.String, Schema.Struct({ required: Schema.Number })),
   /** Per seat, the task nodes it reaches. */
-  readonly seatReach: Readonly<Record<SeatNodeId, ReadonlyArray<TaskNodeId>>>;
-};
+  seatReach: Schema.Record(Schema.String, Schema.Array(NodeId)),
+});
+/** Node ids are plain on the wire, as in `TaskCommandWire`; `taskEnvOf` narrows them to the task model's. */
+export type TaskCanvasFacts = typeof TaskCanvasFacts.Type;
 
 export const taskEnvOf = (facts: TaskCanvasFacts): Omit<TaskDomainEnv, "at"> => ({
-  downstream: (node) => facts.downstream[node] ?? [],
+  downstream: (node) => (facts.downstream[node] ?? []).map(taskNodeId),
   stampDefaultOf: (node) => facts.stampDefaults[node] ?? { required: 0 },
   seatReaches: (seat, node) => facts.seatReach[seat]?.includes(node) ?? false,
 });
@@ -235,47 +395,73 @@ export const ThreadPostInput = Schema.Struct({
   actor: NoAuthor,
 });
 
+// ── the renderer's payloads, decoded at main's edge ────────────────────────
+
+/** Each input as the renderer sends it, decoded with excess keys refused: what main hands the core. */
+const closed = { onExcessProperty: "error" } as const;
+export const decodeTaskListInput = Schema.decodeUnknownResult(TaskListInput, closed);
+export const decodeTaskAllInput = Schema.decodeUnknownResult(TaskAllInput, closed);
+export const decodeTaskContextInput = Schema.decodeUnknownResult(TaskContextInput, closed);
+export const decodeTaskApplyInput = Schema.decodeUnknownResult(TaskApplyInput, closed);
+export const decodeTaskPendingInput = Schema.decodeUnknownResult(TaskPendingInput, closed);
+export const decodeArtifactListInput = Schema.decodeUnknownResult(ArtifactListInput, closed);
+export const decodeArtifactHistoryInput = Schema.decodeUnknownResult(ArtifactHistoryInput, closed);
+export const decodeArtifactMovesInput = Schema.decodeUnknownResult(ArtifactMovesInput, closed);
+export const decodeArtifactBodyInput = Schema.decodeUnknownResult(ArtifactBodyInput, closed);
+export const decodeArtifactApplyInput = Schema.decodeUnknownResult(ArtifactApplyInput, closed);
+export const decodeArtifactPendingInput = Schema.decodeUnknownResult(ArtifactPendingInput, closed);
+export const decodeArtifactLabelColoursInput = Schema.decodeUnknownResult(ArtifactLabelColoursInput, closed);
+export const decodeArtifactColourInput = Schema.decodeUnknownResult(ArtifactColourInput, closed);
+export const decodeThreadListInput = Schema.decodeUnknownResult(ThreadListInput, closed);
+export const decodeThreadPostInput = Schema.decodeUnknownResult(ThreadPostInput, closed);
+
 /**
  * Who wrote a post, with the name to show. A seat and the operator are the
  * `ResourceActor` they wrote as; an automation's row names its node only.
  */
-export type ThreadPostAuthor =
-  | { readonly kind: "seat"; readonly seatId: ActorSeatId; readonly nodeId: NodeId; readonly name: string }
-  | { readonly kind: "operator"; readonly name: string }
-  | { readonly kind: "automation"; readonly nodeId: NodeId; readonly name: string };
+export const ThreadPostAuthor = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("seat"), seatId: ActorSeatId, nodeId: NodeId, name: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("operator"), name: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("automation"), nodeId: NodeId, name: Schema.String }),
+]);
+export type ThreadPostAuthor = typeof ThreadPostAuthor.Type;
 
-export type ThreadPost = {
+export const ThreadPost = Schema.Struct({
   /** The post's message id. */
-  readonly postId: MailMessageId;
-  readonly author: ThreadPostAuthor;
-  readonly text: string;
+  postId: MailMessageId,
+  author: ThreadPostAuthor,
+  text: Schema.String,
   /** Epoch ms the post was written. */
-  readonly at: number;
+  at: Schema.Number,
   /** Files the operator sent with it; a comment carries none today. */
-  readonly attachments?: ReadonlyArray<ContentRef>;
-};
+  attachments: Schema.optionalKey(Schema.Array(ContentRef)),
+});
+export type ThreadPost = typeof ThreadPost.Type;
 
 /** One thread on a resource, oldest post first. `anchor` is its root's place on the resource. */
-export type SubjectThreadView = {
-  readonly threadId: MailMessageId;
-  readonly anchor?: PlaceAnchor;
-  readonly posts: ReadonlyArray<ThreadPost>;
-};
+export const SubjectThreadView = Schema.Struct({
+  threadId: MailMessageId,
+  anchor: Schema.optionalKey(PlaceAnchor),
+  posts: Schema.Array(ThreadPost),
+});
+export type SubjectThreadView = typeof SubjectThreadView.Type;
 
 /**
  * A post is written at once on this machine or refused: a comment is never
  * queued. A replayed opId answers as its first post did.
  */
-export type ThreadPostOutcome =
-  | {
-      readonly kind: "applied";
-      readonly opId: OpId;
-      readonly threadId: MailMessageId;
-      readonly postId: MailMessageId;
-      /** The seats told of it. */
-      readonly notified: ReadonlyArray<NodeId>;
-    }
-  | { readonly kind: "refused"; readonly opId: OpId; readonly error: WorkErrorBody };
+export const ThreadPostOutcome = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("applied"),
+    opId: OpId,
+    threadId: MailMessageId,
+    postId: MailMessageId,
+    /** The seats told of it. */
+    notified: Schema.Array(NodeId),
+  }),
+  RefusedOutcome,
+]);
+export type ThreadPostOutcome = typeof ThreadPostOutcome.Type;
 
 /** Said to every window when a canvas's tasks or artifacts change, a comment on them included. */
 export type ThreadChanged = ResourceChanged & { readonly kind: ThreadResourceSubject["kind"] };

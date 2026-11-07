@@ -1,61 +1,64 @@
-import { Effect } from "effect";
-import type { LiveAttention, LiveSnapshot, LiveStartInput, LiveStartResult, OverseerLiveApi } from "@shared/overseer-live";
-import { LIVE_CHANGED } from "../../contract/core/channels";
-import { coreOps, type CoreOp } from "../ops";
-import { publish } from "../push";
-
 /**
- * The live overseer runs in the core; the window's live controls reach it by
- * name, and each snapshot change comes back on the push stream.
+ * The core's handlers of the live overseer group
+ * (src/contract/core/overseer-live.ts): the window's live controls, answered
+ * by the live overseer this core composed. Each snapshot change leaves on the
+ * `LIVE_CHANGED` push from the moment the core's server starts until it
+ * closes, so a new core needs no ask to start them.
  */
+import { Context, Effect, Layer, Queue } from "effect";
+import type { LiveSnapshot, OverseerLiveApi } from "@shared/overseer-live";
+import { LIVE_CHANGED } from "../../contract/core/channels";
+import { OverseerLiveFailed, OverseerLiveRpcs } from "../../contract/core/overseer-live";
+import { CorePushes } from "../push";
 
+/** The live overseer as the core composes it: the window's controls, and its snapshot changes to listen to. */
 export type LiveService = Omit<OverseerLiveApi, "onLiveChanged"> & {
   readonly subscribe: (listener: (snapshot: LiveSnapshot) => void) => () => void;
 };
-type Session = { readonly sessionId: string };
 
-declare module "../ops" {
-  interface CoreOps {
-    "live.start": CoreOp<{ readonly input: LiveStartInput }, LiveStartResult>;
-    "live.end": CoreOp<Session, LiveSnapshot>;
-    "live.snapshot": CoreOp<Record<string, never>, LiveSnapshot>;
-    "live.ready": CoreOp<Session & { readonly connectionEpoch: number }, void>;
-    "live.providerEvent": CoreOp<Session & { readonly connectionEpoch: number; readonly event: unknown }, void>;
-    "live.attention": CoreOp<Session & { readonly attention: LiveAttention }, void>;
-    "live.cancel": CoreOp<Session & { readonly requestId: string }, LiveSnapshot>;
-    "live.steer": CoreOp<Session & { readonly requestId: string; readonly text: string; readonly attention: LiveAttention }, LiveSnapshot>;
-    "live.stopActions": CoreOp<Session, LiveSnapshot>;
-    "live.watch": CoreOp<Record<string, never>, void>;
-  }
+/** The live overseer this core composed; `service` is absent where this build or core runs none. */
+export class RunningLiveOverseer extends Context.Service<RunningLiveOverseer, { readonly service: LiveService | undefined }>()(
+  "@junto/core/RunningLiveOverseer",
+) {
+  static readonly layerOf = (service: LiveService | undefined) => Layer.succeed(RunningLiveOverseer, { service });
 }
 
-let bound: LiveService | undefined;
-let watching = false;
+const failed = (cause: unknown): OverseerLiveFailed =>
+  new OverseerLiveFailed({ message: cause instanceof Error ? cause.message : String(cause) });
 
-/** Core boot only: the live overseer this core composed. */
-export const bindOverseerLive = (service: LiveService | undefined): void => {
-  bound = service;
-};
-
-const live = <A>(use: (service: LiveService) => Promise<A>) =>
-  Effect.tryPromise(() => (bound === undefined ? Promise.reject(new Error("the live overseer is not running in this core")) : use(bound)));
-
-coreOps({
-  "live.start": ({ input }) => live((service) => service.liveStart(input)),
-  "live.end": ({ sessionId }) => live((service) => service.liveEnd(sessionId)),
-  "live.snapshot": () => live((service) => service.liveSnapshot()),
-  "live.ready": ({ sessionId, connectionEpoch }) => live((service) => service.liveReady(sessionId, connectionEpoch)),
-  "live.providerEvent": ({ sessionId, connectionEpoch, event }) =>
-    live((service) => service.liveProviderEvent(sessionId, connectionEpoch, event)),
-  "live.attention": ({ sessionId, attention }) => live((service) => service.liveAttention(sessionId, attention)),
-  "live.cancel": ({ sessionId, requestId }) => live((service) => service.liveCancel(sessionId, requestId)),
-  "live.steer": ({ sessionId, requestId, text, attention }) => live((service) => service.liveSteer(sessionId, requestId, text, attention)),
-  "live.stopActions": ({ sessionId }) => live((service) => service.liveStopActions(sessionId)),
-  // Subscribed once per core.
-  "live.watch": () =>
-    live(async (service) => {
-      if (watching) return;
-      watching = true;
-      service.subscribe((snapshot) => publish(LIVE_CHANGED, snapshot));
-    }),
-});
+export const OverseerLiveHandlers = OverseerLiveRpcs.toLayer(
+  Effect.gen(function* () {
+    const { service } = yield* RunningLiveOverseer;
+    if (service !== undefined) {
+      // Snapshots leave in the order the overseer told them, one at a time.
+      const pushes = yield* CorePushes;
+      const changes = yield* Queue.unbounded<LiveSnapshot>();
+      yield* Queue.take(changes).pipe(
+        Effect.flatMap((snapshot) => pushes.publish(LIVE_CHANGED, snapshot)),
+        Effect.forever,
+        Effect.forkScoped,
+      );
+      const unsubscribe = service.subscribe((snapshot) => {
+        Queue.offerUnsafe(changes, snapshot);
+      });
+      yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+    }
+    const live = <A>(use: (running: LiveService) => Promise<A>): Effect.Effect<A, OverseerLiveFailed> =>
+      service === undefined
+        ? Effect.fail(new OverseerLiveFailed({ message: "the live overseer is not running in this core" }))
+        : Effect.tryPromise({ try: () => use(service), catch: failed });
+    return {
+      OverseerLiveStart: ({ input }) => live((running) => running.liveStart(input)),
+      OverseerLiveEnd: ({ sessionId }) => live((running) => running.liveEnd(sessionId)),
+      OverseerLiveSnapshot: () => live((running) => running.liveSnapshot()),
+      OverseerLiveReady: ({ sessionId, connectionEpoch }) => live((running) => running.liveReady(sessionId, connectionEpoch)),
+      OverseerLiveProviderEvent: ({ sessionId, connectionEpoch, event }) =>
+        live((running) => running.liveProviderEvent(sessionId, connectionEpoch, event)),
+      OverseerLiveAttention: ({ sessionId, attention }) => live((running) => running.liveAttention(sessionId, attention)),
+      OverseerLiveCancel: ({ sessionId, requestId }) => live((running) => running.liveCancel(sessionId, requestId)),
+      OverseerLiveSteer: ({ sessionId, requestId, text, attention }) =>
+        live((running) => running.liveSteer(sessionId, requestId, text, attention)),
+      OverseerLiveStopActions: ({ sessionId }) => live((running) => running.liveStopActions(sessionId)),
+    };
+  }),
+);

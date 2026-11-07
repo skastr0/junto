@@ -134,22 +134,25 @@ describe("terminal actor entry", () => {
   it("Main reads its stored node and enters ActorSeatOccupy only for an agent", () => {
     const source = readSource(MAIN_ENTRY);
     const start = between(source, "ipcMain.handle(IPC_CHANNELS.modelStart,", "ipcMain.handle(IPC_CHANNELS.modelStop,");
-    const agent = between(start, 'if (node.kind === "agent") {', 'core.call("term.startTerminal"');
-    // A raw terminal's create, with its delete admission, runs in the core (term.startTerminal).
-    const geography = between(readSource(SEAT_NODE_OP), '"term.startTerminal": ({ canvas, node }) =>', '"term.');
-    expect(start).toContain("const node = await readSeat(input?.canvas, input?.id);");
-    expect(source).toContain('node?.kind !== "agent" && node?.kind !== "terminal"');
-    // The stored node is read by the core (term.seatNode), by canvas and id only.
-    expect(source).toContain('const node = await core.call("term.seatNode", { canvas, id });');
-    const seatNode = between(readSource(SEAT_NODE_OP), '"term.seatNode": ({ canvas, id }) =>', '"term.seatLaunchState"');
-    expect(seatNode).toContain("(yield* model.canvas(canvas)).nodes.get(id as never);");
+    const agent = between(start, 'if (node.kind === "agent") {', "term.TermStartTerminal(");
+    // A raw terminal's create, with its delete admission, runs in the core (TermStartTerminal).
+    const geography = between(readSource(SEAT_NODE_OP), "TermStartTerminal: ({ canvas, node }) =>", "TermStopBinding: ");
+    expect(start).toContain("const { canvas, node } = await readSeat(input);");
+    // The stored node is read by the core (TermSeatNode), by canvas and id only,
+    // and only a seat or a terminal comes back.
+    expect(source).toContain("const node = await AppRuntime.runPromise(term.TermSeatNode(where));");
+    expect(source).toContain('node === undefined ? deny("terminal ipc: this node is not a seat or terminal")');
+    const seatNode = between(readSource(SEAT_NODE_OP), "TermSeatNode: ({ canvas, id }) =>", "TermSeatLaunchState: ");
+    expect(seatNode).toContain("Effect.map(model.canvas(canvas), (opened) => {");
+    expect(seatNode).toContain("const node = opened.nodes.get(id);");
+    expect(seatNode).toContain('node?.kind === "agent" || node?.kind === "terminal" ? node : undefined');
     // An agent seat starts through the one path the owner commands share,
-    // by the stored node's id, in the core (term.startSeat).
-    expect(agent).toContain('core.call("term.startSeat", { canvas: input.canvas, seatId: node.id })');
-    const startOp = between(readSource(SEAT_NODE_OP), '"term.startSeat": ({ canvas, seatId }) =>', '"term.stopSeat"');
-    // 507f8547a moved the start into term-ipc.ts: it takes the plane this core
-    // bound (planeNow) rather than a seat control handle, and hands it on.
-    expect(startOp).toContain("const plane = yield* planeNow();");
+    // by the stored node's id, in the core (TermStartSeat).
+    expect(agent).toContain("AppRuntime.runPromise(term.TermStartSeat({ canvas, seatId: node.id }))");
+    const startOp = between(readSource(SEAT_NODE_OP), "TermStartSeat: ({ canvas, seatId }) =>", "TermStopSeat: ");
+    // The start takes the plane this core runs, from the handlers' context
+    // (TermIpcPlane), rather than a seat control handle, and hands it on.
+    expect(readSource(SEAT_NODE_OP)).toContain("const plane = yield* TermIpcPlane;");
     expect(startOp).toContain("startSeat({ canvas: asCanvasName(canvas), seatId }, { plane })");
     const control = readSource(SEAT_CONTROL);
     expect(control).toContain("const seats = yield* ActorSeatOccupy;");

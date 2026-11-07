@@ -16,7 +16,7 @@ describe("Fleet product gate", () => {
     const router = readFileSync("src/core/term/router.ts", "utf8");
     const doctor = readFileSync("src/core/hosts/doctor.ts", "utf8");
 
-    expect(ipc).toContain("if (FLEET_UI_ENABLED) {\n    registerHostsIpc(privilegedIpc);");
+    expect(ipc).toContain("if (FLEET_UI_ENABLED) {\n    registerHostsIpc(privilegedIpc, boot.core);");
     // Remote stations are switched off: the fleet supervisor is never started.
     expect(ipc).not.toContain("fleetPropagation.start()");
     expect(ipc).not.toContain("startLiveFleetUpdateExecutor");

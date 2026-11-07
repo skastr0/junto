@@ -13,10 +13,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  Context,
   Effect,
+  Exit,
+  Layer,
   Result,
   ManagedRuntime,
+  Scope,
 } from "effect";
+import { RpcTest } from "effect/rpc";
 import { SqlClient } from "effect/sql";
 import {
   afterEach,
@@ -34,8 +39,8 @@ import {
   type BrowserProfileWipeOutcome,
 } from "../src/node/browser/profiles";
 import { BrowserProfileGate } from "../src/app/browser/profile-gate";
-import { inProcessCore } from "./support/in-process-core";
-import { coreBrowserProfileStore } from "../src/app/core-process/main-side/browser";
+import { BrowserStoreCore, BrowserStoreRpcs } from "../src/contract/core/browser-store";
+import { BrowserStoreHandlers } from "../src/core/ops/browser";
 import {
   BROWSER_MAX_VISIBLE_SURFACES_HARD,
   BROWSER_MAX_WARM_SESSIONS_HARD,
@@ -44,6 +49,11 @@ import {
   makeStateEngineLive,
 } from "../src/core/state/engine";
 import { StateEngine, StateTransactionOperation } from "../src/core/state/service";
+
+// Main's runtime reads Electron's app at load; main's store adapter needs none of it here.
+vi.mock("../src/app/runtime", () => ({ AppRuntime: ManagedRuntime.make(Layer.empty) }));
+
+const { coreBrowserProfileStore } = await import("../src/app/core-process/main-side/browser");
 
 const FIXED_TIME = "2026-07-17T12:00:00.000Z";
 const MODE_MASK = 0o777;
@@ -331,21 +341,35 @@ describe("browser profile registry", () => {
     );
   });
 
-  it("runs the same registry through the core's operations, with each refusal's code kept", async () => {
+  it("runs the same registry through the core's browser store group, with each refusal's code kept", async () => {
     await freshState();
-    const registry = makeBrowserProfileServiceOn(coreBrowserProfileStore(inProcessCore(runtime!)), registryRoot, {
-      wipeLifecycle: lifecycle(),
-      now: () => new Date(FIXED_TIME),
-    });
-    expect((await run(registry.initialize)).profiles.map((profile) => profile.id)).toEqual(["personal", "work"]);
-    await run(registry.createProfile("lab"));
-    const twice = await runEither(registry.createProfile("lab"));
-    expect(Result.isFailure(twice) && twice.failure).toMatchObject({ _tag: "BrowserProfileError", code: "invalid", message: "profile already exists" });
-    await run(registry.touchProfile("lab"));
-    expect(await run(registry.wipeProfile("lab"))).toEqual({ status: "complete" });
-    expect((await run(registry.listProfiles)).map((profile) => profile.id)).toEqual(["personal", "work"]);
-    // The rows are the core's: a SQL service on the same database reads them.
-    expect((await run(makeBrowserProfileService(sql, registryRoot).listProfiles)).map((profile) => profile.id)).toEqual(["personal", "work"]);
+    // Main's client of the group, answered by the core's handlers on this database.
+    const scope = await run(Scope.make());
+    try {
+      const core = await run(
+        RpcTest.makeClient(BrowserStoreRpcs).pipe(
+          Effect.map((client) => Context.make(BrowserStoreCore, client)),
+          Effect.provide(BrowserStoreHandlers),
+          Effect.provideService(SqlClient.SqlClient, sql),
+          Scope.provide(scope),
+        ),
+      );
+      const registry = makeBrowserProfileServiceOn(coreBrowserProfileStore(core), registryRoot, {
+        wipeLifecycle: lifecycle(),
+        now: () => new Date(FIXED_TIME),
+      });
+      expect((await run(registry.initialize)).profiles.map((profile) => profile.id)).toEqual(["personal", "work"]);
+      await run(registry.createProfile("lab"));
+      const twice = await runEither(registry.createProfile("lab"));
+      expect(Result.isFailure(twice) && twice.failure).toMatchObject({ _tag: "BrowserProfileError", code: "invalid", message: "profile already exists" });
+      await run(registry.touchProfile("lab"));
+      expect(await run(registry.wipeProfile("lab"))).toEqual({ status: "complete" });
+      expect((await run(registry.listProfiles)).map((profile) => profile.id)).toEqual(["personal", "work"]);
+      // The rows are the core's: a SQL service on the same database reads them.
+      expect((await run(makeBrowserProfileService(sql, registryRoot).listProfiles)).map((profile) => profile.id)).toEqual(["personal", "work"]);
+    } finally {
+      await run(Scope.close(scope, Exit.void));
+    }
   });
 
   it("allows exactly one concurrent duplicate create", async () => {

@@ -21,9 +21,9 @@ export const SEAT_ONBOARDING_LABEL: Readonly<Record<SeatOnboardingStatus, string
   "not-onboarded": "Not onboarded",
 };
 
-export type SeatOnboardNudgeResult =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly message: string };
+import type { SeatOnboardNudgeResult as SeatOnboardNudgeResultSchema } from "../contract/core/seats";
+
+export type SeatOnboardNudgeResult = typeof SeatOnboardNudgeResultSchema.Type;
 
 /** Why a nudge the operator asked for was not typed. Nothing reached the seat. */
 export type OnboardNudgeRefusal = "dialog" | "draft" | "unreadable" | "unavailable";

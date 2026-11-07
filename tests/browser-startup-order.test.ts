@@ -82,7 +82,7 @@ describe("browser startup recovery gate", () => {
     expect(controlStart).toBeGreaterThan(grantStart);
     expect(grant).toContain("machineName: () => composition.sessions.machineName()");
     expect(grant).not.toContain("admitBrowserHost");
-    expect(grant).toContain('core.call("model.editsCanvas", { canvasName })');
+    expect(grant).toContain("editsCanvas: (canvasName) => coreAsks.editsCanvas(canvasName)");
     expect(activation).not.toContain("subscribeHostsSnapshot");
     expect(activation).toContain("edgeGrant.clear()");
   });
@@ -120,7 +120,7 @@ describe("browser startup recovery gate", () => {
 
   it("uses the platform supervisor handoff before any composition host exists", () => {
     const ready = indexSrc.slice(indexSrc.indexOf("app.whenReady().then"));
-    const supervised = ready.indexOf("if (!(await ensureSupervised())) return;");
+    const supervised = ready.indexOf("if (!(await ensureSupervised(coreAsks))) return;");
     const host = ready.indexOf("await browserCompositionHost.ensureHeadlessHost()");
     expect(indexSrc).toContain('import { loadStationSupervisor } from "../node/supervision/select";');
     expect(indexSrc).toContain("const handoff = await supervisor.requestHandoff();");
@@ -137,7 +137,7 @@ describe("browser startup recovery gate", () => {
     expect(ensureSupervised).toContain("if (!machine.supervisedPreferred) return true;");
     expect(ensureSupervised).not.toContain("process.platform");
     expect(ensureSupervised).not.toContain("role");
-    expect(ensureSupervised).toContain('(await core.call("settings.read", {})).machine');
+    expect(ensureSupervised).toContain("const machine = await asks.machine();");
     expect(indexSrc).not.toContain("StateEngineLive");
     expect(indexSrc).not.toContain("SettingsLive");
     expect(indexSrc).not.toContain("ManagedRuntime.make");

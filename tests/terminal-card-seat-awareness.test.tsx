@@ -29,7 +29,7 @@ import {
   applySeatAwarenessEvent,
   resetSeatAwareness,
 } from "../src/window/lib/seat-awareness";
-import type { SeatAwarenessAssessment } from "../src/window/lib/seat-awareness-contract";
+import type { SeatAwarenessAssessment } from "../src/shared/seat-awareness-contract";
 import { holdModelCanvas as holdCanvas } from "./support/hold-canvas";
 import {
   applyAgentSeatStateEvent,

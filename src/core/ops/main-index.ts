@@ -1,112 +1,106 @@
-import { Effect } from "effect";
-import { SqlClient } from "effect/sql";
-import type { ContentRef } from "@shared/content";
-import type { Canvas } from "@shared/model";
-import { redactProvidersForIpc, type Settings } from "@shared/settings";
+import { Effect, Scope } from "effect";
 import type { PreambleEvent } from "@shared/preamble";
-import { ContentService, type ContentOpenForRead } from "../content/service";
+import { ContentService } from "../content/service";
 import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
 import { PausePlane } from "../pause-plane";
-import { resolveNodeRef, type ResolvedNodeRef } from "../node-ref-resolver";
-import { SettingsService } from "../settings/service";
+import { resolveNodeRef, type NodeRefResolutionError } from "../node-ref-resolver";
 import { onAgentSignalChanged } from "../signals/changes";
-import { carryFileThreads } from "../work/file-thread-paths";
+import { checkSeatPageBox, postSeatPageShot } from "../work/page-box-comment";
+import { CorePushes, publish } from "../push";
+import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, WORK_PREAMBLE } from "../../contract/core/channels";
 import {
-  checkSeatPageBox,
-  postSeatPageShot,
-  type SeatPageBoxTarget,
-  type SeatPageShot,
-} from "../work/page-box-comment";
-import { coreOps, type CoreOp } from "../ops";
-import { publish } from "../push";
-import {
-  AGENT_SIGNAL_CHANGED,
-  CANVAS_CHANGED,
-  type CanvasChangedPush,
-  SETTINGS_CHANGED,
-  WORK_PREAMBLE,
-} from "../../contract/core/channels";
-
-/**
- * What `src/app/index.ts` asks the core on a request: a node ref, the
- * settings, a content read, a file move's threads, the
- * canvases for an edge grant, and a seat's box comment either side of the
- * shot main takes.
- */
+  MainIndexContentUnreadable,
+  MainIndexModelUnavailable,
+  MainIndexNodeRefUnresolved,
+  MainIndexRpcs,
+} from "../../contract/core/main-index";
 
 /**
  * The window's broadcasts from a core in its own process: each signal change
  * is published as it happens, and the work control server's preamble hook
  * publishes too. Returns that hook, and the stop for the signal subscription.
+ * Core boot calls it before any server exists (`src/core/entry.ts`), so it
+ * publishes through the port boot chose.
  */
 export const publishWindowBroadcasts = (): { readonly onPreamble: (event: PreambleEvent) => void; readonly stop: () => void } => ({
   onPreamble: (event) => publish(WORK_PREAMBLE, event),
   stop: onAgentSignalChanged((signal) => publish(AGENT_SIGNAL_CHANGED, signal)),
 });
 
-type PageBoxPosted = Effect.Success<ReturnType<typeof postSeatPageShot>>;
-
-declare module "../ops" {
-  interface CoreOps {
-    "model.resolveNodeRef": CoreOp<{ readonly ref: Parameters<typeof resolveNodeRef>[1] }, ResolvedNodeRef>;
-    "model.canvases": CoreOp<Record<string, never>, ReadonlyArray<{ readonly name: string; readonly doc: Canvas }>>;
-    "model.editsCanvas": CoreOp<{ readonly canvasName: string }, boolean>;
-    "settings.read": CoreOp<Record<string, never>, Settings>;
-    "settings.watch": CoreOp<Record<string, never>, void>;
-    "model.watchCanvases": CoreOp<Record<string, never>, void>;
-    /** A canvas's play state as the pause plane holds it now. */
-    "pause.playing": CoreOp<{ readonly canvas: string }, boolean>;
-    "content.openForRead": CoreOp<{ readonly ref: ContentRef }, ContentOpenForRead>;
-    "files.carryThreads": CoreOp<
-      { readonly canvasName: string; readonly nodeId: string; readonly from: string; readonly to: string },
-      void
-    >;
-    "pageBox.check": CoreOp<SeatPageBoxTarget, Effect.Success<ReturnType<typeof checkSeatPageBox>>>;
-    "pageBox.post": CoreOp<{ readonly request: SeatPageBoxTarget; readonly shot: SeatPageShot }, PageBoxPosted>;
+/** Why a ref named nothing, in the words the link's opener is told. */
+const unresolved = (error: NodeRefResolutionError): MainIndexNodeRefUnresolved => {
+  const { canvasName, nodeId } = error.ref;
+  switch (error._tag) {
+    case "InvalidNodeRef":
+    case "CanvasReadError":
+      return new MainIndexNodeRefUnresolved({ reason: error._tag, message: error.message });
+    case "CanvasNotFound":
+      return new MainIndexNodeRefUnresolved({ reason: error._tag, message: `no canvas named ${canvasName}` });
+    case "NodeNotFound":
+      return new MainIndexNodeRefUnresolved({ reason: error._tag, message: `no node ${nodeId} on ${canvasName}` });
+    case "NodeKindMismatch":
+      return new MainIndexNodeRefUnresolved({
+        reason: error._tag,
+        message: `node ${nodeId} on ${canvasName} is ${error.actual ?? "of no kind"}, not ${error.expected}`,
+      });
   }
-}
+};
 
-let watchingSettings = false;
-let watchingCanvases = false;
+const modelUnavailable = (error: { readonly message: string }) => new MainIndexModelUnavailable({ message: error.message });
 
-coreOps({
-  "model.resolveNodeRef": ({ ref }) => Effect.flatMap(ModelService, (model) => resolveNodeRef(model, ref)),
-  "model.canvases": () =>
-    Effect.flatMap(ModelService, (model) =>
-      Effect.gen(function* () {
-        const names = yield* model.listCanvases();
-        return yield* Effect.forEach(names, (name) => Effect.map(model.canvas(name), (doc) => ({ name, doc })));
-      })),
-  "model.editsCanvas": ({ canvasName }) => Effect.flatMap(ModelRecords, (records) => records.editsCanvas(canvasName)),
-  // Provider secrets never leave the core: every answer and push is masked, as the window gets it.
-  "settings.read": () => Effect.flatMap(SettingsService, (settings) => Effect.map(settings.get, redactProvidersForIpc)),
-  // Subscribed once per core; each watch also publishes the settings as they stand, after the
-  // subscription, so a watcher reads every value from the one ordered push stream.
-  "settings.watch": () =>
-    Effect.flatMap(SettingsService, (settings) =>
-      Effect.gen(function* () {
-        if (!watchingSettings) {
-          watchingSettings = true;
-          settings.subscribe((next) => publish(SETTINGS_CHANGED, redactProvidersForIpc(next)));
-        }
-        publish(SETTINGS_CHANGED, redactProvidersForIpc(yield* settings.get));
-      })),
-  // Subscribed once per core; every canvas change and removal is published with the document as it is now.
-  "model.watchCanvases": () =>
-    Effect.flatMap(ModelService, (model) =>
-      Effect.sync(() => {
-        if (watchingCanvases) return;
-        watchingCanvases = true;
-        model.subscribeChanges((event, next) => publish(CANVAS_CHANGED, { canvas: event.canvas, next } satisfies CanvasChangedPush));
-        model.subscribeCanvasesChanges((event) => {
-          if (event._tag === "Removed") publish(CANVAS_CHANGED, { canvas: event.canvas, next: undefined } satisfies CanvasChangedPush);
-        });
-      })),
-  "pause.playing": ({ canvas }) => Effect.map(PausePlane, (pause) => pause.stateFor(canvas).playing),
-  "content.openForRead": ({ ref }) => Effect.flatMap(ContentService, (content) => content.openForRead(ref)),
-  "files.carryThreads": ({ canvasName, nodeId, from, to }) =>
-    Effect.flatMap(SqlClient.SqlClient, (sql) => carryFileThreads(sql, canvasName, nodeId, from, to)).pipe(Effect.asVoid),
-  "pageBox.check": (request) => checkSeatPageBox(request),
-  "pageBox.post": ({ request, shot }) => postSeatPageShot(request, shot),
-});
+/**
+ * The core's handlers of the main-index group (src/contract/core/main-index.ts):
+ * what `src/app/index.ts` asks the core on a request. The canvas watch
+ * publishes through `CorePushes`, subscribed once per server on its first
+ * ask, and the subscriptions end with the server.
+ */
+export const MainIndexHandlers = MainIndexRpcs.toLayer(
+  Effect.gen(function* () {
+    const model = yield* ModelService;
+    const records = yield* ModelRecords;
+    const pause = yield* PausePlane;
+    const pushes = yield* CorePushes;
+    const scope = yield* Scope.Scope;
+
+    // Every canvas change and removal is published with the document as it is now.
+    const watching = yield* Effect.cached(
+      Effect.all([
+        Effect.acquireRelease(
+          Effect.sync(() =>
+            model.subscribeChanges((event, next) => Effect.runSync(pushes.publish(CANVAS_CHANGED, { canvas: event.canvas, next })))),
+          (stop) => Effect.sync(stop),
+        ),
+        Effect.acquireRelease(
+          Effect.sync(() =>
+            model.subscribeCanvasesChanges((event) => {
+              if (event._tag === "Removed") Effect.runSync(pushes.publish(CANVAS_CHANGED, { canvas: event.canvas, next: undefined }));
+            })),
+          (stop) => Effect.sync(stop),
+        ),
+      ]).pipe(Effect.asVoid, Scope.provide(scope)),
+    );
+
+    return {
+      MainIndexResolveNodeRef: ({ ref }) =>
+        resolveNodeRef(model, ref).pipe(
+          Effect.map(({ key }) => ({ key })),
+          Effect.mapError(unresolved),
+        ),
+      MainIndexCanvases: () =>
+        Effect.gen(function* () {
+          const names = yield* model.listCanvases();
+          return yield* Effect.forEach(names, (name) => Effect.map(model.canvas(name), (doc) => ({ name, doc })));
+        }).pipe(Effect.mapError(modelUnavailable)),
+      MainIndexEditsCanvas: ({ canvasName }) => records.editsCanvas(canvasName).pipe(Effect.mapError(modelUnavailable)),
+      MainIndexWatchCanvases: () => watching,
+      MainIndexCanvasPlaying: ({ canvas }) => Effect.sync(() => pause.stateFor(canvas).playing),
+      MainIndexOpenForRead: ({ ref }) =>
+        Effect.flatMap(ContentService, (content) => content.openForRead(ref)).pipe(
+          Effect.mapError((error) => new MainIndexContentUnreadable({ message: error.message })),
+        ),
+      MainIndexPageBoxCheck: (request) => checkSeatPageBox(request),
+      MainIndexPageBoxPost: ({ request, shot }) => postSeatPageShot(request, shot),
+    };
+  }),
+);

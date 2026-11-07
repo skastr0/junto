@@ -1,27 +1,36 @@
 import { MessageChannelMain, type IpcMain, type IpcMainInvokeEvent, type WebContents } from "electron";
-import type {
-  JuntoApi,
-  MachineInventoryResult,
-  NativeSettingsReadResult,
-  NativeSettingWriteResult,
-} from "@shared/ipc";
-import {
-  IPC_CHANNELS,
-  type TerminalAttachInput,
-  type TerminalFinishNodeDeleteOutcome,
-  type TerminalNodeDeleteResource,
-  type TerminalParkResult,
-} from "@shared/ipc";
-import { isHarnessId } from "@shared/managed-terminal-templates";
-import type { ControlLease, LocalHostEvent } from "../../core/term/local-host";
+import { Context, Effect, Predicate, Result, Schema } from "effect";
+import type { MachineInventoryResult, NativeSettingsReadResult, NativeSettingWriteResult } from "@shared/ipc";
+import { IPC_CHANNELS, type TerminalParkResult } from "@shared/ipc";
+import type { TerminalSessionSummary } from "@shared/terminal";
+import type { LocalHostEvent } from "../../core/term/local-host";
 import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer";
-import { core } from "../core-process/main-client";
 import { subscribe as subscribeCore } from "../core-process/main-side/core-pushes";
 import { TERM_EVENT, TERM_LEASE_ENDED, TERM_SEAT_STATE } from "../../contract/core/channels";
+import { CoreLink, coreClient } from "../../contract/core/link";
+import {
+  TermAttachInput,
+  TermBindingAsk,
+  TermCore,
+  TermDirectoryAsk,
+  TermHarnessAsk,
+  TermListAsk,
+  TermMachineAsk,
+  TermNativeSettingsAsk,
+  TermNativeSettingWriteAsk,
+  TermNodeDeleteBegin,
+  TermNodeDeleteFinish,
+  TermRpcs,
+  TermSeatWhere,
+  type ControlLease,
+} from "../../contract/core/term-ipc";
+import { TermTemplatesCore, TermTemplatesFlagsAsk } from "../../contract/core/term-templates";
+import type { RpcPort } from "../../shared/rpc-port";
 import type { SurfacePlane } from "../core-process/main-side/term-surface";
+import { AppRuntime } from "../runtime";
 
 type LeaseOwner = {
-  readonly lease: ControlLease;
+  readonly lease: typeof ControlLease.Type;
   readonly sender: WebContents;
   readonly hostId: string;
   readonly release: () => void;
@@ -59,19 +68,65 @@ const deny = (message: string): never => {
   throw new Error(message);
 };
 
-type AttachInput = TerminalAttachInput & { readonly hostId?: string };
+/** A closed decoder of what the window sends: the value, or undefined when it is not that shape exactly. */
+const strict = <S extends Schema.ConstraintDecoder<unknown>>(schema: S): ((raw: unknown) => S["Type"] | undefined) => {
+  const decode = Schema.decodeUnknownResult(schema);
+  return (raw) => Result.getOrUndefined(decode(raw, { onExcessProperty: "error" }));
+};
+
+/** The window's arguments as one payload: one it left out, or sent as undefined, is absent. */
+const present = (raw: unknown): unknown =>
+  Predicate.isObject(raw)
+    ? Object.fromEntries(Object.entries(raw).filter(([, value]) => value !== undefined))
+    : raw;
+
+const decodeList = strict(TermListAsk);
+const decodeDirectory = strict(TermDirectoryAsk);
+const decodeSeat = strict(TermSeatWhere);
+const decodeHarness = strict(TermHarnessAsk);
+const decodeMachine = strict(TermMachineAsk);
+const decodeNativeRead = strict(TermNativeSettingsAsk);
+const decodeNativeWrite = strict(TermNativeSettingWriteAsk);
+const decodeFlags = strict(TermTemplatesFlagsAsk);
+const decodeBinding = strict(TermBindingAsk);
+const decodeDeleteBegin = strict(TermNodeDeleteBegin);
+const decodeDeleteFinish = strict(TermNodeDeleteFinish);
+const decodeAttach = strict(TermAttachInput);
+const decodeText = strict(Schema.String);
+const decodeCount = strict(Schema.Number);
 
 /**
- * The window's terminal IPC. Every plane and router call asks the core by
- * name (`term.*`, ops/term-ipc.ts), so it runs where the plane is: the core
- * process, whose PTYs run in the terminal process over a port. The plane's
- * events come back on the push bus; main keeps the leases' windows, which are
- * Electron's, and hands each view its surface port.
+ * What is running, as the core's terminal plane lists it, for the quit
+ * prompt: a client of the terminal group on the core's link, for this one
+ * read. No core, or a core that does not answer, rejects; the quit counts
+ * that as unknown (quit-live-work.ts).
+ */
+export const coreTerminalSessions =
+  (link: () => RpcPort | undefined) => (): Promise<ReadonlyArray<TerminalSessionSummary>> => {
+    const port = link();
+    if (port === undefined) return Promise.reject(new Error("no core is running to say what is running"));
+    return AppRuntime.runPromise(
+      Effect.scoped(Effect.flatMap(coreClient(TermRpcs), (term) => term.TermList({}))).pipe(
+        Effect.provideService(CoreLink, port),
+      ),
+    );
+  };
+
+/**
+ * The window's terminal IPC. Every plane and router call asks the core's
+ * terminal group (src/contract/core/term-ipc.ts), so it runs where the plane
+ * is: the core process, whose PTYs run in the terminal process over a port.
+ * The window's input is decoded closed here first. The plane's events come
+ * back on the push bus; main keeps the leases' windows, which are Electron's,
+ * and hands each view its surface port.
  */
 export const registerTerminalIpc = (
   ipcMain: IpcMain,
   gate: TerminalIpcGate,
+  core: Context.Context<TermCore | TermTemplatesCore>,
 ): void => {
+  const term = Context.get(core, TermCore);
+  const templates = Context.get(core, TermTemplatesCore);
   const owners = new Map<string, LeaseOwner>();
   const controlByBinding = new Map<string, string>();
 
@@ -134,7 +189,7 @@ export const registerTerminalIpc = (
     ) {
       controlByBinding.delete(owner.lease.bindingId);
     }
-    void core.call("term.release", { lease: owner.lease, hostId: owner.hostId }).catch(() => undefined);
+    void AppRuntime.runPromise(term.TermRelease({ lease: owner.lease, hostId: owner.hostId })).catch(() => undefined);
     try {
       if (!owner.sender.isDestroyed()) {
         owner.sender.removeListener("destroyed", owner.release);
@@ -157,8 +212,8 @@ export const registerTerminalIpc = (
     }
   };
 
-  const owned = (sender: WebContents, leaseId: string): LeaseOwner | undefined => {
-    const owner = owners.get(leaseId);
+  const owned = (sender: WebContents, leaseId: unknown): LeaseOwner | undefined => {
+    const owner = typeof leaseId === "string" ? owners.get(leaseId) : undefined;
     return owner?.sender === sender && !sender.isDestroyed() ? owner : undefined;
   };
 
@@ -226,159 +281,149 @@ export const registerTerminalIpc = (
     coalescer.push(payload);
   });
 
-  ipcMain.handle(IPC_CHANNELS.terminalList, async (event, hostId?: string) => {
+  ipcMain.handle(IPC_CHANNELS.terminalList, async (event, hostId: unknown) => {
     assertTrusted(event);
-    return core.call("term.list", { ...(hostId === undefined ? {} : { hostId }) });
+    const ask = decodeList(present({ hostId })) ?? deny("terminal ipc: a host is named by text");
+    return AppRuntime.runPromise(term.TermList(ask));
   });
 
   ipcMain.handle(
     IPC_CHANNELS.hostDirectoryRead,
-    async (event, hostId: string, path?: string) => {
+    async (event, hostId: unknown, path: unknown) => {
       assertTrusted(event);
-      return core.call("term.readDirectory", { hostId, ...(path === undefined ? {} : { path }) });
+      const ask = decodeDirectory(present({ hostId, path })) ?? deny("terminal ipc: a host and a folder are named by text");
+      return AppRuntime.runPromise(term.TermReadDirectory(ask));
     },
   );
 
-  const readSeat = async (canvas: string, id: string) => {
-    if (typeof canvas !== "string" || !canvas.trim() || typeof id !== "string" || !id.trim())
-      return deny("terminal ipc: canvas and node id required");
-    const node = await core.call("term.seatNode", { canvas, id });
-    if (node?.kind !== "agent" && node?.kind !== "terminal")
-      return deny("terminal ipc: this node is not a seat or terminal");
-    return node;
+  const readSeat = async (input: unknown) => {
+    const where = decodeSeat(input) ?? deny("terminal ipc: canvas and node id required");
+    const node = await AppRuntime.runPromise(term.TermSeatNode(where));
+    return node === undefined ? deny("terminal ipc: this node is not a seat or terminal") : { canvas: where.canvas, node };
   };
 
-  ipcMain.handle(IPC_CHANNELS.modelSeatLaunchState, async (event, input: Parameters<JuntoApi["modelSeatLaunchState"]>[0]) => {
+  ipcMain.handle(IPC_CHANNELS.modelSeatLaunchState, async (event, input: unknown) => {
     assertTrusted(event);
-    const node = await readSeat(input?.canvas, input?.id);
+    const { canvas, node } = await readSeat(input);
     if (node.kind !== "agent") return { settingsFixed: false };
-    if (await core.call("term.isLocalHost", { hostId: node.host })) return core.call("term.seatLaunchState", { canvas: input.canvas, node });
+    if (await AppRuntime.runPromise(term.TermIsLocalHost({ hostId: node.host })))
+      return AppRuntime.runPromise(term.TermSeatLaunchState({ canvas, node }));
     // A seat on another machine: what that machine last said (seats-launch.ts).
-    const launch = await core.call("term.remoteSeatLaunch", { node });
+    const launch = await AppRuntime.runPromise(term.TermRemoteSeatLaunch({ node }));
     return launch === undefined ? deny("This seat runs on another machine.") : launch;
   });
 
-  ipcMain.handle(IPC_CHANNELS.modelStart, async (event, input: Parameters<JuntoApi["modelStart"]>[0]) => {
+  ipcMain.handle(IPC_CHANNELS.modelStart, async (event, input: unknown) => {
     assertTrusted(event);
-    const node = await readSeat(input?.canvas, input?.id);
+    const { canvas, node } = await readSeat(input);
     if (node.kind === "agent") {
-      return core.call("term.startSeat", { canvas: input.canvas, seatId: node.id });
+      return AppRuntime.runPromise(term.TermStartSeat({ canvas, seatId: node.id }));
     }
     // The core takes the delete admission and reaches another machine before it starts.
-    return core.call("term.startTerminal", { canvas: input.canvas, node });
+    return AppRuntime.runPromise(term.TermStartTerminal({ canvas, node }));
   });
 
-  ipcMain.handle(IPC_CHANNELS.modelStop, async (event, input: Parameters<JuntoApi["modelStop"]>[0]) => {
+  ipcMain.handle(IPC_CHANNELS.modelStop, async (event, input: unknown) => {
     assertTrusted(event);
-    const node = await readSeat(input?.canvas, input?.id);
-    if (node.kind !== "agent") return void await stopBinding(node.bindingId, node.host);
-    await core.call("term.stopSeat", { canvas: input.canvas, seatId: node.id });
+    const { canvas, node } = await readSeat(input);
+    if (node.kind !== "agent") return void await stopBinding({ bindingId: node.bindingId, hostId: node.host });
+    await AppRuntime.runPromise(term.TermStopSeat({ canvas, seatId: node.id }));
   });
 
   ipcMain.handle(
     IPC_CHANNELS.managedTerminalModels,
-    async (event, harness: string) => {
+    async (event, harness: unknown) => {
       assertTrusted(event);
-      return core.call("term.harnessModels", { harness });
+      const ask = decodeHarness({ harness }) ?? deny("terminal ipc: a harness is named by text");
+      return AppRuntime.runPromise(term.TermHarnessModels(ask));
     },
   );
 
   ipcMain.handle(IPC_CHANNELS.managedTerminalProfiles, async (event) => {
     assertTrusted(event);
-    return core.call("term.managedProfiles", {});
+    return AppRuntime.runPromise(templates.TermTemplatesManagedProfiles());
   });
 
   ipcMain.handle(IPC_CHANNELS.machineInventory, async (event, machine: unknown): Promise<MachineInventoryResult> => {
     assertTrusted(event);
-    if (typeof machine !== "string" || !machine.trim()) return deny("machine inventory: a machine name is required");
-    return core.call("term.machineInventory", { machine });
+    const ask = decodeMachine({ machine }) ?? deny("machine inventory: a machine name is required");
+    return AppRuntime.runPromise(term.TermMachineInventory(ask));
   });
 
   // Every machine's harness config, this one included, goes through the same
   // client: this machine answers itself, a linked one over the link.
   ipcMain.handle(IPC_CHANNELS.nativeSettingsRead, async (event, input: unknown): Promise<NativeSettingsReadResult> => {
     assertTrusted(event);
-    const request = input as { machine?: unknown; harness?: unknown; keys?: unknown } | undefined;
-    if (typeof request?.machine !== "string" || typeof request.harness !== "string"
-      || !Array.isArray(request.keys) || !request.keys.every((key) => typeof key === "string"))
-      return deny("native settings: machine, harness and keys are required");
-    const { machine, harness, keys } = { machine: request.machine, harness: request.harness, keys: request.keys as string[] };
-    return core.call("term.nativeSettingsRead", { machine, harness, keys });
+    const ask = decodeNativeRead(input) ?? deny("native settings: machine, harness and keys are required");
+    return AppRuntime.runPromise(term.TermNativeSettingsRead(ask));
   });
 
   ipcMain.handle(IPC_CHANNELS.nativeSettingWrite, async (event, input: unknown): Promise<NativeSettingWriteResult> => {
     assertTrusted(event);
-    const request = input as { machine?: unknown; harness?: unknown; key?: unknown; value?: unknown } | undefined;
-    if (typeof request?.machine !== "string" || typeof request.harness !== "string" || typeof request.key !== "string")
-      return deny("native settings: machine, harness, key and value are required");
-    const { machine, harness, key, value } = { machine: request.machine, harness: request.harness, key: request.key, value: request.value };
-    return core.call("term.nativeSettingWrite", { machine, harness, key, value });
+    const write = decodeNativeWrite(input) ?? deny("native settings: machine, harness, key and value are required");
+    return AppRuntime.runPromise(term.TermNativeSettingWrite(write));
   });
 
   ipcMain.handle(IPC_CHANNELS.managedTerminalHarnesses, async (event) => {
     assertTrusted(event);
-    return core.call("term.harnessInstalls", {});
+    return AppRuntime.runPromise(templates.TermTemplatesHarnessInstalls());
   });
 
   ipcMain.handle(
     IPC_CHANNELS.managedTerminalFlags,
-    async (event, harness: string, cwd?: string) => {
+    async (event, harness: unknown, cwd: unknown) => {
       assertTrusted(event);
-      if (typeof harness !== "string" || !isHarnessId(harness)) {
-        return { installed: false, flags: [] };
-      }
-      return core.call("term.harnessFlags", { harness, ...(typeof cwd === "string" ? { cwd } : {}) });
+      // A folder that is not text is not asked in; the harness still answers.
+      const ask = decodeFlags(present({ harness, cwd: typeof cwd === "string" ? cwd : undefined }));
+      if (ask === undefined) return { installed: false, flags: [] };
+      return AppRuntime.runPromise(templates.TermTemplatesHarnessFlags(ask));
     },
   );
 
   ipcMain.handle(
     IPC_CHANNELS.terminalGet,
-    async (event, bindingId: string, hostId?: string) => {
+    async (event, bindingId: unknown, hostId: unknown) => {
       assertTrusted(event);
-      return core.call("term.get", { bindingId, ...(hostId === undefined ? {} : { hostId }) });
+      const ask = decodeBinding(present({ bindingId, hostId })) ?? deny("terminal ipc: a binding is named by text");
+      return AppRuntime.runPromise(term.TermGet(ask));
     },
   );
 
   // Both trusted IPC stop commands use the same owned-session router capability;
   // a seat on another machine is stopped over the seats channel, typed.
-  const stopBinding = (bindingId: string, hostId?: string) =>
-    core.call("term.stopBinding", { bindingId, ...(hostId === undefined ? {} : { hostId }) });
+  const stopBinding = (ask: typeof TermBindingAsk.Type) => AppRuntime.runPromise(term.TermStopBinding(ask));
 
   ipcMain.handle(
     IPC_CHANNELS.terminalKill,
-    async (event, bindingId: string, hostId?: string) => {
+    async (event, bindingId: unknown, hostId: unknown) => {
       assertTrusted(event);
-      return stopBinding(bindingId, hostId);
+      return stopBinding(decodeBinding(present({ bindingId, hostId })) ?? deny("terminal ipc: a binding is named by text"));
     },
   );
 
   ipcMain.handle(
     IPC_CHANNELS.terminalBeginNodeDelete,
-    (
-      event,
-      resources: ReadonlyArray<TerminalNodeDeleteResource>,
-    ) => {
+    (event, resources: unknown) => {
       assertTrusted(event);
-      return core.call("term.beginNodeDelete", { resources });
+      const ask = decodeDeleteBegin({ resources }) ?? deny("terminal ipc: the bindings to delete are each a binding and a host");
+      return AppRuntime.runPromise(term.TermBeginNodeDelete(ask));
     },
   );
 
   ipcMain.handle(
     IPC_CHANNELS.terminalFinishNodeDelete,
-    (
-      event,
-      leaseId: string,
-      outcome: TerminalFinishNodeDeleteOutcome,
-    ) => {
+    (event, leaseId: unknown, outcome: unknown) => {
       assertTrusted(event);
-      return core.call("term.finishNodeDelete", { leaseId, outcome });
+      const ask = decodeDeleteFinish({ leaseId, outcome }) ?? deny("terminal ipc: a delete ends committed or aborted");
+      return AppRuntime.runPromise(term.TermFinishNodeDelete(ask));
     },
   );
 
-  ipcMain.handle(IPC_CHANNELS.terminalAttach, async (event, input: AttachInput) => {
+  ipcMain.handle(IPC_CHANNELS.terminalAttach, async (event, raw: unknown) => {
     const sender = assertTrusted(event);
-    const hostId = input.hostId?.trim() || (await core.call("term.thisMachine", {}));
-    const local = await core.call("term.isLocalHost", { hostId });
+    const input = decodeAttach(present(raw)) ?? deny("terminal ipc: this build does not read that attach");
+    const hostId = input.hostId?.trim() || (await AppRuntime.runPromise(term.TermThisMachine()));
+    const local = await AppRuntime.runPromise(term.TermIsLocalHost({ hostId }));
     // Every local lease gets a port, an observe lease's included.
     const surfacePorts = input.surface === true && (input.mode === "control" || gate.surfacePlane() !== undefined) && local
       ? MessageChannelMain
@@ -390,10 +435,10 @@ export const registerTerminalIpc = (
         release(priorLeaseId);
       }
     }
-    const { result } = await core.call("term.attach", { input: { ...input, hostId } });
+    const { result } = await AppRuntime.runPromise(term.TermAttach({ input: { ...input, hostId } }));
     if (!result.ok) return result;
     if (sender.isDestroyed()) {
-      void core.call("term.release", { lease: result.lease, hostId }).catch(() => undefined);
+      void AppRuntime.runPromise(term.TermRelease({ lease: result.lease, hostId })).catch(() => undefined);
       return { ok: false as const, message: "renderer gone" };
     }
     const leaseId = result.lease.leaseId;
@@ -401,7 +446,7 @@ export const registerTerminalIpc = (
     sender.once("destroyed", releaseOwner);
     sender.once("render-process-gone", releaseOwner);
     sender.once("did-start-loading", releaseOwner);
-    owners.set(leaseId, {
+    const owner: LeaseOwner = {
       lease: result.lease,
       sender,
       hostId,
@@ -410,17 +455,18 @@ export const registerTerminalIpc = (
       missed: false,
       ...(surfacePorts === undefined ? {} : { surfacePorts }),
       surfaced: false,
-    });
+    };
+    owners.set(leaseId, owner);
     if (result.lease.mode === "control") {
       controlByBinding.set(result.lease.bindingId, leaseId);
     }
-    if (surfacePorts !== undefined) void openSurface(owners.get(leaseId)!);
+    if (surfacePorts !== undefined) void openSurface(owner);
     return result;
   });
 
-  ipcMain.handle(IPC_CHANNELS.terminalRelease, async (event, leaseId: string) => {
+  ipcMain.handle(IPC_CHANNELS.terminalRelease, async (event, leaseId: unknown) => {
     assertTrusted(event);
-    if (!owned(event.sender, leaseId)) return false;
+    if (typeof leaseId !== "string" || !owned(event.sender, leaseId)) return false;
     release(leaseId);
     return true;
   });
@@ -433,10 +479,10 @@ export const registerTerminalIpc = (
   // the same contract a first attach keeps.
   ipcMain.handle(
     IPC_CHANNELS.terminalPark,
-    async (event, leaseId: string, parked: boolean): Promise<TerminalParkResult> => {
+    async (event, leaseId: unknown, parked: unknown): Promise<TerminalParkResult> => {
       assertTrusted(event);
       const owner = owned(event.sender, leaseId);
-      if (!owner) return { ok: false };
+      if (!owner || typeof parked !== "boolean") return { ok: false };
       if (parked) {
         if (!owner.parked) {
           coalescer.flush(terminalBindingKey(owner.lease.bindingId, owner.lease.epoch));
@@ -477,16 +523,16 @@ export const registerTerminalIpc = (
       const missed = owner.missed;
       owner.missed = false;
       if (!missed) return { ok: true, missed: false };
-      const { result: view } = await core.call("term.attach", { input: {
+      const { result: view } = await AppRuntime.runPromise(term.TermAttach({ input: {
         bindingId: owner.lease.bindingId,
         mode: "observe",
         hostId: owner.hostId,
-      } });
+      } }));
       if (!view.ok) {
         endRead(false);
         return { ok: true, missed: true };
       }
-      void core.call("term.release", { lease: view.lease, hostId: owner.hostId }).catch(() => undefined);
+      void AppRuntime.runPromise(term.TermRelease({ lease: view.lease, hostId: owner.hostId })).catch(() => undefined);
       if (view.lease.epoch !== owner.lease.epoch) {
         endRead(false);
         return { ok: true, missed: true };
@@ -517,24 +563,26 @@ export const registerTerminalIpc = (
 
   ipcMain.handle(
     IPC_CHANNELS.terminalWrite,
-    async (event, leaseId: string, data: string, encoding = "utf8") => {
+    async (event, leaseId: unknown, data: unknown, encoding: unknown = "utf8") => {
       assertTrusted(event);
       const owner = owned(event.sender, leaseId);
-      if (!owner) return false;
-      const decoded =
-        encoding === "base64" ? Buffer.from(data, "base64").toString("utf8") : data;
-      // The core tags the input's origin where the keys land (term.write).
-      return core.call("term.write", { lease: owner.lease, data: decoded, hostId: owner.hostId });
+      const text = decodeText(data);
+      if (!owner || text === undefined) return false;
+      const decoded = encoding === "base64" ? Buffer.from(text, "base64").toString("utf8") : text;
+      // The core tags the input's origin where the keys land (TermWrite).
+      return AppRuntime.runPromise(term.TermWrite({ lease: owner.lease, data: decoded, hostId: owner.hostId }));
     },
   );
 
   ipcMain.handle(
     IPC_CHANNELS.terminalResize,
-    async (event, leaseId: string, cols: number, rows: number) => {
+    async (event, leaseId: unknown, cols: unknown, rows: unknown) => {
       assertTrusted(event);
       const owner = owned(event.sender, leaseId);
-      if (!owner) return false;
-      return core.call("term.resize", { lease: owner.lease, cols, rows, hostId: owner.hostId });
+      const width = decodeCount(cols);
+      const height = decodeCount(rows);
+      if (!owner || width === undefined || height === undefined) return false;
+      return AppRuntime.runPromise(term.TermResize({ lease: owner.lease, cols: width, rows: height, hostId: owner.hostId }));
     },
   );
 };

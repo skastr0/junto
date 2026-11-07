@@ -3,8 +3,8 @@ import { coreArtifactMove } from "../work/artifact-move-core";
 
 /**
  * The seam to the operator's artifact move (docs/plans/0.11/10 M1), which
- * runs where the store is, in the core: `ipc.resource.move` for the window,
- * `coreArtifactMove` for the overseer that is already in this process.
+ * runs where the store is, in the core: `coreArtifactMove`, for the overseer
+ * that is already in this process.
  *
  * The overseer's `artifact.move` does what the window's "Move to…" does,
  * through the same entry point: the core rules the move, writes the history

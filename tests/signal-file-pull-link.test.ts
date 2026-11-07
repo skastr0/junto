@@ -161,21 +161,23 @@ it("starts a pull only from the operator's preview: no other source names the pu
   expect(naming.sort()).toEqual([
     "src/core/ops/ipc-library.ts",
     "src/core/core-runtime.ts",
-    "src/app/ipc.ts",
     "src/core/signals/file-pull.ts",
     "src/core/signals/file-puller.ts",
   ].sort());
-  // In the trusted IPC, only the preview read asks the core for a pull: every call is inside it.
+  // The library group's pull is asked for by one call of main's registrar, and nothing else in main names it.
+  const asking = sources("src/app").filter((file) => /LibraryPullSignalFiles/u.test(readFileSync(file, "utf8")));
+  expect(asking).toEqual(["src/app/library/library-ipc.ts"]);
+  // In the trusted IPC, only the preview read asks the registrar for a pull: every call is inside it.
   const ipc = readFileSync("src/app/ipc.ts", "utf8");
   const preview = ipc.indexOf("IPC_CHANNELS.previewRead");
   const next = ipc.indexOf("privilegedIpc.handle(", preview + 1);
-  const uses = [...ipc.matchAll(/ipc\.library\.pullSignalFiles/gu)].map((match) => match.index!);
+  const uses = [...ipc.matchAll(/library\.pullFiles/gu)].map((match) => match.index!);
   expect(uses.length).toBeGreaterThan(0);
   expect(uses.every((at) => at > preview && at < next)).toBe(true);
-  // In the core, the puller is named only by that one operation.
+  // In the core, the puller is named only by that one handler.
   const ops = readFileSync("src/core/ops/ipc-library.ts", "utf8");
-  const op = ops.indexOf('"ipc.library.pullSignalFiles": ({');
-  const after = ops.indexOf('\n  "ipc.library.', op + 1);
+  const op = ops.indexOf("LibraryPullSignalFiles: ({");
+  const after = ops.indexOf("\n      Library", op + 1);
   const named = [...ops.matchAll(/SignalFilePuller/gu)].map((match) => match.index!).filter((at) => !ops.slice(ops.lastIndexOf("\n", at) + 1, at).startsWith("import"));
   expect(named.length).toBeGreaterThan(0);
   expect(named.every((at) => at > op && at < after)).toBe(true);

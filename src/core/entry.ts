@@ -22,12 +22,12 @@ import { runCoreOp, serveCore, type CoreRunner } from "./serve";
 import { closeCoreProcess, stopCoreOnSignal } from "./core-stop";
 import { CorePushes, publish, sendPushesTo } from "./push";
 import { host, useHostClient } from "./core-host";
-import { hostCaptureApplicationPage, hostOverseerPages } from "./ops/overseer-pages";
+import { hostCaptureApplicationPage, hostOverseerPages, OverseerPageFlights } from "./ops/overseer-pages";
 import { AGENT_SIGNAL_CHANGED, COMPANION_DEVICES } from "../contract/core/channels";
 import { publishWindowBroadcasts } from "./ops/main-index";
 import { companionE2eEnvironment, readCompanionEnvironment } from "./companion/service";
-import { bindOperatorListening } from "./ops/operator";
-import { bindOverseerLive } from "./ops/overseer-live";
+import { RunningLiveOverseer } from "./ops/overseer-live";
+import { CoreSeatSessions } from "./ops/ipc-seats";
 import { openCoreSurface, type SurfaceOpenMessage } from "./ops/term-surface";
 import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import "./ops/index";
@@ -106,13 +106,15 @@ const main = async (parent: ParentPort): Promise<void> => {
   });
   useHostClient(served.host);
   const broadcasts = publishWindowBroadcasts();
+  // This core's overseer page calls: the host pages give each its id, and the recheck handler reads them back.
+  const pageFlights = OverseerPageFlights.make();
   const core = await startCore({
     home: boot.home,
     build: boot.build,
     log,
     canvasControl: true,
     windowTerminals: { parent },
-    overseer: { captureApplicationPage: hostCaptureApplicationPage(host), pages: hostOverseerPages(host) },
+    overseer: { captureApplicationPage: hostCaptureApplicationPage(host), pages: hostOverseerPages(host, pageFlights) },
     onPreamble: broadcasts.onPreamble,
     overseerLive: LIVE_OVERSEER_ENABLED,
     operator: { listen: boot.operatorCommands ? "always" : "on-demand", commands: boot.operatorCommands },
@@ -132,13 +134,22 @@ const main = async (parent: ParentPort): Promise<void> => {
       machine: () => log.machine(),
     }),
   });
-  bindOperatorListening(core.ensureOperatorListening);
-  bindOverseerLive(core.overseerLive);
   started(core.runtime);
   // The core's one server on its link to main (link.ts), in the runtime's
   // scope: it answers with the runtime's services and closes with it.
   await core.runtime.runPromise(
-    Layer.buildWithScope(CoreServerLive.pipe(Layer.provide([Layer.succeed(CoreLink, link), CorePushes.live])), core.runtime.scope),
+    Layer.buildWithScope(
+      CoreServerLive.pipe(
+        Layer.provide([
+          Layer.succeed(CoreLink, link),
+          CorePushes.live,
+          Layer.succeed(OverseerPageFlights, pageFlights),
+          RunningLiveOverseer.layerOf(core.overseerLive),
+          Layer.succeed(CoreSeatSessions, core.seatSessions),
+        ]),
+      ),
+      core.runtime.scope,
+    ),
   );
   // The core's share of the window startup wiring runs here, where the core
   // services live; a failure is logged and the core still serves.

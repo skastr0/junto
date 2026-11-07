@@ -64,9 +64,11 @@ it("log rows: each boot builds its log and hands it its sink; loading the ring i
   }
   expect(HEADLESS).toContain("log.openFile({ home })");
   expect(HEADLESS).toContain("log.installConsoleHook({ echo: false })");
-  // Main builds its own log over the forwarder to the core's ring.
+  // Main builds its own log over the forwarder to the core's ring: each row
+  // waits on its queue until main's client of the core sends it.
   expect(read("src/app/observability/main-log.ts")).toContain("createLogger({");
-  expect(read("src/app/observability/main-log.ts")).toContain('core.call("observability.append"');
+  expect(read("src/app/observability/main-log.ts")).toContain("Queue.offerUnsafe(mainRows, entry)");
+  expect(read("src/app/observability/ipc.ts")).toContain("observability.ObservabilityAppend({ entry })");
   const logger = read("src/node/observability/logger.ts");
   expect(logger).not.toMatch(/sendLogRowsTo|setLogRowSink|rowSink/u);
   expect(logger).not.toMatch(/^let rows/mu);

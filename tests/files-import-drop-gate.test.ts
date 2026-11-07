@@ -3,12 +3,17 @@
  * section 3; 3776924fc). The preload reports each OS path it saw on a dropped
  * File; the core copies a source only if that window reported it, and each
  * such path once. A renderer call alone cannot name a source. The gate under
- * test is the real one in src/core/ops/files.ts, driven the way
- * main drives it; the service is a stand-in that records what it was asked to
- * copy.
+ * test is the real one in src/core/ops/files.ts, driven through the Files
+ * group's client the way main drives it; the service is a stand-in that
+ * records what it was asked to copy.
  */
-import { Effect } from "effect";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Effect, Exit, Layer, Result, Scope } from "effect";
+import { RpcTest, type RpcClient } from "effect/rpc";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { decodeFilesSources, ROOT_PATH } from "../src/shared/files";
+import { asNodeId } from "../src/shared/physics/schema";
+import { FilesRpcs } from "../src/contract/core/files";
+import { CorePushes } from "../src/core/push";
 
 vi.mock("../src/core/files/index-worker-host", () => ({ workerRootIndex: {} }));
 vi.mock("../src/core/files/service", () => ({
@@ -22,25 +27,36 @@ vi.mock("../src/core/files/service", () => ({
 }));
 
 const imported: Array<ReadonlyArray<string>> = [];
-const { coreOpBody } = await import("../src/core/ops");
-await import("../src/core/ops/files");
+const { FilesHandlers } = await import("../src/core/ops/files");
 
-const run = <A>(name: string, input: unknown): Promise<A> => {
-  const body = coreOpBody(name);
-  if (body === undefined) throw new Error(`no core operation named ${name}`);
-  return Effect.runPromise(body(input as never) as Effect.Effect<A, never, never>);
-};
+/** One handler Layer for the whole file, so every call meets the dropped paths the calls before it left, as a window's calls meet the core's. */
+let scope: Scope.Closeable;
+let files: RpcClient.FromGroup<typeof FilesRpcs>;
 
-const REF = { canvas: "factory", node: "files-1" };
-const drop = (subscriber: number, path: string) => run<unknown>("files.dropped", { subscriber, path });
+beforeAll(async () => {
+  scope = await Effect.runPromise(Scope.make());
+  const handlers = await Effect.runPromise(
+    Layer.buildWithScope(FilesHandlers.pipe(Layer.provide(Layer.succeed(CorePushes, { publish: () => Effect.void }))), scope),
+  );
+  files = await Effect.runPromise(
+    RpcTest.makeClient(FilesRpcs).pipe(Effect.provideContext(handlers), Effect.provideService(Scope.Scope, scope)),
+  );
+});
+
+afterAll(async () => {
+  await Effect.runPromise(Scope.close(scope, Exit.void));
+});
+
+const REF = { canvas: "factory", node: asNodeId("files-1") };
+const drop = (subscriber: number, path: string) => Effect.runPromise(files.FilesDropped({ subscriber, path }));
 const importFrom = (subscriber: number, sources: ReadonlyArray<string>) =>
-  run<{ ok: boolean; error?: string }>("files.import", { subscriber, ref: REF, into: "", sources });
+  Effect.runPromise(files.FilesImport({ subscriber, ref: REF, into: ROOT_PATH, sources }));
 
 beforeEach(async () => {
   imported.length = 0;
   // A window that ends takes its dropped paths with it.
-  await run<unknown>("files.windowGone", { subscriber: 1 });
-  await run<unknown>("files.windowGone", { subscriber: 2 });
+  await Effect.runPromise(files.FilesWindowGone({ subscriber: 1 }));
+  await Effect.runPromise(files.FilesWindowGone({ subscriber: 2 }));
 });
 
 describe("files import copies only what a real drop carried", () => {
@@ -73,7 +89,8 @@ describe("files import copies only what a real drop carried", () => {
     await drop(1, "relative/a.txt");
     await drop(1, "/a\0b");
     expect(await importFrom(1, ["relative/a.txt"])).toEqual({ ok: false, error: "invalid-path" });
-    expect(await importFrom(1, ["/a\0b"])).toEqual({ ok: false, error: "invalid-path" });
+    // A NUL never reaches the core: main's decoder refuses the source list.
+    expect(Result.isFailure(decodeFilesSources(["/a\0b"]))).toBe(true);
     expect(imported).toEqual([]);
   });
 });

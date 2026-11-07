@@ -1,23 +1,13 @@
 /**
- * The reads shared code asks of the core (`coreReads` in core-runner.ts),
- * answered here so main can ask them by name once the core runs in its own
- * process: a canvas, this machine's name, and its vault scope.
+ * The core's handlers of the core-reads group (src/contract/core/core-reads.ts):
+ * the one read main asks of `coreReads` (core-runner.ts), this machine's name.
+ * The canvas and the vault scope are read in this process by the code that
+ * needs them, through `coreReads` itself.
  */
-import type { Canvas } from "@shared/model";
-import { coreReads } from "../core-runner";
-import { coreOps, type CoreOp } from "../ops";
 import { Effect } from "effect";
+import { CoreReadsRpcs } from "../../contract/core/core-reads";
+import { coreReads } from "../core-runner";
 
-declare module "../ops" {
-  interface CoreOps {
-    "core.canvas": CoreOp<{ readonly canvasName: string }, Canvas | undefined>;
-    "core.machineName": CoreOp<Record<string, never>, string>;
-    "core.vaultScope": CoreOp<Record<string, never>, { readonly vault: string } | undefined>;
-  }
-}
-
-coreOps({
-  "core.canvas": ({ canvasName }) => Effect.promise(() => coreReads.canvas(canvasName)),
-  "core.machineName": () => Effect.promise(() => coreReads.machineName()),
-  "core.vaultScope": () => Effect.promise(() => coreReads.vaultScope()),
+export const CoreReadsHandlers = CoreReadsRpcs.toLayer({
+  CoreReadsMachineName: () => Effect.promise(() => coreReads.machineName()),
 });

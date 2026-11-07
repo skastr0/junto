@@ -1,19 +1,21 @@
 /**
  * Settings, Companion over IPC: this Mac's readiness to pair, pairing a phone
  * (the QR), the phone list, Remove, and Restore for a phone whose line is gone
- * from authorized_keys. Every answer is a core operation
- * (`core-process/ops/companion.ts`), where the paired phones live; main keeps
+ * from authorized_keys. Every answer comes from the core's companion group
+ * (`contract/core/companion.ts`), where the paired phones live; main keeps
  * the system clipboard and the window fan-out, which are Electron's. The
  * device list is pushed after any change. Restore exists here and nowhere
  * else: the operator's click in the trusted window is its only way in.
  */
 import { BrowserWindow, clipboard, ipcMain, shell } from "electron";
+import { Context, Effect } from "effect";
 import type { CompanionDeviceRecord, CompanionKeyRestore, CompanionPairStart, CompanionStatus } from "@shared/companion-devices";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { isTrustedMainWebContents, trustedRendererIpc } from "../trusted-main-webcontents";
 import { probeRemoteLogin } from "../../node/companion/environment";
 import type { CompanionClipboard } from "../../core/companion/service";
-import { core } from "../core-process/main-client";
+import { CompanionCore } from "../../contract/core/companion";
+import { AppRuntime } from "../runtime";
 
 /** System Settings, General, Sharing, where Remote Login is switched on. */
 export const MAC_REMOTE_LOGIN_SETTINGS_URL = "x-apple.systempreferences:com.apple.Sharing-Settings.extension";
@@ -35,26 +37,31 @@ export const electronCompanionClipboard: CompanionClipboard = {
   clear: () => clipboard.clear(),
 };
 
-export const registerCompanionIpc = (): void => {
+export const registerCompanionIpc = (core: Context.Context<CompanionCore>): void => {
   const privilegedIpc = trustedRendererIpc(ipcMain);
+  const companion = Context.get(core, CompanionCore);
 
-  privilegedIpc.handle(IPC_CHANNELS.companionStatus, (): Promise<CompanionStatus> => core.call("companion.status", {}));
+  privilegedIpc.handle(IPC_CHANNELS.companionStatus, (): Promise<CompanionStatus> => AppRuntime.runPromise(companion.CompanionStatus()));
 
-  privilegedIpc.handle(IPC_CHANNELS.companionPairStart, (): Promise<CompanionPairStart> => core.call("companion.startPairing", {}));
+  privilegedIpc.handle(IPC_CHANNELS.companionPairStart, (): Promise<CompanionPairStart> =>
+    AppRuntime.runPromise(companion.CompanionStartPairing()),
+  );
 
   privilegedIpc.handle(IPC_CHANNELS.companionPairCancel, (_event, raw: unknown) => {
     const deviceId = deviceIdOf(raw);
     if (!deviceId) return { ok: false };
-    return core.call("companion.cancelPairing", { deviceId }).then(() => ({ ok: true }));
+    return AppRuntime.runPromise(companion.CompanionCancelPairing({ deviceId }).pipe(Effect.as({ ok: true })));
   });
 
   privilegedIpc.handle(IPC_CHANNELS.companionPairCopyLink, (_event, raw: unknown) => {
     const deviceId = deviceIdOf(raw);
     if (!deviceId) return { ok: false };
-    return core.call("companion.copyLink", { deviceId }).then((ok) => ({ ok }));
+    return AppRuntime.runPromise(companion.CompanionCopyLink({ deviceId }).pipe(Effect.map((ok) => ({ ok }))));
   });
 
-  privilegedIpc.handle(IPC_CHANNELS.companionDevices, () => core.call("companion.devices", {}));
+  privilegedIpc.handle(IPC_CHANNELS.companionDevices, (): Promise<ReadonlyArray<CompanionDeviceRecord>> =>
+    AppRuntime.runPromise(companion.CompanionDevices()),
+  );
 
   // The Needs you feed asks on every focus while a phone is paired: only the
   // port probe, never Tailscale or the host names. It is main's own port check,
@@ -71,12 +78,12 @@ export const registerCompanionIpc = (): void => {
   privilegedIpc.handle(IPC_CHANNELS.companionDeviceRemove, (_event, raw: unknown) => {
     const deviceId = deviceIdOf(raw);
     if (!deviceId) return { ok: false, message: "No such phone." };
-    return core.call("companion.remove", { deviceId });
+    return AppRuntime.runPromise(companion.CompanionRemove({ deviceId }));
   });
 
   privilegedIpc.handle(IPC_CHANNELS.companionDeviceRestore, (_event, raw: unknown): Promise<CompanionKeyRestore> => {
     const target = raw === "all" ? "all" : deviceIdOf(raw);
     if (!target) return Promise.resolve({ ok: false, restored: [], failed: [], message: "No such phone." });
-    return core.call("companion.restore", { target });
+    return AppRuntime.runPromise(companion.CompanionRestore({ target }));
   });
 };

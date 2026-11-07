@@ -10,17 +10,19 @@
  * Node imports (renderer and CLI safe). Main runs it (`runArtifactMove`,
  * src/core/work/artifact-move.ts).
  */
-import type { NodeId } from "./physics/schema";
-import type { ResourceActor } from "./resource-command";
+import { Schema } from "effect";
+import { NodeId } from "./physics/schema";
+import { ResourceActor } from "./wire/resource-actor";
 import type { ItemId, OpId } from "./work-ids";
 
 /** One move in an artifact's history, as the window reads it: oldest first. */
-export type ArtifactMoveRecord = {
-  readonly from: NodeId;
-  readonly to: NodeId;
-  readonly by: ResourceActor;
-  readonly at: number;
-};
+export const ArtifactMoveRecord = Schema.Struct({
+  from: NodeId,
+  to: NodeId,
+  by: ResourceActor,
+  at: Schema.Number,
+});
+export type ArtifactMoveRecord = typeof ArtifactMoveRecord.Type;
 
 /** Most artifacts one call may name. */
 export const ARTIFACT_MOVE_MAX = 100;
