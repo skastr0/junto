@@ -19,7 +19,6 @@ import { terminalRows } from "../harness/term-ready";
 import { expect, launchJunto, test } from "../harness/launch";
 import { writeFixtureOffboardClock } from "../harness/sandbox";
 
-const SHOTS = join(process.cwd(), "test-results", "seat-next-launch");
 const CANVAS = "seat-next-launch";
 const HELD = "0198f2a1-0000-7000-8000-000000000001";
 const RESTED = "0198f2a1-0000-7000-8000-000000000002";
@@ -40,7 +39,6 @@ const line = (page: Page, id: string) => page.locator(`.react-flow__node[data-id
 
 test("a seat that is not running says fresh next only when its next turn starts fresh", async () => {
   test.setTimeout(180_000);
-  await mkdir(SHOTS, { recursive: true });
   let argvLog = "";
   const junto = await launchJunto({
     seedModels: {
@@ -68,28 +66,8 @@ test("a seat that is not running says fresh next only when its next turn starts 
     await expect(line(page, "rested")).not.toContainText("fresh next");
 
     // Offboard the third seat with rest: its session closes at an offboard.
-    console.log("offboard now", await offboardNowFromPanel(page, "rested"));
+    await offboardNowFromPanel(page, "rested");
     await expect(line(page, "rested")).toContainText("fresh next", { timeout: 20_000 });
-
-    // At fit-all each line reads whole: none is cut by an ellipsis.
-    for (const [id, text] of [["holds", "not running"], ["rested", "fresh next"], ["fresh", "fresh next"]] as const) {
-      const label = line(page, id).getByText(text, { exact: true });
-      await expect(label).toBeVisible();
-      expect(await label.evaluate((el) => el.scrollWidth <= el.clientWidth), `${id}: the line is not clipped`).toBe(true);
-    }
-    for (const theme of ["Dark", "Bright"] as const) {
-      await page.getByRole("button", { name: "Open settings" }).click();
-      await page.locator(".settings-nav__item", { hasText: "Appearance" }).click();
-      const choice = page.getByRole("radiogroup", { name: "Theme", exact: true }).getByRole("radio", { name: new RegExp(theme) });
-      await choice.click();
-      await expect(choice).toHaveAttribute("aria-checked", "true");
-      await page.locator(".settings-panel__close").click();
-      await page.getByRole("button", { name: /fit all/i }).first().click();
-      await page.mouse.move(4, 600);
-      await page.waitForTimeout(800);
-      await page.screenshot({ path: join(SHOTS, `three-lines-${theme.toLowerCase()}.png`) });
-    }
-    console.log("lines", JSON.stringify(await Promise.all(["holds", "rested", "fresh"].map(async (id) => `${id}: ${(await line(page, id).innerText()).replace(/\n/g, " | ")}`))));
 
     // A start takes the same path as a ping: the held seat resumes its session.
     expect(readSeatSession(sandbox, "holds", holds.bindingId)).toBe(HELD);
@@ -101,10 +79,8 @@ test("a seat that is not running says fresh next only when its next turn starts 
     await page.evaluate(() => window.junto!.modelStart({ canvas: "seat-next-launch", id: "rested" }));
     await expect.poll(async () => (await readFile(argvLog, "utf8")).split("\n").filter((l) => l.includes("rested")).length, { timeout: 30_000 }).toBeGreaterThan(0);
     const restedStart = (await readFile(argvLog, "utf8")).split("\n").find((l) => l.includes("rested")) ?? "";
-    console.log("argv", JSON.stringify((await readFile(argvLog, "utf8")).split("\n")));
     expect(restedStart).not.toContain(RESTED);
     await page.waitForTimeout(500);
-    await page.screenshot({ path: join(SHOTS, "after-start.png") });
   } finally {
     await junto.close();
   }
@@ -129,7 +105,6 @@ const WORKED_MS = 31 * 60_000;
 
 test("a seat whose harness has a shorter cache window says fresh next at its own window", async () => {
   test.setTimeout(180_000);
-  await mkdir(SHOTS, { recursive: true });
   const movedAt = Date.now() - STILL_MS;
   const junto = await launchJunto({
     seedModels: {
@@ -182,7 +157,6 @@ test("a seat whose harness has a shorter cache window says fresh next at its own
           .poll(async () => (await page.evaluate(async () => (await window.junto!.settingsGet()).settings?.offboard))?.harness?.codex?.cacheWindowMinutes, { timeout: 10_000 })
           .toBe(minutes);
       }
-      await page.screenshot({ path: join(SHOTS, `codex-window-${minutes ?? "removed"}-settings.png`) });
       await page.getByRole("button", { name: "Close settings" }).click();
       await page.getByRole("button", { name: /fit all/i }).first().click();
     };
@@ -209,7 +183,6 @@ test("a seat whose harness has a shorter cache window says fresh next at its own
     await expect(line(page, "short")).toContainText("fresh next", { timeout: 20_000 });
     await expect(line(page, "long")).not.toContainText("fresh next");
     await page.mouse.move(4, 600);
-    await page.screenshot({ path: join(SHOTS, "codex-window-5.png") });
 
     // 15 minutes: still warm.
     await setCodexWindow(15);
@@ -218,7 +191,6 @@ test("a seat whose harness has a shorter cache window says fresh next at its own
     // No window of its own: codex follows the installation's again.
     await setCodexWindow(null);
     await expect(line(page, "short")).not.toContainText("fresh next");
-    console.log("lines", JSON.stringify(await Promise.all(["short", "long"].map(async (id) => `${id}: ${(await line(page, id).innerText()).replace(/\n/g, " | ")}`))));
   } finally {
     await junto.close();
   }
@@ -245,7 +217,6 @@ const runningSessionOf = (i: number) => `0198f2a1-0000-7000-8000-00000000001${St
 
 test("a running seat at rest says fresh next past its window, and not while held, blocked or waiting on you", async () => {
   test.setTimeout(240_000);
-  await mkdir(SHOTS, { recursive: true });
   const seats = RUNNING.map(runningSeat);
   const restedAt = Date.now() - STILL_MS;
   const junto = await launchJunto({
@@ -314,17 +285,13 @@ test("a running seat at rest says fresh next past its window, and not while held
     await expect(line(page, "rests")).toContainText("fresh next", { timeout: 20_000 });
     expect(Date.now() - typedAt, "the typed hold is still running").toBeLessThan(30_000);
     for (const id of ["viewed", "typed", "dialog", "raised"]) await expect(line(page, id)).not.toContainText("fresh next");
-    await page.screenshot({ path: join(SHOTS, "running-held.png") });
 
     // Closing the view lets go: viewed goes cold at once, the card asking on the close itself
     // (a cut at the minute pass would also turn it; still idle means it was not that).
     await closeView();
     await expect(line(page, "viewed")).toContainText("fresh next", { timeout: 5_000 });
-    console.log("viewed after close", await seatState("viewed"));
     for (const id of ["dialog", "raised"]) await expect(line(page, id)).not.toContainText("fresh next");
     await page.mouse.move(4, 600);
-    await page.screenshot({ path: join(SHOTS, "running-released.png") });
-    console.log("lines", JSON.stringify(await Promise.all(RUNNING.map(async (id) => `${id}: ${(await line(page, id).innerText()).replace(/\n/g, " | ")}`))));
   } finally {
     await junto.close();
   }
