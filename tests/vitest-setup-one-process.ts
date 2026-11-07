@@ -5,7 +5,8 @@
  * app, `main-side/window-pushes.ts`), and what the core asks of the host runs
  * main's registered body (as main's port answers it, `host.ts`). A test's
  * PTYs run in the test process, as a windowless core's do, and its log rows
- * land in the ring, as the core's do.
+ * land in the ring, and its scrubs leave out the core's registered secrets,
+ * as the core's do.
  */
 import { beforeAll } from "vitest";
 import { sendPushesTo } from "../src/main/core-process/push";
@@ -16,6 +17,8 @@ import { runHostOp } from "../src/main/core-process/main-side/host-op-bodies";
 import { placeTerminals } from "../src/main/terminal-process/use";
 import { sendLogRowsTo } from "../src/main/junto/observability/logger";
 import { observabilityRing } from "../src/main/junto/observability/ring";
+import { setKnownSecretValuesSource } from "../src/main/junto/credentials/scrub";
+import { registeredSecretValues } from "../src/main/junto/credentials/known-secrets";
 
 sendPushesTo(deliverPush);
 useHostClient({
@@ -27,6 +30,7 @@ useHostClient({
 });
 placeTerminals({ kind: "here" });
 sendLogRowsTo((row) => observabilityRing.append(row));
+setKnownSecretValuesSource(registeredSecretValues);
 // The reads load the core's shell and process seam, so install them after the
 // test file has registered its mocks, never at setup load: a file that mocks
 // app-process-plane's dependencies must see its mocks, not the real graph.

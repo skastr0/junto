@@ -22,6 +22,8 @@ import { terminateAdapterChildrenOnQuit } from "./adapters/exec";
 import { releaseDemoRuntimeIsolation } from "./demo/runtime-isolation";
 import { installCoreRunner } from "../core-runner";
 import { installInProcessCoreReads } from "../core-process/in-process-reads";
+import { setKnownSecretValuesSource } from "./credentials/scrub";
+import { registeredSecretValues } from "./credentials/known-secrets";
 import { startWorkControlServer, type WorkControlServer } from "./work/control";
 import { workControlDir } from "@shared/work-control";
 import { startCoreSeats, adoptCoreTerminals } from "./term/core-seats";
@@ -127,6 +129,9 @@ export class CoreDidNotDrain extends Schema.TaggedError<CoreDidNotDrain>()("Core
 
 /** Both shells use this owner/link lifecycle; it creates no canvas. */
 export const startCore = async (options: CoreOptions) => {
+  // This process holds the machine's secrets: every scrub here leaves out
+  // what the core's registry holds, from before the first one is registered.
+  setKnownSecretValuesSource(registeredSecretValues);
   const schema = evaluateSchemaCompatibility(probeInstalledStateSchema(join(options.home, ".junto", "state", "junto.db")));
   if (!schema.ok) {
     throw new CoreSchemaTooNew({

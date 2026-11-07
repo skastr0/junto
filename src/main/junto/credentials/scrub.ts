@@ -111,9 +111,10 @@ const replaceShapes = (text: string): string => {
 
 /**
  * Values live on this machine that no failure or log may carry are registered
- * by the process that holds them (known-secrets.ts, the core's), which installs
- * itself here as the known-value source on load. This module holds no registry
- * of its own, so a process that registers nothing (main) links no secret state.
+ * by the process that holds them (known-secrets.ts, the core's); startCore
+ * installs that registry here as the known-value source. This module holds no
+ * registry of its own, so main, which holds no such values, installs none and
+ * links no secret state.
  */
 let installedSecretValues: (() => ReadonlyArray<string>) | undefined;
 

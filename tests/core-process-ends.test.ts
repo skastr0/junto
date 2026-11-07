@@ -62,3 +62,8 @@ it("log rows: one destination per process, chosen by its boot; loading the ring 
   expect(logger).not.toMatch(/setObservabilityForwarder|setLogRowSink|rowSink/u);
   expect(read("src/main/junto/observability/ring.ts")).not.toMatch(/sendLogRowsTo|setLogRowSink/u);
 });
+
+it("known secrets: startCore installs the core's registry as the scrub source; registering installs nothing", () => {
+  expect(read("src/main/junto/core.ts")).toContain("setKnownSecretValuesSource(registeredSecretValues)");
+  expect(read("src/main/junto/credentials/known-secrets.ts")).not.toMatch(/setKnownSecretValuesSource/u);
+});

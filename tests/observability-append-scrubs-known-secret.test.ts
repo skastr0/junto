@@ -46,6 +46,8 @@ describe("a registered secret on the main path", () => {
     // The same process as the core: the registry holds the value the seat was
     // given, and the row main forwarded is scrubbed again on arrival.
     registerKnownSecrets(OWNER, [SECRET]);
+    // startCore installs the source in the core; this process is both sides.
+    setKnownSecretValuesSource(registeredSecretValues);
     const entry = appendScrubbed({
       level: row.level,
       source: row.source,
