@@ -40,12 +40,19 @@ const E2E_VISIBLE_WINDOW = Object.freeze({}) satisfies Readonly<
 /**
  * BrowserWindow options that keep the authoring surface off-screen and out of
  * the task switcher / Dock. Empty object when not isolating (production or
- * JUNTO_E2E_SHOW=1).
+ * JUNTO_E2E_SHOW=1), and on every platform but macOS.
+ *
+ * Only macOS has an operator's focus and Dock to keep: a Linux e2e run is a
+ * VM's or Xvfb's display. And on Linux a window never shown is never mapped,
+ * so Chromium draws no frame for it: page.screenshot waits for one until it
+ * times out, and keys sent to it never arrive (region-environment-walk S1 on
+ * a Linux VM: hidden, a 30 s screenshot timeout; shown, passed in 16.8 s).
  */
 export const e2eMainWindowOptions = (
   input: E2ePresentationInput,
+  platform: NodeJS.Platform = process.platform,
 ): E2eWindowPresentation | Readonly<Record<string, never>> =>
-  e2eFocusIsolationActive(input) ? E2E_HIDDEN_WINDOW : E2E_VISIBLE_WINDOW;
+  e2eFocusIsolationActive(input) && platform === "darwin" ? E2E_HIDDEN_WINDOW : E2E_VISIBLE_WINDOW;
 
 /** Read presentation flags from process env (main-process only). */
 export const e2ePresentationFromEnv = (

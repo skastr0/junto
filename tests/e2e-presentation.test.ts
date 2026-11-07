@@ -15,17 +15,21 @@ describe("e2eFocusIsolationActive", () => {
 });
 
 describe("e2eMainWindowOptions", () => {
-  it("hides and de-focuses windows under E2E isolation", () => {
-    expect(e2eMainWindowOptions({ e2e: true, showWindows: false })).toEqual({
+  it("hides and de-focuses windows under E2E isolation on macOS", () => {
+    expect(e2eMainWindowOptions({ e2e: true, showWindows: false }, "darwin")).toEqual({
       show: false,
       focusable: false,
       skipTaskbar: true,
     });
   });
 
+  it("shows windows on Linux, where a hidden window draws no frame and takes no keys", () => {
+    expect(e2eMainWindowOptions({ e2e: true, showWindows: false }, "linux")).toEqual({});
+  });
+
   it("is a no-op for production and visible E2E debug", () => {
-    expect(e2eMainWindowOptions({ e2e: false, showWindows: false })).toEqual({});
-    expect(e2eMainWindowOptions({ e2e: true, showWindows: true })).toEqual({});
+    expect(e2eMainWindowOptions({ e2e: false, showWindows: false }, "darwin")).toEqual({});
+    expect(e2eMainWindowOptions({ e2e: true, showWindows: true }, "darwin")).toEqual({});
   });
 });
 

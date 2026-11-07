@@ -67,6 +67,10 @@ export const launchEnvironment = (input: LaunchEnvironmentInput): Record<string,
   TEMP: input.tempRoot,
   SHELL: "/bin/sh",
   JUNTO_E2E: "1",
+  // The one inherited JUNTO_ key, by name: an operator asking for visible
+  // windows (src/app/e2e-presentation.ts) is asking the harness, not leaking a
+  // seat's identity into the app.
+  ...(input.inherited.JUNTO_E2E_SHOW === "1" ? { JUNTO_E2E_SHOW: "1" } : {}),
   // Junto's own secrets go to owner-only files under this launch's throwaway
   // home. Never the operator's real Keychain or keyring.
   JUNTO_SECRET_STORE: "file",

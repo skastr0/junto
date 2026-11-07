@@ -595,10 +595,11 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
       })) as typeof dialog.showMessageBox;
     });
 
-    // Defense in depth: if a window was somehow shown, re-hide Dock and do not
-    // activate. Main already applies accessory policy + show:false when
-    // JUNTO_E2E=1 without JUNTO_E2E_SHOW.
-    if (process.env.JUNTO_E2E_SHOW !== "1") {
+    // Defense in depth on macOS: if a window was somehow shown, re-hide Dock
+    // and do not activate. Main already applies accessory policy + show:false
+    // there when JUNTO_E2E=1 without JUNTO_E2E_SHOW. On Linux the window stays
+    // shown: hidden, it draws no frame and takes no keys (e2e-presentation.ts).
+    if (process.env.JUNTO_E2E_SHOW !== "1" && process.platform === "darwin") {
       await app.evaluate(({ app: electronApp, BrowserWindow }) => {
         try {
           electronApp.dock?.hide();

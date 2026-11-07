@@ -384,6 +384,13 @@ describe("launch environment isolation", () => {
     expect(env.ELECTRON_RENDERER_URL).toBe("http://127.0.0.1:5199");
   });
 
+  it("passes JUNTO_E2E_SHOW=1 through by name, the operator's ask for visible windows", () => {
+    const base = { home: "/tmp/e2e-home", tempRoot: "/tmp/e2e-root", rendererUrl: "http://127.0.0.1:5199", path: "/fakes/bin" };
+    expect(launchEnvironment({ ...base, inherited: { JUNTO_E2E_SHOW: "1" } }).JUNTO_E2E_SHOW).toBe("1");
+    expect(launchEnvironment({ ...base, inherited: { JUNTO_E2E_SHOW: "yes" } }).JUNTO_E2E_SHOW).toBeUndefined();
+    expect(launchEnvironment({ ...base, inherited: {} }).JUNTO_E2E_SHOW).toBeUndefined();
+  });
+
   it("lets a spec's own extraEnv win last, and still never an inherited JUNTO_ key", () => {
     const env = launchEnvironment({
       inherited: { JUNTO_HOME: "/Users/operator/.junto", PATH: "/operator/bin" },
