@@ -74,15 +74,17 @@ export type AppBriefing = typeof AppBriefing.Type;
 export type ReferenceAuthor = "operator" | `overseer:${string}`;
 
 /** Main -> renderer: something in the store changed; open pages read again. */
-export type ReferencesChangedEvent =
-  | { readonly kind: "briefing" }
-  | {
-      readonly kind: "reference";
-      readonly name: string;
-      /** Set for a region's reference; absent for an app-wide one. */
-      readonly canvasName?: string;
-      readonly regionId?: string;
-    };
+export const ReferencesChangedEvent = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("briefing") }),
+  Schema.Struct({
+    kind: Schema.Literal("reference"),
+    name: Schema.String,
+    /** Set for a region's reference; absent for an app-wide one. */
+    canvasName: Schema.optionalKey(Schema.String),
+    regionId: Schema.optionalKey(Schema.String),
+  }),
+]);
+export type ReferencesChangedEvent = typeof ReferencesChangedEvent.Type;
 
 /** One line of a list the operator or an overseer reads: never a body. */
 export const ReferenceSummary = Schema.Struct({
