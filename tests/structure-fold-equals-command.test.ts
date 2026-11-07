@@ -16,9 +16,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Cause, Effect, Exit, Layer, ManagedRuntime } from "effect";
+import { Arbitrary, Cause, Effect, Exit, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/sql";
-import * as fc from "fast-check";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
@@ -137,33 +136,94 @@ const tablesOf = (store: Store) =>
     }),
   );
 
+/** A whole number from `min` to `max`, both included. */
+const integer = (min: number, max: number) => Arbitrary.schema(Schema.Int.check(Schema.isBetween({ minimum: min, maximum: max })));
+
+/** One of the values given. */
+const constantFrom = <const A extends ReadonlyArray<unknown>>(...values: A): Arbitrary.Arbitrary<A[number]> =>
+  Arbitrary.map(integer(0, values.length - 1), (index) => values[index] as A[number]);
+
+/** One of the arbitraries given, each as likely as the others. */
+const oneOf = <A>(...choices: ReadonlyArray<Arbitrary.Arbitrary<A>>): Arbitrary.Arbitrary<A> =>
+  Arbitrary.flatMap(integer(0, choices.length - 1), (index) => choices[index] as Arbitrary.Arbitrary<A>);
+
+/** Distinct items of `items`, in any order, from `minLength` to `maxLength` of them. */
+const uniqueArray = <A>(items: ReadonlyArray<A>, minLength: number, maxLength: number): Arbitrary.Arbitrary<Array<A>> => {
+  // The n-th pick takes one of the items still left, so no draw is thrown away for repeating one.
+  const picks = Array.from({ length: items.length }, (_, taken) => integer(0, items.length - 1 - taken));
+  return Arbitrary.flatMap(integer(minLength, Math.min(maxLength, items.length)), (length) =>
+    Arbitrary.map(Arbitrary.all(picks.slice(0, length)), (indexes) => {
+      const left = [...items];
+      return indexes.map((index) => left.splice(index, 1)[0] as A);
+    }));
+};
+
+/** A string of printable ASCII, at most `maxLength` characters. */
+const text = (maxLength: number) =>
+  Arbitrary.map(
+    Arbitrary.array(constantFrom(...Array.from({ length: 95 }, (_, offset) => String.fromCharCode(0x20 + offset))), { maxLength }),
+    (characters) => characters.join(""),
+  );
+
+/**
+ * Checks a property under the pinned seed, and fails the test with the shrunk counterexample when it does not hold.
+ * A property stops itself, as a failure, before its test times out: the case in flight finishes, and the next
+ * one does not start past the budget.
+ */
+const holds = async <A>(
+  arbitrary: Arbitrary.Arbitrary<A>,
+  property: (value: A) => Promise<void>,
+  { runs, size, budgetMs }: { readonly runs: number; readonly size: number; readonly budgetMs: number },
+) => {
+  const deadline = performance.now() + budgetMs;
+  const result = await Effect.runPromise(
+    Arbitrary.checkEffect(
+      arbitrary,
+      (value) =>
+        Effect.gen(function* () {
+          if (performance.now() > deadline) return yield* Effect.die(new Error(`the property ran past its budget of ${budgetMs} ms`));
+          // A failed assertion is the property failing, so it shrinks and is reported with its input.
+          yield* Effect.tryPromise({ try: () => property(value), catch: (error) => (error instanceof Error ? error.message : String(error)) });
+          return true;
+        }),
+      { runs, size, seed: SEED },
+    ),
+  );
+  const failure = Arbitrary.formatCheckFailure(result);
+  if (failure !== undefined) throw new Error(failure);
+};
+
 const SEATS = ["a", "b", "c"] as const;
 const NOTES = ["n1", "n2"] as const;
-const id = fc.constantFrom(...SEATS, ...NOTES);
-const command: fc.Arbitrary<Command> = fc.oneof(
-  fc.constantFrom(...SEATS).map((at): Command => ({ _tag: "Add", canvas: CANVAS, nodes: [seat(at)], wires: [] })),
-  fc.constantFrom(...NOTES).map((at): Command => ({ _tag: "Add", canvas: CANVAS, nodes: [note(at)], wires: [] })),
-  fc.tuple(fc.constantFrom(...SEATS), fc.constantFrom(...SEATS)).map(([from, to]): Command =>
+const seatOf = constantFrom(...SEATS);
+const noteOf = constantFrom(...NOTES);
+const ids = [...SEATS, ...NOTES];
+const id = constantFrom(...ids);
+const command: Arbitrary.Arbitrary<Command> = oneOf(
+  Arbitrary.map(seatOf, (at): Command => ({ _tag: "Add", canvas: CANVAS, nodes: [seat(at)], wires: [] })),
+  Arbitrary.map(noteOf, (at): Command => ({ _tag: "Add", canvas: CANVAS, nodes: [note(at)], wires: [] })),
+  Arbitrary.map(Arbitrary.all([seatOf, seatOf]), ([from, to]): Command =>
     ({ _tag: "Add", canvas: CANVAS, nodes: [], wires: [wire(`${from}-${to}`, from, to, "messages")] })),
-  fc.uniqueArray(id, { minLength: 1, maxLength: 3 }).map((ids): Command => ({ _tag: "Remove", canvas: CANVAS, nodes: ids.map(asNodeId), wires: [] })),
-  fc.tuple(fc.constantFrom(...SEATS), fc.constantFrom(...SEATS)).map(([from, to]): Command =>
+  Arbitrary.map(uniqueArray(ids, 1, 3), (picked): Command => ({ _tag: "Remove", canvas: CANVAS, nodes: picked.map(asNodeId), wires: [] })),
+  Arbitrary.map(Arbitrary.all([seatOf, seatOf]), ([from, to]): Command =>
     ({ _tag: "Remove", canvas: CANVAS, nodes: [], wires: [asWireId(`${from}-${to}`)] })),
-  fc.tuple(id, fc.integer({ min: -400, max: 400 }), fc.integer({ min: -400, max: 400 })).map(([at, x, y]): Command =>
+  Arbitrary.map(Arbitrary.all([id, integer(-400, 400), integer(-400, 400)]), ([at, x, y]): Command =>
     ({ _tag: "Move", canvas: CANVAS, moves: [{ id: asNodeId(at), x, y }] })),
-  fc.tuple(fc.constantFrom(...NOTES), fc.string({ maxLength: 12 })).map(([at, text]): Command =>
-    ({ _tag: "Edit", canvas: CANVAS, id: asNodeId(at), change: { kind: "note", text } })),
-  fc.tuple(fc.uniqueArray(id, { minLength: 1, maxLength: 2 }), fc.constantFrom("front", "back") as fc.Arbitrary<"front" | "back">).map(([ids, to]): Command =>
-    ({ _tag: "Restack", canvas: CANVAS, nodes: ids.map(asNodeId), to })),
-  fc.constantFrom(...SEATS).map((at): Command => ({ _tag: "GrantOverseer", canvas: CANVAS, id: asNodeId(at), overseer: true })),
-  fc.constantFrom(...SEATS).map((at): Command => ({ _tag: "GrantOverseer", canvas: CANVAS, id: asNodeId(at), overseer: false })),
+  Arbitrary.map(Arbitrary.all([noteOf, text(12)]), ([at, body]): Command =>
+    ({ _tag: "Edit", canvas: CANVAS, id: asNodeId(at), change: { kind: "note", text: body } })),
+  Arbitrary.map(Arbitrary.all([uniqueArray(ids, 1, 2), constantFrom("front", "back")]), ([picked, to]): Command =>
+    ({ _tag: "Restack", canvas: CANVAS, nodes: picked.map(asNodeId), to })),
+  Arbitrary.map(seatOf, (at): Command => ({ _tag: "GrantOverseer", canvas: CANVAS, id: asNodeId(at), overseer: true })),
+  Arbitrary.map(seatOf, (at): Command => ({ _tag: "GrantOverseer", canvas: CANVAS, id: asNodeId(at), overseer: false })),
 );
 
 describe("a structure entry folds as its command wrote it", () => {
   it(
     "directly, and judged then folded: the same rows, count and published changes",
     async () => {
-      await fc.assert(
-        fc.asyncProperty(fc.array(command, { minLength: 1, maxLength: 14 }), async (commands) => {
+      await holds(
+        Arbitrary.array(command, { minLength: 1, maxLength: 14 }),
+        async (commands) => {
           const one = await makeStore();
           const two = await makeStore();
           for (const step of commands) {
@@ -178,8 +238,8 @@ describe("a structure entry folds as its command wrote it", () => {
             await store.runtime.dispose();
             await rm(store.root, { recursive: true, force: true });
           }
-        }),
-        { numRuns: 20 * RUNS, seed: SEED, interruptAfterTimeLimit: BUDGET_MS * RUNS, markInterruptAsFailure: true },
+        },
+        { runs: 20 * RUNS, size: 14, budgetMs: BUDGET_MS * RUNS },
       );
     },
     BUDGET_MS * RUNS + 60_000,

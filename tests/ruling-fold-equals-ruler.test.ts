@@ -16,10 +16,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Arbitrary, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { Reactivity } from "effect/reactivity";
 import { SqlClient } from "effect/sql";
-import * as fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ContentService, makeContentServiceLive } from "../src/main/junto/content/service";
 import { AutomationRepository, makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
@@ -65,16 +64,67 @@ const START = Date.parse("2026-10-28T12:00:00.000Z");
 // CI replays the pinned seed; a nightly sweeps wider with JUNTO_FOLD_SEED and JUNTO_FOLD_RUNS (a multiple of each count).
 const SEED = Number(process.env.JUNTO_FOLD_SEED ?? 20261028);
 const RUNS = Number(process.env.JUNTO_FOLD_RUNS ?? 1);
+/** A property's runs and time budget, scaled together for a nightly sweep. */
+const runs = (numRuns: number, budgetMs: number) => ({ runs: numRuns * RUNS, budgetMs: budgetMs * RUNS });
+
+/** A whole number from `min` to `max`, both included. */
+const integer = (min: number, max: number) => Arbitrary.schema(Schema.Int.check(Schema.isBetween({ minimum: min, maximum: max })));
+const boolean = Arbitrary.schema(Schema.Boolean);
+
+/** One of the values given. */
+const constantFrom = <const A extends ReadonlyArray<unknown>>(...values: A): Arbitrary.Arbitrary<A[number]> =>
+  Arbitrary.map(integer(0, values.length - 1), (index) => values[index] as A[number]);
+
+type Choice<A> = Arbitrary.Arbitrary<A> | { readonly weight: number; readonly arbitrary: Arbitrary.Arbitrary<A> };
+
+/** One of the arbitraries given, each as likely as its weight (one, when it has none). */
+const oneOf = <A>(...choices: ReadonlyArray<Choice<A>>): Arbitrary.Arbitrary<A> => {
+  // A draw is a slot, and each choice holds as many slots as its weight.
+  const slots = choices.flatMap((choice) => {
+    const { weight, arbitrary } = "weight" in choice ? choice : { weight: 1, arbitrary: choice };
+    return Array.from({ length: weight }, () => arbitrary);
+  });
+  return Arbitrary.flatMap(integer(0, slots.length - 1), (slot) => slots[slot] as Arbitrary.Arbitrary<A>);
+};
+
+/** The value, or `undefined` one time in six. */
+const optional = <A>(arbitrary: Arbitrary.Arbitrary<A>): Arbitrary.Arbitrary<A | undefined> =>
+  oneOf<A | undefined>({ weight: 1, arbitrary: Arbitrary.Constant(undefined) }, { weight: 5, arbitrary });
+
+/** Any of the items, kept in their order. */
+const subarray = <A>(items: ReadonlyArray<A>): Arbitrary.Arbitrary<Array<A>> =>
+  Arbitrary.map(Arbitrary.all(items.map(() => boolean)), (kept) => items.filter((_, index) => kept[index]));
+
 /**
- * A property stops itself, as a failure, before its test times out. A test that times out leaves its property
- * running, and the stray one moves the shared fake clock under the next test's setup.
+ * Checks a property under the pinned seed, after each example, and fails the test with the shrunk counterexample
+ * when it does not hold. A property stops itself, as a failure, before its test times out: the case in flight
+ * finishes, and the next one does not start past the budget. A test that times out leaves its property running,
+ * and the stray one moves the shared fake clock under the next test's setup.
  */
-const runs = (numRuns: number, budgetMs: number) => ({
-  numRuns: numRuns * RUNS,
-  seed: SEED,
-  interruptAfterTimeLimit: budgetMs * RUNS,
-  markInterruptAsFailure: true,
-});
+const holds = async <A>(
+  arbitrary: Arbitrary.Arbitrary<A>,
+  property: (value: A) => Promise<void>,
+  { runs, size, budgetMs, examples = [] }: { readonly runs: number; readonly size: number; readonly budgetMs: number; readonly examples?: ReadonlyArray<A> },
+) => {
+  for (const example of examples) await property(example);
+  const deadline = performance.now() + budgetMs;
+  const result = await Effect.runPromise(
+    Arbitrary.checkEffect(
+      arbitrary,
+      (value) =>
+        Effect.gen(function* () {
+          if (performance.now() > deadline) return yield* Effect.die(new Error(`the property ran past its budget of ${budgetMs} ms`));
+          // A failed assertion is the property failing, so it shrinks and is reported with its input.
+          yield* Effect.tryPromise({ try: () => property(value), catch: (error) => (error instanceof Error ? error.message : String(error)) });
+          return true;
+        }),
+      { runs, size, seed: SEED },
+    ),
+  );
+  const failure = Arbitrary.formatCheckFailure(result);
+  if (failure !== undefined) throw new Error(failure);
+};
+
 /** Room past a property's budget for the case in flight when it stops. */
 const timeoutFor = (budgetMs: number) => budgetMs * RUNS + 60_000;
 const TASK_BUDGET_MS = 60_000;
@@ -214,33 +264,36 @@ const taskEnv: TaskCanvasEnv = {
   seatReaches: () => true,
 };
 
-const taskId = fc.constantFrom(...TASK_IDS);
-const taskOp: fc.Arbitrary<{ readonly op: TaskCommand; readonly task: TaskId }> = fc.oneof(
-  fc.record({ task: taskId, title: fc.constantFrom("Ship", "Fix", "Plan"), body: fc.option(fc.constantFrom("why", "how"), { nil: undefined }) }).map(
+const taskId = constantFrom(...TASK_IDS);
+const taskOp: Arbitrary.Arbitrary<{ readonly op: TaskCommand; readonly task: TaskId }> = oneOf(
+  Arbitrary.map(
+    Arbitrary.all({ task: taskId, title: constantFrom("Ship", "Fix", "Plan"), body: optional(constantFrom("why", "how")) }),
     ({ task, title, body }) => ({ task, op: { kind: "create", taskId: task, title, ...(body === undefined ? {} : { body }) } as TaskCommand }),
   ),
-  fc.record({ task: taskId, title: fc.constantFrom("Ship it", "Fix it") }).map(({ task, title }) => ({ task, op: { kind: "edit", title } as TaskCommand })),
-  fc.record({ task: taskId, seat: fc.constantFrom(ada, bob) }).map(({ task, seat }) => ({ task, op: { kind: "assign", seat } as TaskCommand })),
-  fc.record({
-    task: taskId,
-    kind: fc.constantFrom("unassign", "start", "pause", "resume", "cancel", "archive"),
-  }).map(({ task, kind }) => ({ task, op: { kind } as TaskCommand })),
-  fc.record({ task: taskId, next: fc.option(fc.constant(qa), { nil: undefined }), handoff: fc.option(fc.constant("over to qa"), { nil: undefined }) }).map(
+  Arbitrary.map(Arbitrary.all({ task: taskId, title: constantFrom("Ship it", "Fix it") }), ({ task, title }) => ({ task, op: { kind: "edit", title } as TaskCommand })),
+  Arbitrary.map(Arbitrary.all({ task: taskId, seat: constantFrom(ada, bob) }), ({ task, seat }) => ({ task, op: { kind: "assign", seat } as TaskCommand })),
+  Arbitrary.map(
+    Arbitrary.all({ task: taskId, kind: constantFrom("unassign", "start", "pause", "resume", "cancel", "archive") }),
+    ({ task, kind }) => ({ task, op: { kind } as TaskCommand }),
+  ),
+  Arbitrary.map(
+    Arbitrary.all({ task: taskId, next: optional(Arbitrary.Constant(qa)), handoff: optional(Arbitrary.Constant("over to qa")) }),
     ({ task, next, handoff }) => ({
       task,
       op: { kind: "finish", ...(next === undefined ? {} : { next }), ...(handoff === undefined ? {} : { handoff }) } as TaskCommand,
     }),
   ),
-  fc.record({ task: taskId, on: taskId, kind: fc.constantFrom("depend", "undepend") }).map(({ task, on, kind }) => ({ task, op: { kind, on } as TaskCommand })),
-  fc.record({ task: taskId, required: fc.integer({ min: 0, max: 2 }) }).map(({ task, required }) => ({ task, op: { kind: "stamp-policy", required } as TaskCommand })),
+  Arbitrary.map(Arbitrary.all({ task: taskId, on: taskId, kind: constantFrom("depend", "undepend") }), ({ task, on, kind }) => ({ task, op: { kind, on } as TaskCommand })),
+  Arbitrary.map(Arbitrary.all({ task: taskId, required: integer(0, 2) }), ({ task, required }) => ({ task, op: { kind: "stamp-policy", required } as TaskCommand })),
 );
 /** Each task lives on one node, so a command names it where it is. */
 const nodeOf = (task: TaskId) => (task === TASK_IDS[2] ? qa : build);
-const randomStep = fc.record({ actor: fc.constantFrom(...actors), op: taskOp }).map(
+const randomStep = Arbitrary.map(
+  Arbitrary.all({ actor: constantFrom(...actors), op: taskOp }),
   (step): TaskStep => ({ ...step, node: nodeOf(step.op.task) }),
 );
 /** A task's working life, by its assignee: create, assign, start, maybe pause and resume, finish. */
-const lifeOf = fc.record({ task: taskId, seat: fc.constantFrom(1, 2), paused: fc.boolean() }).map(({ task, seat, paused }): TaskStep[] => {
+const lifeOf = Arbitrary.map(Arbitrary.all({ task: taskId, seat: constantFrom(1, 2), paused: boolean }), ({ task, seat, paused }): TaskStep[] => {
   const assignee = actors[seat]!;
   const at = (op: TaskCommand, actor: ResourceActor = assignee): TaskStep => ({ actor, op: { op, task }, node: nodeOf(task) });
   return [
@@ -251,7 +304,10 @@ const lifeOf = fc.record({ task: taskId, seat: fc.constantFrom(1, 2), paused: fc
     at({ kind: "finish", handoff: "done" } as TaskCommand),
   ];
 });
-const taskSteps = fc.array(fc.oneof(randomStep.map((step) => [step]), lifeOf), { minLength: 1, maxLength: 12 }).map((runs) => runs.flat());
+const taskSteps = Arbitrary.map(
+  Arbitrary.array(oneOf(Arbitrary.map(randomStep, (step) => [step]), lifeOf), { minLength: 1, maxLength: 12 }),
+  (runs) => runs.flat(),
+);
 
 /**
  * Seed 10, run 4x, shrunk: the second finish waits in review for its stamp, naming qa next, and cancel kept
@@ -311,8 +367,9 @@ describe("the fold equals the ruler", () => {
   it("for tasks: directly, judged then folded, and on a replica", async () => {
     // Which op kinds were applied across every run: the property is not vacuous.
     const applied = new Set<string>();
-    await fc.assert(
-      fc.asyncProperty(taskSteps, async (steps) => {
+    await holds(
+      taskSteps,
+      async (steps) => {
         const direct = await makeStore(WRITER);
         const judged = await makeStore(WRITER);
         const replica = await makeStore("replica");
@@ -340,8 +397,8 @@ describe("the fold equals the ruler", () => {
           await store.runtime.dispose();
           store.database.close();
         }
-      }),
-      { ...runs(60, TASK_BUDGET_MS), examples: [[[...canceledInReview]], [[...everyOp]]] },
+      },
+      { ...runs(60, TASK_BUDGET_MS), size: 12, examples: [[...canceledInReview], [...everyOp]] },
     );
     expect([...applied].sort()).toEqual(expect.arrayContaining(["assign", "create", "depend", "edit", "finish", "pause", "resume", "start"]));
   }, timeoutFor(TASK_BUDGET_MS));
@@ -465,26 +522,27 @@ const byRefPending = (tables: Record<string, ReadonlyArray<string>>): Record<str
 
 // A create names its artifact by its own op id: these are the first three steps', so later steps can name them.
 const ARTIFACT_IDS = ["01M62AA0000000000000000000", "01M62AA0000000000000000001", "01M62AA0000000000000000002"] as const;
-const artifactId = fc.constantFrom(...ARTIFACT_IDS);
+const artifactId = constantFrom(...ARTIFACT_IDS);
 // One body past the inline bound (48 KiB): its fact carries only the ref.
 const LARGE = "x".repeat(50 * 1024);
-const markdown = fc.constantFrom("v", "plan", "the plan, longer", "# Heading\n\nbody", LARGE);
-const artifactOp: fc.Arbitrary<{ readonly op: ArtifactOp; readonly item: string | undefined }> = fc.oneof(
+const markdown = constantFrom("v", "plan", "the plan, longer", "# Heading\n\nbody", LARGE);
+type ArtifactStep = { readonly op: ArtifactOp; readonly item: string | undefined };
+const artifactOp: Arbitrary.Arbitrary<ArtifactStep> = oneOf<ArtifactStep>(
   // Weighted toward create, so the other ops find an artifact to act on.
-  { weight: 3, arbitrary: fc.record({ item: artifactId, title: fc.constantFrom("Plan", "Notes"), body: markdown }).map(({ item, title, body }) => ({
+  { weight: 3, arbitrary: Arbitrary.map(Arbitrary.all({ item: artifactId, title: constantFrom("Plan", "Notes"), body: markdown }), ({ item, title, body }) => ({
     item,
     op: { op: "create", title, body: { type: "document", markdown: body } } as ArtifactOp,
   })) },
-  fc.record({ item: artifactId, base: fc.integer({ min: 1, max: 2 }), body: markdown }).map(({ item, base, body }) => ({
+  Arbitrary.map(Arbitrary.all({ item: artifactId, base: integer(1, 2), body: markdown }), ({ item, base, body }) => ({
     item,
     op: { op: "edit", edit: { kind: "replace", baseVersion: base as ArtifactVersion, body: { type: "document", markdown: body } } } as ArtifactOp,
   })),
-  fc.record({ item: artifactId, title: fc.constantFrom("Plan 2", "Notes 2") }).map(({ item, title }) => ({ item, op: { op: "retitle", title } as ArtifactOp })),
-  fc.record({ item: artifactId, labels: fc.subarray(["draft", "final"]) }).map(({ item, labels }) => ({ item, op: { op: "labels", labels } as ArtifactOp })),
-  fc.record({ item: artifactId, kind: fc.constantFrom("archive", "restore") }).map(({ item, kind }) => ({ item, op: { op: kind } as ArtifactOp })),
+  Arbitrary.map(Arbitrary.all({ item: artifactId, title: constantFrom("Plan 2", "Notes 2") }), ({ item, title }) => ({ item, op: { op: "retitle", title } as ArtifactOp })),
+  Arbitrary.map(Arbitrary.all({ item: artifactId, labels: subarray(["draft", "final"]) }), ({ item, labels }) => ({ item, op: { op: "labels", labels } as ArtifactOp })),
+  Arbitrary.map(Arbitrary.all({ item: artifactId, kind: constantFrom("archive", "restore") }), ({ item, kind }) => ({ item, op: { op: kind } as ArtifactOp })),
   // A move (0.11.1, 10): away from ARTS, or onto it, where it already is, which is refused.
-  fc.record({ item: artifactId, to: fc.constantFrom(asNodeId("arts-2"), ARTS) }).map(({ item, to }) => ({ item, op: { op: "move", to } as ArtifactOp })),
-  fc.record({ label: fc.constantFrom("draft", "final"), colour: fc.constantFrom(null, "red", "blue") }).map(({ label, colour }) => ({
+  Arbitrary.map(Arbitrary.all({ item: artifactId, to: constantFrom(asNodeId("arts-2"), ARTS) }), ({ item, to }) => ({ item, op: { op: "move", to } as ArtifactOp })),
+  Arbitrary.map(Arbitrary.all({ label: constantFrom("draft", "final"), colour: constantFrom(null, "red", "blue") }), ({ label, colour }) => ({
     item: undefined,
     op: { op: "labelColour", label, colour } as unknown as ArtifactOp,
   })),
@@ -510,8 +568,9 @@ describe("the fold equals the ruler, for artifacts", () => {
 
   it("directly, judged then folded, and on a replica", async () => {
     const applied = new Set<string>();
-    await fc.assert(
-      fc.asyncProperty(fc.array(fc.record({ actor: fc.constantFrom(...actors), op: artifactOp }), { minLength: 1, maxLength: 16 }), async (steps) => {
+    await holds(
+      Arbitrary.array(Arbitrary.all({ actor: constantFrom(...actors), op: artifactOp }), { minLength: 1, maxLength: 16 }),
+      async (steps) => {
         const direct = await makeEngineStore(WRITER);
         const judged = await makeEngineStore(WRITER);
         const replica = await makeEngineStore("replica");
@@ -566,8 +625,8 @@ describe("the fold equals the ruler, for artifacts", () => {
         const resourcesOnly = new Set([...sameEverywhere, "resource_rulings", "work_*"]);
         expect(await engineTablesOf(replica, resourcesOnly)).toEqual(byRefPending(await engineTablesOf(direct, resourcesOnly)));
         await closeEngines();
-      }),
-      runs(25, ENGINE_BUDGET_MS),
+      },
+      { ...runs(25, ENGINE_BUDGET_MS), size: 16 },
     );
     expect([...applied].sort()).toEqual(expect.arrayContaining(["create", "edit", "labelColour", "labels", "move", "retitle"]));
   }, timeoutFor(ENGINE_BUDGET_MS));
@@ -650,23 +709,26 @@ const automationDefinition = (text: string): AutomationDefinition => ({
   then: [{ kind: "mail", to: { kind: "seat", nodeId: asNodeId("lead") }, text }],
   limits: { minIntervalMs: 60_000, maxPerHour: 12 },
 });
-const machineName = fc.constantFrom(undefined, "mini", "studio");
-const automationOp: fc.Arbitrary<{ readonly op: AutomationOp; readonly item: string }> = fc.oneof(
-  { weight: 3, arbitrary: fc.record({ item: fc.constantFrom(...AUTOMATION_IDS), enabled: fc.boolean(), machine: machineName, text: fc.constantFrom("Done?", "Status?") }).map(
+const machineName = constantFrom(undefined, "mini", "studio");
+const automationId = constantFrom(...AUTOMATION_IDS);
+const automationOp: Arbitrary.Arbitrary<{ readonly op: AutomationOp; readonly item: string }> = oneOf(
+  { weight: 3, arbitrary: Arbitrary.map(
+    Arbitrary.all({ item: automationId, enabled: boolean, machine: machineName, text: constantFrom("Done?", "Status?") }),
     ({ item, enabled, machine, text }) => ({
       item,
       op: { kind: "create", automationId: item, enabled, ...(machine === undefined ? {} : { machine }), definition: automationDefinition(text) } as unknown as AutomationOp,
-    })) },
-  fc.record({ item: fc.constantFrom(...AUTOMATION_IDS), base: fc.integer({ min: 1, max: 2 }), text: fc.constantFrom("Done?", "Report") }).map(({ item, base, text }) => ({
+    }),
+  ) },
+  Arbitrary.map(Arbitrary.all({ item: automationId, base: integer(1, 2), text: constantFrom("Done?", "Report") }), ({ item, base, text }) => ({
     item,
     op: { kind: "edit", baseVersion: base, definition: automationDefinition(text) } as unknown as AutomationOp,
   })),
-  fc.record({ item: fc.constantFrom(...AUTOMATION_IDS), enabled: fc.boolean() }).map(({ item, enabled }) => ({ item, op: { kind: "set-enabled", enabled } as AutomationOp })),
-  fc.record({ item: fc.constantFrom(...AUTOMATION_IDS), machine: fc.constantFrom("mini", "studio") }).map(({ item, machine }) => ({
+  Arbitrary.map(Arbitrary.all({ item: automationId, enabled: boolean }), ({ item, enabled }) => ({ item, op: { kind: "set-enabled", enabled } as AutomationOp })),
+  Arbitrary.map(Arbitrary.all({ item: automationId, machine: constantFrom("mini", "studio") }), ({ item, machine }) => ({
     item,
     op: { kind: "set-machine", machine } as unknown as AutomationOp,
   })),
-  fc.record({ item: fc.constantFrom(...AUTOMATION_IDS), kind: fc.constantFrom("archive", "run") }).map(({ item, kind }) => ({ item, op: { kind } as AutomationOp })),
+  Arbitrary.map(Arbitrary.all({ item: automationId, kind: constantFrom("archive", "run") }), ({ item, kind }) => ({ item, op: { kind } as AutomationOp })),
 );
 
 const automationEnv = { targetsOf: () => new Set([asNodeId("lead")]), isOverseer: () => false };
@@ -691,8 +753,9 @@ describe("the fold equals the ruler, for automations", () => {
 
   it("directly, judged then folded, and on a replica", async () => {
     const applied = new Set<string>();
-    await fc.assert(
-      fc.asyncProperty(fc.array(automationOp, { minLength: 1, maxLength: 12 }), async (steps) => {
+    await holds(
+      Arbitrary.array(automationOp, { minLength: 1, maxLength: 12 }),
+      async (steps) => {
         const direct = await makeAutomationStore(WRITER);
         const judged = await makeAutomationStore(WRITER);
         const replica = await makeAutomationStore("replica");
@@ -754,8 +817,8 @@ describe("the fold equals the ruler, for automations", () => {
         const resourcesOnly = new Set([...sameEverywhere, "resource_rulings", "work_*", "canvases"]);
         expect(await tablesOfStore(replica, resourcesOnly)).toEqual(await tablesOfStore(direct, resourcesOnly));
         await closeAutomationStores();
-      }),
-      runs(25, ENGINE_BUDGET_MS),
+      },
+      { ...runs(25, ENGINE_BUDGET_MS), size: 12 },
     );
     expect([...applied].sort()).toEqual(expect.arrayContaining(["archive", "create", "edit", "set-enabled", "set-machine"]));
   }, timeoutFor(ENGINE_BUDGET_MS));
