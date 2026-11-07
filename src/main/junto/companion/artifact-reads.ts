@@ -10,7 +10,7 @@
  * state again, so the desktop's next Cmd+T already uses what the phone chose.
  */
 import { Effect, Option } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { outcomeFail, outcomeOk, type CompanionBackend } from "@shared/companion-core";
 import { asNodeId, type Canvas } from "@shared/model";
 import type { ItemId } from "@shared/wire/ids";

@@ -6,7 +6,7 @@
  * it.
  */
 import { Effect, Schema } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { coreOpBody } from "../../src/main/core-process/ops";
 import "../../src/main/core-process/ops/ipc-automation";
 import { ModelService } from "../../src/main/junto/model/service";

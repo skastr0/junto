@@ -4,12 +4,13 @@
  * never bin/junto (the native CLI). The entry is bundled as the machine
  * build bundles it, and run by Node.
  */
+import { wordsText } from "./helpers/command-words";
 import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import * as Command from "effect/unstable/process/ChildProcess";
+import { ChildProcess as Command } from "effect/process";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { boatDir } from "../src/main/junto/boat/files";
 import { parseSshRoute } from "../src/main/junto/ssh";
@@ -21,7 +22,7 @@ const compiler = createSshProgramCompiler({ controlDir: "/tmp/junto-local-mux", 
 const remoteText = (program: OneShotProgram) => {
   const compiled = compiler.oneShot(program);
   if (!Command.isStandardCommand(compiled.command)) throw new Error("expected argv command");
-  return { text: compiled.command.args.at(-1)!, input: compiled.input };
+  return { text: wordsText(compiled.command.args).at(-1)!, input: compiled.input };
 };
 
 let root: string;

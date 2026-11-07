@@ -1,4 +1,4 @@
-import { Argument, Command } from "effect/unstable/cli";
+import { Argument, Command } from "effect/cli";
 import { Effect } from "effect";
 import { WORK_PROTOCOL_VERSION } from "../../shared/work-control";
 import { CLI_NAME, CLI_VERSION } from "../core/constants";
@@ -7,7 +7,7 @@ import { InputError } from "../core/errors";
 import { executeJsonCommand } from "../core/output";
 export { pingCommand, doctorCommand, capabilitiesCommand, onboardCommand, sinceCommand, offboardCommand } from "./seat-discovery";
 
-const targetArg = Argument.string("target").pipe(
+const targetArg = Argument.String("target").pipe(
   Argument.withDescription("Schema id, command id, or command name"),
 );
 

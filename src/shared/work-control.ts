@@ -333,8 +333,6 @@ export const TasksRulesArgs = Schema.Struct({
   target: Schema.String,
   /** Omitted: board rules. Named: rules and readiness for that task. */
   task: Schema.optionalKey(Schema.String),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
 });
 export type TasksRulesArgs = typeof TasksRulesArgs.Type;
 
@@ -374,16 +372,12 @@ export const TasksCheckArgs = Schema.Struct({
     exitCode: Schema.Number,
     outputTail: Schema.String,
   })),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
 });
 export type TasksCheckArgs = typeof TasksCheckArgs.Type;
 
 export const RulingsArgs = Schema.Struct({
   /** Omitted: the agent's own region stack. */
   target: Schema.optionalKey(Schema.String),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
 });
 export type RulingsArgs = typeof RulingsArgs.Type;
 
@@ -439,7 +433,7 @@ export const MsgPromptArgs = Schema.Struct({
   text: Schema.String,
   subject: Schema.optionalKey(Schema.String),
   refs: Schema.optionalKey(Schema.Array(MailEvidenceRef)),
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
+});
 export type MsgPromptArgs = typeof MsgPromptArgs.Type;
 
 /** Read the admitted sender's receipts; never marks the recipient mailbox read. */
@@ -481,8 +475,6 @@ export type MsgReplyArgs = typeof MsgReplyArgs.Type;
 /** Display a short-lived thought bubble above the process-bound agent node. */
 export const PreambleArgs = Schema.Struct({
   text: Schema.String,
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
 });
 export type PreambleArgs = typeof PreambleArgs.Type;
 
@@ -516,24 +508,18 @@ export const SignalRaiseArgs = Schema.Struct({
    * answers the signal exactly as a typed reply.
    */
   suggest: Schema.optionalKey(AgentSignalSuggestions),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
 });
 export type SignalRaiseArgs = typeof SignalRaiseArgs.Type;
 
 /** Withdraw one open signal by id, or every open signal of the seat. */
 export const SignalClearArgs = Schema.Struct({
   signalId: Schema.optionalKey(Schema.String),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
 });
 export type SignalClearArgs = typeof SignalClearArgs.Type;
 
 export const SignalListArgs = Schema.Struct({
   /** Closed history from here on, uncapped: after this signal id, or at or after this ISO 8601 time. */
   since: Schema.optionalKey(Schema.String),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
 });
 export type SignalListArgs = typeof SignalListArgs.Type;
 
@@ -567,9 +553,7 @@ export type SignalListResult = typeof SignalListResult.Type;
  * `SeatEnvironmentReport` (shared/region-environment): variable names, where
  * each comes from and whether it resolved. Never a value.
  */
-export const EnvReportArgs = Schema.Struct({}).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
+export const EnvReportArgs = Schema.Struct({});
 export type EnvReportArgs = typeof EnvReportArgs.Type;
 
 /**
@@ -585,27 +569,19 @@ export type LogsReadArgs = typeof LogsReadArgs.Type;
  * it. `list` answers names and descriptions (`@shared/references`
  * `ReferenceListEntry`), `read` the innermost match with its body.
  */
-export const ReferencesListArgs = Schema.Struct({}).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
+export const ReferencesListArgs = Schema.Struct({});
 export type ReferencesListArgs = typeof ReferencesListArgs.Type;
 
-export const ReferencesReadArgs = Schema.Struct({ name: Schema.String }).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
+export const ReferencesReadArgs = Schema.Struct({ name: Schema.String });
 export type ReferencesReadArgs = typeof ReferencesReadArgs.Type;
 
 /** `junto onboard` takes no input: a seat onboards itself. */
-export const OnboardArgs = Schema.Struct({}).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
+export const OnboardArgs = Schema.Struct({});
 export type OnboardArgs = typeof OnboardArgs.Type;
 
 /** `junto since`: what this seat owes, waits on and missed, capped as onboard shows it unless `all`. */
 export const SinceArgs = Schema.Struct({
   all: Schema.optionalKey(Schema.Boolean),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
 });
 export type SinceArgs = typeof SinceArgs.Type;
 
@@ -619,8 +595,6 @@ export type SinceArgs = typeof SinceArgs.Type;
 export const OffboardArgs = Schema.Struct({
   notes: Schema.String,
   continuation: Schema.optionalKey(Schema.String),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
 });
 export type OffboardArgs = typeof OffboardArgs.Type;
 

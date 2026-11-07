@@ -1,4 +1,5 @@
-import * as Command from "effect/unstable/process/ChildProcess";
+import { wordsText } from "./helpers/command-words";
+import { ChildProcess as Command } from "effect/process";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import {
   Clock,
@@ -157,7 +158,7 @@ const testLayer = async (
 };
 
 const remoteText = (command: Command.StandardCommand): string =>
-  command.args.at(-1) ?? "";
+  wordsText(command.args).at(-1) ?? "";
 
 describe("SshTransport", () => {
   it("drains bounded output, closes one-shot stdin, and checks exit status", async () => {
@@ -165,7 +166,7 @@ describe("SshTransport", () => {
     const releases: Command.StandardCommand[] = [];
     const layer = await testLayer(
       (command) =>
-        command.args.includes("-O")
+        wordsText(command.args).includes("-O")
           ? {}
           : {
               stdout: encoder.encode("ok\n"),
@@ -184,7 +185,7 @@ describe("SshTransport", () => {
     );
 
     expect(result).toEqual({ stdout: "ok\n", stderr: "note\n" });
-    expect(calls.some((command) => command.args.includes("/usr/bin/ssh"))).toBe(
+    expect(calls.some((command) => wordsText(command.args).includes("/usr/bin/ssh"))).toBe(
       true,
     );
     expect(releases.length).toBeGreaterThanOrEqual(1);
@@ -195,7 +196,7 @@ describe("SshTransport", () => {
     const releases: Command.StandardCommand[] = [];
     const layer = await testLayer(
       (command) =>
-        command.args.includes("-O")
+        wordsText(command.args).includes("-O")
           ? {}
           : { code: 255, stderr: encoder.encode("secret-token\u001b[31m") },
       calls,
@@ -227,7 +228,7 @@ describe("SshTransport", () => {
     const releases: Command.StandardCommand[] = [];
     const layer = await testLayer(
       (command) =>
-        command.args.includes("-O")
+        wordsText(command.args).includes("-O")
           ? {}
           : {
               code: 255,
@@ -288,7 +289,7 @@ describe("SshTransport", () => {
 
     expect(
       calls.some((command) =>
-        command.args.some((arg) => arg.includes("private prompt body")),
+        wordsText(command.args).some((arg) => arg.includes("private prompt body")),
       ),
     ).toBe(false);
     expect(
@@ -504,7 +505,7 @@ describe("SshTransport", () => {
     const releases: Command.StandardCommand[] = [];
     const layer = await testLayer(
       (command) =>
-        command.args.includes("-O")
+        wordsText(command.args).includes("-O")
           ? {}
           : { stdout: new Uint8Array(8 * 1024 * 1024 + 1) },
       calls,
@@ -774,13 +775,13 @@ describe("SshTransport", () => {
     );
 
     const exitCall = calls.find(
-      (command) => command.args.includes("-O") && command.args.includes("exit"),
+      (command) => wordsText(command.args).includes("-O") && wordsText(command.args).includes("exit"),
     );
     expect(exitCall).toBeDefined();
-    expect(exitCall!.args.at(-1)).toBe("remote-a");
+    expect(wordsText(exitCall!.args).at(-1)).toBe("remote-a");
     // Same ControlPath template as the shared master it is exiting — ssh
     // resolves the identical socket for this endpoint.
-    expect(exitCall!.args.some((arg) => arg.startsWith("ControlPath="))).toBe(
+    expect(wordsText(exitCall!.args).some((arg) => arg.startsWith("ControlPath="))).toBe(
       true,
     );
   });
@@ -816,7 +817,7 @@ describe("SshTransport", () => {
     const spawner = ProcessSpawner.of({
       start: (command) => {
         const flattened = standard(command);
-        const endpoint = flattened.args.at(-2) ?? "control";
+        const endpoint = wordsText(flattened.args).at(-2) ?? "control";
         if (flattened.args.includes("-O")) {
           return Effect.acquireRelease(
             Effect.sync(() => {

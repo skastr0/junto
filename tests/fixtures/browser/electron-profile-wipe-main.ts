@@ -4,7 +4,7 @@ import { chmod, lstat, mkdir, readFile, rename, writeFile } from "node:fs/promis
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { app, session } from "electron";
 import { Context, Effect, ManagedRuntime } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import {
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,

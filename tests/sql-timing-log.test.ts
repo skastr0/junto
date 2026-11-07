@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect } from "effect";
-import { Reactivity } from "effect/unstable/reactivity";
+import { Reactivity } from "effect/reactivity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { armMainThreadBudget, resetMainThreadBudget, statementTimingTop, withinBudget } from "../src/main/junto/observability/main-thread-budget";
 import { SQL_TIMING_FILE, SQL_TIMING_INTERVAL_MS, sqlTimingReport, startSqlTimingLog } from "../src/main/junto/observability/sql-timing-log";

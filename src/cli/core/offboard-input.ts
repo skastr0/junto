@@ -7,7 +7,7 @@ import { readSource, sourceOf } from "./signal-input";
 const OffboardPayload = Schema.Struct({
   notes: Schema.String,
   continuation: Schema.optionalKey(Schema.String),
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
+});
 
 /**
  * How `junto offboard <notes> [--continue <note>]` reads its input: markdown

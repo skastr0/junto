@@ -8,8 +8,8 @@
  */
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Schema } from "effect";
-import { Reactivity } from "effect/unstable/reactivity";
-import { SqlClient } from "effect/unstable/sql";
+import { Reactivity } from "effect/reactivity";
+import { SqlClient } from "effect/sql";
 import { describe, expect, it, vi } from "vitest";
 
 const flags = vi.hoisted(() => ({ authority: false }));

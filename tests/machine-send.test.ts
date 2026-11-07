@@ -1,3 +1,4 @@
+import { wordsText } from "./helpers/command-words";
 import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { gunzipSync } from "node:zlib";
@@ -15,7 +16,7 @@ import { parseSshEndpoint, parseSshRoute, SshInputError, SshTransport } from "..
 import { InstallationId } from "../src/shared/installation-id";
 import { createSshProgramCompiler } from "../src/main/junto/ssh/program";
 import { SshTransferExitError } from "../src/main/junto/ssh/service";
-import * as Command from "effect/unstable/process/ChildProcess";
+import { ChildProcess as Command } from "effect/process";
 
 let root: string;
 beforeEach(async () => {
@@ -109,7 +110,7 @@ it("sends only install selections and retains nonretryable transfer uncertainty"
       const compiled = compiler.stream(program);
       expect(compiled.connection).toBe("dedicated");
       if (!Command.isStandardCommand(compiled.command)) throw new Error("expected argv command");
-      remoteText = compiled.command.args.at(-1)!;
+      remoteText = wordsText(compiled.command.args).at(-1)!;
       yield* Stream.runForEach(input, bytes => Effect.sync(() => { copiedBytes += bytes.byteLength; onInputBytes?.(bytes.byteLength); }));
       const event = { event: "machine-install", juntoHome: "/home/user/probe", installRoot: "/home/user/probe/install", step: "verified" };
       const encoder = new TextEncoder();

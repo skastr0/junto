@@ -284,7 +284,7 @@ const fromResult = <T>(result: BrowserResult<T>): ControlEnvelope<T> =>
 const decodeBody =
   <S extends Schema.Top>(schema: S) =>
   (body: unknown): Result.Result<Schema.Schema.Type<S>, ControlEnvelope<never>> => {
-    const decoded = Schema.decodeUnknownResult(schema as never)(body);
+    const decoded = Schema.decodeUnknownResult(schema as never, { onExcessProperty: "error" })(body);
     return Result.isFailure(decoded)
       ? Result.fail(controlErr("bad_request", String(decoded.failure.message).slice(0, 400)))
       : Result.succeed(decoded.success as never);

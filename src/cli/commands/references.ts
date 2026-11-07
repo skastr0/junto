@@ -1,4 +1,4 @@
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import { Effect, Option, Schema } from "effect";
 import type { WorkOpName } from "../../shared/work-control";
 import type {
@@ -19,7 +19,7 @@ import { WorkSocket } from "../core/socket";
 const LIST_OP = "references.list" as WorkOpName;
 const READ_OP = "references.read" as WorkOpName;
 
-const timeoutOption = Flag.integer("timeout").pipe(
+const timeoutOption = Flag.Int("timeout").pipe(
   Flag.optional,
   Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
 );
@@ -42,7 +42,7 @@ const referencesListCommand = Command.make("list", { timeout: timeoutOption }, (
 const referencesReadCommand = Command.make(
   "read",
   {
-    name: Argument.string("name").pipe(
+    name: Argument.String("name").pipe(
       Argument.withDescription("Reference name, as junto references list prints it"),
     ),
     timeout: timeoutOption,

@@ -64,7 +64,7 @@ const serviceErrorTail = async (root: string): Promise<string> => {
 export const installMachine = (input: MachineInstallInput): Effect.Effect<MachineInstallResult, MachineInstallError> => {
   let disposition: "staged" | "activated" | "uncertain" = "staged";
   const transitions: MachineInstallTransition[] = [];
-  return Effect.tryPromise({ try: async () => {
+  return Effect.tryPromise({ try: async (): Promise<MachineInstallResult> => {
     const juntoHome = await machineHomePath(input.juntoHome ?? homedir(), true);
     const installRoot = await machineHomePath(input.installRoot ?? join(homedir(), ".junto/machine"));
     const manifest = await inspectMachineBundle(input.bundle);

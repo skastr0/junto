@@ -9,7 +9,7 @@
  * alone commits as it appends, which is every canvas until F6 lists a pair.
  */
 import { Effect, Layer, Semaphore } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { IPC_CHANNELS } from "@shared/ipc";
 import type { AuthorityMachineFacts, AuthorityMemberList, AuthorityRead } from "@shared/authority";
 import type { InstallationId } from "@shared/installation-id";

@@ -23,7 +23,6 @@ import { ItemId, OpId, TaskNumber } from "./work-ids";
 
 export { ItemId, OpId };
 
-const strict = { parseOptions: { onExcessProperty: "error" as const } };
 
 const Ref = (description: string) =>
   Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(4_096))).annotate({ description });
@@ -63,7 +62,7 @@ export const TaskListArgs = Schema.Struct({
   after: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.makeFilter(
     (cursor: string) => readTaskListCursor(cursor) !== undefined || "a cursor a task list page gave as next",
   )))),
-}).annotate(strict);
+});
 export type TaskListArgs = typeof TaskListArgs.Type;
 
 /**
@@ -80,13 +79,13 @@ export const readTaskListCursor = (cursor: string): { readonly updatedAt: number
   return dot > 0 && Number.isSafeInteger(updatedAt) && updatedAt >= 0 && Schema.is(ItemId)(taskId) ? { updatedAt, taskId } : undefined;
 };
 
-export const TaskShowArgs = Schema.Struct({ task: TaskRefText }).annotate(strict);
+export const TaskShowArgs = Schema.Struct({ task: TaskRefText });
 export type TaskShowArgs = typeof TaskShowArgs.Type;
 
 /** The rules in force for a task, at the node it sits on; or a task node's own. */
 export const TaskRulesArgs = Schema.Union([
-  Schema.Struct({ task: TaskRefText }).annotate(strict),
-  Schema.Struct({ node: TaskNodeText }).annotate(strict),
+  Schema.Struct({ task: TaskRefText }),
+  Schema.Struct({ node: TaskNodeText }),
 ]);
 export type TaskRulesArgs = typeof TaskRulesArgs.Type;
 
@@ -104,7 +103,7 @@ export const TaskWaitArgs = Schema.Struct({
   timeoutMs: Schema.optionalKey(Schema.Number.pipe(
     Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(TASK_WAIT_MAX_MS)),
   )),
-}).annotate(strict);
+});
 export type TaskWaitArgs = typeof TaskWaitArgs.Type;
 
 export const TaskCreateArgs = Schema.Struct({
@@ -116,7 +115,7 @@ export const TaskCreateArgs = Schema.Struct({
   body: Schema.optionalKey(Body),
   /** Approvals finishing needs; the node's default when left out. */
   stamps: Schema.optionalKey(Required),
-}).annotate(strict);
+});
 export type TaskCreateArgs = typeof TaskCreateArgs.Type;
 
 export const TaskEditArgs = Schema.Struct({
@@ -124,7 +123,7 @@ export const TaskEditArgs = Schema.Struct({
   task: TaskRefText,
   title: Schema.optionalKey(Title),
   body: Schema.optionalKey(Body),
-}).annotate(strict);
+});
 export type TaskEditArgs = typeof TaskEditArgs.Type;
 
 export const TaskAssignArgs = Schema.Struct({
@@ -132,11 +131,11 @@ export const TaskAssignArgs = Schema.Struct({
   task: TaskRefText,
   /** The caller when left out. */
   seat: Schema.optionalKey(SeatRefText),
-}).annotate(strict);
+});
 export type TaskAssignArgs = typeof TaskAssignArgs.Type;
 
 /** unassign, start, pause, resume, cancel and archive name one task. */
-export const TaskOneArgs = Schema.Struct({ opId: OpId, task: TaskRefText }).annotate(strict);
+export const TaskOneArgs = Schema.Struct({ opId: OpId, task: TaskRefText });
 export type TaskOneArgs = typeof TaskOneArgs.Type;
 
 export const TaskFinishArgs = Schema.Struct({
@@ -148,7 +147,7 @@ export const TaskFinishArgs = Schema.Struct({
   evidence: Schema.optionalKey(CompletionEvidence),
   /** A note for whoever picks the work up next; the task keeps it with the layer. */
   handoff: Schema.optionalKey(Handoff),
-}).annotate(strict);
+});
 export type TaskFinishArgs = typeof TaskFinishArgs.Type;
 
 /**
@@ -168,14 +167,14 @@ export const TaskCheckArgs = Schema.Struct({
     /** The output's last characters; a longer tail is cut to its last CHECK_OUTPUT_TAIL_MAX. */
     outputTail: Schema.String,
   })).pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(CHECK_RESULTS_MAX))),
-}).annotate(strict);
+});
 export type TaskCheckArgs = typeof TaskCheckArgs.Type;
 
 export const TaskDependArgs = Schema.Struct({
   opId: OpId,
   task: TaskRefText,
   on: TaskRefText,
-}).annotate(strict);
+});
 export type TaskDependArgs = typeof TaskDependArgs.Type;
 
 export const TaskReviewerArgs = Schema.Struct({
@@ -183,10 +182,10 @@ export const TaskReviewerArgs = Schema.Struct({
   task: TaskRefText,
   /** A seat, or `operator`; the caller when left out. */
   reviewer: Schema.optionalKey(SeatRefText),
-}).annotate(strict);
+});
 export type TaskReviewerArgs = typeof TaskReviewerArgs.Type;
 
-export const TaskStampPolicyArgs = Schema.Struct({ opId: OpId, task: TaskRefText, required: Required }).annotate(strict);
+export const TaskStampPolicyArgs = Schema.Struct({ opId: OpId, task: TaskRefText, required: Required });
 export type TaskStampPolicyArgs = typeof TaskStampPolicyArgs.Type;
 
 export const TaskStampVerdict = Schema.Literals(["approve", "changes"]);
@@ -199,7 +198,7 @@ export const TaskStampArgs = Schema.Struct({
   subjectHash: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(128)))),
   /** What to change, with `changes`; a note with `approve`. */
   text: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(TASK_BODY_MAX_LENGTH)))),
-}).annotate(strict);
+});
 export type TaskStampArgs = typeof TaskStampArgs.Type;
 
 /** A comment is mail in the task's thread (03), not a task command. */
@@ -207,7 +206,7 @@ export const TaskCommentArgs = Schema.Struct({
   opId: OpId,
   task: TaskRefText,
   text: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(TASK_COMMENT_MAX_LENGTH))),
-}).annotate(strict);
+});
 export type TaskCommentArgs = typeof TaskCommentArgs.Type;
 
 // ---------------------------------------------------------------------------

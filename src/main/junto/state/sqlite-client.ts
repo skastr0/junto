@@ -1,6 +1,6 @@
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { type Context, Effect, Schema, Semaphore, Stream } from "effect";
-import { SqlClient, SqlConnection, SqlError, Statement } from "effect/unstable/sql";
+import { SqlClient, SqlConnection, SqlError, Statement } from "effect/sql";
 import { SqlReadLeases } from "./sql-read";
 import { StateTransactionOperation } from "./service";
 import { withinBudget } from "../observability/main-thread-budget";
@@ -135,6 +135,7 @@ export const makeSqliteClient = Effect.fn("state.makeSqliteClient")(function* (
   const acquirer: SqlConnection.Acquirer = Effect.flatMap(SqlReadLeases, (leases) =>
     leases.has(client.transactionService) ? Effect.succeed(connection) : reserve);
   const client: SqlClient.SqlClient = yield* SqlClient.make({
+    driver: "node-sqlite",
     acquirer,
     compiler: Statement.makeCompilerSqlite(),
     beginTransaction: "BEGIN IMMEDIATE",

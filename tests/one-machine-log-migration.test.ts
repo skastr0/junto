@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import {

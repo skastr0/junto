@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import { mentionHref } from "../src/shared/mention";
 import { asNodeId, type Canvas, type Node } from "../src/shared/model";

@@ -13,7 +13,7 @@
  * typed ids, and a failed write is reported without the store's message.
  */
 import { Effect, Option } from "effect";
-import type { SqlClient } from "effect/unstable/sql";
+import type { SqlClient } from "effect/sql";
 import { ulid } from "ulid";
 import { mailExtensionMetadata, type MailMessageId } from "@shared/crew";
 import { mentionedOnce, mentionsOf } from "@shared/mention";

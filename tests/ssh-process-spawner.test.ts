@@ -1,4 +1,4 @@
-import * as Command from "effect/unstable/process/ChildProcess";
+import { ChildProcess as Command } from "effect/process";
 import { Effect, Layer, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { readFile } from "node:fs/promises";

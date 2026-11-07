@@ -18,7 +18,7 @@
  */
 import { dirname, join } from "node:path";
 import { Effect } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { BROWSER_MAX_COMMENT_TEXT_BYTES } from "../../src/shared/browser-control";
 import { BROWSER_ENABLED } from "../../src/shared/features";
 import { makeBrowserCapabilityRegistry } from "../../src/main/junto/browser/capabilities";

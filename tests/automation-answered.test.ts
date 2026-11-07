@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime, Result, Schema } from "effect";
-import { Reactivity } from "effect/unstable/reactivity";
-import { SqlClient } from "effect/unstable/sql";
+import { Reactivity } from "effect/reactivity";
+import { SqlClient } from "effect/sql";
 import { describe, expect, it } from "vitest";
 import { answeredChange } from "../src/main/junto/automation/live";
 import { changeMatches, type ChangeEvent } from "../src/main/junto/automation/plan";

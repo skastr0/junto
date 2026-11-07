@@ -195,13 +195,13 @@ export type UrgencyView<G extends string, B extends string> = {
 export type ViewGroup<V> = V extends UrgencyView<infer G, infer B> ? G & Brand.Brand<B> : never;
 
 const defineView = <const G extends readonly [string, ...string[]], const B extends string>(
-  name: B,
+  name: Parameters<typeof Schema.brand<B>>[0],
   names: G,
   levels: { readonly [K in G[number]]: readonly LadderName[] },
   order: "ladder" | "own" = "ladder",
 ): UrgencyView<G[number], B> => {
   type Group = G[number] & Brand.Brand<B>;
-  const Group = Schema.Literals(names).pipe(Schema.brand(name));
+  const Group = Schema.Literals(names).pipe(Schema.brand<B>(name));
   const group = Object.fromEntries(names.map((value) => [value, Group.make(value as G[number])])) as unknown as UrgencyView<G[number], B>["group"];
   const groups = names.map((value) => group[value as G[number]]) as Group[];
   const byLevel = new Map<UrgencyLevel, Group>();

@@ -2,7 +2,7 @@ import { isIP } from "node:net";
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import { isValidMachineName } from "@shared/machine-identity";
 import { MachineRepository } from "../machines/repository";
-import { SqlClient, SqlSchema } from "effect/unstable/sql";
+import { SqlClient, SqlSchema } from "effect/sql";
 import {
   REMOTE_HOSTS_VERSION,
   RemoteHostsError,

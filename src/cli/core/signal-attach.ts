@@ -248,28 +248,27 @@ export const planAttachFlags = (
   return { ok: true, plans };
 };
 
-const strict = { parseOptions: { onExcessProperty: "error" as const } };
 const captionField = { caption: Schema.optionalKey(Schema.String) };
-const TextOrPath = Schema.Union([Schema.String, Schema.Struct({ path: Schema.String }).annotate(strict)]);
+const TextOrPath = Schema.Union([Schema.String, Schema.Struct({ path: Schema.String })]);
 
 /**
  * One item of the JSON input's `attach` list: exactly one of these shapes.
  * A string is literal text (no `@file`, no `-`); a file is named with `path`.
  */
 export const SignalAttachCliItem = Schema.Union([
-  Schema.Struct({ path: Schema.String, ...captionField }).annotate(strict),
-  Schema.Struct({ code: Schema.String, language: Schema.String, ...captionField }).annotate(strict),
-  Schema.Struct({ diff: Schema.String, ...captionField }).annotate(strict),
+  Schema.Struct({ path: Schema.String, ...captionField }),
+  Schema.Struct({ code: Schema.String, language: Schema.String, ...captionField }),
+  Schema.Struct({ diff: Schema.String, ...captionField }),
   Schema.Struct({
     before: TextOrPath,
     after: TextOrPath,
     language: Schema.optionalKey(Schema.String),
     ...captionField,
-  }).annotate(strict),
-  Schema.Struct({ commit: Schema.String, ...captionField }).annotate(strict),
-  Schema.Struct({ url: Schema.String, ...captionField }).annotate(strict),
-  Schema.Struct({ task: Schema.String, ...captionField }).annotate(strict),
-  Schema.Struct({ artifact: Schema.String, ...captionField }).annotate(strict),
+  }),
+  Schema.Struct({ commit: Schema.String, ...captionField }),
+  Schema.Struct({ url: Schema.String, ...captionField }),
+  Schema.Struct({ task: Schema.String, ...captionField }),
+  Schema.Struct({ artifact: Schema.String, ...captionField }),
 ]);
 export type SignalAttachCliItem = typeof SignalAttachCliItem.Type;
 

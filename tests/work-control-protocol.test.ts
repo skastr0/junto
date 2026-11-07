@@ -84,11 +84,11 @@ describe("work-control wire schemas", () => {
   });
 
   it("refuses client-supplied identity on msg.prompt args", () => {
-    const good = Schema.decodeUnknownResult(MsgPromptArgs)({
+    const good = Schema.decodeUnknownResult(MsgPromptArgs, { onExcessProperty: "error" })({
       target: "n7",
       text: "t1",
     });
-    const clientIdentity = Schema.decodeUnknownResult(MsgPromptArgs)({
+    const clientIdentity = Schema.decodeUnknownResult(MsgPromptArgs, { onExcessProperty: "error" })({
       target: "n7",
       text: "t1",
       actor: "agent",

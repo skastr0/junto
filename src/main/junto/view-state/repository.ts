@@ -10,7 +10,7 @@
  * defaults (`@shared/view-state`).
  */
 import { Context, Effect, Layer, Schema } from "effect";
-import { SqlClient, SqlError } from "effect/unstable/sql";
+import { SqlClient, SqlError } from "effect/sql";
 import type {
   CaptureDesk,
   CaptureDraft,

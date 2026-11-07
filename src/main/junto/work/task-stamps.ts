@@ -17,7 +17,7 @@
 
 import { createHash } from "node:crypto";
 import { Effect, Schema } from "effect";
-import type { SqlClient } from "effect/unstable/sql";
+import type { SqlClient } from "effect/sql";
 import type { NodeId } from "@shared/physics/schema";
 import { reviewerKey, seatNodeId, type Stamp, type TaskId, type TaskNodeId } from "@shared/task-model";
 import { WorkMutationContext, unjournaledWorkMutationEffect } from "./mutation-seam";

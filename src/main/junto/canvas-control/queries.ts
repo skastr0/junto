@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Schema } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { ModelService } from "../model/service";
 import { ModelActorRefs } from "../model/actor-refs";
 import { readModelDigest } from "../model/digest";

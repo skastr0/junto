@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { Context, Effect, Layer, Option, Schema } from "effect";
-import { SqlClient, SqlSchema, type SqlError } from "effect/unstable/sql";
+import { SqlClient, SqlSchema, type SqlError } from "effect/sql";
 import {
   ContentAvailability,
   ContentAvailabilityReason,

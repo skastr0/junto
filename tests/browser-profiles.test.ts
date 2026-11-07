@@ -17,7 +17,7 @@ import {
   Result,
   ManagedRuntime,
 } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import {
   afterEach,
   describe,

@@ -1,7 +1,7 @@
 /**
  * A boolean flag with no default makes Effect CLI answer the bare command
  * with its help instead of running it (`junto since`, `junto artifact list`).
- * Every Flag.boolean in src/cli carries Flag.withDefault, and the two bare
+ * Every Flag.Boolean in src/cli carries Flag.withDefault, and the two bare
  * commands that once printed help reach the work socket.
  */
 import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
@@ -21,7 +21,7 @@ const sources = async (dir: string): Promise<ReadonlyArray<string>> =>
     return Promise.resolve(entry.name.endsWith(".ts") ? [path] : []);
   }))).flat();
 
-/** The text of `Flag.boolean(...)` and the `.pipe(...)` that follows it, if any. */
+/** The text of `Flag.Boolean(...)` and the `.pipe(...)` that follows it, if any. */
 const flagExpression = (text: string, start: number): string => {
   let depth = 0;
   let index = start;
@@ -41,12 +41,12 @@ const flagExpression = (text: string, start: number): string => {
 };
 
 describe("boolean flags", () => {
-  it("every Flag.boolean in src/cli has a default", async () => {
+  it("every Flag.Boolean in src/cli has a default", async () => {
     const missing: string[] = [];
     let seen = 0;
     for (const file of await sources(join(repoRoot, "src/cli"))) {
       const text = await readFile(file, "utf8");
-      for (const match of text.matchAll(/Flag\.boolean\(/g)) {
+      for (const match of text.matchAll(/Flag\.Boolean\(/g)) {
         seen++;
         const expression = flagExpression(text, match.index);
         if (!expression.includes("Flag.withDefault(")) {

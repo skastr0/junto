@@ -1,4 +1,4 @@
-import { Flag } from "effect/unstable/cli";
+import { Flag } from "effect/cli";
 import { Effect, Option, Schema } from "effect";
 import { mintOpId } from "../../shared/resource-command";
 import { OpId } from "../../shared/work-ids";
@@ -9,7 +9,7 @@ import { InputError, WireError } from "./errors";
  * main, so a write that timed out can be sent again under the same opId and
  * applies once. Every write command takes `--op-id` for that retry.
  */
-export const opIdFlag = Flag.string("op-id").pipe(
+export const opIdFlag = Flag.String("op-id").pipe(
   Flag.optional,
   Flag.withDescription("Resend a write that timed out with the opId it returned, so it applies once"),
 );

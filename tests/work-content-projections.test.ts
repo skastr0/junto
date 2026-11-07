@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Result } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { afterAll, expect, it } from "vitest";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";

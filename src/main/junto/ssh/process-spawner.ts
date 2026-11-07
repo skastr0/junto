@@ -1,7 +1,7 @@
-import * as Command from "effect/unstable/process/ChildProcess";
+import { ChildProcess as Command } from "effect/process";
 import * as NodeSink from "@effect/platform-node/NodeSink";
 import * as NodeStream from "@effect/platform-node/NodeStream";
-import { Context, Effect, Layer, Schema, Scope, Sink, Stream } from "effect";
+import { Context, Effect, Layer, Redacted, Schema, Scope, Sink, Stream } from "effect";
 import {
   appProcessPlane,
   type AppProcessLease,
@@ -126,7 +126,7 @@ const startStandard = (command: Command.StandardCommand): Effect.Effect<TrackedS
         source: "ssh.process-spawner",
         purpose: "SSH transport command",
         command: command.command,
-        args: command.args,
+        args: command.args.map((word) => (typeof word === "string" ? word : Redacted.value(word))),
         cwd: command.options.cwd,
         env: environment,
         shell: command.options.shell,

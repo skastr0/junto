@@ -8,7 +8,7 @@
  * queued with the opId; queued is a success, and `junto op show` reads it later.
  */
 import { Context, Effect, Layer, Option, Semaphore } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { authorityQueueReason, authorityViewOf } from "@shared/authority";
 import { CommandQueueFull, CommandTargetUnknown, type QueuedCommand, type RulingAppliedResult } from "@shared/command-row";
 import type { InstallationId } from "@shared/installation-id";

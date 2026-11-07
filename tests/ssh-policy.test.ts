@@ -1,4 +1,5 @@
-import * as Command from "effect/unstable/process/ChildProcess";
+import { wordsText } from "./helpers/command-words";
+import { ChildProcess as Command } from "effect/process";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { Effect, Layer, Scope, Sink, Stream } from "effect";
 import { existsSync } from "node:fs";
@@ -48,9 +49,9 @@ const standard = (command: Command.Command): Command.StandardCommand => {
 };
 
 const sshArgs = (command: Command.StandardCommand): ReadonlyArray<string> => {
-  const index = command.args.indexOf("/usr/bin/ssh");
+  const index = wordsText(command.args).indexOf("/usr/bin/ssh");
   expect(index).toBeGreaterThanOrEqual(0);
-  return command.args.slice(index + 1);
+  return wordsText(command.args).slice(index + 1);
 };
 
 const handle = (options?: {

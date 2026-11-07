@@ -1,4 +1,4 @@
-import { Command, Flag } from "effect/unstable/cli";
+import { Command, Flag } from "effect/cli";
 import { Effect, Option, Schema } from "effect";
 import type { WorkOpName } from "../../shared/work-control";
 import type {
@@ -22,7 +22,7 @@ import { WorkSocket } from "../core/socket";
 // The work-socket op belongs to the region environment resolver.
 const ENV_REPORT_WORK_OP = "env.report" as WorkOpName;
 
-const timeoutOption = Flag.integer("timeout").pipe(
+const timeoutOption = Flag.Int("timeout").pipe(
   Flag.optional,
   Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
 );

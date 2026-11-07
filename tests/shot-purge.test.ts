@@ -10,7 +10,7 @@ import { mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ContentService } from "../src/main/junto/content/service";
 import { shotEntitled } from "../src/main/junto/content/shot-entitlement";

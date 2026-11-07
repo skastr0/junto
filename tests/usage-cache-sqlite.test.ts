@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { afterEach, describe, expect, test } from "vitest";
 import type { UsageSnapshot, UsageState } from "../src/shared/usage";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";

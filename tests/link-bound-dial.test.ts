@@ -4,10 +4,11 @@
  * setup (docs/machines.md, The link). A peer whose host key changed is
  * refused by OpenSSH before anything is sent, and the refusal names it.
  */
+import { wordsText } from "./helpers/command-words";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection, type Socket } from "node:net";
 import { join } from "node:path";
-import * as Command from "effect/unstable/process/ChildProcess";
+import { ChildProcess as Command } from "effect/process";
 import { Effect, Layer, ManagedRuntime, Schema, Stream } from "effect";
 import { afterEach, expect, it } from "vitest";
 import { generatePairingKey } from "../src/main/junto/companion/pairing-key";
@@ -43,7 +44,7 @@ it("dials a bound peer with its own key and known hosts only, and names the mach
     connect: ((program: never) => Effect.suspend(() => {
       const command = compiler.stream(program).command;
       if (!Command.isStandardCommand(command)) return Effect.die("expected StandardCommand");
-      dialed.push(command.args.slice(command.args.indexOf("/usr/bin/ssh") + 1));
+      dialed.push(wordsText(command.args).slice(command.args.indexOf("/usr/bin/ssh") + 1));
       return Effect.fail(new SshExitError({ endpoint: "ops@10.0.0.3", operation: "connect", code: 255,
         stderrTail: "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\nHost key for 10.0.0.3 has changed and you have requested strict checking.\nHost key verification failed.\n" }));
     })) as unknown as SshTransportShape["connect"],

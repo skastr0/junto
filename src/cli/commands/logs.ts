@@ -1,4 +1,4 @@
-import { Command, Flag } from "effect/unstable/cli";
+import { Command, Flag } from "effect/cli";
 import { Effect, Option, Schema } from "effect";
 import { LOG_READ_DEFAULT_LIMIT, LOG_READ_MAX_LIMIT, MachineLogQuery } from "../../shared/machine-log";
 import type { WorkOpName } from "../../shared/work-control";
@@ -66,7 +66,7 @@ export const lowerLogsFlags = (flags: LogsFlags, now: number = Date.now()) =>
   });
 
 const optionalString = (name: string, description: string) =>
-  Flag.string(name).pipe(Flag.optional, Flag.withDescription(description));
+  Flag.String(name).pipe(Flag.optional, Flag.withDescription(description));
 
 export const logsFilterFlags = {
   since: optionalString("since", "Rows from this long ago (15m, 2h, 1d) or from an ISO time"),
@@ -75,7 +75,7 @@ export const logsFilterFlags = {
   operation: optionalString("operation", "One operation id, at both ends of a link"),
   seat: optionalString("seat", "One seat (canvas node id), within what this seat may read"),
   canvas: optionalString("canvas", "One canvas name"),
-  last: Flag.integer("last").pipe(
+  last: Flag.Int("last").pipe(
     Flag.optional,
     Flag.withDescription(`The newest rows to return, oldest first (default ${LOG_READ_DEFAULT_LIMIT}, max ${LOG_READ_MAX_LIMIT})`),
   ),
@@ -106,7 +106,7 @@ export const logsCommand = Command.make(
   "logs",
   {
     ...logsFilterFlags,
-    timeout: Flag.integer("timeout").pipe(
+    timeout: Flag.Int("timeout").pipe(
       Flag.optional,
       Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
     ),

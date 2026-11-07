@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Context, Effect, Layer, Option, Schema } from "effect";
-import { SqlClient, SqlSchema } from "effect/unstable/sql";
+import { SqlClient, SqlSchema } from "effect/sql";
 import { InstallationId } from "@shared/installation-id";
 import { MachineName } from "@shared/machine-control";
 import { defaultMachineName } from "@shared/machine-name";

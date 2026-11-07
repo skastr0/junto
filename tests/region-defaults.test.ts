@@ -16,7 +16,7 @@ const outer = region("outer", { x: 0, y: 0, width: 800, height: 600 }, {
   defaults: {
     page: { url: "https://outer.example", profile: "work" },
     paths: {
-      local: "/Users/op/outer",
+      macbook: "/Users/op/outer",
       "remote-a": "/home/op/outer-remote",
     },
   },
@@ -76,15 +76,15 @@ describe("region spawn defaults", () => {
   });
 
   it("resolveRegionCwd is host-keyed and walks outward", () => {
-    // Inside inner: remote-a uses inner path; local walks out to outer.
+    // Inside inner: remote-a uses inner path; macbook walks out to outer.
     expect(resolveRegionCwd(canvas, 150, 150, "remote-a")).toBe("/home/op/inner-project");
-    expect(resolveRegionCwd(canvas, 150, 150, "local")).toBe("/Users/op/outer");
+    expect(resolveRegionCwd(canvas, 150, 150, "macbook")).toBe("/Users/op/outer");
     // Outside inner, still in outer.
-    expect(resolveRegionCwd(canvas, 50, 50, "local")).toBe("/Users/op/outer");
+    expect(resolveRegionCwd(canvas, 50, 50, "macbook")).toBe("/Users/op/outer");
     expect(resolveRegionCwd(canvas, 50, 50, "remote-a")).toBe("/home/op/outer-remote");
     // Unknown host / outside region.
     expect(resolveRegionCwd(canvas, 50, 50, "studio")).toBeUndefined();
-    expect(resolveRegionCwd(canvas, -10, -10, "local")).toBeUndefined();
+    expect(resolveRegionCwd(canvas, -10, -10, "macbook")).toBeUndefined();
   });
 
   it("stripEmptyRegionPaths trims and drops blanks", () => {

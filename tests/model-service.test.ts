@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Fiber, Schema, Stream } from "effect";
-import { Reactivity } from "effect/unstable/reactivity";
-import { SqlClient } from "effect/unstable/sql";
+import { Reactivity } from "effect/reactivity";
+import { SqlClient } from "effect/sql";
 import { expect, it } from "vitest";
 import { Changed, Command } from "../src/shared/model";
 import { nodeFromRow } from "../src/main/junto/model/rows";

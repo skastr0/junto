@@ -5,7 +5,8 @@
  * forwarded socket, is refused before any SSH runs. A record without one keeps
  * the $HOME route.
  */
-import * as Command from "effect/unstable/process/ChildProcess";
+import { wordsText } from "./helpers/command-words";
+import { ChildProcess as Command } from "effect/process";
 import { Effect, Scope } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { hostsSnapshot, setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
@@ -38,7 +39,7 @@ const studio = (juntoHome?: string) => ({
 
 const lastArg = (command: Command.Command): string => {
   if (!Command.isStandardCommand(command)) throw new TypeError("expected StandardCommand");
-  return command.args.at(-1)!;
+  return wordsText(command.args).at(-1)!;
 };
 
 /** A router over an SSH transport that records what each dial runs and forwards, in order. */
@@ -56,7 +57,7 @@ const dialing = (juntoHome?: string) => {
     forward: (program) => {
       const request = compiler.forward(program, "0".repeat(32)).request;
       if (!Command.isStandardCommand(request)) throw new TypeError("expected StandardCommand");
-      const spec = request.args[request.args.indexOf("-L") + 1]!;
+      const spec = wordsText(request.args)[request.args.indexOf("-L") + 1]!;
       calls.push(`forward ${spec.slice(spec.indexOf(":") + 1)}`);
       return Effect.succeed({
         localSocket: "/tmp/junto-term-route-test/no-such-forward" as LocalForwardSocket,

@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { CanvasFactBasis } from "@shared/work-protocol";
 import { ModelActorRefs } from "../model/actor-refs";
 import { ModelNotFound } from "../model/records";

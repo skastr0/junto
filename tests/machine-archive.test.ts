@@ -1,10 +1,11 @@
+import { wordsText } from "./helpers/command-words";
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import * as Command from "effect/unstable/process/ChildProcess";
+import { ChildProcess as Command } from "effect/process";
 import { expect, it } from "vitest";
 import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
 import { parseSshRoute } from "../src/main/junto/ssh";
@@ -49,7 +50,7 @@ it.each([false, true])("receives exact inventoried modes with lost archive execu
     const program = await Effect.runPromise(receiveMachineBundle(target, createHash("sha256").update(bytes).digest("hex"), {}));
     const compiled = createSshProgramCompiler({ controlDir: "/tmp/junto-archive-mux", envExecutable: "/usr/bin/env", sshExecutable: "/usr/bin/ssh", environment: {} }).stream(program);
     if (!Command.isStandardCommand(compiled.command)) throw new Error("expected argv command");
-    const result = spawnSync("/bin/sh", ["-c", compiled.command.args.at(-1)!], { input: bytes, env: { ...process.env, HOME: home }, encoding: "utf8" });
+    const result = spawnSync("/bin/sh", ["-c", wordsText(compiled.command.args).at(-1)!], { input: bytes, env: { ...process.env, HOME: home }, encoding: "utf8" });
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toBe("accepted\n");
   } finally { await rm(root, { recursive: true, force: true }); }

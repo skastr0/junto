@@ -1,10 +1,11 @@
+import { wordsText } from "./helpers/command-words";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect } from "effect";
-import * as Command from "effect/unstable/process/ChildProcess";
+import { ChildProcess as Command } from "effect/process";
 import { expect, it } from "vitest";
 import { parseSshRoute } from "../src/main/junto/ssh";
 import { createSshProgramCompiler } from "../src/main/junto/ssh/program";
@@ -23,7 +24,7 @@ it("runs the closed preflight and aggregates wrong architecture, low space and a
     const compiler = createSshProgramCompiler({ controlDir: "/tmp/junto-preflight-test", envExecutable: "/usr/bin/env", sshExecutable: "/usr/bin/ssh", environment: {} });
     const command = compiler.oneShot(program).command;
     if (!Command.isStandardCommand(command)) throw new Error("expected argv command");
-    const output = execFileSync("/bin/sh", ["-c", command.args.at(-1)!], { env: { ...process.env, HOME: home }, encoding: "utf8" });
+    const output = execFileSync("/bin/sh", ["-c", wordsText(command.args).at(-1)!], { env: { ...process.env, HOME: home }, encoding: "utf8" });
     expect(output).toContain("This package is for");
     expect(output).toContain("Free at least");
     expect(output).toContain("under the SSH account home");

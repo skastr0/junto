@@ -1,4 +1,4 @@
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import { Effect, Option, Schema } from "effect";
 import { OP_LIST_MAX, OpListArgs, OpListState, OpShowArgs } from "../../shared/op-control";
 import type {
@@ -23,7 +23,7 @@ const DESCRIPTIONS = {
   list: `This seat's writes, newest first, each with its opId and state. --state keeps the queued or the refused ones; --limit is 1 to ${OP_LIST_MAX}, 50 when left out. When more is true, --before with the last opId listed reads the next page.`,
 } as const;
 
-const timeoutOption = Flag.integer("timeout").pipe(
+const timeoutOption = Flag.Int("timeout").pipe(
   Flag.optional,
   Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
 );
@@ -41,7 +41,7 @@ const checked = <S extends Schema.Top>(schema: S, input: unknown) =>
 
 const showCommand = Command.make(
   "show",
-  { opId: Argument.string("opId").pipe(Argument.withDescription("The opId a write returned")), timeout: timeoutOption },
+  { opId: Argument.String("opId").pipe(Argument.withDescription("The opId a write returned")), timeout: timeoutOption },
   ({ opId, timeout }) =>
     executeJsonCommand(
       "op show",
@@ -55,9 +55,9 @@ const showCommand = Command.make(
 const listCommand = Command.make(
   "list",
   {
-    state: Flag.choice("state", OpListState.literals).pipe(Flag.optional, Flag.withDescription("Only the queued or only the refused writes")),
-    limit: Flag.integer("limit").pipe(Flag.optional, Flag.withDescription(`How many, 1 to ${OP_LIST_MAX}`)),
-    before: Flag.string("before").pipe(Flag.optional, Flag.withDescription("Only writes older than this opId: the last one the previous page listed")),
+    state: Flag.Literals("state", OpListState.literals).pipe(Flag.optional, Flag.withDescription("Only the queued or only the refused writes")),
+    limit: Flag.Int("limit").pipe(Flag.optional, Flag.withDescription(`How many, 1 to ${OP_LIST_MAX}`)),
+    before: Flag.String("before").pipe(Flag.optional, Flag.withDescription("Only writes older than this opId: the last one the previous page listed")),
     timeout: timeoutOption,
   },
   ({ state, limit, before, timeout }) =>

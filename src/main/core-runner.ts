@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { Canvas } from "@shared/model";
-import type { SqlClient } from "effect/unstable/sql";
+import type { SqlClient } from "effect/sql";
 import type { ModelService } from "./junto/model/service";
 import type { MachineRepository } from "./junto/machines/repository";
 import type { SeatSessionRepository } from "./junto/seat-sessions/repository";

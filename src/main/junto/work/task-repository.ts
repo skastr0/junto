@@ -14,7 +14,7 @@
  */
 
 import { Context, Effect, Layer, Option, Result, Schema } from "effect";
-import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
+import { SqlClient, SqlError, SqlSchema } from "effect/sql";
 import type { InstallationId } from "@shared/installation-id";
 import type { NodeId } from "@shared/physics/schema";
 import {

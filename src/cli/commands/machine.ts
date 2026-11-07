@@ -1,5 +1,5 @@
 import { Effect, Option, Schema } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import {
   MachineAddInput, MachineEmptyInput, MachineCopyInput, MachineStatusInput,
   MachineTargetInput, MachinePeerIdentity, type MachineOpName,
@@ -23,14 +23,14 @@ import { executeJsonCommand } from "../core/output";
 import { logsFilterFlags, logsFlagsOf, lowerLogsFlags } from "./logs";
 
 const installLocal = Command.make("install-local", {
-  input: Argument.string("input").pipe(Argument.withDescription("JSON object, @file, or - for stdin")),
+  input: Argument.String("input").pipe(Argument.withDescription("JSON object, @file, or - for stdin")),
 }, ({ input }) => executeJsonCommand("machine install-local", requireOwnerCommand.pipe(
   Effect.andThen(loadJsonInput(MachineInstallInput, input)),
   Effect.flatMap(installMachine),
 )));
 
 const uninstallLocal = Command.make("uninstall-local", {
-  input: Argument.string("input").pipe(Argument.withDescription("JSON object, @file, or - for stdin")),
+  input: Argument.String("input").pipe(Argument.withDescription("JSON object, @file, or - for stdin")),
 }, ({ input }) => executeJsonCommand("machine uninstall-local", requireOwnerCommand.pipe(
   Effect.andThen(loadJsonInput(MachineLocalPaths, input)),
   Effect.flatMap(uninstallMachine),
@@ -94,9 +94,9 @@ const readTokenStdin = Effect.suspend(() => process.stdin.isTTY
  * fixed argv, and its scope is shown verified.
  */
 const vaultToken = Command.make("vault-token", {
-  name: Argument.string("name").pipe(Argument.withDescription("Machine name: this machine (the write token) or a set-up one (a read token)")),
-  vault: Flag.string("vault").pipe(Flag.withDescription("The 1Password vault the token is for")),
-  mint: Flag.boolean("mint").pipe(Flag.withDefault(false), Flag.withDescription("Mint the token under your own 1Password session instead of reading one from stdin")),
+  name: Argument.String("name").pipe(Argument.withDescription("Machine name: this machine (the write token) or a set-up one (a read token)")),
+  vault: Flag.String("vault").pipe(Flag.withDescription("The 1Password vault the token is for")),
+  mint: Flag.Boolean("mint").pipe(Flag.withDefault(false), Flag.withDescription("Mint the token under your own 1Password session instead of reading one from stdin")),
 }, ({ name, vault, mint }) => executeJsonCommand("machine vault-token", Effect.gen(function* () {
   yield* requireOwnerCommand;
   yield* vaultOff;
@@ -134,7 +134,7 @@ const SLOW_OPS: ReadonlySet<string> = new Set(["machine.boat-connect", "machine.
 
 const ownerCommand = <Op extends MachineOpName>(name: string, op: Op, schema: Schema.Codec<OperatorArgsByOp[Op], unknown>) =>
   Command.make(name, {
-    input: Argument.string("input").pipe(Argument.withDescription("JSON object, @file, or - for stdin")),
+    input: Argument.String("input").pipe(Argument.withDescription("JSON object, @file, or - for stdin")),
   }, ({ input }) => executeJsonCommand(`machine ${name}`, Effect.gen(function* () {
     yield* requireOwnerCommand;
     const raw = yield* loadJsonInput(Schema.Unknown, input);
@@ -149,7 +149,7 @@ const ownerCommand = <Op extends MachineOpName>(name: string, op: Op, schema: Sc
  * every machine command.
  */
 const logs = Command.make("logs", {
-  name: Argument.string("name").pipe(Argument.withDescription("Machine name: this machine or a linked one")),
+  name: Argument.String("name").pipe(Argument.withDescription("Machine name: this machine or a linked one")),
   ...logsFilterFlags,
 }, ({ name, ...flags }) => executeJsonCommand("machine logs", Effect.gen(function* () {
   yield* requireOwnerCommand;
@@ -160,8 +160,8 @@ const logs = Command.make("logs", {
 }))).pipe(Command.withDescription("Read a machine's log, this one or a linked one, with the junto logs filters"));
 
 const seatArguments = {
-  canvas: Argument.string("canvas").pipe(Argument.withDescription("Canvas name")),
-  seat: Argument.string("seat").pipe(Argument.withDescription("Seat id on that canvas")),
+  canvas: Argument.String("canvas").pipe(Argument.withDescription("Canvas name")),
+  seat: Argument.String("seat").pipe(Argument.withDescription("Seat id on that canvas")),
 };
 
 /**
@@ -185,7 +185,7 @@ const seatStop = Command.make("seat-stop", seatArguments, ({ canvas, seat }) => 
 
 const seatRead = Command.make("seat-read", {
   ...seatArguments,
-  lines: Flag.integer("lines").pipe(Flag.optional, Flag.withDescription("Last lines of the settled grid to read (default 40, at most 2000)")),
+  lines: Flag.Int("lines").pipe(Flag.optional, Flag.withDescription("Last lines of the settled grid to read (default 40, at most 2000)")),
 }, ({ canvas, seat, lines }) => executeJsonCommand("machine seat-read", Effect.gen(function* () {
   yield* requireOwnerCommand;
   const args = yield* Schema.decodeUnknownEffect(MachineSeatReadInput, { onExcessProperty: "error" })({

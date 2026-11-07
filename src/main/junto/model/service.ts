@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { Context, Effect, Layer, Option, PubSub, Schema, Stream } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { ulid } from "ulid";
 import {
   CanvasName,

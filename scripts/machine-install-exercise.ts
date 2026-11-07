@@ -8,7 +8,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Effect, Schema, Stream } from "effect";
-import { Argument, Command } from "effect/unstable/cli";
+import { Argument, Command } from "effect/cli";
 import { loadJsonInput } from "../src/cli/core/json";
 import { executeJsonCommandWithVerdict } from "../src/cli/core/output";
 import { inspectMachineBundle } from "../src/main/junto/hosts/bundle";
@@ -230,7 +230,7 @@ const exercise = (input: typeof Input.Type) => Effect.gen(function* () {
 if (import.meta.main) {
   const { BunRuntime, BunServices } = await import("@effect/platform-bun");
   const log = createLogger({ process: "core", echo: false });
-  const command = Command.make("machine-install-exercise", { input: Argument.string("input") }, ({ input }) =>
+  const command = Command.make("machine-install-exercise", { input: Argument.String("input") }, ({ input }) =>
     executeJsonCommandWithVerdict("machine install exercise", loadJsonInput(Input, input).pipe(
       Effect.flatMap(exercise)), result => !result.ok));
   BunRuntime.runMain(Command.runWith(command, { version: "1" })(process.argv.slice(2)).pipe(

@@ -21,7 +21,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Context, Effect, Layer, Option, Result, Schema } from "effect";
-import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
+import { SqlClient, SqlError, SqlSchema } from "effect/sql";
 import { bodyLinksOf } from "@shared/artifact-links";
 import { InstallOpsService } from "../install-ops/service";
 import { runArtifactLinksBackfill } from "./artifact-links-backfill";

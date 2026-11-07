@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ManagedRuntime } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { clearTouchedServiceWorkersAtStart } from "../src/main/junto/browser/composition";
 import { makeBrowserProfileService } from "../src/main/junto/browser/profiles";
 import {

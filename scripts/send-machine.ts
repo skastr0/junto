@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { Argument, Command } from "effect/unstable/cli";
+import { Argument, Command } from "effect/cli";
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { MachineSendInput } from "../src/shared/machine-install";
 import { loadJsonInput } from "../src/cli/core/json";
@@ -10,7 +10,7 @@ import { createLogger, LogService } from "../src/main/junto/observability/logger
 
 const log = createLogger({ process: "core", echo: false });
 
-const command=Command.make("send-machine",{input:Argument.string("input")},({input})=>executeJsonCommand("machine send",Effect.gen(function*(){
+const command=Command.make("send-machine",{input:Argument.String("input")},({input})=>executeJsonCommand("machine send",Effect.gen(function*(){
   const item=yield* loadJsonInput(MachineSendInput,input);
   const target=yield* parseSshRoute({endpoint:item.sshTarget,
     ...(item.sshPort === undefined ? {} : {port:item.sshPort}),

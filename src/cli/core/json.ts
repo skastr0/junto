@@ -7,7 +7,7 @@ const decodeJsonWithSchema = <S extends Schema.Top>(
   text: string,
   source: string,
 ) =>
-  Schema.decodeUnknownEffect(Schema.fromJsonString(schema))(text).pipe(
+  Schema.decodeUnknownEffect(Schema.fromJsonString(schema), { onExcessProperty: "error" })(text).pipe(
     Effect.mapError(
       (error) =>
         new InputError({

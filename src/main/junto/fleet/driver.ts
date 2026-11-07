@@ -28,7 +28,7 @@
  * none, and settles its own election when opened.
  */
 import { Context, Deferred, Effect, Option, Schema, Semaphore } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { ArtifactBody } from "@shared/artifact";
 import { rulingRowOf } from "@shared/command-row";
 import type { InstallationId } from "@shared/installation-id";

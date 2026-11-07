@@ -48,7 +48,7 @@ import { writeMentions } from "./mention-backlinks";
 import { assertWorkRowBound, pageExchangeRows } from "@shared/exchange-bounds";
 import { createHash } from "node:crypto";
 import { Cause, Context, Effect, Option, Result, Layer, Schema } from "effect";
-import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
+import { SqlClient, SqlError, SqlSchema } from "effect/sql";
 import { withSqlRead } from "../state/sql-read";
 import { afterSqlCommit } from "../state/sql-commit";
 import { ModelRecords, ModelError } from "../model/records";

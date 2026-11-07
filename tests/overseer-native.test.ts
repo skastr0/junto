@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { Effect, Fiber, ManagedRuntime, Result } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { asNodeId, type Canvas, type Node, type NodeOf, type Wire } from "../src/shared/model";
 import { canvasOf, page as pageNode, region, seat, wire } from "./support/model-nodes";
 import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";

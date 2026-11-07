@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { SqlSchema, type SqlClient } from "effect/unstable/sql";
+import { SqlSchema, type SqlClient } from "effect/sql";
 import { StateTransactionOperation } from "../state/transaction-operation";
 import { runClosedBrowserEffect } from "./run-closed";
 

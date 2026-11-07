@@ -89,7 +89,7 @@ import { readMentions, type MentionRow } from "./mention-backlinks";
 import { entryOf } from "./mentions";
 import { linkedFromBodies } from "./body-links";
 import type { ArtifactLinkRef, LinkedFromBody } from "@shared/artifact-links";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 
 /** What the verbs need from the artifact store and the ruler. */
 export type ArtifactPorts = {

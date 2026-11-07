@@ -1,5 +1,5 @@
 import * as FileSystem from "effect/FileSystem";
-import type * as Command from "effect/unstable/process/ChildProcess";
+import type { ChildProcess as Command } from "effect/process";
 import { randomUUID } from "node:crypto";
 import { Context,
   Deferred,

@@ -12,7 +12,7 @@
  * keeps them where its own are kept, so a seat reads them the one way.
  */
 import { Cause, Effect, Option } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import {
   CANVAS_COPY_FRAME_BUDGET,
   exportCanvasCopy,

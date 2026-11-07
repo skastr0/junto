@@ -1,5 +1,5 @@
 import { Effect, Layer } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { asCanvasName, asNodeId, type Node, type Wire } from "../../src/shared/model";
 import { ModelLive } from "../../src/main/junto/model/layer";
 import { ModelRecords } from "../../src/main/junto/model/records";

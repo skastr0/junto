@@ -5,7 +5,7 @@ import { createServer, type Server } from "node:http";
 import { dirname, isAbsolute } from "node:path";
 import { app, webContents, type WebContents } from "electron";
 import { ManagedRuntime } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { makeBrowserProfileService } from "../../../src/main/junto/browser/profiles";
 import { BrowserSessionService } from "../../../src/main/junto/browser/sessions";
 import {

@@ -6,7 +6,7 @@
  * never a service; the page answers keep the repository's shapes.
  */
 import { Effect, Schema } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import type { LinkedFromBody } from "@shared/artifact-links";
 import { ArtifactLinksInput } from "@shared/artifact-links-ipc";
 import { asNodeId, type Canvas } from "@shared/model";

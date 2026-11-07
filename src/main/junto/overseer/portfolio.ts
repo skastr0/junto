@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import type { Command } from "@shared/model";
 import { CanvasName, type Canvas } from "@shared/model";
 import type { WorkErrorBody } from "@shared/work-control";

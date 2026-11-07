@@ -8,7 +8,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { decodeArtifact, type ArtifactOp, type ArtifactVersion } from "../src/shared/artifact";
 import { artifactLabelsMatch, artifactLabelOf, artifactLabelsOf, type ArtifactLabel } from "../src/shared/artifact-labels";

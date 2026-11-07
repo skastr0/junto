@@ -17,7 +17,7 @@
 import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import { isThisMachine } from "@shared/machine-name";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import type { SeatSessionRun } from "./run";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 

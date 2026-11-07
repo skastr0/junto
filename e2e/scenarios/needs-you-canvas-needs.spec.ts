@@ -18,7 +18,7 @@
  */
 import { join } from "node:path";
 import { Effect, ManagedRuntime } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import type { Locator } from "@playwright/test";
 import { makeStateEngineLive } from "../../src/main/junto/state/engine";
 import type { Sandbox } from "../harness/sandbox";

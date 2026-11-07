@@ -6,8 +6,8 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Context, Effect, Layer, Option, Semaphore } from "effect";
-import { Reactivity } from "effect/unstable/reactivity";
-import { SqlClient, SqlError } from "effect/unstable/sql";
+import { Reactivity } from "effect/reactivity";
+import { SqlClient, SqlError } from "effect/sql";
 import { OverseerLiveExecution } from "../overseer/live/execution";
 import {
   StateEngine,

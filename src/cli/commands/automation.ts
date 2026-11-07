@@ -1,4 +1,4 @@
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import { Effect, Option, Schema } from "effect";
 import {
   AutomationHistoryArgs,
@@ -24,11 +24,11 @@ import { WorkSocket } from "../core/socket";
  * overseers write them with `junto overseer automation`.
  */
 
-const inputArg = Argument.string("input").pipe(
+const inputArg = Argument.String("input").pipe(
   Argument.withDescription("JSON object, @file path, or - for stdin"),
 );
 
-const timeoutOption = Flag.integer("timeout").pipe(
+const timeoutOption = Flag.Int("timeout").pipe(
   Flag.optional,
   Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
 );

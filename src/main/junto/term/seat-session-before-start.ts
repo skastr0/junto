@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { isThisMachine } from "@shared/machine-name";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import type { TerminalLaunch } from "@shared/terminal";

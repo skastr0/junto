@@ -14,7 +14,7 @@
  * entitled to no machine.
  */
 import { Effect } from "effect";
-import type { SqlClient } from "effect/unstable/sql";
+import type { SqlClient } from "effect/sql";
 import type { MailMessageId } from "@shared/crew";
 import type { InstallationId } from "@shared/installation-id";
 import type { NodeId } from "@shared/model/base";

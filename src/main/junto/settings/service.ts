@@ -1,5 +1,5 @@
 import { Context, Effect, Result, Layer, Schema } from "effect";
-import { SqlClient, SqlSchema } from "effect/unstable/sql";
+import { SqlClient, SqlSchema } from "effect/sql";
 import type { ServiceCheck } from "@shared/contracts";
 import {
   SETTINGS_MAX_SERIALIZED_BYTES,

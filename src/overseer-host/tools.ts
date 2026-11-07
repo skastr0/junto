@@ -10,7 +10,7 @@ export { OVERSEER_HOST_OPERATIONS } from "../shared/overseer-host-control";
 const byName = new Map<string, OverseerOperation>(OVERSEER_HOST_OPERATIONS.map((operation) => [operation.replaceAll(".", "__"), operation]));
 
 export const overseerHostTools = () => OVERSEER_HOST_OPERATIONS.map((operation) => {
-  const document = Schema.toJsonSchemaDocument(OverseerArgsSchemas[operation]);
+  const document = Schema.toJsonSchemaDocument(OverseerArgsSchemas[operation], { onExcessProperty: "error" });
   return {
     type: "function" as const,
     name: operation.replaceAll(".", "__"),

@@ -298,7 +298,7 @@ export const CommentRequest = Schema.Struct({
   sessionId: SessionId,
   tab: TabField,
   // Exactly the four edges: a box carries no bytes or anything else.
-  rect: Schema.Struct({ x: BoxEdge, y: BoxEdge, w: BoxEdge, h: BoxEdge }).annotate({ parseOptions: { onExcessProperty: "error" } }),
+  rect: Schema.Struct({ x: BoxEdge, y: BoxEdge, w: BoxEdge, h: BoxEdge }),
   text: boundedString("text", BROWSER_MAX_COMMENT_TEXT_BYTES).pipe(
     Schema.check(Schema.makeFilter((value) => value.trim() !== "", { message: "a comment's text must be non-empty" })),
   ),

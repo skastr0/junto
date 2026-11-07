@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime, Option } from "effect";
-import { SqlClient } from "effect/unstable/sql";
-import { Reactivity } from "effect/unstable/reactivity";
+import { SqlClient } from "effect/sql";
+import { Reactivity } from "effect/reactivity";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { InstallationId } from "../src/shared/installation-id";
 import { asNodeId } from "../src/shared/physics/schema";

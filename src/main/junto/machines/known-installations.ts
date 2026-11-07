@@ -1,5 +1,5 @@
 import { Context, Effect, Layer } from "effect";
-import { SqlClient, type SqlError } from "effect/unstable/sql";
+import { SqlClient, type SqlError } from "effect/sql";
 import type { InstallationId } from "@shared/installation-id";
 
 /** Registration joins the transaction that first references the installation. */

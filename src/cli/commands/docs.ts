@@ -1,4 +1,4 @@
-import { Argument, Command } from "effect/unstable/cli";
+import { Argument, Command } from "effect/cli";
 import { Effect } from "effect";
 import {
   buildConceptsDoc,
@@ -15,11 +15,11 @@ import { commandCapabilities } from "../core/discovery";
 import { InputError } from "../core/errors";
 import { executeJsonCommand } from "../core/output";
 
-const topicArg = Argument.string("topic").pipe(
+const topicArg = Argument.String("topic").pipe(
   Argument.withDescription("Documentation topic id"),
 );
 
-const kindArg = Argument.string("kind").pipe(
+const kindArg = Argument.String("kind").pipe(
   Argument.withDescription(
     `Node kind (${NODE_DOCS.map((doc) => doc.kind).join(", ")})`,
   ),

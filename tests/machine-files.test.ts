@@ -3,13 +3,14 @@
  * machine and retries a failure, and a whole push against the real
  * content-transfer command, run here in place of the far machine.
  */
+import { wordsText } from "./helpers/command-words";
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { Effect, Layer } from "effect";
-import * as Command from "effect/unstable/process/ChildProcess";
+import { ChildProcess as Command } from "effect/process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeMachineFiles, MACHINE_FILE_PIECE_BYTES, pushFileToMachine } from "../src/main/junto/content/machine-files";
 import { noBoatRoutesLayer } from "./support/no-boat";
@@ -100,7 +101,7 @@ describe("a push against the real content-transfer", () => {
         Effect.sync(() => {
           const compiled = compiler.oneShot(program);
           if (!Command.isStandardCommand(compiled.command)) throw new Error("expected argv command");
-          const text = compiled.command.args.at(-1)!;
+          const text = wordsText(compiled.command.args).at(-1)!;
           runs.push(/\bstat\b/.test(text) ? "stat" : "receive");
           const result = spawnSync("/bin/sh", ["-c", text], { input: compiled.input, encoding: "utf8" });
           return { stdout: result.stdout, stderr: result.stderr };

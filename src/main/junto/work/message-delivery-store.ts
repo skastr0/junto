@@ -5,7 +5,7 @@
  * window does.
  */
 import { Effect } from "effect";
-import type { SqlClient } from "effect/unstable/sql";
+import type { SqlClient } from "effect/sql";
 import { operatorFilesOf } from "@shared/mail-threads";
 import { operatorAttachmentLines } from "../content/operator-attachments";
 import { ContentService } from "../content/service";

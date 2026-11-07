@@ -1,5 +1,5 @@
 import { Context, Effect, Option, Result, Schema, Semaphore } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import {
   OPERATOR_PROTOCOL_VERSION, decodeOperatorResponse,
   type OperatorRequestEnvelope, type OperatorResponseEnvelope,

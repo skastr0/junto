@@ -5,7 +5,7 @@
  * applied ruling on this machine was an automation's fires nothing.
  */
 import { Effect } from "effect";
-import type { SqlClient } from "effect/unstable/sql";
+import type { SqlClient } from "effect/sql";
 
 /**
  * Asked per artifact a pass saw change, a handful at a time: the newest

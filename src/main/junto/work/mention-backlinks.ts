@@ -5,7 +5,7 @@
 // counts and what a row mentions is the shared rule (mention-backlinks.ts).
 
 import { Effect } from "effect";
-import type { SqlClient } from "effect/unstable/sql";
+import type { SqlClient } from "effect/sql";
 import { messageIdTimeMs } from "@shared/message-delivery";
 import { MENTION_KIND_OF_NODE, mentionLinksOf, type MentionableNodeKind } from "@shared/mention";
 import { backlinkKeysOf, backlinkTextOf, writtenHere, type BacklinkSource } from "@shared/mention-backlinks";

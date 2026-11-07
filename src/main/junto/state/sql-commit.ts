@@ -1,5 +1,5 @@
 import { Context, Effect } from "effect";
-import type { SqlClient } from "effect/unstable/sql";
+import type { SqlClient } from "effect/sql";
 
 type CommitCallbacks = Array<() => void>;
 type TransactionFrame = {

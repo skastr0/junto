@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Exit } from "effect";
+import { Effect, Exit, Option } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { WORK_TOKEN_ENV, workControlSocketPath } from "../src/shared/work-control";
 import { WorkSocket, WorkSocketLive } from "../src/cli/core/socket";
@@ -50,8 +50,7 @@ const call = () =>
 
 const failureOf = (exit: Exit.Exit<unknown, unknown>): Record<string, unknown> => {
   expect(Exit.isFailure(exit)).toBe(true);
-  const failures = JSON.parse(JSON.stringify(exit)).cause.failures as ReadonlyArray<{ readonly error?: Record<string, unknown> }>;
-  return failures[0]?.error ?? {};
+  return (Option.getOrUndefined(Exit.findErrorOption(exit)) ?? {}) as Record<string, unknown>;
 };
 
 describe("a core refusal the CLI passes on", () => {

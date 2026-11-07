@@ -8,7 +8,7 @@
  * and cannot require one of them.
  */
 import { Effect, Layer } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { ModelDependents } from "../model/dependents";
 import { afterSqlCommit } from "../state/sql-commit";
 import { makeWorkModelDependents } from "../work/model-dependents";

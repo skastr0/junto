@@ -8,7 +8,7 @@
  * seam (`model-dependents.ts`), so a node or canvas delete makes one trip.
  */
 import { Effect } from "effect";
-import type { SqlClient, SqlError } from "effect/unstable/sql";
+import type { SqlClient, SqlError } from "effect/sql";
 
 /** A canvas went: every row keyed by it goes. Machine-wide rows stay. */
 export const removeViewCanvas = (

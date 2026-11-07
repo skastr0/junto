@@ -11,8 +11,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { SqlClient } from "effect/unstable/sql";
-import { Reactivity } from "effect/unstable/reactivity";
+import { SqlClient } from "effect/sql";
+import { Reactivity } from "effect/reactivity";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
 import {

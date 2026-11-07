@@ -8,7 +8,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ManagedRuntime } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makeBrowserProfileService } from "../src/main/junto/browser/profiles";
 import { BrowserSessionService, type BrowserViewAdapter, type BrowserViewHandle } from "../src/main/junto/browser/sessions";

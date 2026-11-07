@@ -7,7 +7,7 @@
  * suite was started in, so each build is checked against itself.
  */
 import { describe, expect, it } from "vitest";
-import type { Command } from "effect/unstable/cli";
+import type { Command } from "effect/cli";
 import { loadRootCommand } from "../src/cli/command-runner";
 import { allExamples, allSchemas, commandCapabilities } from "../src/cli/core/discovery";
 import { COMMAND_FAMILIES, ONBOARD_GUIDANCE } from "../src/shared/seat-onboarding";

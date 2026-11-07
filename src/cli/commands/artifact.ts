@@ -1,4 +1,4 @@
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import { Effect, Option, Schema } from "effect";
 import { ARTIFACT_TYPES } from "../../shared/artifact";
 import { ARTIFACT_LABEL_COLOURS } from "../../shared/artifact-labels";
@@ -30,12 +30,12 @@ import { WorkSocket } from "../core/socket";
  * the head.
  */
 
-const timeoutFlag = Flag.integer("timeout").pipe(
+const timeoutFlag = Flag.Int("timeout").pipe(
   Flag.optional,
   Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
 );
 
-const artifactArg = Argument.string("artifact").pipe(Argument.withDescription("The artifact's id, as list printed it"));
+const artifactArg = Argument.String("artifact").pipe(Argument.withDescription("The artifact's id, as list printed it"));
 
 const call = (op: ArtifactControlOp, args: unknown, timeout: Option.Option<number>) =>
   Effect.gen(function* () {
@@ -75,7 +75,7 @@ const json = (flag: string, text: string): Effect.Effect<unknown, InputError> =>
  * no label holds a comma, so `--label a,b` is `--label a --label b`.
  */
 const labelFlag = (name: string, description: string) =>
-  Flag.string(name).pipe(Flag.atLeast(0), Flag.withDescription(description));
+  Flag.String(name).pipe(Flag.atLeast(0), Flag.withDescription(description));
 
 /**
  * Each value split on commas and trimmed. An empty entry stays, so main
@@ -93,9 +93,9 @@ const wholeSet = (given: ReadonlyArray<string>): ReadonlyArray<string> | undefin
 };
 
 const bodyFlags = {
-  markdown: Flag.string("markdown").pipe(Flag.optional, Flag.withDescription("A document's markdown")),
-  url: Flag.string("url").pipe(Flag.optional, Flag.withDescription("A link's address")),
-  body: Flag.string("body").pipe(Flag.optional, Flag.withDescription("Any type's body as JSON; its type may be left out")),
+  markdown: Flag.String("markdown").pipe(Flag.optional, Flag.withDescription("A document's markdown")),
+  url: Flag.String("url").pipe(Flag.optional, Flag.withDescription("A link's address")),
+  body: Flag.String("body").pipe(Flag.optional, Flag.withDescription("Any type's body as JSON; its type may be left out")),
 };
 
 /** At most one of --markdown, --url and --body, as main's BodyInput. */
@@ -134,11 +134,11 @@ const opOf = (verb: Verb): ArtifactControlOp => `artifact.${verb}`;
 const listCommand = Command.make(
   "list",
   {
-    node: Flag.string("node").pipe(Flag.optional, Flag.withDescription("An Artifacts node: its id, its name or a junto:// ref")),
-    type: Flag.choice("type", ARTIFACT_TYPES).pipe(Flag.optional, Flag.withDescription("Only artifacts of this type")),
-    archived: Flag.boolean("archived").pipe(Flag.withDefault(false), Flag.withDescription("List the archived artifacts instead")),
+    node: Flag.String("node").pipe(Flag.optional, Flag.withDescription("An Artifacts node: its id, its name or a junto:// ref")),
+    type: Flag.Literals("type", ARTIFACT_TYPES).pipe(Flag.optional, Flag.withDescription("Only artifacts of this type")),
+    archived: Flag.Boolean("archived").pipe(Flag.withDefault(false), Flag.withDescription("List the archived artifacts instead")),
     label: labelFlag("label", "Only artifacts holding this label or a level under it; repeat for several, all must match"),
-    limit: Flag.integer("limit").pipe(Flag.optional, Flag.withDescription(`At most this many (1 to ${ARTIFACT_LIST_LIMIT_MAX}, default 50)`)),
+    limit: Flag.Int("limit").pipe(Flag.optional, Flag.withDescription(`At most this many (1 to ${ARTIFACT_LIST_LIMIT_MAX}, default 50)`)),
     timeout: timeoutFlag,
   },
   ({ node, type, archived, label, limit, timeout }) =>
@@ -158,7 +158,7 @@ const showCommand = Command.make(
   "show",
   {
     artifact: artifactArg,
-    version: Flag.integer("version").pipe(Flag.optional, Flag.withDescription("A past version; the head when left out")),
+    version: Flag.Int("version").pipe(Flag.optional, Flag.withDescription("A past version; the head when left out")),
     timeout: timeoutFlag,
   },
   ({ artifact, version, timeout }) => run("artifact.show", Effect.succeed({ artifact, ...present({ version }) }), Option.none(), timeout),
@@ -168,8 +168,8 @@ const historyCommand = Command.make(
   "history",
   {
     artifact: artifactArg,
-    limit: Flag.integer("limit").pipe(Flag.optional, Flag.withDescription(`At most this many (1 to ${ARTIFACT_HISTORY_LIMIT_MAX}, default 20)`)),
-    before: Flag.integer("before").pipe(Flag.optional, Flag.withDescription("Versions older than this one, for the next page")),
+    limit: Flag.Int("limit").pipe(Flag.optional, Flag.withDescription(`At most this many (1 to ${ARTIFACT_HISTORY_LIMIT_MAX}, default 20)`)),
+    before: Flag.Int("before").pipe(Flag.optional, Flag.withDescription("Versions older than this one, for the next page")),
     timeout: timeoutFlag,
   },
   ({ artifact, limit, before, timeout }) =>
@@ -179,10 +179,10 @@ const historyCommand = Command.make(
 const createCommand = Command.make(
   "create",
   {
-    title: Argument.string("title").pipe(Argument.withDescription("The artifact's title")),
-    type: Flag.choice("type", ARTIFACT_TYPES).pipe(Flag.withDescription("link, document, pad, sheet or file")),
-    node: Flag.string("node").pipe(Flag.optional, Flag.withDescription("The Artifacts node, when more than one is in reach")),
-    task: Flag.string("task").pipe(Flag.atLeast(0), Flag.withDescription("A task id this artifact belongs to; repeat for several")),
+    title: Argument.String("title").pipe(Argument.withDescription("The artifact's title")),
+    type: Flag.Literals("type", ARTIFACT_TYPES).pipe(Flag.withDescription("link, document, pad, sheet or file")),
+    node: Flag.String("node").pipe(Flag.optional, Flag.withDescription("The Artifacts node, when more than one is in reach")),
+    task: Flag.String("task").pipe(Flag.atLeast(0), Flag.withDescription("A task id this artifact belongs to; repeat for several")),
     label: labelFlag("label", "A label it starts with; repeat for several"),
     ...bodyFlags,
     opId: opIdFlag,
@@ -209,9 +209,9 @@ const editCommand = Command.make(
   "edit",
   {
     artifact: artifactArg,
-    base: Flag.integer("base").pipe(Flag.withDescription("The version this edit was written against, from show")),
+    base: Flag.Int("base").pipe(Flag.withDescription("The version this edit was written against, from show")),
     ...bodyFlags,
-    patch: Flag.string("patch").pipe(Flag.optional, Flag.withDescription("Patches as a JSON array, for a pad, sheet or document")),
+    patch: Flag.String("patch").pipe(Flag.optional, Flag.withDescription("Patches as a JSON array, for a pad, sheet or document")),
     opId: opIdFlag,
     timeout: timeoutFlag,
   },
@@ -264,9 +264,9 @@ const COLOUR_CHOICES = [...ARTIFACT_LABEL_COLOURS, "none"] as const;
 const colourCommand = Command.make(
   "colour",
   {
-    label: Argument.string("label").pipe(Argument.withDescription("The label, as artifact label sets it")),
-    colour: Argument.choice("colour", COLOUR_CHOICES).pipe(Argument.withDescription(`${ARTIFACT_LABEL_COLOURS.join(", ")}, or none`)),
-    node: Flag.string("node").pipe(Flag.optional, Flag.withDescription("The Artifacts node, when more than one is in reach")),
+    label: Argument.String("label").pipe(Argument.withDescription("The label, as artifact label sets it")),
+    colour: Argument.Literals("colour", COLOUR_CHOICES).pipe(Argument.withDescription(`${ARTIFACT_LABEL_COLOURS.join(", ")}, or none`)),
+    node: Flag.String("node").pipe(Flag.optional, Flag.withDescription("The Artifacts node, when more than one is in reach")),
     opId: opIdFlag,
     timeout: timeoutFlag,
   },
@@ -278,8 +278,8 @@ const commentCommand = Command.make(
   "comment",
   {
     artifact: artifactArg,
-    text: Argument.string("text").pipe(Argument.withDescription("The comment; @name mentions a seat")),
-    anchor: Flag.string("anchor").pipe(
+    text: Argument.String("text").pipe(Argument.withDescription("The comment; @name mentions a seat")),
+    anchor: Flag.String("anchor").pipe(
       Flag.optional,
       Flag.withDescription('Where it hangs, as JSON: {"kind":"cells","range":"B2"}, {"kind":"text","quote":"..."} or {"kind":"box",...}'),
     ),

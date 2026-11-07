@@ -196,37 +196,35 @@ const Identity = Schema.Struct({ sha256: ContentRef.fields.sha256, byteLength: C
  * a link its address. Main is the authority on what is admitted.
  */
 export const AgentSignalAttachmentInput = Schema.Union([
-  Schema.Struct({ ref: Identity, caption: Schema.optionalKey(Schema.String) }).annotate({
-    parseOptions: { onExcessProperty: "error" },
-  }),
+  Schema.Struct({ ref: Identity, caption: Schema.optionalKey(Schema.String) }),
   Schema.Struct({
     kind: Schema.Literal("compare"),
     before: Identity,
     after: Identity,
     name: Schema.optionalKey(Schema.String),
     caption: Schema.optionalKey(Schema.String),
-  }).annotate({ parseOptions: { onExcessProperty: "error" } }),
+  }),
   Schema.Struct({
     kind: Schema.Literal("commit"),
     sha: Schema.String,
     caption: Schema.optionalKey(Schema.String),
-  }).annotate({ parseOptions: { onExcessProperty: "error" } }),
+  }),
   Schema.Struct({
     kind: Schema.Literal("link"),
     url: Schema.String,
     caption: Schema.optionalKey(Schema.String),
-  }).annotate({ parseOptions: { onExcessProperty: "error" } }),
+  }),
   // A task or an artifact by its ref: `junto://canvas/<canvas>?node=<id>&item=<ItemId>` (mention.ts).
   Schema.Struct({
     kind: Schema.Literal("task"),
     ref: Schema.String,
     caption: Schema.optionalKey(Schema.String),
-  }).annotate({ parseOptions: { onExcessProperty: "error" } }),
+  }),
   Schema.Struct({
     kind: Schema.Literal("artifact"),
     ref: Schema.String,
     caption: Schema.optionalKey(Schema.String),
-  }).annotate({ parseOptions: { onExcessProperty: "error" } }),
+  }),
 ]);
 export type AgentSignalAttachmentInput = typeof AgentSignalAttachmentInput.Type;
 

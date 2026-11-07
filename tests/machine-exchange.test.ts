@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { Effect, Result, Schema } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { expect, it } from "vitest";
 import { MachineCoreRows } from "../src/main/core-runtime";
 import { startCore } from "../src/main/junto/core";

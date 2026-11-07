@@ -113,10 +113,9 @@ export const taskRefusalOf = (error: WorkErrorBody): TaskRefusal | undefined => 
 // ── task inputs ────────────────────────────────────────────────────────────
 
 const CanvasNameInput = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(128)));
-const strict = { parseOptions: { onExcessProperty: "error" as const } };
 
-export const TaskListInput = Schema.Struct({ canvasName: CanvasNameInput, nodeId: NodeId }).annotate(strict);
-export const TaskAllInput = Schema.Struct({ canvasName: CanvasNameInput }).annotate(strict);
+export const TaskListInput = Schema.Struct({ canvasName: CanvasNameInput, nodeId: NodeId });
+export const TaskAllInput = Schema.Struct({ canvasName: CanvasNameInput });
 export const TaskContextInput = TaskAllInput;
 export const TaskPendingInput = TaskListInput;
 export const TaskApplyInput = Schema.Struct({
@@ -125,7 +124,7 @@ export const TaskApplyInput = Schema.Struct({
   taskId: ItemId,
   opId: OpId,
   command: TaskCommandWire,
-}).annotate(strict);
+});
 export { TaskCommandWire };
 
 // ── task ruling context ────────────────────────────────────────────────────
@@ -164,21 +163,21 @@ export const taskCanvasFactsOf = (
 
 export const ArtifactListInput = TaskListInput;
 export const ArtifactPendingInput = TaskListInput;
-export const ArtifactHistoryInput = Schema.Struct({ canvasName: CanvasNameInput, artifactId: ItemId }).annotate(strict);
-export const ArtifactMovesInput = Schema.Struct({ canvasName: CanvasNameInput, artifactId: ItemId }).annotate(strict);
+export const ArtifactHistoryInput = Schema.Struct({ canvasName: CanvasNameInput, artifactId: ItemId });
+export const ArtifactMovesInput = Schema.Struct({ canvasName: CanvasNameInput, artifactId: ItemId });
 /** One version's body, for an entry whose body is not loaded. */
 export const ArtifactBodyInput = Schema.Struct({
   canvasName: CanvasNameInput,
   artifactId: ItemId,
   version: ArtifactVersion,
-}).annotate(strict);
+});
 export const ArtifactApplyInput = Schema.Struct({
   canvasName: CanvasNameInput,
   nodeId: NodeId,
   artifactId: ItemId,
   opId: OpId,
   op: ArtifactOp,
-}).annotate(strict);
+});
 
 export const ArtifactLabelColoursInput = TaskListInput;
 /** A label's colour on an Artifacts node (03 Colours): the node, never an artifact. `colour: null` unsets it. */
@@ -188,7 +187,7 @@ export const ArtifactColourInput = Schema.Struct({
   opId: OpId,
   label: Schema.String,
   colour: Schema.NullOr(ArtifactLabelColour),
-}).annotate(strict);
+});
 
 /** An artifact as listed: the head, its body when loaded (else null), and the body's ref. */
 export type ArtifactHead = Pick<ArtifactEntry, "artifact" | "body" | "bodyRef">;
@@ -204,14 +203,20 @@ export const ARTIFACT_HISTORY_PAGE = 50;
  * the one comment path the CLI uses, as the operator. A file names its node
  * and the path inside it, never an absolute path.
  */
+/**
+ * A post never names its author: main posts it as the operator. `actor` is a key
+ * no value decodes, so a smuggled author is refused whatever the decode options.
+ */
+const NoAuthor = Schema.optionalKey(Schema.Never);
+
 export const ThreadResourceSubject = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("task"), nodeId: NodeId, taskId: ItemId }).annotate(strict),
-  Schema.Struct({ kind: Schema.Literal("artifact"), nodeId: NodeId, artifactId: ItemId }).annotate(strict),
-  Schema.Struct({ kind: Schema.Literal("file"), nodeId: NodeId, path: RelativePath }).annotate(strict),
+  Schema.Struct({ kind: Schema.Literal("task"), nodeId: NodeId, taskId: ItemId, actor: NoAuthor }),
+  Schema.Struct({ kind: Schema.Literal("artifact"), nodeId: NodeId, artifactId: ItemId, actor: NoAuthor }),
+  Schema.Struct({ kind: Schema.Literal("file"), nodeId: NodeId, path: RelativePath, actor: NoAuthor }),
 ]);
 export type ThreadResourceSubject = typeof ThreadResourceSubject.Type;
 
-export const ThreadListInput = Schema.Struct({ canvasName: CanvasNameInput, subject: ThreadResourceSubject }).annotate(strict);
+export const ThreadListInput = Schema.Struct({ canvasName: CanvasNameInput, subject: ThreadResourceSubject });
 
 /** A post as the window writes it. `threadId` replies in a thread; an anchor is where on the resource the thread hangs. */
 export const ThreadPostDraft = Schema.Struct({
@@ -219,14 +224,16 @@ export const ThreadPostDraft = Schema.Struct({
   text: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(64_000))),
   threadId: Schema.optionalKey(MailMessageId),
   anchor: Schema.optionalKey(Anchor),
-}).annotate(strict);
+  actor: NoAuthor,
+});
 export type ThreadPostDraft = typeof ThreadPostDraft.Type;
 
 export const ThreadPostInput = Schema.Struct({
   canvasName: CanvasNameInput,
   subject: ThreadResourceSubject,
   post: ThreadPostDraft,
-}).annotate(strict);
+  actor: NoAuthor,
+});
 
 /**
  * Who wrote a post, with the name to show. A seat and the operator are the

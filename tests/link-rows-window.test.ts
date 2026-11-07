@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { type Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { afterEach, expect, it } from "vitest";
 import { LinkHelloSchema } from "../src/main/junto/link/protocol";
 import { makeLinkSession } from "../src/main/junto/link/session";

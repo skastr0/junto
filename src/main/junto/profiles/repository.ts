@@ -1,5 +1,5 @@
 import { Cause, Context, Effect, Layer, Schema } from "effect";
-import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
+import { SqlClient, SqlError, SqlSchema } from "effect/sql";
 import { ulid } from "ulid";
 import {
   PROFILES_MAX,

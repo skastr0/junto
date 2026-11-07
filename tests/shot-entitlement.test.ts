@@ -9,7 +9,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { shotEntitled } from "../src/main/junto/content/shot-entitlement";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";

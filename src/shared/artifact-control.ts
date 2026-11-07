@@ -27,7 +27,6 @@ import { ItemId, OpId } from "./work-ids";
 
 export { ItemId, OpId };
 
-const strict = { parseOptions: { onExcessProperty: "error" as const } };
 
 /** The Artifacts node: its id, its name, or a `junto://` ref. */
 export const ArtifactsNodeText = Schema.String.pipe(
@@ -74,14 +73,14 @@ export const ArtifactListArgs = Schema.Struct({
   limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: ARTIFACT_LIST_LIMIT_MAX }))),
   /** Only artifacts holding every one, each by equality or by a level under it (`artifactLabelsMatch`). */
   labels: Schema.optionalKey(LabelsInput),
-}).annotate(strict);
+});
 export type ArtifactListArgs = typeof ArtifactListArgs.Type;
 
 export const ArtifactShowArgs = Schema.Struct({
   artifact: ItemId,
   /** A past version; the head when left out. */
   version: Schema.optionalKey(ArtifactVersion),
-}).annotate(strict);
+});
 export type ArtifactShowArgs = typeof ArtifactShowArgs.Type;
 
 export const ArtifactHistoryArgs = Schema.Struct({
@@ -89,7 +88,7 @@ export const ArtifactHistoryArgs = Schema.Struct({
   limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: ARTIFACT_HISTORY_LIMIT_MAX }))),
   /** Lists versions older than this one, for the next page. */
   before: Schema.optionalKey(ArtifactVersion),
-}).annotate(strict);
+});
 export type ArtifactHistoryArgs = typeof ArtifactHistoryArgs.Type;
 
 export const ArtifactCreateArgs = Schema.Struct({
@@ -102,7 +101,7 @@ export const ArtifactCreateArgs = Schema.Struct({
   body: Schema.optionalKey(BodyInput),
   taskIds: Schema.optionalKey(Schema.Array(ItemId)),
   labels: Schema.optionalKey(LabelsInput),
-}).annotate(strict);
+});
 export type ArtifactCreateArgs = typeof ArtifactCreateArgs.Type;
 
 /** `body` replaces the whole body; `patches` patch a pad, sheet or document. */
@@ -114,7 +113,7 @@ export const ArtifactEditArgs = Schema.Struct({
   }),
   body: Schema.optionalKey(BodyInput),
   patches: Schema.optionalKey(PatchesInput),
-}).annotate(strict);
+});
 export type ArtifactEditArgs = typeof ArtifactEditArgs.Type;
 
 export const ArtifactCommentArgs = Schema.Struct({
@@ -123,7 +122,7 @@ export const ArtifactCommentArgs = Schema.Struct({
   text: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(64_000))),
   /** Left out, the comment is on the whole artifact. */
   anchor: Schema.optionalKey(Anchor),
-}).annotate(strict);
+});
 export type ArtifactCommentArgs = typeof ArtifactCommentArgs.Type;
 
 /**
@@ -138,7 +137,7 @@ export const ArtifactLabelArgs = Schema.Struct({
   set: Schema.optionalKey(LabelsInput),
   add: Schema.optionalKey(LabelsInput),
   remove: Schema.optionalKey(LabelsInput),
-}).annotate(strict);
+});
 export type ArtifactLabelArgs = typeof ArtifactLabelArgs.Type;
 
 /**
@@ -151,11 +150,11 @@ export const ArtifactColourArgs = Schema.Struct({
   node: Schema.optionalKey(ArtifactsNodeText),
   label: Schema.String,
   colour: Schema.NullOr(ArtifactLabelColour),
-}).annotate(strict);
+});
 export type ArtifactColourArgs = typeof ArtifactColourArgs.Type;
 
 /** archive and restore name one artifact. */
-export const ArtifactOneArgs = Schema.Struct({ opId: OpId, artifact: ItemId }).annotate(strict);
+export const ArtifactOneArgs = Schema.Struct({ opId: OpId, artifact: ItemId });
 export type ArtifactOneArgs = typeof ArtifactOneArgs.Type;
 
 // ---------------------------------------------------------------------------

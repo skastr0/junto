@@ -1,7 +1,7 @@
 import { isOverseerHarness } from "@shared/harness-records";
 import { isThisMachine } from "@shared/machine-identity";
 import { Effect } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { asNodeId, type Canvas, type Seat } from "@shared/model";
 import type { TaskView } from "@shared/task-model";
 import { ModelActorRefs } from "../../model/actor-refs";

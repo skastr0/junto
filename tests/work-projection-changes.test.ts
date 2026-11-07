@@ -1,4 +1,4 @@
-import type { SqlClient } from "effect/unstable/sql";
+import type { SqlClient } from "effect/sql";
 import { describe, expect, it } from "vitest";
 import { workProjectionChanges } from "../src/main/junto/work/projection-changes";
 

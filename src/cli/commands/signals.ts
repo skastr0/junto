@@ -1,4 +1,4 @@
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import { Effect, Option } from "effect";
 import type { SeatRaiseKind } from "../../shared/agent-signals";
 import type { WorkOpName } from "../../shared/work-control";
@@ -17,18 +17,18 @@ import { WorkSocket } from "../core/socket";
 const toUndefined = <A>(value: Option.Option<A>) =>
   Option.isSome(value) ? value.value : undefined;
 
-const timeoutOption = Flag.integer("timeout").pipe(
+const timeoutOption = Flag.Int("timeout").pipe(
   Flag.optional,
   Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
 );
 
-const sentenceArg = Argument.string("input").pipe(
+const sentenceArg = Argument.String("input").pipe(
   Argument.withDescription(
     'One sentence, or a JSON object {"text","detail","attach"} inline, @file, or - for stdin',
   ),
 );
 
-const detailOption = Flag.string("detail").pipe(
+const detailOption = Flag.String("detail").pipe(
   Flag.optional,
   Flag.withDescription("Longer markdown for the operator: inline, @file, or - for stdin"),
 );
@@ -38,10 +38,10 @@ const detailOption = Flag.string("detail").pipe(
 // diff, compare, commit, video, task, artifact. The JSON attach list keeps
 // its own order.
 const attachFlag = (name: string, description: string) =>
-  Flag.string(name).pipe(Flag.atLeast(0), Flag.withDescription(description));
+  Flag.String(name).pipe(Flag.atLeast(0), Flag.withDescription(description));
 
 const attachOptions = {
-  suggest: Flag.string("suggest").pipe(
+  suggest: Flag.String("suggest").pipe(
     Flag.atLeast(0),
     Flag.withDescription(
       'A reply the operator can send in one click, ahead of the quick replies: --suggest "Use sqlite" --suggest "Keep JSON". At most two.',
@@ -83,27 +83,27 @@ const attachOptions = {
  * operator produces in the signal. One per signal; a text reply needs none.
  */
 const formOptions = {
-  askSecret: Flag.string("ask-secret").pipe(
+  askSecret: Flag.String("ask-secret").pipe(
     Flag.optional,
     Flag.withDescription(
       "Ask the operator for a secret by the environment variable you read: --ask-secret CLOUDFLARE_API_TOKEN. Your region must declare it as a secret; the value goes where your region keeps it, never into the signal, mail or a log. Read it from your environment once the answer says it is set. Main refuses it until the vault lands (0.11, N5): ask in words until then",
     ),
   ),
-  askArtifact: Flag.string("ask-artifact").pipe(
+  askArtifact: Flag.String("ask-artifact").pipe(
     Flag.optional,
     Flag.withDescription(
       "Ask the operator to write a document in the signal, saved in this Artifacts node (its name, id or junto:// ref, in your reach). With --min-words and --label",
     ),
   ),
-  minWords: Flag.integer("min-words").pipe(
+  minWords: Flag.Int("min-words").pipe(
     Flag.optional,
     Flag.withDescription("With --ask-artifact: the answer counts once the document has at least this many words"),
   ),
-  label: Flag.string("label").pipe(
+  label: Flag.String("label").pipe(
     Flag.atLeast(0),
     Flag.withDescription("With --ask-artifact: a label for the document. Repeat for each; labels fold to lowercase"),
   ),
-  askProof: Flag.boolean("ask-proof").pipe(
+  askProof: Flag.Boolean("ask-proof").pipe(
     Flag.withDefault(false),
     Flag.withDescription("Ask the operator for proof of work: text with links or files"),
   ),
@@ -161,7 +161,7 @@ export const feedbackCommand = raiseCommand(
   "Not blocked: the work is ready for the operator to review.",
 );
 
-const sinceOption = Flag.string("since").pipe(
+const sinceOption = Flag.String("since").pipe(
   Flag.optional,
   Flag.withDescription(
     "List every closed signal from here on, uncapped: an ISO 8601 time (2026-10-19 or 2026-10-19T12:00:00Z) or a signal id",
@@ -185,7 +185,7 @@ const signalListCommand = Command.make(
 const signalClearCommand = Command.make(
   "clear",
   {
-    id: Argument.string("id").pipe(
+    id: Argument.String("id").pipe(
       Argument.optional,
       Argument.withDescription("Signal id; omit to withdraw every open signal of this seat"),
     ),

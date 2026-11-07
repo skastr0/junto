@@ -3,7 +3,7 @@
  * service becomes its only caller; until then each domain's submit calls it
  * inside its own transaction, so a ruling and its facts commit together.
  */
-import type { SqlClient } from "effect/unstable/sql";
+import type { SqlClient } from "effect/sql";
 import type { InstallationId } from "@shared/installation-id";
 import type { ResourceActor, ResourceCommand } from "@shared/resource-command";
 import type { WorkErrorBody } from "@shared/work-control";

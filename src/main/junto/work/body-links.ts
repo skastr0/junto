@@ -13,7 +13,7 @@
  * a projection of mail rows; the two are shown side by side, never merged here.
  */
 import { Effect } from "effect";
-import type { SqlClient, SqlError } from "effect/unstable/sql";
+import type { SqlClient, SqlError } from "effect/sql";
 import { decodeArtifactBody, type ArtifactType } from "@shared/artifact";
 import { bodyLinksOf, type ArtifactLinkRef, type LinkedFromBody } from "@shared/artifact-links";
 import { asNodeId } from "@shared/model";

@@ -16,7 +16,7 @@
  */
 import { writeFileSync } from "node:fs";
 import { Console, Effect, Layer } from "effect";
-import { CliOutput, Command } from "effect/unstable/cli";
+import { CliOutput, Command } from "effect/cli";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { loadRootCommand, rootCommandNames } from "../src/cli/command-runner";
 import { CLI_VERSION } from "../src/cli/core/constants";

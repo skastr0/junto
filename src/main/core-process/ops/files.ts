@@ -11,7 +11,7 @@
 import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { Effect } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import {
   parseFilePath,
   type FilePath,

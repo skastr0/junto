@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Schema } from "effect";
-import { Reactivity } from "effect/unstable/reactivity";
+import { Reactivity } from "effect/reactivity";
 import { describe, expect, it } from "vitest";
 import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
 import { readWorkSinkPage } from "../src/main/junto/work/repository";

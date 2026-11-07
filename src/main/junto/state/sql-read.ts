@@ -1,5 +1,5 @@
 import { Context, Effect, Option } from "effect";
-import type { SqlClient, SqlError } from "effect/unstable/sql";
+import type { SqlClient, SqlError } from "effect/sql";
 
 /** Driver-private lease identities; no connection is exposed to repositories. */
 export const SqlReadLeases = Context.Reference<ReadonlySet<SqlClient.SqlClient["transactionService"]>>(

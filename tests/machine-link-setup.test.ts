@@ -5,10 +5,11 @@
  * policy compiler, so each setup session's argv is checked, and hands an
  * owner command to that machine's own setup, as `junto machine <op> -` would.
  */
+import { wordsText } from "./helpers/command-words";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import * as Command from "effect/unstable/process/ChildProcess";
+import { ChildProcess as Command } from "effect/process";
 import { Effect, Layer, ManagedRuntime, Schema, Stream } from "effect";
 import { afterEach, expect, it } from "vitest";
 import { generatePairingKey } from "../src/main/junto/companion/pairing-key";
@@ -32,7 +33,7 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 const compiler = createSshProgramCompiler({ controlDir: "/tmp/junto-link-setup-test", envExecutable: "/usr/bin/env", sshExecutable: "/usr/bin/ssh", environment: {} });
 const argv = (command: Command.Command): ReadonlyArray<string> => {
   if (!Command.isStandardCommand(command)) throw new TypeError("expected StandardCommand");
-  return command.args.slice(command.args.indexOf("/usr/bin/ssh") + 1);
+  return wordsText(command.args).slice(command.args.indexOf("/usr/bin/ssh") + 1);
 };
 
 interface Machine {

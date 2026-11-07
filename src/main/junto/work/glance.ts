@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { SqlClient, SqlSchema } from "effect/unstable/sql";
+import { SqlClient, SqlSchema } from "effect/sql";
 import { WorkAttentionQuery } from "@shared/work-sinks";
 import type { WorkSinkGlance } from "@shared/work-attention";
 

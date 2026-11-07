@@ -5,8 +5,8 @@
  */
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Schema } from "effect";
-import { Reactivity } from "effect/unstable/reactivity";
-import { SqlClient } from "effect/unstable/sql";
+import { Reactivity } from "effect/reactivity";
+import { SqlClient } from "effect/sql";
 import { expect, it } from "vitest";
 import { FLEET_CONSENSUS_STATE_SCHEMA_SQL } from "../src/main/junto/fleet/state-schema";
 import { ModelDependents } from "../src/main/junto/model/dependents";

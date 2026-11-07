@@ -8,7 +8,7 @@ import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ManagedRuntime } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import {
   CONTROL_MAX_BODY_BYTES,
   CONTROL_MAX_HEADER_BYTES,

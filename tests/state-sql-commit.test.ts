@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { Deferred, Effect, Fiber } from "effect";
-import { Reactivity } from "effect/unstable/reactivity";
+import { Reactivity } from "effect/reactivity";
 import { expect, test } from "vitest";
 import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
 import { afterSqlCommit, installSqlCommitCallbacks } from "../src/main/junto/state/sql-commit";

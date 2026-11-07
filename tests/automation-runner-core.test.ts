@@ -7,7 +7,7 @@
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { Effect, Schema } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { expect, it } from "vitest";
 import { makeCoreRuntime } from "../src/main/core-runtime";
 import { AutomationRunnerService } from "../src/main/junto/automation/live";

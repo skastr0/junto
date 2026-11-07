@@ -1,5 +1,5 @@
 import { Cause, Context, Effect, Layer, Result } from "effect";
-import { SqlClient, type SqlError } from "effect/unstable/sql";
+import { SqlClient, type SqlError } from "effect/sql";
 import type {
   ContentAvailability,
   ContentAvailabilityReason,

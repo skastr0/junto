@@ -48,14 +48,14 @@ describe("the task command on the wire", () => {
     for (const command of commands) expect(decode(command), command.kind).toEqual(Result.succeed(command));
     expect(Result.isFailure(decode({ kind: "explode" }))).toBe(true);
     expect(Result.isFailure(decode({ kind: "start", extra: 1 }))).toBe(true);
-    expect(Result.isFailure(Schema.decodeUnknownResult(TaskApplyInput)({
+    expect(Result.isFailure(Schema.decodeUnknownResult(TaskApplyInput, { onExcessProperty: "error" })({
       canvasName: "factory",
       nodeId: "T",
       taskId: TASK,
       opId: OP,
       command: { kind: "start", extra: 1 },
     }, { onExcessProperty: "error" }))).toBe(true);
-    expect(Result.isFailure(Schema.decodeUnknownResult(TaskApplyInput)({
+    expect(Result.isFailure(Schema.decodeUnknownResult(TaskApplyInput, { onExcessProperty: "error" })({
       canvasName: "factory",
       nodeId: "T",
       taskId: TASK,

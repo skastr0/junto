@@ -1,4 +1,4 @@
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import { readFile } from "node:fs/promises";
 import { Effect, Option, Result, Schema } from "effect";
 import {
@@ -46,18 +46,18 @@ import { OVERSEER_SKILL_MARKDOWN } from "./overseer-skill";
 const toUndefined = <A>(value: Option.Option<A>) =>
   Option.isSome(value) ? value.value : undefined;
 
-const jsonInputArg = Argument.string("input").pipe(
+const jsonInputArg = Argument.String("input").pipe(
   Argument.withDescription("JSON object, @file path, raw JSON string, or - for stdin"),
 );
 
 const optionalJsonInputArg = jsonInputArg.pipe(Argument.optional);
 
-const timeoutOption = Flag.integer("timeout").pipe(
+const timeoutOption = Flag.Int("timeout").pipe(
   Flag.optional,
   Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
 );
 
-const targetArg = Argument.string("target").pipe(
+const targetArg = Argument.String("target").pipe(
   Argument.withDescription("Overseer operation, command id, or family.verb"),
 );
 
@@ -315,7 +315,7 @@ const makeRowVerdictCommand = (entry: OverseerCatalogEntry, description: string)
       ),
   ).pipe(Command.withDescription(description));
 
-const secretPutInputArg = Argument.string("input").pipe(
+const secretPutInputArg = Argument.String("input").pipe(
   Argument.withDescription("JSON object {} or {secretId}, inline or @file. The value is read from stdin"),
   Argument.optional,
 );
@@ -352,7 +352,7 @@ const makeSecretPutCommand = (entry: OverseerCatalogEntry) =>
     ),
   );
 
-const bodyOption = Flag.string("body").pipe(
+const bodyOption = Flag.String("body").pipe(
   Flag.optional,
   Flag.withDescription("The body: text, @file, or - for stdin. Not together with \"body\" in the argument"),
 );
@@ -501,7 +501,7 @@ const schemaShowCommand = Command.make("show", { target: targetArg }, ({ target 
         description: contract.description,
         accepts_batch: false,
         input_modes: [...inputModes],
-        schema: Schema.toJsonSchemaDocument(contract.schema).schema,
+        schema: Schema.toJsonSchemaDocument(contract.schema, { onExcessProperty: "error" }).schema,
         operation,
       };
     }),

@@ -19,7 +19,7 @@
  * never a ruling.
  */
 import { Context, Effect, Layer, Option, Result, Schema, Semaphore } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { ArtifactOp } from "@shared/artifact";
 import { TARGET_NODE_KINDS, type OpState, type QueuedCommand } from "@shared/command-row";
 import type { InstallationId } from "@shared/installation-id";

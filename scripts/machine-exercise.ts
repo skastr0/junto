@@ -14,7 +14,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Effect, Schema } from "effect";
-import { Argument, Command } from "effect/unstable/cli";
+import { Argument, Command } from "effect/cli";
 import { inspectMachineBundle } from "../src/main/junto/hosts/bundle";
 import { loadJsonInput } from "../src/cli/core/json";
 import { executeJsonCommandWithVerdict } from "../src/cli/core/output";
@@ -97,7 +97,7 @@ async function exercise(input: typeof Input.Type) {
   return result;
 }
 
-const command = Command.make("run", { input: Argument.string("input") }, ({ input }) =>
+const command = Command.make("run", { input: Argument.String("input") }, ({ input }) =>
   executeJsonCommandWithVerdict("machine exercise", loadJsonInput(Input, input).pipe(
     Effect.flatMap(value => Effect.tryPromise({ try: () => exercise(value), catch: error => error instanceof Error ? error : new Error(String(error)) })),
   ), result => !result.ok));

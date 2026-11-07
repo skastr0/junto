@@ -13,7 +13,6 @@ import type { ResourceSubject } from "./wire/thread-subject";
  * notices and copies of a row are not places.
  */
 
-const strict = { parseOptions: { onExcessProperty: "error" as const } };
 
 /** At most this many backlinks in one page, and the page size when none is asked. */
 export const MENTION_PAGE_MAX = 200;
@@ -26,14 +25,14 @@ export type MentionCursor = typeof MentionCursor.Type;
 export const MentionPageRequest = Schema.Struct({
   before: Schema.optionalKey(MentionCursor),
   limit: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isBetween({ minimum: 1, maximum: MENTION_PAGE_MAX })))),
-}).annotate(strict);
+});
 export type MentionPageRequest = typeof MentionPageRequest.Type;
 
 export const MentionListInput = Schema.Struct({
   canvasName: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(128))),
   target: MentionRef,
   page: Schema.optionalKey(MentionPageRequest),
-}).annotate(strict);
+});
 
 /** One place a thing is mentioned. */
 export type MentionedIn = {

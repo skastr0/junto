@@ -26,7 +26,7 @@ import type { WorkItemsOf } from "@shared/execution-graph";
 import type { TaskView } from "@shared/task-model";
 import { TaskRepository } from "../work/task-repository";
 import { readTasksByNode } from "../work/seat-task-read";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { withSqlRead } from "../state/sql-read";
 import { outcomeFail, outcomeOk, type CompanionBackend, type CompanionOutcome } from "@shared/companion-core";
 import { companionCanvasNodes, companionCanvasWires } from "@shared/companion-canvas";

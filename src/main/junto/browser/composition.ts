@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
-import type { SqlClient } from "effect/unstable/sql";
+import type { SqlClient } from "effect/sql";
 import { isAllowedBrowserUrl, partitionNameForProfile } from "@shared/browser";
 import { runClosedBrowserEffect } from "./run-closed";
 import { makeBrowserTouchedOriginStore, type BrowserTouchedOriginStore } from "./touched-origins";

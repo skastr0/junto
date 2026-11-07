@@ -16,7 +16,7 @@
  * fact it is handed, in the shape `work/state-schema.ts` declares.
  */
 import { Context, Effect, Layer, Schema } from "effect";
-import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
+import { SqlClient, SqlError, SqlSchema } from "effect/sql";
 import type { InstallationId } from "@shared/installation-id";
 import {
   LogicalSequence,

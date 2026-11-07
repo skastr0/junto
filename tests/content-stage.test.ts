@@ -9,7 +9,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Result } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import { ContentManifest } from "../src/main/junto/content/manifest";
 import { contentStoreRoot } from "../src/main/junto/content/paths";
@@ -88,7 +88,7 @@ const owners = async (content: ContentServiceShape, sha256: string) =>
 
 describe("content.stage args", () => {
   const decodes = (value: unknown) =>
-    Result.isSuccess(Schema.decodeUnknownResult(ContentStageArgs)(value));
+    Result.isSuccess(Schema.decodeUnknownResult(ContentStageArgs, { onExcessProperty: "error" })(value));
 
   it("takes a piece, a closing call, or both", () => {
     expect(decodes({ bytesBase64: "aGk=" })).toBe(true);

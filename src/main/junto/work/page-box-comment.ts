@@ -10,7 +10,7 @@
  * The renderer never sends bytes.
  */
 import { Effect, Option } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { ulid } from "ulid";
 import type { MailMessageId } from "@shared/crew";
 import { parseNodeRef } from "@shared/node-ref";

@@ -27,7 +27,7 @@ describe("crew CLI discovery", () => {
     const rendered = renderSchemaContract(contract);
     expect(rendered.input_modes).toEqual(["inline-json", "@file", "stdin"]);
     expect(rendered.accepts_batch).toBe(id === "msg.prompt");
-    expect(rendered.schema).toEqual(Schema.toJsonSchemaDocument(schema).schema);
+    expect(rendered.schema).toEqual(Schema.toJsonSchemaDocument(schema, { onExcessProperty: "error" }).schema);
 
     const capabilities = commandCapabilities.filter((entry) => entry.command_id === id);
     expect(capabilities).toHaveLength(1);

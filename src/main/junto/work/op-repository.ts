@@ -12,7 +12,7 @@
  * the queued row it rules.
  */
 import { Context, Effect, Layer, Result, Schema } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { CommandQueuedResult, RulingAppliedResult, RulingRefusedResult, type QueuedCommand } from "@shared/command-row";
 import type { InstallationId } from "@shared/installation-id";
 import { opViewOf, opViewOfRuling, type OpListResult, type OpListState, type OpView } from "@shared/op-control";

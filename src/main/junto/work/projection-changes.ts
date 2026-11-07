@@ -1,4 +1,4 @@
-import type { SqlClient } from "effect/unstable/sql";
+import type { SqlClient } from "effect/sql";
 
 /** One receipt's stamp on a mailbox message: which message, which stamp, and when. */
 export type MailboxStampChange = {

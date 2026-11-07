@@ -1,4 +1,4 @@
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import { Effect, Option, Result, Schema } from "effect";
 import type { ControlRouteName } from "../../shared/browser-control";
 import { InputError } from "../core/errors";
@@ -26,11 +26,11 @@ const ROUTE = {
   stop: "stop",
 } as const satisfies Record<BrowserCommandName, ControlRouteName>;
 
-const sessionArg = Argument.string("sessionId").pipe(
+const sessionArg = Argument.String("sessionId").pipe(
   Argument.withDescription("Session id, as junto browser open or sessions prints it"),
 );
 
-const tabFlag = Flag.string("tab").pipe(
+const tabFlag = Flag.String("tab").pipe(
   Flag.optional,
   Flag.withDescription("Tab to act on; without it, the page's active tab"),
 );
@@ -107,7 +107,7 @@ const noInput = (name: "doctor" | "profiles" | "pages" | "sessions") =>
 const openCommand = Command.make(
   "open",
   {
-    ref: Argument.string("node-ref").pipe(Argument.withDescription("The page node, as junto browser pages prints it")),
+    ref: Argument.String("node-ref").pipe(Argument.withDescription("The page node, as junto browser pages prints it")),
     tab: tabFlag,
   },
   ({ ref, tab }) => run("open", { ref, tab: tabOf(tab) }),
@@ -115,13 +115,13 @@ const openCommand = Command.make(
 
 const gotoCommand = Command.make(
   "goto",
-  { sessionId: sessionArg, url: Argument.string("url"), tab: tabFlag },
+  { sessionId: sessionArg, url: Argument.String("url"), tab: tabFlag },
   ({ sessionId, url, tab }) => run("goto", { sessionId, url, tab: tabOf(tab) }),
 ).pipe(describe("goto"));
 
 const evalCommand = Command.make(
   "eval",
-  { sessionId: sessionArg, code: Argument.string("code"), tab: tabFlag },
+  { sessionId: sessionArg, code: Argument.String("code"), tab: tabFlag },
   ({ sessionId, code, tab }) => run("eval", { sessionId, code, tab: tabOf(tab) }),
 ).pipe(describe("eval"));
 
@@ -135,8 +135,8 @@ const commentCommand = Command.make(
   "comment",
   {
     sessionId: sessionArg,
-    box: Flag.string("box").pipe(Flag.withDescription("The box to comment on, as x,y,w,h in page pixels")),
-    text: Flag.string("text").pipe(Flag.withDescription("The comment")),
+    box: Flag.String("box").pipe(Flag.withDescription("The box to comment on, as x,y,w,h in page pixels")),
+    text: Flag.String("text").pipe(Flag.withDescription("The comment")),
     tab: tabFlag,
   },
   ({ sessionId, box, text, tab }) =>

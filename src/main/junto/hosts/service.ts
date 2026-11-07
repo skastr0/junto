@@ -1,5 +1,5 @@
 import { Context, Effect, Result, Layer, Schema } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import type { ServiceCheck } from "@shared/contracts";
 import {
   defaultRemoteHostsDocument,

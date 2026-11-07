@@ -7,7 +7,7 @@ import { inProcessCore, type CoreRunner } from "./support/in-process-core";
 import "../src/main/core-process/ops/main-index";
 import { PausePlane } from "../src/main/junto/pause-plane";
 import { BindingId } from "../src/shared/model/kinds";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import type { Canvas } from "../src/shared/model";
 import { BROWSER_ENABLED } from "../src/shared/features";
 import { canvasOf, page as pageNode, seat, wire } from "./support/model-nodes";

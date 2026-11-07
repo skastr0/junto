@@ -3,7 +3,8 @@
  * add a key, a jump or a command, and the agent is never asked
  * (docs/machines.md, The link). `ssh -G` resolves a route once, at setup.
  */
-import * as Command from "effect/unstable/process/ChildProcess";
+import { wordsText } from "./helpers/command-words";
+import { ChildProcess as Command } from "effect/process";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { parseSshRoute } from "../src/main/junto/ssh";
@@ -13,7 +14,7 @@ import { createSshProgramCompiler, dedicatedStream, resolveSshConfig } from "../
 const compiler = createSshProgramCompiler({ controlDir: "/tmp/junto-ssh-bound-test", envExecutable: "/usr/bin/env", sshExecutable: "/usr/bin/ssh", environment: {} });
 const argv = (command: Command.Command): ReadonlyArray<string> => {
   if (!Command.isStandardCommand(command)) throw new TypeError("expected StandardCommand");
-  return command.args.slice(command.args.indexOf("/usr/bin/ssh") + 1);
+  return wordsText(command.args).slice(command.args.indexOf("/usr/bin/ssh") + 1);
 };
 const bound = {
   endpoint: "ops@100.96.152.41", port: 22, bound: true as const,

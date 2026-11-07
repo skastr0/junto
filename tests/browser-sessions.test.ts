@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect, ManagedRuntime } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { warmPoolEvictions, type BrowserHistory } from "../src/shared/browser";
 import {
   BROWSER_CAPTURE_TIMEOUT_MS,

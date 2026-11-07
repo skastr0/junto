@@ -31,7 +31,7 @@ import { ItemId } from "../src/shared/work-ids";
 import type { WorkErrorBody } from "../src/shared/work-control";
 
 const decode = <S extends Schema.Top>(schema: S) => (value: unknown) =>
-  Schema.decodeUnknownResult(schema as never)(value) as Result.Result<S["Type"], unknown>;
+  Schema.decodeUnknownResult(schema as never, { onExcessProperty: "error" })(value) as Result.Result<S["Type"], unknown>;
 
 const ok = <S extends Schema.Top>(schema: S, value: unknown): S["Type"] => {
   const out = decode(schema)(value);

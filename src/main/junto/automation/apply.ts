@@ -6,7 +6,7 @@
  * write is said once so open panes read again.
  */
 import { Effect, Option, Schema } from "effect";
-import { SqlClient, SqlSchema } from "effect/unstable/sql";
+import { SqlClient, SqlSchema } from "effect/sql";
 import type { AutomationOp } from "@shared/automation";
 import type { InstallationId } from "@shared/installation-id";
 import type { NodeId } from "@shared/physics/schema";

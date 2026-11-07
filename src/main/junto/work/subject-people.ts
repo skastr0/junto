@@ -6,7 +6,7 @@
  * its node, and its people wait on the artifact ruler.
  */
 import { Effect } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import type { Canvas, Files, Node } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";

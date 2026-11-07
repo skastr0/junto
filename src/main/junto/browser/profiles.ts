@@ -12,7 +12,7 @@ import {
 import { resolveJuntoHome } from "@shared/junto-home";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { Effect, Schema, Semaphore } from "effect";
-import { SqlClient, SqlSchema } from "effect/unstable/sql";
+import { SqlClient, SqlSchema } from "effect/sql";
 import type { ServiceCheck } from "@shared/contracts";
 import {
   DEFAULT_BROWSER_PROFILES,

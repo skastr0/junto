@@ -1,4 +1,4 @@
-import * as Command from "effect/unstable/process/ChildProcess";
+import { ChildProcess as Command } from "effect/process";
 import { join } from "node:path";
 import {
   assertMuxControlDirBudget,

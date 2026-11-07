@@ -20,7 +20,6 @@ import { FILE_PATH_MAX, parseFilePath } from "./files";
 
 export const VIEW_COMMAND_SLOT_COUNT = 9;
 
-const strict = { parseOptions: { onExcessProperty: "error" as const } };
 
 const CanvasName = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
@@ -309,7 +308,7 @@ export const ViewStateWrite = Schema.Union([
     section: SectionKey,
     open: Schema.Boolean,
   }),
-]).annotate(strict);
+]);
 export type ViewStateWrite = typeof ViewStateWrite.Type;
 
 export const decodeViewStateWrite = Schema.decodeUnknownResult(ViewStateWrite, {

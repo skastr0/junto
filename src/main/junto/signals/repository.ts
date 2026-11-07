@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Option, Schema } from "effect";
-import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
+import { SqlClient, SqlError, SqlSchema } from "effect/sql";
 import { ulid } from "ulid";
 import { asNodeId } from "@shared/physics/schema";
 import { ItemId } from "@shared/work-ids";

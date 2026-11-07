@@ -7,7 +7,7 @@
  * A read only: it names what could be linked, never writes one.
  */
 import { Effect, Result } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { asNodeId, type Canvas } from "@shared/model";
 import type { NodeId } from "@shared/physics/schema";
 import { outcomeFail, outcomeOk, type CompanionBackend } from "@shared/companion-core";

@@ -7,8 +7,8 @@
  */
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime, Option } from "effect";
-import { SqlClient } from "effect/unstable/sql";
-import { Reactivity } from "effect/unstable/reactivity";
+import { SqlClient } from "effect/sql";
+import { Reactivity } from "effect/reactivity";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ArtifactOp } from "../src/shared/artifact";
 import type { OpState, QueuedCommand } from "../src/shared/command-row";

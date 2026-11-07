@@ -22,7 +22,7 @@ import {
 } from "../src/shared/seat-control";
 
 const decodes = (schema: Schema.ConstraintDecoder<unknown>, input: unknown): boolean =>
-  Result.isSuccess(Schema.decodeUnknownResult(schema)(input));
+  Result.isSuccess(Schema.decodeUnknownResult(schema, { onExcessProperty: "error" })(input));
 
 describe("seat-control args", () => {
   it("takes exactly one of target and any", () => {

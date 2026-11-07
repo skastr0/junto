@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Schema } from "effect";
-import type { SqlError } from "effect/unstable/sql";
+import type { SqlError } from "effect/sql";
 
 /** Other current materializations move with the model, in its owning transaction. */
 export class ModelDependents extends Context.Service<ModelDependents, {

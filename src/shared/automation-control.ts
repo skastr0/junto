@@ -74,7 +74,6 @@ export type DefinitionInput = typeof DefinitionInput.Type;
 // Verb inputs. `*CliArgs` is what a seat writes; the bare name is the wire,
 // where the CLI has filled in the ids it mints.
 
-const strict = { parseOptions: { onExcessProperty: "error" as const } };
 
 /** The Automations node: its id, its name, or a `junto://` ref. */
 const AutomationsNode = NodeText.annotate({
@@ -87,13 +86,13 @@ const AutomationName = Schema.String.pipe(
 
 export const AutomationListArgs = Schema.Struct({
   target: Schema.optionalKey(AutomationsNode),
-}).annotate(strict);
+});
 export type AutomationListArgs = typeof AutomationListArgs.Type;
 
 export const AutomationShowArgs = Schema.Struct({
   target: AutomationsNode,
   automation: AutomationName,
-}).annotate(strict);
+});
 export type AutomationShowArgs = typeof AutomationShowArgs.Type;
 
 const createFields = {
@@ -116,7 +115,7 @@ export const CodeFileStepInput = Schema.Struct({
     description: "The program's path on this machine; the CLI stages it and sends its ref as source",
   }),
   timeoutMs: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: AUTOMATION_CODE_TIMEOUT_MIN_MS, maximum: AUTOMATION_CODE_TIMEOUT_MAX_MS }))),
-}).annotate(strict);
+});
 
 /** The steps a seat writes: any action, or a code step by file. */
 const CliThen = Schema.Array(Schema.Union([ActionInput, CodeFileStepInput])).pipe(
@@ -136,7 +135,7 @@ export const AutomationCreateCliArgs = Schema.Struct({
     description: "Created off unless true; `junto overseer automation enable` turns it on",
   }),
   limits: Schema.optionalKey(AutomationLimits),
-}).annotate(strict);
+});
 export type AutomationCreateCliArgs = typeof AutomationCreateCliArgs.Type;
 
 export const AutomationCreateArgs = Schema.Struct({
@@ -146,7 +145,7 @@ export const AutomationCreateArgs = Schema.Struct({
   automationId: AutomationId,
   enabled: Schema.Boolean,
   limits: AutomationLimits,
-}).annotate(strict);
+});
 export type AutomationCreateArgs = typeof AutomationCreateArgs.Type;
 
 /** Each field present replaces the stored one; `when: []` clears the conditions. */
@@ -156,7 +155,7 @@ export const AutomationChange = Schema.Struct({
   when: DefinitionInput.fields.when,
   then: Schema.optionalKey(DefinitionInput.fields.then),
   limits: Schema.optionalKey(AutomationLimits),
-}).annotate(strict);
+});
 export type AutomationChange = typeof AutomationChange.Type;
 
 const editFields = {
@@ -170,27 +169,27 @@ const editFields = {
 
 export const AutomationEditCliArgs = Schema.Struct({
   ...editFields,
-  change: Schema.Struct({ ...AutomationChange.fields, then: Schema.optionalKey(CliThen) }).annotate(strict),
-}).annotate(strict);
+  change: Schema.Struct({ ...AutomationChange.fields, then: Schema.optionalKey(CliThen) }),
+});
 export type AutomationEditCliArgs = typeof AutomationEditCliArgs.Type;
 
-export const AutomationEditArgs = Schema.Struct({ ...editFields, opId: OpId }).annotate(strict);
+export const AutomationEditArgs = Schema.Struct({ ...editFields, opId: OpId });
 export type AutomationEditArgs = typeof AutomationEditArgs.Type;
 
 const oneFields = { target: AutomationsNode, automation: AutomationName };
 
 /** enable, disable, archive and run name one automation. */
-export const AutomationOneCliArgs = Schema.Struct(oneFields).annotate(strict);
+export const AutomationOneCliArgs = Schema.Struct(oneFields);
 export type AutomationOneCliArgs = typeof AutomationOneCliArgs.Type;
 
-export const AutomationOneArgs = Schema.Struct({ ...oneFields, opId: OpId }).annotate(strict);
+export const AutomationOneArgs = Schema.Struct({ ...oneFields, opId: OpId });
 export type AutomationOneArgs = typeof AutomationOneArgs.Type;
 
 /** move names the machine the automation runs on from now on: baseless, never an edit. */
-export const AutomationMoveCliArgs = Schema.Struct({ ...oneFields, machine: MachineName }).annotate(strict);
+export const AutomationMoveCliArgs = Schema.Struct({ ...oneFields, machine: MachineName });
 export type AutomationMoveCliArgs = typeof AutomationMoveCliArgs.Type;
 
-export const AutomationMoveArgs = Schema.Struct({ ...oneFields, machine: MachineName, opId: OpId }).annotate(strict);
+export const AutomationMoveArgs = Schema.Struct({ ...oneFields, machine: MachineName, opId: OpId });
 export type AutomationMoveArgs = typeof AutomationMoveArgs.Type;
 
 export const AUTOMATION_HISTORY_LIMIT_MAX = 200;
@@ -203,7 +202,7 @@ export const AutomationHistoryArgs = Schema.Struct({
   ),
   /** A firingId from an earlier page: lists firings older than it. */
   before: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)))),
-}).annotate(strict);
+});
 export type AutomationHistoryArgs = typeof AutomationHistoryArgs.Type;
 
 // ---------------------------------------------------------------------------

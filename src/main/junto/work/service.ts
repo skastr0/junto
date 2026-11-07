@@ -24,7 +24,7 @@ import type {
 } from "@shared/work-model";
 import { ModelService } from "../model/service";
 import { ModelActorRefs } from "../model/actor-refs";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { withSqlRead } from "../state/sql-read";
 import type { WorkSeatRecentOpsFeed } from "@shared/work-recent-ops";
 import type { ContentPart } from "@shared/content";

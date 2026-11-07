@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Option, PubSub, Schema, Stream } from "effect";
-import { SqlClient, SqlSchema } from "effect/unstable/sql";
+import { SqlClient, SqlSchema } from "effect/sql";
 import { ActorRef } from "@shared/work-reference";
 import { InstallationId } from "@shared/installation-id";
 import { deriveActorSeatId } from "../actor-seat-id";

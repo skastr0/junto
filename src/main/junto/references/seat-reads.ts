@@ -128,7 +128,7 @@ export const handleSeatReferences = (
       Effect.mapError(refusal),
     );
     if (op === "references.list") {
-      const decoded = Schema.decodeUnknownResult(ReferencesListArgs)(args ?? {});
+      const decoded = Schema.decodeUnknownResult(ReferencesListArgs, { onExcessProperty: "error" })(args ?? {});
       if (Result.isFailure(decoded)) return yield* Effect.fail(invalid("references.list")(decoded.failure));
       // An empty struct admits any object, so the no-argument rule is checked here.
       if (Object.keys(decoded.success).length > 0 || Object.keys((args ?? {}) as object).length > 0) {
@@ -140,7 +140,7 @@ export const handleSeatReferences = (
       }
       return { references: (yield* inScope).map(toReferenceListEntry) };
     }
-    const decoded = Schema.decodeUnknownResult(ReferencesReadArgs)(args ?? {});
+    const decoded = Schema.decodeUnknownResult(ReferencesReadArgs, { onExcessProperty: "error" })(args ?? {});
     if (Result.isFailure(decoded)) return yield* Effect.fail(invalid("references.read")(decoded.failure));
     const wanted = decoded.success.name.trim().toLowerCase();
     const references = yield* inScope;

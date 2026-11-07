@@ -5,7 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect, Schema } from "effect";
-import { Argument, Command } from "effect/unstable/cli";
+import { Argument, Command } from "effect/cli";
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { loadJsonInput } from "../src/cli/core/json";
 import { executeJsonCommand } from "../src/cli/core/output";
@@ -223,6 +223,6 @@ export const buildMachine = async (input: BuildMachineInput) => {
 };
 
 if (import.meta.main) {
-  const command = Command.make("build-machine", {input:Argument.string("input")}, ({input}) => executeJsonCommand("machine build", loadJsonInput(BuildInput,input).pipe(Effect.flatMap(value=>Effect.tryPromise({try:()=>buildMachine(value),catch:error=>error instanceof Error ? error : new Error(String(error))})))));
+  const command = Command.make("build-machine", {input:Argument.String("input")}, ({input}) => executeJsonCommand("machine build", loadJsonInput(BuildInput,input).pipe(Effect.flatMap(value=>Effect.tryPromise({try:()=>buildMachine(value),catch:error=>error instanceof Error ? error : new Error(String(error))})))));
   BunRuntime.runMain(Command.runWith(command,{version:"1"})(process.argv.slice(2)).pipe(Effect.provide(BunServices.layer)));
 }

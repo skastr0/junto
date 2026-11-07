@@ -1,4 +1,4 @@
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import { Effect, Option, Schema } from "effect";
 import {
   MsgListArgs,
@@ -24,20 +24,20 @@ import { WorkSocket } from "../core/socket";
 const toUndefined = <A>(value: Option.Option<A>) =>
   Option.isSome(value) ? value.value : undefined;
 
-const jsonInputArg = Argument.string("input").pipe(
+const jsonInputArg = Argument.String("input").pipe(
   Argument.withDescription("JSON object, @file path, raw JSON string, or - for stdin"),
 );
 
 const optionalJsonInputArg = jsonInputArg.pipe(Argument.optional);
 
-const concurrencyOption = Flag.integer("concurrency").pipe(
+const concurrencyOption = Flag.Int("concurrency").pipe(
   Flag.optional,
   Flag.withDescription(
     `Max concurrent mutations (default ${DEFAULT_BATCH_CONCURRENCY}); reject <= 0`,
   ),
 );
 
-const timeoutOption = Flag.integer("timeout").pipe(
+const timeoutOption = Flag.Int("timeout").pipe(
   Flag.optional,
   Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
 );
@@ -59,8 +59,8 @@ const callDomain = <A>(
 export const taskRulesCommand = Command.make(
   "rules",
   {
-    task: Argument.string("task").pipe(Argument.optional, Argument.withDescription("A task: #42, its id, or a junto:// ref")),
-    node: Flag.string("node").pipe(Flag.optional, Flag.withDescription("A task node instead: its id, its name or a junto:// ref")),
+    task: Argument.String("task").pipe(Argument.optional, Argument.withDescription("A task: #42, its id, or a junto:// ref")),
+    node: Flag.String("node").pipe(Flag.optional, Flag.withDescription("A task node instead: its id, its name or a junto:// ref")),
     timeout: timeoutOption,
   },
   ({ task, node, timeout }) =>
@@ -152,8 +152,8 @@ const msgSendCommand = Command.make(
   "send",
   {
     input: jsonInputArg,
-    text: Argument.string("text").pipe(Argument.optional),
-    prompt: Flag.boolean("prompt").pipe(Flag.withDefault(false)),
+    text: Argument.String("text").pipe(Argument.optional),
+    prompt: Flag.Boolean("prompt").pipe(Flag.withDefault(false)),
     concurrency: concurrencyOption,
     timeout: timeoutOption,
   },

@@ -6,7 +6,7 @@ import { url as inspectorUrl } from "node:inspector";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { app, BrowserWindow, session, webContents } from "electron";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { WorkModelDependentsLive } from "../../../src/main/junto/work/model-dependents";
 import { Command, Node, Wire } from "../../../src/shared/model";
 import {

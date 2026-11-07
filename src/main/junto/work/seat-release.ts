@@ -16,7 +16,7 @@
  */
 import { Effect, Layer, Option, Result, Semaphore } from "effect";
 import { AUTHORITY_ENABLED } from "@shared/features";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { nodesOf } from "@shared/model/canvas";
 import type { Canvas, Command } from "@shared/model";
 import { mintOpId, type ResourceCommand } from "@shared/resource-command";

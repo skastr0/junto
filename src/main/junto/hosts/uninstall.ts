@@ -13,7 +13,7 @@ import { acquireInstallLock, admitInstallLockRoot } from "./install-lock";
 export const uninstallMachine = (input: MachineLocalPaths): Effect.Effect<MachineUninstallResult, MachineInstallError> => {
   let disposition: "staged" | "uncertain" = "staged";
   const transitions: MachineInstallTransition[] = [];
-  return Effect.tryPromise({ try: async () => {
+  return Effect.tryPromise({ try: async (): Promise<MachineUninstallResult> => {
     const juntoHome = await machineHomePath(input.juntoHome ?? homedir(), true);
     const installRoot = await machineHomePath(input.installRoot ?? join(homedir(), ".junto/machine"));
     const label = machineServiceLabel(installRoot, juntoHome);

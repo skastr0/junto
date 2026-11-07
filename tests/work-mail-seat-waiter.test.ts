@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { expect, it } from "vitest";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import { ActorRef } from "../src/shared/work-protocol";

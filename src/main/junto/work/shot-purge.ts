@@ -16,7 +16,7 @@
 import { lstatSync, readdirSync, unlinkSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { Effect } from "effect";
-import type { SqlClient } from "effect/unstable/sql";
+import type { SqlClient } from "effect/sql";
 import type { ContentRef } from "@shared/wire/content-ref";
 import { contentMaterializationPath, contentMaterializationRoot } from "../content/agent-access";
 import { ContentManifest } from "../content/manifest";

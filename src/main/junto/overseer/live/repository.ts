@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Context, Effect, Layer, Option, Schema } from "effect";
-import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
+import { SqlClient, SqlError, SqlSchema } from "effect/sql";
 import { StateTransactionOperation } from "../../state/service";
 import { withSqlRead } from "../../state/sql-read";
 

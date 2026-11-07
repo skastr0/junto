@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { MachineExchangeData, type MachineExchangeInput } from "@shared/machine-exchange";
 import { asCanvasName } from "@shared/model";
 import { MachineRepository } from "../../machines/repository";

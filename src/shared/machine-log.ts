@@ -89,7 +89,7 @@ export const MachineLogQuery = Schema.Struct({
   canvas: Schema.optionalKey(LogCanvasName),
   /** The newest rows that match, oldest first. */
   limit: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: LOG_READ_MAX_LIMIT })))),
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
+});
 export type MachineLogQuery = typeof MachineLogQuery.Type;
 
 /** `junto machine logs`: the owner reads one machine's log, this one or a linked one. */

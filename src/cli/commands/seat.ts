@@ -1,4 +1,4 @@
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import { Effect, Option } from "effect";
 import {
   SEAT_READ_DEFAULT_FOLLOW_SECONDS,
@@ -44,15 +44,15 @@ const SEAT_WAIT_UNTIL: ReadonlyArray<SeatWaitUntil> = [
   "replied",
 ];
 
-const seatUntilFlag = Flag.string("until").pipe(
+const seatUntilFlag = Flag.String("until").pipe(
   Flag.withDescription(`State to wait for (${SEAT_WAIT_UNTIL.join(" | ")})`),
 );
 
-const taskUntilFlag = Flag.string("until").pipe(
+const taskUntilFlag = Flag.String("until").pipe(
   Flag.withDescription(`Task state to wait for (${TASK_WAIT_UNTIL.join(" | ")})`),
 );
 
-const timeoutFlag = Flag.string("timeout").pipe(
+const timeoutFlag = Flag.String("timeout").pipe(
   Flag.optional,
   Flag.withDescription(
     `Bounded wait as a duration ("600s", "10m") or milliseconds (max ${SEAT_WAIT_MAX_MS / 1000}s, default ${SEAT_WAIT_DEFAULT_MS / 1000}s)`,
@@ -346,11 +346,11 @@ export const lowerTaskWait = (input: {
 const seatWaitCommand = Command.make(
   "wait",
   {
-    seat: Argument.string("seat").pipe(
+    seat: Argument.String("seat").pipe(
       Argument.optional,
       Argument.withDescription("Seat to watch (canvas node id); omit with --any"),
     ),
-    any: Flag.boolean("any").pipe(
+    any: Flag.Boolean("any").pipe(
       Flag.withDefault(false),
       Flag.withDescription(
         "Wait on every currently authorized peer seat instead of one named seat",
@@ -358,7 +358,7 @@ const seatWaitCommand = Command.make(
     ),
     until: seatUntilFlag,
     timeout: timeoutFlag,
-    after: Flag.string("after").pipe(
+    after: Flag.String("after").pipe(
       Flag.optional,
       Flag.withDescription("With --until replied: only the peer's mail after this message id answers"),
     ),
@@ -387,41 +387,41 @@ const seatWaitCommand = Command.make(
 const seatReadCommand = Command.make(
   "read",
   {
-    seat: Argument.string("seat").pipe(
+    seat: Argument.String("seat").pipe(
       Argument.optional,
       Argument.withDescription("Seat to observe (canvas node id); omit with --brief"),
     ),
-    brief: Flag.boolean("brief").pipe(
+    brief: Flag.Boolean("brief").pipe(
       Flag.withDefault(false),
       Flag.withDescription(
         "Every peer you may read in one call: identity, state, preamble and recent mail, without screens",
       ),
     ),
-    lines: Flag.integer("lines").pipe(
+    lines: Flag.Int("lines").pipe(
       Flag.optional,
       Flag.withDescription(
         `Retained lines to return (max ${SEAT_READ_MAX_LINES}, default ${SEAT_READ_DEFAULT_LINES})`,
       ),
     ),
-    since: Flag.string("since").pipe(
+    since: Flag.String("since").pipe(
       Flag.optional,
       Flag.withDescription(
         "Observer sequence the caller last saw; pair with --since-generation",
       ),
     ),
-    sinceGeneration: Flag.string("since-generation").pipe(
+    sinceGeneration: Flag.String("since-generation").pipe(
       Flag.optional,
       Flag.withDescription(
         "Generation --since was observed in; required with --since, and a different current generation is reported as replaced",
       ),
     ),
-    follow: Flag.boolean("follow").pipe(
+    follow: Flag.Boolean("follow").pipe(
       Flag.withDefault(false),
       Flag.withDescription(
         "Hold until the settled grid advances past the cursor, the generation is replaced, or --max-seconds elapses",
       ),
     ),
-    maxSeconds: Flag.string("max-seconds").pipe(
+    maxSeconds: Flag.String("max-seconds").pipe(
       Flag.optional,
       Flag.withDescription(
         `Bounded follow as seconds or a duration (max ${SEAT_READ_MAX_SECONDS}, default ${SEAT_READ_DEFAULT_FOLLOW_SECONDS})`,
@@ -463,7 +463,7 @@ export const seatCommand = Command.make("seat").pipe(
 export const taskWaitCommand = Command.make(
   "wait",
   {
-    task: Argument.string("task").pipe(
+    task: Argument.String("task").pipe(
       Argument.withDescription("A task: #42, its id, or a junto:// ref"),
     ),
     until: taskUntilFlag,

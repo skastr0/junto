@@ -139,8 +139,6 @@ export const SignalRaiseCliInput = Schema.Struct({
   suggest: Schema.optionalKey(AgentSignalSuggestions),
   /** The reply form the operator answers in (N1's `SignalFormRequest`); blocked and escalate only. */
   form: Schema.optionalKey(SignalFormRequest),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
 });
 export type SignalRaiseCliInput = typeof SignalRaiseCliInput.Type;
 

@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Option, Schema } from "effect";
-import { SqlClient, SqlSchema, type SqlError } from "effect/unstable/sql";
+import { SqlClient, SqlSchema, type SqlError } from "effect/sql";
 import { MachineName } from "@shared/machine-control";
 
 export const MachineConfiguration = Schema.Struct({

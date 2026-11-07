@@ -10,7 +10,7 @@
  * caller hands the applied run to the runner once the transaction commits.
  */
 import { Effect, Option, Result, Schema } from "effect";
-import { SqlClient, SqlSchema } from "effect/unstable/sql";
+import { SqlClient, SqlSchema } from "effect/sql";
 import type { Automation, AutomationId, AutomationOp } from "@shared/automation";
 import {
   AutomationFact,

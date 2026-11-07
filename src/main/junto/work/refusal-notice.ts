@@ -8,7 +8,7 @@
  * row is from the refused node. Only main writes it, and only from a ruling.
  */
 import { Effect, Option, Schema } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { CommandQueuedResult, type RulingRefusedResult } from "@shared/command-row";
 import { mailAuthorOf, noticeActorRef } from "@shared/mail-author";
 import { refusalNoticeOf, type QueuedLink } from "@shared/refusal-notice";

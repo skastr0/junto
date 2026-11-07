@@ -13,7 +13,7 @@
  * store walk that applies it, row by row, and is called by the files service.
  */
 import { Effect } from "effect";
-import type { SqlClient, SqlError } from "effect/unstable/sql";
+import type { SqlClient, SqlError } from "effect/sql";
 import { isRelativePath, THREAD_SUBJECT_KEY } from "@shared/thread-subject";
 import { unjournaledWorkMutationEffect } from "./mutation-seam";
 import { noteThreadChanged } from "./resource-changes";

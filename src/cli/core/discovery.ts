@@ -86,7 +86,7 @@ export const renderSchemaContract = (contract: CommandSchemaContract) => ({
   description: contract.description,
   accepts_batch: contract.accepts_batch ?? false,
   input_modes: contract.input_modes ?? ["inline-json", "@file", "stdin"],
-  schema: Schema.toJsonSchemaDocument(contract.schema).schema,
+  schema: Schema.toJsonSchemaDocument(contract.schema, { onExcessProperty: "error" }).schema,
 });
 
 const inputModes = ["inline-json", "@file", "stdin"] as const;

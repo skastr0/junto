@@ -7,7 +7,7 @@
  * artifact's rows, so a second boot writes the same table.
  */
 import { Effect } from "effect";
-import type { SqlClient, SqlError } from "effect/unstable/sql";
+import type { SqlClient, SqlError } from "effect/sql";
 import { BACKFILL_ARTIFACT_LINKS_V1 } from "../install-ops/engine";
 import type { InstallOpsServiceError, InstallOpsServiceShape } from "../install-ops/service";
 import { rebuildBodyLinks } from "./body-links";

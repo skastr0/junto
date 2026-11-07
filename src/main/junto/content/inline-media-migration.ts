@@ -5,7 +5,7 @@
  * Failures leave the marker pending and the boot layer defers to next boot.
  */
 import { Effect } from "effect";
-import type { SqlClient, SqlError } from "effect/unstable/sql";
+import type { SqlClient, SqlError } from "effect/sql";
 import type { ContentRef } from "@shared/content";
 import { StateTransactionOperation } from "../state/service";
 import type {

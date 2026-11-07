@@ -1,5 +1,5 @@
 import { Effect, Layer, Schema } from "effect";
-import { SqlClient, SqlSchema } from "effect/unstable/sql";
+import { SqlClient, SqlSchema } from "effect/sql";
 import { ModelDependents } from "../model/dependents";
 import { afterSqlCommit } from "../state/sql-commit";
 import { unjournaledWorkMutationEffect } from "./mutation-seam";

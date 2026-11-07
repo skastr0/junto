@@ -4,7 +4,7 @@
  * the core. The token itself is a file (`./token-file.ts`), never a row.
  */
 import { Context, Effect, Layer, Schema } from "effect";
-import { SqlClient, SqlSchema } from "effect/unstable/sql";
+import { SqlClient, SqlSchema } from "effect/sql";
 import { MachineName } from "@shared/machine-control";
 import { VaultName, VaultPermissions, VaultTokenOrigin, VaultTokenRecord } from "@shared/vault";
 import { StateTransactionOperation } from "../state/transaction-operation";

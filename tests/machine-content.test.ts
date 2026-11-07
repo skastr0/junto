@@ -3,13 +3,14 @@
  * content-transfer argv, the bytes on stdin in pieces that resume where the
  * machine's partial ends.
  */
+import { wordsText } from "./helpers/command-words";
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Effect } from "effect";
-import * as Command from "effect/unstable/process/ChildProcess";
+import { ChildProcess as Command } from "effect/process";
 import { afterEach, expect, it } from "vitest";
 import { contentObjectPath, contentStoreRoot } from "../src/main/junto/content/paths";
 import { parseSshRoute } from "../src/main/junto/ssh";
@@ -21,7 +22,7 @@ const compiler = createSshProgramCompiler({ controlDir: "/tmp/junto-content-mux"
 const remoteText = (program: OneShotProgram) => {
   const compiled = compiler.oneShot(program);
   if (!Command.isStandardCommand(compiled.command)) throw new Error("expected argv command");
-  return { text: compiled.command.args.at(-1)!, input: compiled.input, timeoutMs: compiled.timeoutMs };
+  return { text: wordsText(compiled.command.args).at(-1)!, input: compiled.input, timeoutMs: compiled.timeoutMs };
 };
 
 const roots: string[] = [];

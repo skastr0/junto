@@ -8,8 +8,8 @@
  */
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime, Option } from "effect";
-import { SqlClient } from "effect/unstable/sql";
-import { Reactivity } from "effect/unstable/reactivity";
+import { SqlClient } from "effect/sql";
+import { Reactivity } from "effect/reactivity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { asCanvasName, type Canvas, type Command, type Node } from "../src/shared/model";
 import { canvasAfter } from "../src/renderer/lib/model-undo";

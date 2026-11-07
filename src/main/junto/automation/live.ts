@@ -22,7 +22,7 @@
  */
 import { createHash } from "node:crypto";
 import { Context, Duration, Effect, Layer, Option, Queue, Schedule, Schema, Semaphore, Stream } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { ulid } from "ulid";
 import type { Action, ActionRuling, Automation, AutomationId, Condition, Firing, SeatBecomes } from "@shared/automation";
 import { TASK_TITLE_MAX, type TaskId, type TaskState } from "@shared/task-model";

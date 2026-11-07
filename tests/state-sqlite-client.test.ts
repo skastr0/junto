@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { Deferred, Effect, Fiber, Layer, Result, Schema, Stream } from "effect";
-import { Reactivity } from "effect/unstable/reactivity";
-import { SqlClient, SqlSchema } from "effect/unstable/sql";
+import { Reactivity } from "effect/reactivity";
+import { SqlClient, SqlSchema } from "effect/sql";
 import { describe, expect, test, vi } from "vitest";
 import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
 import { withSqlRead } from "../src/main/junto/state/sql-read";

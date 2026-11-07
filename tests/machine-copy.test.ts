@@ -1,11 +1,12 @@
+import { wordsText } from "./helpers/command-words";
 import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime, Schema, Stream } from "effect";
-import { Reactivity } from "effect/unstable/reactivity";
-import { SqlClient } from "effect/unstable/sql";
-import * as Command from "effect/unstable/process/ChildProcess";
+import { Reactivity } from "effect/reactivity";
+import { SqlClient } from "effect/sql";
+import { ChildProcess as Command } from "effect/process";
 import { afterEach, expect, it } from "vitest";
 import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
 import { MACHINE_STATE_SCHEMA_SQL } from "../src/main/junto/machines/state-schema";
@@ -42,7 +43,7 @@ const fixture = async (options: { platform?: string; helloFailure?: boolean; bun
     run: program => Effect.sync(() => {
       const command = compiler.oneShot(program).command;
       if (!Command.isStandardCommand(command)) throw new Error("expected argv command");
-      if (command.args.at(-1)!.includes("junto-preflight")) {
+      if (wordsText(command.args).at(-1)!.includes("junto-preflight")) {
         calls.push("preflight"); return { stdout: "ready\n", stderr: "" };
       }
       calls.push("platform"); return { stdout: options.platform ?? "Darwin arm64\n", stderr: "" };
@@ -51,7 +52,7 @@ const fixture = async (options: { platform?: string; helloFailure?: boolean; bun
       yield* Stream.runDrain(input);
       const command = compiler.stream(program).command;
       if (!Command.isStandardCommand(command)) throw new Error("expected argv command");
-      const remote = command.args.at(-1)!;
+      const remote = wordsText(command.args).at(-1)!;
       const op = remote.includes("install-local") ? "install" : remote.includes("configure") ? "configure" : "setup";
       calls.push(op);
       const result = op === "install" ? { ok: true, command: "machine install-local", data: receipt }

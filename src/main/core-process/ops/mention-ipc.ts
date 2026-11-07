@@ -5,7 +5,7 @@
  * its write commits, and main relays that to the windows.
  */
 import { Effect, Schema } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { MENTION_IPC_CHANNELS } from "@shared/mention-ipc-channels";
 import { MentionListInput, type MentionPage } from "@shared/mention-ipc";
 import type { WorkErrorBody } from "@shared/work-control";

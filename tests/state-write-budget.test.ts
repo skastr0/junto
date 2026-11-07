@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { StatementSync } from "node:sqlite";
 import { Effect, ManagedRuntime } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { afterEach, expect, it, vi } from "vitest";
 import {
   armMainThreadBudget,

@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime, Result, Schema } from "effect";
-import { Reactivity } from "effect/unstable/reactivity";
-import { SqlClient } from "effect/unstable/sql";
+import { Reactivity } from "effect/reactivity";
+import { SqlClient } from "effect/sql";
 import { afterEach, expect, it } from "vitest";
 import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
 import { MODEL_STATE_SCHEMA_SQL } from "../src/main/junto/model/state-schema";

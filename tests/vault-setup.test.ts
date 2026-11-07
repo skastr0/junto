@@ -5,10 +5,11 @@
  * names-only record, and `op vault get` checks liveness in a closed
  * environment. With VAULT_ENABLED off nothing is written, run or dialed.
  */
+import { wordsText } from "./helpers/command-words";
 import { lstat, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import * as Command from "effect/unstable/process/ChildProcess";
+import { ChildProcess as Command } from "effect/process";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -67,7 +68,7 @@ const setup = async (tool: (call: ToolCall) => ToolResult = answer) => {
     run: ((program: never) => Effect.suspend(() => {
       const compiled = compiler.oneShot(program);
       if (!Command.isStandardCommand(compiled.command)) return Effect.die("expected StandardCommand");
-      sent.push({ args: compiled.command.args, stdin: new TextDecoder().decode(compiled.input) });
+      sent.push({ args: wordsText(compiled.command.args), stdin: new TextDecoder().decode(compiled.input) });
       return farAnswer();
     })) as unknown as SshTransportShape["run"],
     transfer: () => Effect.die("no transfers in this test"),

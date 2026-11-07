@@ -75,9 +75,7 @@ export const ContentStageArgs = Schema.Struct({
   Schema.check(Schema.makeFilter(({ bytesBase64, done }) =>
     bytesBase64 !== undefined || done !== undefined ||
     "a call carries a piece (bytesBase64), closes the upload (done), or both")),
-).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
+);
 export type ContentStageArgs = typeof ContentStageArgs.Type;
 
 /** The answer to a piece that does not close the upload. */

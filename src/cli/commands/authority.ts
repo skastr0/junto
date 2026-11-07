@@ -8,7 +8,7 @@
  * exists only behind AUTHORITY_ENABLED.
  */
 import { Context, Effect, Layer, Option, Schema } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import {
   AuthorityListArgs,
   authorityMachineLine,
@@ -105,7 +105,7 @@ export const authorityList = (canvas: string, order: string) =>
   });
 
 const status = Command.make("status", {
-  canvas: Argument.string("canvas").pipe(Argument.optional, Argument.withDescription("A canvas this machine holds; every one when left out")),
+  canvas: Argument.String("canvas").pipe(Argument.optional, Argument.withDescription("A canvas this machine holds; every one when left out")),
 }, ({ canvas }) => executeJsonCommand("authority status", authorityStatus(canvas).pipe(Effect.provide(AuthorityOwnerLive)))).pipe(
   Command.withDescription(
     "Show which machine takes changes for each canvas this machine holds: the term, the authority, whether it can commit, the operator's list with each machine's state (reachable, asleep since a time, unreachable, not linked), a list change not yet applied (pending), how many changes wait for the operator to apply or discard (waiting), and since when reads are stale (staleSince, epoch ms). Owner only.",
@@ -113,7 +113,7 @@ const status = Command.make("status", {
 );
 
 const alone = Command.make("alone", {
-  canvas: Argument.string("canvas").pipe(Argument.withDescription("The canvas to take alone")),
+  canvas: Argument.String("canvas").pipe(Argument.withDescription("The canvas to take alone")),
 }, ({ canvas }) => executeJsonCommand("authority alone", authorityAlone(canvas).pipe(Effect.provide(AuthorityOwnerLive)))).pipe(
   Command.withDescription(
     "Make this machine the only one that takes changes for a canvas whose pair cannot commit. Run only on a listed machine of a pair, only when the other is gone; otherwise refused with the reason. The answer carries the warning in full: read it. Owner only.",
@@ -121,8 +121,8 @@ const alone = Command.make("alone", {
 );
 
 const list = Command.make("list", {
-  canvas: Argument.string("canvas").pipe(Argument.withDescription("The canvas whose list to set")),
-  order: Flag.string("order").pipe(Flag.withDescription("The machines by name, first to rule first, comma separated: --order mini,book")),
+  canvas: Argument.String("canvas").pipe(Argument.withDescription("The canvas whose list to set")),
+  order: Flag.String("order").pipe(Flag.withDescription("The machines by name, first to rule first, comma separated: --order mini,book")),
 }, ({ canvas, order }) => executeJsonCommand("authority list", authorityList(canvas, order).pipe(Effect.provide(AuthorityOwnerLive)))).pipe(
   Command.withDescription(
     "Set the ordered list of machines that may take changes for a canvas: the first reachable one rules. The edit commits only once a quorum of the old list and the new one holds it; until then the old list still rules (committed), pending is true and waiting says why. Owner only.",

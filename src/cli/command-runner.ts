@@ -1,4 +1,4 @@
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 import { Effect, Layer } from "effect";
 import { CLI_NAME, CLI_VERSION } from "./core/constants";
 import { setExitCode, writeCauseEnvelope, writeFailureEnvelope } from "./core/output";

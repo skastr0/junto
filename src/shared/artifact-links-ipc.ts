@@ -8,7 +8,6 @@
 import { Schema } from "effect";
 import type { ArtifactLinkRef, LinkedFromBody } from "./artifact-links";
 
-const strict = { parseOptions: { onExcessProperty: "error" as const } };
 
 export { ARTIFACT_LINKS_IPC_CHANNELS } from "./artifact-links-ipc-channels";
 
@@ -17,7 +16,7 @@ export const ArtifactLinksInput = Schema.Struct({
   canvasName: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(128))),
   nodeId: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(256))),
   artifactId: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64))),
-}).annotate(strict);
+});
 
 /** Said to every window after a body link lands or leaves on a canvas. */
 export type ArtifactLinksChanged = { readonly canvasName: string };

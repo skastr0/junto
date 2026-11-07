@@ -10,7 +10,7 @@ import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Effect, ManagedRuntime } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { makeStateEngineLive } from "../../src/main/junto/state/engine";
 import type { AgentSignal } from "../../src/shared/agent-signals";
 import type { Region } from "../../src/shared/model";

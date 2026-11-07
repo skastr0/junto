@@ -9,7 +9,7 @@
  * Unread is derived where threads are summarized (`unreadPast`), never stored.
  */
 import { Effect } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { mailAfter, readPointKey, seatMailThreadEntries, unreadPast, type MailReadChanged, type MailReadPoint } from "@shared/mail-threads";
 import { afterSqlCommit } from "../state/sql-commit";
 import { StateTransactionOperation } from "../state/service";

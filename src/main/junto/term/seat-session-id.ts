@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { isThisMachine } from "@shared/machine-name";
 import { coreRunner } from "../../core-runner";
 import { ModelService } from "../model/service";

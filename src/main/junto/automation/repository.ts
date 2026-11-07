@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Schema, Semaphore } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import {
   Automation,
   type AutomationId,

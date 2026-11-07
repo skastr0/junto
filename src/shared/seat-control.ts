@@ -150,8 +150,7 @@ export const SeatWaitArgs = Schema.Struct({
         return true;
       }),
     ),
-  )
-  .annotate({ parseOptions: { onExcessProperty: "error" } });
+  );
 export type SeatWaitArgs = typeof SeatWaitArgs.Type;
 
 /**
@@ -201,8 +200,7 @@ export const SeatReadArgs = Schema.Struct({
           : true;
       }),
     ),
-  )
-  .annotate({ parseOptions: { onExcessProperty: "error" } });
+  );
 export type SeatReadArgs = typeof SeatReadArgs.Type;
 
 // ---------------------------------------------------------------------------

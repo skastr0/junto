@@ -22,7 +22,7 @@
  */
 import { realpath, stat } from "node:fs/promises";
 import { Context, Deferred, Duration, Effect, Layer, Option, Schema, Semaphore } from "effect";
-import { SqlClient, SqlSchema } from "effect/unstable/sql";
+import { SqlClient, SqlSchema } from "effect/sql";
 import type { ManagedTerminalModelsResult } from "@shared/ipc";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import {

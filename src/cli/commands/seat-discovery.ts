@@ -1,4 +1,4 @@
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import { Effect, Option } from "effect";
 import { TASKS_ENABLED } from "../../shared/features";
 import { WORK_PROTOCOL_VERSION, WORK_TOKEN_ENV } from "../../shared/work-control";
@@ -13,7 +13,7 @@ import { WorkSocket, localDoctorChecks } from "../core/socket";
 const toUndefined = <A>(value: Option.Option<A>) =>
   Option.isSome(value) ? value.value : undefined;
 
-const timeoutOption = Flag.integer("timeout").pipe(
+const timeoutOption = Flag.Int("timeout").pipe(
   Flag.optional,
   Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
 );
@@ -154,7 +154,7 @@ export const onboardCommand = Command.make(
 export const sinceCommand = Command.make(
   "since",
   {
-    all: Flag.boolean("all").pipe(Flag.withDefault(false), Flag.withDescription("Every line of every section, uncapped")),
+    all: Flag.Boolean("all").pipe(Flag.withDefault(false), Flag.withDescription("Every line of every section, uncapped")),
     timeout: timeoutOption,
   },
   ({ all, timeout }) =>
@@ -174,12 +174,12 @@ export const sinceCommand = Command.make(
 export const offboardCommand = Command.make(
   "offboard",
   {
-    notes: Argument.string("notes").pipe(
+    notes: Argument.String("notes").pipe(
       Argument.withDescription(
         'Markdown notes on this session: inline, @file, - for stdin, or {"notes":"..."}. First line sums it up.',
       ),
     ),
-    continuation: Flag.string("continue").pipe(
+    continuation: Flag.String("continue").pipe(
       Flag.optional,
       Flag.withDescription(
         "Continue in a fresh session: a note for it, what to pick up and why (inline, @file, or - for stdin). Junto starts that session right away.",

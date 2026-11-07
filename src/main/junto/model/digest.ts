@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { digestCanvas, type DigestLiveViews } from "@shared/digest";
 import { actorRefResolverFromProjection } from "@shared/graph";
 import { withSqlRead } from "../state/sql-read";

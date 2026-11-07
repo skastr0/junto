@@ -10,11 +10,10 @@ import type { ItemId, OverlayWait, PendingEntry, Refusal, ResourceRef } from "./
 import { WorkErrorBody } from "./work-control";
 import { OpId } from "./work-ids";
 
-const strict = { parseOptions: { onExcessProperty: "error" as const } };
 
 export const OP_LIST_MAX = 200;
 
-export const OpShowArgs = Schema.Struct({ opId: OpId }).annotate(strict);
+export const OpShowArgs = Schema.Struct({ opId: OpId });
 export type OpShowArgs = typeof OpShowArgs.Type;
 
 export const OpListState = Schema.Literals(["queued", "refused"]);
@@ -25,7 +24,7 @@ export const OpListArgs = Schema.Struct({
   /** Only writes older than this opId: the last one a page listed, to read the next page. */
   before: Schema.optionalKey(OpId),
   limit: Schema.optionalKey(Schema.Int.pipe(Schema.check(Schema.isBetween({ minimum: 1, maximum: OP_LIST_MAX })))),
-}).annotate(strict);
+});
 export type OpListArgs = typeof OpListArgs.Type;
 
 /**

@@ -1,4 +1,4 @@
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import { Effect, Option, Schema } from "effect";
 import { mintItemId } from "../../shared/resource-command";
 import {
@@ -32,12 +32,12 @@ import { taskRulesCommand } from "./work";
  * takes --op-id to retry one, and create mints the task's id.
  */
 
-const timeoutFlag = Flag.integer("timeout").pipe(
+const timeoutFlag = Flag.Int("timeout").pipe(
   Flag.optional,
   Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
 );
 
-const taskArg = Argument.string("task").pipe(Argument.withDescription("A task: #42, its id, or a junto:// ref"));
+const taskArg = Argument.String("task").pipe(Argument.withDescription("A task: #42, its id, or a junto:// ref"));
 
 const call = (op: TaskControlOp, args: unknown, timeout: Option.Option<number>) =>
   Effect.gen(function* () {
@@ -91,7 +91,7 @@ const DESCRIPTIONS = {
 type Verb = keyof typeof DESCRIPTIONS;
 const opOf = (verb: Verb): TaskControlOp => `task.${verb}` as TaskControlOp;
 
-const stateFlag = Flag.choice("state", TASK_STATES).pipe(
+const stateFlag = Flag.Literals("state", TASK_STATES).pipe(
   Flag.atLeast(0),
   Flag.withDescription("Only tasks in this state; repeat for several (default: every state but archived)"),
 );
@@ -99,15 +99,15 @@ const stateFlag = Flag.choice("state", TASK_STATES).pipe(
 const listCommand = Command.make(
   "list",
   {
-    node: Flag.string("node").pipe(Flag.optional, Flag.withDescription("A task node: its id, its name or a junto:// ref")),
+    node: Flag.String("node").pipe(Flag.optional, Flag.withDescription("A task node: its id, its name or a junto:// ref")),
     state: stateFlag,
-    assignee: Flag.string("assignee").pipe(Flag.optional, Flag.withDescription("Only tasks assigned to this seat, or me")),
-    reviewer: Flag.string("reviewer").pipe(
+    assignee: Flag.String("assignee").pipe(Flag.optional, Flag.withDescription("Only tasks assigned to this seat, or me")),
+    reviewer: Flag.String("reviewer").pipe(
       Flag.optional,
       Flag.withDescription("Only reviews this seat, or me, owes: in review, naming it, with no stamp from it at the current epoch, longest waiting first"),
     ),
-    limit: Flag.integer("limit").pipe(Flag.optional, Flag.withDescription(`At most this many (1 to ${TASK_LIST_LIMIT_MAX}, default 50)`)),
-    after: Flag.string("after").pipe(Flag.optional, Flag.withDescription("The next page: the next a page gave")),
+    limit: Flag.Int("limit").pipe(Flag.optional, Flag.withDescription(`At most this many (1 to ${TASK_LIST_LIMIT_MAX}, default 50)`)),
+    after: Flag.String("after").pipe(Flag.optional, Flag.withDescription("The next page: the next a page gave")),
     timeout: timeoutFlag,
   },
   ({ node, state, assignee, reviewer, limit, after, timeout }) =>
@@ -120,15 +120,15 @@ const listCommand = Command.make(
 const showCommand = Command.make("show", { task: taskArg, timeout: timeoutFlag }, ({ task, timeout }) =>
   run("show", "task.show", { task }, Option.none(), timeout)).pipe(Command.withDescription(DESCRIPTIONS.show));
 
-const bodyFlag = Flag.string("body").pipe(Flag.optional, Flag.withDescription("Markdown body"));
+const bodyFlag = Flag.String("body").pipe(Flag.optional, Flag.withDescription("Markdown body"));
 
 const createCommand = Command.make(
   "create",
   {
-    title: Argument.string("title").pipe(Argument.withDescription("The task's title")),
+    title: Argument.String("title").pipe(Argument.withDescription("The task's title")),
     body: bodyFlag,
-    node: Flag.string("node").pipe(Flag.optional, Flag.withDescription("The task node, when more than one is in reach")),
-    stamps: Flag.integer("stamps").pipe(Flag.optional, Flag.withDescription(`Approvals finishing needs (0 to ${STAMPS_REQUIRED_MAX}; default the node's)`)),
+    node: Flag.String("node").pipe(Flag.optional, Flag.withDescription("The task node, when more than one is in reach")),
+    stamps: Flag.Int("stamps").pipe(Flag.optional, Flag.withDescription(`Approvals finishing needs (0 to ${STAMPS_REQUIRED_MAX}; default the node's)`)),
     opId: opIdFlag,
     timeout: timeoutFlag,
   },
@@ -140,7 +140,7 @@ const editCommand = Command.make(
   "edit",
   {
     task: taskArg,
-    title: Flag.string("title").pipe(Flag.optional, Flag.withDescription("A new title")),
+    title: Flag.String("title").pipe(Flag.optional, Flag.withDescription("A new title")),
     body: bodyFlag,
     opId: opIdFlag,
     timeout: timeoutFlag,
@@ -152,7 +152,7 @@ const assignCommand = Command.make(
   "assign",
   {
     task: taskArg,
-    seat: Argument.string("seat").pipe(Argument.optional, Argument.withDescription("@name, a seat's name or id; this seat when left out")),
+    seat: Argument.String("seat").pipe(Argument.optional, Argument.withDescription("@name, a seat's name or id; this seat when left out")),
     opId: opIdFlag,
     timeout: timeoutFlag,
   },
@@ -164,7 +164,7 @@ const oneCommand = (verb: "unassign" | "start" | "pause" | "resume" | "cancel" |
   Command.make(verb, { task: taskArg, opId: opIdFlag, timeout: timeoutFlag }, ({ task, opId, timeout }) =>
     run(verb, opOf(verb), { task }, opId, timeout)).pipe(Command.withDescription(DESCRIPTIONS[verb]));
 
-const repeated = (name: string, description: string) => Flag.string(name).pipe(Flag.atLeast(0), Flag.withDescription(description));
+const repeated = (name: string, description: string) => Flag.String(name).pipe(Flag.atLeast(0), Flag.withDescription(description));
 
 /** `<left><sep><right>`, both sides non-empty, split at `at` (the first or last separator). */
 const pairOf = (flag: string, shape: string, value: string, at: number): Effect.Effect<readonly [string, string], InputError> =>
@@ -198,11 +198,11 @@ const finishCommand = Command.make(
   "finish",
   {
     task: taskArg,
-    next: Flag.string("next").pipe(Flag.optional, Flag.withDescription("The downstream task node to send it on to, when there are several")),
+    next: Flag.String("next").pipe(Flag.optional, Flag.withDescription("The downstream task node to send it on to, when there are several")),
     artifact: repeated("artifact", "An artifact this work produced, as <node id>/<artifactId>; repeat for several"),
     commit: repeated("commit", "A commit this work landed; repeat for several"),
     claim: repeated("claim", "Answer a rule in force: <ruleId>=<how this work meets it>; repeat for several"),
-    note: Flag.string("note").pipe(
+    note: Flag.String("note").pipe(
       Flag.optional,
       Flag.withDescription(`A handoff note for whoever picks the work up next: inline, @file or -, at most ${TASK_HANDOFF_MAX} characters`),
     ),
@@ -270,11 +270,11 @@ const checkCommand = Command.make(
     task: taskArg,
     outgoing: repeated("outgoing", "A check of this node you ran: <checkId>=<exitCode>; repeat for several"),
     incoming: repeated("incoming", "A check of the next node you ran: <checkId>=<exitCode>; repeat for several"),
-    results: Flag.string("results").pipe(
+    results: Flag.String("results").pipe(
       Flag.optional,
       Flag.withDescription(`Instead of the flags: [{checkId, side, exitCode, outputTail}] as JSON, @file or -; each tail keeps its last ${CHECK_OUTPUT_TAIL_MAX} characters`),
     ),
-    next: Flag.string("next").pipe(Flag.optional, Flag.withDescription("The node whose incoming checks these answer, when there are several")),
+    next: Flag.String("next").pipe(Flag.optional, Flag.withDescription("The node whose incoming checks these answer, when there are several")),
     opId: opIdFlag,
     timeout: timeoutFlag,
   },
@@ -293,7 +293,7 @@ const dependCommand = (verb: "depend" | "undepend") =>
     verb,
     {
       task: taskArg,
-      on: Flag.string("on").pipe(Flag.withDescription("The task it waits on: #42, its id, or a junto:// ref")),
+      on: Flag.String("on").pipe(Flag.withDescription("The task it waits on: #42, its id, or a junto:// ref")),
       opId: opIdFlag,
       timeout: timeoutFlag,
     },
@@ -305,7 +305,7 @@ const reviewerVerb = (verb: "add" | "remove") =>
     verb,
     {
       task: taskArg,
-      reviewer: Argument.string("reviewer").pipe(Argument.optional, Argument.withDescription("@name, a seat's name or id, or operator; this seat when left out")),
+      reviewer: Argument.String("reviewer").pipe(Argument.optional, Argument.withDescription("@name, a seat's name or id, or operator; this seat when left out")),
       opId: opIdFlag,
       timeout: timeoutFlag,
     },
@@ -322,7 +322,7 @@ const stampPolicyCommand = Command.make(
   "stamp-policy",
   {
     task: taskArg,
-    required: Argument.integer("required").pipe(Argument.withDescription(`Approvals finishing needs (0 to ${STAMPS_REQUIRED_MAX})`)),
+    required: Argument.Int("required").pipe(Argument.withDescription(`Approvals finishing needs (0 to ${STAMPS_REQUIRED_MAX})`)),
     opId: opIdFlag,
     timeout: timeoutFlag,
   },
@@ -333,11 +333,11 @@ const stampCommand = Command.make(
   "stamp",
   {
     task: taskArg,
-    verdict: Argument.choice("verdict", ["approve", "changes"] as const).pipe(
+    verdict: Argument.Literals("verdict", ["approve", "changes"] as const).pipe(
       Argument.withDescription("approve, or changes (with --text saying what to change)"),
     ),
-    text: Flag.string("text").pipe(Flag.optional, Flag.withDescription("What to change, with changes; a note with approve")),
-    subjectHash: Flag.string("subject-hash").pipe(Flag.optional, Flag.withDescription("Optional: the hash of what you reviewed, a commit sha say, kept on the stamp")),
+    text: Flag.String("text").pipe(Flag.optional, Flag.withDescription("What to change, with changes; a note with approve")),
+    subjectHash: Flag.String("subject-hash").pipe(Flag.optional, Flag.withDescription("Optional: the hash of what you reviewed, a commit sha say, kept on the stamp")),
     opId: opIdFlag,
     timeout: timeoutFlag,
   },
@@ -351,7 +351,7 @@ const commentCommand = Command.make(
   "comment",
   {
     task: taskArg,
-    text: Argument.string("text").pipe(Argument.withDescription("The comment; @name mentions a seat")),
+    text: Argument.String("text").pipe(Argument.withDescription("The comment; @name mentions a seat")),
     opId: opIdFlag,
     timeout: timeoutFlag,
   },

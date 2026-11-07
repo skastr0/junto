@@ -58,7 +58,7 @@ import { readMachineLog } from "./junto/observability/log-file";
 import { MachineLogQuery, MachineLogRead } from "@shared/machine-log";
 import { ModelService } from "./junto/model/service";
 import { ModelRecords } from "./junto/model/records";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { shotEntitled } from "./junto/content/shot-entitlement";
 import { sweepPurgedShotCopies, unlessShotPurged } from "./junto/work/shot-purge";
 import { OWNER_ENTITLEMENT, isPullableOwnerKind } from "@shared/content-pull";

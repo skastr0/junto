@@ -44,13 +44,13 @@ describe("op show: what became of a write", () => {
 
 describe("op args", () => {
   it("show takes one opId and nothing else", () => {
-    expect(Result.isSuccess(Schema.decodeUnknownResult(OpShowArgs)({ opId }))).toBe(true);
-    expect(Result.isFailure(Schema.decodeUnknownResult(OpShowArgs)({ opId: "op-1" }))).toBe(true);
-    expect(Result.isFailure(Schema.decodeUnknownResult(OpShowArgs)({ opId, seat: "x" }))).toBe(true);
+    expect(Result.isSuccess(Schema.decodeUnknownResult(OpShowArgs, { onExcessProperty: "error" })({ opId }))).toBe(true);
+    expect(Result.isFailure(Schema.decodeUnknownResult(OpShowArgs, { onExcessProperty: "error" })({ opId: "op-1" }))).toBe(true);
+    expect(Result.isFailure(Schema.decodeUnknownResult(OpShowArgs, { onExcessProperty: "error" })({ opId, seat: "x" }))).toBe(true);
   });
 
   it("list filters on queued or refused, never applied, with a bounded limit", () => {
-    const decode = Schema.decodeUnknownResult(OpListArgs);
+    const decode = Schema.decodeUnknownResult(OpListArgs, { onExcessProperty: "error" });
     for (const ok of [{}, { state: "queued" }, { state: "refused", limit: 200 }, { before: opId }]) expect(Result.isSuccess(decode(ok))).toBe(true);
     for (const bad of [{ state: "applied" }, { limit: 0 }, { limit: 201 }, { limit: 1.5 }, { before: "op-1" }]) expect(Result.isFailure(decode(bad))).toBe(true);
   });
