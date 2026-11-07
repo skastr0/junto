@@ -18,7 +18,7 @@ REPLACE=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --verify) VERIFY=1 ;;
-    # A local rebuild (build-app.sh --fast): this attempt's own names replace
+    # A local rebuild (the --fast build passes --replace): this attempt's own names replace
     # the previous build's. The release lane never passes it, so it keeps the
     # no-clobber publication below.
     --replace) REPLACE=1 ;;
