@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -52,13 +52,22 @@ describe("renames made outside Junto", () => {
 
   it("does not pair a delete and an unrelated new file", async () => {
     const known = await knownOf("docs/a.md");
-    await rm(join(root, "docs/a.md"));
-    await writeFile(join(root, "docs/new.md"), "a");
-    expect(await pairRenames(root, [p("docs/a.md"), p("docs/new.md")], known)).toEqual({
-      moves: [],
-      unpaired: ["docs/a.md"],
-      expired: [],
-    });
+    // A handle open on the deleted file keeps its inode, so the new file gets
+    // its own on every filesystem. ext4 and tmpfs otherwise hand the freed
+    // inode on at once, and within one timestamp tick the two stat the same;
+    // that case is the next test's.
+    const held = await open(join(root, "docs/a.md"), "r");
+    try {
+      await rm(join(root, "docs/a.md"));
+      await writeFile(join(root, "docs/new.md"), "a");
+      expect(await pairRenames(root, [p("docs/a.md"), p("docs/new.md")], known)).toEqual({
+        moves: [],
+        unpaired: ["docs/a.md"],
+        expired: [],
+      });
+    } finally {
+      await held.close();
+    }
   });
 
   it("pairs a rename whose two halves fall in two batches, and holds a gone path for one batch only", async () => {
