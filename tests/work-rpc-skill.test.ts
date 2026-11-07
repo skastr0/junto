@@ -244,7 +244,11 @@ describe("the skill contract across the work socket", () => {
     const refusedAutomation = await raw("automation.list", { node: "x" });
     expect(refusedAutomation.error.details).toEqual({ path: "args", hint: "junto schema show shows this command's input", retryable: false });
     const refusedList = await raw("references.list", { name: "x" });
-    expect(refusedList.error.details).toEqual({ path: "args", retryable: false, hint: "junto schema show references.list" });
+    expect(refusedList.error).toEqual({
+      type: "InputError",
+      message: "references list takes no arguments: a seat lists its own scope",
+      details: { path: "args", retryable: false, hint: "junto schema show references.list" },
+    });
     const refusedRead = await raw("references.read", {});
     expect(refusedRead.error.details).toEqual({ path: "args", retryable: false, hint: "junto schema show references.read" });
   });

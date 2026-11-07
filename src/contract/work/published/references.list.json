@@ -5,7 +5,14 @@
     "schema": {
       "not": {
         "type": "null"
-      }
+      },
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      ]
     },
     "definitions": {}
   },

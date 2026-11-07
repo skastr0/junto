@@ -193,7 +193,18 @@ export const AutomationList = schemaShownRpc("automation.list", AutomationListAr
 export const AutomationShow = schemaShownRpc("automation.show", AutomationShowArgs, AutomationShowAnswer);
 export const AutomationHistory = schemaShownRpc("automation.history", AutomationHistoryArgs, AutomationHistoryAnswer);
 
-export const ReferencesList = Rpc.make("references.list", { payload: ReferencesListArgs, success: ReferencesListAnswer, error: WorkFailure })
+/**
+ * An empty struct admits any object, and publishes as "not null": this one
+ * takes no key, publishes as a closed object, and refuses a key in the words
+ * the verb always used.
+ */
+const ReferencesListNoArgs = ReferencesListArgs.check(
+  Schema.makeFilter((args) => Object.keys(args).length === 0 || "references list takes no arguments: a seat lists its own scope", {
+    toJsonSchema: () => ({ type: "object", properties: {}, additionalProperties: false }),
+  }),
+);
+
+export const ReferencesList = Rpc.make("references.list", { payload: ReferencesListNoArgs, success: ReferencesListAnswer, error: WorkFailure })
   .annotate(WorkInputHint, "junto schema show references.list");
 export const ReferencesRead = Rpc.make("references.read", { payload: ReferencesReadArgs, success: ReferencesReadAnswer, error: WorkFailure })
   .annotate(WorkInputHint, "junto schema show references.read");
