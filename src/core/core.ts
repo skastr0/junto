@@ -1,4 +1,4 @@
-import { Context, Effect, Schema } from "effect";
+import { Context, Effect, Option, Schema } from "effect";
 import { join } from "node:path";
 import type { CoreRuntime, MachineCoreOptions } from "./core-runtime";
 import { makeCoreRuntime } from "./core-runtime";
@@ -11,8 +11,7 @@ import { makeNativeConfigChannel } from "./inventory/native-channel";
 import { FILES_REMOTE_ENABLED } from "@shared/features";
 import { makeHeadlessFilesService } from "./files/headless-service";
 import { makeFilesLinkChannel } from "./files/link";
-import { makeFilesRemote } from "./files/link-client";
-import { holdFilesRemote } from "./files/remote-holder";
+import { FilesRemoteService } from "./files/link-client";
 import { FILES_REMOTE_CHANGED, SEAT_CACHE_DUE_CHANGED } from "../contract/core/channels";
 import { unboundYet } from "./link/unbound";
 import { makeSettingsChannel } from "./settings/link-channel";
@@ -185,7 +184,6 @@ export const startCore = async (options: CoreOptions) => {
     work?.beginShutdown();
     canvas?.beginShutdown();
     mail?.seats.suspend();
-    holdFilesRemote(undefined);
     sessions?.stop();
     stopSeatReports?.();
     stopSeatWatches?.();
@@ -313,8 +311,7 @@ export const startCore = async (options: CoreOptions) => {
     // link, seats and all, so with the feature off the channel is there and refuses every op denied.
     const filesHost = FILES_REMOTE_ENABLED ? makeHeadlessFilesService() : undefined;
     // This core's end of another machine's Files node: the window's router asks it by name.
-    const filesRemote = FILES_REMOTE_ENABLED ? await runtime.runPromise(makeFilesRemote()) : undefined;
-    holdFilesRemote(filesRemote);
+    const filesRemote = Option.getOrUndefined(await runtime.runPromise(Effect.serviceOption(FilesRemoteService)));
     filesRemote?.onChange((change) => publish(FILES_REMOTE_CHANGED, change));
     const files = await runtime.runPromise(makeFilesLinkChannel({
       enabled: FILES_REMOTE_ENABLED,

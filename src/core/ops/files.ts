@@ -18,7 +18,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { SqlClient } from "effect/sql";
 import {
   FILES_SOURCE_MAX,
@@ -32,7 +32,7 @@ import { carryFileThreads } from "../work/file-thread-paths";
 import { deny, machineName, nodeFacts } from "../files/host-deps";
 import { workerRootIndex } from "../files/index-worker-host";
 import { peerSubscribers } from "../files/peer-subscribers";
-import { heldFilesRemote } from "../files/remote-holder";
+import { FilesRemoteService } from "../files/link-client";
 import { makeFilesRouter } from "../files/router";
 import { readerOfHandle, type FileBytesReader } from "../files/bytes";
 import { makeFilesService } from "../files/service";
@@ -83,6 +83,8 @@ const ask = <A>(call: () => Promise<FilesResult<A>>): Effect.Effect<FilesResult<
 export const FilesHandlers = FilesRpcs.toLayer(
   Effect.gen(function* () {
     const pushes = yield* CorePushes;
+    // Absent in a core with filesRemote off: its Layer is not provided (core-runtime.ts).
+    const remote = Option.getOrUndefined(yield* Effect.serviceOption(FilesRemoteService));
 
     /** A change goes to the window that has the node open, by a push main forwards. */
     const send = (subscriber: number, event: FilesChanged): void => {
@@ -106,7 +108,7 @@ export const FilesHandlers = FilesRpcs.toLayer(
     const router = makeFilesRouter({
       local: service,
       // Another machine's node: the link client this core holds (junto/core.ts).
-      remote: () => heldFilesRemote() ?? undefined,
+      remote: () => remote,
       node: nodeFacts,
       machineName,
       send,

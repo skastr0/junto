@@ -34,7 +34,7 @@ import type { ViewStateEvent } from "@shared/view-state";
 import type { WireTrafficEvent } from "@shared/wire-traffic";
 import type { SeatAwarenessEvent } from "../../shared/seat-awareness-contract";
 import type { FilesChanged } from "@shared/files";
-import type { RemoteChange } from "../../core/files/link-client";
+import type { RemoteChange } from "@shared/files-link";
 import type { ActorRefsChanged } from "../../core/model/actor-refs";
 import type { LocalHostEvent } from "../../core/term/local-host";
 

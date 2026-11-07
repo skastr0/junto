@@ -14,7 +14,8 @@ import { MachineOwnerControl, makeMachineOwnerActions } from "./hosts/machine-ow
 import { join } from "node:path";
 import { makeMachineLinkSetup } from "./hosts/machine-link";
 import { homedir } from "node:os";
-import { VAULT_ENABLED } from "@shared/features";
+import { FILES_REMOTE_ENABLED, VAULT_ENABLED } from "@shared/features";
+import { filesRemoteLayer } from "./files/link-client";
 import { makeVaultSetup } from "./vault/setup";
 import { runTool } from "./region-env/tool";
 import { resolvedSpawnEnv } from "./adapters/spawn-env";
@@ -539,7 +540,10 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
 /** One StateEngine reference feeds identity, registry, link and owner commands. */
 export const makeMachineCoreLayer = (options: MachineCoreOptions) => {
   // The automation runner over both: it queues a write off the editing machine through the machine's submit path.
-  return Layer.provideMerge(automationRunnerLayer, Layer.provideMerge(makeMachineServicesLayer(options), makeCoreProductLayer(options.home, options.log)));
+  const services = Layer.provideMerge(makeMachineServicesLayer(options), makeCoreProductLayer(options.home, options.log));
+  // The files remote is held by this runtime only while filesRemote is on; off, no Layer provides it.
+  const files = FILES_REMOTE_ENABLED ? Layer.provideMerge(filesRemoteLayer(), services) : services;
+  return Layer.provideMerge(automationRunnerLayer, files);
 };
 
 export const makeCoreRuntime = (options: MachineCoreOptions) =>
