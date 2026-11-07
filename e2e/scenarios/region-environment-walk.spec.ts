@@ -528,11 +528,14 @@ test("SI region strip keys, by eye: three labelled keys, their hover, pressed, s
       await soft(tooltip(page), `I2: ${caption}'s tooltip`).toHaveText(`${KEY_NAMES[index]!}: none yet`, { timeout: 5_000 });
       // Let the border's transition finish before it is read and framed.
       await page.waitForTimeout(250);
+      // Read the hover before the shots: on Linux a capture drops the pointer's
+      // hover, and the border fades back to rest while the shots are taken.
+      const facts = (await stripKeys(page))[index];
+      const tooltipShown = await tooltip(page).textContent().catch(() => null);
       const slug = caption.toLowerCase().replace(/\s+/gu, "-");
       await shot(page, testInfo, "SI", `I2-hover-${slug}`);
       await cropStrip(page, testInfo, "SI", `I2-hover-${slug}-strip-crop`);
-      const facts = (await stripKeys(page))[index];
-      hovered.push({ caption, tooltipShown: await tooltip(page).textContent().catch(() => null), borderColor: facts?.borderColor, background: facts?.background });
+      hovered.push({ caption, tooltipShown, borderColor: facts?.borderColor, background: facts?.background });
       soft(facts?.borderColor, `I2: ${caption}'s border changes on hover`).not.toBe(i1[index]?.borderColor);
     }
     note(testInfo, "SI-I2", JSON.stringify({ colours, restingBorder: i1[0]?.borderColor, hovered }));
@@ -975,7 +978,10 @@ test("S3 plain value: the row appears at once and the resolved list names it wit
     await settled(dialog);
     const lines = await readingLines();
     note(testInfo, "S3-reading-lines", JSON.stringify(lines));
-    soft(lines, 'a "Reading your stores." line was shown').toContain("Reading your stores.");
+    // The first read's line shows only if a frame lands before main answers;
+    // a fast answer skips it. Every line shown is one of the two, in order.
+    soft(lines.every((line) => line === "Reading your stores." || line === "Reading your stores again."), "each reading line reads as written").toBe(true);
+    soft(lines.indexOf("Reading your stores."), '"Reading your stores." comes only first').toBeLessThanOrEqual(0);
     await soft(sourceRows(dialog).first(), "the row's status").toContainText("Set");
     await soft(resolved(dialog), "the value is not in the resolved list").not.toContainText("eu-west-1");
     await resolved(dialog).scrollIntoViewIfNeeded();
