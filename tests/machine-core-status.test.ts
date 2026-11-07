@@ -1,17 +1,15 @@
-import { PassThrough } from "node:stream";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { expect, it, vi } from "vitest";
 import { MachineCoreStatus, machineCoreStatusLayer } from "../src/core/core-runtime";
 import { linkClient } from "../src/core/link/contract";
-import { LinkHelloSchema } from "../src/core/link/protocol";
 import { MachineLink } from "../src/core/link/service";
-import { makeLinkSession } from "../src/core/link/session";
 import { StatusLink, makeStatusChannel } from "../src/core/link/status";
 import type { LinkChannelBinding } from "../src/core/link/types";
 import { MachineRepository } from "../src/core/machines/repository";
 import { ModelRecords } from "../src/core/model/records";
 import { InstallationId } from "../src/shared/installation-id";
 import { MachineHarnesses, MachineOwnStatus } from "../src/shared/machine-control";
+import { hello, machineLinkOver, pair } from "./support/link-pair";
 import { makeTestLog } from "./support/test-log";
 
 const testLog = makeTestLog();
@@ -57,18 +55,10 @@ it("reports the same bounded facts to the owner and the linked machine, once per
       { harness: "amp", installed: true, signIn: "sign-in-unverified" },
     ] });
     // "book" asks this machine ("mini") over a real session pair, with the channel's typed client.
-    const hello = (machineName: string, id: string) => Schema.decodeUnknownSync(LinkHelloSchema)({ build: "a".repeat(64), installationId: id, machineName });
-    const ab = new PassThrough(); const ba = new PassThrough();
     const run = <A, E>(effect: Effect.Effect<A, E>) => runtime.runPromise(effect);
     const asking: LinkChannelBinding = makeStatusChannel({ machine: Effect.die("the asking end answers nothing"), logs: () => Effect.die("the asking end answers nothing") });
-    const book = makeLinkSession({ readable: ba, writable: ab, self: hello("book", installationId), admit: async () => {}, channels: { status: asking }, run });
-    const mini = makeLinkSession({ readable: ab, writable: ba, self: hello("mini", "mini-installation"), admit: async () => {}, channels: { status: status.handler }, run });
-    const unused = Effect.die("unused");
-    const link = MachineLink.of({
-      setChannels: () => unused, listen: () => unused, connect: () => unused, connectSetup: () => unused, disconnect: () => unused, peerBuild: () => unused,
-      request: (_machine, channel, payload, options) => Effect.promise(() => book.request(channel, payload, options?.operationId, options?.tag)),
-      sendEvent: () => unused,
-    });
+    const { a: book, b: mini } = pair({ self: hello("book", installationId), channels: { status: asking }, run }, { self: hello("mini", "mini-installation"), channels: { status: status.handler }, run });
+    const link = machineLinkOver(book);
     const ask = <A>(use: (client: Effect.Success<ReturnType<typeof linkClient<typeof StatusLink>>>) => Effect.Effect<A, unknown>) =>
       runtime.runPromise(Effect.flatMap(linkClient(StatusLink), use).pipe(Effect.provideService(MachineLink, link)));
     const peer = await ask((client) => client.Machine("mini"));

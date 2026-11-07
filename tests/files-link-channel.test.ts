@@ -27,7 +27,7 @@ import { THIS_MACHINE } from "./support/machines";
 import { files as filesNode } from "./support/model-nodes";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
 import { clearMachines, seedThisMachine } from "./support/seed-this-machine";
-import { hello, machineLinkLayer, machineLinkOver, makeSessions, pair } from "./support/files-link-pair";
+import { hello, machineLinkLayer, machineLinkOver, makeSessions, pair } from "./support/link-pair";
 import type { LinkSession } from "../src/core/link/types";
 
 const installation = Schema.decodeUnknownSync(InstallationId);

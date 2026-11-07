@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ContentLink, makeContentChannel, type PulledOwner } from "../src/core/content/pull";
 import { linkClient } from "../src/core/link/contract";
 import { MachineLink } from "../src/core/link/service";
-import { machineLinkOver } from "./support/session-link";
+import { machineLinkOver } from "./support/link-pair";
 import { signalFileEntitled } from "../src/core/content/signal-entitlement";
 import { ingestContentBytes } from "../src/node/content/store";
 import { statContentForTransfer } from "../src/node/content/transfer-local";

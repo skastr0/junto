@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeError } from "../src/node/failure-encode";
@@ -18,13 +17,13 @@ import {
   wireSnapshot,
 } from "../src/core/inventory/wire";
 import { bindLinkChannel, linkClient, type LinkContractChannel } from "../src/core/link/contract";
-import { decodeLinkFrame, LinkHelloSchema, type LinkFrame } from "../src/core/link/protocol";
-import { isMachineLinkError, LinkUnavailable, MachineLink } from "../src/core/link/service";
-import { makeLinkSession } from "../src/core/link/session";
-import { linkClosed, type LinkChannelContext, type LinkHello, type LinkSession } from "../src/core/link/types";
+import type { LinkFrame } from "../src/core/link/protocol";
+import { MachineLink } from "../src/core/link/service";
+import type { LinkChannelContext, LinkHello, LinkSession } from "../src/core/link/types";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
 import { ModelService } from "../src/core/model/service";
 import { makeStateEngineLive } from "../src/core/state/engine";
+import { facingRaw as linkFacingRaw, hello, machineLinkOver, makeSessions, pair as linkPair, type Run } from "./support/link-pair";
 import { makeTestLog } from "./support/test-log";
 
 const testLog = makeTestLog();
@@ -74,7 +73,7 @@ const local = (machine: string): MachineInventory => ({
 const cleanups: Array<() => Promise<void>> = [];
 beforeEach(() => seedThisMachine());
 afterEach(async () => {
-  await Promise.all(sessions.splice(0).map((session) => session.close()));
+  await sessions.closeAll();
   for (const close of cleanups.splice(0).reverse()) await close();
   clearMachines();
 });
@@ -111,70 +110,42 @@ const runtimeWith = async (nodes: ReadonlyArray<Node>, canvasEditor: "editor" | 
 
 // ── Two ends of one link, over a pair of streams ──────────────────────────
 
-const sessions: LinkSession[] = [];
-const BUILD = "a".repeat(64);
-const helloOf = (machineName: string, installationId: string): LinkHello =>
-  Schema.decodeUnknownSync(LinkHelloSchema)({ build: BUILD, installationId, machineName });
+const sessions = makeSessions();
+const helloOf = (machineName: string, installationId: string): LinkHello => hello(machineName, installationId);
 const EDITOR_HELLO = helloOf("macbook", "editor-installation");
 const PEER_HELLO = helloOf(PEER, "mini-installation");
 
 /** The asking end binds the contract too: it encodes what it sends and decodes what it gets with it. */
 const asking = (): LinkContractChannel => bindLinkChannel(InventoryLink, { requests: { Snapshot: () => Effect.die("the asking end answers nothing") } });
 
-type Run = <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
-
-/** A real session at each end. */
+/** A real session at each end, on the inventory channel. */
 const pair = (options: {
   readonly left: LinkHello; readonly right: LinkHello;
   readonly leftChannel: LinkContractChannel; readonly rightChannel: LinkContractChannel;
   readonly run: Run;
 }) => {
-  const ab = new PassThrough(); const ba = new PassThrough();
-  const left = makeLinkSession({ readable: ba, writable: ab, self: options.left, admit: async () => {}, channels: { inventory: options.leftChannel }, run: options.run });
-  const right = makeLinkSession({ readable: ab, writable: ba, self: options.right, admit: async () => {}, channels: { inventory: options.rightChannel }, run: options.run });
-  sessions.push(left, right);
+  const { a: left, b: right } = linkPair(
+    { self: options.left, channels: { inventory: options.leftChannel }, run: options.run },
+    { self: options.right, channels: { inventory: options.rightChannel }, run: options.run },
+  );
+  sessions.keep(left, right);
   return { left, right };
 };
 
-/** A real session facing an end written by hand, which says hello and writes what `reply` returns to each frame. */
+/** A real session facing an end written by hand, on the inventory channel. */
 const facingRaw = (options: {
   readonly self: LinkHello; readonly peer: LinkHello; readonly channel: LinkContractChannel; readonly run: Run;
   readonly reply?: (frame: LinkFrame) => unknown;
 }) => {
-  const toSession = new PassThrough(); const fromSession = new PassThrough();
-  const frames: LinkFrame[] = [];
-  const send = (frame: unknown) => toSession.write(`${JSON.stringify(frame)}\n`);
-  let pending = "";
-  fromSession.on("data", (bytes: Buffer) => {
-    pending += bytes.toString();
-    for (let newline = pending.indexOf("\n"); newline >= 0; newline = pending.indexOf("\n")) {
-      const frame = decodeLinkFrame(JSON.parse(pending.slice(0, newline)));
-      pending = pending.slice(newline + 1);
-      frames.push(frame);
-      if (frame.type === "hello") send({ type: "hello", ...options.peer });
-      else if (options.reply !== undefined) { const answer = options.reply(frame); if (answer !== undefined) send(answer); }
-    }
-  });
-  const session = makeLinkSession({ readable: toSession, writable: fromSession, self: options.self, admit: async () => {}, channels: { inventory: options.channel }, run: options.run });
-  sessions.push(session);
-  return { session, send, frames };
+  const raw = linkFacingRaw(options.self, options.peer, { inventory: options.channel }, options.reply, options.run);
+  sessions.keep(raw.session);
+  return raw;
 };
 
-/** This core's link, with one peer reached over `session`, as `MachineLink` sees it. */
-const linkOver = (session: () => LinkSession | undefined) => {
-  const unused = Effect.die("unused machine operation");
-  const toLink = (machine: string) => (cause: unknown) => isMachineLinkError(cause) ? cause : linkClosed({ machine, by: "this-end", reason: "failed", cause });
-  return MachineLink.of({
-    setChannels: () => unused, listen: () => unused, connectSetup: () => unused, disconnect: () => unused, peerBuild: () => unused,
-    connect: () => Effect.succeed({ machineName: PEER, installationId: editor, boundAt: "2026-10-17" }),
-    request: (machine, channel, payload, options) => {
-      const held = session();
-      if (held === undefined) return Effect.fail(new LinkUnavailable({ machine, reason: "not-linked", message: `${machine} is not linked` }));
-      return Effect.tryPromise({ try: (signal) => held.request(channel, payload, options?.operationId, options?.tag, signal), catch: toLink(machine) });
-    },
-    sendEvent: (machine, channel, payload) => Effect.tryPromise({ try: () => session()!.sendEvent(channel, payload), catch: toLink(machine) }),
-  });
-};
+/** This core's link, with one peer reached over `session`; a connect reaches that peer. */
+const linkOver = (session: () => LinkSession | undefined) => machineLinkOver(session, {
+  connect: () => Effect.succeed({ machineName: PEER, installationId: editor, boundAt: "2026-10-17" }),
+});
 
 describe("inventory wire", () => {
   it("builds the snapshot field by field: no path, failure text or description, bad models left out", () => {

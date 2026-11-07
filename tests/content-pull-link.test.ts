@@ -24,7 +24,7 @@ import { contentTransferPartialId, statContentForTransfer } from "../src/node/co
 import { LinkHelloSchema } from "../src/core/link/protocol";
 import { makeLinkSession } from "../src/core/link/session";
 import { linkClosed, type LinkChannelContext, type LinkSession } from "../src/core/link/types";
-import { machineLinkOver } from "./support/session-link";
+import { machineLinkOver } from "./support/link-pair";
 
 const id = Schema.decodeUnknownSync(InstallationId);
 const EDITOR = id("macbook-install");
