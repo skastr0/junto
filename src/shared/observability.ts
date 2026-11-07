@@ -1,4 +1,4 @@
-import { Result, Schema } from "effect";
+import { Schema } from "effect";
 
 /**
  * Process-local observability surface for the developer logs explorer.
@@ -71,22 +71,6 @@ export const ObservabilityAppendInput = Schema.Struct({
   annotations: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
 });
 export type ObservabilityAppendInput = typeof ObservabilityAppendInput.Type;
-
-/** Drop present-but-undefined keys (IPC / object literals break exact optionals). */
-const withoutUndefinedKeys = (raw: unknown): unknown =>
-  raw === null || typeof raw !== "object" || Array.isArray(raw)
-    ? raw
-    : Object.fromEntries(Object.entries(raw).filter(([, value]) => value !== undefined));
-
-/**
- * A panel's query at main's edge, decoded closed. Soft: none, or a query this
- * build does not read, asks for the ring unfiltered.
- */
-export const observabilityQueryFromWindow = (raw: unknown): ObservabilityQuery | undefined => {
-  if (raw === undefined || raw === null) return undefined;
-  const decoded = Schema.decodeUnknownResult(ObservabilityQuery)(withoutUndefinedKeys(raw), { onExcessProperty: "error" });
-  return Result.isSuccess(decoded) ? decoded.success : undefined;
-};
 
 export const OBSERVABILITY_LEVEL_RANK: Record<ObservabilityLogLevel, number> = {
   trace: 0,

@@ -18,6 +18,8 @@ import {
   type ObservabilityQuery,
 } from "@shared/observability";
 import { DEV_TOOLS_ENABLED } from "@shared/features";
+import { ObservabilityWindow, type ObservabilityLiveEvent } from "../../contract/window/observability";
+import { follow, useWindowRuntime, useWindowService } from "../rpc/runtime";
 import { state$ } from "../lib/state";
 import { DIM, FAINT, GREEN, HUE, INK, RAISE, WELL, withAlpha } from "../lib/theme";
 import { IconButton, OverlayHeader } from "./ui";
@@ -197,6 +199,8 @@ const buildQuery = (
 };
 
 export function ObservabilityPanel() {
+  const runtime = useWindowRuntime();
+  const observability = useWindowService(ObservabilityWindow);
   const open = use$(state$.observabilityOpen);
   const [entries, setEntries] = useState<ReadonlyArray<ObservabilityLogEntry>>([]);
   const [total, setTotal] = useState(0);
@@ -233,39 +237,20 @@ export function ObservabilityPanel() {
   );
 
   const load = useCallback(async () => {
-    if (!window.junto?.observabilityQuery) return;
-    // Empty chip set → show nothing (avoid invalid IPC query).
+    // Empty chip set → show nothing (avoid an invalid query).
     if (levels.length === 0 || sources.length === 0) {
       setEntries([]);
       return;
     }
     const gen = ++loadGen.current;
     try {
-      const snap = await window.junto.observabilityQuery(queryRef.current);
+      const snap = await runtime.runPromise(observability.ObservabilityQuery({ query: queryRef.current }));
       if (gen !== loadGen.current) return;
       applySnapshot(snap);
     } catch {
       // Unreachable backend or invalid query: leave prior frame.
     }
-  }, [levels, sources, applySnapshot]);
-
-  // Watch interest while open (live push only with ≥1 watcher).
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    const api = window.junto;
-    if (!api?.observabilityWatch) return;
-    void api.observabilityWatch().then((snap) => {
-      if (cancelled) return;
-      setCapacity(snap.capacity);
-      setTotal(snap.total);
-      setDropped(snap.dropped);
-    });
-    return () => {
-      cancelled = true;
-      void api.observabilityUnwatch?.();
-    };
-  }, [open]);
+  }, [levels, sources, applySnapshot, runtime, observability]);
 
   // Snapshot reload when filters change (or on open).
   useEffect(() => {
@@ -273,33 +258,45 @@ export function ObservabilityPanel() {
     void load();
   }, [open, q, levels, sources, load]);
 
-  // Live push while open + live.
+  // While open and live, the panel's watch: the ring's counts, then each new
+  // row and each clear. The core's watch slot closes with the stream, so it
+  // never outlives the panel.
   useEffect(() => {
     if (!open || !live) return;
-    const unsubLog = window.junto?.onObservabilityLog?.((entry) => {
-      if (!matchesObservabilityQuery(entry, queryRef.current)) return;
-      setEntries((prev) => {
-        const next = [...prev, entry];
-        return next.length > 800 ? next.slice(-800) : next;
-      });
-      setTotal((t) => {
-        if (t >= capacity) {
-          setDropped((d) => d + 1);
-          return capacity;
+    // `Opened` comes first, with the ring's capacity, before any row.
+    let ringCapacity = 0;
+    const apply = (event: ObservabilityLiveEvent): void => {
+      switch (event._tag) {
+        case "Opened":
+          ringCapacity = event.snapshot.capacity;
+          setCapacity(event.snapshot.capacity);
+          setTotal(event.snapshot.total);
+          setDropped(event.snapshot.dropped);
+          return;
+        case "Row": {
+          const entry = event.entry;
+          if (!matchesObservabilityQuery(entry, queryRef.current)) return;
+          setEntries((prev) => {
+            const next = [...prev, entry];
+            return next.length > 800 ? next.slice(-800) : next;
+          });
+          setTotal((t) => {
+            if (t >= ringCapacity) {
+              setDropped((d) => d + 1);
+              return ringCapacity;
+            }
+            return t + 1;
+          });
+          return;
         }
-        return t + 1;
-      });
-    });
-    const unsubClear = window.junto?.onObservabilityCleared?.((payload) => {
-      setEntries([]);
-      setTotal(payload.total);
-      setDropped(payload.dropped);
-    });
-    return () => {
-      unsubLog?.();
-      unsubClear?.();
+        case "Cleared":
+          setEntries([]);
+          setTotal(event.cleared.total);
+          setDropped(event.cleared.dropped);
+      }
     };
-  }, [open, live, capacity]);
+    return follow(runtime, observability.ObservabilityLive(), apply);
+  }, [open, live, runtime, observability]);
 
   useEffect(() => {
     if (!open || !stickBottom) return;
@@ -321,8 +318,7 @@ export function ObservabilityPanel() {
   };
 
   const clear = async () => {
-    if (!window.junto?.observabilityClear) return;
-    await window.junto.observabilityClear();
+    await runtime.runPromise(observability.ObservabilityClear());
     setEntries([]);
     setTotal(0);
     setDropped(0);

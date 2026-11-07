@@ -40,7 +40,7 @@ import { registerModelWatches } from "./model/watch-ipc";
 import { registerStatusIpc } from "./status/status-ipc";
 import { registerSignalsIpc } from "./signals/signals-ipc";
 import { WIRE_TRAFFIC } from "../contract/core/channels";
-import { registerObservabilityIpc } from "./observability/ipc";
+import { registerObservabilityAppend } from "./observability/ipc";
 import { registerWindowLink } from "./window/ipc";
 import { windowHandlers } from "./window/handlers-ipc";
 import type { AgentSignal } from "@shared/agent-signals";
@@ -159,7 +159,7 @@ export const registerJuntoIpc = (boot: MainBoot): void => {
   // core's work group where the store is (`WorkArtifactLinks`), and the
   // artifact change relayed above tells the panes to read again.
   registerArtifactLinksIpc(privilegedIpc, boot.core);
-  registerObservabilityIpc(privilegedIpc, broadcast, boot.core);
+  registerObservabilityAppend(boot.core);
   if (FLEET_UI_ENABLED) {
     registerHostsIpc(privilegedIpc, boot.core);
   }

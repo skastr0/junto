@@ -145,17 +145,7 @@ import type { AgentSignalOperatorResult as AgentSignalOperatorResultSchema } fro
 import type { DigestResult as DigestResultSchema } from "../contract/core/status";
 import type { SeatCacheWindow, SeatNextTurn } from "./seat-next-launch";
 import type { OverseerLiveApi } from "./overseer-live";
-import type {
-  ObservabilityLogEntry,
-  ObservabilityQuery,
-  ObservabilitySnapshot,
-} from "./observability";
 export type { UpdateStatus, AvailableRelease, UpdatePhase } from "./update";
-export type {
-  ObservabilityLogEntry,
-  ObservabilityQuery,
-  ObservabilitySnapshot,
-} from "./observability";
 
 export type AgentSignalOperatorResult = typeof AgentSignalOperatorResultSchema.Type;
 
@@ -496,16 +486,6 @@ export const IPC_CHANNELS = {
   /** Renderer → main: one piece of a file the operator attaches to mail, staged in the content store. */
   operatorContentPut: "junto:operator-content-put",
   browserSessionChanged: "junto:browser-session-changed",
-  // Developer observability ring (process-local; UI gated by advanced.logsExplorer)
-  observabilityQuery: "junto:observability-query",
-  observabilityClear: "junto:observability-clear",
-  /** Renderer interest: enable live push while the explorer is open. */
-  observabilityWatch: "junto:observability-watch",
-  observabilityUnwatch: "junto:observability-unwatch",
-  /** Main → renderer: one structured log entry (only while watched). */
-  observabilityLog: "junto:observability-log",
-  /** Main → renderer: ring was cleared. */
-  observabilityCleared: "junto:observability-cleared",
 } as const;
 
 export interface ChassisApi {
@@ -989,27 +969,6 @@ export interface JuntoApi extends OverseerLiveApi {
     id: StateBackupId,
   ) => Promise<StateRecoveryExportResult>;
   readonly onSettingsChanged: (listener: (settings: Settings) => void) => () => void;
-  /**
-   * Developer observability ring — process-local Effect + console logs.
-   * UI gated by `settings.advanced.logsExplorer`.
-   */
-  readonly observabilityQuery: (
-    query?: ObservabilityQuery,
-  ) => Promise<ObservabilitySnapshot>;
-  readonly observabilityClear: () => Promise<ObservabilitySnapshot>;
-  /** Open a live-push interest slot (call while explorer is mounted). */
-  readonly observabilityWatch: () => Promise<ObservabilitySnapshot>;
-  readonly observabilityUnwatch: () => Promise<{ readonly ok: true }>;
-  readonly onObservabilityLog: (
-    listener: (entry: ObservabilityLogEntry) => void,
-  ) => () => void;
-  readonly onObservabilityCleared: (
-    listener: (payload: {
-      readonly newestId: number;
-      readonly total: number;
-      readonly dropped: number;
-    }) => void,
-  ) => () => void;
   /** OS login item — read real state; never assume. */
   readonly loginItemGet: () => Promise<LoginItemOpResult>;
   /** Explicit toggle only; no silent enrollment. */

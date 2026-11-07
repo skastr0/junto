@@ -26,33 +26,12 @@ const { makeWindowRuntime } = await import("../src/window/rpc/runtime");
 const { UpdateWindow, UpdateWindowRpcs } = await import("../src/contract/window/update");
 const { UpdateState } = await import("../src/window/lib/update-state");
 
-const { ReferencesWindowRpcs } = await import("../src/contract/window/references");
-const { GitWindowRpcs } = await import("../src/contract/window/git");
+const { WindowRpcs } = await import("../src/contract/window/rpcs");
 const { notUnderTest } = await import("./support/window-groups");
-const { ShellEnvironmentWindowRpcs } = await import("../src/contract/window/shell-environment");
 
-/** The shell environment group answers nothing here: it is not under test. */
-const shellEnvironmentNotUnderTest = ShellEnvironmentWindowRpcs.toLayer({
-  ShellEnvironmentStatus: () => Effect.die("not under test"),
-  ShellEnvironmentRefresh: () => Effect.die("not under test"),
-  ShellEnvironmentChanges: () => Stream.die("not under test"),
-});
-
-/** The window's whole group: references answer nothing here, they are not under test. */
+/** The window's whole group: every group but update answers nothing here, none is under test. */
 const withoutReferences = <E, R>(update: Layer.Layer<Rpc.ToHandler<RpcGroup.Rpcs<typeof UpdateWindowRpcs>>, E, R>) =>
-  Layer.mergeAll(
-    update,
-    notUnderTest(GitWindowRpcs),
-    shellEnvironmentNotUnderTest,
-    ReferencesWindowRpcs.toLayer({
-      ReferencesBriefingWrite: () => Effect.die("not under test"),
-      ReferencesWrite: () => Effect.die("not under test"),
-      ReferencesDelete: () => Effect.die("not under test"),
-      ReferencesBriefingFollow: () => Stream.die("not under test"),
-      ReferencesListFollow: () => Stream.die("not under test"),
-      ReferencesReadFollow: () => Stream.die("not under test"),
-    }),
-  );
+  Layer.merge(update, notUnderTest(WindowRpcs.omit("UpdateStates", "UpdateCheck", "UpdateRestartAndInstall")));
 
 /** The window a link serves; nothing here keys on it. */
 const A_WINDOW = { id: 1, webContents: {} as never };

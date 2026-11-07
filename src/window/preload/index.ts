@@ -32,9 +32,6 @@ import {
   type ModelActorRefsChanged,
   type NodeRefOpenedDelivery,
   type NodeRefOpenedEvent,
-  type ObservabilityLogEntry,
-  type ObservabilityQuery,
-  type ObservabilitySnapshot,
   type ViewStateApplyResult,
   ipcNoAnswerMessage,
 } from "@shared/ipc";
@@ -637,25 +634,6 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
       invoke<ViewStateApplyResult>(IPC_CHANNELS.viewStateApply, IPC_TIMEOUT_MS, write),
     onChanged: (listener) => subscribe<ViewStateEvent>(IPC_CHANNELS.viewStateChanged, listener),
   },
-  observabilityQuery: (query?: ObservabilityQuery) =>
-    invoke<ObservabilitySnapshot>(
-      IPC_CHANNELS.observabilityQuery,
-      IPC_TIMEOUT_MS,
-      query,
-    ),
-  observabilityClear: () =>
-    invoke<ObservabilitySnapshot>(IPC_CHANNELS.observabilityClear, IPC_TIMEOUT_MS),
-  observabilityWatch: () =>
-    invoke<ObservabilitySnapshot>(IPC_CHANNELS.observabilityWatch, IPC_TIMEOUT_MS),
-  observabilityUnwatch: () =>
-    invoke<{ ok: true }>(IPC_CHANNELS.observabilityUnwatch, IPC_TIMEOUT_MS),
-  onObservabilityLog: (listener) =>
-    subscribe<ObservabilityLogEntry>(IPC_CHANNELS.observabilityLog, listener),
-  onObservabilityCleared: (listener) =>
-    subscribe<{ newestId: number; total: number; dropped: number }>(
-      IPC_CHANNELS.observabilityCleared,
-      listener,
-    ),
 };
 
 const taskResourceApi: ResourceIpcApi["task"] = {

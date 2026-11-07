@@ -25,10 +25,8 @@ const { deliverPush } = await import("../src/app/core-process/main-side/core-pus
 const { ReferencesWindowHandlers } = await import("../src/app/references/ipc");
 const { ReferencesCore, ReferencesRpcs } = await import("../src/contract/core/references");
 const { ReferencesForwarded, ReferencesWindowRpcs, ReferencesWindow } = await import("../src/contract/window/references");
-const { UpdateWindowRpcs } = await import("../src/contract/window/update");
-const { GitWindowRpcs } = await import("../src/contract/window/git");
+const { WindowRpcs } = await import("../src/contract/window/rpcs");
 const { notUnderTest } = await import("./support/window-groups");
-const { ShellEnvironmentWindowRpcs } = await import("../src/contract/window/shell-environment");
 const { pageLink } = await import("../src/window/rpc/link");
 const { follow, makeWindowRuntime } = await import("../src/window/rpc/runtime");
 const { makeStateEngineLive } = await import("../src/core/state/engine");
@@ -71,20 +69,24 @@ let scope: Scope.Closeable;
 let asks: Array<string>;
 const cleanups: Array<() => Promise<void>> = [];
 
-/** The shell environment group answers nothing here: it is not under test. */
-const shellEnvironmentNotUnderTest = ShellEnvironmentWindowRpcs.toLayer({
-  ShellEnvironmentStatus: () => Effect.die("not under test"),
-  ShellEnvironmentRefresh: () => Effect.die("not under test"),
-  ShellEnvironmentChanges: () => Stream.die("not under test"),
-});
 
-/** Main's handlers for the window's whole group: update is not under test. */
+/** Main's handlers for the window's whole group: every group but references answers nothing here. */
 const handlersOver = (core: RpcClient.FromGroup<typeof ReferencesRpcs, never>) =>
-  UpdateWindowRpcs.toLayer({
-    UpdateStates: () => Stream.die("not under test"),
-    UpdateCheck: () => Effect.die("not under test"),
-    UpdateRestartAndInstall: () => Effect.die("not under test"),
-  }).pipe(Layer.merge(ReferencesWindowHandlers), Layer.merge(notUnderTest(GitWindowRpcs)), Layer.merge(shellEnvironmentNotUnderTest), Layer.provide(Layer.succeed(ReferencesCore, core as never)));
+  ReferencesWindowHandlers.pipe(
+    Layer.merge(
+      notUnderTest(
+        WindowRpcs.omit(
+          "ReferencesBriefingFollow",
+          "ReferencesBriefingWrite",
+          "ReferencesDelete",
+          "ReferencesListFollow",
+          "ReferencesReadFollow",
+          "ReferencesWrite",
+        ),
+      ),
+    ),
+    Layer.provide(Layer.succeed(ReferencesCore, core as never)),
+  );
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "junto-window-references-"));

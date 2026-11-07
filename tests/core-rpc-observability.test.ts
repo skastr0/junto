@@ -2,8 +2,7 @@
  * The observability group (src/contract/core/observability.ts) through the
  * group's own client on the core's handlers: the ring captures every row, a
  * new entry is pushed only while a panel watches, a clear is told to a
- * watching panel, and main's own rows land in the core's ring. A panel's
- * query this build does not read asks for the ring unfiltered, at main's edge.
+ * watching panel, and main's own rows land in the core's ring.
  */
 import { Effect, Exit, Layer, Scope } from "effect";
 import { RpcTest } from "effect/rpc";
@@ -13,7 +12,6 @@ import { ObservabilityRpcs } from "../src/contract/core/observability";
 import { ObservabilityHandlers } from "../src/core/ops/observability";
 import { observabilityRing } from "../src/core/observability/ring";
 import { CorePushes } from "../src/core/push";
-import { observabilityQueryFromWindow } from "../src/shared/observability";
 
 describe("the observability group", () => {
   it("pushes a new entry only while a panel watches, tells a watching panel of a clear, and stops with the server", async () => {
@@ -51,11 +49,5 @@ describe("the observability group", () => {
     await Effect.runPromise(Scope.close(scope, Exit.void));
     observabilityRing.append({ level: "info", source: "main", message: "after the server" });
     expect(pushed).toHaveLength(2);
-  });
-
-  it("reads a panel's query at main's edge, and asks for the ring unfiltered for one this build does not read", () => {
-    expect(observabilityQueryFromWindow({ limit: 500, q: undefined, levels: ["fatal"] })).toEqual({ limit: 500, levels: ["fatal"] });
-    expect(observabilityQueryFromWindow({ limit: 500, nope: true })).toBeUndefined();
-    expect(observabilityQueryFromWindow(null)).toBeUndefined();
   });
 });
