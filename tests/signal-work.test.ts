@@ -3,7 +3,19 @@ import { signalWordCount as wordCountOf } from "../src/shared/word-count";
 import { afterEach, vi } from "vitest";
 import { dueWords, handInSignalWork, putSignalSecret, replyRefusalOf, sentenceOf, wordProgressOf, wordProgressWords, workIsDue } from "../src/window/lib/signal-work";
 import { artifactLabelsOf } from "../src/shared/artifact-labels";
-import { IPC_CHANNELS, ipcNoAnswerMessage } from "../src/shared/ipc";
+import { Effect, Layer, ManagedRuntime } from "effect";
+import { SignalsWindow } from "../src/contract/window/signals";
+
+/** The window's runtime over a stand-in for the signals group's client. */
+const runtimes: Array<ManagedRuntime.ManagedRuntime<SignalsWindow, never>> = [];
+const runtimeOver = (client: Record<string, unknown>) => {
+  const runtime = ManagedRuntime.make(Layer.succeed(SignalsWindow, client as never));
+  runtimes.push(runtime);
+  return runtime as never;
+};
+afterEach(async () => {
+  for (const runtime of runtimes.splice(0)) await runtime.dispose();
+});
 
 describe("word count", () => {
   it("counts what a reader reads: markdown's own marks are not words", () => {
@@ -66,48 +78,52 @@ describe("handing in, by main's rule", () => {
     expect(replyRefusalOf({ kind: "proof" }, { kind: "proof", text: " ", links: ["https://a.b"], replyId })).toBe("Proof needs a sentence saying what it shows.");
   });
 
-  it("sends the reply through agentSignalReply, and a refusal comes back as a sentence", async () => {
-    const reply = vi.fn(async () => ({ ok: false as const, message: "the document holds 212 words of 500" }));
-    vi.stubGlobal("window", { junto: { agentSignalReply: reply } });
+  it("sends the reply as the group's SignalsReply, and a refusal comes back as a sentence", async () => {
+    const reply = vi.fn(() => Effect.succeed({ ok: false as const, message: "the document holds 212 words of 500" }));
     const sent = { kind: "artifact", markdown: "x", replyId } as const;
-    expect(await handInSignalWork("s1", sent)).toEqual({ ok: false, message: "The document holds 212 words of 500." });
-    expect(reply).toHaveBeenCalledWith("s1", sent);
+    expect(await handInSignalWork(runtimeOver({ SignalsReply: reply }), "s1", sent)).toEqual({ ok: false, message: "The document holds 212 words of 500." });
+    expect(reply).toHaveBeenCalledWith({ signalId: "s1", reply: sent });
+  });
+
+  it("with no runtime, says Junto is not connected", async () => {
+    expect(await handInSignalWork(undefined, "s1", { kind: "artifact", markdown: "x", replyId })).toEqual({ ok: false, message: "Junto is not connected." });
   });
 });
 
 describe("a secret's value, through the vault", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => vi.useRealTimers());
 
-  it("set but not recorded keeps the signal open and says so; a refusal is main's sentence; a throw says nothing of the value", async () => {
-    const put = vi.fn(async () => ({ ok: true as const, item: "op://Junto/CLOUDFLARE_API_TOKEN" }));
-    vi.stubGlobal("window", { junto: { signalSecretPut: put } });
-    expect(await putSignalSecret("s1", "v")).toEqual({
+  it("set but not recorded keeps the signal open and says so; a refusal is main's sentence; a failure says nothing of the value", async () => {
+    const put = vi.fn(() => Effect.succeed({ ok: true as const, item: "op://Junto/CLOUDFLARE_API_TOKEN" }));
+    expect(await putSignalSecret(runtimeOver({ SignalsSecretPut: put }), "s1", "v")).toEqual({
       ok: false,
       message: "The value is set in op://Junto/CLOUDFLARE_API_TOKEN, but the answer was not recorded, so this stays open.",
     });
-    expect(put).toHaveBeenCalledWith({ signalId: "s1", value: "v" });
+    expect(put).toHaveBeenCalledWith({ request: { signalId: "s1", value: "v" } });
 
-    vi.stubGlobal("window", { junto: { signalSecretPut: async () => ({ ok: false, reason: "not-declared", message: "the region does not declare API_KEY" }) } });
-    expect(await putSignalSecret("s1", "v")).toEqual({ ok: false, message: "The region does not declare API_KEY. Paste it again." });
+    const refused = runtimeOver({ SignalsSecretPut: () => Effect.succeed({ ok: false, reason: "not-declared", message: "the region does not declare API_KEY" }) });
+    expect(await putSignalSecret(refused, "s1", "v")).toEqual({ ok: false, message: "The region does not declare API_KEY. Paste it again." });
 
-    vi.stubGlobal("window", { junto: { signalSecretPut: async () => Promise.reject(new Error("failed with the-value")) } });
-    expect(await putSignalSecret("s1", "the-value")).toEqual({ ok: false, message: "The secret was not set. Paste it again." });
-    // A wait that ran out says the value may be set, not that it was not.
-    vi.stubGlobal("window", {
-      junto: { signalSecretPut: async () => Promise.reject(new Error(ipcNoAnswerMessage(IPC_CHANNELS.signalSecretPut))) },
+    const failed = runtimeOver({ SignalsSecretPut: () => Effect.die(new Error("failed with the-value")) });
+    expect(await putSignalSecret(failed, "s1", "the-value")).toEqual({ ok: false, message: "The secret was not set. Paste it again." });
+
+    // A call that throws on the way in, not a failure, takes the same path.
+    const threw = runtimeOver({
+      SignalsSecretPut: () => {
+        throw new Error("threw with the-value");
+      },
     });
-    expect(await putSignalSecret("s1", "the-value")).toEqual({
+    expect(await putSignalSecret(threw, "s1", "the-value")).toEqual({ ok: false, message: "The secret was not set. Paste it again." });
+  });
+
+  it("a wait that runs out says the value may be set, not that it was not", async () => {
+    vi.useFakeTimers();
+    const silent = runtimeOver({ SignalsSecretPut: () => Effect.never });
+    const answer = putSignalSecret(silent, "s1", "the-value");
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(await answer).toEqual({
       ok: false,
       message: "Junto did not answer in time, so the value may be set. Check the vault before you set it again.",
     });
-    // A throw on the way in, not a rejection, takes the same path.
-    vi.stubGlobal("window", {
-      junto: {
-        signalSecretPut: () => {
-          throw new Error("threw with the-value");
-        },
-      },
-    });
-    expect(await putSignalSecret("s1", "the-value")).toEqual({ ok: false, message: "The secret was not set. Paste it again." });
   });
 });

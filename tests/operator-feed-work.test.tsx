@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { act, useSyncExternalStore } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { CompanionWindow } from "../src/contract/window/companion";
+import { SignalsWindow } from "../src/contract/window/signals";
+import { WindowRuntimeContext } from "../src/window/rpc/runtime";
 import type { AgentSignal } from "../src/shared/agent-signals";
 import { buildOperatorFeed, type FeedItem, type OperatorFeed as Feed } from "../src/shared/operator-feed";
 import { OperatorFeed } from "../src/window/components/feed/OperatorFeed";
@@ -10,6 +14,25 @@ import { state$ } from "../src/window/lib/state";
 import { VAULT_ENABLED } from "../src/shared/features";
 import { settleLazy } from "./support/settle-lazy";
 import { loadLazySurfaces } from "../src/window/lib/lazy-surface";
+
+/** The feed under a window runtime whose signals group answers with `answer`. */
+const feedOver = (answer: (payload: unknown) => Effect.Effect<unknown>) => {
+  const runtime = ManagedRuntime.make(
+    Layer.mergeAll(
+      Layer.succeed(SignalsWindow, { SignalsAnswer: answer, SignalsDismiss: () => Effect.succeed({ ok: true }) } as never),
+      // The feed's seat and Remote Login links; no test here opens one.
+      Layer.succeed(CompanionWindow, {} as never),
+    ),
+  );
+  return (
+    <WindowRuntimeContext.Provider value={runtime as never}>
+      <OperatorFeed />
+    </WindowRuntimeContext.Provider>
+  );
+};
+
+/** The feed under a window runtime whose answers are not under test. */
+const feed = () => feedOver(() => Effect.succeed({ ok: true }));
 
 // The editors and viewers load before any test, so no test waits on an import.
 await loadLazySurfaces();
@@ -108,7 +131,7 @@ it("work with an artifact form is answered by writing in the signal, and says it
       work: { dueAt: Date.now() - HOUR },
     }),
   );
-  await act(async () => root.render(<OperatorFeed />));
+  await act(async () => root.render(feed()));
   await settleLazy();
   expect(pane().querySelector("[data-testid='signal-work-form']")).not.toBeNull();
   expect(pane().querySelector(".signal-work__count")?.textContent).toBe("0 words of 500");
@@ -122,37 +145,35 @@ it("work with an artifact form is answered by writing in the signal, and says it
 
 it("work not yet due shows when, quietly", async () => {
   live.set(feedWith({ kind: "work", form: { kind: "proof" }, work: { dueAt: Date.now() + 2 * 24 * HOUR } }));
-  await act(async () => root.render(<OperatorFeed />));
+  await act(async () => root.render(feed()));
   expect(card().querySelector(".operator-feed__due")?.textContent).toMatch(/^due /u);
   expect(card().querySelector(".operator-feed__due")?.hasAttribute("data-urgent")).toBe(false);
   expect(pane().querySelector("[data-testid='signal-work-form']")?.getAttribute("data-form")).toBe("proof");
 });
 
 it("a notice is read and cleared, with no reply to write, and Clear acknowledges it quietly", async () => {
-  const respond = vi.fn(async () => ({ ok: false as const, message: "kept open for the test" }));
-  vi.stubGlobal("junto", { agentSignalRespond: respond, agentSignalDismiss: vi.fn() });
+  const respond = vi.fn(() => Effect.succeed({ ok: false as const, message: "kept open for the test" }));
   live.set(feedWith({ kind: "notice" }));
-  await act(async () => root.render(<OperatorFeed />));
+  await act(async () => root.render(feedOver(respond)));
   expect(buttons()).toContain("Clear");
   expect(buttons()).not.toContain("Write reply");
   expect(card().querySelector(".operator-feed__due")).toBeNull();
   const clear = [...pane().querySelectorAll("button")].find((button) => button.textContent?.trim() === "Clear")!;
   await act(async () => clear.click());
-  expect(respond).toHaveBeenCalledWith("s1", "", { silent: true });
+  expect(respond).toHaveBeenCalledWith({ signalId: "s1", text: "", silent: true, attachments: [] });
 });
 
 it("a notice that carries a form is still cleared, never handed in", async () => {
   live.set(feedWith({ kind: "notice", form: { kind: "artifact", nodeId: "shelf-1", title: "x", labels: [], minWords: 1 } }));
-  await act(async () => root.render(<OperatorFeed />));
+  await act(async () => root.render(feed()));
   expect(buttons()).toContain("Clear");
   expect(pane().querySelector("[data-testid='signal-work-form']")).toBeNull();
 });
 
 it("a secret form is never answered in text: the vault's field when it is on, the note when off, and the keys send nothing", async () => {
-  const respond = vi.fn(async () => ({ ok: true as const }));
-  vi.stubGlobal("junto", { agentSignalRespond: respond, agentSignalDismiss: vi.fn() });
+  const respond = vi.fn(() => Effect.succeed({ ok: true as const }));
   live.set(feedWith({ kind: "work", form: { kind: "secret", name: "CLOUDFLARE_API_TOKEN", regionId: "region-1", machine: "studio" } }));
-  await act(async () => root.render(<OperatorFeed />));
+  await act(async () => root.render(feedOver(respond)));
   if (VAULT_ENABLED) {
     expect(pane().querySelector("[data-testid='signal-work-form']")?.getAttribute("data-form")).toBe("secret");
     expect(pane().querySelector("input[type='password']")).not.toBeNull();
@@ -181,7 +202,7 @@ it("an automation's signal answers once and opens the run, never a seat", async 
       },
     }),
   );
-  await act(async () => root.render(<OperatorFeed />));
+  await act(async () => root.render(feed()));
   // One row of answers: a quiet note would not spare a seat, because there is none.
   expect(pane().querySelector("[data-testid='quick-replies']")).not.toBeNull();
   expect(pane().querySelector("[data-testid='quiet-notes']")).toBeNull();
@@ -207,7 +228,7 @@ it("a work form keeps the run one press away", async () => {
       },
     }),
   );
-  await act(async () => root.render(<OperatorFeed />));
+  await act(async () => root.render(feed()));
   expect(pane().querySelector("[data-testid='signal-work-form']")).not.toBeNull();
   // The form is the answer; the run it came from is still one press away.
   expect(buttons()).toContain("Open run");
@@ -215,6 +236,6 @@ it("a work form keeps the run one press away", async () => {
 
 it("an empty feed says the day's work is done", async () => {
   live.set(buildOperatorFeed({ canvasName: CANVAS, nowMs: Date.now(), seats: [], signals: [] }));
-  await act(async () => root.render(<OperatorFeed />));
+  await act(async () => root.render(feed()));
   expect(document.body.querySelector("[data-testid='operator-feed']")?.textContent).toContain("Your work for today is done");
 });

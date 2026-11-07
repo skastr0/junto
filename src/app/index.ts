@@ -28,7 +28,6 @@ import { PRODUCT_NAME } from "@shared/product-name";
 import { keyboardSettings, type Settings } from "@shared/settings";
 import { DARK_RUNTIME } from "@shared/theme";
 import type { PreambleEvent } from "@shared/preamble";
-import type { AgentSignal } from "@shared/agent-signals";
 import {
   resolveJuntoHome,
   shouldPinUnpackagedElectronUserData,
@@ -41,7 +40,7 @@ import { enforceBootRefusal } from "../node/boot-guard";
 import { AppRuntime, updateProvider } from "./runtime";
 import { startChildren, takeChildStopFailures, type Children } from "./core-process/children";
 import { subscribe as subscribeCore } from "./core-process/main-side/core-pushes";
-import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, COMPANION_DEVICES, SETTINGS_CHANGED, WORK_PREAMBLE, type CanvasChangedPush } from "../contract/core/channels";
+import { CANVAS_CHANGED, SETTINGS_CHANGED, WORK_PREAMBLE, type CanvasChangedPush } from "../contract/core/channels";
 import { coreBrowserProfileStore, coreTouchedOriginStore } from "./core-process/main-side/browser";
 import { isCoreUnavailable } from "./core-process/wait-for-core";
 import { armMainThreadBudget } from "../node/observability/main-thread-budget";
@@ -131,14 +130,12 @@ import type { UpdateHostHooks } from "./update";
 import {
   operatorControlEnabledFromInitialArgv,
 } from "../node/operator-control";
-import { broadcastCompanionDevices, registerCompanionIpc } from "./companion/ipc";
 import { coreOverseerLive } from "./core-process/main-side/overseer-live";
 import { askOnLaterCores } from "./core-process/every-core";
 import { startCoreProcessForMain } from "./core-process/main-boot";
 import { coreMachineName } from "./core-process/core-reads-ipc";
 import { overseerPagesOn, type OverseerPages } from "../node/overseer/pages";
 import { runningBuildIdentity } from "../node/build-identity";
-import type { CompanionDeviceRecord } from "@shared/companion-devices";
 import { findPackagedSandboxDisablingSwitch } from "./packaged-sandbox-policy";
 import {
   applyE2eMacOsFocusIsolation,
@@ -362,15 +359,6 @@ const currentTrustedMainWindow = (): BrowserWindow | undefined => {
   if (!candidate.isDestroyed()) return candidate;
   trustedMainWindow = undefined;
   return undefined;
-};
-const sendAgentSignal = (signal: AgentSignal): void => {
-  const window = currentTrustedMainWindow();
-  if (
-    window === undefined ||
-    window.webContents.isDestroyed() ||
-    !isTrustedMainWebContents(window.webContents)
-  ) return;
-  window.webContents.send(IPC_CHANNELS.agentSignal, signal);
 };
 const browserViewAttachmentTarget = makeElectronBrowserViewAttachmentTarget();
 const browserCompositionHost = makeBrowserCompositionHost({
@@ -1457,14 +1445,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       ) return;
       window.webContents.send(IPC_CHANNELS.preamble, event);
     };
-    const showAgentSignal = (signal: AgentSignal): void => {
-      sendAgentSignal(signal);
-    };
     // A core in its own process sends these on the push stream; in this
     // process the hooks below call them, and nothing is published.
     subscribeCore(WORK_PREAMBLE, (event) => showPreamble(event as PreambleEvent));
-    subscribeCore(AGENT_SIGNAL_CHANGED, (signal) => showAgentSignal(signal as AgentSignal));
-    subscribeCore(COMPANION_DEVICES, (devices) => broadcastCompanionDevices(devices as ReadonlyArray<CompanionDeviceRecord>));
 
     // The core, its sockets, the link, the overseer and the phone companion
     // all run in the core process; main builds none of them. Both children are
@@ -1529,8 +1512,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       update: { host: updateHost, provider: updateProvider },
       notifications: notificationPlane,
     });
-    // Settings reads the phones from wherever the companion runs.
-    registerCompanionIpc(coreClients);
     const notifyWindow = currentTrustedMainWindow();
     if (notifyWindow !== undefined) notificationPlane.attach(notifyWindow);
     if (shutdownAdmissionClosed) return;

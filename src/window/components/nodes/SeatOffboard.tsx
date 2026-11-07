@@ -18,8 +18,8 @@ import {
   offboardNowLine,
   offboardPreferred,
   offboardSessionLine,
-  seatOffboardOps,
   type SeatOffboardOps,
+  useSeatOffboardOps,
 } from "../../lib/seat-offboard";
 import { state$ } from "../../lib/state";
 import { KILL_ARM_MS } from "../../lib/terminal-kill-ux";
@@ -40,7 +40,9 @@ type Line = {
  * rows): the agents among `nodeIds`, what main says of each, the two-press
  * arming of Offboard now, and the line for the last action.
  */
-export const useSeatOffboard = (nodeIds: ReadonlyArray<string>, ops: SeatOffboardOps = seatOffboardOps) => {
+export const useSeatOffboard = (nodeIds: ReadonlyArray<string>, given?: SeatOffboardOps) => {
+  const windowOps = useSeatOffboardOps();
+  const ops = given ?? windowOps;
   const canvasName = use$(state$.canvasName);
   // The agents among the ids, each with the name it has now, from the store.
   const seats = use$(() =>
@@ -140,7 +142,7 @@ export const useSeatOffboard = (nodeIds: ReadonlyArray<string>, ops: SeatOffboar
  */
 export function SeatOffboardPanel({
   nodeIds,
-  ops = seatOffboardOps,
+  ops,
 }: {
   readonly nodeIds: ReadonlyArray<string>;
   readonly ops?: SeatOffboardOps;
@@ -270,7 +272,7 @@ function PreferredMark() {
  */
 export function SeatOffboardMenuRows({
   nodeIds,
-  ops = seatOffboardOps,
+  ops,
 }: {
   readonly nodeIds: ReadonlyArray<string>;
   readonly ops?: SeatOffboardOps;

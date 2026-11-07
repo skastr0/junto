@@ -5,7 +5,9 @@
  * handlers here fails this file's compile.
  */
 import { type Context, Effect, Layer } from "effect";
+import { ContentWindowHandlers } from "../content/content-ipc";
 import type { CoreClients } from "../core-process/clients";
+import { CompanionWindowHandlers } from "../companion/ipc";
 import { GitWindowHandlers } from "../git/ipc";
 import { DemoWindowHandlers } from "../demo/ipc";
 import { MainNotificationsService, NotificationsWindowHandlers, type MainNotifications } from "../notifications/ipc";
@@ -13,6 +15,8 @@ import { ObservabilityWindowHandlers } from "../observability/ipc";
 import { ReferencesWindowHandlers } from "../references/ipc";
 import { ShellEnvironmentWindowHandlers } from "../shell-environment/ipc";
 import { AppRuntime } from "../runtime";
+import { SignalsWindowHandlers } from "../signals/signals-ipc";
+import { SeatCacheDueWindowHandlers } from "../term/seat-cache-due-ipc";
 import { updateWindowHandlers } from "../update/ipc";
 import type { UpdateInstall } from "../update/provider";
 import { UpdateService } from "../update/service";
@@ -36,6 +40,6 @@ export const windowHandlers = (boot: {
   readonly core: Context.Context<CoreClients>;
   readonly notifications: MainNotifications;
 }): WindowHandlers =>
-  Layer.mergeAll(updateWindowHandlers(boot.currentVersion, boot.install), ReferencesWindowHandlers, ShellEnvironmentWindowHandlers, GitWindowHandlers, ObservabilityWindowHandlers, NotificationsWindowHandlers, DemoWindowHandlers).pipe(
+  Layer.mergeAll(updateWindowHandlers(boot.currentVersion, boot.install), ReferencesWindowHandlers, SeatCacheDueWindowHandlers, ShellEnvironmentWindowHandlers, ObservabilityWindowHandlers, GitWindowHandlers, CompanionWindowHandlers, SignalsWindowHandlers, ContentWindowHandlers, NotificationsWindowHandlers, DemoWindowHandlers).pipe(
     Layer.provide([appUpdateService, Layer.succeedContext(boot.core), Layer.succeed(MainNotificationsService, boot.notifications)]),
   );

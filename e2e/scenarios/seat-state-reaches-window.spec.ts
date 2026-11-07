@@ -4,9 +4,12 @@
  * core rather than saying Junto is still starting.
  *   bun run test:e2e:fast e2e/scenarios/seat-state-reaches-window.spec.ts
  */
-import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness, type CrewSeat } from "../harness/crew-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
-import { modelFixture, modelNode, modelRegion, modelSeat, modelWire } from "../harness/model";
+import { grantOverseer, modelFixture, modelNode, modelRegion, modelSeat, modelWire } from "../harness/model";
+import { offboardNowBlockOf } from "../harness/offboard-panel";
 
 const CANVAS = "seatstatewindow";
 const SEAT = modelSeat({ id: "scout", label: "Scout", x: 480, y: 40 });
@@ -14,6 +17,26 @@ const SEAT = modelSeat({ id: "scout", label: "Scout", x: 480, y: 40 });
 const IDLE = modelSeat({ id: "lookout", label: "Lookout", x: 480, y: 220 });
 /** Both seats in one region: a seat reaches its region's co-members. */
 const REGION = modelRegion({ id: "floor", label: "Floor", x: 400, y: 0, width: 700, height: 460 });
+/** An overseer seat: it reads where a seat's offboard stands through the CLI, as an operator's overseer does. */
+const BOSS = modelSeat({ id: "boss", label: "Boss", x: 40, y: 40 });
+/** The standalone CLI the overseer seat runs. */
+const CLI_BUILT = existsSync(join(process.cwd(), "dist", "junto"));
+
+/** The seat's still-since (epoch ms) as the core's offboard clock reads it, through `junto overseer agent offboard-status`. */
+const stillSinceOf = async (overseer: CrewSeat, seatId: string): Promise<number | undefined> => {
+  const result = await overseer.cli(["overseer", "agent", "offboard-status", JSON.stringify({ nodeIds: [seatId] })]);
+  for (const line of result.stdout.split("\n").reverse()) {
+    if (!line.trim().startsWith("{")) continue;
+    try {
+      const envelope = JSON.parse(line.trim()) as { readonly data?: ReadonlyArray<{ readonly seatId?: string; readonly stillSince?: number }> };
+      return envelope.data?.find((row) => row.seatId === seatId)?.stillSince;
+    } catch {
+      // Not the envelope line.
+    }
+  }
+  return undefined;
+};
+
 /** The shelf a seat's document ask writes into, in that same region. */
 const SHELF = modelNode({ kind: "artifacts", id: "shelf", label: "Shelf", x: 900, y: 30, width: 180, height: 96, z: 0 });
 
@@ -35,9 +58,7 @@ test("a running seat's state reaches the window and offboard is answered", async
     });
     await crewOccupySeat(page, CANVAS, SEAT, crewSeat(junto.sandbox, CANVAS, "scout"));
     await expect.poll(() => page.evaluate(() => (window as unknown as { __states: string[] }).__states.length), { timeout: 30_000 }).toBeGreaterThan(0);
-    const [status] = await page.evaluate((canvas) => window.junto!.seatOffboardStatus!(canvas, ["scout"]), CANVAS);
-    const now = status!.now as { readonly allowed: boolean; readonly reason?: string };
-    expect(now.reason ?? "").not.toContain("still starting");
+    expect((await offboardNowBlockOf(page, "scout")) ?? "").not.toContain("still starting");
   } finally {
     await junto.close();
   }
@@ -168,30 +189,31 @@ test("a running seat's attention reaches the hotbar, the switcher, the card, the
  * operator speaks to it.
  */
 test("a real seat's typing holds it in the core, and the core types the onboarding nudge", async () => {
+  test.skip(!CLI_BUILT, "SETUP: dist/junto is missing; the overseer seat runs the CLI. Build it with `bun run cli:build`.");
   test.setTimeout(150_000);
   const junto = await launchJunto({
     windowContentSize: { width: 1400, height: 880 },
-    seedModels: { [CANVAS]: modelFixture([SEAT]) },
+    seedModels: { [CANVAS]: modelFixture([SEAT, BOSS]) },
     afterSeed: installCrewSeatHarness,
   });
   const seat = crewSeat(junto.sandbox, CANVAS, "scout");
+  const boss = crewSeat(junto.sandbox, CANVAS, "boss");
   try {
     const { page } = junto;
     await expect(page.locator('.react-flow__node[data-id="scout"]')).toBeVisible({ timeout: 30_000 });
     await crewPlayFactory(page);
     await crewOccupySeat(page, CANVAS, SEAT, seat);
     await seat.ready();
+    await crewOccupySeat(page, CANVAS, BOSS, boss);
+    await boss.ready();
+    await boss.op("onboard", {});
+    await grantOverseer(page, CANVAS, BOSS.id);
+    await expect(page.locator('.react-flow__node[data-id="boss"] .junto-node')).toHaveAttribute("data-overseer", "true", { timeout: 15_000 });
 
     // The seat at rest as the core's own offboard clock reads it. Its
-    // still-since is the core's answer (seatOffboardStatus is answered by the
-    // core, not by a copy in main), and typing moves it to the key.
-    const stillSince = async (): Promise<number | undefined> => {
-      const [status] = await page.evaluate(
-        (canvas) => window.junto!.seatOffboardStatus!(canvas, ["scout"]),
-        CANVAS,
-      );
-      return status?.stillSince;
-    };
+    // still-since is the core's answer, read by the overseer through the CLI,
+    // and typing moves it to the key.
+    const stillSince = (): Promise<number | undefined> => stillSinceOf(boss, "scout");
     await expect.poll(async () => typeof (await stillSince()) === "number", { timeout: 30_000 }).toBe(true);
     const before = await stillSince();
     if (before === undefined) throw new Error("the core never read the seat at rest");

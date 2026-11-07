@@ -10,19 +10,25 @@
 import { createContext, useContext, useMemo } from "react";
 import { type Context, Effect, Fiber, Layer, ManagedRuntime, Stream } from "effect";
 import type { RpcPort } from "@shared/rpc-port";
+import { CompanionWindow } from "../../contract/window/companion";
+import { ContentWindow } from "../../contract/window/content";
 import { GitWindow } from "../../contract/window/git";
 import { WindowLink } from "../../contract/window/link";
 import { DemoWindow } from "../../contract/window/demo";
 import { NotificationsWindow } from "../../contract/window/notifications";
 import { ObservabilityWindow } from "../../contract/window/observability";
 import { ReferencesWindow } from "../../contract/window/references";
+import { SeatCacheDueWindow } from "../../contract/window/seat-cache-due";
 import { ShellEnvironmentWindow } from "../../contract/window/shell-environment";
+import { SignalsWindow } from "../../contract/window/signals";
+import { AgentSignalsSync } from "../lib/agent-signals-sync";
 import { UpdateWindow } from "../../contract/window/update";
+import { SeatCacheDueState } from "../lib/seat-cache-due-state";
 import { UpdateState } from "../lib/update-state";
 
-export const WindowClientsLive = Layer.mergeAll(UpdateWindow.layer, ReferencesWindow.layer, ShellEnvironmentWindow.layer, GitWindow.layer, ObservabilityWindow.layer, NotificationsWindow.layer, DemoWindow.layer);
+export const WindowClientsLive = Layer.mergeAll(UpdateWindow.layer, ReferencesWindow.layer, SeatCacheDueWindow.layer, ShellEnvironmentWindow.layer, ObservabilityWindow.layer, GitWindow.layer, CompanionWindow.layer, SignalsWindow.layer, ContentWindow.layer, NotificationsWindow.layer, DemoWindow.layer);
 
-export const WindowServicesLive = Layer.mergeAll(UpdateState.layer).pipe(Layer.provideMerge(WindowClientsLive));
+export const WindowServicesLive = Layer.mergeAll(UpdateState.layer, SeatCacheDueState.layer, AgentSignalsSync.layer).pipe(Layer.provideMerge(WindowClientsLive));
 
 export type WindowServices = Layer.Success<typeof WindowServicesLive>;
 

@@ -2,6 +2,7 @@ import { useEffect, type ReactNode } from "react";
 import type { Observable } from "@legendapp/state";
 import type { PortraitConfig } from "@shared/agent-portrait";
 import { canvasTier$ } from "../lib/canvas-tier";
+import { useContentCalls } from "../lib/content-calls";
 import { portraitOverrides$, startPortraitOverrides } from "../lib/portrait-overrides-state";
 import { surfaceMotionLive$ } from "../lib/surface-motion";
 import { themeMode$ } from "../lib/theme-mode";
@@ -22,20 +23,17 @@ export const LIVE_SEAT_VIEW_SOURCE: SeatViewSource = {
   theme: readable(themeMode$),
   tier: readable(canvasTier$),
   portraits: {
-    get: (identity) => {
-      startPortraitOverrides();
-      return portraitOverrides$[identity].peek() as PortraitConfig | undefined;
-    },
-    subscribe: (identity, onChange) => {
-      startPortraitOverrides();
-      return portraitOverrides$[identity].onChange(onChange);
-    },
+    get: (identity) => portraitOverrides$[identity].peek() as PortraitConfig | undefined,
+    subscribe: (identity, onChange) => portraitOverrides$[identity].onChange(onChange),
   },
 };
 
 const MOTION = readable(surfaceMotionLive$);
 
 export function LiveSeatViewSource({ children }: { readonly children: ReactNode }) {
+  // The saved portraits load once the root has the window's runtime.
+  const content = useContentCalls();
+  useEffect(() => startPortraitOverrides(content), [content]);
   useEffect(() => {
     setMarkMotionSource(MOTION);
     return () => setMarkMotionSource(undefined);

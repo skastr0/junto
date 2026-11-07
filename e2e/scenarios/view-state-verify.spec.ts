@@ -17,13 +17,13 @@ import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import { Schema } from "effect";
-import { contentObjectUrl } from "../../src/shared/content-url";
+import { parseContentObjectUrl } from "../../src/shared/content-url";
 import { asNodeId, Node } from "../../src/shared/model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { taskNodeId } from "../../src/shared/task-model";
 import { expandInTree, filesNode, FILES_ID, openInTree, stageFiles, treeRow } from "../harness/files-scenario";
 import { expect, launchJunto, test, type JuntoHandle } from "../harness/launch";
-import { commandModel, modelFixture, modelNote, modelSeat, modelWire } from "../harness/model";
+import { commandModel, modelFixture, modelNote, modelSeat, modelWire, readModelCanvas } from "../harness/model";
 
 const CANVAS = "view-state-verify";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/view-state-verify";
@@ -110,6 +110,8 @@ test("view state: every row of the inventory comes back after a full quit, and a
     }
   };
   let imageSize = { width: 0, height: 0 };
+  // The image file node the drop made; the app names it.
+  let pic = "";
   let resized = false;
   try {
     {
@@ -120,15 +122,38 @@ test("view state: every row of the inventory comes back after a full quit, and a
       await page.waitForTimeout(600);
       const mod = process.platform === "darwin" ? "Meta" : "Control";
 
-      // An image file node: the png goes to the content store, the node names it by its content URL.
-      const put = await page.evaluate(
-        (bytesBase64) => window.junto!.contentPutImage({ bytesBase64, mediaType: "image/png", displayName: "gradient.png" }),
+      // An image file node, as the operator makes one: the png dropped on the
+      // canvas goes to the content store, and the node names it by its content URL.
+      await page.evaluate(
+        (bytesBase64) => {
+          const bytes = Uint8Array.from(atob(bytesBase64), (char) => char.charCodeAt(0));
+          const transfer = new DataTransfer();
+          transfer.items.add(new File([bytes], "gradient.png", { type: "image/png" }));
+          const pane = document.querySelector(".react-flow__pane")!;
+          const box = pane.getBoundingClientRect();
+          const at = { clientX: box.left + box.width * 0.75, clientY: box.top + box.height * 0.5 };
+          pane.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, ...at, dataTransfer: transfer }));
+          pane.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, ...at, dataTransfer: transfer }));
+        },
         readFileSync(join(stage.fixture.root, stage.fixture.paths.png)).toString("base64"),
       );
-      expect(put.ok, JSON.stringify(put)).toBe(true);
-      const picPath = contentObjectUrl((put as { ok: true; ref: Parameters<typeof contentObjectUrl>[0] }).ref);
-      await commandModel(page, { _tag: "Add", canvas: CANVAS, nodes: [decode({ kind: "file", id: "pic", path: picPath, x: 1300, y: 320, width: 240, height: 160, z: 0 })], wires: [] });
-      await expect(card(page, "pic")).toBeVisible({ timeout: 10_000 });
+      await expect
+        .poll(async () => {
+          const dropped = (await readModelCanvas(page, CANVAS)).nodes.find(
+            (node) => node.kind === "file" && parseContentObjectUrl(node.path) !== undefined,
+          );
+          pic = dropped?.id ?? "";
+          return pic;
+        }, { timeout: 10_000 })
+        .not.toBe("");
+      // The drop lands under the cursor, over the notes; the node goes where
+      // the rows below expect it, clear of note 9 and the files node.
+      const dropped = (await readModelCanvas(page, CANVAS)).nodes.find((node) => node.id === pic)!;
+      await commandModel(page, { _tag: "Batch", canvas: CANVAS, steps: [
+        { _tag: "Remove", canvas: CANVAS, nodes: [pic], wires: [] },
+        { _tag: "Add", canvas: CANVAS, nodes: [decode({ ...dropped, x: 1300, y: 320, width: 240, height: 160 })], wires: [] },
+      ] });
+      await expect(card(page, pic)).toBeVisible({ timeout: 10_000 });
 
       // Seed: artifacts with labels, one archived; a task; two automations.
       const art = async (title: string, labels: ReadonlyArray<string>) => {
@@ -223,7 +248,7 @@ test("view state: every row of the inventory comes back after a full quit, and a
       await closeModal(page, "Files");
 
       // Image modal: resized by its grip.
-      await card(page, "pic").getByRole("button", { name: /^Image/u }).dblclick();
+      await card(page, pic).getByRole("button", { name: /^Image/u }).dblclick();
       const image = page.locator('[role="dialog"][aria-label="Image"] .focus-surface__panel').first();
       await expect(image).toBeVisible({ timeout: 15_000 });
       const box = (await image.boundingBox())!;
@@ -305,7 +330,7 @@ test("view state: every row of the inventory comes back after a full quit, and a
     await shoot(page, "10-files-after-relaunch");
     await closeModal(page, "Files");
 
-    await card(page, "pic").getByRole("button", { name: /^Image/u }).dblclick();
+    await card(page, pic).getByRole("button", { name: /^Image/u }).dblclick();
     const image = page.locator('[role="dialog"][aria-label="Image"] .focus-surface__panel').first();
     await expect(image).toBeVisible({ timeout: 15_000 });
     await page.waitForTimeout(400);

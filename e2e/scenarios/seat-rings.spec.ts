@@ -5,6 +5,7 @@ import { grantOverseer } from "../harness/model";
  * Frames land in test-results/activity-marks/.
  *   bun run test:e2e:fast e2e/scenarios/seat-rings.spec.ts
  */
+import type { AgentSignal } from "../../src/shared/agent-signals";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { HarnessId } from "../../src/shared/managed-terminal-templates";
@@ -59,7 +60,7 @@ const seatEvents = (at: number) => {
   ];
 };
 
-const signalEvents = (at: number) =>
+const signalEvents = (at: number): ReadonlyArray<AgentSignal> =>
   (
     [
       ["docs", "escalate", "two specs disagree on ids"],
@@ -82,7 +83,8 @@ const fixture = modelFixture(nodes, [
 
 test("agent seats and their connection cards hold portraits in rings; the gallery renders", async () => {
   await mkdir(SHOTS, { recursive: true });
-  const junto = await launchJunto({ seedModels: { "seat-rings": fixture } });
+  // The seats' signals stand in the store before boot, as the core lists them.
+  const junto = await launchJunto({ seedModels: { "seat-rings": fixture }, seedAgentSignals: signalEvents(Date.now()) });
   try {
     const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
@@ -92,13 +94,12 @@ test("agent seats and their connection cards hold portraits in rings; the galler
     await grantOverseer(page, "seat-rings", "reviewer");
     const stagedAt = Date.now();
     await junto.app.evaluate(
-      ({ BrowserWindow }, { seatsNow, signalsNow }) => {
+      ({ BrowserWindow }, { seatsNow }) => {
         for (const window of BrowserWindow.getAllWindows()) {
           for (const event of seatsNow) window.webContents.send("junto:agent-seat-state-changed", event);
-          for (const event of signalsNow) window.webContents.send("junto:agent-signal", event);
         }
       },
-      { seatsNow: seatEvents(stagedAt), signalsNow: signalEvents(stagedAt) },
+      { seatsNow: seatEvents(stagedAt) },
     );
     // Every seat in frame: the canvas only mounts nodes in view.
     await page.getByRole("button", { name: /fit all/i }).first().click();

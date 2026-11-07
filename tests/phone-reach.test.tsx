@@ -3,8 +3,11 @@ import { act, useSyncExternalStore } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { use$ } from "@legendapp/state/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Effect, Layer, ManagedRuntime, Queue, Stream } from "effect";
 import type { AgentSignal } from "../src/shared/agent-signals";
 import type { CompanionDeviceRecord } from "../src/shared/companion-devices";
+import { CompanionWindow } from "../src/contract/window/companion";
+import { WindowRuntimeContext, type WindowRuntime } from "../src/window/rpc/runtime";
 import { buildOperatorFeed, type OperatorFeed as Feed } from "../src/shared/operator-feed";
 import { OperatorFeed } from "../src/window/components/feed/OperatorFeed";
 import { subjectsFromFeed } from "../src/window/lib/desktop-notify";
@@ -112,25 +115,27 @@ describe("the watch", () => {
   const settle = () => new Promise((done) => setTimeout(done, 0));
 
   const harness = (devices: ReadonlyArray<CompanionDeviceRecord>) => {
-    const asks: Array<ReturnType<typeof deferred<"on" | "off">>> = [];
-    let push: (next: ReadonlyArray<CompanionDeviceRecord>) => void = () => undefined;
-    const focus = new EventTarget();
-    const stop = startPhoneReachWatch(
-      {
-        companionDevices: async () => devices,
-        onCompanionDevicesChanged: (listener) => {
-          push = listener;
-          return () => undefined;
-        },
-        companionRemoteLogin: () => {
-          const ask = deferred<"on" | "off">();
-          asks.push(ask);
-          return ask.promise;
-        },
-      },
-      focus as unknown as Window,
-    );
-    return { asks, push: (next: ReadonlyArray<CompanionDeviceRecord>) => push(next), focus: () => focus.dispatchEvent(new Event("focus")), stop };
+  const asks: Array<ReturnType<typeof deferred<"on" | "off">>> = [];
+  const changes = Effect.runSync(Queue.unbounded<ReadonlyArray<CompanionDeviceRecord>>());
+  Effect.runSync(Queue.offer(changes, devices));
+  const focus = new EventTarget();
+  const companion = {
+  CompanionDevicesFollow: () => Stream.fromQueue(changes),
+  CompanionRemoteLogin: () =>
+  Effect.promise(() => {
+  const ask = deferred<"on" | "off">();
+  asks.push(ask);
+  return ask.promise;
+  }),
+  } as unknown as CompanionWindow["Service"];
+  const runtime = ManagedRuntime.make(Layer.succeed(CompanionWindow, companion)) as unknown as WindowRuntime;
+  const stop = startPhoneReachWatch(runtime, companion, focus as unknown as Window);
+  return {
+  asks,
+  push: (next: ReadonlyArray<CompanionDeviceRecord>) => Effect.runSync(Queue.offer(changes, next)),
+  focus: () => focus.dispatchEvent(new Event("focus")),
+  stop,
+  };
   };
 
   it("never asks with no phone paired, not even on focus", async () => {
@@ -171,8 +176,10 @@ describe("the watch", () => {
     expect(phoneReach$.remoteLogin.peek()).toBe("on");
 
     watch.push([]);
+    await settle();
     expect(phoneReach$.peek()).toEqual({ paired: false, remoteLogin: undefined });
     watch.push([phone("paired")]);
+    await settle();
     expect(watch.asks).toHaveLength(3);
     watch.stop();
   });
@@ -181,6 +188,7 @@ describe("the watch", () => {
 describe("in the open feed", () => {
   let root: Root;
   let host: HTMLDivElement;
+  let runtime: WindowRuntime;
   const oldCanvas = state$.canvasName.peek();
   const openSettings = vi.fn(async () => ({ ok: true }));
   const reveal = vi.fn();
@@ -189,10 +197,14 @@ describe("in the open feed", () => {
   const cardOf = (itemId: string): HTMLElement | null => document.body.querySelector(`[data-item-id='${itemId}']`);
 
   beforeEach(() => {
-    vi.useFakeTimers();
-    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    vi.stubGlobal("junto", { companionOpenRemoteLoginSettings: openSettings });
-    HTMLElement.prototype.scrollIntoView = reveal;
+  vi.useFakeTimers();
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  runtime = ManagedRuntime.make(
+  Layer.succeed(CompanionWindow, {
+  CompanionOpenRemoteLoginSettings: () => Effect.promise(() => openSettings()),
+  } as never),
+  ) as unknown as WindowRuntime;
+  HTMLElement.prototype.scrollIntoView = reveal;
     state$.canvasName.set(CANVAS);
     host = document.createElement("div");
     document.body.append(host);
@@ -211,7 +223,13 @@ describe("in the open feed", () => {
 
   it("arrives and leaves without moving or remounting a card, and opens Remote Login settings", async () => {
     live.set(feedOf(["a", "b", "c"]));
-    await act(async () => root.render(<OperatorFeed />));
+    await act(async () =>
+      root.render(
+        <WindowRuntimeContext.Provider value={runtime}>
+          <OperatorFeed />
+        </WindowRuntimeContext.Provider>,
+      ),
+    );
     const before = cards();
     expect(before.map((card) => card.dataset.itemId)).toEqual(["signal:a", "signal:b", "signal:c"]);
     const scroll = document.body.querySelector<HTMLElement>("[data-testid='operator-feed']")!;

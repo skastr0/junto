@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { LONG_TEXT_FILE, MAIL_TEXT_BOUND, textCarriage, type TextBound, type TextCarriage } from "@shared/mail-text-bound";
 import { OPERATOR_ATTACHMENTS_MAX } from "@shared/operator-attachments";
 import type { ContentRef } from "@shared/wire/content-ref";
+import type { ContentCalls } from "./content-calls";
 import { uploadOperatorText } from "./operator-attachments";
 
 /**
@@ -44,11 +45,12 @@ export const useLongText = (text: string, filesHeld: number, bound: TextBound = 
  * words when the file cannot be stored.
  */
 export const carryText = async (
+  content: ContentCalls | undefined,
   canvasName: string,
   text: string,
   files: ReadonlyArray<ContentRef>,
   bound: TextBound = MAIL_TEXT_BOUND,
 ): Promise<{ readonly text: string; readonly files: ReadonlyArray<ContentRef> }> => {
   if (textCarriage(text, bound).kind === "inline") return { text, files };
-  return { text: "", files: [...files, await uploadOperatorText(canvasName, text)] };
+  return { text: "", files: [...files, await uploadOperatorText(content, canvasName, text)] };
 };

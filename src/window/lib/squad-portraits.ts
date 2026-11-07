@@ -5,6 +5,7 @@
  */
 import type { PortraitConfig } from "@shared/agent-portrait";
 import type { SeatGuidance } from "@shared/seat-guidance";
+import type { ContentCalls } from "./content-calls";
 import { portraitOverrides$, savePortraitOverride } from "./portrait-overrides-state";
 import { saveSeatGuidance } from "./seat-guidance-state";
 
@@ -14,10 +15,11 @@ export const squadPortraitOf = (nodeId: string): PortraitConfig | undefined =>
 
 /** Save overrides for freshly placed seats. False when the store refused any. */
 export const saveSquadPortraits = async (
+  content: ContentCalls | undefined,
   byNodeId: Readonly<Record<string, PortraitConfig>>,
 ): Promise<boolean> => {
   const results = await Promise.all(
-    Object.entries(byNodeId).map(([nodeId, config]) => savePortraitOverride(nodeId, config)),
+    Object.entries(byNodeId).map(([nodeId, config]) => savePortraitOverride(content, nodeId, config)),
   );
   return results.every(Boolean);
 };

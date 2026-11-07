@@ -7,12 +7,14 @@ import { modelFixture, modelSeat } from "../harness/model";
  *
  *   bun run test:e2e:fast e2e/scenarios/minimap-health.spec.ts
  *
- * No provider is called. Jev readings and a declared signal are sent from
- * main on their real IPC channels, so they pass the renderer's strict decode
- * exactly as the sidecar's and the signal store's events do.
+ * No provider is called. Jev readings are sent from main on their real IPC
+ * channel, so they pass the renderer's strict decode exactly as the
+ * sidecar's events do. The declared signal is in the store before boot, as
+ * the core lists it.
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import type { AgentSignal } from "../../src/shared/agent-signals";
 import type { ThreadHealthValue } from "../../src/shared/thread-health";
 
 import { expect, launchJunto, test } from "../harness/launch";
@@ -74,10 +76,21 @@ const awarenessEvent = (id: string, value: ThreadHealthValue, at: number) => {
   };
 };
 
+/** The blocked seat's signal, in the store before boot, as the core lists it. */
+const blockedSignal = (at: number): AgentSignal => ({
+  signalId: "e2e-signal-blocked",
+  canvasName: CANVAS,
+  nodeId: "blocked",
+  kind: "blocked",
+  text: "Need the staging credentials to continue.",
+  createdAt: at,
+  state: "open",
+});
+
 test("the minimap paints agent seats by their health rollup", async () => {
   test.setTimeout(240_000);
   await mkdir(SHOTS, { recursive: true });
-  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([region, ...nodes]) } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([region, ...nodes]) }, seedAgentSignals: [blockedSignal(Date.now())] });
   try {
     const { app, page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 60_000 });
@@ -90,21 +103,11 @@ test("the minimap paints agent seats by their health rollup", async () => {
 
     const at = Date.now();
     const events = seats.flatMap(([id, , health]) => (health ? [awarenessEvent(id, health, at)] : []));
-    const signal = {
-      signalId: "e2e-signal-blocked",
-      canvasName: CANVAS,
-      nodeId: "blocked",
-      kind: "blocked",
-      text: "Need the staging credentials to continue.",
-      createdAt: at,
-      state: "open",
-    };
     await app.evaluate(({ BrowserWindow }, payload) => {
       for (const window of BrowserWindow.getAllWindows()) {
         for (const event of payload.events) window.webContents.send("junto:seat-awareness", event);
-        window.webContents.send("junto:agent-signal", payload.signal);
       }
-    }, { events, signal });
+    }, { events });
 
     // Each tone the rollup should paint, on the map itself.
     const fills = async (): Promise<ReadonlyArray<string>> =>

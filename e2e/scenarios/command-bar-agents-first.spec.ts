@@ -23,6 +23,7 @@ import type { Locator, Page } from "@playwright/test";
 import type { AgentSignal, AgentSignalKind } from "../../src/shared/agent-signals";
 import type { Node, Region } from "../../src/shared/model";
 
+import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { expect, test, type JuntoHandle } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "command-bar-agents-first");
@@ -57,7 +58,12 @@ const nodes: ReadonlyArray<Node> = [
   seat("ops-work-new", 1440, 60),
   seat("ops-done", 1720, 60),
   seat("ops-rest", 1960, 60),
-  ...crew.map((id, i) => seat(id, 40 + (i % 7) * 280, 220 + Math.floor(i / 7) * 160)),
+  // crew-07 runs the crew harness, so it can raise a signal as a seat does.
+  ...crew.map((id, i) =>
+    id === "crew-07"
+      ? modelSeat({ id, key: `local:e2e-first-${id}`, label: id, x: 40 + (i % 7) * 280, y: 220 + Math.floor(i / 7) * 160 })
+      : seat(id, 40 + (i % 7) * 280, 220 + Math.floor(i / 7) * 160),
+  ),
   seat("ops-waiting", 600, 60),
   seat("ops-blocked", 880, 60),
 ];
@@ -102,19 +108,18 @@ const seatEvents = [
   seatEvent("ops-rest", "idle", STAGED - 20_000),
 ];
 
-/** Deliver seat events and signals to every window, as main would. */
-const stage = (junto: JuntoHandle, events: ReadonlyArray<unknown>, signalsNow: ReadonlyArray<AgentSignal> = []): Promise<void> =>
+/** Deliver seat events to every window, as main would. */
+const stage = (junto: JuntoHandle, events: ReadonlyArray<unknown>): Promise<void> =>
   junto.app.evaluate(
-    ({ BrowserWindow }, { seatsNow, agentSignals }) => {
+    ({ BrowserWindow }, { seatsNow }) => {
       for (const window of BrowserWindow.getAllWindows()) {
         for (const event of seatsNow) window.webContents.send("junto:agent-seat-state-changed", event);
-        for (const event of agentSignals) window.webContents.send("junto:agent-signal", event);
       }
     },
-    { seatsNow: events, agentSignals: signalsNow },
+    { seatsNow: events },
   );
 
-test.use({ juntoOptions: { seedModels: { [CANVAS]: modelFixture([...nodes], []) }, seedAgentSignals: signals } });
+test.use({ juntoOptions: { seedModels: { [CANVAS]: modelFixture([...nodes], []) }, seedAgentSignals: signals, afterSeed: installCrewSeatHarness } });
 
 /** Pull the camera back with ctrl+wheel until the viewport scale is near `goal`. */
 const zoomTo = async (page: Page, goal: number): Promise<void> => {
@@ -245,8 +250,10 @@ test("cmd+K: tall, agents first by urgency, live rings on visible rows", async (
 });
 
 test("cmd+K: a seat that changes state re-ranks the open list and the cursor stays on its row", async ({ junto }) => {
-  const { page } = junto;
+  const { page, sandbox } = junto;
   await expect(page.locator(".react-flow__node", { hasText: "ops-blocked" })).toBeVisible({ timeout: 30_000 });
+  await crewPlayFactory(page);
+  const crew07 = crewSeat(sandbox, CANVAS, "crew-07");
   await stage(junto, seatEvents);
   await page.keyboard.press("Meta+k");
   const titles = page.locator(".command-bar__row-title");
@@ -264,7 +271,9 @@ test("cmd+K: a seat that changes state re-ranks the open list and the cursor sta
   await expect(active).toHaveText("ops-work-new");
 
   // A crew seat raises a blocker: it leads the list; the cursor still holds its row.
-  await stage(junto, [], [signal("crew-07", "blocked", "The build is red.", Date.now())]);
+  await crewOccupySeat(page, CANVAS, { id: "crew-07" }, crew07);
+  const raised = await crew07.cli(["blocked", "The build is red."]);
+  expect(raised.ok, `${raised.stdout}${raised.stderr}`).toBe(true);
   await expect(titles.first()).toHaveText("crew-07");
   await expect(active).toHaveText("ops-work-new");
 

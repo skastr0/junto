@@ -13,6 +13,7 @@ import { modelStore } from "../src/window/lib/use-model";
 import { state$ } from "../src/window/lib/state";
 import { closeSaveSquad, openSaveSquad, placeSquadAt, squads$ } from "../src/window/lib/squads-state";
 import { placeProfileInSlot, profiles$ } from "../src/window/lib/profiles-state";
+import type { ContentCalls } from "../src/window/lib/content-calls";
 import { flushPendingCanvasSave, undo } from "../src/window/lib/mutations";
 import { newSeat } from "../src/window/lib/model-factories";
 import {
@@ -278,6 +279,10 @@ describe("native squad and profile gestures", () => {
   const name = "squad-native-gestures";
   let root: Root, host: HTMLDivElement, release: () => void;
   let oldApi: typeof window.junto;
+  // The content group, as far as a placed seat's portrait goes: it echoes the save.
+  const content = {
+    portraitOverrideSet: async (seatId: string, override: unknown) => ({ ok: true, seatId, override }),
+  } as unknown as ContentCalls;
   let oldCanvas: string;
   let send: ReturnType<typeof vi.fn>;
   let save: ReturnType<typeof vi.fn>;
@@ -290,8 +295,7 @@ describe("native squad and profile gestures", () => {
     send = vi.fn(async () => ({ seq: 1 }));
     save = vi.fn(async (input: { name: string; body: SquadBody }) => ({ ok: true,
       squad: { ...input.body, name: input.name, squadId: "saved", createdAt: 1, updatedAt: 1 } }));
-    (window as unknown as { junto: unknown }).junto = { modelCommand: send, squadSave: save,
-      portraitOverrideSet: async (_id: string, override: unknown) => ({ ok: true, override }) };
+    (window as unknown as { junto: unknown }).junto = { modelCommand: send, squadSave: save };
     host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   });
   afterEach(async () => {
@@ -322,7 +326,7 @@ describe("native squad and profile gestures", () => {
   it("places a native squad as one undoable Add batch with remapped wires", async () => {
     const body = captureSquad(doc, ["alpha", "beta"])!;
     squads$.list.set([{ ...body, name: "Team", squadId: "team", createdAt: 1, updatedAt: 1 }]);
-    expect(await placeSquadAt("team", { x: 2000, y: 1000 }, LAUNCH)).toBe("placed");
+    expect(await placeSquadAt("team", { x: 2000, y: 1000 }, LAUNCH, content)).toBe("placed");
     await flushPendingCanvasSave();
     expect(send).toHaveBeenCalledOnce();
     const command = send.mock.calls[0]![0];
@@ -336,7 +340,7 @@ describe("native squad and profile gestures", () => {
 
   it("places a native profile with an Add command, without serializing a document", async () => {
     profiles$.list.set([{ name: "Solo", harness: "codex", profileId: "solo", createdAt: 1, updatedAt: 1 }]);
-    expect(await placeProfileInSlot("solo", () => ({ x: 700, y: 800 }), LAUNCH)).toBe("placed");
+    expect(await placeProfileInSlot("solo", () => ({ x: 700, y: 800 }), LAUNCH, content)).toBe("placed");
     await flushPendingCanvasSave();
     expect(send).toHaveBeenCalledOnce();
     expect(send.mock.calls[0]![0]).toMatchObject({ _tag: "Add", canvas: name, nodes: [{ kind: "agent", label: "Solo", x: 700, y: 800 }], wires: [] });

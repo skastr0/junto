@@ -12,6 +12,7 @@ import { getJuntoApi } from "./junto-api";
 import { commitCommands } from "./mutations";
 import { added, topZ } from "./model-edits";
 import { profileBodyOfSeat, seatFromProfile } from "./agent-profiles";
+import type { ContentCalls } from "./content-calls";
 import { saveSeatGuidances, saveSquadPortraits, squadPortraitOf } from "./squad-portraits";
 import { seatGuidanceOf, startSeatGuidance } from "./seat-guidance-state";
 import type { PlaceOutcome } from "./squads-state";
@@ -129,6 +130,7 @@ export const placeProfileInSlot = async (
   profileId: string,
   positionFor: (size: { width: number; height: number }) => { x: number; y: number },
   launch: SquadLaunch,
+  content: ContentCalls | undefined,
 ): Promise<PlaceOutcome> => {
   const profile = profiles$.list.peek().find((entry) => entry.profileId === profileId);
   if (!profile) return "failed";
@@ -156,7 +158,7 @@ export const placeProfileInSlot = async (
   selectNode(placed.node.id);
   state$.focusNodeId.set(placed.node.id);
   const problems: string[] = [];
-  if (placed.portrait && !(await saveSquadPortraits({ [placed.node.id]: placed.portrait }))) {
+  if (placed.portrait && !(await saveSquadPortraits(content, { [placed.node.id]: placed.portrait }))) {
     problems.push("portrait not copied");
   }
   if (placed.guidance && !(await saveSeatGuidances({ [placed.node.id]: placed.guidance }))) {

@@ -10,14 +10,19 @@ import {
   type OffboardRulesPatch,
   type OffboardRefusalCode,
   type SeatOffboardAction,
-  type SeatOffboardRunInput,
-  type SeatOffboardRunResult,
   type SeatOffboardRunRow,
   type SeatOffboardStatus,
 } from "@shared/seat-offboard";
 import type { OffboardMode } from "@shared/seat-sessions";
-import type { JuntoApi } from "@shared/ipc";
-import { getJuntoApi } from "./junto-api";
+import { Effect } from "effect";
+import { useContext, useMemo } from "react";
+import type {
+  SeatOffboardRunInput as RunInputSchema,
+  SeatOffboardRunResult as RunResultSchema,
+  SeatOffboardStatus as StatusSchema,
+} from "../../contract/core/seat-cache-due";
+import { SeatCacheDueWindow } from "../../contract/window/seat-cache-due";
+import { WindowRuntimeContext, type WindowRuntime } from "../rpc/runtime";
 import { agentCountLabel } from "./multi-selection";
 
 /**
@@ -34,12 +39,16 @@ import { agentCountLabel } from "./multi-selection";
 
 // --- calls ---------------------------------------------------------------------
 
+/** The core's offboard run and status, as its seat-cache-due group types them. */
+export type SeatOffboardRunInput = typeof RunInputSchema.Type;
+export type SeatOffboardRunResult = typeof RunResultSchema.Type;
+
 export type SeatOffboardOps = {
   readonly run: (input: SeatOffboardRunInput) => Promise<SeatOffboardRunResult>;
   readonly status: (
     canvasName: string,
     seatIds: ReadonlyArray<string>,
-  ) => Promise<ReadonlyArray<SeatOffboardStatus>>;
+  ) => Promise<ReadonlyArray<typeof StatusSchema.Type>>;
 };
 
 const UNREACHABLE = "Junto could not reach its offboard service.";
@@ -47,35 +56,30 @@ const UNREACHABLE = "Junto could not reach its offboard service.";
 const refuseAll = (seatIds: ReadonlyArray<string>): SeatOffboardRunResult =>
   summarizeOffboardRun(seatIds.map((seatId) => ({ seatId, ok: false, code: "failed", reason: UNREACHABLE })));
 
-/** Ask seat by seat through the one-seat call, for a main without seatOffboardRun. */
-const askEach = async (
-  ask: NonNullable<JuntoApi["seatOffboardAsk"]>,
-  input: SeatOffboardRunInput,
-): Promise<SeatOffboardRunResult> => {
-  const results = await Promise.all(
-    input.seatIds.map(async (seatId): Promise<SeatOffboardRunRow> => {
-      const answer = await ask(input.canvasName, seatId, input.mode ?? "continue").catch(() => undefined);
-      if (answer?.ok === true) return { seatId, ok: true, action: "ask", outcome: "asked", pastWindow: false };
-      return { seatId, ok: false, code: "undelivered", reason: answer?.message ?? OFFBOARD_REFUSAL_REASON.undelivered };
-    }),
-  );
-  return summarizeOffboardRun(results);
-};
-
-/** The app's own calls. Neither ever throws: a lost call is a refused row per seat. */
-export const seatOffboardOps: SeatOffboardOps = {
+/**
+ * The app's own calls, on the window's link to the core's group. Neither
+ * ever throws: a lost call is a refused row per seat, or no status. A page
+ * without a runtime (a gallery, a test's stand-in) is refused the same way.
+ */
+export const seatOffboardOpsOf = (runtime: WindowRuntime | undefined): SeatOffboardOps => ({
   run: async (input) => {
-    const bridge = getJuntoApi();
-    const call = bridge?.seatOffboardRun;
-    if (call !== undefined) return call(input).catch(() => refuseAll(input.seatIds));
-    if (input.action === "ask" && bridge?.seatOffboardAsk !== undefined) return askEach(bridge.seatOffboardAsk, input);
-    return refuseAll(input.seatIds);
+    if (runtime === undefined) return refuseAll(input.seatIds);
+    return runtime
+      .runPromise(Effect.flatMap(SeatCacheDueWindow, (due) => due.SeatCacheDueOffboardRun({ input })))
+      .catch(() => refuseAll(input.seatIds));
   },
   status: async (canvasName, seatIds) => {
-    const call = getJuntoApi()?.seatOffboardStatus;
-    if (call === undefined) return [];
-    return call(canvasName, seatIds).catch(() => []);
+    if (runtime === undefined) return [];
+    return runtime
+      .runPromise(Effect.flatMap(SeatCacheDueWindow, (due) => due.SeatCacheDueOffboardStatus({ canvasName, seatIds })))
+      .catch(() => []);
   },
+});
+
+/** The offboard calls of the window this component renders in. */
+export const useSeatOffboardOps = (): SeatOffboardOps => {
+  const runtime = useContext(WindowRuntimeContext);
+  return useMemo(() => seatOffboardOpsOf(runtime), [runtime]);
 };
 
 // --- words ---------------------------------------------------------------------

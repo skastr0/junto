@@ -1,64 +1,72 @@
 // @vitest-environment jsdom
 /**
  * The auto cache mode's question, in the seat's open terminal view. It shows
- * only for the view's own seat while main lists it, sends the operator's
- * answer, and says main's message when the answer does not go through.
+ * only for the view's own seat while the core lists it, sends the operator's
+ * answer, and says the core's message when the answer does not go through.
+ * The window's service follows a stand-in for the group's client.
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { Effect, Layer, ManagedRuntime, Queue, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SeatCacheDue, SeatCacheDueAnswerInput, SeatCacheDueAnswerResult } from "../src/shared/seat-cache-due";
+import { SeatCacheDueWindow } from "../src/contract/window/seat-cache-due";
+import type { SeatCacheDue, SeatCacheDueAnswerResult } from "../src/window/lib/seat-cache-due-state";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const bridge = {
-  listeners: new Set<(due: ReadonlyArray<SeatCacheDue>) => void>(),
-  current: [] as SeatCacheDue[],
-  answers: [] as SeatCacheDueAnswerInput[],
-  result: { ok: true } as SeatCacheDueAnswerResult,
-  list: async (): Promise<SeatCacheDue[]> => bridge.current,
-};
-vi.mock("../src/window/lib/junto-api", () => ({
-  getJuntoApi: () => ({
-    seatCacheDueList: () => bridge.list(),
-    seatCacheDueAnswer: async (input: SeatCacheDueAnswerInput) => {
-      bridge.answers.push(input);
-      return bridge.result;
-    },
-    onSeatCacheDue: (listener: (due: ReadonlyArray<SeatCacheDue>) => void) => {
-      bridge.listeners.add(listener);
-      return () => bridge.listeners.delete(listener);
-    },
-  }),
-}));
+type AnswerInput = { readonly canvasName: string; readonly seatId: string; readonly question: string; readonly answer: string };
 
-const { cacheDueLine, seatCacheDue$, subscribeSeatCacheDue } = await import("../src/window/lib/seat-cache-due-state");
+const core = {
+  answers: [] as AnswerInput[],
+  result: { ok: true } as SeatCacheDueAnswerResult,
+};
+
+const { cacheDueLine, SeatCacheDueState } = await import("../src/window/lib/seat-cache-due-state");
+const { WindowRuntimeContext } = await import("../src/window/rpc/runtime");
 const { SeatCacheDuePopup } = await import("../src/window/components/terminal/SeatCacheDuePopup");
 
 const NOW = 1_800_000_000_000;
 const ask = (seatId: string, windowEndsAt = NOW - 12 * 60_000): SeatCacheDue =>
   ({ canvasName: "factory", seatId, question: `q-${seatId}`.padEnd(22, "0"), windowEndsAt });
-const push = (due: ReadonlyArray<SeatCacheDue>) => act(() => bridge.listeners.forEach((listener) => listener(due)));
 
 let host: HTMLDivElement;
 let root: Root;
+let lists: Queue.Queue<ReadonlyArray<SeatCacheDue>>;
+let runtime: ReturnType<typeof runtimeOver>;
+
+/** The window's service over a client whose follow sends what the test pushes. */
+const runtimeOver = (opening: ReadonlyArray<SeatCacheDue>) => {
+  lists = Effect.runSync(Queue.unbounded<ReadonlyArray<SeatCacheDue>>());
+  Queue.offerUnsafe(lists, opening);
+  const client = {
+    SeatCacheDueFollow: () => Stream.fromQueue(lists),
+    SeatCacheDueAnswer: ({ input }: { readonly input: AnswerInput }) =>
+      Effect.sync(() => {
+        core.answers.push(input);
+        return core.result;
+      }),
+  };
+  return ManagedRuntime.make(SeatCacheDueState.layer.pipe(Layer.provide(Layer.succeed(SeatCacheDueWindow, client as never))));
+};
+const push = async (due: ReadonlyArray<SeatCacheDue>) => {
+  Queue.offerUnsafe(lists, due);
+  await flush();
+};
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"], now: NOW });
-  seatCacheDue$.byKey.set({});
-  bridge.current = [];
-  bridge.answers = [];
-  bridge.result = { ok: true };
-  bridge.list = async () => bridge.current;
+  core.answers = [];
+  core.result = { ok: true };
+  runtime = runtimeOver([]);
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root.unmount());
   host.remove();
-  subscribeSeatCacheDue()();
+  await runtime.dispose();
   vi.useRealTimers();
 });
 
@@ -69,7 +77,13 @@ const flush = async () => {
 };
 
 const render = async (seatId = "seat-1") => {
-  act(() => root.render(<SeatCacheDuePopup canvasName="factory" seatId={seatId} />));
+  act(() =>
+    root.render(
+      <WindowRuntimeContext.Provider value={runtime as never}>
+        <SeatCacheDuePopup canvasName="factory" seatId={seatId} />
+      </WindowRuntimeContext.Provider>,
+    ),
+  );
   await flush();
 };
 
@@ -88,63 +102,51 @@ describe("the cache question in the seat's view", () => {
   });
 
   it("shows for a window that opens on a listed seat, and only for its own seat", async () => {
-    bridge.current = [ask("seat-2")];
+    await runtime.dispose();
+    runtime = runtimeOver([ask("seat-2")]);
     await render("seat-1");
     expect(popup()).toBeNull();
-    bridge.current = [ask("seat-1")];
     act(() => root.unmount());
-    subscribeSeatCacheDue()();
+    await runtime.dispose();
+    runtime = runtimeOver([ask("seat-1")]);
     root = createRoot(host);
     await render("seat-1");
     expect(popup()?.textContent).toBe("Cache expired 12m ago.Start freshKeep this session");
   });
 
-  it("follows main's pushes: shown while listed, gone once it leaves the list", async () => {
+  it("follows the core's list: shown while listed, gone once it leaves the list", async () => {
     await render();
     expect(popup()).toBeNull();
-    push([ask("seat-1")]);
+    await push([ask("seat-1")]);
     expect(popup()).not.toBeNull();
-    push([]);
+    await push([]);
     expect(popup()).toBeNull();
   });
 
-  it("does not let the opening read put back a seat a push already removed", async () => {
-    let resolveList: (due: SeatCacheDue[]) => void = () => undefined;
-    bridge.list = () =>
-      new Promise((resolve) => {
-        resolveList = resolve;
-      });
+  it("sends the answer and shows the core's message when it fails", async () => {
     await render();
-    push([]);
-    resolveList([ask("seat-1")]);
-    await flush();
-    expect(popup()).toBeNull();
-  });
-
-  it("sends the answer and shows main's message when it fails", async () => {
-    await render();
-    push([ask("seat-1")]);
-    bridge.result = { ok: false, message: "The seat is working; offboard waits for idle." };
+    await push([ask("seat-1")]);
+    core.result = { ok: false, message: "The seat is working; offboard waits for idle." };
     await press("seat-cache-due-fresh");
-    expect(bridge.answers).toEqual([{ canvasName: "factory", seatId: "seat-1", question: ask("seat-1").question, answer: "fresh" }]);
+    expect(core.answers).toEqual([{ canvasName: "factory", seatId: "seat-1", question: ask("seat-1").question, answer: "fresh" }]);
     expect(host.querySelector('[data-testid="seat-cache-due-failure"]')?.textContent).toBe(
       "The seat is working; offboard waits for idle.",
     );
-    bridge.result = { ok: true };
+    core.result = { ok: true };
     await press("seat-cache-due-keep");
-    expect(bridge.answers.at(-1)).toEqual({ canvasName: "factory", seatId: "seat-1", question: ask("seat-1").question, answer: "keep" });
+    expect(core.answers.at(-1)).toEqual({ canvasName: "factory", seatId: "seat-1", question: ask("seat-1").question, answer: "keep" });
     expect(host.querySelector('[data-testid="seat-cache-due-failure"]')).toBeNull();
   });
 
   it("hears a press on a view adopted outside React's root, as a grid cell is", async () => {
     await render();
-    push([ask("seat-1")]);
+    await push([ask("seat-1")]);
     const elsewhere = document.createElement("div");
     document.body.appendChild(elsewhere);
     const shown = popup()!;
     elsewhere.appendChild(shown);
     await press("seat-cache-due-keep", elsewhere);
-    expect(bridge.answers).toEqual([{ canvasName: "factory", seatId: "seat-1", question: ask("seat-1").question, answer: "keep" }]);
+    expect(core.answers).toEqual([{ canvasName: "factory", seatId: "seat-1", question: ask("seat-1").question, answer: "keep" }]);
     // Back where React left it, so it can unmount it.
     host.appendChild(shown);
     elsewhere.remove();
@@ -152,17 +154,17 @@ describe("the cache question in the seat's view", () => {
 
   it("says the tokens a continue re-reads when there is an estimate, and nothing when there is none", async () => {
     await render();
-    push([{ ...ask("seat-1"), tokens: 251_000 }]);
+    await push([{ ...ask("seat-1"), tokens: 251_000 }]);
     expect(popup()?.textContent).toBe(
       "Cache expired 12m ago. Continuing re-reads about 251k tokens.Start freshKeep this session",
     );
-    push([ask("seat-1")]);
+    await push([ask("seat-1")]);
     expect(popup()?.textContent).toBe("Cache expired 12m ago.Start freshKeep this session");
   });
 
   it("reads the line again as time passes", async () => {
     await render();
-    push([ask("seat-1")]);
+    await push([ask("seat-1")]);
     act(() => {
       vi.advanceTimersByTime(60_000);
     });

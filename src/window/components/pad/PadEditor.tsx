@@ -42,6 +42,7 @@ import {
 } from "@shared/pad-project";
 import { themeMode$ } from "../../lib/theme-mode";
 import { fileToClipboardImage } from "../../lib/clipboard-image";
+import { useContentCalls } from "../../lib/content-calls";
 import { putClipboardImage, putImagesFromDataTransfer } from "../../lib/image-content";
 import type { NodeKind } from "@shared/model/kinds";
 import type { NodeId } from "@shared/physics/schema";
@@ -598,6 +599,7 @@ export function PadEditor({
     [commit],
   );
 
+  const content = useContentCalls();
   const ingestImageFile = useCallback(
     async (file: File, pending: PendingImage): Promise<boolean> => {
       const image = await fileToClipboardImage(file);
@@ -605,14 +607,14 @@ export function PadEditor({
         setHint(image.error);
         return false;
       }
-      const put = await putClipboardImage(image, file.name.trim() || `image.${image.extension}`);
+      const put = await putClipboardImage(content, image, file.name.trim() || `image.${image.extension}`);
       if (!put.ok) {
         setHint(put.error);
         return false;
       }
       return placeImage(pending, put.ref);
     },
-    [placeImage],
+    [placeImage, content],
   );
 
   const placeRefAt = useCallback(
@@ -635,7 +637,7 @@ export function PadEditor({
 
   const ingestTransfer = useCallback(
     async (data: DataTransfer | null | undefined, scene: PadPoint): Promise<void> => {
-      const result = await putImagesFromDataTransfer(data);
+      const result = await putImagesFromDataTransfer(content, data);
       if (result.kind === "error") {
         setHint(result.error);
         return;
@@ -659,7 +661,7 @@ export function PadEditor({
         setHint(null);
       }
     },
-    [commit, placeRefAt],
+    [commit, placeRefAt, content],
   );
 
   const canvasName = use$(state$.canvasName) || "";

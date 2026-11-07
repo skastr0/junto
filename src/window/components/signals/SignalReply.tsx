@@ -8,6 +8,7 @@ import type { SignalActionResult } from "../../lib/agent-signals-view";
 import { claimFocus } from "../../lib/focus-ownership";
 import { modKeyGlyph } from "../../lib/platform";
 import { useAttachments } from "../../lib/operator-attachments";
+import { useContentCalls } from "../../lib/content-calls";
 import { carryText, useLongText } from "../../lib/long-text";
 import { useMentionItems } from "../../lib/mention-items";
 import { useConnectedSeats, useResourcesInReach } from "../../lib/mention-sources";
@@ -99,6 +100,7 @@ export function SignalReply({
   const quickReplies = useQuickReplies();
   const quietNotes = useQuietNotes();
   const attachments = useAttachments(canvasName);
+  const content = useContentCalls();
   const seat = useMemo(() => ({ canvasName, seatId: seatNodeId }), [canvasName, seatNodeId]);
   const wired = useConnectedSeats(seat);
   const inReach = useResourcesInReach(canvasName, seatNodeId as NodeId, useMentionItems(canvasName));
@@ -117,7 +119,7 @@ export function SignalReply({
   const answer = (label: string, text: string, silent: boolean): void => {
     if (pending !== null || !filesIn || long.blocked) return;
     void act(label, async () => {
-      const carried = await carryText(canvasName, text, files, ANSWER_BOUND);
+      const carried = await carryText(content, canvasName, text, files, ANSWER_BOUND);
       return respond(signalId, carried.text, withFiles(silent, carried.files));
     });
   };

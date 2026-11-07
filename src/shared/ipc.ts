@@ -5,15 +5,13 @@ import type { MachineInventory } from "./harness-domain/inventory";
 import type { AuthorityWindowData } from "./authority";
 import type { NativeSettingWrite } from "./harness-domain/native-config";
 import type { MachineCacheWindows, MachineProviders, MachineRecord, MachineSettingsNoAnswer } from "./machine-settings";
+import type { OffboardRulesPatch } from "./seat-offboard";
 import type { WorkAttentionSnapshot } from "./work-attention";
 import type { WorkItemQuery, WorkAttentionQuery, WorkSinkChanged } from "./work-sinks";
 import type { CanvasesChanged, Changed, Command, Opened } from "./model";
 import type { WorkMailQuery, WorkMailPage, WorkMailChanged } from "./work-mail";
 import type { ViewStateApplyResult, ViewStateEvent, ViewStateSnapshot, ViewStateWrite } from "./view-state";
 import type { MailThreadMessagesPage, MailThreadsPage } from "./wire/mail-threads";
-import type { SignalReply } from "./signal-reply";
-import type { SignalSecretPutRequest, SignalSecretPutResult } from "./vault";
-import type { OperatorContentPut, OperatorContentPutResult } from "./operator-attachments";
 import type { PageShotPurged, PageShotPurgeRequest } from "./page-shot";
 import type {
   MailReadChanged,
@@ -27,13 +25,6 @@ import type {
   SeatThreadsPageQuery,
   SeatThreadsQuery,
 } from "./mail-threads";
-import type {
-  OffboardRulesPatch,
-  SeatOffboardRunInput,
-  SeatOffboardRunResult,
-  SeatOffboardStatus,
-} from "./seat-offboard";
-import type { CompanionDeviceRecord, CompanionKeyRestore, CompanionPairStart, CompanionStatus } from "./companion-devices";
 import type {
   BrowserProfileWipeInput,
   BrowserProfileWipeReceipt,
@@ -98,14 +89,8 @@ import type {
   AutomationsChanged,
 } from "./automation";
 import type { MailWaitingFact } from "./mail-waiting";
-import type { AgentSignal } from "./agent-signals";
 import type { PreviewRequest, PreviewResult, PreviewPlayResult, PreviewRevealResult, PreviewSource } from "./preview";
-import type {
-  PortraitOverride,
-  PortraitOverrideEvent,
-  PortraitOverrides,
-  PortraitOverrideSetResult,
-} from "./portrait-overrides";
+import type { PortraitOverrideEvent } from "./portrait-overrides";
 import type { Squad, SquadDeleteResult, SquadResult, SquadSaveInput, SquadsChanged } from "./squads";
 import type {
   SeatGuidance,
@@ -126,7 +111,6 @@ import type {
   SeatOffboardAskResult,
   SeatOffboardProgress,
 } from "./seat-sessions";
-import type { SeatCacheDue, SeatCacheDueAnswerInput, SeatCacheDueAnswerResult } from "./seat-cache-due";
 import type {
   AgentProfile,
   ProfileDeleteResult,
@@ -152,7 +136,7 @@ export type AgentSignalAnswerOptions = {
   readonly silent?: boolean;
   /**
    * Files the operator attached, each uploaded first through
-   * `operatorContentPut`. The answer then needs no text.
+   * the content group (`ContentOperatorPut`). The answer then needs no text.
    */
   readonly attachments?: ReadonlyArray<ContentRef>;
 };
@@ -197,22 +181,13 @@ export const IPC_CHANNELS = {
   /** Mail waiting on a seat past 30 minutes: the facts that stand, and each change (display only). */
   mailWaitingRead: "junto:mail-waiting-read",
   mailWaiting: "junto:mail-waiting",
-  /** Agent signals: list per canvas, operator answer / dismiss, live upsert. */
-  agentSignalsList: "junto:agent-signals-list",
-  agentSignalRespond: "junto:agent-signal-respond",
-  agentSignalReply: "junto:agent-signal-reply",
-  signalSecretPut: "junto:signal-secret-put",
-  agentSignalDismiss: "junto:agent-signal-dismiss",
   /** Previews of files an agent names in its text: one guarded read, and reveal. */
   previewRead: "junto:preview-read",
   pageShotPurge: "junto:page-shot-purge",
   previewReveal: "junto:preview-reveal",
   previewPlay: "junto:preview-play",
-  /** Portrait overrides: list all seats, set or reset one, live upsert. */
-  portraitOverridesList: "junto:portrait-overrides-list",
-  portraitOverrideSet: "junto:portrait-override-set",
+  /** Main -> renderer: one seat's portrait override as it now stands. */
   portraitOverride: "junto:portrait-override",
-  agentSignal: "junto:agent-signal",
   /** Squads: list, save (always a new squad), rename, delete, live list push. */
   squadsList: "junto:squads-list",
   squadSave: "junto:squad-save",
@@ -232,15 +207,8 @@ export const IPC_CHANNELS = {
   regionEnvStaleSeats: "junto:region-env-stale-seats",
   /** Offboard from the seat: ask the agent in a mode, and where each seat's offboard stands. */
   seatOffboardAsk: "junto:seat-offboard-ask",
-  /** Ask, or offboard now, one seat or many; and what the buttons should say first. */
-  seatOffboardRun: "junto:seat-offboard-run",
-  seatOffboardStatus: "junto:seat-offboard-status",
   seatOffboardProgressList: "junto:seat-offboard-progress-list",
   seatOffboardProgress: "junto:seat-offboard-progress",
-  /** The auto cache mode's question: the seats due it (pushed whole, and read), and the operator's answer. */
-  seatCacheDue: "junto:seat-cache-due",
-  seatCacheDueList: "junto:seat-cache-due-list",
-  seatCacheDueAnswer: "junto:seat-cache-due-answer",
   /** Onboarding: every seat's status, one seat's change, and the operator's nudge. */
   seatOnboardingSnapshot: "junto:seat-onboarding-snapshot",
   seatOnboardingChanged: "junto:seat-onboarding-changed",
@@ -275,30 +243,11 @@ export const IPC_CHANNELS = {
   viewStateChanged: "junto:view-state-changed",
   /** A new core took over: what a window read from the last one may be stale. */
   coreRestarted: "junto:core-restarted",
-  /** Phone companion: this Mac's readiness, pair a phone (QR), list and remove phones; main pushes the list. */
-  companionStatus: "junto:companion-status",
-  companionPairStart: "junto:companion-pair-start",
-  companionPairCancel: "junto:companion-pair-cancel",
-  companionPairCopyLink: "junto:companion-pair-copy-link",
-  companionDevices: "junto:companion-devices",
-  companionDeviceRemove: "junto:companion-device-remove",
-  /** Window only: write back a paired phone's missing line, or every one ("all"). */
-  companionDeviceRestore: "junto:companion-device-restore",
-  companionDevicesChanged: "junto:companion-devices-changed",
-  /** Is sshd listening: the one probe a paired phone's reach depends on. */
-  companionRemoteLogin: "junto:companion-remote-login",
-  companionOpenRemoteLoginSettings: "junto:companion-open-remote-login-settings",
   getKernelState: "junto:get-kernel-state",
   /** Factory pause plane — canvas-level switch state (born paused). */
   factoryPauseState: "junto:factory-pause-state",
   factoryPauseSet: "junto:factory-pause-set",
   /** Operator Fire now — apply scheduler output-edge effects immediately. */
-  /**
-   * Put image bytes into the local content store; returns a ContentRef.
-   * Canvas notes and image file nodes author through this — never inline Base64
-   * in the document.
-   */
-  contentPutImage: "junto:content-put-image",
   // work plane (serialized canvas mutations)
   workSeatRecentOps: "junto:work-seat-recent-ops",
   workMailPage: "junto:work-mail-page",
@@ -467,8 +416,6 @@ export const IPC_CHANNELS = {
   seatThreadMarkRead: "junto:seat-thread-mark-read",
   /** Main → renderer: a read point moved, on the desktop or the phone. */
   seatThreadReadChanged: "junto:seat-thread-read-changed",
-  /** Renderer → main: one piece of a file the operator attaches to mail, staged in the content store. */
-  operatorContentPut: "junto:operator-content-put",
   browserSessionChanged: "junto:browser-session-changed",
 } as const;
 
@@ -689,31 +636,8 @@ export interface JuntoApi extends OverseerLiveApi {
   // Factory pause plane (app-state switch; the factory is born paused and the
   // first play is an explicit operator confirmation — @shared/pause law).
   readonly factoryPauseState: (canvas: string) => Promise<CanvasPauseState>;
-  /** Open signals plus recent history for every seat on the canvas. */
-  readonly agentSignalsList: (canvas: string) => Promise<ReadonlyArray<AgentSignal>>;
   /** Each seat's mail-waiting fact that stands now, for a window load (`@shared/mail-waiting`). */
   readonly mailWaiting: () => Promise<ReadonlyArray<MailWaitingFact>>;
-  /** Answer an open signal: delivered to the seat as operator mail, or only recorded when `options.silent`. */
-  readonly agentSignalRespond: (
-    signalId: string,
-    text: string,
-    options?: AgentSignalAnswerOptions,
-  ) => Promise<AgentSignalOperatorResult>;
-  /**
-   * Hand in the work an open signal's form asks for (0.11/07, N1): a document
-   * written in the signal, or proof. The form's condition is ruled before
-   * anything is written.
-   */
-  readonly agentSignalReply: (signalId: string, reply: SignalReply) => Promise<AgentSignalOperatorResult>;
-  /**
-   * Set the value a secret form asks for (0.12, N5), in the vault its region
-   * declares, for the machine that reads it. The value goes to the vault and
-   * nowhere else: it is never echoed, logged or stored, and the field is
-   * cleared after the attempt.
-   */
-  readonly signalSecretPut: (request: SignalSecretPutRequest) => Promise<SignalSecretPutResult>;
-  /** Close an open signal without mail. */
-  readonly agentSignalDismiss: (signalId: string) => Promise<AgentSignalOperatorResult>;
   /**
    * Preview a local file that the source's stored text names. Main serves
    * nothing the text does not name: see `src/app/preview/read.ts`.
@@ -732,13 +656,6 @@ export interface JuntoApi extends OverseerLiveApi {
    * own to play; the real one is fetched by main, and only from then on.
    */
   readonly previewPlay: (source: PreviewSource, index: number) => Promise<PreviewPlayResult>;
-  /** Every seat's portrait override (character editor), keyed by node id. */
-  readonly portraitOverridesList: () => Promise<PortraitOverrides>;
-  /** Replace one seat's portrait override; null resets it to identity. */
-  readonly portraitOverrideSet: (
-    seatId: string,
-    override: PortraitOverride | null,
-  ) => Promise<PortraitOverrideSetResult>;
   /** The operator's squads (reusable seat templates), by name. */
   readonly squadsList: () => Promise<ReadonlyArray<Squad>>;
   /** Create a squad; a taken name is refused, never replaced. */
@@ -785,30 +702,8 @@ export interface JuntoApi extends OverseerLiveApi {
    * mail path. The agent writes the notes; Junto closes the session after.
    */
   readonly seatOffboardAsk?: (canvasName: string, seatId: string, mode: OffboardMode) => Promise<SeatOffboardAskResult>;
-  /**
-   * Ask the seats' agents to offboard, or end their sessions now (no turn,
-   * no notes; only a seat that is idle, offline or resting). One call for
-   * the whole selection; one row per seat comes back, in the order given.
-   */
-  readonly seatOffboardRun?: (input: SeatOffboardRunInput) => Promise<SeatOffboardRunResult>;
-  /**
-   * Before the click: whether offboard now is allowed for each seat (and why
-   * not), how long it has sat still, and which action is preferred.
-   */
-  readonly seatOffboardStatus?: (
-    canvasName: string,
-    seatIds: ReadonlyArray<string>,
-  ) => Promise<ReadonlyArray<SeatOffboardStatus>>;
   /** Where every seat's latest offboard stands. */
   readonly seatOffboardProgressList?: () => Promise<ReadonlyArray<SeatOffboardProgress>>;
-  /**
-   * The seats due the auto cache mode's question now: past their cache window
-   * while open in front of the operator, and never started fresh without an
-   * answer. For a window that opens; changes arrive by `onSeatCacheDue`.
-   */
-  readonly seatCacheDueList?: () => Promise<ReadonlyArray<SeatCacheDue>>;
-  /** The operator's answer for one seat: Start fresh (`fresh`), or Keep this session (`keep`). */
-  readonly seatCacheDueAnswer?: (input: SeatCacheDueAnswerInput) => Promise<SeatCacheDueAnswerResult>;
   /** Whether each seat's agent ran `junto onboard` in its current harness session. */
   readonly seatOnboardingSnapshot?: () => Promise<ReadonlyArray<SeatOnboardingEvent>>;
   /**
@@ -827,19 +722,6 @@ export interface JuntoApi extends OverseerLiveApi {
     canvas: string,
     paused: boolean,
   ) => Promise<FactoryPauseSetResult>;
-  /**
-   * Ingest image bytes into the content store. Used by canvas image nodes and
-   * note embeds. Bytes never land on a canvas; only the returned ContentRef
-   * (via content object URL) is authored into the node.
-   */
-  readonly contentPutImage: (input: {
-    readonly bytesBase64: string;
-    readonly mediaType: string;
-    readonly displayName?: string;
-  }) => Promise<
-    | { readonly ok: true; readonly ref: ContentRef }
-    | { readonly ok: false; readonly error: string }
-  >;
   // work plane — repository-native SQLite mutations; canvas reads provide
   // topology and runtime projection only.
   readonly workItem: (query: WorkItemQuery) => Promise<Task | undefined>;
@@ -880,8 +762,6 @@ export interface JuntoApi extends OverseerLiveApi {
   readonly onWireTraffic?: (listener: (event: WireTrafficEvent) => void) => () => void;
   /** A seat's mail-waiting fact as it starts, changes or clears (count 0). Optional for older bridges. */
   readonly onMailWaiting?: (listener: (fact: MailWaitingFact) => void) => () => void;
-  /** Main → renderer: a signal as it now stands (upsert by signalId). */
-  readonly onAgentSignal: (listener: (signal: AgentSignal) => void) => () => void;
   /** Main → renderer: one seat's portrait override as it now stands. */
   readonly onPortraitOverride: (listener: (event: PortraitOverrideEvent) => void) => () => void;
   /** Main → renderer: every squad, after any change. Optional for older bridges. */
@@ -890,36 +770,10 @@ export interface JuntoApi extends OverseerLiveApi {
   readonly onSeatGuidance?: (listener: (event: SeatGuidanceEvent) => void) => () => void;
   /** Main -> renderer: one seat's offboard moved on (asked, saved, resting, started). */
   readonly onSeatOffboardProgress?: (listener: (event: SeatOffboardProgress) => void) => () => void;
-  /** The seats due the auto cache mode's question, the whole list, whenever it changes. */
-  readonly onSeatCacheDue?: (listener: (due: ReadonlyArray<SeatCacheDue>) => void) => () => void;
   /** Main -> renderer: one seat onboarded, or started a session that has not. */
   readonly onSeatOnboardingChanged?: (listener: (event: SeatOnboardingEvent) => void) => () => void;
   /** Main -> renderer: every profile, after any change. */
   readonly onProfilesChanged?: (listener: (profiles: ProfilesChanged) => void) => () => void;
-  /** Settings, Companion: this Mac's readiness to pair a phone. */
-  readonly companionStatus?: () => Promise<CompanionStatus>;
-  /** Start pairing a phone; the QR expires after ten minutes. */
-  readonly companionPairStart?: () => Promise<CompanionPairStart>;
-  /**
-   * Copy link: main puts the pending pairing's link on the clipboard (the
-   * renderer never holds it) and takes it off again when the pairing ends.
-   */
-  readonly companionPairCopyLink?: (deviceId: string) => Promise<{ readonly ok: boolean }>;
-  /** Abandon a pairing that was never completed. */
-  readonly companionPairCancel?: (deviceId: string) => Promise<{ readonly ok: boolean }>;
-  readonly companionDevices?: () => Promise<ReadonlyArray<CompanionDeviceRecord>>;
-  /** Remove a phone: its key leaves authorized_keys and its record is deleted. */
-  readonly companionDeviceRemove?: (deviceId: string) => Promise<{ readonly ok: boolean; readonly message?: string }>;
-  /** Restore a phone whose line is gone from authorized_keys, or every one with "all". */
-  readonly companionDeviceRestore?: (target: string) => Promise<CompanionKeyRestore>;
-  /** Main → renderer: the phone list after any change. */
-  readonly onCompanionDevicesChanged?: (
-    listener: (devices: ReadonlyArray<CompanionDeviceRecord>) => void,
-  ) => () => void;
-  /** Remote Login alone, without the rest of the readiness check: cheap to ask on every focus. */
-  readonly companionRemoteLogin?: () => Promise<CompanionStatus["remoteLogin"]>;
-  /** Open System Settings at Sharing, Remote Login (macOS). */
-  readonly companionOpenRemoteLoginSettings?: () => Promise<{ readonly ok: boolean }>;
   readonly onKernelChanged: (listener: (snapshot: KernelSnapshot) => void) => () => void;
   // User settings document (main owns the SQLite row; renderer holds a live projection).
   readonly settingsGet: () => Promise<SettingsOpResult>;
@@ -1324,12 +1178,6 @@ export interface JuntoTerminalApi {
   readonly seatThreadMarkRead: (input: SeatThreadMarkRead) => Promise<MailReadPoint | undefined>;
   /** Main → renderer: a read point moved, from any surface, naming every seat of the thread. */
   readonly onSeatThreadReadChanged: (listener: (change: MailReadChanged) => void) => () => void;
-  /**
-   * One piece of a file the operator attaches to a thread mail or a signal
-   * answer, staged in the Mac content store as the operator; the last piece
-   * answers the file's ContentRef, which the mail then names.
-   */
-  readonly operatorContentPut: (input: OperatorContentPut) => Promise<OperatorContentPutResult>;
 }
 
 // --- browser work surface (partitioned WebContentsView; not a corpus join) ---

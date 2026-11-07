@@ -13,6 +13,7 @@ import type { Page } from "@playwright/test";
 import { seededHarnessBinDir } from "../harness/agent-harness-fixture";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { modelFixture, modelSeat, modelSeatSession } from "../harness/model";
+import { offboardNowFromPanel } from "../harness/offboard-panel";
 import { readSeatSession } from "../harness/seat-session";
 import { terminalRows } from "../harness/term-ready";
 import { expect, launchJunto, test } from "../harness/launch";
@@ -67,11 +68,7 @@ test("a seat that is not running says fresh next only when its next turn starts 
     await expect(line(page, "rested")).not.toContainText("fresh next");
 
     // Offboard the third seat with rest: its session closes at an offboard.
-    const result = await page.evaluate(
-      (input) => window.junto!.seatOffboardRun!(input),
-      { canvasName: CANVAS, seatIds: ["rested"], action: "now" as const },
-    );
-    console.log("offboard now", JSON.stringify(result));
+    console.log("offboard now", await offboardNowFromPanel(page, "rested"));
     await expect(line(page, "rested")).toContainText("fresh next", { timeout: 20_000 });
 
     // At fit-all each line reads whole: none is cut by an ellipsis.

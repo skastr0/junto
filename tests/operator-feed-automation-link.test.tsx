@@ -8,6 +8,8 @@
 import { expect, it, vi } from "vitest";
 import type { Node } from "../src/shared/model";
 import type { FeedItem } from "../src/shared/operator-feed";
+import type { CompanionWindow } from "../src/contract/window/companion";
+import type { WindowRuntime } from "../src/window/rpc/runtime";
 import { automations } from "./support/model-nodes";
 
 const calls = vi.hoisted(() => ({
@@ -30,6 +32,16 @@ vi.mock("../src/window/lib/sidebar-sections", () => ({
 vi.mock("../src/window/lib/agent-signals-view", () => ({ SIGNALS_SECTION: "signals" }));
 
 const { openSeat } = await import("../src/window/components/feed/OperatorFeed");
+
+// The companion pair is unused on these paths: the feed reaches it only for
+// this Mac's Remote Login item.
+const open = (item: FeedItem, node: Node | undefined): void =>
+  openSeat(
+    undefined as unknown as WindowRuntime,
+    undefined as unknown as CompanionWindow["Service"],
+    item,
+    node,
+  );
 
 const item = (over: Partial<FeedItem>): FeedItem =>
   ({
@@ -54,7 +66,7 @@ const reset = (): void => {
 
 it("opens the run an automation's signal names, with the automation beside it", () => {
   reset();
-  openSeat(
+  open(
     item({
       source: { kind: "automation", automationId: "01M62Q58WDSXMG4YBXNKR2RB91", nodeId: "auto", firingId: "01M62Q58WDSXMG4YBXNKR2RB92" },
     }),
@@ -73,13 +85,13 @@ it("opens the run an automation's signal names, with the automation beside it", 
 
 it("opens the automation alone when the signal names no firing", () => {
   reset();
-  openSeat(item({ source: { kind: "automation", automationId: "01M62Q58WDSXMG4YBXNKR2RB91", nodeId: "auto" } }), node);
+  open(item({ source: { kind: "automation", automationId: "01M62Q58WDSXMG4YBXNKR2RB91", nodeId: "auto" } }), node);
   expect(calls.opened).toEqual([{ nodeId: "auto", options: { automationId: "01M62Q58WDSXMG4YBXNKR2RB91" } }]);
 });
 
 it("keeps a seat's own signal on the seat's signals section", () => {
   reset();
-  openSeat(item({ seat: { nodeId: "agent", name: "builder", portraitIdentity: "agent" } }), {
+  open(item({ seat: { nodeId: "agent", name: "builder", portraitIdentity: "agent" } }), {
     ...node,
     id: "agent",
     kind: "agent",

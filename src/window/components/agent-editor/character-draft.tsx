@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { portraitCharacter, type PortraitCharacter, type PortraitConfig } from "@shared/agent-portrait";
 import type { PortraitExpression } from "@shared/portrait-expression";
+import { useContentCalls } from "../../lib/content-calls";
 import { savePortraitOverride } from "../../lib/portrait-overrides-state";
 import { usePortraitConfig } from "../AgentPortrait";
 import type { AgentEditorDraft } from "./sections";
@@ -51,6 +52,7 @@ export function CharacterDraftProvider({
   readonly children: ReactNode;
 }) {
   const saved = usePortraitConfig(identity);
+  const content = useContentCalls();
   const [draft, setDraft] = useState<PortraitConfig>((store ? store.portrait : saved) ?? {});
   const [saveFailed, setSaveFailed] = useState(false);
   const [preview, setPreview] = useState<CharacterPreview | undefined>(undefined);
@@ -65,7 +67,7 @@ export function CharacterDraftProvider({
     }
     if (pending.current) clearTimeout(pending.current);
     pending.current = setTimeout(() => {
-      void savePortraitOverride(identity, isEmptyConfig(next) ? null : next).then((ok) => setSaveFailed(!ok));
+      void savePortraitOverride(content, identity, isEmptyConfig(next) ? null : next).then((ok) => setSaveFailed(!ok));
     }, SAVE_DEBOUNCE_MS);
   };
   const value: CharacterDraft = {

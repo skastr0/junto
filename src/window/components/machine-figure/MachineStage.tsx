@@ -2,7 +2,7 @@ import { use$ } from "@legendapp/state/react";
 import type { CSSProperties, ReactNode } from "react";
 import { machineStage, type MachineFigureState, type MachineForm } from "@shared/machine-figure";
 import type { ThemeMode } from "@shared/theme";
-import { portraitOverrides$, startPortraitOverrides } from "../../lib/portrait-overrides-state";
+import { portraitOverrides$ } from "../../lib/portrait-overrides-state";
 import { themeMode$ } from "../../lib/theme-mode";
 import { MachineFigure, type MachineFigureMachine } from "./MachineFigure";
 import "./machines.css";
@@ -39,7 +39,6 @@ export interface MachineStageProps {
 }
 
 export function MachineStage({ machine, state, seatIds = [], theme, children }: MachineStageProps) {
-  startPortraitOverrides();
   const overrides = use$(portraitOverrides$);
   const live = use$(themeMode$);
   const mode = theme ?? live;

@@ -8,7 +8,7 @@
  *
  *   scripts/with-app-run-lock.sh sh -c 'JUNTO_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/companion-artifacts-verify.spec.ts'
  */
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
@@ -73,8 +73,8 @@ test("the phone walks artifacts, comments, mentions, threads and a signal answer
     await page.locator(".settings-nav__item", { hasText: "Companion" }).click();
     await page.getByRole("button", { name: "Pair a phone" }).click();
     await expect(page.getByTestId("companion-pairing").getByRole("img")).toBeVisible();
-    const devices = await page.evaluate(() => window.junto!.companionDevices!());
-    const deviceId = devices.find((device) => device.state === "pairing")!.deviceId;
+    const keysPath = join(sandbox.homeDir, ".ssh", "authorized_keys");
+    const deviceId = /companion-stdio --device (dev_[0-9A-HJKMNP-TV-Z]{26})/u.exec(readFileSync(keysPath, "utf8"))?.[1]!;
     const pairing = new Phone(["--device", deviceId], process.cwd(), phoneEnv(sandbox.homeDir));
     expect((await pairing.call("pair.complete", { publicKey: PHONE_KEY, deviceName: "E2E iPhone" })).ok).toBe(true);
     pairing.close();

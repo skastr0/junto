@@ -100,11 +100,13 @@ test("pairs a phone through the running app and removes it", async () => {
     await page.getByRole("button", { name: "Pair a phone" }).click();
     await expect(page.getByTestId("companion-pairing").getByRole("img")).toBeVisible();
     await page.locator(".settings-panel").screenshot({ path: join(SHOTS, "dark-qr.png") });
-    const devices = await page.evaluate(() => window.junto!.companionDevices!());
-    const pending = devices.find((device) => device.state === "pairing");
-    expect(pending).toBeDefined();
-    const deviceId = pending!.deviceId;
     const withPairingKey = readFileSync(keysPath, "utf8");
+    // The pending phone's id, as the operator's own key file names it: the QR is
+    // the only other place it appears, and the phone never reaches this window.
+    const pendingId = /companion-stdio --device (dev_[0-9A-HJKMNP-TV-Z]{26})/u.exec(withPairingKey)?.[1];
+    expect(pendingId).toBeDefined();
+    if (pendingId === undefined) throw new Error("the pending phone's key is not in authorized_keys");
+    const deviceId = pendingId;
     expect(withPairingKey.startsWith(`${OPERATOR_LINE}\n`)).toBe(true);
     expect(withPairingKey).toContain(`companion-stdio --device ${deviceId}",restrict ssh-ed25519 `);
 

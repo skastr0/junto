@@ -15,6 +15,8 @@ import { useCallback, useEffect, useState } from "react";
 import type { CompanionDeviceRecord, CompanionKeyRestore, CompanionPairStart, CompanionStatus } from "@shared/companion-devices";
 import { COMPANION_PAIRING_TTL_MS } from "@shared/companion-protocol";
 import { getJuntoApi } from "../../lib/junto-api";
+import { CompanionWindow } from "../../../contract/window/companion";
+import { follow, useWindowRuntime, useWindowService } from "../../rpc/runtime";
 import { answerOpenAtLogin, openAtLoginOfferVisible } from "../../lib/open-at-login-offer";
 import { state$ } from "../../lib/state";
 import { Button, StatusDot } from "../ui";
@@ -131,13 +133,15 @@ function PairingPanel({
   readonly onCancel: () => void;
 }) {
   const expired = now >= pairing.expiresAt;
+  const runtime = useWindowRuntime();
+  const companion = useWindowService(CompanionWindow);
   const [copiedAt, setCopiedAt] = useState<number | undefined>();
   const [copyFailed, setCopyFailed] = useState(false);
   const copy = async () => {
     // Main writes the clipboard; the link itself never reaches this window.
-    const result = await getJuntoApi()?.companionPairCopyLink?.(pairing.deviceId);
-    setCopyFailed(result?.ok !== true);
-    setCopiedAt(result?.ok === true ? Date.now() : undefined);
+    const copied = await runtime.runPromise(companion.CompanionCopyLink({ deviceId: pairing.deviceId })).catch(() => false);
+    setCopyFailed(!copied);
+    setCopiedAt(copied ? Date.now() : undefined);
   };
   const showCopied = copiedAt !== undefined && now - copiedAt < COPIED_NOTE_MS;
   return (
@@ -312,34 +316,33 @@ export function PhoneRow({
 }
 
 export function CompanionSettingsSection() {
-  const [status, setStatus] = useState<CompanionStatus | undefined>();
-  const [checking, setChecking] = useState(false);
-  const [devices, setDevices] = useState<ReadonlyArray<CompanionDeviceRecord>>([]);
-  const [pairing, setPairing] = useState<Pairing | undefined>();
-  const [message, setMessage] = useState<string | undefined>();
-  const [justPaired, setJustPaired] = useState<string | undefined>();
-  const [restoreError, setRestoreError] = useState<string | undefined>();
-  // Decided once, when the first phone pairs; closed once answered.
-  const [offerOpenAtLogin, setOfferOpenAtLogin] = useState(false);
-  const now = useNow(pairing !== undefined || devices.length > 0);
+const runtime = useWindowRuntime();
+const companion = useWindowService(CompanionWindow);
+const [status, setStatus] = useState<CompanionStatus | undefined>();
+const [checking, setChecking] = useState(false);
+const [devices, setDevices] = useState<ReadonlyArray<CompanionDeviceRecord>>([]);
+const [pairing, setPairing] = useState<Pairing | undefined>();
+const [message, setMessage] = useState<string | undefined>();
+const [justPaired, setJustPaired] = useState<string | undefined>();
+const [restoreError, setRestoreError] = useState<string | undefined>();
+// Decided once, when the first phone pairs; closed once answered.
+const [offerOpenAtLogin, setOfferOpenAtLogin] = useState(false);
+const now = useNow(pairing !== undefined || devices.length > 0);
 
-  const check = useCallback(async () => {
-    const api = getJuntoApi();
-    if (!api?.companionStatus) return;
-    setChecking(true);
-    try {
-      setStatus(await api.companionStatus());
-    } finally {
-      setChecking(false);
-    }
-  }, []);
+const check = useCallback(async () => {
+setChecking(true);
+try {
+setStatus(await runtime.runPromise(companion.CompanionStatus()));
+} finally {
+setChecking(false);
+}
+}, [runtime, companion]);
 
-  useEffect(() => {
-    const api = getJuntoApi();
-    void check();
-    void api?.companionDevices?.().then(setDevices, () => undefined);
-    return api?.onCompanionDevicesChanged?.(setDevices);
-  }, [check]);
+useEffect(() => {
+void check();
+// The phones now, then after each change at the core.
+return follow(runtime, companion.CompanionDevicesFollow(), setDevices);
+}, [check, runtime, companion]);
 
   // The pending phone finished pairing: drop the QR (and its key) at once.
   useEffect(() => {
@@ -367,30 +370,30 @@ export function CompanionSettingsSection() {
   }, [devices, pairing]);
 
   const pair = async () => {
-    const api = getJuntoApi();
-    if (!api?.companionPairStart) return;
-    setMessage(undefined);
-    setJustPaired(undefined);
-    const started = await api.companionPairStart();
-    if (started.ok) setPairing(started);
-    else setMessage(started.message);
+  setMessage(undefined);
+  setJustPaired(undefined);
+  const started = await runtime.runPromise(companion.CompanionStartPairing());
+  if (started.ok) setPairing(started);
+  else setMessage(started.message);
   };
 
   const cancel = () => {
-    const pending = pairing;
-    setPairing(undefined);
-    if (pending && Date.now() < pending.expiresAt) void getJuntoApi()?.companionPairCancel?.(pending.deviceId);
+  const pending = pairing;
+  setPairing(undefined);
+  if (pending && Date.now() < pending.expiresAt) {
+  void runtime.runPromise(companion.CompanionCancelPairing({ deviceId: pending.deviceId })).catch(() => undefined);
+  }
   };
 
   const remove = async (deviceId: string) => {
-    const result = await getJuntoApi()?.companionDeviceRemove?.(deviceId);
-    if (result && !result.ok) setMessage(result.message ?? "The phone could not be removed.");
+  const result = await runtime.runPromise(companion.CompanionRemove({ deviceId }));
+  if (!result.ok) setMessage(result.message ?? "The phone could not be removed.");
   };
 
   const restore = async (target: string) => {
-    setRestoreError(undefined);
-    const result = await getJuntoApi()?.companionDeviceRestore?.(target);
-    setRestoreError(restoreMessage(result));
+  setRestoreError(undefined);
+  const result = await runtime.runPromise(companion.CompanionRestore({ target }));
+  setRestoreError(restoreMessage(result));
   };
 
   const paired = devices.filter((device) => device.state === "paired");

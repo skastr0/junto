@@ -74,8 +74,12 @@ test("[fake-tui] a seat attaches code, a diff, a compare and a commit, and the c
     const ada = crewSeat(sandbox, CANVAS, SEAT);
     await crewOccupySeat(page, CANVAS, seatNode, ada);
 
-    const signalsNow = (): Promise<ReadonlyArray<AgentSignal>> =>
-      page.evaluate((canvas) => window.junto!.agentSignalsList(canvas), CANVAS);
+    // The seat's own signals, as it reads them: open first, then the newest closed.
+    const signalsNow = async (): Promise<ReadonlyArray<AgentSignal>> => {
+      const listed = await ada.cli(["signal", "list"]);
+      expect(listed.ok, `${listed.stdout}${listed.stderr}`).toBe(true);
+      return (JSON.parse(listed.stdout) as { readonly data: { readonly signals: ReadonlyArray<AgentSignal> } }).data.signals;
+    };
 
     // Code with an equals sign and a colon in it: it must not be read as a caption.
     const refused = await ada.cli(["feedback", "x", "--diff", "just some words"]);

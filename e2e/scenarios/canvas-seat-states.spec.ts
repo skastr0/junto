@@ -4,6 +4,7 @@
  * test-results/seat-states/.
  *   bun run test:e2e:fast e2e/scenarios/canvas-seat-states.spec.ts
  */
+import type { AgentSignal } from "../../src/shared/agent-signals";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { modelSeat, modelFixture } from "../harness/model";
@@ -49,7 +50,7 @@ const seatEvents = (at: number) =>
     return state === "done" ? [event("working", 0), event("idle", 1)] : [event(state, 0)];
   });
 
-const signalEvents = (at: number) =>
+const signalEvents = (at: number): ReadonlyArray<AgentSignal> =>
   (
     [
       ["escalate", "escalate", "two specs disagree on ids"],
@@ -68,20 +69,20 @@ const signalEvents = (at: number) =>
 
 test("every seat state, at rest, selected and speaking", async () => {
   await mkdir(SHOTS, { recursive: true });
-  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture(nodes, []) } });
+  // The seats' signals stand in the store before boot, as the core lists them.
+  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture(nodes, []) }, seedAgentSignals: signalEvents(Date.now()) });
   try {
     const { page } = junto;
     const seat = (id: string) => page.locator(`.react-flow__node[data-id="${id}"]`);
     await expect(seat("input")).toBeVisible({ timeout: 30_000 });
     const stagedAt = Date.now();
     await junto.app.evaluate(
-      ({ BrowserWindow }, { seatsNow, signalsNow }) => {
+      ({ BrowserWindow }, { seatsNow }) => {
         for (const window of BrowserWindow.getAllWindows()) {
           for (const event of seatsNow) window.webContents.send("junto:agent-seat-state-changed", event);
-          for (const event of signalsNow) window.webContents.send("junto:agent-signal", event);
         }
       },
-      { seatsNow: seatEvents(stagedAt), signalsNow: signalEvents(stagedAt) },
+      { seatsNow: seatEvents(stagedAt) },
     );
     // No status chip rides a seat: the ring and the line say it once.
     await expect(page.locator(".junto-node__status-rail")).toHaveCount(0);

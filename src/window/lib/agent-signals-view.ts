@@ -1,4 +1,5 @@
 import { use$ } from "@legendapp/state/react";
+import { useContext, useMemo } from "react";
 import type { AgentSignalAnswerOptions } from "@shared/ipc";
 import { type AgentSignal, type AgentSignalKind } from "@shared/agent-signals";
 import { compareUrgency, levelOfSignal } from "@shared/wire/urgency";
@@ -8,6 +9,8 @@ import {
   respondToAgentSignal,
   type SignalActionResult,
 } from "./agent-signals-state";
+import { WindowRuntimeContext } from "../rpc/runtime";
+import { handInSignalWork, putSignalSecret, type WorkReply } from "./signal-work";
 import { FEED_KIND_LABEL } from "@shared/operator-feed";
 
 /**
@@ -73,12 +76,12 @@ export const signalOutcomeLabel = (signal: AgentSignal): string | undefined => {
 
 // --- data source ---------------------------------------------------------
 // The renderer signal store (agent-signals-state.ts): a live mirror of main's
-// durable rows for the open canvas, answered and dismissed over IPC.
+// durable rows for the open canvas, answered and dismissed through the core's
+// signals group on the window's link.
 
 export type { SignalActionResult };
 
 type SignalSource = {
-  readonly all: () => ReadonlyArray<AgentSignal>;
   readonly respond: (
     signalId: string,
     text: string,
@@ -87,22 +90,32 @@ type SignalSource = {
   readonly dismiss: (signalId: string) => Promise<SignalActionResult>;
 };
 
-const signalSource: SignalSource = {
-  all: () => Object.values(agentSignals$.get()),
-  respond: respondToAgentSignal,
-  dismiss: dismissAgentSignal,
-};
-
 /** Signals for one seat, ordered for the sidebar, plus its actions. */
 export const useSeatSignals = (
   canvasName: string,
   nodeId: string,
 ): SeatSignalSummary & Pick<SignalSource, "respond" | "dismiss"> => {
-  const all = use$(() => signalSource.all());
-  return {
-    ...summarizeSeatSignals(all, canvasName, nodeId),
-    respond: signalSource.respond,
-    dismiss: signalSource.dismiss,
-  };
+  const all = use$(() => Object.values(agentSignals$.get()));
+  const { respond, dismiss } = useSignalActions();
+  return { ...summarizeSeatSignals(all, canvasName, nodeId), respond, dismiss };
 };
 
+/** The operator's signal actions: an answer, a dismissal, a hand-in and a secret value. */
+export type SignalActions = Pick<SignalSource, "respond" | "dismiss"> & {
+  readonly handIn: (signalId: string, reply: WorkReply) => Promise<SignalActionResult>;
+  readonly putSecret: (signalId: string, value: string) => Promise<SignalActionResult>;
+};
+
+/** The signal actions, each one call to the core's signals group on this window's link. */
+export const useSignalActions = (): SignalActions => {
+  const runtime = useContext(WindowRuntimeContext);
+  return useMemo<SignalActions>(
+    () => ({
+      respond: (signalId, text, options) => respondToAgentSignal(runtime, signalId, text, options),
+      dismiss: (signalId) => dismissAgentSignal(runtime, signalId),
+      handIn: (signalId, reply) => handInSignalWork(runtime, signalId, reply),
+      putSecret: (signalId, value) => putSignalSecret(runtime, signalId, value),
+    }),
+    [runtime],
+  );
+};

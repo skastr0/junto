@@ -5,7 +5,22 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AgentSignal } from "../src/shared/agent-signals";
 import { buildOperatorFeed, type FeedRegion, type OperatorFeed as Feed } from "../src/shared/operator-feed";
 import { OperatorFeed } from "../src/window/components/feed/OperatorFeed";
+import { Layer, ManagedRuntime } from "effect";
+import { CompanionWindow } from "../src/contract/window/companion";
+import { SignalsWindow } from "../src/contract/window/signals";
+import { WindowRuntimeContext } from "../src/window/rpc/runtime";
 import { state$ } from "../src/window/lib/state";
+
+/** The feed under a window runtime: its signal and companion calls are not under test. */
+const feedRuntime = ManagedRuntime.make(
+  Layer.mergeAll(Layer.succeed(SignalsWindow, {} as never), Layer.succeed(CompanionWindow, {} as never)),
+);
+const feed = () => (
+  <WindowRuntimeContext.Provider value={feedRuntime as never}>
+    <OperatorFeed />
+  </WindowRuntimeContext.Provider>
+);
+
 
 // The real feed, fed by hand. The live feed is rebuilt as its stores move,
 // often with nothing in it changed, so every render here hands the feed a
@@ -100,7 +115,7 @@ afterEach(() => {
 
 it("an answered card stays the same element, in its place, until its fade is over", async () => {
   live.set(feedOf({ build: ["a", "b", "c"] }));
-  await act(async () => root.render(<OperatorFeed />));
+  await act(async () => root.render(feed()));
   const b = cardOf("b");
   expect(order()).toEqual(["a", "b", "c"]);
 
@@ -119,7 +134,7 @@ const pane = (): HTMLElement | null => document.body.querySelector("[data-testid
 
 it("the pane shows the first item, and a reply open on an item that leaves goes with it", async () => {
   live.set(feedOf({ build: ["a", "b"] }));
-  await act(async () => root.render(<OperatorFeed />));
+  await act(async () => root.render(feed()));
   expect(pane()?.dataset.itemId).toBe("signal:a");
   // Pills live only in the pane, never on a row in the list.
   expect(cardOf("a")!.querySelector("[data-testid='quick-replies']")).toBeNull();
@@ -135,7 +150,7 @@ it("the pane shows the first item, and a reply open on an item that leaves goes 
 
 it("a region whose only card leaves stays where it was while it fades", async () => {
   live.set(feedOf({ lead: ["l"], build: ["a"], docs: ["d"] }));
-  await act(async () => root.render(<OperatorFeed />));
+  await act(async () => root.render(feed()));
   expect(regionLabels()).toEqual(["Lead", "Build", "Docs"]);
 
   await show(feedOf({ build: ["a"], docs: ["d"] }));
@@ -148,7 +163,7 @@ it("a region whose only card leaves stays where it was while it fades", async ()
 
 it("holds the order on screen through a re-rank, and ranks a new card into it", async () => {
   live.set(feedOf({ build: ["a", "b"], docs: ["d"] }, { a: 90, b: 80, d: 70 }));
-  await act(async () => root.render(<OperatorFeed />));
+  await act(async () => root.render(feed()));
   expect(regionLabels()).toEqual(["Build", "Docs"]);
 
   // Without a, Docs now ranks first (e is the oldest).

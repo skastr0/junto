@@ -30,7 +30,7 @@ import { registerSettingsIpc } from "./settings/ipc";
 import { mainIndexCalls } from "./core-process/main-index-ipc";
 import { registerViewStateIpc } from "./view-state/ipc";
 import { registerLibraryIpc } from "./library/library-ipc";
-import { registerContentIpc } from "./content/content-ipc";
+import { contentAsks } from "./content/content-ipc";
 import { registerAutomationIpc } from "./automation/ipc";
 import { registerArtifactLinksIpc } from "./work/artifact-links-ipc";
 import { registerMentionIpc } from "./work/mention-ipc";
@@ -38,7 +38,6 @@ import { registerWorkIpc } from "./work/work-ipc";
 import { registerModelIpc } from "./model/model-ipc";
 import { registerModelWatches } from "./model/watch-ipc";
 import { registerStatusIpc } from "./status/status-ipc";
-import { registerSignalsIpc } from "./signals/signals-ipc";
 import { WIRE_TRAFFIC } from "../contract/core/channels";
 import { registerObservabilityAppend } from "./observability/ipc";
 import { registerWindowLink } from "./window/ipc";
@@ -63,7 +62,6 @@ import {
 } from "@shared/preview";
 import { registerTerminalIpc } from "./term/ipc";
 import { registerSeatAwarenessIpc } from "./term/seat-awareness-ipc";
-import { registerSeatCacheDueIpc } from "./term/seat-cache-due-ipc";
 import { registerResourceIpcCore } from "./core-process/main-side/resources";
 import {
   RESOURCE_CHANGED,
@@ -226,17 +224,7 @@ export const registerJuntoIpc = (boot: MainBoot): void => {
   // writes (operator uploads, image puts, portrait overrides), each asked of its core group
   // (library/library-ipc.ts, content/content-ipc.ts).
   const library = registerLibraryIpc(privilegedIpc, broadcast, boot.core);
-  const content = registerContentIpc(privilegedIpc, broadcast, boot.core);
-
-  // Agent signals: the operator reads every seat's claim on a canvas, answers
-  // one (typed into the seat as operator mail, then marked answered), or
-  // dismisses it. Every change is broadcast as the signal now stands.
-  registerSignalsIpc(privilegedIpc, boot.core, {
-    answer: (operation) => runMainAuthoring("ipc.work.signal-answer", operation),
-    reply: (operation) => runMainAuthoring("ipc.work.signal-reply", operation),
-    secretPut: (operation) => runMainAuthoring("ipc.work.signal-secret-put", operation),
-    dismiss: (operation) => runMainAuthoring("ipc.work.signal-dismiss", operation),
-  });
+  const content = contentAsks(boot.core);
 
   // Previews of the files an agent names in a signal's detail. The detail is
   // read here from the store, never taken from the renderer, and the read
@@ -368,10 +356,6 @@ export const registerJuntoIpc = (boot: MainBoot): void => {
   // with `junto offboard`, and the core's closer ends the session once the
   // agent is idle, in the mode the agent chose.
   onCorePush(IPC_CHANNELS.seatOffboardProgress, (progress) => broadcast(IPC_CHANNELS.seatOffboardProgress, progress));
-  // The auto cache mode's question, here and on linked machines, and the
-  // operator's offboard buttons: the core's, where the seats and their views
-  // run (term/seat-cache-due-ipc.ts).
-  registerSeatCacheDueIpc(privilegedIpc, broadcast, boot.core);
   subscribeCore(IPC_CHANNELS.seatOnboardingChanged, (event) =>
     broadcast(IPC_CHANNELS.seatOnboardingChanged, event),
   );

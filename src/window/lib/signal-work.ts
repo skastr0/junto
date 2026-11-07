@@ -4,14 +4,14 @@
  * condition, and where open work sits on the urgency ladder.
  * The contract is N1's (`@shared/wire/agent-signals`, the feed item).
  */
-import { IPC_NO_ANSWER_PREFIX } from "@shared/ipc";
+import { Effect } from "effect";
 import { ruleSignalReply, type SignalReply } from "@shared/signal-reply";
 import { admitLinkUrl, type SignalForm, type WorkTiming } from "@shared/wire/agent-signals";
 import type { ContentRef } from "@shared/wire/content-ref";
 import { signalWordCount } from "@shared/word-count";
-import { upsertAgentSignal } from "./agent-signals-state";
+import { signalsCall, upsertAgentSignal } from "./agent-signals-state";
 import type { SignalActionResult } from "./agent-signals-view";
-import { getJuntoApi } from "./junto-api";
+import type { WindowRuntime } from "../rpc/runtime";
 
 export type { SignalForm, WorkTiming };
 export { dueWords, itemWorkOf, workIsDue, type ItemWork } from "./signal-work-words";
@@ -103,10 +103,12 @@ export const paneAnswerOf = ({ kind, form }: ItemWork): PaneAnswer => {
 };
 
 /** Hand in work through N1's one reply call; a refusal comes back as a sentence, and the writing stays. */
-export const handInSignalWork = async (signalId: string, reply: WorkReply): Promise<SignalActionResult> => {
-  const api = getJuntoApi();
-  if (!api) return { ok: false, message: "Junto is not connected." };
-  return api.agentSignalReply(signalId, reply).then(
+export const handInSignalWork = async (
+  runtime: WindowRuntime | undefined,
+  signalId: string,
+  reply: WorkReply,
+): Promise<SignalActionResult> =>
+  signalsCall(runtime, (signals) => signals.SignalsReply({ signalId, reply })).then(
     (result) => {
       if (!result.ok) return { ...result, message: sentenceOf(result.message) };
       upsertAgentSignal(result.signal);
@@ -114,7 +116,6 @@ export const handInSignalWork = async (signalId: string, reply: WorkReply): Prom
     },
     (error: unknown) => ({ ok: false, message: error instanceof Error ? error.message : "hand in failed" }),
   );
-};
 
 /**
  * Set a secret form's value through the vault (N5). The value goes to main
@@ -123,15 +124,23 @@ export const handInSignalWork = async (signalId: string, reply: WorkReply): Prom
  * own answer says nothing of what was sent.
  *
  * Main's refusal is shown as it comes, so the window relies on N5's
- * contract: every `signalSecretPut` refusal and message names the item,
+ * contract: every `SignalsSecretPut` refusal and message names the item,
  * region or machine and never the value. The window cannot scrub it.
  */
-export const putSignalSecret = async (signalId: string, value: string): Promise<SignalActionResult> => {
-  const api = getJuntoApi();
-  if (!api) return { ok: false, message: "Junto is not connected." };
+export const putSignalSecret = async (
+  runtime: WindowRuntime | undefined,
+  signalId: string,
+  value: string,
+): Promise<SignalActionResult> =>
   // Called inside a promise, so a throw on the way in takes the same quiet path as a rejection.
-  return Promise.resolve()
-    .then(() => api.signalSecretPut({ signalId, value }))
+  Promise.resolve()
+    .then(() =>
+      signalsCall(runtime, (signals) =>
+        signals.SignalsSecretPut({ request: { signalId, value } }).pipe(
+          Effect.timeoutOrElse({ duration: SECRET_PUT_WAIT_MS, orElse: () => Effect.fail(new SecretPutWaitOver()) }),
+        ),
+      ),
+    )
     .then(
     (result): SignalActionResult => {
       if (!result.ok) return { ok: false, message: `${sentenceOf(result.message)} ${PASTE_AGAIN}` };
@@ -149,10 +158,14 @@ export const putSignalSecret = async (signalId: string, value: string): Promise<
         : `The secret was not set. ${PASTE_AGAIN}`,
     }),
   );
-};
 
 /** The field was emptied before the send, so after a refusal or a failure the value has to be given again. Said here once, not by main. */
 const PASTE_AGAIN = "Paste it again.";
 
-/** The preload's own words when main does not answer within the call's wait: its prefix only, never the rest. */
-const isBackendTimeout = (error: unknown): boolean => error instanceof Error && error.message.startsWith(IPC_NO_ANSWER_PREFIX);
+/** How long the window waits for the vault: resolving reads the operator's stores, each bounded by its own timeout. */
+const SECRET_PUT_WAIT_MS = 120_000;
+
+/** Main did not answer within the wait: the value may still be set. */
+class SecretPutWaitOver extends Error {}
+
+const isBackendTimeout = (error: unknown): boolean => error instanceof SecretPutWaitOver;

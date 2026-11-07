@@ -26,6 +26,7 @@ import type { Locator, Page } from "@playwright/test";
 import type { AgentSignal } from "../../src/shared/agent-signals";
 import type { Region, Seat as ModelSeat } from "../../src/shared/model";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
+import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness, type CrewSeat } from "../harness/crew-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "feed-scroll-stable");
@@ -36,7 +37,7 @@ const region = (id: string, label: string, color: string, y: number): Region =>
   modelRegion({ id, label, color, x: 0, y, width: 1000, height: 400 });
 
 const seat = (id: string, x: number, y: number): ModelSeat =>
-  modelSeat({ id, key: `local:e2e-scroll-${id}`, label: id, harness: "claude", x, y });
+  modelSeat({ id, key: `local:e2e-scroll-${id}`, label: id, x, y });
 
 const signal = (id: string, seatId: string, minutesAgo: number, kind: AgentSignal["kind"] = "feedback"): AgentSignal => ({
   signalId: id,
@@ -87,10 +88,17 @@ test("the needs-you list moves only when the operator moves it", async () => {
       ),
     },
     seedAgentSignals: SIGNALS,
+    afterSeed: installCrewSeatHarness,
   });
   try {
-    const { app, page } = junto;
+    const { page, sandbox } = junto;
     await expect(page.getByTestId("rf__node-lea")).toBeVisible({ timeout: 30_000 });
+    // Two seats run, so they can withdraw a signal and raise new ones as a seat does.
+    await crewPlayFactory(page);
+    const bo = crewSeat(sandbox, CANVAS, "bo");
+    const dex = crewSeat(sandbox, CANVAS, "dex");
+    await crewOccupySeat(page, CANVAS, { id: "bo" }, bo);
+    await crewOccupySeat(page, CANVAS, { id: "dex" }, dex);
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
     await page.keyboard.press("Meta+I");
     const feed = page.getByTestId("operator-feed");
@@ -127,11 +135,12 @@ test("the needs-you list moves only when the operator moves it", async () => {
       await expect(cardOf(id)).toHaveCount(0, { timeout: 10_000 });
       await page.waitForTimeout(150);
     };
-    // What main sends the window when a seat raises a signal.
-    const arrive = (raised: AgentSignal): Promise<void> =>
-      app.evaluate(({ BrowserWindow }, value) => {
-        for (const window of BrowserWindow.getAllWindows()) window.webContents.send("junto:agent-signal", value);
-      }, raised);
+    // A seat raises a signal with the junto CLI; the answer names it.
+    const arrive = async (from: CrewSeat, kind: "feedback" | "blocked", text: string): Promise<string> => {
+      const raised = await from.cli([kind, text]);
+      expect(raised.ok, `${raised.stdout}${raised.stderr}`).toBe(true);
+      return (JSON.parse(raised.stdout) as { readonly data: { readonly signal: AgentSignal } }).data.signal.signalId;
+    };
 
     // 1. A reply to Lead's only card, from the top of the list.
     expect(await scrollTop()).toBe(0);
@@ -190,28 +199,29 @@ test("the needs-you list moves only when the operator moves it", async () => {
     const view = await edge();
     expect(await bottomOf("b7"), "b7 sits above the viewport").toBeLessThan(view.top);
     const d4Top = await topOf("d4");
-    const dismissed = await page.evaluate(() => window.junto!.agentSignalDismiss("b6"));
-    expect(dismissed.ok).toBe(true);
+    // Its seat withdraws it.
+    const cleared = await bo.cli(["signal", "clear", "b6"]);
+    expect(cleared.ok, `${cleared.stdout}${cleared.stderr}`).toBe(true);
     await gone("b6");
     expectAt(await topOf("d4"), d4Top, "a card leaving above moves nothing on screen");
 
     // 6. A card arriving above the viewport, at the end of Build.
     expect(await topOf("d0"), "Docs starts above the viewport").toBeLessThan(view.top);
-    await arrive(signal("b20", "bo", 0));
-    await expect(cardOf("b20")).toHaveCount(1, { timeout: 10_000 });
+    const b20 = await arrive(bo, "feedback", "bo has b20 ready for you to look at.");
+    await expect(cardOf(b20)).toHaveCount(1, { timeout: 10_000 });
     await page.waitForTimeout(150);
     expectAt(await topOf("d4"), d4Top, "a card arriving above moves nothing on screen");
     await shot(page, "6-arrived-above.png");
 
     // 7. A blocked card for Docs outranks Build: it joins the top of Docs,
     // above the viewport, and the regions keep their order on screen.
-    await arrive(signal("d20", "dex", 0, "blocked"));
-    await expect(cardOf("d20")).toHaveCount(1, { timeout: 10_000 });
+    const d20 = await arrive(dex, "blocked", "dex has d20 ready for you to look at.");
+    await expect(cardOf(d20)).toHaveCount(1, { timeout: 10_000 });
     await page.waitForTimeout(150);
     expectAt(await topOf("d4"), d4Top, "a re-rank moves nothing on screen");
     await expect(feed.locator(".operator-feed__region-label")).toHaveText(["Build", "Docs"]);
     expect(await feed.locator(".operator-feed__region").nth(1).getByTestId("operator-feed-card").first().getAttribute("data-item-id")).toBe(
-      "signal:d20",
+      `signal:${d20}`,
     );
   } finally {
     await junto.close();

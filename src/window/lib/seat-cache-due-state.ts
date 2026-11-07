@@ -1,85 +1,64 @@
 /**
- * The auto cache mode's question, for the seat's open terminal view.
- *
- * Main keeps the seats due the question (src/shared/seat-cache-due.ts) and
- * pushes the whole list on every change; this module subscribes, then reads
- * the list once for a window that just opened. A push that lands before that
- * read answers wins over it: the read is older. Never writes the canvas.
+ * The auto cache mode's question, for the seat's open terminal view: a
+ * service of the window's runtime (src/window/rpc/runtime.ts), built once at
+ * boot. It follows `SeatCacheDueFollow` for as long as the runtime lives; the
+ * stream opens with the whole list and sends it whole after each change, so
+ * no read races a change. Never writes the canvas. It imports no runtime
+ * module: the runtime builds it.
  */
-import { observable } from "@legendapp/state";
-import { use$ } from "@legendapp/state/react";
-import { useEffect } from "react";
-import type { SeatCacheDue, SeatCacheDueAnswer, SeatCacheDueAnswerResult } from "@shared/seat-cache-due";
-import { getJuntoApi } from "./junto-api";
+import { observable, type Observable } from "@legendapp/state";
+import { Context, Effect, Layer, Stream } from "effect";
+import type { SeatCacheDueAnswer } from "@shared/seat-cache-due";
+import type { SeatCacheDue as SeatCacheDueSchema, SeatCacheDueAnswerResult as AnswerResultSchema } from "../../contract/core/seat-cache-due";
+import { SeatCacheDueWindow } from "../../contract/window/seat-cache-due";
 
-const keyOf = (canvasName: string, seatId: string): string => `${canvasName}\u0000${seatId}`;
+/** A seat due the question, as the core's group answers it. */
+export type SeatCacheDue = typeof SeatCacheDueSchema.Type;
+export type SeatCacheDueAnswerResult = typeof AnswerResultSchema.Type;
 
-export const seatCacheDue$ = observable<{
-  readonly byKey: Record<string, SeatCacheDue | undefined>;
-}>({ byKey: {} });
+export const keyOf = (canvasName: string, seatId: string): string => `${canvasName}\u0000${seatId}`;
 
-/** Replace the seats due the question with main's whole list. */
-export const applySeatCacheDue = (due: ReadonlyArray<SeatCacheDue>): void => {
+/** The seats due the question, keyed by canvas and seat. */
+export const byKeyOf = (due: ReadonlyArray<SeatCacheDue>): Record<string, SeatCacheDue> => {
   const byKey: Record<string, SeatCacheDue> = {};
   for (const ask of due) byKey[keyOf(ask.canvasName, ask.seatId)] = ask;
-  seatCacheDue$.byKey.set(byKey);
+  return byKey;
 };
 
-let activeUnsubscribe: (() => void) | undefined;
+const UNREACHABLE = "Junto could not reach this seat's machine.";
 
-/** Singleton fan-out; only the first call subscribes. */
-export const subscribeSeatCacheDue = (): (() => void) => {
-  if (activeUnsubscribe) return activeUnsubscribe;
-  const api = getJuntoApi();
-  if (!api || typeof api.onSeatCacheDue !== "function") return () => undefined;
-  let pushed = false;
-  const unsubscribe = api.onSeatCacheDue((due) => {
-    pushed = true;
-    applySeatCacheDue(due);
-  });
-  let active = true;
-  activeUnsubscribe = () => {
-    active = false;
-    unsubscribe();
-    activeUnsubscribe = undefined;
-  };
-  void api.seatCacheDueList?.().then(
-    (due) => {
-      if (active && !pushed && Array.isArray(due)) applySeatCacheDue(due);
-    },
-    () => undefined,
+export class SeatCacheDueState extends Context.Service<SeatCacheDueState, {
+  readonly byKey$: Observable<Record<string, SeatCacheDue | undefined>>;
+  /**
+   * The operator's answer to the question the seat is asked now, named by
+   * its id. A refusal and a lost link both answer with a sentence.
+   */
+  readonly answer: (canvasName: string, seatId: string, answer: SeatCacheDueAnswer) => Effect.Effect<SeatCacheDueAnswerResult>;
+}>()("@junto/window/SeatCacheDueState") {
+  static readonly layer = Layer.effect(
+    SeatCacheDueState,
+    Effect.gen(function* () {
+      const due = yield* SeatCacheDueWindow;
+      const byKey$ = observable<Record<string, SeatCacheDue | undefined>>({});
+      // Fails soft: the band is optional chrome, and main's follow outlives a core restart.
+      yield* due.SeatCacheDueFollow().pipe(
+        Stream.runForEach((list) => Effect.sync(() => byKey$.set(byKeyOf(list)))),
+        Effect.ignore,
+        Effect.forkScoped,
+      );
+      return {
+        byKey$,
+        answer: (canvasName, seatId, answer) => {
+          const question = byKey$[keyOf(canvasName, seatId)].peek()?.question;
+          if (question === undefined) return Effect.succeed({ ok: false, message: "This seat is no longer asking." });
+          return due.SeatCacheDueAnswer({ input: { canvasName, seatId, question, answer } }).pipe(
+            Effect.catchCause(() => Effect.succeed({ ok: false as const, message: UNREACHABLE })),
+          );
+        },
+      };
+    }),
   );
-  return activeUnsubscribe;
-};
-
-/** The seat's ask while main lists it, else undefined. */
-export const useSeatCacheDue = (canvasName: string, seatId: string): SeatCacheDue | undefined => {
-  useEffect(() => {
-    subscribeSeatCacheDue();
-  }, []);
-  return use$(() => seatCacheDue$.byKey[keyOf(canvasName, seatId)].get());
-};
-
-/**
- * Send the operator's answer to the question main lists for the seat now,
- * named by its id. A bridge that is down or throws reads as a failure with a
- * message.
- */
-export const answerSeatCacheDue = async (
-  canvasName: string,
-  seatId: string,
-  answer: SeatCacheDueAnswer,
-): Promise<SeatCacheDueAnswerResult> => {
-  const send = getJuntoApi()?.seatCacheDueAnswer;
-  if (typeof send !== "function") return { ok: false, message: "Junto could not reach this seat's machine." };
-  const question = seatCacheDue$.byKey[keyOf(canvasName, seatId)].peek()?.question;
-  if (question === undefined) return { ok: false, message: "This seat is no longer asking." };
-  try {
-    return await send({ canvasName, seatId, question, answer });
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) };
-  }
-};
+}
 
 /** "Cache expired 12m ago.", from when the window ended. */
 export const cacheDueLine = (windowEndsAt: number, now: number): string => {

@@ -12,6 +12,7 @@ import type { NodeId } from "@shared/physics/schema";
 import { reaches } from "@shared/region-reach";
 import { mintItemId } from "@shared/resource-command";
 import { applyArtifactOp } from "../../lib/artifacts-source";
+import type { ContentCalls } from "../../lib/content-calls";
 import { pngDataUrl } from "../../lib/png-data-url";
 import { cropOf, extractTitle, fileNameOf, type ViewBox } from "./file-view-model";
 
@@ -95,7 +96,7 @@ const PUT_FAILED_LINE = "This area could not be kept as an image. Try again.";
 const base64Of = (png: Uint8Array): string => pngDataUrl(png).slice("data:image/png;base64,".length);
 
 /** Put the shot in the content store, then create the artifact on `target`. */
-export const extractToArtifact = async ({
+export const extractToArtifact = async (content: ContentCalls | undefined, {
   canvasName,
   target,
   source,
@@ -106,14 +107,13 @@ export const extractToArtifact = async ({
   readonly source: FileSource;
   readonly shot: BoxShot;
 }): Promise<ExtractOutcome> => {
-  const put = window.junto?.contentPutImage;
-  if (put === undefined) return { kind: "failed", line: PUT_FAILED_LINE };
+  if (content === undefined) return { kind: "failed", line: PUT_FAILED_LINE };
   const name = fileNameOf(source.path).replace(/\.[^.]*$/, "") || "extract";
-  const stored = await put({
+  const stored = await content.putImage({
     bytesBase64: base64Of(shot.png),
     mediaType: "image/png",
     displayName: `${name}${source.page === undefined ? "" : `-p${source.page}`}.png`,
-  }).catch((error: unknown) => ({ ok: false as const, error: error instanceof Error ? error.message : String(error) }));
+  });
   if (!stored.ok) {
     console.warn("[extract] content put refused:", stored.error);
     return { kind: "failed", line: /too large/iu.test(stored.error) ? TOO_LARGE_LINE : PUT_FAILED_LINE };

@@ -17,6 +17,7 @@ import {
   fileToClipboardImage,
   type ClipboardImage,
 } from "./clipboard-image";
+import type { ContentCalls } from "./content-calls";
 
 const EXT_TO_MEDIA_TYPE: Readonly<Record<string, string>> = {
   png: "image/png",
@@ -49,28 +50,20 @@ export type PutImageResult =
   | { readonly ok: true; readonly ref: ContentRef }
   | { readonly ok: false; readonly error: string };
 
-/** Put a clipboard/file image into the content store via main. */
+/** Put a clipboard/file image into the content store, through the window's content group. */
 export const putClipboardImage = async (
+  content: ContentCalls | undefined,
   image: ClipboardImage,
   displayName?: string,
 ): Promise<PutImageResult> => {
-  const api = window.junto;
-  if (!api?.contentPutImage) {
+  if (content === undefined) {
     return { ok: false, error: "content put is unavailable" };
   }
-  const mediaType = mediaTypeFromImageExtension(image.extension);
-  try {
-    return await api.contentPutImage({
-      bytesBase64: image.dataBase64,
-      mediaType,
-      ...(displayName ? { displayName } : { displayName: `image.${image.extension}` }),
-    });
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
+  return content.putImage({
+    bytesBase64: image.dataBase64,
+    mediaType: mediaTypeFromImageExtension(image.extension),
+    displayName: displayName || `image.${image.extension}`,
+  });
 };
 
 /**
@@ -78,6 +71,7 @@ export const putClipboardImage = async (
  * Returns refs in drop order; empty when no image present (not an error).
  */
 export const putImagesFromDataTransfer = async (
+  content: ContentCalls | undefined,
   data: DataTransfer | null | undefined,
 ): Promise<
   | { readonly kind: "none" }
@@ -102,6 +96,7 @@ export const putImagesFromDataTransfer = async (
         return { kind: "error", error: image.error };
       }
       const put = await putClipboardImage(
+        content,
         image,
         file.name.trim() || `image.${image.extension}`,
       );
@@ -114,7 +109,7 @@ export const putImagesFromDataTransfer = async (
   const single = await extractClipboardImage(data);
   if (single === null) return { kind: "none" };
   if ("error" in single) return { kind: "error", error: single.error };
-  const put = await putClipboardImage(single);
+  const put = await putClipboardImage(content, single);
   if (!put.ok) return { kind: "error", error: put.error };
   return { kind: "ok", refs: [put.ref] };
 };

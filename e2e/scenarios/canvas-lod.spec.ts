@@ -8,6 +8,7 @@
  *   bun run test:e2e:fast e2e/scenarios/canvas-lod.spec.ts
  */
 import type { Page } from "@playwright/test";
+import type { AgentSignal } from "../../src/shared/agent-signals";
 import type { Node, Wire } from "../../src/shared/model";
 import { modelFixture, modelNote, modelRegion, modelSeat, modelTerminal, modelWire } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
@@ -77,7 +78,7 @@ const seatEvents = (at: number) =>
     return [event("idle", 0)];
   });
 
-const signalEvents = (at: number) =>
+const signalEvents = (at: number): ReadonlyArray<AgentSignal> =>
   Array.from({ length: SEATS }, (_, i) => i)
     .filter((i) => i % 4 === 2)
     .map((i) => ({
@@ -137,20 +138,20 @@ const TIERS = [
 
 test("seats, instruments, notes and cards shed detail tier by tier", async () => {
   test.setTimeout(240_000);
-  const junto = await launchJunto({ seedModels: { [CANVAS]: buildBoard() } });
+  // The seats' signals stand in the store before boot, as the core lists them.
+  const junto = await launchJunto({ seedModels: { [CANVAS]: buildBoard() }, seedAgentSignals: signalEvents(Date.now()) });
   try {
     const { app, page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('.react-flow__node[data-id="s0"]')).toBeAttached({ timeout: 30_000 });
     const at = Date.now();
     await app.evaluate(
-      ({ BrowserWindow }, { seats, signals }) => {
+      ({ BrowserWindow }, { seats }) => {
         for (const win of BrowserWindow.getAllWindows()) {
           for (const e of seats) win.webContents.send("junto:agent-seat-state-changed", e);
-          for (const e of signals) win.webContents.send("junto:agent-signal", e);
         }
       },
-      { seats: seatEvents(at), signals: signalEvents(at) },
+      { seats: seatEvents(at) },
     );
     const seat = page.locator('.react-flow__node[data-id="s5"]');
     await expect(seat.locator('.junto-mark[data-mark-size="seat"]')).toHaveAttribute("data-mark-ring", "done", { timeout: 10_000 });

@@ -68,8 +68,12 @@ test("[fake-tui] a seat attaches videos to a signal and the card plays them", as
     const ada = crewSeat(sandbox, CANVAS, SEAT);
     await crewOccupySeat(page, CANVAS, seatNode, ada);
 
-    const signalsNow = (): Promise<ReadonlyArray<AgentSignal>> =>
-      page.evaluate((canvas) => window.junto!.agentSignalsList(canvas), CANVAS);
+    // The seat's own signals, as it reads them: open first, then the newest closed.
+    const signalsNow = async (): Promise<ReadonlyArray<AgentSignal>> => {
+      const listed = await ada.cli(["signal", "list"]);
+      expect(listed.ok, `${listed.stdout}${listed.stderr}`).toBe(true);
+      return (JSON.parse(listed.stdout) as { readonly data: { readonly signals: ReadonlyArray<AgentSignal> } }).data.signals;
+    };
 
     const raised = await ada.cli([
       "feedback",
@@ -197,8 +201,12 @@ test("[fake-tui] a video at a web address plays only after play is pressed, and 
     await crewPlayFactory(page);
     const ada = crewSeat(sandbox, CANVAS, SEAT);
     await crewOccupySeat(page, CANVAS, seatNode, ada);
-    const signalsNow = (): Promise<ReadonlyArray<AgentSignal>> =>
-      page.evaluate((canvas) => window.junto!.agentSignalsList(canvas), CANVAS);
+    // The seat's own signals, as it reads them: open first, then the newest closed.
+    const signalsNow = async (): Promise<ReadonlyArray<AgentSignal>> => {
+      const listed = await ada.cli(["signal", "list"]);
+      expect(listed.ok, `${listed.stdout}${listed.stderr}`).toBe(true);
+      return (JSON.parse(listed.stdout) as { readonly data: { readonly signals: ReadonlyArray<AgentSignal> } }).data.signals;
+    };
 
     const good = `${host.origin}/runs/onboarding.mp4`;
     const moved = `${host.origin}/moved.mp4`;

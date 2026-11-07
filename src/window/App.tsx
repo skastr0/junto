@@ -27,6 +27,7 @@ import {
 } from "./lib/canvas-editor-flush";
 import { startKernelBridge } from "./lib/kernel-view";
 import { startSettingsBridge } from "./lib/settings-state";
+import { useWindowRuntime, useWindowService } from "./rpc/runtime";
 import { startThemeMode } from "./lib/theme-mode";
 import { subscribeAgentSeatState } from "./lib/agent-seat-state";
 import { startOperatorHolds } from "./lib/operator-holds";
@@ -39,8 +40,8 @@ import { startSurfaceMotionGate } from "./lib/surface-motion";
 import { startFramePressureLog } from "./lib/frame-pressure-log";
 import { clearPreambles, showPreamble } from "./lib/preamble-state";
 import { startPreambleSources } from "./lib/preamble-sources";
-import { startAgentSignalSync } from "./lib/agent-signals-state";
 import { startPhoneReachWatch } from "./lib/phone-reach";
+import { CompanionWindow } from "../contract/window/companion";
 import { startMailWaitingWatch } from "./lib/mail-waiting";
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
@@ -340,6 +341,8 @@ const retryActionForError = (message: string): { readonly label: string; readonl
 let didBoot = false;
 
 export function App() {
+  const runtime = useWindowRuntime();
+  const companionWindow = useWindowService(CompanionWindow);
   const error = use$(state$.error);
   const booting = use$(state$.booting);
   const canvasName = use$(state$.canvasName);
@@ -456,8 +459,7 @@ export function App() {
       if (event.canvasName !== state$.canvasName.peek()) return;
       showPreamble(event);
     });
-    const offAgentSignals = startAgentSignalSync(junto);
-    const offPhoneReach = startPhoneReachWatch(junto);
+    const offPhoneReach = startPhoneReachWatch(runtime, companionWindow);
     const offMailWaiting = startMailWaitingWatch(junto);
     const offPreambleSources = startPreambleSources(junto);
 
@@ -483,7 +485,6 @@ export function App() {
       offUsage();
       offCanvas();
       offPreamble?.();
-      offAgentSignals();
       offPhoneReach();
       offMailWaiting();
       offPreambleSources();
@@ -497,7 +498,7 @@ export function App() {
       stopSurfaceMotion();
       stopFramePressure();
     };
-  }, []);
+  }, [runtime, companionWindow]);
 
   // Every app shortcut: one listener, resolved against the key table.
   useEffect(() => installKeyDispatcher(KEY_ACTIONS), []);

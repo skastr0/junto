@@ -22,6 +22,8 @@ import { AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE, type AgentSignal } from "../../src/
 import type { Region, Seat as ModelSeat } from "../../src/shared/model";
 import { modelFixture, modelRegion, modelSeat, type ModelFixture } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
+import type { Sandbox } from "../harness/sandbox";
+import { signalsInStore } from "../harness/signals-store";
 
 const SHOTS = join(process.cwd(), "test-results", "feed-answers");
 const CANVAS = "feed-answers";
@@ -84,9 +86,9 @@ const shot = async (page: Page, name: string): Promise<void> => {
   await page.screenshot({ path: join(SHOTS, name) });
 };
 
-const stateOf = async (page: Page, signalId: string) => {
-  const signals = await page.evaluate((canvas) => window.junto!.agentSignalsList(canvas), CANVAS);
-  const found = signals.find((candidate) => candidate.signalId === signalId);
+/** One signal's state and answer as the core persisted them: no surface shows a closed signal's answer. */
+const stateOf = (sandbox: Sandbox, signalId: string) => {
+  const found = signalsInStore(sandbox, CANVAS).find((candidate) => candidate.signalId === signalId);
   return { state: found?.state, response: found?.response?.text };
 };
 
@@ -144,25 +146,25 @@ test("the feed answers four ways from the list, split into list and detail", asy
     // d dismisses: closed, no answer, the seat is not told.
     await page.keyboard.press("d");
     await expect(feed.locator("[data-item-id='signal:sig-stale']")).toHaveCount(0, { timeout: 10_000 });
-    expect(await stateOf(page, "sig-stale")).toEqual({ state: "dismissed", response: undefined });
+    expect(stateOf(junto.sandbox, "sig-stale")).toEqual({ state: "dismissed", response: undefined });
 
     // The neighbour took the selection; a acknowledges it with no note.
     await expect(pane).toHaveAttribute("data-item-id", "signal:sig-review");
     await page.keyboard.press("a");
     await expect(feed.locator("[data-item-id='signal:sig-review']")).toHaveCount(0, { timeout: 10_000 });
-    expect(await stateOf(page, "sig-review")).toEqual({ state: "answered", response: AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE });
+    expect(stateOf(junto.sandbox, "sig-review")).toEqual({ state: "answered", response: AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE });
 
     // Shift+1 sends the first quiet note.
     await expect(pane).toHaveAttribute("data-item-id", "signal:sig-note");
     await page.keyboard.press("Shift+Digit1");
     await expect(feed.locator("[data-item-id='signal:sig-note']")).toHaveCount(0, { timeout: 10_000 });
-    expect(await stateOf(page, "sig-note")).toEqual({ state: "answered", response: "Acknowledged" });
+    expect(stateOf(junto.sandbox, "sig-note")).toEqual({ state: "answered", response: "Acknowledged" });
 
     // 1 sends the first quick reply, which mails and wakes the seat.
     await expect(pane).toHaveAttribute("data-item-id", "signal:sig-go");
     await page.keyboard.press("1");
     await expect(feed.locator("[data-item-id='signal:sig-go']")).toHaveCount(0, { timeout: 10_000 });
-    expect(await stateOf(page, "sig-go")).toEqual({ state: "answered", response: "Yes" });
+    expect(stateOf(junto.sandbox, "sig-go")).toEqual({ state: "answered", response: "Yes" });
     await expect(trigger).toHaveAttribute("aria-label", "Needs you, 2");
 
     // Enter opens the composer in the pane. Each button says what it does.
@@ -187,7 +189,7 @@ test("the feed answers four ways from the list, split into list and detail", asy
     // Shift+Cmd+Enter with no text acknowledges from the composer.
     await page.keyboard.press("Shift+Meta+Enter");
     await expect(feed.locator("[data-item-id='signal:sig-compose']")).toHaveCount(0, { timeout: 10_000 });
-    expect(await stateOf(page, "sig-compose")).toEqual({ state: "answered", response: AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE });
+    expect(stateOf(junto.sandbox, "sig-compose")).toEqual({ state: "answered", response: AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE });
     await page.keyboard.press("Escape");
 
     // Settings: the quiet notes sit next to the quick replies.

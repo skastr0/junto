@@ -108,8 +108,12 @@ test("[fake-tui] a seat attaches files to a signal and the card shows them after
     const ada = crewSeat(sandbox, CANVAS, SEAT);
     await crewOccupySeat(page, CANVAS, seatNode, ada);
 
-    const signalsNow = (): Promise<ReadonlyArray<AgentSignal>> =>
-      page.evaluate((canvas) => window.junto!.agentSignalsList(canvas), CANVAS);
+    // The seat's own signals, as it reads them: open first, then the newest closed.
+    const signalsNow = async (): Promise<ReadonlyArray<AgentSignal>> => {
+      const listed = await ada.cli(["signal", "list"]);
+      expect(listed.ok, `${listed.stdout}${listed.stderr}`).toBe(true);
+      return (JSON.parse(listed.stdout) as { readonly data: { readonly signals: ReadonlyArray<AgentSignal> } }).data.signals;
+    };
 
     // A file that is not there is refused at the CLI, by name, and nothing is raised.
     const refused = await ada.cli(["feedback", "Here is the build.", "--attach", at("gone.zip")]);

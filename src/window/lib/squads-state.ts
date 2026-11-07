@@ -12,6 +12,7 @@ import { getJuntoApi } from "./junto-api";
 import { commitCommands } from "./mutations";
 import { added } from "./model-edits";
 import { captureSquad, placeSquad, squadBounds, type SquadLaunch } from "./squads";
+import type { ContentCalls } from "./content-calls";
 import { saveSeatGuidances, saveSquadPortraits, squadPortraitOf } from "./squad-portraits";
 import { seatGuidanceOf, startSeatGuidance } from "./seat-guidance-state";
 import { playCue } from "./sound";
@@ -113,6 +114,7 @@ export const placeSquadAt = async (
   squadId: string,
   at: { readonly x: number; readonly y: number },
   launch: SquadLaunch,
+  content: ContentCalls | undefined,
 ): Promise<PlaceOutcome> => {
   const squad = squads$.list.peek().find((entry) => entry.squadId === squadId);
   if (!squad) return "failed";
@@ -130,7 +132,7 @@ export const placeSquadAt = async (
 
   const problems: string[] = [];
   if (placed.skipped.length > 0) problems.push(`skipped ${placed.skipped.join(", ")}`);
-  if (!(await saveSquadPortraits(placed.portraits))) problems.push("portraits not copied");
+  if (!(await saveSquadPortraits(content, placed.portraits))) problems.push("portraits not copied");
   if (!(await saveSeatGuidances(placed.guidance))) problems.push("souls and instructions not copied");
   if (problems.length > 0) {
     state$.error.set(`${squad.name}: ${problems.join(", ")}`);
@@ -150,10 +152,11 @@ export const placeSquadInSlot = (
   squadId: string,
   positionFor: (size: { width: number; height: number }) => { x: number; y: number },
   launch: SquadLaunch,
+  content: ContentCalls | undefined,
 ): Promise<PlaceOutcome> => {
   const squad = squads$.list.peek().find((entry) => entry.squadId === squadId);
   if (!squad) return Promise.resolve("failed");
   const size = squadBounds(squad);
   const corner = positionFor({ width: size.width, height: size.height });
-  return placeSquadAt(squadId, { x: corner.x + size.width / 2, y: corner.y + size.height / 2 }, launch);
+  return placeSquadAt(squadId, { x: corner.x + size.width / 2, y: corner.y + size.height / 2 }, launch, content);
 };

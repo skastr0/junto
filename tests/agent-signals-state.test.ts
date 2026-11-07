@@ -1,13 +1,15 @@
+import { Deferred, Effect, Layer, ManagedRuntime, Queue, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SignalsWindow } from "../src/contract/window/signals";
 import type { AgentSignal } from "../src/shared/agent-signals";
 import {
   agentSignals$,
   reconcileRollups,
   replaceAgentSignals,
   seatSignalRollups$,
-  startAgentSignalSync,
   upsertAgentSignal,
 } from "../src/window/lib/agent-signals-state";
+import { AgentSignalsSync } from "../src/window/lib/agent-signals-sync";
 import { state$ } from "../src/window/lib/state";
 
 const signal = (over: Partial<AgentSignal>): AgentSignal => ({
@@ -55,24 +57,25 @@ describe("agent signal mirror", () => {
     expect(seatSignalRollups$.get().a).toBeUndefined();
   });
 
-  it("hydrates the open canvas and keeps live events that raced the listing", async () => {
+  it("hydrates the open canvas and keeps live changes that raced the listing", async () => {
     state$.canvasName.set("factory");
-    let resolveList: (value: AgentSignal[]) => void = () => undefined;
-    const api = {
-      agentSignalsList: vi.fn(
-        () => new Promise<AgentSignal[]>((resolve) => { resolveList = resolve; }),
-      ),
-      agentSignalRespond: vi.fn(),
-      agentSignalDismiss: vi.fn(),
-      onAgentSignal: vi.fn(() => () => undefined),
-    };
-    const stop = startAgentSignalSync(api as never);
-    await vi.waitFor(() => expect(api.agentSignalsList).toHaveBeenCalledWith("factory"));
-    upsertAgentSignal(signal({ signalId: "live", kind: "blocked", createdAt: 9 }));
-    resolveList([signal({ signalId: "listed" })]);
+    const listing = Effect.runSync(Deferred.make<ReadonlyArray<AgentSignal>>());
+    const changes = Effect.runSync(Queue.unbounded<AgentSignal>());
+    const list = vi.fn(() => Deferred.await(listing));
+    const client = { SignalsList: list, SignalsChanged: () => Stream.fromQueue(changes) };
+    const runtime = ManagedRuntime.make(AgentSignalsSync.layer.pipe(Layer.provide(Layer.succeed(SignalsWindow, client as never))));
+    await runtime.runPromise(AgentSignalsSync);
+    await vi.waitFor(() => expect(list).toHaveBeenCalledWith({ canvasName: "factory" }));
+    Queue.offerUnsafe(changes, signal({ signalId: "live", kind: "blocked", createdAt: 9 }));
+    await vi.waitFor(() => expect(Object.keys(agentSignals$.peek())).toEqual(["live"]));
+    Deferred.doneUnsafe(listing, Effect.succeed([signal({ signalId: "listed" })]));
     await vi.waitFor(() => {
       expect(Object.keys(agentSignals$.peek()).sort()).toEqual(["listed", "live"]);
     });
-    stop();
+
+    // Another canvas: the store empties, and the core lists that one.
+    state$.canvasName.set("elsewhere");
+    await vi.waitFor(() => expect(list).toHaveBeenCalledWith({ canvasName: "elsewhere" }));
+    await runtime.dispose();
   });
 });

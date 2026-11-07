@@ -8,6 +8,7 @@ import {
   type OperatorContentPutResult,
 } from "@shared/operator-attachments";
 import { LONG_TEXT_FILE } from "@shared/mail-text-bound";
+import { useContentCalls, type ContentCalls } from "./content-calls";
 import { attachmentName } from "@shared/preview-bytes";
 import type { ContentRef } from "@shared/wire/content-ref";
 
@@ -33,20 +34,17 @@ export type AttachmentItem = {
   readonly error?: string;
 };
 
-/** One piece to main; absent when the app has no upload channel (a test, a browser). */
+/** One piece to the content group; absent with no window runtime (a test, a browser). */
 export type OperatorContentPutter = (input: OperatorContentPut) => Promise<OperatorContentPutResult>;
-
-const junto = (): { operatorContentPut?: OperatorContentPutter } | undefined =>
-  (window as { junto?: { operatorContentPut?: OperatorContentPutter } }).junto;
 
 let putter: OperatorContentPutter | undefined;
 
-/** Tests hand in their own upload; undefined goes back to main's. */
+/** Tests hand in their own upload; undefined goes back to the content group's. */
 export const setOperatorContentPutter = (next: OperatorContentPutter | undefined): void => {
   putter = next;
 };
 
-const activePutter = (): OperatorContentPutter | undefined => putter ?? junto()?.operatorContentPut;
+const activePutter = (content: ContentCalls | undefined): OperatorContentPutter | undefined => putter ?? content?.operatorPut;
 
 const MAX_MB = OPERATOR_ATTACHMENT_MAX_BYTES / (1024 * 1024);
 
@@ -98,8 +96,8 @@ export const uploadOperatorFile = async (
  * A composer's text too long to travel inline, uploaded as LONG_TEXT_FILE
  * for a mail on `canvasName`. Answers its ref, or throws with main's words.
  */
-export const uploadOperatorText = (canvasName: string, text: string): Promise<ContentRef> => {
-  const put = activePutter();
+export const uploadOperatorText = (content: ContentCalls | undefined, canvasName: string, text: string): Promise<ContentRef> => {
+  const put = activePutter(content);
   if (!put) return Promise.reject(new Error("Attaching files is not available here."));
   return uploadOperatorFile(put, canvasName, new Blob([text], { type: LONG_TEXT_FILE.mediaType }), LONG_TEXT_FILE);
 };
@@ -140,6 +138,7 @@ let nextId = 0;
  * in words and never uploaded.
  */
 export const useAttachments = (canvasName: string): Attachments => {
+  const content = useContentCalls();
   const [items, setItems] = useState<ReadonlyArray<AttachmentItem>>([]);
   const [refused, setRefused] = useState<string>();
   const [dragging, setDragging] = useState(false);
@@ -164,7 +163,7 @@ export const useAttachments = (canvasName: string): Attachments => {
         return false;
       });
       setRefused(refusals.length > 0 ? refusals.join(" ") : undefined);
-      const put = activePutter();
+      const put = activePutter(content);
       const added = taken.map((file): { item: AttachmentItem; file: File } => {
         const name = attachmentName(file.name) || "file";
         const mediaType = file.type || "application/octet-stream";
@@ -197,7 +196,7 @@ export const useAttachments = (canvasName: string): Attachments => {
         );
       }
     },
-    [canvasName, patch],
+    [canvasName, patch, content],
   );
 
   const remove = useCallback((id: string) => {

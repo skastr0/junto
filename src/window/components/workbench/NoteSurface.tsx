@@ -6,6 +6,7 @@ import {
   markdownImageLine,
   putImagesFromDataTransfer,
 } from "../../lib/image-content";
+import { useContentCalls } from "../../lib/content-calls";
 import { registerCanvasDraftCommit } from "../../lib/canvas-editor-flush";
 import {
   closeWorkbenchSurface,
@@ -109,6 +110,7 @@ export function NoteSurface({
     });
   };
 
+  const content = useContentCalls();
   const onPasteImage = (
     event: React.ClipboardEvent<HTMLTextAreaElement>,
   ): void => {
@@ -123,7 +125,7 @@ export function NoteSurface({
     if (!hasImageItem) return;
     event.preventDefault();
     void (async () => {
-      const result = await putImagesFromDataTransfer(data);
+      const result = await putImagesFromDataTransfer(content, data);
       if (result.kind === "none") return;
       if (result.kind === "error") {
         state$.error.set(result.error);

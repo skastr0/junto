@@ -56,8 +56,7 @@ import {
 } from "@shared/operator-feed";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
 import { openWorkDetail } from "../../lib/work-detail-open";
-import { dismissAgentSignal, respondToAgentSignal } from "../../lib/agent-signals-state";
-import { SIGNALS_SECTION } from "../../lib/agent-signals-view";
+import { SIGNALS_SECTION, useSignalActions } from "../../lib/agent-signals-view";
 import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
 import {
   clearFeedFilters,
@@ -81,6 +80,8 @@ import { feedFilterOn } from "@shared/operator-feed";
 import { canReviewCommit, openCommitReview } from "../../lib/git-summary";
 import { closeOperatorModal, operatorModalPlace } from "../../lib/operator-modal";
 import { isThisMacItem, openRemoteLoginSettings } from "../../lib/phone-reach";
+import { CompanionWindow } from "../../../contract/window/companion";
+import { useWindowRuntime, useWindowService, type WindowRuntime } from "../../rpc/runtime";
 import {
   answerLabel,
   feedAnswerForKey,
@@ -91,7 +92,7 @@ import {
   type SignalAnswer,
 } from "../../lib/quick-replies";
 import { requestSectionReveal } from "../../lib/sidebar-sections";
-import { handInSignalWork, itemWorkOf, paneAnswerOf, putSignalSecret, type PaneAnswer } from "../../lib/signal-work";
+import { itemWorkOf, paneAnswerOf, type PaneAnswer } from "../../lib/signal-work";
 import { VAULT_ENABLED } from "@shared/features";
 import { regionChipStyle } from "../../lib/region-chip-style";
 import { state$ } from "../../lib/state";
@@ -136,12 +137,17 @@ function LiveSeatRing({ seat }: { readonly seat: Seat }) {
   return <SeatRingView node={seat} px={46} glance={useSeatGlanceOf(seat)} />;
 }
 
-export const openSeat = (item: FeedItem, node: Node | undefined): void => {
-  // Fixed in System Settings; the feed stays open where it was.
-  if (isThisMacItem(item)) {
-    openRemoteLoginSettings();
-    return;
-  }
+export const openSeat = (
+  runtime: WindowRuntime,
+  companion: CompanionWindow["Service"],
+  item: FeedItem,
+  node: Node | undefined,
+): void => {
+// Fixed in System Settings; the feed stays open where it was.
+if (isThisMacItem(item)) {
+openRemoteLoginSettings(runtime, companion);
+return;
+}
   if (!node) return;
   closeOperatorFeed();
   // An automation's signal opens the run that raised it: the Automations node
@@ -262,6 +268,9 @@ function FeedDetail({
   readonly onReply: (open: boolean) => void;
   readonly onReviewCommit: (sha: string) => void;
 }) {
+  const runtime = useWindowRuntime();
+  const companion = useWindowService(CompanionWindow);
+  const actions = useSignalActions();
   // A signal an automation raised opens its run, whatever the node lookup says.
   const isSeat = automationSourceOf(item) === undefined && (node === undefined || node.kind === "agent");
   const thisMac = isThisMacItem(item);
@@ -313,9 +322,9 @@ function FeedDetail({
               text={item.text}
               form={form}
               asker={item.seat.name}
-              handIn={handInSignalWork}
-              putSecret={putSignalSecret}
-              dismiss={dismissAgentSignal}
+              handIn={actions.handIn}
+              putSecret={actions.putSecret}
+              dismiss={actions.dismiss}
               onDone={() => onReply(false)}
             />
             {/* The form is the whole answer; the run is still one press away. */}
@@ -359,8 +368,8 @@ function FeedDetail({
             canvasName={item.canvasName}
             seatNodeId={item.seat.nodeId}
             suggested={item.suggestions}
-            respond={respondToAgentSignal}
-            dismiss={dismissAgentSignal}
+            respond={actions.respond}
+            dismiss={actions.dismiss}
             onDone={() => onReply(false)}
             className="operator-feed__reply"
           />
@@ -383,7 +392,7 @@ function FeedDetail({
                 </Button>
               ) : null}
               {thisMac ? (
-                <Button size="xs" variant="subtle" onClick={openRemoteLoginSettings}>
+                <Button size="xs" variant="subtle" onClick={() => openRemoteLoginSettings(runtime, companion)}>
                   Open Remote Login settings
                   <ArrowUpRight size={11} aria-hidden />
                 </Button>
@@ -423,21 +432,23 @@ function OpenTargetButton({
   readonly item: FeedItem;
   readonly node: Node | undefined;
   readonly isSeat: boolean;
-}) {
+  }) {
+  const runtime = useWindowRuntime();
+  const companion = useWindowService(CompanionWindow);
   return (
-    <Button
-      size="xs"
-      variant="subtle"
-      disabled={!node}
-      aria-label={
-        isSeat
-          ? `Open seat ${item.seat.name}`
-          : automationSourceOf(item) === undefined
-            ? `Open ${item.seat.name}`
-            : `Open the run in ${item.seat.name}`
-      }
-      onClick={() => openSeat(item, node)}
-    >
+  <Button
+  size="xs"
+  variant="subtle"
+  disabled={!node}
+  aria-label={
+  isSeat
+  ? `Open seat ${item.seat.name}`
+  : automationSourceOf(item) === undefined
+  ? `Open ${item.seat.name}`
+  : `Open the run in ${item.seat.name}`
+  }
+  onClick={() => openSeat(runtime, companion, item, node)}
+  >
       {isSeat ? "Open seat" : automationSourceOf(item) === undefined ? "Open" : "Open run"}
       <ArrowUpRight size={11} aria-hidden />
     </Button>
@@ -482,7 +493,10 @@ const FEED_ORDER_OPTIONS: ReadonlyArray<{ readonly value: FeedSortOrder; readonl
 ];
 
 export function OperatorFeed() {
-  const feed = useOperatorFeed();
+const runtime = useWindowRuntime();
+const companion = useWindowService(CompanionWindow);
+const feed = useOperatorFeed();
+  const signalActions = useSignalActions();
   const quickReplies = useQuickReplies();
   const quietNotes = useQuietNotes();
   const canvasName = use$(state$.canvasName);
@@ -628,8 +642,8 @@ export function OperatorFeed() {
     setFailure(null);
     try {
       const result = await sendSignalAnswer(item.signalId, chosen, {
-        respond: respondToAgentSignal,
-        dismiss: dismissAgentSignal,
+        respond: signalActions.respond,
+        dismiss: signalActions.dismiss,
       });
       if (!result.ok) setFailure({ itemId: item.itemId, message: result.message });
     } finally {
@@ -697,7 +711,7 @@ export function OperatorFeed() {
       // Enter writes a reply only where a reply is the answer; a form is answered in its own fields.
       event.preventDefault();
       if (event.key === "Enter" && item.signalId) setReplyFor(item.itemId);
-      else openSeat(item, nodesById.get(item.seat.nodeId));
+      else openSeat(runtime, companion, item, nodesById.get(item.seat.nodeId));
     }
   };
   // Escape closes an open reply first, then the seats row, and only then does

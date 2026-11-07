@@ -17,6 +17,7 @@
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelSeat } from "../harness/model";
+import { offboardNowBlockOf } from "../harness/offboard-panel";
 
 const CANVAS = "quitliveseat";
 const SEAT = modelSeat({ id: "scout", label: "Scout", x: 480, y: 40 });
@@ -117,8 +118,8 @@ test("quit Cancel keeps the app and the seat, and a later quit still works", asy
     expect(child.exitCode).toBeNull();
     expect(lines.join("\n")).not.toContain("will-quit");
     await expect(junto.page.locator('.react-flow__node[data-id="scout"]')).toBeVisible();
-    const [status] = await junto.page.evaluate((canvas) => window.junto!.seatOffboardStatus!(canvas, ["scout"]), CANVAS);
-    expect((status!.now as { readonly allowed: boolean }).allowed).toBe(true);
+    // The operator may still offboard it now: the panel says nothing against it.
+    expect(await offboardNowBlockOf(junto.page, "scout")).toBeNull();
     // The seat's PTY is still the core's: Cancel stopped nothing.
     const sessions = await junto.page.evaluate(() => window.junto!.terminalList());
     expect(sessions.filter((session) => session.status === "running" || session.status === "starting").length).toBeGreaterThan(0);

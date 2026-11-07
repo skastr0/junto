@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState, type KeyboardEvent } from "react";
 import { MAIL_TEXT_INLINE_MAX_BYTES, type TextBound } from "@shared/mail-text-bound";
 import type { NodeId } from "@shared/physics/schema";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
+import { useContentCalls } from "../../lib/content-calls";
 import { carryText, useLongText } from "../../lib/long-text";
 import { useMentionItems } from "../../lib/mention-items";
 import { useConnectedSeats, useResourcesInReach } from "../../lib/mention-sources";
@@ -50,6 +51,7 @@ export function ThreadComposer({
   const inReach = useResourcesInReach(seat.canvasName, seat.seatId as NodeId, useMentionItems(seat.canvasName));
   const candidates = useMemo(() => [...connected, ...inReach], [connected, inReach]);
   const attachments = useAttachments(seat.canvasName);
+  const content = useContentCalls();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string>();
@@ -73,7 +75,7 @@ export function ThreadComposer({
     setFailure(undefined);
     let carried: Awaited<ReturnType<typeof carryText>>;
     try {
-      carried = await carryText(seat.canvasName, text, files, THREAD_BOUND);
+      carried = await carryText(content, seat.canvasName, text, files, THREAD_BOUND);
     } catch (error) {
       setSending(false);
       setFailure(error instanceof Error ? error.message : String(error));

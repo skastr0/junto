@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { SeatCacheDueAnswer } from "@shared/seat-cache-due";
+import { use$ } from "@legendapp/state/react";
 import {
-  answerSeatCacheDue,
   cacheDueLine,
-  useSeatCacheDue,
+  keyOf,
+  SeatCacheDueState,
 } from "../../lib/seat-cache-due-state";
+import { useWindowRuntime, useWindowService } from "../../rpc/runtime";
 import { tokensWords } from "../../lib/seat-offboard";
 import { Button } from "../ui/Button";
 
@@ -14,7 +16,7 @@ const LINE_REFRESH_MS = 30_000;
 /**
  * The auto cache mode's question, inside the seat's open terminal view: its
  * cache window ended while the operator had it open, so Junto asks before it
- * starts the seat fresh. A band under the header; its buttons carry the question. Shown only while main lists this seat. The whole
+ * starts the seat fresh. A band under the header; its buttons carry the question. Shown only while the core lists this seat. The whole
  * drawing is this component, so a different look swaps it alone.
  *
  * Presses are heard by a native listener, not React's: in a grid cell the
@@ -28,7 +30,9 @@ export function SeatCacheDuePopup({
   readonly canvasName: string;
   readonly seatId: string;
 }) {
-  const due = useSeatCacheDue(canvasName, seatId);
+  const runtime = useWindowRuntime();
+  const cacheDue = useWindowService(SeatCacheDueState);
+  const due = use$(() => cacheDue.byKey$[keyOf(canvasName, seatId)].get());
   const [now, setNow] = useState(() => Date.now());
   const [pending, setPending] = useState<SeatCacheDueAnswer>();
   const [failure, setFailure] = useState<string>();
@@ -53,7 +57,7 @@ export function SeatCacheDuePopup({
     if (pending !== undefined) return;
     setPending(choice);
     setFailure(undefined);
-    const result = await answerSeatCacheDue(canvasName, seatId, choice);
+    const result = await runtime.runPromise(cacheDue.answer(canvasName, seatId, choice));
     setPending(undefined);
     if (!result.ok) setFailure(result.message);
   };

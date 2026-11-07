@@ -11,8 +11,23 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AgentSignal, AgentSignalKind } from "../src/shared/agent-signals";
 import { buildOperatorFeed, feedItemRank, OPERATOR_FEED_VERSION, type FeedItem, type FeedRegion, type OperatorFeed as Feed } from "../src/shared/operator-feed";
 import { OperatorFeed } from "../src/window/components/feed/OperatorFeed";
+import { Layer, ManagedRuntime } from "effect";
+import { CompanionWindow } from "../src/contract/window/companion";
+import { SignalsWindow } from "../src/contract/window/signals";
+import { WindowRuntimeContext } from "../src/window/rpc/runtime";
 import { clearFeedFilters, feedView$ } from "../src/window/lib/operator-feed";
 import { state$ } from "../src/window/lib/state";
+
+/** The feed under a window runtime: its signal and companion calls are not under test. */
+const feedRuntime = ManagedRuntime.make(
+  Layer.mergeAll(Layer.succeed(SignalsWindow, {} as never), Layer.succeed(CompanionWindow, {} as never)),
+);
+const feed = () => (
+  <WindowRuntimeContext.Provider value={feedRuntime as never}>
+    <OperatorFeed />
+  </WindowRuntimeContext.Provider>
+);
+
 
 const live = vi.hoisted(() => {
   let feed: Feed | undefined;
@@ -165,7 +180,7 @@ afterEach(() => {
 
 const open = async (): Promise<void> => {
   live.set(FEED);
-  await act(async () => root.render(<OperatorFeed />));
+  await act(async () => root.render(feed()));
 };
 
 it("searches needs by their words, under a field that says what it does", async () => {
@@ -255,7 +270,7 @@ it("lists only the picked region's seats, and drops a seat that region does not 
       { id: "c", kind: "blocked", seat: "bravo", text: "Bravo is stuck", region: "Design" },
     ]),
   );
-  await act(async () => root.render(<OperatorFeed />));
+  await act(async () => root.render(feed()));
   const region = (name: string) =>
     [...document.body.querySelectorAll<HTMLButtonElement>('[data-testid="feed-region-chip"]')].find((chip) =>
       chip.textContent?.includes(name),
@@ -296,7 +311,7 @@ it("says what the narrowing leaves, and announces it, rather than the whole feed
 
 it("counts a reading the kind chips narrow to, so the pair never says nothing while a card shows", async () => {
   live.set(WITH_READING);
-  await act(async () => root.render(<OperatorFeed />));
+  await act(async () => root.render(feed()));
   const status = () => document.body.querySelector(".operator-feed__status")?.textContent ?? "";
   const announced = () => document.body.querySelector(".operator-feed__announce")?.textContent ?? "";
   // At rest the feed counts its one need; the reading is listed, not counted.

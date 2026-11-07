@@ -6,11 +6,13 @@
  *
  *   scripts/with-app-run-lock.sh sh -c 'JUNTO_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/companion-automation-signal-verify.spec.ts'
  */
+import type { Page } from "@playwright/test";
 import { spawn } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Effect, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/sql";
+import { signalsInStore } from "../harness/signals-store";
 import { makeStateEngineLive } from "../../src/core/state/engine";
 import type { AgentSignal } from "../../src/shared/agent-signals";
 import type { Region } from "../../src/shared/model";
@@ -87,6 +89,18 @@ const phoneSession = (
     setTimeout(() => child.kill(), 60_000);
   });
 
+/** The desktop answers the step as the operator does: the feed, its card, then 1 for its first reply, Yes. */
+const answerYesInFeed = async (page: Page): Promise<void> => {
+  // The feed opens on Cmd+I on macOS and Ctrl+I elsewhere (src/shared/key-table.ts, feed.open).
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+I" : "Control+I");
+  const feed = page.getByTestId("operator-feed");
+  await expect(feed).toBeVisible({ timeout: 10_000 });
+  await feed.locator("[data-item-id='signal:sig-step']").click();
+  await expect(page.getByTestId("operator-feed-detail")).toHaveAttribute("data-item-id", "signal:sig-step");
+  await page.keyboard.press("1");
+  await expect(feed.locator("[data-item-id='signal:sig-step']")).toHaveCount(0, { timeout: 10_000 });
+};
+
 test("an automation signal reaches the phone without its step and stays whole on the desktop", async () => {
   test.setTimeout(300_000);
   const environment = {
@@ -124,15 +138,15 @@ test("an automation signal reaches the phone without its step and stays whole on
     await page.locator(".settings-nav__item", { hasText: "Companion" }).click();
     await page.getByRole("button", { name: "Pair a phone" }).click();
     await expect(page.getByTestId("companion-pairing").getByRole("img")).toBeVisible();
-    const devices = await page.evaluate(() => window.junto!.companionDevices!());
-    const deviceId = devices.find((device) => device.state === "pairing")!.deviceId;
+    const keysPath = join(sandbox.homeDir, ".ssh", "authorized_keys");
+    const deviceId = /companion-stdio --device (dev_[0-9A-HJKMNP-TV-Z]{26})/u.exec(readFileSync(keysPath, "utf8"))?.[1]!;
     const paired = await phoneSession(sandbox.homeDir, deviceId, [request("p1", "pair.complete", { publicKey: PHONE_KEY, deviceName: "E2E iPhone" })], undefined, (frames) =>
       frames.some((frame) => frame.id === "p1"));
     expect(paired.frames.find((frame) => frame.id === "p1")).toMatchObject({ ok: true });
     await page.locator(".settings-panel__close").click();
 
     // The desktop holds the step and every raised value.
-    const desktop = await page.evaluate((canvas) => window.junto!.agentSignalsList(canvas), CANVAS);
+    const desktop = signalsInStore(sandbox, CANVAS);
     const held = desktop.find((candidate) => candidate.signalId === "sig-step");
     expect(held?.source).toMatchObject({ kind: "automation", step: { index: 2, id: "ask", raised: { draft: RAISED_VALUE, other: "second-raised-value" } } });
 
@@ -141,7 +155,7 @@ test("an automation signal reaches the phone without its step and stays whole on
       sandbox.homeDir,
       deviceId,
       [request("sub", "feed.subscribe", {}), request("seat", "seat.get", { canvasName: CANVAS, nodeId: SEAT })],
-      { after: "seat", run: () => page.evaluate(() => window.junto!.agentSignalRespond("sig-step", "Yes", {})).then(() => undefined) },
+      { after: "seat", run: () => answerYesInFeed(page) },
       (frames) => frames.some((frame) => frame.type === "event" && frame.event === "signal.changed"),
     );
 
@@ -163,7 +177,7 @@ test("an automation signal reaches the phone without its step and stays whole on
     writeFileSync(join(process.cwd(), "test-results", "companion-automation", "frames.ndjson"), session.raw);
 
     // The desktop still holds the step after the answer.
-    const after = await page.evaluate((canvas) => window.junto!.agentSignalsList(canvas), CANVAS);
+    const after = signalsInStore(sandbox, CANVAS);
     expect(after.find((candidate) => candidate.signalId === "sig-step")?.source).toMatchObject({ step: { raised: { draft: RAISED_VALUE } } });
   } finally {
     await junto.close();

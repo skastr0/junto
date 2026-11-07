@@ -5,12 +5,13 @@ import {
   type AgentSignal,
   type SeatSignalRollup,
 } from "@shared/agent-signals";
+import { Effect } from "effect";
 import type {
   AgentSignalAnswerOptions,
   AgentSignalOperatorResult,
-  JuntoApi,
 } from "@shared/ipc";
-import { getJuntoApi } from "./junto-api";
+import { SignalsWindow } from "../../contract/window/signals";
+import type { WindowRuntime } from "../rpc/runtime";
 import { playCue } from "./sound";
 import { signalCue } from "./sound/director";
 import { state$ } from "./state";
@@ -92,44 +93,20 @@ export const useSeatSignalRollup = (
       : undefined,
   );
 
-type SignalApi = Pick<
-  JuntoApi,
-  "agentSignalsList" | "agentSignalRespond" | "agentSignalDismiss" | "onAgentSignal"
->;
-
-const hydrate = async (api: SignalApi, canvasName: string): Promise<void> => {
-  if (canvasName === "") {
-    replaceAgentSignals("", []);
-    return;
-  }
-  const listed = await Promise.resolve()
-    .then(() => api.agentSignalsList(canvasName))
-    .catch(() => undefined);
-  if (listed === undefined || state$.canvasName.peek() !== canvasName) return;
-  // Events that raced the listing are newer than it; keep them over the list.
-  const live = Object.values(agentSignals$.peek()).filter(
-    (signal) => signal.canvasName === canvasName,
-  );
-  replaceAgentSignals(canvasName, [...listed, ...live]);
-};
-
 /**
- * Follow the open canvas: hydrate on every canvas change and apply main's
- * live upserts. Returns the unsubscribe.
+ * One call to the core's signals group on the window's link. A page without
+ * a runtime (a gallery, a test's stand-in) is not connected, and its call
+ * fails with the words the pane shows.
  */
-export const startAgentSignalSync = (api: SignalApi): (() => void) => {
-  // Optional-chained: a test or demo bridge may predate the signal surface.
-  const offEvent = api.onAgentSignal?.(upsertAgentSignal) ?? (() => undefined);
-  const offCanvas = state$.canvasName.onChange(({ value }) => {
-    replaceAgentSignals(value, []);
-    void hydrate(api, value);
-  });
-  void hydrate(api, state$.canvasName.peek());
-  return () => {
-    offEvent();
-    offCanvas();
-  };
-};
+export const signalsCall = <A, E>(
+  runtime: WindowRuntime | undefined,
+  call: (signals: SignalsWindow["Service"]) => Effect.Effect<A, E>,
+): Promise<A> =>
+  runtime === undefined
+    ? Promise.reject(new Error(NOT_CONNECTED))
+    : runtime.runPromise(Effect.flatMap(SignalsWindow, call));
+
+const NOT_CONNECTED = "Junto is not connected.";
 
 export type SignalActionResult =
   | { readonly ok: true }
@@ -141,38 +118,32 @@ const settle = (result: AgentSignalOperatorResult): SignalActionResult => {
   return { ok: true };
 };
 
-const unavailable: SignalActionResult = {
-  ok: false,
-  message: "Junto is not connected.",
-};
-
 /**
  * Answer an open signal; main types it into the seat as operator mail, or —
  * with `silent` — only records the answer for the seat to read later.
  */
 export const respondToAgentSignal = async (
+  runtime: WindowRuntime | undefined,
   signalId: string,
   text: string,
   options?: AgentSignalAnswerOptions,
-): Promise<SignalActionResult> => {
-  const api = getJuntoApi();
-  if (!api) return unavailable;
-  return api
-    .agentSignalRespond(signalId, text, options)
-    .then(settle, (error: unknown) => ({
-      ok: false as const,
-      message: error instanceof Error ? error.message : "answer failed",
-    }));
-};
+): Promise<SignalActionResult> =>
+  signalsCall(runtime, (signals) =>
+    signals.SignalsAnswer({
+      signalId,
+      text,
+      silent: options?.silent === true,
+      attachments: options?.attachments ?? [],
+    }),
+  ).then(settle, (error: unknown) => ({
+    ok: false as const,
+    message: error instanceof Error ? error.message : "answer failed",
+  }));
 
 /** Close an open signal without mail. */
-export const dismissAgentSignal = async (signalId: string): Promise<SignalActionResult> => {
-  const api = getJuntoApi();
-  if (!api) return unavailable;
-  return api
-    .agentSignalDismiss(signalId)
+export const dismissAgentSignal = async (runtime: WindowRuntime | undefined, signalId: string): Promise<SignalActionResult> =>
+  signalsCall(runtime, (signals) => signals.SignalsDismiss({ signalId }))
     .then(settle, (error: unknown) => ({
       ok: false as const,
       message: error instanceof Error ? error.message : "dismiss failed",
     }));
-};

@@ -172,10 +172,6 @@ test("agent portraits render on seats and in the focus modal", async () => {
       if (mode === "dark") {
         await editor.getByRole("radio", { name: "body Toast", exact: true }).click();
         await expect(editor.getByRole("radio", { name: "body Toast", exact: true })).toHaveAttribute("aria-checked", "true");
-        // Saved in junto.db through main: the store round-trips it.
-        await expect
-          .poll(() => page.evaluate(async () => (await window.junto!.portraitOverridesList())["planner"]?.shape))
-          .toBe("toast");
       }
       await page.waitForTimeout(500);
       await page.screenshot({ path: join(SHOTS, `${mode}-editor-in-focus.png`) });
@@ -186,6 +182,19 @@ test("agent portraits render on seats and in the focus modal", async () => {
       await expect(focus).toBeHidden({ timeout: 10_000 });
       await page.locator(".react-flow__pane").click({ position: { x: 5, y: 5 } });
     }
+
+    // The look picked in the dark pass is saved in junto.db: a window that
+    // loads again reads it back from the store, and the editor shows it.
+    await page.reload();
+    const planner = page.locator('.react-flow__node[data-id="planner"]');
+    await expect(planner).toBeVisible({ timeout: 30_000 });
+    await planner.click();
+    await page.getByTestId("toolbar-customize-agent").click();
+    const editor = page.getByTestId("agent-editor");
+    await expect(editor).toBeVisible({ timeout: 10_000 });
+    await expect(editor.getByRole("radio", { name: "body Toast", exact: true })).toHaveAttribute("aria-checked", "true", {
+      timeout: 10_000,
+    });
   } finally {
     await junto.close();
   }

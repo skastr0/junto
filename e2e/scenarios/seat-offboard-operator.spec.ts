@@ -20,12 +20,12 @@ import {
   OFFBOARD_WORTH,
   type OffboardRules,
   type OffboardRulesPatch,
-  type SeatOffboardStatus,
 } from "../../src/shared/seat-offboard";
 import { type SeatOffboardProgress } from "../../src/shared/seat-sessions";
 import { seededHarnessBinDir } from "../harness/agent-harness-fixture";
 import { crewOccupySeat, crewPlayFactory, crewSeat, crewSeatDir, crewSeatsDir, installCrewSeatHarness, type CrewSeat, type WorkEnvelope } from "../harness/crew-fixture";
 import { expect, launchJunto, test, type JuntoHandle } from "../harness/launch";
+import { offboardNowBlockOf } from "../harness/offboard-panel";
 import { type Sandbox, writeFixtureOffboardClock } from "../harness/sandbox";
 
 // Only [A-Za-z0-9._-] in the canvas name and node ids: the wrapper turns the
@@ -196,12 +196,6 @@ const progressOf = async (page: Page, nodeId: string): Promise<SeatOffboardProgr
   const all = (await page.evaluate(() => window.junto!.seatOffboardProgressList?.() ?? [])) as ReadonlyArray<SeatOffboardProgress>;
   return all.find((entry) => entry.seatId === nodeId && entry.canvasName === CANVAS);
 };
-
-/** Main's own answer, the one the panel shows (preload/index.ts:485). */
-const statusOf = (page: Page, nodeIds: ReadonlyArray<string>): Promise<ReadonlyArray<SeatOffboardStatus>> =>
-  page.evaluate(([canvas, ids]) => window.junto!.seatOffboardStatus!(canvas, ids), [CANVAS, [...nodeIds]] as const) as Promise<
-    ReadonlyArray<SeatOffboardStatus>
-  >;
 
 // ---------------------------------------------------------------------------
 // One app per test, with its evidence
@@ -981,11 +975,6 @@ test("WG [fake-tui] re-seat keeps the name: a renamed seat and a never renamed o
   });
 });
 
-type WorkStatus = SeatOffboardStatus & { readonly workMinutes?: number; readonly worthCutting?: boolean };
-
-const workStatusOf = async (page: Page, nodeId: string): Promise<WorkStatus | undefined> =>
-  (await statusOf(page, [nodeId]))[0] as WorkStatus | undefined;
-
 /** Start a real turn on each seat: mail from the peer, which the fake submits and starts working on. */
 const startTurns = async (page: Page, sandbox: Sandbox, peer: CrewSeat, nodeIds: ReadonlyArray<string>): Promise<void> => {
   for (const id of nodeIds) {
@@ -1038,10 +1027,8 @@ test("S5r-cli [fake-tui] the overseer's CLI closes a resting seat that had a tur
       await tia.control({ screen: { mode: "idle" } });
       await expectSeatState(page, "tia", "idle");
       await stopSeat(ctx, "tia", pid);
-      const status = await workStatusOf(page, "tia");
-      // worthCutting false is expected here, and is informational: it does not gate this close.
-      note(testInfo, "S5r-cli-status-at-rest", JSON.stringify(status));
-      expect(status?.now.allowed, "a resting seat may be closed").toBe(true);
+      // The panel says nothing against Offboard now: a resting seat may be closed.
+      expect(await offboardNowBlockOf(page, "tia"), "a resting seat may be closed").toBeNull();
       // Only now the overseer: started and granted after the staging, so neither can bear on it.
       boss = await startSeat(page, sandbox, BOSS);
       // The grant, through the human seam (overseer-offboard-cli.spec.ts:264-279).
@@ -1215,8 +1202,6 @@ test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next,
     await step("LOOP.1", "Tia's card, running and still, says fresh next; Zed's, inside the window, does not", async () => {
       await expect(card(page, "loop-tia"), "a still seat past the window").toContainText("fresh next", { timeout: 20_000 });
       await expect(card(page, "loop-zed"), "a seat inside the window").not.toContainText("fresh next");
-      const status = await workStatusOf(page, "loop-tia");
-      note(testInfo, "LOOP-status-tia", JSON.stringify(status ?? null));
       await shot(page, "LOOP.1", "fresh-next-on-the-still-card");
     });
 
@@ -1230,11 +1215,10 @@ test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next,
       // Hybrid, the default: the card predicts what the operator's own open does, which continues a cold seat
       // with a warning (operator-offboard.ts coldForStart). Mail is a different cause and starts her fresh, below.
       await expect(card(page, "loop-tia"), "a resting seat past the window warns that its cache expired").toContainText("cache expired", { timeout: 20_000 }).catch(async (error: unknown) => {
-        // Say why before stopping: the card's own answer, the resume proof's inputs, and main's account of the cut (still minutes, work, worth).
+        // Say why before stopping: the card's own answer and the resume proof's inputs.
         const why = await launchWhy(page, sandbox, "loop-tia");
-        const status = await workStatusOf(page, "loop-tia");
-        note(testInfo, "LOOP-tia-launch-why", `${why} status ${JSON.stringify(status ?? null)}`);
-        console.log(`LOOP-tia-launch-why ${why} status ${JSON.stringify(status ?? null)}`);
+        note(testInfo, "LOOP-tia-launch-why", why);
+        console.log(`LOOP-tia-launch-why ${why}`);
         throw error;
       });
       await expect(card(page, "loop-tia"), "and does not say fresh next, which the operator's open would not do").not.toContainText("fresh next");

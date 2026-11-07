@@ -8,11 +8,12 @@
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { Page } from "@playwright/test";
 import type { AgentSignal } from "../../src/shared/agent-signals";
 import type { Region } from "../../src/shared/model";
 import { modelFixture, modelNode, modelRegion, modelSeat, type ModelFixture } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
+import type { Sandbox } from "../harness/sandbox";
+import { signalsInStore } from "../harness/signals-store";
 
 const SHOTS = join(process.cwd(), "test-results", "feed-automation-signal");
 const CANVAS = "feed-automation";
@@ -48,9 +49,9 @@ const FORM = signal({
   form: { kind: "artifact", nodeId: "shelf", title: "Today's post", labels: [], minWords: 5 },
 });
 
-const stateOf = async (page: Page, signalId: string) => {
-  const signals = await page.evaluate((canvas) => window.junto!.agentSignalsList(canvas), CANVAS);
-  const found = signals.find((candidate) => candidate.signalId === signalId);
+/** One signal's state and answer as the core persisted them: no surface shows a closed signal's answer. */
+const stateOf = (sandbox: Sandbox, signalId: string) => {
+  const found = signalsInStore(sandbox, CANVAS).find((candidate) => candidate.signalId === signalId);
   return { state: found?.state, response: found?.response?.text };
 };
 
@@ -97,7 +98,7 @@ test("an automation's signal reads as its kind, opens the run, and answers witho
     // 1 answers it: recorded, no mail to the Automations node, the card closes.
     await page.keyboard.press("1");
     await expect(feed.locator("[data-item-id='signal:sig-ask']")).toHaveCount(0, { timeout: 10_000 });
-    expect(await stateOf(page, "sig-ask")).toEqual({ state: "answered", response: "Yes" });
+    expect(stateOf(junto.sandbox, "sig-ask")).toEqual({ state: "answered", response: "Yes" });
   } finally {
     await junto.close();
   }

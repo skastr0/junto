@@ -80,7 +80,6 @@ beforeEach(() => {
 describe("main boot IPC registration", () => {
   it("runs every boot registrar on a real-shaped ipcMain without throwing", async () => {
     const { registerBrowserIpcHandlers, registerIpcHandlers } = await import("../src/app/ipc-handlers");
-    const { registerCompanionIpc } = await import("../src/app/companion/ipc");
     const { makeMainNotifications } = await import("../src/app/notifications/ipc");
     const { registerFilesIpc } = await import("../src/app/files/ipc");
     const { registerOverseerLiveIpc } = await import("../src/app/overseer/live/ipc");
@@ -96,7 +95,6 @@ describe("main boot IPC registration", () => {
       },
       notifications: makeMainNotifications({ window: () => undefined, enabled: false }),
     });
-    registerCompanionIpc(core);
     registerFilesIpc(core);
     // Behind LIVE_OVERSEER_ENABLED, and once the browser composition is up.
     registerOverseerLiveIpc(inert as Parameters<typeof registerOverseerLiveIpc>[0]);

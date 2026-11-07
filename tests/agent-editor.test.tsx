@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { THIS_MACHINE } from "./support/machines";
-import { Effect } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { decodeNode } from "../src/shared/model";
 import { holdModelCanvas as holdCanvas } from "./support/hold-canvas";
 
@@ -26,6 +26,8 @@ const { agentEditor$, closeAgentEditor, openAgentEditor } = await import("../src
 const { state$ } = await import("../src/window/lib/state");
 const { portraitOverrides$ } = await import("../src/window/lib/portrait-overrides-state");
 const { normalizePortraitOverride } = await import("../src/shared/portrait-overrides");
+const { ContentWindow } = await import("../src/contract/window/content");
+const { WindowRuntimeContext } = await import("../src/window/rpc/runtime");
 const { installCosmeticPacks } = await import("../src/shared/cosmetics/catalog");
 const { decodeCosmeticPacks } = await import("../src/shared/cosmetics/load");
 
@@ -50,29 +52,34 @@ beforeEach(() => {
   portraitOverrides$.set({});
   state$.canvasName.set("agent-editor-test");
   release = holdCanvas("agent-editor-test", [seat]);
-  // The main-process store: normalizes and echoes the stored override.
   (window as unknown as { junto: unknown }).junto = {
     // Main, as far as a saved edit goes: it takes the command and counts on.
     modelCommand: async (command: unknown) => {
       commands.push(command);
       return { seq: commands.length };
     },
-    portraitOverrideSet: async (seatId: string, override: unknown) => {
-      patches.push({ seatId, override });
-      return { ok: true, seatId, override: override === null ? null : normalizePortraitOverride(override) };
-    },
   };
+  // The content group's store: normalizes and echoes the stored override.
+  const content = ManagedRuntime.make(
+    Layer.succeed(ContentWindow, {
+      ContentPortraitOverrideSet: ({ seatId, override }: { seatId: string; override: unknown }) =>
+        Effect.sync(() => {
+          patches.push({ seatId, override });
+          return { ok: true, seatId, override: override === null ? null : normalizePortraitOverride(override) };
+        }),
+    } as never),
+  );
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
   act(() =>
     root.render(
-      <>
+      <WindowRuntimeContext.Provider value={content as never}>
         <CustomizeAgentButton identity="seat-1" name="planner" hint>
           <span>ring</span>
         </CustomizeAgentButton>
         <AgentEditorHost />
-      </>,
+      </WindowRuntimeContext.Provider>,
     ),
   );
 });

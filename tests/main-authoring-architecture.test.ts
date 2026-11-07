@@ -48,6 +48,11 @@ describe("main authoring architecture", () => {
           "runMainAuthoring",
         ]),
       ),
+      // The window's signal writes, each under its label in the signals group's handlers.
+      ...stringArgumentsForCalls(
+        join(root, "src", "app", "signals", "signals-ipc.ts"),
+        new Set(["authored"]),
+      ),
       // Mail receipt admission belongs to the core both shells construct.
       ...stringArgumentsForCalls(
         join(root, "src", "core", "core-runtime.ts"),

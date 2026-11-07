@@ -205,7 +205,6 @@ test("operator work: a seat's and an automation's work hand in from the feed, a 
     const firedAt = (await firings())[0]!.at;
     console.log("N-FIRING", JSON.stringify((await firings())[0]));
     await page.waitForTimeout(1_500);
-    console.log("N-SIGNALS", JSON.stringify(await page.evaluate((canvas) => window.junto!.agentSignalsList(canvas), CANVAS)).slice(0, 2500));
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
     if ((await pane.count()) > 0) await page.keyboard.press("Escape");

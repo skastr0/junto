@@ -10,7 +10,6 @@ import type { WorkMailChanged } from "@shared/work-mail";
 import type { CanvasesChanged, Changed } from "@shared/model";
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
 import type { FilesChanged, JuntoFilesApi } from "@shared/files";
-import type { CompanionDeviceRecord } from "@shared/companion-devices";
 import {
   IPC_CHANNELS,
   type ChassisApi,
@@ -47,7 +46,6 @@ import {
 import type { PreambleEvent } from "@shared/preamble";
 import type { WireTrafficEvent } from "@shared/wire-traffic";
 import type { MailWaitingFact } from "@shared/mail-waiting";
-import type { AgentSignal } from "@shared/agent-signals";
 import type { PortraitOverrideEvent } from "@shared/portrait-overrides";
 import type { Settings, SettingsOpResult, SettingsPatch, SettingsSectionKey } from "@shared/settings";
 import type { UsageState } from "@shared/usage";
@@ -55,7 +53,6 @@ import type { SquadsChanged } from "@shared/squads";
 import type { MachineCommandProgress } from "@shared/machine-progress";
 import type { SeatGuidanceEvent } from "@shared/seat-guidance";
 import type { SeatOffboardProgress } from "@shared/seat-sessions";
-import type { SeatCacheDue } from "@shared/seat-cache-due";
 import type { SeatOnboardingEvent } from "@shared/seat-onboarding-status";
 import type { ProfilesChanged } from "@shared/agent-profiles";
 import { nodeRefKey, parseNodeRef } from "@shared/node-ref";
@@ -88,13 +85,6 @@ const USAGE_REFRESH_TIMEOUT_MS = 120_000;
 // A seat ask (onboard, offboard, region env report, managed prompt) waits on
 // a real agent turn; give it headroom above the default 45s ceiling.
 const AGENT_MESSAGE_TIMEOUT_MS = 200_000;
-
-/**
- * Setting a secret's value can take up to three `op` calls in main (list, get,
- * edit), each with a 30 s deadline, and then the answer: past them all, so
- * only a main that never answers trips this.
- */
-const SIGNAL_SECRET_PUT_TIMEOUT_MS = 120_000;
 
 const invoke = <T>(channel: string, timeoutMs: number, ...args: unknown[]): Promise<T> =>
   new Promise((resolve, reject) => {
@@ -488,24 +478,12 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   getKernelState: () => invoke<KernelSnapshot>(IPC_CHANNELS.getKernelState, IPC_TIMEOUT_MS),
   factoryPauseState: (canvas) =>
     invoke(IPC_CHANNELS.factoryPauseState, IPC_TIMEOUT_MS, canvas),
-  agentSignalsList: (canvas) =>
-    invoke(IPC_CHANNELS.agentSignalsList, IPC_TIMEOUT_MS, canvas),
   mailWaiting: () => invoke(IPC_CHANNELS.mailWaitingRead, IPC_TIMEOUT_MS),
-  agentSignalRespond: (signalId, text, options) =>
-    invoke(IPC_CHANNELS.agentSignalRespond, IPC_TIMEOUT_MS, signalId, text, options),
-  agentSignalReply: (signalId, reply) =>
-    invoke(IPC_CHANNELS.agentSignalReply, IPC_TIMEOUT_MS, signalId, reply),
-  signalSecretPut: (request) => invoke(IPC_CHANNELS.signalSecretPut, SIGNAL_SECRET_PUT_TIMEOUT_MS, request),
-  agentSignalDismiss: (signalId) =>
-    invoke(IPC_CHANNELS.agentSignalDismiss, IPC_TIMEOUT_MS, signalId),
   previewRead: (request) => invoke(IPC_CHANNELS.previewRead, IPC_TIMEOUT_MS, request),
   pageShotPurge: (request) => invoke(IPC_CHANNELS.pageShotPurge, IPC_TIMEOUT_MS, request),
   previewReveal: (source, path) =>
     invoke(IPC_CHANNELS.previewReveal, IPC_TIMEOUT_MS, source, path),
   previewPlay: (source, index) => invoke(IPC_CHANNELS.previewPlay, IPC_TIMEOUT_MS, source, index),
-  portraitOverridesList: () => invoke(IPC_CHANNELS.portraitOverridesList, IPC_TIMEOUT_MS),
-  portraitOverrideSet: (seatId, override) =>
-    invoke(IPC_CHANNELS.portraitOverrideSet, IPC_TIMEOUT_MS, seatId, override),
   squadsList: () => invoke(IPC_CHANNELS.squadsList, IPC_TIMEOUT_MS),
   squadSave: (input) => invoke(IPC_CHANNELS.squadSave, IPC_TIMEOUT_MS, input),
   squadRename: (squadId, name) => invoke(IPC_CHANNELS.squadRename, IPC_TIMEOUT_MS, squadId, name),
@@ -525,13 +503,7 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     invoke(IPC_CHANNELS.regionEnvStaleSeats, IPC_TIMEOUT_MS, canvasName, regionId),
   seatOffboardAsk: (canvasName, seatId, mode) =>
     invoke(IPC_CHANNELS.seatOffboardAsk, AGENT_MESSAGE_TIMEOUT_MS, canvasName, seatId, mode),
-  seatOffboardRun: (input) =>
-    invoke(IPC_CHANNELS.seatOffboardRun, AGENT_MESSAGE_TIMEOUT_MS, input),
-  seatOffboardStatus: (canvasName, seatIds) =>
-    invoke(IPC_CHANNELS.seatOffboardStatus, IPC_TIMEOUT_MS, canvasName, seatIds),
   seatOffboardProgressList: () => invoke(IPC_CHANNELS.seatOffboardProgressList, IPC_TIMEOUT_MS),
-  seatCacheDueList: () => invoke(IPC_CHANNELS.seatCacheDueList, IPC_TIMEOUT_MS),
-  seatCacheDueAnswer: (input) => invoke(IPC_CHANNELS.seatCacheDueAnswer, IPC_TIMEOUT_MS, input),
   seatOnboardingSnapshot: () => invoke(IPC_CHANNELS.seatOnboardingSnapshot, IPC_TIMEOUT_MS),
   seatOnboardNudge: (canvasName, seatId) =>
     invoke(IPC_CHANNELS.seatOnboardNudge, AGENT_MESSAGE_TIMEOUT_MS, canvasName, seatId),
@@ -541,8 +513,6 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   profileDelete: (profileId) => invoke(IPC_CHANNELS.profileDelete, IPC_TIMEOUT_MS, profileId),
   factoryPauseSet: (canvas, paused) =>
     invoke(IPC_CHANNELS.factoryPauseSet, IPC_TIMEOUT_MS, canvas, paused),
-  contentPutImage: (input) =>
-    invoke(IPC_CHANNELS.contentPutImage, IPC_TIMEOUT_MS, input),
   workItem: (query) => invoke(IPC_CHANNELS.workItem, IPC_TIMEOUT_MS, query),
   workAttention: (query) => invoke(IPC_CHANNELS.workAttention, IPC_TIMEOUT_MS, query),
   onWorkSinkChanged: (listener) => subscribe<WorkSinkChanged>(IPC_CHANNELS.workSinkChanged, listener),
@@ -570,28 +540,15 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   onWireTraffic: (listener) =>
     subscribe<WireTrafficEvent>(IPC_CHANNELS.wireTraffic, listener),
   onMailWaiting: (listener) => subscribe<MailWaitingFact>(IPC_CHANNELS.mailWaiting, listener),
-  onAgentSignal: (listener) => subscribe<AgentSignal>(IPC_CHANNELS.agentSignal, listener),
   onPortraitOverride: (listener) =>
     subscribe<PortraitOverrideEvent>(IPC_CHANNELS.portraitOverride, listener),
   onSquadsChanged: (listener) => subscribe<SquadsChanged>(IPC_CHANNELS.squadsChanged, listener),
   onSeatGuidance: (listener) => subscribe<SeatGuidanceEvent>(IPC_CHANNELS.seatGuidance, listener),
   onSeatOffboardProgress: (listener) =>
     subscribe<SeatOffboardProgress>(IPC_CHANNELS.seatOffboardProgress, listener),
-  onSeatCacheDue: (listener) => subscribe<ReadonlyArray<SeatCacheDue>>(IPC_CHANNELS.seatCacheDue, listener),
   onSeatOnboardingChanged: (listener) =>
     subscribe<SeatOnboardingEvent>(IPC_CHANNELS.seatOnboardingChanged, listener),
   onProfilesChanged: (listener) => subscribe<ProfilesChanged>(IPC_CHANNELS.profilesChanged, listener),
-  companionStatus: () => invoke(IPC_CHANNELS.companionStatus, IPC_TIMEOUT_MS),
-  companionPairStart: () => invoke(IPC_CHANNELS.companionPairStart, IPC_TIMEOUT_MS),
-  companionPairCancel: (deviceId) => invoke(IPC_CHANNELS.companionPairCancel, IPC_TIMEOUT_MS, deviceId),
-  companionPairCopyLink: (deviceId) => invoke(IPC_CHANNELS.companionPairCopyLink, IPC_TIMEOUT_MS, deviceId),
-  companionDevices: () => invoke(IPC_CHANNELS.companionDevices, IPC_TIMEOUT_MS),
-  companionDeviceRemove: (deviceId) => invoke(IPC_CHANNELS.companionDeviceRemove, IPC_TIMEOUT_MS, deviceId),
-  companionDeviceRestore: (target) => invoke(IPC_CHANNELS.companionDeviceRestore, IPC_TIMEOUT_MS, target),
-  onCompanionDevicesChanged: (listener) =>
-    subscribe<ReadonlyArray<CompanionDeviceRecord>>(IPC_CHANNELS.companionDevicesChanged, listener),
-  companionRemoteLogin: () => invoke(IPC_CHANNELS.companionRemoteLogin, IPC_TIMEOUT_MS),
-  companionOpenRemoteLoginSettings: () => invoke(IPC_CHANNELS.companionOpenRemoteLoginSettings, IPC_TIMEOUT_MS),
   onKernelChanged: (listener) => subscribe<KernelSnapshot>(IPC_CHANNELS.kernelChanged, listener),
   settingsGet: () => invoke<SettingsOpResult>(IPC_CHANNELS.settingsGet, IPC_TIMEOUT_MS),
   settingsPatch: (patch: SettingsPatch) =>
@@ -807,7 +764,6 @@ const terminalApi: JuntoTerminalApi = {
   seatThreadUnread: (query) => invoke(IPC_CHANNELS.seatThreadUnread, IPC_TIMEOUT_MS, query),
   seatThreadMarkRead: (input) => invoke(IPC_CHANNELS.seatThreadMarkRead, IPC_TIMEOUT_MS, input),
   onSeatThreadReadChanged: (listener) => subscribe(IPC_CHANNELS.seatThreadReadChanged, listener),
-  operatorContentPut: (input) => invoke(IPC_CHANNELS.operatorContentPut, IPC_TIMEOUT_MS, input),
 };
 
 const filesApi: JuntoFilesApi = {

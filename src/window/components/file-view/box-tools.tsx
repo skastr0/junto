@@ -6,6 +6,7 @@ import type { NodeId } from "@shared/physics/schema";
 import { claimFocus } from "../../lib/focus-ownership";
 import { useCanvas } from "../../lib/use-model";
 import { Button, Dropdown, IconButton, Kbd } from "../ui";
+import { useContentCalls } from "../../lib/content-calls";
 import { extractTargets, extractToArtifact, type BoxShot, type ExtractOutcome, type ExtractTarget } from "./extract";
 import { boxByArrow, KEYBOARD_BOX, zoomLabel, type ViewBox } from "./file-view-model";
 
@@ -132,6 +133,7 @@ export const useBoxTools = ({
     );
   };
 
+  const content = useContentCalls();
   const extractBox = (): void => {
     if (draft === null || target === null || extract.kind === "pending") return;
     const taken = draft;
@@ -145,7 +147,7 @@ export const useBoxTools = ({
     void shoot(taken)
       .then(
         (shot) =>
-          extractToArtifact({ canvasName, target, source, shot }).catch((error: unknown): ExtractOutcome => {
+          extractToArtifact(content, { canvasName, target, source, shot }).catch((error: unknown): ExtractOutcome => {
             console.warn("[extract] the artifact could not be made:", error);
             return { kind: "failed", line: ARTIFACT_FAILED };
           }),

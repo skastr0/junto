@@ -1,8 +1,8 @@
 import { observable } from "@legendapp/state";
 import type { CompanionDeviceRecord } from "@shared/companion-devices";
-import type { JuntoApi } from "@shared/ipc";
 import { feedItemRank, type FeedItem, type FeedRegion, type FeedSeat, type FeedSection, type OperatorFeed } from "@shared/operator-feed";
-import { getJuntoApi } from "./junto-api";
+import type { CompanionWindow } from "../../contract/window/companion";
+import { follow as followStream, type WindowRuntime } from "../rpc/runtime";
 
 /**
  * A paired phone reaches this Mac over Remote Login (macOS sshd). While a
@@ -55,33 +55,30 @@ export const withPhoneReach = (feed: OperatorFeed, reach: PhoneReach): OperatorF
   return section ? { ...feed, count: feed.count + section.items.length, sections: [...feed.sections, section] } : feed;
 };
 
-export const openRemoteLoginSettings = (): void => {
-  void getJuntoApi()?.companionOpenRemoteLoginSettings?.();
+export const openRemoteLoginSettings = (runtime: WindowRuntime, companion: CompanionWindow["Service"]): void => {
+  void runtime.runPromise(companion.CompanionOpenRemoteLoginSettings()).catch(() => undefined);
 };
-
-type ReachApi = Pick<JuntoApi, "companionDevices" | "onCompanionDevicesChanged" | "companionRemoteLogin">;
 
 /**
  * Follow the paired phones, and ask whether Remote Login listens when one is
  * paired and whenever the window regains focus. Returns the unsubscribe.
  */
 export const startPhoneReachWatch = (
-  api: ReachApi,
+  runtime: WindowRuntime,
+  companion: CompanionWindow["Service"],
   focus: Pick<Window, "addEventListener" | "removeEventListener"> = window,
 ): (() => void) => {
-  const { companionDevices, companionRemoteLogin } = api;
-  if (!companionDevices || !companionRemoteLogin) return () => undefined;
   let stopped = false;
   // Only the latest ask lands: an answer that comes back late is older news.
   let asked = 0;
   const check = async (): Promise<void> => {
     if (!phoneReach$.paired.peek()) return;
     const ask = ++asked;
-    const answer = await companionRemoteLogin().catch(() => undefined);
+    const answer = await runtime.runPromise(companion.CompanionRemoteLogin()).catch(() => undefined);
     if (stopped || ask !== asked || answer === undefined || !phoneReach$.paired.peek()) return;
     phoneReach$.remoteLogin.set(answer);
   };
-  const follow = (devices: ReadonlyArray<CompanionDeviceRecord>): void => {
+  const followDevices = (devices: ReadonlyArray<CompanionDeviceRecord>): void => {
     if (stopped) return;
     const paired = devices.some((device) => device.state === "paired");
     if (paired === phoneReach$.paired.peek()) return;
@@ -89,8 +86,7 @@ export const startPhoneReachWatch = (
     phoneReach$.set({ paired, remoteLogin: undefined });
     void check();
   };
-  void companionDevices().then(follow, () => undefined);
-  const offDevices = api.onCompanionDevicesChanged?.(follow) ?? (() => undefined);
+  const offDevices = followStream(runtime, companion.CompanionDevicesFollow(), followDevices);
   const onFocus = (): void => void check();
   focus.addEventListener("focus", onFocus);
   return () => {

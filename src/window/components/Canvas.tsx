@@ -78,6 +78,7 @@ import {
   newLabel, newSeat, newPage, newTaskBoard, newNote,
 } from "../lib/model-factories";
 import { topZ } from "../lib/model-edits";
+import { useContentCalls, type ContentCalls } from "../lib/content-calls";
 import { putImagesFromDataTransfer } from "../lib/image-content";
 import { contentObjectUrl } from "@shared/content-url";
 import {
@@ -752,6 +753,7 @@ const onTop = (position: { readonly x: number; readonly y: number }) => ({
 const makeAddActions = (
   positionFor: (size: { width: number; height: number }) => { x: number; y: number },
   dismiss: () => void,
+  content: ContentCalls | undefined,
 ): ModeDeckActions => ({
   create: (kind) => {
     const size = kind === "text"
@@ -766,12 +768,12 @@ const makeAddActions = (
     dismiss();
   },
   addSquad: async (squadId, launch) => {
-    const outcome = await placeSquadInSlot(squadId, positionFor, launch);
+    const outcome = await placeSquadInSlot(squadId, positionFor, launch, content);
     if (outcome !== "needs-folder") dismiss();
     return outcome;
   },
   addProfile: async (profileId, launch) => {
-    const outcome = await placeProfileInSlot(profileId, positionFor, launch);
+    const outcome = await placeProfileInSlot(profileId, positionFor, launch, content);
     if (outcome !== "needs-folder") dismiss();
     return outcome;
   },
@@ -954,7 +956,8 @@ function CanvasFieldTools() {
     return gridPlacement ? gridPlacement : findOpenPosition(canvasNodes, center, size);
   };
 
-  const actions = makeAddActions(nextPosition, dismiss);
+  const content = useContentCalls();
+  const actions = makeAddActions(nextPosition, dismiss, content);
   // This position is shared with the persistent launch context while the deck
   // is open, so its region default describes the same next-agent placement.
   const agentPosition = useMemo(
@@ -1005,7 +1008,8 @@ function ContextModeDeck({ at, onClose }: { readonly at: { x: number; y: number 
     const point = rf.screenToFlowPosition({ x: at.x, y: at.y });
     return { x: Math.round(point.x - size.width / 2), y: Math.round(point.y - size.height / 2) };
   };
-  const actions = makeAddActions(positionFor, onClose);
+  const content = useContentCalls();
+  const actions = makeAddActions(positionFor, onClose, content);
   const agentPosition = positionFor(AGENT_NODE_SIZE);
   return <ModeDeckFocus actions={actions} agentPosition={agentPosition} onClose={onClose} />;
 }
@@ -1706,10 +1710,11 @@ function CanvasGraph() {
     interactions.onPaneClick(event);
   }, [interactions.onPaneClick, closeMenus]);
 
+  const content = useContentCalls();
   /** Drop / paste images onto the field → content store → image file nodes. */
   const placeImagesAt = useCallback(
     async (data: DataTransfer | null | undefined, flow: { x: number; y: number }) => {
-      const result = await putImagesFromDataTransfer(data);
+      const result = await putImagesFromDataTransfer(content, data);
       if (result.kind === "none") return false;
       if (result.kind === "error") {
         state$.error.set(result.error);
@@ -1727,7 +1732,7 @@ function CanvasGraph() {
       }
       return true;
     },
-    [],
+    [content],
   );
 
   const onDragOver = useCallback((event: React.DragEvent) => {

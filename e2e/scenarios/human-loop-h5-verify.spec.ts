@@ -18,6 +18,7 @@ import type { Locator, Page } from "@playwright/test";
 import { asNodeId } from "../../src/shared/model";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
+import { signalsInStore } from "../harness/signals-store";
 import { modelFixture, modelNode, modelRegion, modelSeat } from "../harness/model";
 
 const CANVAS = "human-loop-h5-verify";
@@ -82,7 +83,8 @@ test("H5: an answered escalate starts a linked automation that writes a dated re
     await crewPlayFactory(page);
     await crewOccupySeat(page, CANVAS, lead, seat);
 
-    const signals = async (): Promise<ReadonlyArray<Signal>> => (await page.evaluate((canvas) => window.junto!.agentSignalsList(canvas), CANVAS)) as ReadonlyArray<Signal>;
+    // The automation's signals as the core persisted them: an automation has no seat to list its own.
+    const signals = async (): Promise<ReadonlyArray<Signal>> => signalsInStore(sandbox, CANVAS) as ReadonlyArray<Signal>;
     const heads = (): Promise<ReadonlyArray<Head>> =>
       page.evaluate(({ canvas, node }) => window.junto!.resource!.artifact!.list(canvas, node), { canvas: CANVAS, node: asNodeId("reviews") }) as Promise<ReadonlyArray<Head>>;
 
