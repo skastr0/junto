@@ -42,7 +42,7 @@ pub enum EvidenceRef {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ListArgs {
     #[serde(skip_serializing_if = "Option::is_none")]
     target: Option<String>,
@@ -69,7 +69,7 @@ pub struct ListArgs {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SendArgs {
     target: String,
     text: String,
@@ -98,13 +98,14 @@ pub struct PromptArgs {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SentArgs {
     #[serde(skip_serializing_if = "Option::is_none")]
     target: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReadArgs {
     #[serde(skip_serializing_if = "Option::is_none")]
     target: Option<String>,
@@ -112,7 +113,7 @@ pub struct ReadArgs {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReplyArgs {
     target: String,
     text: String,
@@ -130,13 +131,26 @@ enum Reaction {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReactArgs {
     #[serde(skip_serializing_if = "Option::is_none")]
     target: Option<String>,
     message_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     reaction: Option<Reaction>,
+}
+
+#[cfg(test)]
+mod contract {
+    crate::contract::parity! {
+        list: super::ListArgs => "msg.list",
+        prompt: super::PromptArgs => "msg.prompt",
+        sent: super::SentArgs => "msg.sent",
+        send: super::SendArgs => "msg.send",
+        read: super::ReadArgs => "msg.read",
+        react: super::ReactArgs => "msg.react",
+        reply: super::ReplyArgs => "msg.reply",
+    }
 }
 
 ops! {

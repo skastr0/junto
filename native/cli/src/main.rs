@@ -6,6 +6,8 @@
 mod attach;
 mod batch;
 mod commands;
+#[cfg(test)]
+mod contract;
 mod duration;
 mod envelope;
 mod error;
