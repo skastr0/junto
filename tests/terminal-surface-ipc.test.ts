@@ -12,13 +12,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { IPC_CHANNELS, type TerminalParkResult } from "../src/shared/ipc";
 import { registerTerminalIpc } from "../src/main/junto/term/ipc";
 import type { TermPlane } from "../src/main/junto/term/plane";
+import type { SurfacePlane } from "../src/main/core-process/main-side/term-surface";
 import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
 import { Layer, ManagedRuntime } from "effect";
 import { inProcessCore } from "./support/in-process-core";
 import { useCoreClient } from "../src/main/core-process/main-client";
 import { bindTermIpcPlane } from "../src/main/core-process/ops/term-ipc";
 import "../src/main/core-process/ops/term-ipc";
-import { useCoreSurfacePlane } from "../src/main/core-process/main-side/term-surface";
 
 vi.mock("electron", () => ({ MessageChannelMain: MessageChannel }));
 
@@ -81,12 +81,13 @@ const rig = (surfaces: boolean | (() => boolean) = true) => {
   unbind = bindTermIpcPlane(plane);
   // Main's surface ports reach the core: here the core is the same process, and
   // this stands in for its plane handing the port to the terminal process.
-  useCoreSurfacePlane({
-    open: async (lease, port, read) => host.openSurface(lease, port, read === undefined ? undefined : { read }),
-  });
+  const surfacePlane: SurfacePlane = {
+    open: async (lease, port, read) =>
+      host.openSurface(lease, port, read === undefined ? undefined : { read }),
+  };
   registerTerminalIpc(
     { handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never,
-    { isTrustedSender: () => true, broadcast: () => {} },
+    { isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => surfacePlane },
   );
   const call = (channel: string, ...args: unknown[]) => Promise.resolve(handlers.get(channel)!({ sender }, ...args));
   const open = async (surface = true): Promise<string> => {
@@ -106,7 +107,6 @@ let unbind: (() => void) | undefined;
 afterEach(() => {
   unbind?.();
   unbind = undefined;
-  useCoreSurfacePlane(undefined);
   vi.restoreAllMocks();
 });
 

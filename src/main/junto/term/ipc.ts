@@ -18,7 +18,7 @@ import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer"
 import { core } from "../../core-process/main-client";
 import { subscribe as subscribeCore } from "../../core-process/main-side/core-pushes";
 import { TERM_EVENT, TERM_LEASE_ENDED, TERM_SEAT_STATE } from "../../core-process/channels";
-import { coreSurfacePlaneInUse } from "../../core-process/main-side/term-surface";
+import type { SurfacePlane } from "../../core-process/main-side/term-surface";
 
 type LeaseOwner = {
   readonly lease: ControlLease;
@@ -51,6 +51,8 @@ export type TerminalIpcGate = {
   readonly isTrustedSender: (sender: WebContents) => boolean;
   /** Renderer fan-out for what arrives on the cores' seat-state channel. */
   readonly broadcast: (channel: string, payload: unknown) => void;
+  /** The core's surface plane while a core is up, or none: main's boot owns the answer. */
+  readonly surfacePlane: () => SurfacePlane | undefined;
 };
 
 const deny = (message: string): never => {
@@ -90,7 +92,7 @@ export const registerTerminalIpc = (
     owner.stopSurface?.();
     owner.stopSurface = undefined;
     owner.surfaced = false;
-    const corePlane = coreSurfacePlaneInUse();
+    const corePlane = gate.surfacePlane();
     if (owner.surfacePorts === undefined || corePlane === undefined || owner.sender.isDestroyed()) return false;
     const { port1, port2 } = new owner.surfacePorts();
     const stopped = await corePlane.open(owner.lease, port1, read);
@@ -378,7 +380,7 @@ export const registerTerminalIpc = (
     const hostId = input.hostId?.trim() || (await core.call("term.thisMachine", {}));
     const local = await core.call("term.isLocalHost", { hostId });
     // Every local lease gets a port, an observe lease's included.
-    const surfacePorts = input.surface === true && (input.mode === "control" || coreSurfacePlaneInUse() !== undefined) && local
+    const surfacePorts = input.surface === true && (input.mode === "control" || gate.surfacePlane() !== undefined) && local
       ? MessageChannelMain
       : undefined;
     if (input.mode === "control" && input.takeover) {

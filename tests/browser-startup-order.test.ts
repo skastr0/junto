@@ -169,7 +169,7 @@ describe("browser startup recovery gate", () => {
 
   it("preserves non-browser IPC before recovery without registering browser IPC", () => {
     const ready = indexSrc.slice(indexSrc.indexOf("app.whenReady().then"));
-    expect(ready.indexOf("registerIpcHandlers();")).toBeLessThan(
+    expect(ready.indexOf("registerIpcHandlers({ current:")).toBeLessThan(
       ready.indexOf("startBrowserComposition("),
     );
     const ordinaryJuntoIpc = juntoIpcSrc.slice(

@@ -59,9 +59,7 @@ export const coreSurfacePlane = (client: {
   };
 };
 
-let current: SurfacePlane | undefined;
-/** Boot only: surface ports go to the core process. */
-export const useCoreSurfacePlane = (plane: SurfacePlane | undefined): void => {
-  current = plane;
+/** What main's terminal IPC asks for the core's plane: whichever core is up, or none. */
+export type SurfacePlanes = {
+  readonly current: () => SurfacePlane | undefined;
 };
-export const coreSurfacePlaneInUse = (): SurfacePlane | undefined => current;

@@ -93,7 +93,7 @@ const fixture = async () => {
   // The plane is the core's; the test binds it where the operations run.
   bindTermIpcPlane({ router, nodeDelete: new TerminalNodeDeleteService(router as never) } as never);
   registerTerminalIpc({ handle: (channel: string, handler: (...args: unknown[]) => unknown) => handlers.set(channel, handler) } as never,
-    { isTrustedSender: () => true, broadcast: () => {} });
+    { isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => undefined });
   const start = () => Promise.resolve(handlers.get(IPC_CHANNELS.modelStart)!(
     { sender: { isDestroyed: () => false, send: () => {} } }, { canvas: "proof", id: "subject" }));
   const current = async () => (await runtime.runPromise(model.open("proof"))).nodes[0]!;

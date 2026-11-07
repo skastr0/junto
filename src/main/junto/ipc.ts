@@ -19,6 +19,7 @@ import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
 import { askOnEveryCore } from "../core-process/every-core";
 import { core } from "../core-process/main-client";
+import type { SurfacePlanes } from "../core-process/main-side/term-surface";
 import { subscribe as onCorePush } from "../core-process/main-side/core-pushes";
 
 import {
@@ -128,7 +129,7 @@ const runMainAuthoring = <A>(
   operation: () => Promise<A>,
 ): Promise<A> => mainAuthoringGate.run(label, operation);
 
-export const registerJuntoIpc = (): void => {
+export const registerJuntoIpc = (surfacePlanes: SurfacePlanes): void => {
   const privilegedIpc = trustedRendererIpc(ipcMain);
   privilegedIpc.handle(IPC_CHANNELS.modelCanvases, () => core.call("ipc.model.canvases", {}));
   privilegedIpc.handle(IPC_CHANNELS.modelOpen, (_event, input: unknown) =>
@@ -147,6 +148,7 @@ export const registerJuntoIpc = (): void => {
   registerTerminalIpc(privilegedIpc, {
     isTrustedSender: isTrustedMainWebContents,
     broadcast,
+    surfacePlane: surfacePlanes.current,
   });
   registerGitIpc(privilegedIpc);
   registerSettingsIpc(privilegedIpc, broadcast);

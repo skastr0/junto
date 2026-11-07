@@ -1512,7 +1512,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         app.exit(0);
       },
     });
-    registerIpcHandlers();
+    registerIpcHandlers({ current: () => coreChildren?.core.surfacePlanes.current() });
     registerDemoIpcHandlers();
     // Settings reads the phones from wherever the companion runs.
     registerCompanionIpc();

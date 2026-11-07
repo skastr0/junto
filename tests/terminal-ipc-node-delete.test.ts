@@ -69,7 +69,7 @@ const harness = (options: {
   bindTermIpcPlane({ router, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane);
   registerTerminalIpc(
     ipcMain as never,
-    { isTrustedSender: () => true, broadcast: () => {} },
+    { isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => undefined },
   );
   const handler = (channel: string): Handler => {
     const value = handlers.get(channel);

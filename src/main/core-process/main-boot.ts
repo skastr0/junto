@@ -17,7 +17,7 @@ import { relayWindowPushes } from "./main-side/window-pushes";
 import { serveOverseerHost } from "./main-side/overseer-pages";
 import { serveCompanionClipboard } from "./main-side/companion";
 import { serveClipboardFormats } from "./main-side/clipboard";
-import { coreSurfacePlane, useCoreSurfacePlane, type PortedCoreMessage } from "./main-side/term-surface";
+import { coreSurfacePlane, type PortedCoreMessage, type SurfacePlane, type SurfacePlanes } from "./main-side/term-surface";
 import type { CompanionClipboard } from "../junto/companion/service";
 import type { PortCoreClient } from "./port";
 
@@ -30,6 +30,8 @@ import type { PortCoreClient } from "./port";
  */
 export type CoreProcessForMain = {
   readonly client: PortCoreClient;
+  /** Where this boot's surface ports go: the core's plane while it is up, none after it stops. */
+  readonly surfacePlanes: SurfacePlanes;
   /** Close the core: signal it, wait for its drain and exit bounded, fail tagged when it hangs. */
   readonly stop: () => Effect.Effect<void, CoreDidNotStop>;
 };
@@ -71,10 +73,13 @@ export const startCoreProcessForMain = (input: {
   // A guarded seat's paste preflight: the core asks, main reads the pasteboard's formats.
   const stopClipboardFormats = serveClipboardFormats({ availableFormats: input.clipboardFormats });
   // The terminal plane is the core's: each view's surface port rides to it.
+  // One accessor per main boot, answering for the core that is up.
   const postSurface = started.postSurface;
+  let surfacePlane: SurfacePlane | undefined;
   if (postSurface !== undefined) {
-    useCoreSurfacePlane(coreSurfacePlane({ postSurface, onPush: started.onPush, call: (name, request) => started.call(name, request) }));
+    surfacePlane = coreSurfacePlane({ postSurface, onPush: started.onPush, call: (name, request) => started.call(name, request) });
   }
+  const surfacePlanes: SurfacePlanes = { current: () => surfacePlane };
   // The core asks for its port to the terminal process as it boots, and is
   // handed a new one each time the terminal process starts again.
   const terminals = input.terminals;
@@ -85,6 +90,7 @@ export const startCoreProcessForMain = (input: {
   const stopRestart = terminals?.onRestart(() => void giveTerminals()) ?? (() => undefined);
   return {
     client: started,
+    surfacePlanes,
     stop: () =>
       // The core drains before it exits, and its drain can still ask main for a
       // page, the clipboard, the clipboard's formats or a terminal port, so
@@ -96,7 +102,7 @@ export const startCoreProcessForMain = (input: {
             stopReady();
             stopRestart();
             stopTerminalHost();
-            useCoreSurfacePlane(undefined);
+            surfacePlane = undefined;
             stopClipboardFormats();
             stopClipboard();
             stopHost();

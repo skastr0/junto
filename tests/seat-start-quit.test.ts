@@ -93,7 +93,7 @@ const fixture = async () => {
   const handlers = new Map<string, Handler>();
   bindTermIpcPlane(plane);
   registerTerminalIpc({ handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never, {
-    isTrustedSender: () => true, broadcast: () => {},
+    isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => undefined,
   });
   const start = () => Promise.resolve(handlers.get(IPC_CHANNELS.modelStart)!(
     { sender: { isDestroyed: () => false, send: () => {} } },

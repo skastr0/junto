@@ -63,7 +63,7 @@ const rig = () => {
   bindTermIpcPlane({ router, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane);
   registerTerminalIpc(
     { handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never,
-    { isTrustedSender: () => true, broadcast: () => {} },
+    { isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => undefined },
   );
   const call = (channel: string, ...args: unknown[]) => Promise.resolve(handlers.get(channel)!(event, ...args));
   const open = async (bindingId: string): Promise<string> => {
