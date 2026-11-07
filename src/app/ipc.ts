@@ -84,9 +84,6 @@ import {
   type ResourceChangedPush,
   type ResourceThreadChangedPush,
 } from "../contract/core/channels";
-import {
-  isLiveClaudeResumeSummaryChoice,
-} from "../core/term/drive/claude-startup";
 import { registerOperatorHoldsIpc } from "./term/operator-holds-ipc";
 import { coreOperatorHolds } from "./core-process/main-side/seat-holds";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
