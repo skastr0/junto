@@ -30,6 +30,9 @@ import { SettingsLive } from "../src/main/junto/settings/service";
 import { nameThisMachine } from "./support/name-this-machine";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 
 const CANVAS = "stale-send";
 
@@ -64,7 +67,7 @@ const makeRuntime = (root: string) => {
   );
   const canvasesLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
   const workLive = Layer.provideMerge(Layer.provide(PreludeHookLive, WorkLive), canvasesLive);
-  return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneAllPlaying));
+  return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneAllPlaying, testLog.log.loggerLayer));
 };
 
 const seat = (id: string, label: string, x: number) =>

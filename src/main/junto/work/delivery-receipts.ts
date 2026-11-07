@@ -4,16 +4,17 @@ import { CanvasFactBasis } from "@shared/work-protocol";
 import { ModelActorRefs } from "../model/actor-refs";
 import { ModelNotFound } from "../model/records";
 import { ModelService } from "../model/service";
-import { recordSystemLog } from "../observability/logger";
+import type { Log } from "../observability/logger";
 import { WorkRepository } from "./repository";
 
 /** A receipt names the current canvas sequence, never a retired document hash. */
 export const canvasReceiptBasis = (current: { readonly canvasName: string; readonly seq: number }): CanvasFactBasis =>
   Schema.decodeUnknownSync(CanvasFactBasis)({ kind: "canvas", canvasName: current.canvasName, seq: current.seq });
 
-export const recordDeliveryReceiptRefusal = (canvas: string, node: string, cause: unknown): void => {
+export const recordDeliveryReceiptRefusal = (canvas: string, node: string, cause: unknown, log?: Log): void => {
+  if (log === undefined) return;
   const reason = cause instanceof Error ? cause.message : String(cause);
-  recordSystemLog(`Delivery receipt refused ${JSON.stringify({ canvas, node, reason })}`, "error");
+  log.recordSystemLog(`Delivery receipt refused ${JSON.stringify({ canvas, node, reason })}`, "error");
 };
 
 /**

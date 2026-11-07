@@ -29,7 +29,8 @@ import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import "./ops/index";
 import { armMainThreadBudget } from "../junto/observability/main-thread-budget";
 import { startSqlTimingLog } from "../junto/observability/sql-timing-log";
-import { sendLogRowsTo } from "../junto/observability/logger";
+import { createLogger } from "../junto/observability/logger";
+import { registeredSecretValues } from "../junto/credentials/known-secrets";
 import { observabilityRing } from "../junto/observability/ring";
 import type { TerminalPortMain } from "../terminal-process/over-ports";
 
@@ -68,8 +69,14 @@ const main = async (parent: ParentPort): Promise<void> => {
   // never reaches the database, a log or a socket (src/shared/e2e-sandbox.ts).
   // startCore stays a library function; its callers in tests are not entries.
   enforceBootRefusal({ juntoHome: boot.home });
-  // Every row this process writes lands in its ring, the one the panel reads.
-  sendLogRowsTo((row) => observabilityRing.append(row));
+  // Every row this process writes lands in its ring, the one the panel reads,
+  // and is scrubbed with the secrets this core holds.
+  const log = createLogger({
+    process: "core",
+    echo: true,
+    sink: (row) => observabilityRing.append(row),
+    knownSecrets: registeredSecretValues,
+  });
   // The core's own pid, first in its log: whoever runs it (main, a test, the
   // operator reading the log) learns which process is the core from here.
   console.info(`[core] pid ${String(process.pid)}`);
@@ -95,6 +102,7 @@ const main = async (parent: ParentPort): Promise<void> => {
   const core = await startCore({
     home: boot.home,
     build: boot.build,
+    log,
     canvasControl: true,
     windowTerminals: { parent },
     overseer: { captureApplicationPage: hostCaptureApplicationPage(host), pages: hostOverseerPages(host) },
@@ -114,6 +122,7 @@ const main = async (parent: ParentPort): Promise<void> => {
       build: boot.build,
       catalog: getCompiledMachineReleaseCatalog(),
       localRoot: () => boot.bundlesRoot,
+      machine: () => log.machine(),
     }),
   });
   bindOperatorListening(core.ensureOperatorListening);

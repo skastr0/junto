@@ -8,10 +8,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { LinkEventContext } from "../src/main/junto/link/types";
-import { closeMachineLog, installMachineLog } from "../src/main/junto/observability/logger";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 import { machineLogDir } from "../src/main/junto/observability/log-file";
 import { ATTACH_CREDITS, BACKLOG_LIMIT_UNITS, type SeatsStreamFrame, type SeatsViewFrame } from "../src/main/junto/term/seat-attach";
 import { eventually, miniSeat, twoCoreCanvas as canvas, twoCoreProcess, twoCores } from "./support/two-cores";
+import type { Log } from "../src/main/junto/observability/logger";
 
 const cleanups: Array<() => Promise<void>> = [];
 let restore: () => void;
@@ -24,10 +27,10 @@ afterEach(async () => {
 type Attached = { readonly handle: string; readonly generation: string; readonly mode: string };
 
 /** The book's view: it keeps every frame and, unless held, acknowledges each one as it lands. */
-const attachedPair = async (options: { readonly holdAcks?: boolean } = {}) => {
+const attachedPair = async (options: { readonly holdAcks?: boolean; readonly log?: Log } = {}) => {
   const frames: SeatsViewFrame[] = [];
   let ack: (context: LinkEventContext, frame: SeatsViewFrame) => void = () => undefined;
-  const cores = await twoCores({ cleanups, book: { attachStream: (context, frame) => { frames.push(frame); ack(context, frame); } } });
+  const cores = await twoCores({ cleanups, ...(options.log === undefined ? {} : { log: options.log }), book: { attachStream: (context, frame) => { frames.push(frame); ack(context, frame); } } });
   const ackFrame = (frame: SeatsViewFrame) => {
     if (!("seq" in frame)) return;
     void cores.bookEnd.sendEvent("seats", { _tag: "Ack", handle: frame.handle, upTo: frame.seq });
@@ -144,9 +147,9 @@ describe("seat attach over the link", () => {
 
   it("never writes a typed or printed byte to the log", async () => {
     const home = await mkdtemp(join(tmpdir(), "junto-attach-log-"));
-    cleanups.push(async () => { closeMachineLog(); await rm(home, { recursive: true, force: true }); });
-    installMachineLog({ home, process: "core", echo: false });
-    const pair = await attachedPair();
+    cleanups.push(async () => { testLog.log.closeFile(); await rm(home, { recursive: true, force: true }); });
+    testLog.log.openFile({ home });
+    const pair = await attachedPair({ log: testLog.log });
     const view = await pair.attach("control", true);
     const typed = "typed-password-4f9a2c";
     const printed = "printed-token-8b1e7d";

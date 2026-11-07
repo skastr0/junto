@@ -17,7 +17,7 @@ import { MachineRepository } from "../machines/repository";
 import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
 import { NativeConfig } from "../native-config/service";
-import { logMachine } from "../observability/logger";
+import { LogService } from "../observability/logger";
 import { admitCanvasEditor, tagOf } from "./admission";
 import {
   isNativeWireValue,
@@ -56,10 +56,11 @@ const asFailure = (machine: string, harness: HarnessId, key: string | undefined,
   };
 
 export const makeNativeConfigAnswers = Effect.fn("NativeConfigLink.answers")(function* () {
+  const log = yield* LogService;
   const config = yield* NativeConfig;
   const machines = yield* MachineRepository;
   const catalogue = NATIVE_SETTINGS;
-  const machineName = machines.machineName.pipe(Effect.orElseSucceed(logMachine));
+  const machineName = machines.machineName.pipe(Effect.orElseSucceed(() => log.machine()));
 
   const read = (harness: HarnessId, keys: readonly string[], operationId?: string) => Effect.gen(function* () {
     const machine = yield* machineName;
@@ -111,6 +112,7 @@ const noEvents = (): never => {
 };
 
 export const makeNativeConfigChannel = Effect.fn("NativeConfigLink.make")(function* () {
+  const log = yield* LogService;
   const services = yield* Effect.context<ModelService | ModelRecords | MachineRepository>();
   const machines = yield* MachineRepository;
   const answers = yield* makeNativeConfigAnswers();
@@ -118,7 +120,7 @@ export const makeNativeConfigChannel = Effect.fn("NativeConfigLink.make")(functi
   const handleRequest: NonNullable<LinkChannelHandler["handleRequest"]> = (context, raw) => Effect.gen(function* () {
     // Decode here too: direct callers cannot bypass the transport decoder.
     const request = yield* Schema.decodeUnknownEffect(NativeConfigRequest)(raw, { onExcessProperty: "error" });
-    const machine = yield* machines.machineName.pipe(Effect.orElseSucceed(logMachine));
+    const machine = yield* machines.machineName.pipe(Effect.orElseSucceed(() => log.machine()));
     yield* admitCanvasEditor(context, request.canvas, machine).pipe(
       Effect.provideContext(services),
       Effect.mapError(asFailure(machine, request.harness, request._tag === "WriteSetting" ? request.key : undefined, context.operationId)),
@@ -128,7 +130,7 @@ export const makeNativeConfigChannel = Effect.fn("NativeConfigLink.make")(functi
       : yield* answers.write(request.harness, request.key, request.value, context.operationId);
   }).pipe(
     Effect.catch((cause) => machines.machineName.pipe(
-      Effect.orElseSucceed(logMachine),
+      Effect.orElseSucceed(() => log.machine()),
       Effect.flatMap((machine) => Effect.fail(isLinkFailure(cause)
         ? cause
         : new InventoryUnavailableError({ machine, reason: "failed", message: `This machine could not answer (${tagOf(cause)}).` }))),

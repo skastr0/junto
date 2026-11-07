@@ -44,6 +44,9 @@ import { TaskRepositoryLive, projectTaskFact } from "../src/main/junto/work/task
 import type { TaskRecord } from "../src/shared/task-machine";
 import { asNodeId } from "../src/shared/model/base";
 import { seatNodeId, taskNodeId, taskNumber, type TaskId } from "../src/shared/task-model";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 
 const CANVAS = "onboard";
 const PEERS = ["peer-a", "peer-b", "peer-c"] as const;
@@ -66,7 +69,7 @@ const makeRuntime = (root: string) => {
   const tasksLive = Layer.provide(TaskRepositoryLive, RulingRecorderLive);
   const canvasesLive = Layer.provideMerge(Layer.mergeAll(ModelStoresLive, tasksLive), repositoriesLive);
   const workLive = Layer.provideMerge(WorkLive, canvasesLive);
-  return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneAllPlaying));
+  return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneAllPlaying, testLog.log.loggerLayer));
 };
 
 const seat = (id: string, x: number) =>

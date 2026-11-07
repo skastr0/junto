@@ -47,7 +47,7 @@ it("a delivery that typed the mail whole stamps it read with its receipt; any ot
     }
     // These mails carry no files, so the content store is never read.
     const store = await runtime.runPromise(
-      makeMessageDeliveryStore.pipe(Effect.provideService(ContentService, {} as ContentServiceShape)),
+      makeMessageDeliveryStore().pipe(Effect.provideService(ContentService, {} as ContentServiceShape)),
     );
     expect(await store.acceptMessageDelivery("factory", "inbox", "whole-mail", true)).toBe(true);
     expect(await store.acceptMessageDelivery("factory", "inbox", "cut-mail", false)).toBe(true);

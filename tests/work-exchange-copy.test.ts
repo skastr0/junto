@@ -41,6 +41,7 @@ import type { CanvasCopy } from "../src/shared/canvas-copy";
 import { Command, asCanvasName, type Node } from "../src/shared/model";
 import { seat, wire } from "./support/model-nodes";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
+import { makeTestLog } from "./support/test-log";
 
 const id = Schema.decodeUnknownSync(InstallationId);
 const MACBOOK = id("macbook-installation");
@@ -48,9 +49,10 @@ const MINI = id("mini-installation");
 const at = "2026-10-09T12:00:00.000Z";
 const command = Schema.decodeUnknownSync(Command);
 
+const { log: exchangeLog } = makeTestLog();
 const makeRuntime = (root: string, name: string, installation: InstallationId) =>
   ManagedRuntime.make(
-    Layer.provideMerge(WorkLive, Layer.provideMerge(
+    Layer.mergeAll(exchangeLog.loggerLayer, Layer.provideMerge(WorkLive, Layer.provideMerge(
       ModelStoresLive,
       Layer.provideMerge(
         Layer.mergeAll(
@@ -66,7 +68,7 @@ const makeRuntime = (root: string, name: string, installation: InstallationId) =
         ),
         Layer.mergeAll(makeStateEngineLive(join(root, "junto.db")), makeInstallOpsLive(join(root, "install-ops.db"))),
       ),
-    )),
+    ))),
   );
 
 type Machine = {
@@ -500,7 +502,7 @@ describe("delivery on a machine with no window", () => {
     const typed: string[] = [];
     const delivery = new MessageDeliveryService(() => "mini");
     delivery.configure({
-      store: await mini.runtime.runPromise(makeMessageDeliveryStore),
+      store: await mini.runtime.runPromise(makeMessageDeliveryStore()),
       transport: {
         seatLive: (bindingId) => bindingId === "binding-peer",
         wakeSeat: async () => true,

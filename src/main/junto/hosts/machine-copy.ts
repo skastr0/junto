@@ -7,6 +7,7 @@ import type { RemoteHost } from "@shared/remote-hosts";
 import { OperatorErrorBody } from "@shared/operator-control";
 import { scrubMessage } from "../credentials/scrub";
 import { failureHere } from "./failure-here";
+import { LogService } from "../observability/logger";
 import { MachineRepository } from "../machines/repository";
 import { parseHostSshRoute, SshTransport, type ScopedStreamProgram, type SshError } from "../ssh";
 import { SshTransferExitError } from "../ssh/service";
@@ -35,12 +36,13 @@ export class MachineCopyRefused extends Schema.TaggedError<MachineCopyRefused>()
 }) {}
 const refused = (check: typeof MachineCopyCheck.Type, message: string) =>
   new MachineCopyRefused({ check, message: check === "remote-refused" ? scrubMessage(message) : message });
-const staged = (cause: unknown) => new MachineInstallError({ message: cause instanceof Error ? cause.message : String(cause), disposition: "staged", retryable: false, ...failureHere(cause) });
 const ConfigureResponse = Schema.Struct({ ok: Schema.Literal(true), command: Schema.Literal("machine configure"), data: MachineConfigured });
 const SetupResponse = Schema.Struct({ ok: Schema.Literal(true), command: Schema.Literal("machine setup"), data: MachinePeerPin });
 
 /** Explicit send completes setup through a checked first hello; update uses an existing pin only. */
 export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(function* () {
+  const log = yield* LogService;
+  const staged = (cause: unknown) => new MachineInstallError({ message: cause instanceof Error ? cause.message : String(cause), disposition: "staged", retryable: false, ...failureHere(cause, log.machine()) });
   const machines = yield* MachineRepository;
   const hosts = yield* HostsService;
   const ssh = yield* SshTransport;
@@ -76,7 +78,7 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
       ...(host.juntoHome === undefined ? {} : { juntoHome: host.juntoHome }),
       ...(host.installRoot === undefined ? {} : { installRoot: host.installRoot }),
       ...(pin === undefined ? {} : { expectedInstallationId: pin.installationId }),
-    }, onTransition).pipe(Effect.provideService(SshTransport, ssh));
+    }, onTransition).pipe(Effect.provideService(SshTransport, ssh), Effect.provideService(LogService, log));
     const receipt = yield* Schema.decodeUnknownEffect(MachineInstallResult)(installed, { onExcessProperty: "error" });
     return yield* Effect.gen(function* () {
       if (receipt.build !== build || (pin !== undefined && receipt.installationId !== pin.installationId)) return yield* Effect.fail(refused("identity-mismatch", "The installed Junto identity does not match the selected machine"));

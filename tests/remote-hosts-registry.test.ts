@@ -40,6 +40,9 @@ import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
 import { MACHINE_REGISTRY_STATE_SCHEMA_SQL } from "../src/main/junto/hosts/state-schema";
 import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { MACHINE_STATE_SCHEMA_SQL } from "../src/main/junto/machines/state-schema";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 
 const dirs: string[] = [];
 const originalHome = process.env.HOME;
@@ -57,7 +60,7 @@ const registryRuntime = (databasePath: string) => {
   }
   const sql = Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer));
   const machines = makeMachineRepositoryLive({defaultName: () => "macbook"}).pipe(Layer.provideMerge(sql));
-  const runtime = ManagedRuntime.make(HostsPersistenceLive.pipe(Layer.provideMerge(machines)));
+  const runtime = ManagedRuntime.make(HostsPersistenceLive.pipe(Layer.provideMerge(machines), Layer.provideMerge(testLog.log.loggerLayer)));
   return { runPromise: runtime.runPromise.bind(runtime), dispose: async () => { await runtime.dispose(); database.close(); } };
 };
 

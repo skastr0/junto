@@ -5,6 +5,9 @@ import { MachineRepository } from "../src/main/junto/machines/repository";
 import { ModelRecords } from "../src/main/junto/model/records";
 import { InstallationId } from "../src/shared/installation-id";
 import { MachineHarnesses, MachineOwnStatus, MachinePeerStatus } from "../src/shared/machine-control";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 
 const probe = vi.hoisted(() => vi.fn());
 vi.mock("../src/main/junto/hosts/machine-form", async () => {
@@ -32,8 +35,8 @@ it("reports the same bounded facts to the owner and the linked machine, once per
     peers: Effect.die("unused"), retirePeer: () => Effect.die("unused"),
   }));
   const runtime = ManagedRuntime.make(machineCoreStatusLayer({
-    home: "/tmp/status-home", build: "a".repeat(64), bundles: {}, ready: () => true,
-  }).pipe(Layer.provide(machines), Layer.provide(Layer.succeed(ModelRecords, {
+    home: "/tmp/status-home", build: "a".repeat(64), bundles: {}, ready: () => true, log: testLog.log,
+  }).pipe(Layer.provideMerge(testLog.log.loggerLayer), Layer.provide(machines), Layer.provide(Layer.succeed(ModelRecords, {
     listCanvases: () => Effect.succeed([]),
   } as unknown as ModelRecords["Service"]))));
   try {

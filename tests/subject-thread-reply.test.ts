@@ -47,6 +47,9 @@ import { SettingsLive } from "../src/main/junto/settings/service";
 import { nameThisMachine } from "./support/name-this-machine";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 
 const CANVAS = "subjects";
 const BOARD = "board";
@@ -69,7 +72,7 @@ const makeRuntime = (root: string) => {
     ),
   );
   const canvasesLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
-  return ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(Layer.provide(OldTaskStoreDies, WorkLive), canvasesLive), PausePlaneAllPlaying));
+  return ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(Layer.provide(OldTaskStoreDies, WorkLive), canvasesLive), PausePlaneAllPlaying, testLog.log.loggerLayer));
 };
 
 /**

@@ -37,7 +37,8 @@ import { HostsServiceLive } from "./junto/hosts";
 import { HostRegistryRows } from "./junto/hosts/registry";
 import { SshTransportLive } from "./junto/ssh";
 import { makeStateEngineLive } from "./junto/state/engine";
-import { MachineRepositoryLive } from "./junto/machines/repository";
+import { makeMachineRepositoryLive } from "./junto/machines/repository";
+import type { Log } from "./junto/observability/logger";
 import { OpRepositoryLive } from "./junto/work/op-repository";
 import { HarnessInventoryLive } from "./junto/term/templates/harness-inventory";
 import { NativeConfigLive } from "./junto/native-config/service";
@@ -60,15 +61,15 @@ export const automationRunnerLayer = Layer.provideMerge(
 );
 
 /** The same product services in both shells, over one state connection. */
-export const makeCoreProductLayer = (home: string) => {
+export const makeCoreProductLayer = (home: string, log: Log) => {
   const state = makeStateEngineLive(join(home, ".junto", "state", "junto.db"));
   const installOps = makeInstallOpsLive(join(home, ".junto", "state", "install-ops.db"));
   const settings = makeSettingsLive();
   // One host of this machine's canvas authorities, shared by every ruler that judges on it: a
   // second would open a canvas the first holds (fleet/driver.ts). It records through the ruling recorder.
   const authorities = Layer.provideMerge(
-    Layer.provide(CanvasAuthoritiesLive, MachineRepositoryLive),
-    Layer.provide(RulingRecorderLive, Layer.merge(WorkRepositoryLive, MachineRepositoryLive)),
+    Layer.provide(CanvasAuthoritiesLive, makeMachineRepositoryLive({ log })),
+    Layer.provide(RulingRecorderLive, Layer.merge(WorkRepositoryLive, makeMachineRepositoryLive({ log }))),
   );
   const repositories = Layer.provideMerge(
     Layer.mergeAll(
@@ -86,7 +87,7 @@ export const makeCoreProductLayer = (home: string) => {
       ProfileRepositoryLive,
       Layer.provideMerge(UsageLive, settings),
       settings,
-      MachineRepositoryLive,
+      makeMachineRepositoryLive({ log }),
       // This machine's vault scope records: the machine name to vault map a
       // spawn reads before it uses the vault token file.
       VaultTokensLive,
@@ -95,7 +96,7 @@ export const makeCoreProductLayer = (home: string) => {
       ViewStateRepositoryLive,
       // The automation store, and the recorder its ruler records each ruling through.
       makeAutomationRepositoryLive(),
-      Layer.provide(RulingRecorderLive, Layer.merge(WorkRepositoryLive, MachineRepositoryLive)),
+      Layer.provide(RulingRecorderLive, Layer.merge(WorkRepositoryLive, makeMachineRepositoryLive({ log }))),
       // The artifact store puts each version's bytes in the content store.
       // Each ruling is recorded once, for every machine, through the work store,
       // and behind the authority judged on its canvas's (fleet/host.ts).

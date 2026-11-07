@@ -229,7 +229,7 @@ import { resolveCallerAcrossCanvases } from "./caller-resolve";
 import { closingFence } from "../term/closing-fence";
 import { injectionSupervisor } from "../term/injection-supervisor";
 import { readMachineLog, seatLogScope } from "../observability/log-file";
-import { logMachine } from "../observability/logger";
+import { LogService } from "../observability/logger";
 import type { ProcessPrincipal } from "../process-identity";
 import { OFFBOARDED_SESSION_MESSAGE } from "../process-identity-facts";
 import {
@@ -806,7 +806,7 @@ const rulingsForRegionStack = (doc: Canvas, nodeId: string) =>
 // Dispatch
 
 type RunEffect = <A, E>(
-  effect: Effect.Effect<A, E, WorkService | PausePlane>,
+  effect: Effect.Effect<A, E, WorkService | PausePlane | LogService>,
 ) => Promise<A>;
 
 const PREAMBLE_TOOL = Object.freeze({
@@ -1217,7 +1217,7 @@ const dispatchOp = (
 ): Effect.Effect<
   unknown,
   WorkErrorBody,
-  WorkService | PausePlane
+  WorkService | PausePlane | LogService
 > =>
   Effect.gen(function* () {
     const work = yield* WorkService;
@@ -2276,7 +2276,8 @@ const dispatchOp = (
           .filter((peer) => peer.grants.includes("terminal.read"))
           .map((peer) => peer.id),
       ]);
-      return yield* readMachineLog(resolveJuntoHome(), logMachine(), decoded.success, seatLogScope(visible)).pipe(
+      const log = yield* LogService;
+      return yield* readMachineLog(resolveJuntoHome(), log.machine(), decoded.success, seatLogScope(visible)).pipe(
         Effect.mapError((error): WorkErrorBody => ({
           type: "RuntimeDown",
           message: "this machine's log could not be read",
@@ -3115,7 +3116,7 @@ export const startWorkControlServer = async (
         const liveAuthorityAndDispatch: Effect.Effect<
           WorkDispatchResult,
           never,
-          WorkService | PausePlane
+          WorkService | PausePlane | LogService
         > = Effect.gen(function* () {
           const liveDocsResult = yield* Effect.flatMap(
             WorkService,

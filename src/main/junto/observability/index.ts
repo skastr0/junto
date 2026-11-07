@@ -1,14 +1,14 @@
 export {
-  ObservabilityEffectLogger,
-  ObservabilityLoggerLive,
-  installMachineLog,
-  installObservabilityConsoleHook,
-  recordRendererConsole,
-  recordSystemLog,
-  setLogMachine,
-  withMachineLogger,
-  writeLog,
+  createLogger,
+  LogService,
+  type Log,
+  type LogInput,
+  type LogOptions,
+  type LogSink,
+  type MachineLogInstall,
+  type RendererConsoleInput,
 } from "./logger";
+export { mainLog } from "./main-log";
 export {
   appendScrubbed,
   makeObservabilityRing,

@@ -8,7 +8,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { closeMachineLog, installMachineLog } from "../src/main/junto/observability/logger";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 import { machineLogDir } from "../src/main/junto/observability/log-file";
 import { readSeatWindow } from "../src/main/junto/term/seat-read";
 import type { SeatGrid } from "../src/main/junto/term/seat-read-window";
@@ -67,11 +69,11 @@ describe("seat read over the seats channel", () => {
 
   it("logs the read with its line count and never its text", async () => {
     const home = await mkdtemp(join(tmpdir(), "junto-seat-read-log-"));
-    cleanups.push(async () => { closeMachineLog(); await rm(home, { recursive: true, force: true }); });
-    installMachineLog({ home, process: "core", echo: false });
+    cleanups.push(async () => { testLog.log.closeFile(); await rm(home, { recursive: true, force: true }); });
+    testLog.log.openFile({ home });
     let generation: string | undefined;
     const secret = "printed-secret-5c2e91";
-    const cores = await twoCores({ cleanups, mini: { grid: shownGrid(() => [secret], () => generation) } });
+    const cores = await twoCores({ cleanups, log: testLog.log, mini: { grid: shownGrid(() => [secret], () => generation) } });
     generation = (await cores.bookEnd.request("seats", { _tag: "Start", canvas, seatId: miniSeat.id }) as { generation: string }).generation;
     expect(await cores.bookEnd.request("seats", { _tag: "Read", canvas, seatId: miniSeat.id }, "read-op-1"))
       .toMatchObject({ text: secret });

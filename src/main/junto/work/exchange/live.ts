@@ -47,7 +47,7 @@ import { canvasPlacement, machineInstallations } from "../canvas-placement";
 import type { ArrivedSeatControl, ArrivedSeatSettled } from "./seat-controls";
 import { makeRowExchange, type CopyInstalled, type ExchangeChange, type RowExchange } from "./session";
 import { encodeFailure } from "../../failure-encode";
-import { logMachine } from "../../observability/logger";
+import { LogService } from "../../observability/logger";
 import { releaseSignalAttachments } from "../../signals/attachments";
 import { takenSignalAttachments } from "../../signals/taken-attachments";
 
@@ -123,6 +123,7 @@ export const makeLiveRowExchange = (
   | PausePlane
   | AgentSignalRepository
   | SqlClient.SqlClient
+  | LogService
 > =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -505,8 +506,9 @@ export const makeLiveRowExchange = (
  */
 export const followLocalCommits = (
   exchange: RowExchange,
-): Effect.Effect<() => void, never, ModelService | ModelRecords | WorkRepository | PausePlane> =>
+): Effect.Effect<() => void, never, ModelService | ModelRecords | WorkRepository | PausePlane | LogService> =>
   Effect.gen(function* () {
+    const log = yield* LogService;
     const model = yield* ModelService;
     const records = yield* ModelRecords;
     const repository = yield* WorkRepository;
@@ -532,7 +534,7 @@ export const followLocalCommits = (
           ),
           // Nothing is pushed this time; the next commit pushes again. Never silent.
           Effect.catchCause((cause) => Effect.logWarning("canvases could not be listed to push to linked machines").pipe(
-            Effect.annotateLogs({ area: "exchange", failure: encodeFailure(cause, { machine: logMachine() }) }))),
+            Effect.annotateLogs({ area: "exchange", failure: encodeFailure(cause, { machine: log.machine() }) }))),
         ),
       );
     };

@@ -51,6 +51,9 @@ import type { ResourceCommand } from "../src/shared/resource-command";
 import { OpId } from "../src/shared/work-ids";
 import { automations, seat } from "./support/model-nodes";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 
 const id = Schema.decodeUnknownSync(InstallationId);
 const MACBOOK = id("macbook-installation");
@@ -81,7 +84,7 @@ const makeRuntime = (root: string, name: string, installation: InstallationId) =
     ),
   );
   const rulers = Layer.provideMerge(Layer.mergeAll(TaskRepositoryLive, ArtifactRepositoryLive, makeResourceSubmitLayer(() => true)), stores);
-  return ManagedRuntime.make(Layer.provideMerge(Layer.provideMerge(Layer.mergeAll(AutomationRunnerLive, ResourceRulerLive), noBoatWakeLayer), rulers));
+  return ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(Layer.provideMerge(Layer.mergeAll(AutomationRunnerLive, ResourceRulerLive), noBoatWakeLayer), rulers), testLog.log.loggerLayer));
 };
 
 type Machine = {

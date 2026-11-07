@@ -14,7 +14,7 @@ import { decodeEncodedFailure } from "../failure-encode";
 import { knownSecretValues, scrubMessage } from "../credentials/scrub";
 import { registeredSecretValues } from "../credentials/known-secrets";
 import { readMachineLog } from "./log-file";
-import { logMachine } from "./logger";
+import { LogService, type Log } from "./logger";
 
 /**
  * A linked machine's log, read by the owner over the link's status channel
@@ -60,21 +60,31 @@ export const peerLogScope = Effect.fn("peerLogScope")(function* (peer: LogPeer) 
   };
 });
 
+const answerWith = Effect.fn("answerPeerLogRead.with")(function* (
+  home: string,
+  peer: LogPeer,
+  query: MachineLogQuery,
+  log: Log,
+) {
+  const scope = yield* peerLogScope(peer);
+  return yield* readMachineLog(home, log.machine(), query, scope);
+});
+
 /** The answer this machine gives a peer that asked for its log. */
 export const answerPeerLogRead = Effect.fn("answerPeerLogRead")(function* (
   home: string,
   peer: LogPeer,
   query: MachineLogQuery,
 ) {
-  const scope = yield* peerLogScope(peer);
-  return yield* readMachineLog(home, logMachine(), query, scope);
+  return yield* answerWith(home, peer, query, yield* LogService);
 });
 
 /** `answerPeerLogRead` with this machine's model records already provided, for a link handler. */
 export const makePeerLogAnswer = Effect.fn("makePeerLogAnswer")(function* (home: string) {
   const records = yield* ModelRecords;
+  const log = yield* LogService;
   return (peer: LogPeer, query: MachineLogQuery) =>
-    answerPeerLogRead(home, peer, query).pipe(Effect.provideService(ModelRecords, records));
+    answerWith(home, peer, query, log).pipe(Effect.provideService(ModelRecords, records));
 });
 
 const decodeRead = Schema.decodeUnknownEffect(MachineLogRead, { onExcessProperty: "error" });

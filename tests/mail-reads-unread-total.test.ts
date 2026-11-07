@@ -34,6 +34,9 @@ import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import { markRead, onReadChanged, unreadTotal, unreadTotals } from "../src/main/junto/work/mail-reads";
 import { makeSeatUnread } from "../src/main/junto/companion/seat-unread";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 
 const CANVAS = "unread-total";
 
@@ -52,7 +55,7 @@ const makeRuntime = (root: string) => {
     ),
   );
   const canvasesLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
-  return ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(WorkLive, canvasesLive), PausePlaneAllPlaying));
+  return ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(WorkLive, canvasesLive), PausePlaneAllPlaying, testLog.log.loggerLayer));
 };
 
 const seat = (id: string, x: number) =>

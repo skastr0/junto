@@ -6,7 +6,7 @@ import { Reactivity } from "effect/unstable/reactivity";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, it } from "vitest";
 import { InstallationId } from "../src/shared/installation-id";
-import { logMachine } from "../src/main/junto/observability/logger";
+import { makeTestLog } from "./support/test-log";
 import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
 import { MACHINE_STATE_SCHEMA_SQL } from "../src/main/junto/machines/state-schema";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
@@ -21,11 +21,12 @@ const fixture = () => {
   database.exec(MACHINE_STATE_SCHEMA_SQL + MODEL_STATE_SCHEMA_SQL + MACHINE_REGISTRY_STATE_SCHEMA_SQL);
   database.exec("INSERT INTO host_registry(id,label,is_this_machine,sort_order) VALUES ('macbook','This Mac',1,0)");
   const sql = Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer));
+  const { log } = makeTestLog({ machine: "macbook" });
   const runtime = ManagedRuntime.make(makeMachineRepositoryLive({
     makeInstallationId: () => Schema.decodeUnknownSync(InstallationId)("this-install"),
-    defaultName: () => "macbook", now: () => "2026-10-09",
+    defaultName: () => "macbook", now: () => "2026-10-09", log,
   }).pipe(Layer.provideMerge(sql)));
-  return { database, runtime, close: async () => { await runtime.dispose(); database.close(); } };
+  return { database, runtime, log, close: async () => { await runtime.dispose(); database.close(); } };
 };
 const peer = { machineName: "mini", installationId: Schema.decodeUnknownSync(InstallationId)("mini-install") };
 
@@ -129,7 +130,7 @@ describe("machine repository", () => {
       await f.runtime.runPromise(repository.configureName("studio"));
       expect(await f.runtime.runPromise(repository.machineName)).toBe("studio");
       // Log rows carry the new name at once, not after a restart.
-      expect(logMachine()).toBe("studio");
+      expect(f.log.machine()).toBe("studio");
       expect(await f.runtime.runPromise(repository.installationId)).toBe("this-install");
       expect(f.database.prepare("SELECT id,label FROM host_registry").get()).toEqual({ id: "studio", label: "This Mac" });
     } finally { await f.close(); }

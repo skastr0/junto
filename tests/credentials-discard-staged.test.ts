@@ -1,8 +1,10 @@
 import { Effect, Logger, ManagedRuntime } from "effect";
 import { expect, it } from "vitest";
 import { discardStaged } from "../src/main/junto/credentials/coordinator";
-import { ObservabilityEffectLogger } from "../src/main/junto/observability/logger";
+import { makeTestLog } from "./support/test-log";
 import { observabilityRing } from "../src/main/junto/observability/ring";
+
+const { log: effectLog } = makeTestLog({ sink: (row) => observabilityRing.append(row) });
 
 it("logs a staged rollback that fails, scrubbed, and keeps going", async () => {
   observabilityRing.clear();
@@ -14,7 +16,7 @@ it("logs a staged rollback that fails, scrubbed, and keeps going", async () => {
     },
   } as never;
   const staged = [{ credentialId: "00000000-0000-4000-8000-000000000001" }, { credentialId: "00000000-0000-4000-8000-000000000002" }] as never;
-  const runtime = ManagedRuntime.make(Logger.layer([ObservabilityEffectLogger]));
+  const runtime = ManagedRuntime.make(effectLog.loggerLayer);
   try {
     await runtime.runPromise(discardStaged(store, staged));
     expect(deleted).toEqual(["00000000-0000-4000-8000-000000000002"]);

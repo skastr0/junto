@@ -54,12 +54,22 @@ it("core reads: only the core holds them, installed by startCore; main asks its 
   expect(read("src/main/junto/core.ts")).toContain("installInProcessCoreReads");
 });
 
-it("log rows: one destination per process, chosen by its boot; loading the ring installs nothing", () => {
-  expect(ENTRY).toContain("sendLogRowsTo((row) => observabilityRing.append(row))");
-  expect(HEADLESS).toContain("sendLogRowsTo((row) => observabilityRing.append(row))");
-  expect(read("src/main/junto/observability/ipc.ts")).toContain("sendLogRowsTo((entry) =>");
+it("log rows: each boot builds its log and hands it its sink; loading the ring installs nothing", () => {
+  // The core's two entries build the core's log with the ring as its sink and
+  // the registry as its known values; a headless core opens its file and hook.
+  for (const source of [ENTRY, HEADLESS]) {
+    expect(source).toContain("createLogger({");
+    expect(source).toContain("sink: (row) => observabilityRing.append(row)");
+    expect(source).toContain("knownSecrets: registeredSecretValues");
+  }
+  expect(HEADLESS).toContain("log.openFile({ home })");
+  expect(HEADLESS).toContain("log.installConsoleHook({ echo: false })");
+  // Main builds its own log over the forwarder to the core's ring.
+  expect(read("src/main/junto/observability/main-log.ts")).toContain("createLogger({");
+  expect(read("src/main/junto/observability/main-log.ts")).toContain('core.call("observability.append"');
   const logger = read("src/main/junto/observability/logger.ts");
-  expect(logger).not.toMatch(/setObservabilityForwarder|setLogRowSink|rowSink/u);
+  expect(logger).not.toMatch(/sendLogRowsTo|setLogRowSink|rowSink/u);
+  expect(logger).not.toMatch(/^let rows/mu);
   expect(read("src/main/junto/observability/ring.ts")).not.toMatch(/sendLogRowsTo|setLogRowSink/u);
 });
 

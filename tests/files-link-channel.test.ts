@@ -16,7 +16,9 @@ import { makeLinkSession } from "../src/main/junto/link/session";
 import type { LinkChannelContext, LinkChannelHandler } from "../src/main/junto/link/types";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { ModelService } from "../src/main/junto/model/service";
-import { closeMachineLog, installMachineLog, ObservabilityLoggerLive } from "../src/main/junto/observability/logger";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 import { machineLogDir } from "../src/main/junto/observability/log-file";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
@@ -49,7 +51,7 @@ const fixture = async (options: { readonly editor?: "editor" | "self"; readonly 
     WorkRepositoryLive,
     makeMachineRepositoryLive({ defaultName: () => THIS_MACHINE }),
   ), makeStateEngineLive(join(base, "junto.db")));
-  const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(ModelStoresLive, repositories), ObservabilityLoggerLive));
+  const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(ModelStoresLive, repositories), testLog.log.loggerLayer));
   cleanups.push(async () => { await runtime.dispose(); await rm(base, { recursive: true, force: true }); });
   await runtime.runPromise(Effect.gen(function* () {
     const machines = yield* MachineRepository;
@@ -82,7 +84,7 @@ const fixture = async (options: { readonly editor?: "editor" | "self"; readonly 
     sendEvent: (_channel, payload) => Effect.sync(() => { sent.push(payload); }), close: () => Effect.void, request: () => Effect.die("unused"),
   };
   const ask = (raw: unknown, caller = context) =>
-    runtime.runPromise(channel.handleRequest!(caller, raw).pipe(Effect.provide(ObservabilityLoggerLive))).then((response) => decodeFilesResponse(response));
+    runtime.runPromise(channel.handleRequest!(caller, raw).pipe(Effect.provide(testLog.log.loggerLayer))).then((response) => decodeFilesResponse(response));
   const where = { canvas, node: NODE };
   return { base, root, channel, context, ask, where, sent, subscribers, trashed, runtime };
 };
@@ -277,8 +279,8 @@ describe("files channel events", () => {
 describe("files channel logs", () => {
   it("names the op, the node and the outcome, never a name or text", async () => {
     const logHome = await mkdtemp(join(tmpdir(), "junto-files-log-"));
-    cleanups.push(async () => { closeMachineLog(); await rm(logHome, { recursive: true, force: true }); });
-    installMachineLog({ home: logHome, process: "core", echo: false });
+    cleanups.push(async () => { testLog.log.closeFile(); await rm(logHome, { recursive: true, force: true }); });
+    testLog.log.openFile({ home: logHome });
     const f = await fixture();
     await writeFile(join(f.root, "secretname-a1.md"), "secrettext-b2");
     await f.ask({ _tag: "List", ...f.where, dir: "" });

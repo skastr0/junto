@@ -30,6 +30,9 @@ import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 import { RulingRecorderLive } from "../src/main/junto/work/ruling-recorder";
 import { TaskRepositoryLive } from "../src/main/junto/work/task-repository";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 
 const CANVAS = "paging";
 
@@ -49,7 +52,7 @@ const makeRuntime = (root: string) => {
   );
   const tasksLive = Layer.provide(TaskRepositoryLive, RulingRecorderLive);
   const canvasesLive = Layer.provideMerge(Layer.mergeAll(ModelStoresLive, tasksLive), repositoriesLive);
-  return ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(WorkLive, canvasesLive), PausePlaneAllPlaying));
+  return ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(WorkLive, canvasesLive), PausePlaneAllPlaying, testLog.log.loggerLayer));
 };
 
 const ME = "agent";

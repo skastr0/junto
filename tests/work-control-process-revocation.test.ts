@@ -25,6 +25,9 @@ import {
   type WorkControlServer,
 } from "../src/main/junto/work/control";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 
 const PRINCIPAL: ProcessPrincipal = Object.freeze({
   agentKey: "local:revocation-agent",
@@ -194,6 +197,7 @@ const startRig = async (options: {
         }),
       ),
       PausePlaneAllPlaying,
+      testLog.log.loggerLayer,
     ),
   );
   const server = await startWorkControlServer({

@@ -13,7 +13,7 @@ import {
 } from "../src/shared/settings";
 import { Schema, Result } from "effect";
 import { makeObservabilityRing, observabilityRing } from "../src/main/junto/observability/ring";
-import { ObservabilityEffectLogger } from "../src/main/junto/observability/logger";
+import { makeTestLog } from "./support/test-log";
 
 const entry = (
   partial: Partial<ObservabilityLogEntry> & Pick<ObservabilityLogEntry, "message">,
@@ -155,9 +155,8 @@ describe("Effect logger sink", () => {
     // against the singleton — clear first so the suite is isolated.
     observabilityRing.clear();
 
-    const runtime = ManagedRuntime.make(
-      Logger.layer([ObservabilityEffectLogger]),
-    );
+    const effectLog = makeTestLog({ sink: (row) => observabilityRing.append(row) });
+    const runtime = ManagedRuntime.make(effectLog.log.loggerLayer);
     try {
       await runtime.runPromise(
         Effect.gen(function* () {

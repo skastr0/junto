@@ -6,15 +6,28 @@ import { join } from "node:path";
 import { Cause, Context, Deferred, Effect, Layer, Logger, ManagedRuntime, Schema } from "effect";
 import { MachineLogRow, type MachineLogRow as Row } from "../src/shared/machine-log";
 import {
-  closeMachineLog,
-  installMachineLog,
-  ObservabilityLoggerLive,
-  recordRendererConsole,
-  setLogMachine,
-  withMachineLogger,
-  writeLog,
+  createLogger,
+  type Log,
+  type LogInput,
+  type RendererConsoleInput,
 } from "../src/main/junto/observability/logger";
 import { machineLogDir, openMachineLogSink, readMachineLog, seatLogScope } from "../src/main/junto/observability/log-file";
+
+/**
+ * Each test builds the log it exercises, with the process and the file it
+ * names; a second install replaces the first, as a boot's does.
+ */
+let log: Log = createLogger({ process: "core", echo: false });
+const installMachineLog = (install: { readonly home: string; readonly process: "app" | "core"; readonly echo: boolean }): void => {
+  log.closeFile();
+  log = createLogger({ process: install.process, echo: install.echo });
+  log.openFile({ home: install.home });
+};
+const closeMachineLog = (): void => log.closeFile();
+const setLogMachine = (name: string): void => log.setMachine(name);
+const writeLog = (input: LogInput) => log.writeLog(input);
+const recordRendererConsole = (input: RendererConsoleInput): void => log.recordRendererConsole(input);
+const withMachineLogger = <A, E, R>(layer: Layer.Layer<A, E, R>) => log.withLogger(layer);
 
 const homes: string[] = [];
 const freshHome = (): string => {
@@ -156,7 +169,7 @@ describe("machine log file", () => {
   it("routes Effect logs through the same row", async () => {
     const home = freshHome();
     installMachineLog({ home, process: "app", echo: false });
-    const runtime = ManagedRuntime.make(Layer.mergeAll(ObservabilityLoggerLive));
+    const runtime = ManagedRuntime.make(Layer.mergeAll(log.loggerLayer));
     await runtime.runPromise(
       Effect.logError("the link closed", Cause.fail(new SpawnRefused({ harness: "codex", message: "harness not installed" }))).pipe(
         Effect.annotateLogs({ area: "link", operationId: "op-9" }),
@@ -267,7 +280,7 @@ describe("row ids", () => {
   it("keeps an encoded failure given as a log annotation as the row's failure", async () => {
     const home = freshHome();
     installMachineLog({ home, process: "app", echo: false });
-    const runtime = ManagedRuntime.make(ObservabilityLoggerLive);
+    const runtime = ManagedRuntime.make(log.loggerLayer);
     const failure = { tag: "LinkClosed", message: "the peer closed the link", machine: "mini", causes: [{ tag: "SpawnRefused", message: "harness not installed" }] };
     await runtime.runPromise(Effect.logWarning("machine status failed").pipe(Effect.annotateLogs({ area: "link", peer: "mini", failure })));
     await runtime.dispose();
@@ -297,9 +310,10 @@ describe("console hook", () => {
     const home = freshHome();
     const logger = join(__dirname, "../src/main/junto/observability/logger.ts");
     const script = [
-      `const { installMachineLog, installObservabilityConsoleHook } = await import(${JSON.stringify(logger)});`,
-      `installMachineLog({ home: ${JSON.stringify(home)}, process: "core", echo: false });`,
-      "installObservabilityConsoleHook({ echo: false });",
+      `const { createLogger } = await import(${JSON.stringify(logger)});`,
+      `const childLog = createLogger({ process: "core", echo: false });`,
+      `childLog.openFile({ home: ${JSON.stringify(home)} });`,
+      "childLog.installConsoleHook({ echo: false });",
       "console.error(\"[budget] held the main thread\", new Error(\"secret is \" + process.env.JUNTO_TEST_LOG_SECRET));",
       "console.log(\"plain\", { a: 1 });",
     ].join("\n");

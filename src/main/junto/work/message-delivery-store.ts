@@ -12,15 +12,16 @@ import { ContentService } from "../content/service";
 import { ModelActorRefs } from "../model/actor-refs";
 import { ModelService } from "../model/service";
 import { recordDeliveryReceiptRefusal, stampMailboxDeliveryReceipt } from "./delivery-receipts";
+import type { Log } from "../observability/logger";
 import { mailboxMessageDeliveryId, mailboxMessageReadId } from "./mailbox-receipts";
 import type { MessageDeliveryStore } from "./message-delivery";
 import { WorkRepository } from "./repository";
 
-export const makeMessageDeliveryStore: Effect.Effect<
+export const makeMessageDeliveryStore = (log?: Log): Effect.Effect<
   MessageDeliveryStore,
   never,
   SqlClient.SqlClient | WorkRepository | ModelService | ModelActorRefs | ContentService
-> = Effect.gen(function* () {
+> => Effect.gen(function* () {
   const model = yield* ModelService;
   const repository = yield* WorkRepository;
   const content = yield* ContentService;
@@ -52,7 +53,7 @@ export const makeMessageDeliveryStore: Effect.Effect<
           ...(read ? { readId: mailboxMessageReadId(canvas, nodeId, messageId) } : {}),
         }),
       ).catch((cause: unknown) => {
-        recordDeliveryReceiptRefusal(canvas, nodeId, cause);
+        recordDeliveryReceiptRefusal(canvas, nodeId, cause, log);
         return false;
       }),
   };

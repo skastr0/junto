@@ -12,7 +12,8 @@ import { makeLinkSession } from "../../src/main/junto/link/session";
 import { LinkHelloSchema } from "../../src/main/junto/link/protocol";
 import { MachineRepository, makeMachineRepositoryLive } from "../../src/main/junto/machines/repository";
 import { ModelService } from "../../src/main/junto/model/service";
-import { withMachineLogger } from "../../src/main/junto/observability/logger";
+import { makeTestLog } from "./test-log";
+import type { Log } from "../../src/main/junto/observability/logger";
 import { makeProcessIdentityMap, setProcessIdentityMapForTests } from "../../src/main/junto/process-identity";
 import { setProcessEpochReaderForTests } from "../../src/main/junto/process-epoch";
 import { makeStateEngineLive } from "../../src/main/junto/state/engine";
@@ -73,7 +74,7 @@ export const eventually = async (check: () => void, timeoutMs = 3_000): Promise<
 };
 
 const core = async (name: string, nodes: ReadonlyArray<Node>, channel: SeatsChannelOptions,
-  cleanups: Array<() => Promise<void>>) => {
+  cleanups: Array<() => Promise<void>>, sharedLog?: Log) => {
   const root = await mkdtemp(join(tmpdir(), `junto-two-core-${name}-`));
   const fake = makeFakeTerminalProcessAuthority(() => ({ pid: 42_818, exitOnSignal: "SIGTERM" }));
   const host = new LocalSessionHost(fake.authority, { killGraceMs: 5, shutdownGraceMs: 5, lateExitGraceMs: 5 });
@@ -87,7 +88,9 @@ const core = async (name: string, nodes: ReadonlyArray<Node>, channel: SeatsChan
       clientForOccupy: async () => { throw new Error("no forwarding between two test cores"); },
     });
   }));
-  const runtime = ManagedRuntime.make(withMachineLogger(
+  const { log: ownLog } = makeTestLog({ machine: name });
+  const log = sharedLog ?? ownLog;
+  const runtime = ManagedRuntime.make(log.withLogger(
     Layer.provideMerge(actors, Layer.provideMerge(ModelStoresLive, repositories))));
   cleanups.push(async () => {
     await host.shutdownAll("test_cleanup");
@@ -111,10 +114,12 @@ export const twoCores = async (options: {
   readonly mini?: SeatsChannelOptions;
   readonly book?: SeatsChannelOptions;
   readonly nodes?: ReadonlyArray<Node>;
+  /** One log for both cores, when the test reads its rows; otherwise each core builds its own. */
+  readonly log?: Log;
 }) => {
   const nodes = options.nodes ?? [miniSeat];
-  const mini = await core("mini", nodes, options.mini ?? {}, options.cleanups);
-  const book = await core("book", nodes, options.book ?? {}, options.cleanups);
+  const mini = await core("mini", nodes, options.mini ?? {}, options.cleanups, options.log);
+  const book = await core("book", nodes, options.book ?? {}, options.cleanups, options.log);
   await mini.runtime.runPromise(Effect.flatMap(MachineRepository, (machines) =>
     machines.pinPeer({ machineName: "book", installationId: Schema.decodeUnknownSync(InstallationId)("book-install") })));
   const toMini = new PassThrough();

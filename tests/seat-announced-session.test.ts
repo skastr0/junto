@@ -43,6 +43,10 @@ import {
   scheduleCapturedSessionPersist,
 } from "../src/main/junto/term/session-capture-persist";
 
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
+
 const CANVAS = "announced";
 /** Hermes session ids, each proven by the harness's own store. */
 const PAST = "20261009_055214_01a119";
@@ -65,7 +69,7 @@ const makeRuntime = (root: string) => {
     ),
   );
   const workLive = Layer.provideMerge(WorkLive, Layer.provideMerge(ModelStoresLive, repositoriesLive));
-  return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneAllPlaying));
+  return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneAllPlaying, testLog.log.loggerLayer));
 };
 
 const hermes = (id: string, x: number) =>

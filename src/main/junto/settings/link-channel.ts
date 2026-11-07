@@ -10,7 +10,7 @@ import { isThisMachine } from "@shared/machine-name";
 import { machineCacheWindowsOf, machineProvidersOf, machineRecordOf } from "@shared/machine-settings";
 import type { OffboardRulesPatch } from "@shared/seat-offboard";
 import type { LinkChannelHandler } from "../link/types";
-import { logMachine } from "../observability/logger";
+import { LogService } from "../observability/logger";
 import { MachineRepository } from "../machines/repository";
 import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
@@ -49,6 +49,7 @@ const noEvents = (): never => {
 };
 
 export const makeSettingsChannel = Effect.fn("SettingsLink.make")(function* () {
+  const log = yield* LogService;
   const model = yield* ModelService;
   const records = yield* ModelRecords;
   const machines = yield* MachineRepository;
@@ -115,7 +116,7 @@ export const makeSettingsChannel = Effect.fn("SettingsLink.make")(function* () {
     Effect.tapCause((cause) => Effect.logError("settings failed", cause)),
     Effect.catch((cause) => machines.machineName.pipe(
       // The name the machine log already carries, when this machine's own cannot be read.
-      Effect.orElseSucceed(logMachine),
+      Effect.orElseSucceed(() => log.machine()),
       Effect.flatMap((machine) => Effect.fail(asLinkFailure(machine, context.operationId, cause))),
     )),
     Effect.annotateLogs({

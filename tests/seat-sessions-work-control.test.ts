@@ -48,6 +48,10 @@ import {
   PREVIOUS_WITHOUT_NOTES_FRAMING,
 } from "../src/shared/seat-sessions";
 
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
+
 const CANVAS = "sessions";
 
 const makeRuntime = (root: string) => {
@@ -67,7 +71,7 @@ const makeRuntime = (root: string) => {
   );
   const canvasesLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
   const workLive = Layer.provideMerge(WorkLive, canvasesLive);
-  return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneAllPlaying));
+  return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneAllPlaying, testLog.log.loggerLayer));
 };
 
 const claude = (id: string, x: number, sessionId?: string) =>

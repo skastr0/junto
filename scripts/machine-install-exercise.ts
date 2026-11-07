@@ -19,6 +19,7 @@ import { dedicatedStream } from "../src/main/junto/ssh/program";
 import { MachineOwnStatus } from "../src/shared/machine-control";
 import { MachineAbsolutePath, MachineInstallResult, MachineSendInput, MachineUninstallResult } from "../src/shared/machine-install";
 import { exerciseMachineLink } from "./machine-link-exercise";
+import { createLogger, LogService } from "../src/main/junto/observability/logger";
 
 const Input = Schema.Struct({
   sshTarget: MachineSendInput.fields.sshTarget,
@@ -228,9 +229,10 @@ const exercise = (input: typeof Input.Type) => Effect.gen(function* () {
 
 if (import.meta.main) {
   const { BunRuntime, BunServices } = await import("@effect/platform-bun");
+  const log = createLogger({ process: "core", echo: false });
   const command = Command.make("machine-install-exercise", { input: Argument.string("input") }, ({ input }) =>
     executeJsonCommandWithVerdict("machine install exercise", loadJsonInput(Input, input).pipe(
       Effect.flatMap(exercise)), result => !result.ok));
   BunRuntime.runMain(Command.runWith(command, { version: "1" })(process.argv.slice(2)).pipe(
-    Effect.provide(SshTransportLive), Effect.provide(BunServices.layer)));
+    Effect.provide(SshTransportLive), Effect.provideService(LogService, log), Effect.provide(BunServices.layer)));
 }

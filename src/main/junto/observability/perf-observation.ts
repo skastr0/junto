@@ -6,7 +6,7 @@
  */
 import { getHeapStatistics } from "node:v8";
 import { app, contentTracing } from "electron";
-import { writeLog } from "./logger";
+import { mainLog } from "./main-log";
 import { startProcessMetricsLog } from "./process-metrics-log";
 import { makePerfTraceRecorder, type PerfTraceRecorder } from "./perf-trace";
 
@@ -16,7 +16,7 @@ export type PerfObservation = {
 };
 
 const write = (level: "info" | "warn", message: string): void => {
-  writeLog({ level, source: "main", message });
+  mainLog.writeLog({ level, source: "main", message });
 };
 
 export const startPerfObservation = (juntoHome: string): PerfObservation => {

@@ -32,6 +32,9 @@ import { ReferencesRepository, ReferencesRepositoryLive } from "../src/main/junt
 import { ReferencesFollowCanvasLive } from "../src/main/junto/references/follow-canvas";
 import { ModelService } from "../src/main/junto/model/service";
 import { APP_REFERENCE_PLACE, type ReferencePlace } from "../src/shared/references";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 
 const CANVAS = "factory";
 let playing = true;
@@ -62,7 +65,7 @@ const makeRuntime = (root: string, withStore: boolean) => {
   // The app composes the follower beside the store; here it sits above the model the same way.
   const canvasesLive = withStore ? Layer.provideMerge(ReferencesFollowCanvasLive, canvasesOnly) : canvasesOnly;
   const workLive = Layer.provideMerge(WorkLive, canvasesLive);
-  return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneSwitchable));
+  return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneSwitchable, testLog.log.loggerLayer));
 };
 
 const group = (id: string, label: string, x: number, y: number, width: number, height: number) =>

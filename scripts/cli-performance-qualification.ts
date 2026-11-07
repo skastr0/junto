@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { unitTestEnvironment } from "./unit-test-environment";
 import { WORK_TOKEN_ENV } from "../src/shared/work-control";
+import { createLogger } from "../src/main/junto/observability/logger";
 
 const [, , mode, ...args] = process.argv;
 
@@ -32,7 +33,8 @@ const serve = async (root: string) => {
     makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
   ), Layer.mergeAll(makeStateEngineLive(join(root, "state", "junto.db")), makeInstallOpsLive(join(root, "state", "install-ops.db"))));
   const canvases = Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), repositories);
-  const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(WorkLive, canvases), PausePlaneAllPlaying));
+  const log = createLogger({ process: "core", echo: false });
+  const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(WorkLive, canvases), PausePlaneAllPlaying, log.loggerLayer));
   const settings = await runtime.runPromise(SettingsService);
   const machines = await runtime.runPromise(MachineRepository);
   await runtime.runPromise(machines.configureName("qualification"));

@@ -16,6 +16,7 @@ import { machinePreflight } from "../ssh/machine-preflight";
 import { inspectMachineBundle } from "./bundle";
 import { makeCopyProgress } from "./copy-progress";
 import { failureHere } from "./failure-here";
+import { LogService } from "../observability/logger";
 import { scrubText } from "../credentials/scrub";
 import type { MachineSendEvent } from "@shared/machine-progress";
 
@@ -23,13 +24,13 @@ const exec = promisify(execFile);
 /** The preflight script printed something other than ready; its words arrive scrubbed. */
 export class MachinePreflightRefused extends Schema.TaggedError<MachinePreflightRefused>()("MachinePreflightRefused", { message: Schema.String }) {}
 export class MachinePackageTooLarge extends Schema.TaggedError<MachinePackageTooLarge>()("MachinePackageTooLarge", { message: Schema.String, limitBytes: Schema.Number }) {}
-const installError = (cause:unknown) => {
+const installErrorWith = (machine: string) => (cause: unknown) => {
   const message = cause instanceof SshExitError
     ? cause.detail === "permission denied" ? "SSH refused this account's key. Check SSH access, then send Junto again"
       : `Cannot reach this machine over SSH: ${cause.detail ?? "the connection failed"}. Check its address and SSH access, then send Junto again`
     : cause instanceof SshTimeoutError ? "This machine did not answer over SSH. Check that it is online and reachable, then send Junto again"
     : cause instanceof Error ? cause.message : String(cause);
-  return new MachineInstallError({message,retryable:true,disposition:"staged",...failureHere(cause)});
+  return new MachineInstallError({message,retryable:true,disposition:"staged",...failureHere(cause, machine)});
 };
 const Success = Schema.Struct({ok:Schema.Literal(true),command:Schema.Literal("machine install-local"),data:MachineInstallResult});
 const Failure = Schema.Struct({ ok: Schema.Literal(false), command: Schema.Literal("machine install-local"), error: Schema.Struct({
@@ -42,6 +43,8 @@ export const sendMachine = (
   input:Omit<MachineSendInput,"sshTarget">,
   onTransition?: (event: MachineSendEvent) => void,
 ) => Effect.scoped(Effect.gen(function* () {
+  const machine = (yield* LogService).machine();
+  const installError = installErrorWith(machine);
   const scratch=yield* Effect.acquireRelease(
     Effect.tryPromise({try:()=>mkdtemp(join(tmpdir(),"junto-send-")),catch:installError}),
     // A private temp directory; a cleanup failure is logged, never the send's result.
@@ -110,11 +113,11 @@ export const sendMachine = (
       const decoded = Schema.decodeUnknownResult(Schema.fromJsonString(Failure), { onExcessProperty: "error" })(cause.stderr.trim().split("\n").at(-1));
       // The remote's words are data: scrubbed again on receipt.
       if (decoded._tag === "Success") return new MachineInstallError({ message: scrubText(decoded.success.error.message),
-        disposition: decoded.success.error.details.disposition, retryable: false, ...failureHere(cause),
+        disposition: decoded.success.error.details.disposition, retryable: false, ...failureHere(cause, machine),
         ...(decoded.success.error.details.transitions === undefined ? {} : { transitions: decoded.success.error.details.transitions }),
       });
     }
-    return new MachineInstallError({ message: cause instanceof Error ? cause.message : String(cause), retryable: false, disposition: "uncertain", transitions, ...failureHere(cause) });
+    return new MachineInstallError({ message: cause instanceof Error ? cause.message : String(cause), retryable: false, disposition: "uncertain", transitions, ...failureHere(cause, machine) });
   };
   const result=yield* ssh.transfer(program,NodeStream.fromReadable({evaluate:()=>createReadStream(archive),onError:installError}),20*60_000,observe,
     bytes => copy.advance(bytes, clock.currentTimeMillisUnsafe())).pipe(Effect.mapError(transferError));

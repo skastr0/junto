@@ -21,7 +21,7 @@ describe("actor seat production architecture", () => {
     for (const path of ["src/main/runtime.ts", "src/main/core-runtime.ts"]) {
       expect(source(path), path).not.toContain("TerminalSeatProcess");
     }
-    expect(source("src/main/core-runtime.ts")).toContain("makeCoreProductLayer(options.home)");
+    expect(source("src/main/core-runtime.ts")).toContain("makeCoreProductLayer(options.home, options.log)");
   });
 
   it("keeps mutable machine identity and the seats link client in the live adapter", () => {

@@ -15,8 +15,10 @@ import {
   registeredSecretValues,
   releaseKnownSecrets,
 } from "../src/main/junto/credentials/known-secrets";
-import { writeLog } from "../src/main/junto/observability/logger";
 import { appendScrubbed, makeObservabilityRing } from "../src/main/junto/observability/ring";
+import { makeTestLog } from "./support/test-log";
+
+const { log: mainLog } = makeTestLog();
 
 /** Eight characters, letters and a digit: no credential shape matches it. */
 const SECRET = "zebra-42";
@@ -29,7 +31,7 @@ afterEach(() => {
 describe("a registered secret on the main path", () => {
   test("main cannot scrub it, and the core's ring scrubs it where the registry lives", () => {
     // This process as main: no registry, only its environment and the shapes.
-    const row = writeLog({
+    const row = mainLog.writeLog({
       level: "error",
       source: "system",
       message: `the seat did not start: ${SECRET} in its environment`,
@@ -57,7 +59,7 @@ describe("a registered secret on the main path", () => {
 
   test("a credential shape is scrubbed in main too, with no registry at all", () => {
     const credential = `junto-seat-${"aB3".repeat(14)}x`;
-    const row = writeLog({ level: "error", source: "system", message: `denied ${credential}` });
+    const row = mainLog.writeLog({ level: "error", source: "system", message: `denied ${credential}` });
     expect(row.message).not.toContain(credential);
     expect(row.message).toContain("[redacted]");
   });

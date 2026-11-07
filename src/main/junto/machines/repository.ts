@@ -6,7 +6,7 @@ import { MachineName } from "@shared/machine-control";
 import { defaultMachineName } from "@shared/machine-name";
 import { StateTransactionOperation } from "../state/transaction-operation";
 import { withSqlRead } from "../state/sql-read";
-import { setLogMachine } from "../observability/logger";
+import type { Log } from "../observability/logger";
 import { MachineConfigurationRepository, MachineRefused, type StoredMachineConfiguration } from "./configuration";
 import { KnownInstallations } from "./known-installations";
 
@@ -54,6 +54,8 @@ export type MachineRepositoryOptions = {
   readonly makeInstallationId?: () => InstallationId;
   readonly defaultName?: () => string;
   readonly now?: () => string;
+  /** The process's log, so its rows name the machine from the write that names it. */
+  readonly log?: Log;
 };
 
 export const makeMachineRepository = (options: MachineRepositoryOptions = {}) => Effect.gen(function* () {
@@ -139,7 +141,7 @@ export const makeMachineRepository = (options: MachineRepositoryOptions = {}) =>
       return { configuration, configuredAt };
     })).pipe(Effect.provideService(StateTransactionOperation, "machine.configure-name"),
       // Log rows name the machine from the moment its name is written, not from the next start.
-      Effect.tap((stored) => Effect.sync(() => setLogMachine(stored.configuration.name))));
+      Effect.tap((stored) => Effect.sync(() => options.log?.setMachine(stored.configuration.name))));
   }, Effect.mapError(failure("configure-name")));
   return MachineRepository.of({ installationId: Effect.succeed(installationId), configuration,
     machineName: configuration.pipe(Effect.map((stored) => stored.configuration.name)), configureName, pinPeer, peer, peers, retirePeer });

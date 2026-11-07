@@ -2,6 +2,9 @@ import { Context, Effect, Schema } from "effect";
 import { join } from "node:path";
 import type { CoreRuntime, MachineCoreOptions } from "../core-runtime";
 import { makeCoreRuntime } from "../core-runtime";
+import { createLogger, type Log } from "./observability/logger";
+import { observabilityRing } from "./observability/ring";
+import { registeredSecretValues } from "./credentials/known-secrets";
 import { MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail } from "../core-runtime";
 import { makeInventoryChannel } from "./inventory/channel";
 import { makeNativeConfigChannel } from "./inventory/native-channel";
@@ -59,7 +62,9 @@ import { makeCompanionService, setCompanionService, type CompanionService } from
 import { bindCompanionHost } from "./companion/runtime";
 import { companionNotePreamble, wireCompanionChanges } from "./companion/wiring";
 
-export type CoreOptions = Omit<MachineCoreOptions, "ready"> & {
+export type CoreOptions = Omit<MachineCoreOptions, "ready" | "log"> & {
+  /** The core process's log, built by the entry that owns the ring sink and the file. */
+  readonly log?: Log;
   /** The desktop core also serves canvas edits (`junto canvas`); a headless machine core does not. */
   readonly canvasControl?: boolean;
   /** The desktop core runs the overseer, asking main for the window's pixels and the browser's pages. */
@@ -126,6 +131,13 @@ export class CoreDidNotDrain extends Schema.TaggedError<CoreDidNotDrain>()("Core
 
 /** Both shells use this owner/link lifecycle; it creates no canvas. */
 export const startCore = async (options: CoreOptions) => {
+  // This process holds the machine's secrets: its rows are scrubbed with them.
+  const log = options.log ?? createLogger({
+    process: "core",
+    echo: true,
+    sink: (row) => observabilityRing.append(row),
+    knownSecrets: registeredSecretValues,
+  });
   const schema = evaluateSchemaCompatibility(probeInstalledStateSchema(join(options.home, ".junto", "state", "junto.db")));
   if (!schema.ok) {
     throw new CoreSchemaTooNew({
@@ -153,7 +165,7 @@ export const startCore = async (options: CoreOptions) => {
   let releaseRunner: (() => void) | undefined;
   // An on-demand operator socket not yet asked for is not a core that is down.
   const ownerReady = (): boolean => owner === undefined ? options.operator?.listen === "on-demand" : owner.ready();
-  const runtime = makeCoreRuntime({ ...options, ready: () => admitted && !stopping && ownerReady() && listener?.ready() === true });
+  const runtime = makeCoreRuntime({ ...options, log, ready: () => admitted && !stopping && ownerReady() && listener?.ready() === true });
   let ownerStart: Promise<void> | undefined;
   /** Opens the operator socket once; the desktop asks when a phone pairs. */
   let ensureOperatorListening: () => Promise<void> = () => Promise.resolve();

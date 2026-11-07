@@ -52,7 +52,7 @@ import { KernelService, type KernelHost } from "./junto/kernel/service";
 import { PausePlane } from "./junto/pause-plane";
 import { pauseWasResumed } from "@shared/pause";
 import type { AgentSignal } from "@shared/agent-signals";
-import { setLogMachine, withMachineLogger } from "./junto/observability/logger";
+import { LogService, type Log } from "./junto/observability/logger";
 import { MachineLogsNotSetUp, makePeerLogAnswer, receivePeerLogRead } from "./junto/observability/log-link";
 import { readMachineLog } from "./junto/observability/log-file";
 import { MachineLogQuery, MachineLogRead } from "@shared/machine-log";
@@ -86,6 +86,8 @@ export interface MachineCoreOptions {
   readonly bundles: MachineCopyOptions["bundles"];
   readonly acquireBundle?: MachineCopyOptions["acquireBundle"];
   readonly ready: () => boolean;
+  /** The core process's log, built by its boot; the runtime provides it to every effect. */
+  readonly log: Log;
 }
 
 // The status channel answers a machine's status, or its log for the asking peer.
@@ -137,7 +139,8 @@ const machineCoreSeatsLayer = Layer.effect(MachineCoreSeats,
 );
 
 const machineCoreMailLayer = Layer.effect(MachineCoreMail, Effect.gen(function* () {
-  const store = yield* makeMessageDeliveryStore;
+  const log = yield* LogService;
+  const store = yield* makeMessageDeliveryStore(log);
   const seats = yield* makeCoreMailTransport();
   const pause = yield* PausePlane;
   const kernel = yield* KernelService;
@@ -148,7 +151,7 @@ const machineCoreMailLayer = Layer.effect(MachineCoreMail, Effect.gen(function* 
       acceptMessageDelivery: (canvas, nodeId, messageId, read) =>
         mainAuthoringGate.run("delivery.message-stamp", () => store.acceptMessageDelivery(canvas, nodeId, messageId, read))
           .catch((cause: unknown) => {
-            recordDeliveryReceiptRefusal(canvas, nodeId, cause);
+            recordDeliveryReceiptRefusal(canvas, nodeId, cause, log);
             return false;
           }),
     },
@@ -300,13 +303,14 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
 }));
 
 export const machineCoreStatusLayer = (options: MachineCoreOptions) => Layer.effect(MachineCoreStatus, Effect.gen(function* () {
+  const log = yield* LogService;
   const machines = yield* MachineRepository;
   const form = yield* detectMachineForm();
   const keychain = yield* detectMachineKeychain();
   const answerLogs = yield* makePeerLogAnswer(options.home);
   // Rows name this machine as the canvas does, not by host name.
   yield* machines.machineName.pipe(
-    Effect.tap((name) => Effect.sync(() => setLogMachine(name))),
+    Effect.tap((name) => Effect.sync(() => log.setMachine(name))),
     Effect.catchCause((cause) => Effect.logWarning("the machine name could not be read; log rows use the host name", cause)),
     Effect.annotateLogs({ area: "machines" }),
   );
@@ -542,9 +546,9 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
 /** One StateEngine reference feeds identity, registry, link and owner commands. */
 export const makeMachineCoreLayer = (options: MachineCoreOptions) => {
   // The automation runner over both: it queues a write off the editing machine through the machine's submit path.
-  return Layer.provideMerge(automationRunnerLayer, Layer.provideMerge(makeMachineServicesLayer(options), makeCoreProductLayer(options.home)));
+  return Layer.provideMerge(automationRunnerLayer, Layer.provideMerge(makeMachineServicesLayer(options), makeCoreProductLayer(options.home, options.log)));
 };
 
 export const makeCoreRuntime = (options: MachineCoreOptions) =>
-  ManagedRuntime.make(withMachineLogger(makeMachineCoreLayer(options)));
+  ManagedRuntime.make(options.log.withLogger(makeMachineCoreLayer(options)));
 export type CoreRuntime = ReturnType<typeof makeCoreRuntime>;

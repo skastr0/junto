@@ -5,13 +5,16 @@ import { join } from "node:path";
 import { Effect, Exit } from "effect";
 import type { MachineLogRead, MachineLogRow } from "../src/shared/machine-log";
 import { ModelRecords } from "../src/main/junto/model/records";
-import { closeMachineLog, installMachineLog, setLogMachine, writeLog } from "../src/main/junto/observability/logger";
+import { LogService } from "../src/main/junto/observability/logger";
+import { makeTestLog } from "./support/test-log";
+
+const { log } = makeTestLog({ machine: "macbook" });
 import { fitLogRead } from "../src/main/junto/observability/log-file";
 import { answerPeerLogRead, peerLogScope, receivePeerLogRead } from "../src/main/junto/observability/log-link";
 
 const homes: string[] = [];
 afterEach(() => {
-  closeMachineLog();
+  log.closeFile();
   for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
 });
 
@@ -51,13 +54,12 @@ describe("a linked machine's log", () => {
   it("answers from this machine's log within that scope", async () => {
     const home = mkdtempSync(join(tmpdir(), "junto-log-link-"));
     homes.push(home);
-    installMachineLog({ home, process: "core", echo: false });
-    setLogMachine("macbook");
-    writeLog({ level: "error", source: "effect", message: "shared seat failed", annotations: { canvas: "shared", seat: "agent-peer" } });
-    writeLog({ level: "error", source: "effect", message: "private seat failed", annotations: { canvas: "private", seat: "agent-secret" } });
-    writeLog({ level: "warn", source: "system", message: "machine row" });
-    closeMachineLog();
-    const read = await Effect.runPromise(answerPeerLogRead(home, mini, {}).pipe(Effect.provideService(ModelRecords, world)));
+    log.openFile({ home });
+    log.writeLog({ level: "error", source: "effect", message: "shared seat failed", annotations: { canvas: "shared", seat: "agent-peer" } });
+    log.writeLog({ level: "error", source: "effect", message: "private seat failed", annotations: { canvas: "private", seat: "agent-secret" } });
+    log.writeLog({ level: "warn", source: "system", message: "machine row" });
+    log.closeFile();
+    const read = await Effect.runPromise(answerPeerLogRead(home, mini, {}).pipe(Effect.provideService(ModelRecords, world), Effect.provideService(LogService, log)));
     expect(read.rows.map((entry) => entry.message)).toEqual(["shared seat failed", "machine row"]);
   });
 

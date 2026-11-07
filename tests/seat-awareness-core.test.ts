@@ -105,7 +105,7 @@ describe("the seat awareness plane in the core", () => {
     // The core starts it: entry.ts boots startCore, which builds the product layer.
     expect(source("src/main/core-process/entry.ts")).toContain("startCore(");
     expect(source("src/main/junto/core.ts")).toContain("makeCoreRuntime(");
-    expect(source("src/main/core-runtime.ts")).toContain("makeCoreProductLayer(options.home)");
+    expect(source("src/main/core-runtime.ts")).toContain("makeCoreProductLayer(options.home, options.log)");
     expect(source("src/main/core-product.ts")).toContain("Layer.provide(SeatAwarenessLive, settings)");
   });
 

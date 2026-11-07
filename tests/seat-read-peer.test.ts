@@ -31,6 +31,9 @@ import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 import { seatStateRuntime } from "../src/main/junto/term/agent-state";
 import { terminalObserverPlane } from "../src/main/junto/term/observer";
 import { liveSeatPreamble, noteSeatPreamble } from "../src/main/junto/work/seat-preambles";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 
 const CANVAS = "peers";
 
@@ -50,7 +53,7 @@ const makeRuntime = (root: string) => {
   );
   const canvasesLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
   const workLive = Layer.provideMerge(WorkLive, canvasesLive);
-  return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneAllPlaying));
+  return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneAllPlaying, testLog.log.loggerLayer));
 };
 
 const seat = (id: string, x: number) =>

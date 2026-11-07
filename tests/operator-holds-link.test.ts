@@ -7,7 +7,9 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { closeMachineLog, installMachineLog } from "../src/main/junto/observability/logger";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 import { machineLogDir } from "../src/main/junto/observability/log-file";
 import { makeOperatorHolds, subscribeOperatorTyped, type OperatorHoldSource } from "../src/main/junto/term/operator-holds";
 import { TerminalRouter } from "../src/main/junto/term/router";
@@ -17,6 +19,7 @@ import type { SeatsChannelOptions } from "../src/main/junto/term/seats-link";
 import { unwrapSeatsFailure } from "../src/main/junto/term/seats-failure";
 import { OPERATOR_TYPING_GRACE_MS } from "../src/shared/operator-hold";
 import { eventually, miniSeat, twoCoreCanvas as canvas, twoCoreProcess, twoCores } from "./support/two-cores";
+import type { Log } from "../src/main/junto/observability/logger";
 
 const cleanups: Array<() => Promise<void>> = [];
 let restore: () => void;
@@ -29,7 +32,7 @@ afterEach(async () => {
 const T0 = Date.UTC(2026, 9, 18, 12, 0);
 
 /** The book's window holds and its views of the mini's seat; the mini's clock, what it holds, and the questions it asks. */
-const linked = async (cacheQuestions?: SeatsChannelOptions["cacheQuestions"]) => {
+const linked = async (cacheQuestions?: SeatsChannelOptions["cacheQuestions"], log?: Log) => {
   let views: SeatViews | undefined;
   let miniNow = T0;
   let source: OperatorHoldSource = () => undefined;
@@ -37,6 +40,7 @@ const linked = async (cacheQuestions?: SeatsChannelOptions["cacheQuestions"]) =>
   const seen: SeatsViewFrame[] = [];
   const cores = await twoCores({
     cleanups,
+    ...(log === undefined ? {} : { log }),
     book: { attachStream: (context, frame) => { seen.push(frame); views?.frame(context, frame); }, addHoldSource: () => () => undefined },
     mini: { now: () => miniNow, addHoldSource: (added) => { source = added; return () => undefined; },
       ...(cacheQuestions === undefined ? {} : { cacheQuestions }) },
@@ -125,8 +129,8 @@ describe("the operator's hold across the link", () => {
 });
 
 describe("the Hold request on the seat's machine", () => {
-  const attached = async (mode: "control" | "observe") => {
-    const pair = await linked();
+  const attached = async (mode: "control" | "observe", log?: Log) => {
+    const pair = await linked(undefined, log);
     const view = await pair.bookEnd.request("seats", { _tag: "Attach", canvas, seatId: miniSeat.id,
       generation: pair.started.generation, mode, takeover: true }) as { readonly handle: string };
     return { ...pair, handle: view.handle };
@@ -142,7 +146,7 @@ describe("the Hold request on the seat's machine", () => {
   });
 
   it("refuses a handle it does not hold and any field past handle, open and typed", async () => {
-    const pair = await attached("control");
+    const pair = await attached("control", testLog.log);
     await expect(pair.bookEnd.request("seats", { _tag: "Hold", handle: "A".repeat(22), open: true, typed: false }))
       .rejects.toMatchObject({ detail: { _tag: "SeatAttachUnknown" } });
     await expect(pair.bookEnd.request("seats", { _tag: "Hold", handle: pair.handle, open: true, typed: false, window: 1 }))
@@ -152,9 +156,9 @@ describe("the Hold request on the seat's machine", () => {
 
   it("writes no row per Hold and never the handle", async () => {
     const home = await mkdtemp(join(tmpdir(), "junto-hold-log-"));
-    cleanups.push(async () => { closeMachineLog(); await rm(home, { recursive: true, force: true }); });
-    installMachineLog({ home, process: "core", echo: false });
-    const pair = await attached("control");
+    cleanups.push(async () => { testLog.log.closeFile(); await rm(home, { recursive: true, force: true }); });
+    testLog.log.openFile({ home });
+    const pair = await attached("control", testLog.log);
     for (let i = 0; i < 3; i++)
       await pair.bookEnd.request("seats", { _tag: "Hold", handle: pair.handle, open: i % 2 === 0, typed: true });
     await expect(pair.bookEnd.request("seats", { _tag: "Hold", handle: "B".repeat(22), open: true, typed: false }))
@@ -272,10 +276,10 @@ describe("the cache question across the link", () => {
 
   it("writes no row per notice or answer, and never the handle or the question", async () => {
     const home = await mkdtemp(join(tmpdir(), "junto-question-log-"));
-    cleanups.push(async () => { closeMachineLog(); await rm(home, { recursive: true, force: true }); });
-    installMachineLog({ home, process: "core", echo: false });
+    cleanups.push(async () => { testLog.log.closeFile(); await rm(home, { recursive: true, force: true }); });
+    testLog.log.openFile({ home });
     const hub = questionHub();
-    const pair = await linked(hub.port);
+    const pair = await linked(hub.port, testLog.log);
     pair.windows.surfaces(1, [miniSeat.bindingId]);
     await pair.attach();
     hub.set([asked(pair.started.generation)]);

@@ -19,13 +19,16 @@ import { Command } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { ResourceCommand } from "../src/shared/resource-command";
 import { OpId } from "../src/shared/work-ids";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 
 const command = Schema.decodeUnknownSync(Command);
 const NIGHTLY = Schema.decodeUnknownSync(AutomationId)("01M62AEEEEEEEEEEEEEEEEEEEE");
 
 it("queues an automation's task write off the editing machine, through the core's submit path", async () => {
   const home = await mkdtemp("/tmp/junto-runner-core-");
-  const runtime = makeCoreRuntime({ home, build: "a".repeat(64), bundles: {}, ready: () => false });
+  const runtime = makeCoreRuntime({ home, build: "a".repeat(64), bundles: {}, ready: () => false, log: testLog.log });
   try {
     const [model, machines] = await runtime.runPromise(Effect.all([ModelService, MachineRepository]));
     await runtime.runPromise(model.command(command({ _tag: "CreateCanvas", canvas: "factory" }), "operator"));

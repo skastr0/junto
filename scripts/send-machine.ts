@@ -6,6 +6,9 @@ import { loadJsonInput } from "../src/cli/core/json";
 import { executeJsonCommand } from "../src/cli/core/output";
 import { parseSshRoute, SshTransportLive } from "../src/main/junto/ssh";
 import { sendMachine } from "../src/main/junto/hosts/send";
+import { createLogger, LogService } from "../src/main/junto/observability/logger";
+
+const log = createLogger({ process: "core", echo: false });
 
 const command=Command.make("send-machine",{input:Argument.string("input")},({input})=>executeJsonCommand("machine send",Effect.gen(function*(){
   const item=yield* loadJsonInput(MachineSendInput,input);
@@ -17,4 +20,4 @@ const command=Command.make("send-machine",{input:Argument.string("input")},({inp
   });
   return yield* sendMachine(target,item);
 })));
-if(import.meta.main) BunRuntime.runMain(Command.runWith(command,{version:"1"})(process.argv.slice(2)).pipe(Effect.provide(SshTransportLive),Effect.provide(BunServices.layer)));
+if(import.meta.main) BunRuntime.runMain(Command.runWith(command,{version:"1"})(process.argv.slice(2)).pipe(Effect.provide(SshTransportLive),Effect.provideService(LogService, log),Effect.provide(BunServices.layer)));

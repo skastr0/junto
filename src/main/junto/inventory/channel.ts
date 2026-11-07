@@ -8,7 +8,7 @@
  */
 import { Effect, Schema } from "effect";
 import type { LinkChannelHandler } from "../link/types";
-import { logMachine } from "../observability/logger";
+import { LogService } from "../observability/logger";
 import { MachineRepository } from "../machines/repository";
 import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
@@ -40,6 +40,7 @@ const noEvents = (): never => {
 };
 
 export const makeInventoryChannel = Effect.fn("InventoryLink.make")(function* () {
+  const log = yield* LogService;
   const services = yield* Effect.context<ModelService | ModelRecords | MachineRepository>();
   const machines = yield* MachineRepository;
   const inventory = yield* HarnessInventory;
@@ -55,7 +56,7 @@ export const makeInventoryChannel = Effect.fn("InventoryLink.make")(function* ()
     Effect.tapCause((cause) => Effect.logError("inventory failed", cause)),
     Effect.catch((cause) => machines.machineName.pipe(
       // The name the machine log already carries, when this machine's own cannot be read.
-      Effect.orElseSucceed(logMachine),
+      Effect.orElseSucceed(() => log.machine()),
       Effect.flatMap((machine) => Effect.fail(asLinkFailure(machine, cause))),
     )),
     Effect.tap(() => Effect.logInfo("inventory answered")),

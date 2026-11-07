@@ -9,7 +9,8 @@ import { noWindowHost, useHostClient } from "./core-process/core-host";
 import { enforceBootRefusal } from "./junto/boot-guard";
 import { declareMachineCoreOwnsSessions } from "./junto/term/managed-spawn-plan";
 import { armMainThreadBudget } from "./junto/observability/main-thread-budget";
-import { installMachineLog, installObservabilityConsoleHook, sendLogRowsTo } from "./junto/observability/logger";
+import { createLogger } from "./junto/observability/logger";
+import { registeredSecretValues } from "./junto/credentials/known-secrets";
 import { observabilityRing } from "./junto/observability/ring";
 import { machineLogDir } from "./junto/observability/log-file";
 import { LinkUnavailable } from "./junto/link/types";
@@ -26,12 +27,17 @@ const main = async (): Promise<void> => {
   // carries the seat's identity, and refuses here before it opens the
   // database, its log or a socket (src/shared/e2e-sandbox.ts).
   enforceBootRefusal({ juntoHome: home });
-  // The log file is this core's record. Its service stdio is an unbounded
-  // file, so nothing is echoed there but the fixed lines below.
-  installMachineLog({ home, process: "core", echo: false });
-  // Every row this core writes lands in its ring, as the app core's do.
-  sendLogRowsTo((row) => observabilityRing.append(row));
-  installObservabilityConsoleHook({ echo: false });
+  // The log file is this core's record, and every row lands in its ring, as
+  // the app core's do. Its service stdio is an unbounded file, so nothing is
+  // echoed there but the fixed lines below.
+  const log = createLogger({
+    process: "core",
+    echo: false,
+    sink: (row) => observabilityRing.append(row),
+    knownSecrets: registeredSecretValues,
+  });
+  log.openFile({ home });
+  log.installConsoleHook({ echo: false });
   // The 4ms assertion is a development instrument. Bun's bundler inlines
   // NODE_ENV as "development", so without this every installed core reports
   // each kernel pass to stderr. JUNTO_BUDGET still arms it by hand.
@@ -50,6 +56,7 @@ const main = async (): Promise<void> => {
     home,
     build: runningBuildIdentity(),
     bundles,
+    log,
   });
   let closing = false;
   const stop = (signal: NodeJS.Signals): void => {

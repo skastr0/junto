@@ -18,6 +18,9 @@ import { createSshProgramCompiler } from "../src/main/junto/ssh/program";
 import { RemoteHost } from "../src/shared/remote-hosts";
 import { MachineInstallResult, MachineInstallError, MachineSetupError } from "../src/shared/machine-install";
 import type { MachineBundleAcquirer } from "../src/main/junto/hosts/machine-bundle-download";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); });
@@ -59,7 +62,7 @@ const fixture = async (options: { platform?: string; helloFailure?: boolean; bun
     connect: () => Effect.die("unexpected"), forward: () => Effect.die("unexpected"), warm: () => Effect.void, teardown: () => Effect.void,
   });
   const hosts = HostsService.of({ list: Effect.succeed([]), get: () => Effect.succeed(undefined), upsert: value => Effect.sync(() => { calls.push("location"); expect(value).toMatchObject({ juntoHome: receipt.juntoHome, installRoot: receipt.installRoot }); return []; }), remove: () => Effect.succeed([]), test: () => Effect.succeed({ ok: true, detail: "", reachability: "reachable" }), doctor: Effect.succeed({ id: "test", label: "test", detail: "fixture", status: "ok" }), doctorSnapshot: Effect.succeed({ check: { id: "test", label: "test", detail: "fixture", status: "ok" }, observations: [] }) });
-  const runtime = ManagedRuntime.make(Layer.mergeAll(machines, Layer.succeed(SshTransport, transport), Layer.succeed(HostsService, hosts)));
+  const runtime = ManagedRuntime.make(Layer.mergeAll(machines, Layer.succeed(SshTransport, transport), Layer.succeed(HostsService, hosts), testLog.log.loggerLayer));
   cleanup.push(async () => { await runtime.dispose(); database.close(); await rm(root, { recursive: true, force: true }); });
   const repository = await runtime.runPromise(MachineRepository); ownId = await runtime.runPromise(repository.installationId);
   const copy = await runtime.runPromise(makeMachineCopy({ build, bundles: { "darwin-arm64": root }, acquireBundle: options.acquireBundle,

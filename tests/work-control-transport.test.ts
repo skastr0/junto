@@ -72,7 +72,9 @@ import { putOperatorContent } from "../src/main/junto/content/operator-attachmen
 import { WORK_HOME_ENV } from "../src/shared/work-control";
 import { AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE, AGENT_SIGNAL_FILES_RESPONSE, type AgentSignal } from "../src/shared/agent-signals";
 import { THIS_MACHINE } from "./support/machines";
-import { closeMachineLog, installMachineLog, setLogMachine, writeLog } from "../src/main/junto/observability/logger";
+import { makeTestLog } from "./support/test-log";
+
+const { log: transportLog } = makeTestLog();
 import { __resetJuntoHomeCache } from "../src/shared/junto-home";
 
 const roots: string[] = [];
@@ -103,7 +105,7 @@ const makeWorkTestRuntime = (root: string) => {
     canvasesLive,
   );
   return ManagedRuntime.make(
-    Layer.mergeAll(workLive, PausePlaneAllPlaying),
+    Layer.mergeAll(workLive, PausePlaneAllPlaying, transportLog.loggerLayer),
   );
 };
 
@@ -305,13 +307,13 @@ describe("work control transport", () => {
     process.env.JUNTO_HOME = home;
     __resetJuntoHomeCache();
     try {
-      installMachineLog({ home, process: "app", echo: false });
-      setLogMachine(THIS_MACHINE);
-      writeLog({ level: "info", source: "system", message: "machine row" });
-      writeLog({ level: "error", source: "effect", message: "own", annotations: { area: "seats", seat: "agent" } });
-      writeLog({ level: "error", source: "effect", message: "wired peer", annotations: { area: "seats", seat: "peer" } });
-      writeLog({ level: "error", source: "effect", message: "unwired", annotations: { area: "seats", seat: "orphan" } });
-      closeMachineLog();
+      transportLog.openFile({ home });
+      transportLog.setMachine(THIS_MACHINE);
+      transportLog.writeLog({ level: "info", source: "system", message: "machine row" });
+      transportLog.writeLog({ level: "error", source: "effect", message: "own", annotations: { area: "seats", seat: "agent" } });
+      transportLog.writeLog({ level: "error", source: "effect", message: "wired peer", annotations: { area: "seats", seat: "peer" } });
+      transportLog.writeLog({ level: "error", source: "effect", message: "unwired", annotations: { area: "seats", seat: "orphan" } });
+      transportLog.closeFile();
 
       type Read = { ok: true; data: { machine: string; rows: Array<{ message: string }>; cut: boolean } };
       const all = (await call(servers.at(-1)!.socketPath, { token: token(), op: "logs.read", args: {} })) as Read;
@@ -328,7 +330,7 @@ describe("work control transport", () => {
       const refused = (await call(servers.at(-1)!.socketPath, { token: token(), op: "logs.read", args: { level: "loud" } })) as { ok: false; error: { type: string } };
       expect(refused).toMatchObject({ ok: false, error: { type: "InputError" } });
     } finally {
-      closeMachineLog();
+      transportLog.closeFile();
       delete process.env.JUNTO_HOME;
       __resetJuntoHomeCache();
     }

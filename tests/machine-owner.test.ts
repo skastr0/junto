@@ -17,6 +17,9 @@ import { SshTransport } from "../src/main/junto/ssh";
 import { MachineOwnStatus, type MachinePeerStatus } from "../src/shared/machine-control";
 import { OPERATOR_PROTOCOL_VERSION, decodeOperatorRequest, decodeOperatorResponse } from "../src/shared/operator-control";
 import { hostsSnapshot, setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 
 const cleanup: Array<() => Promise<void>> = [];
 const readyInstall = () => Schema.decodeUnknownSync(MachineInstallResult)({
@@ -31,7 +34,7 @@ const fixture = async (overrides: Partial<MachineOwnerOptions> = {}) => {
   const sql = Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer));
   const machines = makeMachineRepositoryLive({ defaultName: () => "macbook" }).pipe(Layer.provideMerge(sql));
   const ssh = Layer.succeed(SshTransport, SshTransport.of({ run: () => Effect.die("no dial"), transfer: () => Effect.die("no transfer"), connect: () => Effect.die("no link"), forward: () => Effect.die("no forward"), warm: () => Effect.void, teardown: () => Effect.void }));
-  const runtime = ManagedRuntime.make(Layer.mergeAll(HostsServiceLive, HostRegistryRows.layer).pipe(Layer.provideMerge(machines), Layer.provide(ssh)));
+  const runtime = ManagedRuntime.make(Layer.mergeAll(HostsServiceLive, HostRegistryRows.layer).pipe(Layer.provideMerge(testLog.log.loggerLayer), Layer.provideMerge(machines), Layer.provide(ssh)));
   cleanup.push(async () => { await runtime.dispose(); database.close(); });
   const disconnected: string[] = [];
   const probed: string[] = [];

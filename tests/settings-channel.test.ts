@@ -21,7 +21,9 @@ import {
 } from "../src/main/junto/settings/link-wire";
 import { SettingsService } from "../src/main/junto/settings/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { ObservabilityLoggerLive } from "../src/main/junto/observability/logger";
+import { makeTestLog } from "./support/test-log";
+
+const { log: settingsLog } = makeTestLog();
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { InstallationId } from "../src/shared/installation-id";
 import { asCanvasName, type Node } from "../src/shared/model";
@@ -90,7 +92,7 @@ const runtimeWith = async (nodes: ReadonlyArray<Node>, canvasEditor: "editor" | 
     WorkRepositoryLive,
     makeMachineRepositoryLive({ defaultName: () => THIS_MACHINE }),
   ), makeStateEngineLive(join(root, "junto.db")));
-  const runtime = ManagedRuntime.make(Layer.mergeAll(settingsLayer, Layer.provideMerge(ModelStoresLive, repositories)));
+  const runtime = ManagedRuntime.make(Layer.mergeAll(settingsLayer, Layer.provideMerge(ModelStoresLive, repositories), settingsLog.loggerLayer));
   cleanups.push(async () => {
     await runtime.dispose();
     await rm(root, { recursive: true, force: true });
@@ -271,7 +273,7 @@ describe("settings channel request", () => {
     const peer = makePeerSettingsClient();
     const run = <A>(effect: Effect.Effect<A, never, any>) => f.runtime.runPromise(effect.pipe(
       Effect.provideService(HostsService, hosts), Effect.provideService(MachineLink, links),
-      Effect.provide(ObservabilityLoggerLive),
+      Effect.provide(settingsLog.loggerLayer),
     ) as Effect.Effect<A>);
     return { peer, run, request, disconnect };
   };

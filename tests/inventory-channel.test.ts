@@ -21,7 +21,9 @@ import { type LinkChannelContext, LinkRequestFailed } from "../src/main/junto/li
 import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { ModelService } from "../src/main/junto/model/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { closeMachineLog, installMachineLog, ObservabilityLoggerLive } from "../src/main/junto/observability/logger";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 import { machineLogDir } from "../src/main/junto/observability/log-file";
 import { HarnessInventory } from "../src/main/junto/term/templates/harness-inventory";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
@@ -87,7 +89,7 @@ const runtimeWith = async (nodes: ReadonlyArray<Node>, canvasEditor: "editor" | 
     WorkRepositoryLive,
     makeMachineRepositoryLive({ defaultName: () => THIS_MACHINE }),
   ), makeStateEngineLive(join(root, "junto.db")));
-  const runtime = ManagedRuntime.make(Layer.mergeAll(inventoryLayer, Layer.provideMerge(ModelStoresLive, repositories)));
+  const runtime = ManagedRuntime.make(Layer.mergeAll(inventoryLayer, Layer.provideMerge(ModelStoresLive, repositories), testLog.log.loggerLayer));
   cleanups.push(async () => {
     await runtime.dispose();
     await rm(root, { recursive: true, force: true });
@@ -225,7 +227,7 @@ describe("inventory channel request", () => {
     const peer = makePeerInventoryClient(makePeerInventoryCache(dir));
     const ask = (operationId: string) => f.runtime.runPromise(peer.inventoryOf(PEER, operationId).pipe(
       Effect.provideService(HostsService, hosts), Effect.provideService(MachineLink, links),
-      Effect.provide(ObservabilityLoggerLive),
+      Effect.provide(testLog.log.loggerLayer),
     ));
     return { ask, request, dir };
   };
@@ -297,13 +299,13 @@ describe("inventory channel request", () => {
 
   it("logs and answers a decode failure as its path, never the value it saw, at both ends", async () => {
     const home = await mkdtemp(join(tmpdir(), "junto-inventory-log-"));
-    cleanups.push(async () => { closeMachineLog(); await rm(home, { recursive: true, force: true }); });
-    installMachineLog({ home, process: "core", echo: false });
+    cleanups.push(async () => { testLog.log.closeFile(); await rm(home, { recursive: true, force: true }); });
+    testLog.log.openFile({ home });
     const secret = "SECRETVALUE7f3k2";
 
     const f = await runtimeWith([seat("here", { host: THIS_MACHINE, agentKey: `${THIS_MACHINE}:here` })], "editor");
     const channel = await f.runtime.runPromise(makeInventoryChannel());
-    await f.runtime.runPromise(Effect.flip(channel.handleRequest!(context, { canvas: `<${secret}>` })).pipe(Effect.provide(ObservabilityLoggerLive)));
+    await f.runtime.runPromise(Effect.flip(channel.handleRequest!(context, { canvas: `<${secret}>` })).pipe(Effect.provide(testLog.log.loggerLayer)));
 
     const good = wireSnapshot(local(PEER), 2).snapshot;
     const bad = { ...good, harnesses: [{ ...good.harnesses[0]!, models: [{ id: "opus", label: `<${secret}>` }] }] };

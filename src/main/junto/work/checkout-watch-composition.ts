@@ -1,4 +1,5 @@
 import { recordDeliveryReceiptRefusal } from "./delivery-receipts";
+import type { Log } from "../observability/logger";
 import { type Context, Effect } from "effect";
 import { asNodeId, type Seat, type Canvas } from "@shared/model";
 import type { MailSenderStamp } from "@shared/crew";
@@ -45,6 +46,8 @@ export type CheckoutWatchCompositionOptions = {
   readonly probe?: GitProbe;
   readonly pollMs?: number;
   readonly onError?: (error: unknown) => void;
+  /** The core's log: a refused checkout receipt's row names this machine. */
+  readonly log?: Log;
 };
 
 type ProcessProof = {
@@ -268,7 +271,7 @@ export const makeCheckoutWatchComposition = (
     }
     return receipts.length;
   }).pipe(
-    Effect.tapError((cause) => Effect.sync(() => recordDeliveryReceiptRefusal(input.canvasName, input.taskNodeId, cause))),
+    Effect.tapError((cause) => Effect.sync(() => recordDeliveryReceiptRefusal(input.canvasName, input.taskNodeId, cause, options.log))),
     Effect.mapError((error) => failure("checkout-receipt", error)),
   );
 

@@ -14,7 +14,9 @@ import { type LinkChannelContext, LinkRequestFailed } from "../src/main/junto/li
 import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { ModelService } from "../src/main/junto/model/service";
 import { makeNativeConfig, NativeConfig } from "../src/main/junto/native-config/service";
-import { closeMachineLog, installMachineLog, ObservabilityLoggerLive } from "../src/main/junto/observability/logger";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 import { machineLogDir } from "../src/main/junto/observability/log-file";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { HarnessInventory } from "../src/main/junto/term/templates/harness-inventory";
@@ -73,7 +75,7 @@ const fixture = async (options: {
   const runtime = ManagedRuntime.make(Layer.mergeAll(
     Layer.provideMerge(config, inventory),
     Layer.provideMerge(ModelStoresLive, repositories),
-    ObservabilityLoggerLive,
+    testLog.log.loggerLayer,
   ));
   cleanups.push(async () => {
     await runtime.dispose();
@@ -94,9 +96,9 @@ const fixture = async (options: {
     sendEvent: () => Effect.void, close: () => Effect.void, request: () => Effect.die("unused"),
   };
   const answer = (raw: unknown, caller = context) =>
-    runtime.runPromise(channel.handleRequest!(caller, raw).pipe(Effect.provide(ObservabilityLoggerLive)));
+    runtime.runPromise(channel.handleRequest!(caller, raw).pipe(Effect.provide(testLog.log.loggerLayer)));
   const refusal = (raw: unknown, caller = context) =>
-    runtime.runPromise(Effect.flip(channel.handleRequest!(caller, raw)).pipe(Effect.provide(ObservabilityLoggerLive)));
+    runtime.runPromise(Effect.flip(channel.handleRequest!(caller, raw)).pipe(Effect.provide(testLog.log.loggerLayer)));
   return { root, home, runtime, channel, context, answer, refusal };
 };
 
@@ -191,8 +193,8 @@ describe("native-config channel answer", () => {
 
   it("never logs a value it reads or writes", async () => {
     const logHome = await mkdtemp(join(tmpdir(), "junto-native-log-"));
-    cleanups.push(async () => { closeMachineLog(); await rm(logHome, { recursive: true, force: true }); });
-    installMachineLog({ home: logHome, process: "core", echo: false });
+    cleanups.push(async () => { testLog.log.closeFile(); await rm(logHome, { recursive: true, force: true }); });
+    testLog.log.openFile({ home: logHome });
     const f = await fixture({ settings: { model: "secretmodel-a1" } });
     await f.answer({ _tag: "ReadSettings", canvas, harness: "claude", keys: ["model"] });
     await f.answer({ _tag: "WriteSetting", canvas, harness: "claude", key: "model", value: "secretmodel-b2" });

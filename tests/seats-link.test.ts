@@ -26,7 +26,10 @@ import { topNeed, type BindingId, type SeatSnapshot } from "../src/shared/harnes
 import { toSeatsStatus } from "../src/main/junto/term/seats-status";
 import { toSeatsLaunch, type SeatLaunchState } from "../src/main/junto/term/seats-launch";
 import { heldRemoteSeatLaunch, resetRemoteSeatLaunches } from "../src/main/junto/term/remote-seat-launch";
-import { closeMachineLog, installMachineLog, ObservabilityLoggerLive, withMachineLogger } from "../src/main/junto/observability/logger";
+import { makeTestLog } from "./support/test-log";
+import { registeredSecretValues } from "../src/main/junto/credentials/known-secrets";
+
+const { log: seatsLog } = makeTestLog({ knownSecrets: registeredSecretValues });
 import { machineLogDir } from "../src/main/junto/observability/log-file";
 import { readFileSync } from "node:fs";
 import { getSeatCredentialRegistry, setSeatCredentialRegistryForTests } from "../src/main/junto/work/seat-credentials";
@@ -123,7 +126,7 @@ const fixture = async (options: {
     });
   }));
   // As the core builds it: forked fibers (occupy's own run) log through the machine logger.
-  const runtime = ManagedRuntime.make(withMachineLogger(Layer.provideMerge(
+  const runtime = ManagedRuntime.make(seatsLog.withLogger(Layer.provideMerge(
     actors, Layer.provideMerge(ModelStoresLive, repositories),
   )));
   cleanups.push(async () => {
@@ -155,7 +158,7 @@ const fixture = async (options: {
     request: () => Effect.die("the start receiver must not send requests"),
   };
   const start = (raw: unknown = request, caller = context) =>
-    runtime.runPromise(channel.handleRequest(caller, raw).pipe(Effect.provide(ObservabilityLoggerLive)));
+    runtime.runPromise(channel.handleRequest(caller, raw).pipe(Effect.provide(seatsLog.loggerLayer)));
   return { host, fake, runtime, channel, controller, context, start, pin, copy, sent };
 };
 
@@ -287,7 +290,7 @@ describe("seats link status", () => {
     // A status with a field the wire does not name: that event is refused and logged, the link stays.
     await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.channel.decodeEvent({
       ...wire, status: { ...status, snapshot: { ...status.snapshot, transcriptPath: "/etc/passwd" } },
-    })).pipe(Effect.provide(ObservabilityLoggerLive)));
+    })).pipe(Effect.provide(seatsLog.loggerLayer)));
     expect(published).toHaveLength(1);
   });
 
@@ -399,7 +402,7 @@ describe("seats link launch state", () => {
     // Over its bound: that event is refused and logged, the link stays and the answer held stays.
     await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.channel.decodeEvent({
       ...wire, epoch: "ep_10", launch: { settingsFixed: true, nextTurn: { fresh: false, freshInMs: Number.MAX_SAFE_INTEGER } },
-    })).pipe(Effect.provide(ObservabilityLoggerLive)));
+    })).pipe(Effect.provide(seatsLog.loggerLayer)));
     expect(published).toHaveLength(1);
     expect(heldRemoteSeatLaunch(remote.bindingId, "macbook", Date.now())).toBeDefined();
     f.controller.abort();
@@ -554,8 +557,8 @@ describe("seats link start", () => {
   it("logs a spawn error that quotes a seat's region secret redacted", async () => {
     const secret = "plain-region-value-7f3k2";
     const home = await mkdtemp(join(tmpdir(), "junto-seats-log-"));
-    cleanups.push(async () => { closeMachineLog(); await rm(home, { recursive: true, force: true }); });
-    installMachineLog({ home, process: "core", echo: false });
+    cleanups.push(async () => { seatsLog.closeFile(); await rm(home, { recursive: true, force: true }); });
+    seatsLog.openFile({ home });
     const f = await fixture({
       environment: async () => ({ env: { REGION_SECRET: secret, STAGE: "prod" }, folders: [], record: EMPTY_LAUNCH_RECORD }),
       spawnError: new Error(`spawn refused for ${localSeat.agentKey} in prod with ${secret} in its text`),

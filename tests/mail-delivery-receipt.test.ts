@@ -18,6 +18,7 @@ import { MessageDeliveryService } from "../src/main/junto/work/message-delivery"
 import { mailboxMessageDeliveryId } from "../src/main/junto/work/mailbox-receipts";
 import { canvasReceiptBasis, recordDeliveryReceiptRefusal, stampMailboxDeliveryReceipt } from "../src/main/junto/work/delivery-receipts";
 import { observabilityRing } from "../src/main/junto/observability/ring";
+import { makeTestLog } from "./support/test-log";
 import { THIS_MACHINE } from "./support/machines";
 import { NoTasksLive } from "./support/no-tasks";
 
@@ -116,7 +117,8 @@ it("a delivered mail commits its receipt against the live canvas sequence and su
 });
 
 it("logs a refused stamp at error level with its canvas, node, and reason", () => {
-  recordDeliveryReceiptRefusal("factory", "inbox", new Error("stale canvas sequence"));
+  const { log } = makeTestLog({ sink: (row) => observabilityRing.append(row) });
+  recordDeliveryReceiptRefusal("factory", "inbox", new Error("stale canvas sequence"), log);
   const entry = observabilityRing.query().entries.find((entry) => entry.message.includes("stale canvas sequence"));
   expect(entry).toMatchObject({ level: "error", source: "system" });
   expect(entry?.message).toContain('"canvas":"factory"');

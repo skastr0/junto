@@ -30,13 +30,13 @@ const describeSchemaIssue = (issue: unknown): string => {
 };
 
 /** One link of a chain, with its message through the doctrine scrub. */
-export const describeCause = (cause: unknown): EncodedCause => {
+export const describeCause = (cause: unknown, known?: ReadonlyArray<string | undefined>): EncodedCause => {
   if (isRecord(cause) && cause._tag === "SchemaError" && "issue" in cause) return { tag: "SchemaError", message: describeSchemaIssue(cause.issue) };
   const tagged = isRecord(cause) && typeof cause._tag === "string" && tagPattern.test(cause._tag) && cause._tag.length <= 64 ? cause._tag : undefined;
   const named = cause instanceof Error && tagPattern.test(cause.name) && cause.name.length <= 64 ? cause.name : undefined;
   const tag = tagged ?? named ?? (cause instanceof Error ? "Error" : "Unknown");
   const raw = cause instanceof Error || (isRecord(cause) && typeof cause.message === "string") ? String((cause as { message: unknown }).message) : typeof cause === "string" ? cause : "";
-  return { tag, message: scrubMessage(raw) || NO_MESSAGE };
+  return { tag, message: scrubMessage(raw, known) || NO_MESSAGE };
 };
 
 const nested = (cause: unknown): { readonly chain: ReadonlyArray<EncodedCause>; readonly next: unknown } => {
@@ -51,7 +51,7 @@ const nested = (cause: unknown): { readonly chain: ReadonlyArray<EncodedCause>; 
 };
 
 /** The causes under a failure, first cause last, bounded to eight links. */
-export const causeChain = (cause: unknown): { readonly causes: ReadonlyArray<EncodedCause>; readonly cut: boolean } => {
+export const causeChain = (cause: unknown, known?: ReadonlyArray<string | undefined>): { readonly causes: ReadonlyArray<EncodedCause>; readonly cut: boolean } => {
   const causes: EncodedCause[] = [];
   const seen = new Set<unknown>([cause]);
   let current = cause;
@@ -76,20 +76,20 @@ export const causeChain = (cause: unknown): { readonly causes: ReadonlyArray<Enc
 const DETAIL_ID_KEYS: ReadonlySet<string> = new Set([...LOG_ID_ANNOTATIONS, "operationId"]);
 
 /** Every string in a detail through the scrub but a typed id; anything not JSON-shaped is refused. */
-const scrubDetail = (value: unknown, depth = 0, key?: string): unknown => {
+const scrubDetail = (value: unknown, known: ReadonlyArray<string | undefined> | undefined, depth = 0, key?: string): unknown => {
   if (depth > 8) throw new Error("failure detail is nested too deeply");
-  if (typeof value === "string") return key !== undefined && DETAIL_ID_KEYS.has(key) && isLogIdAnnotation(key, value) ? value : scrubMessage(value);
+  if (typeof value === "string") return key !== undefined && DETAIL_ID_KEYS.has(key) && isLogIdAnnotation(key, value) ? value : scrubMessage(value, known);
   if (value === null || typeof value === "number" || typeof value === "boolean") return value;
-  if (Array.isArray(value)) return value.map(item => scrubDetail(item, depth + 1));
+  if (Array.isArray(value)) return value.map(item => scrubDetail(item, known, depth + 1));
   if (isRecord(value) && Object.getPrototypeOf(value) === Object.prototype) {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [scrubMessage(key), scrubDetail(item, depth + 1, key)]));
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [scrubMessage(key, known), scrubDetail(item, known, depth + 1, key)]));
   }
   throw new Error("failure detail is not JSON");
 };
 
-const withDetail = (encoded: EncodedFailure, detail: unknown): EncodedFailure => {
+const withDetail = (encoded: EncodedFailure, detail: unknown, known?: ReadonlyArray<string | undefined>): EncodedFailure => {
   let scrubbed: unknown;
-  try { scrubbed = scrubDetail(detail); } catch { return { ...encoded, detailCut: true }; }
+  try { scrubbed = scrubDetail(detail, known); } catch { return { ...encoded, detailCut: true }; }
   if (Buffer.byteLength(JSON.stringify(scrubbed)) > MAX_FAILURE_DETAIL_BYTES) return { ...encoded, detailCut: true };
   return decodeEncoded({ ...encoded, detail: scrubbed });
 };
@@ -99,15 +99,17 @@ export interface FailureWhere {
   readonly operationId?: string;
   /** A channel's own closed failure, already encoded by its schema. */
   readonly detail?: unknown;
+  /** The known values this process scrubs with (the core's registry); the environment alone when absent. */
+  readonly known?: ReadonlyArray<string | undefined>;
 }
 
 /** Encodes one thrown or failed value; never replaces it with a fixed phrase. */
 export const encodeError = (error: unknown, where: FailureWhere): EncodedFailure => {
-  const head = describeCause(error);
-  const { causes, cut } = causeChain(error);
+  const head = describeCause(error, where.known);
+  const { causes, cut } = causeChain(error, where.known);
   const encoded = { ...head, machine: where.machine, ...(where.operationId === undefined ? {} : { operationId: where.operationId }), causes, ...(cut ? { causesCut: true as const } : {}) };
   const decoded = decodeEncoded(encoded);
-  return where.detail === undefined ? decoded : withDetail(decoded, where.detail);
+  return where.detail === undefined ? decoded : withDetail(decoded, where.detail, where.known);
 };
 
 /**
@@ -123,16 +125,16 @@ export const encodeFailure = (failure: unknown, where: FailureWhere): EncodedFai
 };
 
 /** The receiving end distrusts the sender: closed decode, then the scrub again. */
-export const decodeEncodedFailure = (input: unknown): EncodedFailure => {
+export const decodeEncodedFailure = (input: unknown, known?: ReadonlyArray<string | undefined>): EncodedFailure => {
   const failure = decodeEncoded(input);
   const { detail, ...rest } = failure;
   let scrubbed: unknown;
-  if (detail !== undefined) { try { scrubbed = scrubDetail(detail); } catch { scrubbed = undefined; } }
+  if (detail !== undefined) { try { scrubbed = scrubDetail(detail, known); } catch { scrubbed = undefined; } }
   return {
     ...rest,
     ...(scrubbed === undefined ? (detail === undefined ? {} : { detailCut: true as const }) : { detail: scrubbed as EncodedFailure["detail"] }),
-    message: scrubMessage(failure.message) || NO_MESSAGE,
-    causes: failure.causes.map(link => ({ tag: link.tag, message: scrubMessage(link.message) || NO_MESSAGE })),
+    message: scrubMessage(failure.message, known) || NO_MESSAGE,
+    causes: failure.causes.map(link => ({ tag: link.tag, message: scrubMessage(link.message, known) || NO_MESSAGE })),
   };
 };
 

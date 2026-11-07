@@ -8,20 +8,23 @@ import { MachineRepository } from "../src/main/junto/machines/repository";
 import { ModelService } from "../src/main/junto/model/service";
 import { MachinePeerIdentity } from "../src/shared/machine-control";
 import { Command } from "../src/shared/model";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 
 const source = (relative: string): string => readFileSync(new URL(`../${relative}`, import.meta.url), "utf8");
 
 it("the window boots the link and Boat keepers: only the core's runtime is the machine core layer", () => {
   // The core's one runtime is makeCoreRuntime, built over the machine core layer.
   const core = source("src/main/core-runtime.ts");
-  expect(core).toMatch(/const makeMachineCoreLayer = [\s\S]*makeCoreProductLayer\(options\.home\)/u);
-  expect(core).toMatch(/export const makeCoreRuntime = \(options: MachineCoreOptions\) =>\s*ManagedRuntime\.make\([^)]*makeMachineCoreLayer\(options\)/u);
+  expect(core).toMatch(/const makeMachineCoreLayer = [\s\S]*makeCoreProductLayer\(options\.home, options\.log\)/u);
+  expect(core).toMatch(/export const makeCoreRuntime = \(options: MachineCoreOptions\) =>\s*ManagedRuntime\.make\(options\.log\.withLogger\(makeMachineCoreLayer\(options\)\)\)/u);
   // Electron main's runtime is Electron's alone: it builds no core service, no
   // second copy of a singleton (the state engine, the link, the plane), so a
   // service asked of it is a compile error, not an empty instance.
   const window = source("src/main/runtime.ts");
   expect(window).not.toMatch(/makeMachineCoreLayer|MachineServicesLive|RootLayer|ProductLayer/u);
-  expect(window).toContain("const AppLayer = withMachineLogger(Layer.mergeAll(UpdateServiceLive));");
+  expect(window).toContain("const AppLayer = mainLog.withLogger(Layer.mergeAll(UpdateServiceLive));");
   for (const path of ["src/main/index.ts", "src/main/runtime.ts", "src/main/junto/core.ts", "src/main/headless.ts"]) {
     for (const start of ["startLinkKeeper", "startBoatKeeper", "startBoatLease"]) expect(source(path), path).not.toContain(start);
   }
@@ -30,7 +33,7 @@ it("the window boots the link and Boat keepers: only the core's runtime is the m
 it("the machine core layer starts both keepers; the link keeper redials a machine with a seat on a held canvas and never an idle one", async () => {
   const home = await mkdtemp("/tmp/junto-keeper-");
   let ready = false;
-  const runtime = makeCoreRuntime({ home, build: "a".repeat(64), bundles: {}, ready: () => ready });
+  const runtime = makeCoreRuntime({ home, build: "a".repeat(64), bundles: {}, ready: () => ready, log: testLog.log });
   try {
     const keeper = await runtime.runPromise(MachineLinkKeeper);
     // No Boat machine added here: a Boat pass wakes nothing and asks Boat nothing.

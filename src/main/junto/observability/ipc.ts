@@ -10,19 +10,17 @@ import type { ObservabilityLogEntry, ObservabilitySnapshot } from "@shared/obser
 import { core } from "../../core-process/main-client";
 import { subscribe as onCorePush } from "../../core-process/main-side/core-pushes";
 import { OBSERVABILITY_CLEARED, OBSERVABILITY_LOG, type ObservabilityCleared } from "../../core-process/channels";
-import { sendLogRowsTo } from "./logger";
+import { mainLog } from "./main-log";
 
 export const registerObservabilityIpc = (
   ipcMain: IpcMain,
   broadcast: (channel: string, payload: unknown) => void,
 ): void => {
-  // Main's own lines belong in the core's ring: send each as it is written.
-  sendLogRowsTo((entry) => {
-    void core.call("observability.append", { entry }).catch(() => undefined);
-  });
-  // Not one call after the quit begins: the core stops before main does, so a
-  // late row goes to main's log file only, never into a call nobody answers.
-  app.once("before-quit", () => sendLogRowsTo(undefined));
+  // Main's own lines belong in the core's ring, and `mainLog` forwards each
+  // as it is written. Not one call after the quit begins: the core stops
+  // before main does, so a late row goes to main's log file only, never into a
+  // call nobody answers.
+  app.once("before-quit", () => mainLog.stopRows());
 
   onCorePush(OBSERVABILITY_LOG, (entry) => broadcast(IPC_CHANNELS.observabilityLog, entry as ObservabilityLogEntry));
   onCorePush(OBSERVABILITY_CLEARED, (cleared) =>

@@ -7,6 +7,10 @@ import { Effect, Schema, Stream } from "effect";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
 import { sendMachine } from "../src/main/junto/hosts/send";
+import { LogService } from "../src/main/junto/observability/logger";
+import { makeTestLog } from "./support/test-log";
+
+const { log: sendLog } = makeTestLog();
 import { parseSshEndpoint, parseSshRoute, SshInputError, SshTransport } from "../src/main/junto/ssh";
 import { InstallationId } from "../src/shared/installation-id";
 import { createSshProgramCompiler } from "../src/main/junto/ssh/program";
@@ -29,7 +33,7 @@ it("preserves a closed installer failure receipt from the chosen SSH account", a
   const transport = SshTransport.of({ run: () => Effect.succeed({ stdout: "ready\n", stderr: "" }), connect: () => Effect.die("unexpected"), forward: () => Effect.die("unexpected"), warm: () => Effect.void, teardown: () => Effect.void,
     transfer: (program, input) => Stream.runDrain(input).pipe(Effect.andThen(Effect.fail(SshTransferExitError.of(endpoint, 1, "", JSON.stringify({ ok: false, command: "machine install-local", error: { type: "MachineInstallError", message: "service did not become ready", details: { disposition: "activated", retryable: false, transitions } } }))))),
   });
-  const error = await Effect.runPromise(sendMachine(target, { bundle: root }).pipe(Effect.provideService(SshTransport, transport), Effect.flip));
+  const error = await Effect.runPromise(sendMachine(target, { bundle: root }).pipe(Effect.provideService(SshTransport, transport), Effect.provideService(LogService, sendLog), Effect.flip));
   expect(error.disposition).toBe("activated");
   expect(error.transitions).toEqual(transitions);
   expect(error.retryable).toBe(false);
@@ -44,7 +48,7 @@ it("retains observed selection when a successful transfer has a malformed final 
       return { stdout: "not a JSON receipt", stderr: "" };
     }))),
   });
-  const error = await Effect.runPromise(sendMachine(target, { bundle: root }).pipe(Effect.provideService(SshTransport, transport), Effect.flip));
+  const error = await Effect.runPromise(sendMachine(target, { bundle: root }).pipe(Effect.provideService(SshTransport, transport), Effect.provideService(LogService, sendLog), Effect.flip));
   expect(error.disposition).toBe("uncertain");
   expect(error.transitions).toEqual([transition]);
   expect(error.retryable).toBe(false);
@@ -60,7 +64,7 @@ it.runIf(process.platform === "darwin")("excludes AppleDouble files from an arch
     transfer: (_program, input) => Stream.runForEach(input, bytes => Effect.sync(() => { chunks.push(bytes); })).pipe(Effect.andThen(Effect.succeed({ stdout: "fixture", stderr: "" }))),
     connect: () => Effect.die("unexpected"), forward: () => Effect.die("unexpected"), warm: () => Effect.void, teardown: () => Effect.void,
   });
-  await Effect.runPromise(sendMachine(target, { bundle: root }).pipe(Effect.provideService(SshTransport, transport), Effect.flip));
+  await Effect.runPromise(sendMachine(target, { bundle: root }).pipe(Effect.provideService(SshTransport, transport), Effect.provideService(LogService, sendLog), Effect.flip));
   // Read raw tar headers. macOS tar's listing hides its own AppleDouble files.
   const archive = gunzipSync(Buffer.concat(chunks));
   const names: string[] = [];
@@ -83,7 +87,7 @@ it("reports all failed preflight checks before any archive bytes are transferred
     transfer: () => { transferred = true; return Effect.die("must not transfer"); },
     connect: () => Effect.die("unexpected"), forward: () => Effect.die("unexpected"), warm: () => Effect.void, teardown: () => Effect.void,
   });
-  const error = await Effect.runPromise(sendMachine(target, { bundle: root }).pipe(Effect.provideService(SshTransport, transport), Effect.flip));
+  const error = await Effect.runPromise(sendMachine(target, { bundle: root }).pipe(Effect.provideService(SshTransport, transport), Effect.provideService(LogService, sendLog), Effect.flip));
   expect(error.message).toBe(problems.trim());
   expect(error.disposition).toBe("staged");
   expect(transferred).toBe(false);
@@ -118,7 +122,7 @@ it("sends only install selections and retains nonretryable transfer uncertainty"
   const error = await Effect.runPromise(sendMachine(target, {
     bundle: root, juntoHome: "/home/user/probe", installRoot: "/home/user/probe/install",
     expectedInstallationId: Schema.decodeUnknownSync(InstallationId)("installation-one"), sshKnownHostsFile: "/tmp/operator-pin",
-  }, event => { observed.push(event); throw new Error("view detached"); }).pipe(Effect.provideService(SshTransport, transport), Effect.flip));
+  }, event => { observed.push(event); throw new Error("view detached"); }).pipe(Effect.provideService(SshTransport, transport), Effect.provideService(LogService, sendLog), Effect.flip));
   expect(copiedBytes).toBeGreaterThan(0);
   expect(remoteText).toContain("installation-one");
   expect(remoteText).not.toContain("operator-pin");

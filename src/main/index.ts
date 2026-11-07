@@ -47,12 +47,7 @@ import { coreBrowserProfileStore, coreTouchedOriginStore } from "./core-process/
 import { isCoreUnavailable } from "./core-process/wait-for-core";
 import { armMainThreadBudget } from "./junto/observability/main-thread-budget";
 import { startPerfObservation, type PerfObservation } from "./junto/observability/perf-observation";
-import {
-  installMachineLog,
-  installObservabilityConsoleHook,
-  recordRendererConsole,
-  recordSystemLog,
-} from "./junto/observability/logger";
+import { mainLog } from "./junto/observability/main-log";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
 import { resolveControlHome } from "./junto/control-home";
 import { registerDemoIpcHandlers } from "./junto/demo/ipc";
@@ -707,7 +702,7 @@ const registerCrashRecovery = (mainWindow: BrowserWindow) => {
   // Electron 43 deprecates the positional console-message signature; use the
   // Event<WebContentsConsoleMessageEventParams> fields instead.
   mainWindow.webContents.on("console-message", (event) => {
-    recordRendererConsole({
+    mainLog.recordRendererConsole({
       level: event.level,
       message: event.message,
       sourceId: event.sourceId,
@@ -1279,13 +1274,13 @@ if (packagedSandboxDisablingSwitch !== undefined) {
   void app.whenReady().then(async () => {
     // One log path: main console + Effect logger (layer already on AppRuntime)
     // into the ring and this machine's log file under ~/.junto/logs.
-    installMachineLog({ home: resolveJuntoHome(), process: "app", echo: true });
-    installObservabilityConsoleHook();
+    mainLog.openFile({ home: resolveJuntoHome() });
+    mainLog.installConsoleHook();
     // The 4ms invariant, asserted at the source. Dev runs are armed; a
     // packaged app stays silent unless JUNTO_BUDGET says otherwise. SQL runs
     // in the core, which writes its own sql-timing.json.
     armMainThreadBudget({ enabled: !app.isPackaged });
-    recordSystemLog(
+    mainLog.recordSystemLog(
       `${PRODUCT_NAME} ready - ${app.isPackaged ? "packaged" : "dev"} - ${app.getVersion() || "0.0.0"} - ${overlayManifest.name}`,
     );
     // Every build, packaged included: a [metrics] row a minute per process,

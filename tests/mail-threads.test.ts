@@ -57,6 +57,9 @@ import type { MailThreadMessage, MailThreadSummary } from "../src/shared/wire/ma
 import { OPERATOR_ATTACHMENTS_MAX } from "../src/shared/operator-attachments";
 import { putOperatorContent } from "../src/main/junto/content/operator-attachments";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 
 const CANVAS = "threads";
 
@@ -76,7 +79,7 @@ const makeRuntime = (root: string) => {
   );
   const canvasesLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
   const workLive = Layer.provideMerge(WorkLive, canvasesLive);
-  return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneAllPlaying));
+  return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneAllPlaying, testLog.log.loggerLayer));
 };
 
 const seat = (id: string, x: number) =>

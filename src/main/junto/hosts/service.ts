@@ -22,6 +22,8 @@ import {
 } from "./registry";
 import { setHostsSnapshot } from "./snapshot";
 import { failureHere } from "./failure-here";
+import { LogService } from "../observability/logger";
+import { defaultMachineName } from "@shared/machine-name";
 import { StateTransactionOperation } from "../state/service";
 
 const decodeHost = Schema.decodeUnknownResult(RemoteHost, {
@@ -54,21 +56,22 @@ export class HostsService extends Context.Service<HostsService,
 /** Canonical service shape for `HostsService` (one id, one shape). */
 export type HostsServiceShape = Context.Service.Shape<typeof HostsService>;
 
-const asRemoteHostsError = (error: unknown): RemoteHostsError =>
+const asRemoteHostsError = (error: unknown, machine: string): RemoteHostsError =>
   error instanceof RemoteHostsError
     ? error
     : new RemoteHostsError(
         "io",
         error instanceof Error ? error.message : String(error),
-        failureHere(error).failure,
+        failureHere(error, machine).failure,
       );
 
 const loadHostsIntoRoutingSnapshot = (
   load: () => Promise<ReadonlyArray<RemoteHostT>>,
+  machine: string,
 ): Effect.Effect<ReadonlyArray<RemoteHostT>, RemoteHostsError> =>
   Effect.tryPromise({
     try: load,
-    catch: asRemoteHostsError,
+    catch: (cause) => asRemoteHostsError(cause, machine),
   }).pipe(
     Effect.tap((hosts) =>
       Effect.sync(() => {
@@ -80,6 +83,7 @@ const loadHostsIntoRoutingSnapshot = (
 export const makeHostsService = (
   registry: HostsRegistry,
   ssh: SshTransportShape,
+  machine: string = defaultMachineName(),
 ): HostsServiceShape => {
   return {
     doctor: runRemoteHostsDoctor(registry, ssh),
@@ -89,11 +93,11 @@ export const makeHostsService = (
     ),
     // Listing is the explicit durable reload boundary used by Settings and IPC.
     // Keep the synchronous routing snapshot in the same successful operation.
-    list: loadHostsIntoRoutingSnapshot(() => registry.reload()),
+    list: loadHostsIntoRoutingSnapshot(() => registry.reload(), machine),
     get: (id) =>
       Effect.tryPromise({
         try: () => registry.get(id),
-        catch: asRemoteHostsError,
+        catch: (cause) => asRemoteHostsError(cause, machine),
       }),
     upsert: (input) =>
       Effect.gen(function* () {
@@ -108,7 +112,7 @@ export const makeHostsService = (
         }
         const hosts = yield* Effect.tryPromise({
           try: () => registry.upsert(decoded.success),
-          catch: asRemoteHostsError,
+          catch: (cause) => asRemoteHostsError(cause, machine),
         });
         setHostsSnapshot(hosts);
         return hosts;
@@ -117,7 +121,7 @@ export const makeHostsService = (
       Effect.gen(function* () {
         const hosts = yield* Effect.tryPromise({
           try: () => registry.remove(id),
-          catch: asRemoteHostsError,
+          catch: (cause) => asRemoteHostsError(cause, machine),
         });
         setHostsSnapshot(hosts);
         return hosts;
@@ -126,7 +130,7 @@ export const makeHostsService = (
       Effect.gen(function* () {
         const host = yield* Effect.tryPromise({
           try: () => registry.get(id),
-          catch: asRemoteHostsError,
+          catch: (cause) => asRemoteHostsError(cause, machine),
         });
         if (!host) {
           return yield* Effect.fail(
@@ -139,27 +143,28 @@ export const makeHostsService = (
   };
 };
 
-const persistenceError = (operation: string, cause: unknown): RemoteHostsError =>
+const persistenceError = (operation: string, cause: unknown, machine: string): RemoteHostsError =>
   new RemoteHostsError("io", `hosts database ${operation} failed: ${
     cause instanceof Error ? cause.message : String(cause)
-  }`, failureHere(cause).failure);
+  }`, failureHere(cause, machine).failure);
 
 /** Owns host registry transactions on the product connection. */
 export const HostsPersistenceLive = Layer.effect(HostsPersistence, Effect.gen(function* () {
+  const machine = (yield* LogService).machine();
   const sql = yield* SqlClient.SqlClient;
   const rows = yield* HostRegistryRows;
   const initialize = Effect.gen(function* () {
-    if (yield* rows.initialized.pipe(Effect.mapError((cause) => persistenceError("initialize-read", cause)))) return;
+    if (yield* rows.initialized.pipe(Effect.mapError((cause) => persistenceError("initialize-read", cause, machine)))) return;
     yield* sql.withTransaction(rows.ensure(new Date().toISOString())).pipe(
       Effect.provideService(StateTransactionOperation, "hosts.initialize"),
-      Effect.mapError((cause) => persistenceError("initialize-write", cause)),
+      Effect.mapError((cause) => persistenceError("initialize-write", cause, machine)),
     );
   }).pipe(Effect.withSpan("HostsPersistence.initialize"));
-  const read = rows.read.pipe(Effect.mapError((cause) => persistenceError("list", cause)));
+  const read = rows.read.pipe(Effect.mapError((cause) => persistenceError("list", cause, machine)));
   const upsert = Effect.fn("HostsPersistence.upsert")(function* (host: RemoteHostT) {
     return yield* sql.withTransaction(rows.upsert(host)).pipe(
       Effect.provideService(StateTransactionOperation, "hosts.upsert"),
-      Effect.mapError((cause) => cause instanceof RemoteHostsError ? cause : persistenceError("upsert", cause)),
+      Effect.mapError((cause) => cause instanceof RemoteHostsError ? cause : persistenceError("upsert", cause, machine)),
     );
   });
   const remove = Effect.fn("HostsPersistence.remove")(function* (id: string) {
@@ -172,7 +177,7 @@ export const HostsPersistenceLive = Layer.effect(HostsPersistence, Effect.gen(fu
       return yield* rows.read;
     })).pipe(
       Effect.provideService(StateTransactionOperation, "hosts.remove"),
-      Effect.mapError((cause) => cause instanceof RemoteHostsError ? cause : persistenceError("remove", cause)),
+      Effect.mapError((cause) => cause instanceof RemoteHostsError ? cause : persistenceError("remove", cause, machine)),
     );
   });
   return { initialize, read, upsert, remove };
@@ -181,6 +186,7 @@ export const HostsPersistenceLive = Layer.effect(HostsPersistence, Effect.gen(fu
 export const HostsServiceLive = Layer.effect(
   HostsService,
   Effect.gen(function* () {
+    const machine = (yield* LogService).machine();
     const ssh = yield* SshTransport;
     const persistence = yield* HostsPersistence;
     // Registry Promise bridges use the acquired runtime context.
@@ -191,7 +197,7 @@ export const HostsServiceLive = Layer.effect(
     // Layer acquisition is the normal-boot barrier: the persisted database is
     // visible to synchronous Hermes routing before this layer can feed
     // either transport or plane.
-    yield* loadHostsIntoRoutingSnapshot(() => registry.reload()).pipe(
+    yield* loadHostsIntoRoutingSnapshot(() => registry.reload(), machine).pipe(
       Effect.catch((cause) =>
         Effect.logWarning("machine registry could not be loaded; routing starts empty", cause).pipe(
           Effect.andThen(Effect.sync(() => {
@@ -204,6 +210,6 @@ export const HostsServiceLive = Layer.effect(
       ),
       Effect.annotateLogs({ area: "machines", operation: "registry-load" }),
     );
-    return makeHostsService(registry, ssh);
+    return makeHostsService(registry, ssh, machine);
   }),
 ).pipe(Layer.provide(HostsPersistenceLive));

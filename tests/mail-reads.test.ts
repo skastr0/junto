@@ -36,6 +36,9 @@ import { seatThreadMessages } from "../src/main/junto/work/operator-threads";
 import { WorkService } from "../src/main/junto/work/service";
 import { canvasPoints, markRead, onReadChanged, readPoints } from "../src/main/junto/work/mail-reads";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 
 const CANVAS = "threads";
 
@@ -54,7 +57,7 @@ const makeRuntime = (root: string) => {
     ),
   );
   const canvasesLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
-  return ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(WorkLive, canvasesLive), PausePlaneAllPlaying));
+  return ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(WorkLive, canvasesLive), PausePlaneAllPlaying, testLog.log.loggerLayer));
 };
 
 const seat = (id: string, x: number) =>

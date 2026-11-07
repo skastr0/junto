@@ -14,6 +14,7 @@ import {
   type OwnedMachineBundleCache, type OwnedMachineBundleAttempt,
 } from "./machine-bundle-cache";
 import { makeDownloadProgress } from "./download-progress";
+import { defaultMachineName } from "@shared/machine-name";
 import { failureHere } from "./failure-here";
 
 export type MachineBundleAcquirer = (target: string, onTransition?: (event: MachineSendEvent) => void) => Effect.Effect<string, MachineInstallError, Scope.Scope>;
@@ -41,10 +42,6 @@ const downloadFailed = (check: typeof MachineBundleDownloadCheck.Type, message: 
   new MachineBundleDownloadFailed({ check, message, ...(cause === undefined ? {} : { cause }) });
 const releaseServerFailure = (cause?: unknown): MachineBundleDownloadFailed =>
   downloadFailed("release-server", "Cannot download this Junto build from its release server. The machine has not changed", cause);
-const failure = (cause: unknown): MachineInstallError => new MachineInstallError({
-  message: cause instanceof Error ? cause.message : "Cannot download Junto. The machine has not changed",
-  disposition: "staged", retryable: true, ...failureHere(cause),
-});
 const cancelled = (): MachineBundleDownloadFailed => downloadFailed("cancelled", "Junto's download was interrupted. The machine has not changed");
 
 const download = async (input: {
@@ -135,7 +132,14 @@ export const makeReleaseMachineBundleAcquirer = (input: {
   readonly build: string;
   readonly catalog: MachineReleaseCatalog;
   readonly fetch?: DownloadFetch;
+  /** This machine's name for a failed download's encoded failure; the host name when a boot passes none. */
+  readonly machine?: () => string;
 }): MachineBundleAcquirer => {
+  const machine = input.machine ?? defaultMachineName;
+  const failure = (cause: unknown): MachineInstallError => new MachineInstallError({
+    message: cause instanceof Error ? cause.message : "Cannot download Junto. The machine has not changed",
+    disposition: "staged", retryable: true, ...failureHere(cause, machine()),
+  });
   const catalog = decodeMachineReleaseCatalog(input.catalog);
   if (catalog.build !== input.build) throw downloadFailed("catalog-mismatch", "The machine download catalog does not match this Junto build");
   return (target, onTransition) => Effect.gen(function* () {
@@ -212,6 +216,7 @@ export const makeMachineBundleSources = (input: {
   readonly build: string;
   readonly catalog: MachineReleaseCatalog | undefined;
   readonly localRoot: () => string;
+  readonly machine?: () => string;
 }): { readonly bundles: Readonly<Partial<Record<"darwin-arm64" | "linux-x64", string>>>; readonly acquireBundle?: MachineBundleAcquirer } => {
   if (input.catalog !== undefined) return { bundles: {}, acquireBundle: makeReleaseMachineBundleAcquirer({ ...input, catalog: input.catalog }) };
   const root = input.localRoot();

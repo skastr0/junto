@@ -22,6 +22,9 @@ import {
 } from "../src/main/junto/work/control";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 import { injectionSupervisor } from "../src/main/junto/term/injection-supervisor";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
 
 // Regression: managed seats bind their PTY process by agent key with no
 // bindingId (term/local-host.ts processPrincipal). The onboarding proof has
@@ -99,6 +102,7 @@ const startRig = async (): Promise<Rig> => {
     Layer.mergeAll(
       Layer.succeed(WorkService, workService),
       PausePlaneAllPlaying,
+      testLog.log.loggerLayer,
     ),
   );
   const server = await startWorkControlServer({
