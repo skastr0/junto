@@ -7,7 +7,7 @@ import { PausePlane } from "../pause-plane";
 import { resolveNodeRef, type NodeRefResolutionError } from "../node-ref-resolver";
 import { onAgentSignalChanged } from "../signals/changes";
 import { checkSeatPageBox, postSeatPageShot } from "../work/page-box-comment";
-import { CorePushes, publish } from "../push";
+import { CorePushes, type CorePushesShape } from "../push";
 import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, WORK_PREAMBLE } from "../../contract/core/channels";
 import {
   MainIndexContentUnreadable,
@@ -20,12 +20,14 @@ import {
  * The window's broadcasts from a core in its own process: each signal change
  * is published as it happens, and the work control server's preamble hook
  * publishes too. Returns that hook, and the stop for the signal subscription.
- * Core boot calls it before any server exists (`src/core/entry.ts`), so it
- * publishes through the port boot chose.
+ * Core boot calls it before any server exists (`src/core/entry.ts`), with the
+ * pushes it built on its port.
  */
-export const publishWindowBroadcasts = (): { readonly onPreamble: (event: PreambleEvent) => void; readonly stop: () => void } => ({
-  onPreamble: (event) => publish(WORK_PREAMBLE, event),
-  stop: onAgentSignalChanged((signal) => publish(AGENT_SIGNAL_CHANGED, signal)),
+export const publishWindowBroadcasts = (
+  pushes: CorePushesShape,
+): { readonly onPreamble: (event: PreambleEvent) => void; readonly stop: () => void } => ({
+  onPreamble: (event) => Effect.runSync(pushes.publish(WORK_PREAMBLE, event)),
+  stop: onAgentSignalChanged((signal) => Effect.runSync(pushes.publish(AGENT_SIGNAL_CHANGED, signal))),
 });
 
 /** Why a ref named nothing, in the words the link's opener is told. */

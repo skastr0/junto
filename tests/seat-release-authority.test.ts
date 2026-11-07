@@ -42,6 +42,7 @@ import { nameThisMachine } from "./support/name-this-machine";
 import { ModelStoresLive, readSeeded, seedCanvas } from "./support/seed-canvas";
 import { clearMachines, seedThisMachine } from "./support/seed-this-machine";
 import { seat, taskBoard } from "./support/model-nodes";
+import { CorePushes } from "../src/core/push";
 
 const NAME = "factory";
 const board = taskNodeId(asNodeId("board"));
@@ -58,7 +59,7 @@ const makeRuntime = (dir: string) => {
       SettingsLive,
       makeContentServiceLive({ root: join(dir, "content"), skipInlineMediaMigration: true }),
       // As core-product wires it: the task ruler judges on the host's authorities.
-      Layer.provide(TaskRepositoryLive, Layer.provideMerge(Layer.provide(CanvasAuthoritiesLive, MachineRepositoryLive), recorder)),
+      Layer.provide(TaskRepositoryLive, Layer.provideMerge(Layer.provide(CanvasAuthoritiesLive, Layer.merge(MachineRepositoryLive, CorePushes.nowhere)), recorder)),
     ),
     Layer.mergeAll(makeStateEngineLive(join(dir, "junto.db")), makeInstallOpsLive(join(dir, "install-ops.db"))),
   );

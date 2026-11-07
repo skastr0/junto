@@ -18,7 +18,7 @@ import { SEAT_AWARENESS_COMPILED } from "@shared/features";
 import { IPC_CHANNELS } from "@shared/ipc";
 import type { Settings } from "@shared/settings";
 import type { SeatAwarenessEvent } from "@shared/seat-awareness-contract";
-import { publish } from "../push";
+import { CorePushes } from "../push";
 import { SettingsService } from "../settings/service";
 import {
   SEAT_AWARENESS_ENV,
@@ -88,13 +88,14 @@ export type SeatAwarenessLayerOptions = {
  */
 export const makeSeatAwarenessLive = (
   options: SeatAwarenessLayerOptions = {},
-): Layer.Layer<SeatAwareness, never, SettingsService> =>
+): Layer.Layer<SeatAwareness, never, SettingsService | CorePushes> =>
   // `Layer.effect` builds this in the layer's own scope, so the finalizer below
   // and the fibers forked beside it live and die with the core's runtime.
   Layer.effect(
     SeatAwareness,
     Effect.gen(function* () {
       const settings = yield* SettingsService;
+      const pushes = yield* CorePushes;
       const plane = options.plane ?? seatAwarenessPlane;
       const gates = yield* Queue.unbounded<Settings>();
       const events = yield* Queue.unbounded<SeatAwarenessEvent>();
@@ -120,7 +121,7 @@ export const makeSeatAwarenessLive = (
         Effect.forkScoped,
       );
       yield* Queue.take(events).pipe(
-        Effect.flatMap((event) => Effect.sync(() => publish(IPC_CHANNELS.seatAwarenessChanged, event))),
+        Effect.flatMap((event) => pushes.publish(IPC_CHANNELS.seatAwarenessChanged, event)),
         Effect.forever,
         Effect.forkScoped,
       );

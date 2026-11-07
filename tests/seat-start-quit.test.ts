@@ -34,6 +34,7 @@ import { registerTerminalIpc } from "../src/app/term/ipc";
 import { TermCore, TermRpcs } from "../src/contract/core/term-ipc";
 import { TermTemplatesCore, TermTemplatesRpcs } from "../src/contract/core/term-templates";
 import { bindTermIpcPlane, TermIpcPlane, TermPlaneHandlers } from "../src/core/ops/term-ipc";
+import { inProcessPushesShape } from "./support/in-process-pushes";
 import { TermTemplatesHandlers } from "../src/core/ops/term-templates";
 import { writeSeatSessionId } from "../src/core/term/seat-session-id";
 
@@ -107,7 +108,7 @@ const fixture = async () => {
   await command({ _tag: "Add", canvas: "quit", nodes: [{ ...node, host: "workbench" }], wires: [] });
   type Handler = (...args: readonly unknown[]) => unknown;
   const handlers = new Map<string, Handler>();
-  bindTermIpcPlane(plane, makeRemoteSeatState());
+  bindTermIpcPlane(plane, inProcessPushesShape, makeRemoteSeatState());
   registerTerminalIpc({ handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never, {
     isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => undefined,
   }, await runtime.context());

@@ -33,6 +33,7 @@ import { FleetDriverError } from "../src/core/fleet/driver";
 import { seedCanvasRows } from "./support/seed-canvas";
 import { subscribe } from "../src/app/core-process/main-side/core-pushes";
 import { IPC_CHANNELS } from "../src/shared/ipc";
+import { inProcessPushes } from "./support/in-process-pushes";
 
 const SELF = "mini" as InstallationId;
 const BOOK = "install-book" as InstallationId;
@@ -54,6 +55,7 @@ const opened = async () => {
       CanvasAuthoritiesLive,
       Layer.mergeAll(
         store,
+        inProcessPushes,
         Layer.succeed(RulingRecorder, RulingRecorder.of({ record: () => Effect.die("no ruling is judged here") })),
       ),
     ),

@@ -11,6 +11,7 @@ import { IPC_CHANNELS, type TerminalParkResult } from "../src/shared/ipc";
 import { TermCore, TermRpcs } from "../src/contract/core/term-ipc";
 import { TermTemplatesCore, TermTemplatesRpcs } from "../src/contract/core/term-templates";
 import { bindTermIpcPlane, TermIpcPlane, TermPlaneHandlers } from "../src/core/ops/term-ipc";
+import { inProcessPushesShape } from "./support/in-process-pushes";
 import { TermTemplatesHandlers } from "../src/core/ops/term-templates";
 import type { TermPlane } from "../src/core/term/plane";
 import { TerminalNodeDeleteService } from "../src/core/term/node-delete";
@@ -87,7 +88,7 @@ const rig = async () => {
   });
   // The plane is the core's; the test binds its events and gives it to the handlers.
   const plane = { router, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane;
-  bindTermIpcPlane(plane, makeRemoteSeatState());
+  bindTermIpcPlane(plane, inProcessPushesShape, makeRemoteSeatState());
   registerTerminalIpc(
     { handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never,
     { isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => undefined },

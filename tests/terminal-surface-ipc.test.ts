@@ -19,6 +19,7 @@ import { RpcTest } from "effect/rpc";
 import { TermCore, TermRpcs } from "../src/contract/core/term-ipc";
 import { TermTemplatesCore, TermTemplatesRpcs } from "../src/contract/core/term-templates";
 import { bindTermIpcPlane, TermIpcPlane, TermPlaneHandlers } from "../src/core/ops/term-ipc";
+import { inProcessPushesShape } from "./support/in-process-pushes";
 import { TermTemplatesHandlers } from "../src/core/ops/term-templates";
 import { ModelService } from "../src/core/model/service";
 
@@ -108,7 +109,7 @@ const rig = async (surfaces: boolean | (() => boolean) = true) => {
     closeSurface: vi.fn(),
   };
   const plane = { router, host, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane;
-  unbind = bindTermIpcPlane(plane, makeRemoteSeatState());
+  unbind = bindTermIpcPlane(plane, inProcessPushesShape, makeRemoteSeatState());
   // Main's surface ports reach the core: here the core is the same process, and
   // this stands in for its plane handing the port to the terminal process.
   const surfacePlane: SurfacePlane = {

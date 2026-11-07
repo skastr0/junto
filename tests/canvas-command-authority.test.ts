@@ -33,13 +33,14 @@ import { note, seat } from "./support/model-nodes";
 import { nameThisMachine } from "./support/name-this-machine";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
 import { clearMachines, seedThisMachine } from "./support/seed-this-machine";
+import { CorePushes } from "../src/core/push";
 
 const NAME = asCanvasName("factory");
 
 const makeRuntime = (dir: string) => {
   const recorder = Layer.provide(RulingRecorderLive, Layer.mergeAll(WorkRepositoryLive, MachineRepositoryLive, ModelRecords.layer));
   const repositories = Layer.provideMerge(
-    Layer.mergeAll(WorkRepositoryLive, MachineRepositoryLive, Layer.provideMerge(Layer.provide(CanvasAuthoritiesLive, MachineRepositoryLive), recorder)),
+    Layer.mergeAll(WorkRepositoryLive, MachineRepositoryLive, Layer.provideMerge(Layer.provide(CanvasAuthoritiesLive, Layer.merge(MachineRepositoryLive, CorePushes.nowhere)), recorder)),
     Layer.mergeAll(makeStateEngineLive(join(dir, "junto.db")), makeInstallOpsLive(join(dir, "install-ops.db"))),
   );
   return ManagedRuntime.make(Layer.provideMerge(ModelStoresLive, repositories));

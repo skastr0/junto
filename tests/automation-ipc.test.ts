@@ -14,7 +14,7 @@ import {
   AutomationRpcs,
 } from "../src/contract/core/automation";
 import { AutomationHandlers } from "../src/core/ops/ipc-automation";
-import { CorePushes } from "../src/core/push";
+import { inProcessPushes } from "./support/in-process-pushes";
 import { subscribe as subscribePushes } from "../src/app/core-process/main-side/core-pushes";
 import { AutomationRunnerLive, AutomationRunnerService } from "../src/core/automation/live";
 import { noBoatWakeLayer } from "./support/no-boat";
@@ -137,7 +137,7 @@ const run = async (
     );
     // The core's handlers, listening for writes while this scope is open, as the core's server does.
     const scope = await Effect.runPromise(Scope.make());
-    const served = await runtime.runPromise(Layer.buildWithScope(Layer.provide(AutomationHandlers, CorePushes.live), scope));
+    const served = await runtime.runPromise(Layer.buildWithScope(Layer.provide(AutomationHandlers, inProcessPushes), scope));
     const client = await runtime.runPromise(
       clientOf().pipe(Effect.provide(served), Effect.provideService(Scope.Scope, scope)),
     );

@@ -1,5 +1,6 @@
 import { Cause, Context, Effect, Layer, ManagedRuntime, Option, Schema } from "effect";
 import type { HostClients } from "./host-clients";
+import type { CorePushes } from "./push";
 import {
   type MachineHarnesses,
   type MachineOwnStatus,
@@ -93,10 +94,11 @@ export interface MachineCoreOptions {
   /** The core process's log, built by its boot; the runtime provides it to every effect. */
   readonly log: Log;
   /**
-   * The core's clients of main's host groups (core/host-clients.ts): built on
-   * the core's port to main, or on `noWindowLink` in a windowless core.
+   * The core's two ends toward main: its clients of main's host groups
+   * (core/host-clients.ts) and where its pushes go (`CorePushes`), both on the
+   * core's port to main, or a windowless core's form of each.
    */
-  readonly host: Layer.Layer<HostClients>;
+  readonly host: Layer.Layer<HostClients | CorePushes>;
 }
 
 export class MachineCoreStatus extends Context.Service<MachineCoreStatus, {

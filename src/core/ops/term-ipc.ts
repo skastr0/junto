@@ -23,7 +23,7 @@ import { RemoteSeatState } from "../term/remote-seat-state";
 import { remoteSeatLaunchOf } from "../term/seats-client";
 import { cardSeatLaunch } from "../term/seats-launch";
 import { liveSeatEnvironment } from "../region-env/live";
-import { publish } from "../push";
+import type { CorePushesShape } from "../push";
 
 /** The terminal plane the window's terminals run on: the router, the node-delete fence, and the host that holds surface ports. */
 export class TermIpcPlane extends Context.Service<TermIpcPlane, Pick<TermPlane, "router" | "nodeDelete" | "host">>()(
@@ -41,17 +41,21 @@ export class TermIpcPlane extends Context.Service<TermIpcPlane, Pick<TermPlane, 
  * linked seat's machine ended, and every seat's state, this machine's and a
  * linked one's. The returned function unbinds them.
  */
-export const bindTermIpcPlane = (plane: TermPlane, remoteState: RemoteSeatState["Service"]): (() => void) => {
+export const bindTermIpcPlane = (
+  plane: TermPlane,
+  pushes: CorePushesShape,
+  remoteState: RemoteSeatState["Service"],
+): (() => void) => {
   plane.router.setTerminalEnvironment(liveSeatEnvironment);
   const onEvent = (payload: LocalHostEvent): void => {
     if (payload.type === "seat-state") remoteState.remember(payload.event);
-    publish(TERM_EVENT, payload);
+    Effect.runSync(pushes.publish(TERM_EVENT, payload));
   };
-  const onLeaseEnded = (end: { readonly leaseId: string; readonly reason: string }): void => publish(TERM_LEASE_ENDED, end);
+  const onLeaseEnded = (end: { readonly leaseId: string; readonly reason: string }): void => Effect.runSync(pushes.publish(TERM_LEASE_ENDED, end));
   plane.router.on("event", onEvent);
   plane.router.on("lease-ended", onLeaseEnded);
-  const stopSeatState = remoteState.onState((event) => publish(TERM_SEAT_STATE, event));
-  const stopLocalSeatState = seatStateRuntime.subscribe((event) => publish(TERM_SEAT_STATE, event));
+  const stopSeatState = remoteState.onState((event) => Effect.runSync(pushes.publish(TERM_SEAT_STATE, event)));
+  const stopLocalSeatState = seatStateRuntime.subscribe((event) => Effect.runSync(pushes.publish(TERM_SEAT_STATE, event)));
   return () => {
     plane.router.off("event", onEvent);
     plane.router.off("lease-ended", onLeaseEnded);

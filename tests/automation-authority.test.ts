@@ -40,6 +40,7 @@ import { nameThisMachine } from "./support/name-this-machine";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
 import { clearMachines, seedThisMachine } from "./support/seed-this-machine";
 import { automations, seat } from "./support/model-nodes";
+import { CorePushes } from "../src/core/push";
 
 const NAME = "factory";
 const NODE = asNodeId("autos");
@@ -66,7 +67,7 @@ const makeRuntime = (dir: string) => {
       MachineRepositoryLive,
       makeAutomationRepositoryLive(),
       // The automation ruler judges on the host's authorities.
-      Layer.provideMerge(Layer.provide(CanvasAuthoritiesLive, MachineRepositoryLive), recorder),
+      Layer.provideMerge(Layer.provide(CanvasAuthoritiesLive, Layer.merge(MachineRepositoryLive, CorePushes.nowhere)), recorder),
     ),
     Layer.mergeAll(makeStateEngineLive(join(dir, "junto.db")), makeInstallOpsLive(join(dir, "install-ops.db"))),
   );

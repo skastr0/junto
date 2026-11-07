@@ -4,7 +4,6 @@ import { resolveJuntoHome } from "@shared/junto-home";
 import { runningBuildIdentity } from "../node/build-identity";
 import { startCore } from "./core";
 import { closeCoreProcess } from "./core-stop";
-import { sendPushesTo } from "./push";
 import { HostClientsNoWindow } from "./host-clients";
 import { enforceBootRefusal } from "../node/boot-guard";
 import { declareMachineCoreOwnsSessions } from "./term/managed-spawn-plan";
@@ -42,9 +41,6 @@ const main = async (): Promise<void> => {
   // NODE_ENV as "development", so without this every installed core reports
   // each kernel pass to stderr. JUNTO_BUDGET still arms it by hand.
   armMainThreadBudget({ enabled: false });
-  // A windowless core has no main and no window: what it announces is for
-  // nobody, so its pushes go nowhere, on purpose.
-  sendPushesTo(() => {});
   const entry = resolve(process.argv[1] ?? process.execPath);
   const packageRoot = dirname(dirname(entry));
   const nativeTarget = `${process.platform}-${process.arch}`;

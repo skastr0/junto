@@ -21,7 +21,7 @@ import { SeatCredentialsCore, SeatCredentialsRpcs } from "../src/contract/core/s
 import { TermIpcPlane, TermPlaneHandlers } from "../src/core/ops/term-ipc";
 import { TermTemplatesHandlers } from "../src/core/ops/term-templates";
 import { SeatCredentialsHandlers } from "../src/core/ops/seat-credentials";
-import { CorePushes } from "../src/core/push";
+import { inProcessPushes } from "./support/in-process-pushes";
 import { ModelService } from "../src/core/model/service";
 import { TerminalNodeDeleteService } from "../src/core/term/node-delete";
 
@@ -115,7 +115,7 @@ const registered = async () => {
         Layer.provide(Layer.mergeAll(termHandlers, TermTemplatesHandlers, SeatCredentialsHandlers)),
         Layer.provide(Layer.succeed(TermIpcPlane, plane as never)),
         Layer.provide(Layer.succeed(ModelService, {} as never)),
-        Layer.provide(CorePushes.live),
+        Layer.provide(inProcessPushes),
         Layer.provide(Layer.effect(RpcServer.Protocol, serverProtocol(linkOf(port2)))),
       ),
       scope,

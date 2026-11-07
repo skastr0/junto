@@ -32,7 +32,7 @@ const { follow, makeWindowRuntime } = await import("../src/window/rpc/runtime");
 const { makeStateEngineLive } = await import("../src/core/state/engine");
 const { ReferencesRepository, ReferencesRepositoryLive } = await import("../src/core/references/repository");
 const { ReferencesHandlers } = await import("../src/core/ops/ipc-references");
-const { CorePushes } = await import("../src/core/push");
+const { inProcessPushes } = await import("./support/in-process-pushes");
 
 /** One end of a DOM-style channel as main's link. */
 const mainLinkOf = (port: MessagePort): RpcPort => ({
@@ -94,7 +94,7 @@ beforeEach(async () => {
   scope = await Effect.runPromise(Scope.make());
   asks = [];
   // The core's handlers publish each change; the one-process setup hands it to main's side, as the core link does.
-  const handlers = await store.runPromise(Layer.buildWithScope(Layer.provide(ReferencesHandlers, CorePushes.live), scope));
+  const handlers = await store.runPromise(Layer.buildWithScope(Layer.provide(ReferencesHandlers, inProcessPushes), scope));
   const core = await store.runPromise(
     RpcTest.makeClient(ReferencesRpcs).pipe(Effect.provide(handlers), Effect.provideService(Scope.Scope, scope)),
   );

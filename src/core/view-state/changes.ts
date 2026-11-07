@@ -6,7 +6,8 @@
  * process the in-process listeners never fire, so the bus is what carries it.
  */
 import { IPC_CHANNELS } from "@shared/ipc";
-import { publish } from "../push";
+import { Effect } from "effect";
+import { CorePushes } from "../push";
 
 export type ViewStateChangeListener = () => void;
 
@@ -21,8 +22,9 @@ export const subscribeViewStateChanges = (listener: ViewStateChangeListener): ((
 };
 
 /** Called after the delete's transaction committed, never inside it. */
-export const publishViewStateChange = (): void => {
+export const publishViewStateChange: Effect.Effect<void, never, CorePushes> = Effect.gen(function* () {
   for (const listener of [...listeners]) listener();
   // The window reads again through the core push, in process or over the port.
-  publish(IPC_CHANNELS.viewStateChanged, { area: "reload" });
-};
+  const pushes = yield* CorePushes;
+  yield* pushes.publish(IPC_CHANNELS.viewStateChanged, { area: "reload" });
+});

@@ -5,17 +5,20 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { subscribeUsageWhenEnabled } from "../src/core/ops/ipc-startup";
+import { CorePushes } from "../src/core/push";
+
+const pushes = CorePushes.over(() => undefined);
 
 describe("the usage snapshot publish", () => {
   it("subscribes where the build turns usage on", () => {
     const subscribe = vi.fn(() => () => undefined);
-    subscribeUsageWhenEnabled({ subscribe }, true);
+    subscribeUsageWhenEnabled({ subscribe }, pushes, true);
     expect(subscribe).toHaveBeenCalledTimes(1);
   });
 
   it("subscribes nowhere where the build turns usage off", () => {
     const subscribe = vi.fn(() => () => undefined);
-    subscribeUsageWhenEnabled({ subscribe }, false);
+    subscribeUsageWhenEnabled({ subscribe }, pushes, false);
     expect(subscribe).not.toHaveBeenCalled();
   });
 });

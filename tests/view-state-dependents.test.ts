@@ -17,6 +17,7 @@ import { ModelLive } from "../src/core/model/layer";
 import { ModelService } from "../src/core/model/service";
 import { subscribeViewStateChanges } from "../src/core/view-state/changes";
 import { ProductModelDependentsLive } from "../src/core/view-state/model-dependents";
+import { CorePushes } from "../src/core/push";
 
 const canvas = asCanvasName("main");
 const shelf = asNodeId("shelf");
@@ -29,7 +30,7 @@ const machineAt = (root: string) =>
   ManagedRuntime.make(
     Layer.provideMerge(
       ModelLive,
-      Layer.provideMerge(ProductModelDependentsLive, makeStateEngineLive(join(root, "junto.db"))),
+      Layer.provideMerge(ProductModelDependentsLive, Layer.merge(makeStateEngineLive(join(root, "junto.db")), CorePushes.nowhere)),
     ),
   );
 

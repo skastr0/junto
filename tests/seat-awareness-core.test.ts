@@ -26,6 +26,7 @@ import {
   type SeatAwarenessPlaneStartOptions,
 } from "../src/core/term/seat-awareness";
 import { makeSeatAwarenessLive } from "../src/core/term/seat-awareness-live";
+import { inProcessPushes } from "./support/in-process-pushes";
 
 vi.mock("../src/app/runtime", () => ({ AppRuntime: ManagedRuntime.make(Layer.empty) }));
 
@@ -129,6 +130,7 @@ describe("the seat awareness plane in the core", () => {
           Layer.provide(SeatAwarenessHandlers),
           Layer.provide(makeSeatAwarenessLive({ plane })),
           Layer.provide(Layer.succeed(SettingsService, settings as never)),
+          Layer.provide(inProcessPushes),
         ),
       );
       const handlers = new Map<string, (event: IpcMainInvokeEvent) => unknown>();

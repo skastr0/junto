@@ -376,7 +376,7 @@ const livePorts: ArtifactReadPorts = {
     (await orUndefined(Effect.flatMap(ViewStateRepository, (store) => store.snapshot())))?.captureInboxes[canvasName],
   setInbox: (canvasName, nodeId) =>
     orUndefined(Effect.flatMap(ViewStateRepository, (store) => store.write({ area: "capture-inbox", canvasName, inbox: nodeId }))),
-  publish: publishViewStateChange,
+  publish: () => void orUndefined(publishViewStateChange),
   headers: async (canvasName, query) => {
     if (query.nodeIds.length === 0) return [];
     const listed = await orUndefined(

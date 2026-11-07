@@ -7,7 +7,8 @@ import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { portPushes, type CorePort } from "../src/contract/core/port";
 import { serveCore } from "../src/core/serve";
 import { emitAgentSignalChanged } from "../src/core/signals/changes";
-import { makeCorePushesMain, subscribe } from "../src/app/core-process/main-side/core-pushes";
+import { deliverPush, makeCorePushesMain, subscribe } from "../src/app/core-process/main-side/core-pushes";
+import { CorePushes } from "../src/core/push";
 import type { AgentSignal } from "../src/shared/agent-signals";
 
 /** A whole signal: main decodes each push with its Schema, and refuses a partial one. */
@@ -20,7 +21,7 @@ describe("index.ts core broadcasts", () => {
   it("publishes the window's broadcasts on their channels until stopped", () => {
     const seen: Array<[string, unknown]> = [];
     const offs = ([WORK_PREAMBLE, AGENT_SIGNAL_CHANGED] as const).map((channel) => subscribe(channel, (payload) => seen.push([channel, payload])));
-    const broadcasts = publishWindowBroadcasts();
+    const broadcasts = publishWindowBroadcasts(CorePushes.over(deliverPush));
     try {
       const preamble = { preambleId: "p1", canvasName: "factory", nodeId: "seat", text: "hello", expiresAt: 1 };
       broadcasts.onPreamble(preamble);

@@ -16,7 +16,7 @@ import { KernelService } from "../kernel/service";
 import { ModelService } from "../model/service";
 import { UsageService } from "../usage/usage-service";
 import { WorkRepository } from "../work/repository";
-import { publish } from "../push";
+import { CorePushes, type CorePushesShape } from "../push";
 import { WIRE_TRAFFIC } from "../../contract/core/channels";
 import { wireTrafficPreview, type WireTrafficEvent } from "@shared/wire-traffic";
 import type { Canvas } from "@shared/model";
@@ -61,25 +61,26 @@ const listening = (subscribe: () => unknown): Effect.Effect<void, never, Scope.S
  */
 export const subscribeUsageWhenEnabled = (
   usage: { readonly subscribe: (listener: (state: UsageState) => void) => unknown },
+  pushes: CorePushesShape,
   enabled: boolean = USAGE_ENABLED,
-): unknown => (enabled ? usage.subscribe((state) => publish(IPC_CHANNELS.usageChanged, state)) : undefined);
+): unknown => (enabled ? usage.subscribe((state) => Effect.runSync(pushes.publish(IPC_CHANNELS.usageChanged, state))) : undefined);
 
 export const CoreStartup = Layer.effectDiscard(
   Effect.gen(function* () {
     const model = yield* ModelService;
     const clipboardHost = yield* ClipboardHost;
+    const pushes = yield* CorePushes;
     yield* model.ensureSeed.pipe(Effect.catch(() => Effect.void));
     const mail = yield* WorkRepository;
     yield* listening(() =>
       mail.subscribeChanges((canvasName, nodeId, kind) => {
-        if (kind === "mail") publish(IPC_CHANNELS.workMailChanged, { canvasName, nodeId });
-        else publish(IPC_CHANNELS.workSinkChanged, { canvasName, nodeId });
+        Effect.runSync(pushes.publish(kind === "mail" ? IPC_CHANNELS.workMailChanged : IPC_CHANNELS.workSinkChanged, { canvasName, nodeId }));
       }),
     );
     const usage = yield* UsageService;
-    yield* listening(() => subscribeUsageWhenEnabled(usage));
+    yield* listening(() => subscribeUsageWhenEnabled(usage, pushes));
     const kernel = yield* KernelService;
-    yield* listening(() => kernel.subscribe((snapshot) => publish(IPC_CHANNELS.kernelChanged, snapshot)));
+    yield* listening(() => kernel.subscribe((snapshot) => Effect.runSync(pushes.publish(IPC_CHANNELS.kernelChanged, snapshot))));
 
     // Keep the last model topology for compact connection-change notices.
     const noticeCanvases = new Map<string, Canvas>();
@@ -98,14 +99,14 @@ export const CoreStartup = Layer.effectDiscard(
       }),
     );
 
-    yield* listening(() => injectionSupervisor.subscribeOnboarding((event) => publish(IPC_CHANNELS.seatOnboardingChanged, event)));
+    yield* listening(() => injectionSupervisor.subscribeOnboarding((event) => Effect.runSync(pushes.publish(IPC_CHANNELS.seatOnboardingChanged, event))));
 
     // A continuation line held by the seat's input box is said on the seat, and every message typed into a seat pulses its wire.
     yield* listening(() =>
       injectionSupervisor.subscribeContinuationHeld((bindingId, hold, line) => {
         const live = termPlane.host.get(bindingId);
         if (!live?.canvasName || !live.nodeId) return;
-        publish(WIRE_TRAFFIC, {
+        Effect.runSync(pushes.publish(WIRE_TRAFFIC, {
           canvasName: live.canvasName,
           toNodeId: live.nodeId,
           kind: "notice",
@@ -113,10 +114,10 @@ export const CoreStartup = Layer.effectDiscard(
           preview: wireTrafficPreview(line),
           at: Date.now(),
           held: hold,
-        } satisfies WireTrafficEvent);
+        } satisfies WireTrafficEvent));
       }),
     );
-    yield* listening(() => messageDelivery.subscribeDelivered((event) => publish(WIRE_TRAFFIC, event)));
+    yield* listening(() => messageDelivery.subscribeDelivered((event) => Effect.runSync(pushes.publish(WIRE_TRAFFIC, event))));
 
     const coreMail = yield* MachineCoreMail;
     const settings = yield* SettingsService;

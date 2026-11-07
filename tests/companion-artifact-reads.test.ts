@@ -5,7 +5,7 @@
  * checked without the app's runtime. The demo's answers are in
  * companion-demo-artifacts.test.ts.
  */
-import { Result } from "effect";
+import { Effect, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import {
   COMPANION_CLOSED_ARGS_OPS,
@@ -23,6 +23,7 @@ import type { JuntoViewStateApi } from "../src/shared/ipc";
 import type { ViewStateEvent, ViewStateSnapshot } from "../src/shared/view-state";
 import { createMainViewState } from "../src/window/lib/view-state-main";
 import { publishViewStateChange, subscribeViewStateChanges } from "../src/core/view-state/changes";
+import { CorePushes } from "../src/core/push";
 
 const line = (id: string, op: string, args: object): string => JSON.stringify({ v: COMPANION_PROTOCOL, type: "request", id, op, args });
 
@@ -133,7 +134,7 @@ describe("an Inbox the phone sets reaches the desktop's quick capture", () => {
           stored = snapshotWith({ [canvasName]: nodeId });
           return true;
         },
-        publish: () => publishViewStateChange(),
+        publish: () => Effect.runSync(publishViewStateChange.pipe(Effect.provide(CorePushes.nowhere))),
       }),
     );
     await backend.inboxSet("main", "inbox-two");

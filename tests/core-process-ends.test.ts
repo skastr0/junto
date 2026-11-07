@@ -16,15 +16,16 @@ const holdsNoState = (source: string): boolean =>
   !/^let /mu.test(source) && !/^const \w+ = new (Map|Set|WeakMap)/mu.test(source);
 
 it("pushes: the core publishes, main subscribes, and each core boot chooses the sink", () => {
-  expect(ENTRY).toContain("sendPushesTo(served.push)");
-  expect(HEADLESS).toContain("sendPushesTo(() => {})");
+  expect(ENTRY).toContain("CorePushes.over(served.push)");
+  expect(HEADLESS).toContain("host: HostClientsNoWindow");
+  expect(read("src/core/push.ts")).not.toMatch(/sendPushesTo|^let /mu);
   expect(read("src/core/push.ts")).not.toMatch(/subscribe|listeners/u);
   expect(read("src/app/core-process/main-side/core-pushes.ts")).not.toMatch(/\bpublish\b|sendPushesTo/u);
   expect(holdsNoState(read("src/contract/core/channels.ts"))).toBe(true);
 });
 
 it("what the core asks of Electron is the host groups: each core boot chooses its clients, and no named operation is left", () => {
-  expect(ENTRY).toContain("host: HostClientsLive.pipe(");
+  expect(ENTRY).toContain("HostClientsLive.pipe(");
   expect(HEADLESS).toContain("host: HostClientsNoWindow");
   // The port carries pushes and RPC alone: no call, answer, hostCall or hostAnswer message.
   expect(read("src/contract/core/port.ts")).not.toMatch(/"call"|"answer"|"hostCall"|"hostAnswer"/u);

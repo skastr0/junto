@@ -42,7 +42,7 @@ import { RemoteSeatState } from "./term/remote-seat-state";
 import { watchSeatReadiness } from "./term/onboard-nudge-interject";
 import { termPlane } from "./term/plane";
 import { IPC_CHANNELS } from "@shared/ipc";
-import { publish } from "./push";
+import { CorePushes } from "./push";
 import { AgentSignalRepository } from "./signals/repository";
 import { onAgentSignalChanged } from "./signals/changes";
 import { mainAuthoringGate } from "../node/main-authoring-gate";
@@ -304,8 +304,9 @@ export const startCore = async (options: CoreOptions) => {
     // numbers its spawns from 1, so a spawn admitted before the adopt could
     // collide with a PTY that is still running there.
     await adoptCoreTerminals();
+    const pushes = await runtime.runPromise(CorePushes);
     if (windowTerminals !== undefined) {
-      unbindTermIpcPlane = bindTermIpcPlane(termPlane, await runtime.runPromise(RemoteSeatState));
+      unbindTermIpcPlane = bindTermIpcPlane(termPlane, pushes, await runtime.runPromise(RemoteSeatState));
     }
     // A seated seat this core did not get back is over, with its reason, so no
     // card keeps the last core's ring for a process that is not there.
@@ -318,7 +319,7 @@ export const startCore = async (options: CoreOptions) => {
     const filesHost = FILES_REMOTE_ENABLED ? makeHeadlessFilesService() : undefined;
     // This core's end of another machine's Files node: the window's router asks it by name.
     const filesRemote = Option.getOrUndefined(await runtime.runPromise(Effect.serviceOption(FilesRemoteService)));
-    filesRemote?.onChange((change) => publish(FILES_REMOTE_CHANGED, change));
+    filesRemote?.onChange((change) => Effect.runSync(pushes.publish(FILES_REMOTE_CHANGED, change)));
     const files = await runtime.runPromise(makeFilesLinkChannel({
       enabled: FILES_REMOTE_ENABLED,
       service: () => filesHost,
@@ -397,8 +398,8 @@ export const startCore = async (options: CoreOptions) => {
       run: effect => runtime.runPromise(effect),
       onSuspend: listener => { coreMail.seats.onSuspend(listener); },
       // A window hears where each offboard stands, and when the auto mode's due seats change.
-      publish: (progress) => publish(IPC_CHANNELS.seatOffboardProgress, progress),
-      publishDue: () => publish(SEAT_CACHE_DUE_CHANGED, null),
+      publish: (progress) => Effect.runSync(pushes.publish(IPC_CHANNELS.seatOffboardProgress, progress)),
+      publishDue: () => Effect.runSync(pushes.publish(SEAT_CACHE_DUE_CHANGED, null)),
     });
     // A seat's declared signals (blocked, escalate, feedback) ride its own
     // snapshot, as in the window, so a seat waiting on the operator is
@@ -432,7 +433,7 @@ export const startCore = async (options: CoreOptions) => {
     // A seat on a linked machine asked the cache question on a view here, or
     // its question was settled: the window's list reads again, as it does when
     // one of this machine's own asks (seat-views.ts `questionsChanged`).
-    const stopSeatViewQuestionPushes = onSeatViewQuestions(() => publish(SEAT_CACHE_DUE_CHANGED, null));
+    const stopSeatViewQuestionPushes = onSeatViewQuestions(() => Effect.runSync(pushes.publish(SEAT_CACHE_DUE_CHANGED, null)));
     stopSeatWatches = () => {
       stopResumeRecovery();
       stopReadiness();

@@ -24,7 +24,7 @@ import { ReferencesRpcs } from "../src/contract/core/references";
 import { makeStateEngineLive } from "../src/core/state/engine";
 import { ReferencesRepository, ReferencesRepositoryLive } from "../src/core/references/repository";
 import { ReferencesHandlers } from "../src/core/ops/ipc-references";
-import { CorePushes } from "../src/core/push";
+import { inProcessPushes } from "./support/in-process-pushes";
 import { subscribe as onCorePush } from "../src/app/core-process/main-side/core-pushes";
 
 let root: string;
@@ -42,7 +42,7 @@ beforeEach(async () => {
   scope = await Effect.runPromise(Scope.make());
   broadcasts = [];
   // The handlers listen for changes while this scope is open, as the core's server does.
-  const handlers = await runtime.runPromise(Layer.buildWithScope(Layer.provide(ReferencesHandlers, CorePushes.live), scope));
+  const handlers = await runtime.runPromise(Layer.buildWithScope(Layer.provide(ReferencesHandlers, inProcessPushes), scope));
   references = await runtime.runPromise(clientOf().pipe(Effect.provide(handlers), Effect.provideService(Scope.Scope, scope)));
   stop = onCorePush(IPC_CHANNELS.referencesChanged, (payload) =>
     broadcasts.push([IPC_CHANNELS.referencesChanged, payload]),

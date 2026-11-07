@@ -36,6 +36,7 @@ import { nameThisMachine } from "./support/name-this-machine";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
 import { clearMachines, seedThisMachine } from "./support/seed-this-machine";
 import { artifacts, seat } from "./support/model-nodes";
+import { CorePushes } from "../src/core/push";
 
 const NAME = "factory";
 const ARTS = asNodeId("arts");
@@ -53,7 +54,7 @@ const makeRuntime = (dir: string) => {
       Layer.provide(
         ArtifactRepositoryLive,
         Layer.mergeAll(
-          Layer.provideMerge(Layer.provide(CanvasAuthoritiesLive, MachineRepositoryLive), recorder),
+          Layer.provideMerge(Layer.provide(CanvasAuthoritiesLive, Layer.merge(MachineRepositoryLive, CorePushes.nowhere)), recorder),
           makeContentServiceLive({ root: join(dir, "content"), skipInlineMediaMigration: true }),
         ),
       ),

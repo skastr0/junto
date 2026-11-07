@@ -7,6 +7,7 @@ import { Effect } from "effect";
 import { RpcTest } from "effect/rpc";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { bindTermIpcPlane } from "../src/core/ops/term-ipc";
+import { inProcessPushesShape } from "./support/in-process-pushes";
 import { TERM_SEAT_STATE } from "../src/contract/core/channels";
 import { SeatCacheDueRpcs } from "../src/contract/core/seat-cache-due";
 import { SeatCacheDueHandlers } from "../src/core/ops/seat-cache-due";
@@ -32,7 +33,7 @@ describe("the window hears the core's seats", () => {
     const plane = { router: { setTerminalEnvironment: () => undefined, on: () => undefined, off: () => undefined } };
     const heard: unknown[] = [];
     const stopHearing = subscribe(TERM_SEAT_STATE, (payload) => heard.push(payload));
-    const unbind = bindTermIpcPlane(plane as never, makeRemoteSeatState());
+    const unbind = bindTermIpcPlane(plane as never, inProcessPushesShape, makeRemoteSeatState());
     // A whole event: main decodes each push with its Schema, and refuses a partial one.
     const event: AgentSeatStateEvent = { bindingId: "seat", epoch: "e1", state: "working", reason: "typing", confidence: "high", at: 1 };
     emit(event as never);

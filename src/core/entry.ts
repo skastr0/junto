@@ -14,7 +14,7 @@ import { makeMachineBundleSources } from "./hosts/machine-bundle-download";
 import { startCore } from "./core";
 import { enforceBootRefusal } from "../node/boot-guard";
 import { type CoreMessage, type CorePort } from "../contract/core/port";
-import { Layer } from "effect";
+import { Effect, Layer } from "effect";
 import { heldForServer } from "@shared/rpc-port";
 import { CoreLink } from "../contract/core/link";
 import { CoreServerLive } from "./link";
@@ -23,7 +23,7 @@ import { HostClientsLive } from "./host-clients";
 import { serveCore } from "./serve";
 import { CoreStartup } from "./ops/ipc-startup";
 import { closeCoreProcess, stopCoreOnSignal } from "./core-stop";
-import { CorePushes, publish, sendPushesTo } from "./push";
+import { CorePushes } from "./push";
 import { hostOverseer, OverseerPageFlights } from "./ops/overseer-pages";
 import { AGENT_SIGNAL_CHANGED, COMPANION_DEVICES } from "../contract/core/channels";
 import { publishWindowBroadcasts } from "./ops/main-index";
@@ -96,14 +96,14 @@ const main = async (parent: ParentPort): Promise<void> => {
   // The core's RPC groups ride the same port; a request that comes before
   // the server listens waits for it.
   const link = heldForServer(parentCorePort(parent));
-  sendPushesTo(served.push);
+  const pushes = CorePushes.over(served.push);
   // A view's surface port, beside its message: the core's plane hands it on to the terminal process.
   parent.on("message", (event) => {
     const message = event.data as { readonly kind?: unknown } | undefined;
     const port = event.ports?.[0];
     if (message?.kind === "surfaceOpen" && port !== undefined) openCoreSurface(message as SurfaceOpenMessage, port, served.push);
   });
-  const broadcasts = publishWindowBroadcasts();
+  const broadcasts = publishWindowBroadcasts(pushes);
   // This core's overseer page calls: the host pages give each its id, and the recheck handler reads them back.
   const pageFlights = OverseerPageFlights.make();
   const core = await startCore({
@@ -111,7 +111,10 @@ const main = async (parent: ParentPort): Promise<void> => {
     build: boot.build,
     log,
     // What the core asks of Electron rides the same port, answered by main's host server.
-    host: HostClientsLive.pipe(Layer.provide(Layer.succeed(HostLink, parentCorePort(parent)))),
+    host: Layer.merge(
+      HostClientsLive.pipe(Layer.provide(Layer.succeed(HostLink, parentCorePort(parent)))),
+      Layer.succeed(CorePushes, pushes),
+    ),
     canvasControl: true,
     windowTerminals: { parent },
     overseer: hostOverseer(pageFlights),
@@ -123,8 +126,8 @@ const main = async (parent: ParentPort): Promise<void> => {
       environment: () =>
         companionE2eEnvironment() ??
         readCompanionEnvironment({ packaged: boot.app.packaged, resourcesPath: boot.app.resourcesPath, repoRoot: boot.app.appPath }),
-      onDevicesChanged: (devices) => publish(COMPANION_DEVICES, devices),
-      showSignal: (signal) => publish(AGENT_SIGNAL_CHANGED, signal),
+      onDevicesChanged: (devices) => Effect.runSync(pushes.publish(COMPANION_DEVICES, devices)),
+      showSignal: (signal) => Effect.runSync(pushes.publish(AGENT_SIGNAL_CHANGED, signal)),
     },
     ...makeMachineBundleSources({
       home: boot.home,
@@ -141,7 +144,6 @@ const main = async (parent: ParentPort): Promise<void> => {
       CoreServerLive.pipe(
         Layer.provide([
           Layer.succeed(CoreLink, link),
-          CorePushes.live,
           Layer.succeed(OverseerPageFlights, pageFlights),
           RunningLiveOverseer.layerOf(core.overseerLive),
           Layer.succeed(CoreSeatSessions, core.seatSessions),

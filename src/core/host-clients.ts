@@ -13,6 +13,7 @@ import { HostLink } from "../contract/host/link";
 import { TerminalHost } from "../contract/host/terminal";
 import { WindowHost } from "../contract/host/window";
 import type { PortMessage, RpcPort } from "@shared/rpc-port";
+import { CorePushes } from "./push";
 
 export const HostClientsLive = Layer.mergeAll(ClipboardHost.layer, FilesHost.layer, OverseerPagesHost.layer, WindowHost.layer, TerminalHost.layer);
 export type HostClients = Layer.Success<typeof HostClientsLive>;
@@ -48,5 +49,8 @@ export const noWindowLink = (): RpcPort => {
   };
 };
 
-/** The windowless core's host: the same clients, on a link no main answers. */
-export const HostClientsNoWindow = HostClientsLive.pipe(Layer.provide(Layer.effect(HostLink, Effect.sync(noWindowLink))));
+/** The same clients, on a link no main answers. */
+export const HostClientsOnNoWindowLink = HostClientsLive.pipe(Layer.provide(Layer.effect(HostLink, Effect.sync(noWindowLink))));
+
+/** The windowless core's host: those clients, and pushes that go nowhere. */
+export const HostClientsNoWindow = Layer.merge(HostClientsOnNoWindowLink, CorePushes.nowhere);

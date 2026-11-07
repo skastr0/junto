@@ -47,6 +47,7 @@ import { asNodeId } from "../src/shared/physics/schema";
 import type { OpId, ResourceCommand, RulingContext } from "../src/shared/resource-command";
 import { artifacts, automations, seat } from "./support/model-nodes";
 import { ModelStoresLive, seedCanvasRows } from "./support/seed-canvas";
+import { CorePushes } from "../src/core/push";
 
 const CANVAS = "factory";
 const SELF = "mini" as InstallationId;
@@ -107,7 +108,7 @@ const makeStore = async (self: InstallationId = SELF, authorities: ReadonlyArray
             Layer.provideMerge(PausePlaneLive, FactoryPauseRepositoryLive),
             makeMachineRepositoryLive({ defaultName: () => self, makeInstallationId: () => self }),
           ),
-          Layer.mergeAll(makeStateEngineLive(join(root, "junto.db")), makeInstallOpsLive(join(root, "install-ops.db"))),
+          Layer.mergeAll(makeStateEngineLive(join(root, "junto.db")), makeInstallOpsLive(join(root, "install-ops.db")), CorePushes.nowhere),
         ),
       ),
     ),
