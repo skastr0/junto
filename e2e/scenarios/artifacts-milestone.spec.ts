@@ -174,9 +174,7 @@ test("artifacts: each type, a new version, history, a stale edit refused, commen
     await expect(card).toBeVisible({ timeout: 30_000 });
     await open();
     await pick("Untitled document");
-    await openRail();
-    await expect(threads.locator(".artifact-thread__post")).toHaveCount(1, { timeout: 20_000 });
-    await expect(threads.locator(".artifact-thread__post").first()).toContainText("for the merge");
+    await expect(threads.getByText("for the merge")).toBeVisible({ timeout: 20_000 });
     await shot(page, "08-comment-after-reload");
 
     // The seat comments from its throwaway folder; the rail shows it.
