@@ -1,5 +1,5 @@
-import { Duration, Effect, Schema, Scope } from "effect";
-import { RpcClient } from "effect/rpc";
+import { Context, Duration, Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { RpcClient, type RpcClientError } from "effect/rpc";
 import { clientProtocol, type PortMessage, type RpcPort } from "../../shared/rpc-port";
 import {
   TERMINAL_LINK_VERSION,
@@ -33,6 +33,11 @@ import {
  * terminal process does not serve fails the compile, not a runtime answer.
  */
 export type RemoteTerminalExit = TerminalExitStatus;
+
+/** The calls on one link, as the client its runtime built. */
+class TerminalCalls extends Context.Service<TerminalCalls, RpcClient.FromGroup<typeof TerminalRpcs, RpcClientError.RpcClientError>>()(
+  "@junto/node/TerminalCalls",
+) {}
 
 /** How long a new core waits on `TerminalAdopt` before it adopts nothing and says so. */
 const ADOPT_DEADLINE = Duration.seconds(10);
@@ -144,13 +149,14 @@ export const terminalClient = (
       return () => rpcListeners.delete(handler);
     },
   };
-  const scope = Effect.runSync(Scope.make());
-  const calls = Effect.runSync(
-    RpcClient.make(TerminalRpcs).pipe(
-      Effect.provideServiceEffect(RpcClient.Protocol, clientProtocol(rpcPort)),
-      Effect.provideService(Scope.Scope, scope),
+  // One runtime per link: it holds the RPC client and its scope, and every
+  // call on this link runs on it.
+  const runtime = ManagedRuntime.make(
+    Layer.effect(TerminalCalls, RpcClient.make(TerminalRpcs)).pipe(
+      Layer.provide(Layer.effect(RpcClient.Protocol, clientProtocol(rpcPort))),
     ),
   );
+  const calls = runtime.runSync(Effect.service(TerminalCalls));
 
   const exited = (id: number, event: RemoteTerminalExit): void => {
     const terminal = live.get(id);
@@ -248,7 +254,7 @@ export const terminalClient = (
     lastSeq: () => live.get(id)?.seq ?? 0,
     onTyping: subscribe(id, (terminal) => terminal.typing),
     onInput: subscribe(id, (terminal) => terminal.input),
-    fence: () => Effect.runPromise(calls.TerminalFence().pipe(Effect.ignore)),
+    fence: () => runtime.runPromise(calls.TerminalFence().pipe(Effect.ignore)),
   });
 
   const adopt = (): Effect.Effect<ReadonlyArray<AdoptedTerminal>, TerminalAdoptFailed> => Effect.suspend(() => {
@@ -285,7 +291,7 @@ export const terminalClient = (
     spawn: (input) => {
       const id = nextId++;
       live.set(id, { data: new Set(), exit: new Set(), error: new Set(), typing: new Set(), input: new Set(), seq: 0 });
-      const pid = Effect.runPromise(
+      const pid = runtime.runPromise(
         calls.TerminalSpawn({ ...input, id }).pipe(Effect.mapError((error) => new Error(messageOf(error)))),
       ).then((answer) => answer.pid, (error: unknown) => {
         failed(id, messageOf(error));
