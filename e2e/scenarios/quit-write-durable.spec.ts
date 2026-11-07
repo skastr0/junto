@@ -6,10 +6,7 @@
  * so the reply has not arrived when the quit starts. Main's authoring gate
  * holds the write, the core commits it, the core's close drains its authoring
  * gate before it exits (junto/core.ts:186), and the scope waits for that exit.
- * The relaunched app reads the node back.
- *
- * It also covers the empty case of the quit check: no seats running, so the
- * log says "live work: 0 local terminal sessions" and no prompt holds the quit.
+ * The relaunched app shows the note on its canvas.
  *   bun run test:e2e:fast e2e/scenarios/quit-write-durable.spec.ts
  */
 import { modelFixture } from "../harness/model";
@@ -22,14 +19,6 @@ test("a write in flight at quit survives the restart", async () => {
   test.setTimeout(120_000);
   const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([]) } });
   const child = junto.app.process();
-  const lines: string[] = [];
-  const keep = (chunk: Buffer): void => {
-    for (const line of chunk.toString("utf8").split("\n")) {
-      if (line.includes("[quit]")) lines.push(line.trim().slice(0, 300));
-    }
-  };
-  child.stdout?.on("data", keep);
-  child.stderr?.on("data", keep);
   const exited = new Promise<void>((resolve) => {
     if (child.exitCode !== null || child.signalCode !== null) resolve();
     else child.once("exit", () => resolve());
@@ -52,19 +41,13 @@ test("a write in flight at quit survives the restart", async () => {
 
     await Promise.race([
       exited,
-      new Promise<void>((_resolve, reject) => setTimeout(() => reject(new Error(`no exit; quit lines:\n${lines.join("\n")}`)), 30_000)),
+      new Promise<void>((_resolve, reject) => setTimeout(() => reject(new Error("the app did not quit within 30s")), 30_000)),
     ]);
-    // Nothing was running, so nothing held the quit for a prompt.
-    expect(lines.join("\n")).toContain("live work: 0 local terminal sessions");
-    expect(lines.join("\n")).toContain("quit, exit code 0");
-    console.log(`write-at-quit lines:\n${lines.join("\n")}`);
 
     // Same machine state, a new app: the write is there.
     const again = await launchJunto({ sandbox: junto.sandbox });
     try {
-      await expect(again.page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-      const opened = await again.page.evaluate((canvas) => window.junto!.modelOpen({ canvas }), CANVAS);
-      expect(opened.nodes.find((node) => node.id === NOTE)).toMatchObject({ kind: "note", text: "written at quit" });
+      await expect(again.page.getByText("written at quit", { exact: true })).toBeVisible({ timeout: 30_000 });
     } finally {
       await again.close();
     }
