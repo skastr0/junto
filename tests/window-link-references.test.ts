@@ -26,6 +26,8 @@ const { ReferencesWindowHandlers } = await import("../src/app/references/ipc");
 const { ReferencesCore, ReferencesRpcs } = await import("../src/contract/core/references");
 const { ReferencesForwarded, ReferencesWindowRpcs, ReferencesWindow } = await import("../src/contract/window/references");
 const { UpdateWindowRpcs } = await import("../src/contract/window/update");
+const { GitWindowRpcs } = await import("../src/contract/window/git");
+const { notUnderTest } = await import("./support/window-groups");
 const { ShellEnvironmentWindowRpcs } = await import("../src/contract/window/shell-environment");
 const { pageLink } = await import("../src/window/rpc/link");
 const { follow, makeWindowRuntime } = await import("../src/window/rpc/runtime");
@@ -82,7 +84,7 @@ const handlersOver = (core: RpcClient.FromGroup<typeof ReferencesRpcs, never>) =
     UpdateStates: () => Stream.die("not under test"),
     UpdateCheck: () => Effect.die("not under test"),
     UpdateRestartAndInstall: () => Effect.die("not under test"),
-  }).pipe(Layer.merge(ReferencesWindowHandlers), Layer.merge(shellEnvironmentNotUnderTest), Layer.provide(Layer.succeed(ReferencesCore, core as never)));
+  }).pipe(Layer.merge(ReferencesWindowHandlers), Layer.merge(notUnderTest(GitWindowRpcs)), Layer.merge(shellEnvironmentNotUnderTest), Layer.provide(Layer.succeed(ReferencesCore, core as never)));
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "junto-window-references-"));

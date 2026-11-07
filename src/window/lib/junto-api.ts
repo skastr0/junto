@@ -1,6 +1,5 @@
 import type {
   JuntoApi,
-  JuntoGitApi,
   JuntoHostsApi,
   JuntoTerminalApi,
 } from "@shared/ipc";
@@ -13,7 +12,6 @@ import type {
 export const getJuntoApi = ():
   | (JuntoApi &
       Partial<JuntoTerminalApi> &
-      Partial<JuntoGitApi> &
       Partial<JuntoHostsApi>)
   | undefined =>
   typeof window === "undefined" ? undefined : window.junto;

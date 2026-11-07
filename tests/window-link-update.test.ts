@@ -27,6 +27,8 @@ const { UpdateWindow, UpdateWindowRpcs } = await import("../src/contract/window/
 const { UpdateState } = await import("../src/window/lib/update-state");
 
 const { ReferencesWindowRpcs } = await import("../src/contract/window/references");
+const { GitWindowRpcs } = await import("../src/contract/window/git");
+const { notUnderTest } = await import("./support/window-groups");
 const { ShellEnvironmentWindowRpcs } = await import("../src/contract/window/shell-environment");
 
 /** The shell environment group answers nothing here: it is not under test. */
@@ -40,6 +42,7 @@ const shellEnvironmentNotUnderTest = ShellEnvironmentWindowRpcs.toLayer({
 const withoutReferences = <E, R>(update: Layer.Layer<Rpc.ToHandler<RpcGroup.Rpcs<typeof UpdateWindowRpcs>>, E, R>) =>
   Layer.mergeAll(
     update,
+    notUnderTest(GitWindowRpcs),
     shellEnvironmentNotUnderTest,
     ReferencesWindowRpcs.toLayer({
       ReferencesBriefingWrite: () => Effect.die("not under test"),

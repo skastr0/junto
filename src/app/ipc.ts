@@ -63,7 +63,6 @@ import {
 import { registerTerminalIpc } from "./term/ipc";
 import { registerSeatAwarenessIpc } from "./term/seat-awareness-ipc";
 import { registerSeatCacheDueIpc } from "./term/seat-cache-due-ipc";
-import { registerGitIpc } from "./git/ipc";
 import { registerResourceIpcCore } from "./core-process/main-side/resources";
 import {
   RESOURCE_CHANGED,
@@ -122,7 +121,6 @@ export const registerJuntoIpc = (boot: MainBoot): void => {
     broadcast,
     surfacePlane: boot.surfacePlanes.current,
   }, boot.core);
-  registerGitIpc(privilegedIpc, boot.core);
   registerSettingsIpc(privilegedIpc, broadcast, boot.core);
   registerViewStateIpc(privilegedIpc, broadcast, boot.core);
   // The renderer's tasks and artifacts: the core's stores and the core's

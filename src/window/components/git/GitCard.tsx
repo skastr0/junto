@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { NodeOf } from "@shared/model";
 import type { GitStatus } from "@shared/git";
-import { getJuntoApi } from "../../lib/junto-api";
+import { useGitWindow } from "../../lib/git-summary";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { KindCard } from "../nodes/SpineCard";
 import { editText } from "../../lib/mutations";
@@ -27,6 +27,7 @@ export function GitCard({
   const label = firstLine || "git";
   const [status, setStatus] = useState<GitStatus | undefined>();
   const [error, setError] = useState<string | undefined>();
+  const gitWindow = useGitWindow();
 
   useEffect(() => {
     if (!cwd) {
@@ -34,9 +35,10 @@ export function GitCard({
       setError("no folder");
       return;
     }
+    if (gitWindow === undefined) return;
     let live = true;
-    void getJuntoApi()
-      ?.gitStatus?.(cwd)
+    void gitWindow.runtime
+      .runPromise(gitWindow.git.GitStatus({ cwd }))
       .then((result) => {
         if (!live) return;
         if (result.ok) {
@@ -54,7 +56,7 @@ export function GitCard({
     return () => {
       live = false;
     };
-  }, [cwd]);
+  }, [cwd, gitWindow]);
 
   const commitRename = (nextFirst: string) => {
     const rest = rawText.split("\n").slice(1).join("\n");

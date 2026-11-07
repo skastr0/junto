@@ -6,6 +6,7 @@
  */
 import { type Context, Effect, Layer } from "effect";
 import type { CoreClients } from "../core-process/clients";
+import { GitWindowHandlers } from "../git/ipc";
 import { ReferencesWindowHandlers } from "../references/ipc";
 import { ShellEnvironmentWindowHandlers } from "../shell-environment/ipc";
 import { AppRuntime } from "../runtime";
@@ -31,6 +32,6 @@ export const windowHandlers = (boot: {
   readonly install: UpdateInstall;
   readonly core: Context.Context<CoreClients>;
 }): WindowHandlers =>
-  Layer.mergeAll(updateWindowHandlers(boot.currentVersion, boot.install), ReferencesWindowHandlers, ShellEnvironmentWindowHandlers).pipe(
+  Layer.mergeAll(updateWindowHandlers(boot.currentVersion, boot.install), ReferencesWindowHandlers, ShellEnvironmentWindowHandlers, GitWindowHandlers).pipe(
     Layer.provide([appUpdateService, Layer.succeedContext(boot.core)]),
   );

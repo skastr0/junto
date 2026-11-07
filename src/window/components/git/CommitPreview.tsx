@@ -10,8 +10,7 @@
 import { useEffect, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { GitCommitResult } from "@shared/git";
-import { getJuntoApi } from "../../lib/junto-api";
-import { seatGitFolder } from "../../lib/git-summary";
+import { seatGitFolder, useGitWindow } from "../../lib/git-summary";
 import { modelStore } from "../../lib/use-model";
 import { state$ } from "../../lib/state";
 import { Button, DiffView } from "../ui";
@@ -52,21 +51,20 @@ export function CommitPreview({
   });
   const key = `${folder ?? ""}\u0000${sha}`;
   const [read, setRead] = useState<Read>();
+  const gitWindow = useGitWindow();
   useEffect(() => {
     if (!folder) return undefined;
     let live = true;
-    const api = getJuntoApi();
     const done = (result: GitCommitResult): void => {
       if (live) setRead({ key, result });
     };
     const unread = (): void => done({ ok: false, error: "This commit could not be read." });
-    const reading = api?.gitCommit?.(folder, sha);
-    if (reading) reading.then(done, unread);
-    else unread();
+    if (gitWindow === undefined) unread();
+    else gitWindow.runtime.runPromise(gitWindow.git.GitCommit({ cwd: folder, sha })).then(done, unread);
     return () => {
       live = false;
     };
-  }, [folder, sha, key]);
+  }, [folder, sha, key, gitWindow]);
 
   const problem = !folder
     ? openCanvas !== canvasName

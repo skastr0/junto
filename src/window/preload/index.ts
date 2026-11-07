@@ -25,7 +25,6 @@ import {
   type JuntoApi,
   type JuntoBrowserApi,
   type JuntoDemoApi,
-  type JuntoGitApi,
   type JuntoHostsApi,
   type JuntoTerminalApi,
   type JuntoUsageApi,
@@ -842,15 +841,6 @@ const terminalApi: JuntoTerminalApi = {
   operatorContentPut: (input) => invoke(IPC_CHANNELS.operatorContentPut, IPC_TIMEOUT_MS, input),
 };
 
-const gitApi: JuntoGitApi = {
-  gitStatus: (cwd) => invoke(IPC_CHANNELS.gitStatus, IPC_TIMEOUT_MS, cwd),
-  gitLog: (cwd, limit) => invoke(IPC_CHANNELS.gitLog, IPC_TIMEOUT_MS, cwd, limit),
-  gitShow: (cwd, sha) => invoke(IPC_CHANNELS.gitShow, IPC_TIMEOUT_MS, cwd, sha),
-  gitSummary: (cwd) => invoke(IPC_CHANNELS.gitSummary, IPC_TIMEOUT_MS, cwd),
-  gitReview: (cwd, view) => invoke(IPC_CHANNELS.gitReview, IPC_TIMEOUT_MS, cwd, view),
-  gitCommit: (cwd, sha) => invoke(IPC_CHANNELS.gitCommit, IPC_TIMEOUT_MS, cwd, sha),
-};
-
 const filesApi: JuntoFilesApi = {
   files: {
     open: (ref) => invoke(IPC_CHANNELS.filesOpen, IPC_TIMEOUT_MS, ref),
@@ -919,7 +909,6 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
     ...(USAGE_ENABLED ? usageApi : {}),
     ...(FLEET_UI_ENABLED ? hostsApi : {}),
     ...terminalApi,
-    ...gitApi,
     ...filesApi,
     ...(BROWSER_ENABLED ? browserApi : {}),
     ...demoApi,

@@ -1,11 +1,12 @@
 import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
-import { useEffect } from "react";
+import { useContext, useEffect, useMemo } from "react";
 import type { Canvas, Node } from "@shared/model";
 import { modelStore } from "./use-model";
-import type { GitSummary } from "@shared/git";
+import type { GitSummary, GitSummaryResult } from "@shared/git";
 import { resolveRegionCwd } from "@shared/region-defaults";
-import { getJuntoApi } from "./junto-api";
+import { GitWindow } from "../../contract/window/git";
+import { WindowRuntimeContext } from "../rpc/runtime";
 import { isOnMachine, thisMachineName } from "./machines";
 import { isOperatorModalOpen, openOperatorModalFrom, type OperatorModalPlaces } from "./operator-modal";
 import { state$ } from "./state";
@@ -15,10 +16,19 @@ import { state$ } from "./state";
  *
  * The cost rule: git is read per folder, never per seat, and only while
  * something on screen shows that folder. Every viewer of a folder retains
- * one shared poll; the last to leave stops it and drops what was read. Main
- * keys its own read by repository, so two folders of one repository still
- * cost one read between them (adapters/git.ts readGitSummary).
+ * one shared poll; the last to leave stops it and drops what was read. The
+ * core keys its own read by repository, so two folders of one repository
+ * still cost one read between them (adapters/git.ts readGitSummary).
  */
+
+/**
+ * The window's git group on its runtime, or undefined with no runtime above
+ * (a card drawn alone in a test): then nothing is read, and git shows nothing.
+ */
+export const useGitWindow = () => {
+  const runtime = useContext(WindowRuntimeContext);
+  return useMemo(() => (runtime === undefined ? undefined : { runtime, git: runtime.runSync(GitWindow) }), [runtime]);
+};
 
 /** How often a watched folder is read again. */
 export const GIT_SUMMARY_POLL_MS = 10_000;
@@ -45,18 +55,20 @@ export const seatGitFolder = (
 /** A folder's summary; absent while unread, null when it has nothing to show. */
 const summaries$ = observable<Record<string, GitSummary | null | undefined>>({});
 
-type Watch = { refs: number; timer: ReturnType<typeof setInterval>; reading: boolean };
+/** One read of a folder's summary, on the window's git group. */
+export type GitSummaryReader = (folder: string) => Promise<GitSummaryResult>;
+
+type Watch = { refs: number; timer: ReturnType<typeof setInterval>; reading: boolean; readSummary: GitSummaryReader };
 const watches = new Map<string, Watch>();
 
 const read = (folder: string): void => {
   const watch = watches.get(folder);
-  const api = getJuntoApi();
-  if (!watch || watch.reading || !api?.gitSummary) return;
+  if (!watch || watch.reading) return;
   // A window nobody is looking at reads nothing; it catches up when seen again.
   if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
   watch.reading = true;
-  void api
-    .gitSummary(folder)
+  void watch
+    .readSummary(folder)
     .then((result) => {
       if (watches.get(folder) === watch) summaries$[folder].set(result.ok ? result.summary : null);
     })
@@ -72,14 +84,14 @@ const onSeenAgain = (): void => {
   if (document.visibilityState !== "hidden") for (const folder of watches.keys()) read(folder);
 };
 
-/** Watch a folder while it is shown. Returns the release. */
-export const retainGitSummary = (folder: string): (() => void) => {
+/** Watch a folder while it is shown, read with the first watcher's reader. Returns the release. */
+export const retainGitSummary = (folder: string, readSummary: GitSummaryReader): (() => void) => {
   let watch = watches.get(folder);
   if (watch === undefined) {
     if (watches.size === 0 && typeof document !== "undefined") {
       document.addEventListener("visibilitychange", onSeenAgain);
     }
-    watch = { refs: 0, timer: setInterval(() => read(folder), GIT_SUMMARY_POLL_MS), reading: false };
+    watch = { refs: 0, timer: setInterval(() => read(folder), GIT_SUMMARY_POLL_MS), reading: false, readSummary };
     watches.set(folder, watch);
     read(folder);
   }
@@ -133,7 +145,12 @@ export const useSeatGitDetailOpen = (nodeId: string): boolean => use$(() => deta
 
 /** The live summary for a folder while this component is mounted. */
 export const useGitSummary = (folder: string | undefined): GitSummary | undefined => {
-  useEffect(() => (folder ? retainGitSummary(folder) : undefined), [folder]);
+  const gitWindow = useGitWindow();
+  useEffect(() => {
+    if (!folder || gitWindow === undefined) return undefined;
+    const { runtime, git } = gitWindow;
+    return retainGitSummary(folder, (cwd) => runtime.runPromise(git.GitSummary({ cwd })));
+  }, [folder, gitWindow]);
   const summary = use$(() => (folder ? summaries$[folder].get() : undefined));
   return summary ?? undefined;
 };

@@ -3,6 +3,7 @@ import { use$ } from "@legendapp/state/react";
 import { X } from "lucide-react";
 import type { NodeOf } from "@shared/model";
 import {
+  GIT_LOG_LIMIT_DEFAULT,
   gitReviewedCommit,
   gitReviewedState,
   gitReviewTitle,
@@ -14,7 +15,6 @@ import {
 } from "@shared/git";
 import { DIM, GREEN, HUE, INK } from "../../lib/theme";
 import { claimFocus } from "../../lib/focus-ownership";
-import { getJuntoApi } from "../../lib/junto-api";
 import { agentSeat$, seatEventForBinding } from "../../lib/agent-seat-state";
 import { asNodeId } from "@shared/model";
 import { titleOf } from "@shared/model/title";
@@ -24,6 +24,7 @@ import { state$ } from "../../lib/state";
 import { InspectorTabs } from "../ui/InspectorTabs";
 import { FocusSurface } from "../FocusSurface";
 import { IconButton, OverlayHeader } from "../ui";
+import { useGitWindow } from "../../lib/git-summary";
 import { ReviewDiff } from "./ReviewDiff";
 import { ReviewFooter } from "./ReviewFooter";
 import "./git.css";
@@ -189,15 +190,17 @@ export function GitReviewBody({
   const [patchError, setPatchError] = useState<string>();
   const [error, setError] = useState<string | undefined>();
   const [loadingPatch, setLoadingPatch] = useState(false);
+  const gitWindow = useGitWindow();
 
   useEffect(() => {
     if (!cwd) {
       setError("no folder");
       return;
     }
+    if (gitWindow === undefined) return;
     let live = true;
-    void getJuntoApi()
-      ?.gitLog?.(cwd)
+    void gitWindow.runtime
+      .runPromise(gitWindow.git.GitLog({ cwd, limit: GIT_LOG_LIMIT_DEFAULT }))
       .then((result) => {
         if (!live) return;
         if (!result.ok) {
@@ -217,7 +220,7 @@ export function GitReviewBody({
     return () => {
       live = false;
     };
-  }, [cwd]);
+  }, [cwd, gitWindow]);
 
   useEffect(() => {
     if (view === "commits") return;
@@ -229,10 +232,11 @@ export function GitReviewBody({
       setPatch("");
       return;
     }
+    if (gitWindow === undefined) return;
     let live = true;
     setLoadingPatch(true);
-    void getJuntoApi()
-      ?.gitReview?.(cwd, view)
+    void gitWindow.runtime
+      .runPromise(gitWindow.git.GitReview({ cwd, view }))
       .then((result) => {
         if (!live) return;
         setLoadingPatch(false);
@@ -254,7 +258,7 @@ export function GitReviewBody({
     return () => {
       live = false;
     };
-  }, [cwd, view]);
+  }, [cwd, view, gitWindow]);
 
   useEffect(() => {
     if (view !== "commits") return;
@@ -264,10 +268,11 @@ export function GitReviewBody({
       setPatch("");
       return;
     }
+    if (gitWindow === undefined) return;
     let live = true;
     setLoadingPatch(true);
-    void getJuntoApi()
-      ?.gitShow?.(cwd, selected)
+    void gitWindow.runtime
+      .runPromise(gitWindow.git.GitShow({ cwd, sha: selected }))
       .then((result) => {
         if (!live) return;
         setLoadingPatch(false);
@@ -290,7 +295,7 @@ export function GitReviewBody({
     return () => {
       live = false;
     };
-  }, [cwd, selected, view]);
+  }, [cwd, selected, view, gitWindow]);
 
   // The diff view follows Junto's theme, not the system's.
   const fileDiffs = useMemo(() => splitPatchFiles(patch), [patch]);
