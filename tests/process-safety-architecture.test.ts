@@ -408,9 +408,6 @@ describe("machine-safety architecture", () => {
       // crosses the port by its channel name, and the far side signals a PTY
       // it spawned only while its pid still has the start epoch taken at spawn.
       "src/node/terminals/client.ts:forbidden-reference:TerminalInbound.kill",
-      // The terminal utilityProcess, Electron's own child, stopped at quit after
-      // the plane drained every PTY it held.
-      "src/app/terminals/host.ts:child?.kill",
       // The same child, signalled through its own handle only if it has not
       // left by the stop deadline; a stop first asks it to hang up and exit.
       "src/app/terminals/host.ts:leaving.kill",

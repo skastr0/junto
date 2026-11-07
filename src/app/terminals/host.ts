@@ -1,9 +1,7 @@
 import { MessageChannelMain, utilityProcess, type MessagePortMain, type UtilityProcess } from "electron";
 import { Effect, Option, Schema } from "effect";
 import terminalEntryPath from "../../terminal/entry?modulePath";
-import type { CoreMessage } from "../../contract/core/port";
 import { TERMINAL_CONNECT, TerminalInbound } from "../../contract/terminal/protocol";
-import { terminalClient, type TerminalClient } from "../../node/terminals/client";
 
 /** How long a stopping terminal process has to report its exit before it is killed again. */
 const STOP_DEADLINE_MS = 10_000;
@@ -26,56 +24,6 @@ const exited = (child: UtilityProcess, gone: () => boolean): Effect.Effect<void>
       child.off("exit", onExit);
     });
   });
-
-/**
- * Main's side of the terminal process (phase 1). It forks `entry.ts` as an
- * Electron utilityProcess and gives the process plane a `TerminalClient`.
- * When the terminal process exits, every PTY it held is reported exited (its
- * children lost their terminal with it) and the next spawn starts a new one.
- */
-
-export const startTerminalProcess = (): TerminalClient & { readonly stop: () => void } => {
-  let child: UtilityProcess | undefined;
-  let stopping = false;
-  const handlers = new Set<(message: CoreMessage) => void>();
-
-  const fork = (): UtilityProcess => {
-    const forked = utilityProcess.fork(terminalEntryPath, [], { serviceName: "Junto Terminals", stdio: "inherit" });
-    forked.on("message", (message: CoreMessage) => {
-      for (const handler of handlers) handler(message);
-    });
-    forked.once("exit", (code) => {
-      if (child !== forked) return;
-      child = undefined;
-      client.fail(`the Junto terminal process exited with code ${code}`);
-    });
-    return forked;
-  };
-
-  const client = terminalClient({
-    post: (message) => {
-      if (stopping) return;
-      child ??= fork();
-      child.postMessage(message);
-    },
-    listen: (handler) => {
-      handlers.add(handler);
-      return () => handlers.delete(handler);
-    },
-  }, (message, surface) => {
-    // Behind every spawn on the same port, so it reaches a PTY that exists.
-    if (stopping || child === undefined) return (surface as MessagePortMain).close();
-    child.postMessage(message, [surface as MessagePortMain]);
-  });
-
-  return {
-    ...client,
-    stop: () => {
-      stopping = true;
-      child?.kill();
-    },
-  };
-};
 
 export type TerminalProcessForCore = {
   /** A new port to the terminal process, forking it first if it is not running. */

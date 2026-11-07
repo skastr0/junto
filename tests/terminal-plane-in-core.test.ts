@@ -9,7 +9,7 @@ import { createRequire } from "node:module";
 import { afterEach, describe, expect, it } from "vitest";
 import { serveTerminals, type SpawnPty } from "../src/terminal/serve";
 import { terminalsOverPorts, type TerminalPortMain } from "../src/core/terminals/over-ports";
-import type { CoreMessage } from "../src/contract/core/port";
+import type { TerminalLinkMessage } from "../src/contract/terminal/protocol";
 
 const nodePty = createRequire(import.meta.url)("node-pty") as typeof import("node-pty");
 const realPty: SpawnPty = (command, args, options) => nodePty.spawn(command, [...args], options);
@@ -34,7 +34,7 @@ const terminalPort = () => {
   serveTerminals({
     post: (message) => port2.postMessage(message),
     listen: (handler) => {
-      const on = (message: CoreMessage) => handler(message);
+      const on = (message: TerminalLinkMessage) => handler(message);
       port2.on("message", on);
       return () => port2.off("message", on);
     },

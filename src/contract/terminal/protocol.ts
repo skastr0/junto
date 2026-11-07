@@ -1,13 +1,16 @@
 /**
- * What the core and the terminal process say to each other (protect the main
- * thread, terminal process phase 1). The messages are the core port's own
- * (`core-process/port.ts`): a `call` answered by id, and `push` on a named
- * channel, both ways. One port carries them in order, so a write posted after
- * a spawn reaches the terminal after it.
+ * What the core and the terminal process say to each other besides their
+ * calls. The calls (spawn, adopt, fence) are Effect RPC, typed and decoded at
+ * both ends (`rpcs.ts`). Everything here is one-way and plain structured
+ * clone, posted as `{ kind: "push", channel, payload }` on the same port and
+ * never answered: output, keys, acknowledgements and the core's commands.
  *
  * A terminal is named by the id its spawn gave it; every other message for
- * it carries that id. Inputs and payloads are structured-clone data.
+ * it carries that id. A message for a terminal whose spawn has not reached
+ * the terminal process yet is held there until it does.
  */
+import type { RpcPortMessage } from "../../shared/rpc-port";
+import type { TerminalExitStatus } from "./rpcs";
 
 /**
  * Main to the terminal process, with a port moved beside it: serve a core on
@@ -16,52 +19,8 @@
  */
 export const TERMINAL_CONNECT = "pty.connect";
 
-/**
- * The first thing a new core asks on its new port. Answers every PTY held,
- * exited ones with their exit; then every PTY's unacknowledged output follows
- * as ordinary `pty.data`, oldest first, then any held exit as `pty.exit`.
- */
-export const TERMINAL_ADOPT = "pty.adopt";
-
-export type TerminalAdopted = {
-  readonly id: number;
-  readonly pid: number;
-  readonly cols: number;
-  readonly rows: number;
-  readonly meta: unknown;
-  /** Output the last core handled, up to TERMINAL_HISTORY_CHARS, cut on a chunk boundary. */
-  readonly history: string;
-  /** The last chunk `history` holds; what follows it arrives as `pty.data`. */
-  readonly seq: number;
-  readonly exit?: { readonly code: number | undefined; readonly signal: number | undefined };
-};
-
 /** Handled output kept per PTY so a new core can seed the screen it lost (the core's MAX_JOURNAL_BYTES). */
 export const TERMINAL_HISTORY_CHARS = 512 * 1024;
-
-/** The one call: start a PTY. Answers its pid, or fails with the spawn's message. */
-export const TERMINAL_SPAWN = "pty.spawn";
-
-export type TerminalSpawnInput = {
-  readonly id: number;
-  readonly command: string;
-  readonly args: readonly string[];
-  readonly cwd?: string;
-  readonly env?: Readonly<Record<string, string | undefined>>;
-  readonly cols: number;
-  readonly rows: number;
-  /** Stored opaque, and given back by `pty.adopt`. Structured-clone data. */
-  readonly meta?: unknown;
-};
-
-export type TerminalSpawnOutput = { readonly pid: number | undefined };
-
-/**
- * Answered at once, so its answer comes back behind every push the terminal
- * process sent before it took this call: a hold posted before a fence is in
- * force there, and every surface key that arrived before it has been heard.
- */
-export const TERMINAL_FENCE = "pty.fence";
 
 /** The core to the terminal process: input, size and signals, never answered. */
 export const TerminalInbound = {
@@ -82,7 +41,7 @@ export const TerminalInbound = {
   shutdown: "pty.shutdown",
   /**
    * The core heard this terminal's `pty.exit`. Only then does the terminal
-   * process forget it; until then a new core's `pty.adopt` still names it.
+   * process forget it; until then a new core's `TerminalAdopt` still names it.
    */
   exitAck: "pty.exitAck",
 } as const;
@@ -112,7 +71,7 @@ export const TerminalOutbound = {
 } as const;
 
 export type TerminalData = { readonly id: number; readonly data: string; readonly seq: number };
-export type TerminalExitEvent = { readonly id: number; readonly code: number | undefined; readonly signal: number | undefined };
+export type TerminalExitEvent = { readonly id: number } & TerminalExitStatus;
 export type TerminalError = { readonly id: number; readonly message: string };
 
 /**
@@ -170,3 +129,18 @@ export type SurfaceOut =
 
 /** On a surface port: the renderer to the terminal process. */
 export type SurfaceIn = { readonly t: "in"; readonly data: string };
+
+/** One one-way message on the terminal link, either way. */
+export type TerminalPush = { readonly kind: "push"; readonly channel: string; readonly payload: unknown };
+
+/**
+ * The terminal link's own envelope: RPC's frames for the calls, and the
+ * one-way pushes. None of the core port's host calls ride it.
+ */
+export type TerminalLinkMessage = RpcPortMessage | TerminalPush;
+
+/** One end of a terminal link: a node `MessagePort`, Electron's `MessagePortMain`, or the parent port. */
+export type TerminalLinkPort = {
+  readonly post: (message: TerminalLinkMessage) => void;
+  readonly listen: (handler: (message: TerminalLinkMessage) => void) => () => void;
+};

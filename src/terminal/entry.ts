@@ -6,9 +6,16 @@
  * in main; it outlives a core that crashes, and decides nothing about seats.
  */
 import { createRequire } from "node:module";
-import type { CoreMessage, CorePort } from "../contract/core/port";
 import { serveTerminals, type SurfacePort } from "./serve";
-import { TERMINAL_CONNECT, TerminalInbound, TerminalSurface, type SurfaceIn, type TerminalSurfaceOpen } from "../contract/terminal/protocol";
+import {
+  TERMINAL_CONNECT,
+  TerminalInbound,
+  TerminalSurface,
+  type SurfaceIn,
+  type TerminalLinkMessage,
+  type TerminalLinkPort,
+  type TerminalSurfaceOpen,
+} from "../contract/terminal/protocol";
 
 /** Electron's MessagePortMain, as a utilityProcess is given one. */
 type PortMain = {
@@ -46,11 +53,11 @@ const nodePty = require("node-pty") as typeof import("node-pty");
 const served = serveTerminals(undefined, (command, args, options) => nodePty.spawn(command, [...args], options));
 
 /** One core's port: its messages, and a surface port riding beside its message. */
-const corePort = (on: ParentPort): CorePort => ({
+const corePort = (on: ParentPort): TerminalLinkPort => ({
   post: (message) => on.postMessage(message),
   listen: (handler) => {
     const listener = (event: PortEvent) => {
-      const message = event.data as CoreMessage;
+      const message = event.data as TerminalLinkMessage;
       // A surface port rides beside its message; the message alone means nothing.
       if (message.kind === "push" && message.channel === TerminalSurface.open) {
         const surface = event.ports?.[0];
@@ -70,7 +77,7 @@ if (parent !== undefined) {
   // The parent is the first core when the core runs in main; a core's own port replaces it.
   served.attach(corePort(parent));
   parent.on("message", (event) => {
-    const message = event.data as CoreMessage;
+    const message = event.data as TerminalLinkMessage;
     const port = event.ports?.[0];
     // The parent's orderly quit reaches the PTYs even when a core is attached
     // and owns the port: hang up, then leave, so main's wait sees an exit.

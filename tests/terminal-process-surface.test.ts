@@ -12,7 +12,7 @@
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CoreMessage, CorePort } from "../src/contract/core/port";
+import type { TerminalLinkMessage, TerminalLinkPort } from "../src/contract/terminal/protocol";
 import { serveTerminals, SURFACE_RING_BYTES, type SpawnPty, type SurfacePort } from "../src/terminal/serve";
 import { terminalClient } from "../src/node/terminals/client";
 import { TerminalSurface, type SurfaceOut, type TerminalInput } from "../src/contract/terminal/protocol";
@@ -25,10 +25,10 @@ afterEach(() => {
   for (const port of opened.splice(0)) port.close();
 });
 
-const portOf = (port: MessagePort): CorePort => ({
+const portOf = (port: MessagePort): TerminalLinkPort => ({
   post: (message) => port.postMessage(message),
   listen: (handler) => {
-    const on = (message: CoreMessage) => handler(message);
+    const on = (message: TerminalLinkMessage) => handler(message);
     port.on("message", on);
     return () => port.off("message", on);
   },
@@ -50,7 +50,7 @@ const setup = (spawnPty: SpawnPty = realPty) => {
   const served = serveTerminals(portOf(port2), spawnPty);
   const inputs: string[] = [];
   const typing: string[] = [];
-  port1.on("message", (message: CoreMessage) => {
+  port1.on("message", (message: TerminalLinkMessage) => {
     if (message.kind !== "push") return;
     if (message.channel === TerminalSurface.input) inputs.push((message.payload as TerminalInput).data);
     if (message.channel === TerminalSurface.typing) typing.push((message.payload as TerminalInput).data);

@@ -1,31 +1,41 @@
-import { Effect, Schema } from "effect";
-import { portCore, refuseHostCalls } from "../../contract/core/port";
-import type { CoreMessage, CorePort } from "../../contract/core/port";
+import { Duration, Effect, Schema, Scope } from "effect";
+import { RpcClient } from "effect/rpc";
+import { clientProtocol, type PortMessage, type RpcPort } from "../../shared/rpc-port";
 import {
-  TERMINAL_ADOPT,
-  TERMINAL_FENCE,
-  TERMINAL_SPAWN,
+  TERMINAL_LINK_VERSION,
+  TerminalRpcs,
+  type TerminalAdopted,
+  type TerminalExitStatus,
+  type TerminalSpawnInput,
+} from "../../contract/terminal/rpcs";
+import {
   TerminalInbound,
   TerminalOutbound,
   TerminalSurface,
-  type TerminalAdopted,
   type TerminalData,
   type TerminalError,
   type TerminalExitEvent,
-  type TerminalSpawnInput,
-  type TerminalSpawnOutput,
   type SurfaceLease,
   type TerminalInput,
+  type TerminalLinkMessage,
+  type TerminalLinkPort,
+  type TerminalPush,
 } from "../../contract/terminal/protocol";
 
 /**
  * The core's side of the terminal process (phase 1). A spawn answers at once
  * with a handle, as the in-process PTY does: its writes and resizes are posted
- * behind the spawn on the same ordered port, so nothing waits for the pid.
- * The pid arrives a turn later, and a spawn the child refuses arrives as an
- * error and then an exit.
+ * behind the spawn, and the terminal process holds them until the spawn is
+ * there, so nothing waits for the pid. The pid arrives a turn later, and a
+ * spawn the child refuses arrives as an error and then an exit.
+ *
+ * The calls are the `TerminalRpcs` group, decoded at both ends; a call the
+ * terminal process does not serve fails the compile, not a runtime answer.
  */
-export type RemoteTerminalExit = { readonly code: number | undefined; readonly signal: number | undefined };
+export type RemoteTerminalExit = TerminalExitStatus;
+
+/** How long a new core waits on `TerminalAdopt` before it adopts nothing and says so. */
+const ADOPT_DEADLINE = Duration.seconds(10);
 
 export type RemoteTerminal = {
   /** The name surface messages carry for this terminal (phase 3). */
@@ -92,7 +102,7 @@ type Live = {
   readonly input: Set<(input: TerminalInput) => void>;
   seq: number;
   /** An adopted terminal's messages, until it has its listeners. */
-  early?: CoreMessage[];
+  early?: TerminalPush[];
 };
 
 const each = <A>(listeners: ReadonlySet<(value: A) => void>, value: A): void => {
@@ -105,18 +115,42 @@ const each = <A>(listeners: ReadonlySet<(value: A) => void>, value: A): void => 
   }
 };
 
+const textOf = (value: unknown): string | undefined =>
+  typeof value === "object" && value !== null && "message" in value && typeof value.message === "string" ? value.message : undefined;
+
+/** The sentence a failed call carries; an `RpcClientError` says it on its reason. */
+const messageOf = (error: unknown): string =>
+  textOf(typeof error === "object" && error !== null && "reason" in error ? error.reason : undefined) ?? textOf(error) ?? String(error);
+
 /**
  * `transfer` posts one message with a port moved alongside it, which the
- * core port cannot: Electron's `UtilityProcess.postMessage(message, [port])`.
+ * link port cannot: Electron's `UtilityProcess.postMessage(message, [port])`.
  * Without it no surface can be opened.
  */
 export const terminalClient = (
-  port: CorePort,
-  transfer?: (message: CoreMessage, surface: unknown) => void,
+  port: TerminalLinkPort,
+  transfer?: (message: TerminalLinkMessage, surface: unknown) => void,
 ): TerminalClient => {
-  const calls = portCore(port, refuseHostCalls);
   const live = new Map<number, Live>();
   let nextId = 1;
+
+  // RPC hears every message but the pushes, and a local `down` when the
+  // terminal process is gone, which fails every call still waiting.
+  const rpcListeners = new Set<(message: PortMessage) => void>();
+  const rpcPort: RpcPort = {
+    post: (message) => port.post(message),
+    listen: (handler) => {
+      rpcListeners.add(handler);
+      return () => rpcListeners.delete(handler);
+    },
+  };
+  const scope = Effect.runSync(Scope.make());
+  const calls = Effect.runSync(
+    RpcClient.make(TerminalRpcs).pipe(
+      Effect.provideServiceEffect(RpcClient.Protocol, clientProtocol(rpcPort)),
+      Effect.provideService(Scope.Scope, scope),
+    ),
+  );
 
   const exited = (id: number, event: RemoteTerminalExit): void => {
     const terminal = live.get(id);
@@ -142,9 +176,8 @@ export const terminalClient = (
   };
 
   // Set while an adopt is out: what follows its answer may reach this side first.
-  let adopting: CoreMessage[] | undefined;
-  const receive = (message: CoreMessage): void => {
-    if (message.kind !== "push") return;
+  let adopting: TerminalPush[] | undefined;
+  const receive = (message: TerminalPush): void => {
     if (message.channel === TerminalOutbound.data || message.channel === TerminalOutbound.exit) {
       const terminal = live.get((message.payload as { readonly id: number }).id);
       if (terminal === undefined) return void adopting?.push(message);
@@ -179,7 +212,10 @@ export const terminalClient = (
       failed(id, text);
     }
   };
-  port.listen(receive);
+  port.listen((message) => {
+    if (message.kind === "push") return receive(message);
+    for (const listener of [...rpcListeners]) listener(message);
+  });
 
   const subscribe = <A>(id: number, pick: (terminal: Live) => Set<(value: A) => void>) => (listener: (value: A) => void) => {
     const terminal = live.get(id);
@@ -212,18 +248,22 @@ export const terminalClient = (
     lastSeq: () => live.get(id)?.seq ?? 0,
     onTyping: subscribe(id, (terminal) => terminal.typing),
     onInput: subscribe(id, (terminal) => terminal.input),
-    fence: () => (calls.call as (name: string, input: unknown) => Promise<unknown>)(TERMINAL_FENCE, {}).then(() => undefined, () => undefined),
+    fence: () => Effect.runPromise(calls.TerminalFence().pipe(Effect.ignore)),
   });
 
   const adopt = (): Effect.Effect<ReadonlyArray<AdoptedTerminal>, TerminalAdoptFailed> => Effect.suspend(() => {
-    const arrived: CoreMessage[] = [];
+    const arrived: TerminalPush[] = [];
     adopting = arrived;
-    return Effect.tryPromise({
-      try: () => (calls.call as (name: string, input: unknown) => Promise<readonly TerminalAdopted[]>)(TERMINAL_ADOPT, {}),
-      catch: (cause) => new TerminalAdoptFailed({ message: cause instanceof Error ? cause.message : String(cause) }),
-    }).pipe(
-      Effect.map((answer) => answer.map((adopted) => {
-        nextId = Math.max(nextId, adopted.id + 1);
+    return calls.TerminalAdopt({ version: TERMINAL_LINK_VERSION }).pipe(
+      // A terminal process that never answers (one from a build that speaks
+      // no RPC) is refused like one that is gone: its PTYs keep running.
+      Effect.timeoutOrElse({
+        duration: ADOPT_DEADLINE,
+        orElse: () => Effect.fail(new TerminalAdoptFailed({ message: "the Junto terminal process did not answer its adoption" })),
+      }),
+      Effect.mapError((cause) => (cause instanceof TerminalAdoptFailed ? cause : new TerminalAdoptFailed({ message: messageOf(cause) }))),
+      Effect.map((answer) => answer.terminals.map((adopted) => {
+        nextId = Math.max(nextId, answer.nextId, adopted.id + 1);
         live.set(adopted.id, { data: new Set(), exit: new Set(), error: new Set(), typing: new Set(), input: new Set(), seq: adopted.seq, early: [] });
         return { terminal: handleOf(adopted.id, Promise.resolve(adopted.pid)), meta: adopted.meta, adopted };
       })),
@@ -245,19 +285,19 @@ export const terminalClient = (
     spawn: (input) => {
       const id = nextId++;
       live.set(id, { data: new Set(), exit: new Set(), error: new Set(), typing: new Set(), input: new Set(), seq: 0 });
-      const pid = (calls.call as (name: string, input: unknown) => Promise<TerminalSpawnOutput>)(TERMINAL_SPAWN, { ...input, id })
-        .then((answer) => answer.pid, (error: unknown) => {
-          const message = error instanceof Error ? error.message : String(error);
-          failed(id, message);
-          exited(id, { code: undefined, signal: undefined });
-          throw error;
-        });
+      const pid = Effect.runPromise(
+        calls.TerminalSpawn({ ...input, id }).pipe(Effect.mapError((error) => new Error(messageOf(error)))),
+      ).then((answer) => answer.pid, (error: unknown) => {
+        failed(id, messageOf(error));
+        exited(id, { code: undefined, signal: undefined });
+        throw error;
+      });
       // A refused spawn is reported on the terminal; the pid's own rejection is for a waiter.
       pid.catch(() => undefined);
       return handleOf(id, pid);
     },
     fail: (reason) => {
-      calls.fail(reason);
+      for (const listener of [...rpcListeners]) listener({ kind: "down", reason });
       for (const id of [...live.keys()]) {
         failed(id, reason);
         exited(id, { code: undefined, signal: undefined });

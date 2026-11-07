@@ -1,29 +1,43 @@
 /**
  * The terminal process dies (phase 1, fail open): every PTY it held is
- * reported exited, a write to one is refused, and the next spawn forks a new
- * terminal process whose PTY carries input and output. Main's host over a
- * stand-in utilityProcess that serves real PTYs.
+ * reported exited, a write to one is refused, and once main connects the core
+ * to a new terminal process the next PTY carries input and output. The core's
+ * terminals over ports (`over-ports.ts`), each port served by real PTYs.
  */
-import { EventEmitter } from "node:events";
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { createRequire } from "node:module";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CoreMessage } from "../src/contract/core/port";
+import { afterEach, describe, expect, it } from "vitest";
 import { serveTerminals, type SpawnPty } from "../src/terminal/serve";
+import { terminalsOverPorts, type TerminalPortMain } from "../src/core/terminals/over-ports";
+import { createAppProcessPlane } from "../src/node/app-process-plane";
+import { placeTerminals } from "../src/node/terminals/use";
 
 const nodePty = createRequire(import.meta.url)("node-pty") as typeof import("node-pty");
 
-/** Each fork: a child that serves real PTYs over a port, and a way to crash it. */
-const forks = vi.hoisted(() => [] as Array<{ crash: (code: number) => void; pids: number[] }>);
-vi.mock("electron", () => {
-  const electron = { utilityProcess: { fork: () => fakeFork() } };
-  return { ...electron, default: electron };
-});
-vi.mock("../src/terminal/entry?modulePath", () => ({ default: "/terminal-entry.js" }));
-
 const opened: MessagePort[] = [];
-const fakeFork = () => {
-  const child = new EventEmitter() as EventEmitter & { postMessage: (message: CoreMessage) => void; kill: () => boolean };
+const forks: Array<{ crash: () => void; pids: number[] }> = [];
+
+/** A node port as Electron's `MessagePortMain` hands one over: each message as `{ data }`. */
+const asMain = (port: MessagePort): TerminalPortMain => {
+  const wrapped = new Map<(event: { readonly data: unknown }) => void, (data: unknown) => void>();
+  return {
+    postMessage: (message) => port.postMessage(message),
+    on: (event, listener) => {
+      if (event === "close") return void port.on("close", () => listener({ data: undefined }));
+      const on = (data: unknown) => listener({ data });
+      wrapped.set(listener, on);
+      port.on("message", on);
+    },
+    off: (_event, listener) => {
+      const on = wrapped.get(listener);
+      if (on !== undefined) port.off("message", on);
+    },
+    start: () => port.start(),
+  };
+};
+
+/** One terminal process: real PTYs served on one end, the core's end returned, and a way to crash it. */
+const fork = (): MessagePort => {
   const { port1, port2 } = new MessageChannel();
   opened.push(port1, port2);
   const pids: number[] = [];
@@ -39,15 +53,8 @@ const fakeFork = () => {
       return () => port2.off("message", handler);
     },
   }, spawnPty);
-  port1.on("message", (message: CoreMessage) => child.emit("message", message));
-  let alive = true;
-  child.postMessage = (message) => {
-    if (alive) port1.postMessage(message);
-  };
-  const crash = (code: number) => {
-    alive = false;
-    port1.close();
-    // Its PTYs go with it.
+  const crash = () => {
+    // Its PTYs go with it, and so does its end of the port.
     for (const pid of pids) {
       try {
         process.kill(pid, "SIGKILL");
@@ -55,23 +62,15 @@ const fakeFork = () => {
         // Already gone.
       }
     }
-    child.emit("exit", code);
-  };
-  child.kill = () => {
-    crash(0);
-    return true;
+    port2.close();
   };
   forks.push({ crash, pids });
-  return child;
+  return port1;
 };
-
-const { startTerminalProcess } = await import("../src/app/terminals/host");
-const { createAppProcessPlane } = await import("../src/node/app-process-plane");
-const { placeTerminals } = await import("../src/node/terminals/use");
 
 afterEach(() => {
   placeTerminals({ kind: "here" });
-  for (const fork of forks.splice(0)) for (const pid of fork.pids) {
+  for (const each of forks.splice(0)) for (const pid of each.pids) {
     try {
       process.kill(pid, "SIGKILL");
     } catch {
@@ -101,7 +100,8 @@ const spec = {
 
 describe("a terminal process that dies", () => {
   it("exits every PTY it held, and the next spawn starts a new one that works", async () => {
-    const terminals = startTerminalProcess();
+    const terminals = terminalsOverPorts();
+    terminals.connect(asMain(fork()));
     placeTerminals({ kind: "process", client: terminals });
     const plane = createAppProcessPlane({ termGraceMs: 200, killGraceMs: 200 });
     const first = plane.spawnTerminal(spec);
@@ -112,12 +112,13 @@ describe("a terminal process that dies", () => {
     const errors: string[] = [];
     first.io.onError((error) => errors.push(error.message));
 
-    forks[0]!.crash(9);
+    forks[0]!.crash();
     expect(await first.io.exited).toEqual({ code: undefined, signal: undefined });
     expect(await second.io.exited).toEqual({ code: undefined, signal: undefined });
-    expect(errors).toEqual(["the Junto terminal process exited with code 9"]);
+    expect(errors).toEqual(["the Junto terminal process exited"]);
     expect(() => first.io.write("after the crash")).toThrow("terminal process already exited");
 
+    terminals.connect(asMain(fork()));
     const again = plane.spawnTerminal(spec);
     let text = "";
     again.io.onData((data) => {
@@ -129,6 +130,5 @@ describe("a terminal process that dies", () => {
     await until(() => text.includes("a new terminal process"));
     plane.terminate(again, "test stop");
     expect((await again.io.exited).signal).toBe(15);
-    terminals.stop();
   });
 });

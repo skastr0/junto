@@ -1,24 +1,30 @@
 import type { IPty } from "node-pty";
-import type { CoreMessage, CorePort } from "../contract/core/port";
+import { Effect, Exit, Layer, Scope } from "effect";
+import { RpcServer } from "effect/rpc";
+import { heldForServer, serverProtocol, type RpcPort } from "../shared/rpc-port";
 import { readSingleProcessEpochSnapshotAsync, type ChildProcessEpoch } from "../node/process-epoch";
 import {
-  TERMINAL_ADOPT,
-  TERMINAL_FENCE,
+  TERMINAL_LINK_VERSION,
+  TerminalLinkVersionMismatch,
+  TerminalRpcs,
+  TerminalSpawnRefused,
+  type TerminalAdopted,
+  type TerminalExitStatus,
+  type TerminalSpawnInput,
+} from "../contract/terminal/rpcs";
+import {
   TERMINAL_HISTORY_CHARS,
-  TERMINAL_SPAWN,
   TerminalInbound,
   TerminalOutbound,
   type TerminalData,
   type TerminalError,
   type TerminalExitEvent,
   type TerminalAck,
-  type TerminalAdopted,
   type TerminalExitAck,
   type TerminalKill,
   TERMINAL_UNACKED_HIGH,
   TERMINAL_UNACKED_LOW,
   type TerminalResize,
-  type TerminalSpawnInput,
   type TerminalWrite,
   TerminalSurface,
   type SurfaceIn,
@@ -28,6 +34,9 @@ import {
   type TerminalSurfaceClose,
   type TerminalSurfaceOpen,
   type SurfaceLease,
+  type TerminalLinkMessage,
+  type TerminalLinkPort,
+  type TerminalPush,
 } from "../contract/terminal/protocol";
 
 /**
@@ -112,7 +121,7 @@ type CoreLink = {
   paused: boolean;
   /** False from the moment a core is lost until the next one adopts this PTY. */
   delivering: boolean;
-  exit?: { readonly code: number | undefined; readonly signal: number | undefined };
+  exit?: TerminalExitStatus;
 };
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -120,21 +129,26 @@ const errorMessage = (error: unknown): string => (error instanceof Error ? error
 /**
  * `port` is the first core's, or undefined to wait for `attach`. A core's port
  * can go and another come: every PTY, its surfaces, gates and holds stay as
- * they are, and the new core takes them back with `pty.adopt`.
+ * they are, and the new core takes them back with `TerminalAdopt`.
+ *
+ * The calls are answered by one RPC server per core port, started when the
+ * port is attached and stopped when it goes: a reply never reaches a core
+ * that did not ask, and a new core's clients share no id with the last's.
  */
 export const serveTerminals = (
-  port: CorePort | undefined,
+  port: TerminalLinkPort | undefined,
   spawnPty: SpawnPty,
   epochs: PtyEpochs = systemEpochs,
 ): {
+  /** The current core is gone; every PTY stays, for the next one to adopt. */
   readonly close: () => void;
   readonly live: () => number;
   /** A surface port arrived with its `pty.surface` message. */
   readonly openSurface: (open: TerminalSurfaceOpen, surface: SurfacePort) => void;
   /** A core's port arrived; any core before it is gone. */
-  readonly attach: (core: CorePort) => void;
+  readonly attach: (core: TerminalLinkPort) => void;
   /** This core's port closed. No effect on a core already replaced. */
-  readonly detach: (core: CorePort) => void;
+  readonly detach: (core: TerminalLinkPort) => void;
   /** Orderly quit: every PTY gets its hangup, and the promise settles after. */
   readonly hangupAll: () => Promise<void>;
 } => {
@@ -143,7 +157,27 @@ export const serveTerminals = (
   const epochOf = new Map<number, Promise<ChildProcessEpoch | undefined>>();
   const surfacesOf = new Map<number, Surfaces>();
   const links = new Map<number, CoreLink>();
-  let core: CorePort | undefined;
+  /** Every id a spawn has named here, started or refused; the next core names its spawns past them. */
+  const named = new Set<number>();
+  let nextId = 1;
+  /**
+   * Messages for a terminal whose spawn has not reached this process: the
+   * core posts them behind its spawn, but the spawn is a call and they are
+   * not, so either may come first. A spawn that starts replays them in order;
+   * a refused one drops them, and its refusal is the core's answer.
+   */
+  const early = new Map<number, Array<{ readonly run: () => void; readonly drop: () => void }>>();
+  const wait = (id: number, run: () => void, drop: () => void = () => undefined): void => {
+    const waiting = early.get(id);
+    if (waiting === undefined) early.set(id, [{ run, drop }]);
+    else waiting.push({ run, drop });
+  };
+  const dropEarly = (id: number): void => {
+    const waiting = early.get(id);
+    early.delete(id);
+    for (const { drop } of waiting ?? []) drop();
+  };
+  let core: TerminalLinkPort | undefined;
   let stopListening: (() => void) | undefined;
   const push = (channel: string, payload: TerminalData | TerminalExitEvent | TerminalError): void =>
     core?.post({ kind: "push", channel, payload });
@@ -203,6 +237,12 @@ export const serveTerminals = (
   };
 
   const openSurface = (open: TerminalSurfaceOpen, surface: SurfacePort): void => {
+    if (!named.has(open.id)) {
+      return wait(open.id, () => openSurface(open, surface), () => {
+        surface.post({ t: "end" });
+        surface.close();
+      });
+    }
     const surfaces = surfacesOf.get(open.id);
     if (surfaces === undefined) {
       surface.post({ t: "end" });
@@ -237,9 +277,10 @@ export const serveTerminals = (
     push(TerminalOutbound.exit, { id, ...link.exit! });
   };
 
-  const adopt = (): readonly TerminalAdopted[] =>
+  const adopted = (): readonly TerminalAdopted[] =>
     [...links].map(([id, link]) => ({
-      id, pid: link.pid, cols: link.cols, rows: link.rows, meta: link.meta,
+      id, pid: link.pid, cols: link.cols, rows: link.rows,
+      ...(link.meta === undefined ? {} : { meta: link.meta }),
       history: link.history.map((chunk) => chunk.data).join(""),
       seq: link.history.at(-1)?.seq ?? (link.unacked[0] === undefined ? link.lastSeq : link.unacked[0].seq - 1),
       ...(link.exit === undefined ? {} : { exit: link.exit }),
@@ -255,7 +296,7 @@ export const serveTerminals = (
   };
 
   const spawn = (input: TerminalSpawnInput): number | undefined => {
-    if (ptys.has(input.id)) throw new Error(`terminal ${input.id} already exists`);
+    if (named.has(input.id)) throw new Error(`terminal ${input.id} already exists`);
     const pty = spawnPty(input.command, input.args, {
       name: "xterm-256color",
       cols: input.cols,
@@ -319,7 +360,20 @@ export const serveTerminals = (
     await Promise.all([...ptys.keys()].map((id) => signalPty(id, "SIGHUP")));
   };
 
-  const inbound = (channel: string, payload: unknown): void => {
+  /** The spawn of `id` was decided: what waited for it runs, or goes with a refusal. */
+  const decided = (id: number, started: boolean): void => {
+    named.add(id);
+    nextId = Math.max(nextId, id + 1);
+    if (!started) return dropEarly(id);
+    const waiting = early.get(id);
+    early.delete(id);
+    for (const { run } of waiting ?? []) run();
+  };
+
+  const inbound = (message: TerminalPush): void => {
+    const { channel, payload } = message;
+    const id = (payload as { readonly id?: unknown } | undefined)?.id;
+    if (typeof id === "number" && !named.has(id)) return wait(id, () => inbound(message));
     if (channel === TerminalInbound.write) {
       const { id, data } = payload as TerminalWrite;
       const pty = ptys.get(id);
@@ -408,45 +462,86 @@ export const serveTerminals = (
     }
   };
 
-  const received = (from: CorePort) => (message: CoreMessage): void => {
-    if (message.kind === "push") return inbound(message.channel, message.payload);
-    if (message.kind !== "call") return;
-    if (message.name === TERMINAL_FENCE) {
-      from.post({ kind: "answer", id: message.id, ok: true, value: {} });
-      return;
-    }
-    if (message.name === TERMINAL_ADOPT) {
-      from.post({ kind: "answer", id: message.id, ok: true, value: adopt() });
-      redeliver();
-      return;
-    }
-    if (message.name !== TERMINAL_SPAWN) {
-      from.post({ kind: "answer", id: message.id, ok: false, failure: { tag: "UnknownTerminalOp", message: `no terminal operation named ${message.name}` } });
-      return;
-    }
-    try {
-      const pid = spawn(message.input as TerminalSpawnInput);
-      from.post({ kind: "answer", id: message.id, ok: true, value: { pid } });
-    } catch (error) {
-      from.post({ kind: "answer", id: message.id, ok: false, failure: { tag: "TerminalBackendUnavailable", message: errorMessage(error) } });
-    }
-  };
+  const handlers = TerminalRpcs.toLayer({
+    TerminalSpawn: (input) =>
+      Effect.try({
+        try: () => spawn(input),
+        catch: (error) => new TerminalSpawnRefused({ message: errorMessage(error) }),
+      }).pipe(
+        Effect.tap(() => Effect.sync(() => decided(input.id, true))),
+        Effect.tapError(() => Effect.sync(() => decided(input.id, false))),
+        Effect.map((pid) => ({ pid })),
+      ),
+    TerminalAdopt: ({ version }) =>
+      version === TERMINAL_LINK_VERSION
+        ? Effect.sync(() => {
+            const answer = { version: TERMINAL_LINK_VERSION, terminals: adopted(), nextId };
+            // Posted before the answer: the core holds output for an id it
+            // does not know yet until the answer names it.
+            redeliver();
+            return answer;
+          })
+        : Effect.fail(new TerminalLinkVersionMismatch({ expected: TERMINAL_LINK_VERSION, actual: version })),
+    TerminalFence: () => Effect.void,
+  });
 
-  const detach = (gone: CorePort): void => {
+  /** The calls on one core's port, served until the scope closes. */
+  const serve = (calls: RpcPort): Scope.Closeable => {
+    const scope = Effect.runSync(Scope.make());
+    Effect.runFork(
+      Layer.buildWithScope(
+        RpcServer.layer(TerminalRpcs).pipe(
+          Layer.provide(handlers),
+          // Opened at once, so a call that comes before the server listens waits for it.
+          Layer.provide(Layer.succeed(RpcServer.Protocol, Effect.runSync(Effect.provideService(serverProtocol(heldForServer(calls)), Scope.Scope, scope)))),
+        ),
+        scope,
+      ),
+    );
+    return scope;
+  };
+  let serving: Scope.Closeable | undefined;
+
+  const detach = (gone: TerminalLinkPort): void => {
     if (core !== gone) return;
     stopListening?.();
     stopListening = undefined;
+    if (serving !== undefined) Effect.runFork(Scope.close(serving, Exit.void));
+    serving = undefined;
     core = undefined;
+    // What waited on a spawn from that core waits on nothing now.
+    for (const id of [...early.keys()]) dropEarly(id);
     for (const link of links.values()) link.delivering = false;
   };
 
-  const attach = (next: CorePort): void => {
+  const attach = (next: TerminalLinkPort): void => {
     if (core !== undefined) detach(core);
     core = next;
-    stopListening = next.listen(received(next));
+    // RPC hears every message on the port but the pushes, which are this side's own.
+    const calls = new Set<(message: TerminalLinkMessage) => void>();
+    stopListening = next.listen((message) => {
+      if (message.kind === "push") return inbound(message);
+      for (const handler of [...calls]) handler(message);
+    });
+    serving = serve({
+      post: (message) => next.post(message),
+      listen: (handler) => {
+        calls.add(handler);
+        return () => calls.delete(handler);
+      },
+    });
   };
 
   if (port !== undefined) attach(port);
 
-  return { close: () => { if (core !== undefined) detach(core); }, live: () => ptys.size, openSurface, attach, detach, hangupAll };
+  return {
+    close: () => {
+      if (core !== undefined) detach(core);
+    },
+    live: () => ptys.size,
+    openSurface,
+    attach,
+    detach,
+    hangupAll,
+  };
 };

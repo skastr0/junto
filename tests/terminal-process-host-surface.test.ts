@@ -9,7 +9,7 @@
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { CoreMessage, CorePort } from "../src/contract/core/port";
+import type { TerminalLinkMessage, TerminalLinkPort } from "../src/contract/terminal/protocol";
 import { createAppProcessPlane } from "../src/node/app-process-plane";
 import { LocalSessionHost } from "../src/core/term/local-host";
 import { OperatorInterlock } from "../src/core/term/drive/operator-interlock";
@@ -56,7 +56,7 @@ const install = () => {
   // entry.ts takes it from a utilityProcess message.
   const far = asCore(port2);
   let served: ReturnType<typeof serveTerminals> | undefined;
-  const serving: CorePort = {
+  const serving: TerminalLinkPort = {
     post: far.post,
     listen: (handler) => far.listen((message) => {
       const surface = (message as { surface?: MessagePort }).surface;
@@ -68,7 +68,7 @@ const install = () => {
   const gates: Array<TerminalGate["lease"]> = [];
   const holds: boolean[] = [];
   const core = asCore(port1);
-  const recording: CorePort = {
+  const recording: TerminalLinkPort = {
     post: (message) => {
       if (message.kind === "push" && message.channel === TerminalSurface.gate) gates.push((message.payload as TerminalGate).lease);
       if (message.kind === "push" && message.channel === TerminalSurface.hold) holds.push((message.payload as TerminalHold).held);
@@ -83,10 +83,10 @@ const install = () => {
   return { gates, holds };
 };
 
-const asCore = (port: MessagePort): CorePort => ({
+const asCore = (port: MessagePort): TerminalLinkPort => ({
   post: (message) => port.postMessage(message),
   listen: (handler) => {
-    const on = (message: CoreMessage) => handler(message);
+    const on = (message: TerminalLinkMessage) => handler(message);
     port.on("message", on);
     return () => port.off("message", on);
   },

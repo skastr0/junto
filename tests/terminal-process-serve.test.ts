@@ -7,20 +7,23 @@
  * every terminal it held.
  */
 import { Effect } from "effect";
+import { RpcClient } from "effect/rpc";
+import { clientProtocol } from "../src/shared/rpc-port";
+import { TerminalRpcs } from "../src/contract/terminal/rpcs";
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CoreMessage, CorePort } from "../src/contract/core/port";
+import type { TerminalLinkMessage, TerminalLinkPort } from "../src/contract/terminal/protocol";
 import { serveTerminals, type SpawnPty } from "../src/terminal/serve";
 import { terminalClient, type RemoteTerminal, type RemoteTerminalExit } from "../src/node/terminals/client";
 
 const nodePty = createRequire(import.meta.url)("node-pty") as typeof import("node-pty");
 const realPty: SpawnPty = (command, args, options) => nodePty.spawn(command, [...args], options);
 
-const portOf = (port: MessagePort): CorePort => ({
+const portOf = (port: MessagePort): TerminalLinkPort => ({
   post: (message) => port.postMessage(message),
   listen: (handler) => {
-    const on = (message: CoreMessage) => handler(message);
+    const on = (message: TerminalLinkMessage) => handler(message);
     port.on("message", on);
     return () => port.off("message", on);
   },
@@ -189,7 +192,12 @@ describe("the terminal process", () => {
     serveTerminals(portOf(port2), fake, { capture: async () => undefined, isCurrent: async () => false });
     // A core that does not keep up: it answers the spawn and acknowledges nothing.
     const core = portOf(port1);
-    core.post({ kind: "call", id: 1, name: "pty.spawn", input: { id: 1, command: "/bin/true", args: [], cols: 80, rows: 24 } });
+    void Effect.runPromise(Effect.scoped(
+      RpcClient.make(TerminalRpcs).pipe(
+        Effect.provideServiceEffect(RpcClient.Protocol, clientProtocol(core)),
+        Effect.flatMap((calls) => calls.TerminalSpawn({ id: 1, command: "/bin/true", args: [], cols: 80, rows: 24 })),
+      ),
+    ));
     await until(() => emit !== undefined);
     const chunk = "x".repeat(64 * 1024);
     for (let i = 0; i < 16; i++) emit!(chunk);
