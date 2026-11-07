@@ -79,7 +79,8 @@ case "${1:-}" in
   run)
     id=${2:?VM id}
     shift 2
-    remote "$id" "cd ~/$VM_DIR && env -u BACKEND_URL -u ASCII_API_URL -u BOX_CLI_API_URL $*"
+    # The VM sets Boat's own URLs, which Junto's tests read as a secret to scrub (boat-scrub).
+    remote "$id" "cd ~/$VM_DIR && unset BACKEND_URL ASCII_API_URL BOX_CLI_API_URL && $*"
     ;;
   stop)
     "$BOAT" stop "${2:?VM id}"
