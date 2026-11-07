@@ -10,6 +10,7 @@
  *
  * usage: playwright test --list --reporter=json ... | bun scripts/e2e-list-gate.ts [args given to run-e2e.sh]
  */
+export {};
 
 type ListedSpec = { readonly file: string; readonly tests: readonly unknown[] };
 type ListedSuite = {
