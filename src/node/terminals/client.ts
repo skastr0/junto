@@ -9,7 +9,6 @@ import {
   type TerminalSpawnInput,
 } from "../../contract/terminal/rpcs";
 import {
-  TerminalInbound,
   TerminalOutbound,
   TerminalSurface,
   type TerminalData as LegacyData,
@@ -21,7 +20,7 @@ import {
   type TerminalLinkPort,
   type TerminalPush,
 } from "../../contract/terminal/protocol";
-import type { EventFrame, EventHandlers, TerminalInput, TerminalTyping } from "../../contract/terminal/messages";
+import type { Command, EventFrame, EventHandlers, TerminalInput, TerminalTyping } from "../../contract/terminal/messages";
 import { eventEdge } from "../../contract/terminal/edge";
 
 /**
@@ -95,6 +94,10 @@ export type TerminalClient = {
   /** The terminal process is gone: every live terminal reports an exit. */
   readonly fail: (reason: string) => void;
 };
+
+/** The commands that name one terminal and go with no port. */
+type PortlessCommand = Exclude<Command, { readonly _tag: "surfaceOpen" | "hangupAll" }>;
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 type KeyListener = (input: { readonly leaseId: string; readonly data: string }) => void;
 
@@ -189,15 +192,29 @@ export const terminalClient = (
     if (terminal !== undefined) each(terminal.error, new Error(message));
   };
 
-  const post = (channel: string, payload: unknown): void => port.post({ kind: "push", channel, payload });
+  /**
+   * Each terminal's last command number. The spawn is 1, so its first command
+   * is 2; the terminal process applies a terminal's commands in this order,
+   * whatever order they arrive in. Kept past the exit: a command posted to a
+   * terminal that ended still counts on.
+   */
+  const numbered = new Map<number, number>();
+  const nextN = (id: number): number => {
+    const n = (numbered.get(id) ?? 1) + 1;
+    numbered.set(id, n);
+    return n;
+  };
+  const command = (message: DistributiveOmit<PortlessCommand, "n">): void =>
+    port.post({ kind: "command", message: { ...message, n: nextN(message.id) } as PortlessCommand });
 
   // Handled output is acknowledged once per turn, every terminal at once, so
-  // a PTY is read only as fast as this side keeps up (backpressure).
+  // a PTY is read only as fast as this side keeps up (backpressure). The ack
+  // names the last chunk applied, so a late or repeated one changes nothing.
   const handled = new Map<number, number>();
   let ackScheduled = false;
   const acknowledge = (): void => {
     ackScheduled = false;
-    for (const [id, chars] of handled) post(TerminalInbound.ack, { id, chars });
+    for (const [id, throughSeq] of handled) command({ _tag: "ack", id, throughSeq });
     handled.clear();
   };
 
@@ -214,7 +231,7 @@ export const terminalClient = (
       terminal.pending.delete(terminal.seq + 1);
       terminal.seq += 1;
       each(terminal.data, next);
-      handled.set(id, (handled.get(id) ?? 0) + next.length);
+      handled.set(id, terminal.seq);
       if (!ackScheduled) {
         ackScheduled = true;
         setImmediate(acknowledge);
@@ -223,7 +240,7 @@ export const terminalClient = (
     const exit = terminal.heldExit;
     if (exit === undefined || terminal.seq < exit.afterSeq) return;
     delete terminal.heldExit;
-    post(TerminalInbound.exitAck, { id });
+    command({ _tag: "exitAck", id });
     exited(id, exit.status);
   };
 
@@ -327,18 +344,18 @@ export const terminalClient = (
   const handleOf = (id: number, pid: Promise<number | undefined>): RemoteTerminal => ({
     id,
     pid,
-    write: (data) => post(TerminalInbound.write, { id, data }),
-    resize: (cols, rows) => post(TerminalInbound.resize, { id, cols, rows }),
-    kill: (signal) => post(TerminalInbound.kill, { id, ...(signal === undefined ? {} : { signal }) }),
+    write: (data) => command({ _tag: "write", id, data }),
+    resize: (cols, rows) => command({ _tag: "resize", id, cols, rows }),
+    kill: (signal) => command({ _tag: "kill", id, ...(signal === undefined ? {} : { signal }) }),
     onData: subscribe(id, (terminal) => terminal.data),
     onExit: subscribe(id, (terminal) => terminal.exit),
     onError: subscribe(id, (terminal) => terminal.error),
-    gate: (lease) => post(TerminalSurface.gate, { id, lease }),
-    hold: (held) => post(TerminalSurface.hold, { id, held }),
-    endSurface: (leaseId) => post(TerminalSurface.close, { id, leaseId }),
+    gate: (lease) => command({ _tag: "gate", id, lease }),
+    hold: (held) => command({ _tag: "hold", id, held }),
+    endSurface: (leaseId) => command({ _tag: "surfaceEnd", id, leaseId }),
     openSurface: (lease, fromSeq, surface) => {
       if (transfer === undefined) throw new Error("this terminal process cannot take a surface port");
-      transfer({ kind: "push", channel: TerminalSurface.open, payload: { id, ...lease, fromSeq } }, surface);
+      transfer({ kind: "command", message: { _tag: "surfaceOpen", id, n: nextN(id), leaseId: lease.leaseId, epoch: lease.epoch, fromSeq } }, surface);
     },
     lastSeq: () => live.get(id)?.seq ?? 0,
     onTyping: subscribe(id, (terminal) => terminal.typing),
@@ -376,7 +393,7 @@ export const terminalClient = (
 
   return {
     adopt,
-    hangupAll: () => post(TerminalInbound.hangupAll, {}),
+    hangupAll: () => port.post({ kind: "command", message: { _tag: "hangupAll" } }),
     spawn: (input) => {
       const id = nextId++;
       live.set(id, fresh(0, true));

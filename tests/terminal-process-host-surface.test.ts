@@ -9,14 +9,16 @@
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { TerminalLinkMessage, TerminalLinkPort } from "../src/contract/terminal/protocol";
+import { Context, Effect, Exit, Layer, Scope } from "effect";
+import type { TerminalLink, TerminalLinkMessage, TerminalLinkPort } from "../src/contract/terminal/protocol";
 import { createAppProcessPlane } from "../src/node/app-process-plane";
 import { LocalSessionHost } from "../src/core/term/local-host";
 import { OperatorInterlock } from "../src/core/term/drive/operator-interlock";
-import { serveTerminals, type SpawnPty, type SurfacePort } from "../src/terminal/serve";
+import { CoreLink, PidEpochs, PtySpawner, TerminalServer, type SpawnPty, type SurfacePort } from "../src/terminal/serve";
 import { terminalClient } from "../src/node/terminals/client";
 import { placeTerminals } from "../src/node/terminals/use";
-import { TerminalSurface, type SurfaceOut, type TerminalGate, type TerminalHold, type TerminalSurfaceOpen } from "../src/contract/terminal/protocol";
+import type { SurfaceOut } from "../src/contract/terminal/protocol";
+import type { TerminalGate } from "../src/contract/terminal/messages";
 import { makeThisMachine } from "../src/shared/remote-hosts";
 import { hostsSnapshot, setHostsSnapshot } from "../src/core/hosts/snapshot";
 
@@ -24,6 +26,7 @@ const nodePty = createRequire(import.meta.url)("node-pty") as typeof import("nod
 const realPty: SpawnPty = (command, args, options) => nodePty.spawn(command, [...args], options);
 
 const opened: MessagePort[] = [];
+const scopes: Scope.Closeable[] = [];
 const hosts: LocalSessionHost[] = [];
 const initialHosts = hostsSnapshot();
 const initialShell = process.env.SHELL;
@@ -35,6 +38,8 @@ beforeEach(() => {
 
 afterEach(async () => {
   for (const host of hosts.splice(0)) await host.shutdownAll("test");
+  // Closing the server's scope hangs up every PTY it still holds.
+  for (const scope of scopes.splice(0)) await Effect.runPromise(Scope.close(scope, Exit.void));
   placeTerminals({ kind: "here" });
   for (const port of opened.splice(0)) port.close();
   setHostsSnapshot(initialHosts);
@@ -49,36 +54,53 @@ const until = async (check: () => boolean, timeoutMs = 5_000): Promise<void> => 
   }
 };
 
+/** The real terminal server through its layer, with the parent stubbed: it never connects a core of its own. */
+const boot = () => {
+  const scope = Effect.runSync(Scope.make());
+  scopes.push(scope);
+  const deps = Layer.mergeAll(
+    Layer.succeed(PtySpawner, realPty),
+    PidEpochs.live,
+    Layer.succeed(CoreLink, { parentAsCore: undefined, listenParent: () => () => undefined }),
+  );
+  const context = Effect.runSync(Layer.buildWithScope(Layer.provideMerge(TerminalServer.layer, deps), scope));
+  return Context.get(context, TerminalServer);
+};
+
+/** The served end of the core's link: a node port carries a transferred port inside the posted value. */
+const servedLink = (port: MessagePort): TerminalLink<SurfacePort> => ({
+  post: (message) => port.postMessage(message),
+  transfer: () => {
+    throw new Error("the terminal process posts no port on the link");
+  },
+  listen: (handler) => {
+    const on = (message: TerminalLinkMessage & { readonly port?: MessagePort }) =>
+      handler(message, message.port === undefined ? undefined : surfaceOf(message.port));
+    port.on("message", on);
+    return () => port.off("message", on);
+  },
+});
+
 const install = () => {
   const { port1, port2 } = new MessageChannel();
   opened.push(port1, port2);
-  // The terminal process's side: a surface port rides beside its message, as
-  // entry.ts takes it from a utilityProcess message.
-  const far = asCore(port2);
-  let served: ReturnType<typeof serveTerminals> | undefined;
-  const serving: TerminalLinkPort = {
-    post: far.post,
-    listen: (handler) => far.listen((message) => {
-      const surface = (message as { surface?: MessagePort }).surface;
-      if (surface === undefined) return handler(message);
-      served?.openSurface((message as { payload: TerminalSurfaceOpen }).payload, surfaceOf(surface));
-    }),
-  };
-  served = serveTerminals(serving, realPty);
+  // The terminal process's side: a surface port rides beside its numbered
+  // `surfaceOpen`, as entry.ts takes it from a utilityProcess message.
+  boot().attach(servedLink(port2), 1);
   const gates: Array<TerminalGate["lease"]> = [];
   const holds: boolean[] = [];
   const core = asCore(port1);
   const recording: TerminalLinkPort = {
     post: (message) => {
-      if (message.kind === "push" && message.channel === TerminalSurface.gate) gates.push((message.payload as TerminalGate).lease);
-      if (message.kind === "push" && message.channel === TerminalSurface.hold) holds.push((message.payload as TerminalHold).held);
+      if (message.kind === "command" && message.message._tag === "gate") gates.push(message.message.lease);
+      if (message.kind === "command" && message.message._tag === "hold") holds.push(message.message.held);
       core.post(message);
     },
     listen: core.listen,
   };
   // Moved behind every spawn on the same port, as the utilityProcess does.
   placeTerminals({ kind: "process", client: terminalClient(recording, (message, surface) => {
-    port1.postMessage({ ...message, surface }, [surface as MessagePort]);
+    port1.postMessage({ ...(message as object), port: surface }, [surface as MessagePort]);
   }) });
   return { gates, holds };
 };

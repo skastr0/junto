@@ -404,10 +404,6 @@ describe("machine-safety architecture", () => {
       "src/core/term/seats-link.ts:host.kill",
       // Owned child only: codesign/plutil admit timeout.
       "src/app/update/admit-mac-app.ts:child.kill",
-      // The terminal process (protect the main thread): the plane's PTY signal
-      // crosses the port by its channel name, and the far side signals a PTY
-      // it spawned only while its pid still has the start epoch taken at spawn.
-      "src/node/terminals/client.ts:forbidden-reference:TerminalInbound.kill",
       // The same child, signalled through its own handle only if it has not
       // left by the stop deadline; a stop first asks it to hang up and exit.
       "src/app/terminals/host.ts:leaving.kill",

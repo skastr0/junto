@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { terminalClient, type RemoteTerminalExit } from "../src/node/terminals/client";
-import type { Event, EventFrame } from "../src/contract/terminal/messages";
+import type { Command, Event, EventFrame } from "../src/contract/terminal/messages";
 import type { TerminalLinkMessage, TerminalLinkPort } from "../src/contract/terminal/protocol";
 
 const link = () => {
@@ -23,9 +23,10 @@ const link = () => {
     const frame: EventFrame = { kind: "event", message };
     for (const handler of handlers) handler(frame as unknown as TerminalLinkMessage);
   };
-  const pushes = (channel: string) =>
-    posted.filter((message) => message.kind === "push" && message.channel === channel).map((message) => (message as { readonly payload: unknown }).payload);
-  return { port, send, pushes, deliver: (message: unknown) => { for (const handler of handlers) handler(message as TerminalLinkMessage); } };
+  /** The commands posted with this tag, in order. */
+  const commands = (tag: Command["_tag"]) =>
+    posted.flatMap((message) => (message.kind === "command" && message.message._tag === tag ? [message.message] : []));
+  return { port, send, commands, deliver: (message: unknown) => { for (const handler of handlers) handler(message as TerminalLinkMessage); } };
 };
 
 const spawned = (port: TerminalLinkPort) => {
@@ -58,16 +59,16 @@ describe("the terminal client applies events by number", () => {
   });
 
   it("applies an exit only once output through its afterSeq is applied", () => {
-    const { port, send, pushes } = link();
+    const { port, send, commands } = link();
     const { terminal, output, exits } = spawned(port);
     send({ _tag: "data", id: terminal.id, seq: 1, data: "a" });
     send({ _tag: "exit", id: terminal.id, afterSeq: 2, code: 0, signal: undefined });
     expect(exits).toEqual([]);
-    expect(pushes("pty.exitAck")).toEqual([]);
+    expect(commands("exitAck")).toEqual([]);
     send({ _tag: "data", id: terminal.id, seq: 2, data: "b" });
     expect(output).toEqual(["a", "b"]);
     expect(exits).toEqual([{ code: 0, signal: undefined }]);
-    expect(pushes("pty.exitAck")).toEqual([{ id: terminal.id }]);
+    expect(commands("exitAck")).toEqual([{ _tag: "exitAck", id: terminal.id, n: 2 }]);
   });
 
   it("applies typing and input in k order, once each", () => {
@@ -80,13 +81,22 @@ describe("the terminal client applies events by number", () => {
     expect(keys).toEqual(["typing x", "input x"]);
   });
 
-  it("acknowledges each turn's handled output once per terminal", async () => {
-    const { port, send, pushes } = link();
+  it("acknowledges each turn's handled output once per terminal, through the last chunk applied", async () => {
+    const { port, send, commands } = link();
     const { terminal } = spawned(port);
     send({ _tag: "data", id: terminal.id, seq: 1, data: "ab" });
     send({ _tag: "data", id: terminal.id, seq: 2, data: "cde" });
     await new Promise((resolve) => setImmediate(resolve));
-    expect(pushes("pty.ack")).toEqual([{ id: terminal.id, chars: 5 }]);
+    expect(commands("ack")).toEqual([{ _tag: "ack", id: terminal.id, n: 2, throughSeq: 2 }]);
+  });
+
+  it("numbers each terminal's commands from 2, behind its spawn", () => {
+    const { port, commands } = link();
+    const { terminal } = spawned(port);
+    terminal.resize(100, 30);
+    terminal.write("x");
+    terminal.gate(null);
+    expect([...commands("resize"), ...commands("write"), ...commands("gate")].map((command) => "n" in command ? command.n : 0)).toEqual([2, 3, 4]);
   });
 
   it("refuses a control event that does not decode, and applies nothing of it", () => {
