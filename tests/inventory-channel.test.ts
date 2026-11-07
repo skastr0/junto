@@ -170,7 +170,7 @@ const linkOver = (session: () => LinkSession | undefined) => {
     request: (machine, channel, payload, options) => {
       const held = session();
       if (held === undefined) return Effect.fail(new LinkUnavailable({ machine, reason: "not-linked", message: `${machine} is not linked` }));
-      return Effect.tryPromise({ try: () => held.request(channel, payload, options?.operationId, options?.tag), catch: toLink(machine) });
+      return Effect.tryPromise({ try: (signal) => held.request(channel, payload, options?.operationId, options?.tag, signal), catch: toLink(machine) });
     },
     sendEvent: (machine, channel, payload) => Effect.tryPromise({ try: () => session()!.sendEvent(channel, payload), catch: toLink(machine) }),
   });

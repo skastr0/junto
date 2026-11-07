@@ -135,18 +135,23 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
   const channels = { ...options.channels };
   const sessionId = randomUUID();
   const controller = new AbortController();
-  const abortedEffect = Effect.callback<never>(resume => {
+  const abortedBy = (signal: AbortSignal) => Effect.callback<never>(resume => {
     const abort = (): void => resume(Effect.interrupt);
-    if (controller.signal.aborted) { abort(); return; }
-    controller.signal.addEventListener("abort", abort, { once: true });
-    return Effect.sync(() => controller.signal.removeEventListener("abort", abort));
+    if (signal.aborted) { abort(); return; }
+    signal.addEventListener("abort", abort, { once: true });
+    return Effect.sync(() => signal.removeEventListener("abort", abort));
   });
-  const runOwned = <A, E>(effect: Effect.Effect<A, E>): Promise<A> => options.run(Effect.raceFirst(effect, abortedEffect));
+  /** Runs handler work until it ends, the link closes, or (a request's own signal) the asking end interrupts it. */
+  const runOwned = <A, E>(effect: Effect.Effect<A, E>, signal: AbortSignal = controller.signal): Promise<A> => options.run(Effect.raceFirst(effect, abortedBy(signal)));
   // A socket is one duplex: destroying its read side ends the write side too.
   const duplex = (options.readable as unknown) === options.writable;
   const pending = new Map<string, Pending>();
   const inboundIds = new Set<string>();
   const completedIds = new Set<string>();
+  /** The peer's requests not yet finished here, by id: aborted by its interrupt frame. */
+  const inboundAborts = new Map<string, { readonly op: string; readonly controller: AbortController }>();
+  /** This end's requests it stopped waiting for: their late answers are dropped, never a fault. */
+  const interruptedIds = new Set<string>();
   const channelQueues = new Map<LinkChannel, Promise<void>>();
   const sendWindows = new Map<LinkChannel, SendWindow>();
   const receiveWindows = new Map<LinkChannel, ReceiveWindow>();
@@ -178,11 +183,11 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     // A log write is the end of the line: it has nowhere further to report.
     void options.run(linkLog(level, message, { machine: self.machineName, sessionId, ...(machine === undefined ? {} : { peer: machine }), ...fields })).catch(() => undefined);
   };
-  const context = (operationId?: string): LinkChannelContext => {
+  const context = (operationId?: string, signal: AbortSignal = controller.signal): LinkChannelContext => {
     if (peer === undefined) throw new LinkUnavailable({ reason: "not-admitted", message: "The link hello is not admitted yet" });
-    return { peer, keyBound: options.keyBound === true || opener !== undefined, sessionId, signal: controller.signal, ...(operationId === undefined ? {} : { operationId }),
+    return { peer, keyBound: options.keyBound === true || opener !== undefined, sessionId, signal, ...(operationId === undefined ? {} : { operationId }),
       sendEvent: (channel, payload) => Effect.tryPromise({ try: () => sendEvent(channel, payload), catch: classify }),
-      request: (channel, payload, op, tag) => Effect.tryPromise({ try: () => request(channel, payload, op, tag), catch: classify }),
+      request: (channel, payload, op, tag) => Effect.tryPromise({ try: (abort) => request(channel, payload, op, tag, abort), catch: classify }),
       close: cause => Effect.promise(() => close(cause)),
     };
   };
@@ -319,16 +324,34 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     if (tag !== undefined) throw frameInvalid("payload", `The ${channel} channel takes no request tag`, peerName());
     return decoded("payload", `The ${channel} request does not match its schema`, () => selected.decodeRequest(payload));
   };
-  const request = async (channel: LinkChannel, payload: unknown, operationId: string = randomUUID(), tag?: string): Promise<unknown> => {
+  const interruptedBy = (channel: LinkChannel): LinkUnavailable =>
+    new LinkUnavailable({ ...machineField(), reason: "interrupted", message: `The ${channel} request was interrupted by its caller` });
+  /** This end stopped waiting for `id`: free its slot, drop its answer when it comes, and tell the peer, best effort. */
+  const interrupt = (id: string): void => {
+    const row = pending.get(id);
+    if (row === undefined || stopped !== undefined) return;
+    clearTimeout(row.timer); pending.delete(id);
+    interruptedIds.add(id);
+    if (interruptedIds.size > 256) interruptedIds.delete(interruptedIds.values().next().value!);
+    log("Debug", "link request interrupted", { channel: row.channel, operationId: row.operationId, requestId: id });
+    void write({ type: "interrupt", id, op: row.operationId, channel: row.channel }).catch(() => undefined);
+    row.reject(interruptedBy(row.channel));
+  };
+  const request = async (channel: LinkChannel, payload: unknown, operationId: string = randomUUID(), tag?: string, signal?: AbortSignal): Promise<unknown> => {
     await checkAdmission();
     if (!isOperationId(operationId)) throw frameInvalid("schema", "An operation id is 1 to 64 letters, digits, dots, dashes or underscores", peerName());
     const decodedPayload = requestPayload(channel, payload, tag);
+    if (signal?.aborted === true) throw interruptedBy(channel);
     if (pending.size >= limits.pendingRequests) { const error = thisEnd("bound-exceeded", [bound("Too many pending link requests")]); finish(error); throw error; }
     const id = randomUUID();
+    const onAbort = (): void => interrupt(id);
     const response = new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => finish(thisEnd("request-timeout")), limits.requestTimeoutMs);
-      pending.set(id, { channel, operationId, ...(tag === undefined ? {} : { tag }), resolve, reject, timer });
+      const settled = (): void => signal?.removeEventListener("abort", onAbort);
+      pending.set(id, { channel, operationId, ...(tag === undefined ? {} : { tag }), timer,
+        resolve: (value) => { settled(); resolve(value); }, reject: (error) => { settled(); reject(error); } });
     });
+    signal?.addEventListener("abort", onAbort, { once: true });
     void response.catch(() => {});
     log("Debug", "link request sent", { channel, operationId, requestId: id });
     try { await write({ type: "request", id, op: operationId, channel, ...(tag === undefined ? {} : { tag }), payload: decodedPayload }); }
@@ -506,10 +529,20 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     }
     if (frame.type === "hello") throw new LinkHelloRefused({ machine: peer.machineName, check: "repeated", message: "Link hello cannot be repeated" });
     if (frame.type === "credit") { credited(frame.channel, frame.bytes); return; }
+    if (frame.type === "interrupt") {
+      // One for a request already finished, or never sent, is ignored: it is best effort.
+      const held = inboundAborts.get(frame.id);
+      if (held !== undefined && held.op === frame.op) held.controller.abort();
+      return;
+    }
     const selected = inbound(frame.channel);
     if (frame.type === "response") {
       await checkAdmission();
       const waiting = pending.get(frame.id);
+      if (waiting === undefined && interruptedIds.delete(frame.id)) {
+        log("Debug", "link answer to an interrupted request dropped", { channel: frame.channel, operationId: frame.op, requestId: frame.id });
+        return;
+      }
       if (waiting === undefined || waiting.channel !== frame.channel || waiting.operationId !== frame.op) throw frameInvalid("unmatched-response", "Link response does not match a pending request", peer.machineName);
       const rpc = isLinkContractChannel(selected) ? rpcOf(frame.channel, selected, waiting.tag, peer.machineName) : undefined;
       if (frame.ok && rpc !== undefined) {
@@ -576,22 +609,37 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     if (handle === undefined) throw frameInvalid("no-handler", "Link channel does not accept requests", peer.machineName);
     if (inboundIds.has(frame.id) || completedIds.has(frame.id)) throw frameInvalid("duplicate-request", "Link request id was already used", peer.machineName);
     inboundIds.add(frame.id);
+    const own = new AbortController();
+    inboundAborts.set(frame.id, { op: frame.op, controller: own });
+    const signal = AbortSignal.any([controller.signal, own.signal]);
+    const interrupted = (): boolean => {
+      if (!own.signal.aborted) return false;
+      log("Debug", "link request interrupted by the peer", { channel: frame.channel, operationId: frame.op, requestId: frame.id });
+      return true;
+    };
+    const done = (): void => {
+      inboundAborts.delete(frame.id);
+      inboundIds.delete(frame.id); completedIds.add(frame.id);
+      if (completedIds.size > 256) completedIds.delete(completedIds.values().next().value!);
+    };
     enqueue(frame.channel, "request", async () => {
+      // Interrupted while queued: it never runs.
+      if (interrupted()) { done(); return; }
       await checkAdmission();
       log("Debug", "link request received", { channel: frame.channel, operationId: frame.op, requestId: frame.id });
       try {
-        const response = await runOwned(handle(context(frame.op), payload));
+        const response = await runOwned(handle(context(frame.op, signal), payload), signal);
         await checkAdmission();
         await write({ type: "response", id: frame.id, op: frame.op, channel: frame.channel, ok: true, payload: serving.answer(response) });
       } catch (cause) {
-        if (stopped !== undefined) return;
+        // The asking end stopped waiting, so nothing answers it.
+        if (stopped !== undefined || interrupted()) return;
         const failure = encodeError(cause, { machine: self.machineName, operationId: frame.op, detail: serving.detail(cause) });
         log("Warning", "link request failed", { channel: frame.channel, operationId: frame.op, requestId: frame.id, failure });
         await checkAdmission();
         await write({ type: "response", id: frame.id, op: frame.op, channel: frame.channel, ok: false, failure });
       } finally {
-        inboundIds.delete(frame.id); completedIds.add(frame.id);
-        if (completedIds.size > 256) completedIds.delete(completedIds.values().next().value!);
+        done();
       }
     });
   };

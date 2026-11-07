@@ -258,7 +258,8 @@ export const makeMachineLink = (options: { readonly build: string; readonly home
     disconnect,
     peerBuild: (name) => Effect.sync(() => builds.get(name)),
     request: Effect.fn("MachineLink.request")(function* (name: string, channel: LinkChannel, payload: unknown, requestOptions?: { readonly operationId?: string; readonly tag?: string }) {
-      return yield* Effect.tryPromise({ try: () => sessionFor(name).request(channel, payload, requestOptions?.operationId, requestOptions?.tag), catch: (cause) => toLinkError(cause, name) });
+      // An interrupted caller aborts the signal, and the session tells the peer to interrupt the request.
+      return yield* Effect.tryPromise({ try: (signal) => sessionFor(name).request(channel, payload, requestOptions?.operationId, requestOptions?.tag, signal), catch: (cause) => toLinkError(cause, name) });
     }),
     sendEvent: Effect.fn("MachineLink.sendEvent")(function* (name: string, channel: LinkChannel, payload: unknown) {
       return yield* Effect.tryPromise({ try: () => sessionFor(name).sendEvent(channel, payload), catch: (cause) => toLinkError(cause, name) });

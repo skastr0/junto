@@ -100,7 +100,7 @@ export class LinkClosed extends Schema.TaggedError<LinkClosed>()("LinkClosed", {
 }) {}
 
 /** The link cannot take this call: not linked, not configured, or shutting down. */
-export const LinkUnavailableReason = Schema.Literals(["not-linked", "not-configured", "channels-bound", "unknown-channel", "listener-unavailable", "shutting-down", "route-incomplete", "other-installation", "invalid-limits", "not-admitted", "channel-unavailable", "request-from-event", "send-from-event", "send-queue-full", "asleep", "missing-channel"]);
+export const LinkUnavailableReason = Schema.Literals(["not-linked", "not-configured", "channels-bound", "unknown-channel", "listener-unavailable", "shutting-down", "route-incomplete", "other-installation", "invalid-limits", "not-admitted", "channel-unavailable", "request-from-event", "send-from-event", "send-queue-full", "asleep", "missing-channel", "interrupted"]);
 export class LinkUnavailable extends Schema.TaggedError<LinkUnavailable>()("LinkUnavailable", {
   machine: Schema.optionalKey(Schema.String),
   reason: LinkUnavailableReason,
@@ -163,6 +163,7 @@ export interface LinkChannelContext {
    */
   readonly keyBound: boolean;
   readonly sessionId: string;
+  /** Aborts when the link closes, and, in a request handler, when the asking end interrupts that request. */
   readonly signal: AbortSignal;
   /** The operation the current request belongs to; absent outside a request. */
   readonly operationId?: string;
@@ -214,7 +215,8 @@ export interface LinkSession {
   readonly sessionId: string;
   readonly ready: Promise<LinkHello>;
   readonly closed: Promise<LinkClosed>;
-  readonly request: (channel: LinkChannel, payload: unknown, operationId?: string, tag?: string) => Promise<unknown>;
+  /** Aborting `signal` stops the wait and tells the peer to interrupt the request (an interrupt frame). */
+  readonly request: (channel: LinkChannel, payload: unknown, operationId?: string, tag?: string, signal?: AbortSignal) => Promise<unknown>;
   readonly sendEvent: (channel: LinkChannel, payload: unknown) => Promise<void>;
   /** Closes with a typed cause; without one, a deliberate close by this end. */
   readonly close: (cause?: unknown) => Promise<void>;

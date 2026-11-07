@@ -4,8 +4,8 @@
  * contract at the other. The `@ts-expect-error` lines are the compile half:
  * each is a change the contract refuses at the caller or at the handler.
  */
-import { PassThrough } from "node:stream";
-import { Effect, Schema } from "effect";
+import { PassThrough, Transform } from "node:stream";
+import { Effect, Fiber, Schema } from "effect";
 import { Rpc, RpcGroup } from "effect/rpc";
 import { afterEach, describe, expect, it } from "vitest";
 import { bindLinkChannel, linkClient, linkContract, type LinkContractChannel } from "../src/core/link/contract";
@@ -29,9 +29,17 @@ const sessions: LinkSession[] = [];
 afterEach(async () => { await Promise.all(sessions.splice(0).map((session) => session.close())); });
 const hello = (name: string): LinkHello => Schema.decodeUnknownSync(LinkHelloSchema)({ build: "a".repeat(64), installationId: `${name}-install`, machineName: name });
 
-const pair = (left: LinkChannels, right: LinkChannels) => {
+/** `sent` sees each frame the left end writes, as it crosses. */
+const pair = (left: LinkChannels, right: LinkChannels, sent: (frame: LinkFrame) => void = () => {}) => {
   const ab = new PassThrough(); const ba = new PassThrough();
-  const a = makeLinkSession({ readable: ba, writable: ab, self: hello("macbook"), admit: async () => {}, channels: left, run: Effect.runPromise });
+  let line = "";
+  const tap = new Transform({ transform(chunk: Buffer, _encoding, done) {
+    line += chunk.toString();
+    for (let newline = line.indexOf("\n"); newline >= 0; newline = line.indexOf("\n")) { sent(decodeLinkFrame(JSON.parse(line.slice(0, newline)))); line = line.slice(newline + 1); }
+    done(null, chunk);
+  } });
+  tap.pipe(ab);
+  const a = makeLinkSession({ readable: ba, writable: tap, self: hello("macbook"), admit: async () => {}, channels: left, run: Effect.runPromise });
   const b = makeLinkSession({ readable: ab, writable: ba, self: hello("mini"), admit: async () => {}, channels: right, run: Effect.runPromise });
   sessions.push(a, b);
   return { a, b };
@@ -62,12 +70,16 @@ const over = (session: LinkSession) => {
   const toLink = (cause: unknown) => isMachineLinkError(cause) ? cause : linkClosed({ by: "this-end", reason: "failed", cause });
   return MachineLink.of({
     setChannels: () => unused, listen: () => unused, connect: () => unused, connectSetup: () => unused, disconnect: () => unused, peerBuild: () => unused,
-    request: (_machine, channel, payload, options) => Effect.tryPromise({ try: () => session.request(channel, payload, options?.operationId, options?.tag), catch: toLink }),
+    request: (_machine, channel, payload, options) => Effect.tryPromise({ try: (signal) => session.request(channel, payload, options?.operationId, options?.tag, signal), catch: toLink }),
     sendEvent: (_machine, channel, payload) => Effect.tryPromise({ try: () => session.sendEvent(channel, payload), catch: toLink }),
   });
 };
-const client = <A, E>(session: LinkSession, use: (echo: Effect.Success<ReturnType<typeof linkClient<typeof Echo>>>) => Effect.Effect<A, E>) =>
+type EchoClient = Effect.Success<ReturnType<typeof linkClient<typeof Echo>>>;
+const client = <A, E>(session: LinkSession, use: (echo: EchoClient) => Effect.Effect<A, E>) =>
   Effect.runPromise(Effect.flatMap(linkClient(Echo), use).pipe(Effect.provideService(MachineLink, over(session))));
+/** A call left running, so the test can interrupt its caller. */
+const forked = <A, E>(session: LinkSession, use: (echo: EchoClient) => Effect.Effect<A, E>) =>
+  Effect.runFork(Effect.flatMap(linkClient(Echo), use).pipe(Effect.provideService(MachineLink, over(session))));
 
 const asker = (): LinkContractChannel => bindLinkChannel(Echo, {
   requests: { Say: () => Effect.die("asker"), Count: () => Effect.die("asker") },
@@ -151,11 +163,88 @@ describe("a contract channel over a real session pair", () => {
     expect(seen[0]).toBeInstanceOf(Date);
   });
 
+  it("binds a channel with events and no requests: its group is empty", async () => {
+    const Events = linkContract("rows", RpcGroup.make(), { event: Schema.Struct({ n: Schema.Int }) });
+    const got: Array<number> = [];
+    const { a } = pair({ rows: bindLinkChannel(Events, { requests: {}, event: () => Effect.void }) },
+      { rows: bindLinkChannel(Events, { requests: {}, event: ({ n }) => Effect.sync(() => { got.push(n); }) }) });
+    await Effect.runPromise(Effect.flatMap(linkClient(Events), (rows) => rows.sendEvent("mini", { n: 7 })).pipe(Effect.provideService(MachineLink, over(a))));
+    await expect.poll(() => got).toEqual([7]);
+  });
+
   it("closes on an event sent to a channel that carries none", async () => {
     const raw = facingRaw({ rows: bindLinkChannel(Quiet, { requests: { Ping: () => Effect.succeed("pong" as const) } }) });
     await raw.session.ready;
     raw.send({ type: "event", channel: "rows", payload: {} });
     expect((await raw.session.closed).message).toContain("does not accept events");
+  });
+});
+
+describe("a caller interrupted mid-request", () => {
+  it("interrupts the peer's handler and aborts its signal; the channel then serves the next request", async () => {
+    const seen: Array<{ readonly interrupted: boolean; readonly aborted: boolean }> = [];
+    let started = false;
+    const served = bindLinkChannel(Echo, {
+      requests: {
+        Say: ({ text }, context) => text !== "slow" ? Effect.succeed({ said: text, at: new Date(0) }) : Effect.sync(() => { started = true; }).pipe(
+          Effect.andThen(Effect.never),
+          Effect.onInterrupt(() => Effect.sync(() => { seen.push({ interrupted: true, aborted: context.signal.aborted }); })),
+        ),
+        Count: () => Effect.succeed([]),
+      },
+      event: () => Effect.void,
+    });
+    const { a } = pair({ status: asker() }, { status: served });
+    const fiber = forked(a, (echo) => echo.Say("mini", { text: "slow" }));
+    await expect.poll(() => started).toBe(true);
+    await Effect.runPromise(Fiber.interrupt(fiber));
+    await expect.poll(() => seen).toEqual([{ interrupted: true, aborted: true }]);
+    // Requests on one channel run in turn at the peer: this one would wait behind the slow one forever.
+    expect(await client(a, (echo) => echo.Say("mini", { text: "next" }))).toMatchObject({ said: "next" });
+  });
+
+  it("skips a request interrupted while it waits its turn: its handler never runs", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const counted: Array<number> = [];
+    const served = bindLinkChannel(Echo, {
+      requests: {
+        Say: ({ text }) => Effect.promise(() => gate).pipe(Effect.as({ said: text, at: new Date(0) })),
+        Count: ({ upTo }) => Effect.sync(() => { counted.push(upTo); return []; }),
+      },
+      event: () => Effect.void,
+    });
+    const sent: Array<LinkFrame> = [];
+    const { a } = pair({ status: asker() }, { status: served }, (frame) => sent.push(frame));
+    const first = client(a, (echo) => echo.Say("mini", { text: "first" }));
+    const queued = forked(a, (echo) => echo.Count("mini", { upTo: 1 }));
+    // The peer holds it, queued behind the first: only then is it interrupted.
+    await expect.poll(() => sent.filter((frame) => frame.type === "request").length).toBe(2);
+    await Effect.runPromise(Fiber.interrupt(queued));
+    await expect.poll(() => sent.some((frame) => frame.type === "interrupt")).toBe(true);
+    release();
+    expect(await first).toMatchObject({ said: "first" });
+    expect(await client(a, (echo) => echo.Count("mini", { upTo: 2 }))).toEqual([]);
+    expect(counted).toEqual([2]);
+  });
+
+  it("drops a late answer to an interrupted request, and the link stays open", async () => {
+    const held: Array<LinkFrame & { readonly type: "request" }> = [];
+    const interrupts: Array<LinkFrame> = [];
+    const raw = facingRaw({ status: asker() }, (frame) => {
+      if (frame.type === "request" && (frame.payload as { readonly text?: string }).text === "slow") { held.push(frame); return undefined; }
+      if (frame.type === "request") return { type: "response", id: frame.id, op: frame.op, channel: frame.channel, ok: true, payload: { said: "now", at: "1970-01-01T00:00:00.000Z" } };
+      if (frame.type !== "interrupt") return undefined;
+      interrupts.push(frame);
+      // A peer that answers anyway: the interrupt crossed its answer.
+      const late = held.find((request) => request.id === frame.id)!;
+      return { type: "response", id: late.id, op: late.op, channel: late.channel, ok: true, payload: { said: "late", at: "1970-01-01T00:00:00.000Z" } };
+    });
+    const fiber = forked(raw.session, (echo) => echo.Say("mini", { text: "slow" }, { operationId: "op-slow" }));
+    await expect.poll(() => held.length).toBe(1);
+    await Effect.runPromise(Fiber.interrupt(fiber));
+    await expect.poll(() => interrupts).toEqual([{ type: "interrupt", id: held[0]!.id, op: "op-slow", channel: "status" }]);
+    expect(await client(raw.session, (echo) => echo.Say("mini", { text: "fast" }))).toMatchObject({ said: "now" });
   });
 });
 

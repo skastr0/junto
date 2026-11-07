@@ -18,6 +18,13 @@ export const LinkFrame = Schema.Union([
   Schema.Struct({ type: Schema.Literal("response"), id: Id, op: OperationId, channel: Channel, ok: Schema.Literal(true), payload: Schema.Json }),
   Schema.Struct({ type: Schema.Literal("response"), id: Id, op: OperationId, channel: Channel, ok: Schema.Literal(false), failure: EncodedFailure }),
   Schema.Struct({ type: Schema.Literal("event"), channel: Channel, payload: Schema.Json }),
+  /**
+   * The asking end no longer waits for this request: the peer interrupts its
+   * handler, or skips it while queued, and sends no answer. Best effort: a
+   * lost one, or one for a request already answered, changes nothing, since
+   * a request's outcome is already uncertain to its caller.
+   */
+  Schema.Struct({ type: Schema.Literal("interrupt"), id: Id, op: OperationId, channel: Channel }),
   /** A windowed channel's event bytes, as read, whose handlers have finished. */
   Schema.Struct({ type: Schema.Literal("credit"), channel: Channel, bytes: CreditBytes }),
   /**
