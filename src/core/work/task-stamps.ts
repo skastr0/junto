@@ -124,7 +124,7 @@ export const readTaskStamps = (
         FROM work_review_verdicts
         WHERE subject_kind = 'task' AND subject_task_canvas = ${canvas} AND reviewer_seat_id IS NULL
           AND ${sql.in("subject_task_item", [...headOf.keys()])}
-        ORDER BY posted_at_ms, verdict_id`,
+        ORDER BY posted_at_ms, epoch, verdict_id`,
     );
     for (const row of rows) {
       const head = headOf.get(row.subject_task_item);
