@@ -1,6 +1,7 @@
 import type { PageShotPurged, PageShotPurgeRequest } from "@shared/page-shot";
 import { app, BrowserWindow, ipcMain, nativeImage, shell } from "electron";
-import { Effect, Result, Schema } from "effect";
+import { type Context, Effect, Result, Schema } from "effect";
+import type { CoreClients } from "./core-process/clients";
 import type { MailReadPoint, OperatorThreadSent } from "@shared/mail-threads";
 import { MAIL_WAITING, SEAT_THREAD_READ_CHANGED } from "../contract/core/channels";
 import { subscribe as subscribeCore } from "./core-process/main-side/core-pushes";
@@ -130,8 +131,10 @@ const runMainAuthoring = <A>(
   operation: () => Promise<A>,
 ): Promise<A> => mainAuthoringGate.run(label, operation);
 
-/** What main's boot hands its IPC registrars: the surface plane it owns and the one update install. */
+/** What main's boot hands its IPC registrars: its clients of the core, the surface plane it owns, and the one update install. */
 export type MainBoot = {
+  /** Main's clients of the core's groups (core-process/clients.ts). */
+  readonly core: Context.Context<CoreClients>;
   readonly surfacePlanes: SurfacePlanes;
   readonly update: UpdateInstall;
 };
@@ -161,7 +164,7 @@ export const registerJuntoIpc = (boot: MainBoot): void => {
   registerSettingsIpc(privilegedIpc, broadcast);
   registerShellEnvironmentIpc(privilegedIpc, broadcast);
   registerReferencesIpc(privilegedIpc, broadcast);
-  registerViewStateIpc(privilegedIpc, broadcast);
+  registerViewStateIpc(privilegedIpc, broadcast, boot.core);
   // The renderer's tasks and artifacts: the core's stores and the core's
   // ruler (ops/ipc-resources.ts), told to the window as a change lands.
   registerResourceIpcCore(

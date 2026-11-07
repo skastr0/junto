@@ -1,6 +1,7 @@
 import { Effect, Schema } from "effect";
 import { CoreCallError, type CoreClient, type CoreFailure } from "./client";
 import type { AnswerHost, HostFailure } from "../../core/host-ops";
+import type { RpcPortMessage } from "../../shared/rpc-port";
 
 /**
  * The one ordered port between Electron main and the core process (Wave 3).
@@ -17,6 +18,10 @@ import type { AnswerHost, HostFailure } from "../../core/host-ops";
  *
  * `CorePort` is the least both ends offer: Electron's `UtilityProcess` and the
  * child's `process.parentPort`, or a `MessagePort` in tests.
+ *
+ * The same port carries Effect RPC (`src/shared/rpc-port.ts`), each group a
+ * typed contract in `src/contract/core/`; the named calls move to it one
+ * group at a time.
  */
 export type CorePort = {
   readonly post: (message: CoreMessage) => void;
@@ -24,6 +29,7 @@ export type CorePort = {
 };
 
 export type CoreMessage =
+  | RpcPortMessage
   | { readonly kind: "call"; readonly id: number; readonly name: string; readonly input: unknown }
   | { readonly kind: "answer"; readonly id: number; readonly ok: true; readonly value: unknown }
   | { readonly kind: "answer"; readonly id: number; readonly ok: false; readonly failure: CoreFailure }

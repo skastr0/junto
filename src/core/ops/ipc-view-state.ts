@@ -1,50 +1,33 @@
 /**
- * The window's view-state reads and writes (junto/view-state/ipc.ts). The
- * write decodes the shared strict union here, in the core, and publishes the
- * committed row on `viewStateChanged`; main subscribes once and broadcasts,
+ * The core's handlers of the view-state group (src/contract/core/view-state.ts):
+ * the snapshot a window opens with, and one row written at a time. A write
+ * publishes the committed row on `viewStateChanged`, which main broadcasts,
  * so a write is never announced before its transaction committed.
  */
 import { Effect } from "effect";
-import { IPC_CHANNELS, type ViewStateApplyResult } from "@shared/ipc";
-import { decodeViewStateWrite, type ViewStateSnapshot } from "@shared/view-state";
-import { ViewStateRepository, type ViewStatePersistenceError } from "../view-state/repository";
-import { publish } from "../push";
-import { coreOps, type CoreOp } from "../ops";
+import { IPC_CHANNELS } from "@shared/ipc";
+import type { ViewStateApplyResult } from "@shared/view-state";
+import { ViewStateRpcs, ViewStateUnavailable } from "../../contract/core/view-state";
+import { CorePushes } from "../push";
+import { ViewStateRepository } from "../view-state/repository";
 
-declare module "../ops" {
-  interface CoreOps {
-    "ipc.viewState.snapshot": CoreOp<Record<string, never>, ViewStateSnapshot>;
-    "ipc.viewState.apply": CoreOp<{ readonly input: unknown }, ViewStateApplyResult>;
-  }
-}
-
-coreOps({
-  "ipc.viewState.snapshot": () =>
-    Effect.flatMap(ViewStateRepository, (store) => store.snapshot()),
-  "ipc.viewState.apply": ({ input }) =>
-    Effect.gen(function* () {
-      const decoded = decodeViewStateWrite(input);
-      if (decoded._tag === "Failure") {
-        return { ok: false, error: "this build does not read that view-state write" } satisfies ViewStateApplyResult;
-      }
-      const write = decoded.success;
-      const store = yield* ViewStateRepository;
-      return yield* store.write(write).pipe(
-        Effect.flatMap((written): Effect.Effect<ViewStateApplyResult> =>
-          written
-            ? Effect.sync(() => {
-                // After the row's transaction committed, never before.
-                publish(IPC_CHANNELS.viewStateChanged, write);
-                return { ok: true } satisfies ViewStateApplyResult;
-              })
-            : Effect.succeed({
-                ok: false,
-                error: "the node this row belongs to is gone; the row was not kept",
-              } satisfies ViewStateApplyResult),
+export const ViewStateHandlers = ViewStateRpcs.toLayer(
+  Effect.gen(function* () {
+    const store = yield* ViewStateRepository;
+    const pushes = yield* CorePushes;
+    return {
+      ViewStateSnapshot: () =>
+        store.snapshot().pipe(Effect.mapError((error) => new ViewStateUnavailable({ message: error.message }))),
+      ViewStateApply: ({ write }) =>
+        store.write(write).pipe(
+          Effect.flatMap((written): Effect.Effect<ViewStateApplyResult> =>
+            written
+              ? // After the row's transaction committed, never before.
+                pushes.publish(IPC_CHANNELS.viewStateChanged, write).pipe(Effect.as({ ok: true }))
+              : Effect.succeed({ ok: false, error: "the node this row belongs to is gone; the row was not kept" }),
+          ),
+          Effect.catchTag("ViewStatePersistenceError", (error) => Effect.succeed<ViewStateApplyResult>({ ok: false, error: error.message })),
         ),
-        Effect.catch((error: ViewStatePersistenceError) =>
-          Effect.succeed({ ok: false, error: error.message } satisfies ViewStateApplyResult),
-        ),
-      );
-    }),
-});
+    };
+  }),
+);

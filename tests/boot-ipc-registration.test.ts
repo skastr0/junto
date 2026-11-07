@@ -12,6 +12,7 @@
  */
 import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { unansweredCoreClients } from "./support/core-clients";
 
 type Handler = (...args: ReadonlyArray<unknown>) => unknown;
 
@@ -87,6 +88,7 @@ describe("main boot IPC registration", () => {
 
     // In src/app/index.ts boot order.
     registerIpcHandlers({
+      core: await unansweredCoreClients(),
       surfacePlanes: { current: () => undefined },
       update: {
         host: { quiesceForInstall: async () => undefined, relaunchWithoutInstall: () => undefined },

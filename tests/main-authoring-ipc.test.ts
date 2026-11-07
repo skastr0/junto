@@ -8,6 +8,7 @@ import {
 import { Effect, Exit } from "effect";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import type { CoreClient } from "../src/contract/core/client";
+import { unansweredCoreClients } from "./support/core-clients";
 
 type InvokeEvent = Readonly<{
   sender: Readonly<{
@@ -101,6 +102,7 @@ describe("renderer canvas authoring IPC", () => {
       allows: (url) => url === "junto-app://renderer/index.html",
     });
     registerJuntoIpc({
+      core: await unansweredCoreClients(),
       surfacePlanes: { current: () => undefined },
       update: {
         host: { quiesceForInstall: async () => undefined, relaunchWithoutInstall: () => undefined },

@@ -45,7 +45,7 @@ it("hooks main up to a core in its own process: calls go to it, its pushes reach
     captureApplicationPage: async () => ({ ok: true, png: new Uint8Array([7]) }),
     clipboard: { readText: () => clip, writeText: (text) => { clip = text; }, clear: () => { clip = ""; } },
     clipboardFormats: () => ["text/plain"],
-    start: () => ({ ...portCore(portOf(port1), runHostOp), stop: () => Effect.sync(() => { stopped += 1; }) }),
+    start: () => ({ ...portCore(portOf(port1), runHostOp), link: portOf(port1), stop: () => Effect.sync(() => { stopped += 1; }) }),
   });
   const seen: Array<[string, unknown]> = [];
   const offs = ([WORK_PREAMBLE, AGENT_SIGNAL_CHANGED] as const).map((channel) => subscribe(channel, (payload) => seen.push([channel, payload])));

@@ -1,4 +1,7 @@
-import { Effect } from "effect";
+import { type Context, Effect, Layer } from "effect";
+import { CoreLink } from "../../contract/core/link";
+import { AppRuntime } from "../runtime";
+import { CoreClientsLive, type CoreClients } from "./clients";
 import { workControlDir } from "@shared/work-control";
 import { hostOps } from "./main-side/host-op-bodies";
 import { TERMINAL_CONNECT } from "../../contract/terminal/protocol";
@@ -20,6 +23,7 @@ import { serveClipboardFormats } from "./main-side/clipboard";
 import { coreSurfacePlane, type PortedCoreMessage, type SurfacePlane, type SurfacePlanes } from "./main-side/term-surface";
 import type { CompanionClipboard } from "../../core/companion/service";
 import type { PortCoreClient } from "../../contract/core/port";
+import type { RpcPort } from "@shared/rpc-port";
 
 /**
  * Every hookup main makes to a core in its own process, in one place (Wave 3):
@@ -30,6 +34,8 @@ import type { PortCoreClient } from "../../contract/core/port";
  */
 export type CoreProcessForMain = {
   readonly client: PortCoreClient;
+  /** The link the core's RPC groups ride; main's clients of them are built on it (core-process/clients.ts). */
+  readonly link: RpcPort;
   /** Where this boot's surface ports go: the core's plane while it is up, none after it stops. */
   readonly surfacePlanes: SurfacePlanes;
   /** Close the core: signal it, wait for its drain and exit bounded, fail tagged when it hangs. */
@@ -46,7 +52,7 @@ export const startCoreProcessForMain = (input: {
   /** The system clipboard's formats, for the paste preflight a guarded seat makes. */
   readonly clipboardFormats: () => ReadonlyArray<string>;
   /** Tests start a core over a MessageChannel instead of a utilityProcess; its stop may be synchronous. */
-  readonly start?: (boot: CoreBoot) => PortCoreClient & { readonly stop: () => Effect.Effect<void, CoreDidNotStop>; readonly postSurface?: (message: PortedCoreMessage, port: unknown) => boolean };
+  readonly start?: (boot: CoreBoot) => PortCoreClient & { readonly stop: () => Effect.Effect<void, CoreDidNotStop>; readonly postSurface?: (message: PortedCoreMessage, port: unknown) => boolean; readonly link: RpcPort };
   /** The terminal process the core's plane drives: main hands the core each port to it. */
   readonly terminals?: TerminalProcessForCore;
 }): CoreProcessForMain => {
@@ -90,6 +96,7 @@ export const startCoreProcessForMain = (input: {
   const stopRestart = terminals?.onRestart(() => void giveTerminals()) ?? (() => undefined);
   return {
     client: started,
+    link: started.link,
     surfacePlanes,
     stop: () =>
       // The core drains before it exits, and its drain can still ask main for a
@@ -112,3 +119,13 @@ export const startCoreProcessForMain = (input: {
       ),
   };
 };
+
+/**
+ * Main's clients of the core's groups, built once on the link to the core
+ * process. The link outlives a core restart, so they do too; they live as
+ * long as main's runtime and close with it.
+ */
+export const buildCoreClients = (link: RpcPort): Promise<Context.Context<CoreClients>> =>
+  AppRuntime.runPromise(
+    Layer.buildWithScope(CoreClientsLive.pipe(Layer.provide(Layer.succeed(CoreLink, link))), AppRuntime.scope),
+  );

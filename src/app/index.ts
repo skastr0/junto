@@ -134,7 +134,7 @@ import {
 import { broadcastCompanionDevices, electronCompanionClipboard, registerCompanionIpc } from "./companion/ipc";
 import { coreOverseerLive } from "./core-process/main-side/overseer-live";
 import { askOnEveryCore, askOnLaterCores } from "./core-process/every-core";
-import { startCoreProcessForMain } from "./core-process/main-boot";
+import { buildCoreClients, startCoreProcessForMain } from "./core-process/main-boot";
 import { overseerPagesOn, type OverseerPages } from "../node/overseer/pages";
 import { runningBuildIdentity } from "../node/build-identity";
 import type { CompanionDeviceRecord } from "@shared/companion-devices";
@@ -1478,6 +1478,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       terminals,
     }));
     if (LIVE_OVERSEER_ENABLED) unregisterOverseerLiveIpc = registerOverseerLiveIpc(coreOverseerLive(core));
+    const coreClients = await buildCoreClients(coreChildren.core.link);
 
     // UpdateService host hooks: release SQLite before quitAndInstall, and
     // relaunch without Squirrel install when finalize fails after quiesce.
@@ -1509,6 +1510,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       },
     };
     registerIpcHandlers({
+      core: coreClients,
       surfacePlanes: { current: () => coreChildren?.core.surfacePlanes.current() },
       update: { host: updateHost, provider: updateProvider },
     });

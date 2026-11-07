@@ -9,7 +9,7 @@ import type { WorkAttentionSnapshot } from "./work-attention";
 import type { WorkItemQuery, WorkAttentionQuery, WorkSinkChanged } from "./work-sinks";
 import type { CanvasesChanged, Changed, Command, Opened } from "./model";
 import type { WorkMailQuery, WorkMailPage, WorkMailChanged } from "./work-mail";
-import type { ViewStateEvent, ViewStateSnapshot, ViewStateWrite } from "./view-state";
+import type { ViewStateApplyResult, ViewStateEvent, ViewStateSnapshot, ViewStateWrite } from "./view-state";
 import type { MailThreadMessagesPage, MailThreadsPage } from "./wire/mail-threads";
 import type { SignalReply } from "./signal-reply";
 import type { SignalSecretPutRequest, SignalSecretPutResult } from "./vault";
@@ -697,7 +697,7 @@ export interface ShellEnvironmentApi {
 }
 
 /** One view-state write's receipt; a refusal leaves the mirror as it was. */
-export type ViewStateApplyResult = { readonly ok: boolean; readonly error?: string };
+export type { ViewStateApplyResult } from "./view-state";
 
 /** How the operator arranged Junto (0.11, 04): read once, written per row, pushed to every window. */
 export interface JuntoViewStateApi {

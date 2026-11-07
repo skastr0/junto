@@ -14,9 +14,13 @@ import { makeMachineBundleSources } from "./hosts/machine-bundle-download";
 import { startCore } from "./core";
 import { enforceBootRefusal } from "../node/boot-guard";
 import { type CoreMessage, type CorePort } from "../contract/core/port";
+import { Layer } from "effect";
+import { heldForServer } from "@shared/rpc-port";
+import { CoreLink } from "../contract/core/link";
+import { CoreServerLive } from "./link";
 import { runCoreOp, serveCore, type CoreRunner } from "./serve";
 import { closeCoreProcess, stopCoreOnSignal } from "./core-stop";
-import { publish, sendPushesTo } from "./push";
+import { CorePushes, publish, sendPushesTo } from "./push";
 import { host, useHostClient } from "./core-host";
 import { hostCaptureApplicationPage, hostOverseerPages } from "./ops/overseer-pages";
 import { AGENT_SIGNAL_CHANGED, COMPANION_DEVICES } from "../contract/core/channels";
@@ -90,6 +94,9 @@ const main = async (parent: ParentPort): Promise<void> => {
   // publish, and a call from main waits until the core can run it.
   let started!: (runner: CoreRunner) => void;
   const served = serveCore(parentCorePort(parent), new Promise<CoreRunner>((resolve) => { started = resolve; }));
+  // The core's RPC groups ride the same port; a request that comes before
+  // the server listens waits for it.
+  const link = heldForServer(parentCorePort(parent));
   sendPushesTo(served.push);
   // A view's surface port, beside its message: the core's plane hands it on to the terminal process.
   parent.on("message", (event) => {
@@ -128,6 +135,11 @@ const main = async (parent: ParentPort): Promise<void> => {
   bindOperatorListening(core.ensureOperatorListening);
   bindOverseerLive(core.overseerLive);
   started(core.runtime);
+  // The core's one server on its link to main (link.ts), in the runtime's
+  // scope: it answers with the runtime's services and closes with it.
+  await core.runtime.runPromise(
+    Layer.buildWithScope(CoreServerLive.pipe(Layer.provide([Layer.succeed(CoreLink, link), CorePushes.live])), core.runtime.scope),
+  );
   // The core's share of the window startup wiring runs here, where the core
   // services live; a failure is logged and the core still serves.
   const startup = await runCoreOp(core.runtime, "ipc.startup.core", {});

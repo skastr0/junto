@@ -30,7 +30,6 @@ import "./ipc-watch";
 import "./ipc-seats";
 import "./seat-holds";
 import "./seat-awareness";
-import "./ipc-view-state";
 import "./ipc-references";
 import "./ipc-startup";
 import "./ipc-library";

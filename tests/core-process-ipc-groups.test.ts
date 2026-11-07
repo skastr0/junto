@@ -5,7 +5,8 @@ import "../src/core/ops/index";
 /**
  * A group committed without its line in ops/index.ts is not registered, and
  * its call sites answer UnknownCoreOp at runtime. This holds the groups the
- * window's ipc.ts calls by name to that line.
+ * window's ipc.ts calls by name to that line. A group moved to RPC
+ * (src/contract/core/rpcs.ts) leaves this list: the compile holds it instead.
  */
 it("every group ipc.ts calls is registered by ops/index", () => {
   const names = [
@@ -35,8 +36,6 @@ it("every group ipc.ts calls is registered by ops/index", () => {
     "ipc.content.pageShotPurge",
     "ipc.hosts.command",
     "ipc.doctor.report",
-    "ipc.viewState.snapshot",
-    "ipc.viewState.apply",
     "ipc.signals.list",
     "ipc.signals.answer",
     "ipc.signals.reply",

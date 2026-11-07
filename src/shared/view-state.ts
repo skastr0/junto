@@ -212,24 +212,23 @@ export const CaptureDesk = Schema.Struct({
 });
 export type CaptureDesk = typeof CaptureDesk.Type;
 
-export type ViewStateSnapshot = {
+export const ViewStateSnapshot = Schema.Struct({
   /** By canvas name. A canvas with no saved board is absent. */
-  readonly commandGroups: Readonly<Record<string, ViewCommandGroups>>;
+  commandGroups: Schema.Record(Schema.String, ViewCommandGroups),
   /** By canvas name, then node id; a node with nothing saved is absent. */
-  readonly nodes: Readonly<
-    Record<string, Readonly<Record<string, ViewNodeState>>>
-  >;
+  nodes: Schema.Record(Schema.String, Schema.Record(Schema.String, ViewNodeState)),
   /** By surface label (FocusSurface `label`), machine-wide. */
-  readonly focusSizes: Readonly<Record<string, ViewFocusSize>>;
+  focusSizes: Schema.Record(Schema.String, ViewFocusSize),
   /** By section key (`artifact-comments`, `seat-sidebar:mail`), machine-wide. */
-  readonly sections: Readonly<Record<string, boolean>>;
+  sections: Schema.Record(Schema.String, Schema.Boolean),
   /** By canvas name: the Artifacts node quick capture lands in (11 Q4). Absent until chosen. */
-  readonly captureInboxes: Readonly<Record<string, string>>;
+  captureInboxes: Schema.Record(Schema.String, Schema.String),
   /** By canvas name: quick capture's draft (0.12). Absent with none, and from a main that keeps none. */
-  readonly captureDrafts?: Readonly<Record<string, CaptureDraft>>;
+  captureDrafts: Schema.optionalKey(Schema.Record(Schema.String, CaptureDraft)),
   /** By canvas name: where quick capture's desk was left (0.12). Absent with none. */
-  readonly captureDesks?: Readonly<Record<string, CaptureDesk>>;
-};
+  captureDesks: Schema.optionalKey(Schema.Record(Schema.String, CaptureDesk)),
+});
+export type ViewStateSnapshot = typeof ViewStateSnapshot.Type;
 
 // ---------------------------------------------------------------------------
 // Writes
@@ -314,6 +313,10 @@ export type ViewStateWrite = typeof ViewStateWrite.Type;
 export const decodeViewStateWrite = Schema.decodeUnknownResult(ViewStateWrite, {
   onExcessProperty: "error",
 });
+
+/** A write's answer: kept, or why not. The window keeps its mirror as it was on a refusal. */
+export const ViewStateApplyResult = Schema.Struct({ ok: Schema.Boolean, error: Schema.optionalKey(Schema.String) });
+export type ViewStateApplyResult = typeof ViewStateApplyResult.Type;
 
 /**
  * Main tells every window to read the snapshot again after view rows went

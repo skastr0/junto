@@ -7,6 +7,7 @@ import { Effect, Option, Schema } from "effect";
 import type { PortedCoreMessage } from "./main-side/term-surface";
 import type { CoreBoot } from "../../core/entry";
 import { portCore, type CoreMessage, type PortCoreClient } from "../../contract/core/port";
+import type { RpcPort } from "@shared/rpc-port";
 import { runHostOp } from "./main-side/host-op-bodies";
 
 /**
@@ -82,6 +83,8 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
   readonly stop: () => Effect.Effect<void, CoreDidNotStop>;
   /** A port transferred to the core beside its message (a surface, or a push such as pty.connect); false when no core is running. */
   readonly postSurface: (message: PortedCoreMessage, port: unknown) => boolean;
+  /** The link the core's RPC groups ride (src/contract/core/link.ts): it outlives a restart, and says `down` when a core leaves. */
+  readonly link: RpcPort;
 } => {
   let child: UtilityProcess | undefined;
   let stopping = false;
@@ -118,6 +121,24 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
     },
   }, runHostOp);
 
+  // RPC's side of the same port. A request made while no core runs waits for
+  // the next one, as a call does; one made after stop is refused at once. A
+  // core that leaves says `down`, and every request it held fails.
+  const down = (reason: string): void => {
+    for (const handler of handlers) handler({ kind: "down", reason });
+  };
+  const link: RpcPort = {
+    post: (message) => {
+      if (stopping) throw new Error("the Junto core process has stopped");
+      if (child !== undefined) return child.postMessage(message);
+      held.push(message);
+    },
+    listen: (handler) => {
+      handlers.add(handler);
+      return () => handlers.delete(handler);
+    },
+  };
+
   let booting: ReturnType<typeof setTimeout> | undefined;
   client.onPush("core.ready", () => {
     clearTimeout(booting);
@@ -153,6 +174,7 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
       child = undefined;
       for (const [id, call] of asked) if (call.core === forked) asked.delete(id);
       client.fail(`the Junto core process exited with code ${code}`);
+      down(`the Junto core process exited with code ${code}`);
       if (stopping) return;
       if (Date.now() - startedAt > RESTART_SETTLED_MS) stops = 0;
       setTimeout(start, Math.min(RESTART_MAX_MS, RESTART_FIRST_MS * 2 ** stops)).unref();
@@ -163,6 +185,7 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
   start();
   return {
     ...client,
+    link,
     postSurface: (message, port) => {
       if (child === undefined) return false;
       child.postMessage(message, [port as MessagePortMain]);
@@ -174,6 +197,7 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
       const leaving = child;
       if (leaving === undefined) {
         client.fail("the Junto core process has stopped");
+        down("the Junto core process has stopped");
         return Effect.void;
       }
       // Signal now, not inside the effect: stop must take effect whether or

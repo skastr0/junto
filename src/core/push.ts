@@ -9,6 +9,7 @@
  * windowless core, which has no window to hear them, says so and sends them
  * nowhere. A publish before either is a boot-order bug, so it throws.
  */
+import { Context, Effect, Layer } from "effect";
 import type { CorePushChannel, CorePushOf } from "../contract/core/channels";
 
 type Send = (channel: CorePushChannel, payload: unknown) => void;
@@ -24,3 +25,17 @@ export const publish = <K extends CorePushChannel>(channel: K, payload: CorePush
 export const sendPushesTo = (next: Send): void => {
   send = next;
 };
+
+/**
+ * Where an RPC handler publishes: a service, so a handler's push is in its
+ * type and a test hears it. The live form hands each push to the port boot
+ * chose (`sendPushesTo`).
+ */
+export class CorePushes extends Context.Service<
+  CorePushes,
+  { readonly publish: <K extends CorePushChannel>(channel: K, payload: CorePushOf<K>) => Effect.Effect<void> }
+>()("@junto/core/CorePushes") {
+  static readonly live = Layer.succeed(CorePushes, {
+    publish: (channel, payload) => Effect.sync(() => publish(channel, payload)),
+  });
+}
