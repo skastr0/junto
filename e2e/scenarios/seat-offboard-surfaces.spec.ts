@@ -494,6 +494,24 @@ const drainRows = (sandbox: Sandbox, seatId: string): ReadonlyArray<DrainRow> =>
 
 const bindingOf = (nodeId: string): string => `local:${nodeId}`;
 
+/**
+ * Whether the seat is owed its continuation line, as junto.db keeps it
+ * (seat_continuations_owed; seat-sessions/continuation-pending.ts), read
+ * read-only like drainRows; false when it cannot be read.
+ */
+const lineOwed = (sandbox: Sandbox, nodeId: string): boolean => {
+  try {
+    const db = new DatabaseSync(join(sandbox.homeDir, ".junto", "state", "junto.db"), { readOnly: true });
+    try {
+      return db.prepare("SELECT 1 FROM seat_continuations_owed WHERE binding_id = ?").get(bindingOf(nodeId)) !== undefined;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return false;
+  }
+};
+
 const seatState = async (page: Page, nodeId: string): Promise<string | undefined> => {
   const events = (await page.evaluate(() => window.junto!.agentSeatStateSnapshot())) as ReadonlyArray<AgentSeatStateEvent>;
   return events.find((event) => event.bindingId === bindingOf(nodeId))?.state;
@@ -2031,9 +2049,9 @@ test("SK [fake-tui] junto run from the old process after the offboard is refused
  * records what was still draining as ended by "quit" (seat-sessions/drain.ts,
  * `quit`). Whatever a run left open is closed at the next start, logged
  * "N offboarded session(s) ended when Junto last quit" (ipc.ts:2122-2126).
- * The line owed to a fresh session that has not had it is on disk
- * (`<home>/.junto/seats/<seat>/continuation.pending`,
- * seat-sessions/continuation-pending.ts) and is armed again at startup.
+ * The line owed to a fresh session that has not had it is kept in junto.db
+ * (`seat_continuations_owed`, seat-sessions/continuation-pending.ts) and is
+ * armed again at startup.
  * Operator ruling: after a relaunch Junto does not start the seat by itself;
  * the handoff is caught when the seat next onboards.
  */
@@ -2093,7 +2111,6 @@ const quitFlow = (variant: "winding-down" | "fresh-held"): void => {
     let second: ElectronApplication | undefined;
     let secondLog: () => string = () => "";
     let page = junto.page;
-    const pendingFile = join(sandbox.homeDir, ".junto", "seats", SEAT.id, "continuation.pending");
     const dir = seatDir(sandbox, SEAT.id);
     try {
       await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
@@ -2109,10 +2126,10 @@ const quitFlow = (variant: "winding-down" | "fresh-held"): void => {
         expect(run.lineAt, "the fresh session has its line before the quit").toBeDefined();
         expect(await lineCounts(sandbox, SEAT.id), "continuation lines per generation before the quit").toEqual([0, 1]);
       } else {
-        await soft.poll(() => existsSync(pendingFile), { message: "the owed line is written to disk", timeout: 15_000 }).toBe(true);
+        await soft.poll(() => lineOwed(sandbox, SEAT.id), { message: "the owed line is kept in junto.db", timeout: 15_000 }).toBe(true);
         soft(await lineCounts(sandbox, SEAT.id), "no line typed before the quit").toEqual([0, 0]);
       }
-      mark(`before the quit: old process running=${String(await isAlive(run.old))}, continuation.pending on disk=${String(existsSync(pendingFile))}`, "before-the-quit");
+      mark(`before the quit: old process running=${String(await isAlive(run.old))}, line owed in junto.db=${String(lineOwed(sandbox, SEAT.id))}`, "before-the-quit");
       await evidence.shot(page, "1-before-the-quit");
 
       // Quit while the old process is still mid-turn.
@@ -2195,7 +2212,7 @@ const quitFlow = (variant: "winding-down" | "fresh-held"): void => {
         soft(counts[1], "none in the held generation 2").toBe(0);
         soft(counts.reduce((sum, count) => sum + count, 0), "at most one continuation line across both app lifetimes").toBeLessThanOrEqual(1);
       }
-      mark(`continuation.pending on disk at the end: ${String(existsSync(pendingFile))}`, "pending-file-at-end");
+      mark(`line owed in junto.db at the end: ${String(lineOwed(sandbox, SEAT.id))}`, "line-owed-at-end");
       mark(`node session id at the end: ${String(await sessionPin(sandbox, SEAT.id))}`, "session-id-at-end");
       soft(await sessionPin(sandbox, SEAT.id), "the node no longer names the old session").not.toBe(`${CODEX_SESSION}-${SEAT.id}`);
       soft(await inputOf(sandbox, SEAT.id, 1), "nothing reached the old process after its offboard, to its end").toBe(run.before);
