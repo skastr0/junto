@@ -94,8 +94,8 @@ struct WaitArgs {
 }
 
 /// The rules where a task sits, or a task node's own.
-#[derive(Serialize)]
-#[serde(untagged)]
+#[derive(Serialize, Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
 enum RulesArgs {
     Task { task: String },
     Node { node: String },
@@ -200,32 +200,46 @@ struct AssignArgs {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ArtifactCite {
     node_id: String,
     artifact_id: String,
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Git {
     commits: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Claim {
     rule_id: String,
     text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    refs: Option<Vec<String>>,
+}
+
+/// A fork waiver for a task rule whose node is no longer reachable.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Waiver {
+    rule_id: String,
+    reason: String,
 }
 
 /// CompletionEvidence (src/shared/work-model.ts), as the finish flags build it.
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Evidence {
     artifacts: Vec<ArtifactCite>,
     #[serde(skip_serializing_if = "Option::is_none")]
     git: Option<Git>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     claims: Vec<Claim>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    waivers: Vec<Waiver>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -242,7 +256,7 @@ struct FinishArgs {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CheckResult {
     check_id: String,
     side: Side,
@@ -606,7 +620,13 @@ fn evidence(
     let claims = claim
         .iter()
         .map(|v| pair("claim", "<ruleId>=<text>", v, v.find('=')))
-        .map(|p| p.map(|(rule_id, text)| Claim { rule_id, text }))
+        .map(|p| {
+            p.map(|(rule_id, text)| Claim {
+                rule_id,
+                text,
+                refs: None,
+            })
+        })
         .collect::<Result<Vec<_>>>()?;
     if artifacts.is_empty() && commit.is_empty() && claims.is_empty() {
         return Ok(None);
@@ -616,6 +636,7 @@ fn evidence(
         artifacts,
         git,
         claims,
+        waivers: Vec::new(),
     }))
 }
 
@@ -965,6 +986,7 @@ mod contract {
         list: super::ListArgs => "task.list",
         show: super::ShowArgs => "task.show",
         wait: super::WaitArgs => "task.wait",
+        rules: super::RulesArgs => "task.rules",
         create: super::CreateArgs => "task.create",
         edit: super::EditArgs => "task.edit",
         assign: super::AssignArgs => "task.assign",
