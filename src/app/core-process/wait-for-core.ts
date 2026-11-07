@@ -9,7 +9,6 @@
  * only for those, never for a refusal the core itself answered.
  */
 import { RpcClientError } from "effect/rpc";
-import { CoreCallError } from "../../contract/core/client";
 
 /** How long a starting core is worth waiting for: its own restart backoff tops out at 30 s. */
 export const CORE_STARTUP_WAIT_MS = 60_000;
@@ -22,7 +21,6 @@ export const isCoreUnavailable = (error: unknown): boolean => {
   let current: unknown = error;
   for (let depth = 0; depth < 8; depth += 1) {
     if (current instanceof RpcClientError.RpcClientError) return true;
-    if (current instanceof CoreCallError) return current.tag === "CoreStopped" || current.tag === "CoreClientMissing";
     if (typeof current !== "object" || current === null) return false;
     const cause = (current as { readonly cause?: unknown }).cause;
     if (cause === undefined || cause === current) return false;

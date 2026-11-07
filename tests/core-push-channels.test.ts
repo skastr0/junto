@@ -6,8 +6,7 @@ import { MENTION_IPC_CHANNELS } from "../src/shared/mention-ipc-channels";
 import { CORE_PUSHES, CORE_PUSH_CHANNELS } from "../src/contract/core/channels";
 import { relayWindowPushes } from "../src/app/core-process/main-side/window-pushes";
 import { subscribe } from "../src/app/core-process/main-side/core-pushes";
-import { portCore, type CorePort } from "../src/contract/core/port";
-import { runHostOp } from "../src/app/core-process/main-side/host-op-bodies";
+import { portPushes, type CorePort } from "../src/contract/core/port";
 import { serveCore } from "../src/core/serve";
 import { MessageChannel } from "node:worker_threads";
 
@@ -89,8 +88,8 @@ it("main relays every registered channel, and a backlink reaches it through the 
       return () => port.off("message", on);
     },
   });
-  const served = serveCore(portOf(port2), { runPromiseExit: () => Promise.reject(new Error("no call in this test")) });
-  const client = portCore(portOf(port1), runHostOp);
+  const served = serveCore(portOf(port2));
+  const client = portPushes(portOf(port1));
   const relayed = new Set<string>();
   const heard = new Map<string, unknown>();
   const stop = relayWindowPushes({
@@ -110,8 +109,6 @@ it("main relays every registered channel, and a backlink reaches it through the 
   } finally {
     stop();
     for (const off of offs) off();
-    served.close();
-    client.fail("done");
     port1.close();
     port2.close();
   }

@@ -69,7 +69,7 @@ vi.mock("../src/core/files/index-worker-host", () => ({ workerRootIndex: () => i
 
 // Some registrars start work on the app runtime; what it does is not under test.
 vi.mock("../src/app/runtime", () => ({
-  // The core port asks for an Exit, not a value (inProcessCore).
+  // A runner that asks for an Exit, not a value.
   AppRuntime: { runPromise: async () => undefined, runPromiseExit: async () => ({ _tag: "Success", value: undefined }), runFork: () => undefined },
 }));
 

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { expect, it } from "vitest";
 
 /**
@@ -23,16 +23,14 @@ it("pushes: the core publishes, main subscribes, and each core boot chooses the 
   expect(holdsNoState(read("src/contract/core/channels.ts"))).toBe(true);
 });
 
-it("host operations: main runs the bodies, the core holds the client, the protocol holds nothing", () => {
-  expect(ENTRY).toContain("useHostClient(served.host)");
-  expect(HEADLESS).toContain("useHostClient(noWindowHost)");
-  const protocol = read("src/core/host-ops.ts");
-  expect(holdsNoState(protocol)).toBe(true);
-  expect(protocol).not.toMatch(/export const/u);
-  expect(read("src/core/core-host.ts")).not.toMatch(/from "[^"]*host-op-bodies"|\bhostOps\(|runHostOp/u);
-  expect(read("src/app/core-process/main-side/host-op-bodies.ts")).not.toMatch(/useHostClient|\bhost\.call/u);
-  // The port answers host calls with what its owner hands it, never a registry of its own.
-  expect(read("src/contract/core/port.ts")).not.toMatch(/from "[^"]*host-op-bodies"|runHostOp/u);
+it("what the core asks of Electron is the host groups: each core boot chooses its clients, and no named operation is left", () => {
+  expect(ENTRY).toContain("host: HostClientsLive.pipe(");
+  expect(HEADLESS).toContain("host: HostClientsNoWindow");
+  // The port carries pushes and RPC alone: no call, answer, hostCall or hostAnswer message.
+  expect(read("src/contract/core/port.ts")).not.toMatch(/"call"|"answer"|"hostCall"|"hostAnswer"/u);
+  for (const gone of ["src/core/host-ops.ts", "src/core/core-host.ts", "src/core/ops.ts", "src/app/core-process/main-client.ts", "src/contract/core/client.ts"]) {
+    expect(existsSync(gone), gone).toBe(false);
+  }
 });
 
 it("terminals: each core boot chooses where its PTYs run, and nothing infers it from the process", () => {
@@ -45,8 +43,7 @@ it("terminals: each core boot chooses where its PTYs run, and nothing infers it 
   expect(read("src/node/terminals/use.ts")).not.toMatch(/process\.type|parentPort/u);
 });
 
-it("core reads: only the core holds them, installed by startCore; main asks its own client", () => {
-  expect(read("src/app/core-process/main-client.ts")).not.toMatch(/installCoreReads|core-runner/u);
+it("core reads: only the core holds them, installed by startCore; main asks the core's groups", () => {
   expect(read("src/app/browser/composition.ts")).not.toMatch(/core-runner/u);
   const runner = read("src/core/core-runner.ts");
   // No pre-boot default: a read before startCore throws, a spawn's included.

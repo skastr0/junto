@@ -7,7 +7,6 @@ import {
 } from "vitest";
 import { Effect, Exit } from "effect";
 import { IPC_CHANNELS } from "../src/shared/ipc";
-import type { CoreClient } from "../src/contract/core/client";
 import { unansweredCoreClients } from "./support/core-clients";
 
 type InvokeEvent = Readonly<{
@@ -25,7 +24,7 @@ const electron = vi.hoisted(() => ({
 
 const runtime = vi.hoisted(() => ({
   runPromise: vi.fn(async (_effect: unknown): Promise<string> => "executed"),
-  // The core port asks for an Exit, not a value (inProcessCore); beforeEach sets the value.
+  // A runner that asks for an Exit, not a value; beforeEach sets the value.
   runPromiseExit: vi.fn(),
   runFork: vi.fn(),
 }));
@@ -59,29 +58,12 @@ const handlerFor = (channel: string): InvokeHandler => {
   return handler;
 };
 
-/**
- * The core every call here reaches: it runs the effect on the mocked runtime
- * and answers what that runtime says. The subject is the handlers' admission
- * and routing, not an operation body, so no body is loaded.
- */
-const answered: CoreClient = {
-  call: ((name: string) => {
-    void name;
-    return runtime.runPromiseExit(Effect.void).then((exit: Exit.Exit<unknown, unknown>) =>
-      Exit.isSuccess(exit) ? (exit.value as never) : Promise.reject(new Error("the core refused the call")));
-  }) as CoreClient["call"],
-};
-
 beforeEach(async () => {
   vi.resetModules();
   electron.handlers.clear();
   runtime.runPromise.mockClear();
   runtime.runPromise.mockResolvedValue("executed");
   runtime.runPromiseExit.mockImplementation(async () => Exit.succeed("executed"));
-  // The main module graph is fresh after resetModules: install the core client
-  // that graph will call, as boot does.
-  const { useCoreClient } = await import("../src/app/core-process/main-client");
-  useCoreClient(answered);
 });
 
 describe("renderer canvas authoring IPC", () => {

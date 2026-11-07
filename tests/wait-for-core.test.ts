@@ -6,20 +6,18 @@
 import { expect, it } from "vitest";
 import { BrowserProfileError } from "../src/node/browser/profiles";
 import { RpcClientError } from "effect/rpc";
-import { CoreCallError } from "../src/contract/core/client";
 import { isCoreUnavailable } from "../src/app/core-process/wait-for-core";
 
-const stopped = (): CoreCallError => new CoreCallError("browser.profiles.initialize", "CoreStopped", "the Junto core process exited with code 1");
-const refused = (): CoreCallError => new CoreCallError("browser.profiles.initialize", "BrowserProfileError", "no such profile");
-
-it("names the ways a core can be missing, and nothing else", () => {
-  const left = new RpcClientError.RpcClientError({
+const stopped = (): RpcClientError.RpcClientError =>
+  new RpcClientError.RpcClientError({
     reason: new RpcClientError.RpcClientDefect({ message: "the Junto core process exited with code 1", cause: undefined }),
   });
-  expect(isCoreUnavailable(left)).toBe(true);
-  expect(isCoreUnavailable(new CoreCallError("x", "CoreStopped", "gone"))).toBe(true);
-  expect(isCoreUnavailable(new CoreCallError("x", "CoreClientMissing", "none installed"))).toBe(true);
-  expect(isCoreUnavailable(new CoreCallError("x", "SettingsError", "bad"))).toBe(false);
+/** What the core answered: a refusal, which is not the core missing. */
+const refused = (): Error => new Error("no such profile");
+
+it("names the ways a core can be missing, and nothing else", () => {
+  expect(isCoreUnavailable(stopped())).toBe(true);
+  expect(isCoreUnavailable(refused())).toBe(false);
   expect(isCoreUnavailable(new Error("boom"))).toBe(false);
 });
 

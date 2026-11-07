@@ -2,17 +2,16 @@
  * The core boots the injection supervisor's writers. Nothing else does: with
  * the core in its own process, main held no copy of the supervisor, so the
  * automatic onboarding nudge and the `--continue` handoff found no writer and
- * were never typed. This boots the real core, runs the startup op entry.ts
+ * were never typed. This boots the real core, runs the startup Layer entry.ts
  * runs, and drives the supervisor the way the app does.
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Schema } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import { afterEach, expect, it, vi } from "vitest";
 import { startCore } from "../src/core/core";
-import { runCoreOp } from "../src/core/serve";
-import "../src/core/ops/index";
+import { CoreStartup } from "../src/core/ops/ipc-startup";
 import { MachineCoreMail } from "../src/core/core-runtime";
 import { Command } from "../src/shared/model";
 import { ModelService } from "../src/core/model/service";
@@ -39,8 +38,8 @@ it("the core types the onboarding nudge and the --continue line", async () => {
   let core: Awaited<ReturnType<typeof startCore>> | undefined;
   try {
     core = await startCore({ host: HostClientsNoWindow, home, build: "c".repeat(64), bundles: {} });
-    // entry.ts:101, the same op main's boot runs.
-    await runCoreOp(core.runtime, "ipc.startup.core", {});
+    // The startup Layer entry.ts builds on the runtime's scope.
+    await core.runtime.runPromise(Layer.buildWithScope(CoreStartup, core.runtime.scope));
     const coreMail = await core.runtime.runPromise(MachineCoreMail);
     const written: string[] = [];
     vi.spyOn(coreMail.seats.drive, "writeMail").mockImplementation(async (_bindingId, text) => {

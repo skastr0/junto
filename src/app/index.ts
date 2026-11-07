@@ -39,7 +39,6 @@ import { appMenuTemplate } from "./app-menu";
 import { appProcessBlocksAppExit, appProcessPlane, describeAppProcessStraggler } from "../node/app-process-plane";
 import { enforceBootRefusal } from "../node/boot-guard";
 import { AppRuntime, updateProvider } from "./runtime";
-import { core } from "./core-process/main-client";
 import { startChildren, takeChildStopFailures, type Children } from "./core-process/children";
 import { subscribe as subscribeCore } from "./core-process/main-side/core-pushes";
 import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, COMPANION_DEVICES, SETTINGS_CHANGED, WORK_PREAMBLE, type CanvasChangedPush } from "../contract/core/channels";

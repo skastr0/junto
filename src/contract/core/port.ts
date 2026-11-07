@@ -1,44 +1,27 @@
 import { Effect, Schema } from "effect";
-import { CoreCallError, type CoreClient, type CoreFailure } from "./client";
-import type { AnswerHost, HostFailure } from "../../core/host-ops";
 import type { RpcPortMessage } from "../../shared/rpc-port";
 
 /**
  * The one ordered port between Electron main and the core process (Wave 3).
- * Main sends calls; the core answers each by id and pushes changes on named
- * channels. Calls run at once, as they do in process, so answers come back
- * in the order their operations finish, not the order they were asked.
- * Pushes keep the order they were published in, which is commit order; a
- * push published while an operation runs arrives before that operation's
- * answer.
+ * The core pushes changes on named channels, in the order they were
+ * published, which is commit order; a push published while a request runs
+ * arrives before that request's answer.
  *
- * The core asks main the same way, the other way round (`HostOps`): a
- * `hostCall` out of the core, a `hostAnswer` back, by id, in the order main's
- * bodies finish.
+ * Everything else rides Effect RPC on the same port (`src/shared/rpc-port.ts`):
+ * main's calls to the core are the typed groups of `src/contract/core/`, and
+ * the core's calls to main are the host groups of `src/contract/host/`.
  *
  * `CorePort` is the least both ends offer: Electron's `UtilityProcess` and the
  * child's `process.parentPort`, or a `MessagePort` in tests.
- *
- * The same port carries Effect RPC (`src/shared/rpc-port.ts`), each group a
- * typed contract in `src/contract/core/`; the named calls move to it one
- * group at a time.
  */
 export type CorePort = {
   readonly post: (message: CoreMessage) => void;
   readonly listen: (handler: (message: CoreMessage) => void) => () => void;
 };
 
-export type CoreMessage =
-  | RpcPortMessage
-  | { readonly kind: "call"; readonly id: number; readonly name: string; readonly input: unknown }
-  | { readonly kind: "answer"; readonly id: number; readonly ok: true; readonly value: unknown }
-  | { readonly kind: "answer"; readonly id: number; readonly ok: false; readonly failure: CoreFailure }
-  | { readonly kind: "push"; readonly channel: string; readonly payload: unknown }
-  | { readonly kind: "hostCall"; readonly id: number; readonly name: string; readonly input: unknown }
-  | { readonly kind: "hostAnswer"; readonly id: number; readonly ok: true; readonly value: unknown }
-  | { readonly kind: "hostAnswer"; readonly id: number; readonly ok: false; readonly failure: HostFailure };
+export type CoreMessage = RpcPortMessage | { readonly kind: "push"; readonly channel: string; readonly payload: unknown };
 
-export const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /** A message the port refused: its value could not be cloned, or the port is gone. */
 class PortPostFailed extends Schema.TaggedError<PortPostFailed>()("PortPostFailed", { message: Schema.String }) {}
@@ -46,95 +29,23 @@ class PortPostFailed extends Schema.TaggedError<PortPostFailed>()("PortPostFaile
 export const post = (port: CorePort, message: CoreMessage): Effect.Effect<void, PortPostFailed> =>
   Effect.try({ try: () => port.post(message), catch: (cause) => new PortPostFailed({ message: messageOf(cause) }) });
 
-export type AnswerMessage = Extract<CoreMessage, { readonly kind: "answer" | "hostAnswer" }>;
-
-/**
- * Post an answer, or, when its value cannot be cloned across the port, a
- * failure in its place, so the caller hears back instead of waiting forever.
- * Run at the port's edge, where the message handler is plain JavaScript.
- */
-export const postAnswer = (port: CorePort, answer: AnswerMessage): void =>
-  post(port, answer).pipe(
-    Effect.catchTag("PortPostFailed", ({ message }) => {
-      const failure = { tag: "CoreAnswerNotCloneable", message };
-      return post(port, answer.kind === "answer"
-        ? { kind: "answer", id: answer.id, ok: false, failure }
-        : { kind: "hostAnswer", id: answer.id, ok: false, failure });
-    }),
-    Effect.catchTag("PortPostFailed", ({ message }) => Effect.logWarning(`core port: an answer could not be posted: ${message}`)),
-    Effect.runSync,
-  );
-
-/** Main's side: calls go out, answers and pushes come back; the core's host calls are answered here. */
-export type PortCoreClient = CoreClient & {
+/** Main's side: the core's pushes, by channel. */
+export type PortPushes = {
   readonly onPush: (channel: string, listener: (payload: unknown) => void) => () => void;
-  /** Rejects every call in flight; the port is gone (the core process stopped). */
-  readonly fail: (reason: string) => void;
 };
 
-/**
- * The answer for a port whose far end may ask no host operation (the terminal
- * process asks the core nothing of Electron): each such call refuses.
- */
-export const refuseHostCalls: AnswerHost = async (name) => ({
-  ok: false,
-  failure: { tag: "UnknownHostOp", message: `no host operation is answered on this port: ${name}` },
-});
-
-/** `answerHost` answers the host calls the far end asks: main's bodies, or `refuseHostCalls`. */
-export const portCore = (port: CorePort, answerHost: AnswerHost): PortCoreClient => {
-  let nextId = 1;
-  const pending = new Map<number, { readonly name: string; readonly resolve: (value: never) => void; readonly reject: (error: Error) => void }>();
+export const portPushes = (port: CorePort): PortPushes => {
   const listeners = new Map<string, Set<(payload: unknown) => void>>();
   port.listen((message) => {
-    if (message.kind === "hostCall") {
-      void answerHost(message.name, message.input).then((answer) => postAnswer(port, answer.ok
-        ? { kind: "hostAnswer", id: message.id, ok: true, value: answer.value }
-        : { kind: "hostAnswer", id: message.id, ok: false, failure: answer.failure }));
-      return;
-    }
-    if (message.kind === "push") {
-      for (const listener of listeners.get(message.channel) ?? []) listener(message.payload);
-      return;
-    }
-    if (message.kind !== "answer") return;
-    const entry = pending.get(message.id);
-    if (entry === undefined) return;
-    pending.delete(message.id);
-    if (message.ok) entry.resolve(message.value as never);
-    else entry.reject(new CoreCallError(entry.name, message.failure.tag, message.failure.message));
+    if (message.kind !== "push") return;
+    for (const listener of listeners.get(message.channel) ?? []) listener(message.payload);
   });
   return {
-    call: (name, input) =>
-      new Promise((resolve, reject) => {
-        const id = nextId++;
-        pending.set(id, { name, resolve, reject });
-        post(port, { kind: "call", id, name, input }).pipe(
-          Effect.catchTag("PortPostFailed", ({ message }) =>
-            Effect.sync(() => {
-              pending.delete(id);
-              reject(new CoreCallError(name, "CoreInputNotCloneable", message));
-            })),
-          Effect.runSync,
-        );
-      }),
     onPush: (channel, listener) => {
       const set = listeners.get(channel) ?? new Set();
       listeners.set(channel, set);
       set.add(listener);
       return () => set.delete(listener);
-    },
-    fail: (reason) => {
-      // Name what was still in flight: an unhandled rejection at quit is a
-      // caller that reached the core after admission closed, and the operation
-      // is the only thing that says which.
-      if (pending.size > 0) {
-        console.warn(`[core] ${String(pending.size)} call(s) in flight when the core stopped: ${[...pending.values()].map((entry) => entry.name).join(", ")}`);
-      }
-      for (const [id, entry] of pending) {
-        pending.delete(id);
-        entry.reject(new CoreCallError(entry.name, "CoreStopped", reason));
-      }
     },
   };
 };

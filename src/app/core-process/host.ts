@@ -6,18 +6,18 @@ import type { MessagePortMain, UtilityProcess } from "electron";
 import { Effect, Option, Schema } from "effect";
 import type { PortedCoreMessage } from "./main-side/term-surface";
 import type { CoreBoot } from "../../core/entry";
-import { portCore, type CoreMessage, type PortCoreClient } from "../../contract/core/port";
+import { portPushes, type CoreMessage, type PortPushes } from "../../contract/core/port";
 import { heldForServer, peersLink, type LinkedPeer, type RpcPort } from "@shared/rpc-port";
-import { runHostOp } from "./main-side/host-op-bodies";
 
 /**
  * Main's side of the core process (Wave 3). It forks `entry.ts` as an
- * Electron utilityProcess, hands it what only `app` knows, and gives main a
- * `PortCoreClient` whose calls survive a restart: a call in flight when the
- * core stops is rejected, and the next call waits for the new core. A core
- * that keeps stopping is started again after 1 s, doubling to 30 s. A core
- * that has not said `core.ready` 120 s after its fork is killed, so a boot that
- * neither finishes nor exits fails its waiting calls and starts again.
+ * Electron utilityProcess, hands it what only `app` knows, and gives main the
+ * core's pushes and the links its RPC groups ride, which survive a restart: a
+ * request in flight when the core stops fails, and the next request waits for
+ * the new core. A core that keeps stopping is started again after 1 s,
+ * doubling to 30 s. A core that has not said `core.ready` 120 s after its fork
+ * is killed, so a boot that neither finishes nor exits fails its waiting
+ * requests and starts again.
  */
 
 /**
@@ -74,7 +74,7 @@ const exited = (child: UtilityProcess, gone: () => boolean): Effect.Effect<void>
     });
   });
 
-export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
+export const startCoreProcess = (boot: CoreBoot): PortPushes & {
   /**
    * Signal the core to stop and finish when it has left. Its drain runs in its
    * own process (entry.ts answers SIGTERM with core.close() then exit); this
@@ -100,37 +100,20 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
   let stops = 0;
   let startedAt = 0;
   const handlers = new Set<(message: CoreMessage) => void>();
-  // Between a core's exit and its restart, calls wait here for the next core;
-  // after stop there is no next one, so a call fails at once.
+  // Between a core's exit and its restart, requests wait here for the next
+  // core; after stop there is no next one, so a request fails at once.
   const held: CoreMessage[] = [];
-  // A host call's answer goes only to the core that asked: each core numbers
-  // its host calls from 1, so main renames each call to an id of its own and
-  // an old core's answer can never reach a new one under a reused id.
-  let nextHostId = 1;
-  const asked = new Map<number, { readonly core: UtilityProcess; readonly id: number }>();
-  const client = portCore({
-    post: (message) => {
-      if (message.kind === "hostAnswer") {
-        const call = asked.get(message.id);
-        asked.delete(message.id);
-        if (call !== undefined && call.core === child) child.postMessage({ ...message, id: call.id });
-        return;
-      }
-      // A call made after stop fails at once: it must never wait on a child
-      // that is going away, or on the stop effect that nobody may run.
-      if (stopping) return queueMicrotask(() => client.fail("the Junto core process has stopped"));
-      if (child !== undefined) return child.postMessage(message);
-      held.push(message);
-    },
+  const pushes = portPushes({
+    post: () => undefined,
     listen: (handler) => {
       handlers.add(handler);
       return () => handlers.delete(handler);
     },
-  }, runHostOp);
+  });
 
-  // RPC's side of the same port. A request made while no core runs waits for
-  // the next one, as a call does; one made after stop is refused at once. A
-  // core that leaves says `down`, and every request it held fails.
+  // RPC's side of the port. A request made while no core runs waits for the
+  // next one; one made after stop is refused at once. A core that leaves says
+  // `down`, and every request it held fails.
   const down = (reason: string): void => {
     for (const handler of handlers) handler({ kind: "down", reason });
   };
@@ -152,7 +135,7 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
   const hostLink = heldForServer(peers.link);
 
   let booting: ReturnType<typeof setTimeout> | undefined;
-  client.onPush("core.ready", () => {
+  pushes.onPush("core.ready", () => {
     clearTimeout(booting);
     booting = undefined;
   });
@@ -173,13 +156,7 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
     forked.on("message", (received: CoreMessage) => {
       // A request of the core's to main's host server goes to the server alone.
       if (received.kind === "rpc") return peer.deliver(received);
-      let message = received;
-      if (message.kind === "hostCall") {
-        const id = nextHostId++;
-        asked.set(id, { core: forked, id: message.id });
-        message = { ...message, id };
-      }
-      for (const handler of handlers) handler(message);
+      for (const handler of handlers) handler(received);
     });
     forked.once("exit", (code) => {
       gone.add(forked);
@@ -188,8 +165,6 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
       clearTimeout(booting);
       booting = undefined;
       child = undefined;
-      for (const [id, call] of asked) if (call.core === forked) asked.delete(id);
-      client.fail(`the Junto core process exited with code ${code}`);
       down(`the Junto core process exited with code ${code}`);
       if (stopping) return;
       if (Date.now() - startedAt > RESTART_SETTLED_MS) stops = 0;
@@ -200,7 +175,7 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
 
   start();
   return {
-    ...client,
+    ...pushes,
     link,
     hostLink,
     postSurface: (message, port) => {
@@ -213,7 +188,6 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
       held.length = 0;
       const leaving = child;
       if (leaving === undefined) {
-        client.fail("the Junto core process has stopped");
         down("the Junto core process has stopped");
         return Effect.void;
       }

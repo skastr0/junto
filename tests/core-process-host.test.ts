@@ -30,7 +30,6 @@ vi.mock("electron", () => ({
 }));
 
 const { startCoreProcess } = await import("../src/app/core-process/host");
-const { hostOps } = await import("../src/app/core-process/main-side/host-op-bodies");
 
 const BOOT = {
   home: "/home", build: "test", bundlesRoot: "/bundles", operatorCommands: false,
@@ -73,15 +72,15 @@ describe("the core process host", () => {
     }
   });
 
-  it("kills a core that is not ready by its boot deadline, fails its calls, and starts another", async () => {
+  it("kills a core that is not ready by its boot deadline, tells its link it left, and starts another", async () => {
     const core = startCoreProcess(BOOT);
-    const call = core.call("test.call" as never, {} as never);
-    const failed = call.catch((error: unknown) => error);
+    const heard: unknown[] = [];
+    core.link.listen((message) => heard.push(message));
     await vi.advanceTimersByTimeAsync(119_000);
     expect(forks[0]!.killed).toBe(0);
     await vi.advanceTimersByTimeAsync(1_000);
     expect(forks[0]!.killed).toBe(1);
-    expect(await failed).toMatchObject({ tag: "CoreStopped" });
+    expect(heard).toEqual([expect.objectContaining({ kind: "down" })]);
     await vi.advanceTimersByTimeAsync(1_000);
     expect(forks).toHaveLength(2);
     core.stop();
@@ -96,43 +95,22 @@ describe("the core process host", () => {
     core.stop();
   });
 
-  it("sends a call made while the core restarts to the next core", async () => {
+  it("sends a request made while the core restarts to the next core", async () => {
     const core = startCoreProcess(BOOT);
     forks[0]!.kill();
     await vi.advanceTimersByTimeAsync(0);
-    void core.call("test.call" as never, {} as never).catch(() => undefined);
+    core.link.post({ kind: "rpc", client: 1, data: { _tag: "Request", tag: "Ask" } });
     expect(forks).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(forks[1]!.posted).toEqual([expect.objectContaining({ kind: "call", name: "test.call" })]);
+    expect(forks[1]!.posted).toEqual([expect.objectContaining({ kind: "rpc", client: 1 })]);
     core.stop();
   });
 
-  it("never hands an old core's host answer to the next core", async () => {
-    const answers: Array<(value: unknown) => void> = [];
-    const off = hostOps({ "test.slow": () => new Promise((resolve) => answers.push(resolve)) } as never);
-    const core = startCoreProcess(BOOT);
-    forks[0]!.emit("message", { kind: "hostCall", id: 1, name: "test.slow", input: {} });
-    forks[0]!.kill();
-    await vi.advanceTimersByTimeAsync(1_000);
-    // The new core asks with the same id while the old core's call still runs in main.
-    forks[1]!.emit("message", { kind: "hostCall", id: 1, name: "test.slow", input: {} });
-    answers[0]!("old");
-    await vi.advanceTimersByTimeAsync(0);
-    expect(forks[1]!.posted).toEqual([]);
-    answers[1]!("new");
-    await vi.advanceTimersByTimeAsync(0);
-    expect(forks[1]!.posted).toEqual([{ kind: "hostAnswer", id: 1, ok: true, value: "new" }]);
-    off();
-    core.stop();
-  });
-
-  it("fails a call made after stop instead of leaving it waiting", async () => {
+  it("refuses a request made after stop instead of leaving it waiting", async () => {
     const core = startCoreProcess(BOOT);
     core.stop();
     await vi.advanceTimersByTimeAsync(0);
-    const late = core.call("test.call" as never, {} as never).catch((error: unknown) => error);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(await late).toMatchObject({ tag: "CoreStopped" });
+    expect(() => core.link.post({ kind: "rpc", client: 1, data: {} })).toThrow(/stopped/u);
   });
 
   it("does not start another after stop during boot", async () => {

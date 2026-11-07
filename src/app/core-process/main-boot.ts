@@ -18,22 +18,22 @@ import { askEveryCoreAsk } from "./every-core";
 import { startCoreProcess, type CoreDidNotStop } from "./host";
 import { assertWorkControlSocketPathFits } from "../../node/work/socket-path";
 import { deliverPush } from "./main-side/core-pushes";
-import { useCoreClient } from "./main-client";
 import { relayWindowPushes } from "./main-side/window-pushes";
 import { overseerHostServices } from "./main-side/overseer-pages";
 import { coreSurfacePlane, type PortedCoreMessage, type SurfacePlane, type SurfacePlanes } from "./main-side/term-surface";
-import type { PortCoreClient } from "../../contract/core/port";
+import type { PortPushes } from "../../contract/core/port";
 import type { RpcPort } from "@shared/rpc-port";
 
 /**
  * Every hookup main makes to a core in its own process, in one place (Wave 3):
- * start the process, send main's calls to it, carry its window pushes onto
- * main's bus, and answer what it asks of Electron. Each boot piece that moves
+ * start the process, carry its window pushes onto main's bus, serve what it
+ * asks of Electron, and build main's clients of its groups. Each boot piece that moves
  * into the core adds its main-side half here, so turning the core process on
  * is this one call.
  */
 export type CoreProcessForMain = {
-  readonly client: PortCoreClient;
+  /** The core's pushes, by channel. */
+  readonly client: PortPushes;
   /** The link the core's RPC groups ride. */
   readonly link: RpcPort;
   /**
@@ -58,7 +58,7 @@ export const startCoreProcessForMain = (input: {
   /** Electron's shell, which the core's Files service asks to trash, open and reveal. */
   readonly shell: FilesShellShape;
   /** Tests start a core over a MessageChannel instead of a utilityProcess; its stop may be synchronous. */
-  readonly start?: (boot: CoreBoot) => PortCoreClient & { readonly stop: () => Effect.Effect<void, CoreDidNotStop>; readonly postSurface?: (message: PortedCoreMessage, port: unknown) => boolean; readonly link: RpcPort; readonly hostLink: RpcPort };
+  readonly start?: (boot: CoreBoot) => PortPushes & { readonly stop: () => Effect.Effect<void, CoreDidNotStop>; readonly postSurface?: (message: PortedCoreMessage, port: unknown) => boolean; readonly link: RpcPort; readonly hostLink: RpcPort };
   /** The terminal process the core's plane drives: main hands the core each port to it. */
   readonly terminals?: TerminalProcessForCore;
 }): CoreProcessForMain => {
@@ -68,7 +68,6 @@ export const startCoreProcessForMain = (input: {
   // without naming the path or the limit.
   assertWorkControlSocketPathFits(workControlDir(input.boot.home));
   const started = (input.start ?? startCoreProcess)(input.boot);
-  useCoreClient(started);
   // The core asks for its port to the terminal process as it boots, and is
   // handed a new one each time the terminal process starts again.
   const postSurface = started.postSurface;

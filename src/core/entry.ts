@@ -2,9 +2,9 @@
  * The Junto core in its own Electron utilityProcess (Wave 3, protect the main
  * thread). It boots the same graph the machine core boots (`startCore`), so
  * the business writer, the sockets, the link, the kernel and the mail all run
- * here and none on Electron main. It answers main's named operations over the
- * parent port and sends every published change back on the same port, in
- * order.
+ * here and none on Electron main. It serves its RPC groups to main over the
+ * parent port, asks main's host groups on the same port, and sends every
+ * published change back on it, in order.
  *
  * Main passes what only Electron's `app` knows as one JSON argument
  * (`CoreBoot`), because this process has no `app`.
@@ -20,10 +20,10 @@ import { CoreLink } from "../contract/core/link";
 import { CoreServerLive } from "./link";
 import { HostLink } from "../contract/host/link";
 import { HostClientsLive } from "./host-clients";
-import { runCoreOp, serveCore, type CoreRunner } from "./serve";
+import { serveCore } from "./serve";
+import { CoreStartup } from "./ops/ipc-startup";
 import { closeCoreProcess, stopCoreOnSignal } from "./core-stop";
 import { CorePushes, publish, sendPushesTo } from "./push";
-import { useHostClient } from "./core-host";
 import { hostOverseer, OverseerPageFlights } from "./ops/overseer-pages";
 import { AGENT_SIGNAL_CHANGED, COMPANION_DEVICES } from "../contract/core/channels";
 import { publishWindowBroadcasts } from "./ops/main-index";
@@ -32,7 +32,6 @@ import { RunningLiveOverseer } from "./ops/overseer-live";
 import { CoreSeatSessions } from "./ops/ipc-seats";
 import { openCoreSurface, type SurfaceOpenMessage } from "./ops/term-surface";
 import { LIVE_OVERSEER_ENABLED } from "@shared/features";
-import "./ops/index";
 import { armMainThreadBudget } from "../node/observability/main-thread-budget";
 import { startSqlTimingLog } from "./observability/sql-timing-log";
 import { createLogger } from "../node/observability/logger";
@@ -92,10 +91,8 @@ const main = async (parent: ParentPort): Promise<void> => {
   // ~/.junto/logs/sql-timing.json every minute and on exit.
   armMainThreadBudget({ enabled: !boot.app.packaged });
   startSqlTimingLog({ home: boot.home });
-  // The port opens before the core boots: what boots may already ask main and
-  // publish, and a call from main waits until the core can run it.
-  let started!: (runner: CoreRunner) => void;
-  const served = serveCore(parentCorePort(parent), new Promise<CoreRunner>((resolve) => { started = resolve; }));
+  // The port opens before the core boots: what boots may already publish.
+  const served = serveCore(parentCorePort(parent));
   // The core's RPC groups ride the same port; a request that comes before
   // the server listens waits for it.
   const link = heldForServer(parentCorePort(parent));
@@ -106,7 +103,6 @@ const main = async (parent: ParentPort): Promise<void> => {
     const port = event.ports?.[0];
     if (message?.kind === "surfaceOpen" && port !== undefined) openCoreSurface(message as SurfaceOpenMessage, port, served.push);
   });
-  useHostClient(served.host);
   const broadcasts = publishWindowBroadcasts();
   // This core's overseer page calls: the host pages give each its id, and the recheck handler reads them back.
   const pageFlights = OverseerPageFlights.make();
@@ -138,7 +134,6 @@ const main = async (parent: ParentPort): Promise<void> => {
       machine: () => log.machine(),
     }),
   });
-  started(core.runtime);
   // The core's one server on its link to main (link.ts), in the runtime's
   // scope: it answers with the runtime's services and closes with it.
   await core.runtime.runPromise(
@@ -155,14 +150,15 @@ const main = async (parent: ParentPort): Promise<void> => {
       core.runtime.scope,
     ),
   );
-  // The core's share of the window startup wiring runs here, where the core
-  // services live; a failure is logged and the core still serves.
-  const startup = await runCoreOp(core.runtime, "ipc.startup.core", {});
-  if (!startup.ok) console.error("[core] startup wiring failed:", startup.failure.message);
+  // The core's share of the window startup wiring is a Layer of the runtime's
+  // scope, built where the core services live; a failure is logged and the
+  // core still serves.
+  await core.runtime
+    .runPromise(Layer.buildWithScope(CoreStartup, core.runtime.scope))
+    .catch((cause: unknown) => console.error("[core] startup wiring failed:", cause instanceof Error ? cause.message : cause));
   served.push("core.ready", {});
   const stop = (): void => {
-    // Main stops the core; nothing will answer a host call still out.
-    served.failHost("Electron main stopped the Junto core");
+    // Main stops the core; a host call still out fails when its link says main is gone.
     stopCoreOnSignal(() => closeCoreProcess(() => core.close()));
   };
   process.once("SIGTERM", stop);

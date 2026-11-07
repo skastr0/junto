@@ -5,7 +5,6 @@ import { runningBuildIdentity } from "../node/build-identity";
 import { startCore } from "./core";
 import { closeCoreProcess } from "./core-stop";
 import { sendPushesTo } from "./push";
-import { noWindowHost, useHostClient } from "./core-host";
 import { HostClientsNoWindow } from "./host-clients";
 import { enforceBootRefusal } from "../node/boot-guard";
 import { declareMachineCoreOwnsSessions } from "./term/managed-spawn-plan";
@@ -46,8 +45,6 @@ const main = async (): Promise<void> => {
   // A windowless core has no main and no window: what it announces is for
   // nobody, so its pushes go nowhere, on purpose.
   sendPushesTo(() => {});
-  // Nor Electron: a host call refuses with that reason instead of waiting.
-  useHostClient(noWindowHost);
   const entry = resolve(process.argv[1] ?? process.execPath);
   const packageRoot = dirname(dirname(entry));
   const nativeTarget = `${process.platform}-${process.arch}`;

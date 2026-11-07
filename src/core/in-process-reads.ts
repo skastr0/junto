@@ -1,7 +1,7 @@
 /**
  * The reads shared code asks of the core, answered where the services live:
  * on the core's own runtime. Only the core entry loads this module; main
- * installs reads that ask the core by name (core-process/main-client.ts), so
+ * installs reads that ask the core's groups (core-process/clients.ts), so
  * the model, machine and vault services never enter main's bundle.
  */
 import { Effect } from "effect";
