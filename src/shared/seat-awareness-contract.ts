@@ -56,8 +56,9 @@
  * and the recorded containment upgrade, and claims nothing from it.
  */
 
+import { Schema } from "effect";
 import type { AgentSeatState } from "@shared/agent-seat-state";
-import type { ThreadHealthReading } from "@shared/thread-health";
+import { ThreadHealthReading } from "./wire/thread-health";
 
 /** Main -> renderer: one seat-awareness event. */
 export const SEAT_AWARENESS_CHANNEL = "junto:seat-awareness" as const;
@@ -133,33 +134,42 @@ export const SEAT_AWARENESS_PUBLISHED_AVAILABILITIES = [
 export type SeatAwarenessPublishedAvailability =
   (typeof SEAT_AWARENESS_PUBLISHED_AVAILABILITIES)[number];
 
+const Concern = Schema.Literals(SEAT_AWARENESS_CONCERNS);
+
 /** One id-tagged line of the bounded evidence window. */
-export type SeatAwarenessEvidenceLine = {
-  readonly id: string;
-  readonly text: string;
-};
+export const SeatAwarenessEvidenceLine = Schema.Struct({ id: Schema.String, text: Schema.String });
+export type SeatAwarenessEvidenceLine = typeof SeatAwarenessEvidenceLine.Type;
 
 /**
  * The bounded evidence window an observation was made against, with the
  * id -> line mapping captured for that observation. `digest` identifies the
  * screen state, so a later window event can prove the screen moved on.
  */
-export type SeatAwarenessEvidenceWindow = {
-  readonly digest: string;
-  readonly capturedAt: number;
-  readonly lines: readonly SeatAwarenessEvidenceLine[];
-};
+export const SeatAwarenessEvidenceWindow = Schema.Struct({
+  digest: Schema.String,
+  capturedAt: Schema.Number,
+  lines: Schema.Array(SeatAwarenessEvidenceLine),
+});
+export type SeatAwarenessEvidenceWindow = typeof SeatAwarenessEvidenceWindow.Type;
+
+/** One concern the model decisively ruled out for this observation. */
+export const SeatAwarenessAbsence = Schema.Struct({
+  concern: Concern,
+  /** The Noul probability behind the absence, at or below the negative bar. */
+  probability: Schema.Number,
+});
+export type SeatAwarenessAbsence = typeof SeatAwarenessAbsence.Type;
 
 /** One observation: a judgment, an abstention, or an honest failure. */
-export type SeatAwarenessAssessment = {
-  readonly bindingId: string;
+export const SeatAwarenessAssessment = Schema.Struct({
+  bindingId: Schema.String,
   /** Provenance of this observation. Replayed cache hits keep their own id. */
-  readonly assessmentId: string;
-  readonly availability: SeatAwarenessPublishedAvailability;
+  assessmentId: Schema.String,
+  availability: Schema.Literals(SEAT_AWARENESS_PUBLISHED_AVAILABILITIES),
   /** When the evidence was observed. A cache hit never moves this forward. */
-  readonly observedAt: number;
-  readonly activity: SeatAwarenessActivity | null;
-  readonly concerns: readonly SeatAwarenessConcern[];
+  observedAt: Schema.Number,
+  activity: Schema.NullOr(Schema.Literals(SEAT_AWARENESS_ACTIVITIES)),
+  concerns: Schema.Array(Concern),
   /**
    * Accepted absences: concerns the model decisively ruled out, each with the
    * probability that grounded the call. A non-empty list with no concerns is
@@ -169,7 +179,7 @@ export type SeatAwarenessAssessment = {
    * does not report absences yet omits the field, and decode normalizes that to
    * an empty list.
    */
-  readonly absences?: readonly SeatAwarenessAbsence[];
+  absences: Schema.optional(Schema.Array(SeatAwarenessAbsence)),
   /**
    * Concerns whose question was asked but not decisively answered: the model's
    * probability fell inside the band between the two bars, or it declined for
@@ -186,48 +196,43 @@ export type SeatAwarenessAssessment = {
    * the field therefore degrades to the weaker claim, which is the safe
    * direction for a producer and renderer that disagree.
    */
-  readonly unansweredConcerns?: readonly SeatAwarenessConcern[];
-  /** The mapping captured for THIS observation — the only excerpt source. */
-  readonly evidence: SeatAwarenessEvidenceWindow;
+  unansweredConcerns: Schema.optional(Schema.Array(Concern)),
+  /** The mapping captured for THIS observation: the only excerpt source. */
+  evidence: SeatAwarenessEvidenceWindow,
   /** The line the model selected, or null when it selected none. */
-  readonly selectedLineId: string | null;
-  readonly unavailableReason: SeatAwarenessUnavailableReason | null;
+  selectedLineId: Schema.NullOr(Schema.String),
+  unavailableReason: Schema.NullOr(Schema.Literals(SEAT_AWARENESS_UNAVAILABLE_REASONS)),
   /**
    * Advisory thread health from this same observation (its bindingId and
    * assessment id match). Absent when no health property was accepted, and
    * never present on an unavailable assessment. A separate axis from the
    * seat's declared signals: this is what Jev read, not what the seat said.
    */
-  readonly health?: ThreadHealthReading;
-};
-
-/** One concern the model decisively ruled out for this observation. */
-export type SeatAwarenessAbsence = {
-  readonly concern: SeatAwarenessConcern;
-  /** The Noul probability behind the absence, at or below the negative bar. */
-  readonly probability: number;
-};
+  health: Schema.optional(ThreadHealthReading),
+});
+export type SeatAwarenessAssessment = typeof SeatAwarenessAssessment.Type;
 
 /** The evidence window changed. No judgment; only the live digest moves. */
-export type SeatAwarenessWindowEvent = {
-  readonly kind: "window";
-  readonly bindingId: string;
-  readonly windowDigest: string;
-  readonly windowCapturedAt: number;
-  readonly at: number;
-};
+export const SeatAwarenessWindowEvent = Schema.Struct({
+  kind: Schema.Literal("window"),
+  bindingId: Schema.String,
+  windowDigest: Schema.String,
+  windowCapturedAt: Schema.Number,
+  at: Schema.Number,
+});
+export type SeatAwarenessWindowEvent = typeof SeatAwarenessWindowEvent.Type;
 
 /** A new observation, plus the live window digest at publish time. */
-export type SeatAwarenessAssessmentEvent = {
-  readonly kind: "assessment";
-  readonly assessment: SeatAwarenessAssessment;
-  readonly windowDigest: string;
-  readonly at: number;
-};
+export const SeatAwarenessAssessmentEvent = Schema.Struct({
+  kind: Schema.Literal("assessment"),
+  assessment: SeatAwarenessAssessment,
+  windowDigest: Schema.String,
+  at: Schema.Number,
+});
+export type SeatAwarenessAssessmentEvent = typeof SeatAwarenessAssessmentEvent.Type;
 
-export type SeatAwarenessEvent =
-  | SeatAwarenessWindowEvent
-  | SeatAwarenessAssessmentEvent;
+export const SeatAwarenessEvent = Schema.Union([SeatAwarenessWindowEvent, SeatAwarenessAssessmentEvent]);
+export type SeatAwarenessEvent = typeof SeatAwarenessEvent.Type;
 
 const ACTIVITY_SET: ReadonlySet<string> = new Set(SEAT_AWARENESS_ACTIVITIES);
 const CONCERN_SET: ReadonlySet<string> = new Set(SEAT_AWARENESS_CONCERNS);

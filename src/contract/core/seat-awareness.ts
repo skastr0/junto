@@ -10,56 +10,8 @@
  */
 import { Context, Layer, Schema } from "effect";
 import { Rpc, RpcGroup, type RpcClient, type RpcClientError } from "effect/rpc";
-import { ThreadHealthReading } from "../../shared/wire/thread-health";
-import {
-  SEAT_AWARENESS_ACTIVITIES,
-  SEAT_AWARENESS_CONCERNS,
-  SEAT_AWARENESS_PUBLISHED_AVAILABILITIES,
-  SEAT_AWARENESS_UNAVAILABLE_REASONS,
-} from "../../shared/seat-awareness-contract";
+import { SeatAwarenessEvent } from "../../shared/seat-awareness-contract";
 import { coreClient } from "./link";
-
-const Concern = Schema.Literals(SEAT_AWARENESS_CONCERNS);
-
-/** The bounded evidence window an observation was made against, its lines tagged by id. */
-const EvidenceWindow = Schema.Struct({
-  digest: Schema.String,
-  capturedAt: Schema.Number,
-  lines: Schema.Array(Schema.Struct({ id: Schema.String, text: Schema.String })),
-});
-
-/** One observation: a judgment, an abstention, or an honest failure. */
-export const SeatAwarenessAssessment = Schema.Struct({
-  bindingId: Schema.String,
-  assessmentId: Schema.String,
-  availability: Schema.Literals(SEAT_AWARENESS_PUBLISHED_AVAILABILITIES),
-  observedAt: Schema.Number,
-  activity: Schema.NullOr(Schema.Literals(SEAT_AWARENESS_ACTIVITIES)),
-  concerns: Schema.Array(Concern),
-  absences: Schema.optional(Schema.Array(Schema.Struct({ concern: Concern, probability: Schema.Number }))),
-  unansweredConcerns: Schema.optional(Schema.Array(Concern)),
-  evidence: EvidenceWindow,
-  selectedLineId: Schema.NullOr(Schema.String),
-  unavailableReason: Schema.NullOr(Schema.Literals(SEAT_AWARENESS_UNAVAILABLE_REASONS)),
-  health: Schema.optional(ThreadHealthReading),
-});
-
-/** The evidence window moved, or a new observation landed. */
-export const SeatAwarenessEvent = Schema.Union([
-  Schema.Struct({
-    kind: Schema.Literal("window"),
-    bindingId: Schema.String,
-    windowDigest: Schema.String,
-    windowCapturedAt: Schema.Number,
-    at: Schema.Number,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("assessment"),
-    assessment: SeatAwarenessAssessment,
-    windowDigest: Schema.String,
-    at: Schema.Number,
-  }),
-]);
 
 /** The live gate, and the latest event per binding for the window's hydration. */
 export const SeatAwarenessSnapshot = Schema.Struct({
