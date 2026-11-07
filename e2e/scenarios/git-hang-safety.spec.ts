@@ -66,7 +66,7 @@ test("the commit browser opens a big commit cut to fit, without holding the rend
     const { page } = junto;
     const card = page.locator('.react-flow__node[data-id="git-e2e"]');
     await expect(card).toBeVisible({ timeout: 30_000 });
-    await expect(card.getByTestId("instrument-seat-line")).toContainText("main", { timeout: 15_000 });
+    await expect(card.getByTestId("kind-seat-line")).toContainText("main", { timeout: 15_000 });
 
     await page.evaluate(() => {
       const w = window as unknown as { __longTasks: number[] };

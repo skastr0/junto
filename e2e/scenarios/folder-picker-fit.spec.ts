@@ -2,7 +2,8 @@
  * The starting-folder picker in Add item fits its popover.
  *   bun run test:e2e:fast e2e/scenarios/folder-picker-fit.spec.ts
  *
- * The sandbox folder is a long path. With the picker open:
+ * The picker opens on a folder whose path is longer than the field, on any
+ * platform's temp dir. With the picker open:
  *   - the popover stays inside the Add item frame
  *   - nothing scrolls sideways, and every control is inside the popover
  *   - both path lines clip from the left, so the folder's own name is readable
@@ -17,6 +18,9 @@ import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "folder-picker-fit");
 
+/** Longer than the field on any temp dir: Linux /tmp homes are short. */
+const LONG = ["client-engagements", "northwind-platform-rebuild", "services-and-workers"];
+
 const inside = async (control: Locator, frame: Locator): Promise<void> => {
   const [box, bounds] = [await control.boundingBox(), await frame.boundingBox()];
   expect(box).not.toBeNull();
@@ -26,8 +30,13 @@ const inside = async (control: Locator, frame: Locator): Promise<void> => {
 };
 
 test("the folder picker shows every control and the end of a long path", async () => {
+  let longPath = "";
   const junto = await launchJunto({
     seedModels: { "folder-picker": modelFixture([]) },
+    afterSeed: async (sandbox) => {
+      longPath = join(sandbox.homeDir, ...LONG);
+      await mkdir(longPath, { recursive: true });
+    },
     // The add-item palette lists only installed harnesses.
     seedHarnessInstalls: ["claude"],
   });
@@ -50,6 +59,8 @@ test("the folder picker shows every control and the end of a long path", async (
     const folder = page.getByRole("dialog", { name: "Choose starting folder" });
     const field = folder.getByLabel("Agent working directory");
     await expect(field).toHaveValue(/^\//, { timeout: 10_000 });
+    await field.fill(`${longPath}/`);
+    await expect(folder.getByRole("listbox", { name: `Folders in ${longPath}` })).toBeAttached({ timeout: 10_000 });
     await page.waitForTimeout(350);
 
     await inside(folder, deck);
