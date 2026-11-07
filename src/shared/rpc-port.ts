@@ -18,6 +18,13 @@
  * `RpcClientError`, so no caller waits on a process that left. A request
  * carries all it needs and a server keeps nothing between requests, so a
  * request posted while the far end restarts is answered by the next one.
+ *
+ * A server whose clients live in a peer that restarts or reloads (a core, a
+ * window) serves them through `peersLink`: each peer numbers its clients from
+ * its own start, so the link gives every (peer, client) pair an id of its own
+ * and says `{ kind: "clientGone" }`, also local, for each client of a peer
+ * that left. The server then interrupts what those clients still wait on, and
+ * a late reply never reaches a peer that did not ask.
  */
 import { Effect, Queue, Schema } from "effect";
 import { RpcClient, RpcClientError, type RpcMessage, RpcServer } from "effect/rpc";
@@ -29,7 +36,8 @@ type FromServerEncoded = RpcMessage.FromServerEncoded;
 export type RpcPortMessage =
   | { readonly kind: "rpc"; readonly client: number; readonly data: unknown }
   | { readonly kind: "rpcReply"; readonly client: number; readonly data: unknown }
-  | { readonly kind: "down"; readonly reason: string };
+  | { readonly kind: "down"; readonly reason: string }
+  | { readonly kind: "clientGone"; readonly client: number };
 
 /** A message as a port hands it over: RPC's, or another protocol's on the same port, which RPC leaves alone. */
 export type PortMessage = { readonly kind: string; readonly client?: unknown; readonly data?: unknown; readonly reason?: unknown };
@@ -52,7 +60,7 @@ export const heldForServer = (port: RpcPort): RpcPort => {
   const held: PortMessage[] = [];
   const handlers = new Set<(message: PortMessage) => void>();
   port.listen((message) => {
-    if (message.kind !== "rpc") return;
+    if (message.kind !== "rpc" && message.kind !== "clientGone") return;
     if (handlers.size === 0) held.push(message);
     else for (const handler of handlers) handler(message);
   });
@@ -75,8 +83,14 @@ export const serverProtocol = (port: RpcPort) =>
     Effect.fnUntraced(function* (writeRequest) {
       const clients = new Set<number>();
       const arrived = yield* Queue.unbounded<readonly [number, FromClientEncoded]>();
+      const disconnects = yield* Queue.unbounded<number>();
       const unlisten = port.listen((message) => {
-        if (message.kind !== "rpc" || typeof message.client !== "number") return;
+        if (typeof message.client !== "number") return;
+        if (message.kind === "clientGone") {
+          if (clients.delete(message.client)) Queue.offerUnsafe(disconnects, message.client);
+          return;
+        }
+        if (message.kind !== "rpc") return;
         clients.add(message.client);
         Queue.offerUnsafe(arrived, [message.client, message.data as FromClientEncoded]);
       });
@@ -87,7 +101,7 @@ export const serverProtocol = (port: RpcPort) =>
         Effect.forkScoped,
       );
       return {
-        disconnects: yield* Queue.unbounded<number>(),
+        disconnects,
         send: (client: number, response: FromServerEncoded) =>
           Effect.try({ try: () => port.post({ kind: "rpcReply", client, data: response }), catch: (cause) => cause }).pipe(
             Effect.catch((cause) => Effect.logWarning("rpc port: a reply could not be posted", cause)),
@@ -106,18 +120,24 @@ export const serverProtocol = (port: RpcPort) =>
 
 /**
  * One client's side of a port: it takes the replies to its own clients and
- * leaves the rest to theirs. A `down` fails every request its clients still wait on.
+ * leaves the rest to theirs. A `down` fails every request its clients still
+ * wait on, including a client that has sent but whose receiving has not
+ * started yet: Effect adds a client to `clients` only then, so a `down` heard
+ * right after a request is never lost to that order.
  */
 export const clientProtocol = (port: RpcPort) =>
   RpcClient.Protocol.make(
     Effect.fnUntraced(function* (writeResponse, clients) {
       const arrived = yield* Queue.unbounded<readonly [number, FromServerEncoded]>();
+      const sent = new Set<number>();
       const unlisten = port.listen((message) => {
-        if (message.kind === "rpcReply" && typeof message.client === "number" && clients.has(message.client)) {
+        if (message.kind === "rpcReply" && typeof message.client === "number" && (clients.has(message.client) || sent.has(message.client))) {
           Queue.offerUnsafe(arrived, [message.client, message.data as FromServerEncoded]);
         } else if (message.kind === "down") {
           const reason = String(message.reason);
-          for (const client of clients) Queue.offerUnsafe(arrived, [client, { _tag: "ClientProtocolError", error: refused(reason, reason) }]);
+          for (const client of new Set([...clients, ...sent])) {
+            Queue.offerUnsafe(arrived, [client, { _tag: "ClientProtocolError", error: refused(reason, reason) }]);
+          }
         }
       });
       yield* Effect.addFinalizer(() => Effect.sync(unlisten));
@@ -129,7 +149,10 @@ export const clientProtocol = (port: RpcPort) =>
       return {
         send: (client: number, request: FromClientEncoded) =>
           Effect.try({
-            try: () => port.post({ kind: "rpc", client, data: request }),
+            try: () => {
+              sent.add(client);
+              port.post({ kind: "rpc", client, data: request });
+            },
             catch: (cause) => refused("rpc port: the port refused a request", cause),
           }),
         supportsAck: true,
@@ -138,3 +161,64 @@ export const clientProtocol = (port: RpcPort) =>
       };
     }),
   );
+
+/** One peer on a `peersLink`: what it posts toward the server, and its leaving. */
+export type LinkedPeer = {
+  /** A message this peer sent; only its RPC requests go on to the server. */
+  readonly deliver: (message: PortMessage) => void;
+  /** The peer is gone: each of its clients is gone to the server, and no reply reaches it again. */
+  readonly leave: () => void;
+};
+
+/**
+ * One server's port over many peers, each joined with how to post to it. A
+ * peer's clients are renamed to ids unique on this link, so two peers that
+ * both number from zero never share one, and a reply goes back renamed to the
+ * peer that asked, or nowhere once that peer left.
+ */
+export const peersLink = (): { readonly link: RpcPort; readonly join: (post: (message: RpcPortMessage) => void) => LinkedPeer } => {
+  const handlers = new Set<(message: PortMessage) => void>();
+  const asked = new Map<number, { readonly post: (message: RpcPortMessage) => void; readonly client: number }>();
+  let next = 1;
+  const tell = (message: PortMessage): void => {
+    for (const handler of handlers) handler(message);
+  };
+  return {
+    link: {
+      post: (message) => {
+        if (message.kind !== "rpcReply") return;
+        const peer = asked.get(message.client);
+        if (peer !== undefined) peer.post({ kind: "rpcReply", client: peer.client, data: message.data });
+      },
+      listen: (handler) => {
+        handlers.add(handler);
+        return () => handlers.delete(handler);
+      },
+    },
+    join: (post) => {
+      const mine = new Map<number, number>();
+      let left = false;
+      return {
+        deliver: (message) => {
+          if (left || message.kind !== "rpc" || typeof message.client !== "number") return;
+          let id = mine.get(message.client);
+          if (id === undefined) {
+            id = next++;
+            mine.set(message.client, id);
+            asked.set(id, { post, client: message.client });
+          }
+          tell({ kind: "rpc", client: id, data: message.data });
+        },
+        leave: () => {
+          if (left) return;
+          left = true;
+          for (const id of mine.values()) {
+            asked.delete(id);
+            tell({ kind: "clientGone", client: id });
+          }
+          mine.clear();
+        },
+      };
+    },
+  };
+};
