@@ -15,28 +15,29 @@ import { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import { AgentSignal } from "@shared/agent-signals";
 import { CompanionDeviceRecord } from "@shared/companion-devices";
 import { IPC_CHANNELS } from "@shared/ipc";
-import type { KernelSnapshot } from "@shared/ipc";
 import { MailWaitingFact } from "@shared/mail-waiting";
 import { MailReadChanged } from "@shared/mail-threads";
 import { MachineCommandProgress } from "@shared/machine-progress";
-import type { ShellEnvironmentChange } from "@shared/shell-environment";
+import { ShellEnvironmentChange } from "@shared/shell-environment";
 import { MENTION_IPC_CHANNELS } from "@shared/mention-ipc-channels";
-import { CanvasSchema, type CanvasesChanged, type Changed } from "@shared/model";
+import { CanvasSchema, CanvasesChanged, Changed } from "@shared/model";
 import { ObservabilityLogEntry } from "@shared/observability";
 import { LiveSnapshot } from "@shared/overseer-live";
 import { PreambleEventSchema } from "@shared/preamble";
-import type { ReferencesChangedEvent } from "@shared/references";
-import type { SeatOnboardingEvent } from "@shared/seat-onboarding-status";
+import { ReferencesChangedEvent } from "@shared/references";
+import { SeatOnboardingEvent } from "@shared/seat-onboarding-status";
 import { SeatCredentialEvent } from "@shared/seat-credential-event";
-import type { SeatOffboardProgress } from "@shared/seat-sessions";
+import { SeatOffboardProgress } from "@shared/seat-sessions";
 import { Settings } from "@shared/settings";
-import type { UsageState } from "@shared/usage";
-import type { ViewStateEvent } from "@shared/view-state";
+import { UsageState } from "@shared/usage";
+import { ViewStateEvent } from "@shared/view-state";
 import { WireTrafficEvent } from "@shared/wire-traffic";
-import type { SeatAwarenessEvent } from "../../shared/seat-awareness-contract";
+import { SeatAwarenessEvent } from "../../shared/seat-awareness-contract";
 import { FilesChanged } from "@shared/files";
 import { FilesRemoteChange } from "@shared/files-link";
 import type { ActorRefsChanged } from "../../core/model/actor-refs";
+import { KernelSnapshot } from "./status";
+import { EmptyRecord, MentionChanged, NoPayload, ResourceChanged, TermLeaseEnded } from "./push-payloads";
 import type { LocalHostEvent } from "../../core/term/local-host";
 
 /** Where the settings go on every change, provider secrets masked, once `settings.watch` started it. */
@@ -118,13 +119,6 @@ export const SEAT_CACHE_DUE_CHANGED = "seatCacheDue.changed";
 /** The shell environment was read again, in the core whose copy spawns. */
 export const SHELL_ENVIRONMENT_CHANGED = "shellEnvironment.changed";
 
-/** What a lease's end says: which view, and why its machine ended it. */
-export const TermLeaseEnded = Schema.Struct({ leaseId: Schema.String, reason: Schema.String });
-export type TermLeaseEnded = typeof TermLeaseEnded.Type;
-
-/** A resource changed under a canvas: which canvas, and which node. */
-export type ResourceChanged = { readonly canvasName: string; readonly nodeId: string };
-
 /**
  * The payload witness of a channel whose Schema has not landed yet: it names
  * the payload's type, is never called, and its payload crosses undecoded.
@@ -162,27 +156,28 @@ export const CORE_PUSHES = {
   [TERM_EVENT]: carries<LocalHostEvent>(),
   [TERM_LEASE_ENDED]: TermLeaseEnded,
   [TERM_SEAT_STATE]: AgentSeatStateEvent,
-  [SEAT_CACHE_DUE_CHANGED]: Schema.Null,
-  [SHELL_ENVIRONMENT_CHANGED]: carries<ShellEnvironmentChange>(),
+  [SEAT_CACHE_DUE_CHANGED]: NoPayload,
+  [SHELL_ENVIRONMENT_CHANGED]: ShellEnvironmentChange,
   // A backlink landed; the panes read their mentions again.
-  [MENTION_IPC_CHANNELS.changed]: carries<{ readonly canvasName: string }>(),
+  [MENTION_IPC_CHANNELS.changed]: MentionChanged,
   // The model's own watches, each on the window's channel name (ops/ipc-watch.ts).
-  [IPC_CHANNELS.modelChanged]: carries<Changed>(),
-  [IPC_CHANNELS.modelCanvasesChanged]: carries<CanvasesChanged>(),
+  [IPC_CHANNELS.modelChanged]: Changed,
+  [IPC_CHANNELS.modelCanvasesChanged]: CanvasesChanged,
+  // Undecoded until its Schema moves to shared: the contract may not import core values.
   [IPC_CHANNELS.modelActorRefsChanged]: carries<ActorRefsChanged>(),
-  [IPC_CHANNELS.viewStateChanged]: carries<ViewStateEvent>(),
-  [IPC_CHANNELS.referencesChanged]: carries<ReferencesChangedEvent>(),
-  [IPC_CHANNELS.workMailChanged]: carries<ResourceChanged>(),
-  [IPC_CHANNELS.workSinkChanged]: carries<ResourceChanged>(),
-  [IPC_CHANNELS.seatAwarenessChanged]: carries<SeatAwarenessEvent>(),
-  [IPC_CHANNELS.usageChanged]: carries<UsageState>(),
-  [IPC_CHANNELS.kernelChanged]: carries<KernelSnapshot>(),
-  [IPC_CHANNELS.automationsChanged]: carries<ResourceChanged>(),
-  [IPC_CHANNELS.seatOffboardProgress]: carries<SeatOffboardProgress>(),
-  [IPC_CHANNELS.seatOnboardingChanged]: carries<SeatOnboardingEvent>(),
-  [IPC_CHANNELS.coreRestarted]: carries<Record<string, never>>(),
+  [IPC_CHANNELS.viewStateChanged]: ViewStateEvent,
+  [IPC_CHANNELS.referencesChanged]: ReferencesChangedEvent,
+  [IPC_CHANNELS.workMailChanged]: ResourceChanged,
+  [IPC_CHANNELS.workSinkChanged]: ResourceChanged,
+  [IPC_CHANNELS.seatAwarenessChanged]: SeatAwarenessEvent,
+  [IPC_CHANNELS.usageChanged]: UsageState,
+  [IPC_CHANNELS.kernelChanged]: KernelSnapshot,
+  [IPC_CHANNELS.automationsChanged]: ResourceChanged,
+  [IPC_CHANNELS.seatOffboardProgress]: SeatOffboardProgress,
+  [IPC_CHANNELS.seatOnboardingChanged]: SeatOnboardingEvent,
+  [IPC_CHANNELS.coreRestarted]: EmptyRecord,
   // A canvas's authority list changed (fleet/host.ts); the window reads it again.
-  [IPC_CHANNELS.authorityChanged]: carries<Record<string, never>>(),
+  [IPC_CHANNELS.authorityChanged]: EmptyRecord,
 } as const;
 
 /** Every channel on the core bus. */
