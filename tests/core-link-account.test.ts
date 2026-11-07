@@ -34,11 +34,13 @@ const connectPeer = async (home: string, hello: typeof LinkHelloSchema.Type) => 
   const closed = new Promise<void>(resolve => { socket.once("close", () => resolve()); });
   socket.write(JSON.stringify({ type: "hello", ...hello }) + "\n");
   return {
-    request: async (id: string, channel: "status" | "seats" = "status", payload: unknown = { kind: "machine" }) => {
+    // The status channel is a contract (core/link/status.ts): its Machine request names its tag, and has no payload.
+    request: async (id: string, channel: "status" | "seats" = "status", payload: unknown = null) => {
       const response = new Promise<LinkFrame>(resolve => {
         receive = frame => { if (frame.type === "response" && frame.id === id) resolve(frame); };
       });
-      socket.write(JSON.stringify({ type: "request", id, op: `op-${id}`, channel, payload }) + "\n");
+      const tag = channel === "status" ? { tag: "Machine" } : {};
+      socket.write(JSON.stringify({ type: "request", id, op: `op-${id}`, channel, ...tag, payload }) + "\n");
       return Promise.race([response, closed.then(() => undefined)]);
     },
     close: async () => { socket.destroy(); await closed; },
