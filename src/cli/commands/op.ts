@@ -1,5 +1,6 @@
 import { Argument, Command, Flag } from "effect/cli";
 import { Effect, Option, Schema } from "effect";
+import type { Rpc } from "effect/rpc";
 import { OP_LIST_MAX, OpListArgs, OpListState, OpShowArgs } from "../../shared/op-control";
 import type {
   CommandCapability,
@@ -9,7 +10,8 @@ import type {
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
 import { InputError } from "../core/errors";
 import { executeJsonCommand } from "../core/output";
-import { WorkSocket } from "../core/socket";
+import { OpList, OpShow } from "../../contract/work/discovery";
+import { callWorkRpc } from "../core/socket";
 
 /**
  * `junto op` (plan 02): what became of this seat's resource writes. Every
@@ -28,11 +30,8 @@ const timeoutOption = Flag.Int("timeout").pipe(
   Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
 );
 
-const call = (op: "op.show" | "op.list", args: unknown, timeout: Option.Option<number>) =>
-  Effect.gen(function* () {
-    const socket = yield* WorkSocket;
-    return yield* socket.call(op, args, Option.getOrUndefined(timeout));
-  });
+const call = <R extends typeof OpShow | typeof OpList>(rpc: R, args: Rpc.Payload<R>, timeout: Option.Option<number>) =>
+  callWorkRpc(rpc, args, Option.getOrUndefined(timeout));
 
 const checked = <S extends Schema.Top>(schema: S, input: unknown) =>
   Schema.decodeUnknownEffect(schema)(input, { onExcessProperty: "error" }).pipe(
@@ -47,7 +46,7 @@ const showCommand = Command.make(
       "op show",
       Effect.gen(function* () {
         const args = yield* checked(OpShowArgs, { opId: opId.trim() });
-        return yield* call("op.show", args, timeout);
+        return yield* call(OpShow, args, timeout);
       }),
     ),
 ).pipe(Command.withDescription(DESCRIPTIONS.show));
@@ -69,7 +68,7 @@ const listCommand = Command.make(
           ...(Option.isSome(limit) ? { limit: limit.value } : {}),
           ...(Option.isSome(before) ? { before: before.value.trim() } : {}),
         });
-        return yield* call("op.list", args, timeout);
+        return yield* call(OpList, args, timeout);
       }),
     ),
 ).pipe(Command.withDescription(DESCRIPTIONS.list));

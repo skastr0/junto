@@ -8,7 +8,8 @@ import {
   annotateCapabilityInvocations,
 } from "../core/capability-invocations";
 import { executeJsonCommand } from "../core/output";
-import { WorkSocket, localDoctorChecks } from "../core/socket";
+import { Since } from "../../contract/work/discovery";
+import { WorkSocket, callWorkRpc, localDoctorChecks } from "../core/socket";
 
 const toUndefined = <A>(value: Option.Option<A>) =>
   Option.isSome(value) ? value.value : undefined;
@@ -160,10 +161,7 @@ export const sinceCommand = Command.make(
   ({ all, timeout }) =>
     executeJsonCommand(
       "since",
-      Effect.gen(function* () {
-        const socket = yield* WorkSocket;
-        return yield* socket.call("since", all ? { all: true } : {}, toUndefined(timeout));
-      }),
+      callWorkRpc(Since, all ? { all: true } : {}, toUndefined(timeout)),
     ),
 ).pipe(
   Command.withDescription(

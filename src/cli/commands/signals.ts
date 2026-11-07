@@ -1,13 +1,13 @@
 import { Argument, Command, Flag } from "effect/cli";
 import { Effect, Option } from "effect";
 import type { SeatRaiseKind } from "../../shared/agent-signals";
-import type { WorkOpName } from "../../shared/work-control";
+import { SignalClear, SignalList, SignalRaise } from "../../contract/work/discovery";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
 import { executeJsonCommand } from "../core/output";
 import type { AttachFlags } from "../core/signal-attach";
 import type { FormFlags } from "../core/signal-form";
 import { loadSignalRaiseArgs } from "../core/signal-input";
-import { WorkSocket } from "../core/socket";
+import { callWorkRpc } from "../core/socket";
 
 /**
  * Agent signals: how every canvas seat raises its hand to the operator. No
@@ -109,18 +109,12 @@ const formOptions = {
   ),
 };
 
-const call = (op: WorkOpName, args: unknown, timeout?: number) =>
-  Effect.gen(function* () {
-    const socket = yield* WorkSocket;
-    return yield* socket.call(op, args, timeout);
-  });
-
 const raise = (kind: SeatRaiseKind, input: string, detail: Option.Option<string>, timeout: Option.Option<number>, suggest: ReadonlyArray<string>, attach: AttachFlags, form: FormFlags = {}) =>
   executeJsonCommand(
     kind,
     Effect.gen(function* () {
       const args = yield* loadSignalRaiseArgs(kind, input, toUndefined(detail), attach, toUndefined(timeout), suggest, form);
-      return yield* call("signal.raise", args, toUndefined(timeout));
+      return yield* callWorkRpc(SignalRaise, args, toUndefined(timeout));
     }),
   );
 
@@ -174,7 +168,7 @@ const signalListCommand = Command.make(
   ({ since, timeout }) =>
     executeJsonCommand(
       "signal list",
-      call("signal.list", Option.isSome(since) ? { since: since.value } : {}, toUndefined(timeout)),
+      callWorkRpc(SignalList, Option.isSome(since) ? { since: since.value } : {}, toUndefined(timeout)),
     ),
 ).pipe(
   Command.withDescription(
@@ -194,8 +188,8 @@ const signalClearCommand = Command.make(
   ({ id, timeout }) =>
     executeJsonCommand(
       "signal clear",
-      call(
-        "signal.clear",
+      callWorkRpc(
+        SignalClear,
         Option.isSome(id) ? { signalId: id.value } : {},
         toUndefined(timeout),
       ),

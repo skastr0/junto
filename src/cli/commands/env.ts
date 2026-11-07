@@ -1,6 +1,5 @@
 import { Command, Flag } from "effect/cli";
-import { Effect, Option, Schema } from "effect";
-import type { WorkOpName } from "../../shared/work-control";
+import { Option, Schema } from "effect";
 import type {
   CommandCapability,
   CommandExample,
@@ -8,7 +7,8 @@ import type {
 } from "../core/discovery";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
 import { executeReportCommand } from "../core/env-report";
-import { WorkSocket } from "../core/socket";
+import { EnvReport } from "../../contract/work/discovery";
+import { callWorkRpc } from "../core/socket";
 
 /**
  * `junto env report`: a seat reads its own region environment report.
@@ -18,9 +18,6 @@ import { WorkSocket } from "../core/socket";
  * whether it could be read. Never a value. No arguments: the seat is the
  * calling process.
  */
-
-// The work-socket op belongs to the region environment resolver.
-const ENV_REPORT_WORK_OP = "env.report" as WorkOpName;
 
 const timeoutOption = Flag.Int("timeout").pipe(
   Flag.optional,
@@ -33,14 +30,7 @@ const DESCRIPTION =
 const envReportCommand = Command.make("report", { timeout: timeoutOption }, ({ timeout }) =>
   executeReportCommand(
     "env report",
-    Effect.gen(function* () {
-      const socket = yield* WorkSocket;
-      return yield* socket.call(
-        ENV_REPORT_WORK_OP,
-        {},
-        Option.isSome(timeout) ? timeout.value : undefined,
-      );
-    }),
+    callWorkRpc(EnvReport, {}, Option.isSome(timeout) ? timeout.value : undefined),
   ),
 ).pipe(Command.withDescription(DESCRIPTION));
 

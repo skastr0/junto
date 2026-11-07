@@ -1,13 +1,13 @@
 import { Command, Flag } from "effect/cli";
 import { Effect, Option, Schema } from "effect";
 import { LOG_READ_DEFAULT_LIMIT, LOG_READ_MAX_LIMIT, MachineLogQuery } from "../../shared/machine-log";
-import type { WorkOpName } from "../../shared/work-control";
 import type { CommandCapability, CommandExample, CommandSchemaContract } from "../core/discovery";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
 import { parseWaitFor } from "../core/duration";
 import { InputError } from "../core/errors";
 import { executeJsonCommand } from "../core/output";
-import { WorkSocket } from "../core/socket";
+import { LogsRead } from "../../contract/work/discovery";
+import { callWorkRpc } from "../core/socket";
 
 /**
  * `junto logs`: this machine's log, read from a seat. The seat sees its own
@@ -15,8 +15,6 @@ import { WorkSocket } from "../core/socket";
  * the scope comes from its credential, and `--seat` narrows inside it. A
  * linked machine's log is the owner's `junto machine logs`.
  */
-
-const LOGS_READ_WORK_OP = "logs.read" as WorkOpName;
 
 /** The flags as a person types them, before they become a `MachineLogQuery`. */
 export type LogsFlags = {
@@ -116,8 +114,7 @@ export const logsCommand = Command.make(
       "logs",
       Effect.gen(function* () {
         const query = yield* lowerLogsFlags(logsFlagsOf(flags));
-        const socket = yield* WorkSocket;
-        return yield* socket.call(LOGS_READ_WORK_OP, query, Option.isSome(timeout) ? timeout.value : undefined);
+        return yield* callWorkRpc(LogsRead, query, Option.isSome(timeout) ? timeout.value : undefined);
       }),
     ),
 ).pipe(Command.withDescription(DESCRIPTION));
