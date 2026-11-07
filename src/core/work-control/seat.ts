@@ -58,6 +58,10 @@ export class WorkSeat extends Context.Service<WorkSeat, {
   readonly beginWrite: Effect.Effect<void, WorkErrorBody>;
   /** The live seat observation (seat.wait, seat.read), built only when a handler yields it. */
   readonly observation: Effect.Effect<SeatObservation>;
+  /** The caller's canvas is paused: a seat may read but never act. */
+  readonly paused: boolean;
+  /** The machine name this core's log rows carry, as this call read it. */
+  readonly machine: string;
 }>()("@junto/core/work-control/WorkSeat") {}
 
 /** Provides each handler the seat its call was admitted as. */

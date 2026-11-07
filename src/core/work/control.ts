@@ -913,6 +913,8 @@ const dispatchOp = (
         sentMailOf,
         beginWrite: beginWrite(fence),
         observation: Effect.provideService(liveSeatObservation(), WorkService, work),
+        paused,
+        machine: (yield* LogService).machine(),
       });
     }
 
