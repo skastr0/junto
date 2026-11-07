@@ -66,8 +66,8 @@ export class WorkSeat extends Context.Service<WorkSeat, {
   readonly observation: Effect.Effect<SeatObservation>;
   /** The caller's canvas is paused: a seat may read but never act. */
   readonly paused: boolean;
-  /** The machine name this core's log rows carry, as this call read it. */
-  readonly machine: string;
+  /** The machine name this core's log rows carry, read only when a handler yields it. */
+  readonly machine: Effect.Effect<string>;
   /** What changed for this seat since its previous session (since, onboard), read with its work store. */
   readonly readSince: (previousStartedAt: number | undefined, perSection?: number) => Effect.Effect<SeatSince, SeatSinceError>;
 }>()("@junto/core/work-control/WorkSeat") {}

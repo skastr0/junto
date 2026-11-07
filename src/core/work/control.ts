@@ -813,6 +813,7 @@ const dispatchOp = (
 
     // An op with an RPC group is answered by its handler, as the seat admitted here.
     if (servesWorkRpc(op)) {
+      const services = yield* Effect.context<LogService>();
       return yield* rpc.dispatch(op, args, {
         work,
         caller,
@@ -823,7 +824,8 @@ const dispatchOp = (
         beginWrite: beginWrite(fence),
         observation: Effect.provideService(liveSeatObservation(), WorkService, work),
         paused,
-        machine: (yield* LogService).machine(),
+        // Read only by logs.read: a runtime with no log answers every other op.
+        machine: Effect.sync(() => Context.get(services, LogService).machine()),
         readSince: (previousStartedAt, perSection) =>
           readSeatSince(board, caller.canvasName, caller.nodeId, previousStartedAt, perSection).pipe(Effect.provideService(WorkService, work)),
       });

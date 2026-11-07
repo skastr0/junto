@@ -495,7 +495,8 @@ export const DiscoveryHandlers = DiscoveryServed.toLayer(
 
     "logs.read": (args) =>
       Effect.gen(function* () {
-        const { caller, board, machine } = yield* WorkSeat;
+        const { caller, board, machine: machineName } = yield* WorkSeat;
+        const machine = yield* machineName;
         // The caller is the credential's seat; `seat` in the query only narrows
         // inside what that seat may read: its own rows, seats it holds
         // terminal.read to, and rows that name no seat.
