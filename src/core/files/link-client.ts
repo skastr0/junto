@@ -3,11 +3,12 @@ import type {
   FileEntry, FileImported, FilePath, FileRead, FilesChanged, FilesCount, FilesNodeRef, FilesResult, FilesRoot,
   FilesSearchResult, FileStamp,
 } from "@shared/files";
-import { decodeFilesResponse, fitsOneFrame, type FilesEvent, type FilesRequest, type FilesResponse } from "@shared/files-link";
+import { FilesLinkClosed, FilesRefused, fitsOneFrame, type FilesEvent } from "@shared/files-link";
 import type { NodeId } from "@shared/physics/schema";
-import { MachineLink } from "../link/service";
-import type { LinkEventContext } from "../link/types";
+import { linkClient } from "../link/contract";
+import type { LinkEventContext, MachineLinkError } from "../link/types";
 import { MachineRepository } from "../machines/repository";
+import { FilesLink } from "./link";
 
 /**
  * The window machine's end of the `files` channel (0.12, X1d): one function
@@ -34,10 +35,13 @@ const NO_LINK_REASONS: ReadonlySet<string> = new Set([
 const noLink = (failure: { readonly _tag?: string; readonly reason?: string }): boolean =>
   failure._tag !== undefined && (NO_LINK_TAGS.has(failure._tag) || (failure._tag === "LinkUnavailable" && NO_LINK_REASONS.has(failure.reason ?? "")));
 
+/** What a call over the link ends in besides its answer: the host's refusal, the host's link closing, or the link's own failure. */
+type CallFailure = FilesRefused | FilesLinkClosed | MachineLinkError;
+
 export type FilesRemoteOptions = { readonly now?: () => number };
 
 export const makeFilesRemote = Effect.fn("FilesRemote.make")(function* (options: FilesRemoteOptions = {}) {
-  const link = yield* MachineLink;
+  const files = yield* linkClient(FilesLink);
   const machines = yield* MachineRepository;
   const context = yield* Effect.context<never>();
   const now = options.now ?? Date.now;
@@ -53,35 +57,28 @@ export const makeFilesRemote = Effect.fn("FilesRemote.make")(function* (options:
   const unreachable = (machine: string) => ({ ok: false, error: "unreachable", machine, lastReachedAt: reached.get(machine) ?? null }) as const;
   const failed = { ok: false, error: "failed" } as const;
 
-  /** The answer, or the refusal this call ends in. */
-  const send = async (machine: string, request: FilesRequest): Promise<FilesResponse | ReturnType<typeof unreachable> | typeof failed> => {
-    const result = await Effect.runPromiseWith(context)(Effect.result(link.request(machine, "files", request)));
-    if (result._tag === "Failure") return noLink(result.failure) ? unreachable(machine) : failed;
-    try {
-      const response = decodeFilesResponse(result.success);
+  /** The answer, or the refusal this call ends in: `unreachable` only from the link, never from the host. */
+  const answer = async <A>(machine: string, call: Effect.Effect<A, CallFailure>): Promise<FilesResult<A>> => {
+    const result = await Effect.runPromiseWith(context)(Effect.result(call));
+    if (result._tag === "Success") {
       reached.set(machine, now());
-      return response;
-    } catch {
-      return failed;
+      return ok(result.success);
     }
+    const failure = result.failure;
+    // The host answered, so it was reached.
+    if (failure instanceof FilesRefused) {
+      reached.set(machine, now());
+      return { ok: false, error: failure.error };
+    }
+    // The link the host was serving us on closed: no link, as when we lose it ourselves.
+    return failure instanceof FilesLinkClosed || noLink(failure) ? unreachable(machine) : failed;
   };
 
   const ok = <A>(value: A): FilesResult<A> => ({ ok: true, value });
-  const answer = async <A, T extends FilesResponse["_tag"]>(
-    machine: string,
-    request: FilesRequest,
-    tag: T,
-    pick: (response: Extract<FilesResponse, { _tag: T }>) => A,
-  ): Promise<FilesResult<A>> => {
-    const response = await send(machine, request);
-    if (!("_tag" in response)) return response;
-    if (response._tag === "Refused") return { ok: false, error: response.error };
-    return response._tag === tag ? ok(pick(response as Extract<FilesResponse, { _tag: T }>)) : failed;
-  };
   const where = (ref: FilesNodeRef) => ({ canvas: ref.canvas, node: ref.node }) as const;
 
   const open = async (machine: string, ref: FilesNodeRef): Promise<FilesResult<FilesRoot>> => {
-    const result = await answer(machine, { _tag: "Open", ...where(ref) }, "Opened", (response) => response.root);
+    const result = await answer(machine, files.Open(machine, where(ref)));
     // A node opened while the machine is unreachable is watched too: when the link returns it opens again and says back.
     if (result.ok || result.error === "unreachable") {
       const nodes = watching.get(machine) ?? new Map<NodeId, string>();
@@ -99,13 +96,13 @@ export const makeFilesRemote = Effect.fn("FilesRemote.make")(function* (options:
 
   const close = async (machine: string, ref: FilesNodeRef): Promise<FilesResult<null>> => {
     forget(machine, ref.node);
-    return answer(machine, { _tag: "Close", ...where(ref) }, "Closed", () => null);
+    return answer(machine, files.Close(machine, where(ref)));
   };
 
   /** The link came back: open every watched node again and say `back`, or why it will not. */
   const reopen = async (machine: string): Promise<void> => {
     for (const [node, canvas] of [...(watching.get(machine) ?? [])]) {
-      const result = await answer(machine, { _tag: "Open", canvas, node }, "Opened", (response) => response.root);
+      const result = await answer(machine, files.Open(machine, { canvas, node }));
       if (result.ok) {
         emit(machine, { node: node, kind: "back" });
         continue;
@@ -151,28 +148,28 @@ export const makeFilesRemote = Effect.fn("FilesRemote.make")(function* (options:
     },
     open, close,
     count: (machine: string, ref: FilesNodeRef): Promise<FilesResult<FilesCount>> =>
-      answer(machine, { _tag: "Count", ...where(ref) }, "Counted", ({ files, capped }) => ({ files, capped })),
+      answer(machine, files.Count(machine, where(ref))),
     list: (machine: string, ref: FilesNodeRef, dir: FilePath): Promise<FilesResult<ReadonlyArray<FileEntry>>> =>
-      answer(machine, { _tag: "List", ...where(ref), dir }, "Listed", (response) => response.entries),
+      answer(machine, files.List(machine, { ...where(ref), dir })),
     read: (machine: string, ref: FilesNodeRef, path: FilePath): Promise<FilesResult<FileRead>> =>
-      answer(machine, { _tag: "Read", ...where(ref), path }, "Read", (response) => response.read),
+      answer(machine, files.Read(machine, { ...where(ref), path })),
     write: async (machine: string, ref: FilesNodeRef, path: FilePath, text: string, base: FileStamp | null): Promise<FilesResult<FileStamp>> =>
       // A text over one frame is refused here, before the link: X3 sends it in chunks.
       fitsOneFrame(text)
-        ? answer(machine, { _tag: "Write", ...where(ref), path, text, base }, "Written", (response) => response.stamp)
+        ? answer(machine, files.Write(machine, { ...where(ref), path, text, base }))
         : { ok: false, error: "too-large" },
     create: (machine: string, ref: FilesNodeRef, path: FilePath, dir: boolean): Promise<FilesResult<FileEntry>> =>
-      answer(machine, { _tag: "Create", ...where(ref), path, dir }, "Created", (response) => response.entry),
+      answer(machine, files.Create(machine, { ...where(ref), path, dir })),
     rename: (machine: string, ref: FilesNodeRef, path: FilePath, name: string): Promise<FilesResult<FilePath>> =>
-      answer(machine, { _tag: "Rename", ...where(ref), path, name }, "Renamed", (response) => response.path),
+      answer(machine, files.Rename(machine, { ...where(ref), path, name })),
     move: (machine: string, ref: FilesNodeRef, path: FilePath, into: FilePath): Promise<FilesResult<FilePath>> =>
-      answer(machine, { _tag: "Move", ...where(ref), path, into }, "Moved", (response) => response.path),
+      answer(machine, files.Move(machine, { ...where(ref), path, into })),
     trash: (machine: string, ref: FilesNodeRef, path: FilePath): Promise<FilesResult<null>> =>
-      answer(machine, { _tag: "Trash", ...where(ref), path }, "Trashed", () => null),
+      answer(machine, files.Trash(machine, { ...where(ref), path })),
     import: (machine: string, ref: FilesNodeRef, into: FilePath): Promise<FilesResult<ReadonlyArray<FileImported>>> =>
-      answer(machine, { _tag: "Import", ...where(ref), into }, "Imported", (response) => response.imported),
+      answer(machine, files.Import(machine, { ...where(ref), into })),
     search: (machine: string, ref: FilesNodeRef, query: string, seq: number): Promise<FilesResult<FilesSearchResult>> =>
-      answer(machine, { _tag: "Search", ...where(ref), query, seq }, "Searched", (response) => response.search),
+      answer(machine, files.Search(machine, { ...where(ref), query, seq })),
     /** The nodes opened here on a machine; for tests and the router. */
     watched: (machine: string): ReadonlyArray<string> => [...(watching.get(machine)?.keys() ?? [])],
   };

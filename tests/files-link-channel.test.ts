@@ -3,17 +3,16 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
-import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/physics/schema";
-import type { FilesChanged } from "../src/shared/files";
-import { decodeFilesResponse, FILES_LINK_TEXT_JSON_MAX } from "../src/shared/files-link";
-import { makeFilesLinkChannel, type FilesHost } from "../src/core/files/link";
+import type { FilePath, FilesChanged } from "../src/shared/files";
+import { FILES_LINK_TEXT_JSON_MAX, FilesLinkClosed, FilesRefused, type FilesEvent, type HostFilesError } from "../src/shared/files-link";
+import { FilesLink, makeFilesLinkChannel, type FilesHost } from "../src/core/files/link";
 import { makePeerSubscribers, PEER_SUBSCRIBER_BASE } from "../src/core/files/peer-subscribers";
 import { makeFilesService } from "../src/core/files/service";
-import { LinkHelloSchema } from "../src/core/link/protocol";
-import { makeLinkSession } from "../src/core/link/session";
-import type { LinkChannelContext, LinkChannelHandler } from "../src/core/link/types";
+import { bindLinkChannel, linkClient } from "../src/core/link/contract";
+import { MachineLink } from "../src/core/link/service";
+import type { LinkChannelContext, LinkChannelHandler, MachineLinkError } from "../src/core/link/types";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
 import { ModelService } from "../src/core/model/service";
 import { makeTestLog } from "./support/test-log";
@@ -28,21 +27,39 @@ import { THIS_MACHINE } from "./support/machines";
 import { files as filesNode } from "./support/model-nodes";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
 import { clearMachines, seedThisMachine } from "./support/seed-this-machine";
+import { hello, machineLinkLayer, machineLinkOver, makeSessions, pair } from "./support/files-link-pair";
+import type { LinkSession } from "../src/core/link/types";
 
 const installation = Schema.decodeUnknownSync(InstallationId);
 const editor = installation("editor-installation");
 const canvas = asCanvasName("files-canvas");
 const NODE = "files-1";
 const AWAY = "files-away";
+const HOST = "mini";
+const path = (raw: string) => raw as FilePath;
 
 const cleanups: Array<() => Promise<void>> = [];
+const links = makeSessions();
 beforeEach(() => seedThisMachine());
 afterEach(async () => {
+  await links.closeAll();
   for (const close of cleanups.splice(0).reverse()) await close();
   clearMachines();
 });
 
-const fixture = async (options: { readonly editor?: "editor" | "self"; readonly host?: FilesHost; readonly enabled?: boolean } = {}) => {
+/** What a call came to: its answer, or the host's refusal. Any other failure is thrown. */
+type Outcome<A> = { readonly answer: A } | { readonly refused: HostFilesError };
+
+const fixture = async (
+  options: {
+    readonly editor?: "editor" | "self";
+    readonly host?: FilesHost;
+    readonly enabled?: boolean;
+    /** The installation the asking machine's hello carries; the pinned editor's unless a test says another. */
+    readonly asker?: string;
+    readonly extra?: Record<string, LinkChannelHandler>;
+  } = {},
+) => {
   const base = await realpath(await mkdtemp(join(tmpdir(), "junto-files-link-")));
   const root = join(base, "root");
   await mkdir(root, { recursive: true });
@@ -51,7 +68,13 @@ const fixture = async (options: { readonly editor?: "editor" | "self"; readonly 
     WorkRepositoryLive,
     makeMachineRepositoryLive({ defaultName: () => THIS_MACHINE }),
   ), makeStateEngineLive(join(base, "junto.db")));
-  const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(ModelStoresLive, repositories), testLog.log.loggerLayer));
+  // The host's typed send goes to the machine's link, which is the session toward the asking machine.
+  let hostSession: LinkSession | undefined;
+  const runtime = ManagedRuntime.make(Layer.mergeAll(
+    Layer.provideMerge(ModelStoresLive, repositories),
+    testLog.log.loggerLayer,
+    machineLinkLayer(() => hostSession),
+  ));
   cleanups.push(async () => { await runtime.dispose(); await rm(base, { recursive: true, force: true }); });
   await runtime.runPromise(Effect.gen(function* () {
     const machines = yield* MachineRepository;
@@ -76,73 +99,90 @@ const fixture = async (options: { readonly editor?: "editor" | "self"; readonly 
   });
   const subscribers = makePeerSubscribers();
   const channel = await runtime.runPromise(makeFilesLinkChannel({ service: () => options.host ?? service, peerSubscribers: subscribers, ...(options.enabled === undefined ? {} : { enabled: options.enabled }) }));
-  const sent: Array<unknown> = [];
+
+  // The asking machine: it takes the host's events, and answers no request.
+  const sent: FilesEvent[] = [];
+  const die = () => Effect.die("the asking end serves nothing");
+  const asking = bindLinkChannel(FilesLink, {
+    requests: { Open: die, Close: die, Count: die, List: die, Read: die, Write: die, Create: die, Rename: die, Move: die, Trash: die, Import: die, Search: die },
+    event: (event) => Effect.sync(() => { sent.push(event); }),
+  });
+  const { a: asker, b: host } = pair(
+    { self: hello("macbook", options.asker ?? editor), channels: { files: asking, ...options.extra } },
+    // The host runs its handlers in the core's runtime, with its log.
+    { self: hello(HOST), channels: { files: channel, ...options.extra }, run: (effect) => runtime.runPromise(effect.pipe(Effect.provide(testLog.log.loggerLayer))) },
+  );
+  hostSession = host;
+  links.keep(asker, host);
+  await Promise.all([asker.ready, host.ready]);
+
+  const files = await Effect.runPromise(linkClient(FilesLink).pipe(Effect.provideService(MachineLink, machineLinkOver(() => asker))));
+  const ask = async <A>(call: (files: typeof client) => Effect.Effect<A, FilesRefused | FilesLinkClosed | MachineLinkError>): Promise<Outcome<A>> => {
+    const result = await Effect.runPromise(Effect.result(call(client)));
+    if (result._tag === "Success") return { answer: result.success };
+    if (result.failure instanceof FilesRefused) return { refused: result.failure.error };
+    throw result.failure;
+  };
+  const client = files;
+  /** A request as the session hands it to the host, with a context the test shapes. */
   const context: LinkChannelContext = {
     peer: { build: "same-build", installationId: editor, machineName: "macbook" },
     keyBound: false,
     sessionId: "admitted-link", operationId: "op-files-1", signal: new AbortController().signal,
-    sendEvent: (_channel, payload) => Effect.sync(() => { sent.push(payload); }), close: () => Effect.void, request: () => Effect.die("unused"),
+    sendEvent: () => Effect.void, close: () => Effect.void, request: () => Effect.die("unused"),
   };
-  const ask = (raw: unknown, caller = context) =>
-    runtime.runPromise(channel.handleRequest!(caller, raw).pipe(Effect.provide(testLog.log.loggerLayer))).then((response) => decodeFilesResponse(response));
-  const where = { canvas, node: NODE };
-  return { base, root, channel, context, ask, where, sent, subscribers, trashed, runtime };
+  const where = { canvas, node: asNodeId(NODE) };
+  return { base, root, channel, context, ask, where, sent, subscribers, trashed, runtime, asker, host };
 };
 
 describe("files channel host", () => {
   it("serves every op through the Files service for the editing machine", async () => {
     const f = await fixture();
     await writeFile(join(f.root, "a.md"), "hello");
-    expect(await f.ask({ _tag: "Open", ...f.where })).toMatchObject({ _tag: "Opened", root: { repo: false } });
-    expect(await f.ask({ _tag: "Count", ...f.where })).toMatchObject({ _tag: "Counted", capped: false });
-    const listed = await f.ask({ _tag: "List", ...f.where, dir: "" });
-    expect(listed).toMatchObject({ _tag: "Listed", entries: [{ path: "a.md", dir: false }] });
-    const read = await f.ask({ _tag: "Read", ...f.where, path: "a.md" });
-    expect(read).toMatchObject({ _tag: "Read", read: { kind: "text", text: "hello" } });
-    const stamp = (read as { read: { stamp: { mtimeMs: number; size: number } } }).read.stamp;
-    const written = await f.ask({ _tag: "Write", ...f.where, path: "a.md", text: "changed", base: stamp });
-    expect(written).toMatchObject({ _tag: "Written" });
+    expect(await f.ask((c) => c.Open(HOST, f.where))).toMatchObject({ answer: { repo: false } });
+    expect(await f.ask((c) => c.Count(HOST, f.where))).toMatchObject({ answer: { capped: false } });
+    expect(await f.ask((c) => c.List(HOST, { ...f.where, dir: path("") }))).toMatchObject({ answer: [{ path: "a.md", dir: false }] });
+    const read = await f.ask((c) => c.Read(HOST, { ...f.where, path: path("a.md") }));
+    expect(read).toMatchObject({ answer: { kind: "text", text: "hello" } });
+    const stamp = (read as { answer: { stamp: { mtimeMs: number; size: number } } }).answer.stamp;
+    const written = await f.ask((c) => c.Write(HOST, { ...f.where, path: path("a.md"), text: "changed", base: stamp }));
+    expect(written).toHaveProperty("answer");
     expect(await readFile(join(f.root, "a.md"), "utf8")).toBe("changed");
-    expect(await f.ask({ _tag: "Write", ...f.where, path: "a.md", text: "again", base: stamp })).toEqual({ _tag: "Refused", error: "stale" });
-    expect(await f.ask({ _tag: "Create", ...f.where, path: "d", dir: true })).toMatchObject({ _tag: "Created", entry: { path: "d", dir: true } });
-    expect(await f.ask({ _tag: "Rename", ...f.where, path: "a.md", name: "b.md" })).toEqual({ _tag: "Renamed", path: "b.md" });
-    expect(await f.ask({ _tag: "Move", ...f.where, path: "b.md", into: "d" })).toEqual({ _tag: "Moved", path: "d/b.md" });
-    expect(await f.ask({ _tag: "Trash", ...f.where, path: "d/b.md" })).toEqual({ _tag: "Trashed" });
+    expect(await f.ask((c) => c.Write(HOST, { ...f.where, path: path("a.md"), text: "again", base: stamp }))).toEqual({ refused: "stale" });
+    expect(await f.ask((c) => c.Create(HOST, { ...f.where, path: path("d"), dir: true }))).toMatchObject({ answer: { path: "d", dir: true } });
+    expect(await f.ask((c) => c.Rename(HOST, { ...f.where, path: path("a.md"), name: "b.md" }))).toEqual({ answer: "b.md" });
+    expect(await f.ask((c) => c.Move(HOST, { ...f.where, path: path("b.md"), into: path("d") }))).toEqual({ answer: "d/b.md" });
+    expect(await f.ask((c) => c.Trash(HOST, { ...f.where, path: path("d/b.md") }))).toEqual({ answer: null });
     expect(f.trashed).toEqual([join(f.root, "d", "b.md")]);
-    expect(await f.ask({ _tag: "Close", ...f.where })).toEqual({ _tag: "Closed" });
+    expect(await f.ask((c) => c.Close(HOST, f.where))).toEqual({ answer: null });
   });
 
   it("answers the service's own refusals: a node elsewhere, a missing file, a path through a link out of the root", async () => {
     const f = await fixture();
-    expect(await f.ask({ _tag: "List", canvas, node: AWAY, dir: "" })).toEqual({ _tag: "Refused", error: "elsewhere" });
-    expect(await f.ask({ _tag: "List", canvas, node: "files-none", dir: "" })).toEqual({ _tag: "Refused", error: "no-node" });
-    expect(await f.ask({ _tag: "Read", ...f.where, path: "missing.md" })).toEqual({ _tag: "Refused", error: "not-found" });
+    expect(await f.ask((c) => c.List(HOST, { canvas, node: asNodeId(AWAY), dir: path("") }))).toEqual({ refused: "elsewhere" });
+    expect(await f.ask((c) => c.List(HOST, { canvas, node: asNodeId("files-none"), dir: path("") }))).toEqual({ refused: "no-node" });
+    expect(await f.ask((c) => c.Read(HOST, { ...f.where, path: path("missing.md") }))).toEqual({ refused: "not-found" });
   });
 
-  it("admits only the pinned editor of the canvas, and answers denied, never unreachable", async () => {
-    const stranger = await fixture();
+  it("admits only the pinned editor of the canvas, and refuses denied, never unreachable", async () => {
+    const stranger = await fixture({ asker: "stranger-installation" });
     await writeFile(join(stranger.root, "a.md"), "keep");
-    const refused = await stranger.ask({ _tag: "Write", ...stranger.where, path: "a.md", text: "x", base: null },
-      { ...stranger.context, peer: { ...stranger.context.peer, installationId: installation("stranger") } });
-    expect(refused).toEqual({ _tag: "Refused", error: "denied" });
+    expect(await stranger.ask((c) => c.Write(HOST, { ...stranger.where, path: path("a.md"), text: "x", base: null }))).toEqual({ refused: "denied" });
     const self = await fixture({ editor: "self" });
     await writeFile(join(self.root, "a.md"), "keep");
-    expect(await self.ask({ _tag: "Trash", ...self.where, path: "a.md" })).toEqual({ _tag: "Refused", error: "denied" });
+    expect(await self.ask((c) => c.Trash(HOST, { ...self.where, path: path("a.md") }))).toEqual({ refused: "denied" });
     expect(await readFile(join(self.root, "a.md"), "utf8")).toBe("keep");
     expect(self.trashed).toEqual([]);
-    const unknown = await self.ask({ _tag: "List", canvas: "not-held", node: NODE, dir: "" });
-    expect(unknown).toEqual({ _tag: "Refused", error: "denied" });
+    expect(await self.ask((c) => c.List(HOST, { canvas: "not-held", node: asNodeId(NODE), dir: path("") }))).toEqual({ refused: "denied" });
   });
 
   it("checks the editor on every request, not once per link", async () => {
     const f = await fixture();
     await writeFile(join(f.root, "a.md"), "keep");
-    expect(await f.ask({ _tag: "List", ...f.where, dir: "" })).toMatchObject({ _tag: "Listed" });
-    await f.runtime.runPromise(Effect.gen(function* () {
-      yield* (yield* MachineRepository).pinPeer({ machineName: "macbook", installationId: installation("someone-else") });
-    }).pipe(Effect.ignore));
-    const other = { ...f.context, peer: { ...f.context.peer, installationId: installation("someone-else") } };
-    expect(await f.ask({ _tag: "List", ...f.where, dir: "" }, other)).toEqual({ _tag: "Refused", error: "denied" });
+    expect(await f.ask((c) => c.List(HOST, { ...f.where, dir: path("") }))).toHaveProperty("answer");
+    // The link stays up and the hello is unchanged; the machine is no longer pinned.
+    await f.runtime.runPromise(Effect.flatMap(MachineRepository, (machines) => machines.retirePeer("macbook")));
+    expect(await f.ask((c) => c.List(HOST, { ...f.where, dir: path("") }))).toEqual({ refused: "denied" });
   });
 
   it("does nothing for a link that closed", async () => {
@@ -150,7 +190,9 @@ describe("files channel host", () => {
     await writeFile(join(f.root, "a.md"), "keep");
     const closed = new AbortController();
     closed.abort();
-    await expect(f.ask({ _tag: "Trash", ...f.where, path: "a.md" }, { ...f.context, signal: closed.signal })).rejects.toBeTruthy();
+    const trash = f.channel.handleRequest("Trash", { ...f.context, signal: closed.signal }, { ...f.where, path: "a.md" });
+    const failure = await f.runtime.runPromise(Effect.flip(trash));
+    expect(failure).toBeInstanceOf(FilesLinkClosed);
     expect(await readFile(join(f.root, "a.md"), "utf8")).toBe("keep");
   });
 
@@ -158,70 +200,60 @@ describe("files channel host", () => {
     const f = await fixture();
     const big = "x".repeat(FILES_LINK_TEXT_JSON_MAX + 10);
     await writeFile(join(f.root, "big.txt"), big);
-    expect(await f.ask({ _tag: "Read", ...f.where, path: "big.txt" })).toMatchObject({ _tag: "Read", read: { kind: "too-large", size: big.length } });
+    expect(await f.ask((c) => c.Read(HOST, { ...f.where, path: path("big.txt") }))).toMatchObject({ answer: { kind: "too-large", size: big.length } });
     await writeFile(join(f.root, "small.txt"), "small");
-    expect(await f.ask({ _tag: "Write", ...f.where, path: "small.txt", text: big, base: null })).toEqual({ _tag: "Refused", error: "too-large" });
-    const stamp = ((await f.ask({ _tag: "Read", ...f.where, path: "small.txt" })) as { read: { stamp: { mtimeMs: number; size: number } } }).read.stamp;
-    expect(await f.ask({ _tag: "Write", ...f.where, path: "small.txt", text: big, base: stamp })).toEqual({ _tag: "Refused", error: "too-large" });
+    expect(await f.ask((c) => c.Write(HOST, { ...f.where, path: path("small.txt"), text: big, base: null }))).toEqual({ refused: "too-large" });
+    const read = await f.ask((c) => c.Read(HOST, { ...f.where, path: path("small.txt") }));
+    const stamp = (read as { answer: { stamp: { mtimeMs: number; size: number } } }).answer.stamp;
+    expect(await f.ask((c) => c.Write(HOST, { ...f.where, path: path("small.txt"), text: big, base: stamp }))).toEqual({ refused: "too-large" });
     expect(await readFile(join(f.root, "small.txt"), "utf8")).toBe("small");
   });
 
   it("refuses import as denied until bytes travel", async () => {
     const f = await fixture();
-    expect(await f.ask({ _tag: "Import", ...f.where, into: "" })).toEqual({ _tag: "Refused", error: "denied" });
+    expect(await f.ask((c) => c.Import(HOST, { ...f.where, into: path("") }))).toEqual({ refused: "denied" });
   });
 
-  it("decodes requests closed, with no root, absolute path or command", () => {
-    return fixture().then((f) => {
-      for (const bad of [
-        { _tag: "List", ...f.where, dir: "/etc" },
-        { _tag: "List", ...f.where, dir: "", root: "/" },
-        { _tag: "Read", ...f.where, path: "../x" },
-        { _tag: "Exec", ...f.where },
-      ]) expect(() => f.channel.decodeRequest(bad), JSON.stringify(bad)).toThrow();
-    });
+  it("refuses a request no contract schema holds, at the asking end and at the host's decode, with no root, absolute path or command", async () => {
+    const f = await fixture();
+    const payload = FilesLink.requests.get("List")!.payload;
+    for (const bad of [
+      { ...f.where, dir: "/etc" },
+      { ...f.where, dir: "", root: "/" },
+    ]) expect(() => payload.decode(bad), JSON.stringify(bad)).toThrow();
+    expect(() => FilesLink.requests.get("Read")!.payload.decode({ ...f.where, path: "../x" })).toThrow();
+    // There is no request to run a command with.
+    expect(FilesLink.requests.has("Exec")).toBe(false);
+    // The typed client encodes with the same schema, so it never puts one on the link.
+    await expect(f.ask((c) => c.List(HOST, { ...f.where, dir: "/etc" as FilePath }))).rejects.toMatchObject({ _tag: "LinkFrameInvalid" });
   });
 });
 
 describe("files channel while filesRemote is off on the host", () => {
-  const hello = (name: string) => Schema.decodeUnknownSync(LinkHelloSchema)({ build: "a".repeat(64), installationId: `${name}-install`, machineName: name });
-
   it("is bound and refuses every op denied, without admission, the service or a log of names", async () => {
     const f = await fixture({ enabled: false });
     await writeFile(join(f.root, "a.md"), "keep");
-    for (const request of [
-      { _tag: "Open", ...f.where }, { _tag: "List", ...f.where, dir: "" }, { _tag: "Read", ...f.where, path: "a.md" },
-      { _tag: "Trash", ...f.where, path: "a.md" }, { _tag: "Write", ...f.where, path: "a.md", text: "x", base: null },
-    ]) expect(await f.ask(request)).toEqual({ _tag: "Refused", error: "denied" });
+    expect(await f.ask((c) => c.Open(HOST, f.where))).toEqual({ refused: "denied" });
+    expect(await f.ask((c) => c.List(HOST, { ...f.where, dir: path("") }))).toEqual({ refused: "denied" });
+    expect(await f.ask((c) => c.Read(HOST, { ...f.where, path: path("a.md") }))).toEqual({ refused: "denied" });
+    expect(await f.ask((c) => c.Trash(HOST, { ...f.where, path: path("a.md") }))).toEqual({ refused: "denied" });
+    expect(await f.ask((c) => c.Write(HOST, { ...f.where, path: path("a.md"), text: "x", base: null }))).toEqual({ refused: "denied" });
     expect(await readFile(join(f.root, "a.md"), "utf8")).toBe("keep");
     expect(f.trashed).toEqual([]);
     // Still a closed decoder: a malformed request is refused at decode, as when it is on.
-    expect(() => f.channel.decodeRequest({ _tag: "List", ...f.where, dir: "/etc" })).toThrow();
+    expect(() => FilesLink.requests.get("List")!.payload.decode({ ...f.where, dir: "/etc" })).toThrow();
   });
 
   it("answers a window machine that has it on denied, and the seat traffic on the same link keeps flowing", async () => {
-    const f = await fixture({ enabled: false });
     const echo: LinkChannelHandler = {
       decodeRequest: (payload) => payload, decodeResponse: (payload) => payload, decodeEvent: (payload) => payload,
       handleRequest: (_context, payload) => Effect.succeed(payload),
     };
-    const toHost = new PassThrough();
-    const toWindow = new PassThrough();
-    const host = makeLinkSession({
-      readable: toHost, writable: toWindow, self: hello("mini"), admit: async () => {}, run: Effect.runPromise,
-      channels: { status: echo, files: f.channel },
-    });
-    const window = makeLinkSession({
-      readable: toWindow, writable: toHost, self: hello("macbook"), admit: async () => {}, run: Effect.runPromise,
-      channels: { status: echo, files: f.channel },
-    });
-    cleanups.push(async () => { await Promise.all([host.close(), window.close()]); });
-    await Promise.all([host.ready, window.ready]);
-    // The host runs the handler against its own admitted peer; the editor check is not reached while the feature is off.
-    expect(await window.request("files", { _tag: "Open", ...f.where })).toEqual({ _tag: "Refused", error: "denied" });
-    expect(await window.request("status", { seat: "start" })).toEqual({ seat: "start" });
-    expect(await window.request("files", { _tag: "List", ...f.where, dir: "" })).toEqual({ _tag: "Refused", error: "denied" });
-    expect(await window.request("status", { seat: "attach" })).toEqual({ seat: "attach" });
+    const f = await fixture({ enabled: false, extra: { status: echo } });
+    expect(await f.ask((c) => c.Open(HOST, f.where))).toEqual({ refused: "denied" });
+    expect(await f.asker.request("status", { seat: "start" })).toEqual({ seat: "start" });
+    expect(await f.ask((c) => c.List(HOST, { ...f.where, dir: path("") }))).toEqual({ refused: "denied" });
+    expect(await f.asker.request("status", { seat: "attach" })).toEqual({ seat: "attach" });
   });
 });
 
@@ -239,10 +271,10 @@ describe("files channel events", () => {
   it("gives a peer's session a subscriber above any window id, whose changes go to the link", async () => {
     const fake = fakeHost();
     const f = await fixture({ host: fake.host });
-    await f.ask({ _tag: "Open", ...f.where });
+    await f.ask((c) => c.Open(HOST, f.where));
     const [subscriber] = fake.opened;
     expect(subscriber).toBeGreaterThanOrEqual(PEER_SUBSCRIBER_BASE);
-    await f.ask({ _tag: "Open", canvas, node: AWAY });
+    await f.ask((c) => c.Open(HOST, { canvas, node: asNodeId(AWAY) }));
     expect(fake.opened[1]).toBe(subscriber);
     const change: FilesChanged = { node: asNodeId(NODE), kind: "paths", paths: ["a.md"] as never };
     expect(f.subscribers.deliver(subscriber!, change)).toBe(true);
@@ -257,7 +289,7 @@ describe("files channel events", () => {
   it("says reset when a change is too large for one frame", async () => {
     const fake = fakeHost();
     const f = await fixture({ host: fake.host });
-    await f.ask({ _tag: "Open", ...f.where });
+    await f.ask((c) => c.Open(HOST, f.where));
     const paths = Array.from({ length: 300 }, (_, i) => `${"d".repeat(3000)}${String(i)}`);
     f.subscribers.deliver(fake.opened[0]!, { node: asNodeId(NODE), kind: "paths", paths: paths as never });
     await expect.poll(() => f.sent.length).toBe(1);
@@ -267,9 +299,9 @@ describe("files channel events", () => {
   it("drops the session's subscriber when the link closes", async () => {
     const fake = fakeHost();
     const f = await fixture({ host: fake.host });
-    await f.ask({ _tag: "Open", ...f.where });
-    await f.runtime.runPromise(f.channel.closed!(f.context));
-    expect(fake.closed).toEqual(fake.opened);
+    await f.ask((c) => c.Open(HOST, f.where));
+    await f.asker.close();
+    await expect.poll(() => fake.closed).toEqual(fake.opened);
     expect(f.subscribers.deliver(fake.opened[0]!, { node: asNodeId(NODE), kind: "reset" })).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(f.sent).toEqual([]);
@@ -283,10 +315,10 @@ describe("files channel logs", () => {
     testLog.log.openFile({ home: logHome });
     const f = await fixture();
     await writeFile(join(f.root, "secretname-a1.md"), "secrettext-b2");
-    await f.ask({ _tag: "List", ...f.where, dir: "" });
-    await f.ask({ _tag: "Read", ...f.where, path: "secretname-a1.md" });
-    await f.ask({ _tag: "Rename", ...f.where, path: "secretname-a1.md", name: "secretname-c3.md" });
-    await f.ask({ _tag: "Read", ...f.where, path: "secretname-gone.md" });
+    await f.ask((c) => c.List(HOST, { ...f.where, dir: path("") }));
+    await f.ask((c) => c.Read(HOST, { ...f.where, path: path("secretname-a1.md") }));
+    await f.ask((c) => c.Rename(HOST, { ...f.where, path: path("secretname-a1.md"), name: "secretname-c3.md" }));
+    await f.ask((c) => c.Read(HOST, { ...f.where, path: path("secretname-gone.md") }));
     const log = readFileSync(join(machineLogDir(logHome), "core.jsonl"), "utf8");
     expect(log).toContain("files op");
     expect(log).toContain(NODE);

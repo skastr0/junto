@@ -1,10 +1,13 @@
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
+import { Rpc, RpcGroup } from "effect/rpc";
 import type { FilesChanged, FilesError, FilesNodeRef, FilesResult } from "@shared/files";
 import {
-  decodeFilesEvent, decodeFilesRequest, decodeFilesResponse, fitsOneFrame,
-  type FilesEvent, type FilesRequest, type FilesResponse, type HostFilesError,
+  FilesClose, FilesCount, FilesCounted, FilesCreate, FilesCreated, FilesDone, FilesEvent, FilesImport, FilesImported, FilesLinkClosed,
+  FilesLinkFailure, FilesList, FilesListed, FilesMove, FilesOpen, FilesOpened, FilesPathAnswer, FilesRead, FilesReadAnswer, FilesRefused,
+  FilesRename, FilesSearch, FilesSearched, FilesTrash, FilesWrite, FilesWritten, fitsOneFrame, type HostFilesError,
 } from "@shared/files-link";
-import type { LinkChannelContext, LinkChannelHandler, LinkEventContext } from "../link/types";
+import { bindLinkChannel, linkClient, linkContract, type LinkContractChannel } from "../link/contract";
+import type { LinkChannelContext, LinkEventContext } from "../link/types";
 import { MachineRepository } from "../machines/repository";
 import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
@@ -19,9 +22,10 @@ import type { FilesService } from "./service";
  * stale-save stamps hold unchanged.
  *
  * Who may ask: the peer is still pinned and edits the named canvas, checked on
- * every request. An admission refusal is an answer (`denied`), with the link
- * up, never a link failure and never `unreachable`. When the authority list
- * lands (06 F4) it replaces `admitFilesPeer` and nothing else here.
+ * every request. An admission refusal is a `FilesRefused` (`denied`), the
+ * ops' typed error, with the link up, never a link failure and never
+ * `unreachable`. When the authority list lands (06 F4) it replaces
+ * `admitFilesPeer` and nothing else here.
  *
  * What never crosses into a row, a log or a failure: names, listings, text.
  * A log line holds the op, the node id and the outcome.
@@ -33,7 +37,24 @@ export type FilesHost = Pick<
   "open" | "close" | "closeSubscriber" | "count" | "list" | "read" | "write" | "create" | "rename" | "move" | "trash" | "search"
 >;
 
-export class FilesLinkClosed extends Schema.TaggedError<FilesLinkClosed>()("FilesLinkClosed", { message: Schema.String }) {}
+/**
+ * The channel's contract: one request per op, each answered with its own
+ * shape or the host's refusal, and the host's change events.
+ */
+export const FilesLink = linkContract("files", RpcGroup.make(
+  Rpc.make("Open", { payload: FilesOpen, success: FilesOpened, error: FilesLinkFailure }),
+  Rpc.make("Close", { payload: FilesClose, success: FilesDone, error: FilesLinkFailure }),
+  Rpc.make("Count", { payload: FilesCount, success: FilesCounted, error: FilesLinkFailure }),
+  Rpc.make("List", { payload: FilesList, success: FilesListed, error: FilesLinkFailure }),
+  Rpc.make("Read", { payload: FilesRead, success: FilesReadAnswer, error: FilesLinkFailure }),
+  Rpc.make("Write", { payload: FilesWrite, success: FilesWritten, error: FilesLinkFailure }),
+  Rpc.make("Create", { payload: FilesCreate, success: FilesCreated, error: FilesLinkFailure }),
+  Rpc.make("Rename", { payload: FilesRename, success: FilesPathAnswer, error: FilesLinkFailure }),
+  Rpc.make("Move", { payload: FilesMove, success: FilesPathAnswer, error: FilesLinkFailure }),
+  Rpc.make("Trash", { payload: FilesTrash, success: FilesDone, error: FilesLinkFailure }),
+  Rpc.make("Import", { payload: FilesImport, success: FilesImported, error: FilesLinkFailure }),
+  Rpc.make("Search", { payload: FilesSearch, success: FilesSearched, error: FilesLinkFailure }),
+), { event: FilesEvent });
 
 /** `ok`, or the refusal the peer is answered with. */
 export type FilesAdmission = "ok" | HostFilesError;
@@ -69,15 +90,7 @@ export const eventOf = (change: FilesChanged): FilesEvent => {
   return fitsOneFrame(event) ? event : { node: change.node, kind: "reset" };
 };
 
-const refusedWith = (error: FilesError): FilesResponse => ({ _tag: "Refused", error: hostError(error) });
-const asRefused = (result: { readonly ok: false; readonly error: FilesError }): FilesResponse => refusedWith(result.error);
-
-/** A response no frame can hold is refused `too-large`: the link must never be closed by an answer. */
-const bounded = (response: FilesResponse): FilesResponse =>
-  fitsOneFrame(response) ? response : { _tag: "Refused", error: "too-large" };
-
-const answered = <A>(result: FilesResult<A>, then: (value: A) => FilesResponse): FilesResponse =>
-  result.ok ? bounded(then(result.value)) : asRefused(result);
+const refusedWith = (error: FilesError): FilesRefused => new FilesRefused({ error: hostError(error) });
 
 export type FilesLinkOptions = {
   /**
@@ -99,6 +112,7 @@ export type FilesLinkOptions = {
 
 export const makeFilesLinkChannel = Effect.fn("FilesLink.make")(function* (options: FilesLinkOptions) {
   const services = yield* Effect.context<ModelService | ModelRecords | MachineRepository>();
+  const files = yield* linkClient(FilesLink);
   const subscribers = options.peerSubscribers ?? sharedPeerSubscribers;
   /** One subscriber per link session, made at its first open. */
   const sessions = new Map<string, number>();
@@ -107,68 +121,95 @@ export const makeFilesLinkChannel = Effect.fn("FilesLink.make")(function* (optio
     const held = sessions.get(context.sessionId);
     if (held !== undefined) return held;
     const id = subscribers.allocate((change) => {
-      void Effect.runPromiseWith(services)(context.sendEvent("files", eventOf(change))).catch(() => undefined);
+      void Effect.runPromiseWith(services)(files.sendEvent(context.peer.machineName, eventOf(change))).catch(() => undefined);
     });
     sessions.set(context.sessionId, id);
     return id;
   };
+  const subscriberOf = (context: LinkChannelContext): number => sessions.get(context.sessionId) ?? -1;
 
-  const answer = async (host: FilesHost, context: LinkChannelContext, request: FilesRequest): Promise<FilesResponse> => {
-    const ref: FilesNodeRef = { canvas: request.canvas, node: request.node };
-    switch (request._tag) {
-      case "Open": {
-        if (context.signal.aborted) return refusedWith("failed");
-        return answered(await host.open(subscriberFor(context), ref), (root) => ({ _tag: "Opened", root }));
-      }
-      case "Close": return answered(host.close(sessions.get(context.sessionId) ?? -1, ref), () => ({ _tag: "Closed" }));
-      case "Count": return answered(await host.count(ref), ({ files, capped }) => ({ _tag: "Counted", files, capped }));
-      case "List": return answered(await host.list(ref, request.dir), (entries) => ({ _tag: "Listed", entries }));
-      case "Read": return answered(await host.read(ref, request.path), (read) => ({
-        _tag: "Read",
-        // Text that does not fit one frame reads too-large until X3 sends it in chunks.
-        read: read.kind === "text" && !fitsOneFrame(read.text)
-          ? { kind: "too-large", size: Buffer.byteLength(read.text), stamp: read.stamp }
-          : read,
-      }));
-      case "Write":
-        if (!fitsOneFrame(request.text)) return refusedWith("too-large");
-        return answered(await host.write(ref, request.path, request.text, request.base), (stamp) => ({ _tag: "Written", stamp }));
-      case "Create": return answered(await host.create(ref, request.path, request.dir), (entry) => ({ _tag: "Created", entry }));
-      case "Rename": return answered(await host.rename(ref, request.path, request.name), (path) => ({ _tag: "Renamed", path }));
-      case "Move": return answered(await host.move(ref, request.path, request.into), (path) => ({ _tag: "Moved", path }));
-      case "Trash": return answered(await host.trash(ref, request.path), () => ({ _tag: "Trashed" }));
-      // A dropped file's source is a path on the window machine; its bytes come with X3.
-      case "Import": return refusedWith("denied");
-      case "Search": return answered(await host.search(sessions.get(context.sessionId) ?? -1, ref, request.query, request.seq), (search) => ({ _tag: "Searched", search }));
-    }
-  };
-
-  const handleRequest: NonNullable<LinkChannelHandler["handleRequest"]> = (context, raw) => Effect.gen(function* () {
-    // Decode here too: direct callers cannot bypass the transport decoder.
-    const request = decodeFilesRequest(raw);
-    if (options.enabled === false) {
-      yield* Effect.logInfo("files refused", { op: request._tag, node: request.node, outcome: "denied" });
-      return refusedWith("denied");
-    }
-    const admitted = yield* admitFilesPeer(context, request.canvas).pipe(Effect.provideContext(services));
-    if (admitted !== "ok") return yield* Effect.logInfo("files refused", { op: request._tag, node: request.node, outcome: admitted }).pipe(Effect.as(refusedWith(admitted)));
+  /**
+   * One op, in the order every op runs: the feature gate, the admission, the
+   * service. A refusal and a result no frame can hold both end in a
+   * `FilesRefused`: the link must never be closed by an answer.
+   */
+  const serve = <A>(
+    op: string,
+    payload: FilesNodeRef,
+    context: LinkChannelContext,
+    run: (host: FilesHost, ref: FilesNodeRef) => Promise<FilesResult<A>> | FilesResult<A>,
+  ): Effect.Effect<A, FilesLinkFailure> => Effect.gen(function* () {
+    const ref: FilesNodeRef = { canvas: payload.canvas, node: payload.node };
+    const refuse = (error: FilesError) =>
+      Effect.logInfo("files refused", { op, node: ref.node, outcome: error }).pipe(Effect.andThen(Effect.fail(refusedWith(error))));
+    if (options.enabled === false) return yield* refuse("denied");
+    const admitted = yield* admitFilesPeer(context, ref.canvas).pipe(
+      Effect.provideContext(services),
+      // Anything but the link having closed is this call failing: it crosses as a failure with no detail.
+      Effect.catch((cause) => cause instanceof FilesLinkClosed ? Effect.fail(cause) : Effect.die(cause)),
+    );
+    if (admitted !== "ok") return yield* refuse(admitted);
     const host = options.service();
-    const response = host === undefined
-      ? refusedWith("failed")
-      : yield* Effect.promise(() => answer(host, context, request)).pipe(
-        // The cause stays in main's log, never on the wire.
-        Effect.catchDefect(() => Effect.succeed(refusedWith("failed"))),
-      );
-    yield* Effect.logInfo("files op", { op: request._tag, node: request.node, outcome: response._tag === "Refused" ? response.error : "ok" });
-    return response;
+    if (host === undefined) return yield* refuse("failed");
+    const result = yield* Effect.promise(async () => run(host, ref)).pipe(
+      // The cause stays in main's log, never on the wire.
+      Effect.catchDefect(() => Effect.succeed<FilesResult<A>>({ ok: false, error: "failed" })),
+    );
+    if (!result.ok) return yield* refuse(result.error);
+    if (!fitsOneFrame(result.value)) return yield* refuse("too-large");
+    yield* Effect.logInfo("files op", { op, node: ref.node, outcome: "ok" });
+    return result.value;
   }).pipe(Effect.annotateLogs({ area: "files-link", peer: context.peer.machineName }));
 
-  const handler: LinkChannelHandler = {
-    decodeRequest: decodeFilesRequest,
-    decodeResponse: decodeFilesResponse,
-    decodeEvent: decodeFilesEvent,
-    handleRequest,
-    handleEvent: (context, raw) => options.enabled === false || options.onEvent === undefined ? Effect.void : options.onEvent(context, decodeFilesEvent(raw)),
+  const channel: LinkContractChannel = bindLinkChannel(FilesLink, {
+    // Interruption: Write, Create, Rename, Move and Trash change the disk and are not idempotent, so one the
+    // caller gave up on may still have run. Open allocates the session's subscriber once and reuses it, and
+    // the rest only read.
+    requests: {
+      /** Idempotent: a session has one subscriber, and a second open names the same one. */
+      Open: (request, context) => context.signal.aborted
+        ? Effect.fail(refusedWith("failed"))
+        : serve("Open", request, context, (host, ref) => host.open(subscriberFor(context), ref)),
+      /** Idempotent: closing a node the session no longer holds changes nothing. */
+      Close: (request, context) => serve("Close", request, context, (host, ref) => {
+        const result = host.close(subscriberOf(context), ref);
+        return result.ok ? { ok: true, value: null } : result;
+      }),
+      /** Idempotent: reads. */
+      Count: (request, context) => serve("Count", request, context, async (host, ref) => {
+        const result = await host.count(ref);
+        return result.ok ? { ok: true, value: { files: result.value.files, capped: result.value.capped } } : result;
+      }),
+      /** Idempotent: reads. */
+      List: (request, context) => serve("List", request, context, (host, ref) => host.list(ref, request.dir)),
+      /** Idempotent: reads. Text that does not fit one frame reads too-large until X3 sends it in chunks. */
+      Read: (request, context) => serve("Read", request, context, async (host, ref) => {
+        const result = await host.read(ref, request.path);
+        if (!result.ok) return result;
+        const read = result.value;
+        return { ok: true, value: read.kind === "text" && !fitsOneFrame(read.text) ? { kind: "too-large", size: Buffer.byteLength(read.text), stamp: read.stamp } : read };
+      }),
+      /** NOT idempotent: a second write against the stamp the first one moved is refused `stale`. */
+      Write: (request, context) => fitsOneFrame(request.text)
+        ? serve("Write", request, context, (host, ref) => host.write(ref, request.path, request.text, request.base))
+        : Effect.fail(refusedWith("too-large")),
+      /** NOT idempotent: a second create is refused `exists`. */
+      Create: (request, context) => serve("Create", request, context, (host, ref) => host.create(ref, request.path, request.dir)),
+      /** NOT idempotent: the path it renamed from is gone the second time. */
+      Rename: (request, context) => serve("Rename", request, context, (host, ref) => host.rename(ref, request.path, request.name)),
+      /** NOT idempotent: the path it moved from is gone the second time. */
+      Move: (request, context) => serve("Move", request, context, (host, ref) => host.move(ref, request.path, request.into)),
+      /** NOT idempotent: the path it trashed is gone the second time. */
+      Trash: (request, context) => serve("Trash", request, context, async (host, ref) => {
+        const result = await host.trash(ref, request.path);
+        return result.ok ? { ok: true, value: null } : result;
+      }),
+      /** Idempotent: a dropped file's source is a path on the window machine, so until X3 it is only ever refused. */
+      Import: (request, context) => serve("Import", request, context, () => ({ ok: false, error: "denied" })),
+      /** Idempotent: a newer `seq` supersedes an older one, and the same one searches again. */
+      Search: (request, context) => serve("Search", request, context, (host, ref) => host.search(subscriberOf(context), ref, request.query, request.seq)),
+    },
+    event: (event, context) => options.enabled === false || options.onEvent === undefined ? Effect.void : options.onEvent(context, event),
     ...(options.onOpened === undefined ? {} : { opened: options.onOpened }),
     closed: (context) => Effect.sync(() => {
       const id = sessions.get(context.sessionId);
@@ -177,6 +218,6 @@ export const makeFilesLinkChannel = Effect.fn("FilesLink.make")(function* (optio
       options.service()?.closeSubscriber(id);
       subscribers.release(id);
     }).pipe(Effect.andThen(options.onClosed?.(context) ?? Effect.void)),
-  };
-  return handler;
+  });
+  return channel;
 });

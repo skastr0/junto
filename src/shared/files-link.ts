@@ -5,19 +5,19 @@
  *
  * A request names a Files node (canvas and id) and a path relative to its
  * root, and nothing else. A root, an absolute path or a command has no field
- * here, and every decoder refuses an excess property, so a peer cannot send
- * one. The host takes the root from its own copy of the node.
+ * here, and the contract's codecs refuse an excess property, so a peer cannot
+ * send one. The host takes the root from its own copy of the node.
  *
  * `unreachable` is not on the wire: only the window machine can say no link is
- * open. A refusal the host sends is its own `FilesError`, and crosses as an
- * answer (`Refused`), never as a link failure.
+ * open. A refusal the host sends is its own `FilesRefused`, the ops' typed
+ * error, so it is told apart from a link failure by its type.
  *
  * Not a phone wire module (src/shared/wire/ is the phone's closure): this is
  * desktop to desktop, and it reads `files.ts` for the one path definition.
  */
 
 import { Schema } from "effect";
-import { isFileName, parseFilePath, type FileEntry, type FilePath, type FilesError } from "./files";
+import { isFileName, parseFilePath, type FileEntry, type FilePath } from "./files";
 import { CANONICAL_CANVAS_NAME_PATTERN } from "./wire/canvas-name";
 import { NodeId } from "./wire/ids";
 
@@ -59,37 +59,36 @@ export const HostFilesError = Schema.Literals(HOST_FILES_ERRORS);
 
 const Where = { canvas: CanvasName, node: NodeId } as const;
 
-export const FilesOpen = Schema.Struct({ _tag: Schema.Literal("Open"), ...Where });
-export const FilesClose = Schema.Struct({ _tag: Schema.Literal("Close"), ...Where });
-export const FilesCount = Schema.Struct({ _tag: Schema.Literal("Count"), ...Where });
-export const FilesList = Schema.Struct({ _tag: Schema.Literal("List"), ...Where, dir: FilePathWire });
-export const FilesRead = Schema.Struct({ _tag: Schema.Literal("Read"), ...Where, path: FilePathWire });
+/**
+ * One payload per op, named for the op's Rpc tag (the tag crosses beside the
+ * payload, not in it). The contract in `core/files/link.ts` pairs each with
+ * its answer below.
+ */
+export const FilesOpen = Schema.Struct(Where);
+export const FilesClose = Schema.Struct(Where);
+export const FilesCount = Schema.Struct(Where);
+export const FilesList = Schema.Struct({ ...Where, dir: FilePathWire });
+export const FilesRead = Schema.Struct({ ...Where, path: FilePathWire });
 export const FilesWrite = Schema.Struct({
-  _tag: Schema.Literal("Write"), ...Where, path: FilePathWire,
+  ...Where, path: FilePathWire,
   text: Schema.String.pipe(Schema.check(Schema.isMaxLength(1024 * 1024))),
   base: Schema.NullOr(Stamp),
 });
-export const FilesCreate = Schema.Struct({ _tag: Schema.Literal("Create"), ...Where, path: FilePathWire, dir: Schema.Boolean });
-export const FilesRename = Schema.Struct({ _tag: Schema.Literal("Rename"), ...Where, path: FilePathWire, name: Name });
-export const FilesMove = Schema.Struct({ _tag: Schema.Literal("Move"), ...Where, path: FilePathWire, into: FilePathWire });
-export const FilesTrash = Schema.Struct({ _tag: Schema.Literal("Trash"), ...Where, path: FilePathWire });
+export const FilesCreate = Schema.Struct({ ...Where, path: FilePathWire, dir: Schema.Boolean });
+export const FilesRename = Schema.Struct({ ...Where, path: FilePathWire, name: Name });
+export const FilesMove = Schema.Struct({ ...Where, path: FilePathWire, into: FilePathWire });
+export const FilesTrash = Schema.Struct({ ...Where, path: FilePathWire });
 /**
  * Names the folder to import into and nothing else: a dropped file's source is
  * a path on the window machine, which a host never reads. Answered `denied`
  * until X3 sends the bytes.
  */
-export const FilesImport = Schema.Struct({ _tag: Schema.Literal("Import"), ...Where, into: FilePathWire });
+export const FilesImport = Schema.Struct({ ...Where, into: FilePathWire });
 export const FilesSearch = Schema.Struct({
-  _tag: Schema.Literal("Search"), ...Where,
+  ...Where,
   query: Schema.String.pipe(Schema.check(Schema.isMaxLength(FILES_LINK_QUERY_MAX))),
   seq: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
 });
-
-export const FilesRequest = Schema.Union([
-  FilesOpen, FilesClose, FilesCount, FilesList, FilesRead, FilesWrite, FilesCreate,
-  FilesRename, FilesMove, FilesTrash, FilesImport, FilesSearch,
-]);
-export type FilesRequest = typeof FilesRequest.Type;
 
 const Read = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("text"), text: Schema.String.pipe(Schema.check(Schema.isMaxLength(1024 * 1024))), stamp: Stamp }),
@@ -107,24 +106,31 @@ const Search = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("superseded"), query: Schema.String.pipe(Schema.check(Schema.isMaxLength(FILES_LINK_QUERY_MAX))) }),
 ]);
 
-/** Every answer says which op it answers: a response carries no request. */
-export const FilesResponse = Schema.Union([
-  Schema.Struct({ _tag: Schema.Literal("Opened"), root: Schema.Struct({ name: Schema.String.pipe(Schema.check(Schema.isMaxLength(255))), repo: Schema.Boolean }) }),
-  Schema.Struct({ _tag: Schema.Literal("Closed") }),
-  Schema.Struct({ _tag: Schema.Literal("Counted"), files: Schema.Number, capped: Schema.Boolean }),
-  Schema.Struct({ _tag: Schema.Literal("Listed"), entries: Entries }),
-  Schema.Struct({ _tag: Schema.Literal("Read"), read: Read }),
-  Schema.Struct({ _tag: Schema.Literal("Written"), stamp: Stamp }),
-  Schema.Struct({ _tag: Schema.Literal("Created"), entry: Entry }),
-  Schema.Struct({ _tag: Schema.Literal("Renamed"), path: FilePathWire }),
-  Schema.Struct({ _tag: Schema.Literal("Moved"), path: FilePathWire }),
-  Schema.Struct({ _tag: Schema.Literal("Trashed") }),
-  Schema.Struct({ _tag: Schema.Literal("Imported"), imported: Schema.Array(Schema.Struct({ path: FilePathWire, dir: Schema.Boolean })).pipe(Schema.check(Schema.isMaxLength(FILES_LINK_ENTRIES_MAX))) }),
-  Schema.Struct({ _tag: Schema.Literal("Searched"), search: Search }),
-  /** The host's own refusal: a real answer, with the link up. */
-  Schema.Struct({ _tag: Schema.Literal("Refused"), error: HostFilesError }),
-]);
-export type FilesResponse = typeof FilesResponse.Type;
+/** What each op answers with, named for its tag: an answer carries no request. */
+export const FilesOpened = Schema.Struct({ name: Schema.String.pipe(Schema.check(Schema.isMaxLength(255))), repo: Schema.Boolean });
+export const FilesCounted = Schema.Struct({ files: Schema.Number, capped: Schema.Boolean });
+export const FilesListed = Entries;
+export const FilesReadAnswer = Read;
+export const FilesWritten = Stamp;
+export const FilesCreated = Entry;
+export const FilesPathAnswer = FilePathWire;
+export const FilesImported = Schema.Array(Schema.Struct({ path: FilePathWire, dir: Schema.Boolean })).pipe(Schema.check(Schema.isMaxLength(FILES_LINK_ENTRIES_MAX)));
+export const FilesSearched = Search;
+/** An op with nothing to say beyond that it happened. */
+export const FilesDone = Schema.Null;
+
+/** The host's own refusal: a real answer, with the link up, and never `unreachable`. */
+export class FilesRefused extends Schema.TaggedError<FilesRefused>()("FilesRefused", { error: HostFilesError }) {}
+
+/**
+ * The link this request arrived on closed while the host served it. It carries
+ * no text from the host, and the window machine reads it as `unreachable`.
+ */
+export class FilesLinkClosed extends Schema.TaggedError<FilesLinkClosed>()("FilesLinkClosed", { message: Schema.String }) {}
+
+/** What a handler may fail with, and so every op's error schema. */
+export const FilesLinkFailure = Schema.Union([FilesRefused, FilesLinkClosed]);
+export type FilesLinkFailure = typeof FilesLinkFailure.Type;
 
 /** A change under a node a peer opened; the host's `FilesChanged`, for the link. */
 export const FilesEvent = Schema.Union([
@@ -136,8 +142,3 @@ export const FilesEvent = Schema.Union([
   Schema.Struct({ node: NodeId, kind: Schema.Literal("closed"), error: HostFilesError }),
 ]);
 export type FilesEvent = typeof FilesEvent.Type;
-
-const options = { onExcessProperty: "error" } as const;
-export const decodeFilesRequest = Schema.decodeUnknownSync(FilesRequest, options);
-export const decodeFilesResponse = Schema.decodeUnknownSync(FilesResponse, options);
-export const decodeFilesEvent = Schema.decodeUnknownSync(FilesEvent, options);

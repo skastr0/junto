@@ -1,72 +1,82 @@
 import { describe, expect, it } from "vitest";
-import {
-  decodeFilesEvent, decodeFilesRequest, decodeFilesResponse, fitsOneFrame, HOST_FILES_ERRORS, FILES_LINK_TEXT_JSON_MAX,
-} from "../src/shared/files-link";
+import { FilesRefused, fitsOneFrame, HOST_FILES_ERRORS, FILES_LINK_TEXT_JSON_MAX } from "../src/shared/files-link";
+import { FilesLink } from "../src/core/files/link";
+
+/** One op's codecs: the ones the session decodes with at receipt and encodes with when it sends. */
+const op = (tag: string) => FilesLink.requests.get(tag)!;
+const decodeFilesEvent = FilesLink.events!.decode;
 
 const where = { canvas: "factory", node: "files-1" };
 const stamp = { mtimeMs: 1.5, size: 3 };
 
 describe("the files link wire", () => {
-  it("decodes every op with a node and a relative path", () => {
-    for (const request of [
-      { _tag: "Open", ...where }, { _tag: "Close", ...where }, { _tag: "Count", ...where },
-      { _tag: "List", ...where, dir: "" }, { _tag: "Read", ...where, path: "a/b.md" },
-      { _tag: "Write", ...where, path: "a.md", text: "x", base: stamp }, { _tag: "Write", ...where, path: "a.md", text: "x", base: null },
-      { _tag: "Create", ...where, path: "n", dir: true }, { _tag: "Rename", ...where, path: "a.md", name: "b.md" },
-      { _tag: "Move", ...where, path: "a.md", into: "d" }, { _tag: "Trash", ...where, path: "a.md" },
-      { _tag: "Import", ...where, into: "d" }, { _tag: "Search", ...where, query: "re", seq: 2 },
-    ]) expect(decodeFilesRequest(request)).toEqual(request);
+  it("has one request per op, each with a node and a relative path", () => {
+    expect([...FilesLink.requests.keys()].sort()).toEqual(
+      ["Close", "Count", "Create", "Import", "List", "Move", "Open", "Read", "Rename", "Search", "Trash", "Write"],
+    );
+    for (const [tag, request] of [
+      ["Open", where], ["Close", where], ["Count", where],
+      ["List", { ...where, dir: "" }], ["Read", { ...where, path: "a/b.md" }],
+      ["Write", { ...where, path: "a.md", text: "x", base: stamp }], ["Write", { ...where, path: "a.md", text: "x", base: null }],
+      ["Create", { ...where, path: "n", dir: true }], ["Rename", { ...where, path: "a.md", name: "b.md" }],
+      ["Move", { ...where, path: "a.md", into: "d" }], ["Trash", { ...where, path: "a.md" }],
+      ["Import", { ...where, into: "d" }], ["Search", { ...where, query: "re", seq: 2 }],
+    ] as const) expect(op(tag).payload.decode(request)).toEqual(request);
   });
 
   it("refuses a root, an absolute path, a command and any excess field", () => {
-    for (const request of [
-      { _tag: "List", ...where, dir: "", root: "/Users" },
-      { _tag: "Read", ...where, path: "/etc/passwd" },
-      { _tag: "Read", ...where, path: "../x" },
-      { _tag: "Read", ...where, path: "a/../b" },
-      { _tag: "Read", ...where, path: "a\\b" },
-      { _tag: "Read", ...where, path: "a\0b" },
-      { _tag: "Read", ...where, path: "a//b" },
-      { _tag: "Rename", ...where, path: "a", name: "b/c" },
-      { _tag: "Rename", ...where, path: "a", name: "" },
-      { _tag: "Import", ...where, into: "d", sources: ["/Users/x/secret"] },
-      { _tag: "Open", ...where, command: "sh" },
-      { _tag: "Open", canvas: "Not Canonical", node: "files-1" },
-      { _tag: "Open", canvas: "factory" },
-      { _tag: "Exec", ...where },
-      { _tag: "Search", ...where, query: "x".repeat(513), seq: 0 },
-      { _tag: "Search", ...where, query: "x", seq: -1 },
-    ]) expect(() => decodeFilesRequest(request), JSON.stringify(request)).toThrow();
+    for (const [tag, request] of [
+      ["List", { ...where, dir: "", root: "/Users" }],
+      ["Read", { ...where, path: "/etc/passwd" }],
+      ["Read", { ...where, path: "../x" }],
+      ["Read", { ...where, path: "a/../b" }],
+      ["Read", { ...where, path: "a\\b" }],
+      ["Read", { ...where, path: "a\0b" }],
+      ["Read", { ...where, path: "a//b" }],
+      ["Rename", { ...where, path: "a", name: "b/c" }],
+      ["Rename", { ...where, path: "a", name: "" }],
+      ["Import", { ...where, into: "d", sources: ["/Users/x/secret"] }],
+      ["Open", { ...where, command: "sh" }],
+      ["Open", { canvas: "Not Canonical", node: "files-1" }],
+      ["Open", { canvas: "factory" }],
+      // The tag is not in the payload: it crosses beside it.
+      ["Open", { _tag: "Open", ...where }],
+      ["Search", { ...where, query: "x".repeat(513), seq: 0 }],
+      ["Search", { ...where, query: "x", seq: -1 }],
+    ] as const) expect(() => op(tag).payload.decode(request), JSON.stringify(request)).toThrow();
+    expect(FilesLink.requests.has("Exec")).toBe(false);
   });
 
   it("carries only the host's own refusals, never unreachable", () => {
     expect(HOST_FILES_ERRORS).not.toContain("unreachable");
     for (const error of HOST_FILES_ERRORS) {
-      expect(decodeFilesResponse({ _tag: "Refused", error })).toEqual({ _tag: "Refused", error });
+      const refusal = op("Read").error.decode(op("Read").error.encode(new FilesRefused({ error })));
+      expect(refusal).toBeInstanceOf(FilesRefused);
+      expect(refusal).toMatchObject({ _tag: "FilesRefused", error });
       expect(decodeFilesEvent({ node: "files-1", kind: "closed", error })).toEqual({ node: "files-1", kind: "closed", error });
     }
-    expect(() => decodeFilesResponse({ _tag: "Refused", error: "unreachable" })).toThrow();
+    expect(() => op("Read").error.decode({ _tag: "FilesRefused", error: "unreachable" })).toThrow();
     expect(() => decodeFilesEvent({ node: "files-1", kind: "closed", error: "unreachable" })).toThrow();
   });
 
-  it("decodes each answer and event, and refuses a path outside the root in them", () => {
-    for (const response of [
-      { _tag: "Opened", root: { name: "docs", repo: true } }, { _tag: "Closed" }, { _tag: "Counted", files: 3, capped: false },
-      { _tag: "Listed", entries: [{ path: "a", dir: false, stamp }] },
-      { _tag: "Read", read: { kind: "text", text: "hi", stamp } }, { _tag: "Read", read: { kind: "binary", mime: "application/pdf", stamp } },
-      { _tag: "Read", read: { kind: "too-large", size: 9, stamp } },
-      { _tag: "Written", stamp }, { _tag: "Created", entry: { path: "n", dir: true, stamp } },
-      { _tag: "Renamed", path: "b" }, { _tag: "Moved", path: "d/b" }, { _tag: "Trashed" },
-      { _tag: "Imported", imported: [{ path: "d/x", dir: false }] },
-      { _tag: "Searched", search: { kind: "results", query: "a", matches: [{ path: "a", positions: [0] }], total: 1 } },
-      { _tag: "Searched", search: { kind: "superseded", query: "a" } },
-    ]) expect(decodeFilesResponse(response)).toEqual(response);
+  it("decodes each op's answer and each event, and refuses a path outside the root in them", () => {
+    for (const [tag, answer] of [
+      ["Open", { name: "docs", repo: true }], ["Close", null], ["Count", { files: 3, capped: false }],
+      ["List", [{ path: "a", dir: false, stamp }]],
+      ["Read", { kind: "text", text: "hi", stamp }], ["Read", { kind: "binary", mime: "application/pdf", stamp }],
+      ["Read", { kind: "too-large", size: 9, stamp }],
+      ["Write", stamp], ["Create", { path: "n", dir: true, stamp }],
+      ["Rename", "b"], ["Move", "d/b"], ["Trash", null],
+      ["Import", [{ path: "d/x", dir: false }]],
+      ["Search", { kind: "results", query: "a", matches: [{ path: "a", positions: [0] }], total: 1 }],
+      ["Search", { kind: "superseded", query: "a" }],
+    ] as const) expect(op(tag).success.decode(answer)).toEqual(answer);
     for (const event of [
       { node: "files-1", kind: "paths", paths: ["a", "d/b"] }, { node: "files-1", kind: "reset" },
       { node: "files-1", kind: "missing" }, { node: "files-1", kind: "back" },
     ]) expect(decodeFilesEvent(event)).toEqual(event);
-    expect(() => decodeFilesResponse({ _tag: "Listed", entries: [{ path: "/abs", dir: false, stamp }] })).toThrow();
-    expect(() => decodeFilesResponse({ _tag: "Opened", root: { name: "docs", repo: true, path: "/Users/x/docs" } })).toThrow();
+    expect(() => op("List").success.decode([{ path: "/abs", dir: false, stamp }])).toThrow();
+    expect(() => op("Open").success.decode({ name: "docs", repo: true, path: "/Users/x/docs" })).toThrow();
     expect(() => decodeFilesEvent({ node: "files-1", kind: "paths", paths: ["../x"] })).toThrow();
     const moved = { node: "files-1", kind: "paths", paths: ["b.md"], moves: [{ from: "a.md", to: "b.md" }] };
     expect(decodeFilesEvent(moved)).toEqual(moved);
