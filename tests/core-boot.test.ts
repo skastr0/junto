@@ -23,6 +23,7 @@ import type { LinkSession } from "../src/core/link/types";
 import { CURRENT_STATE_SCHEMA_VERSION } from "../src/core/state/migrations";
 import { decodeOperatorResponse, encodeOperatorFrame, operatorControlSocketPath } from "../src/shared/operator-control";
 import { decodeWorkResponse, encodeWorkFrame, workControlDir, workControlSocketPath } from "../src/shared/work-control";
+import { HostClientsNoWindow } from "../src/core/host-clients";
 
 it("starts the core and closes within the bound with a link open and mail in flight", async () => {
   const home = await mkdtemp("/tmp/junto-core-");
@@ -30,7 +31,7 @@ it("starts the core and closes within the bound with a link open and mail in fli
   let core: Awaited<ReturnType<typeof startCore>> | undefined;
   let peer: LinkSession | undefined;
   try {
-    core = await startCore({ home, build, bundles: {} });
+    core = await startCore({ host: HostClientsNoWindow, home, build, bundles: {} });
     expect(core.ready()).toBe(true);
     const listCanvases = Effect.flatMap(ModelService, model => model.listCanvases());
     expect(await coreRunner.runPromise(listCanvases)).toEqual([]);

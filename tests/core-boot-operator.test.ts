@@ -5,6 +5,7 @@ import { Result } from "effect";
 import { expect, it } from "vitest";
 import { startCore } from "../src/core/core";
 import { decodeOperatorResponse, encodeOperatorFrame, operatorControlSocketPath, type OperatorRequestEnvelope } from "../src/shared/operator-control";
+import { HostClientsNoWindow } from "../src/core/host-clients";
 
 const ask = (home: string, request: OperatorRequestEnvelope) =>
   new Promise<unknown>((resolve, reject) => {
@@ -28,6 +29,7 @@ it("opens the desktop's operator socket on demand, and keeps the launch gate and
   let core: Awaited<ReturnType<typeof startCore>> | undefined;
   try {
     core = await startCore({
+      host: HostClientsNoWindow,
       home,
       build: "d".repeat(64),
       bundles: {},

@@ -7,7 +7,7 @@ import { Effect, Option, Schema } from "effect";
 import type { PortedCoreMessage } from "./main-side/term-surface";
 import type { CoreBoot } from "../../core/entry";
 import { portCore, type CoreMessage, type PortCoreClient } from "../../contract/core/port";
-import type { RpcPort } from "@shared/rpc-port";
+import { heldForServer, peersLink, type LinkedPeer, type RpcPort } from "@shared/rpc-port";
 import { runHostOp } from "./main-side/host-op-bodies";
 
 /**
@@ -85,6 +85,13 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
   readonly postSurface: (message: PortedCoreMessage, port: unknown) => boolean;
   /** The link the core's RPC groups ride (src/contract/core/link.ts): it outlives a restart, and says `down` when a core leaves. */
   readonly link: RpcPort;
+  /**
+   * The link main's host server answers the core on (src/contract/host/link.ts).
+   * Each core joins it as it starts and leaves it as it exits, so a reply
+   * reaches only the core that asked; a request that comes before the server
+   * listens waits for it.
+   */
+  readonly hostLink: RpcPort;
 } => {
   let child: UtilityProcess | undefined;
   let stopping = false;
@@ -139,6 +146,11 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
     },
   };
 
+  // The host groups' side of the same port: each core numbers its clients
+  // from its own start, so every core joins the peers link with its own ids.
+  const peers = peersLink();
+  const hostLink = heldForServer(peers.link);
+
   let booting: ReturnType<typeof setTimeout> | undefined;
   client.onPush("core.ready", () => {
     clearTimeout(booting);
@@ -151,6 +163,7 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
     // this module lands in a chunk under out/main/chunks: resolve from boot's app root.
     const forked = electron.utilityProcess.fork(coreEntryFor(boot), [JSON.stringify(boot)], { serviceName: "Junto Core", stdio: "inherit" });
     child = forked;
+    const peer: LinkedPeer = peers.join((message) => forked.postMessage(message));
     startedAt = Date.now();
     for (const message of held.splice(0)) forked.postMessage(message);
     booting = setTimeout(() => {
@@ -158,6 +171,8 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
     }, BOOT_DEADLINE_MS);
     booting.unref();
     forked.on("message", (received: CoreMessage) => {
+      // A request of the core's to main's host server goes to the server alone.
+      if (received.kind === "rpc") return peer.deliver(received);
       let message = received;
       if (message.kind === "hostCall") {
         const id = nextHostId++;
@@ -168,6 +183,7 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
     });
     forked.once("exit", (code) => {
       gone.add(forked);
+      peer.leave();
       if (child !== forked) return;
       clearTimeout(booting);
       booting = undefined;
@@ -186,6 +202,7 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & {
   return {
     ...client,
     link,
+    hostLink,
     postSurface: (message, port) => {
       if (child === undefined) return false;
       child.postMessage(message, [port as MessagePortMain]);

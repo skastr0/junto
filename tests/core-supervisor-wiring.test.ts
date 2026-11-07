@@ -23,6 +23,7 @@ import { terminalObserverPlane } from "../src/core/term/observer";
 import { seatStateRuntime } from "../src/core/term/agent-state/runtime";
 import { buildOnboardNudge } from "../src/shared/managed-terminal-injection";
 import { CONTINUATION_LINE } from "../src/shared/seat-sessions";
+import { HostClientsNoWindow } from "../src/core/host-clients";
 
 const BINDING = "nudge-binding";
 const SEAT = "nudge-seat";
@@ -37,7 +38,7 @@ it("the core types the onboarding nudge and the --continue line", async () => {
   const home = await mkdtemp("/tmp/junto-core-supervisor-");
   let core: Awaited<ReturnType<typeof startCore>> | undefined;
   try {
-    core = await startCore({ home, build: "c".repeat(64), bundles: {} });
+    core = await startCore({ host: HostClientsNoWindow, home, build: "c".repeat(64), bundles: {} });
     // entry.ts:101, the same op main's boot runs.
     await runCoreOp(core.runtime, "ipc.startup.core", {});
     const coreMail = await core.runtime.runPromise(MachineCoreMail);

@@ -22,6 +22,7 @@ import { MachineName } from "../src/shared/machine-control";
 import { asCanvasName } from "../src/shared/model";
 import type { ContentRef } from "../src/shared/wire/content-ref";
 import { seat } from "./support/model-nodes";
+import { HostClientsNoWindow } from "../src/core/host-clients";
 
 const id = Schema.decodeUnknownSync(InstallationId);
 const name = Schema.decodeUnknownSync(MachineName);
@@ -33,7 +34,7 @@ it("serves the editing machine a signal's file while the seat is here and the si
   const home = await mkdtemp("/tmp/junto-signal-serve-");
   let core: Awaited<ReturnType<typeof startCore>> | undefined;
   try {
-    core = await startCore({ home, build: "a".repeat(64), bundles: {} });
+    core = await startCore({ host: HostClientsNoWindow, home, build: "a".repeat(64), bundles: {} });
     await core.runtime.runPromise(Effect.gen(function* () {
       const machines = yield* MachineRepository;
       yield* machines.configureName(name("mini"));

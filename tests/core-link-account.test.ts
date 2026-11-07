@@ -8,6 +8,7 @@ import { decodeLinkFrame, LinkHelloSchema, type LinkFrame } from "../src/core/li
 import { MachineRepository } from "../src/core/machines/repository";
 import { MachineLink } from "../src/core/link/service";
 import { LinkUnavailable } from "../src/core/link/types";
+import { HostClientsNoWindow } from "../src/core/host-clients";
 
 const connectPeer = async (home: string, hello: typeof LinkHelloSchema.Type) => {
   const socket = createConnection(coreControlSocketPath(home));
@@ -52,7 +53,7 @@ it("admits account-local links only for the live name, installation and build pi
   let core: Awaited<ReturnType<typeof startCore>> | undefined;
   const peers: Awaited<ReturnType<typeof connectPeer>>[] = [];
   try {
-    core = await startCore({ home, build, bundles: {} });
+    core = await startCore({ host: HostClientsNoWindow, home, build, bundles: {} });
     const machines = await core.runtime.runPromise(MachineRepository);
     const link = await core.runtime.runPromise(MachineLink);
     await core.runtime.runPromise(machines.configureName("book"));

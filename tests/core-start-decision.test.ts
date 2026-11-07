@@ -10,12 +10,13 @@ import { SeatSessionRepository } from "../src/core/seat-sessions/repository";
 import { setOperatorOffboard, type OperatorOffboard } from "../src/core/seat-sessions/operator-offboard";
 import { ensureSeatSessionId } from "../src/core/term/seat-session-before-start";
 import { Command } from "../src/shared/model";
+import { HostClientsNoWindow } from "../src/core/host-clients";
 
 it("a windowless core's start asks the start decision, with why it starts: a cold session starts fresh, a warm one resumes", async () => {
   const home = await mkdtemp(join(tmpdir(), "junto-core-start-"));
   let core: Awaited<ReturnType<typeof startCore>> | undefined;
   try {
-    core = await startCore({ home, build: "b".repeat(64), bundles: {} });
+    core = await startCore({ host: HostClientsNoWindow, home, build: "b".repeat(64), bundles: {} });
     const run = core.runtime.runPromise;
     const machineName = await run(Effect.flatMap(MachineRepository, (machines) => machines.machineName));
     const command = Schema.decodeUnknownSync(Command);

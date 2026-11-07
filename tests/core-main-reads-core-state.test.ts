@@ -6,6 +6,7 @@
  */
 import type { IpcMainInvokeEvent } from "electron";
 import { Context, Effect, Exit, Layer, Scope } from "effect";
+import { HostClientsNoWindow } from "../src/core/host-clients";
 import { RpcTest } from "effect/rpc";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CompanionRpcs } from "../src/contract/core/companion";
@@ -101,7 +102,7 @@ describe("main reads core state by asking the core", () => {
 
   it("writes the desktop's report where the companion reads it", async () => {
     const scope = await scoped();
-    const served = await Effect.runPromise(Layer.buildWithScope(CompanionHandlers, scope));
+    const served = await Effect.runPromise(Layer.buildWithScope(CompanionHandlers.pipe(Layer.provide(HostClientsNoWindow)), scope));
     const companion = await Effect.runPromise(
       RpcTest.makeClient(CompanionRpcs).pipe(Effect.provideContext(served), Effect.provideService(Scope.Scope, scope)),
     );

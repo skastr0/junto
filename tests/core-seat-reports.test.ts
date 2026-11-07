@@ -7,6 +7,7 @@ import { startCore } from "../src/core/core";
 import { AgentSignalRepository } from "../src/core/signals/repository";
 import { seatStateRuntime } from "../src/core/term/agent-state/runtime";
 import { termPlane } from "../src/core/term/plane";
+import { HostClientsNoWindow } from "../src/core/host-clients";
 
 it("a windowless core puts a seat's open blocked signal on its snapshot, so the cut sees it waiting", async () => {
   const home = await mkdtemp(join(tmpdir(), "junto-core-reports-"));
@@ -14,7 +15,7 @@ it("a windowless core puts a seat's open blocked signal on its snapshot, so the 
   const list = vi.spyOn(termPlane.host, "list");
   const reported = vi.spyOn(seatStateRuntime, "seatReported");
   try {
-    core = await startCore({ home, build: "b".repeat(64), bundles: {} });
+    core = await startCore({ host: HostClientsNoWindow, home, build: "b".repeat(64), bundles: {} });
     list.mockReturnValue([
       { bindingId: "own-binding", epoch: "ep_1", canvasName: "rest", nodeId: "own-seat", status: "running" },
     ] as never);

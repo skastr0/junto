@@ -25,6 +25,7 @@ import type { ContentRef } from "../src/shared/wire/content-ref";
 import { ActorSeatId } from "../src/shared/work-protocol";
 import { page, seat } from "./support/model-nodes";
 import { seedCanvas } from "./support/seed-canvas";
+import { HostClientsNoWindow } from "../src/core/host-clients";
 
 const id = Schema.decodeUnknownSync(InstallationId);
 const name = Schema.decodeUnknownSync(MachineName);
@@ -37,7 +38,7 @@ it("serves the shot to the machine whose seat its notice reached, and refuses a 
   const home = await mkdtemp("/tmp/junto-shot-serve-");
   let core: Awaited<ReturnType<typeof startCore>> | undefined;
   try {
-    core = await startCore({ home, build: "a".repeat(64), bundles: {} });
+    core = await startCore({ host: HostClientsNoWindow, home, build: "a".repeat(64), bundles: {} });
     const self = await core.runtime.runPromise(Effect.gen(function* () {
       const machines = yield* MachineRepository;
       yield* machines.configureName(name("book"));

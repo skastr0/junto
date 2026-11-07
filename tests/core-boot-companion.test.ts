@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
-import { Effect, Result } from "effect";
+import { Effect, Layer, Result } from "effect";
 import { RpcTest } from "effect/rpc";
 import { expect, it } from "vitest";
 import { startCore } from "../src/core/core";
@@ -9,6 +9,7 @@ import { companionService } from "../src/core/companion/service";
 import { CompanionRpcs } from "../src/contract/core/companion";
 import { CompanionHandlers } from "../src/core/ops/companion";
 import { decodeOperatorResponse, encodeOperatorFrame, operatorControlSocketPath, type OperatorRequestEnvelope } from "../src/shared/operator-control";
+import { HostClientsNoWindow } from "../src/core/host-clients";
 
 const ask = (home: string, request: OperatorRequestEnvelope) =>
   new Promise<unknown>((resolve, reject) => {
@@ -33,6 +34,7 @@ it("answers a phone from the core: the companion is built there and the socket r
   let core: Awaited<ReturnType<typeof startCore>> | undefined;
   try {
     core = await startCore({
+      host: HostClientsNoWindow,
       home,
       build: "e".repeat(64),
       bundles: {},
@@ -62,7 +64,7 @@ it("answers a phone from the core: the companion is built there and the socket r
           const settings = yield* RpcTest.makeClient(CompanionRpcs);
           return [yield* settings.CompanionDevices(), yield* settings.CompanionStatus()] as const;
         }),
-      ).pipe(Effect.provide(CompanionHandlers)),
+      ).pipe(Effect.provide(CompanionHandlers.pipe(Layer.provide(HostClientsNoWindow)))),
     );
     expect(phones).toEqual([]);
     expect(status).toMatchObject({ available: true, station: "test" });

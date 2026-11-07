@@ -34,7 +34,7 @@ import { onCanvasChangeForEdgeMap } from "../work/edge-map-notify";
 import { messageDelivery } from "../work/message-delivery";
 import { TaskRepository } from "../work/task-repository";
 import { coreOps, type CoreOp } from "../ops";
-import { host } from "../core-host";
+import { ClipboardHost } from "../../contract/host/clipboard";
 import { harnessRecordFor } from "@shared/harness-records";
 import { seatStateRuntime } from "../term/agent-state/runtime";
 import { ClipboardUnreadable, clipboardSafeAssert } from "../term/drive/clipboard-guard";
@@ -63,6 +63,7 @@ coreOps({
   "ipc.startup.core": () =>
     Effect.gen(function* () {
       const model = yield* ModelService;
+      const clipboardHost = yield* ClipboardHost;
       yield* model.ensureSeed.pipe(Effect.catch(() => Effect.void));
       const mail = yield* WorkRepository;
       mail.subscribeChanges((canvasName, nodeId, kind) => {
@@ -102,11 +103,9 @@ coreOps({
           guarded: (bindingId) =>
             harnessRecordFor(seatStateRuntime.machine.getSlot(bindingId)?.harness)?.pty.clipboardImageGuard === true,
           ask: () =>
-            Effect.tryPromise({
-              try: () => host.call("clipboard.safeForGrok", {}),
-              catch: (cause) =>
-                new ClipboardUnreadable({ message: cause instanceof Error ? cause.message : String(cause) }),
-            }),
+            clipboardHost.ClipboardSafeForGrok().pipe(
+              Effect.mapError((cause) => new ClipboardUnreadable({ message: cause.message })),
+            ),
           run: (effect) => coreRunner.runPromise(effect),
         }),
       );

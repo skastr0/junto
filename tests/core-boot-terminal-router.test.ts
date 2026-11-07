@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { Effect } from "effect";
 import { expect, it } from "vitest";
 import { SshTransport } from "../src/core/ssh/service";
+import { HostClientsNoWindow } from "../src/core/host-clients";
 
 const { coreRunner } = await import("../src/core/core-runner");
 const { startCore } = await import("../src/core/core");
@@ -16,7 +17,7 @@ it("runs the terminal router's SSH dials on the core it starts", async () => {
   const home = await mkdtemp("/tmp/junto-core-router-");
   let core: Awaited<ReturnType<typeof startCore>> | undefined;
   try {
-    core = await startCore({ home, build: "a".repeat(64), bundles: {} });
+    core = await startCore({ host: HostClientsNoWindow, home, build: "a".repeat(64), bundles: {} });
     // The plane builds the router with this exact runner, and it answers.
     await expect(coreRunner.runPromise(Effect.asVoid(SshTransport))).resolves.toBeUndefined();
     const plane = await readFile(join(import.meta.dirname, "..", "src/core/term/plane.ts"), "utf8");

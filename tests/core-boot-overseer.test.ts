@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { expect, it, vi } from "vitest";
 import { startCore } from "../src/core/core";
 import type { OverseerPages } from "../src/node/overseer/pages";
+import { HostClientsNoWindow } from "../src/core/host-clients";
 
 // The core starts once per process, so the desktop core's overseer is its own file.
 it("composes the overseer and the live overseer in the core, on the page port it is given, and lets them go on close", async () => {
@@ -16,6 +17,7 @@ it("composes the overseer and the live overseer in the core, on the page port it
   let core: Awaited<ReturnType<typeof startCore>> | undefined;
   try {
     core = await startCore({
+      host: HostClientsNoWindow,
       home,
       build: "c".repeat(64),
       bundles: {},

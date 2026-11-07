@@ -3,6 +3,7 @@ import { lstat, mkdtemp, rm } from "node:fs/promises";
 import { expect, it } from "vitest";
 import { startCore } from "../src/core/core";
 import { canvasControlDir, canvasControlSocketPath } from "../src/core/canvas-control/protocol";
+import { HostClientsNoWindow } from "../src/core/host-clients";
 
 // The core starts once per process, so the desktop core's canvas edits are their own file.
 it("serves canvas edits from the desktop core, and closes them with it", async () => {
@@ -11,7 +12,7 @@ it("serves canvas edits from the desktop core, and closes them with it", async (
   const canvasPath = canvasControlSocketPath(canvasControlDir(home));
   let core: Awaited<ReturnType<typeof startCore>> | undefined;
   try {
-    core = await startCore({ home, build, bundles: {}, canvasControl: true });
+    core = await startCore({ host: HostClientsNoWindow, home, build, bundles: {}, canvasControl: true });
     expect((await lstat(canvasPath)).mode & 0o777).toBe(0o600);
     await core.close();
     expect(existsSync(canvasPath)).toBe(false);

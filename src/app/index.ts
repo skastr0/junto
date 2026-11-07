@@ -134,10 +134,10 @@ import type { UpdateHostHooks } from "./update";
 import {
   operatorControlEnabledFromInitialArgv,
 } from "../node/operator-control";
-import { broadcastCompanionDevices, electronCompanionClipboard, registerCompanionIpc } from "./companion/ipc";
+import { broadcastCompanionDevices, registerCompanionIpc } from "./companion/ipc";
 import { coreOverseerLive } from "./core-process/main-side/overseer-live";
 import { askOnLaterCores } from "./core-process/every-core";
-import { buildCoreClients, startCoreProcessForMain } from "./core-process/main-boot";
+import { buildCoreClients, serveHost, startCoreProcessForMain } from "./core-process/main-boot";
 import { coreMachineName } from "./core-process/core-reads-ipc";
 import { overseerPagesOn, type OverseerPages } from "../node/overseer/pages";
 import { runningBuildIdentity } from "../node/build-identity";
@@ -1485,11 +1485,11 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       boot,
       pages: () => coreProcessPages,
       captureApplicationPage,
-      clipboard: electronCompanionClipboard,
-      clipboardFormats: () => clipboard.availableFormats(),
       terminals,
     }));
     const coreClients = await buildCoreClients(coreChildren.core.link);
+    // What the core asks of Electron (contract/host): the system clipboard for now.
+    await serveHost(coreChildren.core.hostLink, clipboard);
     liveOverseer = coreOverseerLive(coreClients);
     if (LIVE_OVERSEER_ENABLED) unregisterOverseerLiveIpc = registerOverseerLiveIpc(liveOverseer);
 

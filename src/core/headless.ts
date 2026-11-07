@@ -6,6 +6,7 @@ import { startCore } from "./core";
 import { closeCoreProcess } from "./core-stop";
 import { sendPushesTo } from "./push";
 import { noWindowHost, useHostClient } from "./core-host";
+import { HostClientsNoWindow } from "./host-clients";
 import { enforceBootRefusal } from "../node/boot-guard";
 import { declareMachineCoreOwnsSessions } from "./term/managed-spawn-plan";
 import { armMainThreadBudget } from "../node/observability/main-thread-budget";
@@ -57,6 +58,7 @@ const main = async (): Promise<void> => {
     build: runningBuildIdentity(),
     bundles,
     log,
+    host: HostClientsNoWindow,
   });
   let closing = false;
   const stop = (signal: NodeJS.Signals): void => {

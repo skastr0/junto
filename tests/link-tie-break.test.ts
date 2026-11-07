@@ -24,6 +24,7 @@ import { startCore } from "../src/core/core";
 import { RemoteHost } from "../src/shared/remote-hosts";
 import { InstallationId } from "../src/shared/installation-id";
 import { allChannels } from "./support/link-channels";
+import { HostClientsNoWindow } from "../src/core/host-clients";
 
 const BUILD = "c".repeat(64);
 const cleanups: Array<() => Promise<void>> = [];
@@ -162,7 +163,7 @@ it("keeps a link already open when the other end dials it, whichever end opened 
 
 it("stops only the rows link that closed, never the one kept in its place", async () => {
   const home = await mkdtemp("/tmp/junto-tie-rows-");
-  const core = await startCore({ home, build: BUILD, bundles: {} });
+  const core = await startCore({ host: HostClientsNoWindow, home, build: BUILD, bundles: {} });
   cleanups.push(async () => { await core.close(); await rm(home, { recursive: true, force: true }); });
   const peer = Schema.decodeUnknownSync(InstallationId)("peer-installation");
   const rows = await core.runtime.runPromise(MachineCoreRows);

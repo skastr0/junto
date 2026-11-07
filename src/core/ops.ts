@@ -1,3 +1,4 @@
+import type { HostClients } from "./host-clients";
 import type { Effect, Layer } from "effect";
 import type { makeMachineCoreLayer } from "./core-runtime";
 import { LogService } from "../node/observability/logger";
@@ -38,7 +39,8 @@ export type CoreOutput<K extends CoreOpName> = CoreOps[K] extends CoreOp<unknown
  * does not build is a type error in the file that wrote it, not a defect at
  * the call. Type-only, so main's bundle still links no core code through here.
  */
-export type CoreServices = Layer.Success<ReturnType<typeof makeMachineCoreLayer>> | LogService;
+/** What the core runtime provides (core-runtime.ts `makeCoreRuntime`): the machine's services, the host clients and the log. */
+export type CoreServices = Layer.Success<ReturnType<typeof makeMachineCoreLayer>> | HostClients | LogService;
 
 /** The body of an operation, run inside the core's runtime. */
 export type CoreOpBody<K extends CoreOpName> = (

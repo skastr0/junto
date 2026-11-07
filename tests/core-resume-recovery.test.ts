@@ -6,13 +6,14 @@ import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import { seatStateRuntime } from "../src/core/term/agent-state/runtime";
 import { terminalObserverPlane } from "../src/core/term/observer";
 import { termPlane } from "../src/core/term/plane";
+import { HostClientsNoWindow } from "../src/core/host-clients";
 
 const frame = (lines: readonly string[]) => ({ lines, signals: { modes: { bracketedPaste: false } } }) as never;
 const SELECTOR = ["Resume from summary", "Resume full session as-is", "Enter to confirm", "Esc to cancel"];
 
 it("a machine core with no window accepts Claude's resume selector, once per generation", async () => {
   const home = await mkdtemp("/tmp/junto-core-resume-");
-  const core = await startCore({ home, build: "a".repeat(64), bundles: {} });
+  const core = await startCore({ host: HostClientsNoWindow, home, build: "a".repeat(64), bundles: {} });
   try {
     const { seats } = await core.runtime.runPromise(MachineCoreMail);
     const submit = vi.spyOn(seats.drive, "submitRecoveryCr").mockResolvedValue(true);

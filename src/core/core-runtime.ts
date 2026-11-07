@@ -1,4 +1,5 @@
 import { Cause, Context, Effect, Layer, ManagedRuntime, Option, Schema } from "effect";
+import type { HostClients } from "./host-clients";
 import {
   MachinePeerStatus,
   type MachineHarnesses,
@@ -88,6 +89,11 @@ export interface MachineCoreOptions {
   readonly ready: () => boolean;
   /** The core process's log, built by its boot; the runtime provides it to every effect. */
   readonly log: Log;
+  /**
+   * The core's clients of main's host groups (core/host-clients.ts): built on
+   * the core's port to main, or on `noWindowLink` in a windowless core.
+   */
+  readonly host: Layer.Layer<HostClients>;
 }
 
 // The status channel answers a machine's status, or its log for the asking peer.
@@ -302,7 +308,7 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
   return { exchange, handler: makeRowsChannel(exchange), content, pullBody, pullSignalFile, onSignalTaken: notify => { notifySignal = notify; } };
 }));
 
-export const machineCoreStatusLayer = (options: MachineCoreOptions) => Layer.effect(MachineCoreStatus, Effect.gen(function* () {
+export const machineCoreStatusLayer = (options: Omit<MachineCoreOptions, "host">) => Layer.effect(MachineCoreStatus, Effect.gen(function* () {
   const log = yield* LogService;
   const machines = yield* MachineRepository;
   const form = yield* detectMachineForm();
@@ -550,5 +556,5 @@ export const makeMachineCoreLayer = (options: MachineCoreOptions) => {
 };
 
 export const makeCoreRuntime = (options: MachineCoreOptions) =>
-  ManagedRuntime.make(options.log.withLogger(makeMachineCoreLayer(options)));
+  ManagedRuntime.make(options.log.withLogger(Layer.provideMerge(makeMachineCoreLayer(options), options.host)));
 export type CoreRuntime = ReturnType<typeof makeCoreRuntime>;

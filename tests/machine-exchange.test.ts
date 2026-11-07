@@ -15,6 +15,7 @@ import { decodeOperatorResponse, encodeOperatorFrame, operatorControlSocketPath 
 import type { ExchangeFrame } from "../src/shared/work-exchange";
 import { seat } from "./support/model-nodes";
 import { seedCanvas } from "./support/seed-canvas";
+import { HostClientsNoWindow } from "../src/core/host-clients";
 
 const exchangeStatus = (home: string) => new Promise<string>((resolve, reject) => {
   const socket = createConnection(operatorControlSocketPath(home));
@@ -32,7 +33,7 @@ it("reports copy and row counts through the account socket without payloads or w
   const home = await mkdtemp("/tmp/junto-exchange-status-");
   let core: Awaited<ReturnType<typeof startCore>> | undefined;
   try {
-    core = await startCore({ home, build: "a".repeat(64), bundles: {} });
+    core = await startCore({ host: HostClientsNoWindow, home, build: "a".repeat(64), bundles: {} });
     const mini = Schema.decodeUnknownSync(InstallationId)("mini-installation");
     const bookName = Schema.decodeUnknownSync(MachineName)("book");
     const miniName = Schema.decodeUnknownSync(MachineName)("mini");

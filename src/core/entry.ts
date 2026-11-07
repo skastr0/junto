@@ -18,6 +18,8 @@ import { Layer } from "effect";
 import { heldForServer } from "@shared/rpc-port";
 import { CoreLink } from "../contract/core/link";
 import { CoreServerLive } from "./link";
+import { HostLink } from "../contract/host/link";
+import { HostClientsLive } from "./host-clients";
 import { runCoreOp, serveCore, type CoreRunner } from "./serve";
 import { closeCoreProcess, stopCoreOnSignal } from "./core-stop";
 import { CorePushes, publish, sendPushesTo } from "./push";
@@ -112,6 +114,8 @@ const main = async (parent: ParentPort): Promise<void> => {
     home: boot.home,
     build: boot.build,
     log,
+    // What the core asks of Electron rides the same port, answered by main's host server.
+    host: HostClientsLive.pipe(Layer.provide(Layer.succeed(HostLink, parentCorePort(parent)))),
     canvasControl: true,
     windowTerminals: { parent },
     overseer: { captureApplicationPage: hostCaptureApplicationPage(host), pages: hostOverseerPages(host, pageFlights) },
