@@ -35,15 +35,6 @@ export interface Sandbox {
   readonly homeDir: string;
 }
 
-export interface CreateSandboxOptions {
-  /**
-   * A home whose `<home>/.junto/work/control.sock` is over the Unix socket
-   * path limit. The default sandbox deliberately keeps every control socket
-   * short; this opt-in is for the refusal spec that proves the long path.
-   */
-  readonly longHome?: boolean;
-}
-
 /**
  * macOS caps AF_UNIX socket paths at roughly 104 bytes (sun_path). The work,
  * operator, canvas, term, and browser control sockets all live under
@@ -63,13 +54,11 @@ const controlSocketFits = (root: string): boolean => {
   return Buffer.byteLength(longest) <= 103;
 };
 
-export const createSandbox = async (options: CreateSandboxOptions = {}): Promise<Sandbox> => {
-  const tempRoot = options.longHome === true || controlSocketFits(tmpdir()) ? tmpdir() : "/tmp";
+export const createSandbox = async (): Promise<Sandbox> => {
+  const tempRoot = controlSocketFits(tmpdir()) ? tmpdir() : "/tmp";
   const root = await mkdtemp(join(tempRoot, "junto-e2e-"));
   const userDataDir = join(root, "user-data");
-  const homeDir = options.longHome === true
-    ? join(root, "long-home-".repeat(12), "home")
-    : join(root, "home");
+  const homeDir = join(root, "home");
   const juntoDir = join(homeDir, ".junto");
   const stateDir = join(juntoDir, "state");
   await Promise.all([
