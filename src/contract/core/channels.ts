@@ -35,7 +35,7 @@ import { WireTrafficEvent } from "@shared/wire-traffic";
 import { SeatAwarenessEvent } from "../../shared/seat-awareness-contract";
 import { FilesChanged } from "@shared/files";
 import { FilesRemoteChange } from "@shared/files-link";
-import type { ActorRefsChanged } from "../../core/model/actor-refs";
+import { ActorRefsChanged } from "@shared/work-reference";
 import { KernelSnapshot } from "./status";
 import { EmptyRecord, MentionChanged, NoPayload, ResourceChanged, TermLeaseEnded } from "./push-payloads";
 import type { LocalHostEvent } from "../../core/term/local-host";
@@ -163,8 +163,7 @@ export const CORE_PUSHES = {
   // The model's own watches, each on the window's channel name (ops/ipc-watch.ts).
   [IPC_CHANNELS.modelChanged]: Changed,
   [IPC_CHANNELS.modelCanvasesChanged]: CanvasesChanged,
-  // Undecoded until its Schema moves to shared: the contract may not import core values.
-  [IPC_CHANNELS.modelActorRefsChanged]: carries<ActorRefsChanged>(),
+  [IPC_CHANNELS.modelActorRefsChanged]: ActorRefsChanged,
   [IPC_CHANNELS.viewStateChanged]: ViewStateEvent,
   [IPC_CHANNELS.referencesChanged]: ReferencesChangedEvent,
   [IPC_CHANNELS.workMailChanged]: ResourceChanged,
