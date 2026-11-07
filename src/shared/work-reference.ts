@@ -49,6 +49,13 @@ export const ActorRef = Schema.Struct({
 });
 export type ActorRef = typeof ActorRef.Type;
 
+/** A canvas's actor refs, whole, whenever they change; the window's channel carries it. */
+export const ActorRefsChanged = Schema.Struct({
+  canvas: Schema.String,
+  refs: Schema.Array(ActorRef),
+});
+export type ActorRefsChanged = typeof ActorRefsChanged.Type;
+
 /**
  * Stable non-executable identity for Command Center operator actions. It is
  * not an actor principal and can never claim work.

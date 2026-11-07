@@ -1,18 +1,13 @@
 import { Context, Effect, Layer, Option, PubSub, Schema, Stream } from "effect";
 import { SqlClient, SqlSchema } from "effect/sql";
-import { ActorRef } from "@shared/work-reference";
+import { ActorRef, type ActorRefsChanged } from "@shared/work-reference";
 import { InstallationId } from "@shared/installation-id";
 import { deriveActorSeatId } from "../actor-seat-id";
 import { withSqlRead } from "../state/sql-read";
 import { ModelService } from "./service";
 import { ModelRefused, modelError } from "./records";
 
-/** A canvas's actor refs, whole, whenever they change; the window's channel carries it. */
-export const ActorRefsChanged = Schema.Struct({
-  canvas: Schema.String,
-  refs: Schema.Array(ActorRef),
-});
-export type ActorRefsChanged = typeof ActorRefsChanged.Type;
+export type { ActorRefsChanged };
 
 /** Execution references have their own read and stream; spatial rows stay small. */
 export class ModelActorRefs extends Context.Service<ModelActorRefs>()(
