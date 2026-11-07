@@ -138,6 +138,8 @@ export const makeFilesLinkChannel = Effect.fn("FilesLink.make")(function* (optio
     payload: FilesNodeRef,
     context: LinkChannelContext,
     run: (host: FilesHost, ref: FilesNodeRef) => Promise<FilesResult<A>> | FilesResult<A>,
+    /** An op that changes the disk: once the service call starts, an interrupt waits for it to end. */
+    mutates = false,
   ): Effect.Effect<A, FilesLinkFailure> => Effect.gen(function* () {
     const ref: FilesNodeRef = { canvas: payload.canvas, node: payload.node };
     const refuse = (error: FilesError) =>
@@ -151,7 +153,8 @@ export const makeFilesLinkChannel = Effect.fn("FilesLink.make")(function* (optio
     if (admitted !== "ok") return yield* refuse(admitted);
     const host = options.service();
     if (host === undefined) return yield* refuse("failed");
-    const result = yield* Effect.promise(async () => run(host, ref)).pipe(
+    const call = Effect.promise(async () => run(host, ref));
+    const result = yield* (mutates ? Effect.uninterruptible(call) : call).pipe(
       // The cause stays in main's log, never on the wire.
       Effect.catchDefect(() => Effect.succeed<FilesResult<A>>({ ok: false, error: "failed" })),
     );
@@ -162,9 +165,10 @@ export const makeFilesLinkChannel = Effect.fn("FilesLink.make")(function* (optio
   }).pipe(Effect.annotateLogs({ area: "files-link", peer: context.peer.machineName }));
 
   const channel: LinkContractChannel = bindLinkChannel(FilesLink, {
-    // Interruption: Write, Create, Rename, Move and Trash change the disk and are not idempotent, so one the
-    // caller gave up on may still have run. Open allocates the session's subscriber once and reuses it, and
-    // the rest only read.
+    // Interruption: an interrupt aborts `context.signal` or skips a request still queued. Write, Create, Rename,
+    // Move and Trash change the disk: once the service call has started it is uninterruptible, so after an
+    // interrupt each either never ran or ran to its end, and a repeat is then refused rather than done twice.
+    // Open allocates the session's subscriber once and reuses it, and the rest only read.
     requests: {
       /** Idempotent: a session has one subscriber, and a second open names the same one. */
       Open: (request, context) => context.signal.aborted
@@ -189,21 +193,25 @@ export const makeFilesLinkChannel = Effect.fn("FilesLink.make")(function* (optio
         const read = result.value;
         return { ok: true, value: read.kind === "text" && !fitsOneFrame(read.text) ? { kind: "too-large", size: Buffer.byteLength(read.text), stamp: read.stamp } : read };
       }),
-      /** NOT idempotent: a second write against the stamp the first one moved is refused `stale`. */
+      /**
+       * NOT idempotent. Left behind: the file with the text this write gave it. A repeat names the stamp the first
+       * one moved, so it is refused `stale` and the file stays as the first left it. Never half-written by an
+       * interrupt: the service call is uninterruptible once started.
+       */
       Write: (request, context) => fitsOneFrame(request.text)
-        ? serve("Write", request, context, (host, ref) => host.write(ref, request.path, request.text, request.base))
+        ? serve("Write", request, context, (host, ref) => host.write(ref, request.path, request.text, request.base), true)
         : Effect.fail(refusedWith("too-large")),
-      /** NOT idempotent: a second create is refused `exists`. */
-      Create: (request, context) => serve("Create", request, context, (host, ref) => host.create(ref, request.path, request.dir)),
-      /** NOT idempotent: the path it renamed from is gone the second time. */
-      Rename: (request, context) => serve("Rename", request, context, (host, ref) => host.rename(ref, request.path, request.name)),
-      /** NOT idempotent: the path it moved from is gone the second time. */
-      Move: (request, context) => serve("Move", request, context, (host, ref) => host.move(ref, request.path, request.into)),
-      /** NOT idempotent: the path it trashed is gone the second time. */
+      /** NOT idempotent. Left behind: the new file or folder. A repeat is refused `exists` and changes nothing. */
+      Create: (request, context) => serve("Create", request, context, (host, ref) => host.create(ref, request.path, request.dir), true),
+      /** NOT idempotent. Left behind: the entry under its new name. A repeat names a path that is gone, and is refused. */
+      Rename: (request, context) => serve("Rename", request, context, (host, ref) => host.rename(ref, request.path, request.name), true),
+      /** NOT idempotent. Left behind: the entry in its new folder. A repeat names a path that is gone, and is refused. */
+      Move: (request, context) => serve("Move", request, context, (host, ref) => host.move(ref, request.path, request.into), true),
+      /** NOT idempotent. Left behind: the entry in the machine's trash. A repeat names a path that is gone, and is refused. */
       Trash: (request, context) => serve("Trash", request, context, async (host, ref) => {
         const result = await host.trash(ref, request.path);
         return result.ok ? { ok: true, value: null } : result;
-      }),
+      }, true),
       /** Idempotent: a dropped file's source is a path on the window machine, so until X3 it is only ever refused. */
       Import: (request, context) => serve("Import", request, context, () => ({ ok: false, error: "denied" })),
       /** Idempotent: a newer `seq` supersedes an older one, and the same one searches again. */
