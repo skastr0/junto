@@ -110,27 +110,6 @@ ops! {
 
 // --- writes ------------------------------------------------------------------
 
-/// A write verb's own keys, and the op that rules them (artifact.rs's verbs).
-pub(super) trait Verb: Serialize {
-    const OP: &'static str;
-}
-
-/// An artifact write as sent: its opId first, then the verb's keys.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct Write<V> {
-    op_id: OpId,
-    #[serde(flatten)]
-    verb: V,
-}
-
-impl<V: Verb> Request for Write<V> {
-    const OP: &'static str = V::OP;
-    fn op_id(&self) -> Option<&OpId> {
-        Some(&self.op_id)
-    }
-}
-
 /// Names the op of each verb that shares a shape with others.
 trait Op {
     const OP: &'static str;
@@ -536,14 +515,6 @@ fn op_id(given: Option<&str>) -> Result<OpId> {
 
 pub(super) fn read<R: Request>(args: &R, timeout: Timeout) -> Answer {
     wire::call(args, timeout.into()).map(Into::into)
-}
-
-pub(super) fn write<V: Verb>(flags: WriteFlags, verb: V) -> Answer {
-    let args = Write {
-        op_id: op_id(flags.op_id.as_deref())?,
-        verb,
-    };
-    wire::call(&args, flags.timeout.into()).map(Into::into)
 }
 
 /// A task write: its args, made with the opId it carries.
