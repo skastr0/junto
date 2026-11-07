@@ -1,14 +1,14 @@
 //! The live verbs: each closed operation is sent as the outer op `overseer`,
 //! `{operation, args}`, and the inner OverseerResult is unwrapped. Main
 //! decodes every operation's args against its exact schema (decodeOverseerArgs
-//! in src/core/work/control.ts), so the args go as given: this side
+//! in src/core/work-control/overseer.ts), so the args go as given: this side
 //! keeps only what it alone can say, before anything is sent.
 
 use std::process::ExitCode;
 
 use clap::error::ErrorKind;
 use clap::{Arg, ArgMatches, FromArgMatches, Subcommand, value_parser};
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value, json};
 
 use super::automation;
@@ -25,6 +25,32 @@ use crate::wire::{self, Change, Data, OpId, Timeout};
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 /// OVERSEER_MAX_ERROR_BYTES: the most an inner error's message carries.
 const MAX_ERROR_BYTES: usize = 4 * 1024;
+
+/// The outer op's arguments, as the overseer contract names them
+/// (src/contract/work/overseer.ts): one closed operation, its own args, and
+/// the Live correlation only the native Overseer host sends.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Request {
+    operation: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    args: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    live: Option<LiveCorrelation>,
+}
+
+/// OverseerLiveCorrelation (src/shared/overseer-host-control.ts): it
+/// constrains a command, and grants nothing.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LiveCorrelation {
+    session_id: String,
+    request_id: String,
+    intent_revision: u64,
+    operation_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expected_revision: Option<String>,
+}
 
 /// One live verb as typed: the operation, and what its command line gave.
 #[derive(Debug)]
@@ -59,7 +85,12 @@ impl Call {
     /// One call of the outer op, the inner result unwrapped. A mutation that
     /// fails once sent says it may have completed, and how to resend it.
     fn send(&self, args: Value, op_id: Option<&OpId>) -> Result<Data> {
-        let request = json!({ "operation": self.op.name, "args": args });
+        let request = serde_json::to_value(Request {
+            operation: self.op.name.to_owned(),
+            args: Some(args),
+            live: None,
+        })
+        .map_err(|e| Failure::new(ErrorType::InternalError, e.to_string()))?;
         if serde_json::to_vec(&request).map_or(0, |bytes| bytes.len()) > MAX_REQUEST_BYTES {
             return Err(Failure::input(
                 format!("overseer request exceeds {MAX_REQUEST_BYTES} bytes"),
@@ -385,6 +416,13 @@ impl FromArgMatches for Call {
     fn update_from_arg_matches(&mut self, matches: &ArgMatches) -> Result<(), clap::Error> {
         *self = Self::from_arg_matches(matches)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod contract {
+    crate::contract::parity! {
+        overseer: super::Request => "overseer",
     }
 }
 

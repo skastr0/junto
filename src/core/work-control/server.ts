@@ -14,7 +14,7 @@
  * A call interrupted (its seat's credential revoked mid-call) leaves the RPC
  * server as a client that disconnected, which interrupts its handler.
  */
-import { Context, Deferred, Effect, Layer, Queue, Result, Schema } from "effect";
+import { Context, Deferred, Effect, Exit, Layer, Queue, Result, Schema } from "effect";
 import { type RpcMessage, RpcServer } from "effect/rpc";
 import { type WorkErrorBody } from "@shared/work-control";
 import { WorkFailure, WorkInputHint, WorkInputRefusal, workErrorBody } from "../../contract/work/failure";
@@ -32,6 +32,8 @@ type Call = {
   readonly context: Context.Context<never>;
   /** The middleware handed the seat to the handler: the arguments decoded. */
   admitted: boolean;
+  /** The admitted handler has ended, interrupted or not, its finalizers run. */
+  readonly done: Deferred.Deferred<void>;
   readonly exit: Deferred.Deferred<RpcMessage.FromServerEncoded>;
 };
 
@@ -39,16 +41,20 @@ type Call = {
 const REQUEST_ID = "0";
 
 /** The refusal for arguments that did not decode: the op's own words, or the schema's. */
-const inputRefusal = (rpc: { readonly annotations: Context.Context<never> } | undefined, reason: unknown): WorkErrorBody =>
-  (rpc === undefined ? undefined : Context.get(rpc.annotations, WorkInputRefusal)) ?? {
+const inputRefusal = (rpc: { readonly annotations: Context.Context<never> } | undefined, reason: unknown): WorkErrorBody => {
+  const message = typeof reason === "string" ? reason : "arguments do not match the command schema";
+  const refusal = rpc === undefined ? undefined : Context.get(rpc.annotations, WorkInputRefusal);
+  if (typeof refusal === "function") return refusal(message);
+  return refusal ?? {
     type: "InputError",
-    message: typeof reason === "string" ? reason : "arguments do not match the command schema",
+    message,
     details: {
       path: "args",
       hint: (rpc === undefined ? undefined : Context.get(rpc.annotations, WorkInputHint)) ?? "pass a JSON object matching the command schema",
       retryable: false,
     },
   };
+};
 
 /** The socket answers this op through RPC. */
 export const servesWorkRpc = (op: string): boolean => WorkServed.requests.has(op);
@@ -89,7 +95,11 @@ export class WorkRpcServer extends Context.Service<WorkRpcServer, {
         const call = calls.get(client.id);
         if (call === undefined) return Effect.die(new Error(`work rpc: client ${client.id} has no admitted call`));
         call.admitted = true;
-        return effect.pipe(Effect.provideService(WorkSeat, call.seat), Effect.provide(call.context));
+        return effect.pipe(
+          Effect.provideService(WorkSeat, call.seat),
+          Effect.provide(call.context),
+          Effect.ensuring(Deferred.succeed(call.done, undefined)),
+        );
       });
 
       yield* RpcServer.make(WorkServed, { disableTracing: true }).pipe(
@@ -127,17 +137,21 @@ export class WorkRpcServer extends Context.Service<WorkRpcServer, {
             const send = write;
             if (send === undefined) return Effect.die(new Error("work rpc: the server is not running"));
             const clientId = ++nextClient;
-            return Effect.flatMap(Effect.all([Deferred.make<RpcMessage.FromServerEncoded>(), Effect.context<never>()]), ([exit, context]) => {
-              const call: Call = { seat, context, admitted: false, exit };
+            return Effect.flatMap(Effect.all([Deferred.make<RpcMessage.FromServerEncoded>(), Deferred.make<void>(), Effect.context<never>()]), ([exit, done, context]) => {
+              const call: Call = { seat, context, admitted: false, exit, done };
               calls.set(clientId, call);
               return send(clientId, { _tag: "Request", id: REQUEST_ID, tag: op, payload: args ?? {}, headers: [] }).pipe(
                 Effect.andThen(Deferred.await(exit)),
                 Effect.flatMap((response) => answerOf(op, call, response)),
-                Effect.ensuring(
-                  Effect.suspend(() => {
-                    calls.delete(clientId);
-                    return Queue.offer(disconnects, clientId);
-                  }),
+                // The call's client disconnects once it ends. An interrupted
+                // call ends when its handler has: the disconnect interrupts
+                // the handler, and the call waits for it to finish, so nothing
+                // the handler began outlives the call.
+                Effect.onExit((ended) =>
+                  Queue.offer(disconnects, clientId).pipe(
+                    Effect.andThen(Effect.suspend(() => (Exit.hasInterrupts(ended) && call.admitted ? Deferred.await(call.done) : Effect.void))),
+                    Effect.ensuring(Effect.sync(() => calls.delete(clientId))),
+                  ),
                 ),
               );
             });

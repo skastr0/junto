@@ -14,10 +14,10 @@ import {
   decodeOverseerResult,
   type OverseerCatalogEntry,
   type OverseerOperation,
+  type OverseerResult,
 } from "../../shared/overseer-control";
 import { ARTIFACT_MOVE_MAX } from "../../shared/artifact-move";
 import { SEAT_FIELDS_MAIN_WORKS_OUT } from "../../shared/model/drafts";
-import type { WorkOpName } from "../../shared/work-control";
 import { overseerOperationEnabled } from "../../shared/features";
 import type {
   CommandCapability,
@@ -31,7 +31,8 @@ import { AuthError, InputError, RuntimeDown, WireError } from "../core/errors";
 import { loadJsonInput } from "../core/json";
 import { executeJsonCommand, executeJsonCommandWithVerdict } from "../core/output";
 import { decodeSecretPutInput, readSecretValue } from "../core/secret-input";
-import { WorkSocket } from "../core/socket";
+import { WorkSocket, callWorkRpc } from "../core/socket";
+import { Overseer } from "../../contract/work/overseer";
 import { isAutomationWriteOp, type AutomationWriteOp } from "../../shared/automation-control";
 import { opIdFlag } from "../core/op-id";
 import {
@@ -64,8 +65,6 @@ const targetArg = Argument.String("target").pipe(
 const inputModes = ["inline-json", "@file", "stdin"] as const;
 
 const secretPutInputModes = ["inline-json", "@file"] as const;
-
-const OVERSEER_WORK_OP = "overseer" as WorkOpName;
 
 export const OVERSEER_UNAVAILABLE: ReadonlyArray<{
   readonly capability: string;
@@ -137,7 +136,11 @@ export const unwrapOverseerSocketData = (data: unknown): Effect.Effect<unknown, 
       }),
     );
   }
-  const result = decoded.success;
+  return unwrapOverseerResult(decoded.success);
+};
+
+/** A command's own outcome as the CLI answers it: its data, or its failure as the CLI's error. */
+const unwrapOverseerResult = (result: OverseerResult): Effect.Effect<unknown, WireError> => {
   if (!result.ok) {
     return Effect.fail(
       new WireError({
@@ -166,9 +169,8 @@ const callOverseer = (
         }),
       );
     }
-    const socket = yield* WorkSocket;
-    const data = yield* socket.call(OVERSEER_WORK_OP, request, timeout);
-    return yield* unwrapOverseerSocketData(data);
+    const result = yield* callWorkRpc(Overseer, request, timeout);
+    return yield* unwrapOverseerResult(result);
   });
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

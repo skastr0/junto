@@ -1,6 +1,8 @@
-import { Effect, ManagedRuntime, Result } from "effect";
-import { WorkSocket, WorkSocketLive } from "../core/socket";
-import { decodeOverseerHostAssignment, type OverseerHostEvent, type OverseerHostRun } from "../../shared/overseer-host-control";
+import { Effect, ManagedRuntime } from "effect";
+import { WorkSocketLive, callWorkRpc } from "../core/socket";
+import { Overseer, OverseerLive } from "../../contract/work/overseer";
+import type { OverseerRequest } from "../../shared/overseer-control";
+import type { OverseerHostEvent, OverseerHostRequest, OverseerHostRun } from "../../shared/overseer-host-control";
 import { requestBackendResponse, runOverseerTurn } from "./session";
 
 const title = (state: "idle" | "working" | "attention") =>
@@ -14,20 +16,19 @@ export const runOverseerHost = async (_args: readonly string[]): Promise<void> =
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
   const active = new Map<string, { run: OverseerHostRun; controller: AbortController; done: Promise<void> }>();
-  const call = (op: "overseer" | "overseer.live", args: unknown, signal = shutdown.signal) =>
-    runtime.runPromise(Effect.flatMap(WorkSocket, (socket) => socket.call(op, args, 25_000)), { signal });
+  const tool = (request: OverseerRequest, signal = shutdown.signal) =>
+    runtime.runPromise(callWorkRpc(Overseer, request, 25_000), { signal });
+  const control = (request: OverseerHostRequest, signal = shutdown.signal) =>
+    runtime.runPromise(callWorkRpc(OverseerLive, request, 25_000), { signal });
   const report = (run: OverseerHostRun, event: OverseerHostEvent) =>
-    call("overseer.live", { type: "event", sessionId: run.sessionId, requestId: run.requestId, intentRevision: run.intentRevision, event }).then(() => undefined);
+    control({ type: "event", sessionId: run.sessionId, requestId: run.requestId, intentRevision: run.intentRevision, event }).then(() => undefined);
   process.stdout.write("Junto Overseer is ready. Start a live conversation from its command card.\n");
   title("idle");
   try {
     while (!shutdown.signal.aborted) {
       // Main selects the active session from this process-bound occupant. A
       // previous call's session ID must not strand this host after replacement.
-      const result = await call("overseer.live", { type: "next" });
-      const decoded = decodeOverseerHostAssignment(result);
-      if (Result.isFailure(decoded)) throw new Error("main returned a malformed controller assignment");
-      const assignment = decoded.success;
+      const assignment = await control({ type: "next" });
       if (assignment.type === "idle") {
         await runtime.runPromise(Effect.sleep("250 millis"), { signal: shutdown.signal });
         continue;
@@ -51,9 +52,9 @@ export const runOverseerHost = async (_args: readonly string[]): Promise<void> =
         run: assignment, controller,
         done: runOverseerTurn(assignment, {
           respond: requestBackendResponse,
-          tool: (request, signal) => call("overseer", request, signal),
+          tool,
           event: (event) => report(assignment, event),
-          control: (request, signal) => call("overseer.live", request, signal),
+          control,
         }, controller.signal).catch(() => { title("attention"); }).finally(() => {
           shutdown.signal.removeEventListener("abort", onShutdown);
           if (active.get(assignment.requestId) === entry) {

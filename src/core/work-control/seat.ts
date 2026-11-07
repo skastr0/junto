@@ -17,6 +17,9 @@ import { type Canvas } from "@shared/model";
 import { admitWorkTarget, findNode } from "../work/authz";
 import type { WorkServiceShape } from "../work/service";
 import { type SeatObservation } from "../work/seat-observation";
+import type { OverseerRequest, OverseerResult } from "@shared/overseer-control";
+import type { OverseerHostAssignment, OverseerHostRequest } from "@shared/overseer-host-control";
+import type { OverseerHostIdentity, OverseerLiveExecutionConstraint } from "../overseer/live/execution";
 import { type readSeatSince } from "../work/seat-since-read";
 
 type SeatSinceRead = ReturnType<typeof readSeatSince>;
@@ -47,6 +50,30 @@ export const requireTarget = (
   return { node: admitted.success.node };
 };
 
+/** Main's overseer executors as the work server was given them, and the native Overseer a call is, when it is one. */
+export type OverseerSeat = {
+  /** Runs one admitted overseer command. */
+  readonly execute: ((
+    request: OverseerRequest,
+    caller: Pick<WorkCaller, "canvasName" | "nodeId">,
+    signal: AbortSignal,
+    live?: OverseerLiveExecutionConstraint,
+  ) => Promise<OverseerResult>) | undefined;
+  /** Answers the native Overseer's private controller protocol. */
+  readonly live: ((
+    request: OverseerHostRequest,
+    identity: OverseerHostIdentity,
+    signal: AbortSignal,
+  ) => Promise<OverseerHostAssignment>) | undefined;
+  /** Checks a correlated Live request is still current. */
+  readonly validateLive: ((
+    request: OverseerRequest,
+    identity: OverseerHostIdentity,
+  ) => Promise<OverseerLiveExecutionConstraint>) | undefined;
+  /** The native Overseer seat the call was admitted as; absent for every other seat. */
+  readonly controller: OverseerHostIdentity | undefined;
+};
+
 /** What one admitted work call acts as and reads against. */
 export class WorkSeat extends Context.Service<WorkSeat, {
   /** The work store, as the admitting control plane holds it: a handler reaches it only through its seat. */
@@ -70,6 +97,8 @@ export class WorkSeat extends Context.Service<WorkSeat, {
   readonly machine: Effect.Effect<string>;
   /** What changed for this seat since its previous session (since, onboard), read with its work store. */
   readonly readSince: (previousStartedAt: number | undefined, perSection?: number) => Effect.Effect<SeatSince, SeatSinceError>;
+  /** The overseer's executors and the native Overseer this call is (overseer, overseer.live). */
+  readonly overseer: OverseerSeat;
 }>()("@junto/core/work-control/WorkSeat") {}
 
 /** Provides each handler the seat its call was admitted as. */

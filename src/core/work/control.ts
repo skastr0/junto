@@ -12,21 +12,17 @@ import { resolveJuntoHome } from "@shared/junto-home";
 import { join } from "node:path";
 import { Context, Effect, Exit, Layer, Result, Option, Schema, Scope } from "effect";
 import { mapWorkCode } from "../work-control/answers";
-import { type WorkCaller } from "../work-control/seat";
+import { type OverseerSeat, type WorkCaller } from "../work-control/seat";
 import { WorkRpcServer, servesWorkRpc } from "../work-control/server";
 import { ulid } from "ulid";
 import type { Message } from "@shared/work-model";
 import {
-  decodeOverseerArgs,
-  decodeOverseerRequest,
-  isOverseerMutation,
   OVERSEER_MAX_CORRELATION_BYTES,
   OVERSEER_MAX_REQUEST_BYTES,
   type OverseerRequest,
   type OverseerResult,
 } from "@shared/overseer-control";
 import {
-  decodeOverseerHostRequest,
   type OverseerHostAssignment,
   type OverseerHostRequest,
 } from "@shared/overseer-host-control";
@@ -735,6 +731,7 @@ const dispatchOp = (
   version: string,
   fence: WriteFence,
   rpc: WorkRpcServer["Service"],
+  overseer: OverseerSeat,
 ): Effect.Effect<
   unknown,
   WorkErrorBody,
@@ -828,6 +825,7 @@ const dispatchOp = (
         machine: Effect.sync(() => Context.get(services, LogService).machine()),
         readSince: (previousStartedAt, perSection) =>
           readSeatSince(board, caller.canvasName, caller.nodeId, previousStartedAt, perSection).pipe(Effect.provideService(WorkService, work)),
+        overseer,
       });
     }
 
@@ -1372,44 +1370,6 @@ const beginWrite = (fence: WriteFence): Effect.Effect<void, WorkErrorBody> =>
     return Effect.void;
   });
 
-const overseerDispatchError = (error: unknown): WorkErrorBody => ({
-  type: "InternalError",
-  message: error instanceof Error ? error.message : String(error),
-  details: { retryable: false },
-});
-
-/**
- * Drain the captured overseer Promise on interruption. Effect.tryPromise
- * aborts its signal without awaiting the underlying Promise, which would let
- * process revocation settle this dispatch while inner authoring-gate / native
- * cleanup is still in flight.
- */
-const awaitOverseerPromise = (
-  evaluate: (signal: AbortSignal) => Promise<OverseerResult>,
-): Effect.Effect<OverseerResult, WorkErrorBody> =>
-  Effect.callback<OverseerResult, WorkErrorBody>((resume, signal) => {
-    let flight: Promise<OverseerResult>;
-    try {
-      flight = Promise.resolve(evaluate(signal));
-    } catch (error) {
-      resume(Effect.fail(overseerDispatchError(error)));
-      return;
-    }
-    void flight.then(
-      (value) => resume(Effect.succeed(value)),
-      (error) => resume(Effect.fail(overseerDispatchError(error))),
-    );
-    // Keep the Effect pending until the captured Promise (including inner
-    // lease / acquisition finalizers) actually settles. AbortSignal only
-    // refuses later mutations; it cannot roll back work already in flight.
-    return Effect.promise(() =>
-      flight.then(
-        () => undefined,
-        () => undefined,
-      ),
-    );
-  });
-
 /**
  * Effect v4 calls its interruptible async constructor `callback`. The listener
  * re-reads this call's credential on every registry notification for its
@@ -1785,28 +1745,16 @@ export const startWorkControlServer = async (
               bindingId: node.bindingId, generationId: admission.generationId,
             };
           };
-          if (req.op === "overseer.live") {
-            const identity = controllerIdentity();
-            if (identity === undefined) return Result.fail<WorkErrorBody>({
+          // The Live controller protocol is the native seat's alone, refused before its request is read.
+          if (req.op === "overseer.live" && controllerIdentity() === undefined) {
+            return Result.fail<WorkErrorBody>({
               type: "AuthError", message: "the Live controller protocol belongs to the native Overseer seat",
             });
-            const decoded = decodeOverseerHostRequest(req.args);
-            if (Result.isFailure(decoded)) return Result.fail<WorkErrorBody>({
-              type: "InputError", message: decoded.failure.message,
-            });
-            if (options.onOverseerLive === undefined) return Result.fail<WorkErrorBody>({
-              type: "RuntimeDown", message: "Live conversations are unavailable in this runtime",
-            });
-            return yield* Effect.tryPromise({
-              try: (signal) => options.onOverseerLive!(decoded.success, identity, signal),
-              catch: (error): WorkErrorBody => ({
-                type: "RuntimeDown", message: error instanceof Error ? error.message : "Live controller connection failed",
-              }),
-            }).pipe(Effect.result);
           }
-          // Administrative commands do not enter the ordinary factory
-          // paused/blocked or edge-scoped dispatcher. Identity and delegation
-          // remain mandatory, including on a configured Remote projection.
+          // Administrative commands are admitted here, not by the edge-scoped
+          // dispatcher, and a paused canvas does not stop them. Identity and
+          // delegation remain mandatory, including on a configured Remote
+          // projection. The command itself is the overseer RPC group's.
           if (req.op === "overseer") {
             const node = callerResolved.caller.node;
             if (node.kind !== "agent" || node.overseer !== true) {
@@ -1836,66 +1784,8 @@ export const startWorkControlServer = async (
                 details: { retryable: false },
               });
             }
-            const decoded = decodeOverseerRequest(req.args);
-            if (Result.isFailure(decoded)) {
-              return Result.fail<WorkErrorBody>({
-                type: "InputError", message: decoded.failure.message,
-                details: { retryable: false },
-              });
-            }
-            const argumentsResult = decodeOverseerArgs(decoded.success.operation, decoded.success.args);
-            if (Result.isFailure(argumentsResult)) {
-              return Result.fail<WorkErrorBody>({
-                type: "InputError", message: argumentsResult.failure.message,
-                details: { retryable: false },
-              });
-            }
-            const execute = options.onOverseer;
-            if (execute === undefined) {
-              return Result.fail<WorkErrorBody>({
-                type: "RuntimeDown",
-                message: "overseer administration is unavailable in this runtime",
-                details: { retryable: false },
-              });
-            }
-            let live: OverseerLiveExecutionConstraint | undefined;
-            if (nativeController || decoded.success.live !== undefined) {
-              if (!LIVE_OVERSEER_ENABLED) return Result.fail<WorkErrorBody>({
-                type: "ScopeError", message: "Live conversation is disabled in this Junto build",
-              });
-              const identity = controllerIdentity();
-              if (identity === undefined || options.validateOverseerLive === undefined ||
-                (isOverseerMutation(decoded.success.operation) && decoded.success.live === undefined)) {
-                return Result.fail<WorkErrorBody>({ type: "AuthError", message: "native Overseer mutations require a current correlated Live request" });
-              }
-              if (decoded.success.live !== undefined) {
-                const validated = yield* Effect.tryPromise({
-                  try: () => options.validateOverseerLive!(decoded.success, identity),
-                  catch: (error): WorkErrorBody => ({ type: "AuthError", message: error instanceof Error ? error.message : "Live request is no longer current" }),
-                }).pipe(Effect.result);
-                if (Result.isFailure(validated)) return validated;
-                live = validated.success;
-              }
-            }
-            const result = yield* awaitOverseerPromise(
-              (signal) =>
-                {
-                  live?.assertCurrent();
-                  return execute(decoded.success, {
-                  canvasName: caller.canvasName,
-                  nodeId: caller.nodeId,
-                  }, signal, live);
-                },
-            ).pipe(Effect.result);
-            if (live?.settle !== undefined && Result.isSuccess(result)) {
-              yield* Effect.tryPromise({
-                try: () => live!.settle!(result.success as OverseerResult),
-                catch: (error): WorkErrorBody => ({ type: "InternalError", message: error instanceof Error ? error.message : "Live receipt could not be recorded" }),
-              }).pipe(Effect.result);
-            }
-            return result;
           }
-          if (nativeController && !["ping", "doctor", "capabilities", "onboard", "since"].includes(req.op)) {
+          if (nativeController && !["ping", "doctor", "capabilities", "onboard", "since", "overseer", "overseer.live"].includes(req.op)) {
             return Result.fail<WorkErrorBody>({
               type: "AuthError", message: "native Overseer mutations must use correlated overseer tools",
             });
@@ -1907,6 +1797,12 @@ export const startWorkControlServer = async (
             options.version,
             fence,
             rpc,
+            {
+              execute: options.onOverseer,
+              live: options.onOverseerLive,
+              validateLive: options.validateOverseerLive,
+              controller: controllerIdentity(),
+            },
           ).pipe(Effect.result);
         });
 

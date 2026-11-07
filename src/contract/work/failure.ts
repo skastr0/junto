@@ -25,9 +25,10 @@ export const workErrorBody = (failure: Pick<WorkFailure, "type" | "message" | "d
 /**
  * The refusal an op answers when its arguments do not decode, for an op whose
  * words must not quote the input. Absent, the refusal carries the schema's own
- * words.
+ * words. As a function, it is handed the schema's words, for an op whose v1
+ * refusal kept them in a body of its own.
  */
-export const WorkInputRefusal = Context.Reference<WorkErrorBody | undefined>("@junto/contract/work/WorkInputRefusal", {
+export const WorkInputRefusal = Context.Reference<WorkErrorBody | ((message: string) => WorkErrorBody) | undefined>("@junto/contract/work/WorkInputRefusal", {
   defaultValue: () => undefined,
 });
 
