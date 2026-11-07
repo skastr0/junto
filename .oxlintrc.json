@@ -82,7 +82,8 @@
             ],
             "mayImport": [
               "shared",
-              "overlay"
+              "overlay",
+              "contract"
             ],
             "forbidModules": [
               "electron"
