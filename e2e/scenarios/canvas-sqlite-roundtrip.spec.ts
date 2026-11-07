@@ -54,7 +54,8 @@ test("operator UI write round-trips through main IPC and survives renderer reloa
   await node.click();
   // Cards carry no action buttons; free-note editing lives on the RTS kind
   // strip ("Edit note") and opens the note editor focus surface.
-  await page.getByRole("button", { name: "Edit note" }).click();
+  // The key, not the card body: 52dd80875 names the body "Edit note, <title>".
+  await page.getByRole("button", { name: "Edit note", exact: true }).click();
 
   const textarea = page.getByLabel("Note markdown");
   await expect(textarea).toBeVisible();
