@@ -27,56 +27,38 @@ const Sources = Schema.Array(NativeUsageProvider).pipe(
   Schema.check(Schema.isMaxLength(NATIVE_USAGE_PROVIDERS.length)),
 );
 
-export const ProvidersRead = Schema.TaggedStruct("ProvidersRead", { canvas: CanvasName });
-export const ProvidersWrite = Schema.TaggedStruct("ProvidersWrite", {
+/**
+ * Each request is one Rpc payload: the tag names the request, so the payload
+ * carries the canvas and the change, never the tag again. Every write sets a
+ * value, so its schema refuses a write that sets nothing.
+ */
+export const ProvidersRead = Schema.Struct({ canvas: CanvasName });
+/** A credential never crosses: a providers write sets the source names only. */
+export const ProvidersWrite = Schema.Struct({
   canvas: CanvasName,
-  enabledSources: Schema.optionalKey(Sources),
-});
-export const RecordRead = Schema.TaggedStruct("RecordRead", { canvas: CanvasName });
-export const StartupWrite = Schema.TaggedStruct("StartupWrite", {
+  enabledSources: Sources,
+}).pipe(Schema.check(Schema.makeFilter((request) =>
+  new Set(request.enabledSources).size === request.enabledSources.length || "a source is named twice")));
+export const RecordRead = Schema.Struct({ canvas: CanvasName });
+export const StartupWrite = Schema.Struct({
   canvas: CanvasName,
   supervisedPreferred: Schema.Boolean,
 });
 
-export const CacheWindowsRead = Schema.TaggedStruct("CacheWindowsRead", { canvas: CanvasName });
+export const CacheWindowsRead = Schema.Struct({ canvas: CanvasName });
 /** A harness set to null follows the machine's window again. Only declared harnesses may be named. */
-export const CacheWindowsWrite = Schema.TaggedStruct("CacheWindowsWrite", {
+export const CacheWindowsWrite = Schema.Struct({
   canvas: CanvasName,
   cacheWindowMinutes: Schema.optionalKey(CacheWindowMinutes),
   harness: Schema.optionalKey(Schema.Struct(Object.fromEntries(
     HARNESS_IDS.map((harness) => [harness, Schema.optionalKey(Schema.NullOr(CacheWindowMinutes))]),
   ))),
   cacheMode: Schema.optionalKey(CacheMode),
-});
-
-export const LinkSettingsRequest = Schema.Union([
-  ProvidersRead,
-  ProvidersWrite,
-  RecordRead,
-  StartupWrite,
-  CacheWindowsRead,
-  CacheWindowsWrite,
-]);
-export type LinkSettingsRequest = typeof LinkSettingsRequest.Type;
-
-const decodeRequest = Schema.decodeUnknownSync(LinkSettingsRequest, { onExcessProperty: "error" });
-
-/** Decode a request closed; a providers write must set something. */
-export const decodeLinkSettingsRequest = (raw: unknown): LinkSettingsRequest => {
-  const request = decodeRequest(raw);
-  if (request._tag === "ProvidersWrite" && request.enabledSources === undefined) {
-    throw new Error("a providers write sets enabledSources");
-  }
-  if (request._tag === "ProvidersWrite" && request.enabledSources !== undefined
-    && new Set(request.enabledSources).size !== request.enabledSources.length) {
-    throw new Error("a source is named twice");
-  }
-  if (request._tag === "CacheWindowsWrite" && request.cacheWindowMinutes === undefined
-    && Object.keys(request.harness ?? {}).length === 0 && request.cacheMode === undefined) {
-    throw new Error("a cache windows write sets the machine's window, a harness's, or the cache mode");
-  }
-  return request;
-};
+}).pipe(Schema.check(Schema.makeFilter((request) =>
+  request.cacheWindowMinutes !== undefined
+  || Object.keys(request.harness ?? {}).length > 0
+  || request.cacheMode !== undefined
+  || "a cache windows write sets the machine's window, a harness's, or the cache mode")));
 
 // The credential map is closed: each declared section, each declared field, a boolean.
 const Credentials = Schema.Struct(Object.fromEntries(PROVIDER_SECTION_KEYS.map((section) => [
@@ -131,11 +113,6 @@ export const SettingsLinkFailure = Schema.Union([
 ]);
 export type SettingsLinkFailure = typeof SettingsLinkFailure.Type;
 
-/** An event frame on the settings channel, which carries none. */
-export class SettingsEventRefused extends Schema.TaggedError<SettingsEventRefused>()("SettingsEventRefused", {
-  message: Schema.String.pipe(Schema.check(Schema.isMaxLength(1024))),
-}) {}
-
 /** An answer that failed the closed decode, refused on arrival; the link stays open. */
 export class SettingsAnswerRefused extends Schema.TaggedError<SettingsAnswerRefused>()("SettingsAnswerRefused", Where) {}
 /** An answer that names another machine than the link peer that sent it. */
@@ -183,10 +160,6 @@ export const wireCacheWindows = (windows: MachineCacheWindows): LinkCacheWindows
   ),
   ...(windows.cacheMode === undefined ? {} : { cacheMode: windows.cacheMode }),
 });
-
-export const decodeLinkProviders = Schema.decodeUnknownSync(LinkProviders, { onExcessProperty: "error" });
-export const decodeLinkCacheWindows = Schema.decodeUnknownSync(LinkCacheWindows, { onExcessProperty: "error" });
-export const decodeLinkRecord = Schema.decodeUnknownSync(LinkRecord, { onExcessProperty: "error" });
 
 export const providersOfWire = (wire: LinkProviders): MachineProviders => ({
   machine: wire.machine,
