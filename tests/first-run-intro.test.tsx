@@ -9,7 +9,9 @@
  */
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
-import { Result } from "effect";
+import { Layer, ManagedRuntime, Result } from "effect";
+import { ShellEnvironmentWindow } from "../src/contract/window/shell-environment";
+import { WindowRuntimeContext, type WindowRuntime } from "../src/window/rpc/runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_QUICK_REPLIES, SETTINGS_VERSION, defaultSettings, type Settings, type SettingsPatch } from "@shared/settings";
 
@@ -130,10 +132,19 @@ describe("the seen flag in the settings row", () => {
 });
 
 /** Render the tour open at a chapter, by id. */
+/**
+ * The window's runtime the tour's chapters read: the shell chapter's client of
+ * its group. A static render runs no effect, so nothing is ever asked of it.
+ */
+const tourRuntime = ManagedRuntime.make(Layer.succeed(ShellEnvironmentWindow, {} as never)) as unknown as WindowRuntime;
+const inWindow = (node: ReactNode): ReactNode => (
+  <WindowRuntimeContext.Provider value={tourRuntime}>{node}</WindowRuntimeContext.Provider>
+);
+
 const chapterAt = (id: string, mac = true): string => {
   const index = tourChapters(mac).findIndex((c) => c.id === id);
   expect(index).toBeGreaterThanOrEqual(0);
-  return renderToStaticMarkup(<FirstRunIntroSurface onDone={() => {}} mac={mac} initialStep={index} />);
+  return renderToStaticMarkup(inWindow(<FirstRunIntroSurface onDone={() => {}} mac={mac} initialStep={index} />));
 };
 
 describe("what the tour says", () => {
@@ -143,7 +154,7 @@ describe("what the tour says", () => {
     expect(chapters.at(-2)!.id).toBe("permissions");
     expect(chapters.at(-1)!.id).toBe("shell");
     for (let step = 0; step < chapters.length; step += 1) {
-      const html = renderToStaticMarkup(<FirstRunIntroSurface onDone={() => {}} mac initialStep={step} />);
+      const html = renderToStaticMarkup(inWindow(<FirstRunIntroSurface onDone={() => {}} mac initialStep={step} />));
       expect(html).toContain('data-testid="first-run-intro-skip"');
       expect(html).toContain(`${step + 1} of ${chapters.length}: ${chapters[step]!.title}`);
     }
@@ -262,7 +273,7 @@ describe("what the tour says", () => {
   it("obeys the copy law", () => {
     for (const mac of [true, false]) {
       for (let step = 0; step < tourChapters(mac).length; step += 1) {
-        const html = renderToStaticMarkup(<FirstRunIntroSurface onDone={() => {}} mac={mac} initialStep={step} />);
+        const html = renderToStaticMarkup(inWindow(<FirstRunIntroSurface onDone={() => {}} mac={mac} initialStep={step} />));
         expect(html).not.toContain("·");
       }
     }
