@@ -184,12 +184,12 @@ export const TermPlaneHandlers = TermRpcs.toLayer(
         answered(
           Effect.gen(function* () {
             const { HarnessInventory } = yield* Effect.promise(() => import("../term/templates/harness-inventory"));
-            const { peerInventory } = yield* Effect.promise(() => import("../inventory/client"));
+            const { PeerInventory } = yield* Effect.promise(() => import("../inventory/client"));
             const inventory = yield* HarnessInventory;
             const own = yield* (yield* MachineRepository).machineName.pipe(Effect.orElseSucceed(() => undefined));
             if (own === undefined || own === machine) return { ok: true, inventory: yield* inventory.machine } satisfies MachineInventoryResult;
             // A linked machine answers over the link's inventory channel.
-            return yield* peerInventory().inventoryOf(machine);
+            return yield* (yield* PeerInventory).inventoryOf(machine);
           }).pipe(
             Effect.catchTag("InventoryUnavailableError", (error) =>
               Effect.succeed<MachineInventoryResult>({
