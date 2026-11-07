@@ -53,10 +53,12 @@ it("fails a read the store cannot make with the contract's error, and tells the 
   noteThreadChanged("task", "factory");
   expect(pushed).toEqual([
     [RESOURCE_CHANGED, { channel: RESOURCE_IPC_CHANNELS.artifact.changed, canvasName: "factory" }],
+    // A change of an artifact is a change of its threads: a comment on it is one.
+    [RESOURCE_THREAD_CHANGED, { channel: RESOURCE_IPC_CHANNELS.thread.changed, canvasName: "factory", kind: "artifact" }],
     [RESOURCE_THREAD_CHANGED, { channel: RESOURCE_IPC_CHANNELS.thread.changed, canvasName: "factory", kind: "task" }],
   ]);
 
   await Effect.runPromise(Scope.close(scope, Exit.void));
   noteResourceChanged("task", "factory");
-  expect(pushed).toHaveLength(2);
+  expect(pushed).toHaveLength(3);
 });

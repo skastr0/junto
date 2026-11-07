@@ -58,6 +58,16 @@ export const ResourcesHandlers = ResourcesRpcs.toLayer(
           canvasName,
         } satisfies ResourceChangedPush),
       );
+      // A comment on a task or an artifact is a change of it (subject-comment.ts),
+      // so its threads moved too: the thread pane reads again, as the
+      // in-process notice tells it (work/resource-ipc.ts).
+      publishing(
+        pushes.publish(RESOURCE_THREAD_CHANGED, {
+          channel: RESOURCE_IPC_CHANNELS.thread.changed,
+          canvasName,
+          kind: domain,
+        } satisfies ResourceThreadChangedPush),
+      );
     });
     const stopThreadNotice = onThreadChanged((kind, canvasName) => {
       publishing(
