@@ -37,6 +37,7 @@ import { installKeyDispatcher } from "./lib/key-dispatcher";
 import { installRemovedNodeViews } from "./lib/removed-node-views";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
 import { startSurfaceMotionGate } from "./lib/surface-motion";
+import { startFramePressureLog } from "./lib/frame-pressure-log";
 import { clearPreambles, showPreamble } from "./lib/preamble-state";
 import { startPreambleSources } from "./lib/preamble-sources";
 import { startAgentSignalSync } from "./lib/agent-signals-state";
@@ -438,6 +439,8 @@ export function App() {
     // Freeze continuous CSS when the page is hidden / reduced-motion so the
     // GPU helper can drop off the fan curve (fleet closed is not enough).
     const stopSurfaceMotion = startSurfaceMotionGate();
+    // A [perf] row a minute naming the scripts inside frames over 50 ms.
+    const stopFramePressure = startFramePressureLog();
 
     // The open canvas follows the node store; nothing reads it again here. A
     // window showing no canvas opens the first one that comes to exist.
@@ -495,6 +498,7 @@ export function App() {
       stopOperatorHolds();
       stopSeatAwareness?.();
       stopSurfaceMotion();
+      stopFramePressure();
     };
   }, []);
 

@@ -46,6 +46,7 @@ import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, COMPANION_DEVICES, SETTINGS_CHANG
 import { coreBrowserProfileStore, coreTouchedOriginStore } from "./core-process/main-side/browser";
 import { isCoreUnavailable } from "./core-process/wait-for-core";
 import { armMainThreadBudget } from "./junto/observability/main-thread-budget";
+import { startPerfObservation, type PerfObservation } from "./junto/observability/perf-observation";
 import {
   installMachineLog,
   installObservabilityConsoleHook,
@@ -1273,6 +1274,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     if (!headless && currentTrustedMainWindow() === undefined) createWindow();
   });
 
+  let perfObservation: PerfObservation | undefined;
+  app.on("will-quit", () => perfObservation?.stop());
   void app.whenReady().then(async () => {
     // One log path: main console + Effect logger (layer already on AppRuntime)
     // into the ring and this machine's log file under ~/.junto/logs.
@@ -1285,6 +1288,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     recordSystemLog(
       `${PRODUCT_NAME} ready - ${app.isPackaged ? "packaged" : "dev"} - ${app.getVersion() || "0.0.0"} - ${overlayManifest.name}`,
     );
+    // Every build, packaged included: a [metrics] row a minute per process,
+    // and a Chromium trace on demand (View menu, or SIGUSR2 to this pid).
+    perfObservation = startPerfObservation(resolveJuntoHome());
     // Re-apply after ready: dock.hide before ready is a no-op / race on some
     // Electron builds, and E2E must never plant a Dock icon mid-suite.
     applyE2eMacOsFocusIsolation({
@@ -1316,6 +1322,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
               overrides,
               switcherUp,
               hideApp: () => app.hide(),
+              recordTrace: () => {
+                void perfObservation?.trace.record("the View menu");
+              },
               sendKey: ({ keyCode, modifiers }) => {
                 const contents = BrowserWindow.getFocusedWindow()?.webContents;
                 if (!contents || contents.isDestroyed()) return;

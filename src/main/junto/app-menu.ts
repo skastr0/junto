@@ -61,6 +61,8 @@ export type AppMenuInput = {
   readonly switcherUp?: boolean;
   /** Hide the app; used by the Hide item while it has no chord. */
   readonly hideApp?: () => void;
+  /** Record a 30 s Chromium performance trace to ~/.junto/traces; every build. */
+  readonly recordTrace?: () => void;
   /** Hand a chord to the focused window's page as a keydown. */
   readonly sendKey: (key: MenuKey) => void;
 };
@@ -107,6 +109,9 @@ export const appMenuTemplate = (input: AppMenuInput): MenuItemConstructorOptions
         ...fromTable(VIEW_ITEMS),
         separator,
         ...fromTable(PAGE_ITEMS),
+        ...(input.recordTrace === undefined
+          ? []
+          : [separator, { label: "Record Performance Trace", click: () => input.recordTrace?.() }]),
         // Cmd+R is the page's reload; the app's own moves to Cmd+Shift+R.
         ...(input.packaged
           ? []
