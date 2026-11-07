@@ -15,6 +15,7 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, expect, it } from "vitest";
 import { AutomationRunnerLive } from "../src/main/junto/automation/live";
+import { noBoatWakeLayer } from "./support/no-boat";
 import { AutomationRepository, makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
 import { submitAutomationCommand } from "../src/main/junto/automation/ruler";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
@@ -80,7 +81,7 @@ const makeRuntime = (root: string, name: string, installation: InstallationId) =
     ),
   );
   const rulers = Layer.provideMerge(Layer.mergeAll(TaskRepositoryLive, ArtifactRepositoryLive, makeResourceSubmitLayer(() => true)), stores);
-  return ManagedRuntime.make(Layer.provideMerge(Layer.mergeAll(AutomationRunnerLive, ResourceRulerLive), rulers));
+  return ManagedRuntime.make(Layer.provideMerge(Layer.provideMerge(Layer.mergeAll(AutomationRunnerLive, ResourceRulerLive), noBoatWakeLayer), rulers));
 };
 
 type Machine = {

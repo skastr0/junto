@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { LinkHelloSchema } from "../src/main/junto/link/protocol";
 import { machineLinkLayer } from "../src/main/junto/link/live";
+import { noBoatRoutesLayer } from "./support/no-boat";
 import { MachineLink } from "../src/main/junto/link/service";
 import { makeLinkSession } from "../src/main/junto/link/session";
 import { LINK_CHANNELS, LinkRequestFailed, type LinkChannelHandler } from "../src/main/junto/link/types";
@@ -21,6 +22,7 @@ afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await 
 const harness = async () => {
   const home = await mkdtemp(join(tmpdir(), "junto-link-catalog-"));
   const runtime = ManagedRuntime.make(Layer.provideMerge(machineLinkLayer("c".repeat(64), home), Layer.mergeAll(
+    noBoatRoutesLayer,
     Layer.provide(makeMachineRepositoryLive({ defaultName: () => "studio" }), makeStateEngineLive(join(home, "junto.db"))),
     Layer.succeed(SshTransport, {} as never),
   )));

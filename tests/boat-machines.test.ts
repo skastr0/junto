@@ -8,7 +8,7 @@ import { makeBoatClient, type BoatFetch, type BoatRun } from "../src/main/junto/
 import { boatDir, readBoatRecords, updateBoatRecords, writeBoatMachineSelf } from "../src/main/junto/boat/files";
 import { keepBoatMachines } from "../src/main/junto/boat/keeper";
 import { startBoatLease } from "../src/main/junto/boat/lease";
-import { hostKeyFingerprint, makeBoatMachines } from "../src/main/junto/boat/machines";
+import { hostKeyFingerprint, makeBoatMachines, makeBoatRoutes } from "../src/main/junto/boat/machines";
 
 const HOST_KEY_A = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE5/mmasa1p8XO64RQ37Ej9vKxWLMZ2J9hw51Cu8MhpS";
 const HOST_KEY_B = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC9i1Ij7IS8w2mtQvgc0YbEw2TcR0qHdJ5nM8cWbXtQ7";
@@ -47,13 +47,18 @@ const setup = (initial: string) => {
   const logs: Array<{ message: string; fields: Record<string, unknown> }> = [];
   const hosts = new Map<string, RemoteHost>([[host.id, host]]);
   const connected: string[] = [];
-  const machines = makeBoatMachines({
+  const deps = {
     run, home, client: boat.client, sleep: async () => undefined,
-    getHost: async (name) => hosts.get(name),
-    upsertHost: async (next) => { hosts.set(next.id, next); },
-    connect: async (next) => { connected.push(next.id); },
+    getHost: async (name: string) => hosts.get(name),
+    upsertHost: async (next: RemoteHost) => { hosts.set(next.id, next); },
+    log: (_level: "Info" | "Warning", message: string, fields: Record<string, unknown>) => { logs.push({ message, fields }); },
+  };
+  const routes = makeBoatRoutes(deps);
+  const machines = makeBoatMachines({
+    ...deps,
+    routes,
+    connect: async (next: RemoteHost) => { connected.push(next.id); },
     disconnect: async () => undefined,
-    log: (_level, message, fields) => { logs.push({ message, fields }); },
   });
   return { boat, logs, hosts, connected, machines };
 };

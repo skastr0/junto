@@ -18,7 +18,7 @@
 
 import { Effect, Schema } from "effect";
 import type { ContentRef } from "@shared/wire/content-ref";
-import { boatRoute } from "../boat/machines";
+import { BoatRoutesService } from "../boat/plane";
 import { HostsService } from "../hosts/service";
 import { parseHostSshRoute, SshTransport } from "../ssh";
 import { receiveMachineContent, statMachineContent } from "../ssh/machine-commands";
@@ -79,7 +79,8 @@ export const pushFileToMachine = (machine: string, ref: ContentRef) =>
     const ssh = yield* SshTransport;
     const content = yield* ContentService;
     // A Boat machine's address changes as it sleeps and wakes: found now, as the link finds it.
-    const target = yield* parseHostSshRoute(yield* Effect.promise(() => boatRoute(host)));
+    const boats = yield* BoatRoutesService;
+    const target = yield* parseHostSshRoute(yield* Effect.promise(() => boats.routes.route(host)));
     const location = { juntoHome: host.juntoHome, installRoot: host.installRoot };
     const held = yield* decodeAnswer((yield* ssh.run(yield* statMachineContent(target, location, ref))).stdout, ref);
     if (held.ok && held.state === "verified") return;

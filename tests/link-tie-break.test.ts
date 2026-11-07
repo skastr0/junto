@@ -12,6 +12,7 @@ import { Effect, Layer, ManagedRuntime, Schema, Stream } from "effect";
 import { afterEach, expect, it } from "vitest";
 import { MachineLink } from "../src/main/junto/link/service";
 import { machineLinkLayer } from "../src/main/junto/link/live";
+import { noBoatRoutesLayer } from "./support/no-boat";
 import { coreControlSocketPath } from "../src/main/junto/link/listener";
 import type { LinkChannelHandler } from "../src/main/junto/link/types";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
@@ -84,6 +85,7 @@ const machine = async (name: string, peerHome: () => string) => {
   const dialed: Socket[] = [];
   const open = new Set<string>();
   const runtime = ManagedRuntime.make(Layer.provideMerge(machineLinkLayer(BUILD), Layer.mergeAll(
+    noBoatRoutesLayer,
     Layer.provide(makeMachineRepositoryLive({ defaultName: () => name }), makeStateEngineLive(join(home, "junto.db"))),
     Layer.succeed(SshTransport, relayTransport(peerHome, dialed)),
   )));

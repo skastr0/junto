@@ -8,6 +8,7 @@ import { managedHarnessEnabled } from "@shared/managed-terminal-templates";
 import { CanvasName, NodeId, type NodeOf } from "@shared/model";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import { ModelService } from "../model/service";
+import { BoatWake } from "../boat/plane";
 import { ActorSeatOccupy } from "./actor-seat-occupy";
 import { makeManagedSpawnIntent } from "./managed-spawn-plan";
 import { termPlane, type TermPlane } from "./plane";
@@ -94,12 +95,13 @@ export const startSeat = Effect.fn("SeatControl.start")(function* (input: {
   });
   const local = plane.router.isLocalHostId(node.host);
   // A sleeping Boat machine wakes for a start; any other machine is left as it is.
-  if (!local) yield* Effect.tryPromise({
-    // A Boat machine sleeps; a start wakes it. The wake is loaded where it runs,
-    // in the core, so a main-side module that only names the seat links no boat.
-    try: async () => (await import("../boat/machines")).wakeBoatMachine(node.host),
-    catch: (cause) => asSeatsFailure({ machine: node.host, canvas, seatId }, cause),
-  });
+  if (!local) {
+    const boat = yield* BoatWake;
+    yield* Effect.tryPromise({
+      try: () => boat.wake(node.host),
+      catch: (cause) => asSeatsFailure({ machine: node.host, canvas, seatId }, cause),
+    });
+  }
   const provisioned = local
     ? yield* Effect.promise(() => (options.pin ?? ensureSeatSessionId)({ canvasName: canvas, nodeId: node.id,
       bindingId: node.bindingId, harness: node.harness, documentLaunch: node.launch, cause: "operator",

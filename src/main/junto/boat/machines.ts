@@ -44,16 +44,13 @@ export const viewOf = (record: BoatMachineRecord, sandbox: BoatSandbox): BoatMac
 export const hostKeyFingerprint = (line: string): string =>
   `SHA256:${createHash("sha256").update(Buffer.from(line.split(" ")[1] ?? "", "base64")).digest("base64").replace(/=+$/, "")}`;
 
-export interface BoatMachinesDeps {
+export interface BoatRoutesDeps {
   /** Runs a Boat request in the core's own runtime. */
   readonly run: BoatRun;
   readonly home: string;
   readonly client: BoatClient;
   readonly getHost: (name: string) => Promise<RemoteHost | undefined>;
   readonly upsertHost: (host: RemoteHost) => Promise<void>;
-  /** Opens the link (route included); used to wait for a woken machine's core. */
-  readonly connect: (host: RemoteHost) => Promise<void>;
-  readonly disconnect: (name: string) => Promise<void>;
   readonly log: (level: "Info" | "Warning", message: string, fields: Record<string, unknown>) => void;
   readonly sleep?: (ms: number) => Promise<void>;
   readonly now?: () => number;
@@ -67,21 +64,35 @@ export interface BoatRouteFields {
   readonly sshHostKeyAlias: string;
 }
 
-export interface BoatMachines {
+/**
+ * The route half of Boat, and all a dial or a file push asks of it: found at
+ * every dial and never stored as truth. Its own factory because the link and
+ * the file plane need it before the plane that wakes machines exists.
+ */
+export interface BoatRoutes {
   /** The route to dial. Another machine passes as it is; a sleeping Boat one is refused. */
   readonly route: (host: RemoteHost) => Promise<RemoteHost>;
-  /** Wakes a Boat machine and waits for its core; any other machine is left alone. */
-  readonly wakeIfBoat: (name: string) => Promise<void>;
-  /** Resumes it when asleep and waits until Boat says it is awake; with `core`, until its core answers a link. */
-  readonly wake: (name: string, options?: { readonly core?: boolean }) => Promise<BoatMachineView>;
   /** The SSH fields of an awake machine's route, found now. */
   readonly routeFields: (name: string) => Promise<BoatRouteFields>;
-  readonly sleep: (name: string) => Promise<BoatMachineView>;
   readonly view: (name: string) => Promise<BoatMachineView>;
   readonly record: (name: string) => Promise<BoatMachineRecord | undefined>;
 }
 
-export const makeBoatMachines = (deps: BoatMachinesDeps): BoatMachines => {
+export interface BoatMachinesDeps extends BoatRoutesDeps {
+  /** Opens the link (route included); used to wait for a woken machine's core. */
+  readonly connect: (host: RemoteHost) => Promise<void>;
+  readonly disconnect: (name: string) => Promise<void>;
+}
+
+export interface BoatMachines extends BoatRoutes {
+  /** Wakes a Boat machine and waits for its core; any other machine is left alone. */
+  readonly wakeIfBoat: (name: string) => Promise<void>;
+  /** Resumes it when asleep and waits until Boat says it is awake; with `core`, until its core answers a link. */
+  readonly wake: (name: string, options?: { readonly core?: boolean }) => Promise<BoatMachineView>;
+  readonly sleep: (name: string) => Promise<BoatMachineView>;
+}
+
+export const makeBoatRoutes = (deps: BoatRoutesDeps): BoatRoutes => {
   const pause = deps.sleep ?? ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
   const now = deps.now ?? Date.now;
   const record = async (name: string) => (await readBoatRecords(deps.home)).machines.find((row) => row.name === name);
@@ -149,6 +160,37 @@ export const makeBoatMachines = (deps: BoatMachinesDeps): BoatMachines => {
     }
   };
 
+  return {
+    route,
+    routeFields: async (name) => routeFields(await required(name)),
+    view: async (name) => {
+      const row = await required(name);
+      return viewOf(row, await sandbox(row));
+    },
+    record,
+  };
+};
+
+export const makeBoatMachines = (deps: BoatMachinesDeps & { readonly routes: BoatRoutes }): BoatMachines => {
+  const pause = deps.sleep ?? ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
+  const now = deps.now ?? Date.now;
+  const record = deps.routes.record;
+  const required = async (name: string) => {
+    const found = await record(name);
+    if (found === undefined) throw new BoatMachineRefused({ machine: name, check: "not-boat", message: `${name} is not a Boat machine` });
+    return found;
+  };
+  const sandbox = (row: BoatMachineRecord) => deps.run(deps.client.sandbox(row.sandboxId));
+  const until = async (row: BoatMachineRecord, done: (power: Power) => boolean, waitMs: number): Promise<BoatSandbox | undefined> => {
+    const deadline = now() + waitMs;
+    for (;;) {
+      const current = await sandbox(row);
+      if (done(boatPower(current.state))) return current;
+      if (now() >= deadline) return undefined;
+      await pause(POLL_MS);
+    }
+  };
+
   const flights = new Map<string, Promise<BoatMachineView>>();
   const wakeOnce = async (name: string, core: boolean): Promise<BoatMachineView> => {
     const row = await required(name);
@@ -184,10 +226,9 @@ export const makeBoatMachines = (deps: BoatMachinesDeps): BoatMachines => {
   };
 
   return {
-    route,
+    ...deps.routes,
     wakeIfBoat: async (name) => { if (await record(name) !== undefined) await wake(name); },
     wake,
-    routeFields: async (name) => routeFields(await required(name)),
     sleep: async (name) => {
       const row = await required(name);
       await deps.disconnect(name).catch(() => undefined);
@@ -197,23 +238,5 @@ export const makeBoatMachines = (deps: BoatMachinesDeps): BoatMachines => {
       if (settled === undefined) throw new BoatMachineRefused({ machine: name, check: "did-not-sleep", message: `${name} did not fall asleep in time` });
       return viewOf(row, settled);
     },
-    view: async (name) => {
-      const row = await required(name);
-      return viewOf(row, await sandbox(row));
-    },
-    record,
   };
 };
-
-// --- The one instance this process runs ---------------------------------------
-
-let active: BoatMachines | undefined;
-/** Installed by the core that holds the Boat account; answers how to uninstall. */
-export const installBoatMachines = (machines: BoatMachines): (() => void) => {
-  active = machines;
-  return () => { if (active === machines) active = undefined; };
-};
-/** The route a link dials; any machine when Boat is not set up here. */
-export const boatRoute = (host: RemoteHost): Promise<RemoteHost> => active === undefined ? Promise.resolve(host) : active.route(host);
-/** Wakes the machine when it is a sleeping Boat machine, before work that needs it. */
-export const wakeBoatMachine = (name: string): Promise<void> => active === undefined ? Promise.resolve() : active.wakeIfBoat(name);

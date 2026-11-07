@@ -22,6 +22,7 @@ import { MachineLink } from "../link/service";
 import type { LinkEventContext } from "../link/types";
 import { MachineRepository } from "../machines/repository";
 import { ModelService } from "../model/service";
+import { BoatWake } from "../boat/plane";
 import { unwrapSeatsFailure } from "./seats-failure";
 import { liveOperatorHolds, type OperatorHolds } from "./operator-holds";
 import type { AttachOk, AttachResult } from "./router";
@@ -457,11 +458,14 @@ export const linkSeatViewTransport = (run = coreRunner.runPromise): SeatViewTran
     const host = yield* (yield* HostsService).get(machine);
     if (host === undefined) return yield* Effect.fail(new Error("This seat's machine is unavailable."));
     // Opening a view wakes a sleeping Boat machine; the frames after it never do.
-    if ((payload as { readonly _tag?: unknown })._tag === "Attach") yield* Effect.tryPromise({
-      // Loaded where the view transport runs, in the core (see seat-control.ts).
-      try: async () => (await import("../boat/machines")).wakeBoatMachine(machine),
-      catch: (cause) => cause instanceof Error ? cause : new Error("This seat's machine did not wake."),
-    });
+    if ((payload as { readonly _tag?: unknown })._tag === "Attach") {
+      const boat = yield* BoatWake;
+      yield* Effect.tryPromise({
+        // The core's Boat plane wakes it, where this transport runs (see seat-control.ts).
+        try: () => boat.wake(machine),
+        catch: (cause) => cause instanceof Error ? cause : new Error("This seat's machine did not wake."),
+      });
+    }
     const link = yield* MachineLink;
     yield* link.connect(host);
     return yield* link.request(machine, "seats", payload, { operationId }).pipe(Effect.mapError(unwrapSeatsFailure));

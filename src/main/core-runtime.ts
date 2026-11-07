@@ -68,7 +68,7 @@ import { SignalFilePuller } from "./junto/signals/file-puller";
 import { pullSignalFile as pullSignalFileHere } from "./junto/signals/file-pull";
 import type { ActorSeatOccupy } from "./junto/term/actor-seat-occupy";
 import { startSeat, stopSeat } from "./junto/term/seat-control";
-import { BoatPlane, boatPlaneLayer } from "./junto/boat/plane";
+import { BoatPlane, BoatRoutesService, boatPlaneLayer, boatRoutesLayer, boatWakeLayer, BoatWake } from "./junto/boat/plane";
 import { readBoatRecords } from "./junto/boat/files";
 import { startLinkKeeper, type LinkKeeper } from "./junto/link/keeper";
 import { keepBoatMachines, pendingMailFor, startBoatKeeper, type BoatKeeperDeps } from "./junto/boat/keeper";
@@ -182,7 +182,7 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
   const machines = yield* MachineRepository;
   const links = yield* MachineLink;
   const context = yield* Effect.context<never>();
-  const fileContext = yield* Effect.context<HostsService | SshTransport | ContentService>();
+  const fileContext = yield* Effect.context<HostsService | SshTransport | ContentService | BoatRoutesService>();
   let notifySignal: ((signal: AgentSignal) => void) | undefined;
   // The editing machine rules held commands by sweep: at boot, and on each arrival.
   const ruler = yield* Effect.serviceOption(ResourceRuler);
@@ -421,8 +421,14 @@ const machineBoatKeeperLayer = (ready: () => boolean) => Layer.effect(MachineBoa
 
 /** Both entries add these services to their one owning runtime. */
 export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
-  const links = machineLinkLayer(options.build, options.home);
-  const status = Layer.provideMerge(machineCoreStatusLayer(options), links);
+  // The routes a dial and a file push ask are found before any link exists:
+  // Boat's account and its machine records, and nothing that needs the link.
+  // The plane that wakes a Boat machine sits here too, so every service above
+  // it (a seat's start, the file plane) holds BoatWake from its own context.
+  const routes = boatRoutesLayer(options.home);
+  const links = Layer.provideMerge(machineLinkLayer(options.build, options.home), routes);
+  const boat = Layer.provideMerge(Layer.provideMerge(boatWakeLayer, boatPlaneLayer(options.home)), links);
+  const status = Layer.provideMerge(machineCoreStatusLayer(options), boat);
   const rows = Layer.provideMerge(machineCoreRowsLayer, status);
   const pulls = Layer.provideMerge(
     Layer.mergeAll(
@@ -438,9 +444,9 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
   );
   const seats = Layer.provideMerge(machineCoreSeatsLayer, submit);
   const mail = Layer.provideMerge(machineCoreMailLayer, seats);
-  const boat = Layer.provideMerge(
+  const keepers = Layer.provideMerge(
     Layer.mergeAll(machineLinkKeeperLayer(options.home, options.ready), machineBoatKeeperLayer(options.ready)),
-    Layer.provideMerge(boatPlaneLayer(options.home), mail),
+    mail,
   );
   const owner = Layer.effect(MachineOwnerControl, Effect.gen(function* () {
     const link = yield* MachineLink;
@@ -449,7 +455,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
     const exchangeQuery = yield* makeMachineExchangeQuery(rows.exchange);
     const hostsService = yield* HostsService;
     const machines = yield* MachineRepository;
-    const seatServices = yield* Effect.context<ModelService | ActorSeatOccupy>();
+    const seatServices = yield* Effect.context<ModelService | ActorSeatOccupy | BoatWake>();
     const copy = yield* makeMachineCopy({ build: options.build, bundles: options.bundles, acquireBundle: options.acquireBundle,
       connect: link.connect, connectSetup: link.connectSetup, disconnect: link.disconnect });
     const linkSetup = yield* makeMachineLinkSetup({ home: options.home, juntoPath: () => {
@@ -530,7 +536,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
       ),
     });
   }));
-  return Layer.provideMerge(owner, boat);
+  return Layer.provideMerge(owner, keepers);
 };
 
 /** One StateEngine reference feeds identity, registry, link and owner commands. */

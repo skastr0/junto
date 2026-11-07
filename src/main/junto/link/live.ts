@@ -8,7 +8,8 @@ import { MachineRepository, type MachinePeer } from "../machines/repository";
 import { parseHostSshRoute, parseSshRoute, SshExitError, SshProcessError, SshTransport } from "../ssh";
 import { openMachineLink } from "../ssh/machine-commands";
 import { noteMachinesChanged } from "../hosts/machine-changes";
-import { boatRoute } from "../boat/machines";
+import { BoatRoutesService } from "../boat/plane";
+import type { BoatRoutes } from "../boat/machines";
 import { linkLog } from "./log";
 import { readBoundRoute } from "./link-keys";
 import { makeLinkSession } from "./session";
@@ -42,7 +43,7 @@ const toLinkError = (cause: unknown, machine?: string): MachineLinkError => {
  * `home` holds this machine's link keys: a peer with a bound route recorded
  * there is dialed with that route and key only (link-keys.ts).
  */
-export const makeMachineLink = (options: { readonly build: string; readonly home?: string }) => Effect.gen(function* () {
+export const makeMachineLink = (options: { readonly build: string; readonly home?: string; readonly routes: BoatRoutes }) => Effect.gen(function* () {
   const machines = yield* MachineRepository;
   const ssh = yield* SshTransport;
   const context = yield* Effect.context<never>();
@@ -149,7 +150,7 @@ export const makeMachineLink = (options: { readonly build: string; readonly home
       // A bound route is dialed with its own key and known hosts only; a Boat
       // machine's address and host key change as it sleeps and wakes: found now, never stored as truth.
       const bound = options.home === undefined ? undefined : readBoundRoute(options.home, host.id);
-      const target = bound === undefined ? await run(parseHostSshRoute(await boatRoute(host)))
+      const target = bound === undefined ? await run(parseHostSshRoute(await options.routes.route(host)))
         : await run(parseSshRoute({ endpoint: `${bound.user}@${bound.host}`, port: bound.port, identityFile: bound.identityFile, knownHostsFile: bound.knownHostsFile, bound: true }));
       const program = await run(openMachineLink(target, { juntoHome: host.juntoHome, installRoot: host.installRoot }));
       const own = await self();
@@ -265,4 +266,7 @@ export const makeMachineLink = (options: { readonly build: string; readonly home
   });
 });
 
-export const machineLinkLayer = (build: string, home?: string) => Layer.effect(MachineLink, makeMachineLink({ build, ...(home === undefined ? {} : { home }) }));
+export const machineLinkLayer = (build: string, home?: string) => Layer.effect(MachineLink, Effect.gen(function* () {
+  const boats = yield* BoatRoutesService;
+  return yield* makeMachineLink({ build, routes: boats.routes, ...(home === undefined ? {} : { home }) });
+}));

@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, expect, it } from "vitest";
 import { machineLinkLayer } from "../src/main/junto/link/live";
+import { noBoatRoutesLayer } from "./support/no-boat";
 import { coreControlSocketPath } from "../src/main/junto/link/listener";
 import { LinkHelloSchema } from "../src/main/junto/link/protocol";
 import { MachineLink } from "../src/main/junto/link/service";
@@ -28,6 +29,7 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 const machine = async () => {
   const home = await mkdtemp("/tmp/junto-key-binding-");
   const runtime = ManagedRuntime.make(Layer.provideMerge(machineLinkLayer(BUILD, home), Layer.mergeAll(
+    noBoatRoutesLayer,
     Layer.provide(makeMachineRepositoryLive({ defaultName: () => "vps" }), makeStateEngineLive(join(home, "junto.db"))),
     Layer.succeed(SshTransport, SshTransport.of({} as never)),
   )));

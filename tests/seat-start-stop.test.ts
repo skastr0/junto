@@ -13,6 +13,8 @@ import { LocalSessionHost } from "../src/main/junto/term/local-host";
 import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
 import { noSeatEnvironment } from "../src/main/junto/term/seat-process";
 import { startSeat, stopSeat, type SeatControlOptions } from "../src/main/junto/term/seat-control";
+import { noBoatWakeLayer } from "./support/no-boat";
+import type { BoatWake } from "../src/main/junto/boat/plane";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { setSeatCredentialRegistryForTests } from "../src/main/junto/work/seat-credentials";
 import { asCanvasName, type Node } from "../src/shared/model";
@@ -79,7 +81,7 @@ const fixture = async (nodes: ReadonlyArray<Node> = [localSeat, plainTerminal]) 
       clientForOccupy: async () => { throw new Error("local only"); },
     });
   }));
-  const runtime = ManagedRuntime.make(Layer.provideMerge(actors, Layer.provideMerge(ModelStoresLive, repositories)));
+  const runtime = ManagedRuntime.make(Layer.provideMerge(Layer.provideMerge(actors, Layer.provideMerge(ModelStoresLive, repositories)), noBoatWakeLayer));
   cleanups.push(async () => {
     await host.shutdownAll("test_cleanup");
     await runtime.dispose();
@@ -121,7 +123,7 @@ describe("seat start and stop", () => {
 
   it("refuses an unknown canvas, an unknown node and a plain terminal, typed", async () => {
     const f = await fixture();
-    const failure = (effect: Effect.Effect<unknown, unknown, ModelService | ActorSeatOccupy>) =>
+    const failure = (effect: Effect.Effect<unknown, unknown, ModelService | ActorSeatOccupy | BoatWake>) =>
       f.runtime.runPromise(Effect.flip(effect));
     expect(await failure(startSeat({ canvas: asCanvasName("elsewhere"), seatId: localSeat.id }, f.options)))
       .toMatchObject({ _tag: "SeatNotFound", canvas: "elsewhere" });

@@ -19,6 +19,7 @@ import { startSeat } from "../term/seat-control";
 import { termPlane } from "../term/plane";
 import { MachineRepository } from "../machines/repository";
 import type { BrowserSessionService } from "../browser/sessions";
+import type { BoatWake } from "../boat/plane";
 import { overseerPagesOn, type OverseerPages } from "./pages";
 import {
   mainAuthoringGate,
@@ -48,7 +49,8 @@ type OverseerServices =
   | ActorSeatOccupy
   | MachineRepository
   | ContentService
-  | WorkService;
+  | WorkService
+  | BoatWake;
 
 export type OverseerRunPromise = <A, E>(
   effect: Effect.Effect<A, E, OverseerServices>,

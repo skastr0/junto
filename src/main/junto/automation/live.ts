@@ -34,6 +34,7 @@ import { automationSenderStamp } from "@shared/mail-sender";
 import type { Canvas } from "@shared/model";
 import { makeUserMessage } from "@shared/task";
 import { ModelRecords } from "../model/records";
+import { BoatWake } from "../boat/plane";
 import { ModelService } from "../model/service";
 import { WorkService, type WorkServiceShape } from "../work/service";
 import { postSubjectComment } from "../work/subject-comment";
@@ -495,6 +496,7 @@ export const AutomationRunnerLive = Layer.effect(
     const workRepository = yield* Effect.serviceOption(WorkRepository);
     const pause = yield* Effect.serviceOption(PausePlane);
     const occupy = yield* Effect.serviceOption(ActorSeatOccupy);
+    const boatWake = yield* BoatWake;
     // The comments each Artifacts node holds: rows whose thread subject is one
     // of its artifacts. A node whose mailbox could not be read is named in
     // `unread`, never taken as holding none.
@@ -718,6 +720,7 @@ export const AutomationRunnerLive = Layer.effect(
                   }).pipe(
                     Effect.provideService(ModelService, model),
                     Effect.provideService(ActorSeatOccupy, occupy.value),
+                    Effect.provideService(BoatWake, boatWake),
                   )
                 : stopSeat({
                     canvas: asCanvasName(canvasName),

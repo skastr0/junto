@@ -12,6 +12,7 @@ import { Effect, Layer } from "effect";
 import * as Command from "effect/unstable/process/ChildProcess";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeMachineFiles, MACHINE_FILE_PIECE_BYTES, pushFileToMachine } from "../src/main/junto/content/machine-files";
+import { noBoatRoutesLayer } from "./support/no-boat";
 import { contentObjectPath, contentStoreRoot } from "../src/main/junto/content/paths";
 import { ContentService } from "../src/main/junto/content/service";
 import { HostsService } from "../src/main/junto/hosts/service";
@@ -112,7 +113,7 @@ describe("a push against the real content-transfer", () => {
     const push = () =>
       Effect.runPromise(
         pushFileToMachine("mini", { sha256, byteLength: size, mediaType: "application/octet-stream" } as ContentRef).pipe(
-          Effect.provide(Layer.mergeAll(ssh, hosts, content)),
+          Effect.provide(Layer.mergeAll(ssh, hosts, content, noBoatRoutesLayer)),
         ),
       );
     const far = () => readFile(contentObjectPath(contentStoreRoot(location.juntoHome), sha256));

@@ -8,6 +8,7 @@ import { coreOpBody } from "../src/main/core-process/ops";
 import "../src/main/core-process/ops/ipc-automation";
 import { subscribe as subscribePushes } from "../src/main/core-process/main-side/core-pushes";
 import { AutomationRunnerLive, AutomationRunnerService } from "../src/main/junto/automation/live";
+import { noBoatWakeLayer } from "./support/no-boat";
 import type {
   AutomationApplyResponse,
   AutomationCodePutResponse,
@@ -95,6 +96,7 @@ const run = async (
     Layer.provideMerge(
       AutomationRunnerLive,
       Layer.mergeAll(
+        noBoatWakeLayer,
         Layer.provide(ModelLive, ModelDependents.empty),
         makeAutomationRepositoryLive(),
         recorder,

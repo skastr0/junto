@@ -14,6 +14,7 @@ import { generatePairingKey } from "../src/main/junto/companion/pairing-key";
 import { makeLinkKey, writeBoundRoute, writeLinkKnownHosts } from "../src/main/junto/link/link-keys";
 import { coreControlSocketPath } from "../src/main/junto/link/listener";
 import { machineLinkLayer } from "../src/main/junto/link/live";
+import { noBoatRoutesLayer } from "./support/no-boat";
 import { MachineLink } from "../src/main/junto/link/service";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { SshExitError } from "../src/main/junto/ssh/domain";
@@ -48,6 +49,7 @@ it("dials a bound peer with its own key and known hosts only, and names the mach
     })) as unknown as SshTransportShape["connect"],
   });
   const runtime = ManagedRuntime.make(Layer.provideMerge(machineLinkLayer("c".repeat(64), home), Layer.mergeAll(
+    noBoatRoutesLayer,
     Layer.provide(makeMachineRepositoryLive({ defaultName: () => "mini" }), makeStateEngineLive(join(home, "junto.db"))),
     Layer.succeed(SshTransport, ssh),
   )));
@@ -119,6 +121,7 @@ it("tells a channel the link is key-bound at the end that dialed a bound route, 
       const home = await mkdtemp(`/tmp/junto-keybound-${name}-`);
       const seen: Array<boolean> = [];
       const runtime = ManagedRuntime.make(Layer.provideMerge(machineLinkLayer("c".repeat(64), home), Layer.mergeAll(
+    noBoatRoutesLayer,
         Layer.provide(makeMachineRepositoryLive({ defaultName: () => name }), makeStateEngineLive(join(home, "junto.db"))),
         Layer.succeed(SshTransport, relayTo(() => peerHome)),
       )));

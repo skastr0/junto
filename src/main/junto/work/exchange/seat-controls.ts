@@ -37,6 +37,7 @@ import { ModelService } from "../../model/service";
 import { PausePlane } from "../../pause-plane";
 import { ActorSeatOccupy } from "../../term/actor-seat-occupy";
 import { startSeat, stopSeat, SeatNotFound, NotASeat } from "../../term/seat-control";
+import { BoatWake } from "../../boat/plane";
 import { canvasPlacement } from "../canvas-placement";
 
 /** A control row this machine took: its body, its writer, the id its item carried, and its two clocks. */
@@ -197,6 +198,7 @@ export const makeHeldSeatControls = (rows: SeatControlRows) =>
       const automations = yield* AutomationRepository;
       const pause = yield* PausePlane;
       const occupy = yield* ActorSeatOccupy;
+      const boatWake = yield* BoatWake;
 
       const self = yield* machines.installationId;
       const placement = (canvasName: string) =>
@@ -239,7 +241,7 @@ export const makeHeldSeatControls = (rows: SeatControlRows) =>
           const where = { canvas: asCanvasName(canvasName), seatId: asNodeId(body.seat), operationId: arrived.controlId };
           const act: Effect.Effect<unknown, unknown> =
             body.op === "start"
-              ? startSeat(where).pipe(Effect.provideService(ModelService, model), Effect.provideService(ActorSeatOccupy, occupy))
+              ? startSeat(where).pipe(Effect.provideService(ModelService, model), Effect.provideService(ActorSeatOccupy, occupy), Effect.provideService(BoatWake, boatWake))
               : stopSeat(where).pipe(Effect.provideService(ModelService, model), Effect.provideService(ActorSeatOccupy, occupy));
           yield* runSeatControl({
             judge: {

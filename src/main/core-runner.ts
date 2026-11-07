@@ -5,11 +5,12 @@ import type { ModelService } from "./junto/model/service";
 import type { MachineRepository } from "./junto/machines/repository";
 import type { SeatSessionRepository } from "./junto/seat-sessions/repository";
 import type { MachineLink } from "./junto/link/service";
+import type { BoatWake } from "./junto/boat/plane";
 import type { HostsService } from "./junto/hosts/service";
 import type { VaultTokens } from "./junto/vault/repository";
 import type { WorkService } from "./junto/work/service";
 
-type CoreServices = ModelService | MachineRepository | SeatSessionRepository | SqlClient.SqlClient | MachineLink | HostsService | VaultTokens | WorkService;
+type CoreServices = ModelService | MachineRepository | SeatSessionRepository | SqlClient.SqlClient | MachineLink | HostsService | VaultTokens | WorkService | BoatWake;
 
 /** Promise callbacks enter the process's existing core, never a shell runtime. */
 export interface CoreRunner {
