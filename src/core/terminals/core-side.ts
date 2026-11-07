@@ -22,7 +22,8 @@ export type CoreParentPort = {
  */
 export const connectCoreTerminals = (parent: CoreParentPort): Effect.Effect<void, TerminalsNotGiven, TerminalHost> =>
   Effect.gen(function* () {
-    const terminals = terminalsOverPorts();
+    // The core's own context: every call on a terminal link runs on it.
+    const terminals = terminalsOverPorts(yield* Effect.context<never>());
     placeTerminals({ kind: "process", client: terminals });
     let first!: () => void;
     const connected = new Promise<void>((resolve) => { first = resolve; });
