@@ -9,7 +9,8 @@
 # A VM lives for a working session, not for one check: every start costs, so
 # reuse it for every check while you work, and stop it when you are done.
 # `new` gives it 3 hours; `boat extend <id> --hours 3` while you still work.
-# Auto-stop is the net for a VM someone forgot.
+# Auto-stop is the net for a VM someone forgot. `new` refuses while the
+# hour's included starts are used (boat limits --json: .starts.hour).
 #
 # The VM holds a git clone, so a sync sends only the commits it lacks, as a
 # git bundle (kilobytes), never the working tree. It never reads the shared
@@ -46,6 +47,12 @@ case "${1:-}" in
   new)
     seat=${2:?seat name}
     purpose=${3:?purpose}
+    # Starts past the plan's hourly 60 are paid from the wallet: start only while included ones remain.
+    left=$("$BOAT" limits --json | jq -r '.starts.hour.remaining')
+    if [ "$left" -le 0 ]; then
+      echo "vm.sh: the hour's included starts are used; the next frees at $("$BOAT" limits --json | jq -r '.startWindowFull.freesAt // "soon"'). Reuse a running VM, or wait." >&2
+      exit 1
+    fi
     id=$("$BOAT" new --from "$VM_BASE" --ttl 10800 --name "$seat-$purpose" --json | jq -r 'select(.event == "ready") | .id' | tail -1)
     [ -n "$id" ] || { echo "vm.sh: boat new did not report a ready VM" >&2; exit 1; }
     "$BOAT" rename "$id" "$seat-$id-$purpose" >/dev/null
