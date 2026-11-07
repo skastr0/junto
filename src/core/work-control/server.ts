@@ -17,7 +17,7 @@
 import { Context, Deferred, Effect, Layer, Queue, Result, Schema } from "effect";
 import { type RpcMessage, RpcServer } from "effect/rpc";
 import { type WorkErrorBody } from "@shared/work-control";
-import { WorkFailure, WorkInputRefusal, workErrorBody } from "../../contract/work/failure";
+import { WorkFailure, WorkInputHint, WorkInputRefusal, workErrorBody } from "../../contract/work/failure";
 import { WorkHandlers, WorkServed } from "./families";
 import { WorkAdmission, WorkSeat } from "./seat";
 
@@ -43,7 +43,11 @@ const inputRefusal = (rpc: { readonly annotations: Context.Context<never> } | un
   (rpc === undefined ? undefined : Context.get(rpc.annotations, WorkInputRefusal)) ?? {
     type: "InputError",
     message: typeof reason === "string" ? reason : "arguments do not match the command schema",
-    details: { path: "args", hint: "pass a JSON object matching the command schema", retryable: false },
+    details: {
+      path: "args",
+      hint: (rpc === undefined ? undefined : Context.get(rpc.annotations, WorkInputHint)) ?? "pass a JSON object matching the command schema",
+      retryable: false,
+    },
   };
 
 /** The socket answers this op through RPC. */

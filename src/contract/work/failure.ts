@@ -30,3 +30,12 @@ export const workErrorBody = (failure: Pick<WorkFailure, "type" | "message" | "d
 export const WorkInputRefusal = Context.Reference<WorkErrorBody | undefined>("@junto/contract/work/WorkInputRefusal", {
   defaultValue: () => undefined,
 });
+
+/**
+ * The hint an op's argument refusal carries, for an op whose refusal keeps
+ * the schema's words but names its own place to look. Absent, the hint is the
+ * command schema's.
+ */
+export const WorkInputHint = Context.Reference<string | undefined>("@junto/contract/work/WorkInputHint", {
+  defaultValue: () => undefined,
+});
