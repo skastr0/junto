@@ -73,8 +73,11 @@ pub(crate) use {parity, published};
 const UNKNOWN: &str = "juntoNotAField";
 
 /// Patterns the schemas use, each with a value that matches it.
-const PATTERN_SAMPLES: &[(&str, &str)] =
-    &[("^[0-9A-HJKMNP-TV-Z]{26}$", "01ARZ3NDEKTSV4RRFFQ69G5FAV")];
+const PATTERN_SAMPLES: &[(&str, &str)] = &[
+    ("^[0-9A-HJKMNP-TV-Z]{26}$", "01ARZ3NDEKTSV4RRFFQ69G5FAV"),
+    ("^[a-z0-9][a-z0-9._-]{0,47}$", "work"),
+    ("^[A-Za-z0-9._-]{1,128}$", "work"),
+];
 
 /// Checks `T` against the op's published file, panicking with every disagreement.
 pub fn check<T: DeserializeOwned + Serialize>(op: &str, published: &str, given: &[&str]) {
