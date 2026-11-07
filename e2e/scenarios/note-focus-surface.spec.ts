@@ -1,11 +1,8 @@
 import { commandModel, modelFixture, modelNote, readModelNode } from "../harness/model";
-import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
 
 import { expect, launchJunto, test } from "../harness/launch";
 
 const CANVAS = "note-focus-surface";
-const SHOTS = join(process.cwd(), "test-results", "note-focus-surface");
 
 const fixture = modelFixture([
   { ...modelNote("note-1", "# Field notes\n\nThe operator draft stays put."), width: 320, height: 220 },
@@ -17,7 +14,6 @@ test("Note focus survives canvas updates", async () => {
   });
   try {
     const { page } = junto;
-    await mkdir(SHOTS, { recursive: true });
     await expect(page.locator('.react-flow__node[data-id="note-1"]')).toBeVisible({
       timeout: 30_000,
     });
@@ -35,10 +31,6 @@ test("Note focus survives canvas updates", async () => {
 
     await expect(noteEditor).toBeVisible();
     await expect(textarea).toHaveValue("# Field notes\n\nUnsaved operator draft");
-    await page.screenshot({
-      path: join(SHOTS, "note-focus-after-canvas-update.png"),
-      fullPage: false,
-    });
 
     await noteEditor.getByRole("button", { name: "done", exact: true }).click();
     await expect(noteEditor).toBeHidden();

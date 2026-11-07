@@ -21,7 +21,7 @@ test("Expand carries a note's in-place typing into the editor and the saved note
 
     await note.click();
     await note.dblclick();
-    const inPlace = note.locator('textarea[data-focus-owner="canvas-draft"]');
+    const inPlace = note.getByRole("textbox", { name: "Edit note" });
     await expect(inPlace).toBeFocused();
     await page.keyboard.press("End");
     await page.keyboard.type(" kept");
