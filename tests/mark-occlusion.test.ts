@@ -5,7 +5,7 @@
  * surface uncovers first. The browser observers are stood in for, so each
  * reading is the one IntersectionObserver would deliver.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   boxWithin,
   COVER_RATIO,
@@ -57,6 +57,7 @@ class FakeResizeObserver {
     FakeResizeObserver.all.push(this);
   }
   observe(): void {}
+  unobserve(): void {}
   disconnect(): void {}
 }
 
@@ -69,6 +70,13 @@ const live = (): FakeIntersectionObserver => {
 let panel: HTMLElement;
 let flips: HTMLElement[];
 const releases: Array<() => void> = [];
+
+// The shared lane runs files in one realm: put the real globals back for the next file.
+const { IntersectionObserver: priorIntersection, ResizeObserver: priorResize } = globalThis as Record<string, unknown>;
+afterAll(() => {
+  (globalThis as Record<string, unknown>).IntersectionObserver = priorIntersection;
+  (globalThis as Record<string, unknown>).ResizeObserver = priorResize;
+});
 
 beforeEach(() => {
   FakeIntersectionObserver.all = [];
