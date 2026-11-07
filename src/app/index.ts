@@ -137,7 +137,7 @@ import {
 import { broadcastCompanionDevices, registerCompanionIpc } from "./companion/ipc";
 import { coreOverseerLive } from "./core-process/main-side/overseer-live";
 import { askOnLaterCores } from "./core-process/every-core";
-import { buildCoreClients, serveHost, startCoreProcessForMain } from "./core-process/main-boot";
+import { startCoreProcessForMain } from "./core-process/main-boot";
 import { coreMachineName } from "./core-process/core-reads-ipc";
 import { overseerPagesOn, type OverseerPages } from "../node/overseer/pages";
 import { runningBuildIdentity } from "../node/build-identity";
@@ -1485,11 +1485,10 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       boot,
       pages: () => coreProcessPages,
       captureApplicationPage,
+      clipboard,
       terminals,
     }));
-    const coreClients = await buildCoreClients(coreChildren.core.link);
-    // What the core asks of Electron (contract/host): the system clipboard for now.
-    await serveHost(coreChildren.core.hostLink, clipboard);
+    const coreClients = await coreChildren.core.clients;
     liveOverseer = coreOverseerLive(coreClients);
     if (LIVE_OVERSEER_ENABLED) unregisterOverseerLiveIpc = registerOverseerLiveIpc(liveOverseer);
 

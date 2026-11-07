@@ -46,6 +46,7 @@ it("hooks main up to a core in its own process: calls go to it, its pushes reach
     boot: BOOT,
     pages: () => undefined,
     captureApplicationPage: async () => ({ ok: true, png: new Uint8Array([7]) }),
+    clipboard: { readText: () => "", writeText: () => undefined, clear: () => undefined, availableFormats: () => [] },
     start: () => ({ ...portCore(portOf(port1), runHostOp), link: portOf(port1), hostLink: portOf(port1), stop: () => Effect.sync(() => { stopped += 1; }) }),
   });
   const seen: Array<[string, unknown]> = [];

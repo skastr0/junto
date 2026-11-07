@@ -167,10 +167,13 @@ describe("V4-ENTRY managed runtime domain entry", () => {
 
     expect(core).toMatch(/makeCoreRuntime/);
     expect(core).toMatch(/runtime\.runPromise/);
-    // The desktop shell builds no core: it starts the core process and builds
-    // main's typed clients of it.
+    // The desktop shell builds no core: it starts the core process, whose boot
+    // builds main's typed clients of it and main's host server.
     expect(cc).toMatch(/startCoreProcessForMain\(/);
-    expect(cc).toMatch(/buildCoreClients\(/);
+    expect(cc).toMatch(/await coreChildren\.core\.clients/);
+    const mainBoot = readFileSync(path.join(ROOT, "src/app/core-process/main-boot.ts"), "utf8");
+    expect(mainBoot).toMatch(/buildCoreClients\(started\.link\)/);
+    expect(mainBoot).toMatch(/serveHost\(started\.hostLink/);
     expect(cc).not.toMatch(/AppRuntime\.run(Promise|Fork)/);
     // The window's own ipc.ts is a thin shell: every domain read goes through
     // main's typed client of a core group.

@@ -34,10 +34,14 @@ import type { RpcPort } from "@shared/rpc-port";
  */
 export type CoreProcessForMain = {
   readonly client: PortCoreClient;
-  /** The link the core's RPC groups ride; main's clients of them are built on it (core-process/clients.ts). */
+  /** The link the core's RPC groups ride. */
   readonly link: RpcPort;
-  /** The link main's host server answers the core on (core-process/host-server.ts). */
-  readonly hostLink: RpcPort;
+  /**
+   * Main's clients of the core's groups (core-process/clients.ts), once main's
+   * host server answers the core (core-process/host-server.ts). Both are built
+   * once, on links that outlive a core restart, and live as long as main's runtime.
+   */
+  readonly clients: Promise<Context.Context<CoreClients>>;
   /** Where this boot's surface ports go: the core's plane while it is up, none after it stops. */
   readonly surfacePlanes: SurfacePlanes;
   /** Close the core: signal it, wait for its drain and exit bounded, fail tagged when it hangs. */
@@ -49,6 +53,8 @@ export const startCoreProcessForMain = (input: {
   /** The browser the overseer drives, once the browser composition bound it. */
   readonly pages: () => OverseerPages | undefined;
   readonly captureApplicationPage: () => Promise<ApplicationCaptureResult>;
+  /** The system clipboard the core's clipboard group is answered with. */
+  readonly clipboard: SystemClipboardShape;
   /** Tests start a core over a MessageChannel instead of a utilityProcess; its stop may be synchronous. */
   readonly start?: (boot: CoreBoot) => PortCoreClient & { readonly stop: () => Effect.Effect<void, CoreDidNotStop>; readonly postSurface?: (message: PortedCoreMessage, port: unknown) => boolean; readonly link: RpcPort; readonly hostLink: RpcPort };
   /** The terminal process the core's plane drives: main hands the core each port to it. */
@@ -61,6 +67,18 @@ export const startCoreProcessForMain = (input: {
   assertWorkControlSocketPathFits(workControlDir(input.boot.home));
   const started = (input.start ?? startCoreProcess)(input.boot);
   useCoreClient(started);
+  // The core asks for its port to the terminal process as it boots, and is
+  // handed a new one each time the terminal process starts again.
+  const postSurface = started.postSurface;
+  const terminals = input.terminals;
+  const giveTerminals = (): boolean =>
+    terminals !== undefined && postSurface !== undefined &&
+    postSurface({ kind: "push", channel: TERMINAL_CONNECT, payload: {} }, terminals.connect());
+  // What the core asks of Electron, and main's clients of what main asks the core.
+  const clients = Promise.all([
+    serveHost(started.hostLink, Layer.succeed(SystemClipboard, input.clipboard)),
+    buildCoreClients(started.link),
+  ]).then(([, built]) => built);
   // Each core that says ready is asked what main asks of every core; after the
   // first, the windows then read again what changed while no core ran.
   let readies = 0;
@@ -75,24 +93,17 @@ export const startCoreProcessForMain = (input: {
   const stopHost = serveOverseerHost({ link: started.link, pages: input.pages, captureApplicationPage: input.captureApplicationPage });
   // The terminal plane is the core's: each view's surface port rides to it.
   // One accessor per main boot, answering for the core that is up.
-  const postSurface = started.postSurface;
   let surfacePlane: SurfacePlane | undefined;
   if (postSurface !== undefined) {
     surfacePlane = coreSurfacePlane({ postSurface, onPush: started.onPush, call: (name, request) => started.call(name, request) });
   }
   const surfacePlanes: SurfacePlanes = { current: () => surfacePlane };
-  // The core asks for its port to the terminal process as it boots, and is
-  // handed a new one each time the terminal process starts again.
-  const terminals = input.terminals;
-  const giveTerminals = (): boolean =>
-    terminals !== undefined && postSurface !== undefined &&
-    postSurface({ kind: "push", channel: TERMINAL_CONNECT, payload: {} }, terminals.connect());
   const stopTerminalHost = hostOps({ "terminal.connect": async () => giveTerminals() });
   const stopRestart = terminals?.onRestart(() => void giveTerminals()) ?? (() => undefined);
   return {
     client: started,
     link: started.link,
-    hostLink: started.hostLink,
+    clients,
     surfacePlanes,
     stop: () =>
       // The core drains before it exits, and its drain can still ask main for a
@@ -114,25 +125,26 @@ export const startCoreProcessForMain = (input: {
   };
 };
 
-/**
- * Main's clients of the core's groups, built once on the link to the core
- * process. The link outlives a core restart, so they do too; they live as
- * long as main's runtime and close with it.
- */
+/** Main's clients of the core's groups on the link to the core process, for main's whole life. */
 export const buildCoreClients = (link: RpcPort): Promise<Context.Context<CoreClients>> =>
   AppRuntime.runPromise(
     Layer.buildWithScope(CoreClientsLive.pipe(Layer.provide(Layer.succeed(CoreLink, link))), AppRuntime.scope),
   );
 
 /**
- * Main's one server of the host groups, built once on the host link of the
- * core process it hosts, with what only Electron has. A core request that
- * comes first waits on the link; the server lives as long as main's runtime.
+ * What main's host server needs besides its link: what only Electron has, a
+ * service for each host group's handlers. A group added to HostRpcs with a
+ * handler that needs a new service fails startCoreProcessForMain's compile
+ * until it is given here.
  */
-export const serveHost = (hostLink: RpcPort, clipboard: SystemClipboardShape): Promise<void> =>
+export type MainHosts = Exclude<Layer.Services<typeof HostServerLive>, HostLink>;
+
+/**
+ * Main's one server of the host groups, on the host link of the core process
+ * it hosts. A core request that comes first waits on the link; the server
+ * lives as long as main's runtime.
+ */
+export const serveHost = (hostLink: RpcPort, hosts: Layer.Layer<MainHosts>): Promise<void> =>
   AppRuntime.runPromise(
-    Layer.buildWithScope(
-      HostServerLive.pipe(Layer.provide([Layer.succeed(HostLink, hostLink), Layer.succeed(SystemClipboard, clipboard)])),
-      AppRuntime.scope,
-    ),
+    Layer.buildWithScope(HostServerLive.pipe(Layer.provide([Layer.succeed(HostLink, hostLink), hosts])), AppRuntime.scope),
   ).then(() => undefined);
