@@ -3,19 +3,28 @@
  * until the operator turns them on. Frames land in
  * test-results/experimental-settings/ (disposable, never committed).
  *
- * Needs a build that carries seat awareness as experimental (the all-on
- * profile ships it on, which hides the tab):
+ * Needs a build that carries seat awareness as experimental: the ship profile
+ * does. The all-on profile ships it on, which hides the tab, so on an all-on
+ * build (the e2e gate's) the spec asserts the tab is absent, as the build
+ * recorded its profile in out/build-source.json.
  *
- *   JUNTO_FEATURE_PROFILE=all-on JUNTO_SEAT_AWARENESS=experimental electron-vite build
+ *   JUNTO_FEATURE_PROFILE=ship bun run build:bundles
  *   bun run test:e2e:fast e2e/scenarios/experimental-settings.spec.ts
  */
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "experimental-settings");
 
-test("the Experimental tab turns seat awareness on and off", async () => {
+/** The feature profile the build under test was made with, as the build recorded it. */
+const builtProfile = async (): Promise<"ship" | "all-on"> => {
+  const stamp = JSON.parse(await readFile(join(process.cwd(), "out", "build-source.json"), "utf8")) as { readonly featureProfile?: unknown };
+  if (stamp.featureProfile !== "ship" && stamp.featureProfile !== "all-on") throw new Error("out/build-source.json records no feature profile: rebuild from this commit");
+  return stamp.featureProfile;
+};
+
+test("the Experimental tab turns seat awareness on and off, and is absent where the build ships it on", async () => {
   test.setTimeout(180_000);
   await mkdir(SHOTS, { recursive: true });
   const junto = await launchJunto({});
@@ -36,6 +45,11 @@ test("the Experimental tab turns seat awareness on and off", async () => {
       await page.locator(".settings-nav__item", { hasText: "Advanced" }).click();
       await expect(page.getByLabel("Seat awareness")).toHaveCount(0);
 
+      if ((await builtProfile()) === "all-on") {
+        await expect(page.locator(".settings-nav__item", { hasText: "Experimental" })).toHaveCount(0);
+        await page.locator(".settings-panel__close").click();
+        continue;
+      }
       await page.locator(".settings-nav__item", { hasText: "Experimental" }).click();
       const toggle = page.getByRole("switch", { name: "Seat awareness (Jev)" });
       await expect(toggle).toBeVisible();
