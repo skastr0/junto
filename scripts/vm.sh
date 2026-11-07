@@ -34,6 +34,23 @@ ROOT=$(git rev-parse --show-toplevel)
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/junto-vm.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
+# Starts past the plan's hourly 60 are paid from the wallet: start only while
+# included ones remain. A command sent to a stopped VM wakes it, and that is a
+# start too, so sync and run ask the same before they touch one.
+may_start() {
+  local left
+  left=$("$BOAT" limits --json | jq -r '.starts.hour.remaining')
+  if [ "$left" -le 0 ]; then
+    echo "vm.sh: the hour's included starts are used; the next frees at $("$BOAT" limits --json | jq -r '.startWindowFull.freesAt // "soon"'). Reuse a running VM, or wait." >&2
+    exit 1
+  fi
+}
+awake() { # awake <id>: a stopped VM may wake only within the included starts
+  case "$("$BOAT" info "$1" --json | jq -r '.sandbox.state')" in
+    stopped | stopping) may_start ;;
+  esac
+}
+
 remote() { # remote <id> <shell…>: run on the VM, print stdout and stderr, exit with its code
   local id=$1
   shift
@@ -47,12 +64,7 @@ case "${1:-}" in
   new)
     seat=${2:?seat name}
     purpose=${3:?purpose}
-    # Starts past the plan's hourly 60 are paid from the wallet: start only while included ones remain.
-    left=$("$BOAT" limits --json | jq -r '.starts.hour.remaining')
-    if [ "$left" -le 0 ]; then
-      echo "vm.sh: the hour's included starts are used; the next frees at $("$BOAT" limits --json | jq -r '.startWindowFull.freesAt // "soon"'). Reuse a running VM, or wait." >&2
-      exit 1
-    fi
+    may_start
     id=$("$BOAT" new --from "$VM_BASE" --ttl 10800 --name "$seat-$purpose" --json | jq -r 'select(.event == "ready") | .id' | tail -1)
     [ -n "$id" ] || { echo "vm.sh: boat new did not report a ready VM" >&2; exit 1; }
     "$BOAT" rename "$id" "$seat-$id-$purpose" >/dev/null
@@ -60,6 +72,7 @@ case "${1:-}" in
     ;;
   sync)
     id=${2:?VM id}
+    awake "$id"
     ref=${3:-HEAD}
     shift $(($# < 3 ? $# : 3))
     target=$(git -C "$ROOT" rev-parse --verify "$ref^{commit}")
@@ -102,6 +115,7 @@ case "${1:-}" in
     ;;
   run)
     id=${2:?VM id}
+    awake "$id"
     shift 2
     # The VM sets Boat's own URLs, which Junto's tests read as a secret to scrub (boat-scrub).
     remote "$id" "cd ~/$VM_DIR && unset BACKEND_URL ASCII_API_URL BOX_CLI_API_URL && $*"
