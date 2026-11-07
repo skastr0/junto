@@ -13,13 +13,9 @@ export const PROFILE_ID_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 export const isValidProfileId = (id: string): boolean => PROFILE_ID_RE.test(id);
 
-export type BrowserSessionState =
-  | "idle"
-  | "loading"
-  | "ready"
-  | "failed"
-  | "detached"
-  | "destroyed";
+/** A browser session's states, one closed vocabulary; the type and every Schema of it come from this list. */
+export const BROWSER_SESSION_STATES = ["idle", "loading", "ready", "failed", "detached", "destroyed"] as const;
+export type BrowserSessionState = (typeof BROWSER_SESSION_STATES)[number];
 
 /** Receipt for an explicit Stop Page operation. Profile storage is untouched. */
 export interface BrowserStopReceipt {

@@ -18,6 +18,7 @@
  */
 import { Schema } from "effect";
 import { Rpc, RpcGroup } from "effect/rpc";
+import { BROWSER_SESSION_STATES } from "../../shared/browser";
 import { ResolvedPageTarget } from "../core/browser";
 
 const BrowserErrorCode = Schema.Literals([
@@ -41,7 +42,7 @@ export const BrowserResult = <A, I, R>(data: Schema.Codec<A, I, R>) =>
     Schema.Struct({ ok: Schema.Literal(false), code: BrowserErrorCode, message: Schema.String }),
   ]);
 
-const BrowserSessionState = Schema.Literals(["idle", "loading", "ready", "failed", "detached", "destroyed"]);
+const BrowserSessionState = Schema.Literals(BROWSER_SESSION_STATES);
 
 export const BrowserSessionInfo = Schema.Struct({
   sessionId: Schema.String,

@@ -143,6 +143,7 @@ const ALLOWED: readonly Allowed[] = [
   { file: "src/shared/wire/pad.ts", name: "PadShapeStatus", rule: "names", reason: "a pad task's status, not seat urgency" },
   { file: "src/shared/pad-project.ts", name: "PadFocusedItem.status", rule: "names", reason: "a pad task's status, not seat urgency" },
   { file: "src/shared/update.ts", name: "UpdatePhase", rule: "names", reason: "the app updater's phases, not seat urgency" },
+  { file: "src/shared/browser.ts", name: "BROWSER_SESSION_STATES", rule: "names", reason: "a browser session's states, declared once for the type and every Schema of it, not urgency" },
 
   // Counts.
   { file: "src/shared/region-rollup.ts", name: "RegionRollup.counts", rule: "names", reason: COUNTS },
