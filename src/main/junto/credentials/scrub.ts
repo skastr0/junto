@@ -110,20 +110,6 @@ const replaceShapes = (text: string): string => {
 };
 
 /**
- * Values live on this machine that no failure or log may carry are registered
- * by the process that holds them (known-secrets.ts, the core's); startCore
- * installs that registry here as the known-value source. This module holds no
- * registry of its own, so main, which holds no such values, installs none and
- * links no secret state.
- */
-let installedSecretValues: (() => ReadonlyArray<string>) | undefined;
-
-/** One source per process; a process that registers nothing installs none. */
-export const setKnownSecretValuesSource = (next: (() => ReadonlyArray<string>) | undefined): void => {
-  installedSecretValues = next;
-};
-
-/**
  * The known values one launch holds: its secrets and credential (searched from
  * four characters by `redactSecretValues`), and the environment's values from
  * six characters, minus the names the doctrine allows to show. A launch
@@ -143,17 +129,19 @@ export const launchSecretValues = (
 };
 
 /**
- * Step 3's known values: the caller's, this process's environment, and whatever
- * the process installed as its source (the core's registry; main installs none).
+ * Step 3's known values: the caller's own, this process's environment, and the
+ * values of the registry the caller passes in (known-secrets.ts, which only the
+ * core loads). This module holds no registry of its own, so a process that
+ * registers nothing passes nothing and links no secret state.
  */
-export const knownSecretValues = (
-  secrets: ReadonlyArray<string | undefined> = [],
-  environment: Readonly<Record<string, string | undefined>> = process.env,
-): ReadonlyArray<string | undefined> => {
-  const values = [...launchSecretValues(secrets, environment)];
-  if (installedSecretValues !== undefined) values.push(...installedSecretValues());
-  return values;
-};
+export const knownSecretValues = (sources: {
+  readonly secrets?: ReadonlyArray<string | undefined>;
+  readonly environment?: Readonly<Record<string, string | undefined>>;
+  readonly registered?: ReadonlyArray<string>;
+} = {}): ReadonlyArray<string | undefined> => [
+  ...launchSecretValues(sources.secrets ?? [], sources.environment ?? process.env),
+  ...(sources.registered ?? []),
+];
 
 /** Steps 2 to 4 over text Junto did not prove clean. */
 export const scrubText = (text: string, known: ReadonlyArray<string | undefined> = knownSecretValues()): string =>

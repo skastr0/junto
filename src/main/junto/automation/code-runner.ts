@@ -47,7 +47,7 @@ import {
   StderrTail,
   type ScrubbedTail,
 } from "../credentials/scrub";
-import { registerKnownSecrets, releaseKnownSecrets } from "../credentials/known-secrets";
+import { registerKnownSecrets, registeredSecretValues, releaseKnownSecrets } from "../credentials/known-secrets";
 import { appProcessPlane, type AppProcessExit, type AppProcessLease } from "../app-process-plane";
 import type { ContentServiceShape } from "../content/service";
 import { juntoCliPathPrefixes } from "../term/templates/seat-env";
@@ -401,7 +401,7 @@ const exitWords = (end: ProcessEnd): string =>
 
 /** What one process end answers, with every text a person or a log reads scrubbed. */
 export const codeResultOf = (end: ProcessEnd, secrets: ReadonlyArray<string>): CodeResult => {
-  const known = knownSecretValues(secrets);
+  const known = knownSecretValues({ secrets, registered: registeredSecretValues() });
   const logTail = end.tail.read(known);
   const durationMs = end.durationMs;
   const withTail = logTail.text.length > 0 ? { logTail } : {};
@@ -490,7 +490,7 @@ export const makeCodeRunner = (deps: CodeRunnerDeps) => {
     const timeoutMs = clamp(request.timeoutMs, CODE_TIMEOUT_MIN_MS, CODE_TIMEOUT_MAX_MS);
     const maxOutputBytes = clamp(request.maxOutputBytes, 1, CODE_MAX_OUTPUT_BYTES);
     const spawnFailed = (message: string) => (cause: unknown) =>
-      new CodeSpawnFailed({ machine: deps.machine, message, cause: scrubMessage(String(cause), knownSecretValues(secrets)) });
+      new CodeSpawnFailed({ machine: deps.machine, message, cause: scrubMessage(String(cause), knownSecretValues({ secrets, registered: registeredSecretValues() })) });
 
     const end = yield* Effect.acquireUseRelease(
       Effect.tryPromise({

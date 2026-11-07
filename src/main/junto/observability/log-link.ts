@@ -12,6 +12,7 @@ import {
 import { ModelRecords } from "../model/records";
 import { decodeEncodedFailure } from "../failure-encode";
 import { knownSecretValues, scrubMessage } from "../credentials/scrub";
+import { registeredSecretValues } from "../credentials/known-secrets";
 import { readMachineLog } from "./log-file";
 import { logMachine } from "./logger";
 
@@ -85,12 +86,12 @@ const decodeRead = Schema.decodeUnknownEffect(MachineLogRead, { onExcessProperty
  */
 export const receivePeerLogRead = Effect.fn("receivePeerLogRead")(function* (input: unknown, machine: string) {
   const read = yield* decodeRead(input);
-  const known = knownSecretValues();
+  const known = knownSecretValues({ registered: registeredSecretValues() });
   const rows = read.rows.map((row): MachineLogRow => ({
     ...row,
-    message: scrubMessage(row.message),
+    message: scrubMessage(row.message, known),
     ...(row.failure === undefined ? {} : { failure: decodeEncodedFailure(row.failure) }),
-    ...(row.spans === undefined ? {} : { spans: row.spans.map((span) => scrubMessage(span).slice(0, 128)).filter((span) => span.length > 0) }),
+    ...(row.spans === undefined ? {} : { spans: row.spans.map((span) => scrubMessage(span, known).slice(0, 128)).filter((span) => span.length > 0) }),
     ...(row.annotations === undefined
       ? {}
       : { annotations: Object.fromEntries(Object.entries(row.annotations).flatMap(([key, value]) => LOG_ID_ANNOTATIONS.has(key)

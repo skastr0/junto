@@ -10,7 +10,8 @@ import {
   OBSERVABILITY_RING_CAPACITY,
   matchesObservabilityQuery,
 } from "@shared/observability";
-import { scrubMessage } from "../credentials/scrub";
+import { knownSecretValues, scrubMessage } from "../credentials/scrub";
+import { registeredSecretValues } from "../credentials/known-secrets";
 
 export type ObservabilityAppendInput = {
   readonly level: ObservabilityLogLevel;
@@ -143,9 +144,11 @@ export const observabilityRing = makeObservabilityRing();
  * the scrub's long-run rule would erase, so they are left as their writer sent
  * them.
  */
-export const appendScrubbed = (input: ObservabilityAppendInput): ObservabilityLogEntry =>
-  observabilityRing.append({
+export const appendScrubbed = (input: ObservabilityAppendInput): ObservabilityLogEntry => {
+  const known = knownSecretValues({ registered: registeredSecretValues() });
+  return observabilityRing.append({
     ...input,
-    message: scrubMessage(input.message),
-    ...(input.spans === undefined ? {} : { spans: input.spans.map((span) => scrubMessage(span)) }),
+    message: scrubMessage(input.message, known),
+    ...(input.spans === undefined ? {} : { spans: input.spans.map((span) => scrubMessage(span, known)) }),
   });
+};

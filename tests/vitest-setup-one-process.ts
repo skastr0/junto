@@ -17,8 +17,6 @@ import { runHostOp } from "../src/main/core-process/main-side/host-op-bodies";
 import { placeTerminals } from "../src/main/terminal-process/use";
 import { sendLogRowsTo } from "../src/main/junto/observability/logger";
 import { observabilityRing } from "../src/main/junto/observability/ring";
-import { setKnownSecretValuesSource } from "../src/main/junto/credentials/scrub";
-import { registeredSecretValues } from "../src/main/junto/credentials/known-secrets";
 
 sendPushesTo(deliverPush);
 useHostClient({
@@ -30,7 +28,6 @@ useHostClient({
 });
 placeTerminals({ kind: "here" });
 sendLogRowsTo((row) => observabilityRing.append(row));
-setKnownSecretValuesSource(registeredSecretValues);
 // The reads load the core's shell and process seam, so install them after the
 // test file has registered its mocks, never at setup load: a file that mocks
 // app-process-plane's dependencies must see its mocks, not the real graph.

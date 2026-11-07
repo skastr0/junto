@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { knownSecretValues, launchSecretValues, scrubMessage, scrubText, StderrTail } from "../src/main/junto/credentials/scrub";
-import { registerKnownSecrets, releaseKnownSecrets } from "../src/main/junto/credentials/known-secrets";
+import { registerKnownSecrets, registeredSecretValues, releaseKnownSecrets } from "../src/main/junto/credentials/known-secrets";
 
 const tail = (text: string, known?: ReadonlyArray<string | undefined>) => {
   const window = new StderrTail();
@@ -23,23 +23,24 @@ it("step 2 removes escape sequences whole, controls and bidi, and a carriage ret
 });
 
 it("step 3 redacts known values: secrets from four characters, environment values from six", () => {
-  const known = knownSecretValues(["s3cr"], { GH_TOKEN_VALUE: "abcdef1", SHORT: "wxyz5", HOME: "/Users/someone", LC_ALL: "en_US.UTF-8" });
+  const known = knownSecretValues({ secrets: ["s3cr"], environment: { GH_TOKEN_VALUE: "abcdef1", SHORT: "wxyz5", HOME: "/Users/someone", LC_ALL: "en_US.UTF-8" } });
   const text = scrubText("s3cr abcdef1 wxyz5 /Users/someone en_US.UTF-8", known);
   expect(text).toBe("[redacted] [redacted] wxyz5 /Users/someone en_US.UTF-8");
 });
 
 it("step 3 keeps Junto's own names and paths and short region words, and searches the credential", () => {
-  const known = knownSecretValues(["tok4"], { JUNTO_SEAT: "remote-send", JUNTO_SOCKET: "/Users/someone/.junto/core/control.sock", JUNTO_HOME: "/Users/someone/.junto-mini", COLORTERM: "truecolor", REGION_STAGE: "prod", JUNTO_WORK_TOKEN: "work-token-value", JUNTO_TOKEN: "legacy-token-value", JUNTO_FUTURE_KEY: "future-key-value" });
+  const known = knownSecretValues({ secrets: ["tok4"], environment: { JUNTO_SEAT: "remote-send", JUNTO_SOCKET: "/Users/someone/.junto/core/control.sock", JUNTO_HOME: "/Users/someone/.junto-mini", COLORTERM: "truecolor", REGION_STAGE: "prod", JUNTO_WORK_TOKEN: "work-token-value", JUNTO_TOKEN: "legacy-token-value", JUNTO_FUTURE_KEY: "future-key-value" } });
   expect(scrubText("remote-send at /Users/someone/.junto-mini/core/control.sock truecolor prod tok4 work-token-value legacy-token-value future-key-value", known))
     .toBe("remote-send at /Users/someone/.junto-mini/core/control.sock truecolor prod [redacted] [redacted] [redacted] [redacted]");
 });
 
 it("step 3 searches the values a launch registered until their generation ends", () => {
   registerKnownSecrets("seat:b1@1", ["gen-credential-1", "rs1x"]);
-  expect(scrubText("seat env had gen-credential-1 and rs1x")).toBe("seat env had [redacted] and [redacted]");
+  const known = () => knownSecretValues({ registered: registeredSecretValues() });
+  expect(scrubText("seat env had gen-credential-1 and rs1x", known())).toBe("seat env had [redacted] and [redacted]");
   expect(launchSecretValues(["tok4"], {})).toEqual(["tok4"]);
   releaseKnownSecrets("seat:b1@1");
-  expect(scrubText("seat env had gen-credential-1")).toBe("seat env had gen-credential-1");
+  expect(scrubText("seat env had gen-credential-1", known())).toBe("seat env had gen-credential-1");
 });
 
 it("step 4 redacts credential shapes Junto does not know", () => {
