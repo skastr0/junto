@@ -21,9 +21,30 @@ export function ArtifactTasks({
   /** The canvas's tasks, to name and to pick from. */
   readonly tasks: ReadonlyArray<TaskView>;
   readonly readOnly: boolean;
-  readonly onChange: (taskIds: ReadonlyArray<ItemId>) => void;
+  /** Send the whole next set; how it was ruled, a failure to send reading as refused. */
+  readonly onChange: (taskIds: ReadonlyArray<ItemId>) => Promise<"applied" | "queued" | "refused">;
   readonly onOpen: (task: TaskView) => void;
 }) {
+  /**
+   * The set last sent, shown until the ruled set changes or its write comes
+   * back queued or refused, so a second unlink or link made before the first
+   * is ruled builds on it rather than on the stale ruled set. `seq` names the
+   * latest send, so an earlier one ruled late never takes back a later one.
+   */
+  const [sent, setSent] = useState<{ readonly taskIds: ReadonlyArray<ItemId>; readonly seq: number } | null>(null);
+  const seq = useRef(0);
+  const ruled = taskIds.join("\n");
+  useEffect(() => setSent(null), [ruled]);
+  const held = sent?.taskIds ?? taskIds;
+  const send = (next: ReadonlyArray<ItemId>): void => {
+    const mine = ++seq.current;
+    setSent({ taskIds: next, seq: mine });
+    const settle = (ruling: "applied" | "queued" | "refused"): void => {
+      if (ruling !== "applied") setSent((last) => (last?.seq === mine ? null : last));
+    };
+    void onChange(next).then(settle, () => settle("refused"));
+  };
+
   const [picking, setPicking] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState<string | undefined>(undefined);
@@ -32,12 +53,12 @@ export function ArtifactTasks({
     const needle = query.trim().toLowerCase();
     return tasks.filter(
       (task) =>
-        !taskIds.includes(task.taskId) &&
+        !held.includes(task.taskId) &&
         (needle.length === 0 ||
           task.title.toLowerCase().includes(needle) ||
           (task.number !== undefined && String(task.number).startsWith(needle.replace(/^#/u, "")))),
     );
-  }, [tasks, taskIds, query]);
+  }, [tasks, held, query]);
 
   const group = useRef<HTMLDivElement>(null);
   /** Close the picker and give focus back to the button that opened it. */
@@ -59,11 +80,11 @@ export function ArtifactTasks({
 
   const link = (task: TaskView | undefined): void => {
     if (task === undefined) return;
-    onChange([...taskIds, task.taskId]);
+    send([...held, task.taskId]);
     close();
   };
 
-  if (taskIds.length === 0 && readOnly) return null;
+  if (held.length === 0 && readOnly) return null;
 
   return (
     <div
@@ -79,7 +100,7 @@ export function ArtifactTasks({
       }}
     >
       <span className="artifact-tasks__chips">
-        {taskIds.map((taskId) => {
+        {held.map((taskId) => {
           const task = byId.get(taskId);
           return (
             <span key={taskId} className="artifact-tasks__chip">
@@ -94,7 +115,7 @@ export function ArtifactTasks({
                   size="xs"
                   aria-label={`Unlink ${task?.title ?? "task"}`}
                   title="Unlink"
-                  onClick={() => onChange(taskIds.filter((id) => id !== taskId))}
+                  onClick={() => send(held.filter((id) => id !== taskId))}
                 >
                   <X size={11} />
                 </IconButton>

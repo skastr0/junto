@@ -855,7 +855,7 @@ function SelectedArtifact({
             taskIds={artifact.taskIds}
             tasks={tasks}
             readOnly={readOnly}
-            onChange={(taskIds) => void apply({ op: "tasks", taskIds: [...taskIds] })}
+            onChange={(taskIds) => apply({ op: "tasks", taskIds: [...taskIds] }).then((ruling) => ruling.kind)}
             onOpen={(task) => {
               onClose();
               openWorkDetail(task.current.node, { itemId: task.taskId });
