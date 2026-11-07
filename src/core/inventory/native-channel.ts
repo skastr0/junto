@@ -5,14 +5,21 @@
  * machine's own catalogue and installed version, written through
  * NativeConfig, and answers the value read back. Neither waits on a person or
  * a probe: the installed version comes from the inventory cache.
+ *
+ * Both requests are idempotent: a read changes nothing, and a write sets a
+ * value, so a repeat lands the same file, and a handler interrupted mid-write
+ * leaves either the file it found or the file it set. The write itself lands
+ * by rename, so a half-run leaves no partial value.
  */
 import { Effect, Schema } from "effect";
+import { Rpc, RpcGroup } from "effect/rpc";
 import { InventoryUnavailableError } from "@shared/harness-domain/inventory";
 import { NATIVE_SETTINGS } from "@shared/harness-domain/native-catalogue";
 import { nativeValueFits, NativeSettingRefusedError } from "@shared/harness-domain/native-config";
 import { NativeConfigWriteError } from "@shared/harness-domain/native-config-write";
 import type { HarnessId } from "@shared/managed-terminal-templates";
-import type { LinkChannelHandler } from "../link/types";
+import type { LinkChannelContext } from "../link/types";
+import { bindLinkChannel, linkContract, type LinkContractChannel } from "../link/contract";
 import { MachineRepository } from "../machines/repository";
 import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
@@ -23,15 +30,25 @@ import {
   isNativeWireValue,
   NATIVE_REFUSAL_TEXT,
   NATIVE_WRITE_TEXT,
-  NativeConfigEventRefused,
   NativeConfigLinkFailure,
-  NativeConfigRequest,
-  type NativeConfigResponse,
+  NativeConfigSettings,
+  NativeConfigWritten,
   NativeConfigWriteFailed,
   NativeSettingRefused,
   type NativeSettingRead,
   type NativeWireValue,
+  ReadSettings,
+  WriteSetting,
 } from "./native-wire";
+
+/**
+ * The native-config channel's contract: two requests, each naming the canvas
+ * and one declared key or its value. It carries no events.
+ */
+export const NativeConfigLink = linkContract("native-config", RpcGroup.make(
+  Rpc.make("ReadSettings", { payload: ReadSettings, success: NativeConfigSettings, error: NativeConfigLinkFailure }),
+  Rpc.make("WriteSetting", { payload: WriteSetting, success: NativeConfigWritten, error: NativeConfigLinkFailure }),
+));
 
 const isLinkFailure = Schema.is(NativeConfigLinkFailure);
 
@@ -80,7 +97,7 @@ export const makeNativeConfigAnswers = Effect.fn("NativeConfigLink.answers")(fun
       // A hand edit outside the declared setting crosses as unfit, never as its text.
       read.push(isNativeWireValue(value) && nativeValueFits(specs[index]!.value, value) ? { key, value } : { key, unfit: true });
     }
-    return { _tag: "Settings", machine, harness, values: read } satisfies NativeConfigResponse;
+    return { _tag: "Settings", machine, harness, values: read } satisfies NativeConfigSettings;
   }).pipe(
     Effect.tap(() => Effect.logInfo("native settings read", { harness, keys })),
     Effect.tapError((failure) => Effect.logWarning("native settings read failed", { harness, keys, failure: failure._tag })),
@@ -92,7 +109,7 @@ export const makeNativeConfigAnswers = Effect.fn("NativeConfigLink.answers")(fun
     const after = yield* config.write({ machine, harness, key, value }).pipe(Effect.mapError(fail));
     if (!isNativeWireValue(after))
       return yield* fail(new NativeConfigWriteError({ machine, harness, key, reason: "io", message: "read back outside its setting" }));
-    return { _tag: "Written", machine, harness, key, value: after } satisfies NativeConfigResponse;
+    return { _tag: "Written", machine, harness, key, value: after } satisfies NativeConfigWritten;
   }).pipe(
     // Never the value: a log names the harness, the key and the outcome.
     Effect.tap(() => Effect.logInfo("native setting written", { harness, key })),
@@ -106,29 +123,14 @@ export const makeNativeConfigAnswers = Effect.fn("NativeConfigLink.answers")(fun
 
 export type NativeConfigAnswers = Effect.Success<ReturnType<typeof makeNativeConfigAnswers>>;
 
-/** A channel with no events refuses every event frame. */
-const noEvents = (): never => {
-  throw new NativeConfigEventRefused({ message: "The native-config channel carries no events." });
-};
-
 export const makeNativeConfigChannel = Effect.fn("NativeConfigLink.make")(function* () {
   const log = yield* LogService;
   const services = yield* Effect.context<ModelService | ModelRecords | MachineRepository>();
   const machines = yield* MachineRepository;
   const answers = yield* makeNativeConfigAnswers();
 
-  const handleRequest: NonNullable<LinkChannelHandler["handleRequest"]> = (context, raw) => Effect.gen(function* () {
-    // Decode here too: direct callers cannot bypass the transport decoder.
-    const request = yield* Schema.decodeUnknownEffect(NativeConfigRequest)(raw, { onExcessProperty: "error" });
-    const machine = yield* machines.machineName.pipe(Effect.orElseSucceed(() => log.machine()));
-    yield* admitCanvasEditor(context, request.canvas, machine).pipe(
-      Effect.provideContext(services),
-      Effect.mapError(asFailure(machine, request.harness, request._tag === "WriteSetting" ? request.key : undefined, context.operationId)),
-    );
-    return request._tag === "ReadSettings"
-      ? yield* answers.read(request.harness, request.keys, context.operationId)
-      : yield* answers.write(request.harness, request.key, request.value, context.operationId);
-  }).pipe(
+  /** Every failure crosses under the channel's closed schema; the link stays open. */
+  const refused = <A, E, R>(context: LinkChannelContext, work: Effect.Effect<A, E, R>) => work.pipe(
     Effect.catch((cause) => machines.machineName.pipe(
       Effect.orElseSucceed(() => log.machine()),
       Effect.flatMap((machine) => Effect.fail(isLinkFailure(cause)
@@ -143,14 +145,25 @@ export const makeNativeConfigChannel = Effect.fn("NativeConfigLink.make")(functi
     }),
   );
 
-  const handler: LinkChannelHandler = {
-    failureSchema: NativeConfigLinkFailure as Schema.Codec<unknown, unknown>,
-    decodeRequest: Schema.decodeUnknownSync(NativeConfigRequest, { onExcessProperty: "error" }),
-    // A response that throws here would close the whole link as frame-invalid,
-    // so the requester decodes the answer itself, after the request returns.
-    decodeResponse: (payload) => payload,
-    decodeEvent: noEvents,
-    handleRequest,
-  };
-  return handler;
+  const channel: LinkContractChannel = bindLinkChannel(NativeConfigLink, {
+    requests: {
+      ReadSettings: (request, context) => refused(context, Effect.gen(function* () {
+        const machine = yield* machines.machineName.pipe(Effect.orElseSucceed(() => log.machine()));
+        yield* admitCanvasEditor(context, request.canvas, machine).pipe(
+          Effect.provideContext(services),
+          Effect.mapError(asFailure(machine, request.harness, undefined, context.operationId)),
+        );
+        return yield* answers.read(request.harness, request.keys, context.operationId);
+      })),
+      WriteSetting: (request, context) => refused(context, Effect.gen(function* () {
+        const machine = yield* machines.machineName.pipe(Effect.orElseSucceed(() => log.machine()));
+        yield* admitCanvasEditor(context, request.canvas, machine).pipe(
+          Effect.provideContext(services),
+          Effect.mapError(asFailure(machine, request.harness, request.key, context.operationId)),
+        );
+        return yield* answers.write(request.harness, request.key, request.value, context.operationId);
+      })),
+    },
+  });
+  return channel;
 });

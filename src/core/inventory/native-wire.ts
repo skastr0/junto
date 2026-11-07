@@ -38,12 +38,16 @@ export const isNativeWireValue = Schema.is(NativeWireValue);
 
 const Keys = Schema.Array(Key).pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(MAX_NATIVE_KEYS)));
 
-export const NativeConfigRequest = Schema.Union([
-  Schema.TaggedStruct("ReadSettings", { canvas: CanvasName, harness: HarnessId, keys: Keys }),
-  /** A set, never a toggle: sending it twice leaves the same file. */
-  Schema.TaggedStruct("WriteSetting", { canvas: CanvasName, harness: HarnessId, key: Key, value: NativeWireValue }),
-]);
-export type NativeConfigRequest = typeof NativeConfigRequest.Type;
+/**
+ * Each request is one Rpc payload: the tag names the request, so the payload
+ * carries the canvas, the harness and the keys or value, never the tag again.
+ */
+export const ReadSettings = Schema.Struct({ canvas: CanvasName, harness: HarnessId, keys: Keys });
+export type ReadSettings = typeof ReadSettings.Type;
+
+/** A set, never a toggle: sending it twice leaves the same file. */
+export const WriteSetting = Schema.Struct({ canvas: CanvasName, harness: HarnessId, key: Key, value: NativeWireValue });
+export type WriteSetting = typeof WriteSetting.Type;
 
 export const NativeSettingRead = Schema.Union([
   Schema.Struct({ key: Key, value: NativeWireValue }),
@@ -52,16 +56,17 @@ export const NativeSettingRead = Schema.Union([
 ]);
 export type NativeSettingRead = typeof NativeSettingRead.Type;
 
-export const NativeConfigResponse = Schema.Union([
-  Schema.TaggedStruct("Settings", {
-    machine: MachineName,
-    harness: HarnessId,
-    values: Schema.Array(NativeSettingRead).pipe(Schema.check(Schema.isMaxLength(MAX_NATIVE_KEYS))),
-  }),
-  /** The value as read back after the write. */
-  Schema.TaggedStruct("Written", { machine: MachineName, harness: HarnessId, key: Key, value: NativeWireValue }),
-]);
-export type NativeConfigResponse = typeof NativeConfigResponse.Type;
+/** A read's answer: the keys asked for and their typed values, or unfit. */
+export const NativeConfigSettings = Schema.TaggedStruct("Settings", {
+  machine: MachineName,
+  harness: HarnessId,
+  values: Schema.Array(NativeSettingRead).pipe(Schema.check(Schema.isMaxLength(MAX_NATIVE_KEYS))),
+});
+export type NativeConfigSettings = typeof NativeConfigSettings.Type;
+
+/** A write's answer: the value as read back after the write. */
+export const NativeConfigWritten = Schema.TaggedStruct("Written", { machine: MachineName, harness: HarnessId, key: Key, value: NativeWireValue });
+export type NativeConfigWritten = typeof NativeConfigWritten.Type;
 
 // ── Failures ───────────────────────────────────────────────────────────────
 
@@ -83,11 +88,6 @@ export class NativeSettingRefused extends Schema.TaggedError<NativeSettingRefuse
 export class NativeConfigWriteFailed extends Schema.TaggedError<NativeConfigWriteFailed>()("NativeConfigWriteFailed", {
   ...Where,
   reason: Schema.Literals(["conflict", "unsupported", "io"]),
-}) {}
-
-/** An event frame on the native-config channel, which carries none. */
-export class NativeConfigEventRefused extends Schema.TaggedError<NativeConfigEventRefused>()("NativeConfigEventRefused", {
-  message: Schema.String.pipe(Schema.check(Schema.isMaxLength(1024))),
 }) {}
 
 /** An answer that failed the closed decode or did not answer what was asked; the link stays open. */

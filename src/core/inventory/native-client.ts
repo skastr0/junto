@@ -1,29 +1,30 @@
 /**
  * The asking end of the native-config channel. This machine's own settings
  * are answered by the same code a peer runs, without the link; another
- * machine's go over the link, naming a canvas this machine edits with a seat
- * there. The answer is decoded closed after the request returns, and must
- * answer what was asked. A write whose link closed before its answer is read
- * back once on a fresh link, so the operator learns whether it took; nothing
- * is queued.
+ * machine's go over the link's typed client, naming a canvas this machine
+ * edits with a seat there. The answer is decoded closed by the contract, and
+ * must answer what was asked. A write whose link closed before its answer is
+ * read back once on a fresh link, so the operator learns whether it took;
+ * nothing is queued.
  */
 import { randomUUID } from "node:crypto";
 import { Effect, Schema } from "effect";
 import type { MachineInventoryFailure, NativeSettingFailure, NativeSettingsReadResult, NativeSettingWriteResult } from "@shared/ipc";
 import { InventoryUnavailableError } from "@shared/harness-domain/inventory";
 import { HarnessId } from "@shared/managed-terminal-templates";
+import type { CanvasName } from "@shared/model";
 import { describeCause } from "../../node/failure-encode";
 import { HostsService } from "../hosts/service";
-import { LinkClosed, MachineLink } from "../link/service";
+import { linkClient, type LinkClient } from "../link/contract";
+import { LinkClosed, MachineLink, type MachineLinkError } from "../link/service";
 import { MachineRepository } from "../machines/repository";
 import { canvasWithSeatOn, tagOf } from "./admission";
-import { makeNativeConfigAnswers, type NativeConfigAnswers } from "./native-channel";
+import { makeNativeConfigAnswers, NativeConfigLink, type NativeConfigAnswers } from "./native-channel";
 import {
   MAX_NATIVE_KEYS,
   NATIVE_KEY,
   NativeConfigAnswerRefused,
   NativeConfigLinkFailure,
-  NativeConfigResponse,
   NativeConfigWriteFailed,
   NativeSettingRefused,
   NativeWireValue,
@@ -45,16 +46,10 @@ export class NativeSettingUnconfirmed extends Schema.TaggedError<NativeSettingUn
   message: Schema.String,
 }) {}
 
-const decodeResponse = Schema.decodeUnknownSync(NativeConfigResponse, { onExcessProperty: "error" });
 const isLinkFailure = Schema.is(NativeConfigLinkFailure);
 
-/** The answering machine's own typed refusal, when the link carried one. */
-const unwrap = (cause: unknown): unknown =>
-  typeof cause === "object" && cause !== null && "detail" in cause && isLinkFailure(cause.detail) ? cause.detail : cause;
-
 /** A failure as the window reads it: the setting's own refusals keep their tags, the rest is unavailable. */
-const asIpcFailure = (machine: string, operationId: string, raw: unknown): NativeSettingFailure => {
-  const cause = unwrap(raw);
+const asIpcFailure = (machine: string, operationId: string, cause: unknown): NativeSettingFailure => {
   // Not refused: the write may have taken. Its own tag, so the window can say so.
   if (cause instanceof NativeSettingUnconfirmed)
     return { _tag: "InventoryUnavailableError", machine: cause.machine, reason: "failed", message: cause.message, failure: cause._tag, operationId: cause.operationId };
@@ -80,7 +75,12 @@ const asIpcFailure = (machine: string, operationId: string, raw: unknown): Nativ
 export const makeNativeConfigClient = (answers: NativeConfigAnswers) => {
   const ownName = Effect.flatMap(MachineRepository, (machines) => machines.machineName);
 
-  const ask = (machine: string, operationId: string, payload: Record<string, unknown>) => Effect.gen(function* () {
+  /** A peer answers through the channel's typed client; a bad answer fails only this request. */
+  const ask = <A extends { readonly machine: string }>(
+    machine: string,
+    operationId: string,
+    call: (client: LinkClient<typeof NativeConfigLink>, canvas: CanvasName) => Effect.Effect<A, NativeConfigLinkFailure | MachineLinkError>,
+  ) => Effect.gen(function* () {
     const canvas = yield* canvasWithSeatOn(machine);
     if (canvas === undefined)
       return yield* new InventoryUnavailableError({
@@ -93,13 +93,13 @@ export const makeNativeConfigClient = (answers: NativeConfigAnswers) => {
       return yield* new InventoryUnavailableError({ machine, reason: "unreachable", message: `${machine} is not a registered machine.` });
     const link = yield* MachineLink;
     yield* link.connect(host);
-    const answer = yield* link.request(machine, "native-config", { ...payload, canvas }, { operationId });
-    return yield* Effect.try({
-      try: () => decodeResponse(answer),
-      catch: (cause) => new NativeConfigAnswerRefused({
-        machine, operationId, message: `${machine} sent a settings answer this machine does not accept: ${describeCause(cause).message}`,
-      }),
-    });
+    const client = yield* linkClient(NativeConfigLink);
+    return yield* call(client, canvas).pipe(
+      // The contract refused the answer; the link stays open.
+      Effect.catchTag("LinkFrameInvalid", (refused) => Effect.fail(refused.problem !== "response" ? refused : new NativeConfigAnswerRefused({
+        machine, operationId, message: `${machine} sent a settings answer this machine does not accept: ${describeCause(refused).message}`,
+      }))),
+    );
   });
 
   /** The answer must be about the machine, harness and keys asked for. */
@@ -107,10 +107,11 @@ export const makeNativeConfigClient = (answers: NativeConfigAnswers) => {
     ok ? Effect.void : Effect.fail(new NativeConfigAnswerRefused({ machine, operationId, message: `${machine} answered another question than the one asked.` }));
 
   const readOver = (machine: string, operationId: string, harness: HarnessId, keys: readonly string[]) => Effect.gen(function* () {
-    const response = yield* ask(machine, operationId, { _tag: "ReadSettings", harness, keys });
-    yield* answered(machine, operationId, response._tag === "Settings" && response.machine === machine && response.harness === harness
+    const response = yield* ask(machine, operationId, (client, canvas) =>
+      client.ReadSettings(machine, { canvas, harness, keys: [...keys] }, { operationId }));
+    yield* answered(machine, operationId, response.machine === machine && response.harness === harness
       && response.values.every((row) => keys.includes(row.key)));
-    return response._tag === "Settings" ? response.values : [];
+    return response.values;
   });
 
   const readSettings = (input: { readonly machine: string; readonly harness: string; readonly keys: readonly string[] }, operationId: string = randomUUID()) =>
@@ -136,10 +137,11 @@ export const makeNativeConfigClient = (answers: NativeConfigAnswers) => {
       const asked = yield* Schema.decodeUnknownEffect(WriteAsk)({ harness: input.harness, key: input.key, value: input.value }, { onExcessProperty: "error" });
       const own = yield* ownName;
       if (own === input.machine) return (yield* answers.write(asked.harness, asked.key, asked.value, operationId)).value;
-      const over = ask(input.machine, operationId, { _tag: "WriteSetting", ...asked }).pipe(
-        Effect.tap((response) => answered(input.machine, operationId, response._tag === "Written" && response.machine === input.machine
+      const over = ask(input.machine, operationId, (client, canvas) =>
+        client.WriteSetting(input.machine, { canvas, harness: asked.harness, key: asked.key, value: asked.value }, { operationId })).pipe(
+        Effect.tap((response) => answered(input.machine, operationId, response.machine === input.machine
           && response.harness === asked.harness && response.key === asked.key)),
-        Effect.map((response) => response._tag === "Written" ? response.value : asked.value),
+        Effect.map((response) => response.value),
       );
       return yield* over.pipe(
         // The link closed before the answer: the write may have taken. Read it back once.
