@@ -7,7 +7,7 @@
  * the contract does not name is refused at main's edge, and a page with no
  * bridge fails at once.
  */
-import { Effect, Exit, Fiber, Layer, Option, Schema } from "effect";
+import { Context, Effect, Exit, Fiber, Layer, Option, Schema } from "effect";
 import { Rpc, RpcClient, RpcGroup } from "effect/rpc";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
@@ -110,6 +110,16 @@ const linked = (updates: ReturnType<typeof fakeUpdates>) => {
 const until = async (ok: () => boolean): Promise<void> => {
   for (let tries = 0; tries < 100 && !ok(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 5));
 };
+
+describe("every window rpc decodes closed", () => {
+  it("carries onExcessProperty error on the rpc itself, where the server and client read it", async () => {
+    const { WindowRpcs } = await import("../src/contract/window/rpcs");
+    const open = [...WindowRpcs.requests.values()]
+      .filter((rpc) => Context.getOption(rpc.annotations, Rpc.ParseOptions).pipe(Option.map((options) => options.onExcessProperty), Option.getOrUndefined) !== "error")
+      .map((rpc) => rpc._tag);
+    expect(open).toEqual([]);
+  });
+});
 
 describe("the update group over a window's link", () => {
   it("opens with the current status, then follows each change", async () => {
