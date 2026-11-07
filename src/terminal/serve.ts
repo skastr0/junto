@@ -760,7 +760,7 @@ const openServer = (spawnPty: SpawnPty, epochs: PtyEpochs): {
     attach,
     detach,
     hangupAll,
-    shutdown: () => Effect.runPromise(Scope.close(serverScope, Exit.void)),
+    shutdown: () => Effect.runPromiseWith(Context.empty())(Scope.close(serverScope, Exit.void)),
     openSurface,
   };
 };

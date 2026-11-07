@@ -136,7 +136,9 @@ describe("the terminal link's calls", () => {
     // Id 3 was never spawned here and is below 6: it is not held.
     const errors: unknown[] = [];
     core.listen((message) => {
-      if (message.kind === "push" && message.channel === "pty.error") errors.push(message.payload);
+      if (message.kind === "event" && message.message._tag === "error") {
+        errors.push({ id: message.message.id, message: message.message.message });
+      }
     });
     core.post({ kind: "push", channel: TerminalInbound.write, payload: { id: 3, data: "for an id no core spawns" } });
     await until(() => errors.length > 0);

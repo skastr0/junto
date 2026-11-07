@@ -12,6 +12,7 @@
  * channels while main still posts them.
  */
 import { createRequire } from "node:module";
+import { NodeRuntime } from "@effect/platform-node";
 import { Effect, Layer, Result } from "effect";
 import { parentEdge } from "../contract/terminal/edge";
 import {
@@ -160,10 +161,4 @@ const program = Effect.gen(function* () {
   yield* server.quit;
 });
 
-void Effect.runPromise(Effect.scoped(Effect.provide(program, layer))).then(
-  () => process.exit(0),
-  (error: unknown) => {
-    console.error("[terminal] the server stopped on a defect", error);
-    process.exit(1);
-  },
-);
+NodeRuntime.runMain(Effect.scoped(Effect.provide(program, layer)));
