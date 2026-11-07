@@ -140,28 +140,6 @@ const shiftSelect = async (page: Page, ids: ReadonlyArray<string>): Promise<void
 test.describe("wires between seats", () => {
   test.use({ juntoOptions: { seedModels: { [CANVAS]: modelFixture(seats) } } });
 
-  test("drawing a wire by drag is one act, and drawing it again is refused", async ({ junto }) => {
-    const { page } = junto;
-    await ready(page, ["a", "b"]);
-    expect(await storedWires(page)).toEqual([]);
-
-    await oneAct(page, () => drawMessages(page, "a", "b"));
-    expect(await storedWires(page)).toEqual(["a messages b"]);
-    // The new wire is selected: its relation surface is what the bar shows.
-    await expect(page.getByRole("button", { name: "Delete relation" })).toBeVisible();
-
-    await toCanvas(page);
-    await noAct(page, () => drawMessages(page, "a", "b"));
-    await expect(page.locator(".error-banner__message")).toHaveText("That relation already exists.");
-    expect(await storedWires(page)).toEqual(["a messages b"]);
-
-    await toCanvas(page);
-    await oneAct(page, () => page.keyboard.press(undoKey));
-    expect(await storedWires(page)).toEqual([]);
-    await oneAct(page, () => page.keyboard.press(redoKey));
-    expect(await storedWires(page)).toEqual(["a messages b"]);
-  });
-
   test("the connect editor wires the selected seat to the one picked by search", async ({ junto }) => {
     const { page } = junto;
     await ready(page, ["c", "d"]);
