@@ -23,6 +23,7 @@ import { asCanvasName } from "../src/shared/model";
 import type { ContentRef } from "../src/shared/wire/content-ref";
 import { seat } from "./support/model-nodes";
 import { HostClientsNoWindow } from "../src/core/host-clients";
+import { ContentLink } from "../src/core/content/pull";
 
 const id = Schema.decodeUnknownSync(InstallationId);
 const name = Schema.decodeUnknownSync(MachineName);
@@ -59,9 +60,9 @@ it("serves the editing machine a signal's file while the seat is here and the si
 
     const rows = await core.runtime.runPromise(MachineCoreRows);
     const ask = (peer: InstallationId, machineName: string) =>
-      core!.runtime.runPromiseExit(rows.content.handleRequest!(
+      core!.runtime.runPromiseExit(rows.content.handleRequest("Pull",
         { peer: Schema.decodeUnknownSync(LinkHelloSchema)({ build: "a".repeat(64), installationId: peer, machineName }) } as LinkChannelContext,
-        rows.content.decodeRequest({ canvasName: canvas, sha256: ref.sha256, byteLength: ref.byteLength, offset: 0 }),
+        ContentLink.requests.get("Pull")!.payload.decode({ canvasName: canvas, sha256: ref.sha256, byteLength: ref.byteLength, offset: 0 }),
       ));
     const refusal = (exit: Exit.Exit<unknown, unknown>) => {
       const cause = Exit.isFailure(exit) ? (exit.cause as unknown as { reasons?: ReadonlyArray<{ error?: unknown }> }) : undefined;

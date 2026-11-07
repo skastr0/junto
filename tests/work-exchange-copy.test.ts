@@ -29,7 +29,8 @@ import { makeSettingsLive } from "../src/core/settings/service";
 import { makeStateEngineLive } from "../src/core/state/engine";
 import { CrewRepositoryLive } from "../src/core/work/crew-repository";
 import { WorkLive, WorkService } from "../src/core/work/service";
-import { makeRowsChannel, type RowsChannelContext } from "../src/core/work/exchange/channel";
+import { RowsLink, type RowsChannelContext } from "../src/core/work/exchange/channel";
+import { rowsChannel, rowsWire } from "./support/rows-channel";
 import { followLocalCommits, makeLiveRowExchange } from "../src/core/work/exchange/live";
 import type { RowExchange } from "../src/core/work/exchange/session";
 import { MessageDeliveryService } from "../src/core/work/message-delivery";
@@ -77,7 +78,7 @@ type Machine = {
   readonly root: string;
   readonly runtime: ReturnType<typeof makeRuntime>;
   readonly exchange: RowExchange;
-  readonly channel: ReturnType<typeof makeRowsChannel>;
+  readonly channel: ReturnType<typeof rowsChannel>;
   readonly arrived: string[];
 };
 
@@ -117,7 +118,7 @@ const boot = async (
       });
     }),
   );
-  const machine: Machine = { name, self, root, runtime, exchange, channel: makeRowsChannel(exchange), arrived };
+  const machine: Machine = { name, self, root, runtime, exchange, channel: rowsChannel(exchange), arrived };
   booted.push(machine);
   return machine;
 };
@@ -127,7 +128,7 @@ const contextOf = (from: Machine, to: Machine): RowsChannelContext => ({
   sessionId: `${from.name}-${to.name}`,
   sendEvent: (_channel, payload) =>
     Effect.sync(() => {
-      queue.push({ from, to, payload: JSON.parse(JSON.stringify(payload)) });
+      queue.push({ from, to, payload: rowsWire(payload) });
     }),
 });
 
@@ -360,8 +361,8 @@ describe("a copy no honest machine sends", () => {
     expect(() => channel.decodeEvent({ kind: "copy", copy: { ...honest.copy, seats: [{ id: "x" }] } })).toThrow();
     expect(() => channel.decodeEvent({ kind: "copy" })).toThrow();
     expect(() => channel.decodeEvent("rows")).toThrow();
-    expect(() => channel.decodeRequest()).toThrow(/carries no requests/u);
-    expect(() => channel.decodeResponse()).toThrow(/carries no requests/u);
+    // The contract has no requests: the session refuses one on this channel.
+    expect(RowsLink.requests.size).toBe(0);
   });
 
   it("refuses a refusal of a copy it never sent", async () => {
@@ -864,7 +865,7 @@ describe("a seat that moves while its copy is cut", () => {
         return yield* makeLiveRowExchange({ mailArrived: () => {} }).pipe(Effect.provideService(ModelRecords, hooked));
       }),
     );
-    const macbook: Machine = { name: "macbook", self: MACBOOK, root, runtime, exchange, channel: makeRowsChannel(exchange), arrived: [] };
+    const macbook: Machine = { name: "macbook", self: MACBOOK, root, runtime, exchange, channel: rowsChannel(exchange), arrived: [] };
     booted.push(macbook);
     await runtime.runPromise(seedCanvas("factory", [lead, peer, helper]));
     const before = (await header(macbook))!.seq;

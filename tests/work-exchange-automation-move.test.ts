@@ -27,7 +27,8 @@ import { AgentSignalRepositoryLive } from "../src/core/signals/repository";
 import { makeSettingsLive } from "../src/core/settings/service";
 import { makeStateEngineLive } from "../src/core/state/engine";
 import { CrewRepositoryLive } from "../src/core/work/crew-repository";
-import { makeRowsChannel, type RowsChannelContext } from "../src/core/work/exchange/channel";
+import type { RowsChannelContext } from "../src/core/work/exchange/channel";
+import { rowsChannel, rowsWire } from "./support/rows-channel";
 import { makeLiveRowExchange } from "../src/core/work/exchange/live";
 import type { RowExchange } from "../src/core/work/exchange/session";
 import { WorkRepository, WorkRepositoryLive } from "../src/core/work/repository";
@@ -93,7 +94,7 @@ type Machine = {
   readonly root: string;
   readonly runtime: ReturnType<typeof makeRuntime>;
   readonly exchange: RowExchange;
-  readonly channel: ReturnType<typeof makeRowsChannel>;
+  readonly channel: ReturnType<typeof rowsChannel>;
 };
 
 const queue: Array<{ readonly from: Machine; readonly to: Machine; readonly payload: unknown }> = [];
@@ -119,7 +120,7 @@ const boot = async (name: string, self: InstallationId, pin: readonly [string, I
       return yield* makeLiveRowExchange({ mailArrived: () => {} });
     }),
   );
-  const machine: Machine = { name, self, root, runtime, exchange, channel: makeRowsChannel(exchange) };
+  const machine: Machine = { name, self, root, runtime, exchange, channel: rowsChannel(exchange) };
   booted.push(machine);
   return machine;
 };
@@ -129,7 +130,7 @@ const contextOf = (from: Machine, to: Machine): RowsChannelContext => ({
   sessionId: `${from.name}-${to.name}`,
   sendEvent: (_channel, payload) =>
     Effect.sync(() => {
-      queue.push({ from, to, payload: JSON.parse(JSON.stringify(payload)) });
+      queue.push({ from, to, payload: rowsWire(payload) });
     }),
 });
 

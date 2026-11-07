@@ -15,13 +15,16 @@ import { ContentPullRefused, CONTENT_PULL_PIECE_BYTES, operatorReachesResource, 
 import { InstallationId } from "../src/shared/installation-id";
 import type { NodeId } from "../src/shared/model/base";
 import type { ContentRef } from "../src/shared/wire/content-ref";
-import { makeContentChannel, makeContentPulls, pullContent, type PulledOwner } from "../src/core/content/pull";
+import { ContentLink, makeContentChannel, makeContentPulls, pullContent, type ContentPullAsk, type PulledOwner } from "../src/core/content/pull";
+import { linkClient } from "../src/core/link/contract";
+import { MachineLink } from "../src/core/link/service";
 import { contentObjectPath, contentPartialPath } from "../src/node/content/paths";
 import { ingestContentBytes } from "../src/node/content/store";
 import { contentTransferPartialId, statContentForTransfer } from "../src/node/content/transfer-local";
 import { LinkHelloSchema } from "../src/core/link/protocol";
 import { makeLinkSession } from "../src/core/link/session";
-import type { LinkChannelContext, LinkSession } from "../src/core/link/types";
+import { linkClosed, type LinkChannelContext, type LinkSession } from "../src/core/link/types";
+import { machineLinkOver } from "./support/session-link";
 
 const id = Schema.decodeUnknownSync(InstallationId);
 const EDITOR = id("macbook-install");
@@ -58,7 +61,7 @@ const setUp = async (options: { owners?: ReadonlyArray<{ kind: string; canvasNam
     verified: (asked) => Effect.sync(() => statContentForTransfer(editorRoot, asked).state === "verified"),
     owners: () => Effect.succeed(options.owners ?? [{ kind: "artifact", canvasName: "factory" }]),
   });
-  const counted = { ...channel, handleRequest: (context: LinkChannelContext, payload: unknown) => { served.push((payload as ContentPullRequest).offset); return channel.handleRequest!(context, payload); } };
+  const counted = { ...channel, handleRequest: (tag: string, context: LinkChannelContext, payload: unknown) => { served.push((payload as ContentPullRequest).offset); return channel.handleRequest(tag, context, payload); } };
   const ab = new PassThrough();
   const ba = new PassThrough();
   const editor = makeLinkSession({ readable: ba, writable: ab, self: hello("macbook", EDITOR), admit: async () => {}, channels: { content: counted }, run: Effect.runPromise });
@@ -66,9 +69,11 @@ const setUp = async (options: { owners?: ReadonlyArray<{ kind: string; canvasNam
   sessions.push(editor, mini);
   await Promise.all([editor.ready, mini.ready]);
   const kept: Array<{ ref: ContentRef; owner: PulledOwner }> = [];
+  const content = await Effect.runPromise(linkClient(ContentLink).pipe(Effect.provideService(MachineLink, machineLinkOver(mini))));
+  const ask: ContentPullAsk = (request) => content.Pull("macbook", request);
   const deps = {
     root: miniRoot,
-    ask: (request: ContentPullRequest) => Effect.tryPromise({ try: () => mini.request("content", request), catch: (cause) => cause }),
+    ask,
     keep: (keptRef: ContentRef, keptOwner: PulledOwner) => Effect.sync(() => void kept.push({ ref: keptRef, owner: keptOwner })),
   };
   return { ref, miniRoot, served, kept, deps };
@@ -89,7 +94,7 @@ it("pulls a body in pieces into the asking machine's store and keeps it under it
 it("resumes from the asking machine's partial after a cut", async () => {
   const { ref, miniRoot, served, deps } = await setUp();
   let asked = 0;
-  const cut = { ...deps, ask: (request: ContentPullRequest) => (asked++ === 1 ? Effect.fail(new Error("link closed")) : deps.ask(request)) };
+  const cut = { ...deps, ask: (request: ContentPullRequest) => (asked++ === 1 ? Effect.fail(linkClosed({ by: "this-end", reason: "failed" })) : deps.ask(request)) };
   const first = await Effect.runPromise(Effect.flip(pullContent(cut, { ref, owner, reached })));
   expect(first).toMatchObject({ _tag: "ContentPullFailed", message: "the link to the editing machine failed" });
   expect(statContentForTransfer(miniRoot, ref)).toMatchObject({ state: "partial", partialBytes: CONTENT_PULL_PIECE_BYTES });
@@ -115,8 +120,7 @@ it("takes nothing that does not match its digest", async () => {
   const flipped = {
     ...deps,
     ask: (request: ContentPullRequest) =>
-      deps.ask(request).pipe(Effect.map((piece) => {
-        const { offset, bytes } = piece as { offset: number; bytes: string };
+      deps.ask(request).pipe(Effect.map(({ offset, bytes }) => {
         const raw = Buffer.from(bytes, "base64");
         if (offset === 0) raw[0] = raw[0]! ^ 0xff;
         return { offset, bytes: raw.toString("base64") };

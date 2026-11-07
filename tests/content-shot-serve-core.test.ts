@@ -26,6 +26,7 @@ import { ActorSeatId } from "../src/shared/work-protocol";
 import { page, seat } from "./support/model-nodes";
 import { seedCanvas } from "./support/seed-canvas";
 import { HostClientsNoWindow } from "../src/core/host-clients";
+import { ContentLink } from "../src/core/content/pull";
 
 const id = Schema.decodeUnknownSync(InstallationId);
 const name = Schema.decodeUnknownSync(MachineName);
@@ -83,9 +84,9 @@ it("serves the shot to the machine whose seat its notice reached, and refuses a 
 
     const rows = await core.runtime.runPromise(MachineCoreRows);
     const ask = (peer: InstallationId, machineName: string) =>
-      core!.runtime.runPromiseExit(rows.content.handleRequest!(
+      core!.runtime.runPromiseExit(rows.content.handleRequest("Pull",
         { peer: Schema.decodeUnknownSync(LinkHelloSchema)({ build: "a".repeat(64), installationId: peer, machineName }) } as LinkChannelContext,
-        rows.content.decodeRequest({ canvasName: "factory", sha256: shot.sha256, byteLength: shot.byteLength, offset: 0 }),
+        ContentLink.requests.get("Pull")!.payload.decode({ canvasName: "factory", sha256: shot.sha256, byteLength: shot.byteLength, offset: 0 }),
       ));
 
     const served = await ask(MINI, "mini");

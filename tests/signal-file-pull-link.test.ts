@@ -12,7 +12,10 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { makeContentChannel, type PulledOwner } from "../src/core/content/pull";
+import { ContentLink, makeContentChannel, type PulledOwner } from "../src/core/content/pull";
+import { linkClient } from "../src/core/link/contract";
+import { MachineLink } from "../src/core/link/service";
+import { machineLinkOver } from "./support/session-link";
 import { signalFileEntitled } from "../src/core/content/signal-entitlement";
 import { ingestContentBytes } from "../src/node/content/store";
 import { statContentForTransfer } from "../src/node/content/transfer-local";
@@ -81,7 +84,7 @@ const setUp = async (options: { seatHomeOnSeatMachine?: InstallationId; editorPl
           placement: placementOf(EDITOR, options.seatHomeOnSeatMachine ?? MINI),
         })))).pipe(Effect.map((rowEntitled) => [{ kind: "signal", canvasName, rowEntitled }])),
   });
-  const counted = { ...seatChannel, handleRequest: (context: never, payload: unknown) => { served.push((payload as ContentPullRequest).offset); return seatChannel.handleRequest!(context, payload); } };
+  const counted = { ...seatChannel, handleRequest: (tag: string, context: never, payload: unknown) => { served.push((payload as ContentPullRequest).offset); return seatChannel.handleRequest(tag, context, payload); } };
   const ab = new PassThrough();
   const ba = new PassThrough();
   const seatEnd = makeLinkSession({ readable: ba, writable: ab, self: hello("mini", MINI), admit: async () => {}, channels: { content: counted as never }, run: Effect.runPromise });
@@ -91,13 +94,14 @@ const setUp = async (options: { seatHomeOnSeatMachine?: InstallationId; editorPl
   const kept: Array<{ ref: ContentRef; owner: PulledOwner }> = [];
   const judged: Array<{ signalId: string; mediaType: string }> = [];
   const asked: string[] = [];
+  const content = await Effect.runPromise(linkClient(ContentLink).pipe(Effect.provideService(MachineLink, machineLinkOver(editorEnd))));
   const deps: SignalFilePullDeps = {
     self: EDITOR,
     placement: () => Effect.succeed(options.editorPlacement ?? placementOf(EDITOR, MINI)),
     machineName: (machine) => Effect.succeed(machine === MINI ? "mini" : undefined),
     ask: (machineName, request) => {
       asked.push(machineName);
-      return Effect.tryPromise({ try: () => editorEnd.request("content", request), catch: (cause) => cause });
+      return content.Pull(machineName, request);
     },
     root: editorRoot,
     keep: (keptRef, owner) => Effect.sync(() => void kept.push({ ref: keptRef, owner })),

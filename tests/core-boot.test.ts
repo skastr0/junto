@@ -18,7 +18,8 @@ import { MachineRepository } from "../src/core/machines/repository";
 import { MachinePeerIdentity } from "../src/shared/machine-control";
 import { coreControlSocketPath } from "../src/core/link/listener";
 import { makeLinkSession } from "../src/core/link/session";
-import { decodeRowsEvent } from "../src/core/work/exchange/channel";
+import { RowsLink } from "../src/core/work/exchange/channel";
+import { bindLinkChannel } from "../src/core/link/contract";
 import type { LinkSession } from "../src/core/link/types";
 import { CURRENT_STATE_SCHEMA_VERSION } from "../src/core/state/migrations";
 import { decodeOperatorResponse, encodeOperatorFrame, operatorControlSocketPath } from "../src/shared/operator-control";
@@ -109,12 +110,9 @@ it("starts the core and closes within the bound with a link open and mail in fli
       self: { ...peerIdentity, build },
       admit: async () => undefined,
       run: effect => Effect.runPromise(effect),
-      channels: { rows: {
-        decodeRequest: () => { throw new Error("events only"); },
-        decodeResponse: () => { throw new Error("events only"); },
-        decodeEvent: decodeRowsEvent,
-        handleEvent: (context, input) => {
-          const frame = decodeRowsEvent(input);
+      channels: { rows: bindLinkChannel(RowsLink, {
+        requests: {},
+        event: (frame, context) => {
           if (frame.kind === "copy") return context.sendEvent("rows", {
             kind: "have", canvases: [{ canvasName: frame.copy.canvasName, canvasId: frame.copy.canvasId, writers: [] }],
           });
@@ -125,7 +123,7 @@ it("starts the core and closes within the bound with a link open and mail in fli
           }
           return Effect.void;
         },
-      } },
+      }) },
     });
     await peer.ready;
     await mailInFlight;

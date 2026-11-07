@@ -23,6 +23,7 @@
  * alone, while the signal is open (OWNER_ENTITLEMENT `seat`).
  */
 import { Effect, Schema } from "effect";
+import { Rpc, RpcGroup } from "effect/rpc";
 import {
   CONTENT_PULL_MAX_CONCURRENT,
   ContentPullPiece,
@@ -39,14 +40,16 @@ import {
 } from "@shared/content-pull";
 import type { InstallationId } from "@shared/installation-id";
 import type { ContentRef } from "@shared/wire/content-ref";
-import type { LinkChannelHandler } from "../link/types";
+import { bindLinkChannel, linkContract, type LinkContractChannel } from "../link/contract";
+import type { LinkChannelContext, MachineLinkError } from "../link/types";
 import { readContentObjectRange } from "../../node/content/store";
 import { receiveContentTransfer, statContentForTransfer } from "../../node/content/transfer-local";
 
-/** The editing machine could not read a body it should hold: the asker tries again later. */
+/**
+ * The editing machine could not read a body it should hold: the asker tries
+ * again later. It crosses as fixed words, so the digest stays home.
+ */
 export class ContentServeFailed extends Schema.TaggedError<ContentServeFailed>()("ContentServeFailed", {
-  sha256: Schema.String,
-  byteLength: Schema.Number,
   message: Schema.String,
 }) {}
 
@@ -57,10 +60,17 @@ export class ContentPullFailed extends Schema.TaggedError<ContentPullFailed>()("
   message: Schema.String,
 }) {}
 
-class NoContentEvents extends Schema.TaggedError<NoContentEvents>()("NoContentEvents", { message: Schema.String }) {}
+/**
+ * The content channel's contract: one request, a piece of one object,
+ * answered with that piece, a closed refusal, or a body this machine could
+ * not read. It carries no events.
+ */
+export const ContentLink = linkContract("content", RpcGroup.make(
+  Rpc.make("Pull", { payload: ContentPullRequest, success: ContentPullPiece, error: Schema.Union([ContentPullRefusal, ContentServeFailed]) }),
+));
 
-const decodeRequest = Schema.decodeUnknownSync(ContentPullRequest, { onExcessProperty: "error" });
-const decodePiece = Schema.decodeUnknownSync(ContentPullPiece, { onExcessProperty: "error" });
+/** One piece asked of the machine named, with the content channel's typed client (`linkClient(ContentLink)`). */
+export type ContentPullAsk = (request: ContentPullRequest) => Effect.Effect<ContentPullPiece, ContentPullRefusal | ContentServeFailed | MachineLinkError>;
 
 export type ContentServeDeps = {
   /** This machine's content store. */
@@ -78,16 +88,13 @@ export type ContentServeDeps = {
 };
 
 /** The serving half: the link's `content` channel, on the editing machine and on a seat's. */
-export const makeContentChannel = (deps: ContentServeDeps): LinkChannelHandler => ({
-  decodeRequest,
-  decodeResponse: decodePiece,
-  decodeEvent: () => {
-    throw new NoContentEvents({ message: "the content channel carries no events" });
-  },
-  failureSchema: ContentPullRefusal as unknown as Schema.Codec<unknown, unknown>,
-  handleRequest: (context, payload) => {
-    const request = payload as ContentPullRequest;
-    const unreadable = () => new ContentServeFailed({ sha256: request.sha256, byteLength: request.byteLength, message: "the body could not be read here; ask again later" });
+export const makeContentChannel = (deps: ContentServeDeps): LinkContractChannel => {
+  /**
+   * Idempotent: it reads one range of a verified object and writes nothing,
+   * so a caller interrupted mid-request may ask again for the same piece.
+   */
+  const pull = (request: ContentPullRequest, context: LinkChannelContext): Effect.Effect<ContentPullPiece, ContentPullRefusal | ContentServeFailed> => {
+    const unreadable = () => new ContentServeFailed({ message: "the body could not be read here; ask again later" });
     return Effect.gen(function* () {
       const canvas = yield* deps.canvas(request.canvasName, context.peer.installationId);
       // A seat's machine serves its signals' files without editing the canvas (OWNER_ENTITLEMENT).
@@ -108,8 +115,9 @@ export const makeContentChannel = (deps: ContentServeDeps): LinkChannelHandler =
         ),
       ),
     );
-  },
-});
+  };
+  return bindLinkChannel(ContentLink, { requests: { Pull: pull } });
+};
 
 /** The owner a pulled body is kept under on the asking machine. */
 export type PulledOwner = { readonly kind: PullableOwnerKind; readonly canvasName: string; readonly nodeId: string; readonly recordId: string };
@@ -117,8 +125,8 @@ export type PulledOwner = { readonly kind: PullableOwnerKind; readonly canvasNam
 export type ContentPullDeps = {
   /** This machine's content store. */
   readonly root: string;
-  /** Ask the editing machine for one piece; its refusal comes back typed. */
-  readonly ask: (request: ContentPullRequest) => Effect.Effect<unknown, unknown>;
+  /** Ask the editing machine for one piece; the session decoded the piece and its refusal with `ContentLink`. */
+  readonly ask: ContentPullAsk;
   /** Keep the published object under its owner in this machine's manifest. */
   readonly keep: (ref: ContentRef, owner: PulledOwner) => Effect.Effect<void, unknown>;
   /**
@@ -162,8 +170,7 @@ export const pullContent = (deps: ContentPullDeps, input: { readonly ref: Conten
           yield* take(new Uint8Array(0), offset);
           continue;
         }
-        const answer = yield* deps.ask({ canvasName: owner.canvasName, sha256: ref.sha256, byteLength: ref.byteLength, offset });
-        const piece = yield* Effect.try({ try: () => decodePiece(answer), catch: () => failed("the editing machine answered something else") });
+        const piece = yield* deps.ask({ canvasName: owner.canvasName, sha256: ref.sha256, byteLength: ref.byteLength, offset });
         const bytes = Buffer.from(piece.bytes, "base64");
         if (piece.offset !== offset || bytes.length !== contentPullPieceLength(ref.byteLength, offset)) {
           return yield* Effect.fail(failed("the editing machine answered another piece"));
@@ -174,11 +181,13 @@ export const pullContent = (deps: ContentPullDeps, input: { readonly ref: Conten
     yield* (deps.once === undefined ? transfer : deps.once(ref, transfer));
     yield* deps.keep(ref, owner).pipe(Effect.mapError(() => failed("the body could not be kept here")));
   }).pipe(
-    Effect.mapError((cause) => {
+    Effect.mapError((cause): ContentPullRefused | ContentPullFailed => {
       if (cause instanceof ContentPullRefused || cause instanceof ContentPullFailed) return cause;
-      // The link carries the editing machine's refusal as the failure's detail, decoded by its schema.
-      const detail = (cause as { readonly detail?: unknown } | null)?.detail;
-      return detail instanceof ContentPullRefusal ? contentPullRefused(detail, ref) : failed("the link to the editing machine failed");
+      if (cause instanceof ContentPullRefusal) return contentPullRefused(cause, ref);
+      if (cause instanceof ContentServeFailed) return failed("the editing machine could not read the body; ask again later");
+      // A piece outside the contract fails only its request; the link stays open.
+      if (cause._tag === "LinkFrameInvalid" && cause.problem === "response") return failed("the editing machine answered something else");
+      return failed("the link to the editing machine failed");
     }),
     Effect.tapError((cause) =>
       Effect.logInfo("a body was not pulled").pipe(

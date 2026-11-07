@@ -37,7 +37,7 @@ import { makeResourceSubmitLayer } from "./work/resource-submit";
 import type { RowExchange } from "./work/exchange/session";
 import { messageDelivery } from "./work/message-delivery";
 import { ContentService } from "./content/service";
-import { ContentPullFailed, makeContentChannel, makeContentPulls, pullContent, type PulledOwner } from "./content/pull";
+import { ContentLink, ContentPullFailed, makeContentChannel, makeContentPulls, pullContent, type PulledOwner } from "./content/pull";
 import type { ContentPullRefused, ResourceReached } from "@shared/content-pull";
 import type { ContentRef } from "@shared/wire/content-ref";
 import { BodyPuller } from "./content/body-puller";
@@ -105,9 +105,9 @@ export class MachineCoreStatus extends Context.Service<MachineCoreStatus, {
 
 export class MachineCoreRows extends Context.Service<MachineCoreRows, {
   readonly exchange: RowExchange;
-  readonly handler: LinkChannelHandler;
+  readonly handler: LinkContractChannel;
   /** The link's content channel: this machine serves the bodies of the canvases it edits. */
-  readonly content: LinkChannelHandler;
+  readonly content: LinkContractChannel;
   /**
    * Bring a resource body here from the machine that edits its canvas and keep
    * it under `owner`. The resource must be in reach of who asked: `reached`.
@@ -261,6 +261,7 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
       }),
   });
   const pulls = makeContentPulls();
+  const contentLink = yield* linkClient(ContentLink);
   const pullBody: MachineCoreRows["Service"]["pullBody"] = ({ ref, owner, reached }) => Effect.gen(function* () {
     const failed = (message: string) => new ContentPullFailed({ sha256: ref.sha256, byteLength: ref.byteLength, message });
     const placement = yield* exchange.placement(owner.canvasName);
@@ -271,7 +272,7 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
     if (editor === undefined) return yield* Effect.fail(failed("the machine that edits the canvas is not set up here"));
     const pull = pullContent({
       root: store.root,
-      ask: (request) => links.request(editor.machineName, "content", request),
+      ask: (request) => contentLink.Pull(editor.machineName, request),
       keep: (kept, keptOwner) => store.keepPublished({ ref: kept, owner: keptOwner }),
       once: (object, transfer) => Effect.flatMap(Effect.promise(() => pulls.pull(object, () => Effect.runPromiseExit(transfer))), (exit) => exit),
     }, { ref, owner, reached });
@@ -285,7 +286,7 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
       Effect.map((peers) => peers.find((peer) => peer.installationId === machine)?.machineName),
       Effect.orElseSucceed(() => undefined),
     ),
-    ask: (machineName, request) => links.request(machineName, "content", request),
+    ask: (machineName, request) => contentLink.Pull(machineName, request),
     root: store.root,
     keep: (ref, owner) => store.keepPublished({ ref, owner }),
     judged: (signalId, object, mediaType) => signals.judgeFile(signalId, object, mediaType),

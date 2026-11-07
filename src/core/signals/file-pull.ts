@@ -6,7 +6,7 @@ import type { NodeId } from "@shared/model/base";
 import type { ContentRef } from "@shared/wire/content-ref";
 import type { CanvasPlacement } from "@shared/work-exchange";
 import { admitContentWrite } from "../../node/content/disk-admission";
-import { ContentPullFailed, pullContent, type PulledOwner } from "../content/pull";
+import { ContentPullFailed, pullContent, type ContentPullAsk, type PulledOwner } from "../content/pull";
 import { judgeArrivedSignalFile } from "./file-puller";
 import { signalFileRefs } from "../../node/signals/taken-attachments";
 
@@ -16,7 +16,7 @@ export type SignalFilePullDeps = {
   /** The link name of a machine this one has set up, by its installation. */
   readonly machineName: (machine: InstallationId) => Effect.Effect<string | undefined>;
   /** Ask that machine for one piece over the link's content channel. */
-  readonly ask: (machineName: string, request: ContentPullRequest) => Effect.Effect<unknown, unknown>;
+  readonly ask: (machineName: string, request: ContentPullRequest) => ReturnType<ContentPullAsk>;
   /** This machine's content store. */
   readonly root: string;
   readonly keep: (ref: ContentRef, owner: PulledOwner) => Effect.Effect<void, unknown>;

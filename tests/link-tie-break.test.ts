@@ -18,7 +18,7 @@ import type { LinkChannelHandler } from "../src/core/link/types";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
 import { SshTransport, type SshLease, type SshTransportShape } from "../src/core/ssh/service";
 import { makeStateEngineLive } from "../src/core/state/engine";
-import { makeRowsChannel } from "../src/core/work/exchange/channel";
+import { rowsChannel } from "./support/rows-channel";
 import { MachineCoreRows } from "../src/core/core-runtime";
 import { startCore } from "../src/core/core";
 import { RemoteHost } from "../src/shared/remote-hosts";
@@ -167,7 +167,7 @@ it("stops only the rows link that closed, never the one kept in its place", asyn
   cleanups.push(async () => { await core.close(); await rm(home, { recursive: true, force: true }); });
   const peer = Schema.decodeUnknownSync(InstallationId)("peer-installation");
   const rows = await core.runtime.runPromise(MachineCoreRows);
-  const channel = makeRowsChannel(rows.exchange);
+  const channel = rowsChannel(rows.exchange);
   const context = (sessionId: string) => ({ peer: { installationId: peer }, sessionId, sendEvent: () => Effect.never });
   // A send that never returns holds each link's worker where it is.
   await core.runtime.runPromise(channel.opened(context("superseded")));
