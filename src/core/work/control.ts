@@ -915,6 +915,8 @@ const dispatchOp = (
         observation: Effect.provideService(liveSeatObservation(), WorkService, work),
         paused,
         machine: (yield* LogService).machine(),
+        readSince: (previousStartedAt, perSection) =>
+          readSeatSince(board, caller.canvasName, caller.nodeId, previousStartedAt, perSection).pipe(Effect.provideService(WorkService, work)),
       });
     }
 

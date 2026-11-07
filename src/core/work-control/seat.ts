@@ -17,6 +17,12 @@ import { type Canvas } from "@shared/model";
 import { admitWorkTarget, findNode } from "../work/authz";
 import type { WorkServiceShape } from "../work/service";
 import { type SeatObservation } from "../work/seat-observation";
+import { type readSeatSince } from "../work/seat-since-read";
+
+type SeatSinceRead = ReturnType<typeof readSeatSince>;
+/** What `readSeatSince` answers, and how it fails. */
+type SeatSince = Effect.Success<SeatSinceRead>;
+type SeatSinceError = Effect.Error<SeatSinceRead>;
 
 /** Work-control caller resolved through the sole credential admission path. */
 export type WorkCaller = {
@@ -62,6 +68,8 @@ export class WorkSeat extends Context.Service<WorkSeat, {
   readonly paused: boolean;
   /** The machine name this core's log rows carry, as this call read it. */
   readonly machine: string;
+  /** What changed for this seat since its previous session (since, onboard), read with its work store. */
+  readonly readSince: (previousStartedAt: number | undefined, perSection?: number) => Effect.Effect<SeatSince, SeatSinceError>;
 }>()("@junto/core/work-control/WorkSeat") {}
 
 /** Provides each handler the seat its call was admitted as. */
