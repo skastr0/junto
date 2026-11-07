@@ -4,15 +4,17 @@
 use std::process::ExitCode;
 
 use clap::{Args, Subcommand};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{Run, Timeout};
 use crate::{envelope, ops, wire};
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ListArgs {}
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReadArgs {
     name: String,
 }
@@ -20,6 +22,15 @@ pub struct ReadArgs {
 ops! {
     ListArgs => "references.list",
     ReadArgs => "references.read",
+}
+
+#[cfg(test)]
+mod contract {
+    // references.list joins when the harness reads a closed object through allOf:
+    // its schema takes no key, which an empty Schema.Struct cannot publish alone.
+    crate::contract::parity! {
+        read: super::ReadArgs => "references.read",
+    }
 }
 
 /// The operator's references this seat can read

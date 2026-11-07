@@ -46,6 +46,15 @@ ops! {
     HistoryArgs => "automation.history",
 }
 
+#[cfg(test)]
+mod contract {
+    crate::contract::parity! {
+        list: super::ListArgs => "automation.list",
+        show: super::ShowArgs => "automation.show",
+        history: super::HistoryArgs => "automation.history",
+    }
+}
+
 /// Read the automations in this seat's reach.
 #[derive(Args)]
 pub struct Automation {
