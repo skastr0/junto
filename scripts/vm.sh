@@ -30,6 +30,8 @@ BOAT=${BOAT:-boat}
 export BOAT_NO_UPDATE=1
 VM_BASE=${VM_BASE:-junto-base}
 VM_DIR=${VM_DIR:-junto}
+# Several checkouts may share one VM (VM_DIR=junto-<seat>): every file a sync
+# sends is named for its checkout, so two syncs at once never share one.
 ROOT=$(git rev-parse --show-toplevel)
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/junto-vm.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
@@ -97,8 +99,8 @@ case "${1:-}" in
       fi
     fi
     if [ -f "$TMP/sync.bundle" ]; then
-      "$BOAT" scp "$TMP/sync.bundle" "$id:/home/user/sync.bundle" >/dev/null
-      fetch="git fetch -q ~/sync.bundle $carrier && rm -f ~/sync.bundle &&"
+      "$BOAT" scp "$TMP/sync.bundle" "$id:/home/user/$VM_DIR.sync.bundle" >/dev/null
+      fetch="git fetch -q ~/$VM_DIR.sync.bundle $carrier && rm -f ~/$VM_DIR.sync.bundle &&"
     else
       fetch=""
     fi
@@ -110,8 +112,8 @@ case "${1:-}" in
       GIT_INDEX_FILE="$TMP/index" git -C "$ROOT" add -A -- "$@"
       GIT_INDEX_FILE="$TMP/index" git -C "$ROOT" diff --cached --binary "$target" >"$TMP/own.patch"
       if [ -s "$TMP/own.patch" ]; then
-        "$BOAT" scp "$TMP/own.patch" "$id:/home/user/own.patch" >/dev/null
-        patch="&& git apply ~/own.patch && rm -f ~/own.patch"
+        "$BOAT" scp "$TMP/own.patch" "$id:/home/user/$VM_DIR.own.patch" >/dev/null
+        patch="&& git apply ~/$VM_DIR.own.patch && rm -f ~/$VM_DIR.own.patch"
       fi
     fi
     put="old=\$(git rev-parse HEAD) && git checkout -q -f --detach $target && git clean -q -fd \
@@ -123,8 +125,8 @@ case "${1:-}" in
       [ -n "$fetch" ] || exit 1
       echo "vm.sh: the fetch failed; sending the whole branch once" >&2
       git -C "$ROOT" bundle create -q "$TMP/sync.bundle" "$carrier"
-      "$BOAT" scp "$TMP/sync.bundle" "$id:/home/user/sync.bundle" >/dev/null
-      [ -z "$patch" ] || "$BOAT" scp "$TMP/own.patch" "$id:/home/user/own.patch" >/dev/null
+      "$BOAT" scp "$TMP/sync.bundle" "$id:/home/user/$VM_DIR.sync.bundle" >/dev/null
+      [ -z "$patch" ] || "$BOAT" scp "$TMP/own.patch" "$id:/home/user/$VM_DIR.own.patch" >/dev/null
       remote "$id" "cd ~/$VM_DIR && $fetch $put"
     fi
     ;;
