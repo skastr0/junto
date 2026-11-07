@@ -543,6 +543,8 @@ const openServer = (spawnPty: SpawnPty, epochs: PtyEpochs): {
     const link = links.get(command.id);
     if (link === undefined) {
       if (awaited(command.id)) return wait(command.id, () => onCommand(command, port), () => endPortFor(port));
+      // A write to a gone terminal hears the same error the old write posted.
+      if (command._tag === "write") write(command.id, command.data);
       return endPortFor(port);
     }
     order(link, command, port);
