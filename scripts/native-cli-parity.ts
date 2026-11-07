@@ -61,10 +61,11 @@ const successOf = (op: string): unknown => {
   const rpc = publishedRpcs.get(op);
   if (rpc === undefined) return undefined;
   if (!samples.has(op)) {
-    const encode = Schema.encodeSync(Schema.toCodecJson(rpc.successSchema));
+    // A published op's success schema needs no services to encode.
+    const encode = Schema.encodeSync(Schema.toCodecJson(rpc.successSchema as Schema.Codec<unknown, unknown>));
     const drawn = Effect.runSync(Arbitrary.sampleEffect(Arbitrary.schema(rpc.successSchema), { seed: op, count: 16, size: 2 }));
     // A lone surrogate is a string no core writes, and the native CLI refuses it as JSON.
-    const whole = drawn.map(encode).find((value) => !LONE_SURROGATE.test(JSON.stringify(value)));
+    const whole = drawn.map((value) => encode(value)).find((value) => !LONE_SURROGATE.test(JSON.stringify(value)));
     if (whole === undefined) throw new Error(`${op}: no sample without a lone surrogate in 16 draws`);
     samples.set(op, whole);
   }
