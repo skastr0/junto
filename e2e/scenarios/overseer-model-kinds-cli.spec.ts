@@ -105,6 +105,21 @@ const jsonLine = (text: string): Record<string, unknown> | undefined => {
   return undefined;
 };
 
+/**
+ * A canvas read answers the model's node plus what it adds around it: a seat's
+ * `name` and every region around the node (src/core/overseer/canvas.ts
+ * nodeEntry). The rest of the row is the model's node, closed: the additions
+ * are checked for what they are and taken off, so the model's own decode still
+ * refuses any other excess property.
+ */
+const asModelNode = (row: unknown): unknown => {
+  if (typeof row !== "object" || row === null || Array.isArray(row)) return row;
+  const { name, regions, ...node } = row as Record<string, unknown>;
+  if (name !== undefined && typeof name !== "string") throw new Error(`a node's name is a string, not ${typeof name}`);
+  if (regions !== undefined && !Array.isArray(regions)) throw new Error("a node's regions are a list");
+  return node;
+};
+
 /** Every returned row must satisfy its closed native schema, including nested batch results. */
 const validateRows = (value: unknown): void => {
   if (Array.isArray(value)) {
@@ -112,8 +127,8 @@ const validateRows = (value: unknown): void => {
   } else if (typeof value === "object" && value !== null) {
     for (const [key, item] of Object.entries(value)) {
       const strict = { onExcessProperty: "error" } as const;
-      if (key === "node") Schema.decodeUnknownSync(Node, strict)(item);
-      else if (key === "nodes") Schema.decodeUnknownSync(Schema.Array(Node), strict)(item);
+      if (key === "node") Schema.decodeUnknownSync(Node, strict)(asModelNode(item));
+      else if (key === "nodes") Schema.decodeUnknownSync(Schema.Array(Node), strict)(Array.isArray(item) ? item.map(asModelNode) : item);
       else if (key === "wire") Schema.decodeUnknownSync(Wire, strict)(item);
       else if (key === "wires") Schema.decodeUnknownSync(Schema.Array(Wire), strict)(item);
       else validateRows(item);
@@ -186,7 +201,10 @@ test("[fake-tui] the overseer's model-kind commands: read, node, wire, the retir
     if ("nodes" in ran.data && "wires" in ran.data) {
       soft(() => Schema.decodeUnknownSync(Schema.Struct({
         name: Schema.String, seq: Seq, nodes: Schema.Array(Node), wires: Schema.Array(Wire),
-      }), { onExcessProperty: "error" })(ran.data), `step ${step}: closed canvas read`).not.toThrow();
+      }), { onExcessProperty: "error" })({
+        ...ran.data,
+        nodes: Array.isArray(ran.data.nodes) ? ran.data.nodes.map(asModelNode) : ran.data.nodes,
+      }), `step ${step}: closed canvas read`).not.toThrow();
     }
     soft(() => validateRows(ran.out), `FAIL TO REPORT (step ${step}): the answer carries a row outside its native schema`).not.toThrow();
   };
