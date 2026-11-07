@@ -20,7 +20,11 @@ import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Effect, Schema } from "effect";
+import * as Arbitrary from "effect/Arbitrary";
+import type { Rpc } from "effect/rpc";
 import { allExamples } from "../src/cli/core/discovery";
+import { WORK_RPC_GROUPS } from "../src/contract/work/publish";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const binFlag = process.argv.indexOf("--bin");
@@ -41,8 +45,34 @@ let frames: string[] = [];
 
 const ok = (op: string, data: unknown) => JSON.stringify({ ok: true, op, data, protocol_version: "junto/work-control/v1" });
 const err = (op: string, error: unknown) => JSON.stringify({ ok: false, op, error, protocol_version: "junto/work-control/v1" });
-const delivered = (frame: { op: string }) =>
-  ok(frame.op, { messageId: SERVER_ID, delivered: true, n: 1.5, big: 1e21, small: 1e-7, s: "é \u0001\"", nested: { z: [null, false] } });
+/** Each op the work contract publishes (src/contract/work/published), by name. */
+const publishedRpcs = new Map(WORK_RPC_GROUPS.flatMap((group) => [...(group.requests as ReadonlyMap<string, Rpc.AnyWithProps>)]));
+
+/**
+ * What a published op answers on the stand-in: one value drawn from its
+ * contract's success schema, seeded by the op's name so every run answers
+ * the same, and encoded as the core writes it. Its published schema accepts
+ * it and the TypeScript CLI decodes it; a sample built from the published
+ * schema alone would miss the checks it leaves out (seat ids, digests).
+ */
+const LONE_SURROGATE = /\\u[dD][89a-fA-F][0-9a-fA-F]{2}/;
+const samples = new Map<string, unknown>();
+const successOf = (op: string): unknown => {
+  const rpc = publishedRpcs.get(op);
+  if (rpc === undefined) return undefined;
+  if (!samples.has(op)) {
+    const encode = Schema.encodeSync(Schema.toCodecJson(rpc.successSchema));
+    const drawn = Effect.runSync(Arbitrary.sampleEffect(Arbitrary.schema(rpc.successSchema), { seed: op, count: 16, size: 2 }));
+    // A lone surrogate is a string no core writes, and the native CLI refuses it as JSON.
+    const whole = drawn.map(encode).find((value) => !LONE_SURROGATE.test(JSON.stringify(value)));
+    if (whole === undefined) throw new Error(`${op}: no sample without a lone surrogate in 16 draws`);
+    samples.set(op, whole);
+  }
+  return samples.get(op);
+};
+
+/** A published op answers its sample; any other op a delivery both CLIs print as it came. */
+const delivered = (frame: { op: string }) => ok(frame.op, successOf(frame.op) ?? { messageId: SERVER_ID, delivered: true, n: 1.5, big: 1e21, small: 1e-7, s: "é \u0001\"", nested: { z: [null, false] } });
 
 /** content.stage as main answers it: a piece keeps the upload open, `done` closes it with the ref; any other op is delivered. */
 const staged = (frame: { op: string; args: unknown }) => {
