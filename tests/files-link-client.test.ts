@@ -1,10 +1,10 @@
-import { Effect, Layer, ManagedRuntime, Option } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { FilePath, FilesChanged, FilesNodeRef } from "../src/shared/files";
 import { FILES_LINK_TEXT_JSON_MAX, FilesRefused, type FilesLinkFailure, type HostFilesError } from "../src/shared/files-link";
 import { eventOf, FilesLink } from "../src/core/files/link";
-import { filesRemoteLayer, FilesRemoteService, makeFilesRemote, type RemoteChange } from "../src/core/files/link-client";
+import { filesRemoteLayer, filesRemoteOff, FilesRemoteService, makeFilesRemote, type RemoteChange } from "../src/core/files/link-client";
 import { bindLinkChannel } from "../src/core/link/contract";
 import type { LinkEventContext, LinkSession } from "../src/core/link/types";
 import { MachineRepository } from "../src/core/machines/repository";
@@ -273,21 +273,31 @@ describe("files remote: held by a Layer", () => {
     machineLinkLayer(() => undefined),
     Layer.succeed(MachineRepository, { peer: () => Effect.succeed(undefined) } as never),
   );
+  const held = (enabled: boolean) => ManagedRuntime.make(Layer.provideMerge(filesRemoteLayer({ enabled }), deps()));
 
-  it("is one remote for the runtime that has the Layer, and absent in one that has not", async () => {
-    const held = ManagedRuntime.make(Layer.provideMerge(filesRemoteLayer(), deps()));
-    const bare = ManagedRuntime.make(deps());
+  it("is one remote for the runtime, which asks the link when the feature is on", async () => {
+    const runtime = held(true);
     try {
-      const [first, second] = await Promise.all([
-        held.runPromise(Effect.serviceOption(FilesRemoteService)),
-        held.runPromise(Effect.serviceOption(FilesRemoteService)),
-      ]);
-      expect(Option.isSome(first) && Option.isSome(second) && first.value === second.value).toBe(true);
-      expect(Option.isNone(await bare.runPromise(Effect.serviceOption(FilesRemoteService)))).toBe(true);
-      // It is the same remote the router asks: with no link open it answers unreachable.
-      if (Option.isSome(first)) expect(await first.value.count(MINI, ref)).toEqual(unreachable(null));
-    } finally {
-      await Promise.all([held.dispose(), bare.dispose()]);
-    }
+      const [first, second] = await Promise.all([runtime.runPromise(FilesRemoteService), runtime.runPromise(FilesRemoteService)]);
+      expect(first).toBe(second);
+      // No link is open in this runtime, so the link answers it unreachable.
+      expect(await first.count(MINI, ref)).toEqual(unreachable(null));
+    } finally { await runtime.dispose(); }
+  });
+
+  it("is always there, and refuses every op denied without asking a link, when the feature is off", async () => {
+    const runtime = held(false);
+    try {
+      const remote = await runtime.runPromise(FilesRemoteService);
+      expect(remote).toBe(filesRemoteOff);
+      expect(await remote.count(MINI, ref)).toEqual({ ok: false, error: "denied" });
+      expect(await remote.write(MINI, ref, path("a.md"), "x", null)).toEqual({ ok: false, error: "denied" });
+      expect(await remote.open(MINI, ref)).toEqual({ ok: false, error: "denied" });
+      expect(remote.watched(MINI)).toEqual([]);
+      const seen: RemoteChange[] = [];
+      remote.onChange((change) => seen.push(change))();
+      await Effect.runPromise(remote.onClosed(context));
+      expect(seen).toEqual([]);
+    } finally { await runtime.dispose(); }
   });
 });

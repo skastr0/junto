@@ -178,11 +178,28 @@ export const makeFilesRemote = Effect.fn("FilesRemote.make")(function* (options:
 export type FilesRemote = Effect.Success<ReturnType<typeof makeFilesRemote>>;
 
 /**
+ * The remote of a core with `filesRemote` off. It has no link to use, so every
+ * op is refused `denied`, as the host's channel refuses every op while it is
+ * off, and it never says a change. The router does not ask it while the
+ * feature is off; it is here so the runtime always has a `FilesRemote` to give.
+ */
+const refusedOff = async (): Promise<FilesResult<never>> => ({ ok: false, error: "denied" });
+export const filesRemoteOff: FilesRemote = {
+  onEvent: () => Effect.void,
+  onOpened: () => Effect.void,
+  onClosed: () => Effect.void,
+  onChange: () => () => undefined,
+  open: refusedOff, close: refusedOff, count: refusedOff, list: refusedOff, read: refusedOff, write: refusedOff,
+  create: refusedOff, rename: refusedOff, move: refusedOff, trash: refusedOff, import: refusedOff, search: refusedOff,
+  watched: () => [],
+};
+
+/**
  * The core's one `FilesRemote`, held by its runtime: the Layer builds it once,
- * and the link channel and the files router both take it from the context. A
- * core with `filesRemote` off does not provide the Layer, so the service is
- * absent there (`Effect.serviceOption`), as the router already reads it.
+ * and the link channel and the files router both take it from the context. With
+ * `enabled: false` (`filesRemote` off) it holds `filesRemoteOff` and opens no link.
  */
 export class FilesRemoteService extends Context.Service<FilesRemoteService, FilesRemote>()("@junto/FilesRemote") {}
 
-export const filesRemoteLayer = (options?: FilesRemoteOptions) => Layer.effect(FilesRemoteService, makeFilesRemote(options));
+export const filesRemoteLayer = (options: FilesRemoteOptions & { readonly enabled?: boolean } = {}) =>
+  Layer.effect(FilesRemoteService, options.enabled === false ? Effect.succeed(filesRemoteOff) : makeFilesRemote(options));
