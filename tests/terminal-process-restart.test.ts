@@ -14,7 +14,7 @@ import { TerminalRpcs } from "../src/contract/terminal/rpcs";
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it } from "vitest";
-import type { TerminalLink, TerminalLinkMessage, TerminalLinkPort } from "../src/contract/terminal/protocol";
+import { TerminalInbound, type TerminalLink, type TerminalLinkMessage, type TerminalLinkPort } from "../src/contract/terminal/protocol";
 import type { Command, Event, ParentCommand } from "../src/contract/terminal/messages";
 import {
   CoreLink,
@@ -136,7 +136,24 @@ const coreAt = (connected: ReturnType<typeof boot>, generation: number) => {
   const { port1, port2 } = new MessageChannel();
   opened.push(port1, port2);
   connected.connect(linkOf(port2), generation);
-  return { client: terminalClient(portOf(port1)), core: coreOf(port1), port: port2 };
+  // Acknowledgements the server has already applied: this listener registers
+  // behind the server's own, so an ack seen here moved its chunks to history
+  // before it was seen. The push ack counts characters, the frame a seq.
+  const acked = new Map<number, { chars: number; throughSeq: number }>();
+  port2.on("message", (message: TerminalLinkMessage) => {
+    if (message.kind === "push" && message.channel === TerminalInbound.ack) {
+      const { id, chars } = message.payload as { readonly id: number; readonly chars: number };
+      const ack = acked.get(id) ?? { chars: 0, throughSeq: 0 };
+      ack.chars += chars;
+      acked.set(id, ack);
+    }
+    if (message.kind === "command" && message.message._tag === "ack") {
+      const ack = acked.get(message.message.id) ?? { chars: 0, throughSeq: 0 };
+      ack.throughSeq = Math.max(ack.throughSeq, message.message.throughSeq);
+      acked.set(message.message.id, ack);
+    }
+  });
+  return { client: terminalClient(portOf(port1)), core: coreOf(port1), port: port2, acked };
 };
 
 const until = async (check: () => boolean, timeoutMs = 5_000): Promise<void> => {
@@ -170,6 +187,21 @@ describe("a terminal process and the cores it outlives", () => {
     });
     cat.write("before the crash\r");
     await until(() => echoed.includes("before the crash"));
+
+    // Output is history only once the core's ack for it has been applied; the
+    // client posts its ack a turn after the data lands, so wait for the ack
+    // covering the echo — a seq for a frame ack, its characters for a push.
+    const heard = first.core.events.reduce(
+      (totals, event) =>
+        event._tag === "data" && event.id === cat.id
+          ? { seq: event.seq, chars: totals.chars + event.data.length }
+          : totals,
+      { seq: 0, chars: 0 },
+    );
+    await until(() => {
+      const ack = first.acked.get(cat.id);
+      return ack !== undefined && (ack.throughSeq >= heard.seq || ack.chars >= heard.chars);
+    });
 
     // The core is gone; its port closing detaches it and nothing is killed.
     first.port.close();
