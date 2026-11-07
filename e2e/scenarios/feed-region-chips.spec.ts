@@ -16,6 +16,7 @@ import type { AgentSignal } from "../../src/shared/agent-signals";
 import type { Region, Seat as ModelSeat } from "../../src/shared/model";
 import { modelFixture, modelRegion, modelSeat, type ModelFixture } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? join(process.cwd(), "test-results", "feed-region-chips");
 const CANVAS = "feed-region-chips";
@@ -73,7 +74,7 @@ test("a parent region chip shows every need inside it, and its count rolls up it
     const { page } = junto;
     await expect(page.locator(".react-flow__node", { hasText: "pia" })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId("operator-feed-trigger")).toHaveAttribute("aria-label", "Needs you, 5", { timeout: 10_000 });
-    await page.keyboard.press("Meta+I");
+    await page.keyboard.press(mod("I"));
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
     const cards = feed.getByTestId("operator-feed-card");

@@ -20,6 +20,7 @@ import type { Seat as ModelSeat } from "../../src/shared/model";
 import { expect, launchJunto, test } from "../harness/launch";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { modelFixture, modelRegion, modelSeat, modelWire } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "release-0115";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? join("test-results", "release-0115");
@@ -121,7 +122,7 @@ const setTheme = async (page: Page, mode: "dark" | "bright"): Promise<void> => {
 };
 
 const walkFeed = async (page: Page, mode: "dark" | "bright"): Promise<void> => {
-  await page.keyboard.press("Meta+I");
+  await page.keyboard.press(mod("I"));
   const feed = page.getByTestId("operator-feed");
   await expect(feed).toBeVisible({ timeout: 10_000 });
   const bar = page.getByTestId("feed-filter-bar");
@@ -300,7 +301,7 @@ test("0.11.5: the feed's seat row and the seat Threads count on a 47-seat canvas
     await closeModals();
 
     // A Needs you answer is the operator's mail: read, the count holds.
-    await page.keyboard.press("Meta+I");
+    await page.keyboard.press(mod("I"));
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
     await feed.getByTestId("operator-feed-card").filter({ hasText: "ship the pricing copy today" }).click();

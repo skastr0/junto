@@ -18,6 +18,7 @@ import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
 import { commandModel, modelFixture, modelNode, modelRegion, modelSeat } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "briefings-verify";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/briefings-verify";
@@ -38,7 +39,7 @@ type Mention = { label?: string; ref?: string; kind?: string; id?: string; title
 /** Types a document into a live Markdown field: a heading, a list, then a #artifact and an @seat picked from the picker. */
 const writeDocument = async (page: Page, field: Locator, heading: string, mentions: ReadonlyArray<{ sigil: "#" | "@"; name: string }>): Promise<void> => {
   await field.click();
-  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.press(mod("A"));
   await page.keyboard.press("Backspace");
   await page.keyboard.insertText(`# ${heading}\n\n- first point\n- second point\n\nRead `);
   for (const [index, mention] of mentions.entries()) {

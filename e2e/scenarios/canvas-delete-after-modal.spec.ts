@@ -10,6 +10,7 @@
  */
 import { expect, test } from "../harness/launch";
 import { modelFixture, modelNote } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "delete-after-modal";
 
@@ -56,7 +57,7 @@ test("the delete chord stands down under a modal and comes back in one press", a
 
   // A modal in front: the card behind it is not the delete's.
   await select("note-behind");
-  await page.keyboard.press("Meta+t");
+  await page.keyboard.press(mod("t"));
   await expect(page.getByRole("dialog", { name: "Quick capture" })).toBeVisible({ timeout: 10_000 });
   await page.locator(".quick-capture__rows").click();
   await page.keyboard.press("Backspace");

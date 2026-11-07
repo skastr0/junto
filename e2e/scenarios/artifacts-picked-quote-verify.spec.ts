@@ -17,6 +17,7 @@ import { asNodeId } from "../../src/shared/model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelNode, modelSeat } from "../harness/model";
+import { MOD } from "../harness/keys";
 
 const CANVAS = "picked-quote";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/artifacts-picked-quote-verify";
@@ -105,8 +106,8 @@ test("artifacts: picked, hovered and open rows read apart; the quote rule is neu
     await step("list: open, two picked, one hovered", async () => {
       await row(page, "Alpha notes").click();
       // A real Cmd-click first; if Playwright's mouse modifier does not reach React, a click carrying metaKey, said in the result.
-      await row(page, "Gamma review").click({ modifiers: ["Meta"] });
-      await row(page, "Delta errands").click({ modifiers: ["Meta"] });
+      await row(page, "Gamma review").click({ modifiers: [MOD] });
+      await row(page, "Delta errands").click({ modifiers: [MOD] });
       const realPicks = await page.locator('.artifacts-list__item[data-picked="true"]').count();
       out.cmdClickPicked = realPicks;
       if (realPicks < 3) {

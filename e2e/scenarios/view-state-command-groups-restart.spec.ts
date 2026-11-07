@@ -12,6 +12,7 @@ import type { Page } from "@playwright/test";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelNode } from "../harness/model";
 import { createSandbox, destroySandbox } from "../harness/sandbox";
+import { MOD } from "../harness/keys";
 
 const CANVAS = "restart";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? join(process.cwd(), "test-results", "view-state-command-groups-restart");
@@ -59,7 +60,7 @@ test("command groups survive a full quit and relaunch", async () => {
       const { page } = first;
       await board(page);
       await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
-      const mod = process.platform === "darwin" ? "Meta" : "Control";
+      const mod = MOD;
 
       // Digit 1: two notes as a group.
       await node(page, "n1").click();

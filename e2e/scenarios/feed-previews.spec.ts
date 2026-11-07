@@ -26,6 +26,7 @@ import { deflateSync } from "node:zlib";
 import type { AgentSignal } from "../../src/shared/agent-signals";
 
 import { expect, launchJunto, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 const SHOTS = join(process.cwd(), "test-results", "feed-previews");
 const CANVAS = "feed-previews";
@@ -134,7 +135,7 @@ test("the needs-you feed previews the files a signal names", async () => {
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
     await expect(page.locator("html")).not.toHaveAttribute("data-theme", "bright");
 
-    await page.keyboard.press("Meta+I");
+    await page.keyboard.press(mod("I"));
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
     const row = feed.locator("[data-item-id='signal:sig-previews']");

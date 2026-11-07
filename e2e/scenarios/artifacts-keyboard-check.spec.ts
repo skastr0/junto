@@ -10,6 +10,7 @@ import { Schema } from "effect";
 import { Node } from "../../src/shared/model";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelSeat } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "keys-check";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/artifacts-keyboard-check";
@@ -62,9 +63,9 @@ test("artifact keymap: panes, comments key, list keys, Keys button, Cmd+B", asyn
       await list.locator("button").filter({ hasText: title }).first().focus();
       expect(await pane(page), `${noun}: start in the list`).toBe("list");
       const right: string[] = [];
-      for (let i = 0; i < 4; i += 1) { await page.keyboard.press("Meta+Alt+ArrowRight"); right.push(await where(page)); }
+      for (let i = 0; i < 4; i += 1) { await page.keyboard.press(mod("Alt+ArrowRight")); right.push(await where(page)); }
       const left: string[] = [];
-      for (let i = 0; i < 4; i += 1) { await page.keyboard.press("Meta+Alt+ArrowLeft"); left.push(await where(page)); }
+      for (let i = 0; i < 4; i += 1) { await page.keyboard.press(mod("Alt+ArrowLeft")); left.push(await where(page)); }
       log[`${noun} right`] = right;
       log[`${noun} left`] = left;
       expect(right.map((w) => w.split(":")[0]), `${noun} right`).toEqual(["content", "comments", "list", "content"]);
@@ -76,13 +77,13 @@ test("artifact keymap: panes, comments key, list keys, Keys button, Cmd+B", asyn
     await page.getByRole("button", { name: "Sidebar" }).first().click();
     await expect(page.locator(".two-pane[data-sidebar='collapsed']")).toHaveCount(1);
     await page.locator(".artifact-head__title, [aria-label='Title']").first().focus();
-    await page.keyboard.press("Meta+Alt+ArrowRight");
+    await page.keyboard.press(mod("Alt+ArrowRight"));
     const c1 = await where(page);
-    await page.keyboard.press("Meta+Alt+ArrowRight");
+    await page.keyboard.press(mod("Alt+ArrowRight"));
     const c2 = await where(page);
-    await page.keyboard.press("Meta+Alt+ArrowLeft");
+    await page.keyboard.press(mod("Alt+ArrowLeft"));
     const c3 = await where(page);
-    await page.keyboard.press("Meta+Alt+ArrowLeft");
+    await page.keyboard.press(mod("Alt+ArrowLeft"));
     const c4 = await where(page);
     log.collapsed = [c1, c2, c3, c4];
     await shot(page, "1-sidebar-collapsed");
@@ -96,24 +97,24 @@ test("artifact keymap: panes, comments key, list keys, Keys button, Cmd+B", asyn
     await source.click();
     await source.pressSequentially("Caret in the document");
     expect(await railOpen(page)).toBe(false);
-    await page.keyboard.press("Meta+B");
+    await page.keyboard.press(mod("B"));
     expect(await railOpen(page), "Cmd+B did not open the rail").toBe(false);
-    await page.keyboard.press("Meta+Shift+M");
+    await page.keyboard.press(mod("Shift+M"));
     await expect(page.locator(".artifact-comments")).toBeVisible();
     await shot(page, "2-rail-open-by-cmd-shift-m");
-    await page.keyboard.press("Meta+B");
+    await page.keyboard.press(mod("B"));
     expect(await railOpen(page), "Cmd+B did not close the open rail").toBe(true);
     // Closing from the document's caret.
     await source.click();
-    await page.keyboard.press("Meta+Shift+M");
+    await page.keyboard.press(mod("Shift+M"));
     await expect(page.locator(".artifact-comments")).toHaveCount(0);
     log.afterCloseFromDocument = await where(page);
     // Cmd+Shift+M in the comment composer closes the rail, focus lands on the edge button.
-    await page.keyboard.press("Meta+Shift+M");
+    await page.keyboard.press(mod("Shift+M"));
     await expect(page.locator(".artifact-comments")).toBeVisible();
     await page.getByLabel("New comment").click();
     expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("New comment");
-    await page.keyboard.press("Meta+Shift+M");
+    await page.keyboard.press(mod("Shift+M"));
     await expect(page.locator(".artifact-comments")).toHaveCount(0);
     const focusNow = () =>
       page.evaluate(() => {
@@ -193,7 +194,7 @@ test("artifact keymap: panes, comments key, list keys, Keys button, Cmd+B", asyn
     await expect(field).toBeVisible();
     await field.click();
     await page.keyboard.type("hello");
-    await page.keyboard.press("Meta+B");
+    await page.keyboard.press(mod("B"));
     log.railAfterCmdBInField = await railEl.getAttribute("data-rail").catch(() => "no rail");
     log.fieldValue = await field.inputValue().catch(() => "?");
     await shot(page, "7-cmd-b-in-message-field");

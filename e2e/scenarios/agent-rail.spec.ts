@@ -9,6 +9,7 @@ import {
 import { expect, launchJunto, test } from "../harness/launch";
 import { Schema } from "effect";
 import { Node } from "../../src/shared/model";
+import { mod } from "../harness/keys";
 
 /**
  * The agent modal's rail: the connected agents, each drawn by the canvas's
@@ -245,7 +246,7 @@ test("search over an open agent opens the result on Enter", async () => {
     await expect(page.locator('.react-flow__node[data-id="lead"]')).toBeVisible({ timeout: 30_000 });
 
     // Over the canvas Enter goes to the node and opens nothing.
-    await page.keyboard.press("Meta+k");
+    await page.keyboard.press(mod("k"));
     const input = page.getByTestId("command-bar-input");
     await input.fill("bea");
     await expect(page.getByTestId("command-bar-enter-hint")).toHaveText("go to");
@@ -256,7 +257,7 @@ test("search over an open agent opens the result on Enter", async () => {
 
     // Over an open agent the same Enter opens the result there.
     await open(page, "lead");
-    await page.keyboard.press("Meta+k");
+    await page.keyboard.press(mod("k"));
     await input.fill("bea");
     await expect(page.getByTestId("command-bar-enter-hint")).toHaveText("open");
     await page.screenshot({ path: test.info().outputPath("search-over-agent.png") });

@@ -18,6 +18,7 @@ import { ItemId } from "../../src/shared/work-ids";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness, type CrewCliResult } from "../harness/crew-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "artifacts-milestone";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/artifacts-milestone";
@@ -194,9 +195,9 @@ test("artifacts: each type, a new version, history, a stale edit refused, commen
     await expect(page.getByTestId("comments-edge-seat").first()).toHaveAttribute("data-seat-id", "scout");
     await expect(edge.locator("img, svg").first()).toBeVisible();
     await shot(page, "09b-rail-edge");
-    await page.keyboard.press("Meta+Shift+M");
+    await page.keyboard.press(mod("Shift+M"));
     await expect(page.getByLabel("New comment")).toBeVisible();
-    await page.keyboard.press("Meta+Shift+M");
+    await page.keyboard.press(mod("Shift+M"));
     await expect(edge).toBeVisible();
 
     // A text comment keeps a mark on its quote while the rail is collapsed; pressing it opens the rail on its thread.

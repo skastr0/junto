@@ -15,6 +15,7 @@ import { asNodeId, Node } from "../../src/shared/model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/artifact-keys";
 const shelf = Schema.decodeUnknownSync(Node, { onExcessProperty: "error" })({
@@ -97,23 +98,23 @@ for (const theme of ["dark", "bright"] as const) {
 
       // Cmd+Shift+M opens the comments with the caret in the document; Cmd+B does not.
       await page.locator(".cm-content").click();
-      await page.keyboard.press("Meta+B");
+      await page.keyboard.press(mod("B"));
       await expect(page.locator(".two-pane")).toHaveAttribute("data-rail", "collapsed");
-      await page.keyboard.press("Meta+Shift+M");
+      await page.keyboard.press(mod("Shift+M"));
       await expect(page.locator(".two-pane")).toHaveAttribute("data-rail", "true");
       await shot(page, `${theme}-2-comments-open`);
 
       // Cmd+Alt and an arrow: content, comments, then round to the list.
-      await page.keyboard.press("Meta+Alt+ArrowRight");
+      await page.keyboard.press(mod("Alt+ArrowRight"));
       await expect.poll(() => paneWithFocus(page)).toBe("rail");
-      await page.keyboard.press("Meta+Alt+ArrowRight");
+      await page.keyboard.press(mod("Alt+ArrowRight"));
       await expect.poll(() => paneWithFocus(page)).toBe("sidebar");
-      await page.keyboard.press("Meta+Alt+ArrowLeft");
+      await page.keyboard.press(mod("Alt+ArrowLeft"));
       await expect.poll(() => paneWithFocus(page)).toBe("rail");
 
       // Closing from the composer leaves the keyboard on the edge, not the page.
       await page.getByLabel("New comment").focus();
-      await page.keyboard.press("Meta+Shift+M");
+      await page.keyboard.press(mod("Shift+M"));
       await expect(page.locator(".two-pane")).toHaveAttribute("data-rail", "collapsed");
       await expect(page.locator(".artifact-comments-edge")).toBeFocused();
 
@@ -145,13 +146,13 @@ test("pad keys and a collapsed sidebar in the real app", async () => {
 
     // A collapsed sidebar is stepped over: content, comments, content.
     await page.locator(".cm-content").click();
-    await page.keyboard.press("Meta+Shift+M");
+    await page.keyboard.press(mod("Shift+M"));
     await page.getByRole("button", { name: "Sidebar" }).first().click();
     await expect(page.locator(".two-pane")).toHaveAttribute("data-sidebar", "collapsed");
     await page.locator(".cm-content").click();
-    await page.keyboard.press("Meta+Alt+ArrowRight");
+    await page.keyboard.press(mod("Alt+ArrowRight"));
     await expect.poll(() => paneWithFocus(page)).toBe("rail");
-    await page.keyboard.press("Meta+Alt+ArrowRight");
+    await page.keyboard.press(mod("Alt+ArrowRight"));
     await expect.poll(() => paneWithFocus(page)).toBe("main");
     await page.getByRole("button", { name: "Sidebar" }).first().click();
     await expect(page.locator(".two-pane")).not.toHaveAttribute("data-sidebar", "collapsed");
@@ -182,12 +183,12 @@ test("pad keys and a collapsed sidebar in the real app", async () => {
     await expect(page.getByTestId("pad-selection")).toBeVisible({ timeout: 10_000 });
     const meta = page.locator(".artifact-head__meta");
     await expect(meta).toHaveText("Pad, version 2", { timeout: 15_000 });
-    await page.keyboard.press("Meta+D");
+    await page.keyboard.press(mod("D"));
     await expect(meta).toHaveText("Pad, version 3", { timeout: 15_000 });
     await shot(page, "pad-1-duplicated");
-    await page.keyboard.press("Meta+Z");
+    await page.keyboard.press(mod("Z"));
     await expect(meta).toHaveText("Pad, version 4", { timeout: 15_000 });
-    await page.keyboard.press("Meta+Shift+Z");
+    await page.keyboard.press(mod("Shift+Z"));
     await expect(meta).toHaveText("Pad, version 5", { timeout: 15_000 });
     await page.locator(".artifact-head").getByRole("button", { name: "Keys", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Artifact keys" })).toContainText("Duplicate the selected shape");

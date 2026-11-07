@@ -22,6 +22,7 @@ import { join } from "node:path";
 import type { AgentSignal } from "../../src/shared/agent-signals";
 import { expect, launchJunto, test } from "../harness/launch";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
+import { mod } from "../harness/keys";
 
 
 const SHOTS = join(process.cwd(), "test-results", "feed-code");
@@ -114,7 +115,7 @@ test("[fake-tui] a seat attaches code, a diff, a compare and a commit, and the c
     ]);
     expect(JSON.stringify(signal)).not.toContain(repo);
 
-    await page.keyboard.press("Meta+I");
+    await page.keyboard.press(mod("I"));
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
     await feed.locator(`[data-item-id='signal:${signal.signalId}']`).click();

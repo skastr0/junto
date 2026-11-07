@@ -22,6 +22,7 @@ import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "labels-verify";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/artifact-labels-verify";
@@ -301,7 +302,7 @@ test("artifact labels: header chips, the sidebar filter, a seat's label, Cmd+P r
 
     // (4) Cmd+P: a title hit above a label hit.
     const palette = page.getByTestId("quick-open");
-    await page.keyboard.press("Meta+p");
+    await page.keyboard.press(mod("p"));
     await expect(palette).toBeVisible();
     await page.getByTestId("quick-open-input").fill("plan");
     const titles = palette.locator(".quick-open__row-title");

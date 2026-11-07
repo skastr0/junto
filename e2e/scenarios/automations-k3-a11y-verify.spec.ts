@@ -15,6 +15,7 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelNode } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "automations-k3-a11y";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/automations-k3-a11y-verify";
@@ -74,7 +75,7 @@ test("automations K3: unsaved code asks before Escape, backdrop and Revert drop 
     await expect(surface).toContainText("import { input, cont }", { timeout: 15_000 });
     const typeCode = async (marker: string): Promise<void> => {
       await surface.click();
-      await page.keyboard.press("ControlOrMeta+A");
+      await page.keyboard.press(mod("A"));
       await page.keyboard.type(`import { cont } from "junto/automation";\ncont({ ${marker}: "yes" });\n`);
       await expect(surface).toContainText(marker);
     };

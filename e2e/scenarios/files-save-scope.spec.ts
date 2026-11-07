@@ -17,6 +17,7 @@ import type { Locator, Page } from "@playwright/test";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture } from "../harness/model";
 import { FILES_ID, filesNode, openFilesModal, openInTree, stageFiles, type FilesStage } from "../harness/files-scenario";
+import { mod, TEXT_END } from "../harness/keys";
 
 const CANVAS = "files-save-scope";
 const FILE = "notes/meeting notes.txt";
@@ -29,7 +30,7 @@ const typeAtEnd = async (page: Page, modal: Locator, text: string): Promise<void
   const editor = modal.locator(".cm-content");
   await expect(editor).toContainText("spaced name", { timeout: 15_000 });
   await editor.click();
-  await page.keyboard.press("Meta+ArrowDown");
+  await page.keyboard.press(TEXT_END);
   await page.keyboard.type(text);
   await expect(modal.getByRole("status").filter({ hasText: "Unsaved" })).toBeVisible();
 };
@@ -51,7 +52,7 @@ test("Cmd+S writes the open file and clears Unsaved", async () => {
     await openInTree(modal, FILE);
     await typeAtEnd(page, modal, "saved by Cmd+S");
 
-    await page.keyboard.press("Meta+s");
+    await page.keyboard.press(mod("s"));
 
     await expect(modal.getByRole("status").filter({ hasText: "Unsaved" })).toHaveCount(0, { timeout: 15_000 });
     expect(readFileSync(join(stage.fixture.root, FILE), "utf8")).toBe(`${ON_DISK}saved by Cmd+S`);
@@ -75,7 +76,7 @@ test("a save over a changed file is refused stale; Keep mine writes the draft, R
     // Keep mine.
     await typeAtEnd(page, modal, "mine");
     await changeOnDisk(disk, "theirs\n");
-    await page.keyboard.press("Meta+s");
+    await page.keyboard.press(mod("s"));
     await expect(stale).toBeVisible({ timeout: 15_000 });
     expect(readFileSync(disk, "utf8")).toBe("theirs\n");
     await stale.getByRole("button", { name: "Keep mine" }).click();
@@ -84,13 +85,13 @@ test("a save over a changed file is refused stale; Keep mine writes the draft, R
     expect(readFileSync(disk, "utf8")).toBe(`${ON_DISK}mine`);
 
     // Reload from disk.
-    await page.keyboard.press("Meta+ArrowDown");
+    await page.keyboard.press(TEXT_END);
     await modal.locator(".cm-content").click();
-    await page.keyboard.press("Meta+ArrowDown");
+    await page.keyboard.press(TEXT_END);
     await page.keyboard.type(" dropped");
     await expect(modal.getByRole("status").filter({ hasText: "Unsaved" })).toBeVisible();
     await changeOnDisk(disk, "theirs again\n");
-    await page.keyboard.press("Meta+s");
+    await page.keyboard.press(mod("s"));
     await expect(stale).toBeVisible({ timeout: 15_000 });
     await stale.getByRole("button", { name: "Reload from disk" }).click();
     await expect(stale).toHaveCount(0, { timeout: 15_000 });

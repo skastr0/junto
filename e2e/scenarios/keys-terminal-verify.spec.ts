@@ -19,6 +19,7 @@ import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelNode, modelTerminal } from "../harness/model";
 import { FILES_ID, filesNode, openFilesModal, stageFiles } from "../harness/files-scenario";
 import { terminalRows } from "../harness/term-ready";
+import { mod } from "../harness/keys";
 
 const CANVAS = "keys-terminal-verify";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/keys-terminal-verify";
@@ -171,7 +172,7 @@ test("Escape over a browser: a dialog above keeps it attached, the bare shell de
     await expect.poll(() => attached(page), { timeout: 20_000 }).toBe(1);
 
     // A dialog above the browser: the command palette.
-    await page.keyboard.press("ControlOrMeta+K");
+    await page.keyboard.press(mod("K"));
     const dialog = page.getByRole("dialog").filter({ hasNot: chrome }).last();
     await check("a dialog opens over the browser", () => expect(dialog).toBeVisible({ timeout: 5_000 }));
     console.log("KB-DIALOG", (await dialog.getAttribute("aria-label").catch(() => null)) ?? "(unnamed)");

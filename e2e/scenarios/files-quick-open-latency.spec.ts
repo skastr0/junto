@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { filesNode, openFilesModal } from "../harness/files-scenario";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "files-quick-open-latency";
 const ROOT = process.env.JUNTO_QO_ROOT ?? "";
@@ -57,7 +58,7 @@ test("files quick open: fresh query latency on a large root", async () => {
   try {
     const modal = await openFilesModal(page);
     await expect(modal.getByRole("treeitem").first()).toBeVisible({ timeout: 120_000 });
-    await page.keyboard.press("Meta+p");
+    await page.keyboard.press(mod("p"));
     const field = page.getByTestId("quick-open-input");
     await expect(field).toBeFocused({ timeout: 10_000 });
 

@@ -17,6 +17,7 @@ import type { AgentSignal } from "../../src/shared/agent-signals";
 import type { Region, Seat as ModelSeat } from "../../src/shared/model";
 import { modelFixture, modelRegion, modelSeat, type ModelFixture } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 const SHOTS = join(process.cwd(), "test-results", "operator-feed-views");
 const CANVAS = "operator-feed-views";
@@ -62,7 +63,7 @@ const SIGNALS: ReadonlyArray<AgentSignal> = [
 ];
 
 const openFeed = async (page: Page) => {
-  await page.keyboard.press("Meta+I");
+  await page.keyboard.press(mod("I"));
   const feed = page.getByTestId("operator-feed");
   await expect(feed).toBeVisible({ timeout: 10_000 });
   return feed;

@@ -28,6 +28,7 @@ import type { Region, Seat as ModelSeat } from "../../src/shared/model";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness, type CrewSeat } from "../harness/crew-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 const SHOTS = join(process.cwd(), "test-results", "feed-scroll-stable");
 const CANVAS = "feed-scroll-stable";
@@ -100,7 +101,7 @@ test("the needs-you list moves only when the operator moves it", async () => {
     await crewOccupySeat(page, CANVAS, { id: "bo" }, bo);
     await crewOccupySeat(page, CANVAS, { id: "dex" }, dex);
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
-    await page.keyboard.press("Meta+I");
+    await page.keyboard.press(mod("I"));
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
     const cardOf = (id: string): Locator => feed.locator(`[data-item-id='signal:${id}']`);

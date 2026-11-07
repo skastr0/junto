@@ -12,6 +12,7 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelNode } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "capture-narrow";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/capture-narrow-move-glyph";
@@ -37,7 +38,7 @@ test("capture head at 700 wide: Move to is a glyph, the long title keeps its roo
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
     await expect(page.locator('.react-flow__node[data-id="notes"]')).toBeVisible({ timeout: 30_000 });
     await page.locator(".react-flow__pane").click({ position: { x: 600, y: 700 } });
-    await page.keyboard.press("Meta+t");
+    await page.keyboard.press(mod("t"));
     await surface(page).getByRole("button", { name: "Make an Inbox", exact: true }).click({ timeout: 10_000 });
     await expect(entry(page)).toBeFocused({ timeout: 15_000 });
     await page.keyboard.type(LONG);
@@ -46,11 +47,11 @@ test("capture head at 700 wide: Move to is a glyph, the long title keeps its roo
     await page.waitForTimeout(2500);
     await page.getByLabel("Search every artifact", { exact: true }).click();
     await page.keyboard.press("Escape");
-    if (await surface(page).isVisible()) await page.keyboard.press("Meta+t");
+    if (await surface(page).isVisible()) await page.keyboard.press(mod("t"));
     await expect(surface(page)).toBeHidden({ timeout: 5_000 });
 
     // Reopen on the existing capture.
-    await page.keyboard.press("Meta+t");
+    await page.keyboard.press(mod("t"));
     await expect(surface(page)).toBeVisible({ timeout: 10_000 });
     await page.locator(".quick-capture__row").filter({ hasText: "Roadmap pricing" }).first().click({ timeout: 10_000 });
     const title = page.locator(".capture-editor .artifact-head__title");

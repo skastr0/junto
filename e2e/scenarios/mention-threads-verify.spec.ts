@@ -15,6 +15,7 @@ import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { taskNodeId } from "../../src/shared/task-model";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelMessagesWire, modelNode, modelRegion, modelSeat } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "mention-threads";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/mention-threads";
@@ -199,7 +200,7 @@ test("# and @ offer what is in reach, a sent mention is a chip that opens, a tas
 
     // Gap 1, the needs-you reply composer.
     await section("needs-you-reply", async () => {
-      await page.keyboard.press("ControlOrMeta+I");
+      await page.keyboard.press(mod("I"));
       const feed = page.getByTestId("operator-feed");
       await expect(feed).toBeVisible({ timeout: 10_000 });
       await page.keyboard.press("Enter");
@@ -213,7 +214,7 @@ test("# and @ offer what is in reach, a sent mention is a chip that opens, a tas
       await expect(options.filter({ hasText: "Bravo" })).toBeVisible();
       await shot(page, "12-reply-at");
       await page.keyboard.press("Escape");
-      await page.keyboard.press("ControlOrMeta+I");
+      await page.keyboard.press(mod("I"));
     });
 
     // The page chip last: it leaves the page's surface open for the box comment.

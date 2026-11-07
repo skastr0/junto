@@ -12,6 +12,7 @@ import { asNodeId, Node } from "../../src/shared/model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture } from "../harness/model";
+import { TEXT_END } from "../harness/keys";
 
 const CANVAS = "verify-doc";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/artifact-comment-unsaved";
@@ -35,7 +36,7 @@ const newDocument = async (page: Page): Promise<void> => {
 const selectTail = async (page: Page, count: number): Promise<void> => {
   const source = page.getByLabel("Markdown");
   await source.click();
-  await page.keyboard.press("Meta+ArrowDown");
+  await page.keyboard.press(TEXT_END);
   for (let i = 0; i < count; i += 1) await page.keyboard.press("Shift+ArrowLeft");
 };
 

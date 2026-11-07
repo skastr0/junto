@@ -13,6 +13,7 @@ import { asNodeId, Node } from "../../src/shared/model";
 import { mintOpId } from "../../src/shared/resource-command";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "pad-verify";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/pad-lead-check";
@@ -146,15 +147,15 @@ test("pad: look, connectors, keys, cards, dark and bright", async () => {
       const c0 = await shapes();
       const sel = await centre("plan");
       await svg.click({ position: { x: sel.x - (await svg.boundingBox())!.x, y: sel.y - (await svg.boundingBox())!.y } });
-      await page.keyboard.press("Meta+d");
+      await page.keyboard.press(mod("d"));
       await expect.poll(shapes).toBe(c0 + 1);
-      await page.keyboard.press("Meta+z");
+      await page.keyboard.press(mod("z"));
       await expect.poll(shapes).toBe(c0);
-      await page.keyboard.press("Meta+Shift+z");
+      await page.keyboard.press(mod("Shift+z"));
       await expect.poll(shapes).toBe(c0 + 1);
       f.dupUndoRedo = { before: c0, afterDup: c0 + 1, afterUndo: c0, afterRedo: c0 + 1 };
       await shot(page, theme, "5-duplicate-redo");
-      await page.keyboard.press("Meta+z");
+      await page.keyboard.press(mod("z"));
       await expect.poll(shapes).toBe(c0);
 
       // Cards: paste a seat link, then @ and a name.

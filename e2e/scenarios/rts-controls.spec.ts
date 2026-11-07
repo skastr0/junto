@@ -17,6 +17,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { expect, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 const SHOTS = join(process.cwd(), "test-results", "rts-controls");
 
@@ -111,7 +112,7 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
 
   // An operator-owned slot: the selected seat goes to slot 2 (⌘/Ctrl+2).
   await page.locator('.react-flow__node[data-id="seat"]').click();
-  await page.keyboard.press(process.platform === "darwin" ? "Meta+2" : "Control+2");
+  await page.keyboard.press(mod("2"));
   const seatChip = regionStrip.locator('.group-chip[data-node-id="seat"]');
   await expect(seatChip).toBeVisible();
   await page.screenshot({ path: join(SHOTS, "05-seat-slotted.png"), fullPage: false });
@@ -122,7 +123,7 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   // drag handle — the only movable chrome.
   await page.getByRole("button", { name: "Fit readable view" }).click();
   await page.locator(".region-drag-handle", { hasText: "ops" }).first().click();
-  await page.keyboard.press(process.platform === "darwin" ? "Meta+1" : "Control+1");
+  await page.keyboard.press(mod("1"));
   const regionChip = regionStrip.locator('[data-testid="hotbar-slot-1"]');
   await expect(regionChip).toBeVisible();
   await expect(regionChip).toContainText("ops");

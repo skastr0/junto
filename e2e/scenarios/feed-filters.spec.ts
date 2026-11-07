@@ -17,6 +17,7 @@ import type { Page } from "@playwright/test";
 import type { AgentSignal } from "../../src/shared/agent-signals";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? join(process.cwd(), "test-results", "feed-filters");
 const CANVAS = "feed-filters";
@@ -62,7 +63,7 @@ test("the feed narrows by words, kind and seat, and Clear puts it back", async (
     const { page } = junto;
     await expect(page.locator(".react-flow__node", { hasText: "Atlas" })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId("operator-feed-trigger")).toHaveAttribute("aria-label", "Needs you, 3", { timeout: 10_000 });
-    await page.keyboard.press("Meta+I");
+    await page.keyboard.press(mod("I"));
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
     const cards = feed.getByTestId("operator-feed-card");

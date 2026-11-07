@@ -20,6 +20,7 @@ import type { Locator, Page } from "@playwright/test";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture } from "../harness/model";
 import { filesNode, openFilesModal, stageFiles, treeRow } from "../harness/files-scenario";
+import { mod, TRASH_ROW } from "../harness/keys";
 
 const CANVAS = "files-actions";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/files-actions";
@@ -118,7 +119,7 @@ test("files actions: the row menu, create, move and trash, all from the keyboard
     await page.keyboard.press("Enter");
     await expect(page.getByRole("dialog", { name: "New file" }).getByRole("alert")).toHaveText("A file with that name is already here.");
     await shoot(page, "2-create-refused");
-    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.press(mod("A"));
     await page.keyboard.type("plan.md");
     await page.keyboard.press("Enter");
     await expect.poll(() => existsSync(join(root, "plan.md"))).toBe(true);
@@ -132,7 +133,7 @@ test("files actions: the row menu, create, move and trash, all from the keyboard
     await page.keyboard.type("link-outside");
     await page.keyboard.press("Enter");
     await expect(page.getByRole("dialog", { name: "Move plan.md" }).getByRole("alert")).toHaveText("That path leads outside this folder.");
-    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.press(mod("A"));
     await page.keyboard.type("arch");
     await expect(page.getByRole("option", { name: "archive" })).toBeVisible({ timeout: 10_000 });
     await shoot(page, "3-move-to");
@@ -168,7 +169,7 @@ test("files actions: the row menu, create, move and trash, all from the keyboard
 
     // Cmd+Backspace asks; a trash the system refuses is an alert in the ask, which stays.
     await treeRow(modal, "README.md").focus();
-    await page.keyboard.press("Meta+Backspace");
+    await page.keyboard.press(TRASH_ROW);
     const refused = page.getByRole("alertdialog", { name: "Move README.md to the Trash?" });
     await expect(refused).toBeVisible();
     await refused.getByRole("button", { name: "Move to Trash" }).click();

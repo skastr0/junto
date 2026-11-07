@@ -20,6 +20,7 @@ import { asNodeId } from "../../src/shared/model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelNode, modelTerminal } from "../harness/model";
+import { mod, TEXT_END } from "../harness/keys";
 
 const CANVAS = "capture-q6";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/capture-q6-verify";
@@ -85,13 +86,13 @@ test("quick capture Q6: ask once, Cmd+T anywhere writes at once, Inbox first, ty
     const close = async (where: string): Promise<void> => {
       await page.keyboard.press("Escape");
       await check(`${where}: one Escape closes the surface`, () => expect(surface(page)).toBeHidden({ timeout: 3_000 }));
-      if (await surface(page).isVisible()) await page.keyboard.press("Meta+t");
+      if (await surface(page).isVisible()) await page.keyboard.press(mod("t"));
       await expect(surface(page)).toBeHidden({ timeout: 5_000 });
     };
 
     // With no Inbox, the first Cmd+T asks once, and Make an Inbox works.
     await page.locator(".react-flow__pane").click({ position: { x: 1200, y: 700 } });
-    await page.keyboard.press("Meta+t");
+    await page.keyboard.press(mod("t"));
     await check("no Inbox: the first Cmd+T asks where captures go", () => expect(askHeading(page)).toBeVisible({ timeout: 10_000 }));
     await shoot(page, "01-ask");
     await check("Make an Inbox makes one and opens the editor with the caret in it", async () => {
@@ -128,7 +129,7 @@ test("quick capture Q6: ask once, Cmd+T anywhere writes at once, Inbox first, ty
     console.log("Q6-SAVED-TITLE", saved);
 
     // Reopened: it is first in the Inbox.
-    await page.keyboard.press("Meta+t");
+    await page.keyboard.press(mod("t"));
     await expect(surface(page)).toBeVisible({ timeout: 10_000 });
     await check("Cmd+T again: a new document with the caret in it, no second ask", async () => {
       await expect(askHeading(page)).toHaveCount(0);
@@ -247,13 +248,13 @@ test("quick capture Q6: ask once, Cmd+T anywhere writes at once, Inbox first, ty
     await shoot(page, "06-moved");
 
     // A second capture, routed by M on its Inbox row.
-    await page.keyboard.press("Meta+n");
+    await page.keyboard.press(mod("n"));
     await check("Cmd+N starts another capture with the caret in it", () => expect(entry(page)).toBeFocused({ timeout: 10_000 }));
     await page.keyboard.type("Shopping errands");
     await page.keyboard.press("Enter");
     await page.keyboard.type("Milk, eggs and bread before Friday.");
     await page.waitForTimeout(1500);
-    await page.keyboard.press("Meta+l");
+    await page.keyboard.press(mod("l"));
     await check("Cmd+L moves to the search field", () => expect(search(page)).toBeFocused({ timeout: 5_000 }));
     const second = (await list(inboxId!))[0]?.artifact.title ?? "Shopping errands";
     console.log("Q6-SECOND-TITLE", second);
@@ -290,7 +291,7 @@ test("quick capture Q6: ask once, Cmd+T anywhere writes at once, Inbox first, ty
     await check("Enter edits it in place, in the surface", async () => {
       await expect(title).toHaveValue("Errands for the week", { timeout: 10_000 });
       await entry(page).click();
-      await page.keyboard.press("Meta+ArrowDown");
+      await page.keyboard.press(TEXT_END);
       await page.keyboard.type(" Also stamps.");
       await expect.poll(async () => (await list("errands")).find((h) => h.artifact.title === "Errands for the week")?.body?.markdown ?? "", { timeout: 15_000 }).toContain("Also stamps.");
     });
@@ -298,7 +299,7 @@ test("quick capture Q6: ask once, Cmd+T anywhere writes at once, Inbox first, ty
     await search(page).click();
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("ArrowUp");
-    await page.keyboard.press("Meta+Enter");
+    await page.keyboard.press(mod("Enter"));
     await check("Cmd+Enter opens it in its own node", async () => {
       await expect(surface(page)).toBeHidden({ timeout: 5_000 });
       await expect(page.locator('.react-flow__node[data-id="errands"]')).toHaveClass(/selected/u, { timeout: 5_000 });
@@ -312,7 +313,7 @@ test("quick capture Q6: ask once, Cmd+T anywhere writes at once, Inbox first, ty
     await expect(term).toBeVisible({ timeout: 30_000 });
     await term.click();
     await page.waitForTimeout(500);
-    await page.keyboard.press("Meta+t");
+    await page.keyboard.press(mod("t"));
     await check("from a terminal, Cmd+T puts the caret in a new document", () => expect(entry(page)).toBeFocused({ timeout: 10_000 }));
     await page.keyboard.type("T");
     await check("from a terminal, the first keystroke lands in the capture", () => expect(entry(page)).toContainText("T", { timeout: 5_000 }));
@@ -323,7 +324,7 @@ test("quick capture Q6: ask once, Cmd+T anywhere writes at once, Inbox first, ty
     // Over a dialog.
     await page.getByRole("button", { name: "Open settings", exact: true }).click();
     await expect(page.locator(".settings-panel")).toBeVisible({ timeout: 10_000 });
-    await page.keyboard.press("Meta+t");
+    await page.keyboard.press(mod("t"));
     await check("over the Settings dialog, Cmd+T puts the caret in a new document", () => expect(entry(page)).toBeFocused({ timeout: 10_000 }));
     await page.keyboard.type("D");
     await check("over a dialog, the first keystroke lands in the capture", () => expect(entry(page)).toContainText("D", { timeout: 5_000 }));
@@ -339,7 +340,7 @@ test("quick capture Q6: ask once, Cmd+T anywhere writes at once, Inbox first, ty
     });
     await shoot(page, "13-top-bar-button");
     await check("Cmd+T pressed again closes it", async () => {
-      await page.keyboard.press("Meta+t");
+      await page.keyboard.press(mod("t"));
       await expect(surface(page)).toBeHidden({ timeout: 5_000 });
     });
 

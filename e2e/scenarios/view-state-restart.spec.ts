@@ -19,6 +19,7 @@ import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { taskNodeId } from "../../src/shared/task-model";
 import { expect, launchJunto, test, type JuntoHandle } from "../harness/launch";
 import { modelFixture } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "view-state-restart";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/view-state-restart";
@@ -98,7 +99,7 @@ test("view state: an arranged Artifacts and Tasks node come back after a full qu
       await page.locator(".artifacts-filter__type").filter({ hasText: /^Document$/u }).click();
       await page.getByRole("list", { name: "Artifacts" }).locator("button").filter({ hasText: "Roadmap" }).first().click();
       await expect(page.locator(".artifact-head__title")).toHaveValue("Roadmap", { timeout: 15_000 });
-      await page.keyboard.press("Meta+Shift+M");
+      await page.keyboard.press(mod("Shift+M"));
       await expect(page.locator(".two-pane").first()).not.toHaveAttribute("data-rail", "collapsed", { timeout: 10_000 });
       await page.locator("[data-sidebar-toggle]").first().click();
       await expect(page.locator(".two-pane").first()).toHaveAttribute("data-sidebar", "collapsed");

@@ -19,6 +19,7 @@ import type { Locator, Page } from "@playwright/test";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelNode, modelRegion } from "../harness/model";
 import { createSandbox } from "../harness/sandbox";
+import { mod } from "../harness/keys";
 
 const CANVAS = "capture-q4";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/capture-q4-verify";
@@ -98,7 +99,7 @@ test("quick capture Q4: the first Cmd+T asks for an Inbox, Settings moves it, Ma
     await expect(page.locator('.react-flow__node[data-id="shelf"]')).toBeVisible({ timeout: 30_000 });
 
     // (a) The first Cmd+T asks; the left half still searches; a pick opens the editor, focused.
-    await page.keyboard.press("Meta+t");
+    await page.keyboard.press(mod("t"));
     await check("(a) the first Cmd+T asks where captures go, in the right half", async () => {
       await expect(askHeading(page)).toBeVisible({ timeout: 10_000 });
       const ask = await askHeading(page).boundingBox();
@@ -132,7 +133,7 @@ test("quick capture Q4: the first Cmd+T asks for an Inbox, Settings moves it, Ma
     // A new capture goes to the picked node: the Inbox is Notes, so the capture lands on Notes.
     await check("(b) a new capture lands in the chosen Inbox", async () => {
       await closeSettings(page);
-      await page.keyboard.press("Meta+t");
+      await page.keyboard.press(mod("t"));
       await expect(writer(page)).toBeVisible({ timeout: 10_000 });
       await writer(page).click();
       await page.keyboard.type("Q4 capture check");
@@ -166,7 +167,7 @@ test("quick capture Q4: the first Cmd+T asks for an Inbox, Settings moves it, Ma
       await page.getByRole("button", { name: "Ask again on the next capture", exact: true }).click();
       await expect(picker(page).locator('[aria-checked="true"]')).toHaveCount(0, { timeout: 5_000 });
       await closeSettings(page);
-      await page.keyboard.press("Meta+t");
+      await page.keyboard.press(mod("t"));
       await expect(askHeading(page)).toBeVisible({ timeout: 10_000 });
       await closeCapture(page);
     });
@@ -199,7 +200,7 @@ test("quick capture Q4: the first Cmd+T asks for an Inbox, Settings moves it, Ma
       console.log("Q4 DELETE", JSON.stringify({ selectedClass, afterDelete, asked, nodesLeft: await inboxNodes(page).count() }));
       await shoot(page, "6a-after-backspace");
       await expect(inboxNodes(page)).toHaveCount(0, { timeout: 10_000 });
-      await page.keyboard.press("Meta+t");
+      await page.keyboard.press(mod("t"));
       await expect(askHeading(page)).toBeVisible({ timeout: 10_000 });
       await closeCapture(page);
     });

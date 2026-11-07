@@ -24,6 +24,7 @@ import type { AgentSignal } from "../../src/shared/agent-signals";
 import type { Region, Seat as ModelSeat } from "../../src/shared/model";
 import { modelFixture, modelRegion, modelSeat, type ModelFixture } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 const SHOTS = join(process.cwd(), "test-results", "operator-feed");
 const CANVAS = "operator-feed";
@@ -147,7 +148,7 @@ test("the operator feed at thirty: regions in colour, quick replies, real answer
     await expect(trigger).toHaveAttribute("aria-label", "Needs you, 30", { timeout: 10_000 });
     await page.screenshot({ path: join(SHOTS, "topbar-count.png"), clip: { x: 0, y: 0, width: 1400, height: 60 } });
 
-    await page.keyboard.press("Meta+I");
+    await page.keyboard.press(mod("I"));
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
     const cards = feed.getByTestId("operator-feed-card");
@@ -206,7 +207,7 @@ test("the operator feed at thirty: regions in colour, quick replies, real answer
     await expect(written.pane.getByTestId("quick-replies")).toBeVisible();
     await reply.fill("Use the new deploy key from the vault, then retry.");
     await shot(page, "feed-reply-dark.png");
-    await page.keyboard.press("Meta+Enter");
+    await page.keyboard.press(mod("Enter"));
     await expect(writtenCard).toHaveCount(0, { timeout: 10_000 });
     await expect(trigger).toHaveAttribute("aria-label", "Needs you, 27");
 
@@ -237,7 +238,7 @@ test("the operator feed at thirty: regions in colour, quick replies, real answer
     await shot(page, "settings-quick-replies-bright.png");
     await page.locator(".settings-panel__close").click();
 
-    await page.keyboard.press("Meta+I");
+    await page.keyboard.press(mod("I"));
     await expect(feed).toBeVisible();
     // The first item opens selected, so its pane carries the edited row.
     await expect(page.getByTestId("operator-feed-detail").getByTestId("quick-replies").getByRole("button")).toHaveText([
@@ -268,7 +269,7 @@ test("the operator feed with one waiting, then none", async () => {
     await expect(page.locator(".react-flow__node", { hasText: "Grove" })).toBeVisible({ timeout: 30_000 });
     for (const theme of ["dark", "bright"] as const) {
       await setTheme(page, theme);
-      await page.keyboard.press("Meta+I");
+      await page.keyboard.press(mod("I"));
       const feed = page.getByTestId("operator-feed");
       await expect(feed.getByTestId("operator-feed-card")).toHaveCount(1, { timeout: 10_000 });
       await shot(page, `feed-1-${theme}.png`);
@@ -281,7 +282,7 @@ test("the operator feed with one waiting, then none", async () => {
       await expect(feed).toHaveCount(0);
     }
     await setTheme(page, "dark");
-    await page.keyboard.press("Meta+I");
+    await page.keyboard.press(mod("I"));
     await expect(page.getByTestId("operator-feed")).toContainText("Your work for today is done");
     await shot(page, "feed-empty-dark.png");
   } finally {

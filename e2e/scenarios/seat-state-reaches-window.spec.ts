@@ -10,6 +10,7 @@ import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness, type
 import { expect, launchJunto, test } from "../harness/launch";
 import { grantOverseer, modelFixture, modelNode, modelRegion, modelSeat, modelWire } from "../harness/model";
 import { offboardNowBlockOf } from "../harness/offboard-panel";
+import { mod } from "../harness/keys";
 
 const CANVAS = "seatstatewindow";
 const SEAT = modelSeat({ id: "scout", label: "Scout", x: 480, y: 40 });
@@ -128,7 +129,7 @@ test("a running seat's attention reaches the hotbar, the switcher, the card, the
     await expect(card.locator('.junto-mark[data-activity-tone="amber"]').first()).toHaveCount(1, { timeout: 30_000 });
     // Off a Mac, Ctrl+K in the seat's terminal is the shell's (key-table.ts
     // search.open), so search opens from its button in the top bar.
-    if (process.platform === "darwin") await page.keyboard.press("Meta+k");
+    if (process.platform === "darwin") await page.keyboard.press(mod("k"));
     else await page.getByRole("button", { name: `Search ${CANVAS}` }).click();
     await expect(page.getByRole("option", { name: /Scout/ }).first()).toBeVisible({ timeout: 15_000 });
     await page.keyboard.press("Escape");
@@ -154,7 +155,7 @@ test("a running seat's attention reaches the hotbar, the switcher, the card, the
     // and the core types the hand-in into the seat.
     const asked = await seat.cli(["escalate", "Write the note.", "--ask-artifact", "Shelf", "--min-words", "1"]);
     expect(asked.exitCode, asked.stderr).toBe(0);
-    await page.keyboard.press("ControlOrMeta+i");
+    await page.keyboard.press(mod("i"));
     const workCard = page.getByTestId("operator-feed-card").filter({ hasText: "Write the note." });
     await expect(workCard).toHaveCount(1, { timeout: 15_000 });
     await workCard.click();

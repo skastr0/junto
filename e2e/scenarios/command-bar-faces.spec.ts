@@ -15,6 +15,7 @@ import type { AgentSignal } from "../../src/shared/agent-signals";
 import type { Node, Region } from "../../src/shared/model";
 import { modelFixture, modelNode, modelNote, modelRegion, modelSeat } from "../harness/model";
 import { expect, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 const SHOTS = join(process.cwd(), "test-results", "command-bar-faces");
 const CANVAS = "faces";
@@ -60,7 +61,7 @@ const setTheme = async (page: Page, theme: "dark" | "bright"): Promise<void> => 
 
 const capture = async (page: Page, theme: "dark" | "bright"): Promise<void> => {
   await setTheme(page, theme);
-  await page.keyboard.press("Meta+k");
+  await page.keyboard.press(mod("k"));
   const input = page.getByTestId("command-bar-input");
   await expect(input).toBeVisible();
   await page.mouse.move(4, 700);
@@ -81,7 +82,7 @@ test("cmd+K rows: agents as ringed seats, regions and kinds in colour", async ({
   await mkdir(SHOTS, { recursive: true });
   await expect(page.locator(".react-flow__node", { hasText: "yakjev-1" })).toBeVisible({ timeout: 30_000 });
 
-  await page.keyboard.press("Meta+k");
+  await page.keyboard.press(mod("k"));
   const rows = page.locator(".command-bar__row");
   const agent = rows.filter({ hasText: "yakjev-1" });
   // The seat, not a generic robot: the portrait in its ring, the harness in words.

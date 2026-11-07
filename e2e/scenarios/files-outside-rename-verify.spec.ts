@@ -15,6 +15,7 @@ import { filesNode, openFilesModal, openInTree, stageFiles } from "../harness/fi
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelNode } from "../harness/model";
 import { THIS_MACHINE } from "../../tests/support/machines";
+import { mod, TEXT_END } from "../harness/keys";
 
 const CANVAS = "files-outside-rename";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/files-outside-rename-verify";
@@ -52,7 +53,7 @@ test("an open file follows an outside rename of itself and of its folder, and a 
     };
     const typeAtEnd = async (pane: import("@playwright/test").Locator, text: string) => {
       await pane.click();
-      await page.keyboard.press("Meta+ArrowDown");
+      await page.keyboard.press(TEXT_END);
       await page.keyboard.press("Enter");
       await page.keyboard.type(text);
     };
@@ -60,7 +61,7 @@ test("an open file follows an outside rename of itself and of its folder, and a 
     await step("4 twin: a save in A is what B opens", async () => {
       const a1 = await openNode("files");
       await typeAtEnd(a1.pane, "Saved from A.");
-      await page.keyboard.press("Meta+s");
+      await page.keyboard.press(mod("s"));
       await page.waitForTimeout(800);
       await close();
       const b1 = await openNode("files-b");
@@ -72,7 +73,7 @@ test("an open file follows an outside rename of itself and of its folder, and a 
       await close();
       const a2 = await openNode("files");
       await typeAtEnd(a2.pane, "Second save from A.");
-      await page.keyboard.press("Meta+s");
+      await page.keyboard.press(mod("s"));
       await page.waitForTimeout(800);
       await close();
       const b2 = await openNode("files-b");
@@ -96,7 +97,7 @@ test("an open file follows an outside rename of itself and of its folder, and a 
     await step("1 file renamed", async () => {
       await openInTree(modal, "src/big.ts");
       await pane("src/big.ts").click();
-      await page.keyboard.press("Meta+ArrowDown");
+      await page.keyboard.press(TEXT_END);
       await page.keyboard.press("Enter");
       await page.keyboard.type(DRAFT);
       await page.screenshot({ path: join(SHOTS, "1a-draft-before-rename.png") });
@@ -118,7 +119,7 @@ test("an open file follows an outside rename of itself and of its folder, and a 
     await step("3 save then keep typing", async () => {
       const path = (await pane("source/large.ts").isVisible()) ? "source/large.ts" : "src/big.ts";
       await pane(path).click();
-      await page.keyboard.press("Meta+s");
+      await page.keyboard.press(mod("s"));
       await page.waitForTimeout(150);
       await page.keyboard.type(" and more after the save");
       await page.waitForTimeout(2000);

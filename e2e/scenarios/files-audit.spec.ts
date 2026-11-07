@@ -27,6 +27,7 @@ import {
   transferOf,
   treeRow,
 } from "../harness/files-scenario";
+import { mod } from "../harness/keys";
 
 const CANVAS = "files-audit";
 /** A name long enough to truncate in the tree, for the fade check on the dark frame. */
@@ -109,7 +110,7 @@ test.describe("Files surfaces, bright and dark (F1 to F7)", () => {
         await expect(composer).toBeVisible({ timeout: 10_000 });
         found.push(...(await scan(page, `${theme}-comments-rail`, MODAL)));
 
-        await page.keyboard.press("Meta+p");
+        await page.keyboard.press(mod("p"));
         await expect(page.getByTestId("quick-open")).toBeVisible();
         found.push(...(await scan(page, `${theme}-quick-open`, '[data-testid="quick-open"]')));
         // The list with results, not only the empty palette: a query the fixture answers.
@@ -132,7 +133,7 @@ test.describe("Files surfaces, bright and dark (F1 to F7)", () => {
         await expect(modal.getByRole("status").filter({ hasText: "Unsaved" })).toBeVisible({ timeout: 10_000 });
         found.push(...(await scan(page, `${theme}-unsaved`, MODAL)));
         writeFileSync(join(stage.fixture.root, draft), "changed on disk\n");
-        await page.keyboard.press("Meta+s");
+        await page.keyboard.press(mod("s"));
         await expect(modal.getByRole("alert").getByRole("button", { name: "Keep mine" })).toBeVisible({ timeout: 15_000 });
         found.push(...(await scan(page, `${theme}-stale-save`, MODAL)));
         await modal.getByRole("alert").getByRole("button", { name: "Reload from disk" }).click();

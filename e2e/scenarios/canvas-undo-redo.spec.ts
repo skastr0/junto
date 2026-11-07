@@ -10,6 +10,7 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "../harness/launch";
 import { commandModel, modelFixture, modelNote, readModelNode } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const fixture = modelFixture([
   modelNote("first", "first note", 40, 40),
@@ -74,8 +75,8 @@ const stored = async (page: Page, canvas: string, id: string): Promise<{ x: numb
   return node === undefined ? "gone" : { x: node.x, y: node.y };
 };
 
-const undoKey = process.platform === "darwin" ? "Meta+z" : "Control+z";
-const redoKey = process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z";
+const undoKey = mod("z");
+const redoKey = mod("Shift+z");
 
 test("undo and redo: three deep across a drag, a delete and a drag", async ({ junto }) => {
   const { page } = junto;

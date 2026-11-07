@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 
 import { expect, launchJunto, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 /**
  * The Automations node in the real app (0.10 plan 07): create, edit, a stale
@@ -165,7 +166,7 @@ test("the Automations node by keyboard: create, pick, save, toggle, run now, arc
     landed.created = await focusAt(page);
 
     await editor.getByLabel("Automation name").focus();
-    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.press(mod("A"));
     await page.keyboard.type("Keyboard standup");
     // The mention picker: type, the first match is highlighted, Enter puts it in.
     await editor.getByLabel("Mail to").focus();
@@ -273,7 +274,7 @@ test("the Automations node writes a code step and saves it", async () => {
     // Type a program of its own, then save: content first, then the automation.
     const surface = code.getByRole("textbox");
     await surface.click();
-    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.press(mod("A"));
     await page.keyboard.type('import { cont } from "junto/automation";\ncont({ checked: "yes" });\n');
     await shot(page, "15-code-typed-dark");
     await code.getByRole("button", { name: "Save", exact: true }).click();

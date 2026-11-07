@@ -11,6 +11,7 @@
 import type { Locator, Page } from "@playwright/test";
 import { modelSeat, modelTerminal, modelFixture, modelNode, modelRegion } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 const SHOTS = "test-results/modal-frames";
 const CANVAS = "frames";
@@ -155,21 +156,21 @@ const SURFACES: readonly Surface[] = [
   {
     name: "operator-feed",
     open: async (page) => {
-      await page.keyboard.press("Meta+i");
+      await page.keyboard.press(mod("i"));
       await page.waitForTimeout(500);
     },
   },
   {
     name: "command-bar",
     open: async (page) => {
-      await page.keyboard.press("Meta+k");
+      await page.keyboard.press(mod("k"));
       await expect(page.getByTestId("command-bar-input")).toBeVisible();
     },
   },
   {
     name: "tour",
     open: async (page) => {
-      await page.keyboard.press("Meta+k");
+      await page.keyboard.press(mod("k"));
       await page.getByTestId("command-bar-input").fill(">tour");
       await page.keyboard.press("Enter");
       await expect(page.getByRole("dialog", { name: "Welcome to Junto" })).toBeVisible();

@@ -17,6 +17,7 @@ import type { Locator, Page } from "@playwright/test";
 import type { Node, Region } from "../../src/shared/model";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
 import { expect, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 const SHOTS = join(process.cwd(), "test-results", "command-bar-breadcrumbs");
 const CANVAS = "breadcrumbs";
@@ -146,7 +147,7 @@ test("cmd+K rows read their region path, outer to inner", async ({ junto }) => {
   await mkdir(SHOTS, { recursive: true });
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
-  await page.keyboard.press("Meta+k");
+  await page.keyboard.press(mod("k"));
   const input = page.getByTestId("command-bar-input");
   await expect(input).toBeVisible();
 
@@ -280,7 +281,7 @@ test("connecting from the bottom bar is a list of agents with their region paths
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
   // Go to cy (three regions deep), then connect it to dee, a region away.
-  await page.keyboard.press("Meta+k");
+  await page.keyboard.press(mod("k"));
   await page.getByTestId("command-bar-input").fill("cy");
   await page.keyboard.press("Enter");
   await page.locator('.rts-shell button[aria-label="Connect"]').click();

@@ -19,6 +19,7 @@ import { initialSnapshot, reduceSeatSignals, topNeed, type SeatSignal, type Sign
 import { BindingId } from "../../src/shared/terminal-session-domain";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 const SHOTS = join(process.cwd(), "test-results", "feed-stopped");
 const CANVAS = "feed-stopped";
@@ -110,7 +111,7 @@ test("stopped seats list on Needs you, ranked on the need ladder", async () => {
     }, seatEvents(now));
 
     await expect(page.getByTestId("operator-feed-trigger")).toHaveAttribute("aria-label", "Needs you, 6", { timeout: 10_000 });
-    await page.keyboard.press("Meta+I");
+    await page.keyboard.press(mod("I"));
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
     const cards = feed.getByTestId("operator-feed-card");

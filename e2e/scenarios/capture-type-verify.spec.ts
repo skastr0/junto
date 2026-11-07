@@ -13,6 +13,7 @@ import { asNodeId } from "../../src/shared/model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelNode } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "capture-type";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/capture-type-verify";
@@ -85,7 +86,7 @@ test("quick capture type pass: only 10, 11, 12 and 14px, nothing at 16px", async
     };
 
     await page.locator(".react-flow__pane").click({ position: { x: 1200, y: 700 } });
-    await page.keyboard.press("Meta+t");
+    await page.keyboard.press(mod("t"));
     await expect(surface(page)).toBeVisible({ timeout: 10_000 });
     await record("01-ask");
     await surface(page).getByRole("button", { name: "Make an Inbox", exact: true }).click();
@@ -100,7 +101,7 @@ test("quick capture type pass: only 10, 11, 12 and 14px, nothing at 16px", async
     await page.keyboard.press("Escape");
     await expect(surface(page)).toBeHidden({ timeout: 5_000 });
 
-    await page.keyboard.press("Meta+t");
+    await page.keyboard.press(mod("t"));
     await expect(surface(page)).toBeVisible({ timeout: 10_000 });
     await expect(page.locator(".quick-capture__row").first()).toBeVisible({ timeout: 10_000 });
     await record("03-list");

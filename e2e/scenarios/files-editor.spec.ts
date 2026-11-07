@@ -13,6 +13,7 @@ import type { Locator, Page } from "@playwright/test";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture } from "../harness/model";
 import { filesNode, openFilesModal, openInTree, stageFiles } from "../harness/files-scenario";
+import { mod } from "../harness/keys";
 
 const CANVAS = "files-editor";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/files-editor";
@@ -70,12 +71,12 @@ test("the code editor opens, types, finds and undoes, and Markdown opens live, b
       await frame(page, `${theme}-typed`);
 
       // Undo takes the edit back, and the file is clean again.
-      await page.keyboard.press("Meta+z");
+      await page.keyboard.press(mod("z"));
       await expect(editor).not.toContainText("// edited");
       await expect(modal.getByRole("status").filter({ hasText: "Unsaved" })).toHaveCount(0);
 
       // Find opens over the text and steps to a match.
-      await page.keyboard.press("Meta+f");
+      await page.keyboard.press(mod("f"));
       const query = modal.locator(".cm-search input[name=search]");
       await expect(query).toBeVisible();
       // Typed, not filled: the panel commits its query on the keys.

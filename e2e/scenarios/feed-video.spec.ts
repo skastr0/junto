@@ -33,6 +33,7 @@ import {
   crewSeat,
   installCrewSeatHarness,
 } from "../harness/crew-fixture";
+import { mod } from "../harness/keys";
 
 /** A file attachment's reference; these signals carry nothing else. */
 const fileRef = (attachment: AgentSignalAttachment) => {
@@ -95,7 +96,7 @@ test("[fake-tui] a seat attaches videos to a signal and the card plays them", as
     ]);
     await rm(dir, { recursive: true, force: true });
 
-    await page.keyboard.press("Meta+I");
+    await page.keyboard.press(mod("I"));
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
     await feed.locator(`[data-item-id='signal:${signal.signalId}']`).click();
@@ -219,7 +220,7 @@ test("[fake-tui] a video at a web address plays only after play is pressed, and 
       { kind: "link", url: moved },
     ]);
 
-    await page.keyboard.press("Meta+I");
+    await page.keyboard.press(mod("I"));
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
     await feed.locator(`[data-item-id='signal:${signal.signalId}']`).click();

@@ -17,6 +17,7 @@ import { asNodeId } from "../../src/shared/model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelNode } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "capture-final";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/capture-final-walk";
@@ -120,7 +121,7 @@ test("Cmd+T final walk: five states, dark and bright, sizes, edges, ellipsis and
 
     await step("1 no artifacts yet", async () => {
       await page.locator(".react-flow__pane").click({ position: { x: 1200, y: 700 } });
-      await page.keyboard.press("Meta+t");
+      await page.keyboard.press(mod("t"));
       await expect(surface(page)).toBeVisible({ timeout: 10_000 });
       await surface(page).getByRole("button", { name: "Make an Inbox", exact: true }).click();
       await expect(entry(page)).toBeFocused({ timeout: 15_000 });
@@ -131,7 +132,7 @@ test("Cmd+T final walk: five states, dark and bright, sizes, edges, ellipsis and
       await page.waitForTimeout(2500);
       await search(page).click();
       await page.keyboard.press("Escape");
-      if (await surface(page).isVisible()) await page.keyboard.press("Meta+t");
+      if (await surface(page).isVisible()) await page.keyboard.press(mod("t"));
       await expect(surface(page)).toBeHidden({ timeout: 5_000 });
     });
 
@@ -139,14 +140,14 @@ test("Cmd+T final walk: five states, dark and bright, sizes, edges, ellipsis and
     await create("Errands for the week", "# Errands for the week\n\nMilk, eggs, bread and the errands before Friday.");
 
     await step("2 list with Inbox and recent rows", async () => {
-      await page.keyboard.press("Meta+t");
+      await page.keyboard.press(mod("t"));
       await expect(surface(page)).toBeVisible({ timeout: 10_000 });
       await expect(page.locator(".quick-capture__row").nth(2)).toBeVisible({ timeout: 10_000 });
       await frame("2-list-inbox-recent", async () => ({ label: await page.locator(".quick-capture__list-label").allInnerTexts(), rows: await page.locator(".quick-capture__row-title").allInnerTexts() }));
     });
 
     await step("3 preview then Enter", async () => {
-      await page.keyboard.press("Meta+l");
+      await page.keyboard.press(mod("l"));
       await search(page).fill("errands");
       await expect(page.locator(".quick-capture__row-title").first()).toHaveText("Errands for the week", { timeout: 10_000 });
       await page.keyboard.press("ArrowDown");
@@ -177,7 +178,7 @@ test("Cmd+T final walk: five states, dark and bright, sizes, edges, ellipsis and
     });
 
     await step("4 list keyboard focus", async () => {
-      await page.keyboard.press("Meta+l");
+      await page.keyboard.press(mod("l"));
       await search(page).fill("");
       await page.waitForTimeout(500);
       await page.keyboard.press("Tab");
@@ -186,7 +187,7 @@ test("Cmd+T final walk: five states, dark and bright, sizes, edges, ellipsis and
     });
 
     await step("5 search", async () => {
-      await page.keyboard.press("Meta+l");
+      await page.keyboard.press(mod("l"));
       await search(page).fill("pricing");
       await expect(page.locator(".quick-capture__row").first()).toBeVisible({ timeout: 10_000 });
       await frame("5a-search-matches", async () => ({ rows: await page.locator(".quick-capture__row-title").allInnerTexts() }));

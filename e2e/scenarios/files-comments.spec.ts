@@ -16,6 +16,7 @@ import type { Locator, Page } from "@playwright/test";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture } from "../harness/model";
 import { filesNode, openFilesModal, openInTree, stageFiles, type FilesStage } from "../harness/files-scenario";
+import { mod, TEXT_START } from "../harness/keys";
 
 const CANVAS = "files-comments";
 
@@ -61,7 +62,7 @@ const threads = (modal: Locator): Locator => modal.getByRole("list", { name: "Th
 /** Puts the caret on line `line` of the open file: a gutter control shows on the caret line. */
 const caretOnLine = async (page: Page, editor: Locator, line: number): Promise<void> => {
   await editor.click();
-  await page.keyboard.press("Meta+ArrowUp");
+  await page.keyboard.press(TEXT_START);
   for (let step = 1; step < line; step += 1) await page.keyboard.press("ArrowDown");
 };
 
@@ -80,7 +81,7 @@ test.describe.fixme("comments anywhere in a file (F7)", () => {
       await drawBox(page, picture, marked);
       const composer = await openRail(modal);
       await composer.fill("the gradient corner");
-      await composer.press("Meta+Enter");
+      await composer.press(mod("Enter"));
 
       const thread = page.getByTestId("file-box-thread");
       await expect(thread).toHaveCount(1);
@@ -108,7 +109,7 @@ test.describe.fixme("comments anywhere in a file (F7)", () => {
       await drawBox(page, layer(modal), [0.1, 0.1, 0.6, 0.3]);
       const composer = await openRail(modal);
       await composer.fill("the second page heading");
-      await composer.press("Meta+Enter");
+      await composer.press(mod("Enter"));
 
       await expect(threads(modal).first()).toContainText("Page 2");
       await expect(threads(modal).first()).toContainText("the second page heading");
@@ -129,7 +130,7 @@ test.describe.fixme("comments anywhere in a file (F7)", () => {
       await drawBox(page, layer(modal), [0.4, 0.4, 0.6, 0.6]);
       const composer = await openRail(modal);
       await composer.fill("only on the picture");
-      await composer.press("Meta+Enter");
+      await composer.press(mod("Enter"));
       await expect(threads(modal)).toHaveCount(1);
 
       await openInTree(modal, "README.md");
@@ -156,7 +157,7 @@ test.describe.fixme("comments anywhere in a file (F7)", () => {
       await modal.getByRole("button", { name: "Comment on line 10", exact: true }).click();
       const composer = await openRail(modal);
       await composer.fill("check the row id");
-      await composer.press("Meta+Enter");
+      await composer.press(mod("Enter"));
 
       await expect(threads(modal).first()).toContainText("Line 10");
       await expect(threads(modal).first()).toContainText("export const row1");
@@ -178,14 +179,14 @@ test.describe.fixme("comments anywhere in a file (F7)", () => {
       await modal.getByRole("button", { name: "Comment on line 10", exact: true }).click();
       const composer = await openRail(modal);
       await composer.fill("follow the row");
-      await composer.press("Meta+Enter");
+      await composer.press(mod("Enter"));
       await expect(threads(modal).first()).toContainText("Line 10");
 
       const editor = modal.getByRole("textbox", { name: "src/big.ts", exact: true });
       await editor.click();
-      await page.keyboard.press("Meta+ArrowUp");
+      await page.keyboard.press(TEXT_START);
       await page.keyboard.type("// added one\n// added two\n");
-      await page.keyboard.press("Meta+s");
+      await page.keyboard.press(mod("s"));
 
       // The quoted line moved down by two, and the thread follows it.
       await expect(threads(modal).first()).toContainText("Line 12");
@@ -221,7 +222,7 @@ test.describe.fixme("comments anywhere in a file (F7)", () => {
       await modal.getByRole("button", { name: "Comment on lines 10 to 12", exact: true }).click();
       const composer = await openRail(modal);
       await composer.fill("the three lines");
-      await composer.press("Meta+Enter");
+      await composer.press(mod("Enter"));
 
       await expect(threads(modal).first()).toContainText("the three lines");
       await expect(threads(modal).first()).toContainText("export const row1");

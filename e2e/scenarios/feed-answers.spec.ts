@@ -24,6 +24,7 @@ import { modelFixture, modelRegion, modelSeat, type ModelFixture } from "../harn
 import { expect, launchJunto, test } from "../harness/launch";
 import type { Sandbox } from "../harness/sandbox";
 import { signalsInStore } from "../harness/signals-store";
+import { mod } from "../harness/keys";
 
 const SHOTS = join(process.cwd(), "test-results", "feed-answers");
 const CANVAS = "feed-answers";
@@ -74,7 +75,7 @@ const SIGNALS: ReadonlyArray<AgentSignal> = [
 ];
 
 const openFeed = async (page: Page) => {
-  await page.keyboard.press("Meta+I");
+  await page.keyboard.press(mod("I"));
   const feed = page.getByTestId("operator-feed");
   await expect(feed).toBeVisible({ timeout: 10_000 });
   return feed;

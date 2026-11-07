@@ -7,6 +7,7 @@
  *   bun run test:e2e:fast e2e/scenarios/keyboard-shortcuts-settings.spec.ts
  */
 import { expect, launchJunto, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 test("a shortcut is listed, recorded, refused on a clash, and then answered", async ({}, testInfo) => {
   test.setTimeout(150_000);
@@ -42,7 +43,7 @@ test("a shortcut is listed, recorded, refused on a clash, and then answered", as
     const recording = section.getByRole("button", { name: "Press keys for Open the needs-you feed" });
     await expect(recording).toHaveText("Press keys");
     await shot("recording-dark");
-    await page.keyboard.press("Meta+k");
+    await page.keyboard.press(mod("k"));
     await expect(page.getByTestId("command-bar-input")).toHaveCount(0);
     await expect(section).toContainText("Already used by Open search");
     expect(await overrides()).toEqual({});
@@ -83,7 +84,7 @@ test("a shortcut is listed, recorded, refused on a clash, and then answered", as
     // The app answers the chosen chord, and no longer the default.
     await page.keyboard.press("Meta+w");
     await expect(settings).toHaveCount(0);
-    await page.keyboard.press("Meta+i");
+    await page.keyboard.press(mod("i"));
     await expect(page.getByTestId("operator-feed")).toHaveCount(0);
     await page.keyboard.press("Meta+j");
     await expect(page.getByTestId("operator-feed")).toBeVisible();

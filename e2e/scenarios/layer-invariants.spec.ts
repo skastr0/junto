@@ -17,6 +17,7 @@ import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { modelFixture, modelNote, modelRegion, modelSeat, modelTerminal } from "../harness/model";
 import { expect, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 const SHOTS = join(process.cwd(), "test-results", "layer-invariants");
 const CANVAS = "layers";
@@ -187,8 +188,8 @@ const ORIGINS: readonly Origin[] = [
 ];
 
 const CHORDS = [
-  { name: "cmd+K", key: "Meta+k", id: "search" },
-  { name: "cmd+I", key: "Meta+i", id: "feed" },
+  { name: "cmd+K", key: mod("k"), id: "search" },
+  { name: "cmd+I", key: mod("i"), id: "feed" },
 ] as const;
 
 test("an operator modal opens above anything, and Escape gives the keyboard back", async ({ junto }) => {
@@ -316,7 +317,7 @@ test("a dialog opened from a working modal sits above it, under the operator mod
   await openDialog();
   await expect.poll(() => dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
   await markOpener(page);
-  await page.keyboard.press("Meta+k");
+  await page.keyboard.press(mod("k"));
   const modal = operatorModal(page);
   await expect(modal).toBeVisible();
   expect(await isOnTop(modal.locator('[role="dialog"]'))).toBe(true);
@@ -389,16 +390,16 @@ test("cmd+K then cmd+I swaps: one operator modal, never two", async ({ junto }) 
       .toBe(1);
   };
 
-  await page.keyboard.press("Meta+k");
+  await page.keyboard.press(mod("k"));
   await holds("search");
-  await page.keyboard.press("Meta+i");
+  await page.keyboard.press(mod("i"));
   await holds("feed");
   await expect(page.getByTestId("command-bar-input")).toHaveCount(0);
   await page.screenshot({ path: join(SHOTS, "swap-search-to-feed.png") });
-  await page.keyboard.press("Meta+k");
+  await page.keyboard.press(mod("k"));
   await holds("search");
   await expect(page.getByTestId("operator-feed")).toHaveCount(0);
-  await page.keyboard.press("Meta+i");
+  await page.keyboard.press(mod("i"));
   await holds("feed");
 
   // One Escape closes the whole operator layer, not back to the swapped-out
@@ -409,9 +410,9 @@ test("cmd+K then cmd+I swaps: one operator modal, never two", async ({ junto }) 
   expect(await focusIsOnOpener(page), "the keyboard returns to the note editor field").toBe(true);
 
   // A modal's own chord closes it.
-  await page.keyboard.press("Meta+i");
+  await page.keyboard.press(mod("i"));
   await holds("feed");
-  await page.keyboard.press("Meta+i");
+  await page.keyboard.press(mod("i"));
   await expect(modal).toHaveCount(0);
   await expect(editor).toBeVisible();
   expect(await focusIsOnOpener(page)).toBe(true);
@@ -420,8 +421,8 @@ test("cmd+K then cmd+I swaps: one operator modal, never two", async ({ junto }) 
 type Surface = { readonly name: string; readonly open: (page: Page) => Promise<void> };
 
 const SURFACES: readonly Surface[] = [
-  { name: "search", open: async (page) => { await page.keyboard.press("Meta+k"); await expect(operatorModal(page)).toBeVisible(); } },
-  { name: "feed", open: async (page) => { await page.keyboard.press("Meta+i"); await expect(operatorModal(page)).toHaveAttribute("data-operator-modal", "feed"); } },
+  { name: "search", open: async (page) => { await page.keyboard.press(mod("k")); await expect(operatorModal(page)).toBeVisible(); } },
+  { name: "feed", open: async (page) => { await page.keyboard.press(mod("i")); await expect(operatorModal(page)).toHaveAttribute("data-operator-modal", "feed"); } },
   { name: "note-editor", open: async (page) => { await ORIGINS[1]!.enter(page); } },
   { name: "terminal-focus-view", open: async (page) => { await ORIGINS[2]!.enter(page); } },
   { name: "settings", open: async (page) => { await ORIGINS[3]!.enter(page); } },

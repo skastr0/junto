@@ -25,6 +25,7 @@ import type { Node, Region } from "../../src/shared/model";
 
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { expect, test, type JuntoHandle } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 const SHOTS = join(process.cwd(), "test-results", "command-bar-agents-first");
 const CANVAS = "agents-first";
@@ -166,7 +167,7 @@ test("cmd+K: tall, agents first by urgency, live rings on visible rows", async (
   await zoomTo(page, 0.25);
   await expect(page.locator("html")).toHaveAttribute("data-canvas-tier", "far");
 
-  await page.keyboard.press("Meta+k");
+  await page.keyboard.press(mod("k"));
   const input = page.getByTestId("command-bar-input");
   await expect(input).toBeVisible();
   const titles = page.locator(".command-bar__row-title");
@@ -241,7 +242,7 @@ test("cmd+K: tall, agents first by urgency, live rings on visible rows", async (
 
   // Reduced motion: the rings hold their rest pose.
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.keyboard.press("Meta+k");
+  await page.keyboard.press(mod("k"));
   await expect(input).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("data-surface-motion", "paused");
   await expect.poll(() => animating(page.locator(".command-bar__row").first().locator(".junto-mark")), { timeout: 2_000 }).toBe(false);
@@ -255,7 +256,7 @@ test("cmd+K: a seat that changes state re-ranks the open list and the cursor sta
   await crewPlayFactory(page);
   const crew07 = crewSeat(sandbox, CANVAS, "crew-07");
   await stage(junto, seatEvents);
-  await page.keyboard.press("Meta+k");
+  await page.keyboard.press(mod("k"));
   const titles = page.locator(".command-bar__row-title");
   await expect(titles.nth(2)).toHaveText("ops-work-new");
   const active = page.locator(".command-bar__row--active .command-bar__row-title");
@@ -311,7 +312,7 @@ test.describe("mixed states on one screen", () => {
     await mkdir(SHOTS, { recursive: true });
     await expect(page.locator(".react-flow__node", { hasText: "ada-blocked" })).toBeVisible({ timeout: 30_000 });
     await stage(junto, mixedEvents);
-    await page.keyboard.press("Meta+k");
+    await page.keyboard.press(mod("k"));
     const titles = page.locator(".command-bar__row-title");
     await expect(titles.nth(2)).toHaveText("cy-working-new");
     expect(await titles.allTextContents()).toEqual([

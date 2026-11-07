@@ -18,6 +18,7 @@ import { taskNodeId } from "../../src/shared/task-model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { expect, test } from "../harness/launch";
 import { modelFixture, modelSeat, modelWire, readModelCanvas } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "wire-writers";
 
@@ -34,8 +35,8 @@ const board = (id: string, name: string, x: number): Node =>
   });
 const boards = [board("build", "Build", 0), board("review", "Review", 520)];
 
-const undoKey = process.platform === "darwin" ? "Meta+z" : "Control+z";
-const redoKey = process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z";
+const undoKey = mod("z");
+const redoKey = mod("Shift+z");
 
 const card = (page: Page, id: string): Locator => page.locator(`.react-flow__node[data-id="${id}"]`);
 

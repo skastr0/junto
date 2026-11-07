@@ -15,6 +15,7 @@ import { asNodeId, Node } from "../../src/shared/model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "sheet-links";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/sheet-artifact-links";
@@ -129,7 +130,7 @@ test("[[ in a sheet cell links an artifact, draws its current title, makes a doc
 
     // Cmd+Enter opens the cell's first link: the document it names.
     await b1.click();
-    await page.keyboard.press("Meta+Enter");
+    await page.keyboard.press(mod("Enter"));
     await expect(page.getByText("Ship it.")).toBeVisible({ timeout: 15_000 });
     await frame(page, "bright-5-opened");
   } finally {

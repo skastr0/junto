@@ -20,6 +20,7 @@ import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { taskNodeId, type TaskCommand } from "../../src/shared/task-model";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? join(process.cwd(), "test-results", "feed-task-chip");
 const CANVAS = "feed-task-chip";
@@ -89,7 +90,7 @@ test("a task named in a card's words is a chip that opens it", async () => {
     );
     expect(ruling.kind).toBe("applied");
 
-    await page.keyboard.press("ControlOrMeta+I");
+    await page.keyboard.press(mod("I"));
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
 
@@ -116,7 +117,7 @@ test("a task named in a card's words is a chip that opens it", async () => {
     // Enter, the key an operator reaches for first, opens the task rather than
     // answering the need: the feed's answer keys stand down inside a chip, even
     // with another card selected, which is whose keys they would otherwise be.
-    await page.keyboard.press("ControlOrMeta+I");
+    await page.keyboard.press(mod("I"));
     await expect(feed).toBeVisible({ timeout: 10_000 });
     await feed.getByTestId("operator-feed-card").filter({ hasText: "Bravo" }).click();
     await chip.focus();

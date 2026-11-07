@@ -32,6 +32,7 @@ import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelNote, modelRegion, modelSeat, modelWire } from "../harness/model";
 import type { Node as ModelNode, Wire as ModelWire } from "../../src/shared/model";
 import { spread, summarizeTrace } from "../../scripts/perf-trace-summary";
+import { mod } from "../harness/keys";
 
 const CONDITIONS = ["scroll", "scroll-stream", "type", "type-busy", "type-stall", "watch"] as const;
 type Condition = (typeof CONDITIONS)[number];
@@ -176,11 +177,11 @@ test(`terminal performance baseline, ${COND ?? "none"}`, async () => {
     if (await leadCard.isVisible()) await leadCard.dblclick();
     else {
       await page.locator(".react-flow__pane").first().click({ position: { x: 5, y: 5 } }).catch(() => undefined);
-      await page.keyboard.press("Meta+K");
+      await page.keyboard.press(mod("K"));
       await sleep(600);
       await page.keyboard.type("lead");
       await sleep(600);
-      await page.keyboard.press("Meta+Enter");
+      await page.keyboard.press(mod("Enter"));
     }
     await expect(front(page).locator("header").first()).toContainText("lead", { timeout: 30_000 });
 

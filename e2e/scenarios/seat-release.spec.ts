@@ -8,6 +8,7 @@
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { modelFixture, modelNode, modelSeat } from "../harness/model";
 import { expect, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 const CANVAS = "seat-release";
 
@@ -22,7 +23,7 @@ test.use({
   },
 });
 
-const undoKey = process.platform === "darwin" ? "Meta+z" : "Control+z";
+const undoKey = mod("z");
 
 test("a seat's delete names its task, sends it to the backlog, and an undo after a change keeps it there", async ({ junto }) => {
   const { page } = junto;

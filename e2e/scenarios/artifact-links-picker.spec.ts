@@ -13,6 +13,7 @@ import { asNodeId, Node } from "../../src/shared/model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture } from "../harness/model";
+import { TEXT_END } from "../harness/keys";
 
 const CANVAS = "links";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/artifact-links-picker";
@@ -61,7 +62,7 @@ test("[[ links an artifact by title, and creates a document from a title that ma
       await setTheme(page, theme);
       const source = page.getByLabel("Markdown");
       await source.click();
-      await page.keyboard.press("Meta+ArrowDown");
+      await page.keyboard.press(TEXT_END);
 
       // [[ and a few letters: the artifact in reach, by title, in a list the text names.
       await page.keyboard.type(" See [[bud");

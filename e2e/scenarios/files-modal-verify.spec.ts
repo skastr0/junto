@@ -14,6 +14,7 @@ import type { Page } from "@playwright/test";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture } from "../harness/model";
 import { filesNode, openFilesModal, openInTree, stageFiles, treeRow } from "../harness/files-scenario";
+import { mod } from "../harness/keys";
 
 const CANVAS = "files-modal-verify";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/files-modal-verify";
@@ -64,7 +65,7 @@ test("files modal: tree, open, rename by keyboard, the watch sees outside change
       await treeRow(modal, "README.md").focus();
       await page.keyboard.press("F2");
       await page.waitForTimeout(200);
-      await page.keyboard.press("ControlOrMeta+A");
+      await page.keyboard.press(mod("A"));
       await page.keyboard.type("GUIDE.md");
       await page.keyboard.press("Enter");
       await expect.poll(() => existsSync(join(root, "GUIDE.md")), { timeout: 10_000 }).toBe(true);

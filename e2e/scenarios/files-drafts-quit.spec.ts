@@ -12,6 +12,7 @@ import type { ChildProcess } from "node:child_process";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture } from "../harness/model";
 import { filesNode, openFilesModal, openInTree, stageFiles } from "../harness/files-scenario";
+import { TEXT_END } from "../harness/keys";
 
 const CANVAS = "files-drafts-quit";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/files-drafts-quit";
@@ -39,7 +40,7 @@ const launchWithDraft = async (typed: string) => {
   const editor = modal.locator(".files-main .cm-content").first();
   await expect(editor).toBeVisible({ timeout: 15_000 });
   await editor.click();
-  await page.keyboard.press("Meta+ArrowDown");
+  await page.keyboard.press(TEXT_END);
   await page.keyboard.type(typed);
   await expect(modal.getByText("Unsaved").first()).toBeVisible({ timeout: 10_000 });
   const file = join(stage.fixture.root, stage.fixture.paths.markdown);

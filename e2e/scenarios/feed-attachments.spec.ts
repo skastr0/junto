@@ -30,6 +30,7 @@ import {
   crewSeat,
   installCrewSeatHarness,
 } from "../harness/crew-fixture";
+import { mod } from "../harness/keys";
 
 /** A file attachment's reference; these signals carry nothing else. */
 const fileRef = (attachment: AgentSignalAttachment) => {
@@ -144,7 +145,7 @@ test("[fake-tui] a seat attaches files to a signal and the card shows them after
     // The temp folder is cleaned.
     await rm(dir, { recursive: true, force: true });
 
-    await page.keyboard.press("Meta+I");
+    await page.keyboard.press(mod("I"));
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
     // No longer text was sent: the files alone fill the item's detail pane.
@@ -246,7 +247,7 @@ test("[fake-tui] a seat attaches files to a signal and the card shows them after
     expect(zipShown).toMatchObject({ ok: true, kind: "file", name: "build.zip", byteLength: 32 });
 
     // The whole log opens in the viewer, not a first slice of it.
-    await page.keyboard.press("Meta+I");
+    await page.keyboard.press(mod("I"));
     await expect(feed).toBeVisible({ timeout: 10_000 });
     await feed.locator(`[data-item-id='signal:${bigSignal.signalId}']`).click();
     const bigCard = page.locator(`[data-testid='operator-feed-detail'][data-item-id='signal:${bigSignal.signalId}']`);

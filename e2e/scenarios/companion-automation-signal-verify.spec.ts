@@ -18,6 +18,7 @@ import type { AgentSignal } from "../../src/shared/agent-signals";
 import type { Region } from "../../src/shared/model";
 import { modelFixture, modelNode, modelRegion, modelSeat, type ModelFixture } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 const CANVAS = "companion-automation";
 const SEAT = "lead";
@@ -92,7 +93,7 @@ const phoneSession = (
 /** The desktop answers the step as the operator does: the feed, its card, then 1 for its first reply, Yes. */
 const answerYesInFeed = async (page: Page): Promise<void> => {
   // The feed opens on Cmd+I on macOS and Ctrl+I elsewhere (src/shared/key-table.ts, feed.open).
-  await page.keyboard.press(process.platform === "darwin" ? "Meta+I" : "Control+I");
+  await page.keyboard.press(mod("I"));
   const feed = page.getByTestId("operator-feed");
   await expect(feed).toBeVisible({ timeout: 10_000 });
   await feed.locator("[data-item-id='signal:sig-step']").click();

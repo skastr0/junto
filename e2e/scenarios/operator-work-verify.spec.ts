@@ -23,6 +23,7 @@ import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelNode, modelRegion, modelSeat } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "operator-work-verify";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/operator-work-verify";
@@ -107,7 +108,7 @@ test("operator work: a seat's and an automation's work hand in from the feed, a 
     const handIn = detail.getByRole("button", { name: "Hand in", exact: true });
     const write = async (text: string): Promise<void> => {
       await writing.click();
-      await page.keyboard.press("ControlOrMeta+A");
+      await page.keyboard.press(mod("A"));
       await page.keyboard.press("Backspace");
       await page.keyboard.insertText(text);
     };

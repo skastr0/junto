@@ -15,6 +15,7 @@ import { installModelFixture, modelFixture, modelSeat } from "../harness/model";
  */
 
 import { expect, test } from "../harness/launch";
+import { MOD } from "../harness/keys";
 
 const note = (id: string, text: string, x: number) => modelNode({
   id,
@@ -53,7 +54,7 @@ test("command groups: save, recall, and save from the menu", async ({ junto }) =
   await expect(alpha).toBeVisible({ timeout: 30_000 });
   await expect(gamma).toBeVisible({ timeout: 30_000 });
 
-  const mod = process.platform === "darwin" ? "Meta" : "Control";
+  const mod = MOD;
 
   await alpha.click({ modifiers: ["Shift"] });
   await beta.click({ modifiers: ["Shift"] });
@@ -130,7 +131,7 @@ for (const theme of ["Dark", "Bright"] as const) {
     await expect(node("seat-c")).toBeVisible({ timeout: 30_000 });
     await page.getByRole("button", { name: "Fit all nodes" }).click();
     await page.waitForTimeout(600);
-    const mod = process.platform === "darwin" ? "Meta" : "Control";
+    const mod = MOD;
 
     // The groups live in the top bar; the bottom bar holds none.
     const bar = page.locator("header.station-bar").getByRole("toolbar", { name: "Command groups" });

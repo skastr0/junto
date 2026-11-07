@@ -8,6 +8,7 @@ import type { Page } from "@playwright/test";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelNode, modelSeat } from "../harness/model";
 import { filesCard, filesNode, openFilesModal, stageFiles } from "../harness/files-scenario";
+import { mod } from "../harness/keys";
 
 const CANVAS = "files-quick-open";
 
@@ -33,7 +34,7 @@ test.describe("quick open in every node that has items (F4)", () => {
       const { page } = junto;
       const modal = await openReadyFilesModal(page);
 
-      await page.keyboard.press("Meta+p");
+      await page.keyboard.press(mod("p"));
       await expect(palette(page)).toBeVisible();
       await expect(field(page)).toBeFocused();
       await field(page).fill("readme");
@@ -43,7 +44,7 @@ test.describe("quick open in every node that has items (F4)", () => {
       await expect(palette(page)).toHaveCount(0);
       await expect(modal.getByRole("textbox", { name: "README.md", exact: true })).toContainText("A root for the Files node");
 
-      await page.keyboard.press("Meta+p");
+      await page.keyboard.press(mod("p"));
       await expect(palette(page)).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(palette(page)).toHaveCount(0);
@@ -61,7 +62,7 @@ test.describe("quick open in every node that has items (F4)", () => {
     try {
       const { page } = junto;
       await openReadyFilesModal(page);
-      await page.keyboard.press("Meta+p");
+      await page.keyboard.press(mod("p"));
       for (const [query, title, folder] of [
         ["bigts", "big.ts", "src"],
         ["meeting", "meeting notes.txt", "notes"],
@@ -84,7 +85,7 @@ test.describe("quick open in every node that has items (F4)", () => {
     try {
       const { page } = junto;
       await openReadyFilesModal(page);
-      await page.keyboard.press("Meta+p");
+      await page.keyboard.press(mod("p"));
 
       await field(page).fill("index");
       await expect(palette(page).getByText("No file matches.")).toBeVisible();
@@ -105,7 +106,7 @@ test.describe("quick open in every node that has items (F4)", () => {
     try {
       const { page } = junto;
       await openReadyFilesModal(page);
-      await page.keyboard.press("Meta+p");
+      await page.keyboard.press(mod("p"));
       await field(page).fill("txt");
       await expect(active(page)).toHaveCount(1);
       const [first, second] = [await titles(page).nth(0).innerText(), await titles(page).nth(1).innerText()];
@@ -129,7 +130,7 @@ test.describe("quick open in every node that has items (F4)", () => {
     try {
       const { page } = junto;
       await openReadyFilesModal(page);
-      await page.keyboard.press("Meta+p");
+      await page.keyboard.press(mod("p"));
       await expect(palette(page)).toBeVisible();
 
       const clear = palette(page).getByRole("button", { name: "Clear search" });
@@ -160,7 +161,7 @@ test.describe("quick open in every node that has items (F4)", () => {
     try {
       const { page } = junto;
       await expect(filesCard(page)).toBeVisible({ timeout: 30_000 });
-      await page.keyboard.press("Meta+p");
+      await page.keyboard.press(mod("p"));
       await expect(palette(page)).toHaveCount(0);
 
       const modal = await openReadyFilesModal(page);
@@ -187,7 +188,7 @@ test.describe("quick open in every node that has items (F4)", () => {
         await page.getByRole("group", { name: "New artifact" }).locator("button").filter({ hasText: noun }).click();
       }
 
-      await page.keyboard.press("Meta+p");
+      await page.keyboard.press(mod("p"));
       await field(page).fill("sheet");
       await expect(titles(page)).toHaveText(["Untitled sheet"]);
       await page.keyboard.press("Enter");
@@ -214,7 +215,7 @@ test.describe("quick open in every node that has items (F4)", () => {
         await expect(page.getByText(title, { exact: true }).first()).toBeVisible();
       }
 
-      await page.keyboard.press("Meta+p");
+      await page.keyboard.press(mod("p"));
       await field(page).fill("review");
       await expect(titles(page)).toHaveText(["Review the draft"]);
       await page.keyboard.press("Enter");
@@ -244,7 +245,7 @@ test.describe("quick open in every node that has items (F4)", () => {
       await editor.getByRole("button", { name: "Save", exact: true }).click();
       await expect(pane.getByRole("button", { name: /Morning standup/ })).toBeVisible({ timeout: 10_000 });
 
-      await page.keyboard.press("Meta+p");
+      await page.keyboard.press(mod("p"));
       await field(page).fill("standup");
       await expect(titles(page)).toHaveText(["Morning standup"]);
       await page.keyboard.press("Enter");

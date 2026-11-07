@@ -1,5 +1,6 @@
 import { modelFixture, modelNote } from "../harness/model";
 import { expect, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 /**
  * Operator modal open latency and the shell's focus contract.
@@ -28,7 +29,7 @@ test("search opens within budget and returns focus where it was", async ({ junto
   const modal = page.locator('[data-layer="operator"][data-operator-modal="search"]');
 
   for (let round = 0; round < 12; round += 1) {
-    await page.keyboard.press("Meta+k");
+    await page.keyboard.press(mod("k"));
     await expect(modal).toBeVisible();
     await expect(page.getByTestId("command-bar-input")).toBeFocused();
     // One dim, never two.
@@ -56,7 +57,7 @@ test("an operator modal opens above a working modal, and Escape closes one layer
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
   // A working modal: the canvas digest, opened from the command bar.
-  await page.keyboard.press("Meta+k");
+  await page.keyboard.press(mod("k"));
   await page.getByTestId("command-bar-input").fill(">digest");
   await page.keyboard.press("Enter");
   const digest = page.getByTestId("canvas-digest");
@@ -64,7 +65,7 @@ test("an operator modal opens above a working modal, and Escape closes one layer
   await expect(page.locator('[data-layer="operator"]')).toHaveCount(0);
 
   // Search opens over it and owns the middle of the screen.
-  await page.keyboard.press("Meta+k");
+  await page.keyboard.press(mod("k"));
   const input = page.getByTestId("command-bar-input");
   await expect(input).toBeFocused();
   const topLayer = await page.evaluate(() => {
@@ -91,17 +92,17 @@ test("search and the feed swap in one shell, and closing returns focus to the st
   await trigger.focus();
   const shells = page.locator('[data-layer="operator"]');
 
-  await page.keyboard.press("Meta+k");
+  await page.keyboard.press(mod("k"));
   await expect(shells).toHaveAttribute("data-operator-modal", "search");
 
   // The other chord swaps: one shell, one dim, never two.
-  await page.keyboard.press("Meta+i");
+  await page.keyboard.press(mod("i"));
   await expect(shells).toHaveCount(1);
   await expect(shells).toHaveAttribute("data-operator-modal", "feed");
   await expect(page.locator("[data-layer-backdrop]")).toHaveCount(1);
   expect(await page.evaluate(() => document.activeElement?.closest("[data-operator-modal]") !== null)).toBe(true);
 
-  await page.keyboard.press("Meta+k");
+  await page.keyboard.press(mod("k"));
   await expect(shells).toHaveAttribute("data-operator-modal", "search");
   await expect(page.getByTestId("command-bar-input")).toBeFocused();
 

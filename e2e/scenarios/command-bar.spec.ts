@@ -1,5 +1,6 @@
 import { modelFixture, modelNote, modelRegion } from "../harness/model";
 import { expect, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 /**
  * cmd+K command bar contract.
@@ -52,7 +53,7 @@ test("command bar opens from the trigger and cmd+K, filters the list only, and c
   await expect(page.locator(".rts-shell")).toBeVisible({ timeout: 10_000 });
 
   // cmd+K reopens; Escape closes without committing.
-  await page.keyboard.press("Meta+k");
+  await page.keyboard.press(mod("k"));
   await expect(input).toBeVisible();
   await input.fill("alpha");
   await expect(page.locator(".command-bar__row-title")).toHaveText(["Alpha release"]);
@@ -70,7 +71,7 @@ test("rows carry their region path and a region name finds its members", async (
   const { page } = junto;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
-  await page.keyboard.press("Meta+k");
+  await page.keyboard.press(mod("k"));
   const input = page.getByTestId("command-bar-input");
   await expect(input).toBeVisible();
 
@@ -103,7 +104,7 @@ test("actions mode catalogs commands, Enter runs them, Tab toggles modes", async
   await expect(page.locator(".rts-shell")).toBeVisible();
 
   // ">" switches to the actions catalog.
-  await page.keyboard.press("Meta+k");
+  await page.keyboard.press(mod("k"));
   const input = page.getByTestId("command-bar-input");
   await expect(input).toBeVisible();
   await input.fill(">");
@@ -124,7 +125,7 @@ test("actions mode catalogs commands, Enter runs them, Tab toggles modes", async
   await expect(input).toHaveCount(0);
 
   // Selection survived the palette open: copy-node-reference is reachable.
-  await page.keyboard.press("Meta+k");
+  await page.keyboard.press(mod("k"));
   await expect(input).toBeVisible();
   await input.fill(">copy");
   await expect(actionRows).toHaveCount(1);
@@ -133,7 +134,7 @@ test("actions mode catalogs commands, Enter runs them, Tab toggles modes", async
   await expect(input).toHaveCount(0);
 
   // Tab toggles into actions and back to nodes.
-  await page.keyboard.press("Meta+k");
+  await page.keyboard.press(mod("k"));
   await expect(input).toBeVisible();
   await page.keyboard.press("Tab");
   await expect(actionRows.first()).toBeVisible();

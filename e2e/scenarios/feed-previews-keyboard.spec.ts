@@ -15,6 +15,7 @@ import { join } from "node:path";
 import type { AgentSignal } from "../../src/shared/agent-signals";
 
 import { expect, launchJunto, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 const CANVAS = "feed-previews-keys";
 /** A real 1 by 1 PNG. */
@@ -47,7 +48,7 @@ test("Enter and Space on a focused thumbnail open the viewer, and Enter opens no
     const { page } = junto;
     await expect(page.locator(".react-flow__node", { hasText: "Atlas" })).toBeVisible({ timeout: 30_000 });
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
-    await page.keyboard.press("Meta+I");
+    await page.keyboard.press(mod("I"));
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
     await feed.locator("[data-item-id='signal:sig-keys']").click();

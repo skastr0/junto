@@ -18,6 +18,7 @@ import { taskNodeId } from "../../src/shared/task-model";
 import { filesNode, openFilesModal, openInTree, stageFiles } from "../harness/files-scenario";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelMessagesWire, modelRegion, modelSeat } from "../harness/model";
+import { mod, TEXT_START } from "../harness/keys";
 
 const CANVAS = "borders-eef";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/borders-eef594efc-verify";
@@ -144,14 +145,14 @@ test("eef594efc borders, dark: task error, task notice, threads selected row, fi
       await openInTree(modal, "src/big.ts");
       const editor = modal.getByRole("textbox", { name: "src/big.ts", exact: true });
       await editor.click();
-      await page.keyboard.press("Meta+ArrowUp");
+      await page.keyboard.press(TEXT_START);
       for (let line = 1; line < 3; line += 1) await page.keyboard.press("ArrowDown");
       await modal.getByRole("button", { name: "Comment on line 3", exact: true }).click({ timeout: 10_000 });
       const composer = modal.getByLabel("New comment");
       if (!(await composer.isVisible())) await modal.locator(".artifact-comments-edge").click({ timeout: 10_000 });
       await expect(composer).toBeVisible({ timeout: 10_000 });
       await composer.fill("This line reads the old row label.");
-      await composer.press("Meta+Enter");
+      await composer.press(mod("Enter"));
       const row = modal.getByTestId("file-comment-row").first();
       await expect(row).toBeVisible({ timeout: 15_000 });
       await row.hover();

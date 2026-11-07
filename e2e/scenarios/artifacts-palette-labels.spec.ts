@@ -14,6 +14,7 @@ import { asNodeId, Node } from "../../src/shared/model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "artifacts-palette-labels";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? join(process.cwd(), "test-results", "artifacts-palette-labels");
@@ -64,7 +65,7 @@ test("Cmd+P finds an artifact by its label and ranks it under the artifact whose
     const details = palette.locator(".quick-open__row-detail");
 
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
-    await page.keyboard.press("Meta+p");
+    await page.keyboard.press(mod("p"));
     await expect(palette).toBeVisible();
     await expect(field).toBeFocused();
 
@@ -90,7 +91,7 @@ test("Cmd+P finds an artifact by its label and ranks it under the artifact whose
 
     // A word only the label carries finds the artifact all the same.
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
-    await page.keyboard.press("Meta+p");
+    await page.keyboard.press(mod("p"));
     await expect(palette).toBeVisible();
     await field.fill("release");
     await expect(titles).toHaveText(["Launch plan"]);

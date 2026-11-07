@@ -24,6 +24,7 @@ import { taskNodeId } from "../../src/shared/task-model";
 import { expandInTree, filesNode, FILES_ID, openInTree, stageFiles, treeRow } from "../harness/files-scenario";
 import { expect, launchJunto, test, type JuntoHandle } from "../harness/launch";
 import { commandModel, modelFixture, modelNote, modelSeat, modelWire, readModelCanvas } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "view-state-verify";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/view-state-verify";
@@ -120,7 +121,6 @@ test("view state: every row of the inventory comes back after a full quit, and a
       await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
       await page.getByRole("button", { name: "Fit all nodes" }).click();
       await page.waitForTimeout(600);
-      const mod = process.platform === "darwin" ? "Meta" : "Control";
 
       // An image file node, as the operator makes one: the png dropped on the
       // canvas goes to the content store, and the node names it by its content URL.
@@ -182,7 +182,7 @@ test("view state: every row of the inventory comes back after a full quit, and a
       for (let slot = 1; slot <= 9; slot += 1) {
         await page.keyboard.press("Escape");
         await card(page, `n${slot}`).click();
-        await page.keyboard.press(`${mod}+Digit${slot}`);
+        await page.keyboard.press(mod(`Digit${slot}`));
         await expect(bar(page).getByTestId(`hotbar-slot-${slot}`)).toHaveAttribute("data-tenure", "fixed");
       }
       await page.keyboard.press("Escape");
@@ -202,7 +202,7 @@ test("view state: every row of the inventory comes back after a full quit, and a
       await expect(page.locator(".artifacts-archived-toggle")).toHaveAttribute("aria-pressed", "true");
       await page.getByRole("list", { name: "Artifacts" }).locator("button").filter({ hasText: "Old plan" }).first().click();
       await expect(page.locator(".artifact-head__title")).toHaveValue("Old plan", { timeout: 15_000 });
-      await page.keyboard.press("Meta+Shift+M");
+      await page.keyboard.press(mod("Shift+M"));
       await expect(page.locator(".two-pane").first()).toHaveAttribute("data-rail", "true", { timeout: 10_000 });
       await page.locator("[data-sidebar-toggle]").first().click();
       await expect(page.locator(".two-pane").first()).toHaveAttribute("data-sidebar", "collapsed");

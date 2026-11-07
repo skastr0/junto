@@ -14,6 +14,7 @@ import { modelFixture, modelNode, modelRegion, modelSeat, type ModelFixture } fr
 import { expect, launchJunto, test } from "../harness/launch";
 import type { Sandbox } from "../harness/sandbox";
 import { signalsInStore } from "../harness/signals-store";
+import { mod } from "../harness/keys";
 
 const SHOTS = join(process.cwd(), "test-results", "feed-automation-signal");
 const CANVAS = "feed-automation";
@@ -64,7 +65,7 @@ test("an automation's signal reads as its kind, opens the run, and answers witho
     await expect(page.getByTestId("operator-feed-trigger")).toHaveAttribute("aria-label", "Needs you, 2", {
       timeout: 10_000,
     });
-    await page.keyboard.press("Meta+I");
+    await page.keyboard.press(mod("I"));
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
     const pane = page.getByTestId("operator-feed-detail");

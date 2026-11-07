@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expect, launchJunto, test } from "../harness/launch";
+import { mod } from "../harness/keys";
 
 // First launch meets the tour, once. Skipping or finishing it writes the seen
 // flag to the settings row; the command bar brings it back. Every chapter is
@@ -68,7 +69,7 @@ test("a fresh install shows the tour once and keeps it on request", async () => 
 
     // The command bar brings it back, from the first chapter.
     await setTheme(page, "bright");
-    await page.keyboard.press("Meta+k");
+    await page.keyboard.press(mod("k"));
     const input = page.getByTestId("command-bar-input");
     await expect(input).toBeVisible();
     await input.fill(">tour");

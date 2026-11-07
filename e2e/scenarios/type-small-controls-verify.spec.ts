@@ -16,6 +16,7 @@ import { asNodeId } from "../../src/shared/model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelNode, modelSeat, modelWire } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const CANVAS = "type-small";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/type-small-controls-verify";
@@ -113,7 +114,7 @@ test("small Button and key cap at label, quick capture headings: sizes, truncati
     // Cmd+T: the editor head (Move to) and footer key caps, then headings in the editor and in the search preview.
     await step("capture", async () => {
       await page.locator(".react-flow__pane").click({ position: { x: 1200, y: 700 } });
-      await page.keyboard.press("Meta+t");
+      await page.keyboard.press(mod("t"));
       await expect(surface(page)).toBeVisible({ timeout: 10_000 });
       await surface(page).getByRole("button", { name: "Make an Inbox", exact: true }).click();
       await expect(entry(page)).toBeFocused({ timeout: 15_000 });
@@ -127,7 +128,7 @@ test("small Button and key cap at label, quick capture headings: sizes, truncati
       await record("01-capture-editor-headings", surface(page));
       await page.keyboard.press("Escape");
       await expect(surface(page)).toBeHidden({ timeout: 5_000 });
-      await page.keyboard.press("Meta+t");
+      await page.keyboard.press(mod("t"));
       await expect(surface(page)).toBeVisible({ timeout: 10_000 });
       await page.getByLabel("Search every artifact", { exact: true }).fill("roadmap");
       await page.waitForTimeout(800);
@@ -136,7 +137,7 @@ test("small Button and key cap at label, quick capture headings: sizes, truncati
       await record("02-capture-search-preview", surface(page));
       await page.getByLabel("Search every artifact", { exact: true }).click();
       await page.keyboard.press("Escape");
-      if (await surface(page).isVisible()) await page.keyboard.press("Meta+t");
+      if (await surface(page).isVisible()) await page.keyboard.press(mod("t"));
       await expect(surface(page)).toBeHidden({ timeout: 5_000 });
     });
 

@@ -24,6 +24,7 @@ import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/artifacts-rebuild";
 const shelfAt = (x: number, y: number) =>
@@ -145,7 +146,7 @@ test("comment on a selection (product-documents, product-sheet): quote saved, th
     await expect(field).toBeVisible();
     await field.click();
     await page.keyboard.type("Name the phone too");
-    await page.keyboard.press("Meta+Enter");
+    await page.keyboard.press(mod("Enter"));
     const threads = page.getByRole("list", { name: "Threads" });
     await expect(threads.locator(".artifact-thread")).toHaveCount(1, { timeout: 20_000 });
     await expect(threads.locator(".artifact-thread").first()).toContainText("Name the phone too");
@@ -153,7 +154,7 @@ test("comment on a selection (product-documents, product-sheet): quote saved, th
     await shot(page, "select-2-thread");
 
     // Collapsed, the document keeps a mark on the quote; pressing it reopens the rail on that thread.
-    await page.keyboard.press("Meta+Shift+M");
+    await page.keyboard.press(mod("Shift+M"));
     await expect(page.locator(".artifact-comments-edge")).toBeVisible();
     await expect(page.getByTestId("comments-edge-count")).toHaveText("1");
     const mark = page.locator(".artifact-document__anchor");
@@ -199,15 +200,15 @@ test("comments rail (product-sheet): collapsed by default, click and key toggle,
     // Click opens, the key closes, the key opens again.
     await edge.click();
     await expect(page.getByLabel("New comment")).toBeVisible();
-    await page.keyboard.press("Meta+Shift+M");
+    await page.keyboard.press(mod("Shift+M"));
     await expect(edge).toBeVisible();
-    await page.keyboard.press("Meta+Shift+M");
+    await page.keyboard.press(mod("Shift+M"));
     await expect(page.getByLabel("New comment")).toBeVisible();
 
     // The operator and the seat comment: two posts, one face (the operator is not a seat).
     await page.getByLabel("New comment").click();
     await page.keyboard.type("Operator note");
-    await page.keyboard.press("Meta+Enter");
+    await page.keyboard.press(mod("Enter"));
     const listed = await seat.cli(["artifact", "list", "--type", "document"]);
     const docId = (JSON.parse(listed.stdout).data.artifacts as Array<{ id?: string; artifactId?: string; title: string }>).find((a) => a.title === "Rail doc");
     const id = docId?.artifactId ?? docId?.id;
@@ -217,7 +218,7 @@ test("comments rail (product-sheet): collapsed by default, click and key toggle,
     const threads = page.getByRole("list", { name: "Threads" });
     await expect(threads.locator(".artifact-thread__post")).toHaveCount(2, { timeout: 30_000 });
 
-    await page.keyboard.press("Meta+Shift+M");
+    await page.keyboard.press(mod("Shift+M"));
     await expect(edge).toBeVisible();
     await expect(edge).toHaveAttribute("aria-label", "Comments, 2");
     await expect(page.getByTestId("comments-edge-count")).toHaveText("2");

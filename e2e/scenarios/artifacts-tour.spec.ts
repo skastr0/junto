@@ -11,6 +11,7 @@ import { asNodeId, Node } from "../../src/shared/model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelSeat } from "../harness/model";
+import { mod, TEXT_END } from "../harness/keys";
 
 const CANVAS = "tour";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/artifacts-tour";
@@ -75,10 +76,10 @@ test("artifacts tour: table source, @ picker, sheet, pad and pan, bright and dar
     expect(extras.tabStepsCells).toMatch(/\| Junto \| [^|]*ZZ[^|]*\|/);
     await page.locator(".cm-md-h1").click();
     await source.click();
-    await page.keyboard.press("Meta+ArrowDown");
+    await page.keyboard.press(TEXT_END);
     await page.keyboard.type("\n\nBold me");
     for (let i = 0; i < 7; i += 1) await page.keyboard.press("Shift+ArrowLeft");
-    await page.keyboard.press("Meta+B");
+    await page.keyboard.press(mod("B"));
     extras.cmdB = (await source.innerText()).includes("**Bold me**") || (await source.innerText()).includes("**Bold m");
     await page.keyboard.press("ArrowRight");
     await page.keyboard.type("\n\n@lea");
@@ -115,7 +116,7 @@ test("artifacts tour: table source, @ picker, sheet, pad and pan, bright and dar
       await page.locator(".cm-md-h1").click();
       const source = page.getByLabel("Markdown");
       await source.click();
-      await page.keyboard.press("Meta+ArrowDown");
+      await page.keyboard.press(TEXT_END);
       await page.keyboard.type("\n\n@");
       await page.waitForTimeout(600);
       await shot(page, theme, "3-at-picker");

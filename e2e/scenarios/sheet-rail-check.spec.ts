@@ -11,6 +11,7 @@ import { asNodeId, Node } from "../../src/shared/model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture } from "../harness/model";
+import { mod } from "../harness/keys";
 
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/sheet-rail-check";
 const shelf = Schema.decodeUnknownSync(Node, { onExcessProperty: "error" })({ kind: "artifacts", id: "shelf", label: "Shelf", x: 60, y: 60, width: 280, height: 160, z: 0 });
@@ -147,7 +148,7 @@ for (const width of [1500, 780]) {
       await page.getByRole("button", { name: "Comment on selection" }).click();
       await page.getByLabel("New comment").click();
       await page.keyboard.type("Quote check");
-      await page.keyboard.press("Meta+Enter");
+      await page.keyboard.press(mod("Enter"));
       const threads = page.getByRole("list", { name: "Threads" });
       await expect(threads.locator(".artifact-thread")).toHaveCount(1, { timeout: 20_000 });
       for (const theme of ["bright", "dark"] as const) {
@@ -155,7 +156,7 @@ for (const width of [1500, 780]) {
         const f: Record<string, unknown> = {};
         rep[theme] = f;
         // Close the rail; the document keeps a mark on the quote; press it.
-        if (await page.locator(".artifact-comments").isVisible()) await page.keyboard.press("Meta+Shift+M");
+        if (await page.locator(".artifact-comments").isVisible()) await page.keyboard.press(mod("Shift+M"));
         await expect(page.locator(".artifact-comments-edge")).toBeVisible();
         const mark = page.locator(".artifact-document__anchor");
         await expect(mark).toHaveCount(1, { timeout: 15_000 });
