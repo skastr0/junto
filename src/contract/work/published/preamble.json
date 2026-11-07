@@ -1,0 +1,70 @@
+{
+  "op": "preamble",
+  "payload": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  },
+  "success": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "preambleId": {
+          "type": "string"
+        },
+        "canvasName": {
+          "type": "string"
+        },
+        "nodeId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "Infinity",
+                "-Infinity",
+                "NaN"
+              ]
+            }
+          ]
+        },
+        "disposition": {
+          "type": "string",
+          "enum": [
+            "applied"
+          ]
+        }
+      },
+      "required": [
+        "preambleId",
+        "canvasName",
+        "nodeId",
+        "text",
+        "expiresAt",
+        "disposition"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}
