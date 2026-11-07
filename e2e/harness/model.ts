@@ -5,6 +5,7 @@ import {
   Command, Node, Wire, Opened, asCanvasName,
   Region, Seat, Note, Terminal,
 } from "../../src/shared/model";
+import { defaultMachineName } from "../../src/shared/machine-name";
 import { resolveManagedLaunch } from "../../src/shared/managed-terminal-launch";
 import { verbsForPair, type Verb } from "../../src/shared/physics/verbs";
 import type { Task, Artifact } from "../../src/shared/work-model";
@@ -143,26 +144,32 @@ export const placeOnMachine = (fixture: ModelFixture, machineName: string): Mode
         }),
       };
 
-/** The machine name the running app holds, which its seats must name. */
-const appMachineName = async (page: Page): Promise<string | undefined> =>
-  page.evaluate(async () => (await window.junto!.settingsGet()).settings?.machine?.name);
-
 /**
  * Replace an isolated scenario's topology through one native command batch,
- * placed on the app's own machine name: an app that booted with no seeded
- * database names itself after its host, not THIS_MACHINE.
+ * on the app's own machine name. A launch that seeded a database named it
+ * THIS_MACHINE (writeFixtureModel), so the fixture goes in as written; an app
+ * that made its own database named itself defaultMachineName() of this host,
+ * as the core does, and refuses the fixture's seats as an unresolved host,
+ * so they go on that name instead. The batch is one transaction: a refused
+ * try changes nothing.
  */
 export const installModelFixture = async (page: Page, fixture: ModelFixture, fallbackName = "fixture"): Promise<string> => {
   const names = await page.evaluate(() => window.junto!.modelCanvases());
   const name = names[0]?.name ?? fallbackName;
   if (names.length === 0) await commandModel(page, { _tag: "CreateCanvas", canvas: name });
   const current = await readModelCanvas(page, name);
-  const machine = await appMachineName(page);
-  const placed = machine === undefined || machine.length === 0 ? fixture : placeOnMachine(fixture, machine);
-  await commandModel(page, { _tag: "Batch", canvas: name, steps: [
+  const install = (placed: ModelFixture) => commandModel(page, { _tag: "Batch", canvas: name, steps: [
     ...(current.nodes.length ? [{ _tag: "Remove", canvas: name, nodes: current.nodes.map((node) => node.id), wires: [] }] : []),
     { _tag: "Add", canvas: name, nodes: placed.nodes, wires: placed.wires },
   ] });
+  const hostDefault = defaultMachineName();
+  try {
+    await install(fixture);
+  } catch (error) {
+    const unresolved = String(error).includes(`unresolved host ${JSON.stringify(THIS_MACHINE)}`);
+    if (!unresolved || hostDefault === THIS_MACHINE) throw error;
+    await install(placeOnMachine(fixture, hostDefault));
+  }
   return name;
 };
 

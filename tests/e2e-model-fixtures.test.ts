@@ -70,8 +70,6 @@ it("installs a native scenario topology in one event and rolls back an invalid r
       const events: unknown[] = [];
       const stop = model.subscribeChanges((event) => events.push(event));
       vi.stubGlobal("window", { junto: {
-        // writeFixtureModel named the fresh database THIS_MACHINE.
-        settingsGet: async () => ({ settings: { machine: { name: THIS_MACHINE } } }),
         modelCanvases: async () => (await runtime.runPromise(model.listCanvases())).map((name) => ({ name })),
         modelOpen: ({ canvas }: { canvas: string }) => runtime.runPromise(model.open(canvas)),
         modelCommand: (command: unknown) => runtime.runPromise(model.command(Schema.decodeUnknownSync(Command)(command), "operator")),
