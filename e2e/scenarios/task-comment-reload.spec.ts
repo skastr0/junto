@@ -29,7 +29,8 @@ const shot = async (page: Page, name: string): Promise<void> => {
 const openTask = async (page: Page, title: string): Promise<void> => {
   const card = page.locator('.react-flow__node[data-id="board"]');
   await expect(card).toBeVisible({ timeout: 30_000 });
-  await card.dblclick();
+  // The card's centre is its add-task button: open the board from its name.
+  await card.dblclick({ position: { x: 24, y: 12 } });
   await page.getByRole("list", { name: "Tasks" }).locator("button").filter({ hasText: title }).first().click();
   await expect(page.getByTestId("task-thread")).toBeVisible({ timeout: 20_000 });
 };

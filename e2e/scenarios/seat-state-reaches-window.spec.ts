@@ -73,18 +73,24 @@ test("a running seat's attention reaches the hotbar, the switcher, the card, the
     await expect(slot).toHaveAttribute("data-tenure", "leased");
 
     // (2) Cmd+Backquote (urgency.next) steps to that seat: held Cmd, the tap
-    // opens the switcher on it, and letting Cmd go puts it in front.
-    await page.keyboard.down("Meta");
-    await page.keyboard.press("Backquote");
-    await expect(page.getByTestId("focus-switcher")).toBeVisible({ timeout: 15_000 });
-    // Every seat is listed, and stepping lands on the one that is working.
-    await expect(page.getByRole("option").filter({ hasText: "Scout" })).toHaveCount(1);
-    for (let step = 0; step < 4; step += 1) {
-      if (await page.getByTestId("focus-switcher-selected").getByText("Scout").count() > 0) break;
+    // opens the switcher on it, and letting Cmd go puts it in front. The
+    // switcher is a Mac chord only (key-table.ts urgency.next has no other),
+    // so elsewhere the seat's own slot opens it, as a double click does.
+    if (process.platform === "darwin") {
+      await page.keyboard.down("Meta");
       await page.keyboard.press("Backquote");
+      await expect(page.getByTestId("focus-switcher")).toBeVisible({ timeout: 15_000 });
+      // Every seat is listed, and stepping lands on the one that is working.
+      await expect(page.getByRole("option").filter({ hasText: "Scout" })).toHaveCount(1);
+      for (let step = 0; step < 4; step += 1) {
+        if (await page.getByTestId("focus-switcher-selected").getByText("Scout").count() > 0) break;
+        await page.keyboard.press("Backquote");
+      }
+      await expect(page.getByTestId("focus-switcher-selected")).toContainText("Scout");
+      await page.keyboard.up("Meta");
+    } else {
+      await slot.dblclick();
     }
-    await expect(page.getByTestId("focus-switcher-selected")).toContainText("Scout");
-    await page.keyboard.up("Meta");
     const front = page.locator(".workbench-pane:not(.workbench-pane--parked)");
     await expect(front.locator("header").first()).toContainText("Scout", { timeout: 20_000 });
 
@@ -99,7 +105,10 @@ test("a running seat's attention reaches the hotbar, the switcher, the card, the
     // The seat's own screen shows a dialog: proven attention, the amber ring.
     await seat.control({ screen: { mode: "attention" } });
     await expect(card.locator('.junto-mark[data-activity-tone="amber"]').first()).toHaveCount(1, { timeout: 30_000 });
-    await page.keyboard.press("Meta+k");
+    // Off a Mac, Ctrl+K in the seat's terminal is the shell's (key-table.ts
+    // search.open), so search opens from its button in the top bar.
+    if (process.platform === "darwin") await page.keyboard.press("Meta+k");
+    else await page.getByRole("button", { name: `Search ${CANVAS}` }).click();
     await expect(page.getByRole("option", { name: /Scout/ }).first()).toBeVisible({ timeout: 15_000 });
     await page.keyboard.press("Escape");
 
@@ -124,7 +133,7 @@ test("a running seat's attention reaches the hotbar, the switcher, the card, the
     // and the core types the hand-in into the seat.
     const asked = await seat.cli(["escalate", "Write the note.", "--ask-artifact", "Shelf", "--min-words", "1"]);
     expect(asked.exitCode, asked.stderr).toBe(0);
-    await page.keyboard.press("Meta+i");
+    await page.keyboard.press("ControlOrMeta+i");
     const workCard = page.getByTestId("operator-feed-card").filter({ hasText: "Write the note." });
     await expect(workCard).toHaveCount(1, { timeout: 15_000 });
     await workCard.click();

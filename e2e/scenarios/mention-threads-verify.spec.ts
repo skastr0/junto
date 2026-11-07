@@ -199,7 +199,7 @@ test("# and @ offer what is in reach, a sent mention is a chip that opens, a tas
 
     // Gap 1, the needs-you reply composer.
     await section("needs-you-reply", async () => {
-      await page.keyboard.press("Meta+I");
+      await page.keyboard.press("ControlOrMeta+I");
       const feed = page.getByTestId("operator-feed");
       await expect(feed).toBeVisible({ timeout: 10_000 });
       await page.keyboard.press("Enter");
@@ -213,7 +213,7 @@ test("# and @ offer what is in reach, a sent mention is a chip that opens, a tas
       await expect(options.filter({ hasText: "Bravo" })).toBeVisible();
       await shot(page, "12-reply-at");
       await page.keyboard.press("Escape");
-      await page.keyboard.press("Meta+I");
+      await page.keyboard.press("ControlOrMeta+I");
     });
 
     // The page chip last: it leaves the page's surface open for the box comment.

@@ -71,7 +71,7 @@ const occupy = async (junto: JuntoHandle, canvas: string, seats: ReadonlyArray<{
 
 const openBoard = async (page: Page, board: string, title: string): Promise<void> => {
   await page.keyboard.press("Escape");
-  await page.locator(`.react-flow__node[data-id="${board}"]`).dblclick();
+  await page.locator(`.react-flow__node[data-id="${board}"]`).dblclick({ position: { x: 24, y: 12 } });
   await page.getByRole("list", { name: "Tasks" }).locator("button").filter({ hasText: title }).first().click();
   await expect(page.getByTestId("task-detail")).toBeVisible({ timeout: 20_000 });
 };
