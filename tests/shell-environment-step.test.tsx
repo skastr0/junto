@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
 /**
- * The onboarding's shell step: what it says for each status main reports,
- * that opening it asks status() (main's ensure) and Reload asks refresh()
+ * The onboarding's shell step: what it says for each status the core reports,
+ * that opening it asks status() (the core's ensure) and Reload asks refresh()
  * and then the harnesses again, and that no variable value ever reaches it.
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { Effect, Layer, ManagedRuntime, Queue, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ShellEnvironmentWindow } from "../src/contract/window/shell-environment";
+import { WindowRuntimeContext, type WindowRuntime } from "../src/window/rpc/runtime";
 import type { ShellEnvironmentChange, ShellEnvironmentStatus } from "../src/shared/shell-environment";
 import {
   RESOLVING_ESCAPE,
@@ -112,14 +115,15 @@ describe("what the step says", () => {
 });
 
 describe("opening and reloading", () => {
-  it("opening asks status (main's ensure) and the harnesses that PATH finds", async () => {
+  it("opening asks status (the core's ensure) and the harnesses that PATH finds", async () => {
     const api = {
-      shellEnvironment: { status: vi.fn(async () => resolved()), refresh: vi.fn(), onChange: vi.fn() },
+      status: vi.fn(async () => resolved()),
+      refresh: vi.fn(),
       managedTerminalHarnesses: vi.fn(async () => harnesses(["Claude Code", "Codex"], ["Grok"])),
     };
     const read = await readShellStep(api as never);
-    expect(api.shellEnvironment.status).toHaveBeenCalledTimes(1);
-    expect(api.shellEnvironment.refresh).not.toHaveBeenCalled();
+    expect(api.status).toHaveBeenCalledTimes(1);
+    expect(api.refresh).not.toHaveBeenCalled();
     expect(read?.found).toEqual(["Claude Code", "Codex"]);
     expect(read?.missing).toEqual(["Grok"]);
   });
@@ -127,21 +131,13 @@ describe("opening and reloading", () => {
   it("reload re-reads the shell, then asks the harnesses again", async () => {
     const order: string[] = [];
     const api = {
-      shellEnvironment: {
-        status: vi.fn(),
-        refresh: vi.fn(async () => (order.push("refresh"), failed({ _tag: "TimedOut", timeoutMs: 10_000 }, true))),
-        onChange: vi.fn(),
-      },
+      status: vi.fn(),
+      refresh: vi.fn(async () => (order.push("refresh"), failed({ _tag: "TimedOut", timeoutMs: 10_000 }, true))),
       managedTerminalHarnesses: vi.fn(async () => (order.push("harnesses"), harnesses(["Codex"]))),
     };
     const read = await reloadShellStep(api as never);
     expect(order).toEqual(["refresh", "harnesses"]);
-    expect(read?.status._tag).toBe("Failed");
-  });
-
-  it("with no shell environment bridge there is nothing to read, and no crash", async () => {
-    expect(await readShellStep({})).toBeUndefined();
-    expect(await reloadShellStep({})).toBeUndefined();
+    expect(read.status._tag).toBe("Failed");
   });
 });
 
@@ -150,24 +146,48 @@ describe("the panel", () => {
   let host: HTMLDivElement;
   let emit: ((change: ShellEnvironmentChange) => void) | undefined;
 
+  /** The window's runtime, its shell environment client answering as the test says. */
+  const runtimeOf = (shell: {
+    readonly status: () => Promise<ShellEnvironmentStatus>;
+    readonly refresh: () => Promise<ShellEnvironmentStatus>;
+  }): WindowRuntime =>
+    ManagedRuntime.make(
+      Layer.succeed(ShellEnvironmentWindow, {
+        ShellEnvironmentStatus: () => Effect.promise(shell.status),
+        ShellEnvironmentRefresh: () => Effect.promise(shell.refresh),
+        ShellEnvironmentChanges: () =>
+          Stream.callback<ShellEnvironmentChange>((queue) =>
+            Effect.sync(() => {
+              emit = (change) => Queue.offerUnsafe(queue, change);
+            }),
+          ),
+      } as never),
+    ) as unknown as WindowRuntime;
+
+  const draw = async (runtime: WindowRuntime) => {
+    await act(async () =>
+      root.render(
+        <WindowRuntimeContext.Provider value={runtime}>
+          <ShellEnvironmentPanel />
+        </WindowRuntimeContext.Provider>,
+      ),
+    );
+    // Let the change stream open, so a reload's notice reaches it.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
+  };
+
   const mount = async (status: ShellEnvironmentStatus, refreshTo: ShellEnvironmentStatus = status) => {
-    const api = {
-      shellEnvironment: {
-        status: vi.fn(async () => status),
-        refresh: vi.fn(async () => {
-          emit?.({ generation: 2, added: ["SECRET_TOKEN"], removed: [], changed: [], pathAdded: ["/opt/new/bin"], pathRemoved: [] });
-          return refreshTo;
-        }),
-        onChange: vi.fn((listener: (change: ShellEnvironmentChange) => void) => {
-          emit = listener;
-          return () => (emit = undefined);
-        }),
-      },
-      managedTerminalHarnesses: vi.fn(async () => harnesses(["Claude Code"], ["Grok"])),
+    const shell = {
+      status: vi.fn(async () => status),
+      refresh: vi.fn(async () => {
+        emit?.({ generation: 2, added: ["SECRET_TOKEN"], removed: [], changed: [], pathAdded: ["/opt/new/bin"], pathRemoved: [] });
+        return refreshTo;
+      }),
     };
+    const api = { managedTerminalHarnesses: vi.fn(async () => harnesses(["Claude Code"], ["Grok"])) };
     vi.stubGlobal("junto", api);
-    await act(async () => root.render(<ShellEnvironmentPanel />));
-    return api;
+    await draw(runtimeOf(shell));
+    return { ...api, shell };
   };
   const panel = (): HTMLElement => host.querySelector("[data-testid='shell-environment-step']")!;
 
@@ -192,7 +212,7 @@ describe("the panel", () => {
     expect(panel().textContent).toContain("Not found: Grok");
 
     await act(async () => host.querySelector<HTMLButtonElement>("[data-testid='shell-environment-reload']")!.click());
-    expect(api.shellEnvironment.refresh).toHaveBeenCalledTimes(1);
+    expect(api.shell.refresh).toHaveBeenCalledTimes(1);
     expect(api.managedTerminalHarnesses).toHaveBeenCalledTimes(2);
     expect(panel().textContent).toContain("/opt/new/bin");
     expect(panel().textContent).toContain("1 variable changed, 1 PATH directory added.");
@@ -208,28 +228,20 @@ describe("the panel", () => {
   });
 
   it("a first read that fails says so in one sentence, and Reload can still retry", async () => {
-    vi.stubGlobal("junto", {
-      shellEnvironment: {
-        status: vi.fn(async () => ({ _tag: "Resolved", shell: 7 })),
-        refresh: vi.fn(async () => resolved()),
-        onChange: vi.fn(() => () => undefined),
-      },
-      managedTerminalHarnesses: vi.fn(async () => harnesses(["Codex"])),
-    });
-    await act(async () => root.render(<ShellEnvironmentPanel />));
+    vi.stubGlobal("junto", { managedTerminalHarnesses: vi.fn(async () => harnesses(["Codex"])) });
+    // The group's client refuses an answer its schema does not read: the call fails.
+    await draw(
+      runtimeOf({
+        status: () => Promise.reject(new Error("Expected string, got 7")),
+        refresh: async () => resolved(),
+      }),
+    );
     expect(panel().textContent).toContain("Junto could not read the shell status.");
     expect(panel().textContent).not.toContain("Expected");
     const reload = host.querySelector<HTMLButtonElement>("[data-testid='shell-environment-reload']")!;
     expect(reload.disabled).toBe(false);
     await act(async () => reload.click());
     expect(panel().dataset.tone).toBe("resolved");
-  });
-
-  it("with no shell environment bridge it says so instead of reading for good", async () => {
-    vi.stubGlobal("junto", { managedTerminalHarnesses: vi.fn() });
-    await act(async () => root.render(<ShellEnvironmentPanel />));
-    expect(panel().textContent).toContain("This build cannot show what Junto read from your shell");
-    expect(host.querySelector<HTMLButtonElement>("[data-testid='shell-environment-reload']")!.disabled).toBe(true);
   });
 
   it("no value reaches the panel, even when main's answer carries a secret-shaped name", async () => {

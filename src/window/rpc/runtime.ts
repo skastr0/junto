@@ -12,10 +12,11 @@ import { type Context, Effect, Fiber, Layer, ManagedRuntime, Stream } from "effe
 import type { RpcPort } from "@shared/rpc-port";
 import { WindowLink } from "../../contract/window/link";
 import { ReferencesWindow } from "../../contract/window/references";
+import { ShellEnvironmentWindow } from "../../contract/window/shell-environment";
 import { UpdateWindow } from "../../contract/window/update";
 import { UpdateState } from "../lib/update-state";
 
-export const WindowClientsLive = Layer.mergeAll(UpdateWindow.layer, ReferencesWindow.layer);
+export const WindowClientsLive = Layer.mergeAll(UpdateWindow.layer, ReferencesWindow.layer, ShellEnvironmentWindow.layer);
 
 export const WindowServicesLive = Layer.mergeAll(UpdateState.layer).pipe(Layer.provideMerge(WindowClientsLive));
 

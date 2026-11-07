@@ -11,7 +11,6 @@ import type { CanvasesChanged, Changed } from "@shared/model";
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
 import type { FilesChanged, JuntoFilesApi } from "@shared/files";
 import type { CompanionDeviceRecord } from "@shared/companion-devices";
-import type { ShellEnvironmentChange } from "@shared/shell-environment";
 import {
   IPC_CHANNELS,
   type ChassisApi,
@@ -595,11 +594,6 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     subscribe<NotifyTarget>(IPC_CHANNELS.notificationActivate, listener),
   onNotificationCue: (listener) =>
     subscribe<{ readonly cue: NotifyCue }>(IPC_CHANNELS.notificationCue, listener),
-  shellEnvironment: {
-    status: () => invoke(IPC_CHANNELS.shellEnvironmentStatus, IPC_TIMEOUT_MS),
-    refresh: () => invoke(IPC_CHANNELS.shellEnvironmentRefresh, IPC_TIMEOUT_MS),
-    onChange: (listener) => subscribe<ShellEnvironmentChange>(IPC_CHANNELS.shellEnvironmentChanged, listener),
-  },
   companionStatus: () => invoke(IPC_CHANNELS.companionStatus, IPC_TIMEOUT_MS),
   companionPairStart: () => invoke(IPC_CHANNELS.companionPairStart, IPC_TIMEOUT_MS),
   companionPairCancel: (deviceId) => invoke(IPC_CHANNELS.companionPairCancel, IPC_TIMEOUT_MS, deviceId),

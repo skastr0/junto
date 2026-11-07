@@ -1,10 +1,5 @@
-import {
-  decodeShellEnvironmentStatus,
-  type ShellEnvironmentChange,
-  type ShellEnvironmentFailure,
-  type ShellEnvironmentStatus,
-} from "@shared/shell-environment";
-import type { ManagedTerminalHarnessesResult, ShellEnvironmentApi } from "@shared/ipc";
+import type { ShellEnvironmentChange, ShellEnvironmentFailure, ShellEnvironmentStatus } from "@shared/shell-environment";
+import type { ManagedTerminalHarnessesResult } from "@shared/ipc";
 
 /**
  * The onboarding's shell step, worked out from what main reports: which
@@ -133,8 +128,13 @@ export interface ShellStepRead {
   readonly missing: ReadonlyArray<string>;
 }
 
-type ShellStepApi = {
-  readonly shellEnvironment?: ShellEnvironmentApi;
+/**
+ * What the step asks: the core's status and fresh read, through the window's
+ * shell environment group (decoded there), and which harnesses PATH finds.
+ */
+export type ShellStepApi = {
+  readonly status: () => Promise<ShellEnvironmentStatus>;
+  readonly refresh: () => Promise<ShellEnvironmentStatus>;
   readonly managedTerminalHarnesses?: () => Promise<ManagedTerminalHarnessesResult>;
 };
 
@@ -148,12 +148,11 @@ const harnessesOf = async (api: ShellStepApi): Promise<Pick<ShellStepRead, "foun
 };
 
 /**
- * Open the step: status() waits for the first read in main (ensure), so it
- * never answers unresolved, then the harnesses that PATH finds.
+ * Open the step: status() waits for the first read in the core (ensure), so
+ * it never answers unresolved, then the harnesses that PATH finds.
  */
-export const readShellStep = async (api: ShellStepApi): Promise<ShellStepRead | undefined> => {
-  if (!api.shellEnvironment) return undefined;
-  const status = decodeShellEnvironmentStatus(await api.shellEnvironment.status());
+export const readShellStep = async (api: ShellStepApi): Promise<ShellStepRead> => {
+  const status = await api.status();
   return { status, ...(await harnessesOf(api)) };
 };
 
@@ -161,8 +160,7 @@ export const readShellStep = async (api: ShellStepApi): Promise<ShellStepRead | 
  * Reload: re-read the shell, then ask again which harnesses are found, since
  * the environment module stays below harness detection.
  */
-export const reloadShellStep = async (api: ShellStepApi): Promise<ShellStepRead | undefined> => {
-  if (!api.shellEnvironment) return undefined;
-  const status = decodeShellEnvironmentStatus(await api.shellEnvironment.refresh());
+export const reloadShellStep = async (api: ShellStepApi): Promise<ShellStepRead> => {
+  const status = await api.refresh();
   return { status, ...(await harnessesOf(api)) };
 };

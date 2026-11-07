@@ -152,7 +152,6 @@ import type { NotifyCue, NotifyReport, NotifyTarget } from "./desktop-notificati
 import type { CanvasSummary as CanvasSummarySchema } from "../contract/core/model";
 import type { AgentSignalOperatorResult as AgentSignalOperatorResultSchema } from "../contract/core/signals";
 import type { DigestResult as DigestResultSchema } from "../contract/core/status";
-import type { ShellEnvironmentChange, ShellEnvironmentStatus } from "./shell-environment";
 import type { SeatCacheWindow, SeatNextTurn } from "./seat-next-launch";
 import type { OverseerLiveApi } from "./overseer-live";
 import type {
@@ -308,10 +307,6 @@ export const IPC_CHANNELS = {
   viewStateChanged: "junto:view-state-changed",
   /** A new core took over: what a window read from the last one may be stale. */
   coreRestarted: "junto:core-restarted",
-  /** The operator's shell environment: what Junto read, a fresh read, and main's push when it changes. */
-  shellEnvironmentStatus: "junto:shell-environment-status",
-  shellEnvironmentRefresh: "junto:shell-environment-refresh",
-  shellEnvironmentChanged: "junto:shell-environment-changed",
   /** Phone companion: this Mac's readiness, pair a phone (QR), list and remove phones; main pushes the list. */
   companionStatus: "junto:companion-status",
   companionPairStart: "junto:companion-pair-start",
@@ -652,18 +647,6 @@ export type ModelActorRefsChanged = {
   readonly refs: ReadonlyArray<ActorRef>;
 };
 
-/**
- * The operator's shell environment (src/shared/shell-environment.ts is the
- * wire; decode with its schemas). `status` answers after the first read,
- * which main finishes before the window opens, and at once with `Resolving`
- * while a later read runs. `refresh` reads again and answers when it ends.
- */
-export interface ShellEnvironmentApi {
-  readonly status: () => Promise<ShellEnvironmentStatus>;
-  readonly refresh: () => Promise<ShellEnvironmentStatus>;
-  readonly onChange: (listener: (change: ShellEnvironmentChange) => void) => () => void;
-}
-
 /** One view-state write's receipt; a refusal leaves the mirror as it was. */
 export type { ViewStateApplyResult } from "./view-state";
 
@@ -979,8 +962,6 @@ export interface JuntoApi extends OverseerLiveApi {
   readonly onNotificationActivate?: (listener: (target: NotifyTarget) => void) => () => void;
   /** Main → renderer: a silent banner went up; play its cue. */
   readonly onNotificationCue?: (listener: (event: { readonly cue: NotifyCue }) => void) => () => void;
-  /** What Junto read from the operator's login shell: names, directories and typed causes, never values. */
-  readonly shellEnvironment?: ShellEnvironmentApi;
   /** Settings, Companion: this Mac's readiness to pair a phone. */
   readonly companionStatus?: () => Promise<CompanionStatus>;
   /** Start pairing a phone; the QR expires after ten minutes. */

@@ -4,6 +4,7 @@
  * and a client of a group missing here fails the window's (`windowClient`).
  */
 import { ReferencesWindowRpcs } from "./references";
+import { ShellEnvironmentWindowRpcs } from "./shell-environment";
 import { UpdateWindowRpcs } from "./update";
 
-export const WindowRpcs = UpdateWindowRpcs.merge(ReferencesWindowRpcs);
+export const WindowRpcs = UpdateWindowRpcs.merge(ReferencesWindowRpcs, ShellEnvironmentWindowRpcs);

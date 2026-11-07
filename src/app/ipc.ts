@@ -29,7 +29,6 @@ import { registerHostsIpc } from "./hosts/ipc";
 import { registerSettingsIpc } from "./settings/ipc";
 import { mainIndexCalls } from "./core-process/main-index-ipc";
 import { registerViewStateIpc } from "./view-state/ipc";
-import { registerShellEnvironmentIpc } from "./shell-environment/ipc";
 import { registerLibraryIpc } from "./library/library-ipc";
 import { registerContentIpc } from "./content/content-ipc";
 import { registerAutomationIpc } from "./automation/ipc";
@@ -125,7 +124,6 @@ export const registerJuntoIpc = (boot: MainBoot): void => {
   }, boot.core);
   registerGitIpc(privilegedIpc, boot.core);
   registerSettingsIpc(privilegedIpc, broadcast, boot.core);
-  registerShellEnvironmentIpc(privilegedIpc, broadcast, boot.core);
   registerViewStateIpc(privilegedIpc, broadcast, boot.core);
   // The renderer's tasks and artifacts: the core's stores and the core's
   // ruler (ops/ipc-resources.ts), told to the window as a change lands.

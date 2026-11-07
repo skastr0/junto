@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { RotateCw } from "lucide-react";
 import type { ShellEnvironmentChange } from "@shared/shell-environment";
+import { ShellEnvironmentWindow } from "../../../contract/window/shell-environment";
 import { getJuntoApi } from "../../lib/junto-api";
+import { follow, useWindowRuntime, useWindowService } from "../../rpc/runtime";
 import {
   RESOLVING_ESCAPE,
   changeSummary,
@@ -9,6 +11,7 @@ import {
   readShellStep,
   reloadShellStep,
   shellStepView,
+  type ShellStepApi,
   type ShellStepRead,
 } from "../../lib/shell-environment-view";
 import { Button, StatusDot } from "../ui";
@@ -22,37 +25,42 @@ import type { TourChapter } from "./FirstRunIntro";
 // A failed read is a warning, not an error: seats still start, on the fallback.
 const TONE = { resolved: "green", reading: "dim", failed: "amber", inherited: "steel" } as const;
 
-/** A failed IPC call or an unreadable answer: one sentence, never the raw parse message. */
+/** A failed call or an unreadable answer: one sentence, never the raw parse message. */
 const UNREADABLE = "Junto could not read the shell status.";
 
 export function ShellEnvironmentPanel() {
+  const runtime = useWindowRuntime();
+  const shell = useWindowService(ShellEnvironmentWindow);
+  const api = useMemo(
+    (): ShellStepApi => ({
+      status: () => runtime.runPromise(shell.ShellEnvironmentStatus()),
+      refresh: () => runtime.runPromise(shell.ShellEnvironmentRefresh()),
+      managedTerminalHarnesses: getJuntoApi()?.managedTerminalHarnesses,
+    }),
+    [runtime, shell],
+  );
   const [read, setRead] = useState<ShellStepRead | undefined>(undefined);
   const [reloading, setReloading] = useState(false);
   const [reloaded, setReloaded] = useState(false);
   const [change, setChange] = useState<ShellEnvironmentChange | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
-  // No bridge (an older preload): say so, rather than "Reading" for good.
-  const [available] = useState(() => getJuntoApi()?.shellEnvironment !== undefined);
 
-  // Opening the step asks main for the status, which waits for the first
-  // read (ensure) and is otherwise instant.
+  // Opening the step asks the core for the status, which waits for the first
+  // read (ensure) and is otherwise instant; each replacement after it is told.
   useEffect(() => {
-    const api = getJuntoApi();
-    if (!api) return;
     let live = true;
     void readShellStep(api)
       .then((next) => live && setRead(next))
       .catch(() => live && setError(UNREADABLE));
-    const off = api.shellEnvironment?.onChange((next) => live && setChange(next));
+    const stop = follow(runtime, shell.ShellEnvironmentChanges(), (next) => live && setChange(next));
     return () => {
       live = false;
-      off?.();
+      stop();
     };
-  }, []);
+  }, [api, runtime, shell]);
 
   const reload = async (): Promise<void> => {
-    const api = getJuntoApi();
-    if (!api || reloading) return;
+    if (reloading) return;
     setReloading(true);
     setChange(undefined);
     setError(null);
@@ -72,7 +80,7 @@ export function ShellEnvironmentPanel() {
       <div className="intro-shell__head">
         <StatusDot tone={TONE[view?.tone ?? "reading"]} />
         <span className="intro-shell__headline" role="status">
-          {view?.headline ?? (available ? (error ? UNREADABLE : "Reading your shell") : "This build cannot show what Junto read from your shell")}
+          {view?.headline ?? (error ? UNREADABLE : "Reading your shell")}
         </span>
       </div>
       {view && view.facts.length > 0 ? (
@@ -122,7 +130,7 @@ export function ShellEnvironmentPanel() {
         <Button
           variant="chrome"
           size="sm"
-          disabled={reloading || !available}
+          disabled={reloading}
           aria-busy={reloading ? true : undefined}
           onClick={() => void reload()}
           data-testid="shell-environment-reload"
