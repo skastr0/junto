@@ -218,6 +218,9 @@
   overflow-x: hidden;
   overflow-y: auto;
   padding-right: 4px;
+  /* The gutter is kept whether or not the grid scrolls, so its columns are
+     the squad grid's width on a platform whose scrollbar takes room (Linux). */
+  scrollbar-gutter: stable;
   scrollbar-color: var(--color-stroke) transparent;
   scrollbar-width: thin;
 }

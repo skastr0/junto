@@ -37,6 +37,14 @@
   gap: 2px;
   margin-bottom: 16px;
 }
+/* The squad grid keeps the catalog grid's scrollbar gutter, so a squad card
+   is a node card's width where a scrollbar takes room (Linux), scrolling or not. */
+.squad-picker .picker-card-grid {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--color-stroke) transparent;
+  scrollbar-width: thin;
+}
 
 /* --- save dialog ----------------------------------------------------------- */
 
