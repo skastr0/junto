@@ -1,5 +1,7 @@
 /**
- * The 0.10 release sweep, driven in the real app on a ship build:
+ * The 0.10 release sweep, driven in the real app (a ship or an all-on build; the
+ * Providers section is present only where the build compiled usage or live
+ * conversation in, which the build records in out/build-source.json):
  *   1. Tasks end to end on the new model, seats acting through the CLI.
  *   2. Deleted features stay gone; a Hermes seat opens as a terminal seat;
  *      Add item refuses the home folder in words.
@@ -7,7 +9,7 @@
  *   JUNTO_SHOTS_DIR=<dir> bun run test:e2e:fast e2e/scenarios/release-sweep.spec.ts
  * The seats' CLI is dist/junto (seat-env.ts injects JUNTO_CLI from it).
  */
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
@@ -22,6 +24,13 @@ import { expect, launchJunto, test, type JuntoHandle } from "../harness/launch";
 import { modelFixture, modelNode, modelRegion, modelSeat, modelWire } from "../harness/model";
 
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? join(process.cwd(), "test-results", "release-sweep");
+
+/** The feature profile the build under test was made with, as the build recorded it. */
+const builtProfile = (): "ship" | "all-on" => {
+  const stamp = JSON.parse(readFileSync(join(process.cwd(), "out", "build-source.json"), "utf8")) as { readonly featureProfile?: unknown };
+  if (stamp.featureProfile !== "ship" && stamp.featureProfile !== "all-on") throw new Error("out/build-source.json records no feature profile: rebuild from this commit");
+  return stamp.featureProfile;
+};
 
 const decode = (input: unknown): Node => Schema.decodeUnknownSync(Node, { onExcessProperty: "error" })(input);
 const at = (x: number, y: number, width: number, height: number) => ({ x, y, width, height, z: 0 });
@@ -213,13 +222,13 @@ test("deleted features stay gone, Hermes opens as a terminal seat, Add item refu
     await page.keyboard.press("Escape");
     await page.keyboard.press("Escape");
 
-    // Settings: no Providers section and no Hermes host snapshots card.
+    // Settings: no Hermes host snapshots card, and a Providers section only on a build that carries usage or live conversation.
     await page.getByRole("button", { name: "Open settings" }).click();
     const settings = page.getByRole("dialog", { name: "Settings" });
     await expect(settings).toBeVisible();
     console.log("SETTINGS NAV:", JSON.stringify((await settings.innerText()).split("\n").slice(0, 30)));
     await expect(settings.getByText("Hermes host snapshots")).toHaveCount(0);
-    await expect(settings.getByRole("button", { name: "Providers", exact: true })).toHaveCount(0);
+    await expect(settings.getByRole("button", { name: "Providers", exact: true })).toHaveCount(builtProfile() === "all-on" ? 1 : 0);
     await expect(settings.getByRole("tab", { name: "Providers", exact: true })).toHaveCount(0);
     await shot(page, "g4-settings");
     await page.keyboard.press("Escape");

@@ -13,7 +13,7 @@ export type FeatureProfileName = "ship" | "all-on";
 
 const FEATURE_KEYS = Object.keys(FEATURE_CATALOG) as ReadonlyArray<FeatureKey>;
 
-const featureProfileName = (
+export const featureProfileName = (
   env: Readonly<Record<string, string | undefined>>,
 ): FeatureProfileName => {
   const raw = env.JUNTO_FEATURE_PROFILE?.trim() || "ship";
