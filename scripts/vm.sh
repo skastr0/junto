@@ -2,7 +2,7 @@
 # Run Junto's checks on a Boat cloud VM instead of this machine.
 #
 #   scripts/vm.sh new <seat> <purpose>      a VM from the $VM_BASE snapshot, named <seat>-<id>-<purpose>
-#   scripts/vm.sh sync <id> [ref] [paths…]  put <ref> (HEAD, a branch or tag; default HEAD) on the VM, plus your own uncommitted <paths>
+#   scripts/vm.sh sync <id> [ref] [paths…]  put <ref> (HEAD, a branch, a tag or a hash; default HEAD) on the VM, plus your own uncommitted <paths>
 #   scripts/vm.sh run <id> <command…>       run a command in ~/$VM_DIR on the VM, output streamed
 #   scripts/vm.sh stop <id>                 stop it (snapshot kept 14 days); `boat resume <id>` brings it back
 #
@@ -48,16 +48,23 @@ case "${1:-}" in
     shift $(($# < 3 ? $# : 3))
     target=$(git -C "$ROOT" rev-parse --verify "$ref^{commit}")
     have=$("$BOAT" exec "$id" --json -- git -C "/home/user/$VM_DIR" rev-parse HEAD 2>/dev/null | jq -r '.stdout // empty' | tr -d '[:space:]')
-    if [ -n "$have" ] && git -C "$ROOT" cat-file -e "$have^{commit}" 2>/dev/null && [ "$have" != "$target" ]; then
-      # A bundle names refs, not bare commits: <ref> is HEAD, a branch or a tag.
-      git -C "$ROOT" bundle create "$TMP/sync.bundle" "$have..$ref" 2>/dev/null ||
-        git -C "$ROOT" bundle create "$TMP/sync.bundle" "$ref" 2>/dev/null
-    elif [ "$have" != "$target" ]; then
-      git -C "$ROOT" bundle create "$TMP/sync.bundle" "$ref" 2>/dev/null
+    # A bundle carries refs, not bare commits: a hash rides in on a ref that contains it.
+    carrier=$(git -C "$ROOT" rev-parse --symbolic-full-name "$ref" 2>/dev/null || true)
+    [ -n "$carrier" ] || carrier=$(git -C "$ROOT" for-each-ref --contains "$target" --format='%(refname)' | head -1)
+    [ -n "$carrier" ] || { echo "vm.sh: no branch or tag contains $target, so it cannot be bundled" >&2; exit 1; }
+    if [ "$have" != "$target" ]; then
+      if [ -n "$have" ] && git -C "$ROOT" cat-file -e "$have^{commit}" 2>/dev/null &&
+        git -C "$ROOT" bundle create -q "$TMP/sync.bundle" "$have..$carrier" 2>"$TMP/bundle.err"; then
+        :
+      elif ! git -C "$ROOT" bundle create -q "$TMP/sync.bundle" "$carrier" 2>"$TMP/bundle.err"; then
+        echo "vm.sh: git bundle failed:" >&2
+        cat "$TMP/bundle.err" >&2
+        exit 1
+      fi
     fi
     if [ -f "$TMP/sync.bundle" ]; then
       "$BOAT" scp "$TMP/sync.bundle" "$id:/home/user/sync.bundle" >/dev/null
-      fetch="git fetch -q ~/sync.bundle && rm -f ~/sync.bundle &&"
+      fetch="git fetch -q ~/sync.bundle $carrier && rm -f ~/sync.bundle &&"
     else
       fetch=""
     fi
@@ -74,7 +81,8 @@ case "${1:-}" in
       fi
     fi
     remote "$id" "cd ~/$VM_DIR && $fetch old=\$(git rev-parse HEAD) && git checkout -q -f --detach $target && git clean -q -fd \
-      && { git diff --quiet \$old $target -- bun.lock || bun install --frozen-lockfile >/dev/null; } $patch && git log --oneline -1"
+      && { git diff --quiet \$old $target -- bun.lock || bun install --frozen-lockfile >/dev/null; } $patch \
+      && test \"\$(git rev-parse HEAD)\" = $target && git log --oneline -1"
     ;;
   run)
     id=${2:?VM id}
