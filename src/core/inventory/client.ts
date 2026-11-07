@@ -116,13 +116,3 @@ export const makePeerInventory = Effect.fn("PeerInventory.make")(function* (cach
 /** This core's client over the peer-inventory directory under its home, or `dir`. */
 export const peerInventoryLayer = (dir?: string) =>
   Layer.effect(PeerInventory, Effect.suspend(() => makePeerInventory(makePeerInventoryCache(dir))));
-
-/**
- * @deprecated Until `ops/term-ipc.ts` yields `PeerInventory` and the core
- * runtime provides `peerInventoryLayer()`. Builds the client per call from
- * the caller's context; it holds no module state.
- */
-export const peerInventory = () => ({
-  inventoryOf: (machine: string, operationId?: string) =>
-    Effect.flatMap(makePeerInventory(makePeerInventoryCache()), (client) => client.inventoryOf(machine, operationId)),
-});
