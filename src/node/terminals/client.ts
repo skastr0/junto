@@ -1,5 +1,5 @@
-import { Context, Duration, Effect, Layer, ManagedRuntime, Result, Schema } from "effect";
-import { RpcClient, type RpcClientError } from "effect/rpc";
+import { Context, Duration, Effect, Result, Schema, Scope } from "effect";
+import { RpcClient } from "effect/rpc";
 import { clientProtocol, type PortMessage, type RpcPort } from "../../shared/rpc-port";
 import {
   TERMINAL_LINK_VERSION,
@@ -35,11 +35,6 @@ import { eventEdge } from "../../contract/terminal/edge";
  * terminal process does not serve fails the compile, not a runtime answer.
  */
 export type RemoteTerminalExit = TerminalExitStatus;
-
-/** The calls on one link, as the client its runtime built. */
-class TerminalCalls extends Context.Service<TerminalCalls, RpcClient.FromGroup<typeof TerminalRpcs, RpcClientError.RpcClientError>>()(
-  "@junto/node/TerminalCalls",
-) {}
 
 /** How long a new core waits on `TerminalAdopt` before it adopts nothing and says so. */
 const ADOPT_DEADLINE = Duration.seconds(10);
@@ -149,10 +144,15 @@ const messageOf = (error: unknown): string =>
  * `transfer` posts one message with a port moved alongside it, which the
  * link port cannot: Electron's `UtilityProcess.postMessage(message, [port])`.
  * Without it no surface can be opened.
+ *
+ * `context` is the program's own, and every call on the link runs on it:
+ * `Terminals` hands the client the core's. A test that builds a client
+ * alone runs its calls on an empty one.
  */
 export const terminalClient = (
   port: TerminalLinkPort,
   transfer?: (message: TerminalLinkMessage, surface: unknown) => void,
+  context: Context.Context<never> = Context.empty(),
 ): TerminalClient => {
   const live = new Map<number, Live>();
   let nextId = 1;
@@ -167,14 +167,16 @@ export const terminalClient = (
       return () => rpcListeners.delete(handler);
     },
   };
-  // One runtime per link: it holds the RPC client and its scope, and every
-  // call on this link runs on it.
-  const runtime = ManagedRuntime.make(
-    Layer.effect(TerminalCalls, RpcClient.make(TerminalRpcs)).pipe(
-      Layer.provide(Layer.effect(RpcClient.Protocol, clientProtocol(rpcPort))),
+  // Every call on this link runs on the program's context it was given.
+  const run = Effect.runPromiseWith(context);
+  const runSync = Effect.runSyncWith(context);
+  const scope = runSync(Scope.make());
+  const calls = runSync(
+    RpcClient.make(TerminalRpcs).pipe(
+      Effect.provideServiceEffect(RpcClient.Protocol, clientProtocol(rpcPort)),
+      Effect.provideService(Scope.Scope, scope),
     ),
   );
-  const calls = runtime.runSync(Effect.service(TerminalCalls));
 
   const exited = (id: number, event: RemoteTerminalExit): void => {
     const terminal = live.get(id);
@@ -341,7 +343,7 @@ export const terminalClient = (
     lastSeq: () => live.get(id)?.seq ?? 0,
     onTyping: subscribe(id, (terminal) => terminal.typing),
     onInput: subscribe(id, (terminal) => terminal.input),
-    fence: () => runtime.runPromise(calls.TerminalFence().pipe(Effect.ignore)),
+    fence: () => run(calls.TerminalFence().pipe(Effect.ignore)),
   });
 
   const adopt = (): Effect.Effect<ReadonlyArray<AdoptedTerminal>, TerminalAdoptFailed> => Effect.suspend(() => {
@@ -378,7 +380,7 @@ export const terminalClient = (
     spawn: (input) => {
       const id = nextId++;
       live.set(id, fresh(0, true));
-      const pid = runtime.runPromise(
+      const pid = run(
         calls.TerminalSpawn({ ...input, id }).pipe(Effect.mapError((error) => new Error(messageOf(error)))),
       ).then((answer) => answer.pid, (error: unknown) => {
         failed(id, messageOf(error));

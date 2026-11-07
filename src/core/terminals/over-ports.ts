@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Context, Effect } from "effect";
 import type { TerminalLinkMessage, TerminalLinkPort } from "../../contract/terminal/protocol";
 import { TerminalAdoptFailed, terminalClient, type TerminalClient } from "../../node/terminals/client";
 
@@ -15,9 +15,11 @@ export type TerminalPortMain = {
  * the core): main hands the core a port straight to the terminal process,
  * and a new one each time that process starts again. Until a port arrives,
  * and after its process is gone, a spawn is refused; it never falls back to
- * a PTY in the core.
+ * a PTY in the core. Every client runs its calls on `context`, the program's.
  */
-export const terminalsOverPorts = (): TerminalClient & { readonly connect: (port: TerminalPortMain) => void } => {
+export const terminalsOverPorts = (
+  context: Context.Context<never> = Context.empty(),
+): TerminalClient & { readonly connect: (port: TerminalPortMain) => void } => {
   let current: TerminalClient | undefined;
   return {
     connect: (port) => {
@@ -29,7 +31,7 @@ export const terminalsOverPorts = (): TerminalClient & { readonly connect: (port
           return () => port.off("message", on);
         },
       };
-      const client = terminalClient(link, (message, surface) => port.postMessage(message, [surface]));
+      const client = terminalClient(link, (message, surface) => port.postMessage(message, [surface]), context);
       current?.fail("the Junto terminal process was replaced");
       current = client;
       port.on("close", () => {

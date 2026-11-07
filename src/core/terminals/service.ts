@@ -32,7 +32,8 @@ export class Terminals extends Context.Service<Terminals, TerminalClient>()("@ju
     Terminals,
     Effect.gen(function* () {
       const ports = yield* TerminalPorts;
-      const terminals = terminalsOverPorts();
+      // The core's own context: every call on a terminal link runs on it.
+      const terminals = terminalsOverPorts(yield* Effect.context<never>());
       const ready = yield* Deferred.make<void>();
       yield* Stream.runForEach(ports, (port) =>
         Effect.sync(() => terminals.connect(port)).pipe(Effect.andThen(Deferred.succeed(ready, undefined))),
