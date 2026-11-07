@@ -61,8 +61,6 @@ import {
   type PreviewShotSource,
   type PreviewSource,
 } from "@shared/preview";
-import type { SeatOffboardCloser } from "../core/seat-sessions/offboard-close";
-import type { SeatSessions } from "../core/seat-sessions/start-seat-sessions";
 import { registerTerminalIpc } from "./term/ipc";
 import { registerSeatAwarenessIpc } from "./term/seat-awareness-ipc";
 import { registerSeatCacheDueIpc } from "./term/seat-cache-due-ipc";
@@ -86,11 +84,6 @@ import {
   mainAuthoringGate,
   type MainAuthoringLabel,
 } from "../node/main-authoring-gate";
-
-/** Closes a seat's session once its agent offboarded and went idle. */
-let offboardCloser: SeatOffboardCloser | undefined;
-/** This machine's seat sessions: recorder, capture, drain, closer, operator offboard. */
-let seatSessions: SeatSessions | undefined;
 
 const broadcast = (channel: string, payload: unknown) => {
   for (const window of BrowserWindow.getAllWindows()) {
