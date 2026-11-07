@@ -26,9 +26,8 @@ ops! {
 
 #[cfg(test)]
 mod contract {
-    // references.list joins when the harness reads a closed object through allOf:
-    // its schema takes no key, which an empty Schema.Struct cannot publish alone.
     crate::contract::parity! {
+        list: super::ListArgs => "references.list",
         read: super::ReadArgs => "references.read",
     }
 }

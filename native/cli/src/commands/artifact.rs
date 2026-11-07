@@ -224,7 +224,8 @@ mod contract {
         edit: super::EditArgs => "artifact.edit",
         label: super::LabelArgs => "artifact.label",
         colour: super::ColourArgs => "artifact.colour",
-        comment: super::CommentArgs => "artifact.comment",
+        // An anchor is taken as given and checked in main, against the artifact's type.
+        comment: super::CommentArgs => "artifact.comment" as given ["anchor"],
         archive: super::One<super::Archive> => "artifact.archive",
         restore: super::One<super::Restore> => "artifact.restore",
     }
