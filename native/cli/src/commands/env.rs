@@ -4,7 +4,7 @@
 use std::process::ExitCode;
 
 use clap::{Args, Subcommand};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{Run, Timeout};
@@ -12,7 +12,8 @@ use crate::envelope::{self, Answer, Reply};
 use crate::error::{ErrorType, Failure};
 use crate::{ops, wire};
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReportArgs {}
 
 ops! {

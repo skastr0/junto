@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use clap::Args;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{Run, Timeout};
 use crate::duration::parse_wait_for;
@@ -15,8 +15,8 @@ use crate::{ops, wire};
 
 /// MachineLogQuery (src/shared/machine-log.ts). The runtime decodes it again
 /// and refuses a filter out of range.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Query {
     #[serde(skip_serializing_if = "Option::is_none")]
     since: Option<i64>,
@@ -36,6 +36,13 @@ pub struct Query {
 
 ops! {
     Query => "logs.read",
+}
+
+#[cfg(test)]
+mod contract {
+    crate::contract::parity! {
+        read: super::Query => "logs.read",
+    }
 }
 
 /// The filters as a person types them (logsFilterFlags).

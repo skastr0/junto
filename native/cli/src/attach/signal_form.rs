@@ -16,9 +16,9 @@ const MAX_MIN_WORDS: i64 = 100_000;
 
 /// SignalFormRequest: what a signal asks the operator to produce.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
+#[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 pub enum Form {
-    Text,
+    Text {},
     Artifact {
         node: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -46,7 +46,7 @@ pub enum Form {
     Secret {
         name: String,
     },
-    Proof,
+    Proof {},
 }
 
 /// The form flags blocked and escalate take.
@@ -193,7 +193,7 @@ pub fn plan_flags(kind: Kind, flags: &FormFlags) -> Result<Option<Form>> {
             }
             Ok(Some(Form::Secret { name: name.into() }))
         }
-        (_, None, None) => Ok(Some(Form::Proof)),
+        (_, None, None) => Ok(Some(Form::Proof {})),
         (_, None, Some(node)) => {
             let node = node.trim();
             if node.is_empty() {
@@ -230,7 +230,7 @@ pub fn plan_flags(kind: Kind, flags: &FormFlags) -> Result<Option<Form>> {
 /// foldFormInput: a form from the JSON input, its labels folded as the flags fold them.
 pub fn fold_input(kind: Kind, form: Form) -> Result<Form> {
     match form {
-        Form::Text => Ok(Form::Text),
+        Form::Text {} => Ok(Form::Text {}),
         _ if !kind.takes_form() => Err(no_form(kind, "form")),
         Form::Artifact {
             node,
@@ -280,7 +280,7 @@ mod tests {
         );
         assert_eq!(
             plan_flags(Kind::Escalate, &flags(|f| f.ask_proof = true)).unwrap(),
-            Some(Form::Proof)
+            Some(Form::Proof {})
         );
         let artifact = flags(|f| {
             f.ask_artifact = Some("Docs".into());
@@ -371,7 +371,10 @@ mod tests {
             serde_json::to_string(&fold_input(Kind::Blocked, form).unwrap()).unwrap(),
             r#"{"kind":"artifact","node":"D","labels":["a","z"],"minWords":2}"#
         );
-        assert!(fold_input(Kind::Feedback, Form::Proof).is_err());
-        assert_eq!(fold_input(Kind::Feedback, Form::Text).unwrap(), Form::Text);
+        assert!(fold_input(Kind::Feedback, Form::Proof {}).is_err());
+        assert_eq!(
+            fold_input(Kind::Feedback, Form::Text {}).unwrap(),
+            Form::Text {}
+        );
     }
 }

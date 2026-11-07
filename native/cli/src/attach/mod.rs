@@ -23,7 +23,7 @@ use crate::wire::Timeout;
 pub use content_stage::StagedRef;
 
 /// SeatRaiseKind: what a seat raises. Feedback asks for review, nothing more.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
     Escalate,

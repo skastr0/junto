@@ -25,15 +25,18 @@ pub struct PingArgs {}
 #[derive(Serialize)]
 pub struct DoctorArgs {}
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CapabilitiesArgs {}
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OnboardArgs {}
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SinceArgs {
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     all: bool,
 }
 
@@ -44,6 +47,15 @@ pub struct OffboardArgs {
     notes: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     continuation: Option<String>,
+}
+
+#[cfg(test)]
+mod contract {
+    crate::contract::parity! {
+        onboard: super::OnboardArgs => "onboard",
+        since: super::SinceArgs => "since",
+        offboard: super::OffboardArgs => "offboard",
+    }
 }
 
 ops! {

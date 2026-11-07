@@ -70,21 +70,29 @@ struct CliInput {
 }
 
 /// SignalRaiseArgs, in the order the TypeScript CLI builds it.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RaiseArgs {
     kind: Kind,
     text: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     detail: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     attach: Vec<Attachment>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     suggest: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     form: Option<Form>,
 }
 
 ops! { RaiseArgs => "signal.raise" }
+
+#[cfg(test)]
+mod contract {
+    crate::contract::parity! {
+        raise: super::RaiseArgs => "signal.raise",
+    }
+}
 
 /// Everything a raise was given on its command line.
 pub struct Raise<'a> {

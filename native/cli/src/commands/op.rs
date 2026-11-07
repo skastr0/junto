@@ -5,7 +5,7 @@
 use std::process::ExitCode;
 
 use clap::{Args, Subcommand, ValueEnum};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::{Run, Timeout};
@@ -14,21 +14,22 @@ use crate::error::{ErrorType, Failure, Result};
 use crate::ops;
 use crate::wire::{self, OpId};
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ShowArgs {
     op_id: OpId,
 }
 
 /// OpListState: the queued writes, or the refused ones.
-#[derive(Serialize, Clone, Copy, ValueEnum)]
+#[derive(Serialize, Deserialize, Clone, Copy, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 enum State {
     Queued,
     Refused,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ListArgs {
     #[serde(skip_serializing_if = "Option::is_none")]
     state: Option<State>,
@@ -41,6 +42,14 @@ pub struct ListArgs {
 ops! {
     ShowArgs => "op.show",
     ListArgs => "op.list",
+}
+
+#[cfg(test)]
+mod contract {
+    crate::contract::parity! {
+        show: super::ShowArgs => "op.show",
+        list: super::ListArgs => "op.list",
+    }
 }
 
 /// What became of this seat's resource writes, by opId.

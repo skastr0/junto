@@ -644,31 +644,29 @@ pub fn language_file_name(language: &str, stem: &str) -> String {
     }
 }
 
-/// AgentSignalAttachmentInput: one attachment as the signal names it.
-#[derive(Debug, Serialize)]
-#[serde(untagged)]
+/// AgentSignalAttachmentInput: one attachment as the signal names it. It
+/// goes on the wire as `AttachmentWire`, which writes each kind's fields and
+/// its caption at one level.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(into = "AttachmentWire", from = "AttachmentWire")]
 pub enum Attachment {
     File {
-        #[serde(rename = "ref")]
         reference: Identity,
-        #[serde(skip_serializing_if = "Option::is_none")]
         caption: Option<String>,
     },
     Named {
-        #[serde(flatten)]
         kind: Named,
-        #[serde(skip_serializing_if = "Option::is_none")]
         caption: Option<String>,
     },
 }
 
-#[derive(Debug, Serialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
+/// What a named attachment points at: no bytes, only an identity or an address.
+#[derive(Debug, Clone)]
 pub enum Named {
     Compare {
         before: Identity,
         after: Identity,
-        name: String,
+        name: Option<String>,
     },
     Commit {
         sha: String,
@@ -677,13 +675,152 @@ pub enum Named {
         url: String,
     },
     Task {
+        reference: String,
+    },
+    Artifact {
+        reference: String,
+    },
+}
+
+/// ContentIdentity as an attachment names it.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct IdentityWire {
+    sha256: String,
+    byte_length: u64,
+}
+
+impl From<Identity> for IdentityWire {
+    fn from(identity: Identity) -> Self {
+        IdentityWire {
+            sha256: identity.sha256,
+            byte_length: identity.byte_length,
+        }
+    }
+}
+
+impl From<IdentityWire> for Identity {
+    fn from(wire: IdentityWire) -> Self {
+        Identity {
+            sha256: wire.sha256,
+            byte_length: wire.byte_length,
+        }
+    }
+}
+
+/// AgentSignalAttachmentInput's branches, each closed: a file by its
+/// identity, or one kind with its own fields and the caption beside them.
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum AttachmentWire {
+    File(FileWire),
+    Named(NamedWire),
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FileWire {
+    #[serde(rename = "ref")]
+    reference: IdentityWire,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    caption: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
+enum NamedWire {
+    Compare {
+        before: IdentityWire,
+        after: IdentityWire,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        caption: Option<String>,
+    },
+    Commit {
+        sha: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        caption: Option<String>,
+    },
+    Link {
+        url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        caption: Option<String>,
+    },
+    Task {
         #[serde(rename = "ref")]
         reference: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        caption: Option<String>,
     },
     Artifact {
         #[serde(rename = "ref")]
         reference: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        caption: Option<String>,
     },
+}
+
+impl From<Attachment> for AttachmentWire {
+    fn from(attachment: Attachment) -> Self {
+        match attachment {
+            Attachment::File { reference, caption } => AttachmentWire::File(FileWire {
+                reference: reference.into(),
+                caption,
+            }),
+            Attachment::Named { kind, caption } => AttachmentWire::Named(match kind {
+                Named::Compare {
+                    before,
+                    after,
+                    name,
+                } => NamedWire::Compare {
+                    before: before.into(),
+                    after: after.into(),
+                    name,
+                    caption,
+                },
+                Named::Commit { sha } => NamedWire::Commit { sha, caption },
+                Named::Link { url } => NamedWire::Link { url, caption },
+                Named::Task { reference } => NamedWire::Task { reference, caption },
+                Named::Artifact { reference } => NamedWire::Artifact { reference, caption },
+            }),
+        }
+    }
+}
+
+impl From<AttachmentWire> for Attachment {
+    fn from(wire: AttachmentWire) -> Self {
+        match wire {
+            AttachmentWire::File(file) => Attachment::File {
+                reference: file.reference.into(),
+                caption: file.caption,
+            },
+            AttachmentWire::Named(named) => {
+                let (kind, caption) = match named {
+                    NamedWire::Compare {
+                        before,
+                        after,
+                        name,
+                        caption,
+                    } => (
+                        Named::Compare {
+                            before: before.into(),
+                            after: after.into(),
+                            name,
+                        },
+                        caption,
+                    ),
+                    NamedWire::Commit { sha, caption } => (Named::Commit { sha }, caption),
+                    NamedWire::Link { url, caption } => (Named::Link { url }, caption),
+                    NamedWire::Task { reference, caption } => (Named::Task { reference }, caption),
+                    NamedWire::Artifact { reference, caption } => {
+                        (Named::Artifact { reference }, caption)
+                    }
+                };
+                Attachment::Named { kind, caption }
+            }
+        }
+    }
 }
 
 /// What is ready to go up: a file on disk, or text held here.
@@ -881,7 +1018,7 @@ pub fn stage(
                     let kind = Named::Compare {
                         before: upload(&before, timeout)?,
                         after: upload(&after, timeout)?,
-                        name,
+                        name: Some(name),
                     };
                     Attachment::Named { kind, caption }
                 }
@@ -1102,7 +1239,7 @@ mod tests {
                 kind: Named::Compare {
                     before: id(),
                     after: id(),
-                    name: "n.ts".into(),
+                    name: Some("n.ts".into()),
                 },
                 caption: None,
             },

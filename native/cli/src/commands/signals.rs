@@ -5,7 +5,7 @@
 use std::process::ExitCode;
 
 use clap::{Args, Subcommand};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{Run, Timeout};
 use crate::attach::signal_input::{self, Raise};
@@ -93,14 +93,15 @@ impl Run for Feedback {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ListArgs {
     #[serde(skip_serializing_if = "Option::is_none")]
     since: Option<String>,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ClearArgs {
     #[serde(skip_serializing_if = "Option::is_none")]
     signal_id: Option<String>,
@@ -109,6 +110,14 @@ pub struct ClearArgs {
 ops! {
     ListArgs => "signal.list",
     ClearArgs => "signal.clear",
+}
+
+#[cfg(test)]
+mod contract {
+    crate::contract::parity! {
+        list: super::ListArgs => "signal.list",
+        clear: super::ClearArgs => "signal.clear",
+    }
 }
 
 /// Read or withdraw this seat's agent signals
