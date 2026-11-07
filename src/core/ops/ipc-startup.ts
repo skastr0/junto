@@ -15,7 +15,6 @@ import { publish } from "../push";
 import type { Canvas } from "@shared/model";
 import type { UsageState } from "@shared/usage";
 import { USAGE_ENABLED } from "@shared/features";
-import { redactProvidersForIpc, type Settings } from "@shared/settings";
 import { coreRunner } from "../core-runner";
 import { MachineCoreMail } from "../core-runtime";
 import { ModelActorRefs } from "../model/actor-refs";
@@ -42,7 +41,6 @@ import { ClipboardUnreadable, clipboardSafeAssert } from "../term/drive/clipboar
 declare module "../ops" {
   interface CoreOps {
     "ipc.startup.core": CoreOp<Record<string, never>, void>;
-    "ipc.settings.current": CoreOp<Record<string, never>, Settings>;
   }
 }
 
@@ -161,6 +159,4 @@ coreOps({
       // First usage fetch is fire-and-forget off the boot critical path.
       if (USAGE_ENABLED) usage.start();
     }),
-  // The settings as they stand, provider secrets masked, for main's own readers.
-  "ipc.settings.current": () => Effect.flatMap(SettingsService, (settings) => Effect.map(settings.get, redactProvidersForIpc)),
 });
