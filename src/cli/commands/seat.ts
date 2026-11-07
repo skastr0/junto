@@ -24,7 +24,8 @@ import type { WorkOpName } from "../../shared/work-control";
 import { parseWaitFor } from "../core/duration";
 import { InputError } from "../core/errors";
 import { executeJsonCommand } from "../core/output";
-import { WorkSocket } from "../core/socket";
+import { SeatRead, SeatWait } from "../../contract/work/seat";
+import { WorkSocket, callWorkRpc } from "../core/socket";
 
 const toUndefined = <A>(value: Option.Option<A>) =>
   Option.isSome(value) ? value.value : undefined;
@@ -375,7 +376,7 @@ const seatWaitCommand = Command.make(
           after: toUndefined(after),
         });
         if (!lowered.ok) return yield* Effect.fail(lowered.error);
-        return yield* callDomain("seat.wait", lowered.args, lowered.socketTimeoutMs);
+        return yield* callWorkRpc(SeatWait, lowered.args, lowered.socketTimeoutMs);
       }),
     ),
 ).pipe(
@@ -442,7 +443,7 @@ const seatReadCommand = Command.make(
           maxSeconds: toUndefined(maxSeconds),
         });
         if (!lowered.ok) return yield* Effect.fail(lowered.error);
-        return yield* callDomain("seat.read", lowered.args, lowered.socketTimeoutMs);
+        return yield* callWorkRpc(SeatRead, lowered.args, lowered.socketTimeoutMs);
       }),
     ),
 ).pipe(

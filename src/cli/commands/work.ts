@@ -3,7 +3,6 @@ import { Effect, Option, Schema } from "effect";
 import {
   type MsgPromptArgs,
   type MsgSendArgs,
-  PreambleArgs,
   RulingsArgs,
   type WorkOpName,
 } from "../../shared/work-control";
@@ -15,6 +14,7 @@ import { DEFAULT_TIMEOUT_MS } from "../core/constants";
 import { loadJsonInput } from "../core/json";
 import { executeJsonCommand } from "../core/output";
 import { MsgList, MsgPrompt, MsgReact, MsgRead, MsgReply, MsgSend, MsgSent } from "../../contract/work/msg";
+import { Preamble } from "../../contract/work/seat";
 import { WorkSocket, callWorkRpc } from "../core/socket";
 
 const toUndefined = <A>(value: Option.Option<A>) =>
@@ -108,8 +108,8 @@ export const preambleCommand = Command.make(
     executeJsonCommand(
       "preamble",
       Effect.gen(function* () {
-        const item = yield* loadJsonInput(PreambleArgs, input);
-        return yield* callDomain("preamble", item, toUndefined(timeout));
+        const item = yield* loadJsonInput(Preamble.payloadSchema, input);
+        return yield* callWorkRpc(Preamble, item, toUndefined(timeout));
       }),
     ),
 ).pipe(
