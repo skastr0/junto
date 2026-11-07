@@ -346,9 +346,9 @@ export const callWorkRpc = <R extends WorkRpc>(
   const answer = Schema.toCodecJson(rpc.successSchema) as unknown as Schema.Codec<Rpc.Success<R>, unknown>;
   return Effect.gen(function* () {
     const socket = yield* WorkSocket;
-    const encoded = yield* Schema.encodeEffect(payload)(args).pipe(
-      Effect.mapError((issue) => new WireError({ type: "InputError", message: issue.message })),
-    );
+    // Arguments the contract refuses go to the core as given, so the core
+    // refuses them in v1's words, as it does when the native CLI sends them.
+    const encoded = yield* Schema.encodeEffect(payload)(args).pipe(Effect.orElseSucceed((): unknown => args));
     const data = yield* socket.call(rpc._tag, encoded, timeoutMs);
     return yield* Schema.decodeUnknownEffect(answer)(data).pipe(
       Effect.mapError(
