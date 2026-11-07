@@ -25,10 +25,10 @@
 import type { AgentSignal } from "./agent-signals";
 import {
   COMPANION_IDLE_CLOSE_MS,
-  COMPANION_PROTOCOL,
   companionConnectionErrorLine,
   companionEvent,
   companionFail,
+  companionRequest,
   decodeCompanionRequestLine,
   encodeCompanionFrame,
   COMPANION_MAIL_MAX_LIMIT,
@@ -39,7 +39,10 @@ import {
   type CompanionMachine,
   type CompanionMail,
   type CompanionSeatDetail,
+  type CompanionArgsByOp,
+  type CompanionOpName,
   type CompanionRequestFrame,
+  type CompanionRequestOf,
   type CompanionResponseFrame,
   type CompanionSeat,
   type CompanionThreadSummary,
@@ -176,8 +179,9 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
   let eventLoop: Promise<void> | undefined;
   let internalId = 0;
   const seatRef = (canvasName: string, nodeId: string): string => `${canvasName}\u0000${nodeId}`;
-  const internal = <Op extends CompanionRequestFrame["op"]>(op: Op, args: object): CompanionRequestFrame =>
-    ({ v: COMPANION_PROTOCOL, type: "request", id: `_event.${(internalId += 1)}`, op, args }) as CompanionRequestFrame;
+  /** This session's own request: its args are that op's, or the compile fails. */
+  const internal = <Op extends CompanionOpName>(op: Op, args: CompanionArgsByOp[Op]): CompanionRequestOf<Op> =>
+    companionRequest(`_event.${(internalId += 1)}`, op, args);
   const emit = <E extends Parameters<typeof companionEvent>[0]>(event: E, data: Parameters<typeof companionEvent<E>>[1]): void =>
     write(encodeCompanionFrame(companionEvent(event, data)));
 

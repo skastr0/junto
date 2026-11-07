@@ -48,7 +48,6 @@ import {
   companionError,
   companionFail,
   companionPairingUrl,
-  type CompanionRequestFrame,
 } from "@shared/companion-protocol";
 import { COMPANION_ARTIFACT_WRITE_LIMIT } from "@shared/wire/companion-artifact-writes";
 import {
@@ -386,8 +385,8 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
       });
     }
     if (request.op === "companion.call") {
-      // Decoded by the operator request schema; the discriminated view is the same value.
-      const frame = request.args.request as CompanionRequestFrame;
+      // Decoded closed by the operator request schema, one member per op.
+      const frame = request.args.request;
       const device = await admit(request.args.deviceId);
       if (!device) return success(request, { response: companionFail(frame.id, revoked) });
       touch(device);

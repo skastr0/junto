@@ -955,16 +955,35 @@ const requestFrame = <Op extends CompanionOpName>(op: Op) =>
     args: CompanionArgs[op],
   });
 
-export const CompanionRequestFrame = Schema.Union(COMPANION_OPS.map(requestFrame));
-export type CompanionRequestFrame = {
-  readonly [Op in CompanionOpName]: {
-    readonly v: typeof COMPANION_PROTOCOL;
-    readonly type: "request";
-    readonly id: string;
-    readonly op: Op;
-    readonly args: CompanionArgsByOp[Op];
-  };
-}[CompanionOpName];
+/**
+ * One op's request frame: `args` is that op's, by its schema. For each op it
+ * is the member of `CompanionRequestFrame` the schema decodes
+ * (tests/companion-request-args.test.ts holds the two equal).
+ */
+export type CompanionRequestOf<Op extends CompanionOpName> = {
+  readonly v: typeof COMPANION_PROTOCOL;
+  readonly type: "request";
+  readonly id: string;
+  readonly op: Op;
+  readonly args: CompanionArgsByOp[Op];
+};
+
+/**
+ * Every op's frame. `map` cannot say that each member pairs its op with that
+ * op's args, so the array is named as the per-op members it is; the frame's
+ * type is then this schema's own, one member per op.
+ */
+export const CompanionRequestFrame = Schema.Union(
+  COMPANION_OPS.map(requestFrame) as ReadonlyArray<{ readonly [Op in CompanionOpName]: ReturnType<typeof requestFrame<Op>> }[CompanionOpName]>,
+);
+export type CompanionRequestFrame = typeof CompanionRequestFrame.Type;
+
+/** A request frame for `op`, its args held to that op's schema by the compiler. */
+export const companionRequest = <Op extends CompanionOpName>(
+  id: string,
+  op: Op,
+  args: CompanionArgsByOp[Op],
+): CompanionRequestOf<Op> => ({ v: COMPANION_PROTOCOL, type: "request", id, op, args });
 
 const responseOk = <Op extends CompanionOpName>(op: Op) =>
   Schema.Struct({
@@ -1195,7 +1214,7 @@ export const decodeCompanionRequestLine = (
     // Never echo the parse issue: it can quote the submitted text.
     return Result.fail({ id, error: companionError("invalid", "The arguments were not valid."), close: false });
   }
-  return Result.succeed(frame.success as CompanionRequestFrame);
+  return Result.succeed(frame.success);
 };
 
 /**
