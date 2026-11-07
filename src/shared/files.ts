@@ -245,20 +245,23 @@ export const decodeFilesName = Schema.decodeUnknownResult(Schema.String, { onExc
  * file a window read: the open file and its draft follow them. The link
  * does not carry them, so a remote window sees the old path go.
  */
-export type FilesChanged =
-  | {
-      readonly node: NodeId;
-      readonly kind: "paths";
-      readonly paths: ReadonlyArray<FilePath>;
-      readonly moves?: ReadonlyArray<{ readonly from: FilePath; readonly to: FilePath }>;
-    }
-  | { readonly node: NodeId; readonly kind: "reset" }
+export const FilesChanged = Schema.Union([
+  Schema.Struct({
+    node: NodeId,
+    kind: Schema.Literal("paths"),
+    paths: Schema.Array(FilePath),
+    moves: Schema.optionalKey(Schema.Array(Schema.Struct({ from: FilePath, to: FilePath }))),
+  }),
+  Schema.Struct({ node: NodeId, kind: Schema.Literal("reset") }),
   /** The root folder is gone from disk; calls refuse `root-missing`, the node stays open. */
-  | { readonly node: NodeId; readonly kind: "missing" }
+  Schema.Struct({ node: NodeId, kind: Schema.Literal("missing") }),
   /** The root folder is back: list again (as after `reset`). */
-  | { readonly node: NodeId; readonly kind: "back" }
+  Schema.Struct({ node: NodeId, kind: Schema.Literal("back") }),
   /** The node is no longer served here (its watch failed, or it moved); calls now refuse. */
-  | ({ readonly node: NodeId; readonly kind: "closed" } & FilesRefusal);
+  Schema.Struct({ node: NodeId, kind: Schema.Literal("closed"), ...FilesRefusal.members[0].fields }),
+  Schema.Struct({ node: NodeId, kind: Schema.Literal("closed"), ...FilesRefusal.members[1].fields }),
+]);
+export type FilesChanged = typeof FilesChanged.Type;
 
 export interface JuntoFilesApi {
   readonly files: {

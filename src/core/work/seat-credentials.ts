@@ -24,6 +24,7 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import type { ProcessPrincipal } from "../process-identity";
+import type { SeatCredentialEvent } from "@shared/seat-credential-event";
 import { SEAT_CREDENTIAL_PREFIX, isSeatCredentialShape } from "@shared/work-control";
 
 export { SEAT_CREDENTIAL_PREFIX, isSeatCredentialShape };
@@ -70,17 +71,8 @@ export type SeatCredentialLookup =
     }
   | { readonly status: "unknown" };
 
-export type SeatCredentialEvent =
-  | {
-      readonly type: "published";
-      readonly principal: ProcessPrincipal;
-      readonly generationId: string;
-    }
-  | {
-      readonly type: "revoked";
-      readonly principal: ProcessPrincipal;
-      readonly generationId: string;
-    };
+/** Published or revoked, with the principal and generation (shared/seat-credential-event.ts, its Schema). */
+export type { SeatCredentialEvent };
 
 export interface SeatCredentialRegistryOptions {
   readonly now?: () => number;

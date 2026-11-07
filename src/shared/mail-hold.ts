@@ -12,8 +12,15 @@
  *   stopped      the seat hit a usage limit or an error that stops it
  *   unsupported  the seat's harness has no way to take mail in its state
  */
+import { Schema } from "effect";
 import type { ComposerHold } from "./composer-availability";
 
 export type SeatMailHold = "busy" | "stopped" | "unsupported";
 
-export type MailHold = ComposerHold | SeatMailHold;
+/** Every hold, on the wire as in the model. */
+export const MailHold = Schema.Literals(["draft", "dialog", "unreadable", "busy", "stopped", "unsupported"]);
+export type MailHold = typeof MailHold.Type;
+
+// The Schema names exactly the composer's holds and the seat's.
+const sameHolds: [MailHold] extends [ComposerHold | SeatMailHold] ? ([ComposerHold | SeatMailHold] extends [MailHold] ? true : false) : false = true;
+void sameHolds;

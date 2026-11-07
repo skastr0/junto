@@ -13,6 +13,7 @@ import { SeatCacheDueHandlers } from "../src/core/ops/seat-cache-due";
 import { subscribe } from "../src/app/core-process/main-side/core-pushes";
 import { seatStateRuntime } from "../src/core/term/agent-state";
 import { setOperatorOffboard } from "../src/core/seat-sessions/operator-offboard";
+import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -31,7 +32,8 @@ describe("the window hears the core's seats", () => {
     const heard: unknown[] = [];
     const stopHearing = subscribe(TERM_SEAT_STATE, (payload) => heard.push(payload));
     const unbind = bindTermIpcPlane(plane as never);
-    const event = { bindingId: "seat", state: "working" };
+    // A whole event: main decodes each push with its Schema, and refuses a partial one.
+    const event: AgentSeatStateEvent = { bindingId: "seat", epoch: "e1", state: "working", reason: "typing", confidence: "high", at: 1 };
     emit(event as never);
     expect(heard).toEqual([event]);
     unbind();

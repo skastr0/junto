@@ -1,19 +1,21 @@
-import type { CanvasName, Frame, NodeId } from "./base";
-import type { Changed, Opened, Seq } from "./events";
-import type { Node, NodeKind, NodeOf } from "./kinds";
+import { Schema } from "effect";
+import { CanvasName, NodeId, type Frame } from "./base";
+import { Seq, type Changed, type Opened } from "./events";
+import { Node, type NodeKind, type NodeOf } from "./kinds";
 import type { Region } from "./region";
-import type { Wire, WireId } from "./wire";
+import { Wire, WireId } from "./wire";
 
 // One canvas held in memory: its nodes and wires by id. This is what shared
 // logic reads when it needs to know what is on a canvas and how it is joined.
 // It holds no work: mail, tasks and the rest are asked for by node id.
 
-export type Canvas = {
-  readonly name: CanvasName;
-  readonly seq: Seq;
-  readonly nodes: ReadonlyMap<NodeId, Node>;
-  readonly wires: ReadonlyMap<WireId, Wire>;
-};
+export const CanvasSchema = Schema.Struct({
+  name: CanvasName,
+  seq: Seq,
+  nodes: Schema.ReadonlyMap(NodeId, Node),
+  wires: Schema.ReadonlyMap(WireId, Wire),
+});
+export type Canvas = typeof CanvasSchema.Type;
 
 export const canvasFromOpened = (opened: Opened): Canvas => ({
   name: opened.canvas,

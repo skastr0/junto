@@ -558,7 +558,8 @@ export type SeatThreadMarkRead = typeof SeatThreadMarkRead.Encoded;
 export type SeatThreadMarkReadDecoded = typeof SeatThreadMarkRead.Type;
 
 /** A read point moved: the thread, and every seat it is a thread of, so each seat's count is read again. */
-export type MailReadChanged = { readonly canvasName: string; readonly threadId: string; readonly seats: ReadonlyArray<string> };
+export const MailReadChanged = Schema.Struct({ canvasName: Schema.String, threadId: Schema.String, seats: Schema.Array(Schema.String) });
+export type MailReadChanged = typeof MailReadChanged.Type;
 
 // ---- The renderer's input, decoded at main's edge ----
 

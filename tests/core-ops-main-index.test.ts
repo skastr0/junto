@@ -1,15 +1,16 @@
-import { Layer, ManagedRuntime } from "effect";
 import { describe, expect, it } from "vitest";
-import type { CoreRunner } from "./support/in-process-core";
 import { publishWindowBroadcasts } from "../src/core/ops/main-index";
 import { relayWindowPushes } from "../src/app/core-process/main-side/window-pushes";
 import { AGENT_SIGNAL_CHANGED, WORK_PREAMBLE } from "../src/contract/core/channels";
 import { MessageChannel, type MessagePort } from "node:worker_threads";
-import { portCore, type CorePort } from "../src/contract/core/port";
-import { runHostOp } from "../src/app/core-process/main-side/host-op-bodies";
+import { portPushes, type CorePort } from "../src/contract/core/port";
 import { serveCore } from "../src/core/serve";
 import { emitAgentSignalChanged } from "../src/core/signals/changes";
 import { subscribe } from "../src/app/core-process/main-side/core-pushes";
+import type { AgentSignal } from "../src/shared/agent-signals";
+
+/** A whole signal: main decodes each push with its Schema, and refuses a partial one. */
+const signal: AgentSignal = { signalId: "s1", canvasName: "factory", nodeId: "seat", kind: "blocked", text: "needs a hand", createdAt: 1, state: "open" };
 
 // The window's broadcasts from a core in its own process reach main through
 // the push bus rather than a callback. What index.ts asks the core on a
@@ -21,7 +22,6 @@ describe("index.ts core broadcasts", () => {
     const broadcasts = publishWindowBroadcasts();
     try {
       const preamble = { preambleId: "p1", canvasName: "factory", nodeId: "seat", text: "hello", expiresAt: 1 };
-      const signal = { canvasName: "factory", nodeId: "seat", kind: "blocked" } as never;
       broadcasts.onPreamble(preamble);
       emitAgentSignalChanged(signal);
       broadcasts.stop();
@@ -42,14 +42,12 @@ describe("index.ts core broadcasts", () => {
       },
     });
     const { port1, port2 } = new MessageChannel();
-    const runtime = ManagedRuntime.make(Layer.empty);
-    const served = serveCore(portOf(port2), runtime as unknown as CoreRunner);
-    const stopRelay = relayWindowPushes(portCore(portOf(port1), runHostOp));
+    const served = serveCore(portOf(port2));
+    const stopRelay = relayWindowPushes(portPushes(portOf(port1)));
     const seen: Array<[string, unknown]> = [];
     const offs = ([WORK_PREAMBLE, AGENT_SIGNAL_CHANGED] as const).map((channel) => subscribe(channel, (payload) => seen.push([channel, payload])));
     try {
       const preamble = { preambleId: "p1", canvasName: "factory", nodeId: "seat", text: "hello", expiresAt: 1 };
-      const signal = { signalId: "s1", canvasName: "factory", nodeId: "seat" };
       served.push(WORK_PREAMBLE, preamble);
       served.push(AGENT_SIGNAL_CHANGED, signal);
       await new Promise<void>((resolve) => {
@@ -61,7 +59,6 @@ describe("index.ts core broadcasts", () => {
       for (const off of offs) off();
       stopRelay();
       port1.close();
-      await runtime.dispose();
     }
   });
 });

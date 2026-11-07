@@ -1,4 +1,5 @@
 import { readProcessStartKey, readProcessStartKeyAsync } from "../node/process-identity-facts";
+import type { ProcessPrincipal } from "@shared/seat-credential-event";
 
 // Main's record of the processes it started for seats and terminals.
 //
@@ -10,19 +11,11 @@ import { readProcessStartKey, readProcessStartKeyAsync } from "../node/process-i
 // control socket observes the connecting process or walks its ancestry.
 
 /**
- * One principal. There is one actor kind, so there is one principal shape —
- * no discriminant, and every anchor optional but at least one required by
- * `bind`. (Was three kinds x three optional ids; see the consolidation plan D7.)
+ * One principal (shared/seat-credential-event.ts, its Schema): every anchor
+ * optional but at least one required by `bind`. (Was three kinds x three
+ * optional ids; see the consolidation plan D7.)
  */
-export interface ProcessPrincipal {
-  /** Agent key (`local:profile`) of the seat this process belongs to. */
-  readonly agentKey?: string;
-  /** Stable managed-terminal binding for the seat. */
-  readonly bindingId?: string;
-  /** Optional canvas anchor when known at bind time. */
-  readonly canvasName?: string;
-  readonly nodeId?: string;
-}
+export type { ProcessPrincipal };
 
 interface BoundRecord {
   readonly principal: ProcessPrincipal;

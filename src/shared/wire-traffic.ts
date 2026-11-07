@@ -10,44 +10,47 @@
  * state; the mailbox receipt stays the delivery record.
  */
 
+import { Schema } from "effect";
 import type { Message } from "./work-model";
-import type { MailHold } from "./mail-hold";
+import { MailHold } from "./mail-hold";
 import { readMailExtension } from "./crew";
 import { operatorActorRef } from "./work-reference";
 
 /** What kind of interaction crossed the wire. */
-export type WireTrafficKind = "notice" | "prompt" | "answer";
+export const WireTrafficKind = Schema.Literals(["notice", "prompt", "answer"]);
+export type WireTrafficKind = typeof WireTrafficKind.Type;
 
-export type WireTrafficEvent = {
-  readonly canvasName: string;
+export const WireTrafficEvent = Schema.Struct({
+  canvasName: Schema.String,
   /** The receiving seat's node. */
-  readonly toNodeId: string;
+  toNodeId: Schema.String,
   /** The sending seat's node; absent for operator and system mail. */
-  readonly fromNodeId?: string;
+  fromNodeId: Schema.optionalKey(Schema.String),
   /** The sender's display name, when the mail carries one. */
-  readonly fromName?: string;
-  readonly kind: WireTrafficKind;
-  readonly messageId: string;
+  fromName: Schema.optionalKey(Schema.String),
+  kind: WireTrafficKind,
+  messageId: Schema.String,
   /** First line of the body, whitespace-collapsed, bounded. */
-  readonly preview?: string;
+  preview: Schema.optionalKey(Schema.String),
   /** Epoch ms when the text reached the seat (or failed to). */
-  readonly at: number;
+  at: Schema.Number,
   /**
    * The write into a live seat failed: nothing crossed the wire, and the
    * message waits in the mailbox for the seat's next ready moment. Told
    * once per message; never pulsed.
    */
-  readonly failed?: true;
+  failed: Schema.optionalKey(Schema.Literal(true)),
   /**
    * The seat could not take the message, so it was not typed: it waits in
    * the mailbox. The value says why (the operator's draft, a dialog, an
    * unreadable box, or the seat's status, see `MailHold`). Told again every
    * ten minutes for a draft and every minute for the rest; never pulsed.
    */
-  readonly held?: MailHold;
+  held: Schema.optionalKey(MailHold),
   /** With `held`: epoch ms when this message first waited, whatever the reason since. */
-  readonly heldSince?: number;
-};
+  heldSince: Schema.optionalKey(Schema.Number),
+});
+export type WireTrafficEvent = typeof WireTrafficEvent.Type;
 
 export const WIRE_TRAFFIC_PREVIEW_MAX = 80;
 

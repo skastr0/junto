@@ -9,16 +9,27 @@
  * windowless core, which has no window to hear them, says so and sends them
  * nowhere. A publish before either is a boot-order bug, so it throws.
  */
-import { Context, Effect, Layer } from "effect";
-import type { CorePushChannel, CorePushOf } from "../contract/core/channels";
+import { Context, Effect, Layer, Result } from "effect";
+import { encodeCorePush, type CorePushChannel, type CorePushOf } from "../contract/core/channels";
 
-type Send = (channel: CorePushChannel, payload: unknown) => void;
+/** Where a push goes: its channel, and its payload as the channel's JSON codec encoded it. */
+type Send = (channel: CorePushChannel, encoded: unknown) => void;
 
 let send: Send | undefined;
 
+/**
+ * Encode the payload with its channel's Schema and send it. A payload its
+ * Schema cannot encode is a bug in the publisher: it is logged with its
+ * channel and goes nowhere, so a window never reads it and the core goes on.
+ */
 export const publish = <K extends CorePushChannel>(channel: K, payload: CorePushOf<K>): void => {
   if (send === undefined) throw new Error(`Junto core published ${channel} before its boot chose where pushes go`);
-  send(channel, payload);
+  const encoded = encodeCorePush(channel, payload);
+  if (Result.isFailure(encoded)) {
+    console.error(`[core-pushes] ${channel} was not sent: its payload does not match its Schema: ${encoded.failure.message}`);
+    return;
+  }
+  send(channel, encoded.success);
 };
 
 /** Core boot only: where every publish goes from now on. */
