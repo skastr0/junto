@@ -58,7 +58,7 @@ replay.
 | Region environment / secrets | `tests/overseer-env-secret.test.ts`, `tests/overseer-canvas-commands.test.ts`, `tests/overseer-dispatch.test.ts`, `tests/overseer-cli.test.ts` |
 | Native | `tests/overseer-native.test.ts` |
 | Composition | `tests/overseer-composition.test.ts`, `tests/overseer-composition-lifecycle.test.ts` |
-| Human toggle / identity | `e2e/scenarios/overseer-acceptance.spec.ts`, `e2e/scenarios/overseer-seat.spec.ts`, `tests/overseer-set.test.ts`, `tests/overseer-toggle.test.tsx`, `tests/overseer-mark.test.tsx` |
+| Human toggle / identity | `tests/overseer-set.test.ts`, `tests/overseer-toggle.test.tsx`, `tests/overseer-mark.test.tsx` |
 | Canvas edits / grant isolation | `tests/canvas-edit-commands.test.ts`, `tests/overseer-set.test.ts` |
 
 ## Wire operations (120)
@@ -171,7 +171,7 @@ replay.
 
 | action | schema | owning service | authorization | result | coverage |
 | --- | --- | --- | --- | --- | --- |
-| Grant or revoke overseer on a managed agent seat | `{_tag: "GrantOverseer", canvas, id, overseer}` | ModelService under `runMainAuthoring("ipc.model.command")` | trusted renderer only; Command Center authorial; managed executable seat; aliases share one binding; copies do not inherit; agent commands and ordinary saves cannot mint | `{seq}` | exercised: parent ran `e2e/scenarios/overseer-acceptance.spec.ts` (grant persisted, ordinary seat ungranted, viewport transform unchanged). Unit: `tests/overseer-set.test.ts`. Identity chrome: `e2e/scenarios/overseer-seat.spec.ts` (not a persistence proof). |
+| Grant or revoke overseer on a managed agent seat | `{_tag: "GrantOverseer", canvas, id, overseer}` | ModelService under `runMainAuthoring("ipc.model.command")` | trusted renderer only; Command Center authorial; managed executable seat; aliases share one binding; copies do not inherit; agent commands and ordinary saves cannot mint | `{seq}` | unit: `tests/overseer-set.test.ts`, `tests/overseer-toggle.test.tsx`. No e2e proves the human toggle now (the acceptance and identity specs were culled with the e2e cull, 5aef8a53c); `e2e/scenarios/overseer-offboard-cli.spec.ts` sets the grant through the same human seam and proves the granted overseer's commands. |
 ## Operator offboard
 
 | item | contract |
@@ -228,7 +228,7 @@ Keychain, the keyring, or the operator's home.
 | Source impersonation | The editing machine compares `deriveActorSeatId(authenticatedSourceInstallation, binding)` to compiled seatId; forged caller args ignored | `tests/overseer-admission.test.ts`; `tests/overseer-dispatch.test.ts` | unit exercised |
 | Uncertain completion, no automatic replay | timeout/disconnect reports uncertain completion and never replays mutations | `tests/work-socket-overseer.test.ts` | unit exercised |
 | Secret value echoed back | a value given to `secret.put` never appears in a result, an error, a schema failure, or CLI output | `tests/overseer-env-secret.test.ts`; `tests/overseer-dispatch.test.ts`; `tests/overseer-cli.test.ts` | unit and spawned-CLI exercised with a fake store |
-| Viewport invariance | overseer reads, writes, digest, render, screenshot never pan, zoom, focus, resize, or switch the operator view | parent-run `e2e/scenarios/overseer-acceptance.spec.ts` for human toggle; `tests/overseer-canvas-commands.test.ts` document reads; native capture still pending | Electron toggle exercised; screenshot/native capture not proven |
+| Viewport invariance | overseer reads, writes, digest, render, screenshot never pan, zoom, focus, resize, or switch the operator view | `tests/overseer-canvas-commands.test.ts` document reads; native capture still pending | Human toggle and screenshot/native capture not proven by an e2e |
 
 ## Verification limits
 

@@ -170,7 +170,6 @@ describe("overseer coverage matrix", () => {
     ]) {
       expect(matrix).toContain(risk);
     }
-    expect(matrix).toContain("e2e/scenarios/overseer-acceptance.spec.ts");
     expect(matrix).toContain("tests/overseer-canvas-commands.test.ts");
     expect(collapsed(matrix)).toContain("Full repository suite is not claimed green");
   });
