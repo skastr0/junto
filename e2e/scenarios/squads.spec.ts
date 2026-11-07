@@ -10,6 +10,7 @@ import { installModelFixture, modelFixture, modelRegion, modelSeat, modelWire } 
  * Run: `bunx electron-vite build && bun run test:e2e:fast e2e/scenarios/squads.spec.ts`
  */
 import { expect, test } from "../harness/launch";
+import { THIS_MACHINE } from "../../tests/support/machines";
 
 const shotsDir = process.env.JUNTO_SHOTS_DIR ?? "test-results/squads";
 
@@ -17,7 +18,7 @@ const nodes = [
   modelSeat({ id: "seat-a", key: "local:alpha", label: "alpha", x: 0, y: 0 }),
   modelSeat({ id: "seat-b", key: "local:beta", label: "beta", x: 420, y: 0 }),
   modelSeat({ id: "seat-c", key: "local:gamma", label: "gamma", x: 210, y: 320 }),
-  modelRegion({ id: "rg-lab", label: "lab", x: 1000, y: -40, width: 900, height: 560, defaults: { paths: { local: "/tmp" } } }),
+  modelRegion({ id: "rg-lab", label: "lab", x: 1000, y: -40, width: 900, height: 560, defaults: { paths: { [THIS_MACHINE]: "/tmp" } } }),
 ];
 const fixtureDoc = modelFixture(nodes, [modelWire("e-ab", "seat-a", "seat-b", "messages", nodes)]);
 

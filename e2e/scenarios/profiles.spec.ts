@@ -11,6 +11,7 @@ import { installModelFixture, modelFixture, modelSeat, modelRegion } from "../ha
  * Run: `bunx electron-vite build && bun run test:e2e:fast e2e/scenarios/profiles.spec.ts`
  */
 import { expect, test } from "../harness/launch";
+import { THIS_MACHINE } from "../../tests/support/machines";
 
 const shots = process.env.JUNTO_SHOTS_DIR ?? "test-results/profiles";
 
@@ -23,7 +24,7 @@ const fixture = modelFixture([
     y: -80,
     width: 760,
     height: 480,
-    defaults: { paths: { local: "/tmp" } },
+    defaults: { paths: { [THIS_MACHINE]: "/tmp" } },
   }),
 ]);
 

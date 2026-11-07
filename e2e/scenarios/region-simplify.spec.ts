@@ -14,6 +14,7 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { modelFixture, modelNote, modelRegion } from "../harness/model";
 import { expect, test } from "../harness/launch";
+import { THIS_MACHINE } from "../../tests/support/machines";
 
 const SHOTS = join(process.cwd(), "test-results", "region-simplify");
 // Only a build made with this profile can promise the rules surface is gone.
@@ -23,7 +24,7 @@ const region = modelRegion({
   id: "region-1", label: "release lane", color: "4", x: 40, y: 40, width: 720, height: 420,
   hold: true,
   instruction: "Ship the signed build to the staging fleet. Keep every change behind a flag until the operator says go.",
-  defaults: { paths: { local: "/Users/operator/Projects/junto" } },
+  defaults: { paths: { [THIS_MACHINE]: "/Users/operator/Projects/junto" } },
   contract: {
     rules: [{ id: "r-1", text: "cite the ticket in every commit" }],
     rulings: [{ id: "p-1", text: "prices stay in BRL", pinnedAt: "2026-08-01T00:00:00.000Z" }],

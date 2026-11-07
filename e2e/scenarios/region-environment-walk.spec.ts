@@ -41,6 +41,7 @@ import {
   type WorkEnvelope,
 } from "../harness/crew-fixture";
 import { expect, launchJunto, test, type JuntoHandle } from "../harness/launch";
+import { THIS_MACHINE } from "../../tests/support/machines";
 
 const CANVAS = "envwalk";
 const SESSION = "sess-envwalk-0001";
@@ -490,7 +491,7 @@ test("SI region strip keys, by eye: three labelled keys, their hover, pressed, s
   const full = modelRegion({
     ...regionNode(FULL),
     instruction: "Keep the build green and say when it is not.",
-    defaults: { paths: { local: "/tmp/junto-region-walk" } },
+    defaults: { paths: { [THIS_MACHINE]: "/tmp/junto-region-walk" } },
     environment: { sources: [plainValue("src-org", "ORG", "x")] },
   });
   const tooltip = (page: Page): Locator => page.locator(".junto-tooltip[data-positioned='true']");
