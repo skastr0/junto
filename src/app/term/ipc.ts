@@ -5,7 +5,7 @@ import { IPC_CHANNELS, type TerminalParkResult } from "@shared/ipc";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import type { LocalHostEvent } from "../../core/term/local-host";
 import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer";
-import { subscribe as subscribeCore } from "../core-process/main-side/core-pushes";
+import { CorePushesMain } from "../core-process/main-side/core-pushes";
 import { TERM_EVENT, TERM_LEASE_ENDED, TERM_SEAT_STATE } from "../../contract/core/channels";
 import { CoreLink, coreClient } from "../../contract/core/link";
 import {
@@ -123,10 +123,11 @@ export const coreTerminalSessions =
 export const registerTerminalIpc = (
   ipcMain: IpcMain,
   gate: TerminalIpcGate,
-  core: Context.Context<TermCore | TermTemplatesCore>,
+  core: Context.Context<TermCore | TermTemplatesCore | CorePushesMain>,
 ): void => {
   const term = Context.get(core, TermCore);
   const templates = Context.get(core, TermTemplatesCore);
+  const pushes = Context.get(core, CorePushesMain);
   const owners = new Map<string, LeaseOwner>();
   const controlByBinding = new Map<string, string>();
 
@@ -264,15 +265,15 @@ export const registerTerminalIpc = (
     return leaseId !== undefined && owners.get(leaseId)?.parked !== true;
   });
   // A linked seat's view the seat's machine ended: tell its window, then forget the lease.
-  subscribeCore(TERM_LEASE_ENDED, (payload) => {
+  pushes.subscribe(TERM_LEASE_ENDED, (payload) => {
     const end = payload as { readonly leaseId: string; readonly reason: string };
     if (!owners.has(end.leaseId)) return;
     leaseEnded(end.leaseId, end.reason);
     release(end.leaseId);
   });
   // A seat on another machine reports its state over the seats channel.
-  subscribeCore(TERM_SEAT_STATE, (event) => gate?.broadcast(IPC_CHANNELS.agentSeatStateChanged, event));
-  subscribeCore(TERM_EVENT, (raw) => {
+  pushes.subscribe(TERM_SEAT_STATE, (event) => gate?.broadcast(IPC_CHANNELS.agentSeatStateChanged, event));
+  pushes.subscribe(TERM_EVENT, (raw) => {
     const payload = raw as LocalHostEvent;
     if (payload.type === "seat-state") {
       gate?.broadcast(IPC_CHANNELS.agentSeatStateChanged, payload.event);

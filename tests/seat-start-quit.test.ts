@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { RpcTest } from "effect/rpc";
 import { SqlClient } from "effect/sql";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -34,7 +34,8 @@ import { registerTerminalIpc } from "../src/app/term/ipc";
 import { TermCore, TermRpcs } from "../src/contract/core/term-ipc";
 import { TermTemplatesCore, TermTemplatesRpcs } from "../src/contract/core/term-templates";
 import { bindTermIpcPlane, TermIpcPlane, TermPlaneHandlers } from "../src/core/ops/term-ipc";
-import { inProcessPushesShape } from "./support/in-process-pushes";
+import { inProcessBus } from "./support/in-process-pushes";
+import { CorePushesMain } from "../src/app/core-process/main-side/core-pushes";
 import { TermTemplatesHandlers } from "../src/core/ops/term-templates";
 import { writeSeatSessionId } from "../src/core/term/seat-session-id";
 
@@ -108,10 +109,12 @@ const fixture = async () => {
   await command({ _tag: "Add", canvas: "quit", nodes: [{ ...node, host: "workbench" }], wires: [] });
   type Handler = (...args: readonly unknown[]) => unknown;
   const handlers = new Map<string, Handler>();
-  bindTermIpcPlane(plane, inProcessPushesShape, makeRemoteSeatState());
+  const bus = inProcessBus();
+  cleanups.push(async () => bus.close());
+  bindTermIpcPlane(plane, bus.shape, makeRemoteSeatState());
   registerTerminalIpc({ handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never, {
     isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => undefined,
-  }, await runtime.context());
+  }, Context.add(await runtime.context(), CorePushesMain, bus.pushes));
   const start = () => Promise.resolve(handlers.get(IPC_CHANNELS.modelStart)!(
     { sender: { isDestroyed: () => false, send: () => {} } },
     { canvas: "quit", id: "seat" },

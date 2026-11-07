@@ -9,7 +9,7 @@
  */
 import { EventEmitter } from "node:events";
 import { MessageChannel, type MessagePort } from "node:worker_threads";
-import { Effect, Exit, Layer, ManagedRuntime, Scope } from "effect";
+import { Context, Effect, Exit, Layer, ManagedRuntime, Scope } from "effect";
 import { RpcServer } from "effect/rpc";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
@@ -21,7 +21,8 @@ import { SeatCredentialsCore, SeatCredentialsRpcs } from "../src/contract/core/s
 import { TermIpcPlane, TermPlaneHandlers } from "../src/core/ops/term-ipc";
 import { TermTemplatesHandlers } from "../src/core/ops/term-templates";
 import { SeatCredentialsHandlers } from "../src/core/ops/seat-credentials";
-import { inProcessPushes } from "./support/in-process-pushes";
+import { inProcessBus } from "./support/in-process-pushes";
+import { CorePushesMain } from "../src/app/core-process/main-side/core-pushes";
 import { ModelService } from "../src/core/model/service";
 import { TerminalNodeDeleteService } from "../src/core/term/node-delete";
 
@@ -57,9 +58,11 @@ beforeEach(async () => {
   ports = [];
 });
 
+const buses: Array<ReturnType<typeof inProcessBus>> = [];
 afterEach(async () => {
   await Effect.runPromise(Scope.close(scope, Exit.void));
   for (const port of ports) port.close();
+  for (const bus of buses.splice(0)) bus.close();
 });
 
 /** A summary as the local host writes one: every unset field present, and undefined. */
@@ -109,19 +112,22 @@ const registered = async () => {
   const plane = { router, nodeDelete: new TerminalNodeDeleteService(router as never) };
   const { port1, port2 } = new MessageChannel();
   ports.push(port1, port2);
+  // What the core pushes reaches main's bus for this test, as the relay feeds it in the app.
+  const bus = inProcessBus();
+  buses.push(bus);
   await Effect.runPromise(
     Layer.buildWithScope(
       RpcServer.layer(TermRpcs.merge(TermTemplatesRpcs, SeatCredentialsRpcs)).pipe(
         Layer.provide(Layer.mergeAll(termHandlers, TermTemplatesHandlers, SeatCredentialsHandlers)),
         Layer.provide(Layer.succeed(TermIpcPlane, plane as never)),
         Layer.provide(Layer.succeed(ModelService, {} as never)),
-        Layer.provide(inProcessPushes),
+        Layer.provide(bus.layer),
         Layer.provide(Layer.effect(RpcServer.Protocol, serverProtocol(linkOf(port2)))),
       ),
       scope,
     ),
   );
-  const core = await Effect.runPromise(
+  const clients = await Effect.runPromise(
     Layer.buildWithScope(
       Layer.mergeAll(TermCore.layer, TermTemplatesCore.layer, SeatCredentialsCore.layer).pipe(
         Layer.provide(Layer.succeed(CoreLink, linkOf(port1))),
@@ -129,6 +135,7 @@ const registered = async () => {
       scope,
     ),
   );
+  const core = Context.add(clients, CorePushesMain, bus.pushes);
   const handlers = new Map<string, Handler>();
   registerTerminalIpc(
     { handle: (channel: string, handler: Handler) => void handlers.set(channel, handler) } as never,

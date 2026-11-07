@@ -14,12 +14,13 @@ import type { TermPlane } from "../src/core/term/plane";
 import type { SurfacePlane } from "../src/app/core-process/main-side/term-surface";
 import { TerminalNodeDeleteService } from "../src/core/term/node-delete";
 import { makeRemoteSeatState } from "../src/core/term/remote-seat-state";
-import { Layer, ManagedRuntime } from "effect";
+import { Context, Layer, ManagedRuntime } from "effect";
 import { RpcTest } from "effect/rpc";
 import { TermCore, TermRpcs } from "../src/contract/core/term-ipc";
 import { TermTemplatesCore, TermTemplatesRpcs } from "../src/contract/core/term-templates";
 import { bindTermIpcPlane, TermIpcPlane, TermPlaneHandlers } from "../src/core/ops/term-ipc";
-import { inProcessPushesShape } from "./support/in-process-pushes";
+import { inProcessBus } from "./support/in-process-pushes";
+import { CorePushesMain } from "../src/app/core-process/main-side/core-pushes";
 import { TermTemplatesHandlers } from "../src/core/ops/term-templates";
 import { ModelService } from "../src/core/model/service";
 
@@ -109,7 +110,9 @@ const rig = async (surfaces: boolean | (() => boolean) = true) => {
     closeSurface: vi.fn(),
   };
   const plane = { router, host, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane;
-  unbind = bindTermIpcPlane(plane, inProcessPushesShape, makeRemoteSeatState());
+  const bus = inProcessBus();
+  buses.push(bus);
+  unbind = bindTermIpcPlane(plane, bus.shape, makeRemoteSeatState());
   // Main's surface ports reach the core: here the core is the same process, and
   // this stands in for its plane handing the port to the terminal process.
   const surfacePlane: SurfacePlane = {
@@ -119,7 +122,7 @@ const rig = async (surfaces: boolean | (() => boolean) = true) => {
   registerTerminalIpc(
     { handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never,
     { isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => surfacePlane },
-    await termCore(plane),
+    Context.add(await termCore(plane), CorePushesMain, bus.pushes),
   );
   const call = (channel: string, ...args: unknown[]) => Promise.resolve(handlers.get(channel)!({ sender }, ...args));
   const open = async (surface = true): Promise<string> => {
@@ -136,11 +139,13 @@ const rig = async (surfaces: boolean | (() => boolean) = true) => {
 };
 
 let unbind: (() => void) | undefined;
+const buses: Array<ReturnType<typeof inProcessBus>> = [];
 afterEach(async () => {
   unbind?.();
   unbind = undefined;
   vi.restoreAllMocks();
   for (const runtime of runtimes.splice(0)) await runtime.dispose();
+  for (const bus of buses.splice(0)) bus.close();
 });
 
 describe("a control view on a surface port", () => {

@@ -2,7 +2,9 @@ import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { Node, type Node as ModelNode } from "../src/shared/model";
-import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { inProcessBus } from "./support/in-process-pushes";
+import { CorePushesMain } from "../src/app/core-process/main-side/core-pushes";
 import { RpcTest } from "effect/rpc";
 import * as seatControl from "../src/core/term/seat-control";
 import { TermCore, TermRpcs } from "../src/contract/core/term-ipc";
@@ -83,10 +85,12 @@ const harness = async () => {
     ),
   );
   runtimes.push(runtime);
+  const bus = inProcessBus();
+  buses.push(bus);
   registerTerminalIpc(
     ipcMain as never,
     { isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => undefined },
-    await runtime.context(),
+    Context.add(await runtime.context(), CorePushesMain, bus.pushes),
   );
   const handler = (channel: string): Handler => {
     const value = handlers.get(channel);
@@ -111,9 +115,11 @@ const agentNode = (bindingId: string, host: string, harness: HarnessId, agentKey
   host, bindingId, harness, agentKey, overseer: false,
   launch: { kind: "harness", argv: [harness] },
 });
+const buses: Array<ReturnType<typeof inProcessBus>> = [];
 afterEach(async () => {
   vi.restoreAllMocks();
   for (const runtime of runtimes.splice(0)) await runtime.dispose();
+  for (const bus of buses.splice(0)) bus.close();
 });
 
 describe("terminal IPC node-delete admission", () => {

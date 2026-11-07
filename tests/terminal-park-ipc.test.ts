@@ -5,13 +5,14 @@
  */
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Layer, ManagedRuntime } from "effect";
+import { Context, Layer, ManagedRuntime } from "effect";
 import { RpcTest } from "effect/rpc";
 import { IPC_CHANNELS, type TerminalParkResult } from "../src/shared/ipc";
 import { TermCore, TermRpcs } from "../src/contract/core/term-ipc";
 import { TermTemplatesCore, TermTemplatesRpcs } from "../src/contract/core/term-templates";
 import { bindTermIpcPlane, TermIpcPlane, TermPlaneHandlers } from "../src/core/ops/term-ipc";
-import { inProcessPushesShape } from "./support/in-process-pushes";
+import { inProcessBus } from "./support/in-process-pushes";
+import { CorePushesMain } from "../src/app/core-process/main-side/core-pushes";
 import { TermTemplatesHandlers } from "../src/core/ops/term-templates";
 import type { TermPlane } from "../src/core/term/plane";
 import { TerminalNodeDeleteService } from "../src/core/term/node-delete";
@@ -88,11 +89,13 @@ const rig = async () => {
   });
   // The plane is the core's; the test binds its events and gives it to the handlers.
   const plane = { router, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane;
-  bindTermIpcPlane(plane, inProcessPushesShape, makeRemoteSeatState());
+  const bus = inProcessBus();
+  buses.push(bus);
+  bindTermIpcPlane(plane, bus.shape, makeRemoteSeatState());
   registerTerminalIpc(
     { handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never,
     { isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => undefined },
-    await termCore(plane),
+    Context.add(await termCore(plane), CorePushesMain, bus.pushes),
   );
   const call = (channel: string, ...args: unknown[]) => Promise.resolve(handlers.get(channel)!(event, ...args));
   const open = async (bindingId: string): Promise<string> => {
@@ -114,9 +117,11 @@ const rig = async () => {
   return { router, sent, open, park, emit, outputBytes };
 };
 
+const buses: Array<ReturnType<typeof inProcessBus>> = [];
 afterEach(async () => {
   vi.restoreAllMocks();
   for (const runtime of runtimes.splice(0)) await runtime.dispose();
+  for (const bus of buses.splice(0)) bus.close();
 });
 
 describe("a hidden terminal parks its stream", () => {
