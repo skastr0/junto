@@ -414,7 +414,7 @@ describe("machine-safety architecture", () => {
       // The core's kill, and an orderly quit's hangup, both reach the PTY
       // through one epoch-checked signal path, never by pid alone.
       "src/terminal/serve.ts:forbidden-reference:TerminalInbound.kill",
-      "src/terminal/serve.ts:pty.kill",
+      "src/terminal/serve.ts:held.pty.kill",
     ].sort());
   });
 
