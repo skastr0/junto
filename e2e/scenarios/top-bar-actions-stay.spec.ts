@@ -3,11 +3,13 @@
  *   scripts/run-e2e.sh e2e/scenarios/top-bar-actions-stay.spec.ts
  *
  * The interface size is held to 640 of the bar's own pixels, which fits the
- * bar in a quiet moment. Three things on the right appear only sometimes:
- * the update chip, the pause error and the Logs explorer button. With all
- * three showing at 150 percent in the smallest window, Settings and the
- * needs-you inbox are still inside the window and take a press. With none
- * showing, the bar is laid out exactly as it was without the backstop.
+ * bar in a quiet moment. Things on the right appear only sometimes: the
+ * pause error and the Logs explorer button here. With both showing at 150
+ * percent in the smallest window, Settings and the needs-you inbox are still
+ * inside the window and take a press. With none showing, the bar is laid out
+ * exactly as it was without the backstop. The update chip is not shown: its
+ * ready state needs a signed release from the compiled feed, which no e2e
+ * build can reach, and no run fakes main's update state.
  * Set TOP_BAR_SHOTS to a folder to keep a frame of the worst case.
  */
 import { mkdir, writeFile } from "node:fs/promises";
@@ -90,16 +92,9 @@ test("the top bar's actions stay in the window with the sometimes-there controls
       }
     }
 
-    // The worst case, at 150 percent: all three sometimes-there controls.
+    // The worst case, at 150 percent: the sometimes-there controls a run can reach.
     await page.evaluate(() => window.junto!.settingsPatch({ advanced: { logsExplorer: true } }));
     await expect(bar.getByTestId("observability-logs")).toBeVisible();
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0]?.webContents.send("junto:update-state-changed", {
-        phase: "ready",
-        available: { version: "9.9.9" },
-      }),
-    );
-    await expect(bar.getByRole("button", { name: /restart/i })).toBeVisible();
     // Play first (the first play asks to confirm), so the next press is a
     // plain pause; with its handler gone that press fails and says so.
     await crewPlayFactory(page);
