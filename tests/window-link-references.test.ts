@@ -11,7 +11,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Exit, Fiber, Layer, ManagedRuntime, Schema, Scope, Stream } from "effect";
-import { Rpc, RpcClient, RpcGroup, RpcTest } from "effect/rpc";
+import { Rpc, RpcClient, RpcClientError, RpcGroup, RpcTest } from "effect/rpc";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { clientProtocol, heldForServer, type PortMessage, type RpcPort } from "../src/shared/rpc-port";
@@ -20,10 +20,11 @@ import { APP_REFERENCE_PLACE, type AppBriefing, type ReferenceSummary } from "..
 vi.mock("electron", () => ({ MessageChannelMain: class {} }));
 vi.mock("../src/app/runtime", () => ({ AppRuntime: {} }));
 
-const { windowServer } = await import("../src/app/window/ipc");
+const { forwardTo, windowServer } = await import("../src/app/window/ipc");
+const { deliverPush } = await import("../src/app/core-process/main-side/core-pushes");
 const { ReferencesWindowHandlers } = await import("../src/app/references/ipc");
 const { ReferencesCore, ReferencesRpcs } = await import("../src/contract/core/references");
-const { ReferencesWindowRpcs, ReferencesWindow } = await import("../src/contract/window/references");
+const { ReferencesForwarded, ReferencesWindowRpcs, ReferencesWindow } = await import("../src/contract/window/references");
 const { UpdateWindowRpcs } = await import("../src/contract/window/update");
 const { pageLink } = await import("../src/window/rpc/link");
 const { follow, makeWindowRuntime } = await import("../src/window/rpc/runtime");
@@ -85,15 +86,21 @@ beforeEach(async () => {
   const core = await store.runPromise(
     RpcTest.makeClient(ReferencesRpcs).pipe(Effect.provide(handlers), Effect.provideService(Scope.Scope, scope)),
   );
-  // Main's client of the core, counting what reaches it.
+  // Main's client of the core, counting what reaches it; while the core is down, each call fails as a lost link does.
+  coreDown = false;
   const counted = new Proxy(core, {
-    get: (target, tag: string) => (payload: unknown) => {
-      asks.push(tag);
-      return (target as unknown as Record<string, (payload: unknown) => unknown>)[tag]!(payload);
-    },
+    // Each call is an effect that asks when it runs, as a real client's is.
+    get: (target, tag: string) => (payload: unknown) =>
+      Effect.suspend(() => {
+        asks.push(tag);
+        if (coreDown) return Effect.fail(new RpcClientError.RpcClientError({ reason: new RpcClientError.RpcClientDefect({ message: "the core left", cause: null }) }));
+        return (target as unknown as Record<string, (payload: unknown) => Effect.Effect<unknown, unknown>>)[tag]!(payload);
+      }),
   });
   serve = (port) => {
-    const server = Effect.runFork(Layer.launch(windowServer(heldForServer(mainLinkOf(port)), handlersOver(counted as never))));
+    const server = Effect.runFork(
+      Layer.launch(windowServer(heldForServer(mainLinkOf(port)), handlersOver(counted as never), { id: 1, webContents: {} as never })),
+    );
     cleanups.push(async () => {
       await Effect.runPromise(Fiber.interrupt(server));
       port.close();
@@ -109,6 +116,9 @@ beforeEach(async () => {
     port2.close();
   });
 });
+
+/** Whether main's client of the core answers as a lost link. */
+let coreDown = false;
 
 /** Main's server for the window's group on one more port. */
 let serve: (port: MessagePort) => void;
@@ -168,6 +178,39 @@ describe("the references group over a window's link", () => {
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(lists).toHaveLength(2);
     expect(asks.filter((tag) => tag === "ReferencesList").length).toBe(listsBefore);
+  });
+
+  it("outlives a core restart: a change made while the core was down shows once it is back, and the follow never ends", async () => {
+    const lists: Array<ReadonlyArray<ReferenceSummary>> = [];
+    let ended = false;
+    const references = window_.runtime.runSync(ReferencesWindow);
+    const stop = follow(
+      window_.runtime,
+      references.ReferencesListFollow({ place: APP_REFERENCE_PLACE }),
+      (item) => lists.push(item),
+      () => (ended = true),
+    );
+    cleanups.push(async () => stop());
+    await until(() => lists.length === 1);
+
+    coreDown = true;
+    // Written while main cannot reach the core: the notice reads, the read fails as a lost link, nothing is sent.
+    await store.runPromise(Effect.flatMap(ReferencesRepository, (repository) => repository.write(APP_REFERENCE_PLACE, { name: "style", body: "Plain." }, "operator")));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(lists).toHaveLength(1);
+    expect(ended).toBe(false);
+
+    coreDown = false;
+    deliverPush(IPC_CHANNELS.coreRestarted, {});
+    await until(() => lists.length === 2);
+    expect(lists[1]!.map((summary) => summary.name)).toEqual(["style"]);
+    expect(ended).toBe(false);
+  });
+
+  it("forwards only calls that answer once: a group with a stream rpc does not compile", () => {
+    // @ts-expect-error a stream rpc answers with a Stream, which a forward cannot wrap
+    forwardTo(ReferencesWindowRpcs, {} as never);
+    expect(Object.keys(forwardTo(ReferencesForwarded, {} as never)).sort()).toEqual(["ReferencesBriefingWrite", "ReferencesDelete", "ReferencesWrite"]);
   });
 
   it("answers a refused write in words, the core's answer unchanged", async () => {

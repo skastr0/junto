@@ -10,7 +10,7 @@ import { IPC_CHANNELS } from "@shared/ipc";
 import type { ReferencePlace, ReferencesChangedEvent } from "@shared/references";
 import { ReferencesCore } from "../../contract/core/references";
 import { ReferencesForwarded, ReferencesWindowRpcs } from "../../contract/window/references";
-import { following, forwardTo, fromCore } from "../window/ipc";
+import { following, forwardTo } from "../window/ipc";
 
 /** Whether a notice names a reference at this place: an app-wide one carries no canvas. */
 const atPlace = (event: ReferencesChangedEvent, place: ReferencePlace): boolean =>
@@ -26,13 +26,13 @@ export const ReferencesWindowHandlers = ReferencesWindowRpcs.toLayer(
     return {
       ...forwardTo(ReferencesForwarded, references),
       ReferencesBriefingFollow: () =>
-        following(changed, fromCore(references.ReferencesBriefingRead()), (event) => event.kind === "briefing"),
+        following(changed, references.ReferencesBriefingRead(), (event) => event.kind === "briefing"),
       ReferencesListFollow: ({ place }) =>
-        following(changed, fromCore(references.ReferencesList({ place })), (event) => atPlace(event, place)),
+        following(changed, references.ReferencesList({ place }), (event) => atPlace(event, place)),
       ReferencesReadFollow: ({ place, name }) =>
         following(
           changed,
-          fromCore(references.ReferencesRead({ place, name })),
+          references.ReferencesRead({ place, name }),
           (event) => atPlace(event, place) && event.kind === "reference" && event.name === name,
         ),
     };

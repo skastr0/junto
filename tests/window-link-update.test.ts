@@ -42,6 +42,9 @@ const withoutReferences = <E, R>(update: Layer.Layer<Rpc.ToHandler<RpcGroup.Rpcs
     }),
   );
 
+/** The window a link serves; nothing here keys on it. */
+const A_WINDOW = { id: 1, webContents: {} as never };
+
 const idle = idleUpdateStatus("1.0.0");
 const checking: UpdateStatus = { ...idle, phase: "checking" };
 
@@ -110,7 +113,7 @@ afterEach(async () => {
 const linked = (updates: ReturnType<typeof fakeUpdates>) => {
   const { port1, port2 } = new MessageChannel();
   const server = Effect.runFork(
-    Layer.launch(windowServer(heldForServer(mainLinkOf(port1)), withoutReferences(updateWindowHandlers("1.0.0", { host: {} as never, provider: {} as never }).pipe(Layer.provide(updates.layer))))),
+    Layer.launch(windowServer(heldForServer(mainLinkOf(port1)), withoutReferences(updateWindowHandlers("1.0.0", { host: {} as never, provider: {} as never }).pipe(Layer.provide(updates.layer))), A_WINDOW)),
   );
   const { page, bridge } = pageWith(port2);
   const runtime = makeWindowRuntime(pageLink(bridge, page));
@@ -170,7 +173,7 @@ describe("the update group over a window's link", () => {
     const Drifted = RpcGroup.make(Rpc.make("UpdateCheck", { payload: { force: Schema.Boolean }, success: UpdateStatus }));
     const { port1, port2 } = new MessageChannel();
     const server = Effect.runFork(
-      Layer.launch(windowServer(heldForServer(mainLinkOf(port1)), withoutReferences(updateWindowHandlers("1.0.0", { host: {} as never, provider: {} as never }).pipe(Layer.provide(updates.layer))))),
+      Layer.launch(windowServer(heldForServer(mainLinkOf(port1)), withoutReferences(updateWindowHandlers("1.0.0", { host: {} as never, provider: {} as never }).pipe(Layer.provide(updates.layer))), A_WINDOW)),
     );
     cleanups.push(async () => {
       await Effect.runPromise(Fiber.interrupt(server));
