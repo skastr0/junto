@@ -23,6 +23,7 @@ import { machinePackageCliDir } from "./term/templates/seat-env";
 import { automationRunnerLayer, makeCoreProductLayer } from "./core-product";
 import { MachineLink } from "./link/service";
 import { machineLinkLayer } from "./link/live";
+import { peerInventoryLayer } from "./inventory/client";
 import { LinkBuildMismatch, LinkPeerNotPinned, type LinkChannelHandler, type MachineLinkError } from "./link/types";
 import { encodeError, encodeFailure } from "../node/failure-encode";
 import { failureSentence } from "@shared/failure";
@@ -546,7 +547,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
       ),
     });
   }));
-  return Layer.provideMerge(owner, keepers);
+  return Layer.provideMerge(Layer.merge(owner, peerInventoryLayer()), keepers);
 };
 
 /** One StateEngine reference feeds identity, registry, link and owner commands. */
