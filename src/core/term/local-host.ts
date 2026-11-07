@@ -1079,8 +1079,12 @@ export class LocalSessionHost extends EventEmitter {
   private readonly surfaceLeases = new Map<string, string>();
   /** An observe lease's first surface reads from the chunk after its attach screen. */
   private readonly observeCursors = new Map<string, number>();
-  /** Each open surface's key listener (input-origin tagging), ended when its lease's surface closes or opens again. */
-  private readonly surfaceInputs = new Map<string, () => void>();
+  /**
+   * Each open surface: the generation it reads, and its key listener
+   * (input-origin tagging). The listener ends when its lease's surface closes
+   * or opens again; the whole surface ends when its generation drains.
+   */
+  private readonly surfaceInputs = new Map<string, { readonly rec: SessionRec; readonly stop: () => void }>();
   /** One identity flight per live generation, so every waiter sees one `ps`. */
   private readonly seatIdentityFlights = new WeakMap<SessionRec, Promise<void>>();
   private readonly primeDaemons: PrimeAgentDaemons | undefined;
@@ -2220,7 +2224,7 @@ export class LocalSessionHost extends EventEmitter {
     port: { readonly close: () => void },
     options: { readonly read?: bigint; readonly onInput?: (data: string) => void } = {},
   ): (() => void) | undefined {
-    this.surfaceInputs.get(lease.leaseId)?.();
+    this.surfaceInputs.get(lease.leaseId)?.stop();
     this.surfaceInputs.delete(lease.leaseId);
     const rec = this.sessions.get(lease.bindingId);
     const surface = rec?.lease?.io.surface;
@@ -2250,16 +2254,32 @@ export class LocalSessionHost extends EventEmitter {
         if (input.leaseId === lease.leaseId) onInput(input.data);
       });
     surface.openSurface({ leaseId: lease.leaseId, epoch: lease.epoch }, fromSeq, port);
-    this.surfaceInputs.set(lease.leaseId, stop);
+    this.surfaceInputs.set(lease.leaseId, { rec, stop });
     return stop;
   }
 
   /** Phase 3: close this lease's surface port; its view reads and types over IPC again. */
   closeSurface(lease: ControlLease): void {
-    this.surfaceInputs.get(lease.leaseId)?.();
+    const open = this.surfaceInputs.get(lease.leaseId);
+    open?.stop();
     this.surfaceInputs.delete(lease.leaseId);
     if (lease.mode !== "control") return;
-    this.sessions.get(lease.bindingId)?.lease?.io.surface?.endSurface(lease.leaseId);
+    (open?.rec ?? this.sessions.get(lease.bindingId))?.lease?.io.surface?.endSurface(lease.leaseId);
+  }
+
+  /**
+   * A generation that leaves its seat (a drain) ends every surface reading
+   * it, control and observe alike: the view and the tile let go of it in the
+   * same step, so nothing it prints after reaches either.
+   */
+  private endSurfacesOf(rec: SessionRec): void {
+    const surface = rec.lease?.io.surface;
+    for (const [leaseId, open] of [...this.surfaceInputs]) {
+      if (open.rec !== rec) continue;
+      open.stop();
+      this.surfaceInputs.delete(leaseId);
+      surface?.endSurface(leaseId);
+    }
   }
 
   /**
@@ -2790,6 +2810,7 @@ export class LocalSessionHost extends EventEmitter {
     rec.controlLeaseId = undefined;
     this.sessions.delete(rec.bindingId);
     this.syncSurface(rec);
+    this.endSurfacesOf(rec);
     // Its seat identity goes, remembered as offboarded: a junto call from it
     // is refused in plain words and can never act as the seat.
     this.offboardProcessIdentities(rec);
