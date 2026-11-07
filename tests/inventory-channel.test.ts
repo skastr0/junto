@@ -244,18 +244,26 @@ describe("inventory channel answer, over a real session pair", () => {
     expect(f.scans).toHaveBeenCalledTimes(1);
   });
 
-  it("refuses an unpinned peer, another canvas editor, and a canvas with no seat here, as typed failures", async () => {
-    const refusal = async (nodes: ReadonlyArray<Node>, editorOf: "editor" | "self", asker?: LinkHello) => {
-      const f = await answering(nodes, editorOf, asker);
-      const failure = await f.refused("op-inventory-1");
-      expect(f.scans).not.toHaveBeenCalled();
-      // The refusal arrives as the channel's own typed failure, decoded by the contract.
-      expect(Schema.is(InventoryLinkFailure)(failure)).toBe(true);
-      return failure;
-    };
+  // One runtime (a state database and a session pair) per case, each in its own test and time budget.
+  const refusal = async (nodes: ReadonlyArray<Node>, editorOf: "editor" | "self", asker?: LinkHello) => {
+    const f = await answering(nodes, editorOf, asker);
+    const failure = await f.refused("op-inventory-1");
+    expect(f.scans).not.toHaveBeenCalled();
+    // The refusal arrives as the channel's own typed failure, decoded by the contract.
+    expect(Schema.is(InventoryLinkFailure)(failure)).toBe(true);
+    return failure;
+  };
+
+  it("refuses an unpinned peer as a typed failure", async () => {
     expect(await refusal([here], "editor", helloOf("macbook", "stranger-installation")))
       .toMatchObject({ _tag: "InventoryPeerNotPinned", operationId: "op-inventory-1" });
+  });
+
+  it("refuses a peer that does not edit the canvas as a typed failure", async () => {
     expect(await refusal([here], "self")).toMatchObject({ _tag: "InventoryCanvasEditorMismatch" });
+  });
+
+  it("refuses a canvas with no seat here as a typed failure", async () => {
     expect(await refusal([seat("elsewhere", { host: "macbook", agentKey: "macbook:elsewhere" })], "editor"))
       .toMatchObject({ _tag: "InventoryNoSeatHere" });
   });

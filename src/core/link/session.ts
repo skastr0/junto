@@ -150,7 +150,7 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
   const completedIds = new Set<string>();
   /** The peer's requests not yet finished here, by id: aborted by its interrupt frame. */
   const inboundAborts = new Map<string, { readonly op: string; readonly controller: AbortController }>();
-  /** This end's requests it stopped waiting for: their late answers are dropped, never a fault. */
+  /** This end's latest requests it stopped waiting for: only says which log line drops a late answer. */
   const interruptedIds = new Set<string>();
   const channelQueues = new Map<LinkChannel, Promise<void>>();
   const sendWindows = new Map<LinkChannel, SendWindow>();
@@ -539,11 +539,16 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     if (frame.type === "response") {
       await checkAdmission();
       const waiting = pending.get(frame.id);
-      if (waiting === undefined && interruptedIds.delete(frame.id)) {
-        log("Debug", "link answer to an interrupted request dropped", { channel: frame.channel, operationId: frame.op, requestId: frame.id });
+      // An answer no request waits for cannot harm this end: one it interrupted
+      // (however long ago), or one it never sent. It is dropped, never a fault.
+      if (waiting === undefined) {
+        const interrupted = interruptedIds.delete(frame.id);
+        log(interrupted ? "Debug" : "Warning", interrupted ? "link answer to an interrupted request dropped" : "link answer matches no pending request; dropped",
+          { channel: frame.channel, operationId: frame.op, requestId: frame.id });
         return;
       }
-      if (waiting === undefined || waiting.channel !== frame.channel || waiting.operationId !== frame.op) throw frameInvalid("unmatched-response", "Link response does not match a pending request", peer.machineName);
+      // An answer for a request this end does wait for, on another channel or operation, is bad input.
+      if (waiting.channel !== frame.channel || waiting.operationId !== frame.op) throw frameInvalid("unmatched-response", "Link response does not match a pending request", peer.machineName);
       const rpc = isLinkContractChannel(selected) ? rpcOf(frame.channel, selected, waiting.tag, peer.machineName) : undefined;
       if (frame.ok && rpc !== undefined) {
         // An answer its tag's schema refuses fails only this request: the link stays open.

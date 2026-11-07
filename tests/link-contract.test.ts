@@ -25,6 +25,13 @@ const Echo = linkContract("status", RpcGroup.make(
 
 const Quiet = linkContract("rows", RpcGroup.make(Rpc.make("Ping", { success: Schema.Literal("pong") })));
 
+/**
+ * A marker on a channel of its own. The peer reads frames in the order they
+ * were written, and acts on an interrupt as it reads it, so a marker sent
+ * after an interrupt, once handled there, proves the interrupt was read.
+ */
+const Marker = linkContract("seats", RpcGroup.make(), { event: Schema.Struct({ mark: Schema.Int }) });
+
 const sessions: LinkSession[] = [];
 afterEach(async () => { await Promise.all(sessions.splice(0).map((session) => session.close())); });
 const hello = (name: string): LinkHello => Schema.decodeUnknownSync(LinkHelloSchema)({ build: "a".repeat(64), installationId: `${name}-install`, machineName: name });
@@ -215,13 +222,21 @@ describe("a caller interrupted mid-request", () => {
       event: () => Effect.void,
     });
     const sent: Array<LinkFrame> = [];
-    const { a } = pair({ status: asker() }, { status: served }, (frame) => sent.push(frame));
+    const marks: Array<number> = [];
+    const { a } = pair(
+      { status: asker(), seats: bindLinkChannel(Marker, { requests: {}, event: () => Effect.void }) },
+      { status: served, seats: bindLinkChannel(Marker, { requests: {}, event: ({ mark }) => Effect.sync(() => { marks.push(mark); }) }) },
+      (frame) => sent.push(frame),
+    );
     const first = client(a, (echo) => echo.Say("mini", { text: "first" }));
     const queued = forked(a, (echo) => echo.Count("mini", { upTo: 1 }));
     // The peer holds it, queued behind the first: only then is it interrupted.
     await expect.poll(() => sent.filter((frame) => frame.type === "request").length).toBe(2);
     await Effect.runPromise(Fiber.interrupt(queued));
-    await expect.poll(() => sent.some((frame) => frame.type === "interrupt")).toBe(true);
+    expect(sent.at(-1)).toMatchObject({ type: "interrupt" });
+    // The first is released only once the peer has read the interrupt, never after a guess at time.
+    await Effect.runPromise(Effect.flatMap(linkClient(Marker), (marker) => marker.sendEvent("mini", { mark: 1 })).pipe(Effect.provideService(MachineLink, over(a))));
+    await expect.poll(() => marks).toEqual([1]);
     release();
     expect(await first).toMatchObject({ said: "first" });
     expect(await client(a, (echo) => echo.Count("mini", { upTo: 2 }))).toEqual([]);
@@ -245,6 +260,26 @@ describe("a caller interrupted mid-request", () => {
     await Effect.runPromise(Fiber.interrupt(fiber));
     await expect.poll(() => interrupts).toEqual([{ type: "interrupt", id: held[0]!.id, op: "op-slow", channel: "status" }]);
     expect(await client(raw.session, (echo) => echo.Say("mini", { text: "fast" }))).toMatchObject({ said: "now" });
+  });
+});
+
+describe("an answer no request waits for", () => {
+  it("is dropped with the link open, whatever its id: one never sent, or interrupted long ago", async () => {
+    const raw = facingRaw({ status: asker() }, (frame) => frame.type === "request"
+      ? { type: "response", id: frame.id, op: frame.op, channel: frame.channel, ok: true, payload: { said: "now", at: "1970-01-01T00:00:00.000Z" } } : undefined);
+    await raw.session.ready;
+    raw.send({ type: "response", id: "never-sent", op: "op-x", channel: "status", ok: true, payload: { said: "stray", at: "1970-01-01T00:00:00.000Z" } });
+    raw.send({ type: "response", id: "never-sent-2", op: "op-y", channel: "status", ok: false, failure: { tag: "Stray", message: "stray", machine: "mini", operationId: "op-y", causes: [] } });
+    // Frames are read in order: this answer comes after both strays were read.
+    expect(await client(raw.session, (echo) => echo.Say("mini", { text: "fast" }))).toMatchObject({ said: "now" });
+  });
+
+  it("still closes the link when it names a request this end waits for, on another operation", async () => {
+    const raw = facingRaw({ status: asker() }, (frame) => frame.type === "request"
+      ? { type: "response", id: frame.id, op: "op-other", channel: frame.channel, ok: true, payload: { said: "x", at: "1970-01-01T00:00:00.000Z" } } : undefined);
+    const refused = await client(raw.session, (echo) => Effect.flip(echo.Say("mini", { text: "hi" }, { operationId: "op-mine" })));
+    expect(refused).toMatchObject({ _tag: "LinkClosed", reason: "frame-invalid" });
+    expect((await raw.session.closed).message).toContain("does not match a pending request");
   });
 });
 
