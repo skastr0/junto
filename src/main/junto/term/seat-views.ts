@@ -469,19 +469,11 @@ export const linkSeatViewTransport = (run = coreRunner.runPromise): SeatViewTran
   sendEvent: (machine, payload) => run(Effect.flatMap(MachineLink, (link) => link.sendEvent(machine, "seats", payload))),
 });
 
-let active: SeatViews | undefined;
-/** The views this process's window holds; the seats channel hands their frames here. */
-export const installSeatViews = (views: SeatViews | undefined): void => { active = views; };
-/** The seats channel's default stream sink: display only, dropped when no view holds it. */
-export const deliverSeatViewFrame = (context: LinkEventContext, frame: SeatsViewFrame): void => active?.frame(context, frame);
-
-/** The cache questions this process's views were asked and that stand. */
-export const seatViewQuestions = (): ReadonlyArray<SeatViewQuestion> => active?.questions() ?? [];
-/** Answer a question one of this process's views was asked. */
-export const answerSeatViewQuestion = (question: string, answer: SeatCacheDueAnswer): Promise<SeatCacheDueAnswerResult> =>
-  active?.answer(question, answer) ??
-    Promise.resolve({ ok: false as const, message: "This seat was already answered, or is no longer asking." });
-/** Told when a view here is asked a question, or one is settled. */
+/**
+ * Told when a view here is asked a question, or one is settled. The views
+ * themselves are the terminal plane's (`plane.ts`), so this is all this module
+ * keeps: no instance of its own and nothing to install.
+ */
 export const onSeatViewQuestions = (listener: () => void): (() => void) => {
   viewQuestionListeners.add(listener);
   return () => { viewQuestionListeners.delete(listener); };

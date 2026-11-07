@@ -130,7 +130,10 @@ export class MachineCoreMail extends Context.Service<MachineCoreMail, {
 }>()("@junto/MachineCoreMail") {}
 
 const machineCoreSeatsLayer = Layer.effect(MachineCoreSeats,
-  makeSeatsChannel().pipe(Effect.map(handler => ({ handler }))),
+  makeSeatsChannel({
+    // Display only: a linked seat's frames land on the views this process's window holds.
+    attachStream: (context, frame) => termPlane.seatViews?.frame(context, frame),
+  }).pipe(Effect.map(handler => ({ handler }))),
 );
 
 const machineCoreMailLayer = Layer.effect(MachineCoreMail, Effect.gen(function* () {

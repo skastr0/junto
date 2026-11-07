@@ -18,7 +18,7 @@ import { OFFBOARD_MODES, type OffboardMode } from "@shared/seat-sessions";
 import { SEAT_CACHE_DUE_ANSWERS, type SeatCacheDue, type SeatCacheDueAnswerResult } from "@shared/seat-cache-due";
 import { CacheQuestion } from "../term/seat-attach";
 import { remoteSeatLaunchOf } from "../term/seats-client";
-import { answerSeatViewQuestion, seatViewQuestions } from "../term/seat-views";
+import { termPlane } from "../term/plane";
 import { answerSeatCacheDue, CACHE_QUESTION_GONE, runSeatOffboard, seatCacheDueList, seatOffboardStatus } from "./operator-offboard";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -94,7 +94,7 @@ const decodeAnswer = Schema.decodeUnknownSync(SeatCacheDueAnswerInput, { onExces
  * A linked seat's size is what its machine last said with its launch state.
  */
 export const seatCacheDueHere = async (): Promise<ReadonlyArray<SeatCacheDue>> => {
-  const linked = await Promise.all(seatViewQuestions().map(async (asked): Promise<SeatCacheDue> => {
+  const linked = await Promise.all((termPlane.seatViews?.questions() ?? []).map(async (asked): Promise<SeatCacheDue> => {
     const launch = await remoteSeatLaunchOf({ bindingId: asked.bindingId, host: asked.machine }).catch(() => undefined);
     const tokens = launch?.offboard?.tokens;
     return { canvasName: asked.canvasName, seatId: asked.seatId, question: asked.question, windowEndsAt: asked.windowEndsAt,
@@ -116,10 +116,11 @@ export const answerSeatCacheDueHere = async (input: unknown): Promise<SeatCacheD
   } catch {
     return { ok: false, message: "Start fresh, or keep this session." };
   }
-  const linked = seatViewQuestions().find((asked) => asked.question === answer.question);
-  if (linked !== undefined)
+  const views = termPlane.seatViews;
+  const linked = views?.questions().find((asked) => asked.question === answer.question);
+  if (views !== undefined && linked !== undefined)
     return linked.canvasName === answer.canvasName && linked.seatId === answer.seatId
-      ? answerSeatViewQuestion(answer.question, answer.answer)
+      ? views.answer(answer.question, answer.answer)
       : { ok: false, message: CACHE_QUESTION_GONE };
   return answerSeatCacheDue({ canvasName: answer.canvasName, seatId: answer.seatId }, answer.question, answer.answer);
 };

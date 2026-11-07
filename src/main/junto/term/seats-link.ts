@@ -23,7 +23,6 @@ import {
 } from "./seat-attach";
 import { addOperatorHoldSource, type OperatorHoldSource } from "./operator-holds";
 import { readLocalWindow, type SeatGrid, SeatsRead, SeatsReadWindow } from "./seat-read-window";
-import { deliverSeatViewFrame } from "./seat-views";
 import {
   asSeatsFailure, clipText, type SeatsFailureWhere, SeatAttachLimit, SeatAttachObserveOnly, SeatAttachRefused,
   SeatAttachUnknown, SeatCacheQuestionUnknown, SeatCanvasEditorMismatch, SeatChangedWhilePreparing, SeatEpochChanged, SeatExited,
@@ -535,7 +534,7 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
     if (received._tag === "Ack") return attachments.ack(context, received.handle, BigInt(received.upTo));
     if (received._tag !== "SeatState") {
       // Display only: never seat state, a log row or disk. No view holding it: dropped.
-      (options.attachStream ?? deliverSeatViewFrame)(context, received);
+      options.attachStream?.(context, received);
       return;
     }
     const event = received;

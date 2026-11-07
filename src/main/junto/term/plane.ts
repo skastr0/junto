@@ -3,7 +3,7 @@ import { seatAwarenessPlane } from "./seat-awareness";
 import { LocalSessionHost } from "./local-host";
 import { linuxReleaseFenceActive } from "./release-fence";
 import { TerminalNodeDeleteService } from "./node-delete";
-import { installSeatViews, linkSeatViewTransport, makeSeatViews } from "./seat-views";
+import { linkSeatViewTransport, makeSeatViews, type SeatViews } from "./seat-views";
 import { TerminalRouter } from "./router";
 import {
   startTermControlServer,
@@ -108,6 +108,8 @@ export interface TermPrimeAgentReporterPlane {
 export class TermPlane {
   readonly host: LocalSessionHost;
   readonly router: TerminalRouter;
+  /** The views of seats on linked machines this process's window holds; the seats channel hands their frames here. */
+  readonly seatViews: SeatViews | undefined;
   /** Single process-wide terminal delete fence — renderer IPC and overseer share this. */
   readonly nodeDelete: TerminalNodeDeleteService;
   private control: TermControlServer | undefined;
@@ -135,12 +137,10 @@ export class TermPlane {
       reporter ??
       (production ? primeAgentReporterPlane : new PrimeAgentReporterPlane());
     this.router = new TerminalRouter(this.host);
-    if (production) {
-      // A seat on a linked machine is viewed over the seats channel.
-      const views = makeSeatViews(linkSeatViewTransport());
-      this.router.setSeatViews(views);
-      installSeatViews(views);
-    }
+    // A seat on a linked machine is viewed over the seats channel; a test
+    // host has no linked seats, so it holds no views.
+    this.seatViews = production ? makeSeatViews(linkSeatViewTransport()) : undefined;
+    if (this.seatViews !== undefined) this.router.setSeatViews(this.seatViews);
     this.nodeDelete = new TerminalNodeDeleteService(this.router);
   }
 
