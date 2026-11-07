@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type * as AdapterExecModule from "../../src/main/junto/adapters/exec";
 import type * as SpawnEnvModule from "../../src/main/junto/adapters/spawn-env";
 import type * as AppProcessPlaneModule from "../../src/main/junto/app-process-plane";
+import type * as InProcessReadsModule from "../../src/main/core-process/in-process-reads";
 import type * as ProcessEpochModule from "../../src/main/junto/process-epoch";
 
 const adapterExecModulePath = "../../src/main/junto/adapters/exec" + ".ts";
@@ -22,6 +23,13 @@ const processEpochModulePath = "../../src/main/junto/process-epoch" + ".ts";
 const { setProcessEpochReaderForTests } = (await import(
   processEpochModulePath
 )) as typeof ProcessEpochModule;
+// The child is its own process, so the vitest setup never runs here: install
+// the in-process reads itself before any adapter resolves the spawn env.
+const inProcessReadsModulePath = "../../src/main/core-process/in-process-reads" + ".ts";
+const { installInProcessCoreReads } = (await import(
+  inProcessReadsModulePath
+)) as typeof InProcessReadsModule;
+installInProcessCoreReads();
 
 const delay = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
