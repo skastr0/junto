@@ -59,7 +59,6 @@ import type { SeatOffboardProgress } from "@shared/seat-sessions";
 import type { SeatCacheDue } from "@shared/seat-cache-due";
 import type { SeatOnboardingEvent } from "@shared/seat-onboarding-status";
 import type { ProfilesChanged } from "@shared/agent-profiles";
-import type { NotifyCue, NotifyTarget } from "@shared/desktop-notifications";
 import { nodeRefKey, parseNodeRef } from "@shared/node-ref";
 import { isRendererPreloadCandidate } from "@shared/trusted-renderer-origin";
 import type {
@@ -581,15 +580,6 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   onSeatOnboardingChanged: (listener) =>
     subscribe<SeatOnboardingEvent>(IPC_CHANNELS.seatOnboardingChanged, listener),
   onProfilesChanged: (listener) => subscribe<ProfilesChanged>(IPC_CHANNELS.profilesChanged, listener),
-  notificationsReport: (report) => invoke(IPC_CHANNELS.notificationsReport, IPC_TIMEOUT_MS, report),
-  notificationsTest: () => invoke(IPC_CHANNELS.notificationsTest, IPC_TIMEOUT_MS),
-  notificationsDelivery: () => invoke(IPC_CHANNELS.notificationsDelivery, IPC_TIMEOUT_MS),
-  notificationsOpenSystemSettings: () =>
-    invoke(IPC_CHANNELS.notificationsOpenSystemSettings, IPC_TIMEOUT_MS),
-  onNotificationActivate: (listener) =>
-    subscribe<NotifyTarget>(IPC_CHANNELS.notificationActivate, listener),
-  onNotificationCue: (listener) =>
-    subscribe<{ readonly cue: NotifyCue }>(IPC_CHANNELS.notificationCue, listener),
   companionStatus: () => invoke(IPC_CHANNELS.companionStatus, IPC_TIMEOUT_MS),
   companionPairStart: () => invoke(IPC_CHANNELS.companionPairStart, IPC_TIMEOUT_MS),
   companionPairCancel: (deviceId) => invoke(IPC_CHANNELS.companionPairCancel, IPC_TIMEOUT_MS, deviceId),

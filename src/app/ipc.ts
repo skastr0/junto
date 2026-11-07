@@ -42,6 +42,7 @@ import { registerSignalsIpc } from "./signals/signals-ipc";
 import { WIRE_TRAFFIC } from "../contract/core/channels";
 import { registerObservabilityAppend } from "./observability/ipc";
 import { registerWindowLink } from "./window/ipc";
+import type { MainNotifications } from "./notifications/ipc";
 import { windowHandlers } from "./window/handlers-ipc";
 import type { AgentSignal } from "@shared/agent-signals";
 import { readSignalAttachmentPreview } from "./signals/attachment-preview";
@@ -107,6 +108,8 @@ export type MainBoot = {
   readonly core: Context.Context<CoreClients>;
   readonly surfacePlanes: SurfacePlanes;
   readonly update: UpdateInstall;
+  /** Desktop notifications: the plane, and what it tells the windows (notifications/ipc.ts). */
+  readonly notifications: MainNotifications;
 };
 
 export const registerJuntoIpc = (boot: MainBoot): void => {
@@ -166,7 +169,7 @@ export const registerJuntoIpc = (boot: MainBoot): void => {
   // The status reads: the authority banner, a canvas digest, usage and the kernel snapshot.
   registerStatusIpc(privilegedIpc, boot.core);
   // Every window group main serves or forwards, on each window's link (window/ipc.ts).
-  registerWindowLink(privilegedIpc, windowHandlers({ currentVersion: app.getVersion(), install: boot.update, core: boot.core }));
+  registerWindowLink(privilegedIpc, windowHandlers({ currentVersion: app.getVersion(), install: boot.update, core: boot.core, notifications: boot.notifications }));
   // The holds themselves are the core's, where the cache cut asks: main sends
   // each window's report on and keeps none (core-process/ops/seat-holds.ts).
   const operatorHolds = registerOperatorHoldsIpc(

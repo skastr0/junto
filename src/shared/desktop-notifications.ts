@@ -57,12 +57,22 @@ export const NotifyReport = Schema.Struct({
 export type NotifyReport = typeof NotifyReport.Type;
 
 /** Where a click lands: one seat's focus view, or the feed. */
-export type NotifyTarget =
-  | { readonly kind: "seat"; readonly canvasName: string; readonly nodeId: string }
-  | { readonly kind: "feed"; readonly canvasName: string };
+export const NotifyTarget = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("seat"), canvasName: Schema.String, nodeId: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("feed"), canvasName: Schema.String }),
+]);
+export type NotifyTarget = typeof NotifyTarget.Type;
 
 /** The sound cue that goes with a post; the banner itself is silent. */
-export type NotifyCue = "blocked" | "needs-you" | "done" | "failed" | "summary";
+/** Each category's cue; a summary has its own. */
+const CUE = {
+  blocked: "blocked",
+  failed: "failed",
+  needsYou: "needs-you",
+  done: "done",
+} as const satisfies Readonly<Record<NotifyCategory, string>>;
+export const NotifyCue = Schema.Literals([CUE.blocked, CUE.failed, CUE.needsYou, CUE.done, "summary"]);
+export type NotifyCue = typeof NotifyCue.Type;
 
 export type NotifyPost = {
   /** Replaces the delivered notification with this tag, if one is showing. */
@@ -107,13 +117,6 @@ const SUBTITLE: Readonly<Record<NotifyCategory, string>> = {
   failed: "Stopped",
   needsYou: "Needs you",
   done: "Finished",
-};
-
-const CUE: Readonly<Record<NotifyCategory, NotifyCue>> = {
-  blocked: "blocked",
-  failed: "failed",
-  needsYou: "needs-you",
-  done: "done",
 };
 
 export const emptyNotifyState = (): NotifyState => ({

@@ -15,21 +15,32 @@
 import { execFileSync } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { defaultNotifications } from "../../src/shared/settings";
-import { Level } from "../../src/shared/wire/urgency";
+import { Schema } from "effect";
+import { encodeAgentSeatStatus } from "../../src/shared/agent-seat-state";
+import { initialSnapshot, reduceSeatSignals, topNeed } from "../../src/shared/harness-domain";
+import { BindingId } from "../../src/shared/terminal-session-domain";
+import { modelFixture, modelRegion, modelSeat } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? join(process.cwd(), "test-results", "desktop-notifications-live");
 
+const CANVAS = "notify-live";
+const SEAT = "local:e2e-notify-live";
+const nodes = [
+  modelRegion({ id: "build", label: "Build", color: "4", x: 0, y: 0, width: 600, height: 400 }),
+  modelSeat({ id: "live-proof", key: SEAT, label: "Maple", x: 40, y: 80 }),
+];
+
 test.skip(process.env.JUNTO_E2E_SHOW !== "1" || process.platform !== "darwin", "needs a visible macOS run");
 
-test("a seat blocked while Junto is minimised posts a native banner", async () => {
+test("a seat blocked while Junto is minimised posts a native banner, and its click brings Junto back", async () => {
   test.setTimeout(120_000);
   await mkdir(SHOTS, { recursive: true });
-  const junto = await launchJunto({});
+  const now = Date.now();
+  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture(nodes, []) } });
   try {
     const { page, app } = junto;
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator(".react-flow__node", { hasText: "Maple" })).toBeVisible({ timeout: 60_000 });
 
     await app.evaluate(({ BrowserWindow }) => {
       for (const window of BrowserWindow.getAllWindows()) window.minimize();
@@ -45,6 +56,7 @@ test("a seat blocked while Junto is minimised posts a native banner", async () =
       const show = Notification.prototype.show;
       Notification.prototype.show = function (this: Electron.Notification) {
         probe.shown += 1;
+        (globalThis as { __notifyLast?: Electron.Notification }).__notifyLast = this;
         this.on("show", () => {
           probe.displayed += 1;
         });
@@ -55,28 +67,21 @@ test("a seat blocked while Junto is minimised posts a native banner", async () =
       };
     });
 
-    // The report the renderer sends when a seat raises a blocked signal.
-    const result = await page.evaluate(
-      ({ prefs, level }) =>
-        window.junto?.notificationsReport?.({
-          canvasName: "main",
-          subjects: [
-            {
-              key: "signal:live-proof",
-              category: "blocked",
-              level,
-              canvasName: "main",
-              nodeId: "live-proof",
-              seatName: "Maple",
-              text: "cannot reach the staging database, needs a new password",
-            },
-          ],
-          badge: 1,
-          prefs,
-        }),
-      { prefs: defaultNotifications(), level: Level.blocked },
-    );
-    expect(result?.ok).toBe(true);
+    // Maple raises a blocked signal, as `junto signal blocked` does; the window reports the need.
+    const seat = Schema.decodeSync(BindingId)(SEAT);
+    const snapshot = reduceSeatSignals(initialSnapshot(seat, now), [
+      {
+        seat,
+        at: now,
+        source: "transcript",
+        fidelity: "native",
+        signal: { _tag: "SeatReported", kind: "blocked", signalId: "live-proof", state: "open", text: "cannot reach the staging database, needs a new password" },
+      },
+    ]);
+    const status = encodeAgentSeatStatus({ snapshot, need: topNeed(snapshot) });
+    await app.evaluate(({ BrowserWindow }, event) => {
+      for (const window of BrowserWindow.getAllWindows()) window.webContents.send("junto:agent-seat-state-changed", event);
+    }, { bindingId: SEAT, epoch: "e2e", state: "idle", reason: "test", confidence: "high", at: now, status });
 
     // It settles for 1.5 s, then posts; give the banner time to slide in.
     await page.waitForTimeout(3_500);
@@ -89,6 +94,14 @@ test("a seat blocked while Junto is minimised posts a native banner", async () =
     expect(
       await app.evaluate(({ app: electron }) => (process.platform === "darwin" ? electron.getBadgeCount() : 1)),
     ).toBe(1);
+
+    // The operator clicks the banner: Junto comes back to the front.
+    await app.evaluate(() => {
+      (globalThis as { __notifyLast?: Electron.Notification }).__notifyLast?.emit("click");
+    });
+    await expect
+      .poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((w) => !w.isMinimized())))
+      .toBe(true);
   } finally {
     await junto.close();
   }

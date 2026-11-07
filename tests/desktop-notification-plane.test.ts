@@ -9,7 +9,6 @@ import type { BrowserWindow } from "electron";
 import { URGENT_SETTLE_MS, type NotifySubject } from "../src/shared/desktop-notifications";
 import { defaultNotifications } from "../src/shared/settings";
 import { Level } from "../src/shared/wire/urgency";
-import { decodeNotifyReport } from "../src/app/notifications/ipc";
 import { createNotificationPlane, windowAway } from "../src/app/notifications/plane";
 
 type Banner = {
@@ -230,18 +229,3 @@ describe("desktop notification plane", () => {
   });
 });
 
-describe("notification report decode", () => {
-  const valid = { canvasName: "main", subjects: [need("maple", "done")], badge: 2, prefs: defaultNotifications() };
-
-  it("admits a well-formed report", () => {
-    expect(decodeNotifyReport(valid)).toEqual(valid);
-  });
-
-  it("refuses bad categories, missing fields, and bad prefs", () => {
-    expect(decodeNotifyReport({ ...valid, subjects: [{ ...need("maple", "done"), category: "loud" }] })).toBeUndefined();
-    expect(decodeNotifyReport({ ...valid, subjects: [{ key: "k" }] })).toBeUndefined();
-    expect(decodeNotifyReport({ ...valid, prefs: { enabled: "yes" } })).toBeUndefined();
-    expect(decodeNotifyReport({ ...valid, badge: Number.NaN })).toBeUndefined();
-    expect(decodeNotifyReport(null)).toBeUndefined();
-  });
-});

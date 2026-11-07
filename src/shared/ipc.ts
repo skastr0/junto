@@ -139,7 +139,6 @@ import type {
   ProfileSaveInput,
   ProfilesChanged,
 } from "./agent-profiles";
-import type { NotifyCue, NotifyReport, NotifyTarget } from "./desktop-notifications";
 import type { CanvasSummary as CanvasSummarySchema } from "../contract/core/model";
 import type { AgentSignalOperatorResult as AgentSignalOperatorResultSchema } from "../contract/core/signals";
 import type { DigestResult as DigestResultSchema } from "../contract/core/status";
@@ -257,13 +256,6 @@ export const IPC_CHANNELS = {
   profileRename: "junto:profile-rename",
   profileDelete: "junto:profile-delete",
   profilesChanged: "junto:profiles-changed",
-  /** Desktop notifications: renderer reports open needs, asks for a test banner; main routes a click and a cue back. */
-  notificationsReport: "junto:notifications-report",
-  notificationsTest: "junto:notifications-test",
-  notificationActivate: "junto:notification-activate",
-  notificationCue: "junto:notification-cue",
-  notificationsDelivery: "junto:notifications-delivery",
-  notificationsOpenSystemSettings: "junto:notifications-open-system-settings",
   /** Files node (0.11): node plus relative path in, never an absolute path out (`src/shared/files.ts`). */
   filesOpen: "junto:files-open",
   filesClose: "junto:files-close",
@@ -910,23 +902,6 @@ export interface JuntoApi extends OverseerLiveApi {
   readonly onSeatOnboardingChanged?: (listener: (event: SeatOnboardingEvent) => void) => () => void;
   /** Main -> renderer: every profile, after any change. */
   readonly onProfilesChanged?: (listener: (profiles: ProfilesChanged) => void) => () => void;
-  /** The canvas's open needs, for desktop notifications and the Dock badge. */
-  readonly notificationsReport?: (
-    report: NotifyReport,
-  ) => Promise<{ readonly ok: boolean; readonly message?: string }>;
-  /** Show a test banner now (where macOS asks for permission). */
-  readonly notificationsTest?: () => Promise<{ readonly ok: boolean; readonly message?: string }>;
-  /** Whether macOS delivers Junto's banners, as last seen. */
-  readonly notificationsDelivery?: () => Promise<
-    | { readonly state: "unknown" | "allowed" }
-    | { readonly state: "blocked"; readonly reason: string }
-  >;
-  /** Open the system's notification settings for Junto (macOS). */
-  readonly notificationsOpenSystemSettings?: () => Promise<{ readonly ok: boolean }>;
-  /** Main → renderer: the operator clicked a notification. */
-  readonly onNotificationActivate?: (listener: (target: NotifyTarget) => void) => () => void;
-  /** Main → renderer: a silent banner went up; play its cue. */
-  readonly onNotificationCue?: (listener: (event: { readonly cue: NotifyCue }) => void) => () => void;
   /** Settings, Companion: this Mac's readiness to pair a phone. */
   readonly companionStatus?: () => Promise<CompanionStatus>;
   /** Start pairing a phone; the QR expires after ten minutes. */

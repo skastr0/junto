@@ -1,9 +1,10 @@
 /**
  * Desktop notifications, the parts a harness can see: Settings >
  * Notifications (switches persist through main, the kinds follow the master
- * switch) and a clicked banner routed back into the app. The harness never
- * shows a native banner (the plane is off while it isolates focus), so the click is
- * delivered on the plane's own channel. Frames land in
+ * switch) and a test banner asked of main's plane, which answers that
+ * banners are off in this run. The harness never shows a native banner (the
+ * plane is off while it isolates focus), so a banner's click is proved on a
+ * real banner, in desktop-notifications-live.spec.ts. Frames land in
  * test-results/desktop-notifications/ (disposable, never committed).
  *
  *   electron-vite build
@@ -18,7 +19,7 @@ const SHOTS = process.env.JUNTO_SHOTS_DIR ?? join(process.cwd(), "test-results",
 const storedNotifications = (page: import("@playwright/test").Page) =>
   page.evaluate(async () => (await window.junto?.settingsGet())?.settings?.notifications ?? null);
 
-test("Settings > Notifications persists each switch, and a clicked banner opens the feed", async () => {
+test("Settings > Notifications persists each switch, and a test banner reaches main's plane", async () => {
   test.setTimeout(180_000);
   await mkdir(SHOTS, { recursive: true });
   const junto = await launchJunto({});
@@ -67,13 +68,11 @@ test("Settings > Notifications persists each switch, and a clicked banner opens 
       await page.locator(".settings-panel__close").click();
     }
 
-    // A summary banner's click lands on the feed.
-    await app.evaluate(({ BrowserWindow }) => {
-      for (const window of BrowserWindow.getAllWindows()) {
-        window.webContents.send("junto:notification-activate", { kind: "feed", canvasName: "main" });
-      }
-    });
-    await expect(page.getByTestId("operator-feed")).toBeVisible();
+    // A test banner goes to main's plane, which is off in this run and says so.
+    await page.getByRole("button", { name: "Open settings" }).click();
+    await page.locator(".settings-nav__item", { hasText: "Notifications" }).click();
+    await page.getByTestId("notify-test").click();
+    await expect(page.getByRole("status").filter({ hasText: "Notifications are off in this run." })).toBeVisible();
   } finally {
     await junto.close();
   }

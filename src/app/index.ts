@@ -51,8 +51,7 @@ import { mainIndexCalls, type MainIndexCalls } from "./core-process/main-index-i
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc-handlers";
 import { resolveControlHome } from "./control-home";
 import { registerDemoIpcHandlers } from "./demo/ipc";
-import { registerNotificationIpc } from "./notifications/ipc";
-import type { NotificationPlane } from "./notifications/plane";
+import { makeMainNotifications, type MainNotifications } from "./notifications/ipc";
 import {
   BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE,
   startBrowserComposition,
@@ -356,7 +355,7 @@ applyE2eMacOsFocusIsolation({
 
 let trustedMainWindow: BrowserWindow | undefined;
 /** Desktop notifications; registered with the product IPC, follows each main window. */
-let notificationPlane: NotificationPlane | undefined;
+let notificationPlane: MainNotifications | undefined;
 /** The Command Center is a trusted renderer identity, never "the first window". */
 const currentTrustedMainWindow = (): BrowserWindow | undefined => {
   const candidate = trustedMainWindow;
@@ -1521,21 +1520,19 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         app.exit(0);
       },
     };
+    // Desktop notifications: made once, before the window groups that serve them.
+    // No banners, badge, or bounce from an isolated harness run; a visible
+    // run (JUNTO_E2E_SHOW=1) is someone watching, and may see them.
+    notificationPlane ??= makeMainNotifications({ window: currentTrustedMainWindow, enabled: !e2eIsolateFocus });
     registerIpcHandlers({
       core: coreClients,
       surfacePlanes: { current: () => coreChildren?.core.surfacePlanes.current() },
       update: { host: updateHost, provider: updateProvider },
+      notifications: notificationPlane,
     });
     registerDemoIpcHandlers();
     // Settings reads the phones from wherever the companion runs.
     registerCompanionIpc(coreClients);
-    notificationPlane ??= registerNotificationIpc({
-      core: coreClients,
-      window: currentTrustedMainWindow,
-      // No banners, badge, or bounce from an isolated harness run; a visible
-      // run (JUNTO_E2E_SHOW=1) is someone watching, and may see them.
-      enabled: !e2eIsolateFocus,
-    });
     const notifyWindow = currentTrustedMainWindow();
     if (notifyWindow !== undefined) notificationPlane.attach(notifyWindow);
     if (shutdownAdmissionClosed) return;

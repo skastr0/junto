@@ -1,83 +1,36 @@
-import { Notification, app, ipcMain, shell, type BrowserWindow } from "electron";
-import { Context, Effect, Schema } from "effect";
-import {
-  NOTIFY_CATEGORIES,
-  type NotifyCategory,
-  type NotifyReport,
-  type NotifySubject,
-} from "@shared/desktop-notifications";
-import { IPC_CHANNELS } from "@shared/ipc";
-import { UrgencyLevel } from "@shared/wire/urgency";
-import { NotificationSettings } from "@shared/settings";
-import { trustedRendererIpc } from "../trusted-main-webcontents";
+/**
+ * Desktop notifications in main: the plane, made once at boot with
+ * Electron's notification, badge and dock, and main's handlers of the
+ * window's notifications group (src/contract/window/notifications.ts). What
+ * the plane tells a window (a click, a cue) goes to every window that follows
+ * the group's event stream; only trusted windows get a link.
+ */
+import { Notification, app, shell, type BrowserWindow } from "electron";
+import { Context, Effect, Queue, Stream } from "effect";
 import { CompanionCore } from "../../contract/core/companion";
-import { AppRuntime } from "../runtime";
+import { NotificationsWindowRpcs, type NotifyWindowEvent } from "../../contract/window/notifications";
 import { createNotificationPlane, type NotificationPlane } from "./plane";
 
-const MAX_SUBJECTS = 500;
 /** System Settings, Notifications, with Junto selected. */
 export const MAC_NOTIFICATION_SETTINGS_URL =
   "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=com.skastr0.junto";
-const MAX_TEXT = 2_000;
-const decodePrefs = Schema.decodeUnknownResult(NotificationSettings);
 
-const text = (value: unknown, max = MAX_TEXT): string | undefined =>
-  typeof value === "string" && value.length <= max ? value : undefined;
-
-const isCategory = (value: unknown): value is NotifyCategory =>
-  (NOTIFY_CATEGORIES as ReadonlyArray<unknown>).includes(value);
-
-const isLevel = Schema.is(UrgencyLevel);
-
-const decodeSubject = (raw: unknown): NotifySubject | undefined => {
-  if (typeof raw !== "object" || raw === null) return undefined;
-  const value = raw as Record<string, unknown>;
-  const key = text(value.key, 512);
-  const canvasName = text(value.canvasName, 512);
-  const nodeId = text(value.nodeId, 512);
-  const seatName = text(value.seatName, 512);
-  const body = text(value.text);
-  if (!key || canvasName === undefined || !nodeId || seatName === undefined || body === undefined) return undefined;
-  if (!isCategory(value.category) || !isLevel(value.level)) return undefined;
-  return { key, category: value.category, level: value.level, canvasName, nodeId, seatName, text: body };
-};
-
-/** The renderer's report, or undefined when it is not one. */
-export const decodeNotifyReport = (raw: unknown): NotifyReport | undefined => {
-  if (typeof raw !== "object" || raw === null) return undefined;
-  const value = raw as Record<string, unknown>;
-  const canvasName = text(value.canvasName, 512);
-  if (canvasName === undefined || !Array.isArray(value.subjects) || value.subjects.length > MAX_SUBJECTS) {
-    return undefined;
-  }
-  const subjects = value.subjects.map(decodeSubject);
-  if (subjects.some((subject) => subject === undefined)) return undefined;
-  if (typeof value.badge !== "number" || !Number.isFinite(value.badge)) return undefined;
-  const prefs = decodePrefs(value.prefs);
-  if (prefs._tag === "Failure") return undefined;
-  return {
-    canvasName,
-    subjects: subjects as ReadonlyArray<NotifySubject>,
-    badge: value.badge,
-    prefs: prefs.success,
-  };
+/** The plane, and what it tells the windows: each listener hears every click and cue from now on. */
+export type MainNotifications = NotificationPlane & {
+  readonly told: (listener: (event: NotifyWindowEvent) => void) => () => void;
 };
 
 /**
- * Register the notification channels and return the plane. `window` is the
- * trusted Command Center window, re-read on every use; `core` holds the
- * companion group the desktop's report goes on to.
+ * Make the plane. `window` is the trusted Command Center window, re-read on
+ * every use; `enabled` is false where banners must never appear.
  */
-export const registerNotificationIpc = (options: {
+export const makeMainNotifications = (options: {
   readonly window: () => BrowserWindow | undefined;
   readonly enabled: boolean;
-  readonly core: Context.Context<CompanionCore>;
-}): NotificationPlane => {
-  const companion = Context.get(options.core, CompanionCore);
-  const send = (channel: string, payload: unknown): void => {
-    const window = options.window();
-    if (window === undefined || window.isDestroyed() || window.webContents.isDestroyed()) return;
-    window.webContents.send(channel, payload);
+}): MainNotifications => {
+  const listeners = new Set<(event: NotifyWindowEvent) => void>();
+  const tell = (event: NotifyWindowEvent): void => {
+    for (const listener of [...listeners]) listener(event);
   };
   const plane = createNotificationPlane({
     window: options.window,
@@ -93,33 +46,55 @@ export const registerNotificationIpc = (options: {
     focusApp: () => {
       if (process.platform === "darwin") app.focus({ steal: true });
     },
-    activate: (target) => send(IPC_CHANNELS.notificationActivate, target),
-    cue: (cue) => send(IPC_CHANNELS.notificationCue, { cue }),
+    activate: (target) => tell({ _tag: "Activate", target }),
+    cue: (cue) => tell({ _tag: "Cue", cue }),
   });
-
-  const privilegedIpc = trustedRendererIpc(ipcMain);
-  privilegedIpc.handle(IPC_CHANNELS.notificationsReport, async (_event, raw: unknown) => {
-    const report = decodeNotifyReport(raw);
-    if (report === undefined) return { ok: false as const, message: "notification report is invalid" };
-    plane.report(report);
-    // The phone companion reads the desktop's open canvas and its rings where
-    // it runs, in the core (`companion/backend.ts`): main says what the
-    // window said. A report the core missed costs the phone a guess, never the
-    // window's notifications, so the answer stands.
-    await AppRuntime.runPromise(
-      companion.CompanionDesktopReport({ report }).pipe(
-        Effect.catchCause((cause) => Effect.sync(() => console.error("[companion] the desktop report did not reach the core:", cause))),
-      ),
-    );
-    return { ok: true as const };
-  });
-  privilegedIpc.handle(IPC_CHANNELS.notificationsTest, () => plane.test());
-  privilegedIpc.handle(IPC_CHANNELS.notificationsDelivery, () => plane.delivery());
-  // A fixed system URL, never one the renderer supplies.
-  privilegedIpc.handle(IPC_CHANNELS.notificationsOpenSystemSettings, async () => {
-    if (process.platform !== "darwin") return { ok: false as const };
-    await shell.openExternal(MAC_NOTIFICATION_SETTINGS_URL);
-    return { ok: true as const };
-  });
-  return plane;
+  return {
+    ...plane,
+    told: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
 };
+
+/** Main's desktop notifications, for the window's handlers. */
+export class MainNotificationsService extends Context.Service<MainNotificationsService, MainNotifications>()(
+  "@junto/app/MainNotifications",
+) {}
+
+export const NotificationsWindowHandlers = NotificationsWindowRpcs.toLayer(
+  Effect.gen(function* () {
+    const notifications = yield* MainNotificationsService;
+    const companion = yield* CompanionCore;
+    return {
+      NotificationsReport: ({ report }) =>
+        Effect.gen(function* () {
+          notifications.report(report);
+          // The phone companion reads the desktop's open canvas and its rings
+          // where it runs, in the core (`companion/backend.ts`): main says
+          // what the window said. A report the core missed costs the phone a
+          // guess, never the window's notifications, so the call still answers.
+          yield* companion.CompanionDesktopReport({ report }).pipe(
+            Effect.catchCause((cause) => Effect.sync(() => console.error("[companion] the desktop report did not reach the core:", cause))),
+          );
+        }),
+      NotificationsTest: () => Effect.promise(() => notifications.test()),
+      NotificationsDelivery: () => Effect.sync(() => notifications.delivery()),
+      // A fixed system URL, never one the window supplies.
+      NotificationsOpenSystemSettings: () =>
+        process.platform === "darwin"
+          ? Effect.promise(() => shell.openExternal(MAC_NOTIFICATION_SETTINGS_URL)).pipe(Effect.as(true))
+          : Effect.succeed(false),
+      NotificationsEvents: () =>
+        Stream.callback<NotifyWindowEvent>((queue) =>
+          Effect.acquireRelease(
+            Effect.sync(() => notifications.told((event) => Queue.offerUnsafe(queue, event))),
+            (off) => Effect.sync(off),
+          ),
+        ),
+    };
+  }),
+);

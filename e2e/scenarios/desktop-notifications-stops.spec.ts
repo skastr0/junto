@@ -14,9 +14,7 @@
  */
 import { Schema } from "effect";
 import { encodeAgentSeatStatus } from "../../src/shared/agent-seat-state";
-import { defaultNotifications } from "../../src/shared/settings";
 import { initialSnapshot, reduceSeatSignals, topNeed, type SeatSignal, type SignalSource } from "../../src/shared/harness-domain";
-import { notifyNeed } from "../../src/shared/need-surfaces";
 import { BindingId } from "../../src/shared/terminal-session-domain";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
@@ -148,33 +146,30 @@ test("stops post as Stopped, and a dialog replaces a stop", async () => {
 
 test("a declared block then a dialog on one seat posts once", async () => {
   test.setTimeout(120_000);
-  const junto = await launchJunto({});
+  const now = Date.now();
+  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture(nodes, []) } });
   try {
     const { page, app } = junto;
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator(".react-flow__node", { hasText: "Cedar" })).toBeVisible({ timeout: 60_000 });
     await minimise(app);
     await watchBanners(app);
 
-    const report = (key: string, need: ReturnType<typeof notifyNeed>, text: string) =>
-      page.evaluate(
-        ({ key, need, text, prefs }) =>
-          window.junto?.notificationsReport?.({
-            canvasName: "main",
-            subjects: [{ key, ...need!, canvasName: "main", nodeId: "maple", seatName: "Maple", text }],
-            badge: 1,
-            prefs,
-          }),
-        { key, need: notifyNeed("seat_blocked") === undefined ? undefined : need, text, prefs: defaultNotifications() },
-      );
-    expect((await report("signal:maple", notifyNeed("seat_blocked"), "needs a new staging password"))?.ok).toBe(true);
+    // Cedar declares a block, as `junto signal blocked` does.
+    await sendSeatEvents(app, [
+      seatEvent("dialog", "idle", now, {
+        status: statusOf("dialog", now, [
+          ["transcript", { _tag: "SeatReported", kind: "blocked", signalId: "block-1", state: "open", text: "needs a new staging password" }],
+        ]),
+      }),
+    ]);
     await expect.poll(async () => (await banners(app)).length, { timeout: 15_000 }).toBe(1);
 
-    expect((await report("attention:maple:1", notifyNeed("dialog"), "Allow Bash to run npm test?"))?.ok).toBe(true);
+    await sendSeatEvents(app, [seatEvent("dialog", "attention", now + 1, { reason: "Allow Bash to run npm test?" })]);
     await page.waitForTimeout(4_000);
     const all = await banners(app);
     console.log("block then dialog", JSON.stringify(all));
     expect(all).toHaveLength(1);
-    expect(all[0]).toMatchObject({ title: "Maple", subtitle: "Blocked" });
+    expect(all[0]).toMatchObject({ title: "Cedar", subtitle: "Blocked" });
   } finally {
     await junto.close();
   }

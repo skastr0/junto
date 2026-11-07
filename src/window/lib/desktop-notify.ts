@@ -15,6 +15,8 @@ import { notificationSettings } from "@shared/settings";
 import type { PreambleEvent } from "@shared/preamble";
 import { activateNodeSurface } from "./activate-node-surface";
 import { agentSeat$, presentationForSeat, seatDoneAt, seatStatusForBinding } from "./agent-seat-state";
+import { NotificationsWindow } from "../../contract/window/notifications";
+import { follow, useWindowRuntime, useWindowService } from "../rpc/runtime";
 import { getJuntoApi } from "./junto-api";
 import { useOperatorFeed } from "./operator-feed";
 import { openOperatorModal } from "./operator-modal";
@@ -288,20 +290,30 @@ const failureOf = (event: unknown): { readonly bindingId: string; readonly failu
 
 /** Mount once: report needs to main, open clicked banners, play their cues. */
 export const useDesktopNotifications = (): void => {
+  const runtime = useWindowRuntime();
+  const notifications = useWindowService(NotificationsWindow);
   const report = useNotifyReport();
   const key = report ? reportKey(report) : "";
 
   useEffect(() => {
     if (!report) return;
-    void getJuntoApi()?.notificationsReport?.(report).catch(() => undefined);
+    void runtime.runPromise(notifications.NotificationsReport({ report })).catch(() => undefined);
     // The key is the report's content; a new object with the same content is no news.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
+  // A clicked banner opens its target; a silent banner plays its cue.
+  useEffect(
+    () =>
+      follow(runtime, notifications.NotificationsEvents(), (event) => {
+        if (event._tag === "Activate") openNotifyTarget(event.target);
+        else playNotificationCue(event.cue);
+      }),
+    [runtime, notifications],
+  );
+
   useEffect(() => {
     const api = getJuntoApi();
-    const offActivate = api?.onNotificationActivate?.(openNotifyTarget);
-    const offCue = api?.onNotificationCue?.(({ cue }) => playNotificationCue(cue));
     const offPreamble = api?.onPreamble?.((event: PreambleEvent) => {
       const own = (event.provenance ?? "agent") === "agent" && (event.action ?? "say") === "say";
       if (own && event.text.trim()) lastSaid$.set({ ...lastSaid$.peek(), [event.nodeId]: event.text.trim() });
@@ -318,8 +330,6 @@ export const useDesktopNotifications = (): void => {
       }
     });
     return () => {
-      offActivate?.();
-      offCue?.();
       offPreamble?.();
       offTerminal();
     };

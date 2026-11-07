@@ -8,7 +8,9 @@
 import { use$ } from "@legendapp/state/react";
 import { useEffect, useState } from "react";
 import { notificationSettings, type NotificationPatch } from "@shared/settings";
+import { NotificationsWindow } from "../../../contract/window/notifications";
 import { getJuntoApi } from "../../lib/junto-api";
+import { useWindowRuntime, useWindowService } from "../../rpc/runtime";
 import { patchSettings } from "../../lib/settings-state";
 import { state$ } from "../../lib/state";
 import { Button, Switch } from "../ui";
@@ -79,12 +81,13 @@ export function NotificationSettingsSection() {
   const prefs = use$(() => notificationSettings(state$.settings.get()));
   const [test, setTest] = useState<TestState>({ phase: "idle" });
   const [delivery, setDelivery] = useState<Delivery>("unknown");
-  const api = getJuntoApi();
-  const mac = api?.platform === "darwin";
+  const runtime = useWindowRuntime();
+  const notifications = useWindowService(NotificationsWindow);
+  const mac = getJuntoApi()?.platform === "darwin";
 
   const readDelivery = (): void => {
-    void api
-      ?.notificationsDelivery?.()
+    void runtime
+      .runPromise(notifications.NotificationsDelivery())
       .then((status) => setDelivery(status.state))
       .catch(() => undefined);
   };
@@ -93,13 +96,9 @@ export function NotificationSettingsSection() {
   useEffect(readDelivery, []);
 
   const sendTest = async (): Promise<void> => {
-    if (!api?.notificationsTest) {
-      setTest({ phase: "failed", message: "This build cannot show notifications." });
-      return;
-    }
     setTest({ phase: "sending" });
-    const result = await api
-      .notificationsTest()
+    const result = await runtime
+      .runPromise(notifications.NotificationsTest())
       .catch(() => ({ ok: false, message: "The notification could not be shown." }));
     setTest({
       phase: result.ok ? "sent" : "failed",
@@ -159,8 +158,8 @@ export function NotificationSettingsSection() {
           <p className="m-0 max-w-[52ch] text-body-lg leading-body text-ink">
             macOS is not showing Junto's notifications, so none of the above reaches you yet.
           </p>
-          {mac && api?.notificationsOpenSystemSettings ? (
-            <Button variant="chrome" size="sm" onClick={() => void api.notificationsOpenSystemSettings?.()}>
+          {mac ? (
+            <Button variant="chrome" size="sm" onClick={() => void runtime.runPromise(notifications.NotificationsOpenSystemSettings())}>
               Open Notification settings
             </Button>
           ) : null}

@@ -92,6 +92,8 @@ describe("renderer canvas authoring IPC", () => {
         host: { quiesceForInstall: async () => undefined, relaunchWithoutInstall: () => undefined },
         provider: {} as never,
       },
+      // Main's notifications are served on a link nothing here opens.
+      notifications: {} as never,
     });
 
     for (const name of ["list-canvases", "read-canvas", "write-canvas", "canvas-overseer-set", "create-canvas", "delete-canvas"]) {
