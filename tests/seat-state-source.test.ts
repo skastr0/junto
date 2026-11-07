@@ -20,11 +20,7 @@ import {
   type SeatStateFeed,
 } from "../src/core/automation/seat-state-source";
 import {
-  onRemoteSeatFeed,
-  publishRemoteSeatState,
-  remoteSeatLinkLost,
-  remoteSeatStateFeeds,
-  resetRemoteSeatState,
+  makeRemoteSeatState,
   type RemoteSeatFeed,
 } from "../src/core/term/remote-seat-state";
 
@@ -38,6 +34,8 @@ const ev = (bindingId: string, epoch: string, state: AgentSeatState, at: number)
   confidence: "high",
   at,
 });
+
+const makeState = makeRemoteSeatState;
 
 /** Let every fiber run until nothing is left to do at this instant. */
 const settle = Effect.forEach(Array.from({ length: 40 }), () => Effect.yieldNow, { discard: true });
@@ -377,8 +375,8 @@ describe("seat-state source: the seats link's feed", () => {
     let listener: ((feed: RemoteSeatFeed) => void) | undefined;
     let unsubscribed = false;
     const remote = {
-      current: () => [{ machine: REMOTE, event: ev("seat-r", "e1", "idle", 0) }],
-      subscribe: (next: (feed: RemoteSeatFeed) => void) => {
+      feeds: () => [{ machine: REMOTE, event: ev("seat-r", "e1", "idle", 0) }],
+      onFeed: (next: (feed: RemoteSeatFeed) => void) => {
         listener = next;
         return () => {
           unsubscribed = true;
@@ -400,8 +398,8 @@ describe("seat-state source: the seats link's feed", () => {
     let listener: ((feed: RemoteSeatFeed) => void) | undefined;
     let wall = 0;
     const remote = {
-      current: () => [],
-      subscribe: (next: (feed: RemoteSeatFeed) => void) => {
+      feeds: () => [],
+      onFeed: (next: (feed: RemoteSeatFeed) => void) => {
         listener = next;
         return () => {};
       },
@@ -439,8 +437,8 @@ describe("seat-state source: the seats link's feed", () => {
   it("stamps a remote seed and state with this machine's clock when heard", async () => {
     let listener: ((feed: RemoteSeatFeed) => void) | undefined;
     const remote = {
-      current: () => [{ machine: REMOTE, event: ev("seat-r", "e1", "idle", 900_000) }],
-      subscribe: (next: (feed: RemoteSeatFeed) => void) => {
+      feeds: () => [{ machine: REMOTE, event: ev("seat-r", "e1", "idle", 900_000) }],
+      onFeed: (next: (feed: RemoteSeatFeed) => void) => {
         listener = next;
         return () => {};
       },
@@ -460,18 +458,17 @@ describe("seat-state source: the seats link's feed", () => {
   });
 
   it("a remote state names its machine only when the link says which", () => {
-    resetRemoteSeatState();
+    const state = makeState();
     const heard: RemoteSeatFeed[] = [];
-    const stop = onRemoteSeatFeed((feed) => heard.push(feed));
-    publishRemoteSeatState(ev("seat-r", "e1", "idle", 1), REMOTE);
-    publishRemoteSeatState(ev("seat-x", "e1", "idle", 2));
-    remoteSeatLinkLost(REMOTE);
+    const stop = state.onFeed((feed) => heard.push(feed));
+    state.publish(ev("seat-r", "e1", "idle", 1), REMOTE);
+    state.publish(ev("seat-x", "e1", "idle", 2));
+    state.linkLost(REMOTE);
     stop();
     expect(heard.map((f) => (f._tag === "Lost" ? `lost ${f.machine}` : `${f.machine} ${f.event.bindingId}`))).toEqual([
       "inst-remote seat-r",
       "lost inst-remote",
     ]);
-    expect(remoteSeatStateFeeds().map(({ machine, event }) => `${machine} ${event.bindingId}`)).toEqual(["inst-remote seat-r"]);
-    resetRemoteSeatState();
+    expect(state.feeds().map(({ machine, event }) => `${machine} ${event.bindingId}`)).toEqual(["inst-remote seat-r"]);
   });
 });

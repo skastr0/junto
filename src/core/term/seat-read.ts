@@ -6,17 +6,17 @@
  * own terminal.read never becomes a Read; only the owner socket calls here.
  */
 import { randomUUID } from "node:crypto";
-import { Effect, Schema } from "effect";
-import { MachineName } from "@shared/machine-control";
+import { Effect } from "effect";
 import { CanvasName, NodeId, type NodeOf } from "@shared/model";
 import { clampReadLines } from "@shared/seat-control";
 import { HostsService } from "../hosts/service";
+import { linkClient } from "../link/contract";
 import { MachineLink } from "../link/service";
 import { ModelService } from "../model/service";
 import { termPlane, type TermPlane } from "./plane";
 import { NotASeat, SeatNotFound } from "./seat-control";
-import { readLocalWindow, type SeatGrid, SeatsReadWindow } from "./seat-read-window";
-import { unwrapSeatsFailure } from "./seats-failure";
+import { readLocalWindow, type SeatGrid } from "./seat-read-window";
+import { SeatsLink } from "./seats-contract";
 
 export type SeatReadOptions = {
   readonly plane?: Pick<TermPlane, "router" | "host">;
@@ -53,13 +53,11 @@ export const readSeatWindow = Effect.fn("SeatRead.command")(function* (input: {
       if (host === undefined) return yield* Effect.fail(new Error("This seat's machine is unavailable."));
       const link = yield* MachineLink;
       yield* link.connect(host);
-      const answer = yield* link.request(seat.host, "seats", {
-        _tag: "Read", canvas: input.canvas, seatId: input.seatId,
+      const seats = yield* linkClient(SeatsLink);
+      const decoded = yield* seats.Read(seat.host, {
+        canvas: input.canvas, seatId: input.seatId,
         ...(input.lines === undefined ? {} : { lines: clampReadLines(input.lines) }),
-      }, { operationId: input.operationId ?? randomUUID() }).pipe(Effect.mapError(unwrapSeatsFailure));
-      const decoded = yield* Schema.decodeUnknownEffect(Schema.Union([SeatsReadWindow, Schema.Struct({
-        _tag: Schema.Literal("Vacant"), canvas: CanvasName, seatId: NodeId, machine: MachineName,
-      })]))(answer, { onExcessProperty: "error" });
+      }, { operationId: input.operationId ?? randomUUID() });
       if (decoded.canvas !== input.canvas || decoded.seatId !== input.seatId)
         return yield* Effect.fail(new Error("The machine answered for another seat."));
       return decoded._tag === "Vacant" ? undefined : decoded;

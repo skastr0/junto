@@ -13,17 +13,23 @@
  */
 import { randomBytes } from "node:crypto";
 import { Effect } from "effect";
+import { asCanvasName, type CanvasName, type NodeId } from "@shared/model";
 import { isThisMachine } from "@shared/machine-name";
 import { seatExitMessage } from "@shared/spawn-failure";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import { coreRunner } from "../core-runner";
 import { HostsService } from "../hosts/service";
+import { linkClient } from "../link/contract";
 import { MachineLink } from "../link/service";
 import type { LinkEventContext } from "../link/types";
 import { MachineRepository } from "../machines/repository";
 import { ModelService } from "../model/service";
 import { BoatWake } from "../boat/plane";
-import { unwrapSeatsFailure } from "./seats-failure";
+import { SeatsGet, SeatsLink, SeatsStarted, SeatsVacant } from "./seats-contract";
+import {
+  SeatsAck, SeatsAttach, SeatsAttached, SeatsCacheAnswer, SeatsCacheAnswered, SeatsDetach, SeatsDetached,
+  SeatsHold, SeatsHeld, SeatsInput, SeatsResize, SeatsResized, SeatsWritten,
+} from "./seat-attach";
 import { liveOperatorHolds, type OperatorHolds } from "./operator-holds";
 import type { AttachOk, AttachResult } from "./router";
 import type { ControlLease, LocalHostEvent } from "./local-host";
@@ -34,7 +40,7 @@ import {
 
 /** A seat on a canvas this machine edits, run by another machine. */
 export type LinkedSeat = {
-  readonly machine: string; readonly canvas: string; readonly seatId: string; readonly harness?: string;
+  readonly machine: string; readonly canvas: CanvasName; readonly seatId: NodeId; readonly harness?: string;
 };
 /** The auto cache mode's question, as a seat's machine asked it on a view here. */
 export type SeatViewQuestion = {
@@ -50,11 +56,26 @@ export type SeatViewQuestion = {
 /** Why a view's lease ended without its window releasing it. */
 export type SeatViewLeaseEnd = { readonly leaseId: string; readonly bindingId: string; readonly reason: "replaced" | "admission-lost" | "link-closed" | "generation-changed" };
 
+/** A seats request this transport sends: the contract's tag beside its payload. */
+export type SeatViewRequest =
+  | (typeof SeatsGet.Type & { readonly _tag: "Get" })
+  | (typeof SeatsAttach.Type & { readonly _tag: "Attach" })
+  | (typeof SeatsInput.Type & { readonly _tag: "Input" })
+  | (typeof SeatsResize.Type & { readonly _tag: "Resize" })
+  | (typeof SeatsDetach.Type & { readonly _tag: "Detach" })
+  | (typeof SeatsHold.Type & { readonly _tag: "Hold" })
+  | (typeof SeatsCacheAnswer.Type & { readonly _tag: "CacheAnswer" });
+/** What those requests answer, as the contract's success schemas decode them. */
+export type SeatViewResponse =
+  | typeof SeatsStarted.Type | typeof SeatsVacant.Type | typeof SeatsAttached.Type
+  | typeof SeatsWritten.Type | typeof SeatsResized.Type | typeof SeatsDetached.Type
+  | typeof SeatsHeld.Type | typeof SeatsCacheAnswered.Type;
+
 export type SeatViewTransport = {
   readonly locate: (bindingId: string) => Promise<LinkedSeat | undefined>;
   /** A seats-channel request to the seat's machine; rejects with its typed failure. */
-  readonly request: (machine: string, payload: unknown, operationId: string) => Promise<unknown>;
-  readonly sendEvent: (machine: string, payload: unknown) => Promise<void>;
+  readonly request: (machine: string, payload: SeatViewRequest, operationId: string) => Promise<SeatViewResponse>;
+  readonly sendEvent: (machine: string, payload: typeof SeatsAck.Type) => Promise<void>;
 };
 
 type View = {
@@ -216,8 +237,8 @@ export const makeSeatViews = (
       try {
         for (const part of chunkUnits(data)) {
           const answer = await transport.request(view.machine, { _tag: "Input", handle: view.handle, data: part },
-            randomBytes(16).toString("hex")) as { readonly accepted?: boolean };
-          if (answer.accepted !== true) { written = false; break; }
+            randomBytes(16).toString("hex"));
+          if (answer._tag !== "Written" || answer.accepted !== true) { written = false; break; }
         }
       } catch (cause) {
         written = false;
@@ -243,8 +264,8 @@ export const makeSeatViews = (
       let resized = false;
       try {
         const answer = await transport.request(view.machine, { _tag: "Resize", handle: view.handle, cols, rows },
-          randomBytes(16).toString("hex")) as { readonly accepted?: boolean };
-        resized = answer.accepted === true;
+          randomBytes(16).toString("hex"));
+        resized = answer._tag === "Resized" && answer.accepted === true;
       } catch (cause) {
         if (tagOf(cause) === "SeatAttachUnknown") drop(view);
         log("seat view resize refused", { machine: view.machine, failure: tagOf(cause) });
@@ -295,9 +316,9 @@ export const makeSeatViews = (
       if (seat === undefined) return undefined;
       const base = { bindingId, hostId: seat.machine, canvasName: seat.canvas, nodeId: seat.seatId, detached: false };
       const live = await transport.request(seat.machine, { _tag: "Get", canvas: seat.canvas, seatId: seat.seatId },
-        randomBytes(16).toString("hex")) as { readonly _tag: string; readonly generation?: string; readonly status?: "starting" | "running"; readonly createdAt?: number };
-      if (live._tag === "Started" && live.generation !== undefined && live.status !== undefined)
-        return { ...base, epoch: live.generation, status: live.status, createdAt: live.createdAt ?? Date.now() };
+        randomBytes(16).toString("hex"));
+      if (live._tag === "Started")
+        return { ...base, epoch: live.generation, status: live.status, createdAt: live.createdAt };
       const last = ended.get(bindingId);
       return last === undefined ? undefined
         : { ...base, epoch: last.epoch, status: "exited", createdAt: last.at, exitMessage: last.exitMessage };
@@ -330,13 +351,13 @@ export const makeSeatViews = (
       if (seat === undefined) return { ok: false, message: "This seat does not run on a machine this one links to." };
       const operationId = randomBytes(16).toString("hex");
       try {
-        const live = await transport.request(seat.machine, { _tag: "Get", canvas: seat.canvas, seatId: seat.seatId }, operationId) as
-          { readonly _tag: string; readonly generation?: string };
-        if (live._tag !== "Started" || live.generation === undefined)
+        const live = await transport.request(seat.machine, { _tag: "Get", canvas: seat.canvas, seatId: seat.seatId }, operationId);
+        if (live._tag !== "Started")
           return { ok: false, message: `This seat has no occupant on ${seat.machine}.` };
         const attached = await transport.request(seat.machine, { _tag: "Attach", canvas: seat.canvas, seatId: seat.seatId,
-          generation: live.generation, mode: input.mode, ...(input.takeover === true ? { takeover: true } : {}) }, operationId) as
-          { readonly handle: string; readonly generation: string; readonly cols: number; readonly rows: number; readonly status: string };
+          generation: live.generation, mode: input.mode, ...(input.takeover === true ? { takeover: true } : {}) }, operationId);
+        if (attached._tag !== "Attached")
+          return { ok: false, message: `This seat has no occupant on ${seat.machine}.` };
         const lease: ControlLease = { leaseId: `lv_${randomBytes(8).toString("hex")}`, bindingId: input.bindingId,
           epoch: attached.generation, mode: input.mode };
         const view: View = { machine: seat.machine, canvas: seat.canvas, seatId: seat.seatId, harness: seat.harness, handle: attached.handle, bindingId: input.bindingId,
@@ -449,7 +470,7 @@ export const linkSeatViewTransport = (run = coreRunner.runPromise): SeatViewTran
     for (const canvas of yield* model.listCanvases()) {
       for (const node of (yield* model.canvas(canvas)).nodes.values()) {
         if (node.kind === "agent" && node.bindingId === bindingId && !isThisMachine(node.host, self))
-          return { machine: node.host, canvas, seatId: node.id, harness: node.harness };
+          return { machine: node.host, canvas: asCanvasName(canvas), seatId: node.id, harness: node.harness };
       }
     }
     return undefined;
@@ -457,8 +478,10 @@ export const linkSeatViewTransport = (run = coreRunner.runPromise): SeatViewTran
   request: (machine, payload, operationId) => run(Effect.gen(function* () {
     const host = yield* (yield* HostsService).get(machine);
     if (host === undefined) return yield* Effect.fail(new Error("This seat's machine is unavailable."));
+    const seats = yield* linkClient(SeatsLink);
+    const options = { operationId };
     // Opening a view wakes a sleeping Boat machine; the frames after it never do.
-    if ((payload as { readonly _tag?: unknown })._tag === "Attach") {
+    if (payload._tag === "Attach") {
       const boat = yield* BoatWake;
       yield* Effect.tryPromise({
         // The core's Boat plane wakes it, where this transport runs (see seat-control.ts).
@@ -468,9 +491,20 @@ export const linkSeatViewTransport = (run = coreRunner.runPromise): SeatViewTran
     }
     const link = yield* MachineLink;
     yield* link.connect(host);
-    return yield* link.request(machine, "seats", payload, { operationId }).pipe(Effect.mapError(unwrapSeatsFailure));
+    switch (payload._tag) {
+      case "Get": return yield* seats.Get(machine, { canvas: payload.canvas, seatId: payload.seatId }, options);
+      case "Attach": return yield* seats.Attach(machine, { canvas: payload.canvas, seatId: payload.seatId,
+        generation: payload.generation, mode: payload.mode,
+        ...(payload.takeover === true ? { takeover: true } : {}) }, options);
+      case "Input": return yield* seats.Input(machine, { handle: payload.handle, data: payload.data }, options);
+      case "Resize": return yield* seats.Resize(machine, { handle: payload.handle, cols: payload.cols, rows: payload.rows }, options);
+      case "Detach": return yield* seats.Detach(machine, { handle: payload.handle }, options);
+      case "Hold": return yield* seats.Hold(machine, { handle: payload.handle, open: payload.open, typed: payload.typed }, options);
+      case "CacheAnswer": return yield* seats.CacheAnswer(machine,
+        { handle: payload.handle, question: payload.question, answer: payload.answer }, options);
+    }
   })),
-  sendEvent: (machine, payload) => run(Effect.flatMap(MachineLink, (link) => link.sendEvent(machine, "seats", payload))),
+  sendEvent: (machine, payload) => run(Effect.flatMap(linkClient(SeatsLink), (seats) => seats.sendEvent(machine, payload))),
 });
 
 /**

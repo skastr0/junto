@@ -1,20 +1,21 @@
 import { randomUUID } from "node:crypto";
-import { Effect, Schema } from "effect";
+import { Context, Effect } from "effect";
 import type { NodeOf } from "@shared/model";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import { coreRunner } from "../core-runner";
 import { HostsService } from "../hosts/service";
+import { linkClient } from "../link/contract";
 import { MachineLink } from "../link/service";
 import { ModelService } from "../model/service";
 import { ModelRecords } from "../model/records";
 import { MachineRepository } from "../machines/repository";
 import { isThisMachine } from "@shared/machine-name";
 import type { RemoteSeatProcessClient } from "./seat-process";
-import { SeatsSeatResponse } from "./seats-link";
+import { SeatsLink, SeatsSeatResponse } from "./seats-contract";
 import { fromSeatsLaunch, type RemoteSeatLaunch } from "./seats-launch";
 import { remoteSeatLaunch } from "./remote-seat-launch";
-import { remoteSeatStateEvents } from "./remote-seat-state";
-import { type SeatSpawnFailed, unwrapSeatsFailure } from "./seats-failure";
+import { RemoteSeatState } from "./remote-seat-state";
+import { type SeatSpawnFailed } from "./seats-failure";
 
 type Services = HostsService | MachineLink | ModelService;
 export type SeatsClientRunner = <A, E>(effect: Effect.Effect<A, E, Services>) => Promise<A>;
@@ -52,16 +53,16 @@ export const makeSeatsProcessClient = (
     }
     return undefined;
   });
-  const request = (payload: unknown, operationId: string | undefined) => Effect.gen(function* () {
+  /** This machine's typed seats client, once the link to the seat's machine is up. */
+  const connect = Effect.gen(function* () {
     const hosts = yield* HostsService;
     const host = yield* hosts.get(machine);
     if (host === undefined) return yield* Effect.fail(new Error("This seat's machine is unavailable."));
     const link = yield* MachineLink;
     yield* link.connect(host);
-    const response = yield* link.request(machine, "seats", payload,
-      operationId === undefined ? undefined : { operationId }).pipe(Effect.mapError(unwrapSeatsFailure));
-    return yield* Schema.decodeUnknownEffect(SeatsSeatResponse)(response, { onExcessProperty: "error" });
+    return yield* linkClient(SeatsLink);
   });
+  const options = (operationId: string | undefined) => operationId === undefined ? undefined : { operationId };
   /** A harness that never started is the same exited generation a local start returns. */
   const exited = (canvas: string, seat: NodeOf<"agent">, failure: SeatSpawnFailed): TerminalSessionSummary => ({
     bindingId: seat.bindingId, hostId: machine, canvasName: canvas, nodeId: seat.id,
@@ -83,7 +84,8 @@ export const makeSeatsProcessClient = (
     get: (bindingId, operationId) => run(Effect.gen(function* () {
       const held = yield* locate(bindingId);
       if (held === undefined) return undefined;
-      const response = yield* request({ _tag: "Get", canvas: held.canvas, seatId: held.seat.id }, operationId);
+      const seats = yield* connect;
+      const response = yield* seats.Get(machine, { canvas: held.canvas, seatId: held.seat.id }, options(operationId));
       return yield* Effect.try({ try: () => summary(held.canvas, held.seat, response), catch: asError });
     })),
     createAgentSeat: (input, operationId) => run(Effect.gen(function* () {
@@ -91,11 +93,10 @@ export const makeSeatsProcessClient = (
       if (held === undefined || held.canvas !== input.canvasName || held.seat.id !== input.nodeId ||
         held.seat.harness !== input.harness || held.seat.agentKey !== input.agentKey)
         return yield* Effect.fail(new Error("The seat changed before its machine was asked to start it."));
-      const response = yield* request({
-        _tag: input.admission === "activate" ? "Activate" : "Start",
-        canvas: held.canvas, seatId: held.seat.id,
-        ...(input.admission === "activate" ? { generation: input.expectedEpoch } : {}),
-      }, operationId).pipe(Effect.catchIf(
+      const seats = yield* connect;
+      const response = yield* (input.admission === "activate"
+        ? seats.Activate(machine, { canvas: held.canvas, seatId: held.seat.id, generation: input.expectedEpoch }, options(operationId))
+        : seats.Start(machine, { canvas: held.canvas, seatId: held.seat.id }, options(operationId))).pipe(Effect.catchIf(
         (failure): failure is SeatSpawnFailed =>
           typeof failure === "object" && failure !== null && "_tag" in failure && failure._tag === "SeatSpawnFailed" &&
           (failure as SeatSpawnFailed).machine === machine && (failure as SeatSpawnFailed).seatId === held.seat.id,
@@ -109,7 +110,8 @@ export const makeSeatsProcessClient = (
     stop: (bindingId, operationId) => run(Effect.gen(function* () {
       const held = yield* locate(bindingId);
       if (held === undefined) return false;
-      const response = yield* request({ _tag: "Stop", canvas: held.canvas, seatId: held.seat.id }, operationId);
+      const seats = yield* connect;
+      const response = yield* seats.Stop(machine, { canvas: held.canvas, seatId: held.seat.id }, options(operationId));
       if (response.canvas !== held.canvas || response.seatId !== held.seat.id || response.machine !== machine)
         return yield* Effect.fail(new Error("The machine answered for another seat."));
       return response._tag === "Stopping";
@@ -117,7 +119,8 @@ export const makeSeatsProcessClient = (
     viewed: (bindingId, generation, operationId = randomUUID()) => run(Effect.gen(function* () {
       const held = yield* locate(bindingId);
       if (held === undefined) return false;
-      const response = yield* request({ _tag: "Viewed", canvas: held.canvas, seatId: held.seat.id, generation }, operationId);
+      const seats = yield* connect;
+      const response = yield* seats.Viewed(machine, { canvas: held.canvas, seatId: held.seat.id, generation }, { operationId });
       if (response.canvas !== held.canvas || response.seatId !== held.seat.id || response.machine !== machine)
         return yield* Effect.fail(new Error("The machine answered for another seat."));
       return response._tag === "Seen" && response.changed;
@@ -129,7 +132,8 @@ export const makeSeatsProcessClient = (
     launch: (bindingId, operationId) => run(Effect.gen(function* () {
       const held = yield* locate(bindingId);
       if (held === undefined) return undefined;
-      const response = yield* request({ _tag: "Get", canvas: held.canvas, seatId: held.seat.id }, operationId);
+      const seats = yield* connect;
+      const response = yield* seats.Get(machine, { canvas: held.canvas, seatId: held.seat.id }, options(operationId));
       if (response.canvas !== held.canvas || response.seatId !== held.seat.id || response.machine !== machine)
         return yield* Effect.fail(new Error("The machine answered for another seat."));
       return response._tag === "Vacant" && response.launch !== undefined ? fromSeatsLaunch(response.launch, Date.now()) : undefined;
@@ -143,13 +147,17 @@ export const makeSeatsProcessClient = (
  * has an occupant; otherwise its machine is asked (Get) as remoteSeatLaunch
  * allows.
  */
-export const remoteSeatLaunchOf = (seat: { readonly bindingId: string; readonly host: string }): Promise<RemoteSeatLaunch | undefined> => {
-  const last = remoteSeatStateEvents().find((event) => event.bindingId === seat.bindingId);
-  return remoteSeatLaunch({
-    bindingId: seat.bindingId, machine: seat.host, live: last !== undefined && last.state !== "gone",
-    ask: () => makeSeatsProcessClient(seat.host).launch(seat.bindingId),
-  });
-};
+export const remoteSeatLaunchOf = (seat: { readonly bindingId: string; readonly host: string }): Promise<RemoteSeatLaunch | undefined> =>
+  coreRunner.runPromise(Effect.gen(function* () {
+    // The core's layer holds RemoteSeatState; a runtime without it (a bare
+    // runner) has no remembered states, so the seat's machine is asked instead.
+    const state = Context.getOrUndefined(yield* Effect.context<never>(), RemoteSeatState);
+    const last = state?.events().find((event) => event.bindingId === seat.bindingId);
+    return yield* Effect.promise(() => remoteSeatLaunch({
+      bindingId: seat.bindingId, machine: seat.host, live: last !== undefined && last.state !== "gone",
+      ask: () => makeSeatsProcessClient(seat.host).launch(seat.bindingId),
+    }));
+  }));
 
 /**
  * The machine running a seat on a canvas this machine edits, when that seat

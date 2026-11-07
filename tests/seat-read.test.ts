@@ -14,7 +14,7 @@ const testLog = makeTestLog();
 import { machineLogDir } from "../src/node/observability/log-file";
 import { readSeatWindow } from "../src/core/term/seat-read";
 import type { SeatGrid } from "../src/core/term/seat-read-window";
-import { eventually, miniSeat, twoCoreCanvas as canvas, twoCoreProcess, twoCores } from "./support/two-cores";
+import { eventually, miniSeat, seatsRequest, twoCoreCanvas as canvas, twoCoreProcess, twoCores } from "./support/two-cores";
 
 const cleanups: Array<() => Promise<void>> = [];
 let restore: () => void;
@@ -36,13 +36,13 @@ describe("seat read over the seats channel", () => {
     let shown: string[] = [];
     let generation: string | undefined;
     const cores = await twoCores({ cleanups, mini: { grid: shownGrid(() => shown, () => generation) } });
-    expect(await cores.bookEnd.request("seats", { _tag: "Read", canvas, seatId: miniSeat.id }))
+    expect(await seatsRequest(cores.bookEnd, { _tag: "Read", canvas, seatId: miniSeat.id }))
       .toMatchObject({ _tag: "Vacant", machine: "mini" });
 
-    const started = await cores.bookEnd.request("seats", { _tag: "Start", canvas, seatId: miniSeat.id }) as { generation: string };
+    const started = await seatsRequest(cores.bookEnd, { _tag: "Start", canvas, seatId: miniSeat.id }) as { generation: string };
     generation = started.generation;
     shown = ["first", "second", "third"];
-    expect(await cores.bookEnd.request("seats", { _tag: "Read", canvas, seatId: miniSeat.id, lines: 2 })).toEqual({
+    expect(await seatsRequest(cores.bookEnd, { _tag: "Read", canvas, seatId: miniSeat.id, lines: 2 })).toEqual({
       _tag: "ReadWindow", canvas, seatId: miniSeat.id, machine: "mini", generation: started.generation,
       text: "second\nthird", lines: 2, cols: 80, rows: 24, truncated: false,
     });
@@ -50,8 +50,8 @@ describe("seat read over the seats channel", () => {
 
   it("a live seat whose grid is not up is SeatReadUnavailable, with no text", async () => {
     const cores = await twoCores({ cleanups, mini: { grid: async () => undefined } });
-    await cores.bookEnd.request("seats", { _tag: "Start", canvas, seatId: miniSeat.id });
-    await expect(cores.bookEnd.request("seats", { _tag: "Read", canvas, seatId: miniSeat.id }))
+    await seatsRequest(cores.bookEnd, { _tag: "Start", canvas, seatId: miniSeat.id });
+    await expect(seatsRequest(cores.bookEnd, { _tag: "Read", canvas, seatId: miniSeat.id }))
       .rejects.toMatchObject({ detail: { _tag: "SeatReadUnavailable", machine: "mini" } });
   });
 
@@ -59,8 +59,8 @@ describe("seat read over the seats channel", () => {
     let generation: string | undefined;
     const wide = Array.from({ length: 2000 }, (_, index) => `${index}:${"y".repeat(200)}`);
     const cores = await twoCores({ cleanups, mini: { grid: shownGrid(() => wide, () => generation) } });
-    generation = (await cores.bookEnd.request("seats", { _tag: "Start", canvas, seatId: miniSeat.id }) as { generation: string }).generation;
-    const read = await cores.bookEnd.request("seats", { _tag: "Read", canvas, seatId: miniSeat.id, lines: 2000 }) as
+    generation = (await seatsRequest(cores.bookEnd, { _tag: "Start", canvas, seatId: miniSeat.id }) as { generation: string }).generation;
+    const read = await seatsRequest(cores.bookEnd, { _tag: "Read", canvas, seatId: miniSeat.id, lines: 2000 }) as
       { text: string; truncated: boolean; lines: number };
     expect(read.truncated).toBe(true);
     expect(Buffer.byteLength(read.text)).toBeLessThanOrEqual(64 * 1024);
@@ -74,8 +74,8 @@ describe("seat read over the seats channel", () => {
     let generation: string | undefined;
     const secret = "printed-secret-5c2e91";
     const cores = await twoCores({ cleanups, log: testLog.log, mini: { grid: shownGrid(() => [secret], () => generation) } });
-    generation = (await cores.bookEnd.request("seats", { _tag: "Start", canvas, seatId: miniSeat.id }) as { generation: string }).generation;
-    expect(await cores.bookEnd.request("seats", { _tag: "Read", canvas, seatId: miniSeat.id }, "read-op-1"))
+    generation = (await seatsRequest(cores.bookEnd, { _tag: "Start", canvas, seatId: miniSeat.id }) as { generation: string }).generation;
+    expect(await seatsRequest(cores.bookEnd, { _tag: "Read", canvas, seatId: miniSeat.id }, "read-op-1"))
       .toMatchObject({ text: secret });
     const file = join(machineLogDir(home), "core.jsonl");
     let log = "";
@@ -93,7 +93,7 @@ describe("the owner's seat read", () => {
   it("reads a seat on this machine from its own grid, and over the link for a seat on another", async () => {
     let generation: string | undefined;
     const cores = await twoCores({ cleanups, mini: { grid: shownGrid(() => ["on the mini"], () => generation) } });
-    generation = (await cores.bookEnd.request("seats", { _tag: "Start", canvas, seatId: miniSeat.id }) as { generation: string }).generation;
+    generation = (await seatsRequest(cores.bookEnd, { _tag: "Start", canvas, seatId: miniSeat.id }) as { generation: string }).generation;
     // The mini's own owner reads its seat here: no link.
     const local = await cores.mini.runtime.runPromise(readSeatWindow({ canvas, seatId: miniSeat.id }, {
       plane: { router: { isLocalHostId: (host: string) => host === "mini" } as never, host: cores.mini.host },

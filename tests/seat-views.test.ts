@@ -11,12 +11,12 @@ import { CHUNK_UNITS } from "../src/core/term/seat-attach";
 import { TerminalRouter } from "../src/core/term/router";
 import { seatExitMessage } from "../src/shared/spawn-failure";
 import { unwrapSeatsFailure } from "../src/core/term/seats-failure";
-import { linkSeatViewTransport, makeSeatViews, type SeatViews } from "../src/core/term/seat-views";
+import { linkSeatViewTransport, makeSeatViews, type SeatViewResponse, type SeatViews } from "../src/core/term/seat-views";
 import { Effect } from "effect";
 import { LinkBuildMismatch } from "../src/core/link/types";
 import { MachineLink } from "../src/core/link/service";
 import { HostsService } from "../src/core/hosts/service";
-import { eventually, miniSeat, twoCoreCanvas as canvas, twoCoreProcess, twoCores } from "./support/two-cores";
+import { eventually, miniSeat, seatsRequest, twoCoreCanvas as canvas, twoCoreProcess, twoCores } from "./support/two-cores";
 
 const cleanups: Array<() => Promise<void>> = [];
 let restore: () => void;
@@ -33,8 +33,11 @@ const bookWindow = async () => {
   views = makeSeatViews({
     locate: async (bindingId) => bindingId === miniSeat.bindingId
       ? { machine: "mini", canvas, seatId: miniSeat.id, harness: miniSeat.harness } : undefined,
-    request: (_machine, payload, operationId) =>
-      cores.bookEnd.request("seats", payload, operationId).catch((cause: unknown) => { throw unwrapSeatsFailure(cause); }),
+    request: async (_machine, payload, operationId) => {
+      try {
+        return await seatsRequest(cores.bookEnd, payload, operationId) as SeatViewResponse;
+      } catch (cause) { throw unwrapSeatsFailure(cause); }
+    },
     sendEvent: (_machine, payload) => cores.bookEnd.sendEvent("seats", payload),
   });
   const router = new TerminalRouter(cores.book.host);
@@ -42,7 +45,7 @@ const bookWindow = async () => {
   cleanups.push(async () => { router.setSeatViews(undefined); router.beginShutdown(); });
   const sent: LocalHostEvent[] = [];
   router.on("event", (event: LocalHostEvent) => sent.push(event));
-  await cores.bookEnd.request("seats", { _tag: "Start", canvas, seatId: miniSeat.id });
+  await seatsRequest(cores.bookEnd, { _tag: "Start", canvas, seatId: miniSeat.id });
   const shown = () => sent.flatMap((event) => event.type === "output" && event.bindingId === miniSeat.bindingId ? [event.data] : []).join("");
   return { ...cores, router, sent, shown };
 };
@@ -181,10 +184,11 @@ describe("a seat's machine that breaks the stream's bounds", () => {
     const views = makeSeatViews({
       locate: async () => ({ machine: "mini", canvas, seatId: miniSeat.id }),
       request: async (_machine, payload) => {
-        const sent = payload as { readonly _tag: string };
-        requests.push(sent);
-        if (sent._tag === "Get") return { _tag: "Started", generation: "g1" };
-        if (sent._tag === "Attach") return { _tag: "Attached", handle: "h".repeat(22), generation: "g1", cols: 80, rows: 24, status: "running" };
+        requests.push(payload);
+        if (payload._tag === "Get") return { _tag: "Started", canvas, seatId: miniSeat.id, machine: "mini",
+          handle: "g1", generation: "g1", createdAt: 0, status: "running" };
+        if (payload._tag === "Attach") return { _tag: "Attached", canvas, seatId: miniSeat.id, machine: "mini",
+          generation: "g1", handle: "h".repeat(22), mode: payload.mode, cols: 80, rows: 24, status: "running" };
         return { _tag: "Detached", handle: "h".repeat(22) };
       },
       sendEvent: async () => undefined,
