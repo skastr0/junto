@@ -14,9 +14,14 @@ case "$(uname -m)" in
   *) printf 'junto: error: Linux v1 packages require an x64 execution process\n' >&2; exit 1 ;;
 esac
 VERIFY=0
+REPLACE=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --verify) VERIFY=1 ;;
+    # A local rebuild (build-app.sh --fast): this attempt's own names replace
+    # the previous build's. The release lane never passes it, so it keeps the
+    # no-clobber publication below.
+    --replace) REPLACE=1 ;;
     *) printf 'junto: error: unsupported Linux package option: %s\n' "$1" >&2; exit 1 ;;
   esac
   shift
@@ -88,6 +93,15 @@ AUDIT_RECEIPT="$ATTEMPT_DIR/$(basename "$DRAFT_ARTIFACT").audit.json"
 bun "$SCRIPT_DIR/audit-linux-package.ts" --runtime "$DRAFT_ARTIFACT" \
   --receipt "$AUDIT_RECEIPT" >/dev/null
 
+if [[ "$REPLACE" -eq 1 ]]; then
+  for draft in "$ATTEMPT_DIR"/*; do
+    previous="$RELEASE_DIR/$(basename "$draft")"
+    if [[ -e "$previous" || -L "$previous" ]]; then
+      printf 'junto: replacing the previous local build output %s\n' "$(basename "$draft")" >&2
+      rm -rf -- "$previous"
+    fi
+  done
+fi
 # No-clobber publication rejects every existing destination, including dangling
 # symlinks. The EXIT trap can only clean this attempt directory.
 bun "$SCRIPT_DIR/finalize-linux-package.ts" publish-attempt \

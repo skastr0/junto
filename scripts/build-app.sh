@@ -177,7 +177,11 @@ args=()
 [[ "$VERIFY" -eq 1 ]] && args+=(--verify)
 [[ "$NOTARIZE" -eq 1 ]] && args+=(--notarize)
 [[ "$SIGN" -eq 1 ]] && args+=(--sign)
+# A fast local build may run again in the same checkout: its Linux outputs
+# replace the last ones instead of tripping the release lane's no-clobber check.
+linux_args=("${args[@]+"${args[@]}"}")
+[[ "$FAST" -eq 1 ]] && linux_args+=(--replace)
 case "$TARGET" in
   mac) exec bash "$SCRIPT_DIR/package-app-macos.sh" "${args[@]+"${args[@]}"}" ;;
-  linux) exec bash "$SCRIPT_DIR/package-app-linux.sh" "${args[@]+"${args[@]}"}" ;;
+  linux) exec bash "$SCRIPT_DIR/package-app-linux.sh" "${linux_args[@]+"${linux_args[@]}"}" ;;
 esac
