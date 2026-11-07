@@ -1,7 +1,14 @@
-import { MessageChannelMain, utilityProcess, type MessagePortMain, type UtilityProcess } from "electron";
+import { join } from "node:path";
+import { app, MessageChannelMain, utilityProcess, type MessagePortMain, type UtilityProcess } from "electron";
 import { Effect, Option, Schema } from "effect";
-import terminalEntryPath from "../../terminal/entry?modulePath";
 import { TERMINAL_CONNECT, TerminalInbound } from "../../contract/terminal/protocol";
+
+/**
+ * The terminal process's entry, a declared entry of the build beside the
+ * core's (`terminal-process`), found the way the core's is
+ * (`core-process/host.ts`): main imports no other program's code to fork it.
+ */
+const terminalEntry = (): string => join(app.getAppPath(), "out", "main", "terminal-process.js");
 
 /** How long a stopping terminal process has to report its exit before it is killed again. */
 const STOP_DEADLINE_MS = 10_000;
@@ -55,7 +62,7 @@ export const startTerminalProcessForCore = (): TerminalProcessForCore => {
   const restarted = new Set<() => void>();
 
   const fork = (): UtilityProcess => {
-    const forked = utilityProcess.fork(terminalEntryPath, [], { serviceName: "Junto Terminals", stdio: "inherit" });
+    const forked = utilityProcess.fork(terminalEntry(), [], { serviceName: "Junto Terminals", stdio: "inherit" });
     startedAt = Date.now();
     forked.once("exit", () => {
       gone.add(forked);
