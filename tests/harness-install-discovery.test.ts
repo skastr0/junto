@@ -141,3 +141,45 @@ describe("shared asynchronous harness discovery", () => {
     expect(resolveHarnessExecutable("codex", options)).toBeUndefined();
   });
 });
+
+describe("an E2E run's install probe", () => {
+  // Only the sandbox counts in an E2E run: the temp roots are pinned so the
+  // scratch dirs are outside it unless named in JUNTO_E2E_SANDBOX_PATH.
+  const e2e = (env: Readonly<Record<string, string>> = {}) => {
+    vi.stubEnv("JUNTO_E2E", "1");
+    vi.stubEnv("TMPDIR", "");
+    vi.stubEnv("TMP", "");
+    vi.stubEnv("TEMP", "");
+    for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
+  };
+
+  it("counts a real CLI outside the sandbox as not installed", async () => {
+    const outside = join(scratch(), "usr-local-bin");
+    binary(outside, "codex");
+    e2e();
+    expect(await installed({ pathEnv: outside, home: scratch(), extraDirs: [] })).toBe(false);
+  });
+
+  it("finds it when the spec opts in by name", async () => {
+    const outside = join(scratch(), "usr-local-bin");
+    binary(outside, "codex");
+    e2e({ JUNTO_REAL_CODEX_SOCKET: "1" });
+    expect(await installed({ pathEnv: outside, home: scratch(), extraDirs: [] })).toBe(true);
+  });
+
+  it("passes over the real CLI to the sandbox's own copy later on the path", async () => {
+    const outside = join(scratch(), "usr-local-bin");
+    const sandbox = join(scratch(), "sandbox-bin");
+    binary(outside, "codex");
+    const own = binary(sandbox, "codex");
+    e2e({ JUNTO_E2E_SANDBOX_PATH: sandbox });
+    const rows = await probeManagedHarnessInstalls({ pathEnv: `${outside}:${sandbox}`, home: scratch(), extraDirs: [] });
+    expect(rows.find((row) => row.harness === "codex")).toMatchObject({ installed: true, executable: own });
+  });
+
+  it("admits every candidate outside an E2E run", async () => {
+    const outside = join(scratch(), "usr-local-bin");
+    binary(outside, "codex");
+    expect(await installed({ pathEnv: outside, home: scratch(), extraDirs: [] })).toBe(true);
+  });
+});

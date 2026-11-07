@@ -9,7 +9,7 @@
 import { execFile, spawnSync } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { access, readdir } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -28,6 +28,16 @@ import type { ManagedTerminalFlagsResult } from "@shared/ipc";
 import { configuredToolDirectories } from "../../shell-environment";
 import { shellEnvironment } from "../../shell-environment";
 import { juntoCliPathPrefixes } from "./seat-env";
+import { e2eHarnessRefusal } from "@shared/e2e-sandbox";
+
+/**
+ * In an E2E run a harness outside the sandbox is not installed, unless the
+ * spec opts in by name: the launch would refuse it (local-host.ts), so the
+ * probe says what the operator's machine with no such CLI says. Outside E2E
+ * every candidate is admitted.
+ */
+export const e2eSandboxAdmits = (harness: string, file: string): boolean =>
+  e2eHarnessRefusal({ env: process.env, harness, file, realHome: userInfo().homedir }) === undefined;
 
 const execFileAsync = promisify(execFile);
 
@@ -222,7 +232,7 @@ export const harnessLaunchFlags = async (
   const template = templateFor(harness);
   const spec = template.argvSpec;
   const executable = resolveHarnessExecutable(spec.binary);
-  if (!executable) return { installed: false, flags: [] };
+  if (!executable || !e2eSandboxAdmits(harness, executable)) return { installed: false, flags: [] };
   const subcommand = spec.prefix.filter((token) => !token.startsWith("-"));
   const searchPath = harnessSearchPath();
   let help = helpTextOf(executable, searchPath, subcommand);
@@ -301,9 +311,12 @@ export const harnessBinaryInstalled = (
   harness: HarnessId,
   binary: string,
   options?: HarnessExecutableResolution,
-): boolean => resolveHarnessExecutable(binary, isOverseerHarness(harness) ? {
-  ...options, extraDirs: [...juntoCliPathPrefixes(), ...(options?.extraDirs ?? configuredToolDirectories())],
-} : options) !== undefined;
+): boolean => {
+  const executable = resolveHarnessExecutable(binary, isOverseerHarness(harness) ? {
+    ...options, extraDirs: [...juntoCliPathPrefixes(), ...(options?.extraDirs ?? configuredToolDirectories())],
+  } : options);
+  return executable !== undefined && e2eSandboxAdmits(harness, executable);
+};
 
 const probeOne = (template: ManagedTerminalTemplate, installed: boolean): HarnessInstallProbe => {
   const binary = template.argvSpec.binary;
@@ -369,6 +382,7 @@ const discoverManagedHarnessInstalls = async (
       try { await access(candidate, constants.X_OK); }
       catch { continue; }
       if (SHIM_ROOT.test(dir) && !await shimRunsLiveAsync(candidate, pathEnv)) continue;
+      if (!e2eSandboxAdmits(template.harness, candidate)) continue;
       return { ...probeOne(template, true), executable: candidate };
     }
     return probeOne(template, false);

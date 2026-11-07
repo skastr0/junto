@@ -117,6 +117,7 @@ import {
 } from "./managed-spawn-plan";
 import { buildSpawnEnv, scrubSpawnEnv } from "./templates/resolve-launch";
 import {
+  e2eSandboxAdmits,
   resolveHarnessExecutable,
   supportedHostProbedFlags,
 } from "./templates/harness-install";
@@ -910,9 +911,17 @@ export const resolveLaunch = (
     // A region PATH is the seat's whole search: a harness it leaves out is not
     // found elsewhere on the machine (a version manager's copy included).
     const regionPath = options?.regionEnv?.PATH !== undefined;
-    const resolvedFile = resolveHarnessExecutable(fileTarget, regionPath
+    const found = resolveHarnessExecutable(fileTarget, regionPath
       ? { pathEnv: env.PATH ?? "", pathOnly: true }
       : { pathEnv: env.PATH ?? process.env.PATH, extraDirs: configuredToolDirectories() });
+    // In an E2E run a bare harness name found only outside the sandbox (a real
+    // CLI in /usr/local/bin) is not installed, as on a machine without it; an
+    // explicit path is still refused by name below (src/shared/e2e-sandbox.ts).
+    const resolvedFile =
+      found !== undefined && fileTarget === file && !isAbsolute(file) &&
+      !e2eSandboxAdmits(seat.harness, found)
+        ? undefined
+        : found;
     // A bare name that fails resolution must not spawn anyway: the child
     // would re-walk PATH itself and a dead shim Junto already rejected could
     // still win there. An absolute/path target that exists yet fails

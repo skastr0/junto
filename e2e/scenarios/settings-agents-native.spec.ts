@@ -17,6 +17,9 @@ const REAL_CLAUDE = join(process.env.HOME ?? "", ".local", "bin", "claude");
 
 const seeded = {
   seedHarnessInstalls: ["amp", "hermes"] as const,
+  // The card reads the real claude's version: opt in by name, or the E2E
+  // sandbox counts a CLI outside it as not installed (src/shared/e2e-sandbox.ts).
+  extraEnv: { JUNTO_REAL_CLAUDE_SOCKET: "1" },
   claudeModelCache: [
     { value: "claude-opus-4-6", label: "Opus 4.6" },
     { value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
