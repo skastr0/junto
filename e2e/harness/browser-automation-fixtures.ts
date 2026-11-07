@@ -30,6 +30,6 @@ export const browserPageNode = (input: {
   readonly y?: number;
 }) => modelNode({
   kind: "page", id: input.id, url: input.url, profile: input.profile,
-  host: THIS_MACHINE, onRemove: "kill-session",
+  onRemove: "kill-session",
   x: input.x ?? 300, y: input.y ?? 0, width: 240, height: 80, z: 0,
 });
