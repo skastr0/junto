@@ -135,6 +135,17 @@ export const bundleMachineCore = async (outdir: string, input: {
       // nothing, and its host reads on main as before (mail-read-host.ts).
       builder.onResolve({filter: /\?nodeWorker$/}, () => ({path: "none", namespace: "no-worker"}));
       builder.onLoad({filter: /.*/, namespace: "no-worker"}, () => ({contents: "export default undefined;", loader: "js"}));
+      // effect's ConfigProvider.fromEnv spreads `import.meta?.env`, which Bun keeps
+      // as text in a cjs bundle, and Node refuses the whole file at parse time.
+      // A cjs core has no import.meta, so the spread reads nothing: drop it here.
+      // Defining import.meta.env leaves the text, and defining import.meta breaks
+      // Bun's createRequire shim, so the rewrite stays on this one file.
+      builder.onLoad({filter: /[\\/]node_modules[\\/]effect[\\/]dist[\\/]ConfigProvider\.js$/}, async ({path}) => {
+        const source = await readFile(path, "utf8");
+        const contents = source.replace("...import.meta?.env", "...undefined");
+        if (source.split("...import.meta?.env").length !== 2) throw new Error(`${path} no longer spreads import.meta?.env alone; revisit the core bundle's ConfigProvider rewrite`);
+        return {contents, loader: "js"};
+      });
     }}],
   }).catch((error: unknown) => { throw MachineBundleBuildFailed.from(error); });
   if (!result.success) throw MachineBundleBuildFailed.from(new AggregateError(result.logs, "Bundle failed"));
