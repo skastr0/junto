@@ -73,17 +73,20 @@ test("a work stoppage and the seat it holds up are feed rows, counted, and show 
     await expect(page.getByTestId("needs-you-inbox")).toHaveCount(0);
     await expect(trigger).toHaveAttribute("aria-expanded", "true");
     await expect(modal.locator(".operator-feed__status")).toHaveText("2 waiting");
+    // A card in the list. The selected item's detail pane carries the same
+    // item id, so a bare [data-item-id] matches twice for whichever is first.
+    const card = (itemId: string): Locator => modal.locator(`[data-testid='operator-feed-card'][data-item-id='${itemId}']`);
     const regionOf = (itemId: string): Locator =>
       modal.locator(".operator-feed__region", { has: page.locator(`[data-item-id='${itemId}']`) });
 
     // The stoppage: the task sink whose claimed task waits on the operator.
-    const stoppage = modal.locator("[data-item-id='stoppage:board']");
+    const stoppage = card("stoppage:board");
     await expect(stoppage).toHaveAttribute("data-kind", "blocked");
     await expect(stoppage).toContainText("holding up 1 other");
     await expect(regionOf("stoppage:board").locator(".operator-feed__region-label")).toHaveText("Ops");
 
     // The held node: the seat that work stops, in its region.
-    const held = modal.locator("[data-item-id='held:atlas']");
+    const held = card("held:atlas");
     await expect(held).toHaveAttribute("data-kind", "blocked");
     await expect(held.locator(".operator-feed__kind")).toHaveText("blocked");
     await expect(held).toContainText("waiting on blocked work upstream");
@@ -104,12 +107,12 @@ test("a work stoppage and the seat it holds up are feed rows, counted, and show 
     ];
     const expectTrueTimes = async (): Promise<void> => {
       for (const [id, at] of began) {
-        const row = modal.locator(`[data-item-id='${id}'] time`);
+        const row = card(id).locator("time");
         // The tooltip layer may have moved the title into its own attribute.
         const said = await row.evaluate((time) => time.getAttribute("title") ?? time.getAttribute("data-junto-tooltip"));
         expect(said).toBe(await page.evaluate((ms) => new Date(ms).toLocaleString(), at));
       }
-      await expect(modal.locator("[data-item-id='stoppage:board'] time")).toHaveText(/^4[78]m$/);
+      await expect(card("stoppage:board").locator("time")).toHaveText(/^4[78]m$/);
     };
     await trigger.click();
     await expectTrueTimes();
