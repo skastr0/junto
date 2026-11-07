@@ -20,6 +20,14 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const VITEST = join(ROOT, "node_modules", ".bin", "vitest");
 const LANES = ["shared", "isolated", "alone"] as const;
 type LaneName = (typeof LANES)[number];
+/**
+ * Every lane's per-test timeout. It catches a test that hangs, and is not a
+ * speed bound: a test that asserts speed says so in its own body. Vitest's
+ * 5 s default failed behaviour tests that drive real children and PTYs on a
+ * loaded shared machine (a 4 MB PTY flood took 7.2 s at load average 203),
+ * so the lanes set it here, once, rather than each file raising its own.
+ */
+const LANE_TEST_TIMEOUT_MS = 30_000;
 const laneFlag = process.argv.slice(2).find((arg) => arg.startsWith("--lane="));
 const extra = process.argv.slice(2).filter((arg) => arg !== laneFlag);
 const only = laneFlag?.slice("--lane=".length);
@@ -62,7 +70,7 @@ const run = (
   const started = Date.now();
   const result = spawnSync(
     VITEST,
-    ["run", isolate ? "--isolate" : "--no-isolate", ...flags, ...files, ...extra],
+    ["run", isolate ? "--isolate" : "--no-isolate", `--testTimeout=${LANE_TEST_TIMEOUT_MS}`, ...flags, ...files, ...extra],
     {
       cwd: ROOT,
       stdio: "inherit",
