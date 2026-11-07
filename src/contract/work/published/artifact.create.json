@@ -1,0 +1,167 @@
+{
+  "op": "artifact.create",
+  "payload": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "opId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "artifactId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "node": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "The Artifacts node: its id, its name, or a junto:// ref"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "link",
+            "document",
+            "pad",
+            "sheet",
+            "file"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "body": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "markdown": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "markdown"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "url"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "body": {}
+              },
+              "required": [
+                "body"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "taskIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          }
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [
+        "opId",
+        "artifactId",
+        "type",
+        "title"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  },
+  "success": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "disposition": {
+              "type": "string",
+              "enum": [
+                "applied"
+              ]
+            },
+            "opId": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "artifactId": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "disposition",
+            "opId",
+            "artifactId",
+            "version"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "disposition": {
+              "type": "string",
+              "enum": [
+                "queued"
+              ]
+            },
+            "opId": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "artifactId": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "disposition",
+            "opId",
+            "artifactId"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "definitions": {}
+  }
+}

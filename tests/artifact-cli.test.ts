@@ -62,12 +62,29 @@ const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 const ID = "01M5ESMQ2ZT55QZ073EWPH10SG";
 const OP = "01M5ESM1XHCJ7JYJDBC37MREBZ";
 
+/** What main answers each verb, in the shape its contract reads. */
+const answerOf = (op: unknown, args: Record<string, unknown>): unknown => {
+  switch (op) {
+    case "artifact.list":
+      return { artifacts: [], more: false };
+    case "artifact.history":
+      return { artifactId: args.artifact, versions: [], more: false };
+    case "artifact.colour":
+      return { disposition: "applied", opId: args.opId, nodeId: "shelf", label: args.label, colour: args.colour };
+    case "artifact.comment":
+      return { disposition: "applied", opId: args.opId, threadId: OP, messageId: OP, notified: [] };
+    default:
+      return { disposition: "applied", opId: args.opId, artifactId: args.artifactId ?? args.artifact, version: 1 };
+  }
+};
+
 /** Runs one CLI call against a socket that answers ok and records the request. */
 const sent = async (args: ReadonlyArray<string>) => {
   let observed: Record<string, unknown> | undefined;
   const workHome = await startFakeWorkSocket((request) => {
     observed = request;
-    return { ok: true, op: request.op, protocol_version: WORK_PROTOCOL_VERSION, data: { disposition: "applied" } };
+    const data = answerOf(request.op, request.args as Record<string, unknown>);
+    return { ok: true, op: request.op, protocol_version: WORK_PROTOCOL_VERSION, data };
   });
   const result = await runCli(args, workHome);
   return { result, op: observed?.op, args: observed?.args as Record<string, unknown> | undefined };

@@ -1,21 +1,22 @@
 import { Argument, Command, Flag } from "effect/cli";
 import { Effect, Option, Schema } from "effect";
+import type { Rpc } from "effect/rpc";
 import {
   AutomationHistoryArgs,
   AutomationListArgs,
   AutomationShowArgs,
-  type AutomationReadOp,
 } from "../../shared/automation-control";
+import { AutomationHistory, AutomationList, AutomationShow } from "../../contract/work/skill";
 import type {
   CommandCapability,
   CommandExample,
   CommandSchemaContract,
 } from "../core/discovery";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
-import type { InputError } from "../core/errors";
+import type { AuthError, InputError, RuntimeDown, WireError } from "../core/errors";
 import { loadJsonInput } from "../core/json";
 import { executeJsonCommand } from "../core/output";
-import { WorkSocket } from "../core/socket";
+import { type WorkSocket, callWorkRpc } from "../core/socket";
 
 /**
  * `junto automation` (plan 07): list, show and history over the Automations
@@ -33,12 +34,6 @@ const timeoutOption = Flag.Int("timeout").pipe(
   Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
 );
 
-const call = (op: AutomationReadOp, args: unknown, timeout: Option.Option<number>) =>
-  Effect.gen(function* () {
-    const socket = yield* WorkSocket;
-    return yield* socket.call(op, args, Option.getOrUndefined(timeout));
-  });
-
 /** Automations are kept on the machine that edits the canvas, so a read anywhere else is refused. */
 const ON_EDITOR = " Answered only on the machine that edits the canvas; elsewhere it is refused not_available, naming that machine.";
 
@@ -50,25 +45,44 @@ const DESCRIPTIONS = {
 
 type Verb = keyof typeof DESCRIPTIONS;
 
-/** One read as main answers it; a refusal comes back as main's error, next_step included. */
-export const automationRead = (verb: Verb, schema: Schema.Top, input: string, timeout: Option.Option<number>) =>
-  Effect.gen(function* () {
-    // Each schema here decodes without services; Schema.Top does not say so.
-    const args: unknown = yield* (loadJsonInput(schema, input) as Effect.Effect<unknown, InputError>);
-    return yield* call(`automation.${verb}`, args, timeout);
-  });
+/** One verb's call: its input decoded by the op's own arguments, then sent. */
+const readWith = <R extends typeof AutomationList | typeof AutomationShow | typeof AutomationHistory>(
+  rpc: R,
+  input: string,
+  timeout: Option.Option<number>,
+) =>
+  Effect.flatMap(loadJsonInput(rpc.payloadSchema, input), (args) =>
+    callWorkRpc(rpc, args as Rpc.Payload<R>, Option.getOrUndefined(timeout)));
 
-const read = (verb: Verb, schema: Schema.Top, input: string, timeout: Option.Option<number>) =>
-  executeJsonCommand(`automation ${verb}`, automationRead(verb, schema, input, timeout));
+type AutomationReadAnswer = Rpc.Success<typeof AutomationList> | Rpc.Success<typeof AutomationShow> | Rpc.Success<typeof AutomationHistory>;
+
+/** One read as main answers it; a refusal comes back as main's error, next_step included. */
+export const automationRead = (
+  verb: Verb,
+  input: string,
+  timeout: Option.Option<number>,
+): Effect.Effect<AutomationReadAnswer, InputError | RuntimeDown | AuthError | WireError, WorkSocket> => {
+  switch (verb) {
+    case "list":
+      return readWith(AutomationList, input, timeout);
+    case "show":
+      return readWith(AutomationShow, input, timeout);
+    case "history":
+      return readWith(AutomationHistory, input, timeout);
+  }
+};
+
+const read = (verb: Verb, input: string, timeout: Option.Option<number>) =>
+  executeJsonCommand(`automation ${verb}`, automationRead(verb, input, timeout));
 
 const listCommand = Command.make(
   "list",
   { input: inputArg.pipe(Argument.optional), timeout: timeoutOption },
-  ({ input, timeout }) => read("list", AutomationListArgs, Option.getOrElse(input, () => "{}"), timeout),
+  ({ input, timeout }) => read("list", Option.getOrElse(input, () => "{}"), timeout),
 ).pipe(Command.withDescription(DESCRIPTIONS.list));
 
-const readCommand = (verb: "show" | "history", schema: Schema.Top) =>
-  Command.make(verb, { input: inputArg, timeout: timeoutOption }, ({ input, timeout }) => read(verb, schema, input, timeout)).pipe(
+const readCommand = (verb: "show" | "history") =>
+  Command.make(verb, { input: inputArg, timeout: timeoutOption }, ({ input, timeout }) => read(verb, input, timeout)).pipe(
     Command.withDescription(DESCRIPTIONS[verb]),
   );
 
@@ -78,8 +92,8 @@ export const automationCommand = Command.make("automation").pipe(
   ),
   Command.withSubcommands([
     listCommand,
-    readCommand("show", AutomationShowArgs),
-    readCommand("history", AutomationHistoryArgs),
+    readCommand("show"),
+    readCommand("history"),
   ]),
 );
 

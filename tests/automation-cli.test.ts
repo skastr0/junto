@@ -7,7 +7,7 @@ import { Effect, Option, Result, Schema } from "effect";
 import { AUTOMATION_READ_OPS, AUTOMATION_WRITE_OPS } from "../src/shared/automation-control";
 import { decodeOverseerArgs } from "../src/shared/overseer-control";
 import { allExamples, allSchemas, commandCapabilities, renderSchemaContract } from "../src/cli/core/discovery";
-import { AUTOMATION_READ_SCHEMAS, automationExamples, automationRead, automationSchemas } from "../src/cli/commands/automation";
+import { automationExamples, automationRead, automationSchemas } from "../src/cli/commands/automation";
 import { WireError } from "../src/cli/core/errors";
 import { renderFailureEnvelope } from "../src/cli/core/output";
 import { WorkSocket } from "../src/cli/core/socket";
@@ -81,7 +81,7 @@ describe("junto automation reads off the editing machine", () => {
   it("print main's not_available refusal with its next_step, for list, show and history", () => {
     for (const verb of ["list", "show", "history"] as const) {
       const input = JSON.stringify(automationExamples.find((example) => example.command_id === `automation.${verb}`)!.input);
-      const exit = Effect.runSyncExit(automationRead(verb, AUTOMATION_READ_SCHEMAS[verb], input, Option.none()).pipe(
+      const exit = Effect.runSyncExit(automationRead(verb, input, Option.none()).pipe(
         Effect.provideService(WorkSocket, socket),
       ));
       if (exit._tag !== "Failure") throw new Error(`${verb} succeeded`);

@@ -1,15 +1,11 @@
 import { createHash } from "node:crypto";
 import { open } from "node:fs/promises";
-import { Effect, Result, Schema } from "effect";
+import { Effect } from "effect";
 import type { ContentRef } from "../../shared/content";
-import {
-  CONTENT_STAGE_PIECE_BYTES,
-  ContentStageResult,
-  type ContentStageArgs,
-} from "../../shared/content-stage";
-import type { WorkOpName } from "../../shared/work-control";
+import { CONTENT_STAGE_PIECE_BYTES, type ContentStageArgs } from "../../shared/content-stage";
+import { ContentStage } from "../../contract/work/skill";
 import { AuthError, InputError, RuntimeDown, WireError } from "./errors";
-import { WorkSocket } from "./socket";
+import { WorkSocket, callWorkRpc } from "./socket";
 
 /**
  * Put one file of this seat's into the content store and answer the
@@ -23,8 +19,6 @@ import { WorkSocket } from "./socket";
  * The digest is taken as the pieces are read and sent with the last one,
  * so main refuses a file that did not arrive as it left.
  */
-const CONTENT_STAGE_OP: WorkOpName = "content.stage";
-
 export type StageFileInput = {
   readonly mediaType: string;
   readonly displayName?: string;
@@ -37,8 +31,6 @@ const unreadable = (path: string) =>
     path,
     hint: "check that the path names a file this process may read",
   });
-
-const decodeResult = Schema.decodeUnknownResult(ContentStageResult);
 
 /**
  * Send pieces until one comes back short of a full piece, which closes the
@@ -53,21 +45,7 @@ const stagePieces = <E>(
   WorkSocket
 > =>
   Effect.gen(function* () {
-    const socket = yield* WorkSocket;
-    const call = (args: ContentStageArgs) =>
-      socket.call(CONTENT_STAGE_OP, args, input.timeoutMs).pipe(
-        Effect.flatMap((data) => {
-          const decoded = decodeResult(data);
-          return Result.isSuccess(decoded)
-            ? Effect.succeed(decoded.success)
-            : Effect.fail(
-                new WireError({
-                  type: "ProtocolError",
-                  message: "content.stage answered in a form this CLI does not know",
-                }),
-              );
-        }),
-      );
+    const call = (args: ContentStageArgs) => callWorkRpc(ContentStage, args, input.timeoutMs);
 
     const digest = createHash("sha256");
     let byteLength = 0;

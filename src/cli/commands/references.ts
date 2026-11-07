@@ -1,6 +1,6 @@
 import { Argument, Command, Flag } from "effect/cli";
-import { Effect, Option, Schema } from "effect";
-import type { WorkOpName } from "../../shared/work-control";
+import { Option, Schema } from "effect";
+import { ReferencesList, ReferencesRead } from "../../contract/work/skill";
 import type {
   CommandCapability,
   CommandExample,
@@ -8,7 +8,7 @@ import type {
 } from "../core/discovery";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
 import { executeJsonCommand } from "../core/output";
-import { WorkSocket } from "../core/socket";
+import { callWorkRpc } from "../core/socket";
 
 /**
  * `junto references list` and `junto references read <name>`: the operator's
@@ -16,9 +16,6 @@ import { WorkSocket } from "../core/socket";
  * contains the seat. `junto onboard` names them; nothing sends them. The name
  * is a plain argument, not JSON. The seat is the calling process.
  */
-const LIST_OP = "references.list" as WorkOpName;
-const READ_OP = "references.read" as WorkOpName;
-
 const timeoutOption = Flag.Int("timeout").pipe(
   Flag.optional,
   Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
@@ -29,14 +26,8 @@ const LIST_DESCRIPTION =
 const READ_DESCRIPTION =
   "Read one reference by name. When a region and the app both have the name, the innermost region's is returned. The body is as written; beside it, mentions lists each junto:// link it makes, once, in order: {label, ref, kind (seat, task, artifact, page, node or missing), id, title?, reachable}.";
 
-const call = (op: WorkOpName, args: unknown, timeout: Option.Option<number>) =>
-  Effect.gen(function* () {
-    const socket = yield* WorkSocket;
-    return yield* socket.call(op, args, Option.isSome(timeout) ? timeout.value : undefined);
-  });
-
 const referencesListCommand = Command.make("list", { timeout: timeoutOption }, ({ timeout }) =>
-  executeJsonCommand("references list", call(LIST_OP, {}, timeout)),
+  executeJsonCommand("references list", callWorkRpc(ReferencesList, {}, Option.getOrUndefined(timeout))),
 ).pipe(Command.withDescription(LIST_DESCRIPTION));
 
 const referencesReadCommand = Command.make(
@@ -47,7 +38,7 @@ const referencesReadCommand = Command.make(
     ),
     timeout: timeoutOption,
   },
-  ({ name, timeout }) => executeJsonCommand("references read", call(READ_OP, { name }, timeout)),
+  ({ name, timeout }) => executeJsonCommand("references read", callWorkRpc(ReferencesRead, { name }, Option.getOrUndefined(timeout))),
 ).pipe(Command.withDescription(READ_DESCRIPTION));
 
 export const referencesCommand = Command.make("references").pipe(

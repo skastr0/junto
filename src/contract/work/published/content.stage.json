@@ -1,0 +1,131 @@
+{
+  "op": "content.stage",
+  "payload": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "stageId": {
+          "type": "string"
+        },
+        "bytesBase64": {
+          "type": "string",
+          "maxLength": 5592408
+        },
+        "done": {
+          "type": "object",
+          "properties": {
+            "mediaType": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "displayName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "expected": {
+              "type": "object",
+              "properties": {
+                "sha256": {
+                  "type": "string"
+                },
+                "byteLength": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "sha256",
+                "byteLength"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "mediaType"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "definitions": {}
+  },
+  "success": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "stageId": {
+              "type": "string"
+            },
+            "byteLength": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          },
+          "required": [
+            "stageId",
+            "byteLength"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ref": {
+              "type": "object",
+              "properties": {
+                "sha256": {
+                  "type": "string"
+                },
+                "byteLength": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "mediaType": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                },
+                "displayName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                }
+              },
+              "required": [
+                "sha256",
+                "byteLength",
+                "mediaType"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ref"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "definitions": {}
+  }
+}

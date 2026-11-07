@@ -1,5 +1,6 @@
 import { Argument, Command, Flag } from "effect/cli";
 import { Effect, Option, Schema } from "effect";
+import type { Rpc } from "effect/rpc";
 import { ARTIFACT_TYPES } from "../../shared/artifact";
 import { ARTIFACT_LABEL_COLOURS } from "../../shared/artifact-labels";
 import {
@@ -10,6 +11,18 @@ import {
   isArtifactWriteOp,
 } from "../../shared/artifact-control";
 import { mintItemId } from "../../shared/resource-command";
+import {
+  ArtifactArchive,
+  ArtifactColour,
+  ArtifactComment,
+  ArtifactCreate,
+  ArtifactEdit,
+  ArtifactHistory,
+  ArtifactLabelOp,
+  ArtifactList,
+  ArtifactRestore,
+  ArtifactShow,
+} from "../../contract/work/skill";
 import type {
   CommandCapability,
   CommandExample,
@@ -19,7 +32,7 @@ import { DEFAULT_TIMEOUT_MS } from "../core/constants";
 import { InputError } from "../core/errors";
 import { opIdFlag, opIdOf } from "../core/op-id";
 import { executeJsonCommand } from "../core/output";
-import { WorkSocket } from "../core/socket";
+import { callWorkRpc } from "../core/socket";
 
 /**
  * `junto artifact` (plan 05): list, show, history, create, edit, label,
@@ -37,11 +50,27 @@ const timeoutFlag = Flag.Int("timeout").pipe(
 
 const artifactArg = Argument.String("artifact").pipe(Argument.withDescription("The artifact's id, as list printed it"));
 
-const call = (op: ArtifactControlOp, args: unknown, timeout: Option.Option<number>) =>
-  Effect.gen(function* () {
-    const socket = yield* WorkSocket;
-    return yield* socket.call(op, args, Option.getOrUndefined(timeout));
-  });
+/** Each verb's op in the work contract. */
+const RPCS = {
+  "artifact.list": ArtifactList,
+  "artifact.show": ArtifactShow,
+  "artifact.history": ArtifactHistory,
+  "artifact.create": ArtifactCreate,
+  "artifact.edit": ArtifactEdit,
+  "artifact.label": ArtifactLabelOp,
+  "artifact.colour": ArtifactColour,
+  "artifact.comment": ArtifactComment,
+  "artifact.archive": ArtifactArchive,
+  "artifact.restore": ArtifactRestore,
+} as const satisfies { readonly [Op in ArtifactControlOp]: { readonly _tag: Op } };
+
+type ArtifactRpc = (typeof RPCS)[ArtifactControlOp];
+
+/** The args as the op's schema reads them, refused in the words main refused them in before the CLI decoded them. */
+const decodeArgs = <R extends ArtifactRpc>(rpc: R, named: Record<string, unknown>) =>
+  Schema.decodeUnknownEffect(rpc.payloadSchema as unknown as Schema.Codec<Rpc.Payload<R>>, { onExcessProperty: "error" })(named).pipe(
+    Effect.mapError((error) => new InputError({ message: error.message, path: "args", hint: "junto schema show shows this command's input" })),
+  );
 
 /** One verb's call: the args it names, with an opId when it writes. */
 const run = (
@@ -55,7 +84,8 @@ const run = (
     Effect.gen(function* () {
       const named = yield* args;
       const written = isArtifactWriteOp(op) ? { opId: yield* opIdOf(opId), ...named } : named;
-      return yield* call(op, written, timeout);
+      const rpc: ArtifactRpc = RPCS[op];
+      return yield* callWorkRpc(rpc, yield* decodeArgs(rpc, written), Option.getOrUndefined(timeout));
     }),
   );
 
