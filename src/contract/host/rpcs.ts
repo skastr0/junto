@@ -6,5 +6,7 @@
  */
 import { RpcGroup } from "effect/rpc";
 import { ClipboardHostRpcs } from "./clipboard";
+import { OverseerPagesHostRpcs } from "./overseer-pages";
+import { WindowHostRpcs } from "./window";
 
-export const HostRpcs = RpcGroup.make().merge(ClipboardHostRpcs);
+export const HostRpcs = RpcGroup.make().merge(ClipboardHostRpcs, OverseerPagesHostRpcs, WindowHostRpcs);

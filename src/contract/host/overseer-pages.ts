@@ -16,8 +16,9 @@
  * `src/app/browser/sessions.ts`, which this program may not load: the
  * handlers and the core's callers fail to compile when the two drift.
  */
-import { Schema } from "effect";
-import { Rpc, RpcGroup } from "effect/rpc";
+import { Context, Layer, Schema } from "effect";
+import { Rpc, RpcGroup, type RpcClient, type RpcClientError } from "effect/rpc";
+import { hostClient } from "./link";
 import { BROWSER_SESSION_STATES } from "../../shared/browser";
 import { ResolvedPageTarget } from "../core/browser";
 
@@ -93,3 +94,11 @@ export const OverseerPagesHostRpcs = RpcGroup.make(
   Rpc.make("OverseerPagesBeginDelete", { payload: Fence, success: Schema.Void }),
   Rpc.make("OverseerPagesFinishDelete", { payload: Fence, success: Schema.Void }),
 ).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+
+/** The core's client of the overseer pages group. */
+export class OverseerPagesHost extends Context.Service<
+  OverseerPagesHost,
+  RpcClient.FromGroup<typeof OverseerPagesHostRpcs, RpcClientError.RpcClientError>
+>()("@junto/contract/OverseerPagesHost") {
+  static readonly layer = Layer.effect(OverseerPagesHost, hostClient(OverseerPagesHostRpcs));
+}

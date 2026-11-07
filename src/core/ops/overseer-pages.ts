@@ -1,18 +1,21 @@
 /**
  * The overseer in the core: main holds the browser and the window, so each
- * page operation is a host call, and an open keeps its recheck here under a
- * call id main asks back before the page commits
- * (src/contract/core/overseer-pages.ts).
+ * page operation is a call on main's host groups (src/contract/host/), and an
+ * open keeps its recheck here under a call id main asks back before the page
+ * commits (src/contract/core/overseer-pages.ts). A call the overseer abandons
+ * is interrupted, and main aborts the page work it started for it.
  *
  * The call ids and the rechecks in flight belong to one core: its entry makes
  * one `OverseerPageFlights`, hands it to the host pages it composes and
  * provides it to the server that answers the recheck.
  */
 import { Context, Effect } from "effect";
+import type { RpcClientError } from "effect/rpc";
 import type { PageTargetResult } from "../browser/page-target";
 import type { ApplicationCaptureResult } from "../overseer/native";
 import type { OverseerPages } from "../../node/overseer/pages";
-import type { HostClient } from "../host-ops";
+import { OverseerPagesHost } from "../../contract/host/overseer-pages";
+import { WindowHost } from "../../contract/host/window";
 import { OverseerPagesRpcs } from "../../contract/core/overseer-pages";
 
 type Recheck = () => Promise<PageTargetResult>;
@@ -66,25 +69,42 @@ export const OverseerPagesHandlers = OverseerPagesRpcs.toLayer(
   }),
 );
 
-/** Keeps `signal` with main for the call's life: an abort here aborts main's side by the same id. */
-const signalled = async <A>(
-  host: HostClient,
-  flights: OverseerPageFlights["Service"],
+/** Runs a host call on the core's runtime; an abort of `signal` interrupts the call, and main aborts its side. */
+export type HostRun = <A, E>(
+  effect: Effect.Effect<A, E, OverseerPagesHost | WindowHost>,
+  options?: { readonly signal?: AbortSignal },
+) => Promise<A>;
+
+type Pages = OverseerPagesHost["Service"];
+
+const onPages = <A>(run: HostRun, use: (pages: Pages) => Effect.Effect<A, RpcClientError.RpcClientError>): Promise<A> =>
+  run(
+    Effect.gen(function* () {
+      return yield* use(yield* OverseerPagesHost);
+    }),
+  );
+
+/**
+ * A call that waits on a page. The overseer's caller gave it a signal; once
+ * that aborts, the call is interrupted, main aborts the page work, and the
+ * answer is `cancelled` as data, as the browser answers its own cancelled work.
+ */
+const waiting = async <A>(
+  run: HostRun,
+  kind: string,
   signal: AbortSignal,
-  call: (callId: number) => Promise<A>,
-): Promise<A> => {
-  const callId = flights.nextCallId();
-  const abort = (): void => {
-    void host.call("overseer.pages.abort", { callId }).catch(() => undefined);
-  };
-  // The call goes out first, so main holds its flight before any abort for it arrives.
-  const answer = call(callId);
-  if (signal.aborted) abort();
-  else signal.addEventListener("abort", abort, { once: true });
+  use: (pages: Pages) => Effect.Effect<A, RpcClientError.RpcClientError>,
+): Promise<A | { readonly ok: false; readonly code: "cancelled"; readonly message: string }> => {
   try {
-    return await answer;
-  } finally {
-    signal.removeEventListener("abort", abort);
+    return await run(
+      Effect.gen(function* () {
+        return yield* use(yield* OverseerPagesHost);
+      }),
+      { signal },
+    );
+  } catch (error) {
+    if (signal.aborted) return { ok: false, code: "cancelled", message: `${kind} cancelled` };
+    throw error;
   }
 };
 
@@ -92,31 +112,44 @@ const sent = (call: Promise<void>): void => {
   void call.catch((error: unknown) => console.error("[overseer] page fence not delivered:", error));
 };
 
-/** The core's side: the overseer's pages, each one a host call to main, its call ids from this core's flights. */
-export const hostOverseerPages = (host: HostClient, flights: OverseerPageFlights["Service"]): OverseerPages => ({
-  sessionsForRef: (ref) => host.call("overseer.pages.sessionsForRef", { ref }),
-  deleteSessionsForRef: (ref) => host.call("overseer.pages.deleteSessionsForRef", { ref }),
-  state: (owner, sessionId) => host.call("overseer.pages.state", { owner, sessionId }),
-  open: (input, recheck, signal) =>
-    signalled(host, flights, signal, async (callId) => {
-      const release = flights.hold(callId, recheck);
-      try {
-        return await host.call("overseer.pages.open", { callId, ...input });
-      } finally {
-        release();
-      }
-    }),
-  goto: (owner, sessionId, url) => host.call("overseer.pages.goto", { owner, sessionId, url }),
-  eval: (owner, sessionId, code, signal) =>
-    signalled(host, flights, signal, (callId) => host.call("overseer.pages.eval", { callId, owner, sessionId, code })),
-  screenshot: (owner, sessionId, signal) =>
-    signalled(host, flights, signal, (callId) => host.call("overseer.pages.screenshot", { callId, owner, sessionId })),
-  close: (owner, sessionId) => host.call("overseer.pages.close", { owner, sessionId }),
-  stop: (owner, sessionId) => host.call("overseer.pages.stop", { owner, sessionId }),
-  beginDelete: (ref, leaseId) => sent(host.call("overseer.pages.beginDelete", { ref, leaseId })),
-  finishDelete: (ref, leaseId) => sent(host.call("overseer.pages.finishDelete", { ref, leaseId })),
+/** The core's side: the overseer's pages, each one a call to main, its call ids from this core's flights. */
+export const hostOverseerPages = (run: HostRun, flights: OverseerPageFlights["Service"]): OverseerPages => ({
+  sessionsForRef: (ref) => onPages(run, (pages) => pages.OverseerPagesSessionsForRef({ ref })),
+  deleteSessionsForRef: (ref) => onPages(run, (pages) => pages.OverseerPagesDeleteSessionsForRef({ ref })),
+  state: (owner, sessionId) => onPages(run, (pages) => pages.OverseerPagesState({ owner, sessionId })),
+  open: async (input, recheck, signal) => {
+    const callId = flights.nextCallId();
+    const release = flights.hold(callId, recheck);
+    try {
+      return await waiting(run, "open", signal, (pages) => pages.OverseerPagesOpen({ callId, ...input }));
+    } finally {
+      release();
+    }
+  },
+  goto: (owner, sessionId, url) => onPages(run, (pages) => pages.OverseerPagesGoto({ owner, sessionId, url })),
+  eval: (owner, sessionId, code, signal) => waiting(run, "eval", signal, (pages) => pages.OverseerPagesEval({ owner, sessionId, code })),
+  screenshot: (owner, sessionId, signal) => waiting(run, "screenshot", signal, (pages) => pages.OverseerPagesScreenshot({ owner, sessionId })),
+  close: (owner, sessionId) => onPages(run, (pages) => pages.OverseerPagesClose({ owner, sessionId })),
+  stop: (owner, sessionId) => onPages(run, (pages) => pages.OverseerPagesStop({ owner, sessionId })),
+  beginDelete: (ref, leaseId) => sent(onPages(run, (pages) => pages.OverseerPagesBeginDelete({ ref, leaseId }))),
+  finishDelete: (ref, leaseId) => sent(onPages(run, (pages) => pages.OverseerPagesFinishDelete({ ref, leaseId }))),
 });
 
 /** The core's side: the window's pixels, asked of main. */
-export const hostCaptureApplicationPage = (host: HostClient) => (): Promise<ApplicationCaptureResult> =>
-  host.call("window.capturePage", {});
+export const hostCaptureApplicationPage = (run: HostRun) => (): Promise<ApplicationCaptureResult> =>
+  run(
+    Effect.gen(function* () {
+      return yield* (yield* WindowHost).WindowCapturePage();
+    }),
+  );
+
+/**
+ * What the core's entry hands the core to compose its overseer: the host
+ * pages and the window capture, given the runner of the core's own runtime.
+ */
+export const hostOverseer =
+  (flights: OverseerPageFlights["Service"]) =>
+  (run: HostRun) => ({
+    captureApplicationPage: hostCaptureApplicationPage(run),
+    pages: hostOverseerPages(run, flights),
+  });

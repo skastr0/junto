@@ -23,8 +23,8 @@ import { HostClientsLive } from "./host-clients";
 import { runCoreOp, serveCore, type CoreRunner } from "./serve";
 import { closeCoreProcess, stopCoreOnSignal } from "./core-stop";
 import { CorePushes, publish, sendPushesTo } from "./push";
-import { host, useHostClient } from "./core-host";
-import { hostCaptureApplicationPage, hostOverseerPages, OverseerPageFlights } from "./ops/overseer-pages";
+import { useHostClient } from "./core-host";
+import { hostOverseer, OverseerPageFlights } from "./ops/overseer-pages";
 import { AGENT_SIGNAL_CHANGED, COMPANION_DEVICES } from "../contract/core/channels";
 import { publishWindowBroadcasts } from "./ops/main-index";
 import { companionE2eEnvironment, readCompanionEnvironment } from "./companion/service";
@@ -118,7 +118,7 @@ const main = async (parent: ParentPort): Promise<void> => {
     host: HostClientsLive.pipe(Layer.provide(Layer.succeed(HostLink, parentCorePort(parent)))),
     canvasControl: true,
     windowTerminals: { parent },
-    overseer: { captureApplicationPage: hostCaptureApplicationPage(host), pages: hostOverseerPages(host, pageFlights) },
+    overseer: hostOverseer(pageFlights),
     onPreamble: broadcasts.onPreamble,
     overseerLive: LIVE_OVERSEER_ENABLED,
     operator: { listen: boot.operatorCommands ? "always" : "on-demand", commands: boot.operatorCommands },

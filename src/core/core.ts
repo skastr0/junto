@@ -50,6 +50,7 @@ import { composeOverseer, type OverseerComposition } from "./overseer/compositio
 import { composeOverseerLive } from "./overseer/live/composition";
 import type { ApplicationCaptureResult } from "./overseer/native";
 import type { OverseerPages } from "../node/overseer/pages";
+import type { HostRun } from "./ops/overseer-pages";
 import type { PreambleEvent } from "@shared/preamble";
 import { OPERATOR_COMPANION_OPS, OPERATOR_PROTOCOL_VERSION, type OperatorRequestEnvelope, type OperatorResponseEnvelope } from "@shared/operator-control";
 import { AuthorityOwnerControl } from "./hosts/authority-owner";
@@ -66,7 +67,7 @@ export type CoreOptions = Omit<MachineCoreOptions, "ready" | "log"> & {
   /** The desktop core also serves canvas edits (`junto canvas`); a headless machine core does not. */
   readonly canvasControl?: boolean;
   /** The desktop core runs the overseer, asking main for the window's pixels and the browser's pages. */
-  readonly overseer?: {
+  readonly overseer?: (run: HostRun) => {
     readonly captureApplicationPage: () => Promise<ApplicationCaptureResult>;
     readonly pages: OverseerPages;
   };
@@ -265,10 +266,12 @@ export const startCore = async (options: CoreOptions) => {
     const [actions, link, status, rows, seats, coreMail] = await runtime.runPromise(Effect.all([MachineOwnerControl, MachineLink, MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail]));
     mail = coreMail;
     if (options.overseer !== undefined) {
+      // The overseer asks main on the core's own runtime, which holds the host clients.
+      const host = options.overseer((effect, runOptions) => runtime.runPromise(effect, runOptions));
       overseer = await composeOverseer({
         run: (effect, runOptions) => runtime.runPromise(effect, runOptions),
-        captureApplicationPage: options.overseer.captureApplicationPage,
-        pagePort: options.overseer.pages,
+        captureApplicationPage: host.captureApplicationPage,
+        pagePort: host.pages,
       });
     }
     if (options.overseerLive === true) overseerLive = await composeOverseerLive((effect) => runtime.runPromise(effect));

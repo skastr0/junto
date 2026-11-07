@@ -74,15 +74,10 @@ it("hooks main up to a core in its own process: calls go to it, its pushes reach
     // The core's window pushes land on main's bus.
     served.push(WORK_PREAMBLE, { preambleId: "p1" });
     served.push(AGENT_SIGNAL_CHANGED, { signalId: "s1" });
-    // What the core asks of Electron is answered by main.
-    expect(await served.host.call("window.capturePage", {})).toEqual({ ok: true, png: new Uint8Array([7]) });
-    expect(await served.host.call("overseer.pages.state", { owner: "o", sessionId: "s" })).toMatchObject({ ok: false, code: "failed" });
-    // The clipboard is a host group now, proven over the host link in host-link-clipboard.test.ts.
-    expect(seen).toEqual([[WORK_PREAMBLE, { preambleId: "p1" }], [AGENT_SIGNAL_CHANGED, { signalId: "s1" }]]);
+    // What the core asks of Electron is a host group each, proven over the host link in host-link-*.test.ts and core-overseer-pages.test.ts.
+    await vi.waitFor(() => expect(seen).toEqual([[WORK_PREAMBLE, { preambleId: "p1" }], [AGENT_SIGNAL_CHANGED, { signalId: "s1" }]]));
     await Effect.runPromise(main.stop());
     expect(stopped).toBe(1);
-    // Stopped, main no longer answers for the core.
-    await expect(served.host.call("window.capturePage", {})).rejects.toMatchObject({ tag: "UnknownHostOp" });
   } finally {
     for (const off of offs) off();
     await Effect.runPromise(Scope.close(scope, Exit.void));

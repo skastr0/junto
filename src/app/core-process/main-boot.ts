@@ -21,7 +21,7 @@ import { assertWorkControlSocketPathFits } from "../../node/work/socket-path";
 import { deliverPush } from "./main-side/core-pushes";
 import { useCoreClient } from "./main-client";
 import { relayWindowPushes } from "./main-side/window-pushes";
-import { serveOverseerHost } from "./main-side/overseer-pages";
+import { overseerHostServices } from "./main-side/overseer-pages";
 import { coreSurfacePlane, type PortedCoreMessage, type SurfacePlane, type SurfacePlanes } from "./main-side/term-surface";
 import type { PortCoreClient } from "../../contract/core/port";
 import type { RpcPort } from "@shared/rpc-port";
@@ -76,8 +76,17 @@ export const startCoreProcessForMain = (input: {
     terminals !== undefined && postSurface !== undefined &&
     postSurface({ kind: "push", channel: TERMINAL_CONNECT, payload: {} }, terminals.connect());
   // What the core asks of Electron, and main's clients of what main asks the core.
+  const hosts = Layer.mergeAll(
+    Layer.succeed(SystemClipboard, input.clipboard),
+    overseerHostServices({
+      pages: input.pages,
+      captureApplicationPage: input.captureApplicationPage,
+      coreLink: started.link,
+      run: (effect) => AppRuntime.runPromise(effect),
+    }),
+  );
   const clients = Promise.all([
-    serveHost(started.hostLink, Layer.succeed(SystemClipboard, input.clipboard)),
+    serveHost(started.hostLink, hosts),
     buildCoreClients(started.link),
   ]).then(([, built]) => built);
   // Each core that says ready is asked what main asks of every core; after the
@@ -91,7 +100,6 @@ export const startCoreProcessForMain = (input: {
     });
   });
   const stopRelay = relayWindowPushes(started);
-  const stopHost = serveOverseerHost({ link: started.link, pages: input.pages, captureApplicationPage: input.captureApplicationPage });
   // The terminal plane is the core's: each view's surface port rides to it.
   // One accessor per main boot, answering for the core that is up.
   let surfacePlane: SurfacePlane | undefined;
@@ -118,7 +126,6 @@ export const startCoreProcessForMain = (input: {
             stopRestart();
             stopTerminalHost();
             surfacePlane = undefined;
-            stopHost();
             stopRelay();
           }),
         ),

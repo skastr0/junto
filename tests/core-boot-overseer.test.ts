@@ -21,7 +21,7 @@ it("composes the overseer and the live overseer in the core, on the page port it
       home,
       build: "c".repeat(64),
       bundles: {},
-      overseer: { captureApplicationPage: async () => ({ ok: false, unavailable: true, reason: "no window" }), pages },
+      overseer: () => ({ captureApplicationPage: async () => ({ ok: false, unavailable: true, reason: "no window" }), pages }),
       overseerLive: true,
     });
     // The live overseer is composed in the core too, and answers there.

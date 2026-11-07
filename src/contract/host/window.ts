@@ -5,8 +5,9 @@
  *
  * No window to capture is an answer (`unavailable`), never an error of the call.
  */
-import { Schema } from "effect";
-import { Rpc, RpcGroup } from "effect/rpc";
+import { Context, Layer, Schema } from "effect";
+import { Rpc, RpcGroup, type RpcClient, type RpcClientError } from "effect/rpc";
+import { hostClient } from "./link";
 
 export const ApplicationCaptureResult = Schema.Union([
   Schema.Struct({ ok: Schema.Literal(true), png: Schema.Uint8Array }),
@@ -16,3 +17,11 @@ export const ApplicationCaptureResult = Schema.Union([
 export const WindowHostRpcs = RpcGroup.make(
   Rpc.make("WindowCapturePage", { success: ApplicationCaptureResult }),
 ).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+
+/** The core's client of the window group. */
+export class WindowHost extends Context.Service<
+  WindowHost,
+  RpcClient.FromGroup<typeof WindowHostRpcs, RpcClientError.RpcClientError>
+>()("@junto/contract/WindowHost") {
+  static readonly layer = Layer.effect(WindowHost, hostClient(WindowHostRpcs));
+}
