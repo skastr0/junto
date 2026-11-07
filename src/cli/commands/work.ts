@@ -1,13 +1,8 @@
 import { Argument, Command, Flag } from "effect/cli";
 import { Effect, Option, Schema } from "effect";
 import {
-  MsgListArgs,
-  MsgReactArgs,
-  MsgReadArgs,
-  MsgReplyArgs,
-  MsgSendArgs,
-  MsgPromptArgs,
-  MsgSentArgs,
+  type MsgPromptArgs,
+  type MsgSendArgs,
   PreambleArgs,
   RulingsArgs,
   type WorkOpName,
@@ -19,7 +14,8 @@ import { DEFAULT_BATCH_CONCURRENCY, runMutationBatch } from "../core/batch";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
 import { loadJsonInput } from "../core/json";
 import { executeJsonCommand } from "../core/output";
-import { WorkSocket } from "../core/socket";
+import { MsgList, MsgPrompt, MsgReact, MsgRead, MsgReply, MsgSend, MsgSent } from "../../contract/work/msg";
+import { WorkSocket, callWorkRpc } from "../core/socket";
 
 const toUndefined = <A>(value: Option.Option<A>) =>
   Option.isSome(value) ? value.value : undefined;
@@ -135,8 +131,8 @@ const msgListCommand = Command.make(
           onNone: () => "{}",
           onSome: (value) => (value.trim().length === 0 ? "{}" : value),
         });
-        const item = yield* loadJsonInput(MsgListArgs, raw);
-        return yield* callDomain("msg.list", item, toUndefined(timeout));
+        const item = yield* loadJsonInput(MsgList.payloadSchema, raw);
+        return yield* callWorkRpc(MsgList, item, toUndefined(timeout));
       }),
     ),
 ).pipe(
@@ -167,9 +163,9 @@ const msgSendCommand = Command.make(
           onSome: (body) => JSON.stringify({ target: input, text: body }),
         }),
         concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
-        itemSchema: prompt ? MsgPromptArgs : MsgSendArgs,
+        itemSchema: prompt ? MsgPrompt.payloadSchema : MsgSend.payloadSchema,
         // Each item carries its write id, so a timed-out comment sent again is written once.
-        run: (item) => prompt ? callDomain("msg.prompt", item, toUndefined(timeout)) : callDomain("msg.send", withOpId(item as MsgSendArgs), toUndefined(timeout)),
+        run: (item) => prompt ? callWorkRpc(MsgPrompt, item as MsgPromptArgs, toUndefined(timeout)) : callWorkRpc(MsgSend, withOpId(item as MsgSendArgs), toUndefined(timeout)),
       }),
     ),
 ).pipe(Command.withDescription(
@@ -182,8 +178,8 @@ const msgSentCommand = Command.make(
   ({ input, timeout }) => executeJsonCommand(
     "msg sent",
     Effect.gen(function* () {
-      const item = yield* loadJsonInput(MsgSentArgs, toUndefined(input) ?? "{}");
-      return yield* callDomain("msg.sent", item, toUndefined(timeout));
+      const item = yield* loadJsonInput(MsgSent.payloadSchema, toUndefined(input) ?? "{}");
+      return yield* callWorkRpc(MsgSent, item, toUndefined(timeout));
     }),
   ),
 ).pipe(Command.withDescription("Read sent mail and recipient receipts without marking their mailbox read"));
@@ -197,8 +193,8 @@ const msgReadCommand = Command.make(
       runMutationBatch({
         input: /^[\[{\s@-]/.test(input) ? input : JSON.stringify({ messageId: input }),
         concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
-        itemSchema: MsgReadArgs,
-        run: (item) => callDomain("msg.read", item, toUndefined(timeout)),
+        itemSchema: MsgRead.payloadSchema,
+        run: (item) => callWorkRpc(MsgRead, item, toUndefined(timeout)),
       }),
     ),
 ).pipe(
@@ -216,8 +212,8 @@ const msgReplyCommand = Command.make(
       runMutationBatch({
         input,
         concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
-        itemSchema: MsgReplyArgs,
-        run: (item) => callDomain("msg.reply", withOpId(item), toUndefined(timeout)),
+        itemSchema: MsgReply.payloadSchema,
+        run: (item) => callWorkRpc(MsgReply, withOpId(item), toUndefined(timeout)),
       }),
     ),
 ).pipe(
@@ -235,8 +231,8 @@ const msgReactCommand = Command.make(
       runMutationBatch({
         input,
         concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
-        itemSchema: MsgReactArgs,
-        run: (item) => callDomain("msg.react", item, toUndefined(timeout)),
+        itemSchema: MsgReact.payloadSchema,
+        run: (item) => callWorkRpc(MsgReact, item, toUndefined(timeout)),
       }),
     ),
 ).pipe(

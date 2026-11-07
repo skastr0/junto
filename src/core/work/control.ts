@@ -2,8 +2,6 @@ import {
   chmodSync,
   existsSync,
   lstatSync,
-  mkdirSync,
-  renameSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -12,7 +10,10 @@ import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import { isOverseerHarness } from "@shared/harness-records";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { join } from "node:path";
-import { Effect, Result, Option, Schema } from "effect";
+import { Context, Effect, Exit, Layer, Result, Option, Schema, Scope } from "effect";
+import { mapWorkCode } from "../work-control/answers";
+import { requireTarget, type WorkCaller } from "../work-control/seat";
+import { WorkRpcServer, servesWorkRpc } from "../work-control/server";
 import { ulid } from "ulid";
 import type { Message } from "@shared/work-model";
 import {
@@ -30,20 +31,8 @@ import {
   type OverseerHostRequest,
 } from "@shared/overseer-host-control";
 import type { OverseerHostIdentity, OverseerLiveExecutionConstraint } from "../overseer/live/execution";
-import { sortMessagesNewestFirst } from "@shared/message-delivery";
-import {
-  MAIL_MESSAGE_ID_SHAPE,
-  isMailMessageId,
-  type MailMessageId,
-  mailExtensionMetadata,
-  mailThreadOf,
-  type MailSenderStamp,
-} from "@shared/crew";
-import { OPERATOR_SEAT_ID } from "@shared/work-reference";
-import { mailListFilterOf, mailListMatches, sinceCursorOf } from "@shared/mail-list-filter";
-import { operatorFilesOf } from "@shared/mail-threads";
+import { sinceCursorOf } from "@shared/mail-list-filter";
 import { levelOfSignal, rankOf } from "@shared/wire/urgency";
-import { seatStateRuntime } from "../term/agent-state";
 import { probeManagedHarnessInstalls } from "../term/templates/harness-install";
 import {
   normalizePreambleText,
@@ -61,26 +50,9 @@ import {
   type AgentSignal,
 } from "@shared/agent-signals";
 import type { ActorRef } from "@shared/work-protocol";
-import {
-  makeAgentMessage,
-  makeUserMessage,
-} from "@shared/task";
-import {
-  isOwnMailboxTarget,
-  resolveMailboxTarget,
-} from "@shared/mailbox-target";
 import { formatNodeRef } from "@shared/node-ref";
 import {
   EmptyArgs,
-  MsgListArgs,
-  MSG_LIST_ARGS_SHAPE,
-  MSG_LIST_LIMIT_DEFAULT,
-  MsgReactArgs,
-  MsgReadArgs,
-  MsgReplyArgs,
-  MsgSendArgs,
-  MsgPromptArgs,
-  MsgSentArgs,
   SeatWaitArgs,
   SeatReadArgs,
   PreambleArgs,
@@ -103,9 +75,7 @@ import {
   workOk,
   workControlDir,
   workControlSocketPath,
-  type WorkErrorDetails,
   type WorkErrorBody,
-  type WorkErrorType,
   type WorkOpName as WorkOp,
   type WorkResponseEnvelope,
 } from "@shared/work-control";
@@ -122,24 +92,17 @@ import {
 } from "../signals/attachments";
 import { signalResourcesFor } from "../signals/resource-refs";
 import { resolveSignalForm, signalKindTakesForm } from "../signals/form-rule";
-import { WorkService, type WorkOpResult } from "./service";
+import { WorkService } from "./service";
 import { isAutomationReadOp, isAutomationWriteOp } from "@shared/automation-control";
 import { handleAutomationRead, liveAutomationPorts } from "./automation-control";
 import { ARTIFACT_WRITE_OPS, isArtifactOp } from "@shared/artifact-control";
 import { handleArtifactOp, liveArtifactPorts } from "./artifact-control";
 import { TASK_WRITE_OPS, isTaskControlOp } from "@shared/task-control";
-import { commentOnTask, handleTaskOp, liveTaskPorts, taskOnTarget, type TaskCaller } from "./task-control";
+import { handleTaskOp, liveTaskPorts } from "./task-control";
 import { liveSeatObservation } from "./seat-observation-live";
 import { onboardSinceSection, readSeatSince } from "./seat-since-read";
-import { messageDelivery } from "./message-delivery";
-import { readMailExtension } from "@shared/crew";
-import { noticeTakesReply, subjectNoticeKindOf } from "@shared/subject-notice";
-import type { TaskView } from "@shared/task-model";
-import { subjectLabel, threadSubjectOf, type ResourceSubject } from "@shared/thread-subject";
-import { OpId } from "@shared/work-ids";
-import { postSubjectComment } from "./subject-comment";
-import { subjectReplyOf } from "@shared/subject-comment";
-import { filesNodeName, subjectPeopleAt } from "./subject-people";
+import { threadSubjectOf } from "@shared/thread-subject";
+import { filesNodeName } from "./subject-people";
 import { MachineRepository } from "../machines/repository";
 import { isThisMachine } from "@shared/machine-identity";
 import { handleOpOp, isOpOp, pendingMarksOf } from "./op-control";
@@ -183,7 +146,6 @@ import {
 } from "@shared/seat-onboarding";
 import { SINCE_PER_SECTION } from "@shared/seat-since";
 import { isResourceKind, reaches, resourcesInReach, resourcesSeatReaches } from "@shared/region-reach";
-import { seatPageShot, type SeatPageShot } from "./page-shot-seat";
 
 /** Ops that act on the factory — refused for paused seats. Reads stay open. */
 const MUTATING_OPS: ReadonlySet<string> = new Set([
@@ -202,20 +164,14 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
 ]);
 
 import {
-  admitWorkTarget,
   connectedCapabilities,
   containingRegion,
   factoryRoleOfNode,
   findNode,
-  nodeKind,
-  nodeTitle,
-  productDisabledError,
-  regionStackFor,
   regionVisibility,
-  resolveWorkTarget,
   summarizeNode,
 } from "./authz";
-import { linkMentionsAt, unlinkedField } from "./mention-links";
+
 import {
   boardContractOf,
   regionContractOf,
@@ -223,7 +179,7 @@ import {
 } from "@shared/rules";
 import { regionStack } from "@shared/model/canvas";
 import { flowDestinations, reachableBoards } from "@shared/flow-graph";
-import { asNodeId, mailSenderRegions, seatIdentity, taskBoardTitle, type Canvas, type Node, type SeatIdentity } from "@shared/model";
+import { asNodeId, taskBoardTitle, type Canvas, type Node } from "@shared/model";
 import { resolveCallerAcrossCanvases } from "./caller-resolve";
 
 import { closingFence } from "../term/closing-fence";
@@ -375,297 +331,6 @@ const occupantKeyForPrincipal = (
 
 // ---------------------------------------------------------------------------
 // Domain error mapping
-
-/** A mail as a seat reads it names its thread, and its parent when it answers one. */
-const withThread = <M extends Message>(message: M): M & { readonly threadId: string; readonly inReplyTo?: string } => {
-  const inReplyTo = message.metadata?.inReplyTo;
-  return {
-    ...message,
-    threadId: mailThreadOf(message),
-    ...(typeof inReplyTo === "string" ? { inReplyTo } : {}),
-  };
-};
-
-/**
- * A seat's own mail with the operator's files on it placed where the seat
- * opens them: `files`, one `Attached:` line each, the lines its delivery
- * typed. Mail with no files, or whose files are not on this machine yet,
- * reads as it is.
- */
-const withMailFiles = (canvasName: string, nodeId: string) =>
-  <M extends Message>(message: M): Effect.Effect<M | (M & { readonly files: ReadonlyArray<string> })> =>
-    Effect.gen(function* () {
-      const refs = operatorFilesOf(message);
-      if (refs.length === 0) return message;
-      const store = yield* Effect.serviceOption(ContentService);
-      if (Option.isNone(store)) return message;
-      const files = yield* operatorAttachmentLines(store.value, { canvasName, nodeId, messageId: message.messageId, refs }).pipe(
-        Effect.orElseSucceed(() => undefined),
-      );
-      return files === undefined ? message : { ...message, files };
-    });
-
-/**
- * A seat's own mail with the page box shot it names (page-shot-seat.ts):
- * `shot` ready at a path, on its way, or removed. Mail naming no shot, or
- * whose page is out of the seat's reach, reads as it is.
- */
-const withPageShot = (board: Canvas, canvasName: string, nodeId: string) =>
-  <M extends Message>(message: M): Effect.Effect<M | (M & { readonly shot: SeatPageShot })> =>
-    Effect.serviceOption(ContentService).pipe(
-      Effect.flatMap((store) =>
-        Option.isNone(store)
-          ? Effect.succeed(message)
-          : seatPageShot({ canvasName, canvas: board, seatNodeId: nodeId }, message).pipe(
-              Effect.provideService(ContentService, store.value),
-              Effect.map((shot) => (shot === undefined ? message : { ...message, shot })),
-            ),
-      ),
-    );
-
-/** A seat's own mail as it reads it: its files, then its page box shot. */
-const asSeatReadsIt = (board: Canvas, canvasName: string, nodeId: string) =>
-  <M extends Message>(message: M) =>
-    Effect.flatMap(withMailFiles(canvasName, nodeId)(message), withPageShot(board, canvasName, nodeId));
-
-/**
- * A message id argument. A refusal names the path and the shape it wants and
- * never echoes what the caller sent.
- */
-const mailIdArg = (path: string, value: string): Result.Result<string, WorkErrorBody> => {
-  const trimmed = value.trim();
-  return isMailMessageId(trimmed)
-    ? Result.succeed(trimmed)
-    : Result.fail({
-        type: "InputError",
-        message: `${path} must be ${MAIL_MESSAGE_ID_SHAPE}`,
-        details: { path, expected: "ULID", retryable: false },
-      });
-};
-
-/** A mail target: a seat, never an item inside a node. */
-const resolveMailTarget = (
-  board: Canvas,
-  callerId: string,
-  typed: string,
-  op: WorkOpName,
-): Result.Result<string, WorkErrorBody> => {
-  const named = resolveWorkTarget(board, callerId, typed, op);
-  if (Result.isFailure(named)) return Result.fail(named.failure);
-  if (named.success.itemId !== undefined) {
-    return Result.fail({
-      type: "InputError",
-      message: "mail goes to a seat; this target names an item inside a node",
-      details: { path: "target", retryable: false, next_step: "send to the seat's name, node id or ref without &item" },
-    });
-  }
-  return Result.succeed(named.success.nodeId);
-};
-
-/**
- * The 0.10 task `msg --task` names, on the task node its target names, found
- * in the seat's reach as a task comment finds it (`taskOnTarget`). Mail to a
- * task never reads or writes the old task store.
- */
-const mailTask = (
-  board: Canvas,
-  caller: { readonly canvasName: string; readonly nodeId: string },
-  actor: ActorRef,
-  target: string | undefined,
-  taskId: string,
-  op: WorkOpName,
-): Effect.Effect<TaskView, WorkErrorBody> => {
-  if (!TASKS_ENABLED) return Effect.fail(productDisabledError(caller.nodeId, "task", op));
-  if (target === undefined) {
-    return Effect.fail({
-      type: "InputError",
-      message: "mail on a task names the task's node as its target",
-      details: { path: "target", retryable: false, next_step: "send again with target set to the task node: junto task list shows it" },
-    });
-  }
-  return taskOnTarget(seatTaskCaller(board, caller, actor), liveTaskPorts, { target, task: taskId });
-};
-
-/** A seat as the task verbs take it. */
-const seatTaskCaller = (
-  board: Canvas,
-  caller: { readonly canvasName: string; readonly nodeId: string },
-  actor: ActorRef,
-): TaskCaller => ({
-  canvas: board,
-  canvasName: caller.canvasName,
-  actor: { kind: "seat", seatId: actor.seatId, nodeId: asNodeId(caller.nodeId) },
-});
-
-/** The thread metadata a reply to `parent` carries. One rule for all mail. */
-const replyThreadMetadata = (parent: Message): { readonly inReplyTo: string; readonly threadId: string } => ({
-  inReplyTo: parent.messageId,
-  threadId: mailThreadOf(parent),
-});
-
-/**
- * Deterministic code → wire mapping. Structured facts travel in
- * WorkServiceError.details straight from the service; nothing here is parsed
- * out of message text.
- */
-const mapWorkCode = (
-  code: import("./service").WorkServiceErrorCode,
-  message: string,
-  details?: WorkErrorDetails,
-): WorkErrorBody => {
-  switch (code) {
-    case "reviewer_is_author":
-      return { type: "ReviewerIsAuthor", message, details: { ...details, retryable: false } };
-    case "scope_error":
-      return { type: "ScopeError", message, details: { ...details, retryable: false } };
-    case "claim_contention":
-      return {
-        type: "ClaimConflict",
-        message,
-        details: {
-          ...details,
-          retryable: false,
-          next_step:
-            details?.next_step ??
-            "wait for the holder to release, or pick another task",
-        },
-      };
-    case "operator_owned":
-      return {
-        type: "ClaimConflict",
-        message,
-        details: {
-          ...details,
-          retryable: false,
-          next_step:
-            details?.next_step ??
-            "the operator works tasks at this board; pick a board agents can claim",
-        },
-      };
-    case "illegal_transition":
-      return {
-        type: "InvalidTransition",
-        message,
-        details: {
-          ...details,
-          retryable: false,
-        },
-      };
-    case "node_not_found":
-    case "task_not_found":
-      return {
-        type: "UnknownTarget",
-        message,
-        details: { ...details, retryable: false },
-      };
-    case "canvas_not_found":
-      return {
-        type: "StaleNodeRef",
-        message,
-        details: {
-          ...details,
-          retryable: false,
-          next_step:
-            details?.next_step ??
-            "the canvas for this call is not loaded; ask the operator to open it in Junto",
-        },
-      };
-    case "illegal_kind":
-      return {
-        type: "ScopeError",
-        message,
-        details: {
-          ...details,
-          retryable: false,
-          hint: details?.hint ?? "pick a target whose kind supports this op",
-          next_step:
-            details?.next_step ??
-            "call a connected node of a kind that supports this op; if none is connected, ask the operator to wire an edge to one on the canvas",
-        },
-      };
-    case "not_ready":
-      return {
-        type: "InputError",
-        message,
-        details: {
-          ...details,
-          retryable: false,
-          next_step:
-            details?.next_step ??
-            "finish the prerequisites before claiming this task",
-        },
-      };
-    case "unadmitted":
-      return {
-        type: "InputError",
-        message,
-        details: {
-          ...details,
-          retryable: false,
-          next_step:
-            details?.next_step ??
-            "wait for the operator or for the wait before starting to pass, or pick another task",
-        },
-      };
-    case "fork_choice":
-      return {
-        type: "InputError",
-        message,
-        details: {
-          ...details,
-          retryable: false,
-          next_step: details?.next_step ?? "name the next board",
-        },
-      };
-    case "wrong_home":
-      return {
-        type: "InputError",
-        message,
-        details: {
-          ...details,
-          retryable: false,
-          next_step:
-            details?.next_step ??
-            "run this op on the installation that owns the task",
-        },
-      };
-    default:
-      return {
-        type: "InputError",
-        message,
-        details: { ...details, retryable: details?.retryable ?? false },
-      };
-  }
-};
-
-type WorkMutationOutcome<T> = {
-  readonly value: T;
-  readonly disposition: "applied" | "queued";
-  readonly message?: string;
-};
-
-const fromWorkResult = <T>(
-  result: WorkOpResult<T>,
-): Result.Result<WorkMutationOutcome<T>, WorkErrorBody> => {
-  if (result.ok) {
-    return Result.succeed({
-      value: result.data,
-      disposition: result.disposition,
-      ...(result.message === undefined ? {} : { message: result.message }),
-    });
-  }
-  return Result.fail(
-    mapWorkCode(result.code, result.message, result.details),
-  );
-};
-
-const exposeWorkMutation = <T extends object>(
-  outcome: WorkMutationOutcome<T>,
-): T & { readonly disposition: "applied" | "queued"; readonly message?: string } => ({
-  ...outcome.value,
-  disposition: outcome.disposition,
-  ...(outcome.message === undefined ? {} : { message: outcome.message }),
-});
 
 const decodeArgs = <S extends Schema.Top>(
   schema: S,
@@ -881,60 +546,6 @@ const ensureCaller = (
   }
   return undefined;
 };
-
-const requireTarget = (
-  doc: Canvas,
-  callerId: string,
-  targetId: string,
-  op: WorkOp,
-): WorkErrorBody | { readonly node: ReturnType<typeof findNode> } => {
-  // Target-scoped ops: canvas physics admit (edge + role law + port facet).
-  const admitted = admitWorkTarget(doc, callerId, targetId, op);
-  if (Result.isFailure(admitted)) return admitted.failure;
-  return { node: admitted.success.node };
-};
-
-/** Work-control caller resolved through the sole credential admission path. */
-type WorkCaller = {
-  readonly canvasName: string;
-  readonly nodeId: string;
-  readonly workHome: string;
-  /** Occupant label for proof stamps / logs. */
-  readonly occupant: string;
-  /** Main-issued generation credential incarnation; no client-supplied generation claims. */
-  readonly generation: string;
-};
-
-const mailSenderStamp = (
-  board: Canvas,
-  caller: WorkCaller,
-  actor: ActorRef,
-): MailSenderStamp => {
-  const node = findNode(board, caller.nodeId);
-  const terminal = node?.kind === "agent" ? node : undefined;
-  const epoch = terminal?.bindingId === undefined
-    ? undefined
-    : seatStateRuntime.machine.getSlot(terminal.bindingId)?.epoch;
-  return {
-    fromSeat: actor.seatId,
-    senderGeneration: epoch ?? caller.generation,
-    senderHarness: terminal?.harness ?? "unknown",
-    senderNodeId: caller.nodeId,
-    senderName: node === undefined ? caller.nodeId : nodeTitle(node),
-    ...(node === undefined ? {} : { senderRegions: mailSenderRegions(board, caller.nodeId) }),
-  };
-};
-
-/** Who a mail went to, as the sender reads it back. */
-const recipientOf = (board: Canvas, nodeId: string): SeatIdentity => {
-  const node = findNode(board, nodeId);
-  if (node === undefined) return { nodeId, name: nodeId, regions: [] };
-  // A Files node's title falls back to its root's basename, and the root never leaves its machine.
-  return node.kind === "files" ? { ...seatIdentity(board, node), name: filesNodeName(node) } : seatIdentity(board, node);
-};
-
-/** The operator, who is no node, as a reply's recipient. */
-const OPERATOR_RECIPIENT: SeatIdentity = { nodeId: "operator", name: "operator", regions: [] };
 
 /**
  * Resolve one credential-admitted actor node through the compiled execution
@@ -1214,6 +825,7 @@ const dispatchOp = (
   caller: WorkCaller,
   version: string,
   fence: WriteFence,
+  rpc: WorkRpcServer["Service"],
 ): Effect.Effect<
   unknown,
   WorkErrorBody,
@@ -1288,6 +900,19 @@ const dispatchOp = (
           },
         });
       }
+    }
+
+    // An op with an RPC group is answered by its handler, as the seat admitted here.
+    if (servesWorkRpc(op)) {
+      return yield* rpc.dispatch(op, args, {
+        work,
+        caller,
+        board,
+        actor: resolveProcessBoundActorRef(read.actorRefs, caller),
+        mailboxOf,
+        sentMailOf,
+        beginWrite: beginWrite(fence),
+      });
     }
 
     if (op === "capabilities") {
@@ -1609,152 +1234,6 @@ const dispatchOp = (
         );
     }
 
-    if (op === "msg.list") {
-      const decoded = decodeArgs(MsgListArgs, args);
-      if (Result.isFailure(decoded)) {
-        // The schema's own message can quote the input; this one never does.
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "InputError",
-          message: MSG_LIST_ARGS_SHAPE,
-          details: { path: "args", retryable: false },
-        });
-      }
-      const targetId = resolveMailboxTarget(decoded.success.target, caller);
-      const own = isOwnMailboxTarget(targetId, caller.nodeId);
-      const filter = mailListFilterOf(decoded.success);
-      if (Result.isFailure(filter)) {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "InputError",
-          message: filter.failure.message,
-          details: { path: filter.failure.path, expected: filter.failure.expected, retryable: false },
-        });
-      }
-      // The inbox and the sent list are two streams, so each pages by its own cursor.
-      const before = decoded.success.before?.trim();
-      const sentBefore = decoded.success.sentBefore?.trim();
-      for (const [cursor, name] of [[before, "before"], [sentBefore, "sentBefore"]] as const) {
-        if (cursor !== undefined && !isMailMessageId(cursor)) {
-          return yield* Effect.fail<WorkErrorBody>({
-            type: "InputError",
-            message: `${name} must be ${MAIL_MESSAGE_ID_SHAPE}`,
-            details: { path: `args.${name}`, expected: "ULID", retryable: false },
-          });
-        }
-      }
-      const matches = mailListMatches(filter.success);
-      const filtered = <M extends Message>(items: ReadonlyArray<M>): M[] => items.filter(matches);
-      const threadId = filter.success.threadId;
-      const threadField = threadId === undefined ? {} : { threadId };
-
-      // A task's mail is its one thread, read from its node's mailbox (03).
-      if (decoded.success.taskId) {
-        const reader = resolveProcessBoundActorRef(read.actorRefs, caller);
-        if (Result.isFailure(reader)) return yield* Effect.fail(reader.failure);
-        const task = yield* mailTask(board, caller, reader.success, decoded.success.target, decoded.success.taskId, op);
-        const onTask = (row: Message): boolean => {
-          const on = threadSubjectOf(row);
-          return on?.kind === "task" && on.nodeId === task.current.node && on.taskId === task.taskId;
-        };
-        // A task's thread is read whole and in order, as a conversation; pages are for mailboxes.
-        const rows = (yield* mailboxOf(task.current.node)).filter(onTask);
-        return { target: task.current.node, taskId: task.taskId, items: filtered(rows) };
-      }
-
-      if (own) {
-        const ownNode = findNode(board, caller.nodeId);
-        if (!ownNode) {
-          return yield* Effect.fail({
-            type: "UnknownTarget" as const,
-            message: `target "${caller.nodeId}" not found`,
-            details: { target: caller.nodeId, retryable: false },
-          });
-        }
-        const reader = resolveProcessBoundActorRef(read.actorRefs, caller);
-        if (Result.isFailure(reader)) return yield* Effect.fail(reader.failure);
-        // Listing marks read, so the filters and the page apply first; a peek
-        // marks nothing. The page is read as a page: with no filter only its
-        // rows and their receipts are read, not the whole mailbox nor the
-        // whole sent history.
-        const limit = decoded.success.limit ?? MSG_LIST_LIMIT_DEFAULT;
-        const page = yield* work
-          .readMailboxPageSnapshot(caller.canvasName, caller.nodeId, {
-            limit,
-            ...(before === undefined ? {} : { before }),
-            filter: filter.success,
-          })
-          .pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
-        const sentPage = yield* work
-          .readMailSentByPageSnapshot(caller.canvasName, caller.nodeId, {
-            limit,
-            ...(sentBefore === undefined ? {} : { before: sentBefore }),
-            filter: filter.success,
-          })
-          .pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
-        // One transaction marks the page's rows, not one per message.
-        const unread = decoded.success.peek === true
-          ? []
-          : page.items.flatMap((item) => {
-              if (item.role !== "user") return [];
-              const existingReadAt = item.metadata?.readAt;
-              return typeof existingReadAt === "number" && Number.isFinite(existingReadAt) ? [] : [item.messageId];
-            });
-        const readAtOf = new Map<string, number>();
-        if (unread.length > 0) {
-          const marked = yield* work.workMessagesMarkRead(
-            caller.canvasName,
-            caller.nodeId,
-            unread,
-            reader.success,
-          );
-          const mapped = fromWorkResult(marked);
-          if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-          for (const mark of mapped.success.value.read) {
-            const readAtMs = Date.parse(mark.readAt);
-            if (Number.isFinite(readAtMs)) readAtOf.set(mark.messageId, readAtMs);
-          }
-        }
-        const overlaid: Message[] = page.items.map((item) => {
-          const readAtMs = readAtOf.get(item.messageId);
-          return readAtMs === undefined
-            ? item
-            : { ...item, metadata: { ...(item.metadata ?? {}), readAt: readAtMs } };
-        });
-        return {
-          target: caller.nodeId,
-          ...threadField,
-          items: yield* Effect.forEach(
-            sortMessagesNewestFirst(overlaid).map(withThread),
-            asSeatReadsIt(board, caller.canvasName, caller.nodeId),
-          ),
-          more: page.more,
-          remaining: page.remaining,
-          sent: sentPage.items.map((row) => withThread({ ...row.message, toNodeId: row.nodeId })),
-          sentMore: sentPage.more,
-          sentRemaining: sentPage.remaining,
-        };
-      }
-
-      // Another seat's thread is named as mail names it: a name, id or ref.
-      const named = resolveMailTarget(board, caller.nodeId, targetId, op);
-      if (Result.isFailure(named)) return yield* Effect.fail(named.failure);
-      const gate = requireTarget(board, caller.nodeId, named.success, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
-      const page = yield* work
-        .readMailboxPageSnapshot(caller.canvasName, named.success, {
-          limit: decoded.success.limit ?? MSG_LIST_LIMIT_DEFAULT,
-          ...(before === undefined ? {} : { before }),
-          filter: filter.success,
-        })
-        .pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
-      return {
-        target: named.success,
-        ...threadField,
-        items: page.items.map(withThread),
-        more: page.more,
-        remaining: page.remaining,
-      };
-    }
-
     if (op === "seat.wait") {
       const decoded = decodeArgs(SeatWaitArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
@@ -1767,427 +1246,6 @@ const dispatchOp = (
       const seat = yield* liveSeatObservation();
       if (decoded.success.brief === true) return yield* seat.readPeers(caller);
       return yield* seat.readSeat(decoded.success, caller);
-    }
-
-    if (op === "msg.prompt") {
-      const decoded = decodeArgs(MsgPromptArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const named = resolveMailTarget(board, caller.nodeId, decoded.success.target, op);
-      if (Result.isFailure(named)) return yield* Effect.fail(named.failure);
-      const input = { ...decoded.success, target: named.success };
-      const gate = requireTarget(board, caller.nodeId, input.target, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
-      const text = input.text.trim();
-      if (!text) return yield* Effect.fail<WorkErrorBody>({
-        type: "InputError", message: "text must be non-empty", details: { path: "text", retryable: false },
-      });
-      const sender = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Result.isFailure(sender)) return yield* Effect.fail(sender.failure);
-      const messageId = ulid();
-      const message = makeUserMessage({
-        messageId, text, contextId: caller.canvasName,
-        metadata: {
-          factoryMail: true,
-          ...mailExtensionMetadata({
-            ...mailSenderStamp(board, caller, sender.success),
-            mailKind: "prompt",
-            ...(input.subject === undefined ? {} : { subject: input.subject }),
-            ...(input.refs === undefined ? {} : { refs: input.refs }),
-          }),
-        },
-      });
-      yield* beginWrite(fence);
-      const appended = fromWorkResult(yield* work.workMessageAppend(
-        caller.canvasName, input.target, null, message, sender.success,
-      ));
-      if (Result.isFailure(appended)) return yield* Effect.fail(appended.failure);
-      const delivery = yield* Effect.promise(() =>
-        messageDelivery.deliver(caller.canvasName, input.target, messageId),
-      );
-      return { ...exposeWorkMutation(appended.success), messageId, recipient: recipientOf(board, input.target), delivery };
-    }
-
-    if (op === "msg.sent") {
-      const decoded = decodeArgs(MsgSentArgs, args ?? {});
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const sender = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Result.isFailure(sender)) return yield* Effect.fail(sender.failure);
-      // One indexed read of what this seat sent, on the mail worker, not a
-      // read of every mailbox on the canvas (775 ms on the factory board).
-      const items: Array<Message & { readonly toNodeId: string; readonly to: SeatIdentity }> = [];
-      for (const message of yield* sentMailOf(true)) {
-        if (decoded.success.target !== undefined && message.toNodeId !== decoded.success.target) continue;
-        const node = board.nodes.get(asNodeId(message.toNodeId));
-        if (node === undefined) continue;
-        items.push({ ...message, to: seatIdentity(board, node) });
-      }
-      return { target: caller.nodeId, items };
-    }
-
-    if (op === "msg.send") {
-      const asked = decodeArgs(MsgSendArgs, args);
-      if (Result.isFailure(asked)) return yield* Effect.fail(asked.failure);
-      // Mail on a task is a comment in its one thread, on the task comment path (03).
-      if (asked.success.taskId !== undefined) {
-        const typed = asked.success.text.trim();
-        if (!typed) {
-          return yield* Effect.fail({
-            type: "InputError" as const,
-            message: "text must be non-empty",
-            details: { path: "text", retryable: false },
-          });
-        }
-        const sentBy = resolveProcessBoundActorRef(read.actorRefs, caller);
-        if (Result.isFailure(sentBy)) return yield* Effect.fail(sentBy.failure);
-        const task = yield* mailTask(board, caller, sentBy.success, asked.success.target, asked.success.taskId, op);
-        // A task's thread is the task: its id.
-        if (asked.success.threadId !== undefined && asked.success.threadId.trim() !== task.taskId) {
-          return yield* Effect.fail({
-            type: "InputError" as const,
-            message: `a comment on task "${asked.success.taskId}" is in its thread "${task.taskId}"`,
-            details: { path: "threadId", retryable: false, next_step: "drop threadId: a task comment joins its task's thread" },
-          });
-        }
-        yield* beginWrite(fence);
-        const posted = yield* commentOnTask(seatTaskCaller(board, caller, sentBy.success), liveTaskPorts, {
-          // The caller's write id keeps a retry one comment; a raw frame with none gets its own.
-          opId: asked.success.opId ?? OpId.make(ulid()),
-          task: task.taskId,
-          text: typed,
-          node: task.current.node,
-        });
-        return { ...posted, recipient: recipientOf(board, task.current.node) };
-      }
-      // A target is a node id or the name of a seat this one is wired to.
-      const named = resolveMailTarget(board, caller.nodeId, asked.success.target, op);
-      if (Result.isFailure(named)) return yield* Effect.fail(named.failure);
-      const decoded = { success: { ...asked.success, target: named.success } };
-      const recipient = recipientOf(board, named.success);
-      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
-      const typed = decoded.success.text.trim();
-      if (!typed) {
-        return yield* Effect.fail({
-          type: "InputError" as const,
-          message: "text must be non-empty",
-          details: { path: "text", retryable: false },
-        });
-      }
-      const sentBy = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Result.isFailure(sentBy)) return yield* Effect.fail(sentBy.failure);
-      let threadId: string | undefined;
-      if (decoded.success.threadId !== undefined) {
-        const asked = mailIdArg("threadId", decoded.success.threadId);
-        if (Result.isFailure(asked)) return yield* Effect.fail(asked.failure);
-      }
-      // Each mention becomes its link in this seat's mail (03).
-      const linked = yield* linkMentionsAt(board, caller.canvasName, caller.nodeId, typed, { kind: "mail" });
-      const text = linked.text;
-      if (decoded.success.threadId !== undefined) {
-        const askedThread = decoded.success.threadId.trim();
-        // Only a thread this seat can read: its own mailbox, or mail it sent.
-        // An id inside a thread stands for that thread.
-        const readable = [...(yield* mailboxOf(caller.nodeId)), ...(yield* sentMailOf())];
-        const named = readable.find((item) => item.messageId === askedThread);
-        threadId = named !== undefined
-          ? mailThreadOf(named)
-          : readable.some((item) => mailThreadOf(item) === askedThread) ? askedThread : undefined;
-        if (threadId === undefined) {
-          return yield* Effect.fail({
-            type: "UnknownTarget" as const,
-            message: `threadId "${askedThread}" names no mail this seat can read`,
-            details: {
-              path: "threadId",
-              target: askedThread,
-              retryable: false,
-              next_step: "run junto msg list to see this seat's mail and the threadId each one carries",
-            },
-          });
-        }
-      }
-      // Durable body first. The transport adds the authenticated sender
-      // envelope; storing it in the body would duplicate it on a retry.
-      const messageId = ulid();
-      const contextId = caller.canvasName;
-      const message: Message = makeUserMessage({
-        messageId,
-        text,
-        contextId,
-        metadata: {
-          factoryMail: true,
-          ...mailExtensionMetadata({
-            ...mailSenderStamp(board, caller, sentBy.success),
-            mailKind: "notice",
-            ...(decoded.success.subject === undefined ? {} : { subject: decoded.success.subject }),
-            ...(decoded.success.refs === undefined ? {} : { refs: decoded.success.refs }),
-          }),
-          ...(threadId === undefined ? {} : { threadId }),
-        },
-      });
-      yield* beginWrite(fence);
-      const result = yield* work.workMessageAppend(
-        caller.canvasName,
-        decoded.success.target,
-        null,
-        message,
-        sentBy.success,
-      );
-      const mapped = fromWorkResult(result);
-      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      const delivery = yield* Effect.promise(() =>
-        messageDelivery.deliver(caller.canvasName, decoded.success.target, messageId),
-      );
-      return { ...exposeWorkMutation(mapped.success), messageId, threadId: threadId ?? messageId, recipient, delivery, ...unlinkedField(linked) };
-    }
-
-    if (op === "msg.read") {
-      const decoded = decodeArgs(MsgReadArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const targetId = resolveMailboxTarget(decoded.success.target, caller);
-      // Own mailbox only — the seat credential is the authority (not edge OptIn ports).
-      if (targetId !== caller.nodeId) {
-        return yield* Effect.fail({
-          type: "ScopeError" as const,
-          message: "msg.read only applies to this seat's own mailbox",
-          details: {
-            caller: caller.nodeId,
-            target: targetId,
-            next_step: `retry with target "${caller.nodeId}" (your own node) and the same messageId`,
-            retryable: false,
-          },
-        });
-      }
-      const own = findNode(board, caller.nodeId);
-      if (!own) {
-        return yield* Effect.fail({
-          type: "UnknownTarget" as const,
-          message: `target "${caller.nodeId}" not found`,
-          details: { target: caller.nodeId, retryable: false },
-        });
-      }
-      const reader = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Result.isFailure(reader)) return yield* Effect.fail(reader.failure);
-      const message = yield* work.readMailMessage(caller.canvasName, caller.nodeId, decoded.success.messageId.trim()).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
-      const result = yield* work.workMessageMarkRead(
-        caller.canvasName,
-        caller.nodeId,
-        decoded.success.messageId.trim(),
-        reader.success,
-      );
-      const mapped = fromWorkResult(result);
-      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      return {
-        ...exposeWorkMutation(mapped.success),
-        message: message === undefined ? message : yield* asSeatReadsIt(board, caller.canvasName, caller.nodeId)(withThread(message)),
-      };
-    }
-
-    if (op === "msg.react") {
-      const decoded = decodeArgs(MsgReactArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const targetId = resolveMailboxTarget(decoded.success.target, caller);
-      if (targetId !== caller.nodeId) {
-        return yield* Effect.fail({
-          type: "ScopeError" as const,
-          message: "msg.react only applies to this seat's own mailbox",
-          details: {
-            caller: caller.nodeId,
-            target: targetId,
-            next_step: `retry with target "${caller.nodeId}" (your own node) and the same messageId`,
-            retryable: false,
-          },
-        });
-      }
-      const own = findNode(board, caller.nodeId);
-      if (!own) {
-        return yield* Effect.fail({
-          type: "UnknownTarget" as const,
-          message: `target "${caller.nodeId}" not found`,
-          details: { target: caller.nodeId, retryable: false },
-        });
-      }
-      const reactor = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Result.isFailure(reactor)) return yield* Effect.fail(reactor.failure);
-      const result = yield* work.workMessageReact(
-        caller.canvasName,
-        caller.nodeId,
-        decoded.success.messageId.trim(),
-        decoded.success.reaction ?? "ack",
-        reactor.success,
-      );
-      const mapped = fromWorkResult(result);
-      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      return exposeWorkMutation(mapped.success);
-    }
-
-    if (op === "msg.reply") {
-      const asked = decodeArgs(MsgReplyArgs, args);
-      if (Result.isFailure(asked)) return yield* Effect.fail(asked.failure);
-      // The operator is no node: a reply to them is admitted by the mail it
-      // answers, below, never by an edge.
-      const toOperator = asked.success.target.trim() === "operator";
-      let target = asked.success.target;
-      // Held until the parent is read: a reply in a subject thread is admitted
-      // by reach to the subject, not by its node's kind (an artifacts or page
-      // node takes no mail).
-      let refusedByKind: WorkErrorBody | undefined;
-      if (!toOperator) {
-        const named = resolveMailTarget(board, caller.nodeId, target, op);
-        if (Result.isFailure(named)) return yield* Effect.fail(named.failure);
-        target = named.success;
-        const gate = requireTarget(board, caller.nodeId, target, op);
-        if ("type" in gate) refusedByKind = gate;
-      }
-      const decoded = { success: { ...asked.success, target } };
-      const typed = decoded.success.text.trim();
-      if (!typed) {
-        return yield* Effect.fail({
-          type: "InputError" as const,
-          message: "text must be non-empty",
-          details: { path: "text", retryable: false },
-        });
-      }
-      const parentId = mailIdArg("inReplyTo", decoded.success.inReplyTo);
-      if (Result.isFailure(parentId)) return yield* Effect.fail(parentId.failure);
-      const inReplyTo = parentId.success;
-      const sentBy = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Result.isFailure(sentBy)) return yield* Effect.fail(sentBy.failure);
-      // The parent is mail to this seat, and its thread is the reply's.
-      const parent = yield* work.readMailMessage(caller.canvasName, caller.nodeId, inReplyTo).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
-      // A comment read from a task's thread (msg list on the task) is no
-      // mail of this seat's: the thread is answered on the task.
-      const onTask = !toOperator && findNode(board, target)?.kind === "task";
-      const taskStep = 'answer in the task\'s thread with junto task comment <task> "...", the task as #42, its id or its junto:// ref';
-      if (refusedByKind !== undefined && (parent === undefined || threadSubjectOf(parent)?.nodeId !== target)) {
-        return yield* Effect.fail(onTask ? { ...refusedByKind, details: { ...refusedByKind.details, next_step: taskStep } } : refusedByKind);
-      }
-      if (parent === undefined) {
-        return yield* Effect.fail({
-          type: "UnknownTarget" as const,
-          message: `inReplyTo "${inReplyTo}" is not mail in this seat's mailbox`,
-          details: {
-            path: "inReplyTo",
-            target: inReplyTo,
-            retryable: false,
-            next_step: onTask ? taskStep : "run junto msg list to see this seat's mail",
-          },
-        });
-      }
-      // A stored row's fromSeat is its authenticated author, never what the
-      // sender wrote: the repository stamps it from sentBy on every mailbox
-      // row (admitMailboxMessage), and the exchange takes a row authored as
-      // the operator only from the machine that edits the canvas
-      // (writtenByItsAuthor, editorTakesFromNoPeer).
-      if (toOperator && !(parent.metadata?.fromSeat === OPERATOR_SEAT_ID && parent.metadata?.senderName === "operator")) {
-        return yield* Effect.fail({
-          type: "ScopeError" as const,
-          message: "a seat writes to the operator only in reply to mail the operator sent it",
-          details: {
-            caller: caller.nodeId,
-            target: "operator",
-            retryable: false,
-            next_step: "reply to the seat that sent this mail, or report with junto feedback",
-          },
-        });
-      }
-      // A reply in a subject thread posts to the subject, whoever wrote the
-      // parent (03 section 4), on the one comment path. Reach to the
-      // subject's node admits it there, as for any comment.
-      const subject = threadSubjectOf(parent);
-      if (subject !== undefined) {
-        const kind = subjectNoticeKindOf(parent);
-        const refused = kind !== undefined && !noticeTakesReply(kind)
-          ? "a refusal notice takes no reply"
-          : toOperator || target !== subject.nodeId
-            ? `a reply in this thread posts to ${subjectLabel(subject)}, not to its sender`
-            : undefined;
-        if (refused !== undefined) {
-          return yield* Effect.fail({
-            type: "InputError" as const,
-            message: refused,
-            details: {
-              path: "target",
-              target: subject.nodeId,
-              retryable: false,
-              next_step: kind === "refusal"
-                ? "follow the next step the refusal names"
-                : `retry with target "${subject.nodeId}" and the same inReplyTo`,
-            },
-          });
-        }
-      }
-      // Each mention becomes its link: in reach of the subject, or this seat's mail (03).
-      const linked = yield* linkMentionsAt(board, caller.canvasName, caller.nodeId, typed, subject === undefined
-        ? { kind: "mail" }
-        : { kind: "comments", nodeId: subject.nodeId });
-      const text = linked.text;
-      // The reply writes from here: the mark-read, then the reply or comment.
-      yield* beginWrite(fence);
-      // Mark the parent mail read on own inbox first (idempotent).
-      const marked = yield* work.workMessageMarkRead(
-        caller.canvasName,
-        caller.nodeId,
-        inReplyTo,
-        sentBy.success,
-      );
-      const markedMapped = fromWorkResult(marked);
-      if (Result.isFailure(markedMapped)) return yield* Effect.fail(markedMapped.failure);
-      if (subject !== undefined) {
-        const base = {
-          text,
-          actor: { kind: "seat" as const, seatId: sentBy.success.seatId, nodeId: asNodeId(caller.nodeId) },
-          opId: decoded.success.opId ?? OpId.make(ulid()),
-          threadId: mailThreadOf(parent) as MailMessageId,
-          inReplyTo: inReplyTo as MailMessageId,
-        };
-        const context = { canvas: board, canvasName: caller.canvasName, people: yield* subjectPeopleAt(board, caller.canvasName, subject) };
-        const posted = yield* postSubjectComment(subjectReplyOf(subject, base), context);
-        return {
-          ...posted,
-          inReplyTo,
-          recipient: recipientOf(board, subject.nodeId),
-          read: exposeWorkMutation(markedMapped.success),
-          ...unlinkedField(linked),
-        };
-      }
-      const thread = replyThreadMetadata(parent);
-      const metadata = {
-        factoryMail: true,
-        ...mailExtensionMetadata({
-          ...mailSenderStamp(board, caller, sentBy.success),
-          mailKind: "notice",
-          ...(decoded.success.refs === undefined ? {} : { refs: decoded.success.refs }),
-        }),
-        ...thread,
-      };
-      const result = toOperator
-        ? yield* work.workOperatorReply(
-            caller.canvasName,
-            caller.nodeId,
-            makeAgentMessage({
-              messageId: ulid(),
-              text,
-              contextId: caller.canvasName,
-              metadata: { ...metadata, toNodeId: "operator" },
-            }),
-            sentBy.success,
-          )
-        : yield* work.workMessageAppend(
-            caller.canvasName,
-            decoded.success.target,
-            null,
-            makeUserMessage({ messageId: ulid(), text, contextId: caller.canvasName, metadata }),
-            sentBy.success,
-          );
-      const mapped = fromWorkResult(result);
-      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      return {
-        ...exposeWorkMutation(mapped.success),
-        ...thread,
-        recipient: toOperator ? OPERATOR_RECIPIENT : recipientOf(board, target),
-        read: exposeWorkMutation(markedMapped.success),
-        ...unlinkedField(linked),
-      };
     }
 
     if (isOpOp(op)) {
@@ -2927,6 +1985,13 @@ export const startWorkControlServer = async (
   const socketPath = workControlSocketPath(workHome);
   const credentials = options.credentials ?? getSeatCredentialRegistry();
   const authoringGate = options.authoringGate ?? mainAuthoringGate;
+  // The ops with RPC groups are answered by one RPC server in this server's
+  // own scope, closed once the server drained. It needs nothing: each call
+  // brings its seat and its services.
+  const rpcScope = Scope.makeUnsafe();
+  const rpc = Effect.runSync(
+    Layer.buildWithScope(WorkRpcServer.layer, rpcScope).pipe(Effect.map((context) => Context.get(context, WorkRpcServer))),
+  );
 
   const shutdownGraceMs = boundedRuntimeValue(
     runtime.shutdownGraceMs,
@@ -3320,6 +2385,7 @@ export const startWorkControlServer = async (
             caller,
             options.version,
             fence,
+            rpc,
           ).pipe(Effect.result);
         });
 
@@ -3866,6 +2932,8 @@ export const startWorkControlServer = async (
       void runDrain(deadline).then(
         (receipt) => {
           deadline.cancel();
+          // The RPC server's own scope, which needs no service: never a call of `run`.
+          if (receipt.clean) Effect.runFork(Scope.close(rpcScope, Exit.void));
           resolveDrain(receipt);
         },
         (error) => {

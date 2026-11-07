@@ -1,6 +1,7 @@
 import { createConnection, type Socket } from "node:net";
 import { resolveJuntoHome } from "@shared/junto-home";
-import { Context, Effect, Layer, Result } from "effect";
+import { Context, Effect, Layer, Result, Schema } from "effect";
+import type { Rpc } from "effect/rpc";
 import {
   decodeOverseerRequest,
   isOverseerMutation,
@@ -325,6 +326,42 @@ export const WorkSocketLive = Layer.succeed(
       }),
   }),
 );
+
+/** An op of the work contract: an Effect `Rpc` whose tag is its v1 name. */
+type WorkRpc = Rpc.Any & Rpc.AnyWithProps & { readonly _tag: WorkOpName };
+
+/**
+ * One work op through its contract (`src/contract/work/`): its arguments as
+ * the op types them, and its answer decoded by the op's success schema. The
+ * core answers from the same contract, so a change to either fails this
+ * call's compile.
+ */
+export const callWorkRpc = <R extends WorkRpc>(
+  rpc: R,
+  args: Rpc.Payload<R>,
+  timeoutMs?: number,
+): Effect.Effect<Rpc.Success<R>, RuntimeDown | AuthError | WireError, WorkSocket> => {
+  // The work contract's schemas are JSON and need no services to decode or encode.
+  const payload = Schema.toCodecJson(rpc.payloadSchema) as unknown as Schema.Codec<Rpc.Payload<R>, unknown>;
+  const answer = Schema.toCodecJson(rpc.successSchema) as unknown as Schema.Codec<Rpc.Success<R>, unknown>;
+  return Effect.gen(function* () {
+    const socket = yield* WorkSocket;
+    const encoded = yield* Schema.encodeEffect(payload)(args).pipe(
+      Effect.mapError((issue) => new WireError({ type: "InputError", message: issue.message })),
+    );
+    const data = yield* socket.call(rpc._tag, encoded, timeoutMs);
+    return yield* Schema.decodeUnknownEffect(answer)(data).pipe(
+      Effect.mapError(
+        (issue) =>
+          new WireError({
+            type: "ProtocolError",
+            message: `${rpc._tag} answered in a shape this CLI does not read: ${issue.message}`,
+            details: { retryable: false, next_step: "the Junto app and this CLI are from different builds; run the CLI the app installed" },
+          }),
+      ),
+    );
+  });
+};
 
 /**
  * Local doctor checks without a full round-trip when socket is missing. This
