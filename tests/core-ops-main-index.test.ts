@@ -1,3 +1,4 @@
+import { Effect, Exit, Scope } from "effect";
 import { describe, expect, it } from "vitest";
 import { publishWindowBroadcasts } from "../src/core/ops/main-index";
 import { relayWindowPushes } from "../src/app/core-process/main-side/window-pushes";
@@ -6,7 +7,7 @@ import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { portPushes, type CorePort } from "../src/contract/core/port";
 import { serveCore } from "../src/core/serve";
 import { emitAgentSignalChanged } from "../src/core/signals/changes";
-import { subscribe } from "../src/app/core-process/main-side/core-pushes";
+import { makeCorePushesMain, subscribe } from "../src/app/core-process/main-side/core-pushes";
 import type { AgentSignal } from "../src/shared/agent-signals";
 
 /** A whole signal: main decodes each push with its Schema, and refuses a partial one. */
@@ -43,9 +44,12 @@ describe("index.ts core broadcasts", () => {
     });
     const { port1, port2 } = new MessageChannel();
     const served = serveCore(portOf(port2));
-    const stopRelay = relayWindowPushes(portPushes(portOf(port1)));
+    // Main's bus for this boot, as main-boot builds it: the relay is its feed.
+    const scope = Scope.makeUnsafe();
+    const { pushes, deliver } = Effect.runSync(Scope.provide(makeCorePushesMain, scope));
+    const stopRelay = relayWindowPushes(portPushes(portOf(port1)), deliver);
     const seen: Array<[string, unknown]> = [];
-    const offs = ([WORK_PREAMBLE, AGENT_SIGNAL_CHANGED] as const).map((channel) => subscribe(channel, (payload) => seen.push([channel, payload])));
+    const offs = ([WORK_PREAMBLE, AGENT_SIGNAL_CHANGED] as const).map((channel) => pushes.subscribe(channel, (payload) => seen.push([channel, payload])));
     try {
       const preamble = { preambleId: "p1", canvasName: "factory", nodeId: "seat", text: "hello", expiresAt: 1 };
       served.push(WORK_PREAMBLE, preamble);
@@ -58,6 +62,7 @@ describe("index.ts core broadcasts", () => {
     } finally {
       for (const off of offs) off();
       stopRelay();
+      Effect.runSync(Scope.close(scope, Exit.void));
       port1.close();
     }
   });

@@ -1,11 +1,12 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { Effect, Exit, Scope } from "effect";
 import { expect, it } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { MENTION_IPC_CHANNELS } from "../src/shared/mention-ipc-channels";
 import { CORE_PUSHES, CORE_PUSH_CHANNELS } from "../src/contract/core/channels";
 import { relayWindowPushes } from "../src/app/core-process/main-side/window-pushes";
-import { subscribe } from "../src/app/core-process/main-side/core-pushes";
+import { makeCorePushesMain } from "../src/app/core-process/main-side/core-pushes";
 import { portPushes, type CorePort } from "../src/contract/core/port";
 import { serveCore } from "../src/core/serve";
 import { MessageChannel } from "node:worker_threads";
@@ -92,13 +93,18 @@ it("main relays every registered channel, and a backlink reaches it through the 
   const client = portPushes(portOf(port1));
   const relayed = new Set<string>();
   const heard = new Map<string, unknown>();
-  const stop = relayWindowPushes({
-    onPush: (channel, listener) => {
-      relayed.add(channel);
-      return client.onPush(channel, listener);
+  const scope = Scope.makeUnsafe();
+  const { pushes, deliver } = Effect.runSync(Scope.provide(makeCorePushesMain, scope));
+  const stop = relayWindowPushes(
+    {
+      onPush: (channel, listener) => {
+        relayed.add(channel);
+        return client.onPush(channel, listener);
+      },
     },
-  });
-  const offs = CORE_PUSH_CHANNELS.map((channel) => subscribe(channel, (payload) => heard.set(channel, payload)));
+    deliver,
+  );
+  const offs = CORE_PUSH_CHANNELS.map((channel) => pushes.subscribe(channel, (payload) => heard.set(channel, payload)));
   try {
     // The relay listens for the registry itself, so a new push cannot be missing here.
     expect([...relayed].sort()).toEqual([...CORE_PUSH_CHANNELS].sort());
@@ -109,6 +115,7 @@ it("main relays every registered channel, and a backlink reaches it through the 
   } finally {
     stop();
     for (const off of offs) off();
+    Effect.runSync(Scope.close(scope, Exit.void));
     port1.close();
     port2.close();
   }

@@ -4,6 +4,7 @@
  * in its own type and reads them from the context built here.
  */
 import { Layer } from "effect";
+import type { CorePushesMain } from "./main-side/core-pushes";
 import { AutomationCore } from "../../contract/core/automation";
 import { BrowserCore } from "../../contract/core/browser";
 import { BrowserStoreCore } from "../../contract/core/browser-store";
@@ -72,4 +73,8 @@ export const CoreClientsLive = Layer.mergeAll(
   AutomationCore.layer,
 );
 
-export type CoreClients = Layer.Success<typeof CoreClientsLive>;
+/** Main's clients of the core's groups. */
+export type CoreGroupClients = Layer.Success<typeof CoreClientsLive>;
+
+/** What a registrar reads of the core: its groups' clients, and the bus its pushes reach main on (main-boot.ts). */
+export type CoreClients = CoreGroupClients | CorePushesMain;

@@ -15,20 +15,21 @@ import { Context, Result } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { decodeViewStateWrite, type ViewStateApplyResult } from "@shared/view-state";
 import { ViewStateCore } from "../../contract/core/view-state";
-import { subscribe as onCorePush } from "../core-process/main-side/core-pushes";
+import { CorePushesMain } from "../core-process/main-side/core-pushes";
 import { AppRuntime } from "../runtime";
 
 export const registerViewStateIpc = (
   ipc: Pick<IpcMain, "handle">,
   broadcast: (channel: string, payload: unknown) => void,
-  core: Context.Context<ViewStateCore>,
+  core: Context.Context<ViewStateCore | CorePushesMain>,
 ): void => {
   const viewState = Context.get(core, ViewStateCore);
+  const pushes = Context.get(core, CorePushesMain);
 
   ipc.handle(IPC_CHANNELS.viewStateSnapshot, () => AppRuntime.runPromise(viewState.ViewStateSnapshot()));
 
   // The core publishes each committed write; every window reads it as it lands.
-  onCorePush(IPC_CHANNELS.viewStateChanged, (change) => broadcast(IPC_CHANNELS.viewStateChanged, change));
+  pushes.subscribe(IPC_CHANNELS.viewStateChanged, (change) => broadcast(IPC_CHANNELS.viewStateChanged, change));
 
   ipc.handle(IPC_CHANNELS.viewStateApply, (_event, raw: unknown): Promise<ViewStateApplyResult> => {
     const decoded = decodeViewStateWrite(raw);

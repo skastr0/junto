@@ -9,16 +9,17 @@ import { Context, Effect, Schema } from "effect";
 import { MENTION_IPC_CHANNELS } from "@shared/mention-ipc-channels";
 import { MentionListInput, type MentionsChanged } from "@shared/mention-ipc";
 import { MentionCore } from "../../contract/core/mention-ipc";
-import { subscribe as onCorePush } from "../core-process/main-side/core-pushes";
+import { CorePushesMain } from "../core-process/main-side/core-pushes";
 import { AppRuntime } from "../runtime";
 
 /** The list on its channel, and every added backlink told to the windows. Returns the unsubscribe. */
 export const registerMentionIpc = (
   ipc: Pick<IpcMain, "handle">,
   broadcast: (channel: string, payload: MentionsChanged) => void,
-  core: Context.Context<MentionCore>,
+  core: Context.Context<MentionCore | CorePushesMain>,
 ): (() => void) => {
   const mentions = Context.get(core, MentionCore);
+  const pushes = Context.get(core, CorePushesMain);
   ipc.handle(MENTION_IPC_CHANNELS.list, (_event, raw: unknown) =>
     AppRuntime.runPromise(
       Effect.flatMap(Schema.decodeUnknownEffect(MentionListInput)(raw, { onExcessProperty: "error" }), (input) =>
@@ -26,5 +27,5 @@ export const registerMentionIpc = (
       ),
     ),
   );
-  return onCorePush(MENTION_IPC_CHANNELS.changed, (event) => broadcast(MENTION_IPC_CHANNELS.changed, event));
+  return pushes.subscribe(MENTION_IPC_CHANNELS.changed, (event) => broadcast(MENTION_IPC_CHANNELS.changed, event));
 };

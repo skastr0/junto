@@ -27,7 +27,7 @@ import type { SeatCollaborationAskResult, SeatCollaborationDraft } from "@shared
 import { MAIL_WAITING, SEAT_THREAD_READ_CHANGED } from "../../contract/core/channels";
 import { ThreadsCore } from "../../contract/core/threads";
 import { askOnEveryCore } from "../core-process/every-core";
-import { subscribe as onCorePush } from "../core-process/main-side/core-pushes";
+import { CorePushesMain } from "../core-process/main-side/core-pushes";
 import { AppRuntime } from "../runtime";
 
 /** A write under its main authoring label, so shutdown drains it. */
@@ -36,10 +36,11 @@ type Authored = <A>(operation: () => Promise<A>) => Promise<A>;
 export const registerThreadsIpc = (
   ipc: Pick<IpcMain, "handle">,
   broadcast: (channel: string, payload: unknown) => void,
-  core: Context.Context<ThreadsCore>,
+  core: Context.Context<ThreadsCore | CorePushesMain>,
   authoring: { readonly send: Authored },
 ): void => {
   const threads = Context.get(core, ThreadsCore);
+  const pushes = Context.get(core, CorePushesMain);
 
   ipc.handle(IPC_CHANNELS.agentSeatStateSnapshot, () => AppRuntime.runPromise(threads.ThreadsSeatStates()));
 
@@ -87,8 +88,8 @@ export const registerThreadsIpc = (
     if (Result.isFailure(mark)) return undefined;
     return (await AppRuntime.runPromise(threads.ThreadsMarkRead(mark.success)).catch(() => null)) ?? undefined;
   });
-  onCorePush(SEAT_THREAD_READ_CHANGED, (change) => broadcast(IPC_CHANNELS.seatThreadReadChanged, change));
-  onCorePush(MAIL_WAITING, (fact) => broadcast(IPC_CHANNELS.mailWaiting, fact));
+  pushes.subscribe(SEAT_THREAD_READ_CHANGED, (change) => broadcast(IPC_CHANNELS.seatThreadReadChanged, change));
+  pushes.subscribe(MAIL_WAITING, (fact) => broadcast(IPC_CHANNELS.mailWaiting, fact));
   askOnEveryCore("threads.watch", () => AppRuntime.runPromise(threads.ThreadsWatch()));
 
   /** The write: input that does not decode is refused here, as the core refused it before. */

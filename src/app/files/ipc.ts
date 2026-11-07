@@ -31,7 +31,7 @@ import {
   type FilesResult,
 } from "@shared/files";
 import { trustedRendererIpc } from "../trusted-main-webcontents";
-import { subscribe as subscribeCore } from "../core-process/main-side/core-pushes";
+import { CorePushesMain } from "../core-process/main-side/core-pushes";
 import { FILES_CHANGED, type FilesChangedPush } from "../../contract/core/channels";
 import { FilesCore, type FilesBytesOpened } from "../../contract/core/files";
 import type { FileBytesReader } from "../../core/files/bytes";
@@ -63,8 +63,9 @@ const at = <R>(
  * Register the Files channels. Another machine's node goes to the link client
  * in the core (`ops/files.ts`, `router.ts`).
  */
-export const registerFilesIpc = (core: Context.Context<FilesCore>): void => {
+export const registerFilesIpc = (core: Context.Context<FilesCore | CorePushesMain>): void => {
   const files = Context.get(core, FilesCore);
+  const pushes = Context.get(core, CorePushesMain);
   const ipc = trustedRendererIpc(ipcMain);
 
   const watched = new Set<number>();
@@ -82,7 +83,7 @@ export const registerFilesIpc = (core: Context.Context<FilesCore>): void => {
   };
 
   // A change for a window that has the node open: the core names the window.
-  subscribeCore(FILES_CHANGED, (payload) => {
+  pushes.subscribe(FILES_CHANGED, (payload) => {
     const pushed = payload as FilesChangedPush;
     const target = webContents.fromId(pushed.subscriber);
     if (target !== undefined && !target.isDestroyed()) target.send(IPC_CHANNELS.filesChanged, pushed.event);

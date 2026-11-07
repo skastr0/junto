@@ -1,9 +1,9 @@
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Exit, Layer, Scope } from "effect";
 import { CoreLink } from "../../contract/core/link";
 import { TermCore } from "../../contract/core/term-ipc";
 import { HostLink } from "../../contract/host/link";
 import { AppRuntime } from "../runtime";
-import { CoreClientsLive, type CoreClients } from "./clients";
+import { CoreClientsLive, type CoreClients, type CoreGroupClients } from "./clients";
 import { HostServerLive } from "./host-server";
 import { SystemClipboard, type SystemClipboardShape } from "./main-side/clipboard";
 import { FilesShell, type FilesShellShape } from "./main-side/files";
@@ -17,7 +17,7 @@ import { IPC_CHANNELS } from "@shared/ipc";
 import { askEveryCoreAsk } from "./every-core";
 import { startCoreProcess, type CoreDidNotStop } from "./host";
 import { assertWorkControlSocketPathFits } from "../../node/work/socket-path";
-import { deliverPush } from "./main-side/core-pushes";
+import { bridgeModuleBus, CorePushesMain, makeCorePushesMain } from "./main-side/core-pushes";
 import { relayWindowPushes } from "./main-side/window-pushes";
 import { overseerHostServices } from "./main-side/overseer-pages";
 import { coreSurfacePlane, type PortedCoreMessage, type SurfacePlane, type SurfacePlanes } from "./main-side/term-surface";
@@ -68,6 +68,12 @@ export const startCoreProcessForMain = (input: {
   // without naming the path or the limit.
   assertWorkControlSocketPathFits(workControlDir(input.boot.home));
   const started = (input.start ?? startCoreProcess)(input.boot);
+  // Main's bus of the core's pushes, for this boot: the relay and core.ready
+  // feed it, every registrar reads it from the clients context, and closing
+  // its scope at stop ends every listener on it.
+  const busScope = Scope.makeUnsafe();
+  const { pushes, deliver } = Effect.runSync(Scope.provide(makeCorePushesMain, busScope));
+  const stopModuleBus = bridgeModuleBus(pushes);
   // The core asks for its port to the terminal process as it boots, and is
   // handed a new one each time the terminal process starts again.
   const postSurface = started.postSurface;
@@ -90,7 +96,7 @@ export const startCoreProcessForMain = (input: {
   const clients = Promise.all([
     serveHost(started.hostLink, hosts),
     buildCoreClients(started.link),
-  ]).then(([, built]) => built);
+  ]).then(([, built]): Context.Context<CoreClients> => Context.add(built, CorePushesMain, pushes));
   // Each core that says ready is asked what main asks of every core; after the
   // first, the windows then read again what changed while no core ran.
   let readies = 0;
@@ -98,10 +104,10 @@ export const startCoreProcessForMain = (input: {
     const restarted = readies > 0;
     readies += 1;
     askEveryCoreAsk(() => {
-      if (restarted) deliverPush(IPC_CHANNELS.coreRestarted, {});
+      if (restarted) deliver(IPC_CHANNELS.coreRestarted, {});
     });
   });
-  const stopRelay = relayWindowPushes(started);
+  const stopRelay = relayWindowPushes(started, deliver);
   // The terminal plane is the core's: each view's surface port rides to it.
   // One accessor per main boot, answering for the core that is up.
   let surfacePlane: SurfacePlane | undefined;
@@ -127,14 +133,16 @@ export const startCoreProcessForMain = (input: {
             stopRestart();
             surfacePlane = undefined;
             stopRelay();
+            stopModuleBus();
           }),
         ),
+        Effect.ensuring(Scope.close(busScope, Exit.void)),
       ),
   };
 };
 
 /** Main's clients of the core's groups on the link to the core process, for main's whole life. */
-export const buildCoreClients = (link: RpcPort): Promise<Context.Context<CoreClients>> =>
+export const buildCoreClients = (link: RpcPort): Promise<Context.Context<CoreGroupClients>> =>
   AppRuntime.runPromise(
     Layer.buildWithScope(CoreClientsLive.pipe(Layer.provide(Layer.succeed(CoreLink, link))), AppRuntime.scope),
   );
