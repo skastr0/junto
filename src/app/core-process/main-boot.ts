@@ -8,10 +8,8 @@ import { HostServerLive } from "./host-server";
 import { SystemClipboard, type SystemClipboardShape } from "./main-side/clipboard";
 import { FilesShell, type FilesShellShape } from "./main-side/files";
 import { workControlDir } from "@shared/work-control";
-import { hostOps } from "./main-side/host-op-bodies";
 import { TERMINAL_CONNECT } from "../../contract/terminal/protocol";
-import type { TerminalProcessForCore } from "../terminals/host";
-import type {} from "../../core/terminals/core-side";
+import { TerminalGrant, type TerminalProcessForCore } from "../terminals/host";
 import type { ApplicationCaptureResult } from "../../core/overseer/native";
 import type { OverseerPages } from "../../node/overseer/pages";
 import type { CoreBoot } from "../../core/entry";
@@ -82,6 +80,7 @@ export const startCoreProcessForMain = (input: {
   const hosts = Layer.mergeAll(
     Layer.succeed(SystemClipboard, input.clipboard),
     Layer.succeed(FilesShell, input.shell),
+    Layer.succeed(TerminalGrant, { give: giveTerminals }),
     overseerHostServices({
       pages: input.pages,
       captureApplicationPage: input.captureApplicationPage,
@@ -111,7 +110,6 @@ export const startCoreProcessForMain = (input: {
     surfacePlane = coreSurfacePlane({ postSurface, onPush: started.onPush, closeSurface: (lease) => clients.then((core) => AppRuntime.runPromise(Context.get(core, TermCore).TermSurfaceClose({ lease }))) });
   }
   const surfacePlanes: SurfacePlanes = { current: () => surfacePlane };
-  const stopTerminalHost = hostOps({ "terminal.connect": async () => giveTerminals() });
   const stopRestart = terminals?.onRestart(() => void giveTerminals()) ?? (() => undefined);
   return {
     client: started,
@@ -128,7 +126,6 @@ export const startCoreProcessForMain = (input: {
           Effect.sync(() => {
             stopReady();
             stopRestart();
-            stopTerminalHost();
             surfacePlane = undefined;
             stopRelay();
           }),

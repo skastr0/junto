@@ -295,7 +295,7 @@ export const startCore = async (options: CoreOptions) => {
     // process over a port main hands it, never in this process; a windowless
     // core's run in this process.
     const windowTerminals = options.windowTerminals;
-    if (windowTerminals !== undefined) await connectCoreTerminals(windowTerminals.parent);
+    if (windowTerminals !== undefined) await runtime.runPromise(connectCoreTerminals(windowTerminals.parent));
     else placeTerminals({ kind: "here" });
     seatProcesses = await startCoreSeats({ home: options.home });
     // The window's terminal ops ask this plane by name, and its events reach the window as core pushes.

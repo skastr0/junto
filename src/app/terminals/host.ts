@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { app, MessageChannelMain, utilityProcess, type MessagePortMain, type UtilityProcess } from "electron";
-import { Effect, Option, Schema } from "effect";
+import { Context, Effect, Option, Schema } from "effect";
+import { TerminalHostRpcs } from "../../contract/host/terminal";
 import { TERMINAL_CONNECT, TerminalInbound } from "../../contract/terminal/protocol";
 
 /**
@@ -9,6 +10,14 @@ import { TERMINAL_CONNECT, TerminalInbound } from "../../contract/terminal/proto
  * (`core-process/host.ts`): main imports no other program's code to fork it.
  */
 const terminalEntry = (): string => join(app.getAppPath(), "out", "main", "terminal-process.js");
+
+/** How main gives a core its port to the terminal process; main-boot provides it to the host server. */
+export class TerminalGrant extends Context.Service<TerminalGrant, { readonly give: () => boolean }>()("@junto/app/TerminalGrant") {}
+
+/** Main's handlers of the terminal host group (src/contract/host/terminal.ts): the core asks, main posts it a port. */
+export const TerminalHostHandlers = TerminalHostRpcs.toLayer(
+  Effect.map(TerminalGrant, (grant) => ({ TerminalConnect: () => Effect.sync(() => grant.give()) })),
+);
 
 /** How long a stopping terminal process has to report its exit before it is killed again. */
 const STOP_DEADLINE_MS = 10_000;

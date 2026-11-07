@@ -10,6 +10,7 @@ import { HostLink } from "../../src/contract/host/link";
 import { HostServerLive } from "../../src/app/core-process/host-server";
 import { SystemClipboard, type SystemClipboardShape } from "../../src/app/core-process/main-side/clipboard";
 import { FilesShell, type FilesShellShape } from "../../src/app/core-process/main-side/files";
+import { TerminalGrant } from "../../src/app/terminals/host";
 import { overseerHostServices } from "../../src/app/core-process/main-side/overseer-pages";
 import { HostClientsLive, type HostClients } from "../../src/core/host-clients";
 import { heldForServer, peersLink, type LinkedPeer, type PortMessage, type RpcPort } from "../../src/shared/rpc-port";
@@ -46,6 +47,7 @@ export const servedHost = async (scope: Scope.Scope, clipboard: SystemClipboardS
           Layer.succeed(HostLink, heldForServer(peers.link)),
           Layer.succeed(SystemClipboard, clipboard),
           Layer.succeed(FilesShell, parts.shell ?? refusingShell),
+          Layer.succeed(TerminalGrant, { give: () => false }),
           overseerHostServices({
             pages: parts.pages ?? (() => undefined),
             captureApplicationPage: parts.captureApplicationPage ?? (async () => ({ ok: false, unavailable: true, reason: "no window in this test" })),

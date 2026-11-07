@@ -1,14 +1,13 @@
-import { host } from "../core-host";
+import { Effect, Schema } from "effect";
+import { TerminalHost } from "../../contract/host/terminal";
 import { TERMINAL_CONNECT } from "../../contract/terminal/protocol";
 import { terminalsOverPorts, type TerminalPortMain } from "./over-ports";
 import { placeTerminals } from "../../node/terminals/use";
 
-declare module "../host-ops" {
-  interface HostOps {
-    /** Main posts the core a new port to the terminal process (`pty.connect`), then answers. */
-    "terminal.connect": import("../host-ops").HostOp<Record<string, never>, boolean>;
-  }
-}
+/** Main gave this core no port to a terminal process, or could not be asked. */
+export class TerminalsNotGiven extends Schema.TaggedError<TerminalsNotGiven>()("TerminalsNotGiven", {
+  message: Schema.String,
+}) {}
 
 export type CoreParentPort = {
   readonly on: (event: "message", listener: (event: { readonly data: unknown; readonly ports?: readonly TerminalPortMain[] }) => void) => void;
@@ -21,18 +20,22 @@ export type CoreParentPort = {
  * the boot resumes has its terminals. A later port (the terminal process
  * started again) replaces the last.
  */
-export const connectCoreTerminals = async (parent: CoreParentPort): Promise<void> => {
-  const terminals = terminalsOverPorts();
-  placeTerminals({ kind: "process", client: terminals });
-  let first!: () => void;
-  const connected = new Promise<void>((resolve) => { first = resolve; });
-  parent.on("message", (event) => {
-    const message = event.data as { readonly kind?: unknown; readonly channel?: unknown };
-    const port = event.ports?.[0];
-    if (message.kind !== "push" || message.channel !== TERMINAL_CONNECT || port === undefined) return;
-    terminals.connect(port);
-    first();
+export const connectCoreTerminals = (parent: CoreParentPort): Effect.Effect<void, TerminalsNotGiven, TerminalHost> =>
+  Effect.gen(function* () {
+    const terminals = terminalsOverPorts();
+    placeTerminals({ kind: "process", client: terminals });
+    let first!: () => void;
+    const connected = new Promise<void>((resolve) => { first = resolve; });
+    parent.on("message", (event) => {
+      const message = event.data as { readonly kind?: unknown; readonly channel?: unknown };
+      const port = event.ports?.[0];
+      if (message.kind !== "push" || message.channel !== TERMINAL_CONNECT || port === undefined) return;
+      terminals.connect(port);
+      first();
+    });
+    const given = yield* (yield* TerminalHost).TerminalConnect().pipe(
+      Effect.mapError((error) => new TerminalsNotGiven({ message: error.message })),
+    );
+    if (!given) return yield* new TerminalsNotGiven({ message: "Electron main gave the core no terminal process" });
+    yield* Effect.promise(() => connected);
   });
-  if (!(await host.call("terminal.connect", {}))) throw new Error("Electron main gave the core no terminal process");
-  await connected;
-};
