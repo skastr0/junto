@@ -4,7 +4,10 @@
 #   scripts/vm.sh new <seat> <purpose>      a VM from the $VM_BASE snapshot, named <seat>-<id>-<purpose>
 #   scripts/vm.sh sync <id> [ref] [paths…]  put <ref> (HEAD, a branch, a tag or a hash; default HEAD) on the VM, plus your own uncommitted <paths>
 #   scripts/vm.sh run <id> <command…>       run a command in ~/$VM_DIR on the VM, output streamed
-#   scripts/vm.sh stop <id>                 stop it (snapshot kept 14 days); `boat resume <id>` brings it back
+#
+# A VM stays on: every stop and resume is a paid start (operator, 2026-11-07),
+# so `new` turns auto-stop off, and there is no stop here. Keep the VM and
+# reuse it for every check.
 #
 # The VM holds a git clone, so a sync sends only the commits it lacks, as a
 # git bundle (kilobytes), never the working tree. It never reads the shared
@@ -41,7 +44,7 @@ case "${1:-}" in
   new)
     seat=${2:?seat name}
     purpose=${3:?purpose}
-    id=$("$BOAT" new --from "$VM_BASE" --name "$seat-$purpose" --json | jq -r 'select(.event == "ready") | .id' | tail -1)
+    id=$("$BOAT" new --from "$VM_BASE" --no-auto-stop --name "$seat-$purpose" --json | jq -r 'select(.event == "ready") | .id' | tail -1)
     [ -n "$id" ] || { echo "vm.sh: boat new did not report a ready VM" >&2; exit 1; }
     "$BOAT" rename "$id" "$seat-$id-$purpose" >/dev/null
     echo "$id"
@@ -95,7 +98,8 @@ case "${1:-}" in
     remote "$id" "cd ~/$VM_DIR && unset BACKEND_URL ASCII_API_URL BOX_CLI_API_URL && $*"
     ;;
   stop)
-    "$BOAT" stop "${2:?VM id}"
+    echo "vm.sh: VMs stay on (operator, 2026-11-07): a stop and a resume is a paid start. Keep it and reuse it." >&2
+    exit 2
     ;;
   *)
     sed -n '2,17p' "$0"
