@@ -60,6 +60,10 @@ const runtime = spawnSync(process.execPath, ["-e", "require('electron')"], {
 });
 if (runtime.status !== 0) process.exit(runtime.status ?? 1);
 
+// Every selected lane runs, red or not, so a receipt counts all three; the
+// exit is the worst lane's status, after a line per lane.
+const results: Array<{ readonly label: string; readonly status: number; readonly seconds: string }> = [];
+
 const run = (
   label: string,
   isolate: boolean,
@@ -83,13 +87,15 @@ const run = (
     },
   );
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
-  if (result.status !== 0) {
-    console.error(`unit-tests: ${label} FAIL (${seconds}s)`);
-    process.exit(result.status ?? 1);
-  }
-  console.error(`unit-tests: ${label} ok (${seconds}s)`);
+  const status = result.status ?? 1;
+  results.push({ label, status, seconds });
+  console.error(`unit-tests: ${label} ${status === 0 ? "ok" : "FAIL"} (${seconds}s)`);
 };
 
 if (selected("shared")) run("shared", false, laneFiles(lanes.shared));
 if (selected("isolated")) run("isolated", true, laneFiles(lanes.isolated));
 if (selected("alone")) run("alone", true, laneFiles(lanes.alone), ["--no-file-parallelism"]);
+
+const failed = results.filter((lane) => lane.status !== 0);
+console.error(`unit-tests: ${results.map((lane) => `${lane.label} ${lane.status === 0 ? "ok" : "FAIL"}`).join(", ")}`);
+if (failed.length > 0) process.exit(Math.max(...failed.map((lane) => lane.status)));
