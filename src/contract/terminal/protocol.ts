@@ -11,6 +11,14 @@
  */
 import type { RpcPortMessage } from "../../shared/rpc-port";
 import type { TerminalExitStatus } from "./rpcs";
+import type {
+  CommandFrame,
+  EventFrame,
+  ParentFrame,
+  PortlessCommandFrame,
+  PortParentFrame,
+  TerminalLinkTransfer,
+} from "./messages";
 
 /**
  * Main to the terminal process, with a port moved beside it: serve a core on
@@ -130,17 +138,52 @@ export type SurfaceOut =
 /** On a surface port: the renderer to the terminal process. */
 export type SurfaceIn = { readonly t: "in"; readonly data: string };
 
-/** One one-way message on the terminal link, either way. */
+/** One one-way message on the terminal link, either way. Legacy: goes with the channel maps above. */
 export type TerminalPush = { readonly kind: "push"; readonly channel: string; readonly payload: unknown };
 
 /**
- * The terminal link's own envelope: RPC's frames for the calls, and the
- * one-way pushes. None of the core port's host calls ride it.
+ * The terminal link's own envelope, as a listener receives it: RPC's frames
+ * for the calls, the core's command frames and the terminal process's event
+ * frames. None of the core port's host calls ride it. `TerminalPush` stays
+ * in it only while both shapes are accepted.
  */
-export type TerminalLinkMessage = RpcPortMessage | TerminalPush;
+export type TerminalLinkMessage = RpcPortMessage | TerminalPush | CommandFrame | EventFrame;
 
-/** One end of a terminal link: a node `MessagePort`, Electron's `MessagePortMain`, or the parent port. */
+/** What may be posted with no port: every link message but a port-carrying command frame. */
+export type PortlessLinkMessage = RpcPortMessage | TerminalPush | PortlessCommandFrame | EventFrame;
+
+/** One end of a terminal link: a node `MessagePort`, Electron's `MessagePortMain`, or the parent port. Legacy: `TerminalLink` replaces it. */
 export type TerminalLinkPort = {
   readonly post: (message: TerminalLinkMessage) => void;
   readonly listen: (handler: (message: TerminalLinkMessage) => void) => () => void;
+};
+
+/**
+ * One end of the link between the core and the terminal process. `P` is a
+ * port as this end's transport holds one.
+ *
+ * - `post` takes every message but a port-carrying frame.
+ * - `transfer` takes exactly a port-carrying frame (`surfaceOpen`) and its port.
+ * - `listen` hands each message over with the port that came beside it, or
+ *   undefined. The transport unwraps it (Electron's `event.ports[0]`, a node
+ *   port carried in the posted value), so every edge sees one shape.
+ */
+export type TerminalLink<P> = {
+  readonly post: (message: PortlessLinkMessage) => void;
+  readonly transfer: TerminalLinkTransfer<P>;
+  readonly listen: (handler: (message: TerminalLinkMessage, port: P | undefined) => void) => () => void;
+};
+
+/** What main says to the terminal process on its parent port. `TerminalPush` only while both shapes are accepted. */
+export type TerminalParentMessage = ParentFrame | TerminalPush;
+
+/**
+ * The parent port, either end: `post` takes `shutdown`, `transfer` takes
+ * exactly a `connect` frame and the core's port, and `listen` hands each
+ * message over with the port beside it, as `TerminalLink` does.
+ */
+export type TerminalParentLink<P> = {
+  readonly post: (message: Exclude<TerminalParentMessage, PortParentFrame>) => void;
+  readonly transfer: (frame: PortParentFrame, port: P) => void;
+  readonly listen: (handler: (message: TerminalParentMessage, port: P | undefined) => void) => () => void;
 };

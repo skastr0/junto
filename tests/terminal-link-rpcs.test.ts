@@ -12,7 +12,7 @@ import { Effect, Exit, Result } from "effect";
 import { RpcClient, type RpcClientError, type RpcGroup } from "effect/rpc";
 import { afterEach, describe, expect, it } from "vitest";
 import { clientProtocol } from "../src/shared/rpc-port";
-import { TerminalInbound, type TerminalLinkMessage, type TerminalLinkPort } from "../src/contract/terminal/protocol";
+import { TerminalInbound, type TerminalLink, type TerminalLinkMessage, type TerminalLinkPort } from "../src/contract/terminal/protocol";
 import { TERMINAL_LINK_VERSION, TerminalRpcs } from "../src/contract/terminal/rpcs";
 import { serveTerminals, type SpawnPty } from "../src/terminal/serve";
 import { commandEdge, eventEdge, parentEdge } from "../src/contract/terminal/edge";
@@ -247,6 +247,14 @@ describe("the terminal link's one-way edges", () => {
       connect: (_message: { readonly _tag: "connect"; readonly generation: string }) => undefined,
       shutdown: keep,
     };
+    const end = { post: () => undefined, transfer: () => undefined, listen: () => () => undefined } satisfies TerminalLink<string>;
+    const open = { _tag: "surfaceOpen", id: 1, n: 2, leaseId: "lease", epoch: "e1", fromSeq: 1 } as const;
+    const typed: TerminalLink<string> = end;
+    // @ts-expect-error: a surfaceOpen frame goes only through transfer, with its port.
+    typed.post({ kind: "command", message: open });
+    typed.transfer({ kind: "command", message: open }, "the surface port");
+    // @ts-expect-error: transfer takes no frame that carries no port.
+    typed.transfer({ kind: "command", message: { _tag: "write", id: 1, n: 3, data: "x" } }, "the surface port");
     expect([missing, extra, drifted]).toHaveLength(3);
   });
 });
