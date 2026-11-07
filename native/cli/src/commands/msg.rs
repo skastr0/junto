@@ -14,7 +14,7 @@ use crate::{batch, input, ops};
 
 /// MailEvidenceRef (src/shared/crew.ts): what a mail points at.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
+#[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 pub enum EvidenceRef {
     Commit {
         sha: String,
