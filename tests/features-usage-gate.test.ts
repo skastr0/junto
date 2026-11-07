@@ -5,7 +5,8 @@ import { USAGE_ENABLED } from "../src/shared/features";
 describe("usage product gate", () => {
   it.runIf(!USAGE_ENABLED)("omits usage bridges and live polling in the ship profile", () => {
     const preload = readFileSync("src/window/preload/index.ts", "utf8");
-    const main = readFileSync("src/app/ipc.ts", "utf8");
+    // Main's usage handlers are registered with the status group's registrar.
+    const main = readFileSync("src/app/status/status-ipc.ts", "utf8");
     const app = readFileSync("src/window/App.tsx", "utf8");
 
     expect(preload).toContain("...(USAGE_ENABLED ? usageApi : {})");
