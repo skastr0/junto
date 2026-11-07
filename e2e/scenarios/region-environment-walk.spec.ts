@@ -795,6 +795,14 @@ test("SJ Environment screen, by eye: the empty state, the lead action, and the o
     await shot(page, testInfo, "SJ", "J2-reopened-with-a-source");
     note(testInfo, "SJ-J2", JSON.stringify({ colours, addSource: j2Button, addSourceWhenEmpty: j1Button, focusOnReopening: j2Focus }));
 
+    // J3 and J4 read a Keychain item, which exists only on macOS: elsewhere the
+    // row reads "Keychain items exist only on macOS." and never Missing.
+    if (process.platform !== "darwin") {
+      testInfo.annotations.push({ type: "skip", description: "SJ J3 and J4: Keychain sources exist only on macOS" });
+      await closeRegionEnvironment(dialog);
+      return;
+    }
+
     // ── J3: a required Keychain source that does not exist ─────────────────
     const form = await openSourceForm(dialog, "keychain");
     await form.getByTestId("region-env-field-name").fill("WALK_MISSING");
