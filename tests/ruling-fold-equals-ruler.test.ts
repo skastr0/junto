@@ -128,7 +128,10 @@ const holds = async <A>(
 /** Room past a property's budget for the case in flight when it stops. */
 const timeoutFor = (budgetMs: number) => budgetMs * RUNS + 60_000;
 const TASK_BUDGET_MS = 60_000;
-const ENGINE_BUDGET_MS = 120_000;
+// Each engine case builds three stores, each with its own database, migrations and runtime. The 25 artifact cases
+// took 147 s alone on a 4-CPU VM and ran past 120 s in a loaded isolated lane, so the budget is about four times
+// the time alone: headroom for load, not more cases.
+const ENGINE_BUDGET_MS = 600_000;
 
 /** One store: its own database, the ruler's runtime, and every ruling the ruler handed its recorder. */
 type Store = {
