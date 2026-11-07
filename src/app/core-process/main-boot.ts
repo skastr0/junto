@@ -1,5 +1,6 @@
-import { type Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { CoreLink } from "../../contract/core/link";
+import { TermCore } from "../../contract/core/term-ipc";
 import { HostLink } from "../../contract/host/link";
 import { AppRuntime } from "../runtime";
 import { CoreClientsLive, type CoreClients } from "./clients";
@@ -95,7 +96,7 @@ export const startCoreProcessForMain = (input: {
   // One accessor per main boot, answering for the core that is up.
   let surfacePlane: SurfacePlane | undefined;
   if (postSurface !== undefined) {
-    surfacePlane = coreSurfacePlane({ postSurface, onPush: started.onPush, call: (name, request) => started.call(name, request) });
+    surfacePlane = coreSurfacePlane({ postSurface, onPush: started.onPush, closeSurface: (lease) => clients.then((core) => AppRuntime.runPromise(Context.get(core, TermCore).TermSurfaceClose({ lease }))) });
   }
   const surfacePlanes: SurfacePlanes = { current: () => surfacePlane };
   const stopTerminalHost = hostOps({ "terminal.connect": async () => giveTerminals() });

@@ -24,7 +24,7 @@ export type SurfacePlane = {
 export const coreSurfacePlane = (client: {
   readonly postSurface: (message: PortedCoreMessage, port: unknown) => boolean;
   readonly onPush: (channel: string, listener: (payload: unknown) => void) => () => void;
-  readonly call: (name: "term.surface.close", input: { readonly lease: ControlLease }) => Promise<void>;
+  readonly closeSurface: (lease: ControlLease) => Promise<void>;
 }): SurfacePlane => {
   let nextId = 1;
   const waiting = new Map<number, (opened: boolean) => void>();
@@ -54,7 +54,7 @@ export const coreSurfacePlane = (client: {
         return Promise.resolve(undefined);
       }
       return answered.then((opened) =>
-        opened ? () => void client.call("term.surface.close", { lease }).catch(() => undefined) : undefined);
+        opened ? () => void client.closeSurface(lease).catch(() => undefined) : undefined);
     },
   };
 };

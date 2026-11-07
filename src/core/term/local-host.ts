@@ -1070,6 +1070,8 @@ export class LocalSessionHost extends EventEmitter {
   private readonly surfaceLeases = new Map<string, string>();
   /** An observe lease's first surface reads from the chunk after its attach screen. */
   private readonly observeCursors = new Map<string, number>();
+  /** Each open surface's key listener (input-origin tagging), ended when its lease's surface closes or opens again. */
+  private readonly surfaceInputs = new Map<string, () => void>();
   /** One identity flight per live generation, so every waiter sees one `ps`. */
   private readonly seatIdentityFlights = new WeakMap<SessionRec, Promise<void>>();
   private readonly primeDaemons: PrimeAgentDaemons | undefined;
@@ -2209,6 +2211,8 @@ export class LocalSessionHost extends EventEmitter {
     port: { readonly close: () => void },
     options: { readonly read?: bigint; readonly onInput?: (data: string) => void } = {},
   ): (() => void) | undefined {
+    this.surfaceInputs.get(lease.leaseId)?.();
+    this.surfaceInputs.delete(lease.leaseId);
     const rec = this.sessions.get(lease.bindingId);
     const surface = rec?.lease?.io.surface;
     const fromSeq = rec === undefined
@@ -2237,11 +2241,14 @@ export class LocalSessionHost extends EventEmitter {
         if (input.leaseId === lease.leaseId) onInput(input.data);
       });
     surface.openSurface({ leaseId: lease.leaseId, epoch: lease.epoch }, fromSeq, port);
+    this.surfaceInputs.set(lease.leaseId, stop);
     return stop;
   }
 
   /** Phase 3: close this lease's surface port; its view reads and types over IPC again. */
   closeSurface(lease: ControlLease): void {
+    this.surfaceInputs.get(lease.leaseId)?.();
+    this.surfaceInputs.delete(lease.leaseId);
     if (lease.mode !== "control") return;
     this.sessions.get(lease.bindingId)?.lease?.io.surface?.endSurface(lease.leaseId);
   }

@@ -255,6 +255,8 @@ export const TermRpcs = RpcGroup.make(
     error: TermRefused,
   }),
   Rpc.make("TermRelease", { payload: { lease: ControlLease, hostId: Schema.String }, error: TermRefused }),
+  /** The view's surface port for this lease is done: the plane closes it and stops tagging its keys. */
+  Rpc.make("TermSurfaceClose", { payload: { lease: ControlLease } }),
   /** Keys from the operator: the core tags their origin where they land. */
   Rpc.make("TermWrite", {
     payload: { lease: ControlLease, data: Schema.String, hostId: Schema.String },

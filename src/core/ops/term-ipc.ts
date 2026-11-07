@@ -25,8 +25,8 @@ import { cardSeatLaunch } from "../term/seats-launch";
 import { liveSeatEnvironment } from "../region-env/live";
 import { publish } from "../push";
 
-/** The terminal plane the window's terminals run on: the router and the node-delete fence. */
-export class TermIpcPlane extends Context.Service<TermIpcPlane, Pick<TermPlane, "router" | "nodeDelete">>()(
+/** The terminal plane the window's terminals run on: the router, the node-delete fence, and the host that holds surface ports. */
+export class TermIpcPlane extends Context.Service<TermIpcPlane, Pick<TermPlane, "router" | "nodeDelete" | "host">>()(
   "@junto/core/TermIpcPlane",
 ) {
   /** The one plane this core runs (term/plane.ts), the one core.ts binds for the window. */
@@ -164,6 +164,7 @@ export const TermPlaneHandlers = TermRpcs.toLayer(
           return { hostId, result: yield* routed(() => plane.router.attach({ ...input, hostId })) };
         }),
       TermRelease: ({ lease, hostId }) => routed(() => plane.router.release(lease, hostId)),
+      TermSurfaceClose: ({ lease }) => Effect.sync(() => plane.host.closeSurface(lease)),
       TermWrite: ({ lease, data, hostId }) =>
         Effect.tap(routed(() => plane.router.write(lease, data, hostId)), (ok) =>
           // Input-origin tagging: user keystrokes must suppress injection.

@@ -33,7 +33,7 @@ const termHandlers = TermPlaneHandlers as never as Layer.Layer<
 const runtimes: Array<ManagedRuntime.ManagedRuntime<TermCore | TermTemplatesCore, never>> = [];
 
 // The terminal handlers run on the plane this test gives them; they read no model.
-const termCore = (plane: Pick<TermPlane, "router" | "nodeDelete">) => {
+const termCore = (plane: Pick<TermPlane, "router" | "nodeDelete" | "host">) => {
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(
       Layer.effect(TermCore, RpcTest.makeClient(TermRpcs)),

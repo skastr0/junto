@@ -38,7 +38,7 @@ const runtimes: Array<ManagedRuntime.ManagedRuntime<TermCore | TermTemplatesCore
 
 // The window's handlers ask the core's terminal group; here the core is in
 // process, its handlers on the rig's plane.
-const termCore = (plane: Pick<TermPlane, "router" | "nodeDelete">) => {
+const termCore = (plane: Pick<TermPlane, "router" | "nodeDelete" | "host">) => {
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(
       Layer.effect(TermCore, RpcTest.makeClient(TermRpcs)),

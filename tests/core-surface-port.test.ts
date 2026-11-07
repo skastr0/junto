@@ -1,25 +1,20 @@
-import { Effect, Layer, ManagedRuntime } from "effect";
 import { expect, it, vi } from "vitest";
-import { inProcessCore, type CoreRunner } from "./support/in-process-core";
 import { openCoreSurface } from "../src/core/ops/term-surface";
 import { coreSurfacePlane, type PortedCoreMessage } from "../src/app/core-process/main-side/term-surface";
 import { SURFACE_OPENED } from "../src/contract/core/channels";
 import { termPlane } from "../src/core/term/plane";
 
 // Plan B: a view's surface port rides from main to the core's plane, which says whether it opened.
-it("carries a surface port to the core's plane, answers whether it opened, and closes it by name", async () => {
-  const runtime = ManagedRuntime.make(Layer.empty);
-  const core = inProcessCore(runtime as unknown as CoreRunner);
+it("carries a surface port to the core's plane, answers whether it opened, and closes it by its lease", async () => {
   const pushes = new Map<string, (payload: unknown) => void>();
   const opened: Array<[string, bigint | undefined]> = [];
-  const stopped: string[] = [];
   const open = vi.spyOn(termPlane.host, "openSurface").mockImplementation((lease, port, options) => {
     if (lease.mode !== "control") {
       port.close();
       return undefined;
     }
     opened.push([lease.leaseId, options?.read]);
-    return () => void stopped.push(lease.leaseId);
+    return () => undefined;
   });
   const close = vi.spyOn(termPlane.host, "closeSurface").mockImplementation(() => undefined);
   const plane = coreSurfacePlane({
@@ -30,7 +25,8 @@ it("carries a surface port to the core's plane, answers whether it opened, and c
       return true;
     },
     onPush: (channel, listener) => (pushes.set(channel, listener), () => pushes.delete(channel)),
-    call: (name, input) => core.call(name, input),
+    // What the core's TermSurfaceClose handler does (ops/term-ipc.ts).
+    closeSurface: async (lease) => termPlane.host.closeSurface(lease),
   });
   try {
     const port = { close: vi.fn() };
@@ -40,14 +36,13 @@ it("carries a surface port to the core's plane, answers whether it opened, and c
     expect(opened).toEqual([["l1", 7n]]);
     stop!();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(stopped).toEqual(["l1"]);
-    expect(close).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledExactlyOnceWith(lease);
 
     const observePort = { close: vi.fn() };
     expect(await plane.open({ leaseId: "l2", bindingId: "b", epoch: "e", mode: "observe" } as never, observePort)).toBeUndefined();
     expect(observePort.close).toHaveBeenCalledOnce();
 
-    const noCore = coreSurfacePlane({ postSurface: () => false, onPush: () => () => undefined, call: () => Effect.runPromise(Effect.void) });
+    const noCore = coreSurfacePlane({ postSurface: () => false, onPush: () => () => undefined, closeSurface: async () => undefined });
     const unsent = { close: vi.fn() };
     expect(await noCore.open(lease, unsent)).toBeUndefined();
     expect(unsent.close).toHaveBeenCalledOnce();
@@ -55,6 +50,5 @@ it("carries a surface port to the core's plane, answers whether it opened, and c
   } finally {
     open.mockRestore();
     close.mockRestore();
-    await runtime.dispose();
   }
 });
