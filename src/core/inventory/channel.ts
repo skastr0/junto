@@ -25,17 +25,13 @@ import {
   wireSnapshot,
 } from "./wire";
 
-/** A snapshot names each harness once. */
-const InventorySnapshot = LinkInventorySnapshot.pipe(Schema.check(Schema.makeFilter((snapshot: LinkInventorySnapshot) =>
-  new Set(snapshot.harnesses.map((row) => row.harness)).size === snapshot.harnesses.length || "a harness is named twice")));
-
 /**
  * The inventory channel's contract: one request, the canvas only, answered
  * with the machine's bounded snapshot or one of the channel's closed
  * refusals. It carries no events.
  */
 export const InventoryLink = linkContract("inventory", RpcGroup.make(
-  Rpc.make("Snapshot", { payload: LinkInventoryRequest, success: InventorySnapshot, error: InventoryLinkFailure }),
+  Rpc.make("Snapshot", { payload: LinkInventoryRequest, success: LinkInventorySnapshot, error: InventoryLinkFailure }),
 ));
 
 const isLinkFailure = Schema.is(InventoryLinkFailure);

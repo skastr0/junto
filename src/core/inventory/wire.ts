@@ -78,11 +78,13 @@ export const LinkInventoryHarness = Schema.Struct({
 });
 export type LinkInventoryHarness = typeof LinkInventoryHarness.Type;
 
+/** One machine's snapshot: each harness named once. */
 export const LinkInventorySnapshot = Schema.Struct({
   machine: MachineName,
   takenAt: At,
   harnesses: list(LinkInventoryHarness, HARNESS_IDS.length),
-});
+}).pipe(Schema.check(Schema.makeFilter((snapshot: { readonly harnesses: ReadonlyArray<{ readonly harness: string }> }) =>
+  new Set(snapshot.harnesses.map((row) => row.harness)).size === snapshot.harnesses.length || "a harness is named twice")));
 export type LinkInventorySnapshot = typeof LinkInventorySnapshot.Type;
 
 export const LinkInventoryRequest = Schema.Struct({ canvas: CanvasName });
@@ -115,11 +117,6 @@ export const InventoryLinkFailure = Schema.Union([
   InventoryUnavailableError,
 ]);
 export type InventoryLinkFailure = typeof InventoryLinkFailure.Type;
-
-/** An event frame on the inventory channel, which carries none. */
-export class InventoryEventRefused extends Schema.TaggedError<InventoryEventRefused>()("InventoryEventRefused", {
-  message: Schema.String.pipe(Schema.check(Schema.isMaxLength(1024))),
-}) {}
 
 /** A snapshot that failed the closed decode, refused on arrival; the link stays open. */
 export class InventorySnapshotRefused extends Schema.TaggedError<InventorySnapshotRefused>()("InventorySnapshotRefused", Where) {}
@@ -189,19 +186,8 @@ export const wireSnapshot = (
   };
 };
 
-const decodeSnapshot = Schema.decodeUnknownSync(LinkInventorySnapshot, { onExcessProperty: "error" });
-
-/**
- * Decode a snapshot closed. Throws on anything outside the schema, or a
- * harness named twice.
- */
-export const decodeLinkInventorySnapshot = (payload: unknown): LinkInventorySnapshot => {
-  const snapshot = decodeSnapshot(payload);
-  if (new Set(snapshot.harnesses.map((row) => row.harness)).size !== snapshot.harnesses.length) {
-    throw new Error("a harness is named twice");
-  }
-  return snapshot;
-};
+/** Decode a snapshot closed: throws on anything outside the schema, a harness named twice included. */
+export const decodeLinkInventorySnapshot = Schema.decodeUnknownSync(LinkInventorySnapshot, { onExcessProperty: "error" });
 
 /** A peer's snapshot as the editing machine's settings and pickers read it. */
 export const inventoryOfSnapshot = (snapshot: LinkInventorySnapshot): MachineInventory => ({
