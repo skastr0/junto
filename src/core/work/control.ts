@@ -31,40 +31,15 @@ import {
   type OverseerHostRequest,
 } from "@shared/overseer-host-control";
 import type { OverseerHostIdentity, OverseerLiveExecutionConstraint } from "../overseer/live/execution";
-import { sinceCursorOf } from "@shared/mail-list-filter";
-import { levelOfSignal, rankOf } from "@shared/wire/urgency";
 import { probeManagedHarnessInstalls } from "../term/templates/harness-install";
-import {
-  normalizePreambleText,
-  seatToolPreamble,
-  PREAMBLE_MAX_TEXT_LENGTH,
-  PREAMBLE_TTL_MS,
-  type PreambleEvent,
-} from "@shared/preamble";
-import {
-  AGENT_SIGNAL_MAX_DETAIL_LENGTH,
-  AGENT_SIGNAL_MAX_TEXT_LENGTH,
-  type AgentSignalAttachment,
-  compareSignalListOrder,
-  normalizeSignalText,
-  type AgentSignal,
-} from "@shared/agent-signals";
+import { seatToolPreamble, type PreambleEvent } from "@shared/preamble";
+import { type AgentSignal } from "@shared/agent-signals";
 import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
 import {
   EmptyArgs,
-  SeatWaitArgs,
-  SeatReadArgs,
-  PreambleArgs,
-  SignalClearArgs,
-  SignalListArgs,
-  type SignalListResult,
-  EnvReportArgs,
-  LogsReadArgs,
-  SignalRaiseArgs,
   OffboardArgs,
   OnboardArgs,
-  SinceArgs,
   RulingsArgs,
   WORK_MAX_FRAME_BYTES,
   WORK_PROTOCOL_VERSION,
@@ -79,24 +54,11 @@ import {
   type WorkOpName as WorkOp,
   type WorkResponseEnvelope,
 } from "@shared/work-control";
-import { ContentService } from "../content/service";
-import { operatorAttachmentLines } from "../content/operator-attachments";
-import { handleContentStage } from "./content-stage";
-import { handleSeatReferences, onboardReferenceFields } from "../references/seat-reads";
+import { onboardReferenceFields } from "../references/seat-reads";
 import { briefingMentionsOn, mentionsField } from "../references/briefing-mentions";
-import { noteSeatPreamble } from "./seat-preambles";
-import {
-  claimSignalAttachments,
-  releaseSignalAttachments,
-  signalAttachmentOwner,
-} from "../signals/attachments";
-import { signalResourcesFor } from "../signals/resource-refs";
-import { resolveSignalForm, signalKindTakesForm } from "../signals/form-rule";
 import { WorkService } from "./service";
-import { isAutomationReadOp, isAutomationWriteOp } from "@shared/automation-control";
-import { handleAutomationRead, liveAutomationPorts } from "./automation-control";
-import { ARTIFACT_WRITE_OPS, isArtifactOp } from "@shared/artifact-control";
-import { handleArtifactOp, liveArtifactPorts } from "./artifact-control";
+import { isAutomationWriteOp } from "@shared/automation-control";
+import { ARTIFACT_WRITE_OPS } from "@shared/artifact-control";
 import { TASK_WRITE_OPS, isTaskControlOp } from "@shared/task-control";
 import { handleTaskOp, liveTaskPorts } from "./task-control";
 import { liveSeatObservation } from "./seat-observation-live";
@@ -105,17 +67,13 @@ import { threadSubjectOf } from "@shared/thread-subject";
 import { filesNodeName } from "./subject-people";
 import { MachineRepository } from "../machines/repository";
 import { isThisMachine } from "@shared/machine-identity";
-import { handleOpOp, isOpOp, pendingMarksOf } from "./op-control";
-import {
-  AgentSignalRepository,
-  type AgentSignalRepositoryError,
-} from "../signals/repository";
+import { pendingMarksOf } from "./op-control";
 import { PausePlane } from "../pause-plane";
 import { SeatGuidanceRepository } from "../seat-guidance/repository";
 import { SeatSessionRepository } from "../seat-sessions/repository";
 import { announcedSessionRefusal } from "../seat-sessions/announced-session";
 import { announceSeatOffboard, listSeatSessions } from "../seat-sessions/service";
-import type { SeatSessionNotes, SeatSessionObservation } from "../seat-sessions/repository";
+import type { SeatSessionNotes } from "../seat-sessions/repository";
 import { offeredCapturedSessionId } from "../term/session-id-store";
 import { harnessSessionExists } from "../term/session-existence";
 import {
@@ -144,8 +102,7 @@ import {
   renderSince,
   toolsBeyondGuidance,
 } from "@shared/seat-onboarding";
-import { SINCE_PER_SECTION } from "@shared/seat-since";
-import { isResourceKind, reaches, resourcesInReach, resourcesSeatReaches } from "@shared/region-reach";
+import { isResourceKind, reaches, resourcesInReach } from "@shared/region-reach";
 
 /** Ops that act on the factory — refused for paused seats. Reads stay open. */
 const MUTATING_OPS: ReadonlySet<string> = new Set([
@@ -184,7 +141,6 @@ import { resolveCallerAcrossCanvases } from "./caller-resolve";
 
 import { closingFence } from "../term/closing-fence";
 import { injectionSupervisor } from "../term/injection-supervisor";
-import { readMachineLog, seatLogScope } from "../../node/observability/log-file";
 import { LogService } from "../../node/observability/logger";
 import type { ProcessPrincipal } from "../process-identity";
 import { OFFBOARDED_SESSION_MESSAGE } from "../../node/process-identity-facts";
@@ -636,35 +592,8 @@ const currentSeatSession = (node: Node, repository: SeatSessionRepository["Servi
   return { seatId: node.id, bindingId: surface.bindingId, sessionId: captured, harness: surface.harness, ...(cwd ? { cwd } : {}) };
 });
 
-/**
- * Look for a seat's session id right now. A harness that mints its own id is
- * read at the seat's state boundaries, so in the first turn of a fresh
- * session the id can be on disk and not yet known here; an agent that
- * offboards then would be refused and left with no turn in which to try again.
- */
-let seatSessionLookup: ((bindingId: string) => Promise<string | undefined>) | undefined;
-
-/** Wired by the app to the seat's session capture. */
-export const setSeatSessionLookup = (
-  lookup: ((bindingId: string) => Promise<string | undefined>) | undefined,
-): void => {
-  seatSessionLookup = lookup;
-};
-
-/** The session found by looking once, or undefined (never a failure). */
-const lookForSeatSession = (node: Node): Effect.Effect<SeatSessionObservation | undefined> => {
-  const surface = node.kind === "agent" ? node : undefined;
-  const lookup = seatSessionLookup;
-  if (surface === undefined || lookup === undefined) return Effect.succeed(undefined);
-  const cwd = surface?.launch?.cwd?.trim();
-  return Effect.promise(() => lookup(surface.bindingId).catch(() => undefined)).pipe(
-    Effect.map((sessionId) =>
-      sessionId?.trim()
-        ? { seatId: node.id, bindingId: surface.bindingId, sessionId: sessionId.trim(), harness: surface.harness, ...(cwd ? { cwd } : {}) }
-        : undefined,
-    ),
-  );
-};
+export { setSeatSessionLookup } from "../work-control/session-lookup";
+import { lookForSeatSession } from "../work-control/session-lookup";
 
 const isoAt = (ms: number | undefined): string | undefined =>
   ms === undefined ? undefined : new Date(ms).toISOString();
@@ -1067,24 +996,6 @@ const dispatchOp = (
       };
     }
 
-    // The same projection as onboard's since, capped the same way, or
-    // uncapped with all.
-    if (op === "since") {
-      const decodedSince = decodeArgs(SinceArgs, args ?? {});
-      if (Result.isFailure(decodedSince)) return yield* Effect.fail(decodedSince.failure);
-      const history = yield* pastSessionsOf(findNode(board, caller.nodeId)!);
-      const perSection = decodedSince.success.all === true ? Number.POSITIVE_INFINITY : SINCE_PER_SECTION;
-      return renderSince(
-        yield* readSeatSince(board, caller.canvasName, caller.nodeId, history?.previousStartedAt, perSection).pipe(
-          Effect.mapError((): WorkErrorBody => ({
-            type: "RuntimeDown",
-            message: "since your last session could not be read",
-            details: { retryable: true },
-          })),
-        ),
-      );
-    }
-
     if (op === "offboard") {
       const decoded = decodeArgs(OffboardArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
@@ -1174,35 +1085,6 @@ const dispatchOp = (
       };
     }
 
-    if (op === "preamble") {
-      const decoded = decodeArgs(PreambleArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const text = normalizePreambleText(decoded.success.text);
-      if (!text) {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "InputError",
-          message: "text must be non-empty",
-          details: { path: "args.text", retryable: false },
-        });
-      }
-      if (text.length > PREAMBLE_MAX_TEXT_LENGTH) {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "InputError",
-          message: `text must be at most ${PREAMBLE_MAX_TEXT_LENGTH} characters`,
-          details: { path: "args.text", retryable: false },
-        });
-      }
-      const event: PreambleEvent = {
-        preambleId: ulid(),
-        canvasName: caller.canvasName,
-        nodeId: caller.nodeId,
-        text,
-        expiresAt: Date.now() + PREAMBLE_TTL_MS,
-      };
-      noteSeatPreamble(caller.canvasName, caller.nodeId, { text, expiresAt: event.expiresAt });
-      return { ...event, disposition: "applied" as const };
-    }
-
     if (op === "rulings") {
       // Region rulings ride the Tasks gate: a tasks-off build has none to read.
       if (!TASKS_ENABLED) {
@@ -1239,38 +1121,6 @@ const dispatchOp = (
         );
     }
 
-    if (op === "seat.wait") {
-      const decoded = decodeArgs(SeatWaitArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const seat = yield* liveSeatObservation();
-      return yield* seat.waitSeat(decoded.success, caller);
-    }
-    if (op === "seat.read") {
-      const decoded = decodeArgs(SeatReadArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const seat = yield* liveSeatObservation();
-      if (decoded.success.brief === true) return yield* seat.readPeers(caller);
-      return yield* seat.readSeat(decoded.success, caller);
-    }
-
-    if (isOpOp(op)) {
-      return yield* handleOpOp(op, args, { canvasName: caller.canvasName, nodeId: asNodeId(caller.nodeId), canvas: board });
-    }
-
-    if (op === "content.stage") {
-      return yield* handleContentStage({ canvasName: caller.canvasName, nodeId: caller.nodeId }, args);
-    }
-
-    if (isAutomationReadOp(op)) {
-      const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Result.isFailure(actor)) return yield* Effect.fail(actor.failure);
-      return yield* handleAutomationRead(op, args, {
-        canvas: board,
-        canvasName: caller.canvasName,
-        actor: { kind: "seat", seatId: actor.success.seatId, nodeId: asNodeId(caller.nodeId) },
-      }, liveAutomationPorts);
-    }
-
     if (isTaskControlOp(op)) {
       const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(actor)) return yield* Effect.fail(actor.failure);
@@ -1288,267 +1138,6 @@ const dispatchOp = (
             return on?.kind === "task" && on.nodeId === task.current.node && on.taskId === task.taskId;
           }).length),
       });
-    }
-
-    if (isArtifactOp(op)) {
-      const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Result.isFailure(actor)) return yield* Effect.fail(actor.failure);
-      return yield* handleArtifactOp(op, args, {
-        canvas: board,
-        canvasName: caller.canvasName,
-        actor: { kind: "seat", seatId: actor.success.seatId, nodeId: asNodeId(caller.nodeId) },
-      }, { ...liveArtifactPorts, pending: pendingMarksOf("artifact") });
-    }
-
-    if (op === "references.list" || op === "references.read") {
-      return yield* handleSeatReferences(op, args, { canvasName: caller.canvasName, nodeId: caller.nodeId });
-    }
-
-    if (op === "env.report") {
-      const decoded = decodeArgs(EnvReportArgs, args ?? {});
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      // The seat's own resolution, from the same service the region screen
-      // and the overseer doctor read. Names, origins and status only.
-      const { regionEnvironmentService } = yield* Effect.promise(
-        () => import("../region-env/live"),
-      );
-      const report = yield* Effect.promise(() =>
-        regionEnvironmentService()
-          .seatReportFor(read.canvas, caller.nodeId)
-          .catch(() => undefined),
-      );
-      if (report === undefined) {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "RuntimeDown",
-          message: "this seat's region environment could not be read",
-          details: { retryable: true },
-        });
-      }
-      return report;
-    }
-
-    if (op === "logs.read") {
-      const decoded = decodeArgs(LogsReadArgs, args ?? {});
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      // The caller is the credential's seat; `seat` in the query only narrows
-      // inside what that seat may read: its own rows, seats it holds
-      // terminal.read to, and rows that name no seat.
-      const visible = new Set([
-        caller.nodeId,
-        ...connectedCapabilities(board, caller.nodeId)
-          .filter((peer) => peer.grants.includes("terminal.read"))
-          .map((peer) => peer.id),
-      ]);
-      const log = yield* LogService;
-      return yield* readMachineLog(resolveJuntoHome(), log.machine(), decoded.success, seatLogScope(visible)).pipe(
-        Effect.mapError((error): WorkErrorBody => ({
-          type: "RuntimeDown",
-          message: "this machine's log could not be read",
-          details: { retryable: true, ...(error.code === undefined ? {} : { reason: error.code }) },
-        })),
-      );
-    }
-
-    if (op === "signal.raise" || op === "signal.clear" || op === "signal.list") {
-      const signalsOption = yield* Effect.serviceOption(AgentSignalRepository);
-      if (Option.isNone(signalsOption)) {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "RuntimeDown",
-          message: "agent signals are unavailable in this Junto runtime",
-          details: { retryable: false },
-        });
-      }
-      const signals = signalsOption.value;
-      const seat = { canvasName: caller.canvasName, nodeId: caller.nodeId };
-      const signalError = (error: AgentSignalRepositoryError): WorkErrorBody =>
-        error._tag === "AgentSignalNotFound"
-          ? {
-              type: "UnknownTarget",
-              message: error.message,
-              details: {
-                target: error.signalId,
-                retryable: false,
-                next_step: "run junto signal list to see this seat's open signals",
-              },
-            }
-          : {
-              type: "InternalError",
-              message: error.message,
-              details: { retryable: true },
-            };
-
-      if (op === "signal.list") {
-        const decoded = decodeArgs(SignalListArgs, args ?? {});
-        if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-        const since = decoded.success.since === undefined ? undefined : sinceCursorOf(decoded.success.since);
-        if (since !== undefined && Result.isFailure(since)) {
-          return yield* Effect.fail<WorkErrorBody>({
-            type: "InputError",
-            message: since.failure.message,
-            details: { path: "args.since", expected: since.failure.expected, retryable: false },
-          });
-        }
-        const listed = yield* signals.listSeat(seat, since?.success).pipe(Effect.mapError(signalError));
-        // The capped listing says what it left out and how to page to it.
-        const closedListed = listed.filter((signal) => signal.state !== "open").length;
-        const closedTotal = since === undefined
-          ? yield* signals.countClosedSeat(seat).pipe(Effect.mapError(signalError))
-          : closedListed;
-        // The operator's answer files, each placed where this seat opens it.
-        const store = yield* Effect.serviceOption(ContentService);
-        const filesOf = (signal: (typeof listed)[number]) => {
-          const refs = signal.response?.attachments ?? [];
-          if (refs.length === 0 || Option.isNone(store)) return Effect.succeed({});
-          return operatorAttachmentLines(store.value, {
-            canvasName: signal.canvasName,
-            nodeId: signal.nodeId,
-            messageId: `answer-${signal.signalId}`,
-            refs,
-          }).pipe(
-            Effect.map((responseFiles) => ({ responseFiles })),
-            Effect.orElseSucceed(() => ({})),
-          );
-        };
-        const sorted = [...listed].sort(compareSignalListOrder);
-        const files = yield* Effect.forEach(sorted, filesOf);
-        const result: SignalListResult = {
-          signals: sorted.map((signal, index) => {
-            // A work signal's level is its timing's: due once urgent or past its time, todo before.
-            const level = levelOfSignal(signal.kind, signal.work, Date.now());
-            return { ...signal, level, rank: rankOf(level), ...files[index] };
-          }),
-          open: listed.filter((signal) => signal.state === "open").length,
-          ...(closedTotal > closedListed
-            ? {
-                closed_not_listed: closedTotal - closedListed,
-                next_step: "junto signal list --since <ISO time or signal id> lists every closed signal from then on",
-              }
-            : {}),
-        };
-        return result;
-      }
-
-      if (op === "signal.clear") {
-        const decoded = decodeArgs(SignalClearArgs, args ?? {});
-        if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-        const withdrawn = yield* signals
-          .withdraw(seat, decoded.success.signalId)
-          .pipe(Effect.mapError(signalError));
-        yield* Effect.forEach(withdrawn, releaseSignalAttachments, { discard: true });
-        return { signals: withdrawn, disposition: "applied" as const };
-      }
-
-      const decoded = decodeArgs(SignalRaiseArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const text = normalizeSignalText(decoded.success.text);
-      if (!text || text.length > AGENT_SIGNAL_MAX_TEXT_LENGTH) {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "InputError",
-          message: `text must be one sentence of 1 to ${AGENT_SIGNAL_MAX_TEXT_LENGTH} characters`,
-          details: {
-            path: "args.text",
-            retryable: false,
-            hint: "put the longer explanation in --detail",
-          },
-        });
-      }
-      const detail = decoded.success.detail?.trim() || undefined;
-      if (detail !== undefined && detail.length > AGENT_SIGNAL_MAX_DETAIL_LENGTH) {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "InputError",
-          message: `detail must be at most ${AGENT_SIGNAL_MAX_DETAIL_LENGTH} characters`,
-          details: { path: "args.detail", retryable: false },
-        });
-      }
-      // The reply the signal asks for (0.11, 07 N1). The wire lets a form ride
-      // any raise; here is where it is resolved, and only the kinds that ask
-      // the operator to produce something may carry one.
-      const request = decoded.success.form;
-      if (request !== undefined && !signalKindTakesForm(decoded.success.kind)) {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "InputError",
-          message: `${decoded.success.kind} asks for no form: a notice is read and cleared, a review asks the operator to look`,
-          details: { path: "args.form", retryable: false, next_step: "raise blocked or escalate to ask for something" },
-        });
-      }
-      const form =
-        request === undefined
-          ? undefined
-          : yield* Effect.fromResult(
-              resolveSignalForm({
-                board,
-                reaches: resourcesSeatReaches(board, asNodeId(caller.nodeId)).map((node) => node.id),
-                text,
-                request,
-              }),
-            );
-      // Attached files: the seat uploaded them already. They are judged here,
-      // whatever the CLI already checked, and held under the signal's id
-      // before the signal itself is written.
-      const signalId = ulid();
-      let attachments: ReadonlyArray<AgentSignalAttachment> = [];
-      if (decoded.success.attach !== undefined && decoded.success.attach.length > 0) {
-        const contentOption = yield* Effect.serviceOption(ContentService);
-        if (Option.isNone(contentOption)) {
-          return yield* Effect.fail<WorkErrorBody>({
-            type: "RuntimeDown",
-            message: "attachments are unavailable in this Junto runtime",
-            details: { retryable: false, next_step: "raise the signal without --attach" },
-          });
-        }
-        // A task or an artifact is named as the seat typed it: resolved here
-        // in its reach to the canonical ref, then judged with the rest.
-        const named = yield* signalResourcesFor(board, caller.canvasName, asNodeId(caller.nodeId), decoded.success.attach);
-        attachments = yield* claimSignalAttachments(
-          contentOption.value,
-          { ...seat, signalId },
-          named.inputs,
-          named.resources,
-        ).pipe(
-          Effect.mapError((refused): WorkErrorBody => ({
-            type: "InputError",
-            message: refused.message,
-            details: { path: `args.${refused.path}`, retryable: false },
-          })),
-        );
-      }
-      // Pre-baked replies: each one line the operator can send as-is. The
-      // wire already bounds their count and length; what is left to do here
-      // is fold each to a single line and drop the ones that fold to none.
-      const suggestions = decoded.success.suggest
-        ?.map((suggestion) => normalizeSignalText(suggestion))
-        .filter((suggestion): suggestion is string => suggestion.length > 0);
-      const signal = yield* signals
-        .raise({
-          ...seat,
-          signalId,
-          kind: decoded.success.kind,
-          text,
-          ...(detail ? { detail } : {}),
-          ...(form === undefined ? {} : { form }),
-          ...(attachments.length > 0 ? { attachments } : {}),
-          ...(suggestions !== undefined && suggestions.length > 0 ? { suggestions } : {}),
-        })
-        .pipe(
-          Effect.mapError(signalError),
-          // The signal was not written: nothing may keep holding its files.
-          Effect.tapError(() =>
-            attachments.length === 0
-              ? Effect.void
-              : Effect.serviceOption(ContentService).pipe(
-                  Effect.flatMap((content) =>
-                    Option.isNone(content)
-                      ? Effect.void
-                      : content.value.releaseOwner(signalAttachmentOwner({ ...seat, signalId })).pipe(Effect.ignore),
-                  ),
-                ),
-          ),
-        );
-      return {
-        signal,
-        disposition: "applied" as const,
-        next_step: SIGNAL_NEXT_STEP[signal.kind],
-      };
     }
 
     // Exhaustiveness — Schema already gates ops
