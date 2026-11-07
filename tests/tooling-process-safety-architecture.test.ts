@@ -176,6 +176,18 @@ const APPROVED_CRASH = "e2e/harness/crash-core.ts";
 const APPROVED_CRASH_REASON =
   "the e2e crash proof: the pid comes from the core's own log line and must be a live descendant of the app the harness launched";
 
+/**
+ * The one approved trace ask (operator decision, 2026-11-07; the boot-setter
+ * seams artifact, "The safety rule the lane hit"). The performance script asks
+ * a running app for a Chromium trace with USR2, and nothing else in the file
+ * signals. USR2 quits a build that never installed the handler, so the file
+ * refuses unless the app wrote a [metrics] row in the last three minutes, which
+ * only a build with the handler does.
+ */
+const APPROVED_TRACE = "scripts/perf-pass-scenario.sh";
+const APPROVED_TRACE_REASON =
+  "the performance pass: USR2 asks a build that has proven its trace handler; older builds quit on the signal";
+
 describe("tooling process-safety architecture", () => {
   it("allows only direct process.kill existence probes in scripts and e2e", () => {
     const violations = parsedTooling.flatMap(({ file, source }) =>
@@ -218,8 +230,34 @@ describe("tooling process-safety architecture", () => {
   });
 
   it("has no shell or Python bare-PID termination commands", () => {
-    const violations = scanRoots.flatMap(sourceFiles).flatMap(barePidTermination).sort();
+    const violations = scanRoots.flatMap(sourceFiles)
+      .filter((path) => relative(root, path) !== APPROVED_TRACE)
+      .flatMap(barePidTermination)
+      .sort();
     expect(violations).toEqual([]);
+  });
+
+  it("allows the performance script one guarded trace signal, and it sends only USR2", () => {
+    const path = join(root, APPROVED_TRACE);
+    const text = readFileSync(path, "utf8");
+    // The exception is the scanner's one line; a second signal would fail this.
+    expect(barePidTerminationText(path, text), `${APPROVED_TRACE} is the approved trace ask (${APPROVED_TRACE_REASON})`)
+      .toHaveLength(1);
+    const asks = text.split("\n").flatMap((line, index) => {
+      const code = line.replace(/#.*/u, "").trim();
+      return /(?:^|[;&|]\s*)kill(?:\s+-[A-Za-z0-9]+)*\s+[^\s]/u.test(code)
+        ? [{ line: index + 1, signal: /kill\s+-([A-Za-z0-9]+)/u.exec(code)?.[1] ?? "TERM" }]
+        : [];
+    });
+    // Only USR2, never a terminating signal.
+    expect(asks.map(({ signal }) => signal)).toEqual(["USR2"]);
+    // Nothing else in the file signals.
+    expect(text).not.toMatch(/\b(?:pkill|killall)\b/u);
+    // The metrics row proves the handler before the signal can reach the app.
+    expectIndexInOrder(text, [
+      'if [[ -z "$LAST_METRICS" || "$LAST_METRICS" < "$SINCE" ]]',
+      'kill -USR2 "$PID"',
+    ]);
   });
 
   it("launches and drains packaged smoke only through an isolated central process plane", () => {
