@@ -13,7 +13,7 @@
  */
 import { createRequire } from "node:module";
 import { NodeRuntime } from "@effect/platform-node";
-import { Effect, Layer, Result } from "effect";
+import { Effect, Layer, Result, Runtime } from "effect";
 import { parentEdge } from "../contract/terminal/edge";
 import {
   TERMINAL_CONNECT,
@@ -161,4 +161,13 @@ const program = Effect.gen(function* () {
   yield* server.quit;
 });
 
-NodeRuntime.runMain(Effect.scoped(Effect.provide(program, layer)));
+// runMain leaves the process to end by itself on success, and the parent
+// port's listener would hold it open until main kills it at its deadline:
+// the quit is done here, so the process leaves with the program's code.
+NodeRuntime.runMain(Effect.scoped(Effect.provide(program, layer)), {
+  teardown: (exit, onExit) =>
+    Runtime.defaultTeardown(exit, (code) => {
+      onExit(code);
+      process.exit(code);
+    }),
+});
