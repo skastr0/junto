@@ -124,6 +124,8 @@ test("files modal: tree, open, rename by keyboard, the watch sees outside change
       if ((await confirm.count()) > 0 && (await page.getByRole("dialog", { name: "Move GUIDE.md" }).count()) > 0) await confirm.first().click();
       await expect.poll(() => existsSync(join(root, "drafts", "GUIDE.md")), { timeout: 10_000 }).toBe(true);
       expect(existsSync(join(root, "GUIDE.md"))).toBe(false);
+      // The tree redraws from the watch; the next click waits for the moved row under drafts.
+      await expect(modal.getByRole("treeitem", { name: "GUIDE.md", level: 2 })).toBeVisible({ timeout: 10_000 });
     });
     await check("Move to Trash from the open file's header asks, names it, and trashes it", async () => {
       await openInTree(modal, "notes-new.md");
