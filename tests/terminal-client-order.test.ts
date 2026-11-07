@@ -3,17 +3,54 @@
  * numbers, never by arrival: output by `seq`, held past a gap and dropped on
  * a repeat; an exit only once output through its `afterSeq` is applied; key
  * events by `k`. A control event that does not decode is refused at the edge.
+ * A fence waits on its own terminal's key events through the `k` the terminal
+ * process names for it, and an adopted terminal continues `n` and `k` from
+ * where the adoption says they stand.
  */
+import { Effect, Exit, Layer, Scope } from "effect";
+import { RpcServer } from "effect/rpc";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { terminalClient, type RemoteTerminalExit } from "../src/node/terminals/client";
 import type { Command, Event, EventFrame } from "../src/contract/terminal/messages";
 import type { TerminalLinkMessage, TerminalLinkPort } from "../src/contract/terminal/protocol";
+import { TERMINAL_LINK_VERSION, TerminalRpcs, type TerminalAdoption, type TerminalFenced } from "../src/contract/terminal/rpcs";
+import { serverProtocol, type PortMessage, type RpcPort } from "../src/shared/rpc-port";
 
-const link = () => {
+const scopes: Scope.Closeable[] = [];
+
+/** What the stub terminal process answers: a spawn's pid, the adoption, and each fence. */
+type Answers = { adoption?: TerminalAdoption; fenced?: TerminalFenced };
+
+const link = (answers: Answers = {}) => {
   const handlers = new Set<(message: TerminalLinkMessage) => void>();
   const posted: TerminalLinkMessage[] = [];
+  // The stub terminal process: its RPC server hears the client's calls and answers on the same link.
+  const serverHandlers = new Set<(message: PortMessage) => void>();
+  const server: RpcPort = {
+    post: (message) => { for (const handler of handlers) handler(message as TerminalLinkMessage); },
+    listen: (handler) => {
+      serverHandlers.add(handler);
+      return () => serverHandlers.delete(handler);
+    },
+  };
+  const scope = Effect.runSync(Scope.make());
+  scopes.push(scope);
+  Effect.runFork(Layer.buildWithScope(
+    RpcServer.layer(TerminalRpcs).pipe(
+      Layer.provide(TerminalRpcs.toLayer({
+        TerminalSpawn: () => Effect.succeed({ pid: 1 }),
+        TerminalAdopt: () => Effect.succeed(answers.adoption ?? { version: TERMINAL_LINK_VERSION, terminals: [], nextId: 1 }),
+        TerminalFence: () => Effect.succeed(answers.fenced ?? new Map()),
+      })),
+      Layer.provide(Layer.effect(RpcServer.Protocol, serverProtocol(server))),
+    ),
+    scope,
+  ));
   const port: TerminalLinkPort = {
-    post: (message) => void posted.push(message),
+    post: (message) => {
+      posted.push(message);
+      if (message.kind === "rpc") for (const handler of serverHandlers) handler(message);
+    },
     listen: (handler) => {
       handlers.add(handler);
       return () => handlers.delete(handler);
@@ -41,9 +78,18 @@ const spawned = (port: TerminalLinkPort) => {
   return { terminal, output, exits, keys };
 };
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
+  for (const scope of scopes.splice(0)) await Effect.runPromise(Scope.close(scope, Exit.void));
 });
+
+/** Settles once `promise` has, or reports it still waiting after a few turns. */
+const settled = async (promise: Promise<unknown>): Promise<boolean> => {
+  let done = false;
+  void promise.then(() => { done = true; });
+  for (let turn = 0; turn < 20; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+  return done;
+};
 
 describe("the terminal client applies events by number", () => {
   it("holds a chunk past a gap and drops a repeat", () => {
@@ -116,5 +162,57 @@ describe("the terminal client applies events by number", () => {
     deliver({ kind: "push", channel: "pty.exit", payload: { id: terminal.id, code: 1, signal: undefined } });
     expect(output).toEqual(["a"]);
     expect(exits).toEqual([{ code: 1, signal: undefined }]);
+  });
+
+  it("a fence waits for its own terminal's key events through the k the terminal process names", async () => {
+    const { port, send } = link({ fenced: new Map([[1, 2], [2, 5]]) });
+    const client = terminalClient(port);
+    const a = client.spawn({ command: "/bin/cat", args: [], cols: 80, rows: 24 });
+    const b = client.spawn({ command: "/bin/cat", args: [], cols: 80, rows: 24 });
+    const fenced = a.fence();
+    send({ _tag: "typing", id: a.id, k: 1, leaseId: "lease", data: "x" });
+    // Another terminal's keys, however many, do not release this fence.
+    for (let k = 1; k <= 5; k += 1) send({ _tag: "typing", id: b.id, k, leaseId: "lease", data: "y" });
+    expect(await settled(fenced)).toBe(false);
+    send({ _tag: "input", id: a.id, k: 2, leaseId: "lease", data: "x" });
+    expect(await settled(fenced)).toBe(true);
+  });
+
+  it("a fence whose keys were applied before its answer resolves at once", async () => {
+    const { port, send } = link({ fenced: new Map([[1, 1]]) });
+    const terminal = terminalClient(port).spawn({ command: "/bin/cat", args: [], cols: 80, rows: 24 });
+    send({ _tag: "typing", id: terminal.id, k: 1, leaseId: "lease", data: "x" });
+    expect(await settled(terminal.fence())).toBe(true);
+  });
+
+  it("a fence on a terminal that ends resolves: nothing is left to type", async () => {
+    const { port, send } = link({ fenced: new Map([[1, 3]]) });
+    const { terminal } = spawned(port);
+    const fenced = terminal.fence();
+    expect(await settled(fenced)).toBe(false);
+    send({ _tag: "exit", id: terminal.id, afterSeq: 0, code: 0, signal: undefined });
+    expect(await settled(fenced)).toBe(true);
+  });
+
+  it("an adopted terminal continues n from lastN and k from lastK", async () => {
+    const { port, send, commands } = link({
+      adoption: {
+        version: TERMINAL_LINK_VERSION,
+        terminals: [{ id: 7, pid: 70, cols: 80, rows: 24, history: "", seq: 3, lastN: 9, lastK: 4 }],
+        nextId: 8,
+      },
+    });
+    const client = terminalClient(port);
+    const [adopted] = await Effect.runPromise(client.adopt());
+    const terminal = adopted!.terminal;
+    const keys: string[] = [];
+    terminal.onTyping(({ data }) => void keys.push(data));
+    terminal.write("x");
+    expect(commands("write")).toEqual([{ _tag: "write", id: 7, n: 10, data: "x" }]);
+    send({ _tag: "typing", id: 7, k: 4, leaseId: "lease", data: "went to the last core" });
+    send({ _tag: "typing", id: 7, k: 5, leaseId: "lease", data: "new" });
+    expect(keys).toEqual(["new"]);
+    // The next spawn is named past every id the terminal process knows.
+    expect(client.spawn({ command: "/bin/cat", args: [], cols: 80, rows: 24 }).id).toBe(8);
   });
 });

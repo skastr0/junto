@@ -28,8 +28,16 @@ export const TerminalExitStatus = Schema.Struct({
 });
 export type TerminalExitStatus = typeof TerminalExitStatus.Type;
 
+/**
+ * A count the link places messages by: a chunk, control or key event number.
+ * A whole number from 0, so a drifted counter (negative, fractional, NaN) is
+ * refused at the edge and never places output or resolves a fence.
+ */
+export const TerminalCount = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+export type TerminalCount = typeof TerminalCount.Type;
+
 /** An exit the terminal process holds for a core: it came after chunk `afterSeq`. */
-export const TerminalHeldExit = Schema.Struct({ ...TerminalExitStatus.fields, afterSeq: Schema.Number });
+export const TerminalHeldExit = Schema.Struct({ ...TerminalExitStatus.fields, afterSeq: TerminalCount });
 export type TerminalHeldExit = typeof TerminalHeldExit.Type;
 
 export const TerminalSpawnInput = Schema.Struct({
@@ -65,11 +73,11 @@ export const TerminalAdopted = Schema.Struct({
   /** Output the last core handled, up to `TERMINAL_HISTORY_CHARS`, cut on a chunk boundary. */
   history: Schema.String,
   /** The last chunk `history` holds; the core applies output from the chunk after it, by `seq`. */
-  seq: Schema.Number,
+  seq: TerminalCount,
   /** The last control number the terminal process applied for this terminal; the new core continues from `lastN + 1`. */
-  lastN: Schema.Number,
+  lastN: TerminalCount,
   /** The last `typing` or `input` number it pushed, so a fence never waits on an event that went to the dead core. */
-  lastK: Schema.Number,
+  lastK: TerminalCount,
   exit: Schema.optionalKey(TerminalHeldExit),
 });
 export type TerminalAdopted = typeof TerminalAdopted.Type;
@@ -86,7 +94,7 @@ export const TerminalAdoption = Schema.Struct({
 export type TerminalAdoption = typeof TerminalAdoption.Type;
 
 /** Per terminal, the last `typing` or `input` number the terminal process has pushed. */
-export const TerminalFenced = Schema.ReadonlyMap(Schema.Number, Schema.Number);
+export const TerminalFenced = Schema.ReadonlyMap(TerminalCount, TerminalCount);
 export type TerminalFenced = typeof TerminalFenced.Type;
 
 /** The core could not adopt: the terminal process is gone, refused the call, or answered what does not decode. */

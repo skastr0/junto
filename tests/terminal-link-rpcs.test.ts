@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { clientProtocol } from "../src/shared/rpc-port";
 import { TerminalInbound, type TerminalLink, type TerminalLinkMessage, type TerminalLinkPort } from "../src/contract/terminal/protocol";
 import { TERMINAL_LINK_VERSION, TerminalAdopted, TerminalFenced, TerminalRpcs } from "../src/contract/terminal/rpcs";
+import { TerminalAck, TerminalConnect, TerminalData, TerminalExit, TerminalInput, TerminalResize, TerminalSurfaceOpen, TerminalTyping } from "../src/contract/terminal/messages";
 import { serveTerminals, type SpawnPty } from "../src/terminal/serve";
 import { commandEdge, eventEdge, parentEdge } from "../src/contract/terminal/edge";
 import type { Command, CommandHandlers, Event, EventHandlers, ParentCommandHandlers } from "../src/contract/terminal/messages";
@@ -281,5 +282,45 @@ describe("the terminal link's answers, as the RPC codec carries them", () => {
     const { lastK: _lastK, ...withoutK } = adopted;
     expect(Result.isFailure(decode(withoutN))).toBe(true);
     expect(Result.isFailure(decode(withoutK))).toBe(true);
+  });
+
+  it("refuses a counter that is negative, fractional or NaN, in an adopted terminal, its held exit and the fence answer", () => {
+    const adopted = Schema.decodeUnknownResult(TerminalAdopted, { onExcessProperty: "error" });
+    const fenced = Schema.decodeUnknownResult(json(TerminalFenced));
+    const base = { id: 3, pid: 4242, cols: 80, rows: 24, history: "", seq: 9, lastN: 12, lastK: 5 };
+    expect(Result.isSuccess(adopted({ ...base, lastN: 0, lastK: 0, exit: { code: 0, signal: undefined, afterSeq: 0 } }))).toBe(true);
+    expect(Result.isSuccess(fenced([[0, 0], [7, 3]]))).toBe(true);
+    for (const drifted of [-1, 1.5, Number.NaN]) {
+      expect(Result.isFailure(adopted({ ...base, lastN: drifted }))).toBe(true);
+      expect(Result.isFailure(adopted({ ...base, lastK: drifted }))).toBe(true);
+      expect(Result.isFailure(adopted({ ...base, exit: { code: 0, signal: undefined, afterSeq: drifted } }))).toBe(true);
+      expect(Result.isFailure(fenced([[drifted, 1]]))).toBe(true);
+      expect(Result.isFailure(fenced([[1, drifted]]))).toBe(true);
+      expect(Result.isFailure(adopted({ ...base, seq: drifted }))).toBe(true);
+    }
+  });
+
+  it("refuses a drifted count in every message that carries one, and the edge refuses it on a control tag", () => {
+    const cases: ReadonlyArray<readonly [Schema.Top, Record<string, unknown>, ReadonlyArray<string>]> = [
+      [TerminalResize, { _tag: "resize", id: 1, n: 2, cols: 80, rows: 24 }, ["n"]],
+      [TerminalAck, { _tag: "ack", id: 1, n: 2, throughSeq: 4 }, ["n", "throughSeq"]],
+      [TerminalSurfaceOpen, { _tag: "surfaceOpen", id: 1, n: 2, leaseId: "lease", epoch: "e1", fromSeq: 0 }, ["n", "fromSeq"]],
+      [TerminalConnect, { _tag: "connect", generation: 0 }, ["generation"]],
+      [TerminalData, { _tag: "data", id: 1, seq: 0, data: "x" }, ["seq"]],
+      [TerminalExit, { _tag: "exit", id: 1, afterSeq: 0, code: 0, signal: undefined }, ["afterSeq"]],
+      [TerminalTyping, { _tag: "typing", id: 1, k: 0, leaseId: "lease", data: "x" }, ["k"]],
+      [TerminalInput, { _tag: "input", id: 1, k: 0, leaseId: "lease", data: "x" }, ["k"]],
+    ];
+    for (const [schema, valid, counts] of cases) {
+      const decode = Schema.decodeUnknownResult(schema as Schema.Codec<unknown, unknown>, { onExcessProperty: "error" });
+      expect(Result.isSuccess(decode(valid))).toBe(true);
+      for (const field of counts) {
+        for (const drifted of [-1, 1.5, Number.NaN]) expect(Result.isFailure(decode({ ...valid, [field]: drifted }))).toBe(true);
+      }
+    }
+    const { heard, handlers } = recordingCommands();
+    const enter = commandEdge(handlers);
+    for (const drifted of [-1, 1.5, Number.NaN]) expect(Result.isFailure(enter({ _tag: "resize", id: 1, n: drifted, cols: 80, rows: 24 }))).toBe(true);
+    expect(heard).toEqual([]);
   });
 });

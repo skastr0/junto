@@ -64,9 +64,11 @@ export type RemoteTerminal = {
   /** Phase 3: a key from a surface reached the PTY. */
   readonly onInput: (listener: (input: { readonly leaseId: string; readonly data: string }) => void) => () => void;
   /**
-   * Resolves once everything posted before it is in force in the terminal
-   * process and every surface key that arrived there first has been heard
-   * here. A lost terminal process resolves it too: nothing is left to type.
+   * Resolves once every surface key the terminal process had pushed for this
+   * terminal when it answered has been applied here, by its `k`, whatever
+   * order the answer and the keys arrive in. Waits on this terminal only. A
+   * lost terminal process, or a terminal that ended, resolves it too:
+   * nothing is left to type.
    */
   readonly fence: () => Promise<void>;
 };
@@ -119,9 +121,11 @@ type Live = {
   /** The highest chunk received, applied or waiting. */
   received: number;
   heldExit?: { readonly afterSeq: number; readonly status: RemoteTerminalExit };
-  /** The last key event applied; undefined until the first one names where the count stands. */
-  k: number | undefined;
+  /** The last key event applied: 0 for a spawn, the adoption's `lastK` for an adopted terminal. */
+  k: number;
   readonly pendingKeys: Map<number, TerminalTyping | TerminalInput>;
+  /** Fences waiting for this terminal's key events through their `k`. */
+  readonly fences: Array<{ readonly k: number; readonly done: () => void }>;
   /** False for an adopted terminal until it has a data and an exit listener: nothing is applied before. */
   ready: boolean;
 };
@@ -185,6 +189,8 @@ export const terminalClient = (
     const terminal = live.get(id);
     if (terminal === undefined) return;
     live.delete(id);
+    // A terminal that ended has nothing left to type: its fences resolve.
+    for (const fence of terminal.fences.splice(0)) fence.done();
     each(terminal.exit, event);
   };
   const failed = (id: number, message: string): void => {
@@ -218,14 +224,25 @@ export const terminalClient = (
     handled.clear();
   };
 
+  /** Resolves the fences this terminal's applied key events have reached. */
+  const release = (terminal: Live): void => {
+    for (let i = terminal.fences.length - 1; i >= 0; i -= 1) {
+      const fence = terminal.fences[i]!;
+      if (terminal.k < fence.k) continue;
+      terminal.fences.splice(i, 1);
+      fence.done();
+    }
+  };
+
   /** Applies what is next in order: chunks through the first gap, then a held exit once its chunks are in. */
   const advance = (id: number, terminal: Live): void => {
     // Keys apply as soon as they are in order: a listener added later hears only later keys.
-    for (let key = terminal.pendingKeys.get((terminal.k ?? 0) + 1); key !== undefined; key = terminal.pendingKeys.get(key.k + 1)) {
+    for (let key = terminal.pendingKeys.get(terminal.k + 1); key !== undefined; key = terminal.pendingKeys.get(key.k + 1)) {
       terminal.pendingKeys.delete(key.k);
       terminal.k = key.k;
       each(key._tag === "typing" ? terminal.typing : terminal.input, { leaseId: key.leaseId, data: key.data });
     }
+    release(terminal);
     if (!terminal.ready) return;
     for (let next = terminal.pending.get(terminal.seq + 1); next !== undefined; next = terminal.pending.get(terminal.seq + 1)) {
       terminal.pending.delete(terminal.seq + 1);
@@ -247,8 +264,6 @@ export const terminalClient = (
   const key = (event: TerminalTyping | TerminalInput): void => {
     const terminal = live.get(event.id);
     if (terminal === undefined) return;
-    // The first key event names where an adopted terminal's count stands.
-    terminal.k ??= event.k - 1;
     if (event.k <= terminal.k) return;
     terminal.pendingKeys.set(event.k, event);
     advance(event.id, terminal);
@@ -336,10 +351,24 @@ export const terminalClient = (
     return () => pick(terminal).delete(listener);
   };
 
-  const fresh = (seq: number, ready: boolean): Live => ({
+  const fresh = (seq: number, k: number, ready: boolean): Live => ({
     data: new Set(), exit: new Set(), error: new Set(), typing: new Set(), input: new Set(),
-    seq, pending: new Map(), received: seq, k: ready ? 0 : undefined, pendingKeys: new Map(), ready,
+    seq, pending: new Map(), received: seq, k, pendingKeys: new Map(), fences: [], ready,
   });
+
+  /**
+   * One fence for this terminal: the terminal process names the last key
+   * event it pushed for each terminal, and this one resolves once that event
+   * is applied here, wherever the answer lands among the events. A lost link
+   * or a refused call resolves it too: nothing is left to type.
+   */
+  const fence = (id: number): Promise<void> =>
+    run(calls.TerminalFence().pipe(Effect.option)).then((answer) => new Promise<void>((done) => {
+      const terminal = live.get(id);
+      const k = answer._tag === "Some" ? answer.value.get(id) : undefined;
+      if (terminal === undefined || k === undefined || terminal.k >= k) return done();
+      terminal.fences.push({ k, done });
+    }));
 
   const handleOf = (id: number, pid: Promise<number | undefined>): RemoteTerminal => ({
     id,
@@ -360,7 +389,7 @@ export const terminalClient = (
     lastSeq: () => live.get(id)?.seq ?? 0,
     onTyping: subscribe(id, (terminal) => terminal.typing),
     onInput: subscribe(id, (terminal) => terminal.input),
-    fence: () => run(calls.TerminalFence().pipe(Effect.ignore)),
+    fence: () => fence(id),
   });
 
   const adopt = (): Effect.Effect<ReadonlyArray<AdoptedTerminal>, TerminalAdoptFailed> => Effect.suspend(() => {
@@ -376,7 +405,9 @@ export const terminalClient = (
       Effect.mapError((cause) => (cause instanceof TerminalAdoptFailed ? cause : new TerminalAdoptFailed({ message: messageOf(cause) }))),
       Effect.map((answer) => answer.terminals.map((adopted) => {
         nextId = Math.max(nextId, answer.nextId, adopted.id + 1);
-        live.set(adopted.id, fresh(adopted.seq, false));
+        live.set(adopted.id, fresh(adopted.seq, adopted.lastK, false));
+        // The terminal process applied commands through lastN: this core continues from the next.
+        numbered.set(adopted.id, adopted.lastN);
         return { terminal: handleOf(adopted.id, Promise.resolve(adopted.pid)), meta: adopted.meta, adopted };
       })),
       // What arrived behind the answer goes to the handles it names, in order.
@@ -396,7 +427,7 @@ export const terminalClient = (
     hangupAll: () => port.post({ kind: "command", message: { _tag: "hangupAll" } }),
     spawn: (input) => {
       const id = nextId++;
-      live.set(id, fresh(0, true));
+      live.set(id, fresh(0, 0, true));
       const pid = run(
         calls.TerminalSpawn({ ...input, id }).pipe(Effect.mapError((error) => new Error(messageOf(error)))),
       ).then((answer) => answer.pid, (error: unknown) => {

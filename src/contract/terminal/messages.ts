@@ -12,11 +12,13 @@
  * carries `seq`, an exit `afterSeq`, an acknowledgement `throughSeq`, and a
  * key event `k`, so each is placed by its number and a repeat is dropped.
  *
- * At each edge the control tags are decoded closed and the hot tags (`write`,
- * `ack`, `data`, `typing`, `input`) pass typed with no decode (`edge.ts`).
+ * Every count is a `TerminalCount`, a whole number from 0. At each edge the
+ * control tags are decoded closed, so a drifted count there is refused; the
+ * hot tags (`write`, `ack`, `data`, `typing`, `input`) pass typed with no
+ * decode (`edge.ts`), so theirs is held by the compiler alone.
  */
 import { Schema } from "effect";
-import { TerminalExitStatus } from "./rpcs";
+import { TerminalCount, TerminalExitStatus } from "./rpcs";
 
 /** A control lease as the gate names it: the lease and the generation it controls. */
 export const SurfaceLease = Schema.Struct({ leaseId: Schema.String, epoch: Schema.String });
@@ -32,7 +34,7 @@ export const KillSignal = Schema.Literals([
 export type KillSignal = typeof KillSignal.Type;
 
 /** Every command for one terminal: its id, and its control number, the spawn being 1. */
-const forTerminal = { id: Schema.Number, n: Schema.Number };
+const forTerminal = { id: Schema.Number, n: TerminalCount };
 
 // The core to the terminal process.
 
@@ -52,7 +54,7 @@ export type TerminalKill = typeof TerminalKill.Type;
  * Cumulative, so a late or repeated one changes nothing. Hot: typed, never
  * decoded.
  */
-export const TerminalAck = Schema.TaggedStruct("ack", { ...forTerminal, throughSeq: Schema.Number });
+export const TerminalAck = Schema.TaggedStruct("ack", { ...forTerminal, throughSeq: TerminalCount });
 export type TerminalAck = typeof TerminalAck.Type;
 
 /** The one lease whose keys may reach the PTY, or none. */
@@ -70,7 +72,7 @@ export type TerminalHold = typeof TerminalHold.Type;
 export const TerminalSurfaceOpen = Schema.TaggedStruct("surfaceOpen", {
   ...forTerminal,
   ...SurfaceLease.fields,
-  fromSeq: Schema.Number,
+  fromSeq: TerminalCount,
 });
 export type TerminalSurfaceOpen = typeof TerminalSurfaceOpen.Type;
 
@@ -107,7 +109,7 @@ export type Command = typeof Command.Type;
  * main's count of the cores it started: a port is attached only if its
  * generation is higher than the one attached. Carries a port.
  */
-export const TerminalConnect = Schema.TaggedStruct("connect", { generation: Schema.Number });
+export const TerminalConnect = Schema.TaggedStruct("connect", { generation: TerminalCount });
 export type TerminalConnect = typeof TerminalConnect.Type;
 
 /** Main's orderly quit: hang up every PTY, then leave. The process's exit is the answer. */
@@ -120,13 +122,13 @@ export type ParentCommand = typeof ParentCommand.Type;
 // The terminal process to the core.
 
 /** One PTY read, chunk `seq` of that PTY counting from 1. Hot: typed, never decoded. */
-export const TerminalData = Schema.TaggedStruct("data", { id: Schema.Number, seq: Schema.Number, data: Schema.String });
+export const TerminalData = Schema.TaggedStruct("data", { id: Schema.Number, seq: TerminalCount, data: Schema.String });
 export type TerminalData = typeof TerminalData.Type;
 
 /** The PTY ended after chunk `afterSeq`; the core applies it once output through that chunk is applied. */
 export const TerminalExit = Schema.TaggedStruct("exit", {
   id: Schema.Number,
-  afterSeq: Schema.Number,
+  afterSeq: TerminalCount,
   ...TerminalExitStatus.fields,
 });
 export type TerminalExit = typeof TerminalExit.Type;
@@ -136,7 +138,7 @@ export const TerminalError = Schema.TaggedStruct("error", { id: Schema.Number, m
 export type TerminalError = typeof TerminalError.Type;
 
 /** Fields of a key event: the terminal's event number `k`, and which lease sent what. */
-const keyEvent = { id: Schema.Number, k: Schema.Number, leaseId: Schema.String, data: Schema.String };
+const keyEvent = { id: Schema.Number, k: TerminalCount, leaseId: Schema.String, data: Schema.String };
 
 /** A key arrived from a surface, before any gate decided it. Hot: typed, never decoded. */
 export const TerminalTyping = Schema.TaggedStruct("typing", keyEvent);
