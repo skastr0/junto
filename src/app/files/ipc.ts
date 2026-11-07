@@ -15,7 +15,7 @@
  * A subscriber is a webContents id. The core serves that number and pushes its
  * changes back tagged with it; nothing here holds a session.
  */
-import { ipcMain, shell, webContents } from "electron";
+import { ipcMain, webContents } from "electron";
 import { Context, Result } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
 import {
@@ -34,7 +34,6 @@ import { trustedRendererIpc } from "../trusted-main-webcontents";
 import { subscribe as subscribeCore } from "../core-process/main-side/core-pushes";
 import { FILES_CHANGED, type FilesChangedPush } from "../../contract/core/channels";
 import { FilesCore, type FilesBytesOpened } from "../../contract/core/files";
-import { hostOps } from "../core-process/main-side/host-op-bodies";
 import type { FileBytesReader } from "../../core/files/bytes";
 import { AppRuntime } from "../runtime";
 import type { FileBytesResolver } from "./protocol";
@@ -60,17 +59,6 @@ const at = <R>(
     return path === undefined ? Promise.resolve(invalid) : run(ref, path);
   });
 
-/** The shell the core's Files service asks for: this process has one, the core none. */
-const serveFilesShell = (): void => {
-  hostOps({
-    "files.trash": async ({ absolute }) => shell.trashItem(absolute),
-    "files.openPath": async ({ absolute }) => shell.openPath(absolute),
-    "files.reveal": async ({ absolute }) => {
-      shell.showItemInFolder(absolute);
-    },
-  });
-};
-
 /**
  * Register the Files channels. Another machine's node goes to the link client
  * in the core (`ops/files.ts`, `router.ts`).
@@ -78,7 +66,6 @@ const serveFilesShell = (): void => {
 export const registerFilesIpc = (core: Context.Context<FilesCore>): void => {
   const files = Context.get(core, FilesCore);
   const ipc = trustedRendererIpc(ipcMain);
-  serveFilesShell();
 
   const watched = new Set<number>();
 

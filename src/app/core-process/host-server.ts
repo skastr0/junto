@@ -9,9 +9,10 @@ import { HostLink } from "../../contract/host/link";
 import { HostRpcs } from "../../contract/host/rpcs";
 import { serverProtocol } from "@shared/rpc-port";
 import { ClipboardHostHandlers } from "./main-side/clipboard";
+import { FilesHostHandlers } from "./main-side/files";
 import { OverseerPagesHostHandlers, WindowHostHandlers } from "./main-side/overseer-pages";
 
 export const HostServerLive = RpcServer.layer(HostRpcs).pipe(
-  Layer.provide([ClipboardHostHandlers, OverseerPagesHostHandlers, WindowHostHandlers]),
+  Layer.provide([ClipboardHostHandlers, FilesHostHandlers, OverseerPagesHostHandlers, WindowHostHandlers]),
   Layer.provide(Layer.effect(RpcServer.Protocol, Effect.flatMap(HostLink, serverProtocol))),
 );

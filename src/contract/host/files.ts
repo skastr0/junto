@@ -6,8 +6,9 @@
  * `OpenPath` answers "" on success, else the reason, as `shell.openPath` does.
  * A Trash or Reveal the shell refuses fails with `FilesShellRefused`.
  */
-import { Schema } from "effect";
-import { Rpc, RpcGroup } from "effect/rpc";
+import { Context, Layer, Schema } from "effect";
+import { Rpc, RpcGroup, type RpcClient, type RpcClientError } from "effect/rpc";
+import { hostClient } from "./link";
 
 /** The shell refused the path; the message is its own. */
 export class FilesShellRefused extends Schema.TaggedError<FilesShellRefused>()("FilesShellRefused", {
@@ -20,4 +21,12 @@ export const FilesHostRpcs = RpcGroup.make(
   Rpc.make("FilesShellTrash", { payload: Absolute, success: Schema.Void, error: FilesShellRefused }),
   Rpc.make("FilesShellOpenPath", { payload: Absolute, success: Schema.String }),
   Rpc.make("FilesShellReveal", { payload: Absolute, success: Schema.Void, error: FilesShellRefused }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
+
+/** The core's client of the files shell group. */
+export class FilesHost extends Context.Service<
+  FilesHost,
+  RpcClient.FromGroup<typeof FilesHostRpcs, RpcClientError.RpcClientError>
+>()("@junto/contract/FilesHost") {
+  static readonly layer = Layer.effect(FilesHost, hostClient(FilesHostRpcs));
+}

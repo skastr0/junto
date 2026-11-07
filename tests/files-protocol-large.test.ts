@@ -17,6 +17,7 @@ import { createFileProtocolHandler } from "../src/app/files/protocol";
 import { coreFileBytes, registerFilesIpc } from "../src/app/files/ipc";
 import { FilesCore, FilesRpcs } from "../src/contract/core/files";
 import { CorePushes } from "../src/core/push";
+import { HostClientsNoWindow } from "../src/core/host-clients";
 
 const SIZE = 40 * 1024 * 1024;
 
@@ -60,7 +61,7 @@ const mainClient = async () => {
   const scope = await Effect.runPromise(Scope.make());
   scopes.push(scope);
   const handlers = await Effect.runPromise(
-    Layer.buildWithScope(FilesHandlers.pipe(Layer.provide(Layer.succeed(CorePushes, { publish: () => Effect.void }))), scope),
+    Layer.buildWithScope(FilesHandlers.pipe(Layer.provide([Layer.succeed(CorePushes, { publish: () => Effect.void }), HostClientsNoWindow])), scope),
   );
   const client = await Effect.runPromise(
     RpcTest.makeClient(FilesRpcs).pipe(Effect.provideContext(handlers), Effect.provideService(Scope.Scope, scope)),

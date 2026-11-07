@@ -1,6 +1,6 @@
 /**
  * The overseer runs in the core and main holds the browser and the window:
- * each page operation and the window's pixels are calls on
+ * each page operation, the window's pixels and the Files shell are calls on
  * main's host groups (src/contract/host/), over the host link. An open's
  * recheck comes back through the overseer pages group
  * (src/contract/core/overseer-pages.ts) on the core's link, under the call id
@@ -11,6 +11,7 @@ import { Effect, Exit, Layer, ManagedRuntime, Scope } from "effect";
 import { RpcServer } from "effect/rpc";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { OverseerPagesRpcs } from "../src/contract/core/overseer-pages";
+import { FilesHost, FilesShellRefused } from "../src/contract/host/files";
 import { serverProtocol, type PortMessage, type RpcPort } from "../src/shared/rpc-port";
 import {
   hostCaptureApplicationPage,
@@ -19,6 +20,7 @@ import {
   OverseerPagesHandlers,
   type HostRun,
 } from "../src/core/ops/overseer-pages";
+import type { FilesShellShape } from "../src/app/core-process/main-side/files";
 import type { OverseerPages } from "../src/node/overseer/pages";
 import type { ResolvedPageTarget } from "../src/core/browser/page-target";
 import { servedHost } from "./support/host-link";
@@ -46,9 +48,10 @@ const target: ResolvedPageTarget = { ref: "junto://canvas/factory?node=p1" as ne
 const info = { sessionId: "s1", ref: target.ref, nodeId: "p1", url: target.url, profile: "personal", state: "ready", attached: true } as const;
 const clipboard = { readText: () => "", writeText: () => undefined, clear: () => undefined, availableFormats: () => [] };
 
-// Main holds the browser and the window; the core reaches them across the host link, and main asks each recheck back on the core's link.
+// Main holds the browser, the window and the shell; the core reaches them across the host link, and main asks each recheck back on the core's link.
 const wire = async (input: {
   readonly pages?: Partial<OverseerPages>;
+  readonly shell?: Partial<FilesShellShape>;
 }) => {
   const link = new MessageChannel();
   closing.push(() => {
@@ -72,13 +75,20 @@ const wire = async (input: {
     coreLink: linkOf(link.port1),
     pages: () => input.pages as OverseerPages | undefined,
     captureApplicationPage: async () => ({ ok: true, png: new Uint8Array([9, 8]) }),
+    shell: { trashItem: async () => undefined, openPath: async () => "", showItemInFolder: () => undefined, ...input.shell },
   });
   closing.push(main.close);
   const core = await main.core();
   const runtime = ManagedRuntime.make(Layer.succeedContext(core.clients));
   closing.push(() => void runtime.dispose());
   const run: HostRun = (effect, options) => runtime.runPromise(effect, options);
-  return { pages: hostOverseerPages(run, flights), capture: hostCaptureApplicationPage(run), flights };
+  const files = (use: (shell: FilesHost["Service"]) => Effect.Effect<unknown, unknown>) =>
+    runtime.runPromise(
+      Effect.gen(function* () {
+        return yield* use(yield* FilesHost);
+      }),
+    );
+  return { pages: hostOverseerPages(run, flights), capture: hostCaptureApplicationPage(run), files, flights };
 };
 
 it("opens a page in main and asks the core's recheck back before it commits", async () => {
@@ -147,4 +157,26 @@ it("answers as data: pixels and fences cross, and an unbound browser is down, no
   const unbound = await wire({});
   expect(await unbound.pages.state("overseer", "s1")).toMatchObject({ ok: false, code: "failed" });
   expect(await unbound.pages.sessionsForRef("r")).toEqual([]);
+});
+
+it("the Files shell: trash and reveal reach Electron's shell, open answers its reason, and a refusal is a typed failure", async () => {
+  const calls: string[] = [];
+  const { files } = await wire({
+    shell: {
+      trashItem: async (path) => {
+        calls.push(`trash ${path}`);
+        if (path === "/locked") throw new Error("operation not permitted");
+      },
+      openPath: async (path) => (path === "/missing" ? "no such file" : ""),
+      showItemInFolder: (path) => void calls.push(`reveal ${path}`),
+    },
+  });
+  await files((shell) => shell.FilesShellTrash({ absolute: "/a" }));
+  await files((shell) => shell.FilesShellReveal({ absolute: "/b" }));
+  expect(await files((shell) => shell.FilesShellOpenPath({ absolute: "/a" }))).toBe("");
+  expect(await files((shell) => shell.FilesShellOpenPath({ absolute: "/missing" }))).toBe("no such file");
+  expect(calls).toEqual(["trash /a", "reveal /b"]);
+  const refused = await files((shell) => shell.FilesShellTrash({ absolute: "/locked" })).catch((error: unknown) => error);
+  expect(refused).toBeInstanceOf(FilesShellRefused);
+  expect(refused).toMatchObject({ _tag: "FilesShellRefused", message: "operation not permitted" });
 });

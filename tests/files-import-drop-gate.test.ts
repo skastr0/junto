@@ -14,6 +14,7 @@ import { decodeFilesSources, ROOT_PATH } from "../src/shared/files";
 import { asNodeId } from "../src/shared/physics/schema";
 import { FilesRpcs } from "../src/contract/core/files";
 import { CorePushes } from "../src/core/push";
+import { HostClientsNoWindow } from "../src/core/host-clients";
 
 vi.mock("../src/core/files/index-worker-host", () => ({ workerRootIndex: {} }));
 vi.mock("../src/core/files/service", () => ({
@@ -36,7 +37,7 @@ let files: RpcClient.FromGroup<typeof FilesRpcs>;
 beforeAll(async () => {
   scope = await Effect.runPromise(Scope.make());
   const handlers = await Effect.runPromise(
-    Layer.buildWithScope(FilesHandlers.pipe(Layer.provide(Layer.succeed(CorePushes, { publish: () => Effect.void }))), scope),
+    Layer.buildWithScope(FilesHandlers.pipe(Layer.provide([Layer.succeed(CorePushes, { publish: () => Effect.void }), HostClientsNoWindow])), scope),
   );
   files = await Effect.runPromise(
     RpcTest.makeClient(FilesRpcs).pipe(Effect.provideContext(handlers), Effect.provideService(Scope.Scope, scope)),

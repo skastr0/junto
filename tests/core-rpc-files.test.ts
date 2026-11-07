@@ -28,6 +28,7 @@ import { FILES_CHANGED } from "../src/contract/core/channels";
 import { CoreLink } from "../src/contract/core/link";
 import { FilesCore, FilesRpcs } from "../src/contract/core/files";
 import { CorePushes } from "../src/core/push";
+import { HostClientsNoWindow } from "../src/core/host-clients";
 
 const stand = vi.hoisted(() => ({
   file: "",
@@ -96,6 +97,7 @@ const connected = async (): Promise<RpcClient.FromGroup<typeof FilesRpcs, RpcCli
   ports.push(port1, port2);
   const server = RpcServer.layer(FilesRpcs).pipe(
     Layer.provide(FilesHandlers),
+    Layer.provide(HostClientsNoWindow),
     Layer.provide(Layer.succeed(CorePushes, { publish: (channel, payload) => Effect.sync(() => void pushes.push([channel, payload])) })),
     Layer.provide(Layer.effect(RpcServer.Protocol, serverProtocol(linkOf(port2)))),
   );

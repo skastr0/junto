@@ -1486,6 +1486,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       pages: () => coreProcessPages,
       captureApplicationPage,
       clipboard,
+      shell,
       terminals,
     }));
     const coreClients = await coreChildren.core.clients;

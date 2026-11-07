@@ -39,8 +39,7 @@ import { makeFilesService } from "../files/service";
 import { coreRunner } from "../core-runner";
 import { FILES_CHANGED, type FilesChangedPush } from "../../contract/core/channels";
 import { FilesRpcs, type FilesBytesOpened } from "../../contract/core/files";
-import type { HostOp } from "../host-ops";
-import { host } from "../core-host";
+import { FilesHost } from "../../contract/host/files";
 import { CorePushes } from "../push";
 
 /** Dropped paths held per window before the oldest is forgotten. */
@@ -54,15 +53,6 @@ const failed = { ok: false, error: "failed" } as const;
 
 /** An OS path a window may name as a source: absolute, bounded, no NUL. */
 const isSource = (raw: string): boolean => raw.length <= FILES_SOURCE_MAX && !raw.includes("\0") && isAbsolute(raw);
-
-declare module "../host-ops" {
-  interface HostOps {
-    "files.trash": HostOp<{ readonly absolute: string }, void>;
-    /** `shell.openPath`: answers "" on success, else the reason. */
-    "files.openPath": HostOp<{ readonly absolute: string }, string>;
-    "files.reveal": HostOp<{ readonly absolute: string }, void>;
-  }
-}
 
 /** After a rename or move, carry the node's comment threads: in this process, on its rows. */
 const carryThreads = (ref: FilesNodeRef, from: FilePath, to: FilePath): Promise<void> =>
@@ -85,6 +75,8 @@ export const FilesHandlers = FilesRpcs.toLayer(
     const pushes = yield* CorePushes;
     // Absent in a core with filesRemote off: its Layer is not provided (core-runtime.ts).
     const remote = Option.getOrUndefined(yield* Effect.serviceOption(FilesRemoteService));
+    // The shell is Electron's: each call is main's, on the core's runtime; a refusal rejects the call.
+    const shell = yield* FilesHost;
 
     /** A change goes to the window that has the node open, by a push main forwards. */
     const send = (subscriber: number, event: FilesChanged): void => {
@@ -98,9 +90,11 @@ export const FilesHandlers = FilesRpcs.toLayer(
       node: nodeFacts,
       machineName,
       deny,
-      trash: (absolute) => host.call("files.trash", { absolute }),
-      openPath: (absolute) => host.call("files.openPath", { absolute }),
-      reveal: (absolute) => host.call("files.reveal", { absolute }),
+      trash: (absolute) => coreRunner.runPromise(shell.FilesShellTrash({ absolute })),
+      openPath: (absolute) => coreRunner.runPromise(shell.FilesShellOpenPath({ absolute })),
+      reveal: (absolute) => {
+        void coreRunner.runPromise(shell.FilesShellReveal({ absolute })).catch(() => undefined);
+      },
       send,
       index: workerRootIndex,
       carryThreads,

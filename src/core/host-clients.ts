@@ -7,12 +7,13 @@
  */
 import { Effect, Layer } from "effect";
 import { ClipboardHost } from "../contract/host/clipboard";
+import { FilesHost } from "../contract/host/files";
 import { OverseerPagesHost } from "../contract/host/overseer-pages";
 import { WindowHost } from "../contract/host/window";
 import { HostLink } from "../contract/host/link";
 import type { PortMessage, RpcPort } from "@shared/rpc-port";
 
-export const HostClientsLive = Layer.mergeAll(ClipboardHost.layer, OverseerPagesHost.layer, WindowHost.layer);
+export const HostClientsLive = Layer.mergeAll(ClipboardHost.layer, FilesHost.layer, OverseerPagesHost.layer, WindowHost.layer);
 export type HostClients = Layer.Success<typeof HostClientsLive>;
 
 /** What an encoded request names: its tag, read without trusting its shape. */

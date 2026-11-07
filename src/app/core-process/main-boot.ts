@@ -6,6 +6,7 @@ import { AppRuntime } from "../runtime";
 import { CoreClientsLive, type CoreClients } from "./clients";
 import { HostServerLive } from "./host-server";
 import { SystemClipboard, type SystemClipboardShape } from "./main-side/clipboard";
+import { FilesShell, type FilesShellShape } from "./main-side/files";
 import { workControlDir } from "@shared/work-control";
 import { hostOps } from "./main-side/host-op-bodies";
 import { TERMINAL_CONNECT } from "../../contract/terminal/protocol";
@@ -56,6 +57,8 @@ export const startCoreProcessForMain = (input: {
   readonly captureApplicationPage: () => Promise<ApplicationCaptureResult>;
   /** The system clipboard the core's clipboard group is answered with. */
   readonly clipboard: SystemClipboardShape;
+  /** Electron's shell, which the core's Files service asks to trash, open and reveal. */
+  readonly shell: FilesShellShape;
   /** Tests start a core over a MessageChannel instead of a utilityProcess; its stop may be synchronous. */
   readonly start?: (boot: CoreBoot) => PortCoreClient & { readonly stop: () => Effect.Effect<void, CoreDidNotStop>; readonly postSurface?: (message: PortedCoreMessage, port: unknown) => boolean; readonly link: RpcPort; readonly hostLink: RpcPort };
   /** The terminal process the core's plane drives: main hands the core each port to it. */
@@ -78,6 +81,7 @@ export const startCoreProcessForMain = (input: {
   // What the core asks of Electron, and main's clients of what main asks the core.
   const hosts = Layer.mergeAll(
     Layer.succeed(SystemClipboard, input.clipboard),
+    Layer.succeed(FilesShell, input.shell),
     overseerHostServices({
       pages: input.pages,
       captureApplicationPage: input.captureApplicationPage,
