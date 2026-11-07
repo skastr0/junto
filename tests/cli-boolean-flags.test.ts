@@ -82,7 +82,9 @@ const bare = async (args: ReadonlyArray<string>) => {
       if (newline < 0) return;
       const request = JSON.parse(buffer.subarray(0, newline).toString("utf8")) as Record<string, unknown>;
       op = request.op;
-      socket.end(`${JSON.stringify({ ok: true, op: request.op, protocol_version: WORK_PROTOCOL_VERSION, data: {} })}\n`);
+      // The least answer each op's contract reads: the CLI decodes it, so `{}` is refused.
+      const data = request.op === "artifact.list" ? { artifacts: [], more: false } : { as_of: new Date(0).toISOString(), unread: 0 };
+      socket.end(`${JSON.stringify({ ok: true, op: request.op, protocol_version: WORK_PROTOCOL_VERSION, data })}\n`);
     });
   });
   servers.push(server);
