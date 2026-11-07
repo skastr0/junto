@@ -37,7 +37,6 @@ import { PausePlane } from "../../pause-plane";
 import { onReferencesChanged } from "../../references/changes";
 import { ReferencesRepository } from "../../references/repository";
 import { StateTransactionOperation } from "../../state/service";
-import { onSeatGuidanceChanged } from "../../seat-guidance/changes";
 import { SeatGuidanceRepository } from "../../seat-guidance/repository";
 import { onAgentSignalChanged } from "../../signals/changes";
 import { AgentSignalRepository } from "../../signals/repository";
@@ -506,9 +505,10 @@ export const makeLiveRowExchange = (
  */
 export const followLocalCommits = (
   exchange: RowExchange,
-): Effect.Effect<() => void, never, ModelService | ModelRecords | WorkRepository | PausePlane | LogService> =>
+): Effect.Effect<() => void, never, ModelService | ModelRecords | WorkRepository | SeatGuidanceRepository | PausePlane | LogService> =>
   Effect.gen(function* () {
     const log = yield* LogService;
+    const guidance = yield* SeatGuidanceRepository;
     const model = yield* ModelService;
     const records = yield* ModelRecords;
     const repository = yield* WorkRepository;
@@ -554,7 +554,7 @@ export const followLocalCommits = (
         sweep(canvasName);
       }),
       onAgentSignalChanged((signal) => push(signal.canvasName, "rows")),
-      onSeatGuidanceChanged(pushAll),
+      guidance.subscribeChanges(pushAll),
       onReferencesChanged((event) =>
         event.kind === "reference" && event.canvasName !== undefined ? push(event.canvasName, "canvas") : pushAll(),
       ),

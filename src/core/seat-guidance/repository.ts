@@ -6,7 +6,7 @@ import {
   type SeatGuidanceMap,
 } from "@shared/seat-guidance";
 import { StateTransactionOperation } from "../state/service";
-import { emitSeatGuidanceChanged } from "./changes";
+import { makeChangeFeed } from "../change-feed";
 
 export class SeatGuidancePersistenceError extends Schema.TaggedError<SeatGuidancePersistenceError>()(
   "SeatGuidancePersistenceError",
@@ -39,6 +39,13 @@ export class SeatGuidanceRepository extends Context.Service<SeatGuidanceReposito
       seatId: string,
       guidance: unknown,
     ) => Effect.Effect<SeatGuidance | null, SeatGuidanceRepositoryError>;
+    /**
+     * Hear that a seat's soul or instructions changed, with the seat's id. The
+     * store says so after every committed write, so the copy of a canvas
+     * another machine holds follows what the operator wrote. Returns the
+     * unsubscribe.
+     */
+    readonly subscribeChanges: (listener: (seatId: string) => void) => () => void;
   }>()("@junto/SeatGuidanceRepository") {}
 
 const GuidanceRow = Schema.Struct({
@@ -62,6 +69,7 @@ export const SeatGuidanceRepositoryLive: Layer.Layer<SeatGuidanceRepository, nev
     SeatGuidanceRepository,
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
+      const changes = makeChangeFeed<string>();
       const allRows = SqlSchema.findAll({
         Request: Schema.Void,
         Result: GuidanceRow,
@@ -107,8 +115,8 @@ export const SeatGuidanceRepositoryLive: Layer.Layer<SeatGuidanceRepository, nev
 
       // Listeners hear of a write once it is committed, never from inside it.
       const set = (seatId: string, guidance: unknown) =>
-        store(seatId, guidance).pipe(Effect.tap(() => Effect.sync(() => emitSeatGuidanceChanged(seatId))));
+        store(seatId, guidance).pipe(Effect.tap(() => Effect.sync(() => changes.emit(seatId))));
 
-      return SeatGuidanceRepository.of({ list, get, set });
+      return SeatGuidanceRepository.of({ list, get, set, subscribeChanges: changes.subscribe });
     }),
   );
