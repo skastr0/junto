@@ -12,7 +12,7 @@ import { resolveJuntoHome } from "@shared/junto-home";
 import { join } from "node:path";
 import { Context, Effect, Exit, Layer, Result, Option, Schema, Scope } from "effect";
 import { mapWorkCode } from "../work-control/answers";
-import { requireTarget, type WorkCaller } from "../work-control/seat";
+import { type WorkCaller } from "../work-control/seat";
 import { WorkRpcServer, servesWorkRpc } from "../work-control/server";
 import { ulid } from "ulid";
 import type { Message } from "@shared/work-model";
@@ -36,38 +36,18 @@ import { seatToolPreamble, type PreambleEvent } from "@shared/preamble";
 import { type AgentSignal } from "@shared/agent-signals";
 import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
-import {
-  EmptyArgs,
-  OffboardArgs,
-  OnboardArgs,
-  RulingsArgs,
-  WORK_MAX_FRAME_BYTES,
-  WORK_PROTOCOL_VERSION,
-  WorkOpName,
-  decodeWorkRequest,
-  encodeWorkFrame,
-  workErr,
-  workOk,
-  workControlDir,
-  workControlSocketPath,
-  type WorkErrorBody,
-  type WorkOpName as WorkOp,
-  type WorkResponseEnvelope,
-} from "@shared/work-control";
+import { EmptyArgs, OffboardArgs, OnboardArgs, WORK_MAX_FRAME_BYTES, WORK_PROTOCOL_VERSION, WorkOpName, decodeWorkRequest, encodeWorkFrame, workErr, workOk, workControlDir, workControlSocketPath, type WorkErrorBody, type WorkOpName as WorkOp, type WorkResponseEnvelope } from "@shared/work-control";
 import { onboardReferenceFields } from "../references/seat-reads";
 import { briefingMentionsOn, mentionsField } from "../references/briefing-mentions";
 import { WorkService } from "./service";
 import { isAutomationWriteOp } from "@shared/automation-control";
 import { ARTIFACT_WRITE_OPS } from "@shared/artifact-control";
-import { TASK_WRITE_OPS, isTaskControlOp } from "@shared/task-control";
-import { handleTaskOp, liveTaskPorts } from "./task-control";
+import { TASK_WRITE_OPS } from "@shared/task-control";
 import { liveSeatObservation } from "./seat-observation-live";
 import { onboardSinceSection, readSeatSince } from "./seat-since-read";
-import { threadSubjectOf } from "@shared/thread-subject";
 import { filesNodeName } from "./subject-people";
 import { MachineRepository } from "../machines/repository";
 import { isThisMachine } from "@shared/machine-identity";
-import { pendingMarksOf } from "./op-control";
 import { PausePlane } from "../pause-plane";
 import { SeatGuidanceRepository } from "../seat-guidance/repository";
 import { SeatSessionRepository } from "../seat-sessions/repository";
@@ -1083,61 +1063,6 @@ const dispatchOp = (
             ? "your notes and continuation are saved and your seat has moved on to a fresh session, which reads your continuation first; this session may finish what it is saying, but it receives nothing more and its junto commands are refused"
             : "your notes are saved and your seat has moved on: it rests until its next wake, which starts a fresh session that reads your notes; this session may finish what it is saying, but it receives nothing more and its junto commands are refused",
       };
-    }
-
-    if (op === "rulings") {
-      // Region rulings ride the Tasks gate: a tasks-off build has none to read.
-      if (!TASKS_ENABLED) {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "ScopeError",
-          message: "region rulings are disabled in this Junto build",
-          details: {
-            caller: caller.nodeId,
-            hint: "this product surface is turned off in this build",
-            next_step: "stop reading rulings; this build carries no region rules",
-            retryable: false,
-            missing: "feature enabled in this build",
-            reason: op,
-          },
-        });
-      }
-      const decoded = decodeArgs(RulingsArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      // No target: the seat's own region stack — ambient law it already lives
-      // under, so no edge is involved. A named task node is admitted by reach.
-      const target = decoded.success.target;
-      if (target !== undefined) {
-        const gate = requireTarget(board, caller.nodeId, target, op);
-        if ("type" in gate) return yield* Effect.fail(gate);
-      }
-      return yield* work
-        .workRulingsList(caller.canvasName, target ?? caller.nodeId)
-        .pipe(
-          Effect.catch((error) =>
-            Effect.fail(
-              mapWorkCode(error.code, error.message, error.details),
-            ),
-          ),
-        );
-    }
-
-    if (isTaskControlOp(op)) {
-      const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Result.isFailure(actor)) return yield* Effect.fail(actor.failure);
-      return yield* handleTaskOp(op, args, {
-        canvas: board,
-        canvasName: caller.canvasName,
-        actor: { kind: "seat", seatId: actor.success.seatId, nodeId: asNodeId(caller.nodeId) },
-      }, {
-        ...liveTaskPorts,
-        pending: pendingMarksOf("task"),
-        // task show counts the task's thread, held in its node's mailbox (03).
-        threadCount: (_canvasName, task) =>
-          Effect.map(mailboxOf(task.current.node), (rows) => rows.filter((row) => {
-            const on = threadSubjectOf(row);
-            return on?.kind === "task" && on.nodeId === task.current.node && on.taskId === task.taskId;
-          }).length),
-      });
     }
 
     // Exhaustiveness — Schema already gates ops
