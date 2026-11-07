@@ -36,6 +36,8 @@ vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: () => [] },
   ipcMain: {
     handle: (channel: string, handler: InvokeHandler) => electron.handlers.set(channel, handler),
+    // The window link's open (app/window/ipc.ts) is a send, not an invoke: nothing here opens one.
+    on: vi.fn(),
   },
 }));
 

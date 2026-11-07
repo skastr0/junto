@@ -1,4 +1,5 @@
 import { lazy, Profiler, StrictMode, Suspense, useEffect } from "react";
+import { Effect } from "effect";
 import { createRoot as createStandardRoot } from "react-dom/client";
 import "@xyflow/react/dist/style.css";
 import { App } from "./App";
@@ -14,6 +15,8 @@ import { installIpcAutomationsSource } from "./lib/automations-ipc-source";
 import { installIpcBrowserChrome } from "./lib/browser-chrome-ipc";
 import { installFileDraftsUnloadGuard, settleFileDrafts } from "./lib/files-drafts-settle";
 import { LiveSeatViewSource } from "./components/LiveSeatViewSource";
+import { pageLink } from "./rpc/link";
+import { makeWindowRuntime, WindowRuntimeContext } from "./rpc/runtime";
 import "./styles.css";
 
 // Dev-only render highlighter (https://github.com/aidenybai/react-scan).
@@ -43,6 +46,11 @@ installIpcBrowserChrome(window.junto);
 // A reload with unsaved Files drafts asks first; main asks the same before a quit or a close.
 installFileDraftsUnloadGuard();
 window.junto?.onFilesDraftsSettle(settleFileDrafts);
+
+// The window's one runtime, on its link to main (src/contract/window/link.ts).
+// Built now, so the window follows where its update stands from boot.
+const windowRuntime = makeWindowRuntime(pageLink(window.junto, window));
+windowRuntime.runSync(Effect.void);
 
 // Dev gallery for the activity mark (`#/gallery/marks`); split off the boot chunk.
 const MARK_GALLERY = "#/gallery/marks";
@@ -210,9 +218,11 @@ const mount = (createRoot: CreateRoot, reactBuild: ReactProfilerBuild): void => 
   startCanvasPerformanceHarness({ reactBuild });
   const tree = (
     <StrictMode>
-      <LiveSeatViewSource>
-        <AppRoot />
-      </LiveSeatViewSource>
+      <WindowRuntimeContext.Provider value={windowRuntime}>
+        <LiveSeatViewSource>
+          <AppRoot />
+        </LiveSeatViewSource>
+      </WindowRuntimeContext.Provider>
     </StrictMode>
   );
   createRoot(root).render(

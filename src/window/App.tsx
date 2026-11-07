@@ -28,7 +28,6 @@ import {
 import { startKernelBridge } from "./lib/kernel-view";
 import { startSettingsBridge } from "./lib/settings-state";
 import { startThemeMode } from "./lib/theme-mode";
-import { startUpdateBridge } from "./lib/update-state";
 import { subscribeAgentSeatState } from "./lib/agent-seat-state";
 import { startOperatorHolds } from "./lib/operator-holds";
 import { subscribeSeatAwareness } from "./lib/seat-awareness";
@@ -427,7 +426,6 @@ export function App() {
     const stopKernel = startKernelBridge();
     startThemeMode();
     const stopSettings = startSettingsBridge();
-    const stopUpdate = startUpdateBridge();
     // Managed-agent seat state (attention/working) — subscribe early so canvas
     // node chrome paints before any TerminalCard mounts.
     const stopAgentSeat = subscribeAgentSeatState();
@@ -493,7 +491,6 @@ export function App() {
       offCanvasQuiesceAndFlush();
       stopKernel();
       stopSettings?.();
-      stopUpdate?.();
       stopAgentSeat?.();
       stopOperatorHolds();
       stopSeatAwareness?.();

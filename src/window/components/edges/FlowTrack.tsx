@@ -115,7 +115,8 @@ const tileOf = (scale: number, fit: number, verb: TaskPathVerb): string => {
   const key = `${verb}:${scale}:${fit.toFixed(3)}`;
   let tile = tiles.get(key);
   if (tile === undefined) {
-    tile = trackTile(scale, fit, verb);
+    // Built from the fit the key names, so a key always answers the same tile.
+    tile = trackTile(scale, Number(fit.toFixed(3)), verb);
     tiles.set(key, tile);
   }
   return tile;

@@ -66,7 +66,6 @@ import type { SeatCacheDue } from "@shared/seat-cache-due";
 import type { SeatOnboardingEvent } from "@shared/seat-onboarding-status";
 import type { ProfilesChanged } from "@shared/agent-profiles";
 import type { NotifyCue, NotifyTarget } from "@shared/desktop-notifications";
-import type { UpdateStatus } from "@shared/update";
 import { nodeRefKey, parseNodeRef } from "@shared/node-ref";
 import { isRendererPreloadCandidate } from "@shared/trusted-renderer-origin";
 import type {
@@ -131,6 +130,13 @@ const chassisApi: ChassisApi = {
 ipcRenderer.on(IPC_CHANNELS.terminalSurface, (event, payload: { readonly leaseId?: unknown }) => {
   if (typeof payload?.leaseId !== "string" || event.ports.length !== 1) return;
   window.postMessage({ type: IPC_CHANNELS.terminalSurface, leaseId: payload.leaseId }, "*", [...event.ports]);
+});
+
+// The window's link (src/contract/window/link.ts), passed through untouched:
+// the page asked for it with openWindowLink, and listens before it asks.
+ipcRenderer.on(IPC_CHANNELS.windowLink, (event) => {
+  if (event.ports.length !== 1) return;
+  window.postMessage({ type: IPC_CHANNELS.windowLink }, "*", [...event.ports]);
 });
 
 const subscribe = <T>(channel: string, listener: (payload: T) => void) => {
@@ -464,14 +470,7 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   platform: process.platform,
   mentions: mentionsApi,
   artifactLinks: artifactLinksApi,
-  updateGetState: () =>
-    invoke(IPC_CHANNELS.updateGetState, IPC_TIMEOUT_MS),
-  updateCheck: () =>
-    invoke(IPC_CHANNELS.updateCheck, IPC_TIMEOUT_MS),
-  updateRestartAndInstall: () =>
-    invoke(IPC_CHANNELS.updateRestartAndInstall, IPC_TIMEOUT_MS),
-  onUpdateStateChanged: (listener) =>
-    subscribe<UpdateStatus>(IPC_CHANNELS.updateStateChanged, listener),
+  openWindowLink: () => ipcRenderer.send(IPC_CHANNELS.windowLinkOpen),
   rendererSurfaceReady: () => {
     rendererSurfaceMounted = true;
     sendRendererSurfaceReceipt();

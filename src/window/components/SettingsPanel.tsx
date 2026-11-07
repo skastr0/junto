@@ -43,11 +43,8 @@ import {
   settingsPlace$,
 } from "../lib/settings-state";
 import { openIntro } from "../lib/first-run-intro";
-import {
-  checkForUpdates,
-  restartAndInstallUpdate,
-  updateState$,
-} from "../lib/update-state";
+import { UpdateState } from "../lib/update-state";
+import { useWindowRuntime, useWindowService } from "../rpc/runtime";
 import { HUE_TEXT, INK, themeFor } from "../lib/theme";
 import { claimFocus } from "../lib/focus-ownership";
 import { getJuntoApi } from "../lib/junto-api";
@@ -651,7 +648,7 @@ function AdvancedSection() {
 }
 
 function InstallationFacts() {
-  const status = use$(updateState$.status);
+  const status = use$(useWindowService(UpdateState).view$.status);
   const machineName = use$(state$.settings.machine.name);
   const install = status.install;
   const platformLabel =
@@ -726,8 +723,10 @@ function InstallationFacts() {
 }
 
 function UpdatesSection() {
-  const status = use$(updateState$.status);
-  const busy = use$(updateState$.busy);
+  const runtime = useWindowRuntime();
+  const update = useWindowService(UpdateState);
+  const status = use$(update.view$.status);
+  const busy = use$(update.view$.busy);
   const [localError, setLocalError] = useState<string | undefined>();
 
   const summary = (() => {
@@ -776,7 +775,7 @@ function UpdatesSection() {
             aria-label="Check for updates"
             onClick={() => {
               setLocalError(undefined);
-              void checkForUpdates()
+              void runtime.runPromise(update.check)
                 .then((next) => {
                   if (next?.phase === "error" && next.error) {
                     setLocalError(next.error.message);
@@ -799,7 +798,7 @@ function UpdatesSection() {
               aria-label="Restart and install update"
               onClick={() => {
                 setLocalError(undefined);
-                void restartAndInstallUpdate().catch((error: unknown) => {
+                void runtime.runPromise(update.restartAndInstall).catch((error: unknown) => {
                   setLocalError(
                     error instanceof Error ? error.message : String(error),
                   );

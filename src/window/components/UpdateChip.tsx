@@ -1,18 +1,18 @@
 import { use$ } from "@legendapp/state/react";
 import { Download, RefreshCw } from "lucide-react";
 import { Button } from "./ui";
-import {
-  restartAndInstallUpdate,
-  updateState$,
-} from "../lib/update-state";
+import { UpdateState } from "../lib/update-state";
+import { useWindowRuntime, useWindowService } from "../rpc/runtime";
 
 /**
  * Chrome chip: surfaces when an update is ready or installing.
  * Explicit "Restart to update" only — never auto-installs on quit.
  */
 export function UpdateChip() {
-  const status = use$(updateState$.status);
-  const busy = use$(updateState$.busy);
+  const runtime = useWindowRuntime();
+  const update = useWindowService(UpdateState);
+  const status = use$(update.view$.status);
+  const busy = use$(update.view$.busy);
 
   if (
     status.phase !== "ready" &&
@@ -64,7 +64,7 @@ export function UpdateChip() {
           : "Restart to update"
       }
       onClick={() => {
-        void restartAndInstallUpdate();
+        void runtime.runPromise(update.restartAndInstall).catch(() => undefined);
       }}
     >
       <RefreshCw size={12} aria-hidden className={installing ? "animate-spin" : undefined} />

@@ -96,7 +96,6 @@ import type {
   StateRecoveryExportResult,
   StateRecoveryListResult,
 } from "./state-recovery";
-import type { UpdateApi } from "./update";
 import type { PreambleEvent } from "./preamble";
 import type { WireTrafficEvent } from "./wire-traffic";
 import type {
@@ -173,7 +172,7 @@ import type {
   ObservabilityQuery,
   ObservabilitySnapshot,
 } from "./observability";
-export type { UpdateApi, UpdateStatus, AvailableRelease, UpdatePhase } from "./update";
+export type { UpdateStatus, AvailableRelease, UpdatePhase } from "./update";
 export type {
   ObservabilityLogEntry,
   ObservabilityQuery,
@@ -421,11 +420,13 @@ export const IPC_CHANNELS = {
   windowClose: "junto:window-close",
   // renderer -> main: which of its chords the menu bar gives up to the page.
   menuYield: "junto:menu-yield",
-  // Command Center auto-update (Mac; readiness-gated install)
-  updateGetState: "junto:update-get-state",
-  updateCheck: "junto:update-check",
-  updateRestartAndInstall: "junto:update-restart-and-install",
-  updateStateChanged: "junto:update-state-changed",
+  // renderer -> main: this window's page asks for its link (src/contract/window/link.ts).
+  windowLinkOpen: "junto:window-link-open",
+  /**
+   * Main to a window, with a MessagePort moved alongside: the window's link,
+   * on which main serves every window group (src/app/window/ipc.ts).
+   */
+  windowLink: "junto:window-link",
   // main -> renderer pushes
   nodeRefOpened: "junto:node-ref-opened",
   nodeRefOpenedAck: "junto:node-ref-opened-ack",
@@ -691,7 +692,13 @@ export interface JuntoViewStateApi {
   readonly onChanged: (listener: (event: ViewStateEvent) => void) => () => void;
 }
 
-export interface JuntoApi extends UpdateApi, OverseerLiveApi {
+export interface JuntoApi extends OverseerLiveApi {
+  /**
+   * Ask main for this window's link. The port arrives as a page message of
+   * type `IPC_CHANNELS.windowLink`, the port moved alongside, so listen first
+   * (src/window/rpc/link.ts).
+   */
+  readonly openWindowLink: () => void;
   /** Machine-local view state: the load snapshot and one row per write (view-state/ipc.ts). */
   readonly viewState: JuntoViewStateApi;
   /**

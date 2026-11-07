@@ -1,30 +1,30 @@
-import type { IpcMain } from "electron";
-import { Effect, Result } from "effect";
-import { IPC_CHANNELS } from "@shared/ipc";
-import {
-  decodeUpdateStatus,
-  idleUpdateStatus,
-  type UpdateStatus,
-} from "@shared/update";
+/**
+ * Main's handlers of the window's update group (src/contract/window/update.ts),
+ * served on each window's link (src/app/window/ipc.ts).
+ *
+ * Restart-and-install runs in three steps, so SQLite is released before
+ * quitAndInstall:
+ * 1. prepareInstall, while the app runtime still holds the update service;
+ * 2. the host's quiesce, which disposes that runtime and closes the database;
+ * 3. finalizeInstallAfterQuiesce, which needs no runtime.
+ * The window's server therefore runs outside the app runtime: a server forked
+ * on it would be interrupted by step 2, the very call it is answering.
+ */
+import { Cause, Effect, Exit, Layer, Queue, Stream } from "effect";
+import { UpdateWindowRpcs } from "../../contract/window/update";
+import { decodeUpdateStatus, type AvailableRelease, type UpdateErrorCode, type UpdateStatus } from "@shared/update";
 import { AppRuntime } from "../runtime";
 import { UpdateError } from "./errors";
-import type { AuthorizedUpdateCandidate } from "./domain";
 import type { UpdateInstall } from "./provider";
-import type { InstallPlan } from "./service";
-import {
-  finalizeInstallAfterQuiesce,
-  UpdateService,
-} from "./service";
+import { finalizeInstallAfterQuiesce, UpdateService } from "./service";
+import { registerWindowLink } from "../window/ipc";
+import type { IpcMain } from "electron";
 
 const errorStatus = (
   currentVersion: string,
-  code: UpdateStatus["error"] extends infer E
-    ? E extends { code: infer C }
-      ? C
-      : never
-    : never,
+  code: UpdateErrorCode,
   message: string,
-  available?: UpdateStatus["available"],
+  available?: AvailableRelease,
 ): UpdateStatus =>
   decodeUpdateStatus({
     phase: "error",
@@ -34,160 +34,98 @@ const errorStatus = (
     error: { code, message },
   });
 
-export const registerUpdateIpc = (
-  ipcMain: IpcMain,
-  broadcast: (channel: string, payload: unknown) => void,
-  currentVersion: string,
-  install: UpdateInstall,
-): (() => void) => {
-  // This window's one install in flight: minted by prepare, consumed by finalize.
-  let pendingPlan: InstallPlan | undefined;
-  let pendingCandidate: AuthorizedUpdateCandidate | undefined;
-  const captureInstallAuthority = (plan: InstallPlan, candidate: AuthorizedUpdateCandidate): void => {
-    pendingPlan = plan;
-    pendingCandidate = candidate;
-  };
-  const takeInstallAuthority = ():
-    | { readonly plan: InstallPlan; readonly candidate: AuthorizedUpdateCandidate }
-    | undefined => {
-    if (pendingPlan === undefined || pendingCandidate === undefined) return undefined;
-    const authority = { plan: pendingPlan, candidate: pendingCandidate };
-    pendingPlan = undefined;
-    pendingCandidate = undefined;
-    return authority;
-  };
-  const handlers = [
-    IPC_CHANNELS.updateGetState,
-    IPC_CHANNELS.updateCheck,
-    IPC_CHANNELS.updateRestartAndInstall,
-  ] as const;
+/** A failed step's code and message: the update error's own, or the step's fallback code with the thrown message. */
+const failureOf = (
+  cause: Cause.Cause<unknown>,
+  code: UpdateErrorCode,
+  message: string,
+): { readonly code: UpdateErrorCode; readonly message: string } => {
+  const error = Cause.squash(cause);
+  if (error instanceof UpdateError) return { code: error.updateCode, message: error.message };
+  return { code, message: error instanceof Error ? error.message : message };
+};
 
-  ipcMain.handle(IPC_CHANNELS.updateGetState, () =>
-    AppRuntime.runPromise(
-      Effect.gen(function* () {
-        const updates = yield* UpdateService;
-        return yield* updates.getState;
-      }).pipe(
-        Effect.catch(() =>
-          Effect.succeed(idleUpdateStatus(currentVersion)),
-        ),
-      ),
-    ),
-  );
-
-  ipcMain.handle(IPC_CHANNELS.updateCheck, () =>
-    AppRuntime.runPromise(
-      Effect.gen(function* () {
-        const updates = yield* UpdateService;
-        const result = yield* Effect.result(updates.check);
-        if (Result.isSuccess(result)) return result.success;
-        return errorStatus(
-          currentVersion,
-          result.failure.updateCode,
-          result.failure.message,
-        );
-      }),
-    ),
-  );
-
-  /**
-   * Split path so SQLite can be released before quitAndInstall:
-   * 1. prepareInstall while AppRuntime owns StateEngine
-   * 2. host quiesce (dispose runtime / close DB)
-   * 3. finalizeInstallAfterQuiesce via Effect.runPromise (no runtime)
-   */
-  ipcMain.handle(IPC_CHANNELS.updateRestartAndInstall, async () => {
-    try {
-      const prepared = await AppRuntime.runPromise(
-        Effect.gen(function* () {
-          const updates = yield* UpdateService;
-          return yield* updates.prepareInstall;
-        }),
-      );
-      captureInstallAuthority(prepared.plan, prepared.candidate);
-    } catch (error) {
-      const message =
-        error instanceof UpdateError
-          ? error.message
-          : error instanceof Error
-            ? error.message
-            : "prepare install failed";
-      const code =
-        error instanceof UpdateError ? error.updateCode : "not-ready";
-      return errorStatus(currentVersion, code, message);
-    }
-
-    try {
-      await install.host.quiesceForInstall();
-    } catch (error) {
-      // Clear pending install authority before relaunch so a later path
-      // cannot finalize with a stale captured plan.
-      takeInstallAuthority();
-      const message =
-        error instanceof Error
-          ? `failed to quiesce for install: ${error.message}`
-          : "failed to quiesce for install";
-      install.host.relaunchWithoutInstall();
-      return errorStatus(currentVersion, "readiness-failed", message);
-    }
-
-    const authority = takeInstallAuthority();
-    if (authority === undefined) {
-      install.host.relaunchWithoutInstall();
-      return errorStatus(
-        currentVersion,
-        "install-refused",
-        "install authority was lost during quiesce",
-      );
-    }
-
-    try {
-      return await Effect.runPromise(
-        finalizeInstallAfterQuiesce({
-          plan: authority.plan,
-          candidate: authority.candidate,
-          provider: install.provider,
-          host: install.host,
-        }),
-      );
-    } catch (error) {
-      const message =
-        error instanceof UpdateError
-          ? error.message
-          : error instanceof Error
-            ? error.message
-            : "install failed";
-      const code =
-        error instanceof UpdateError
-          ? error.updateCode
-          : "readiness-failed";
-      // finalizeInstallAfterQuiesce already relaunches on install failure
-      return errorStatus(
-        currentVersion,
-        code,
-        message,
-        authority.plan.available,
-      );
-    }
-  });
-
-  let unsubscribe: (() => void) | undefined;
-  void AppRuntime.runPromise(
+/** The update group's handlers, on the one update service and the install this main process offers. */
+export const updateWindowHandlers = (currentVersion: string, install: UpdateInstall) =>
+  UpdateWindowRpcs.toLayer(
     Effect.gen(function* () {
       const updates = yield* UpdateService;
-      unsubscribe = updates.subscribe((status) => {
-        broadcast(IPC_CHANNELS.updateStateChanged, status);
-      });
-      const status = yield* updates.getState;
-      broadcast(IPC_CHANNELS.updateStateChanged, status);
+      return {
+        UpdateStates: () =>
+          Stream.callback<UpdateStatus>(
+            (queue) =>
+              Effect.gen(function* () {
+                // Subscribe before reading, and send the read only when no
+                // change came in between: every change is told, so the last
+                // one told is then at least as new as the read.
+                let told = false;
+                const unsubscribe = updates.subscribe((status) => {
+                  told = true;
+                  Queue.offerUnsafe(queue, status);
+                });
+                yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+                const current = yield* updates.getState;
+                if (!told) Queue.offerUnsafe(queue, current);
+              }),
+            // Whole statuses: a window that falls behind skips to the latest.
+            { bufferSize: 1, strategy: "sliding" },
+          ),
+        UpdateCheck: () =>
+          updates.check.pipe(
+            Effect.catch((error) => Effect.succeed(errorStatus(currentVersion, error.updateCode, error.message))),
+          ),
+        UpdateRestartAndInstall: () =>
+          Effect.gen(function* () {
+            const prepared = yield* Effect.exit(updates.prepareInstall);
+            if (Exit.isFailure(prepared)) {
+              const failure = failureOf(prepared.cause, "not-ready", "prepare install failed");
+              return errorStatus(currentVersion, failure.code, failure.message);
+            }
+            const { plan, candidate } = prepared.value;
+            const quiesced = yield* Effect.exit(
+              Effect.tryPromise({ try: () => install.host.quiesceForInstall(), catch: (error) => error }),
+            );
+            if (Exit.isFailure(quiesced)) {
+              const error = Cause.squash(quiesced.cause);
+              install.host.relaunchWithoutInstall();
+              return errorStatus(
+                currentVersion,
+                "readiness-failed",
+                error instanceof Error ? `failed to quiesce for install: ${error.message}` : "failed to quiesce for install",
+              );
+            }
+            const finalized = yield* Effect.exit(
+              finalizeInstallAfterQuiesce({ plan, candidate, provider: install.provider, host: install.host }),
+            );
+            if (Exit.isSuccess(finalized)) return finalized.value;
+            // finalizeInstallAfterQuiesce already relaunched on an install failure.
+            const failure = failureOf(finalized.cause, "readiness-failed", "install failed");
+            return errorStatus(currentVersion, failure.code, failure.message, plan.available);
+          }),
+      };
     }),
   );
 
-  return () => {
-    unsubscribe?.();
-    unsubscribe = undefined;
-    for (const channel of handlers) {
-      ipcMain.removeHandler(channel);
-    }
-  };
-};
+/**
+ * The update service of the app runtime, as a Layer for the window's server,
+ * which runs outside that runtime (see above).
+ */
+const appUpdateService = Layer.effect(
+  UpdateService,
+  Effect.promise(() => AppRuntime.runPromise(Effect.gen(function* () {
+    return yield* UpdateService;
+  }))),
+);
+
+/**
+ * Serves the window link with the update group, until the hub registers the
+ * link with every window group itself (mailed to canvas-lead). The broadcast
+ * it is handed is unused: the window follows `UpdateStates`.
+ */
+export const registerUpdateIpc = (
+  ipcMain: IpcMain,
+  _broadcast: (channel: string, payload: unknown) => void,
+  currentVersion: string,
+  install: UpdateInstall,
+): void =>
+  registerWindowLink(ipcMain, updateWindowHandlers(currentVersion, install).pipe(Layer.provide(appUpdateService)));
