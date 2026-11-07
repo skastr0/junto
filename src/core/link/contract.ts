@@ -43,9 +43,10 @@ export interface LinkContract<Name extends LinkChannel, R extends Rpc.Any, Event
   readonly events: LinkWireCodec | undefined;
 }
 
-// RpcGroup is invariant in its Rpcs, so only `any` stands for every contract.
+// RpcGroup is invariant in its Rpcs, so only `any` stands for every contract,
+// and an empty group (events only, or a channel not yet served) is `never`'s.
 // oxlint-disable-next-line no-explicit-any
-export type AnyLinkContract = LinkContract<LinkChannel, any, Schema.Top>;
+export type AnyLinkContract = LinkContract<LinkChannel, any, Schema.Top> | LinkContract<LinkChannel, never, Schema.Top>;
 // Every parameter is inferred: RpcGroup's invariance would refuse a fixed one.
 export type LinkRpcsOf<C> = C extends LinkContract<infer _Name, infer R, infer _Event> ? R : never;
 export type LinkEventOf<C> = C extends LinkContract<infer _Name, infer _R, infer E> ? E["Type"] : never;
