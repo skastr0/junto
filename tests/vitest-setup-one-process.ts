@@ -7,6 +7,7 @@
  * PTYs run in the test process, as a windowless core's do, and its log rows
  * land in the ring, as the core's do.
  */
+import { beforeAll } from "vitest";
 import { sendPushesTo } from "../src/main/core-process/push";
 import { deliverPush } from "../src/main/core-process/main-side/core-pushes";
 import { useHostClient } from "../src/main/core-process/core-host";
@@ -26,3 +27,12 @@ useHostClient({
 });
 placeTerminals({ kind: "here" });
 sendLogRowsTo((row) => observabilityRing.append(row));
+// The reads load the core's shell and process seam, so install them after the
+// test file has registered its mocks, never at setup load: a file that mocks
+// app-process-plane's dependencies must see its mocks, not the real graph.
+beforeAll(async () => {
+  const { installInProcessCoreReads } = await import(
+    "../src/main/core-process/in-process-reads"
+  );
+  installInProcessCoreReads();
+});
