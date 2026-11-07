@@ -48,8 +48,6 @@ test("the delete chord stands down under a modal and comes back in one press", a
     await expect(note(id)).toHaveClass(/selected/, { timeout: 5_000 });
   };
 
-  await page.locator(".react-flow__pane").click({ position: { x: 1200, y: 700 } });
-
   // No modal: one press deletes, as it always did.
   await select("note-control");
   await page.keyboard.press("Backspace");
