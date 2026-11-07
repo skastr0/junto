@@ -161,10 +161,18 @@ export const serveTerminals = (
   const named = new Set<number>();
   let nextId = 1;
   /**
+   * `nextId` as the last adoption answered it. A core names every spawn from
+   * there on, so an id below it that no spawn named never will be: a message
+   * for it is not held, and goes as one for a gone terminal does.
+   */
+  let adoptedFrom = 1;
+  /**
    * Messages for a terminal whose spawn has not reached this process: the
    * core posts them behind its spawn, but the spawn is a call and they are
    * not, so either may come first. A spawn that starts replays them in order;
-   * a refused one drops them, and its refusal is the core's answer.
+   * a refused one drops them, and its refusal is the core's answer. Only ids
+   * a core may still spawn wait (`awaited`), and nothing outlives the core
+   * that sent it.
    */
   const early = new Map<number, Array<{ readonly run: () => void; readonly drop: () => void }>>();
   const wait = (id: number, run: () => void, drop: () => void = () => undefined): void => {
@@ -172,6 +180,7 @@ export const serveTerminals = (
     if (waiting === undefined) early.set(id, [{ run, drop }]);
     else waiting.push({ run, drop });
   };
+  const awaited = (id: number): boolean => !named.has(id) && id >= adoptedFrom;
   const dropEarly = (id: number): void => {
     const waiting = early.get(id);
     early.delete(id);
@@ -237,7 +246,7 @@ export const serveTerminals = (
   };
 
   const openSurface = (open: TerminalSurfaceOpen, surface: SurfacePort): void => {
-    if (!named.has(open.id)) {
+    if (awaited(open.id)) {
       return wait(open.id, () => openSurface(open, surface), () => {
         surface.post({ t: "end" });
         surface.close();
@@ -373,7 +382,7 @@ export const serveTerminals = (
   const inbound = (message: TerminalPush): void => {
     const { channel, payload } = message;
     const id = (payload as { readonly id?: unknown } | undefined)?.id;
-    if (typeof id === "number" && !named.has(id)) return wait(id, () => inbound(message));
+    if (typeof id === "number" && awaited(id)) return wait(id, () => inbound(message));
     if (channel === TerminalInbound.write) {
       const { id, data } = payload as TerminalWrite;
       const pty = ptys.get(id);
@@ -476,6 +485,9 @@ export const serveTerminals = (
       version === TERMINAL_LINK_VERSION
         ? Effect.sync(() => {
             const answer = { version: TERMINAL_LINK_VERSION, terminals: adopted(), nextId };
+            adoptedFrom = nextId;
+            // What waited on an id this core can no longer spawn waits on nothing.
+            for (const id of [...early.keys()]) if (id < adoptedFrom) dropEarly(id);
             // Posted before the answer: the core holds output for an id it
             // does not know yet until the answer names it.
             redeliver();

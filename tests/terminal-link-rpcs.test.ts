@@ -124,4 +124,25 @@ describe("the terminal link's calls", () => {
     await until(() => pty.written.length > 0);
     expect(pty.written).toEqual(["before the spawn"]);
   });
+
+  it("after an adoption, holds nothing for an id below the next one it named, since no core spawns it again", async () => {
+    const pty = recordingPty();
+    const core = link(pty.spawnPty);
+    await ask(core, (calls) => calls.TerminalSpawn({ id: 5, command: "/bin/cat", args: [], cols: 80, rows: 24 }));
+    const adopted = await ask(core, (calls) => calls.TerminalAdopt({ version: TERMINAL_LINK_VERSION }));
+    expect(adopted).toMatchObject({ _tag: "Success", value: { nextId: 6 } });
+    // Id 3 was never spawned here and is below 6: it is not held.
+    const errors: unknown[] = [];
+    core.listen((message) => {
+      if (message.kind === "push" && message.channel === "pty.error") errors.push(message.payload);
+    });
+    core.post({ kind: "push", channel: TerminalInbound.write, payload: { id: 3, data: "for an id no core spawns" } });
+    await until(() => errors.length > 0);
+    expect(errors).toEqual([{ id: 3, message: "terminal process already exited" }]);
+    // Id 6 may still be spawned: its write waits for it.
+    core.post({ kind: "push", channel: TerminalInbound.write, payload: { id: 6, data: "for the next spawn" } });
+    await ask(core, (calls) => calls.TerminalSpawn({ id: 6, command: "/bin/cat", args: [], cols: 80, rows: 24 }));
+    await until(() => pty.written.length > 0);
+    expect(pty.written).toEqual(["for the next spawn"]);
+  });
 });
