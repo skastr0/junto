@@ -117,9 +117,10 @@ const coreOf = (port: MessagePort) => {
     ),
   );
   // Spawn is command 1; the commands a test posts for a terminal count from 2.
+  // A floor keeps an id the client numbered itself out of the client's range.
   const ns = new Map<number, number>();
-  const n = (id: number): number => {
-    const next = (ns.get(id) ?? 1) + 1;
+  const n = (id: number, base = 1): number => {
+    const next = Math.max(ns.get(id) ?? base, base) + 1;
     ns.set(id, next);
     return next;
   };
@@ -237,8 +238,9 @@ describe("the terminal process", () => {
     echo.onError((error) => after.errors.push(error.message));
     echo.write("too late");
     echo.kill("SIGKILL");
-    // A command frame for the exited id is named the same way on the wire.
-    core.command({ _tag: "write", id: echo.id, n: core.n(echo.id), data: "too late too" });
+    // A command frame for the exited id is named the same way on the wire:
+    // past the client's own n's, on a link the exitAck already removed.
+    core.command({ _tag: "write", id: echo.id, n: core.n(echo.id, 40), data: "too late too" });
     await until(() => core.events.some((event) => event._tag === "error" && event.id === echo.id));
     expect(core.events.find((event) => event._tag === "error" && event.id === echo.id)).toMatchObject({
       message: "terminal process already exited",
