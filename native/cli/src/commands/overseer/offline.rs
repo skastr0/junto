@@ -168,8 +168,9 @@ fn retired(target: &str) -> Option<Failure> {
     })
 }
 
-/// The first key a JSON argument must have and lacks, or has and must not,
-/// as the operation's schema says at its top level.
+/// The first key a JSON argument has and must not, or must have and lacks,
+/// as the operation's schema says at its top level, in the words and order
+/// of the TypeScript decode (Effect Schema reads excess keys first).
 pub fn misfit(op: &Operation, args: &Map<String, Value>) -> Result<(), String> {
     let Some(schema) = contract(op).and_then(|mut contract| contract.remove("schema")) else {
         return Ok(());
@@ -185,16 +186,47 @@ pub fn misfit(op: &Operation, args: &Map<String, Value>) -> Result<(), String> {
             _ => Vec::new(),
         }
     };
-    if let Some(missing) = strings("required")
+    let at = |key: &str| Value::from(key).to_string();
+    let closed = schema.get("additionalProperties") == Some(&Value::Bool(false));
+    let known = strings("properties");
+    if let Some(excess) = args.keys().find(|key| closed && !known.contains(key)) {
+        return Err(format!(
+            "Expected no excess property\n  at [{}]",
+            at(excess)
+        ));
+    }
+    match strings("required")
         .into_iter()
         .find(|key| !args.contains_key(key))
     {
-        return Err(format!("{missing} is missing"));
-    }
-    let closed = schema.get("additionalProperties") == Some(&Value::Bool(false));
-    let known = strings("properties");
-    match args.keys().find(|key| closed && !known.contains(key)) {
-        Some(excess) => Err(format!("{excess} is unexpected")),
+        Some(missing) => Err(format!("Missing key\n  at [{}]", at(&missing))),
         None => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{catalog, misfit};
+
+    #[test]
+    fn a_misfit_is_worded_as_the_typescript_decode_words_it() {
+        let configure = catalog::named("agent.offboard-configure").expect("in the catalog");
+        let args = |value: serde_json::Value| value.as_object().cloned().unwrap_or_default();
+        assert_eq!(
+            misfit(configure, &args(json!({ "nudge": { "minutes": 60 } }))),
+            Err("Expected no excess property\n  at [\"nudge\"]".into())
+        );
+        let get = catalog::named("agent.get").expect("in the catalog");
+        assert_eq!(
+            misfit(get, &args(json!({}))),
+            Err("Missing key\n  at [\"nodeId\"]".into())
+        );
+        // An excess key is read before a missing one, as Effect Schema reads them.
+        assert_eq!(
+            misfit(get, &args(json!({ "x": 1 }))),
+            Err("Expected no excess property\n  at [\"x\"]".into())
+        );
     }
 }

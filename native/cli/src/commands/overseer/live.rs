@@ -87,7 +87,7 @@ impl Call {
     fn send(&self, args: Value, op_id: Option<&OpId>) -> Result<Data> {
         let request = serde_json::to_value(Request {
             operation: self.op.name.to_owned(),
-            args: Some(args),
+            args: Some(args.clone()),
             live: None,
         })
         .map_err(|e| Failure::new(ErrorType::InternalError, e.to_string()))?;
@@ -102,11 +102,32 @@ impl Call {
                 op_id,
                 mutation: Some(self.op.name),
             };
-            wire::call_changing("overseer", &request, change, self.timeout)?
+            wire::call_changing("overseer", &request, change, self.timeout)
         } else {
-            wire::call_dynamic("overseer", &request, self.timeout)?
+            wire::call_dynamic("overseer", &request, self.timeout)
         };
+        // Main refuses the args below their top level, in the words of the
+        // decode the TypeScript CLI runs before it sends: say it as that does.
+        let data = data.map_err(|failure| match failure.kind {
+            ErrorType::InputError => self.refusal(failure.message, &args),
+            _ => failure,
+        })?;
         unwrap(&data)
+    }
+
+    /// The args refused, as the TypeScript CLI's decode reports it: what was
+    /// expected, what was received unless it could be a secret, and where to
+    /// read the schema.
+    fn refusal(&self, message: String, args: &Value) -> Failure {
+        let refused = Failure::input(message, "args").and("expected", self.op.name);
+        let refused = match self.op.shape {
+            Shape::SecretPut => refused,
+            _ => refused.and("received", args.clone()),
+        };
+        refused.and(
+            "hint",
+            format!("junto overseer schema show {}", self.op.name),
+        )
     }
 
     /// The JSON argument, `{}` when none was given, refused before a call
@@ -123,15 +144,7 @@ impl Call {
             Value::Null => json!({}),
             args => args,
         };
-        let refuse = |message: String| {
-            Failure::input(message, "args")
-                .and("expected", self.op.name)
-                .and("received", args.clone())
-                .and(
-                    "hint",
-                    format!("junto overseer schema show {}", self.op.name),
-                )
-        };
+        let refuse = |message: String| self.refusal(message, &args);
         let Some(object) = args.as_object() else {
             return Err(refuse("Expected an object".into()));
         };
