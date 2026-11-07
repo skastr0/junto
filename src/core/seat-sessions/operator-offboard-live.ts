@@ -345,6 +345,11 @@ export const startOperatorOffboard = async (input: OperatorOffboardLiveInput): P
       await refreshRules();
       return offboard.facts(seat);
     },
+    // A card's next turn and cache window, from one read: the same fresh rules.
+    launch: async (seat, launch) => {
+      await refreshRules();
+      return offboard.launch(seat, launch);
+    },
   });
 
   // The status sets the clock; time in `working` is the session's work.

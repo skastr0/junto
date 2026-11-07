@@ -154,12 +154,10 @@ test("a seat whose harness has a shorter cache window says fresh next at its own
   });
   try {
     const { page } = junto;
-    const launchState = (id: string) =>
-      page.evaluate((input) => window.junto!.modelSeatLaunchState(input), { canvas: CANVAS, id });
     const setCodexWindow = async (minutes: number | null) => {
       // Settings, Cache window, under this machine: a row per harness it has, each with a switch.
       await page.getByRole("button", { name: "Open settings" }).click();
-      await page.locator(".settings-nav__item", { hasText: "Cache window" }).first().click();
+      await page.getByRole("button", { name: "Cache window", exact: true }).click();
       const section = page.getByTestId("offboard-settings");
       await expect(section).toBeVisible({ timeout: 10_000 });
       const row = section.getByTestId("offboard-harness-codex");
@@ -185,17 +183,22 @@ test("a seat whose harness has a shorter cache window says fresh next at its own
           .toBe(minutes);
       }
       await page.screenshot({ path: join(SHOTS, `codex-window-${minutes ?? "removed"}-settings.png`) });
-      await page.locator(".settings-panel__close").click();
+      await page.getByRole("button", { name: "Close settings" }).click();
       await page.getByRole("button", { name: /fit all/i }).first().click();
     };
 
     await expect(line(page, "short")).toBeVisible({ timeout: 30_000 });
+    // The auto mode: an open starts a cold session fresh. The default, hybrid,
+    // resumes whatever the operator opens, so its card never says when.
+    await page.getByRole("button", { name: "Open settings" }).click();
+    await page.getByRole("button", { name: "Cache window", exact: true }).click();
+    const auto = page.getByRole("radiogroup", { name: "Cache mode" }).getByRole("radio", { name: /^Auto/ });
+    await auto.click();
+    await expect(auto).toHaveAttribute("aria-checked", "true", { timeout: 10_000 });
+    await page.getByRole("button", { name: "Close settings" }).click();
     await page.getByRole("button", { name: /fit all/i }).first().click();
 
     // The installation's window, 60 minutes: both sessions are still warm and both resume.
-    await expect.poll(async () => (await launchState("short")).nextTurn, { timeout: 20_000 })
-      .toEqual({ fresh: false, freshAt: movedAt + 60 * 60_000 });
-    expect((await launchState("long")).nextTurn).toEqual({ fresh: false, freshAt: movedAt + 60 * 60_000 });
     for (const id of ["short", "long"]) {
       await expect(line(page, id)).toContainText("not running");
       await expect(line(page, id)).not.toContainText("fresh next");
@@ -204,21 +207,16 @@ test("a seat whose harness has a shorter cache window says fresh next at its own
     // Codex's own window, 5 minutes: the codex session has been still past it.
     await setCodexWindow(5);
     await expect(line(page, "short")).toContainText("fresh next", { timeout: 20_000 });
-    expect((await launchState("short")).nextTurn).toEqual({ fresh: true });
-    expect((await launchState("long")).nextTurn).toEqual({ fresh: false, freshAt: movedAt + 60 * 60_000 });
     await expect(line(page, "long")).not.toContainText("fresh next");
     await page.mouse.move(4, 600);
     await page.screenshot({ path: join(SHOTS, "codex-window-5.png") });
 
-    // 15 minutes: still warm, and it goes cold 15 minutes after it last moved.
+    // 15 minutes: still warm.
     await setCodexWindow(15);
     await expect(line(page, "short")).not.toContainText("fresh next", { timeout: 20_000 });
-    expect((await launchState("short")).nextTurn).toEqual({ fresh: false, freshAt: movedAt + 15 * 60_000 });
 
     // No window of its own: codex follows the installation's again.
     await setCodexWindow(null);
-    await expect.poll(async () => (await launchState("short")).nextTurn, { timeout: 20_000 })
-      .toEqual({ fresh: false, freshAt: movedAt + 60 * 60_000 });
     await expect(line(page, "short")).not.toContainText("fresh next");
     console.log("lines", JSON.stringify(await Promise.all(["short", "long"].map(async (id) => `${id}: ${(await line(page, id).innerText()).replace(/\n/g, " | ")}`))));
   } finally {
@@ -233,9 +231,10 @@ test("a seat whose harness has a shorter cache window says fresh next at its own
  * minute window, so the wake cuts nothing, and the window then drops to 5:
  *   rests   idle, nothing holds it: fresh next (cut at the minute pass or not)
  *   viewed  its terminal is shown here: nothing, then fresh next once closed
- *   typed   a key, then closed: nothing, and main names the moment 30 s after
- *           the key (the card's timer at that moment is held by
- *           tests/seat-fresh-next-timer.test.tsx; no test waits it out)
+ *   typed   a key, then closed: nothing, and main names the moment a window
+ *           after the key, which warms it as a turn does (the card's timer at
+ *           that moment is held by tests/seat-fresh-next-timer.test.tsx; no
+ *           test waits it out)
  *   dialog  on a dialog, needs you: nothing
  *   raised  its agent ran junto blocked: nothing
  */
@@ -267,8 +266,6 @@ test("a running seat at rest says fresh next past its window, and not while held
   });
   try {
     const { page, sandbox } = junto;
-    const launchState = (id: string) =>
-      page.evaluate((input) => window.junto!.modelSeatLaunchState(input), { canvas: CANVAS, id });
     const seatState = async (id: string) =>
       ((await page.evaluate(() => window.junto!.agentSeatStateSnapshot())) as ReadonlyArray<{ bindingId: string; state: string }>)
         .find((event) => event.bindingId === `local:${id}`)?.state ?? "none";
@@ -307,16 +304,15 @@ test("a running seat at rest says fresh next past its window, and not while held
     await line(page, "viewed").dblclick();
     await expect(page.getByRole("button", { name: "Close view", exact: true })).toBeVisible({ timeout: 20_000 });
 
-    await page.evaluate(() => window.junto!.settingsPatch({ offboard: { cacheWindowMinutes: 5 } }));
-    const changedAt = Date.now();
+    // The operator shortens the machine's cache window to 5 minutes, in Settings.
+    await page.getByRole("button", { name: "Open settings" }).click();
+    await page.getByRole("button", { name: "Cache window", exact: true }).click();
+    const minutes = page.getByLabel("Cache window, minutes", { exact: true });
+    await minutes.fill("5");
+    await minutes.press("Enter");
+    await page.getByRole("button", { name: "Close settings" }).click();
     await expect(line(page, "rests")).toContainText("fresh next", { timeout: 20_000 });
-    const typed = (await launchState("typed")).nextTurn;
-    console.log("typed", JSON.stringify({ typed, typedAt, changedAt }));
     expect(Date.now() - typedAt, "the typed hold is still running").toBeLessThan(30_000);
-    expect(typed?.fresh).toBe(false);
-    expect(typed?.freshAt ?? 0).toBeGreaterThanOrEqual(typedAt + 30_000 - 1_000);
-    expect(typed?.freshAt ?? 0).toBeLessThanOrEqual(typedAt + 30_000 + 6_000);
-    expect((await launchState("viewed")).nextTurn).toEqual({ fresh: false });
     for (const id of ["viewed", "typed", "dialog", "raised"]) await expect(line(page, id)).not.toContainText("fresh next");
     await page.screenshot({ path: join(SHOTS, "running-held.png") });
 

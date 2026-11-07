@@ -15,7 +15,7 @@
  */
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
-import { Layer, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { RpcTest } from "effect/rpc";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
@@ -24,6 +24,13 @@ import { SeatHoldsCore, SeatHoldsRpcs } from "../src/contract/core/seat-holds";
 import { SeatHoldsHandlers } from "../src/core/ops/seat-holds";
 import { liveOperatorHolds, operatorHolds, subscribeOperatorTyped } from "../src/core/term/operator-holds";
 import { registerOperatorHoldsIpc } from "../src/app/term/operator-holds-ipc";
+import { MachineRepository } from "../src/core/machines/repository";
+import { ModelService } from "../src/core/model/service";
+import { seatLaunchOf, seatOffboardFactsOf } from "../src/core/seat-sessions/operator-offboard";
+import { startOperatorOffboard } from "../src/core/seat-sessions/operator-offboard-live";
+import { SeatSessionRepository } from "../src/core/seat-sessions/repository";
+import { SettingsService } from "../src/core/settings/service";
+import { defaultOffboardRules } from "../src/shared/seat-offboard";
 
 vi.mock("../src/app/runtime", () => ({ AppRuntime: ManagedRuntime.make(Layer.empty) }));
 
@@ -140,5 +147,50 @@ describe("the operator's holds in the core", () => {
     // The map stays in the core, where its readers are, and registers no IPC.
     expect(source("src/core/ops/seat-holds.ts")).toContain("liveOperatorHolds");
     expect(source("src/core/term/operator-holds.ts")).not.toContain("IpcMain");
+  });
+});
+
+describe("a card's launch read in the core", () => {
+  it("answers from the cache window as it is now, not as the last minute pass left it", async () => {
+    const MACHINE = "launch-rules-mac";
+    const seat = { kind: "agent", id: "scout", bindingId: "local:launch-rules-scout", harness: "claude", host: MACHINE, label: "Scout" };
+    // At rest for two minutes: under either window it is not cold yet, so the read says when it will be.
+    const stillSince = Date.now() - 2 * 60_000;
+    let windowMinutes = 60;
+    const services = Layer.mergeAll(
+      Layer.succeed(SettingsService, {
+        get: Effect.sync(() => ({ offboard: { ...defaultOffboardRules(), cacheMode: "auto", cacheWindowMinutes: windowMinutes } })),
+      } as never),
+      Layer.succeed(ModelService, {
+        listCanvases: () => Effect.succeed(["launch-rules"]),
+        canvas: () => Effect.succeed({ nodes: new Map([[seat.id, seat]]) }),
+      } as never),
+      Layer.succeed(SeatSessionRepository, {
+        openSessions: () => Effect.succeed([{ seatId: seat.id, bindingId: seat.bindingId, sessionId: "launch-rules-session" }]),
+        offboardClock: () => Effect.succeed({
+          savedAt: stillSince,
+          seats: { [seat.bindingId]: { idleSince: stillSince, workMs: 31 * 60_000, sessionId: "launch-rules-session" } },
+        }),
+        saveOffboardClockChanges: () => Effect.void,
+      } as never),
+      Layer.succeed(MachineRepository, { machineName: Effect.succeed(MACHINE) } as never),
+    );
+    const stop = await startOperatorOffboard({
+      run: (effect) => Effect.runPromise(Effect.provide(effect, services) as Effect.Effect<never>),
+      closer: { isClosing: () => false } as never,
+      sendPrompt: () => Promise.resolve({ ok: true }),
+      suspended: () => true,
+    });
+    try {
+      const address = { canvasName: "launch-rules", seatId: seat.id };
+      // An earlier read took the rules as they were then: a 60 minute window.
+      await seatOffboardFactsOf(address);
+      expect((await seatLaunchOf(address, "resume")).nextTurn).toEqual({ fresh: false, freshAt: stillSince + 60 * 60_000 });
+      // The operator shortens the window: the card's next read goes cold at the new one.
+      windowMinutes = 5;
+      expect((await seatLaunchOf(address, "resume")).nextTurn).toEqual({ fresh: false, freshAt: stillSince + 5 * 60_000 });
+    } finally {
+      stop();
+    }
   });
 });
