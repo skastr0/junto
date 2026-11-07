@@ -15,32 +15,30 @@
 import { execFileSync } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { Schema } from "effect";
-import { encodeAgentSeatStatus } from "../../src/shared/agent-seat-state";
-import { initialSnapshot, reduceSeatSignals, topNeed } from "../../src/shared/harness-domain";
-import { BindingId } from "../../src/shared/terminal-session-domain";
+import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? join(process.cwd(), "test-results", "desktop-notifications-live");
 
 const CANVAS = "notify-live";
-const SEAT = "local:e2e-notify-live";
-const nodes = [
-  modelRegion({ id: "build", label: "Build", color: "4", x: 0, y: 0, width: 600, height: 400 }),
-  modelSeat({ id: "live-proof", key: SEAT, label: "Maple", x: 40, y: 80 }),
-];
+const seatNode = modelSeat({ id: "live-proof", label: "Maple", x: 40, y: 80 });
+const nodes = [modelRegion({ id: "build", label: "Build", color: "4", x: 0, y: 0, width: 600, height: 400 }), seatNode];
 
 test.skip(process.env.JUNTO_E2E_SHOW !== "1" || process.platform !== "darwin", "needs a visible macOS run");
 
 test("a seat blocked while Junto is minimised posts a native banner, and its click brings Junto back", async () => {
   test.setTimeout(120_000);
   await mkdir(SHOTS, { recursive: true });
-  const now = Date.now();
-  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture(nodes, []) } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture(nodes, []) }, afterSeed: installCrewSeatHarness });
   try {
-    const { page, app } = junto;
+    const { page, app, sandbox } = junto;
     await expect(page.locator(".react-flow__node", { hasText: "Maple" })).toBeVisible({ timeout: 60_000 });
+    // A fake harness sits in Maple's seat, with the real seat CLI.
+    await crewPlayFactory(page);
+    const maple = crewSeat(sandbox, CANVAS, seatNode.id);
+    await crewOccupySeat(page, CANVAS, seatNode, maple);
+    expect((await maple.op("onboard", {})).ok, "Maple onboards").toBe(true);
 
     await app.evaluate(({ BrowserWindow }) => {
       for (const window of BrowserWindow.getAllWindows()) window.minimize();
@@ -67,21 +65,9 @@ test("a seat blocked while Junto is minimised posts a native banner, and its cli
       };
     });
 
-    // Maple raises a blocked signal, as `junto signal blocked` does; the window reports the need.
-    const seat = Schema.decodeSync(BindingId)(SEAT);
-    const snapshot = reduceSeatSignals(initialSnapshot(seat, now), [
-      {
-        seat,
-        at: now,
-        source: "transcript",
-        fidelity: "native",
-        signal: { _tag: "SeatReported", kind: "blocked", signalId: "live-proof", state: "open", text: "cannot reach the staging database, needs a new password" },
-      },
-    ]);
-    const status = encodeAgentSeatStatus({ snapshot, need: topNeed(snapshot) });
-    await app.evaluate(({ BrowserWindow }, event) => {
-      for (const window of BrowserWindow.getAllWindows()) window.webContents.send("junto:agent-seat-state-changed", event);
-    }, { bindingId: SEAT, epoch: "e2e", state: "idle", reason: "test", confidence: "high", at: now, status });
+    // Maple raises a blocked signal itself; the window reports the need to main.
+    const raised = await maple.cli(["blocked", "cannot reach the staging database, needs a new password"]);
+    expect(raised.ok, `${raised.stdout}${raised.stderr}`).toBe(true);
 
     // It settles for 1.5 s, then posts; give the banner time to slide in.
     await page.waitForTimeout(3_500);

@@ -16,6 +16,7 @@ import { Schema } from "effect";
 import { encodeAgentSeatStatus } from "../../src/shared/agent-seat-state";
 import { initialSnapshot, reduceSeatSignals, topNeed, type SeatSignal, type SignalSource } from "../../src/shared/harness-domain";
 import { BindingId } from "../../src/shared/terminal-session-domain";
+import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
@@ -146,25 +147,27 @@ test("stops post as Stopped, and a dialog replaces a stop", async () => {
 
 test("a declared block then a dialog on one seat posts once", async () => {
   test.setTimeout(120_000);
-  const now = Date.now();
-  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture(nodes, []) } });
+  const canvas = "notify-block";
+  const cedarNode = modelSeat({ id: "cedar", label: "Cedar", x: 40, y: 80 });
+  const junto = await launchJunto({ seedModels: { [canvas]: modelFixture([cedarNode], []) }, afterSeed: installCrewSeatHarness });
   try {
-    const { page, app } = junto;
+    const { page, app, sandbox } = junto;
     await expect(page.locator(".react-flow__node", { hasText: "Cedar" })).toBeVisible({ timeout: 60_000 });
+    // A fake harness sits in Cedar's seat, with the real seat CLI and a screen it draws.
+    await crewPlayFactory(page);
+    const cedar = crewSeat(sandbox, canvas, cedarNode.id);
+    await crewOccupySeat(page, canvas, cedarNode, cedar);
+    expect((await cedar.op("onboard", {})).ok, "Cedar onboards").toBe(true);
     await minimise(app);
     await watchBanners(app);
 
-    // Cedar declares a block, as `junto signal blocked` does.
-    await sendSeatEvents(app, [
-      seatEvent("dialog", "idle", now, {
-        status: statusOf("dialog", now, [
-          ["transcript", { _tag: "SeatReported", kind: "blocked", signalId: "block-1", state: "open", text: "needs a new staging password" }],
-        ]),
-      }),
-    ]);
+    // Cedar declares a block itself.
+    const raised = await cedar.cli(["blocked", "needs a new staging password"]);
+    expect(raised.ok, `${raised.stdout}${raised.stderr}`).toBe(true);
     await expect.poll(async () => (await banners(app)).length, { timeout: 15_000 }).toBe(1);
 
-    await sendSeatEvents(app, [seatEvent("dialog", "attention", now + 1, { reason: "Allow Bash to run npm test?" })]);
+    // Then a permission dialog comes up on its screen.
+    await cedar.control({ screen: { mode: "attention", text: "Allow Bash to run npm test?" } });
     await page.waitForTimeout(4_000);
     const all = await banners(app);
     console.log("block then dialog", JSON.stringify(all));
