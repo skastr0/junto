@@ -15,6 +15,9 @@
  * main process, so an agent can capture without the operator:
  *   kill -USR2 <pid of /Applications/Junto.app/Contents/MacOS/Junto>
  * One capture at a time; a trigger while one runs is logged and ignored.
+ * Builds before this module have no handler, and SIGUSR2's default action
+ * quits them: scripts/perf-pass-scenario.sh signals only an app that has
+ * written a [metrics] row in the last three minutes.
  *
  * WHERE. `<home>/.junto/traces/trace-<time>.json`, directory 0700, file 0600.
  * A trace holds function names, script URLs and timings, not terminal text or
