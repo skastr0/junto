@@ -148,7 +148,8 @@ describe("quit and close ask about Files drafts first", () => {
   const source = readFileSync(join(import.meta.dirname, "..", "src/main/index.ts"), "utf8");
 
   it("asks on the dialog path of a quit, before the live work confirm, and Cancel stops the quit", () => {
-    const block = source.slice(source.indexOf('app.on("before-quit"'), source.indexOf('app.on("will-quit"'));
+    const beforeQuit = source.indexOf('app.on("before-quit"');
+    const block = source.slice(beforeQuit, source.indexOf('app.on("will-quit"', beforeQuit));
     const signalPath = block.indexOf("if (skipQuitConfirm || headless || quitConfirmed)");
     const settle = block.indexOf("requestFilesDraftsSettle(trustedMainWindow)");
     expect(signalPath).toBeGreaterThan(0);
