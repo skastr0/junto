@@ -2,6 +2,7 @@ import { Schema, type Effect } from "effect";
 import { EncodedCauses, EncodedFailure, failureSentence, type EncodedCause } from "@shared/failure";
 import type { InstallationId } from "@shared/installation-id";
 import { describeCause, causeChain } from "../../node/failure-encode";
+import type { LinkContractChannel } from "./contract";
 
 /**
  * The closed catalog of link channels. Every machine of one build has the same
@@ -50,9 +51,14 @@ export class LinkPeerNotPinned extends Schema.TaggedError<LinkPeerNotPinned>()("
   message: Schema.String,
 }) {}
 
-export const FrameProblem = Schema.Literals(["bytes", "utf8", "json", "schema", "frame-bound", "payload", "unmatched-response", "unknown-channel", "no-handler", "duplicate-request", "credit-unwindowed", "credit-excess"]);
+export const FrameProblem = Schema.Literals(["bytes", "utf8", "json", "schema", "frame-bound", "payload", "unmatched-response", "unknown-channel", "no-handler", "duplicate-request", "credit-unwindowed", "credit-excess", "response"]);
 export type FrameProblem = typeof FrameProblem.Type;
 
+/**
+ * `response` is the one problem that leaves the link open: a contract
+ * channel's answer that its tag's success schema refused fails only the
+ * request it answers.
+ */
 export class LinkFrameInvalid extends Schema.TaggedError<LinkFrameInvalid>()("LinkFrameInvalid", {
   machine: Schema.optionalKey(Schema.String),
   problem: FrameProblem,
@@ -161,7 +167,8 @@ export interface LinkChannelContext {
   /** The operation the current request belongs to; absent outside a request. */
   readonly operationId?: string;
   readonly sendEvent: (channel: LinkChannel, payload: unknown) => Effect.Effect<void, MachineLinkError>;
-  readonly request: (channel: LinkChannel, payload: unknown, operationId?: string) => Effect.Effect<unknown, MachineLinkError>;
+  /** `tag` names the request on a contract channel. */
+  readonly request: (channel: LinkChannel, payload: unknown, operationId?: string, tag?: string) => Effect.Effect<unknown, MachineLinkError>;
   /** Closes the link with a typed cause, logged at both ends and sent to the peer. */
   readonly close: (cause: unknown) => Effect.Effect<void>;
 }
@@ -197,14 +204,17 @@ export interface LinkChannelHandler {
   readonly closed?: (context: LinkEventContext) => Effect.Effect<void, unknown>;
 }
 
-export type LinkChannels = Readonly<Partial<Record<LinkChannel, LinkChannelHandler>>>;
+/** A channel as the session holds it: a contract's (`contract.ts`), or one not yet converted. */
+export type LinkChannelBinding = LinkChannelHandler | LinkContractChannel;
+
+export type LinkChannels = Readonly<Partial<Record<LinkChannel, LinkChannelBinding>>>;
 
 /** The identical session interface over a socket or an SSH duplex stream. */
 export interface LinkSession {
   readonly sessionId: string;
   readonly ready: Promise<LinkHello>;
   readonly closed: Promise<LinkClosed>;
-  readonly request: (channel: LinkChannel, payload: unknown, operationId?: string) => Promise<unknown>;
+  readonly request: (channel: LinkChannel, payload: unknown, operationId?: string, tag?: string) => Promise<unknown>;
   readonly sendEvent: (channel: LinkChannel, payload: unknown) => Promise<void>;
   /** Closes with a typed cause; without one, a deliberate close by this end. */
   readonly close: (cause?: unknown) => Promise<void>;

@@ -7,7 +7,7 @@ import type { LinkChannel, LinkChannels, MachineLinkError } from "./types";
 export {
   isMachineLinkError, LinkBuildMismatch, LinkClosed, LinkFrameInvalid, LinkHelloRefused, LinkPeerNotPinned, LinkRequestFailed, LinkUnavailable,
 } from "./types";
-export type { LinkChannelContext, LinkChannelHandler, LinkChannels, MachineLinkError } from "./types";
+export type { LinkChannelBinding, LinkChannelContext, LinkChannelHandler, LinkChannels, MachineLinkError } from "./types";
 
 export interface MachineLinkListener {
   readonly socketPath: string;
@@ -20,6 +20,8 @@ export interface MachineLinkListener {
 export interface LinkRequestOptions {
   /** The operation this request belongs to, minted by its caller; omitted, the link mints one. */
   readonly operationId?: string;
+  /** The request's tag on a contract channel; its typed client (`linkClient`) names it. */
+  readonly tag?: string;
 }
 
 export class MachineLink extends Context.Service<MachineLink, {

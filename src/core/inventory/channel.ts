@@ -7,7 +7,9 @@
  * request bound is never at stake.
  */
 import { Effect, Schema } from "effect";
-import type { LinkChannelHandler } from "../link/types";
+import { Rpc, RpcGroup } from "effect/rpc";
+import { bindLinkChannel, linkContract, type LinkContractChannel } from "../link/contract";
+import type { LinkChannelContext } from "../link/types";
 import { LogService } from "../../node/observability/logger";
 import { MachineRepository } from "../machines/repository";
 import { ModelRecords } from "../model/records";
@@ -16,12 +18,25 @@ import { InventoryUnavailableError } from "@shared/harness-domain/inventory";
 import { HarnessInventory } from "../term/templates/harness-inventory";
 import { admitCanvasEditor, tagOf } from "./admission";
 import {
-  InventoryEventRefused,
   InventoryLinkFailure,
   LinkInventoryRequest,
+  LinkInventorySnapshot,
   type InventoryLinkFailure as InventoryLinkFailureType,
   wireSnapshot,
 } from "./wire";
+
+/** A snapshot names each harness once. */
+const InventorySnapshot = LinkInventorySnapshot.pipe(Schema.check(Schema.makeFilter((snapshot: LinkInventorySnapshot) =>
+  new Set(snapshot.harnesses.map((row) => row.harness)).size === snapshot.harnesses.length || "a harness is named twice")));
+
+/**
+ * The inventory channel's contract: one request, the canvas only, answered
+ * with the machine's bounded snapshot or one of the channel's closed
+ * refusals. It carries no events.
+ */
+export const InventoryLink = linkContract("inventory", RpcGroup.make(
+  Rpc.make("Snapshot", { payload: LinkInventoryRequest, success: InventorySnapshot, error: InventoryLinkFailure }),
+));
 
 const isLinkFailure = Schema.is(InventoryLinkFailure);
 
@@ -34,20 +49,13 @@ const asLinkFailure = (machine: string, cause: unknown): InventoryLinkFailureTyp
   return new InventoryUnavailableError({ machine, reason: "failed", message: `This machine could not answer (${tagOf(cause)}).` });
 };
 
-/** A channel with no events refuses every event frame. */
-const noEvents = (): never => {
-  throw new InventoryEventRefused({ message: "The inventory channel carries no events." });
-};
-
 export const makeInventoryChannel = Effect.fn("InventoryLink.make")(function* () {
   const log = yield* LogService;
   const services = yield* Effect.context<ModelService | ModelRecords | MachineRepository>();
   const machines = yield* MachineRepository;
   const inventory = yield* HarnessInventory;
 
-  const handleRequest: NonNullable<LinkChannelHandler["handleRequest"]> = (context, raw) => Effect.gen(function* () {
-    // Decode here too: direct callers cannot bypass the transport decoder.
-    const request = yield* Schema.decodeUnknownEffect(LinkInventoryRequest)(raw, { onExcessProperty: "error" });
+  const snapshot = (request: LinkInventoryRequest, context: LinkChannelContext) => Effect.gen(function* () {
     yield* admitCanvasEditor(context, request.canvas, yield* machines.machineName).pipe(Effect.provideContext(services));
     const { snapshot, omittedModels, omittedProfiles } = wireSnapshot(yield* inventory.machine, Date.now());
     if (omittedModels > 0 || omittedProfiles > 0) yield* Effect.logInfo("inventory entries left out", { omittedModels, omittedProfiles });
@@ -67,15 +75,6 @@ export const makeInventoryChannel = Effect.fn("InventoryLink.make")(function* ()
     }),
   );
 
-  const handler: LinkChannelHandler = {
-    failureSchema: InventoryLinkFailure as Schema.Codec<unknown, unknown>,
-    decodeRequest: Schema.decodeUnknownSync(LinkInventoryRequest, { onExcessProperty: "error" }),
-    // A response that throws here would close the whole link as frame-invalid,
-    // so the requester decodes the snapshot itself, after the request returns,
-    // and refuses a bad one with the link open.
-    decodeResponse: (payload) => payload,
-    decodeEvent: noEvents,
-    handleRequest,
-  };
-  return handler;
+  const channel: LinkContractChannel = bindLinkChannel(InventoryLink, { requests: { Snapshot: snapshot } });
+  return channel;
 });

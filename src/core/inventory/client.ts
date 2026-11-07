@@ -1,67 +1,67 @@
 /**
  * The asking end of the link's inventory channel. The machine that edits a
- * canvas asks a seat's machine for its snapshot, naming the canvas only. The
- * answer is decoded closed here, after the request returns, so a bad snapshot
- * is one typed refusal with the link still open. A good one is kept on disk;
- * when the machine cannot be asked, the last one it sent answers with its age
- * and the typed reason.
+ * canvas asks a seat's machine for its snapshot, naming the canvas only, with
+ * the channel's typed client. The session decodes the answer closed with the
+ * contract's schema, and a bad snapshot fails only that request, so it is one
+ * typed refusal with the link still open. A good one is kept on disk; when
+ * the machine cannot be asked, the last one it sent answers with its age and
+ * the typed reason.
  */
 import { randomUUID } from "node:crypto";
-import { Effect, Schema } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { InventoryUnavailableError } from "@shared/harness-domain/inventory";
 import type { MachineInventoryResult } from "@shared/ipc";
 import { describeCause } from "../../node/failure-encode";
 import { HostsService } from "../hosts/service";
-import { MachineLink } from "../link/service";
+import { linkClient } from "../link/contract";
+import { isMachineLinkError, MachineLink } from "../link/service";
+import { MachineRepository } from "../machines/repository";
+import { ModelRecords } from "../model/records";
+import { ModelService } from "../model/service";
 import { canvasWithSeatOn, tagOf } from "./admission";
+import { InventoryLink } from "./channel";
 import { makePeerInventoryCache, type PeerInventoryCache, type StoredPeerInventory } from "./peer-cache";
-import {
-  decodeLinkInventorySnapshot,
-  InventoryLinkFailure,
-  InventoryNotFromItsMachine,
-  InventorySnapshotRefused,
-  inventoryOfSnapshot,
-} from "./wire";
+import { InventoryNotFromItsMachine, InventorySnapshotRefused, inventoryOfSnapshot } from "./wire";
 
 /** A decode failure as its issue kind and path; any other text through the doctrine scrub. */
 const reasonOf = (cause: unknown): string => describeCause(cause).message.slice(0, 500);
 
-const isLinkFailure = Schema.is(InventoryLinkFailure);
-
-/** The answering machine's own typed refusal, when the link carried one. */
-const unwrap = (cause: unknown): unknown =>
-  typeof cause === "object" && cause !== null && "detail" in cause && isLinkFailure(cause.detail) ? cause.detail : cause;
-
 /** The machine could not be asked, or its answer was not taken; the link's own errors read unreachable. */
 const reasonFor = (cause: unknown): "timeout" | "failed" | "unreachable" | "notInstalled" => {
   if (cause instanceof InventoryUnavailableError) return cause.reason;
-  if (cause instanceof InventorySnapshotRefused || cause instanceof InventoryNotFromItsMachine || isLinkFailure(cause)) return "failed";
-  return "unreachable";
+  return isMachineLinkError(cause) ? "unreachable" : "failed";
 };
 
-export const makePeerInventoryClient = (cache: PeerInventoryCache) => {
+export class PeerInventory extends Context.Service<PeerInventory, {
+  /** That machine's snapshot, or why it cannot be read now with the last one it sent. */
+  readonly inventoryOf: (machine: string, operationId?: string) => Effect.Effect<MachineInventoryResult>;
+}>()("@junto/PeerInventory") {}
+
+export const makePeerInventory = Effect.fn("PeerInventory.make")(function* (cache: PeerInventoryCache) {
+  const inventory = yield* linkClient(InventoryLink);
+  const link = yield* MachineLink;
+  const hosts = yield* HostsService;
+  const lookups = yield* Effect.context<ModelService | ModelRecords | MachineRepository>();
+
   const ask = (machine: string, operationId: string) => Effect.gen(function* () {
-    const canvas = yield* canvasWithSeatOn(machine);
+    const canvas = yield* canvasWithSeatOn(machine).pipe(Effect.provideContext(lookups));
     if (canvas === undefined)
       return yield* new InventoryUnavailableError({
         machine,
         reason: "unreachable",
         message: `No canvas this machine edits has a seat on ${machine}, so it cannot ask ${machine} for its harnesses.`,
       });
-    const host = yield* (yield* HostsService).get(machine);
+    const host = yield* hosts.get(machine);
     if (host === undefined)
       return yield* new InventoryUnavailableError({ machine, reason: "unreachable", message: `${machine} is not a registered machine.` });
-    const link = yield* MachineLink;
     yield* link.connect(host);
-    const payload = yield* link.request(machine, "inventory", { canvas }, { operationId });
-    const snapshot = yield* Effect.try({
-      try: () => decodeLinkInventorySnapshot(payload),
-      catch: (cause) => new InventorySnapshotRefused({
+    const snapshot = yield* inventory.Snapshot(machine, { canvas }, { operationId }).pipe(
+      Effect.catchTag("LinkFrameInvalid", (refused) => Effect.fail(refused.problem !== "response" ? refused : new InventorySnapshotRefused({
         machine,
         operationId,
-        message: `${machine} sent an inventory this machine does not accept: ${reasonOf(cause)}`,
-      }),
-    });
+        message: `${machine} sent an inventory this machine does not accept: ${reasonOf(refused)}`,
+      }))),
+    );
     // The peer the link admitted is the only machine a snapshot may describe.
     if (snapshot.machine !== machine)
       return yield* new InventoryNotFromItsMachine({
@@ -83,12 +83,10 @@ export const makePeerInventoryClient = (cache: PeerInventoryCache) => {
       Effect.catchCause((cause) => Effect.logWarning("stored peer inventory refused", cause).pipe(Effect.as(undefined))),
     );
 
-  /** That machine's snapshot, or why it cannot be read now with the last one it sent. */
   const inventoryOf = (machine: string, operationId: string = randomUUID()) =>
     ask(machine, operationId).pipe(
       Effect.map((inventory): MachineInventoryResult => ({ ok: true, inventory })),
-      Effect.catch((raw: unknown) => Effect.gen(function* () {
-        const cause = unwrap(raw);
+      Effect.catch((cause) => Effect.gen(function* () {
         const failure = tagOf(cause);
         const reason = reasonFor(cause);
         yield* Effect.logWarning("peer inventory failed", { failure, reason }, cause);
@@ -112,11 +110,19 @@ export const makePeerInventoryClient = (cache: PeerInventoryCache) => {
       Effect.annotateLogs({ area: "inventory", peer: machine, operationId }),
     );
 
-  return { inventoryOf };
-};
+  return PeerInventory.of({ inventoryOf });
+});
 
-export type PeerInventoryClient = ReturnType<typeof makePeerInventoryClient>;
+/** This core's client over the peer-inventory directory under its home, or `dir`. */
+export const peerInventoryLayer = (dir?: string) =>
+  Layer.effect(PeerInventory, Effect.suspend(() => makePeerInventory(makePeerInventoryCache(dir))));
 
-let shared: PeerInventoryClient | undefined;
-/** This process's client over the default peer-inventory directory. */
-export const peerInventory = (): PeerInventoryClient => (shared ??= makePeerInventoryClient(makePeerInventoryCache()));
+/**
+ * @deprecated Until `ops/term-ipc.ts` yields `PeerInventory` and the core
+ * runtime provides `peerInventoryLayer()`. Builds the client per call from
+ * the caller's context; it holds no module state.
+ */
+export const peerInventory = () => ({
+  inventoryOf: (machine: string, operationId?: string) =>
+    Effect.flatMap(makePeerInventory(makePeerInventoryCache()), (client) => client.inventoryOf(machine, operationId)),
+});

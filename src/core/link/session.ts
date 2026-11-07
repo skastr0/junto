@@ -6,9 +6,10 @@ import type { InstallationId } from "@shared/installation-id";
 import { decodeEncodedFailure, describeCause, encodeError } from "../../node/failure-encode";
 import { decodeLinkFrame, LINK_EVENT_WINDOW, LinkHelloSchema, type LinkFrame } from "./protocol";
 import { linkLog, type LinkLogLevel } from "./log";
+import { isLinkContractChannel, type LinkContractChannel, type LinkRpcWire } from "./contract";
 import {
   isMachineLinkError, LinkBuildMismatch, linkClosed, LinkFrameInvalid, LinkHelloRefused, LinkRequestFailed, LinkUnavailable,
-  type FrameProblem, type LinkChannel, type LinkChannelContext, type LinkChannelHandler, type LinkEventContext, type LinkChannels, type LinkClosed,
+  type FrameProblem, type LinkChannel, type LinkChannelBinding, type LinkChannelContext, type LinkChannelHandler, type LinkEventContext, type LinkChannels, type LinkClosed,
   type LinkClosedReason, type LinkHello, type LinkSession, type MachineLinkError,
 } from "./types";
 
@@ -61,6 +62,8 @@ export interface LinkSessionOptions {
 interface Pending {
   readonly channel: LinkChannel;
   readonly operationId: string;
+  /** The request's tag on a contract channel, whose schemas decode the answer. */
+  readonly tag?: string;
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: MachineLinkError) => void;
   readonly timer: ReturnType<typeof setTimeout>;
@@ -83,6 +86,21 @@ const decoded = <A>(problem: FrameProblem, what: string, decode: () => A): A => 
   try { return decode(); } catch (cause) { throw frameInvalid(problem, `${what}: ${describeCause(cause).message}`); }
 };
 const bound = (text: string): EncodedCause => ({ tag: "LinkBound", message: text });
+/** A contract channel's request by its tag; a tag the contract does not name is a bad payload. */
+const rpcOf = (channel: LinkChannel, selected: LinkContractChannel, tag: string | undefined, machine?: string): LinkRpcWire => {
+  const rpc = tag === undefined ? undefined : selected.contract.requests.get(tag);
+  if (rpc === undefined) throw frameInvalid("payload", `The ${channel} channel has no request ${tag ?? "without a tag"}`, machine);
+  return rpc;
+};
+const strictFailure = { onExcessProperty: "error" } as const;
+/** What serving one inbound request needs, whichever kind its channel is. */
+interface Served {
+  readonly decode: (json: unknown) => unknown;
+  readonly handle: ((context: LinkChannelContext, payload: unknown) => Effect.Effect<unknown, unknown>) | undefined;
+  /** Throws on an answer outside its schema; the request then fails, typed, with the link open. */
+  readonly answer: (value: unknown) => unknown;
+  readonly detail: (cause: unknown) => unknown;
+}
 
 const reasonFor = (first: MachineLinkError): LinkClosedReason => {
   switch (first._tag) {
@@ -164,7 +182,7 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     if (peer === undefined) throw new LinkUnavailable({ reason: "not-admitted", message: "The link hello is not admitted yet" });
     return { peer, keyBound: options.keyBound === true || opener !== undefined, sessionId, signal: controller.signal, ...(operationId === undefined ? {} : { operationId }),
       sendEvent: (channel, payload) => Effect.tryPromise({ try: () => sendEvent(channel, payload), catch: classify }),
-      request: (channel, payload, op) => Effect.tryPromise({ try: () => request(channel, payload, op), catch: classify }),
+      request: (channel, payload, op, tag) => Effect.tryPromise({ try: () => request(channel, payload, op, tag), catch: classify }),
       close: cause => Effect.promise(() => close(cause)),
     };
   };
@@ -273,12 +291,12 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     writeTail = flight.catch(cause => { finish(cause); });
     return flight;
   };
-  const outbound = (channel: LinkChannel): LinkChannelHandler => {
+  const outbound = (channel: LinkChannel): LinkChannelBinding => {
     const selected = channels[channel];
     if (selected === undefined) throw new LinkUnavailable({ reason: "channel-unavailable", message: `Link channel ${channel} is unavailable`, ...(peerName() === undefined ? {} : { machine: peerName()! }) });
     return selected;
   };
-  const inbound = (channel: LinkChannel): LinkChannelHandler => {
+  const inbound = (channel: LinkChannel): LinkChannelBinding => {
     const selected = channels[channel];
     if (selected === undefined) throw frameInvalid("unknown-channel", `Link channel ${channel} is unavailable`, peerName());
     return selected;
@@ -291,19 +309,29 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     if (stopped !== undefined) throw stopped;
     return admitted;
   };
-  const request = async (channel: LinkChannel, payload: unknown, operationId: string = randomUUID()): Promise<unknown> => {
+  /** The payload as it crosses: a contract channel encodes it with its tag's schema, any other decodes it. */
+  const requestPayload = (channel: LinkChannel, payload: unknown, tag: string | undefined): unknown => {
+    const selected = outbound(channel);
+    if (isLinkContractChannel(selected)) {
+      const rpc = rpcOf(channel, selected, tag, peerName());
+      return decoded("payload", `The ${channel} ${tag} request does not match its schema`, () => rpc.payload.encode(payload));
+    }
+    if (tag !== undefined) throw frameInvalid("payload", `The ${channel} channel takes no request tag`, peerName());
+    return decoded("payload", `The ${channel} request does not match its schema`, () => selected.decodeRequest(payload));
+  };
+  const request = async (channel: LinkChannel, payload: unknown, operationId: string = randomUUID(), tag?: string): Promise<unknown> => {
     await checkAdmission();
     if (!isOperationId(operationId)) throw frameInvalid("schema", "An operation id is 1 to 64 letters, digits, dots, dashes or underscores", peerName());
-    const decodedPayload = decoded("payload", `The ${channel} request does not match its schema`, () => outbound(channel).decodeRequest(payload));
+    const decodedPayload = requestPayload(channel, payload, tag);
     if (pending.size >= limits.pendingRequests) { const error = thisEnd("bound-exceeded", [bound("Too many pending link requests")]); finish(error); throw error; }
     const id = randomUUID();
     const response = new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => finish(thisEnd("request-timeout")), limits.requestTimeoutMs);
-      pending.set(id, { channel, operationId, resolve, reject, timer });
+      pending.set(id, { channel, operationId, ...(tag === undefined ? {} : { tag }), resolve, reject, timer });
     });
     void response.catch(() => {});
     log("Debug", "link request sent", { channel, operationId, requestId: id });
-    try { await write({ type: "request", id, op: operationId, channel, payload: decodedPayload }); }
+    try { await write({ type: "request", id, op: operationId, channel, ...(tag === undefined ? {} : { tag }), payload: decodedPayload }); }
     catch (cause) { finish(cause); }
     return response;
   };
@@ -342,9 +370,17 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     if (window.waitingBytes + bytes > limits.queuedBytes) throw new LinkUnavailable({ ...machineField(), reason: "send-queue-full", message: `Too many ${channel} events are waiting for credit` });
     return new Promise<void>((go, stop) => { window.waiting.push({ bytes, go, stop }); window.waitingBytes += bytes; });
   };
+  /** The event as it crosses: a contract channel encodes it with its event schema, any other decodes it. */
+  const eventPayload = (channel: LinkChannel, payload: unknown): unknown => {
+    const selected = outbound(channel);
+    if (!isLinkContractChannel(selected)) return decoded("payload", `The ${channel} event does not match its schema`, () => selected.decodeEvent(payload));
+    const events = selected.contract.events;
+    if (events === undefined) throw frameInvalid("payload", `The ${channel} channel carries no events`, peerName());
+    return decoded("payload", `The ${channel} event does not match its schema`, () => events.encode(payload));
+  };
   const sendEvent = async (channel: LinkChannel, payload: unknown, fromEvent = false): Promise<void> => {
     await checkAdmission();
-    const frame = { type: "event", channel, payload: decoded("payload", `The ${channel} event does not match its schema`, () => outbound(channel).decodeEvent(payload)) };
+    const frame = { type: "event", channel, payload: eventPayload(channel, payload) };
     if (!WINDOWED.has(channel)) { await write(frame); return; }
     const bytes = encode(frame);
     await reserve(channel, bytes.length, fromEvent);
@@ -403,10 +439,37 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     });
     channelQueues.set(channel, flight);
   };
-  const encodeDetail = (selected: LinkChannelHandler, cause: unknown): unknown => {
-    if (selected.failureSchema === undefined || !Schema.is(selected.failureSchema)(cause)) return undefined;
-    try { return Schema.encodeUnknownSync(selected.failureSchema)(cause); }
+  /** A handler failure its channel's closed schema holds, encoded to cross as `detail`. */
+  const encodeDetail = (encode: ((cause: unknown) => unknown) | undefined, cause: unknown): unknown => {
+    if (encode === undefined) return undefined;
+    try { return encode(cause); }
     catch (encodeCause) { log("Warning", "link failure detail did not encode", { failure: encodeError(encodeCause, { machine: self.machineName }) }); return undefined; }
+  };
+  /** Serving one request: by its tag's schemas on a contract channel, or by the channel's own decoders. */
+  const served = (channel: LinkChannel, selected: LinkChannelBinding, tag: string | undefined, machine: string): Served => {
+    if (isLinkContractChannel(selected)) {
+      const rpc = rpcOf(channel, selected, tag, machine);
+      return {
+        decode: rpc.payload.decode,
+        handle: (ctx, payload) => selected.handleRequest(tag!, ctx, payload),
+        answer: rpc.success.encode,
+        detail: (cause) => encodeDetail(rpc.error.is(cause) ? rpc.error.encode : undefined, cause),
+      };
+    }
+    if (tag !== undefined) throw frameInvalid("payload", `The ${channel} channel takes no request tag`, machine);
+    const failureSchema = selected.failureSchema;
+    return {
+      decode: selected.decodeRequest,
+      handle: selected.handleRequest,
+      answer: selected.decodeResponse,
+      detail: (cause) => encodeDetail(failureSchema === undefined || !Schema.is(failureSchema)(cause) ? undefined : Schema.encodeUnknownSync(failureSchema), cause),
+    };
+  };
+  /** How the requester decodes a peer's detail: its tag's error schema, or the channel's closed failure schema. */
+  const detailDecoder = (selected: LinkChannelBinding, rpc: LinkRpcWire | undefined): ((detail: unknown) => unknown) | undefined => {
+    if (rpc !== undefined) return rpc.error.decode;
+    if (isLinkContractChannel(selected) || selected.failureSchema === undefined) return undefined;
+    return Schema.decodeUnknownSync(selected.failureSchema, strictFailure);
   };
   /** `bytes` is the frame's size as read; held events are bounded by it too. */
   const receive = async (frame: LinkFrame, bytes = 0): Promise<void> => {
@@ -448,21 +511,40 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
       await checkAdmission();
       const waiting = pending.get(frame.id);
       if (waiting === undefined || waiting.channel !== frame.channel || waiting.operationId !== frame.op) throw frameInvalid("unmatched-response", "Link response does not match a pending request", peer.machineName);
-      if (frame.ok) {
+      const rpc = isLinkContractChannel(selected) ? rpcOf(frame.channel, selected, waiting.tag, peer.machineName) : undefined;
+      if (frame.ok && rpc !== undefined) {
+        // An answer its tag's schema refuses fails only this request: the link stays open.
+        let value: unknown;
+        try { value = rpc.success.decode(frame.payload); }
+        catch (cause) {
+          clearTimeout(waiting.timer); pending.delete(frame.id);
+          const refused = frameInvalid("response", `The ${frame.channel} ${waiting.tag} answer does not match its schema: ${describeCause(cause).message}`, peer.machineName);
+          log("Warning", "link response refused", { channel: frame.channel, operationId: frame.op, requestId: frame.id, failure: encodeError(refused, { machine: self.machineName }) });
+          waiting.reject(refused);
+          return;
+        }
+        clearTimeout(waiting.timer); pending.delete(frame.id);
+        log("Debug", "link request answered", { channel: frame.channel, operationId: frame.op, requestId: frame.id });
+        waiting.resolve(value);
+        return;
+      }
+      if (frame.ok && !isLinkContractChannel(selected)) {
         const value = decoded("payload", `The ${frame.channel} response does not match its schema`, () => selected.decodeResponse(frame.payload));
         clearTimeout(waiting.timer); pending.delete(frame.id);
         log("Debug", "link request answered", { channel: frame.channel, operationId: frame.op, requestId: frame.id });
         waiting.resolve(value);
         return;
       }
+      if (frame.ok) return;
       const received = decodeEncodedFailure(frame.failure);
+      const decodeDetail = detailDecoder(selected, rpc);
       // A detail is kept only for a channel that decodes it with its own closed schema.
-      const failure: EncodedFailure = selected.failureSchema === undefined ? (({ detail: _detail, ...rest }) => rest)(received) : received;
+      const failure: EncodedFailure = decodeDetail === undefined ? (({ detail: _detail, ...rest }) => rest)(received) : received;
       // A detail its schema refuses is dropped, logged, and the failure still answers: the
       // link stays open, so a typed refusal never reads as a lost link.
       let detail: unknown;
-      if (failure.detail !== undefined && selected.failureSchema !== undefined) {
-        try { detail = Schema.decodeUnknownSync(selected.failureSchema, { onExcessProperty: "error" })(failure.detail); }
+      if (failure.detail !== undefined && decodeDetail !== undefined) {
+        try { detail = decodeDetail(failure.detail); }
         catch (decodeCause) { log("Warning", "link failure detail refused", { channel: frame.channel, operationId: frame.op, failure: encodeError(decodeCause, { machine: self.machineName }) }); }
       }
       clearTimeout(waiting.timer); pending.delete(frame.id);
@@ -474,7 +556,9 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
       return;
     }
     if (frame.type === "event") {
-      const payload = decoded("payload", `The ${frame.channel} event does not match its schema`, () => selected.decodeEvent(frame.payload));
+      if (isLinkContractChannel(selected) && selected.contract.events === undefined) throw frameInvalid("no-handler", "Link channel does not accept events", peer.machineName);
+      const payload = decoded("payload", `The ${frame.channel} event does not match its schema`, () =>
+        isLinkContractChannel(selected) ? selected.contract.events!.decode(frame.payload) : selected.decodeEvent(frame.payload));
       if (selected.handleEvent === undefined) throw frameInvalid("no-handler", "Link channel does not accept events", peer.machineName);
       // A window counts the line with its newline, as the sender wrote it.
       const counted = WINDOWED.has(frame.channel) ? bytes + 1 : bytes;
@@ -486,20 +570,22 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
       enqueue(frame.channel, "event", () => inQueue(async ctx => { await checkAdmission(); await runOwned(selected.handleEvent!(ctx, payload)); }), counted);
       return;
     }
-    const payload = decoded("payload", `The ${frame.channel} request does not match its schema`, () => selected.decodeRequest(frame.payload));
-    if (selected.handleRequest === undefined) throw frameInvalid("no-handler", "Link channel does not accept requests", peer.machineName);
+    const serving = served(frame.channel, selected, frame.tag, peer.machineName);
+    const payload = decoded("payload", `The ${frame.channel} request does not match its schema`, () => serving.decode(frame.payload));
+    const handle = serving.handle;
+    if (handle === undefined) throw frameInvalid("no-handler", "Link channel does not accept requests", peer.machineName);
     if (inboundIds.has(frame.id) || completedIds.has(frame.id)) throw frameInvalid("duplicate-request", "Link request id was already used", peer.machineName);
     inboundIds.add(frame.id);
     enqueue(frame.channel, "request", async () => {
       await checkAdmission();
       log("Debug", "link request received", { channel: frame.channel, operationId: frame.op, requestId: frame.id });
       try {
-        const response = await runOwned(selected.handleRequest!(context(frame.op), payload));
+        const response = await runOwned(handle(context(frame.op), payload));
         await checkAdmission();
-        await write({ type: "response", id: frame.id, op: frame.op, channel: frame.channel, ok: true, payload: selected.decodeResponse(response) });
+        await write({ type: "response", id: frame.id, op: frame.op, channel: frame.channel, ok: true, payload: serving.answer(response) });
       } catch (cause) {
         if (stopped !== undefined) return;
-        const failure = encodeError(cause, { machine: self.machineName, operationId: frame.op, detail: encodeDetail(selected, cause) });
+        const failure = encodeError(cause, { machine: self.machineName, operationId: frame.op, detail: serving.detail(cause) });
         log("Warning", "link request failed", { channel: frame.channel, operationId: frame.op, requestId: frame.id, failure });
         await checkAdmission();
         await write({ type: "response", id: frame.id, op: frame.op, channel: frame.channel, ok: false, failure });
