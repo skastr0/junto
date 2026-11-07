@@ -35,8 +35,8 @@ TMP=$(mktemp -d "${TMPDIR:-/tmp}/junto-vm.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
 # Starts past the plan's hourly 60 are paid from the wallet: start only while
-# included ones remain. A command sent to a stopped VM wakes it, and that is a
-# start too, so sync and run ask the same before they touch one.
+# included ones remain. A stopped VM refuses commands (machine_not_running),
+# so sync and run resume it, and a resume is a start: they ask the same first.
 may_start() {
   local left
   left=$("$BOAT" limits --json | jq -r '.starts.hour.remaining')
@@ -45,9 +45,12 @@ may_start() {
     exit 1
   fi
 }
-awake() { # awake <id>: a stopped VM may wake only within the included starts
+awake() { # awake <id>: resume a stopped VM, only within the included starts
   case "$("$BOAT" info "$1" --json | jq -r '.sandbox.state')" in
-    stopped | stopping) may_start ;;
+    stopped | stopping)
+      may_start
+      "$BOAT" resume "$1" --json >/dev/null
+      ;;
   esac
 }
 
@@ -56,7 +59,9 @@ remote() { # remote <id> <shell…>: run on the VM, print stdout and stderr, exi
   shift
   # boat prints JSON lines when its output is not a terminal; its exit code is the command's.
   "$BOAT" exec "$id" --timeout 0 --stream --json -- bash -lc "$*" |
-    jq --unbuffered -rj 'select(.type == "stdout" or .type == "stderr") | .data'
+    jq --unbuffered -rj 'if .type == "stdout" or .type == "stderr" then .data
+      elif .event == "error" then "vm.sh: boat: \(.error)\n" | halt_error(1)
+      else empty end'
 
 }
 
@@ -109,9 +114,19 @@ case "${1:-}" in
         patch="&& git apply ~/own.patch && rm -f ~/own.patch"
       fi
     fi
-    remote "$id" "cd ~/$VM_DIR && $fetch old=\$(git rev-parse HEAD) && git checkout -q -f --detach $target && git clean -q -fd \
+    put="old=\$(git rev-parse HEAD) && git checkout -q -f --detach $target && git clean -q -fd \
       && { git diff --quiet \$old $target -- bun.lock || bun install --frozen-lockfile >/dev/null; } $patch \
       && test \"\$(git rev-parse HEAD)\" = $target && git log --oneline -1"
+    if ! remote "$id" "cd ~/$VM_DIR && $fetch $put"; then
+      # A clone missing objects (seen after a resume) cannot unpack a bundle
+      # built against its HEAD; one bundle of the whole branch needs nothing.
+      [ -n "$fetch" ] || exit 1
+      echo "vm.sh: the fetch failed; sending the whole branch once" >&2
+      git -C "$ROOT" bundle create -q "$TMP/sync.bundle" "$carrier"
+      "$BOAT" scp "$TMP/sync.bundle" "$id:/home/user/sync.bundle" >/dev/null
+      [ -z "$patch" ] || "$BOAT" scp "$TMP/own.patch" "$id:/home/user/own.patch" >/dev/null
+      remote "$id" "cd ~/$VM_DIR && $fetch $put"
+    fi
     ;;
   run)
     id=${2:?VM id}
