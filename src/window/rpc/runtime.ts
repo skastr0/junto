@@ -26,8 +26,9 @@ export const WindowServicesLive = Layer.mergeAll(UpdateState.layer).pipe(Layer.p
 
 export type WindowServices = Layer.Success<typeof WindowServicesLive>;
 
-export const makeWindowRuntime = (link: RpcPort) =>
-  ManagedRuntime.make(WindowServicesLive.pipe(Layer.provide(Layer.succeed(WindowLink, link))));
+/** `tracing` is the window's tracing (tracing.ts), empty unless main traces. */
+export const makeWindowRuntime = (link: RpcPort, tracing: Layer.Layer<never> = Layer.empty) =>
+  ManagedRuntime.make(Layer.mergeAll(WindowServicesLive.pipe(Layer.provide(Layer.succeed(WindowLink, link))), tracing));
 
 export type WindowRuntime = ManagedRuntime.ManagedRuntime<WindowServices, never>;
 

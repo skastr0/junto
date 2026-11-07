@@ -84,6 +84,7 @@ import { seatStateRuntime } from "./term/agent-state/runtime";
 import { termPlane } from "./term/plane";
 import { terminalObserverPlane } from "./term/observer";
 import { boatOwnerDispatch, makeBoatOwner } from "./boat/owner";
+import { CoreTracing } from "./core-tracing";
 
 export interface MachineCoreOptions {
   readonly home: string;
@@ -550,5 +551,5 @@ export const makeMachineCoreLayer = (options: MachineCoreOptions) => {
 };
 
 export const makeCoreRuntime = (options: MachineCoreOptions) =>
-  ManagedRuntime.make(options.log.withLogger(Layer.provideMerge(makeMachineCoreLayer(options), options.host)));
+  ManagedRuntime.make(options.log.withLogger(Layer.provideMerge(Layer.provideMerge(makeMachineCoreLayer(options), options.host), CoreTracing)));
 export type CoreRuntime = ReturnType<typeof makeCoreRuntime>;

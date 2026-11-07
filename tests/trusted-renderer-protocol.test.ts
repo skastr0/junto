@@ -132,6 +132,20 @@ describe("trusted renderer protocol", () => {
     }
   });
 
+  it("hands the window's OTLP exports to main's proxy as POSTs only, and answers 404 with tracing off", async () => {
+    const seen: Array<string> = [];
+    const proxy = async (request: Request) => {
+      seen.push(`${request.method} ${new URL(request.url).pathname}`);
+      return new Response(null, { status: 200 });
+    };
+    const traced = await createTrustedRendererHandler(root, proxy);
+    expect((await traced(new Request("junto-app://renderer/otlp/v1/traces", { method: "POST", body: "{}" }))).status).toBe(200);
+    expect((await traced(new Request("junto-app://renderer/otlp/v1/traces"))).status).toBe(404);
+    expect(seen).toEqual(["POST /otlp/v1/traces"]);
+    const off = await createTrustedRendererHandler(root, undefined);
+    expect((await off(new Request("junto-app://renderer/otlp/v1/traces", { method: "POST", body: "{}" }))).status).toBe(404);
+  });
+
   it("installs the handler on only the protocol instance explicitly supplied", async () => {
     let defaultHandler: ((request: Request) => Promise<Response>) | undefined;
     let defaultHandled = false;

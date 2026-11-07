@@ -9,6 +9,8 @@ import {
 } from "@shared/trusted-renderer-origin";
 import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
+import { mainOtlpProxy } from "./observability/tracing";
+import { OTLP_PROXY_PATH } from "@shared/tracing-switch";
 
 export { TRUSTED_RENDERER_HOST, TRUSTED_RENDERER_SCHEME, TRUSTED_RENDERER_URL };
 
@@ -166,12 +168,19 @@ export const registerTrustedRendererScheme = (
 
 export const createTrustedRendererHandler = async (
   rendererRoot: string,
+  otlp: ((request: Request) => Promise<Response>) | undefined = mainOtlpProxy,
 ): Promise<(request: Request) => Promise<Response>> => {
   const canonicalRoot = await realpath(rendererRoot);
   const rootInfo = await lstat(canonicalRoot);
   if (!rootInfo.isDirectory()) throw new Error("trusted renderer root is not a directory");
 
   return async (request: Request): Promise<Response> => {
+    // The window's telemetry, on its own origin, goes on to main's collector
+    // (observability/tracing.ts): a POST only, and with tracing off, not found.
+    const url = new URL(request.url);
+    if (url.host === TRUSTED_RENDERER_HOST && url.pathname.startsWith(`${OTLP_PROXY_PATH}/`)) {
+      return otlp !== undefined && request.method === "POST" ? otlp(request) : fixedError(404, request.method);
+    }
     if (request.method !== "GET" && request.method !== "HEAD") {
       return fixedError(405, request.method);
     }

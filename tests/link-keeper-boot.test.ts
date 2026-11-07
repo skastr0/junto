@@ -19,13 +19,13 @@ it("the window boots the link and Boat keepers: only the core's runtime is the m
   // The core's one runtime is makeCoreRuntime, built over the machine core layer with the host clients.
   const core = source("src/core/core-runtime.ts");
   expect(core).toMatch(/const makeMachineCoreLayer = [\s\S]*makeCoreProductLayer\(options\.home, options\.log\)/u);
-  expect(core).toMatch(/export const makeCoreRuntime = \(options: MachineCoreOptions\) =>\s*ManagedRuntime\.make\(options\.log\.withLogger\(Layer\.provideMerge\(makeMachineCoreLayer\(options\), options\.host\)\)\)/u);
+  expect(core).toMatch(/export const makeCoreRuntime = \(options: MachineCoreOptions\) =>\s*ManagedRuntime\.make\(options\.log\.withLogger\(Layer\.provideMerge\(Layer\.provideMerge\(makeMachineCoreLayer\(options\), options\.host\), CoreTracing\)\)\)/u);
   // Electron main's runtime is Electron's alone: it builds no core service, no
   // second copy of a singleton (the state engine, the link, the plane), so a
   // service asked of it is a compile error, not an empty instance.
   const window = source("src/app/runtime.ts");
   expect(window).not.toMatch(/makeMachineCoreLayer|MachineServicesLive|RootLayer|ProductLayer/u);
-  expect(window).toContain("const AppLayer = mainLog.withLogger(Layer.mergeAll(UpdateServiceLive));");
+  expect(window).toContain("const AppLayer = mainLog.withLogger(Layer.mergeAll(UpdateServiceLive, MainTracing));");
   for (const path of ["src/app/index.ts", "src/app/runtime.ts", "src/core/core.ts", "src/core/headless.ts"]) {
     for (const start of ["startLinkKeeper", "startBoatKeeper", "startBoatLease"]) expect(source(path), path).not.toContain(start);
   }

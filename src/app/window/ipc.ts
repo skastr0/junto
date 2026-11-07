@@ -15,6 +15,7 @@ import type { CorePushChannel, CorePushOf } from "../../contract/core/channels";
 import { mainAuthoringGate, type MainAuthoringLabel } from "../../node/main-authoring-gate";
 import { subscribe as onCorePush } from "../core-process/main-side/core-pushes";
 import { IPC_CHANNELS } from "@shared/ipc";
+import { tracedInMain } from "../observability/tracing";
 import { heldForServer, serverProtocol, type PortMessage, type RpcPort } from "@shared/rpc-port";
 import { WindowLink } from "../../contract/window/link";
 import { WindowRpcs } from "../../contract/window/rpcs";
@@ -65,7 +66,7 @@ export const registerWindowLink = (ipc: IpcMain, handlers: WindowHandlers): void
     const { port1, port2 } = new MessageChannelMain();
     // Held before the port starts, so no request is lost to the server's start.
     const fiber = Effect.runFork(
-      Layer.launch(windowServer(heldForServer(linkOf(port1)), handlers, { id: sender.id, webContents: sender })),
+      tracedInMain(Layer.launch(windowServer(heldForServer(linkOf(port1)), handlers, { id: sender.id, webContents: sender }))),
     );
     port1.start();
     const close = (): void => {

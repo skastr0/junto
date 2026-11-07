@@ -626,6 +626,8 @@ export interface JuntoApi extends OverseerLiveApi {
   readonly artifactLinks: ArtifactLinksApi;
   /** Read-only platform marker for renderer geometry and copy. */
   readonly platform: NodeJS.Platform;
+  /** Main's environment names an OTLP collector: the window traces, exporting through main (src/window/rpc/tracing.ts). */
+  readonly tracing: boolean;
   /** Internal bootstrap receipt emitted after React commits the product shell. */
   readonly rendererSurfaceReady: () => void;
   /**

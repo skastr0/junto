@@ -22,6 +22,7 @@ import {
 } from "../contract/terminal/protocol";
 import { CoreLink, PidEpochs, PtySpawner, TerminalServer, type SurfacePort } from "./serve";
 import type { SurfaceIn } from "../contract/terminal/surface";
+import { TerminalTracing } from "./tracing";
 
 /** Electron's MessagePortMain, as a utilityProcess is given one. */
 type PortMain = {
@@ -135,7 +136,7 @@ const nodePty = require("node-pty") as typeof import("node-pty");
 
 const spawner = Layer.succeed(PtySpawner, (command, args, options) => nodePty.spawn(command, [...args], options));
 
-const layer = TerminalServer.layer.pipe(Layer.provideMerge(Layer.mergeAll(spawner, PidEpochs.live, coreLink)));
+const layer = TerminalServer.layer.pipe(Layer.provideMerge(Layer.mergeAll(spawner, PidEpochs.live, coreLink, TerminalTracing)));
 
 /** The program: serve until the parent says `shutdown`, and every PTY's hangup was decided; then leave. */
 const program = Effect.gen(function* () {

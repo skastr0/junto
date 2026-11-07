@@ -60,6 +60,7 @@ import type { SeatOnboardingEvent } from "@shared/seat-onboarding-status";
 import type { ProfilesChanged } from "@shared/agent-profiles";
 import { nodeRefKey, parseNodeRef } from "@shared/node-ref";
 import { isRendererPreloadCandidate } from "@shared/trusted-renderer-origin";
+import { otlpBaseUrl } from "@shared/tracing-switch";
 import type {
   StateRecoveryExportResult,
   StateRecoveryListResult,
@@ -460,6 +461,7 @@ const artifactLinksApi: ArtifactLinksApi = {
 
 const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   platform: process.platform,
+  tracing: otlpBaseUrl(process.env) !== undefined,
   mentions: mentionsApi,
   artifactLinks: artifactLinksApi,
   openWindowLink: () => ipcRenderer.send(IPC_CHANNELS.windowLinkOpen),

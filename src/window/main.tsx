@@ -17,6 +17,7 @@ import { installFileDraftsUnloadGuard, settleFileDrafts } from "./lib/files-draf
 import { LiveSeatViewSource } from "./components/LiveSeatViewSource";
 import { pageLink } from "./rpc/link";
 import { makeWindowRuntime, WindowRuntimeContext } from "./rpc/runtime";
+import { windowTracing } from "./rpc/tracing";
 import "./styles.css";
 
 // Dev-only render highlighter (https://github.com/aidenybai/react-scan).
@@ -49,7 +50,7 @@ window.junto?.onFilesDraftsSettle(settleFileDrafts);
 
 // The window's one runtime, on its link to main (src/contract/window/link.ts).
 // Built now, so the window follows where its update stands from boot.
-const windowRuntime = makeWindowRuntime(pageLink(window.junto, window));
+const windowRuntime = makeWindowRuntime(pageLink(window.junto, window), windowTracing(window.junto?.tracing === true, window.location.origin));
 windowRuntime.runSync(Effect.void);
 
 // Dev gallery for the activity mark (`#/gallery/marks`); split off the boot chunk.

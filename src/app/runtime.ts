@@ -1,6 +1,7 @@
 import { app } from "electron";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { mainLog } from "./observability/main-log";
+import { MainTracing } from "./observability/tracing";
 import productMetadata from "../../package.json";
 import {
   macArm64UpdateFeed,
@@ -50,5 +51,5 @@ const UpdateServiceLive = Layer.unwrap(
 // what is Electron's. The layer's type is exactly that, so an effect asking
 // main for a core service is a compile error here, never a second copy of a
 // singleton that main leaves empty.
-const AppLayer = mainLog.withLogger(Layer.mergeAll(UpdateServiceLive));
+const AppLayer = mainLog.withLogger(Layer.mergeAll(UpdateServiceLive, MainTracing));
 export const AppRuntime = ManagedRuntime.make(AppLayer);
