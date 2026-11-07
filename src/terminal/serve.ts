@@ -175,7 +175,9 @@ type Link = {
    */
   awaitingBase: boolean;
   /** Commands past the next `n`, applied in order once their predecessors land. */
-  readonly held: Map<number, () => void>;
+  readonly held: Map<number, () => Promise<void> | undefined>;
+  /** A signal applied and not yet decided: the commands after it wait for it. */
+  signalling: Promise<void> | undefined;
 };
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -501,13 +503,26 @@ const openServer = (spawnPty: SpawnPty, epochs: PtyEpochs): {
     hangupAll: () => void hangupAll(),
   };
 
-  /** The commands that landed: what was held past the gap now applies in order. */
+  /**
+   * The commands that landed: what was held past the gap now applies in
+   * order. A signal is decided (its epoch read, then sent or dropped) before
+   * the command after it applies, so the XON that follows a SIGKILL never
+   * reaches a process the signal has not.
+   */
   const drainHeld = (link: Link): void => {
-    for (let next = link.appliedN + 1; link.held.has(next); next = link.appliedN + 1) {
-      const run = link.held.get(next)!;
+    while (link.signalling === undefined) {
+      const next = link.appliedN + 1;
+      const run = link.held.get(next);
+      if (run === undefined) return;
       link.held.delete(next);
       link.appliedN = next;
-      run();
+      const signalling = run();
+      if (signalling === undefined) continue;
+      link.signalling = signalling;
+      void signalling.finally(() => {
+        link.signalling = undefined;
+        drainHeld(link);
+      });
     }
   };
 
@@ -517,24 +532,18 @@ const openServer = (spawnPty: SpawnPty, epochs: PtyEpochs): {
    * count it continues from.
    */
   const order = (link: Link, command: Command & { readonly id: number; readonly n: number }, port: SurfacePort | undefined): void => {
-    const run = (): void => {
+    const run = (): Promise<void> | undefined => {
+      if (command._tag === "kill") return signalPty(command.id, command.signal);
       (apply[command._tag] as (command: Command, port: SurfacePort) => void)(command, port!);
+      return undefined;
     };
     if (link.awaitingBase) {
       link.awaitingBase = false;
-      link.appliedN = command.n;
-      run();
-      drainHeld(link);
-      return;
+      link.appliedN = command.n - 1;
     }
     if (command.n <= link.appliedN) return;
-    if (command.n === link.appliedN + 1) {
-      link.appliedN = command.n;
-      run();
-      drainHeld(link);
-      return;
-    }
     link.held.set(command.n, run);
+    drainHeld(link);
   };
 
   const onCommand = (command: Command, port?: SurfacePort): void => {
@@ -651,7 +660,7 @@ const openServer = (spawnPty: SpawnPty, epochs: PtyEpochs): {
     links.set(input.id, {
       pid: pty.pid, meta: input.meta, cols: input.cols, rows: input.rows, lastSeq: 0, acked: 0, lastK: 0,
       history: [], historyChars: 0, unacked: [], chars: 0, paused: false, delivering: true,
-      exitSeq: 0, appliedN: 1, awaitingBase: false, held: new Map(),
+      exitSeq: 0, appliedN: 1, awaitingBase: false, held: new Map(), signalling: undefined,
     });
     surfacesOf.set(input.id, { seq: 0, ring: [], ringBytes: 0, controller: null, held: false, heldKeys: [], open: new Map() });
     // The exit witness first, then the stream, as the plane installs them.
