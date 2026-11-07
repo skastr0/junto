@@ -16,6 +16,10 @@
 # (default junto) the clone's folder under /home/user on the VM.
 set -euo pipefail
 
+# The whole script is one block, parsed before any of it runs: a seat whose
+# run is in flight when this file changes keeps the copy it started with.
+{
+
 BOAT=${BOAT:-boat}
 export BOAT_NO_UPDATE=1
 VM_BASE=${VM_BASE:-junto-base}
@@ -98,3 +102,5 @@ case "${1:-}" in
     exit 2
     ;;
 esac
+exit
+}
