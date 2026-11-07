@@ -29,6 +29,18 @@ fi
 
 command=("$playwright" test --config e2e/playwright.config.ts "$@")
 
+# Every spec must load and list its tests before any runs: a spec that throws
+# while loading once left the whole suite at 0 tests, read by no one as red
+# (scripts/e2e-list-gate.ts). The count is printed for every receipt.
+list_err="$(mktemp "${TMPDIR:-/tmp}/junto-e2e-list.XXXXXX")"
+if ! { "$playwright" test --config e2e/playwright.config.ts --list --reporter=json "$@" 2>"$list_err" || true; } |
+  bun "$script_dir/e2e-list-gate.ts" "$@"; then
+  tail -20 "$list_err" >&2
+  rm -f "$list_err"
+  exit 1
+fi
+rm -f "$list_err"
+
 # One app run at a time on the machine; released when this shell exits.
 junto_app_run_lock_acquire "e2e $*"
 
