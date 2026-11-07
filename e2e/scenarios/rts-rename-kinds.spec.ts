@@ -65,7 +65,10 @@ test("every kind renames from the selection card; peer and stub show no key", as
 
     const select = async (id: string): Promise<void> => {
       const box = (await page.locator(`.react-flow__node[data-id="${id}"]`).boundingBox())!;
-      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      // A task card is a compact kind card whose centre is its add-task button, which
+      // opens the quick enqueue pane over the selection card: select it at its name.
+      const at = id === "task" ? { x: 24, y: 12 } : { x: box.width / 2, y: box.height / 2 };
+      await page.mouse.click(box.x + at.x, box.y + at.y);
       await expect(card).toBeVisible();
     };
 

@@ -58,7 +58,8 @@ test("preview gallery in the real app, bright and dark", async () => {
       await page.screenshot({ path: join(SHOTS, theme, "2-block-opened.png") });
 
       // (3) a card opens on a click anywhere and on Enter; the first card of each section fills 220 by 96.
-      const cards = page.locator('[data-testid="preview-card"][data-size="card"]');
+      // The sections' cards only: the pad above them holds two cards of its own (the pad's box, 367 by 92).
+      const cards = page.locator('[data-testid="preview-card"][data-size="card"]:not([data-testid="gallery-pad"] *)');
       const sizes = await cards.evaluateAll((els) => els.map((e) => ({ kind: (e as HTMLElement).dataset.kind, w: Math.round(e.getBoundingClientRect().width), h: Math.round(e.getBoundingClientRect().height) })));
       const wrapSizes = await cards.evaluateAll((els) => els.map((e) => { const r = (e.parentElement as HTMLElement).getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; }));
       facts.cardSizes = sizes.map((s, i) => `${s.kind} ${s.w}x${s.h} in ${wrapSizes[i]!.w}x${wrapSizes[i]!.h}`);
