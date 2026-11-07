@@ -8,7 +8,7 @@ import {
   annotateCapabilityInvocations,
 } from "../core/capability-invocations";
 import { executeJsonCommand } from "../core/output";
-import { Since } from "../../contract/work/discovery";
+import { Capabilities, Offboard, Onboard, Since } from "../../contract/work/discovery";
 import { WorkSocket, callWorkRpc, localDoctorChecks } from "../core/socket";
 
 const toUndefined = <A>(value: Option.Option<A>) =>
@@ -124,10 +124,9 @@ export const capabilitiesCommand = Command.make(
     executeJsonCommand(
       "capabilities",
       Effect.gen(function* () {
-        const socket = yield* WorkSocket;
         // Live wiring from edges — daemon uses process-bound caller.
         return annotateCapabilityInvocations(
-          yield* socket.call("capabilities", {}, toUndefined(timeout)),
+          yield* callWorkRpc(Capabilities, {}, toUndefined(timeout)),
         );
       }),
     ),
@@ -140,10 +139,9 @@ export const onboardCommand = Command.make(
     executeJsonCommand(
       "onboard",
       Effect.gen(function* () {
-        const socket = yield* WorkSocket;
         // Onboard already carries the commands each connection allows,
         // compiled by the daemon from held ports (`commands`).
-        return yield* socket.call("onboard", {}, toUndefined(timeout));
+        return yield* callWorkRpc(Onboard, {}, toUndefined(timeout));
       }),
     ),
 ).pipe(
@@ -189,9 +187,8 @@ export const offboardCommand = Command.make(
     executeJsonCommand(
       "offboard",
       Effect.gen(function* () {
-        const socket = yield* WorkSocket;
         const args = yield* loadOffboardArgs(notes, toUndefined(continuation));
-        return yield* socket.call("offboard", args, toUndefined(timeout));
+        return yield* callWorkRpc(Offboard, args, toUndefined(timeout));
       }),
     ),
 ).pipe(

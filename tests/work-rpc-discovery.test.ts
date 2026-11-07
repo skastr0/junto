@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { EnvReport, LogsRead, OpList, OpShow, SignalClear, SignalList, SignalRaise, Since } from "../src/contract/work/discovery";
+import { Capabilities, EnvReport, LogsRead, OpList, OpShow, Onboard, SignalClear, SignalList, SignalRaise, Since } from "../src/contract/work/discovery";
 import { WorkSocketLive, callWorkRpc } from "../src/cli/core/socket";
 import { WORK_TOKEN_ENV, encodeWorkFrame } from "../src/shared/work-control";
 import { publishSeatCredential } from "./helpers/seat-credential";
@@ -181,6 +181,37 @@ describe("the discovery contract across the work socket", () => {
     expect(all.unread).toBe(0);
   });
 
+  it("answers capabilities and onboard as the contract types them", async () => {
+    const capabilities = await cli(mine, callWorkRpc(Capabilities, {}).pipe(Effect.provide(WorkSocketLive)));
+    expect(capabilities).toEqual((await raw(mine, "capabilities", {})).data);
+    expect(capabilities.node.id).toBe(ME);
+    expect(capabilities.connected.map((peer) => peer.id)).toEqual([PEER]);
+    expect(capabilities.connected[0]?.grants).toContain("msg.send");
+
+    const onboard = await cli(mine, callWorkRpc(Onboard, {}).pipe(Effect.provide(WorkSocketLive)));
+    const { since: _since, ...written } = (await raw(mine, "onboard", {})).data;
+    const { since, ...decoded } = onboard;
+    expect(decoded).toEqual(written);
+    expect(onboard.node.id).toBe(ME);
+    expect("unread" in since && since.unread).toBe(0);
+  });
+
+  it("refuses onboard's arguments in onboard's own words", async () => {
+    const refused = await raw(mine, "onboard", { seat: PEER });
+    expect(refused.error).toEqual({
+      type: "InputError",
+      message: "onboard takes no arguments: a seat onboards itself",
+      details: { path: "args", retryable: false, hint: "junto schema show onboard" },
+    });
+  });
+
+  it("refuses offboard notes that say nothing, in offboard's own words", async () => {
+    const refused = await raw(mine, "offboard", { notes: "   " });
+    expect(refused.error).toMatchObject({ type: "InputError", message: "notes must say what happened in this session", details: { path: "args.notes" } });
+    const extra = await raw(mine, "offboard", { notes: "done", gist: "done" });
+    expect(extra.error).toMatchObject({ type: "InputError", details: { path: "args", retryable: false } });
+  });
+
   it("refuses op show's arguments in the schema's words, with its own hint", async () => {
     const refused = await raw(mine, "op.show", { opId: 7 });
     expect(refused.error).toMatchObject({
@@ -189,7 +220,7 @@ describe("the discovery contract across the work socket", () => {
     });
   });
 
-  // env.report's arguments are an empty struct, which admits any object, as v1's decode did.
+  // capabilities and env.report take an empty struct, which admits any object, as v1's decode did.
   it("refuses an argument the contract does not name", async () => {
     for (const [op, args] of [["signal.list", { all: true }], ["since", { peek: true }], ["signal.clear", { id: "x" }], ["op.list", { page: 2 }]] as const) {
       const refused = await raw(mine, op, args);

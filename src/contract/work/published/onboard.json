@@ -1,0 +1,1350 @@
+{
+  "op": "onboard",
+  "payload": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "not": {
+        "type": "null"
+      },
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      ]
+    },
+    "definitions": {}
+  },
+  "success": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "guidance": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "briefing": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "unreadable": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "unreadable"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "briefing_mentions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "ref": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "seat",
+                  "task",
+                  "artifact",
+                  "page",
+                  "node",
+                  "missing"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "reachable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "label",
+              "ref",
+              "kind",
+              "id",
+              "reachable"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "region": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "instruction": {
+                  "type": "string"
+                },
+                "mentions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "ref": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "seat",
+                          "task",
+                          "artifact",
+                          "page",
+                          "node",
+                          "missing"
+                        ]
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "reachable": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "ref",
+                      "kind",
+                      "id",
+                      "reachable"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "label"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "seat": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "harness": {
+              "type": "string"
+            },
+            "harness_profile": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "effort": {
+              "type": "string"
+            },
+            "mode": {
+              "type": "string"
+            },
+            "look": {
+              "type": "object",
+              "properties": {
+                "bodyHue": {
+                  "type": "string"
+                },
+                "accentHue": {
+                  "type": "string"
+                },
+                "shape": {
+                  "type": "string"
+                },
+                "topper": {
+                  "type": "string"
+                },
+                "eyes": {
+                  "type": "string",
+                  "enum": [
+                    "dot",
+                    "shiny",
+                    "happy",
+                    "sleepy",
+                    "oval",
+                    "wink",
+                    "line",
+                    "sparkle",
+                    "squint"
+                  ]
+                },
+                "mouth": {
+                  "type": "string",
+                  "enum": [
+                    "smile",
+                    "cat",
+                    "o",
+                    "flat",
+                    "grin",
+                    "fang",
+                    "wobble",
+                    "frown",
+                    "none"
+                  ]
+                },
+                "brows": {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "level",
+                    "raised",
+                    "worried",
+                    "furrowed",
+                    "quizzical"
+                  ]
+                },
+                "marking": {
+                  "type": "string"
+                },
+                "accessory": {
+                  "type": "string"
+                },
+                "blush": {
+                  "type": "boolean"
+                },
+                "temperament": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "soul": {
+              "type": "string"
+            },
+            "instructions": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "harness"
+          ],
+          "additionalProperties": false
+        },
+        "nodeRef": {
+          "type": "string"
+        },
+        "node": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title"
+          ],
+          "additionalProperties": false
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "actor",
+            "sink",
+            "geography"
+          ]
+        },
+        "overseer": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "affectedByPause": {
+              "type": "boolean",
+              "enum": [
+                false
+              ]
+            }
+          },
+          "required": [
+            "enabled",
+            "affectedByPause"
+          ],
+          "additionalProperties": false
+        },
+        "protocol_version": {
+          "type": "string"
+        },
+        "paused": {
+          "type": "boolean"
+        },
+        "next_step": {
+          "type": "string"
+        },
+        "connected": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "title": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "regions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "actor",
+                  "sink",
+                  "geography"
+                ]
+              },
+              "grants": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "msg.list",
+                    "msg.send",
+                    "msg.prompt",
+                    "seat.wait",
+                    "terminal.read",
+                    "browser.automate"
+                  ]
+                }
+              },
+              "board": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "namingHint": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "contract": {
+                "type": "object",
+                "properties": {
+                  "instructions": {
+                    "type": "string"
+                  },
+                  "incomingHandling": {
+                    "type": "string"
+                  },
+                  "incomingDescription": {
+                    "type": "string"
+                  },
+                  "outgoingHandoff": {
+                    "type": "string"
+                  },
+                  "outgoingDescription": {
+                    "type": "string"
+                  },
+                  "rules": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "rules"
+                ],
+                "additionalProperties": false
+              },
+              "next": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "board": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "board",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "name",
+              "regions",
+              "role",
+              "grants"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "family": {
+                "type": "string"
+              },
+              "targets": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "commands": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "note": {
+                "type": "string"
+              },
+              "more": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "family",
+              "targets",
+              "commands",
+              "note",
+              "more"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "reach": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "task",
+                      "artifacts"
+                    ]
+                  },
+                  "count": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  "targets": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "list": {
+                    "type": "string"
+                  },
+                  "commands": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "more": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "count",
+                  "targets",
+                  "list",
+                  "commands",
+                  "note",
+                  "more"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "files"
+                    ]
+                  },
+                  "count": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  "targets": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "folders": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "root": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "more": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "count",
+                  "targets",
+                  "folders",
+                  "note",
+                  "more"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "app",
+                  "region"
+                ]
+              },
+              "region": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "label"
+                ],
+                "additionalProperties": false
+              },
+              "read": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "scope",
+              "read"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "rulings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "region": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "rulings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "text": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "pinnedAt": {
+                      "type": "string"
+                    },
+                    "sourceRequestId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "text",
+                    "pinnedAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "region",
+              "label",
+              "rulings"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "co_members": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "region": {
+                "type": "string"
+              },
+              "seats": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "region",
+              "seats"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "command": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "input": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "command",
+              "description"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "since": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "as_of": {
+                  "type": "string"
+                },
+                "unread": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                },
+                "owed_replies": {
+                  "type": "object",
+                  "properties": {
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "more": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "Infinity",
+                            "-Infinity",
+                            "NaN"
+                          ]
+                        }
+                      ]
+                    },
+                    "list": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "lines"
+                  ],
+                  "additionalProperties": false
+                },
+                "awaiting_replies": {
+                  "type": "object",
+                  "properties": {
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "more": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "Infinity",
+                            "-Infinity",
+                            "NaN"
+                          ]
+                        }
+                      ]
+                    },
+                    "list": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "lines"
+                  ],
+                  "additionalProperties": false
+                },
+                "open_signals": {
+                  "type": "object",
+                  "properties": {
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "more": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "Infinity",
+                            "-Infinity",
+                            "NaN"
+                          ]
+                        }
+                      ]
+                    },
+                    "list": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "lines"
+                  ],
+                  "additionalProperties": false
+                },
+                "answers_since": {
+                  "type": "object",
+                  "properties": {
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "more": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "Infinity",
+                            "-Infinity",
+                            "NaN"
+                          ]
+                        }
+                      ]
+                    },
+                    "list": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "lines"
+                  ],
+                  "additionalProperties": false
+                },
+                "your_tasks": {
+                  "type": "object",
+                  "properties": {
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "more": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "Infinity",
+                            "-Infinity",
+                            "NaN"
+                          ]
+                        }
+                      ]
+                    },
+                    "list": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "lines"
+                  ],
+                  "additionalProperties": false
+                },
+                "reviews_owed": {
+                  "type": "object",
+                  "properties": {
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "more": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "Infinity",
+                            "-Infinity",
+                            "NaN"
+                          ]
+                        }
+                      ]
+                    },
+                    "list": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "lines"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "as_of",
+                "unread"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "unavailable": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "unavailable"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "sessions": {
+          "type": "object",
+          "properties": {
+            "note": {
+              "type": "string"
+            },
+            "current": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "session_id": {
+                      "type": "string"
+                    },
+                    "harness": {
+                      "type": "string"
+                    },
+                    "transcript_path": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "offboarded": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "session_id",
+                    "harness",
+                    "transcript_path",
+                    "offboarded"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "last": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "session_id": {
+                      "type": "string"
+                    },
+                    "harness": {
+                      "type": "string"
+                    },
+                    "started_at": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ended_at": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ended_because": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "closed": {
+                      "type": "string"
+                    },
+                    "gist": {
+                      "type": "string"
+                    },
+                    "notes_in": {
+                      "type": "string",
+                      "enum": [
+                        "handoff"
+                      ]
+                    },
+                    "notes": {
+                      "type": "string"
+                    },
+                    "transcript_path": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "transcript_missing": {
+                      "type": "string"
+                    },
+                    "wind_down": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "session_id",
+                    "harness",
+                    "transcript_path"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "earlier": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          },
+          "required": [
+            "note",
+            "current",
+            "last",
+            "earlier"
+          ],
+          "additionalProperties": false
+        },
+        "handoff": {
+          "type": "object",
+          "properties": {
+            "note": {
+              "type": "string"
+            },
+            "from_session": {
+              "type": "string"
+            },
+            "left_at": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "continuation": {
+              "type": "string"
+            },
+            "gist": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "notes": {
+              "type": "string"
+            },
+            "transcript_path": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "transcript_missing": {
+              "type": "string"
+            },
+            "wind_down": {
+              "type": "string"
+            },
+            "transcript_caution": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "note",
+            "from_session",
+            "continuation",
+            "gist",
+            "transcript_path"
+          ],
+          "additionalProperties": false
+        },
+        "previous_session_without_notes": {
+          "type": "object",
+          "properties": {
+            "note": {
+              "type": "string"
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "harness": {
+              "type": "string"
+            },
+            "ended_at": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ended_because": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ended_by": {
+              "type": "string"
+            },
+            "transcript_path": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "transcript_missing": {
+              "type": "string"
+            },
+            "wind_down": {
+              "type": "string"
+            },
+            "transcript_caution": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "note",
+            "session_id",
+            "harness",
+            "transcript_path"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "guidance",
+        "region",
+        "nodeRef",
+        "node",
+        "role",
+        "overseer",
+        "protocol_version",
+        "paused",
+        "connected",
+        "commands",
+        "reach",
+        "co_members",
+        "tools",
+        "since"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

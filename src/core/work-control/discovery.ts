@@ -16,29 +16,64 @@ import {
   normalizeSignalText,
 } from "@shared/agent-signals";
 import { sinceCursorOf } from "@shared/mail-list-filter";
-import { asNodeId, type Node } from "@shared/model";
-import { renderSince } from "@shared/seat-onboarding";
+import { asNodeId, taskBoardTitle, type Canvas, type Node } from "@shared/model";
+import { regionStack } from "@shared/model/canvas";
+import { flowDestinations } from "@shared/flow-graph";
+import { boardContractOf, regionContractOf, rulesInForce } from "@shared/rules";
+import { TASKS_ENABLED } from "@shared/features";
+import { isThisMachine } from "@shared/machine-identity";
+import { recoverDocumentLaunchChoices } from "@shared/launch-choices";
+import { isHarnessId } from "@shared/managed-terminal-templates";
+import { formatNodeRef } from "@shared/node-ref";
+import {
+  coMembersByRegion,
+  compileConnectionInstructions,
+  compileFilesReach,
+  compileReach,
+  onboardGuidanceFor,
+  renderSince,
+  toolsBeyondGuidance,
+} from "@shared/seat-onboarding";
 import { SINCE_PER_SECTION } from "@shared/seat-since";
 import {
   CONTINUATION_FRAMING,
   PAST_SESSIONS_FRAMING,
   PREVIOUS_WITHOUT_NOTES_FRAMING,
+  SEAT_SESSION_CONTINUATION_MAX_CHARS,
+  SEAT_SESSION_NOTES_MAX_CHARS,
   type SeatSession,
   describeSessionDrain,
+  gistOfNotes,
+  type OffboardMode,
   describeTranscriptMissing,
   sessionDrainCaution,
 } from "@shared/seat-sessions";
 import type { OpListResult, OpView } from "@shared/op-control";
-import { resourcesSeatReaches } from "@shared/region-reach";
+import { isResourceKind, reaches, resourcesInReach, resourcesSeatReaches } from "@shared/region-reach";
 import { levelOfSignal, rankOf } from "@shared/wire/urgency";
-import { type SignalListResult, type WorkErrorBody } from "@shared/work-control";
+import { type SignalListResult, WORK_PROTOCOL_VERSION, type WorkErrorBody } from "@shared/work-control";
 import { ContentService } from "../content/service";
 import { operatorAttachmentLines } from "../content/operator-attachments";
 import { claimSignalAttachments, releaseSignalAttachments, signalAttachmentOwner } from "../signals/attachments";
 import { resolveSignalForm, signalKindTakesForm } from "../signals/form-rule";
 import { AgentSignalRepository, type AgentSignalRepositoryError } from "../signals/repository";
 import { signalResourcesFor } from "../signals/resource-refs";
-import { connectedCapabilities, findNode } from "../work/authz";
+import {
+  connectedCapabilities,
+  containingRegion,
+  factoryRoleOfNode,
+  findNode,
+  regionVisibility,
+  summarizeNode,
+} from "../work/authz";
+import { onboardSinceSection } from "../work/seat-since-read";
+import { filesNodeName } from "../work/subject-people";
+import { MachineRepository } from "../machines/repository";
+import { onboardReferenceFields } from "../references/seat-reads";
+import { briefingMentionsOn, mentionsField } from "../references/briefing-mentions";
+import { SeatGuidanceRepository } from "../seat-guidance/repository";
+import { PortraitOverrideRepository } from "../portraits/repository";
+import { probeManagedHarnessInstalls } from "../term/templates/harness-install";
 import { handleOpOp } from "../work/op-control";
 import { announcedSessionRefusal } from "../seat-sessions/announced-session";
 import { SeatSessionRepository, type SeatSessionNotes } from "../seat-sessions/repository";
@@ -48,6 +83,7 @@ import { offeredCapturedSessionId } from "../term/session-id-store";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { readMachineLog, seatLogScope } from "../../node/observability/log-file";
 import { WorkAdmission, WorkSeat } from "./seat";
+import { lookForSeatSession } from "./session-lookup";
 
 /** What a seat does next once its signal is raised, by the signal's kind. */
 const SIGNAL_NEXT_STEP = {
@@ -92,6 +128,166 @@ const signalError = (error: AgentSignalRepositoryError): WorkErrorBody =>
         message: error.message,
         details: { retryable: true },
       };
+
+const PREAMBLE_TOOL = Object.freeze({
+  id: "preamble",
+  command: "junto preamble",
+  description: "Show a short-lived thought bubble above this agent node.",
+  input: { text: "..." },
+});
+
+/** Universal on every seat: how a seat raises its hand to the operator. */
+const SIGNAL_TOOLS = Object.freeze([
+  Object.freeze({
+    id: "escalate",
+    command: "junto escalate",
+    description: "Needs the operator's attention; you keep working.",
+    input: { text: "...", detail: "optional markdown" },
+  }),
+  Object.freeze({
+    id: "blocked",
+    command: "junto blocked",
+    description: "Work is entirely blocked on the operator; stop and wait.",
+    input: { text: "...", detail: "optional markdown" },
+  }),
+  Object.freeze({
+    id: "feedback",
+    command: "junto feedback",
+    description: "Not blocked; the work is ready for the operator to review.",
+    input: { text: "...", detail: "optional markdown" },
+  }),
+  Object.freeze({
+    id: "signal",
+    command: "junto signal list | junto signal clear [id]",
+    description: "Read the operator's answers, or withdraw your own open signal.",
+  }),
+]);
+
+const OVERSEER_TOOL = Object.freeze({
+  id: "overseer",
+  command: "junto overseer skill",
+  description: "Learn Junto canvas and node administration. Human-granted authority; independent of pause/play.",
+});
+
+const taskIdentity = (node: Node | undefined, id: string) => {
+  const identity = taskBoardTitle(node?.kind === "task" ? node : undefined, id);
+  return { ...identity, ...(identity.source === "id" ? { namingHint: "Name this node to name the board." } : {}) };
+};
+const taskName = (node: Node | undefined, id: string) => taskIdentity(node, id).name;
+
+/**
+ * Trimmed contract guidance for one board. Blank or whitespace-only authored
+ * values never surface (authored fields can hold them even though the editor
+ * normalizes).
+ */
+const boardGuidance = (
+  doc: Canvas,
+  board: string,
+): {
+  instructions?: string;
+  incomingHandling?: string;
+  incomingDescription?: string;
+  outgoingHandoff?: string;
+  outgoingDescription?: string;
+} => {
+  const contract = boardContractOf(doc, board);
+  const instructions = contract?.instructions?.trim();
+  const incomingHandling = contract?.incoming?.handling?.trim();
+  const incomingDescription = contract?.incoming?.description?.trim();
+  // Handoff prose only surfaces when the board can send the task on.
+  const hasNext = flowDestinations(doc, board).length > 0;
+  const outgoingHandoff = hasNext ? contract?.outgoing?.handoff?.trim() : undefined;
+  const outgoingDescription = hasNext
+    ? contract?.outgoing?.description?.trim()
+    : undefined;
+  return {
+    ...(instructions ? { instructions } : {}),
+    ...(incomingHandling ? { incomingHandling } : {}),
+    ...(incomingDescription ? { incomingDescription } : {}),
+    ...(outgoingHandoff ? { outgoingHandoff } : {}),
+    ...(outgoingDescription ? { outgoingDescription } : {}),
+  };
+};
+
+/**
+ * Onboard's per-board summary: what this board stands for, how many rules
+ * it carries, and where work goes next. Undefined for nodes that carry no
+ * board contract and no flow edges, so plain nodes stay quiet.
+ */
+const boardBriefing = (doc: Canvas, nodeId: string) => {
+  // Tasks are a product surface: a tasks-off build carries no board summary.
+  if (!TASKS_ENABLED) return undefined;
+  const node = doc.nodes.get(asNodeId(nodeId));
+  const identity = taskIdentity(node, nodeId);
+  const contract = boardContractOf(doc, node?.id ?? "");
+  const next = flowDestinations(doc, nodeId).map((destination) => {
+    const destinationNode = doc.nodes.get(asNodeId(destination));
+    const incoming = boardContractOf(doc, destination)?.incoming;
+    return {
+      board: destination,
+      name: taskName(destinationNode, destination),
+      ...(incoming?.description !== undefined
+        ? { description: incoming.description }
+        : {}),
+    };
+  });
+  if (contract === undefined && next.length === 0) return undefined;
+  return {
+    board: {
+      name: identity.name,
+      ...(identity.namingHint ? { namingHint: identity.namingHint } : {}),
+    },
+    contract: {
+      ...boardGuidance(doc, nodeId),
+      rules: rulesInForce(doc, nodeId).length,
+    },
+    next,
+  };
+};
+
+const rulingsForRegionStack = (doc: Canvas, nodeId: string) =>
+  regionStack(doc, asNodeId(nodeId)).flatMap((group) => {
+    const rulings = regionContractOf(group)?.rulings ?? [];
+    if (rulings.length === 0) return [];
+    return [{
+      region: group.id,
+      label: group.label?.trim() || group.id,
+      rulings,
+    }];
+  });
+
+/**
+ * An agent seat's configuration for `junto onboard`. The operator's soul,
+ * instructions, and look come from their stores when this runtime has them;
+ * a store that cannot answer leaves its field out rather than failing onboard.
+ */
+const seatConfigurationOf = (node: Node) =>
+  Effect.gen(function* () {
+    const terminal = node.kind === "agent" ? node : undefined;
+    const harness = terminal?.harness;
+    if (!harness) return undefined;
+    const choices = isHarnessId(harness) ? recoverDocumentLaunchChoices(harness, terminal.launch) : {};
+    const name = terminal.label.trim();
+    const guidanceStore = yield* Effect.serviceOption(SeatGuidanceRepository);
+    const guidance = Option.isSome(guidanceStore)
+      ? yield* guidanceStore.value.get(node.id).pipe(Effect.orElseSucceed(() => null))
+      : null;
+    const portraitStore = yield* Effect.serviceOption(PortraitOverrideRepository);
+    const look = Option.isSome(portraitStore)
+      ? (yield* portraitStore.value.list().pipe(Effect.orElseSucceed(() => ({}) as Record<string, never>)))[node.id]
+      : undefined;
+    return {
+      ...(name ? { name } : {}),
+      harness,
+      ...(choices.profile ? { harness_profile: choices.profile } : {}),
+      ...(choices.model ? { model: choices.model } : {}),
+      ...(choices.effort ? { effort: choices.effort } : {}),
+      ...(choices.mode ? { mode: choices.mode } : {}),
+      ...(look ? { look } : {}),
+      ...(guidance?.soul ? { soul: guidance.soul } : {}),
+      ...(guidance?.instructions ? { instructions: guidance.instructions } : {}),
+    };
+  });
 
 /**
  * The caller seat's current harness session: its store pin, or an id
@@ -531,6 +727,236 @@ export const DiscoveryHandlers = DiscoveryServed.toLayer(
             })),
           ),
         );
+      }).pipe(Effect.mapError(workFailure)),
+
+    offboard: (args) =>
+      Effect.gen(function* () {
+        const { caller, board } = yield* WorkSeat;
+        const notes = args.notes.trim();
+        const gist = gistOfNotes(notes);
+        if (!gist) {
+          return yield* Effect.fail<WorkErrorBody>({
+            type: "InputError",
+            message: "notes must say what happened in this session",
+            details: {
+              path: "args.notes",
+              retryable: false,
+              hint: "start with one line that sums the session up, then what is relevant and why it matters",
+            },
+          });
+        }
+        if (notes.length > SEAT_SESSION_NOTES_MAX_CHARS) {
+          return yield* Effect.fail<WorkErrorBody>({
+            type: "InputError",
+            message: `notes must be at most ${SEAT_SESSION_NOTES_MAX_CHARS} characters`,
+            details: { path: "args.notes", retryable: false, hint: "keep what the next session needs; link files instead of pasting them" },
+          });
+        }
+        const continuation = args.continuation?.trim();
+        if (continuation !== undefined && !gistOfNotes(continuation)) {
+          return yield* Effect.fail<WorkErrorBody>({
+            type: "InputError",
+            message: "the continuation must tell the next session what to pick up and why",
+            details: {
+              path: "args.continuation",
+              retryable: false,
+              hint: "or leave out --continue to close this session and let the seat rest",
+            },
+          });
+        }
+        if (continuation !== undefined && continuation.length > SEAT_SESSION_CONTINUATION_MAX_CHARS) {
+          return yield* Effect.fail<WorkErrorBody>({
+            type: "InputError",
+            message: `the continuation must be at most ${SEAT_SESSION_CONTINUATION_MAX_CHARS} characters`,
+            details: { path: "args.continuation", retryable: false, hint: "say what to pick up and why; the notes carry the rest" },
+          });
+        }
+        const mode: OffboardMode = continuation === undefined ? "rest" : "continue";
+        const store = yield* Effect.serviceOption(SeatSessionRepository);
+        if (Option.isNone(store)) {
+          return yield* Effect.fail<WorkErrorBody>({
+            type: "RuntimeDown",
+            message: "seat sessions are unavailable in this Junto runtime",
+            details: { retryable: false },
+          });
+        }
+        // Seat identity is the credentialed caller, never an argument: a seat
+        // writes only its own current session's notes.
+        const self = findNode(board, caller.nodeId)!;
+        // Not known yet: look once, now, before refusing.
+        const current = (yield* currentSeatSession(self, store.value)) ?? (yield* lookForSeatSession(self));
+        if (current === undefined) {
+          return yield* Effect.fail<WorkErrorBody>({
+            type: "InvalidTransition",
+            message: "Junto does not know this session's id yet",
+            details: {
+              caller: caller.nodeId,
+              retryable: true,
+              next_step: "finish your current turn, then run junto offboard again",
+            },
+          });
+        }
+        const session = yield* store.value.offboard({ ...current, notes, gist, ...(continuation ? { continuation } : {}) }).pipe(
+          Effect.mapError((error): WorkErrorBody => ({
+            type: "InternalError",
+            message: error.message,
+            details: { retryable: true },
+          })),
+        );
+        // The session is closed from the transport, once this reply has been
+        // written back (control.ts, after dispatch): the notes are in
+        // junto.db by now, and that is the only thing the close waits for.
+        return {
+          session_id: session.sessionId,
+          gist: session.gist ?? gist,
+          mode,
+          disposition: "applied" as const,
+          next_step:
+            mode === "continue"
+              ? "your notes and continuation are saved and your seat has moved on to a fresh session, which reads your continuation first; this session may finish what it is saying, but it receives nothing more and its junto commands are refused"
+              : "your notes are saved and your seat has moved on: it rests until its next wake, which starts a fresh session that reads your notes; this session may finish what it is saying, but it receives nothing more and its junto commands are refused",
+        };
+      }).pipe(Effect.mapError(workFailure)),
+
+    capabilities: () =>
+      Effect.gen(function* () {
+        const { caller, board, paused } = yield* WorkSeat;
+        const self = findNode(board, caller.nodeId)!;
+        const connected = connectedCapabilities(board, caller.nodeId);
+        const overseer = self.kind === "agent" && self.overseer === true;
+        return {
+          node: summarizeNode(self),
+          harnesses: yield* Effect.promise(() => probeManagedHarnessInstalls()),
+          // Additive: derived factory role of the credentialed seat.
+          role: factoryRoleOfNode(self),
+          tools: overseer
+            ? [PREAMBLE_TOOL, ...SIGNAL_TOOLS, OVERSEER_TOOL]
+            : [PREAMBLE_TOOL, ...SIGNAL_TOOLS],
+          overseer: { enabled: overseer, affectedByPause: false as const },
+          protocol_version: WORK_PROTOCOL_VERSION,
+          connected,
+          co_members: regionVisibility(board, caller.nodeId),
+          // Pause surface: a paused seat must distinguish pause from a broken
+          // grant. Reads stay open; mutating ops still refuse with Paused.
+          paused,
+          ...(paused
+            ? { next_step: "wait for the operator to play the canvas" }
+            : {}),
+        };
+      }).pipe(Effect.mapError(workFailure)),
+
+    onboard: () =>
+      Effect.gen(function* () {
+        const { caller, board, paused, readSince } = yield* WorkSeat;
+        const self = findNode(board, caller.nodeId)!;
+        const seat = yield* seatConfigurationOf(self);
+        const history = yield* pastSessionsOf(self);
+        const region = containingRegion(board, caller.nodeId);
+        const connected = connectedCapabilities(board, caller.nodeId);
+        const reach = resourcesInReach(board, asNodeId(caller.nodeId)).flatMap((node) =>
+          isResourceKind(node.kind) ? [{ id: node.id as string, kind: node.kind }] : [],
+        );
+        // Files nodes in reach, never a resource kind: the root only on the
+        // machine that holds it, and none when this machine's name is unread.
+        const machines = yield* Effect.serviceOption(MachineRepository);
+        const here = Option.isSome(machines)
+          ? yield* machines.value.machineName.pipe(Effect.orElseSucceed(() => undefined))
+          : undefined;
+        const folders = [...board.nodes.values()].flatMap((node) =>
+          node.kind === "files" && reaches(board, asNodeId(caller.nodeId), node.id)
+            ? [{ id: node.id as string, name: filesNodeName(node), ...(here !== undefined && isThisMachine(node.host, here) ? { root: node.root } : {}) }]
+            : [],
+        );
+        const overseer = self.kind === "agent" && self.overseer === true;
+        const guidance = onboardGuidanceFor(seat);
+        const tools = toolsBeyondGuidance(
+          overseer ? [PREAMBLE_TOOL, ...SIGNAL_TOOLS, OVERSEER_TOOL] : [PREAMBLE_TOOL, ...SIGNAL_TOOLS],
+          guidance,
+        );
+        const { briefing, references } = yield* onboardReferenceFields({ canvasName: caller.canvasName, nodeId: caller.nodeId });
+        // Beside each text the operator wrote, what it links, parsed, never expanded into it (0.11/08 B2).
+        const briefingMentions = typeof briefing === "string" ? yield* briefingMentionsOn(board, caller, briefing) : undefined;
+        const regionMentions = region?.instruction === undefined ? undefined : yield* briefingMentionsOn(board, caller, region.instruction);
+        // Most stable first: what changes only when the operator edits it, then
+        // who and what this seat is, then what changed since its last session,
+        // then the note its last session left.
+        return {
+          // The few lines every seat needs. Nothing is sent to a harness at
+          // session start, so this is where a seat learns what Junto asks of it.
+          guidance,
+          // The operator's app briefing, or why it could not be read.
+          ...(briefing === undefined ? {} : { briefing }),
+          ...(briefingMentions === undefined ? {} : { briefing_mentions: briefingMentions }),
+          // The innermost region, with every region's instruction outer to inner.
+          region: region === undefined ? null : { ...region, ...mentionsField(regionMentions) },
+          // The seat as the operator configured it: name, harness and launch
+          // dials, look, and the operator-authored soul and standing
+          // instructions. Onboard is their only carrier, the same for every
+          // harness, read live so an edit shows on the next onboard.
+          ...(seat ? { seat } : {}),
+          nodeRef: formatNodeRef({
+            canvasName: caller.canvasName,
+            nodeId: caller.nodeId,
+          }),
+          node: summarizeNode(self),
+          // Additive: derived factory role of the credentialed seat.
+          role: factoryRoleOfNode(self),
+          overseer: { enabled: overseer, affectedByPause: false as const },
+          protocol_version: WORK_PROTOCOL_VERSION,
+          // Pause surface: a paused seat must distinguish pause from a broken
+          // grant. Reads stay open; mutating ops still refuse with Paused.
+          paused,
+          ...(paused
+            ? { next_step: "wait for the operator to play the canvas" }
+            : {}),
+          connected: connected.map((c) => ({
+            id: c.id,
+            kind: c.kind,
+            title: c.title,
+            name: c.name,
+            regions: c.regions,
+            role: c.role,
+            grants: c.grants,
+            ...(boardBriefing(board, c.id) ?? {}),
+          })),
+          // What each connection allows, compiled from the ports held over it:
+          // a seat is never taught a command its edge does not grant.
+          commands: compileConnectionInstructions(
+            connected.map((c) => ({ id: c.id, kind: c.kind, ports: c.grants })),
+          ),
+          // The resources in this seat's region reach, by kind, each with every
+          // command its kind allows: reach admits, with no edge and no port.
+          reach: [...compileReach(reach), ...compileFilesReach(folders)],
+          ...(references === undefined ? {} : { references }),
+          // Operator-pinned precedent from the seat's own region stack. Region
+          // rulings ride the Tasks gate: a tasks-off build names none.
+          ...(TASKS_ENABLED
+            ? { rulings: rulingsForRegionStack(board, caller.nodeId) }
+            : {}),
+          // The other seats in this seat's regions, by name.
+          co_members: coMembersByRegion(regionVisibility(board, caller.nodeId)),
+          // The seat tools the guidance does not already teach.
+          tools,
+          // Since your last session: replies owed and awaited, open signals,
+          // silent answers since the previous session started, unread mail.
+          // A read that fails or dies is logged and marked unavailable, and
+          // onboard stands without it.
+          since: yield* onboardSinceSection(
+            readSince(history?.previousStartedAt).pipe(Effect.map(renderSince)),
+            `${caller.canvasName}/${caller.nodeId}`,
+          ),
+          // This seat's last session and a count of the earlier ones: history
+          // for continuity, never work to resume.
+          ...(history ? { sessions: history.sessions } : {}),
+          // Last, the note the previous session left for this one, when it
+          // continued rather than rested.
+          ...(history?.handoff ? { handoff: history.handoff } : {}),
+          // Or, when the previous session left nothing: say so, and where its
+          // transcript is.
+          ...(history?.previousWithoutNotes
+            ? { previous_session_without_notes: history.previousWithoutNotes }
+            : {}),
+        };
       }).pipe(Effect.mapError(workFailure)),
   }),
 );
