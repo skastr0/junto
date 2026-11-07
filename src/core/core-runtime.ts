@@ -1,7 +1,6 @@
 import { Cause, Context, Effect, Layer, ManagedRuntime, Option, Schema } from "effect";
 import type { HostClients } from "./host-clients";
 import {
-  MachinePeerStatus,
   type MachineHarnesses,
   type MachineOwnStatus,
 } from "@shared/machine-control";
@@ -25,6 +24,8 @@ import { MachineLink } from "./link/service";
 import { machineLinkLayer } from "./link/live";
 import { peerInventoryLayer } from "./inventory/client";
 import { LinkBuildMismatch, LinkPeerNotPinned, type LinkChannelHandler, type MachineLinkError } from "./link/types";
+import { linkClient, type LinkContractChannel } from "./link/contract";
+import { makeStatusChannel, StatusLink } from "./link/status";
 import { encodeError, encodeFailure } from "../node/failure-encode";
 import { failureSentence } from "@shared/failure";
 import { probeManagedHarnessInstalls } from "./term/templates/harness-install";
@@ -57,7 +58,6 @@ import type { AgentSignal } from "@shared/agent-signals";
 import { LogService, type Log } from "../node/observability/logger";
 import { MachineLogsNotSetUp, makePeerLogAnswer, receivePeerLogRead } from "./observability/log-link";
 import { readMachineLog } from "../node/observability/log-file";
-import { MachineLogQuery, MachineLogRead } from "@shared/machine-log";
 import { ModelService } from "./model/service";
 import { ModelRecords } from "./model/records";
 import { SqlClient } from "effect/sql";
@@ -97,17 +97,10 @@ export interface MachineCoreOptions {
   readonly host: Layer.Layer<HostClients>;
 }
 
-// The status channel answers a machine's status, or its log for the asking peer.
-const MachineStatusRequest = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("machine") }),
-  Schema.Struct({ kind: Schema.Literal("logs"), query: MachineLogQuery }),
-]);
-const rejectEvent = (): never => { throw new Error("The status channel has no events"); };
-
 export class MachineCoreStatus extends Context.Service<MachineCoreStatus, {
   readonly own: Effect.Effect<MachineOwnStatus, unknown>;
   readonly harnesses: Effect.Effect<MachineHarnesses, unknown>;
-  readonly handler: LinkChannelHandler;
+  readonly handler: LinkContractChannel;
 }>()("@junto/MachineCoreStatus") {}
 
 export class MachineCoreRows extends Context.Service<MachineCoreRows, {
@@ -344,15 +337,7 @@ export const machineCoreStatusLayer = (options: Omit<MachineCoreOptions, "host">
     const status = yield* own;
     return { ...yield* harnesses, installationId: status.installationId, form: status.form, missingSecrets: [] };
   });
-  const handler: LinkChannelHandler = {
-    decodeRequest: Schema.decodeUnknownSync(MachineStatusRequest, { onExcessProperty: "error" }),
-    decodeResponse: Schema.decodeUnknownSync(Schema.Union([MachinePeerStatus, MachineLogRead]), { onExcessProperty: "error" }),
-    decodeEvent: rejectEvent,
-    handleRequest: (context, payload) => {
-      const request = payload as typeof MachineStatusRequest.Type;
-      return request.kind === "logs" ? answerLogs(context.peer, request.query) : peer;
-    },
-  };
+  const handler = makeStatusChannel({ machine: peer, logs: answerLogs });
   return { own, harnesses, handler };
 }));
 
@@ -461,6 +446,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
   );
   const owner = Layer.effect(MachineOwnerControl, Effect.gen(function* () {
     const link = yield* MachineLink;
+    const status = yield* linkClient(StatusLink);
     const machineStatus = yield* MachineCoreStatus;
     const rows = yield* MachineCoreRows;
     const exchangeQuery = yield* makeMachineExchangeQuery(rows.exchange);
@@ -488,7 +474,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
         const pin = yield* machines.peer(name);
         if (host === undefined || pin === undefined) return yield* new MachineLogsNotSetUp({ machine: name, message: `Set up ${name} before reading its log` });
         yield* link.connect(host);
-        return yield* receivePeerLogRead(yield* link.request(name, "status", { kind: "logs", query }), name);
+        return yield* receivePeerLogRead(yield* status.Logs(name, { query }), name);
       }),
       peerBuild: link.peerBuild,
       // The window's start and stop path, with no window host step.
@@ -508,10 +494,9 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
         if (host === undefined || pin === undefined) return yield* Effect.fail(new LinkPeerNotPinned({ machine: name, message: `Set up ${name} first` }));
         const own = yield* machines.machineName;
         return yield* link.connect(host).pipe(
-          Effect.andThen(link.request(name, "status", { kind: "machine" })),
-          Effect.flatMap(Schema.decodeUnknownEffect(MachinePeerStatus, { onExcessProperty: "error" })),
+          Effect.andThen(status.Machine(name)),
           // Unreachable is an answer, and it says why: the typed failure, encoded and scrubbed.
-          Effect.catch((cause: MachineLinkError | Schema.SchemaError) => Effect.gen(function* () {
+          Effect.catch((cause: MachineLinkError) => Effect.gen(function* () {
             const failure = cause._tag === "LinkRequestFailed" ? cause.failure : encodeError(cause, { machine: own });
             yield* Effect.logWarning("machine status failed").pipe(Effect.annotateLogs({ area: "link", peer: name, failure }));
             return { machineName: name, reachable: cause instanceof LinkBuildMismatch, installationId: pin.installationId,
