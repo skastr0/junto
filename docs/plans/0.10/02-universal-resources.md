@@ -17,9 +17,9 @@ result. Mentions and threads work across machines with the same rules.
 ## Today
 
 - One editing machine per canvas (`canvases.editor_installation_id`,
-  `src/main/junto/model/state-schema.ts:30-35`). Others hold a read-only copy
+  `src/core/model/state-schema.ts:30-35`). Others hold a read-only copy
   sent whole and replaced when newer, no merging (`docs/machines.md:40-54`;
-  `src/main/junto/model/service.ts:146-188`).
+  `src/core/model/service.ts:146-188`).
 - The copy is cut per destination: full seats for the target, peers for
   other seats, terminals only to their own machine, region outlines unless a
   target seat is inside (`src/shared/canvas-copy.ts:198-254`). Notes, labels,
@@ -29,12 +29,12 @@ result. Mentions and threads work across machines with the same rules.
   attachments never cross (`work-exchange.ts:133-137`).
 - Rows are `(writer installation, seq)`, immutable, idempotent by content
   hash; a different hash for the same id fails `identity-conflict`
-  (`src/main/junto/work/repository.ts:8228-8360`). Rule 4: one writer, no
+  (`src/core/work/repository.ts:8228-8360`). Rule 4: one writer, no
   conflict handling (`docs/machines.md:64-75`).
 - `work_tasks` and `work_artifacts` carry `entity_home`; the unique key gives
-  each machine its own lane (`src/main/junto/work/state-schema.ts:142-208,360-440`).
+  each machine its own lane (`src/core/work/state-schema.ts:142-208,360-440`).
 - Transport: one SSH link per machine, closed channel set, `rows` windowed at
-  1 MiB with credit (`src/main/junto/link/protocol.ts:6-10`). A build
+  1 MiB with credit (`src/core/link/protocol.ts:6-10`). A build
   mismatch closes the link.
 
 ## Model: seats propose, the editing machine rules
@@ -73,7 +73,7 @@ Rule 4 holds under four conditions (remote-lead):
 
 1. **Actor bound to the link.** The editing machine accepts a command for
    seat S only from the machine placement says S is on, as signals do
-   (`src/main/junto/work/exchange/session.ts:326`), and accepts `operator`
+   (`src/core/work/exchange/session.ts:326`), and accepts `operator`
    only from itself.
 2. **opId as above**, keyed with the sending installation.
 3. **One transaction** writes a ruling and its facts, and every fact carries
@@ -126,7 +126,7 @@ the set grows by one (cli-lead):
   rulings as `ruling.*` facts, both on `rows` (see "Editing machine away"). An
   earlier draft used request and response frames; it is dropped because two
   bounds there close the whole link: more than 32 requests in flight
-  (`src/main/junto/link/session.ts:32,281`) and a reply slower than 30 s
+  (`src/core/link/session.ts:32,281`) and a reply slower than 30 s
   (`session.ts:284`). `rows` is windowed with credit and has neither. A
   ruling never waits on content bytes. Round trip measured on the mini
   (remote-send): one row out and its answer row back over a real link and
@@ -161,7 +161,7 @@ the set grows by one (cli-lead):
   the editing machine reads them for automations (07).
 - Content (artifact files, attachments): facts carry content refs; bytes
   move on demand through the existing content transfer
-  (`src/main/junto/content/machine-files.ts`). Signal attachments become refs
+  (`src/core/content/machine-files.ts`). Signal attachments become refs
   and may cross.
 
 ## Editing machine away: writes queue
@@ -186,7 +186,7 @@ unreachable. Written by canvas-lead and remote-lead; points marked
 3. **No command channel** (remote-lead). This replaces the request and
    ruling channel of the first draft (Contracts). A machine that does not
    edit the canvas offers only its own rows, and only to the editing machine
-   (`src/main/junto/work/exchange/session.ts:273-276`). Cursors, catch up
+   (`src/core/work/exchange/session.ts:273-276`). Cursors, catch up
    and credit drain the backlog after a return, so the 32-in-flight and 30 s
    bounds (`session.ts:32,281,284`) never apply to commands. Command rows
    are not resource state, so Rule 4 holds. The exchange filter admits
@@ -228,7 +228,7 @@ unreachable. Written by canvas-lead and remote-lead; points marked
   relay one machine's pending commands to the others.
 - Ids are minted by the caller, the CLI process, as the opId is, carried on
   the create, and kept by the ruling (cli-lead). Task ids are already ULIDs
-  (`src/main/junto/work/service.ts:213`), and artifact ids and thread ids
+  (`src/core/work/service.ts:213`), and artifact ids and thread ids
   follow the same pattern. A mention written against a pending
   task uses the id link form (03) and stays valid after the task is ruled.
 
@@ -259,7 +259,7 @@ is ruled:
   and resume when it returns (07). On return a schedule fires once for its
   latest missed slot, with its `when` conditions rechecked. Earlier missed
   slots are recorded as skipped, as today's cron coalesces them
-  (`src/main/junto/kernel/cycle.ts:406`).
+  (`src/core/kernel/cycle.ts:406`).
 - **Short task numbers** (`#42`) are minted only by the editing machine,
   from a per-canvas counter, when it rules the create. A pending task has no
   number; it is named by id. `#42` resolves only ruled numbers.
@@ -377,7 +377,7 @@ would only move the surprise elsewhere.
 ### Moving the editing machine
 
 Remote-lead. Today the editing machine is set only by migration
-(`src/main/junto/state/migrations.ts:580`) and no move command exists.
+(`src/core/state/migrations.ts:580`) and no move command exists.
 This is designed for and not built in 0.10:
 
 - **A queued command names the canvas, not a machine.** Catch up is driven

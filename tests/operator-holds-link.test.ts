@@ -10,16 +10,16 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makeTestLog } from "./support/test-log";
 
 const testLog = makeTestLog();
-import { machineLogDir } from "../src/main/junto/observability/log-file";
-import { makeOperatorHolds, subscribeOperatorTyped, type OperatorHoldSource } from "../src/main/junto/term/operator-holds";
-import { TerminalRouter } from "../src/main/junto/term/router";
-import { makeSeatViews, type SeatViews } from "../src/main/junto/term/seat-views";
-import type { AttachQuestion, SeatsViewFrame } from "../src/main/junto/term/seat-attach";
-import type { SeatsChannelOptions } from "../src/main/junto/term/seats-link";
-import { unwrapSeatsFailure } from "../src/main/junto/term/seats-failure";
+import { machineLogDir } from "../src/node/observability/log-file";
+import { makeOperatorHolds, subscribeOperatorTyped, type OperatorHoldSource } from "../src/core/term/operator-holds";
+import { TerminalRouter } from "../src/core/term/router";
+import { makeSeatViews, type SeatViews } from "../src/core/term/seat-views";
+import type { AttachQuestion, SeatsViewFrame } from "../src/core/term/seat-attach";
+import type { SeatsChannelOptions } from "../src/core/term/seats-link";
+import { unwrapSeatsFailure } from "../src/core/term/seats-failure";
 import { OPERATOR_TYPING_GRACE_MS } from "../src/shared/operator-hold";
 import { eventually, miniSeat, twoCoreCanvas as canvas, twoCoreProcess, twoCores } from "./support/two-cores";
-import type { Log } from "../src/main/junto/observability/logger";
+import type { Log } from "../src/node/observability/logger";
 
 const cleanups: Array<() => Promise<void>> = [];
 let restore: () => void;

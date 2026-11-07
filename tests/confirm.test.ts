@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { answerConfirm, askConfirm, confirm$ } from "../src/renderer/lib/confirm";
+import { answerConfirm, askConfirm, confirm$ } from "../src/window/lib/confirm";
 
 const question = (source: string) => ({ source, title: "Delete this?", confirmLabel: "Delete" });
 

@@ -6,7 +6,7 @@ import {
   regionNameSlot,
   sameNameSlot,
   type SlotRect,
-} from "../src/renderer/lib/region-name-slot";
+} from "../src/window/lib/region-name-slot";
 
 const rect = (x: number, y: number, width: number, height: number): SlotRect => ({ x, y, width, height });
 

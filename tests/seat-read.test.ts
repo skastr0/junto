@@ -11,9 +11,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makeTestLog } from "./support/test-log";
 
 const testLog = makeTestLog();
-import { machineLogDir } from "../src/main/junto/observability/log-file";
-import { readSeatWindow } from "../src/main/junto/term/seat-read";
-import type { SeatGrid } from "../src/main/junto/term/seat-read-window";
+import { machineLogDir } from "../src/node/observability/log-file";
+import { readSeatWindow } from "../src/core/term/seat-read";
+import type { SeatGrid } from "../src/core/term/seat-read-window";
 import { eventually, miniSeat, twoCoreCanvas as canvas, twoCoreProcess, twoCores } from "./support/two-cores";
 
 const cleanups: Array<() => Promise<void>> = [];

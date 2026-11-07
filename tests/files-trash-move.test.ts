@@ -2,8 +2,8 @@ import { lstat, mkdir, mkdtemp, readdir, readFile, readlink, rm, symlink, writeF
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { realRoot, trashAt } from "../src/main/junto/files/fs-ops";
-import { trashMove } from "../src/main/junto/files/trash-move";
+import { realRoot, trashAt } from "../src/core/files/fs-ops";
+import { trashMove } from "../src/core/files/trash-move";
 import { parseFilePath, type FilePath } from "../src/shared/files";
 
 const path = (raw: string): FilePath => parseFilePath(raw)!;

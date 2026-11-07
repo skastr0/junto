@@ -9,8 +9,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { feedItemRank, type FeedItem } from "../src/shared/operator-feed";
-import { FeedCardView } from "../src/renderer/components/feed/FeedCardView";
-import type { FeedTaskRef } from "../src/renderer/components/feed/feed-text";
+import { FeedCardView } from "../src/window/components/feed/FeedCardView";
+import type { FeedTaskRef } from "../src/window/components/feed/feed-text";
 
 const NOW = 10_000_000;
 

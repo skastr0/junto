@@ -8,7 +8,7 @@ import {
   promptRegionLines,
   scanMarker,
   type InteractionDerived,
-} from "../src/main/junto/term/observer/interaction";
+} from "../src/core/term/observer/interaction";
 
 const HR = "────────────────";
 

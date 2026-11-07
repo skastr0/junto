@@ -1,10 +1,10 @@
 /**
- * Main's IPC registrars, the seven src/main/index.ts calls at boot, against
+ * Main's IPC registrars, the seven src/app/index.ts calls at boot, against
  * an `ipcMain` that behaves like Electron's: an EventEmitter whose `on`
  * needs its `this`, and a `handle` that refuses a second handler for one
  * channel. A registrar that throws here throws in `app.whenReady`, before
  * the first window (3776924fc called `ipcMain.on` unbound, fixed in
- * 7fa6cb0c7). The `ipcMain.on` calls written inline in src/main/index.ts are
+ * 7fa6cb0c7). The `ipcMain.on` calls written inline in src/app/index.ts are
  * not run here: only a real launch reaches them, which is
  * `e2e/scenarios/free-startup.spec.ts` in `bun run verify`. This is the
  * commit-time stand-in for main; the preload's is
@@ -64,10 +64,10 @@ vi.mock("electron", () => {
 
 // Vitest has no `?nodeWorker` import: the worker module would run on this
 // thread and refuse. The host is not called while registering.
-vi.mock("../src/main/junto/files/index-worker-host", () => ({ workerRootIndex: () => inert }));
+vi.mock("../src/core/files/index-worker-host", () => ({ workerRootIndex: () => inert }));
 
 // Some registrars start work on the app runtime; what it does is not under test.
-vi.mock("../src/main/runtime", () => ({
+vi.mock("../src/app/runtime", () => ({
   // The core port asks for an Exit, not a value (inProcessCore).
   AppRuntime: { runPromise: async () => undefined, runPromiseExit: async () => ({ _tag: "Success", value: undefined }), runFork: () => undefined },
 }));
@@ -78,14 +78,14 @@ beforeEach(() => {
 
 describe("main boot IPC registration", () => {
   it("runs every boot registrar on a real-shaped ipcMain without throwing", async () => {
-    const { registerBrowserIpcHandlers, registerIpcHandlers } = await import("../src/main/ipc");
-    const { registerDemoIpcHandlers } = await import("../src/main/junto/demo/ipc");
-    const { registerCompanionIpc } = await import("../src/main/junto/companion/ipc");
-    const { registerNotificationIpc } = await import("../src/main/junto/notifications/ipc");
-    const { registerFilesIpc } = await import("../src/main/junto/files/ipc");
-    const { registerOverseerLiveIpc } = await import("../src/main/junto/overseer/live/ipc");
+    const { registerBrowserIpcHandlers, registerIpcHandlers } = await import("../src/app/ipc-handlers");
+    const { registerDemoIpcHandlers } = await import("../src/app/demo/ipc");
+    const { registerCompanionIpc } = await import("../src/app/companion/ipc");
+    const { registerNotificationIpc } = await import("../src/app/notifications/ipc");
+    const { registerFilesIpc } = await import("../src/app/files/ipc");
+    const { registerOverseerLiveIpc } = await import("../src/app/overseer/live/ipc");
 
-    // In src/main/index.ts boot order.
+    // In src/app/index.ts boot order.
     registerIpcHandlers({
       surfacePlanes: { current: () => undefined },
       update: {

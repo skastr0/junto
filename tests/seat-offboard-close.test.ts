@@ -10,10 +10,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   SeatOffboardCloser,
   type OffboardClosePorts,
-} from "../src/main/junto/seat-sessions/offboard-close";
-import * as closerModule from "../src/main/junto/seat-sessions/offboard-close";
-import { rotateSeatSession, type RotatingSeat, type SeatRotatePorts } from "../src/main/junto/seat-sessions/rotate";
-import type { SeatOffboardEvent } from "../src/main/junto/seat-sessions/service";
+} from "../src/core/seat-sessions/offboard-close";
+import * as closerModule from "../src/core/seat-sessions/offboard-close";
+import { rotateSeatSession, type RotatingSeat, type SeatRotatePorts } from "../src/core/seat-sessions/rotate";
+import type { SeatOffboardEvent } from "../src/core/seat-sessions/service";
 import type { OffboardMode, SeatOffboardProgress } from "../src/shared/seat-sessions";
 
 const harness = (over: Partial<OffboardClosePorts> = {}) => {

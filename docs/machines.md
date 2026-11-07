@@ -423,7 +423,7 @@ The one interface three seats build against.
   machine: it dials out.
 - Owners: `remote-send` the SSH side, the relay command and the link session
   (hello, frames, the channel registry with a closed decoder per channel);
-  `remote-core` the windowless root (`src/main/headless.ts`), the owner
+  `remote-core` the windowless root (`src/core/headless.ts`), the owner
   socket and the socket the relay connects to; `remote-work` the `rows`
   channel; `remote-seats` the `seats` channel; `remote-send` the `status`
   and `inventory` channels. Nothing received over a link is used before its
@@ -1008,7 +1008,7 @@ The rest, for the other seats:
 What blocks run A, read on the paused tree at `a90cc6891`:
 
 - The windowless program is not on main. `scripts/build-machine.ts` builds
-  the bundle from `src/main/headless.ts`, which is uncommitted, so no bundle
+  the bundle from `src/core/headless.ts`, which is uncommitted, so no bundle
   can be built from main. Main plus the uncommitted root, link service and
   link session typechecks clean and the session's ten tests pass. Nothing has
   ever started it; no test covers the root, the listener or the link service.
@@ -1046,7 +1046,7 @@ to the machine list like any other machine. It is outside the tailnet, so its
 route and its trust come from Boat's API, and it sleeps whenever it is not
 needed, so it costs nothing while idle. The trust rules are in
 `docs/security-doctrine.md`, Boat machines (91b3bdd5f). Code:
-`src/main/junto/boat/`, shapes in `src/shared/boat.ts`.
+`src/core/boat/`, shapes in `src/shared/boat.ts`.
 
 - **Connecting.** `junto machine boat-connect '{}'` uses the operator's
   signed-in `boat` CLI to mint one account key with exactly

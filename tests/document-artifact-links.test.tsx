@@ -11,15 +11,15 @@ import type { NodeKind } from "../src/shared/model/kinds";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { ArtifactHead } from "../src/shared/resource-ipc";
 import type { ItemId } from "../src/shared/work-ids";
-import type { LinkableArtifact } from "../src/renderer/lib/artifact-link-draft";
-import { artifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/renderer/lib/artifacts-source";
-import { mentionPicker, pickerQueryAt, type PickerLinks } from "../src/renderer/components/artifacts/mention-picker";
+import type { LinkableArtifact } from "../src/window/lib/artifact-link-draft";
+import { artifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/window/lib/artifacts-source";
+import { mentionPicker, pickerQueryAt, type PickerLinks } from "../src/window/components/artifacts/mention-picker";
 
-vi.mock("../src/renderer/lib/mention-open", async (load) => ({
-  ...(await load<typeof import("../src/renderer/lib/mention-open")>()),
+vi.mock("../src/window/lib/mention-open", async (load) => ({
+  ...(await load<typeof import("../src/window/lib/mention-open")>()),
   openMention: () => undefined,
 }));
-const { DocumentMentionChip } = await import("../src/renderer/components/artifacts/DocumentMentionChip");
+const { DocumentMentionChip } = await import("../src/window/components/artifacts/DocumentMentionChip");
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 Range.prototype.getClientRects = () => [] as unknown as DOMRectList;

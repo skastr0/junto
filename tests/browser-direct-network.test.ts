@@ -16,7 +16,7 @@ const INHERITED_PROXY_SWITCHES = [
 ] as const;
 
 describe("browser network bootstrap", () => {
-  const source = readFileSync(join(import.meta.dirname, "..", "src/main/index.ts"), "utf8");
+  const source = readFileSync(join(import.meta.dirname, "..", "src/app/index.ts"), "utf8");
 
   it("strips inherited proxy switches before Chromium scheme registration", () => {
     const scheme = source.indexOf("registerTrustedRendererScheme(protocol,");

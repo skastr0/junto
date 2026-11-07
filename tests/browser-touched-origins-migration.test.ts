@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
+import { migrateMachineNames } from "../src/core/state/migrate-machine-names";
 import {
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
@@ -18,9 +18,9 @@ import {
   STATE_SCHEMA_V40_IDENTITY,
   migrateStateSchema,
   type StateSchemaMigrationPlan,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity } from "../src/core/state/schema-identity";
+import { STATE_SCHEMA_SQL } from "../src/core/state/schema";
 import { STATE_SCHEMA_V39_SQL, STATE_SCHEMA_V40_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;

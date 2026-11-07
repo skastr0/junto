@@ -5,8 +5,8 @@ import {
   actorRailMode,
   actorRailPeers,
   setActorRailExpanded,
-} from "../src/renderer/lib/actor-rail";
-import { sidebarSections$ } from "../src/renderer/lib/sidebar-sections";
+} from "../src/window/lib/actor-rail";
+import { sidebarSections$ } from "../src/window/lib/sidebar-sections";
 
 const doc = canvasOf(
   [seat("lead"), seat("ada"), seat("bea"), seat("solo"), page("notes")],

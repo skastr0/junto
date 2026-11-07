@@ -36,7 +36,7 @@ import {
   type SeatAwarenessEvidenceLine,
   type SeatAwarenessEvent,
   type SeatAwarenessWindowEvent,
-} from "../src/renderer/lib/seat-awareness-contract";
+} from "../src/window/lib/seat-awareness-contract";
 import {
   SEAT_AWARENESS_ACTIVITY_COPY,
   SEAT_AWARENESS_ATTRIBUTION,
@@ -60,8 +60,8 @@ import {
   subscribeSeatAwareness,
   windowDigestForBinding,
   type SeatAwarenessControl,
-} from "../src/renderer/lib/seat-awareness";
-import { state$ } from "../src/renderer/lib/state";
+} from "../src/window/lib/seat-awareness";
+import { state$ } from "../src/window/lib/state";
 import { SEAT_AWARENESS_TIER } from "../src/shared/features";
 
 const T0 = 1_700_000_000_000;

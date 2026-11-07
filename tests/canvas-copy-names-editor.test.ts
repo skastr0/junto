@@ -18,12 +18,12 @@ vi.mock("@shared/features", async (original) => ({
   get AUTHORITY_ENABLED() { return flags.authority; },
 }));
 
-import { FLEET_CONSENSUS_SEED_SQL, FLEET_CONSENSUS_STATE_SCHEMA_SQL } from "../src/main/junto/fleet/state-schema";
-import { ModelDependents } from "../src/main/junto/model/dependents";
-import { ModelService } from "../src/main/junto/model/service";
-import { MODEL_STATE_SCHEMA_SQL } from "../src/main/junto/model/state-schema";
-import { installSqlCommitCallbacks } from "../src/main/junto/state/sql-commit";
-import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
+import { FLEET_CONSENSUS_SEED_SQL, FLEET_CONSENSUS_STATE_SCHEMA_SQL } from "../src/core/fleet/state-schema";
+import { ModelDependents } from "../src/core/model/dependents";
+import { ModelService } from "../src/core/model/service";
+import { MODEL_STATE_SCHEMA_SQL } from "../src/core/model/state-schema";
+import { installSqlCommitCallbacks } from "../src/core/state/sql-commit";
+import { makeSqliteClient } from "../src/core/state/sqlite-client";
 import { CanvasCopy } from "../src/shared/canvas-copy";
 import { Command, asCanvasName } from "../src/shared/model";
 

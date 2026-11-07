@@ -2,7 +2,7 @@
  * Rising edges for the attention sounds: what rises, what does not.
  */
 import { describe, expect, it } from "vitest";
-import { alertId, emptyAlertQueue, observeSignals, type AlertSignal } from "../src/renderer/lib/alert-queue";
+import { alertId, emptyAlertQueue, observeSignals, type AlertSignal } from "../src/window/lib/alert-queue";
 import { AlertKind } from "../src/shared/wire/urgency";
 
 const signal = (nodeId: string, kind: "blocked" | "attention" | "ready" | "working"): AlertSignal => ({

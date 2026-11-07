@@ -23,12 +23,12 @@ import {
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/junto/work/repository";
+} from "../src/core/work/repository";
 import {
   mailboxMessageDeliveryId,
   mailboxMessageReadId,
-} from "../src/main/junto/work/mailbox-receipts";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+} from "../src/core/work/mailbox-receipts";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import { seedCanvasRows } from "./support/seed-canvas";
 import { note } from "./support/model-nodes";

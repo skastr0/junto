@@ -17,8 +17,8 @@ import {
   STATE_SCHEMA_V68_IDENTITY,
   migrateStateSchema,
   type StateSchemaMigrationPlan,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V67_SQL, STATE_SCHEMA_V68_SQL } from "./fixtures/state-v13/schema";
 
 const tables = (database: DatabaseSync): ReadonlyArray<string> =>

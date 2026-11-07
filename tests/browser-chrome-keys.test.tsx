@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserChromeState } from "../src/shared/browser-chrome";
 import { initialPageDriving } from "../src/shared/page-driver";
 import { initialPageTabs, reducePageTabs, type PageTabs } from "../src/shared/page-tabs";
-import { BrowserChrome } from "../src/renderer/components/browser/BrowserChrome";
-import { runPageChromeKey } from "../src/renderer/lib/page-chrome-keys";
-import type { ChromeCommand } from "../src/renderer/lib/browser-chrome-source";
+import { BrowserChrome } from "../src/window/components/browser/BrowserChrome";
+import { runPageChromeKey } from "../src/window/lib/page-chrome-keys";
+import type { ChromeCommand } from "../src/window/lib/browser-chrome-source";
 
 let host: HTMLDivElement;
 let root: Root;

@@ -18,7 +18,7 @@ import type {
   AppProcessPlane,
   AppProcessSignalReceipt,
   AppTerminalLease,
-} from "../src/main/junto/app-process-plane";
+} from "../src/node/app-process-plane";
 
 const tempSandboxes = new Set<ProbeSandbox>();
 const cleanDrainReceipt: ProbeProcessDrainReceipt = {

@@ -1,6 +1,6 @@
 /** Rotating a seat onto a fresh session: the order of acts and every refusal. */
 import { describe, expect, it } from "vitest";
-import { rotateSeatSession, type RotatingSeat, type SeatRotatePorts } from "../src/main/junto/seat-sessions/rotate";
+import { rotateSeatSession, type RotatingSeat, type SeatRotatePorts } from "../src/core/seat-sessions/rotate";
 
 const seat = (over: Partial<RotatingSeat> = {}): RotatingSeat => ({
   canvasName: "c",

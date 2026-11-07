@@ -16,7 +16,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
-const MIGRATIONS = join(ROOT, "src/main/junto/state/migrations.ts");
+const MIGRATIONS = join(ROOT, "src/core/state/migrations.ts");
 
 const out = mkdtempSync(join(tmpdir(), "junto-schema-identity-"));
 const resultPath = join(out, "identity.json");
@@ -26,11 +26,11 @@ writeFileSync(
   toolTest,
   `import { writeFileSync } from "node:fs";
 import { it } from "vitest";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
+import { STATE_SCHEMA_SQL } from "../src/core/state/schema";
 import {
   CURRENT_STATE_SCHEMA_VERSION,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity } from "../src/core/state/schema-identity";
 it("computes the head schema identity", () => {
   writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify({
     version: CURRENT_STATE_SCHEMA_VERSION,

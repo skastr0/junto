@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { appMenuTemplate } from "../src/main/junto/app-menu";
+import { appMenuTemplate } from "../src/app/app-menu";
 import {
   heapLinesCrossed,
   processKind,
@@ -10,9 +10,9 @@ import {
   startProcessMetricsLog,
   type MainHeapInput,
   type ProcessMetricInput,
-} from "../src/main/junto/observability/process-metrics-log";
-import { makePerfTraceRecorder, traceFileName, tracesToPrune } from "../src/main/junto/observability/perf-trace";
-import { framePressureRow, scriptKey } from "../src/renderer/lib/frame-pressure-log";
+} from "../src/app/observability/process-metrics-log";
+import { makePerfTraceRecorder, traceFileName, tracesToPrune } from "../src/app/observability/perf-trace";
+import { framePressureRow, scriptKey } from "../src/window/lib/frame-pressure-log";
 
 const MB = 1024 * 1024;
 const heap = (usedMb: number, limitMb = 4096): MainHeapInput => ({

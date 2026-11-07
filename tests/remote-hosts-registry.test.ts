@@ -19,27 +19,27 @@ import {
   HostsService,
   HostsPersistenceLive,
   makeHostsService,
-} from "../src/main/junto/hosts/service";
+} from "../src/core/hosts/service";
 import {
   HostsPersistence,
   makeHostsRegistry,
   resetDefaultHostsRegistryForTests,
   type HostsRegistry,
-} from "../src/main/junto/hosts/registry";
+} from "../src/core/hosts/registry";
 import {
   findHostById,
   hostsSnapshot,
   setHostsSnapshot,
   subscribeHostsSnapshot,
-} from "../src/main/junto/hosts/snapshot";
-import { SshTransport } from "../src/main/junto/ssh/service";
+} from "../src/core/hosts/snapshot";
+import { SshTransport } from "../src/core/ssh/service";
 import { DatabaseSync } from "node:sqlite";
 import { Reactivity } from "effect/reactivity";
 import { SqlClient } from "effect/sql";
-import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
-import { MACHINE_REGISTRY_STATE_SCHEMA_SQL } from "../src/main/junto/hosts/state-schema";
-import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { MACHINE_STATE_SCHEMA_SQL } from "../src/main/junto/machines/state-schema";
+import { makeSqliteClient } from "../src/core/state/sqlite-client";
+import { MACHINE_REGISTRY_STATE_SCHEMA_SQL } from "../src/core/hosts/state-schema";
+import { makeMachineRepositoryLive } from "../src/core/machines/repository";
+import { MACHINE_STATE_SCHEMA_SQL } from "../src/core/machines/state-schema";
 import { makeTestLog } from "./support/test-log";
 
 const testLog = makeTestLog();

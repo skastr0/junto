@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TerminalManagedPromptResult } from "../src/shared/ipc";
 import { asCanvasName } from "../src/shared/model";
-import { state$ } from "../src/renderer/lib/state";
-import { modelStore } from "../src/renderer/lib/use-model";
+import { state$ } from "../src/window/lib/state";
+import { modelStore } from "../src/window/lib/use-model";
 import { note as noteNode, seat as seatNode } from "./support/model-nodes";
 import {
   planSeatMessage,
@@ -11,7 +11,7 @@ import {
   seatMessageReach,
   seatMessageTitle,
   sendSeatMessage,
-} from "../src/renderer/lib/seat-message";
+} from "../src/window/lib/seat-message";
 
 const seat = (id: string, name: string) => seatNode(id, {
   label: name,

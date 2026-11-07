@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { listIntentOf, stepList } from "../src/renderer/lib/list-nav";
+import { listIntentOf, stepList } from "../src/window/lib/list-nav";
 
 const key = (over: Partial<Parameters<typeof listIntentOf>[0]> & { key: string }) => ({
   metaKey: false,

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
+import { machineBundleFiles } from "../src/node/hosts/bundle";
 import { signMachineBundle } from "../scripts/sign-machine-bundle.mjs";
 import { assertMachinePayloadsUnchanged, snapshotMachinePayloads } from "../scripts/machine-payloads.mjs";
 import { auditMachinePayloads } from "../scripts/audit-packaged-app";

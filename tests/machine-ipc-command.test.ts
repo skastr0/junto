@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { expect, it } from "vitest";
-import { dispatchMachineIpcCommand } from "../src/main/junto/hosts/machine-ipc-command";
+import { dispatchMachineIpcCommand } from "../src/core/hosts/machine-ipc-command";
 import { OPERATOR_PROTOCOL_VERSION, type OperatorRequestEnvelope } from "../src/shared/operator-control";
 import type { MachineInstallEvent } from "../src/shared/machine-install";
 import type { MachineCommandProgress, MachineSendEvent } from "../src/shared/machine-progress";

@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { authoring } from "../src/renderer/lib/authoring";
+import { modelStore } from "../src/window/lib/use-model";
+import { authoring } from "../src/window/lib/authoring";
 import { openModelCanvas } from "./support/open-model-canvas";
 import { note } from "./support/model-nodes";
 import { asCanvasName, asNodeId, type Command } from "../src/shared/model";
-import { commitCommands, redo, undo } from "../src/renderer/lib/mutations";
-import { state$ } from "../src/renderer/lib/state";
+import { commitCommands, redo, undo } from "../src/window/lib/mutations";
+import { state$ } from "../src/window/lib/state";
 
 let close: (() => Promise<void>) | undefined;
 const open = (...nodes: Parameters<typeof openModelCanvas>[1]) => { close = openModelCanvas("rig", nodes); };

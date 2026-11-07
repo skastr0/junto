@@ -13,13 +13,13 @@ import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { decodeWire } from "../src/shared/model/wire";
-import { ModelRecords } from "../src/main/junto/model/records";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { ModelRecords } from "../src/core/model/records";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import {
   CANVAS_DELETIONS_REMOVED_TABLES,
   CANVAS_DELETIONS_RETIRED_COLUMNS,
-} from "../src/main/junto/state/migrate-canvas-deletions";
-import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
+} from "../src/core/state/migrate-canvas-deletions";
+import { migrateMachineNames } from "../src/core/state/migrate-machine-names";
 import {
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
@@ -27,8 +27,8 @@ import {
   STATE_SCHEMA_V32_IDENTITY,
   migrateStateSchema,
   type StateSchemaMigrationPlan,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V31_SQL, STATE_SCHEMA_V32_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;

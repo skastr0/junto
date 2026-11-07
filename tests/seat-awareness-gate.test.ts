@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   decodeSeatAwarenessEvent,
   type SeatAwarenessEvent,
-} from "../src/renderer/lib/seat-awareness-contract";
+} from "../src/window/lib/seat-awareness-contract";
 import { SEAT_AWARENESS_TIER } from "../src/shared/features";
 import { defaultSettings, type Settings } from "../src/shared/settings";
 import {
@@ -27,7 +27,7 @@ import {
   resolveSeatAwarenessGate,
   seatAwarenessApiKey,
   seatAwarenessEnrolled,
-} from "../src/main/junto/term/seat-awareness";
+} from "../src/core/term/seat-awareness";
 import {
   EVIDENCE_TEXT,
   makeFakePlane,

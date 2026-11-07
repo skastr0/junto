@@ -19,8 +19,7 @@
     "types": ["node", "bun", "vite/client", "vitest/globals"],
     "paths": {
       "@shared/*": ["./src/shared/*"],
-      "@main/*": ["./src/main/*"],
-      "@renderer/*": ["./src/renderer/*"],
+      "@window/*": ["./src/window/*"],
       "@junto/overlay": ["./src/overlay-oss/index.ts"],
       "@junto/overlay/*": ["./src/overlay-oss/*"]
     }

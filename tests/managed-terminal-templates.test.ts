@@ -47,7 +47,7 @@ import {
   readClaudeModels,
   readGrokModels,
   readHermesModels,
-} from "../src/main/junto/term/templates/enumerate-models";
+} from "../src/core/term/templates/enumerate-models";
 import {
   HARNESS_HERMES_ENABLED,
   HARNESS_KIMI_ENABLED,

@@ -1,8 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { InstallationId } from "../src/shared/installation-id";
-import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
-import { migrateTaskModel, taskIdOf, titleAndBody } from "../src/main/junto/state/migrate-task-model";
+import { deriveActorSeatId } from "../src/core/actor-seat-id";
+import { migrateTaskModel, taskIdOf, titleAndBody } from "../src/core/state/migrate-task-model";
 
 // The old tables, cut to the columns the step reads.
 const OLD_SCHEMA = `

@@ -20,10 +20,10 @@ import {
   STATE_SCHEMA_V62_IDENTITY,
   migrateStateSchema,
   type StateSchemaMigrationPlan,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V61_SQL, STATE_SCHEMA_V62_SQL } from "./fixtures/state-v13/schema";
-import { MACHINE_VAULT_TOKEN_TABLES } from "../src/main/junto/vault/state-schema";
+import { MACHINE_VAULT_TOKEN_TABLES } from "../src/core/vault/state-schema";
 
 const tables = (database: DatabaseSync): ReadonlyArray<string> =>
   (

@@ -23,12 +23,12 @@ import {
   type ResourceCommand,
   type RulingContext,
 } from "../src/shared/resource-command";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { ContentService, makeContentServiceLive } from "../src/main/junto/content/service";
-import { ArtifactRepository, ArtifactRepositoryLive, projectArtifactFacts } from "../src/main/junto/work/artifact-repository";
-import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
-import { writeRuling } from "../src/main/junto/work/resource-rulings";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { ContentService, makeContentServiceLive } from "../src/core/content/service";
+import { ArtifactRepository, ArtifactRepositoryLive, projectArtifactFacts } from "../src/core/work/artifact-repository";
+import { RulingRecorder } from "../src/core/work/ruling-recorder";
+import { writeRuling } from "../src/core/work/resource-rulings";
 
 const label = (raw: string): ArtifactLabel => {
   const folded = artifactLabelOf(raw);

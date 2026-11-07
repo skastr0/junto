@@ -6,7 +6,7 @@ import { feedSeatsFromCanvas, feedRegionForCanvas } from "../src/shared/operator
 import { feedCanvasModelNeeds } from "../src/shared/canvas-needs";
 import { deriveExecutionGraph } from "../src/shared/execution-graph";
 import type { TaskNumber } from "../src/shared/task-model";
-import { mailboxRows } from "../src/renderer/lib/actor-ledger";
+import { mailboxRows } from "../src/window/lib/actor-ledger";
 import { THIS_MACHINE } from "./support/machines";
 import { heldTask, taskView } from "./support/seat-tasks";
 

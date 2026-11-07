@@ -2,8 +2,8 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { expect, it } from "vitest";
 import { defaultSettings, type Settings } from "../src/shared/settings";
 import { inProcessCore, type CoreRunner } from "./support/in-process-core";
-import "../src/main/core-process/ops/ipc-settings";
-import { SettingsService } from "../src/main/junto/settings/service";
+import "../src/core/ops/ipc-settings";
+import { SettingsService } from "../src/core/settings/service";
 
 // Settings answer from the core, masked for the renderer before they cross to main.
 it("answers Settings in the core, masks provider secrets before they cross, and refuses malformed input there", async () => {

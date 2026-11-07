@@ -4,14 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Exit } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LocalSessionHost } from "../src/main/junto/term/local-host";
+import { LocalSessionHost } from "../src/core/term/local-host";
 import {
   makeLocalSeatProcess,
   makeRemoteSeatProcess,
   type OccupySpec,
   type RemoteAgentSeatCommand,
   noSeatEnvironment,
-} from "../src/main/junto/term/seat-process";
+} from "../src/core/term/seat-process";
 import type { TerminalSessionSummary } from "../src/shared/terminal";
 import {
   occupancyFromSession,
@@ -23,9 +23,9 @@ import {
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
-} from "../src/main/junto/process-identity";
-import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
-import { __setSessionExistenceHomeForTest } from "../src/main/junto/term/session-existence";
+} from "../src/core/process-identity";
+import { setProcessEpochReaderForTests } from "../src/node/process-epoch";
+import { __setSessionExistenceHomeForTest } from "../src/core/term/session-existence";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 import type { FakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 import { installHermeticHarnessBins } from "./helpers/hermetic-harness-bins";

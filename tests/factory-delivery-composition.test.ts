@@ -4,16 +4,16 @@
  * the shared recipe.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { WritePromptOptions } from "../src/main/junto/term/drive";
+import type { WritePromptOptions } from "../src/core/term/drive";
 import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
-import { createManagedTerminalDrive } from "../src/main/junto/term/drive/managed-drive-factory";
-import { InjectionSupervisor } from "../src/main/junto/term/injection-supervisor";
+import { createManagedTerminalDrive } from "../src/core/term/drive/managed-drive-factory";
+import { InjectionSupervisor } from "../src/core/term/injection-supervisor";
 import {
   composeFactoryDelivery,
   makeFactoryWriteManagedPrompt,
   wireFactorySupervisor,
   type FactoryDeliveryDrive,
-} from "../src/main/junto/term/factory-delivery-composition";
+} from "../src/core/term/factory-delivery-composition";
 
 type FakeDrive = {
   writes: Array<{ bindingId: string; text: string; options: unknown }>;

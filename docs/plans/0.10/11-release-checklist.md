@@ -27,7 +27,7 @@ product-lead says so.
 Run on a copy of `~/.junto/junto.db`, never the live file.
 
 - [x] Open the copy with the cut build's engine and let it migrate to the head
-      (`CURRENT_STATE_SCHEMA_VERSION` in `src/main/junto/state/migrations.ts`;
+      (`CURRENT_STATE_SCHEMA_VERSION` in `src/core/state/migrations.ts`;
       v48 on 2026-10-21, confirm at the cut).
       Receipt: migration chain v25 to v48 green, canvas-verifier (per product-lead; the head is v48, not 47).
 - [x] `PRAGMA integrity_check` is `ok` and `PRAGMA foreign_key_check` is empty.

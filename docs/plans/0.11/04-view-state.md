@@ -17,7 +17,7 @@ the data.
 - **Kept in SQLite, as proper tables.** One table per kind of state, typed
   columns with `CHECK`s, `STRICT`, a row per thing (a slot, a member, a
   picked label). No JSON body column and no key-value blob: the
-  `settings_preferences.body` shape (`src/main/junto/settings/state-schema.ts:36`)
+  `settings_preferences.body` shape (`src/core/settings/state-schema.ts:36`)
   is what this is not. No `localStorage`, no files.
 - **Nothing the operator arranges is session-only.** Every
   "remembered for the session" in the renderer that holds an operator choice

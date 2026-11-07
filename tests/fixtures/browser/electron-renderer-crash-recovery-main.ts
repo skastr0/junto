@@ -6,15 +6,15 @@ import { dirname, isAbsolute } from "node:path";
 import { app, webContents, type WebContents } from "electron";
 import { ManagedRuntime } from "effect";
 import { SqlClient } from "effect/sql";
-import { makeBrowserProfileService } from "../../../src/main/junto/browser/profiles";
-import { BrowserSessionService } from "../../../src/main/junto/browser/sessions";
+import { makeBrowserProfileService } from "../../../src/node/browser/profiles";
+import { BrowserSessionService } from "../../../src/app/browser/sessions";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../../../src/main/junto/state/engine";
-import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/junto/browser/view-adapter";
-import { isManagedBrowserWebContents } from "../../../src/main/junto/browser/web-policy";
-import type { ResolvedPageTarget } from "../../../src/main/junto/browser/page-target";
+} from "../../../src/core/state/engine";
+import { makeBrowserTestOnlyElectronHarness } from "../../../src/app/browser/view-adapter";
+import { isManagedBrowserWebContents } from "../../../src/app/browser/web-policy";
+import type { ResolvedPageTarget } from "../../../src/core/browser/page-target";
 import { formatNodeRef } from "../../../src/shared/node-ref";
 import { localBrowserTestMachineName } from "../../browser-test-machine";
 
@@ -23,7 +23,7 @@ import { localBrowserTestMachineName } from "../../browser-test-machine";
 // --no-proxy-server / --proxy-server would restamp a managed browser
 // partition (DIRECT, or an uncontrolled proxy) after its owned CONNECT proxy
 // is pinned. Strip the inherited switches before any Session can exist,
-// exactly like src/main/index.ts does. Never re-add no-proxy-server instead.
+// exactly like src/app/index.ts does. Never re-add no-proxy-server instead.
 app.commandLine.removeSwitch("no-proxy-server");
 app.commandLine.removeSwitch("proxy-server");
 app.commandLine.removeSwitch("proxy-bypass-list");

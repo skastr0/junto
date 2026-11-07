@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { RendererCrashFallback } from "../src/renderer/components/RendererErrorBoundary";
+import { RendererCrashFallback } from "../src/window/components/RendererErrorBoundary";
 
 describe("RendererCrashFallback", () => {
   it("keeps the station copy and a reload action", () => {
@@ -24,11 +24,11 @@ describe("RendererCrashFallback", () => {
 describe("renderer error boundary wiring", () => {
   it("wraps the admitted shell and the work surface", () => {
     const main = readFileSync(
-      new URL("../src/renderer/main.tsx", import.meta.url),
+      new URL("../src/window/main.tsx", import.meta.url),
       "utf8",
     );
     const app = readFileSync(
-      new URL("../src/renderer/App.tsx", import.meta.url),
+      new URL("../src/window/App.tsx", import.meta.url),
       "utf8",
     );
     expect(main).toContain("RendererErrorBoundary");

@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const source = readFileSync(join(root, "src/renderer/components/nodes/TextNode.tsx"), "utf8");
+const source = readFileSync(join(root, "src/window/components/nodes/TextNode.tsx"), "utf8");
 
 describe("text node surfaces", () => {
   it("names every focusable surface", () => {

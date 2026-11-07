@@ -8,7 +8,7 @@ import {
   refusalLine,
   tabLabel,
   takeoverOffer,
-} from "../src/renderer/lib/browser-chrome-model";
+} from "../src/window/lib/browser-chrome-model";
 
 const seat = asNodeId("seat-ada");
 const name = (id: string) => (id === seat ? "Ada" : undefined);

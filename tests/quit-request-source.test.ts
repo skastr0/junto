@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 // can only have come from outside: the menu, Cmd+Q, the Dock, an Apple Event
 // or a logout.
 describe("quit request source wiring", () => {
-  const source = readFileSync(join(import.meta.dirname, "..", "src/main/index.ts"), "utf8");
+  const source = readFileSync(join(import.meta.dirname, "..", "src/app/index.ts"), "utf8");
   const quitFor = source.slice(
     source.indexOf("const quitFor = "),
     source.indexOf("const takeQuitRequestSource = "),

@@ -153,7 +153,7 @@ test(`terminal performance baseline, ${COND ?? "none"}`, async () => {
   try {
     const { page, sandbox } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 60_000 });
-    // JUNTO_PERF registers the terminal probe (src/renderer/lib/terminal-perf-probe.ts).
+    // JUNTO_PERF registers the terminal probe (src/window/lib/terminal-perf-probe.ts).
     await page.addInitScript(() => {
       (globalThis as Record<string, unknown>).JUNTO_PERF = true;
     });

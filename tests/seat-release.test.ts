@@ -12,26 +12,26 @@ import { SqlClient } from "effect/sql";
 import { Reactivity } from "effect/reactivity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { asCanvasName, type Canvas, type Command, type Node } from "../src/shared/model";
-import { canvasAfter } from "../src/renderer/lib/model-undo";
+import { canvasAfter } from "../src/window/lib/model-undo";
 import type { InstallationId } from "../src/shared/installation-id";
 import { mintItemId, mintOpId, type ResourceActor, type ResourceCommand } from "../src/shared/resource-command";
 import { seatNodeId, taskNodeId, type TaskCommand, type TaskId, type TaskState } from "../src/shared/task-model";
 import { asNodeId } from "../src/shared/physics/schema";
-import { MachineRepository } from "../src/main/junto/machines/repository";
-import { ModelService } from "../src/main/junto/model/service";
-import { REVIEW_VERDICTS_SCHEMA_SQL } from "../src/main/junto/state/migrate-review-stamps";
-import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
-import { writeRuling } from "../src/main/junto/work/resource-rulings";
-import { RESOURCE_RULINGS_STATE_SCHEMA_SQL } from "../src/main/junto/work/resource-rulings-schema";
-import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
-import { commandReleasingSeats, SEAT_RELEASE_LINE } from "../src/main/junto/work/seat-release";
-import { taskCanvasEnv, taskRulingContext } from "../src/main/junto/work/task-control";
-import { TaskRepository, TaskRepositoryLive } from "../src/main/junto/work/task-repository";
-import { TASK_SEAT_RELEASES_SQL, TASKS_STATE_SCHEMA_SQL } from "../src/main/junto/work/task-state-schema";
+import { MachineRepository } from "../src/core/machines/repository";
+import { ModelService } from "../src/core/model/service";
+import { REVIEW_VERDICTS_SCHEMA_SQL } from "../src/core/state/migrate-review-stamps";
+import { makeSqliteClient } from "../src/core/state/sqlite-client";
+import { writeRuling } from "../src/core/work/resource-rulings";
+import { RESOURCE_RULINGS_STATE_SCHEMA_SQL } from "../src/core/work/resource-rulings-schema";
+import { RulingRecorder } from "../src/core/work/ruling-recorder";
+import { commandReleasingSeats, SEAT_RELEASE_LINE } from "../src/core/work/seat-release";
+import { taskCanvasEnv, taskRulingContext } from "../src/core/work/task-control";
+import { TaskRepository, TaskRepositoryLive } from "../src/core/work/task-repository";
+import { TASK_SEAT_RELEASES_SQL, TASKS_STATE_SCHEMA_SQL } from "../src/core/work/task-state-schema";
 import { canvasOf, region, seat, taskBoard } from "./support/model-nodes";
 
 const posted = vi.hoisted(() => [] as Array<{ readonly taskId: string; readonly text: string }>);
-vi.mock("../src/main/junto/work/subject-comment", () => ({
+vi.mock("../src/core/work/subject-comment", () => ({
   postSubjectComment: (input: { readonly subject: { readonly taskId: string }; readonly text: string }) => {
     posted.push({ taskId: input.subject.taskId, text: input.text });
     return Effect.succeed({ threadId: input.subject.taskId, messageId: input.subject.taskId, notified: [] });

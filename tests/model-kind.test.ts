@@ -1,9 +1,9 @@
 /** A card's glance reads the separately queried work counts. */
 import { describe, expect, it } from "vitest";
 import { asCanvasName, NODE_KINDS } from "../src/shared/model";
-import { holdsWork, kindMayBeBlocked, kindWord, nodeAttention, physicsKind, roleOfKind, taskCounts, type SinkCounts } from "../src/renderer/lib/model-kind";
+import { holdsWork, kindMayBeBlocked, kindWord, nodeAttention, physicsKind, roleOfKind, taskCounts, type SinkCounts } from "../src/window/lib/model-kind";
 import type { TaskState, TaskView } from "../src/shared/task-model";
-import { canvasOfState } from "../src/renderer/lib/model-store";
+import { canvasOfState } from "../src/window/lib/model-store";
 import { note } from "./support/model-nodes";
 
 const NOTHING: SinkCounts = { count: 0, needsHuman: false, allTerminal: true };

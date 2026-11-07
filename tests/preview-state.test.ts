@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { snapshotPreview } from "../scripts/preview-snapshot";
 import { checkPreview } from "../scripts/preview-db-check";
-import { pinFreshPreviewHome } from "../src/main/junto/preview-home";
+import { pinFreshPreviewHome } from "../src/app/preview-home";
 
 const paths: string[] = [];
 const temporary = () => { const p = mkdtempSync(join(tmpdir(), "junto-preview-test-")); paths.push(p); return p; };

@@ -26,12 +26,12 @@ is about 3 to 4k tokens per session start.
 
 ## Today
 
-- Onboard is assembled at `src/main/junto/work/control.ts:1285-1357`. A real
+- Onboard is assembled at `src/core/work/control.ts:1285-1357`. A real
   briefing (product-lead, 2026-10-21) was 36 KB: `sessions` 11.9 KB,
   `co_members` 11.6 KB, `connected` 7.1 KB, region instruction 2.1 KB. No
   state since the last session exists in it.
 - Automatic closes take no agent turn and write no notes, by design, to
-  spare the cache (`src/main/junto/seat-sessions/offboard-close.ts:145-151`).
+  spare the cache (`src/core/seat-sessions/offboard-close.ts:145-151`).
   Of this seat's last four Claude sessions, none left notes.
 - A session record built at close was tried and reverted (4205c4357,
   a5f02d172, 57ee092a3). Its model was imported from outside Junto and
@@ -39,7 +39,7 @@ is about 3 to 4k tokens per session start.
   Junto already writes, named by what they are.
 - The field named `instructions` holds the commands for connected seats, not
   instructions. A briefing read error becomes "no briefing"
-  (`src/main/junto/references/seat-reads.ts:66`).
+  (`src/core/references/seat-reads.ts:66`).
 
 ## What goes in onboard
 
@@ -100,7 +100,7 @@ Computed at onboard from rows, never stored (pty-lead):
 
 - **No time boundary for threads.** Owed and awaited threads are state: the
   last message's direction and its `deliveredAt` and `readAt`
-  (`src/main/junto/work/repository.ts:2500-2505`). `ended_at` cannot bound
+  (`src/core/work/repository.ts:2500-2505`). `ended_at` cannot bound
   them: a replaced session ends when the next one starts, so the window would
   be empty.
 - **Derivation.** The existing `mail-threads.ts` derivation that the Threads
@@ -108,7 +108,7 @@ Computed at onboard from rows, never stored (pty-lead):
   recipient's mailbox and the only index is `work_messages_inbox` by node, so
   it reads every mailbox on the canvas: fine at today's size, unmeasured.
 - **Signal answers.** Mailed answers are mail. Silent answers have no receipt
-  (`src/main/junto/signals/operator.ts:21-25`); bound those by the previous
+  (`src/core/signals/operator.ts:21-25`); bound those by the previous
   session's `started_at`.
 - **Unread** is a count of unread rows in the seat's mailbox. Mail-waiting
   facts are an operator feed fact with no mail id or text
@@ -121,7 +121,7 @@ owed replies differently (cli-lead).
 ## Notes
 
 Unchanged. Junto already has offboard notes and the continuation, the note
-for the next session (`src/main/junto/seat-sessions/repository.ts:49-63`,
+for the next session (`src/core/seat-sessions/repository.ts:49-63`,
 capped at 16,000 characters, `src/shared/seat-sessions.ts:126`). They stay
 what they are and are shown as today. The draft's note template and
 reference checking were dropped (pty-lead): a template for the seat's words
@@ -133,7 +133,7 @@ reverted session record. Automatic closes stay turnless.
 - Rename onboard `instructions` to `commands`.
 - Say "briefing unreadable" instead of omitting it when the read fails.
 - `signal list` lists every open signal and the last 20 closed ones
-  (`AGENT_SIGNAL_CLOSED_HISTORY`, `src/main/junto/signals/repository.ts:78,323`);
+  (`AGENT_SIGNAL_CLOSED_HISTORY`, `src/core/signals/repository.ts:78,323`);
   page it with a since cursor, as `msg list` does.
 - Rewrite the guidance line at `src/shared/seat-onboarding.ts:301` ("Edges are
   your permissions ... commands under `instructions`"): false after 01 and

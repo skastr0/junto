@@ -5,7 +5,7 @@
  * 8 MiB (scripts/audit-retired-state-signatures.ts) and these engines were
  * over 2 MB of it; a static import from boot code puts them back.
  *
- * Walks every static import reachable from src/renderer/main.tsx (not
+ * Walks every static import reachable from src/window/main.tsx (not
  * `import type`, not `import()`) and fails on a package below.
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -13,9 +13,9 @@ import { dirname, join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = resolve(__dirname, "..");
-const ENTRY = join(ROOT, "src/renderer/main.tsx");
+const ENTRY = join(ROOT, "src/window/main.tsx");
 const ALIASES: ReadonlyArray<readonly [string, string]> = [
-  ["@renderer/", "src/renderer/"],
+  ["@window/", "src/window/"],
   ["@shared/", "src/shared/"],
 ];
 const LAZY_ONLY = ["@codemirror/", "@lezer/", "@pierre/diffs", "@pierre/trees", "shiki", "@shikijs/"];

@@ -10,7 +10,7 @@ import {
 } from "../src/shared/features";
 import { asCanvasName, decodeCommand, type Node } from "../src/shared/model";
 import { canvasFromOpened, type Canvas } from "../src/shared/model/canvas";
-import { added, topZ } from "../src/renderer/lib/model-edits";
+import { added, topZ } from "../src/window/lib/model-edits";
 import {
   newArtifacts,
   newGit,
@@ -22,7 +22,7 @@ import {
   newSeat,
   newTaskBoard,
   newTerminal,
-} from "../src/renderer/lib/model-factories";
+} from "../src/window/lib/model-factories";
 import { seatParts } from "../src/shared/model/seat-parts";
 
 const name = asCanvasName("factory");

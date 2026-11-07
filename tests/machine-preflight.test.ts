@@ -7,9 +7,9 @@ import { tmpdir } from "node:os";
 import { Effect } from "effect";
 import { ChildProcess as Command } from "effect/process";
 import { expect, it } from "vitest";
-import { parseSshRoute } from "../src/main/junto/ssh";
-import { createSshProgramCompiler } from "../src/main/junto/ssh/program";
-import { machinePreflight } from "../src/main/junto/ssh/machine-preflight";
+import { parseSshRoute } from "../src/core/ssh";
+import { createSshProgramCompiler } from "../src/core/ssh/program";
+import { machinePreflight } from "../src/core/ssh/machine-preflight";
 
 it("runs the closed preflight and aggregates wrong architecture, low space and an invalid folder", async () => {
   const home = await realpath(await mkdtemp(join(tmpdir(), "junto-preflight-")));

@@ -4,29 +4,29 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { encodeError } from "../src/main/junto/failure-encode";
-import { HostsService } from "../src/main/junto/hosts/service";
-import { makeInventoryChannel } from "../src/main/junto/inventory/channel";
-import { makePeerInventoryClient } from "../src/main/junto/inventory/client";
-import { makePeerInventoryCache } from "../src/main/junto/inventory/peer-cache";
+import { encodeError } from "../src/node/failure-encode";
+import { HostsService } from "../src/core/hosts/service";
+import { makeInventoryChannel } from "../src/core/inventory/channel";
+import { makePeerInventoryClient } from "../src/core/inventory/client";
+import { makePeerInventoryCache } from "../src/core/inventory/peer-cache";
 import {
   decodeLinkInventorySnapshot,
   InventoryLinkFailure,
   InventoryNoSeatHere,
   InventoryNotFromItsMachine,
   wireSnapshot,
-} from "../src/main/junto/inventory/wire";
-import { LinkUnavailable, MachineLink } from "../src/main/junto/link/service";
-import { type LinkChannelContext, LinkRequestFailed } from "../src/main/junto/link/types";
-import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { ModelService } from "../src/main/junto/model/service";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+} from "../src/core/inventory/wire";
+import { LinkUnavailable, MachineLink } from "../src/core/link/service";
+import { type LinkChannelContext, LinkRequestFailed } from "../src/core/link/types";
+import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
+import { ModelService } from "../src/core/model/service";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import { makeTestLog } from "./support/test-log";
 
 const testLog = makeTestLog();
-import { machineLogDir } from "../src/main/junto/observability/log-file";
-import { HarnessInventory } from "../src/main/junto/term/templates/harness-inventory";
-import { WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { machineLogDir } from "../src/node/observability/log-file";
+import { HarnessInventory } from "../src/core/term/templates/harness-inventory";
+import { WorkRepositoryLive } from "../src/core/work/repository";
 import type { MachineInventory } from "../src/shared/harness-domain/inventory";
 import { InstallationId } from "../src/shared/installation-id";
 import { asCanvasName, type Node } from "../src/shared/model";

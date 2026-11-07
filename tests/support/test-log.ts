@@ -3,8 +3,8 @@
  * unless the test asks. Constructing the log a test exercises is the point of
  * `createLogger`; nothing here installs process-wide state.
  */
-import { createLogger, type Log, type LogOptions } from "../../src/main/junto/observability/logger";
-import type { ObservabilityAppendInput } from "../../src/main/junto/observability/ring";
+import { createLogger, type Log, type LogOptions } from "../../src/node/observability/logger";
+import type { ObservabilityAppendInput } from "../../src/core/observability/ring";
 
 export type TestLog = {
   readonly log: Log;

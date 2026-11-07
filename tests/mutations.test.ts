@@ -1,18 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Node, NodeOf, Wire } from "../src/shared/model";
 import { inPaintOrder } from "../src/shared/model/canvas";
-import { addNode, flushPendingCanvasSave, deleteNode, editLink, editText, redo, renameGroup, renameTerminalNode, setNodeColor, setNodeColorForNodes, setPageBinding, setRegionDefaults, setRegionEnvironment, setRegionHold, undo } from "../src/renderer/lib/mutations";
+import { addNode, flushPendingCanvasSave, deleteNode, editLink, editText, redo, renameGroup, renameTerminalNode, setNodeColor, setNodeColorForNodes, setPageBinding, setRegionDefaults, setRegionEnvironment, setRegionHold, undo } from "../src/window/lib/mutations";
 import { held, nodeHeld, openCanvas } from "./support/open-canvas";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { addEdge, connectAllToTarget, deleteEdges, targetPlanOn } from "../src/renderer/lib/edge-mutations";
+import { modelStore } from "../src/window/lib/use-model";
+import { addEdge, connectAllToTarget, deleteEdges, targetPlanOn } from "../src/window/lib/edge-mutations";
 import * as fixtures from "./support/model-nodes";
-import { findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
-import { clearGraphFilters, state$ } from "../src/renderer/lib/state";
-import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
-import { dock$ } from "../src/renderer/lib/dock-state";
-import { initialWorkbenchState } from "../src/renderer/lib/surface-registry";
+import { findOpenPosition, resizeNode, syncPositions } from "../src/window/lib/geometry";
+import { clearGraphFilters, state$ } from "../src/window/lib/state";
+import { browser$, cacheBrowserSession } from "../src/window/lib/browser-state";
+import { dock$ } from "../src/window/lib/dock-state";
+import { initialWorkbenchState } from "../src/window/lib/surface-registry";
 import { formatNodeRef } from "../src/shared/node-ref";
-import { setTasksSource, tasksSource } from "../src/renderer/lib/tasks-source";
+import { setTasksSource, tasksSource } from "../src/window/lib/tasks-source";
 import type { TaskView } from "../src/shared/task-model";
 
 /** Bun's vitest shim lacks `vi.waitFor` — poll until assertion holds. */

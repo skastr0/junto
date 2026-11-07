@@ -1,4 +1,4 @@
-import { modelStore } from "../src/renderer/lib/use-model";
+import { modelStore } from "../src/window/lib/use-model";
 import { nodesOf } from "@shared/model";
 import { AlertKind } from "@shared/wire/urgency";
 // @vitest-environment jsdom
@@ -23,18 +23,18 @@ import type { AgentSeatState, AgentSeatStateEvent } from "../src/shared/agent-se
 import { seat, note } from "./support/model-nodes";
 import type { Seat } from "../src/shared/model";
 import type { RegionRollup } from "../src/shared/region-rollup";
-import { resetAlertQueue, useAlertAttention, useAlertSignals } from "../src/renderer/lib/alert-attention";
-import type { AlertSignal } from "../src/renderer/lib/alert-queue";
+import { resetAlertQueue, useAlertAttention, useAlertSignals } from "../src/window/lib/alert-attention";
+import type { AlertSignal } from "../src/window/lib/alert-queue";
 import {
   agentSeat$,
   applyAgentSeatStateEvent,
   markAgentSeatSeen,
   resetAgentSeatState,
   seatDoneAt,
-} from "../src/renderer/lib/agent-seat-state";
-import { seatSubjects } from "../src/renderer/lib/desktop-notify";
-import * as sound from "../src/renderer/lib/sound";
-import { state$ } from "../src/renderer/lib/state";
+} from "../src/window/lib/agent-seat-state";
+import { seatSubjects } from "../src/window/lib/desktop-notify";
+import * as sound from "../src/window/lib/sound";
+import { state$ } from "../src/window/lib/state";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

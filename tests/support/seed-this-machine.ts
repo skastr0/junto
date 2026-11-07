@@ -1,5 +1,5 @@
 import { makeThisMachine, type RemoteHost } from "../../src/shared/remote-hosts";
-import { setHostsSnapshot } from "../../src/main/junto/hosts/snapshot";
+import { setHostsSnapshot } from "../../src/core/hosts/snapshot";
 import { THIS_MACHINE } from "./machines";
 
 /**

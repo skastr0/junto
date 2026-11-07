@@ -7,13 +7,13 @@ import { LIVE_OVERSEER_ENABLED, USAGE_ENABLED } from "@shared/features";
 import { MachineSettingsUnavailableError, machineProvidersOf } from "@shared/machine-settings";
 import { defaultSettings, type ProvidersPatch, type Settings } from "@shared/settings";
 import { NATIVE_USAGE_PROVIDERS } from "@shared/usage";
-import { ProvidersSettingsSection } from "../src/renderer/components/settings/ProvidersSettingsSection";
+import { ProvidersSettingsSection } from "../src/window/components/settings/ProvidersSettingsSection";
 import {
   coreMachineSettingsSource,
   setMachineSettingsSource,
-} from "../src/renderer/lib/machine-settings-source";
-import { chooseSettingsMachine, forgetSettingsMachine } from "../src/renderer/lib/settings-machine";
-import { state$ } from "../src/renderer/lib/state";
+} from "../src/window/lib/machine-settings-source";
+import { chooseSettingsMachine, forgetSettingsMachine } from "../src/window/lib/settings-machine";
+import { state$ } from "../src/window/lib/state";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

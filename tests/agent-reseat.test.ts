@@ -1,16 +1,16 @@
-import { reseatCommand, reseatSeat } from "../src/renderer/lib/agent-reseat";
-import { state$ } from "../src/renderer/lib/state";
-import { modelStore } from "../src/renderer/lib/use-model";
+import { reseatCommand, reseatSeat } from "../src/window/lib/agent-reseat";
+import { state$ } from "../src/window/lib/state";
+import { modelStore } from "../src/window/lib/use-model";
 import { asCanvasName } from "../src/shared/model";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { newSeat } from "../src/renderer/lib/model-factories";
+import { newSeat } from "../src/window/lib/model-factories";
 import { note } from "./support/model-nodes";
 import {
   readSkipReseatConfirm,
   reseatChoicesFromConfiguration,
   seatLaunchCwd,
   writeSkipReseatConfirm,
-} from "../src/renderer/lib/agent-reseat";
+} from "../src/window/lib/agent-reseat";
 
 describe("reseatChoicesFromConfiguration", () => {
   it("maps cascade picks into seat options", () => {

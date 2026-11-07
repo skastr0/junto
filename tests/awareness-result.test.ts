@@ -12,12 +12,12 @@ import {
   AI_CONCERN_VALUES,
   ASSESSMENT_AVAILABILITY_VALUES,
   AWARENESS_PACK_VERSION,
-} from "../src/main/junto/term/awareness/questions";
+} from "../src/core/term/awareness/questions";
 import {
   selectAwarenessInput,
   type AwarenessEvidenceWindow,
   type AwarenessRequestState,
-} from "../src/main/junto/term/awareness/select-input";
+} from "../src/core/term/awareness/select-input";
 import {
   UNAVAILABLE_REASONS,
   projectAwarenessAnswers,
@@ -25,7 +25,7 @@ import {
   resolveEvidenceLineId,
   type RawAwarenessAnswer,
   type RawAwarenessResponse,
-} from "../src/main/junto/term/awareness/project-result";
+} from "../src/core/term/awareness/project-result";
 
 // ---------------------------------------------------------------------------
 // Fixtures

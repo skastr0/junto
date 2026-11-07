@@ -1,6 +1,6 @@
 import type { MenuItemConstructorOptions } from "electron";
 import { describe, expect, it, vi } from "vitest";
-import { appMenuTemplate } from "../src/main/junto/app-menu";
+import { appMenuTemplate } from "../src/app/app-menu";
 import { menuKeyOf, type MenuKey } from "../src/shared/key-table";
 
 const items = (template: MenuItemConstructorOptions[]): MenuItemConstructorOptions[] =>

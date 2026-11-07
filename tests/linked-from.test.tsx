@@ -2,12 +2,12 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ArtifactCommentsEdge } from "../src/renderer/components/artifacts/ArtifactComments";
-import { LinkedFrom, linkedFromCount } from "../src/renderer/components/artifacts/LinkedFrom";
-import { installBodyLinks, readableLine, type BodyLink } from "../src/renderer/lib/linked-from";
+import { ArtifactCommentsEdge } from "../src/window/components/artifacts/ArtifactComments";
+import { LinkedFrom, linkedFromCount } from "../src/window/components/artifacts/LinkedFrom";
+import { installBodyLinks, readableLine, type BodyLink } from "../src/window/lib/linked-from";
 import { mentionLink } from "../src/shared/mention";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { workDetailOpen$ } from "../src/renderer/lib/work-detail-open";
+import { modelStore } from "../src/window/lib/use-model";
+import { workDetailOpen$ } from "../src/window/lib/work-detail-open";
 import type { MentionedIn as Entry, MentionPage } from "../src/shared/mention-ipc";
 import { asCanvasName } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";

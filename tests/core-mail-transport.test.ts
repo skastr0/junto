@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TerminalSessionSummary } from "../src/shared/terminal";
-import { SeatStateRuntime } from "../src/main/junto/term/agent-state";
-import { ClosingFence } from "../src/main/junto/term/closing-fence";
-import { createCoreMailTransport } from "../src/main/junto/term/core-mail";
-import { CR, encodeBracketedPaste } from "../src/main/junto/term/drive";
-import { InjectionSupervisor } from "../src/main/junto/term/injection-supervisor";
-import type { LocalHostEvent, LocalSessionHost } from "../src/main/junto/term/local-host";
-import type { ObserverGridSnapshot, ObserverListener } from "../src/main/junto/term/observer";
+import { SeatStateRuntime } from "../src/core/term/agent-state";
+import { ClosingFence } from "../src/core/term/closing-fence";
+import { createCoreMailTransport } from "../src/core/term/core-mail";
+import { CR, encodeBracketedPaste } from "../src/core/term/drive";
+import { InjectionSupervisor } from "../src/core/term/injection-supervisor";
+import type { LocalHostEvent, LocalSessionHost } from "../src/core/term/local-host";
+import type { ObserverGridSnapshot, ObserverListener } from "../src/core/term/observer";
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {

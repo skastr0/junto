@@ -1,8 +1,8 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { runOverseerHost } from "../src/overseer-host/main";
+import { runOverseerHost } from "../src/cli/overseer-host/main";
 
 const mocks = vi.hoisted(() => ({ call: vi.fn(), turn: vi.fn().mockResolvedValue(undefined) }));
-vi.mock("../src/overseer-host/session", () => ({ requestBackendResponse: vi.fn(), runOverseerTurn: mocks.turn }));
+vi.mock("../src/cli/overseer-host/session", () => ({ requestBackendResponse: vi.fn(), runOverseerTurn: mocks.turn }));
 vi.mock("../src/cli/core/socket", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/cli/core/socket")>();
   const { Effect, Layer } = await import("effect");

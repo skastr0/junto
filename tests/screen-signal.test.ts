@@ -11,8 +11,8 @@ import {
   SeatStateMachine,
   evaluate,
   rulePackFor,
-} from "../src/main/junto/term/agent-state";
-import { projectAgentSeatState } from "../src/main/junto/term/agent-state/projection";
+} from "../src/core/term/agent-state";
+import { projectAgentSeatState } from "../src/core/term/agent-state/projection";
 import {
   factSignal,
   parseResetAt,
@@ -22,9 +22,9 @@ import {
   retryCause,
   ruleSignal,
   signalForState,
-} from "../src/main/junto/term/agent-state/screen-signal";
-import type { SeatRulePack } from "../src/main/junto/term/agent-state/types";
-import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
+} from "../src/core/term/agent-state/screen-signal";
+import type { SeatRulePack } from "../src/core/term/agent-state/types";
+import type { ObserverGridSnapshot } from "../src/core/term/observer/types";
 import {
   initialSnapshot,
   reduceSeat,

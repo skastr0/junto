@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   resetSeatStartTurnForTests,
   runOnSeatStartTurn,
-} from "../src/main/junto/term/seat-start-turn";
+} from "../src/core/term/seat-start-turn";
 
 afterEach(() => {
   resetSeatStartTurnForTests();

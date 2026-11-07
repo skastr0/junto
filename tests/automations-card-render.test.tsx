@@ -10,11 +10,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_AUTOMATION_LIMITS, type AutomationDefinition } from "@shared/automation";
 import { asNodeId } from "@shared/physics/schema";
 import { ItemId } from "@shared/work-ids";
-import { AutomationsCard } from "../src/renderer/components/automations/AutomationsCard";
-import { kindStateOf } from "../src/renderer/components/nodes/KindSeat";
-import { makeLocalAutomationsSource, setAutomationsSource } from "../src/renderer/lib/automations-source";
-import { nodeUrgency$ } from "../src/renderer/lib/region-urgency";
-import { state$ } from "../src/renderer/lib/state";
+import { AutomationsCard } from "../src/window/components/automations/AutomationsCard";
+import { kindStateOf } from "../src/window/components/nodes/KindSeat";
+import { makeLocalAutomationsSource, setAutomationsSource } from "../src/window/lib/automations-source";
+import { nodeUrgency$ } from "../src/window/lib/region-urgency";
+import { state$ } from "../src/window/lib/state";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

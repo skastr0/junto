@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { stepPane } from "../src/renderer/lib/pane-focus";
+import { stepPane } from "../src/window/lib/pane-focus";
 
 describe("stepping between panes", () => {
   it("moves one pane along and wraps at either end", () => {

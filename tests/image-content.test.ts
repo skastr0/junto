@@ -8,7 +8,7 @@ import {
   imageContentRefFromFile,
   markdownImageLine,
   mediaTypeFromImageExtension,
-} from "../src/renderer/lib/image-content";
+} from "../src/window/lib/image-content";
 
 const ref = {
   sha256: "c".repeat(64),

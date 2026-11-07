@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { readGitShow } from "../src/main/junto/adapters/git";
+import { readGitShow } from "../src/core/adapters/git";
 import { getSingularPatch } from "@pierre/diffs";
 import { GIT_PATCH_RENDER_BUDGET, capPatchForRender, splitPatchFiles } from "../src/shared/git";
 

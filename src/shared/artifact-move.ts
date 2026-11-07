@@ -8,7 +8,7 @@
  * This module is the contract the window, the overseer CLI and main share:
  * the shapes of the one operation and the sentence for each refusal. Pure, no
  * Node imports (renderer and CLI safe). Main runs it (`runArtifactMove`,
- * src/main/junto/work/artifact-move.ts).
+ * src/core/work/artifact-move.ts).
  */
 import type { NodeId } from "./physics/schema";
 import type { ResourceActor } from "./resource-command";

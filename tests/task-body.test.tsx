@@ -6,9 +6,9 @@ import { EditorView } from "@codemirror/view";
 import { asNodeId } from "../src/shared/model";
 import { mintItemId } from "../src/shared/resource-command";
 import { taskNodeId, type TaskCommand, type TaskId } from "../src/shared/task-model";
-import { TaskBody } from "../src/renderer/components/tasks/TaskBody";
+import { TaskBody } from "../src/window/components/tasks/TaskBody";
 import { settleLazy } from "./support/settle-lazy";
-import { loadLazySurfaces } from "../src/renderer/lib/lazy-surface";
+import { loadLazySurfaces } from "../src/window/lib/lazy-surface";
 
 // The editors and viewers load before any test, so no test waits on an import.
 await loadLazySurfaces();

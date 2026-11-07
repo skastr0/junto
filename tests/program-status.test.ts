@@ -7,18 +7,18 @@ import {
   ProgramStatusScanner,
   programStatusEnvelopes,
   type ProgramStatusEvent,
-} from "../src/main/junto/term/program-status";
-import { LocalSessionHost, resolveLaunch } from "../src/main/junto/term/local-host";
-import { SeatStateRuntime } from "../src/main/junto/term/agent-state/runtime";
-import { seatStateRuntime } from "../src/main/junto/term/agent-state";
-import { projectAgentSeatState } from "../src/main/junto/term/agent-state/projection";
-import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
-import { OperatorInterlock } from "../src/main/junto/term/drive/operator-interlock";
+} from "../src/core/term/program-status";
+import { LocalSessionHost, resolveLaunch } from "../src/core/term/local-host";
+import { SeatStateRuntime } from "../src/core/term/agent-state/runtime";
+import { seatStateRuntime } from "../src/core/term/agent-state";
+import { projectAgentSeatState } from "../src/core/term/agent-state/projection";
+import type { ObserverGridSnapshot } from "../src/core/term/observer/types";
+import { OperatorInterlock } from "../src/core/term/drive/operator-interlock";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
-} from "../src/main/junto/process-identity";
-import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
+} from "../src/core/process-identity";
+import { setProcessEpochReaderForTests } from "../src/node/process-epoch";
 import {
   makeFakeTerminalProcessAuthority,
   type FakeTerminalProcessAuthority,

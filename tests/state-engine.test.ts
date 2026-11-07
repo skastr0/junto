@@ -19,20 +19,20 @@ import {
   makeStateEngineLive,
   StateEngine,
   StateEngineError,
-} from "../src/main/junto/state/engine";
-import { createVerifiedStateBackup } from "../src/main/junto/state/backup";
-import { withSqlRead } from "../src/main/junto/state/sql-read";
+} from "../src/core/state/engine";
+import { createVerifiedStateBackup } from "../src/core/state/backup";
+import { withSqlRead } from "../src/core/state/sql-read";
 import {
   STATE_SCHEMA_IDENTITY_SQL,
   STATE_SCHEMA_SQL,
-} from "../src/main/junto/state/schema";
+} from "../src/core/state/schema";
 import { STATE_SCHEMA_V13_SQL } from "./fixtures/state-v13/schema";
-import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/junto/state/migrations";
+import { CURRENT_STATE_SCHEMA_VERSION } from "../src/core/state/migrations";
 import {
   RETIRED_SOURCE_SCHEMA_SHA256,
   verifyAndStampStateSchema,
-} from "../src/main/junto/state/schema-identity";
-import { USAGE_STATE_SCHEMA_SQL } from "../src/main/junto/usage/state-schema";
+} from "../src/core/state/schema-identity";
+import { USAGE_STATE_SCHEMA_SQL } from "../src/core/usage/state-schema";
 const makeTempDir = (prefix: string): Promise<string> =>
   mkdtemp(join(tmpdir(), prefix)).then((root) => {
     tempRoots.push(root);

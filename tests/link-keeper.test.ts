@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import type { InstallationId } from "../src/shared/installation-id";
 import type { RemoteHost } from "../src/shared/remote-hosts";
-import { LINK_KEEPER_BACKOFF_CAP_MS, makeLinkKeeper, startLinkKeeper, type LinkKeeperDeps } from "../src/main/junto/link/keeper";
+import { LINK_KEEPER_BACKOFF_CAP_MS, makeLinkKeeper, startLinkKeeper, type LinkKeeperDeps } from "../src/core/link/keeper";
 
 const M2 = "01M2INSTALLATION00000000000" as InstallationId;
 const M3 = "01M3INSTALLATION00000000000" as InstallationId;

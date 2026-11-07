@@ -20,13 +20,13 @@ import {
   STATE_SCHEMA_MIGRATIONS,
   migrateStateSchema,
   type StateSchemaMigrationPlan,
-} from "../src/main/junto/state/migrations";
-import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { InstallOpsService } from "../src/main/junto/install-ops/service";
-import { linkedFromBodies } from "../src/main/junto/work/body-links";
-import { runArtifactLinksBackfill } from "../src/main/junto/work/artifact-links-backfill";
+} from "../src/core/state/migrations";
+import { migrateMachineNames } from "../src/core/state/migrate-machine-names";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { InstallOpsService } from "../src/core/install-ops/service";
+import { linkedFromBodies } from "../src/core/work/body-links";
+import { runArtifactLinksBackfill } from "../src/core/work/artifact-links-backfill";
 import { STATE_SCHEMA_V50_SQL, STATE_SCHEMA_V52_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;

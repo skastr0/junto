@@ -5,9 +5,9 @@
 import { describe, expect, it } from "vitest";
 import { asCanvasName, type Command, type Node } from "../src/shared/model";
 import { canvasFromOpened, type Canvas } from "../src/shared/model/canvas";
-import { createAuthoring } from "../src/renderer/lib/model-authoring";
-import { moved, recolored, retexted } from "../src/renderer/lib/model-edits";
-import { canvasAfter } from "../src/renderer/lib/model-undo";
+import { createAuthoring } from "../src/window/lib/model-authoring";
+import { moved, recolored, retexted } from "../src/window/lib/model-edits";
+import { canvasAfter } from "../src/window/lib/model-undo";
 
 const name = asCanvasName("factory");
 const note = (id: string, over: Record<string, unknown> = {}): Node =>

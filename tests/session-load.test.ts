@@ -3,7 +3,7 @@ import {
   initialSessionLoadPhase,
   isSessionLoadActive,
   sessionLoadPresentation,
-} from "../src/renderer/lib/session-load";
+} from "../src/window/lib/session-load";
 
 describe("sessionLoadPresentation", () => {
   it("maps finding / starting / attaching / stuck to distinct tones", () => {

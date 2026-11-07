@@ -5,9 +5,9 @@
  */
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { decodeLinkInventorySnapshot, inventoryOfSnapshot, wireSnapshot } from "../src/main/junto/inventory/wire";
-import { HARNESS_PROFILE_LISTS } from "../src/main/junto/term/templates/enumerate-dispatch";
-import { launchForManagedSpawn, SeatProfileRefused } from "../src/main/junto/term/managed-spawn-plan";
+import { decodeLinkInventorySnapshot, inventoryOfSnapshot, wireSnapshot } from "../src/core/inventory/wire";
+import { HARNESS_PROFILE_LISTS } from "../src/core/term/templates/enumerate-dispatch";
+import { launchForManagedSpawn, SeatProfileRefused } from "../src/core/term/managed-spawn-plan";
 import { agentKeyProfileSuffix, profileFromAgentKey } from "../src/shared/harness-records";
 import { type HarnessInventory, inventoryOptions } from "../src/shared/harness-domain/inventory";
 

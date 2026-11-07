@@ -18,7 +18,7 @@ const bridge = {
   result: { ok: true } as SeatCacheDueAnswerResult,
   list: async (): Promise<SeatCacheDue[]> => bridge.current,
 };
-vi.mock("../src/renderer/lib/junto-api", () => ({
+vi.mock("../src/window/lib/junto-api", () => ({
   getJuntoApi: () => ({
     seatCacheDueList: () => bridge.list(),
     seatCacheDueAnswer: async (input: SeatCacheDueAnswerInput) => {
@@ -32,8 +32,8 @@ vi.mock("../src/renderer/lib/junto-api", () => ({
   }),
 }));
 
-const { cacheDueLine, seatCacheDue$, subscribeSeatCacheDue } = await import("../src/renderer/lib/seat-cache-due-state");
-const { SeatCacheDuePopup } = await import("../src/renderer/components/terminal/SeatCacheDuePopup");
+const { cacheDueLine, seatCacheDue$, subscribeSeatCacheDue } = await import("../src/window/lib/seat-cache-due-state");
+const { SeatCacheDuePopup } = await import("../src/window/components/terminal/SeatCacheDuePopup");
 
 const NOW = 1_800_000_000_000;
 const ask = (seatId: string, windowEndsAt = NOW - 12 * 60_000): SeatCacheDue =>

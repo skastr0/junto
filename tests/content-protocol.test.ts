@@ -19,10 +19,10 @@ import {
 import {
   CONTENT_PROTOCOL_SCHEME_REGISTRATION,
   createContentProtocolHandler,
-} from "../src/main/junto/content/protocol";
-import { parseByteRangeHeader } from "../src/main/junto/content/range";
-import { contentObjectPath, contentStoreRoot } from "../src/main/junto/content/paths";
-import { ensureContentLayout } from "../src/main/junto/content/store";
+} from "../src/app/content/protocol";
+import { parseByteRangeHeader } from "../src/app/content/range";
+import { contentObjectPath, contentStoreRoot } from "../src/node/content/paths";
+import { ensureContentLayout } from "../src/node/content/store";
 
 const sha256Of = (bytes: Buffer | string): string =>
   createHash("sha256").update(bytes).digest("hex");

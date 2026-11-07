@@ -1,7 +1,7 @@
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
-import { decodePatchInput } from "../src/main/junto/settings/patch";
-import { decodeStoredSettings, preferencesFromSettings } from "../src/main/junto/settings/state-schema";
+import { decodePatchInput } from "../src/core/settings/patch";
+import { decodeStoredSettings, preferencesFromSettings } from "../src/core/settings/state-schema";
 import { applySettingsPatch, defaultSettings } from "../src/shared/settings";
 
 // Portrait overrides moved to junto.db portrait_overrides (state migration

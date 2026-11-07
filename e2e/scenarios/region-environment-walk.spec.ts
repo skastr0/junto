@@ -32,7 +32,7 @@ import { basename, join } from "node:path";
 import type { Locator, Page, TestInfo } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import type { EnvSource, Region, RegionEnvironment } from "../../src/shared/model/region";
-import { SOURCE_KINDS } from "../../src/renderer/lib/region-environment";
+import { SOURCE_KINDS } from "../../src/window/lib/region-environment";
 import {
   crewOccupySeat,
   crewPlayFactory,

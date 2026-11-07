@@ -9,7 +9,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { Dropdown } from "../src/renderer/components/ui/Dropdown";
+import { Dropdown } from "../src/window/components/ui/Dropdown";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

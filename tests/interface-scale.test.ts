@@ -8,7 +8,7 @@ import {
   defaultSettings,
   interfaceScaleOf,
 } from "../src/shared/settings";
-import { decodeStoredSettings, preferencesFromSettings } from "../src/main/junto/settings/state-schema";
+import { decodeStoredSettings, preferencesFromSettings } from "../src/core/settings/state-schema";
 import {
   applyInterfaceScale,
   currentInterfaceScale,
@@ -16,7 +16,7 @@ import {
   refitInterfaceScale,
   setInterfaceScale,
   shownInterfaceScale,
-} from "../src/main/junto/interface-scale";
+} from "../src/app/interface-scale";
 
 const decodePatch = Schema.decodeUnknownSync(SettingsPatch, { onExcessProperty: "error" });
 const decodeSettings = Schema.decodeUnknownSync(Settings, { onExcessProperty: "error" });

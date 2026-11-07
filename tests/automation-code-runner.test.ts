@@ -18,7 +18,7 @@ import {
   type CodeLanguage,
   type CodeResult,
   type CodeRunRequest,
-} from "../src/main/junto/automation/code-runner";
+} from "../src/core/automation/code-runner";
 
 const BUN = execFileSync("/usr/bin/env", ["which", "bun"], { encoding: "utf8" }).trim();
 const CANVAS = "factory";

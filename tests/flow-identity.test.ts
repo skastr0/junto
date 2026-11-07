@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { keepHeldNodes, sameCard, saysTheSame } from "../src/renderer/lib/flow-identity";
+import { keepHeldNodes, sameCard, saysTheSame } from "../src/window/lib/flow-identity";
 
 type TestNode = {
   readonly id: string;

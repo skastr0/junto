@@ -7,12 +7,12 @@ import type { TaskRecord } from "../src/shared/task-machine";
 import type { TaskCommand, TaskView } from "../src/shared/task-model";
 import type { WorkErrorBody } from "../src/shared/work-control";
 import { ItemId, OpId } from "../src/shared/work-ids";
-import { ArtifactRepository } from "../src/main/junto/work/artifact-repository";
-import { liveArtifactPorts } from "../src/main/junto/work/artifact-control";
-import { MachineRepository } from "../src/main/junto/machines/repository";
-import { noteResourceChanged, onResourceChanged } from "../src/main/junto/work/resource-changes";
-import { liveTaskPorts } from "../src/main/junto/work/task-control";
-import { TaskRepository } from "../src/main/junto/work/task-repository";
+import { ArtifactRepository } from "../src/core/work/artifact-repository";
+import { liveArtifactPorts } from "../src/core/work/artifact-control";
+import { MachineRepository } from "../src/core/machines/repository";
+import { noteResourceChanged, onResourceChanged } from "../src/core/work/resource-changes";
+import { liveTaskPorts } from "../src/core/work/task-control";
+import { TaskRepository } from "../src/core/work/task-repository";
 import {
   allTasks,
   applyArtifact,
@@ -27,7 +27,7 @@ import {
   registerResourceIpc,
   taskContext,
   type ResourceIpcPorts,
-} from "../src/main/junto/work/resource-ipc";
+} from "../src/core/work/resource-ipc";
 import { artifacts, canvasOf, region, seat, taskBoard, wire } from "./support/model-nodes";
 import { asNodeId } from "../src/shared/model";
 import { ARTIFACTS_ENABLED, TASKS_ENABLED } from "../src/shared/features";

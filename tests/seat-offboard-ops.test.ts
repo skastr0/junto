@@ -6,9 +6,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SeatOffboardRunInput, SeatOffboardStatus } from "../src/shared/seat-offboard";
 
 let bridge: Record<string, unknown> | undefined;
-vi.mock("../src/renderer/lib/junto-api", () => ({ getJuntoApi: () => bridge }));
+vi.mock("../src/window/lib/junto-api", () => ({ getJuntoApi: () => bridge }));
 
-const { seatOffboardOps } = await import("../src/renderer/lib/seat-offboard");
+const { seatOffboardOps } = await import("../src/window/lib/seat-offboard");
 
 const now: SeatOffboardRunInput = { canvasName: "factory", seatIds: ["a", "b"], action: "now" };
 const ask: SeatOffboardRunInput = { canvasName: "factory", seatIds: ["a", "b"], action: "ask", mode: "rest" };

@@ -7,10 +7,10 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { expect, it } from "vitest";
-import { SshTransport } from "../src/main/junto/ssh/service";
+import { SshTransport } from "../src/core/ssh/service";
 
-const { coreRunner } = await import("../src/main/core-runner");
-const { startCore } = await import("../src/main/junto/core");
+const { coreRunner } = await import("../src/core/core-runner");
+const { startCore } = await import("../src/core/core");
 
 it("runs the terminal router's SSH dials on the core it starts", async () => {
   const home = await mkdtemp("/tmp/junto-core-router-");
@@ -19,7 +19,7 @@ it("runs the terminal router's SSH dials on the core it starts", async () => {
     core = await startCore({ home, build: "a".repeat(64), bundles: {} });
     // The plane builds the router with this exact runner, and it answers.
     await expect(coreRunner.runPromise(Effect.asVoid(SshTransport))).resolves.toBeUndefined();
-    const plane = await readFile(join(import.meta.dirname, "..", "src/main/junto/term/plane.ts"), "utf8");
+    const plane = await readFile(join(import.meta.dirname, "..", "src/core/term/plane.ts"), "utf8");
     expect(plane).toContain("new TerminalRouter(this.host, { layeredRunner: coreRunner.runPromise })");
   } finally {
     await core?.close();

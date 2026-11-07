@@ -15,12 +15,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { ReactFlowProvider, type Node } from "@xyflow/react";
-import { FactoryMinimap, pingLayerTransform, type SeatMark } from "../src/renderer/components/FactoryMinimap";
+import { FactoryMinimap, pingLayerTransform, type SeatMark } from "../src/window/components/FactoryMinimap";
 import { RegionUrgency } from "../src/shared/wire/urgency";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const CSS = readFileSync(resolve(__dirname, "../src/renderer/components/factory-minimap.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+const CSS = readFileSync(resolve(__dirname, "../src/window/components/factory-minimap.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 
 const seat = (id: string, x: number): Node => ({ id, position: { x, y: 0 }, width: 216, height: 56, data: {} });
 const MARKS: Record<string, SeatMark | undefined> = {

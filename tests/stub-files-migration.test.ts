@@ -13,8 +13,8 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
-import { nodeFromRow, nodeToRow } from "../src/main/junto/model/rows";
+import { migrateMachineNames } from "../src/core/state/migrate-machine-names";
+import { nodeFromRow, nodeToRow } from "../src/core/model/rows";
 import {
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
@@ -22,8 +22,8 @@ import {
   STATE_SCHEMA_V63_IDENTITY,
   migrateStateSchema,
   type StateSchemaMigrationPlan,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { Node } from "../src/shared/model";
 import { STATE_SCHEMA_V62_SQL, STATE_SCHEMA_V63_SQL } from "./fixtures/state-v13/schema";
 

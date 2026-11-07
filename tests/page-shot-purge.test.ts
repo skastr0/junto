@@ -8,9 +8,9 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { MAIN_AUTHORING_LABELS } from "../src/main/junto/main-authoring-gate";
-import { WorkAuthorityError, WorkRepository } from "../src/main/junto/work/repository";
-import { purgeOperatorPageShot } from "../src/main/junto/work/page-shot-purge";
+import { MAIN_AUTHORING_LABELS } from "../src/node/main-authoring-gate";
+import { WorkAuthorityError, WorkRepository } from "../src/core/work/repository";
+import { purgeOperatorPageShot } from "../src/core/work/page-shot-purge";
 import { WorkOpName } from "../src/shared/work-control";
 
 const REQUEST = { canvasName: "factory", nodeId: "page-1", messageId: "01M5F8P0000000000000000003" };
@@ -53,13 +53,13 @@ describe("the operator's purge of a page box comment's shot", () => {
     const src = join(__dirname, "../src");
     const files = sources(src).map((path) => ({ path: relative(src, path), text: readFileSync(path, "utf8") }));
     const calling = (pattern: RegExp) => files.filter(({ text }) => pattern.test(text)).map(({ path }) => path).sort();
-    expect(calling(/\.purgeShot\(/u)).toEqual(["main/junto/work/page-shot-purge.ts"]);
+    expect(calling(/\.purgeShot\(/u)).toEqual(["core/work/page-shot-purge.ts"]);
     expect(calling(/\bpurgeOperatorPageShot\b/u)).toEqual([
-      "main/core-process/ops/ipc-content.ts",
-      "main/junto/work/page-shot-purge.ts",
+      "core/ops/ipc-content.ts",
+      "core/work/page-shot-purge.ts",
     ]);
-    const ipc = files.find(({ path }) => path === "main/junto/ipc.ts")!.text;
-    const op = files.find(({ path }) => path === "main/core-process/ops/ipc-content.ts")!.text;
+    const ipc = files.find(({ path }) => path === "app/ipc.ts")!.text;
+    const op = files.find(({ path }) => path === "core/ops/ipc-content.ts")!.text;
     expect(ipc).toMatch(/privilegedIpc\.handle\(IPC_CHANNELS\.pageShotPurge,/u);
     expect(ipc).toMatch(/runMainAuthoring\("ipc\.page-shot\.purge"/u);
     expect(op).toMatch(/\bpurgeOperatorPageShot\(/u);

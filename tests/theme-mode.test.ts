@@ -24,8 +24,8 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("renderer theme settings", () => {
   it("applies a loaded preference immediately and starts only once", async () => {
-    const { state$ } = await import("../src/renderer/lib/state");
-    const { startThemeMode, themeMode$ } = await import("../src/renderer/lib/theme-mode");
+    const { state$ } = await import("../src/window/lib/state");
+    const { startThemeMode, themeMode$ } = await import("../src/window/lib/theme-mode");
     state$.settings.appearance.theme.set("bright");
 
     startThemeMode();
@@ -37,8 +37,8 @@ describe("renderer theme settings", () => {
   });
 
   it("uses ordinary settings hydration to replace the initial system preference", async () => {
-    const { state$ } = await import("../src/renderer/lib/state");
-    const { startThemeMode, themeMode$ } = await import("../src/renderer/lib/theme-mode");
+    const { state$ } = await import("../src/window/lib/state");
+    const { startThemeMode, themeMode$ } = await import("../src/window/lib/theme-mode");
     startThemeMode();
     expect(themeMode$.peek()).toBe("dark");
 
@@ -53,8 +53,8 @@ describe("renderer theme settings", () => {
   });
 
   it("follows system appearance only when that preference is selected", async () => {
-    const { state$ } = await import("../src/renderer/lib/state");
-    const { startThemeMode, themeMode$ } = await import("../src/renderer/lib/theme-mode");
+    const { state$ } = await import("../src/window/lib/state");
+    const { startThemeMode, themeMode$ } = await import("../src/window/lib/theme-mode");
     startThemeMode();
     systemLight = true;
     onSystemChange?.();

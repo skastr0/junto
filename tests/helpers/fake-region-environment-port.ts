@@ -3,7 +3,7 @@ import type {
   RegionEnvironmentPort,
   SourceReport,
   StaleSeat,
-} from "../../src/renderer/lib/region-environment";
+} from "../../src/window/lib/region-environment";
 
 /**
  * A scripted port for the region environment screen: what main would answer,

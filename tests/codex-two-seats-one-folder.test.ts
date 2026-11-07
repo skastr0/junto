@@ -5,20 +5,20 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createSandbox, destroySandbox, type Sandbox, writeFixtureModel } from "../e2e/harness/sandbox";
 import { modelFixture, modelSeat } from "../e2e/harness/model";
-import { ModelService } from "../src/main/junto/model/service";
-import { ModelDependents } from "../src/main/junto/model/dependents";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../src/main/junto/seat-sessions/repository";
+import { ModelService } from "../src/core/model/service";
+import { ModelDependents } from "../src/core/model/dependents";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { makeMachineRepositoryLive } from "../src/core/machines/repository";
+import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../src/core/seat-sessions/repository";
 import { THIS_MACHINE } from "./support/machines";
 
 const app = vi.hoisted(() => ({ runPromise: vi.fn() }));
 // Spread the real module: a later export must not break this file at load.
-vi.mock("../src/main/core-runner", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/main/core-runner")>()),
+vi.mock("../src/core/core-runner", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/core/core-runner")>()),
   coreRunner: app,
 }));
-import { SeatSessionCapture } from "../src/main/junto/term/seat-session-capture";
+import { SeatSessionCapture } from "../src/core/term/seat-session-capture";
 
 /**
  * Codex 0.166 [fixture]: two seats in one folder, each a real process that
@@ -226,7 +226,7 @@ it("one look at a time: boundaries arriving together share one answer", { timeou
   let looks = 0;
   const capture = new SeatSessionCapture(() => sandbox.homeDir, async (pid) => {
     looks += 1;
-    const { openFilesOfProcessTree } = await import("../src/main/junto/term/process-open-files");
+    const { openFilesOfProcessTree } = await import("../src/core/term/process-open-files");
     return openFilesOfProcessTree(pid);
   });
   capture.watch({ bindingId: seatA.bindingId, harness: "codex", canvasName: "proof", nodeId: seatA.id, cwd: sandbox.root, spawnedAtMs: t0, pid: () => a.pid });

@@ -7,12 +7,12 @@ import { spawn } from "node-pty";
 import { expect, it } from "vitest";
 import { CrewSeat, installCrewSeatHarness } from "../e2e/harness/crew-fixture";
 import type { Sandbox } from "../e2e/harness/sandbox";
-import { SeatStateRuntime } from "../src/main/junto/term/agent-state/runtime";
-import { createManagedTerminalDrive } from "../src/main/junto/term/drive/managed-drive-factory";
-import { promptStillPending } from "../src/main/junto/term/drive/prompt-evidence";
-import { isManagedTerminalReady } from "../src/main/junto/term/drive/readiness";
-import { SessionObserver } from "../src/main/junto/term/observer";
-import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
+import { SeatStateRuntime } from "../src/core/term/agent-state/runtime";
+import { createManagedTerminalDrive } from "../src/core/term/drive/managed-drive-factory";
+import { promptStillPending } from "../src/core/term/drive/prompt-evidence";
+import { isManagedTerminalReady } from "../src/core/term/drive/readiness";
+import { SessionObserver } from "../src/core/term/observer";
+import type { ObserverGridSnapshot } from "../src/core/term/observer/types";
 
 const bindingId = "crew-control-probe";
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

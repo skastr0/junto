@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 // ops/index.ts leaves its names without a body: every converted site then
 // fails UnknownCoreOp. Two seats committing ops/index.ts at once dropped a line
 // this way (7d32057f5), so the registration is pinned here, per commit.
-const OPS = join(__dirname, "..", "src", "main", "core-process", "ops");
+const OPS = join(__dirname, "..", "src", "core", "ops");
 
 describe("core operation groups", () => {
   it("imports every group file in ops/index.ts", () => {

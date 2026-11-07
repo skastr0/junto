@@ -21,16 +21,16 @@ vi.mock("@shared/features", async (original) => ({
   get AUTHORITY_ENABLED() { return flags.authority; },
 }));
 
-import { makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
-import { submitAutomationCommand } from "../src/main/junto/automation/ruler";
-import { CanvasAuthoritiesLive } from "../src/main/junto/fleet/host";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { MachineRepository, MachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { ModelRecords } from "../src/main/junto/model/records";
-import { ModelService } from "../src/main/junto/model/service";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { WorkRepositoryLive } from "../src/main/junto/work/repository";
-import { RulingRecorderLive } from "../src/main/junto/work/ruling-recorder";
+import { makeAutomationRepositoryLive } from "../src/core/automation/repository";
+import { submitAutomationCommand } from "../src/core/automation/ruler";
+import { CanvasAuthoritiesLive } from "../src/core/fleet/host";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { MachineRepository, MachineRepositoryLive } from "../src/core/machines/repository";
+import { ModelRecords } from "../src/core/model/records";
+import { ModelService } from "../src/core/model/service";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { WorkRepositoryLive } from "../src/core/work/repository";
+import { RulingRecorderLive } from "../src/core/work/ruling-recorder";
 import { AutomationId, type AutomationDefinition, type AutomationOp } from "../src/shared/automation";
 import type { AutomationEnv } from "../src/shared/automation-domain";
 import { asNodeId } from "../src/shared/model";

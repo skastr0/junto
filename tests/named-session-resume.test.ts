@@ -17,7 +17,7 @@ import {
   launchArgvUsesResume,
   parseHarnessSessionArgv,
   reclaimOrphanedHarnessArgv,
-} from "../src/main/junto/term/session-existence";
+} from "../src/core/term/session-existence";
 
 describe("named session resume law", () => {
   it("no template uses an id-less continue flag as resume", () => {

@@ -19,8 +19,8 @@ import {
   STATE_SCHEMA_V58_IDENTITY,
   migrateStateSchema,
   type StateSchemaMigrationPlan,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V57_SQL, STATE_SCHEMA_V58_SQL } from "./fixtures/state-v13/schema";
 
 /** A version-57 database, fresh and in memory. */

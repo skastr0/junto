@@ -15,7 +15,7 @@ import {
   MAIL_DRAFT_RECHECK_MS,
   OPERATOR_INPUT_LATCH_MS,
   OperatorInterlock,
-} from "../../../src/main/junto/term/drive";
+} from "../../../src/core/term/drive";
 import { DriveLoop } from "../scripted-tui";
 
 const BINDING = "seat-b1";

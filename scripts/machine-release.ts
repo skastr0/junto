@@ -6,7 +6,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
 import { decodeMachineReleaseCatalog, MACHINE_RELEASE_ORIGIN, MAX_MACHINE_ARCHIVE_BYTES, MAX_MACHINE_ARCHIVE_FILES, MAX_MACHINE_ARCHIVE_PATH_BYTES, MAX_MACHINE_UNPACKED_BYTES, type MachineReleaseArchive, type MachineReleaseCatalog } from "../src/shared/machine-release";
-import { inspectMachineBundle } from "../src/main/junto/hosts/bundle";
+import { inspectMachineBundle } from "../src/node/hosts/bundle";
 import { checkMachinePackage, sourceMachinePackage } from "./machine-package";
 import { auditMachineBundleSignatures } from "./audit-packaged-app";
 

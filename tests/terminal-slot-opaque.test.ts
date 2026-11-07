@@ -3,7 +3,7 @@ import {
   registerTerminalSlot,
   terminalSlotElement,
   terminalSlots$,
-} from "../src/renderer/lib/terminal-state";
+} from "../src/window/lib/terminal-state";
 
 afterEach(() => {
   for (const nodeId of Object.keys(terminalSlots$.generationByNodeId.peek())) {

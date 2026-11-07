@@ -4,7 +4,7 @@ import { mintItemId } from "../src/shared/resource-command";
 import type { TaskResourceApi, ResourceChanged } from "../src/shared/resource-ipc";
 import { TASK_REFUSAL_REASON } from "../src/shared/task-model";
 import { seatNodeId, taskNodeId } from "../src/shared/task-model";
-import { makeIpcTasksSource, makeLocalTasksSource } from "../src/renderer/lib/tasks-source";
+import { makeIpcTasksSource, makeLocalTasksSource } from "../src/window/lib/tasks-source";
 import {
   layerSummary,
   listedTasks,
@@ -13,7 +13,7 @@ import {
   tasksCardBody,
   taskContextFor,
   visibleTasks,
-} from "../src/renderer/components/tasks/tasks-pane-model";
+} from "../src/window/components/tasks/tasks-pane-model";
 
 const ada = seatNodeId(asNodeId("seat-ada"));
 const bo = seatNodeId(asNodeId("seat-bo"));

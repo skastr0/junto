@@ -4,10 +4,10 @@ import { describe, expect, test } from "vitest";
 import { HARNESS_IDS, templateFor } from "../src/shared/managed-terminal-templates";
 
 const FILES = [
-  "../src/renderer/components/customize/ParamsSection.tsx",
-  "../src/renderer/components/node-palette/AgentCascadeMenu.tsx",
-  "../src/renderer/components/node-palette/agent-launch-model.ts",
-  "../src/renderer/components/settings/HarnessesSettingsSection.tsx",
+  "../src/window/components/customize/ParamsSection.tsx",
+  "../src/window/components/node-palette/AgentCascadeMenu.tsx",
+  "../src/window/components/node-palette/agent-launch-model.ts",
+  "../src/window/components/settings/HarnessesSettingsSection.tsx",
 ];
 
 describe("harness dials read the harness record", () => {

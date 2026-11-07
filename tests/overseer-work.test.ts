@@ -1,4 +1,4 @@
-import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
+import { CrewRepositoryLive } from "../src/core/work/crew-repository";
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,26 +17,26 @@ import {
   admitWorkTarget,
   overseerWorkAdmin,
   requiresConnection,
-} from "../src/main/junto/work/authz";
+} from "../src/core/work/authz";
 import {
   grantOverseer as grantSeat,
   ModelStoresLive,
   seedCanvas,
 } from "./support/seed-canvas";
-import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
-import { WorkLive, WorkService } from "../src/main/junto/work/service";
-import { WorkRepositoryLive } from "../src/main/junto/work/repository";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
+import { ModelActorRefs } from "../src/core/model/actor-refs";
+import { WorkLive, WorkService } from "../src/core/work/service";
+import { WorkRepositoryLive } from "../src/core/work/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { MachineRepositoryLive } from "../src/core/machines/repository";
 import { THIS_MACHINE } from "./support/machines";
 import { nameThisMachine } from "./support/name-this-machine";
-import { SettingsLive } from "../src/main/junto/settings/service";
-import { makeContentServiceLive } from "../src/main/junto/content/service";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
+import { SettingsLive } from "../src/core/settings/service";
+import { makeContentServiceLive } from "../src/core/content/service";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
 import {
   executeOverseerWork,
   overseerWorkRunsLocally,
-} from "../src/main/junto/overseer/work";
+} from "../src/core/overseer/work";
 
 const mockHome = join(tmpdir(), `junto-overseer-work-${randomUUID()}`);
 

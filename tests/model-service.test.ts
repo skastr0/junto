@@ -4,19 +4,19 @@ import { Reactivity } from "effect/reactivity";
 import { SqlClient } from "effect/sql";
 import { expect, it } from "vitest";
 import { Changed, Command } from "../src/shared/model";
-import { nodeFromRow } from "../src/main/junto/model/rows";
-import { FLEET_CONSENSUS_STATE_SCHEMA_SQL } from "../src/main/junto/fleet/state-schema";
-import { ModelDependents } from "../src/main/junto/model/dependents";
-import { ModelService } from "../src/main/junto/model/service";
-import { MODEL_STATE_SCHEMA_SQL } from "../src/main/junto/model/state-schema";
-import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
-import { installSqlCommitCallbacks } from "../src/main/junto/state/sql-commit";
+import { nodeFromRow } from "../src/core/model/rows";
+import { FLEET_CONSENSUS_STATE_SCHEMA_SQL } from "../src/core/fleet/state-schema";
+import { ModelDependents } from "../src/core/model/dependents";
+import { ModelService } from "../src/core/model/service";
+import { MODEL_STATE_SCHEMA_SQL } from "../src/core/model/state-schema";
+import { makeSqliteClient } from "../src/core/state/sqlite-client";
+import { installSqlCommitCallbacks } from "../src/core/state/sql-commit";
 import { SEED_CANVAS_NAME } from "../src/shared/seed";
 import { THIS_MACHINE } from "./support/machines";
 import { canvasFromOpened } from "../src/shared/model/canvas";
 import { titleOf } from "../src/shared/model/title";
-import { nameable, titled } from "../src/renderer/lib/model-edits";
-import { AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../src/main/junto/automation/state-schema";
+import { nameable, titled } from "../src/window/lib/model-edits";
+import { AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../src/core/automation/state-schema";
 
 const at = "2026-10-07T00:00:00Z";
 const node = (id: string, kind = "note", fields: object = {}) => ({

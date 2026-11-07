@@ -5,7 +5,7 @@ import {
   resolveViewportRestore,
   storeTerminalViewport,
   takeTerminalViewport,
-} from "../src/renderer/lib/terminal-viewport";
+} from "../src/window/lib/terminal-viewport";
 
 afterEach(() => {
   clearTerminalViewportBookmarks();

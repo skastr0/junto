@@ -3,12 +3,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   reviveTermAuthSeatState,
   reviveTermHostEvent,
-} from "../src/main/junto/term/control-client";
+} from "../src/core/term/control-client";
 import {
   mergeSeatStateSnapshot,
   rememberRemoteSeatState,
   resetRemoteSeatState,
-} from "../src/main/junto/term/remote-seat-state";
+} from "../src/core/term/remote-seat-state";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import { sessionActorMatches } from "../src/shared/terminal";
 
@@ -94,7 +94,7 @@ describe("term seat-state Command Center snapshot", () => {
 
 describe("term seat-state placement wiring", () => {
   it("TermPlane starts the spawn-host evaluator and stops only on plane shutdown", () => {
-    const plane = readFileSync("src/main/junto/term/plane.ts", "utf8");
+    const plane = readFileSync("src/core/term/plane.ts", "utf8");
     const startAt = plane.indexOf("start = async");
     const shutdownAt = plane.indexOf("beginShutdown(reason");
     expect(startAt).toBeGreaterThan(-1);
@@ -105,23 +105,23 @@ describe("term seat-state placement wiring", () => {
   });
 
   it("caches hop-delivered events and hydrates the Command Center snapshot", () => {
-    const termIpc = readFileSync("src/main/junto/term/ipc.ts", "utf8");
+    const termIpc = readFileSync("src/app/term/ipc.ts", "utf8");
     // The core remembers each hop-delivered seat state where the plane is bound.
-    expect(readFileSync("src/main/core-process/ops/term-ipc.ts", "utf8")).toContain("rememberRemoteSeatState(payload.event)");
+    expect(readFileSync("src/core/ops/term-ipc.ts", "utf8")).toContain("rememberRemoteSeatState(payload.event)");
     expect(termIpc).toContain(
       "gate?.broadcast(IPC_CHANNELS.agentSeatStateChanged, payload.event)",
     );
     // The snapshot the Command Center reads is the core's since e92f443b4:
     // the window asks ipc.threads.seatStates, and the core merges the hops it
     // kept with the events its own plane saw.
-    expect(readFileSync("src/main/core-process/ops/ipc-threads.ts", "utf8")).toContain(
+    expect(readFileSync("src/core/ops/ipc-threads.ts", "utf8")).toContain(
       '"ipc.threads.seatStates": () => Effect.sync(() => mergeSeatStateSnapshot(seatStateRuntime.currentEvents()))',
     );
   });
 
   it("fans Mini seat-state to authed clients and validates on the hop", () => {
-    const server = readFileSync("src/main/junto/term/control-server.ts", "utf8");
-    const client = readFileSync("src/main/junto/term/control-client.ts", "utf8");
+    const server = readFileSync("src/core/term/control-server.ts", "utf8");
+    const client = readFileSync("src/core/term/control-client.ts", "utf8");
     expect(server).toContain("stopSeatState = seatStateRuntime.subscribe");
     expect(server).toContain("type: \"seat-state\"");
     expect(server).toContain("writeEvent(payload, authedClients)");
@@ -139,9 +139,9 @@ describe("term seat-state placement wiring", () => {
   });
 
   it("keeps the router as a client directory, not an actor occupy service", () => {
-    const router = readFileSync("src/main/junto/term/router.ts", "utf8");
-    const server = readFileSync("src/main/junto/term/control-server.ts", "utf8");
-    const host = readFileSync("src/main/junto/term/local-host.ts", "utf8");
+    const router = readFileSync("src/core/term/router.ts", "utf8");
+    const server = readFileSync("src/core/term/control-server.ts", "utf8");
+    const host = readFileSync("src/core/term/local-host.ts", "utf8");
     expect(router).toContain("async clientForOccupy(hostId: string)");
     expect(router).not.toContain("makeActorSeatOccupy");
     expect(router).not.toContain('from "./actor-seat-occupy"');

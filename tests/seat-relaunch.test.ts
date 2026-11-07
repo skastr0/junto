@@ -2,21 +2,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { canvasOf, seat as modelSeat } from "./support/model-nodes";
 import { planSeatLaunch } from "../src/shared/seat-launch-params";
 
-vi.mock("../src/renderer/lib/mutations", () => ({
+vi.mock("../src/window/lib/mutations", () => ({
   commitCommands: vi.fn(),
   flushPendingCanvasSave: vi.fn(async () => undefined),
 }));
-vi.mock("../src/renderer/lib/terminal-actions", () => ({
+vi.mock("../src/window/lib/terminal-actions", () => ({
   ensureTerminalRunning: vi.fn(),
   killTerminal: vi.fn(),
   openTerminal: vi.fn(),
 }));
-vi.mock("../src/renderer/lib/junto-api", () => ({ getJuntoApi: vi.fn() }));
+vi.mock("../src/window/lib/junto-api", () => ({ getJuntoApi: vi.fn() }));
 
-import { getJuntoApi } from "../src/renderer/lib/junto-api";
-import { commitCommands, flushPendingCanvasSave } from "../src/renderer/lib/mutations";
-import { performSeatRelaunch } from "../src/renderer/lib/seat-relaunch";
-import { ensureTerminalRunning, killTerminal, openTerminal } from "../src/renderer/lib/terminal-actions";
+import { getJuntoApi } from "../src/window/lib/junto-api";
+import { commitCommands, flushPendingCanvasSave } from "../src/window/lib/mutations";
+import { performSeatRelaunch } from "../src/window/lib/seat-relaunch";
+import { ensureTerminalRunning, killTerminal, openTerminal } from "../src/window/lib/terminal-actions";
 
 const params = { mode: "low", extraArgs: ["--features", "plaid", "--no-color"] };
 const seat = modelSeat("amp-seat", {

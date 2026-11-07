@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { asCanvasName, type Canvas } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
 import { mintItemId, type ItemId } from "../src/shared/resource-command";
-import { makeLocalArtifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/renderer/lib/artifacts-source";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { ArtifactMoveDialog, type MoveDone } from "../src/renderer/components/artifacts/ArtifactMove";
+import { makeLocalArtifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/window/lib/artifacts-source";
+import { modelStore } from "../src/window/lib/use-model";
+import { ArtifactMoveDialog, type MoveDone } from "../src/window/components/artifacts/ArtifactMove";
 import {
   matchTargets,
   moveEntryTitle,
@@ -17,7 +17,7 @@ import {
   rangeOf,
   reachChange,
   reachLine,
-} from "../src/renderer/components/artifacts/artifact-move-model";
+} from "../src/window/components/artifacts/artifact-move-model";
 import { artifacts, canvasOf, region } from "./support/model-nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

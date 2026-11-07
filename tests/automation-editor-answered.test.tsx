@@ -6,7 +6,7 @@ import { asCanvasName } from "../src/shared/model";
 import { AutomationVersion, DEFAULT_AUTOMATION_LIMITS, formatProblem, VALUE_FORMATS, type Automation, type AutomationId } from "../src/shared/automation";
 import { AUTOMATION_SIGNALS_ENABLED } from "../src/shared/features";
 import { asNodeId } from "../src/shared/physics/schema";
-import { AutomationEditor } from "../src/renderer/components/automations/AutomationEditor";
+import { AutomationEditor } from "../src/window/components/automations/AutomationEditor";
 import {
   FORMAT_CHOICES,
   VALUE_FORMAT_KINDS,
@@ -26,8 +26,8 @@ import {
   type AutomationDraft,
   type NameOf,
   type TriggerDraft,
-} from "../src/renderer/lib/automation-editor";
-import { modelStore } from "../src/renderer/lib/use-model";
+} from "../src/window/lib/automation-editor";
+import { modelStore } from "../src/window/lib/use-model";
 import { artifacts, automations } from "./support/model-nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

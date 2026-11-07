@@ -7,9 +7,9 @@
  */
 import { Effect, Schema } from "effect";
 import { SqlClient } from "effect/sql";
-import { coreOpBody } from "../../src/main/core-process/ops";
-import "../../src/main/core-process/ops/ipc-automation";
-import { ModelService } from "../../src/main/junto/model/service";
+import { coreOpBody } from "../../src/core/ops";
+import "../../src/core/ops/ipc-automation";
+import { ModelService } from "../../src/core/model/service";
 import { overseerAutomationExamples } from "../../src/cli/commands/overseer-automation";
 import { Command } from "../../src/shared/model";
 import type { AutomationApplyResponse } from "../../src/shared/automation";

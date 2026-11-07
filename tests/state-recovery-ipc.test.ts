@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createStateRecoveryIpcHandlers,
   type StateRecoveryOperations,
-} from "../src/main/junto/state/recovery-ipc";
+} from "../src/app/state/recovery-ipc";
 import { decodeStateBackupId } from "../src/shared/state-recovery";
 
 const id = decodeStateBackupId(

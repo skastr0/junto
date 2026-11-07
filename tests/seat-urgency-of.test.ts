@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { seatUrgencyOf } from "../src/renderer/components/SeatRing";
-import { agentSeat$ } from "../src/renderer/lib/agent-seat-state";
+import { seatUrgencyOf } from "../src/window/components/SeatRing";
+import { agentSeat$ } from "../src/window/lib/agent-seat-state";
 import { compareView, SeatUrgency } from "../src/shared/wire/urgency";
 import { seat } from "./support/model-nodes";
 

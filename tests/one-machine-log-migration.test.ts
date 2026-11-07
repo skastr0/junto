@@ -22,7 +22,7 @@ import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/sql";
 import { afterEach, describe, expect, it } from "vitest";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import {
   CURRENT_STATE_SCHEMA_VERSION,
   STATE_SCHEMA_MIGRATION_PLAN,
@@ -30,13 +30,13 @@ import {
   STATE_SCHEMA_V14_IDENTITY,
   STATE_SCHEMA_V15_IDENTITY,
   migrateStateSchema,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import {
   ONE_MACHINE_LOG_REMOVED_TABLES,
   ONE_MACHINE_LOG_RETIRED_FACT_COLUMNS,
-} from "../src/main/junto/work/migrate-one-machine-log";
-import { WorkRepositoryLive } from "../src/main/junto/work/repository";
+} from "../src/core/work/migrate-one-machine-log";
+import { WorkRepositoryLive } from "../src/core/work/repository";
 import { STATE_SCHEMA_V14_SQL, STATE_SCHEMA_V15_SQL } from "./fixtures/state-v13/schema";
 
 const fixture = { fileName: "command-center-v13.db", sha256: "c31b3097c2c2c56130d9b5e3d9fce4dd1bc289e40e58feab2623801cf0e2072d" } as const;

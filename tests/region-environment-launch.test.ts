@@ -17,24 +17,24 @@ import {
   type EnvSourceResolver,
   type SourceResolution,
 } from "../src/shared/region-environment";
-import { setConfiguredToolDirectories } from "../src/main/junto/shell-environment";
+import { setConfiguredToolDirectories } from "../src/core/shell-environment";
 import {
   makeRegionEnvironmentResolution,
-} from "../src/main/junto/region-env/resolve";
-import { makeRegionEnvironmentService } from "../src/main/junto/region-env/service";
+} from "../src/core/region-env/resolve";
+import { makeRegionEnvironmentService } from "../src/core/region-env/service";
 import {
   makeActorSeatOccupy,
   type ActorOccupySpec,
-} from "../src/main/junto/term/actor-seat-occupy";
-import { LocalSessionHost, resolveLaunch } from "../src/main/junto/term/local-host";
-import { TerminalRouter } from "../src/main/junto/term/router";
-import { juntoCliPathPrefixes } from "../src/main/junto/term/templates/seat-env";
-import type { SeatEnvironmentResolver } from "../src/main/junto/term/seat-process";
+} from "../src/core/term/actor-seat-occupy";
+import { LocalSessionHost, resolveLaunch } from "../src/core/term/local-host";
+import { TerminalRouter } from "../src/core/term/router";
+import { juntoCliPathPrefixes } from "../src/core/term/templates/seat-env";
+import type { SeatEnvironmentResolver } from "../src/core/term/seat-process";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
-} from "../src/main/junto/process-identity";
-import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
+} from "../src/core/process-identity";
+import { setProcessEpochReaderForTests } from "../src/node/process-epoch";
 import { Result } from "effect";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
@@ -712,7 +712,7 @@ describe("the launch applies it", () => {
     describe("the app walk's fixture: region Team at (40,40) 520x360, a default-shell terminal at (120,140)", () => {
       // What the renderer sends for a plain terminal opened by double-click is
       // { node, canvasName }; main turns that into exactly this create call
-      // (src/main/junto/term/ipc.ts, the entity kind terminal branch).
+      // (src/app/term/ipc.ts, the entity kind terminal branch).
       const walkDoc = (name: string): Canvas =>
         canvasOf([
           regionNode("region-env", { x: 40, y: 40, width: 520, height: 360 }, {

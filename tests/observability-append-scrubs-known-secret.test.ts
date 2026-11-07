@@ -9,13 +9,13 @@
  * after it crosses into the process that can recognise the value.
  */
 import { afterEach, describe, expect, test } from "vitest";
-import { knownSecretValues, scrubMessage } from "../src/main/junto/credentials/scrub";
+import { knownSecretValues, scrubMessage } from "../src/node/credentials/scrub";
 import {
   registerKnownSecrets,
   registeredSecretValues,
   releaseKnownSecrets,
-} from "../src/main/junto/credentials/known-secrets";
-import { appendScrubbed, makeObservabilityRing } from "../src/main/junto/observability/ring";
+} from "../src/core/credentials/known-secrets";
+import { appendScrubbed, makeObservabilityRing } from "../src/core/observability/ring";
 import { makeTestLog } from "./support/test-log";
 
 const { log: mainLog } = makeTestLog();

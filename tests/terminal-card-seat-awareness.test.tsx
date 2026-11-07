@@ -23,18 +23,18 @@ import { THIS_MACHINE } from "./support/machines";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import { Effect } from "effect";
 import { decodeNode, type Node } from "../src/shared/model";
-import { TerminalCard } from "../src/renderer/components/terminal/TerminalCard";
-import { SeatAwarenessHoverForNode } from "../src/renderer/components/terminal/SeatAwarenessHoverForNode";
+import { TerminalCard } from "../src/window/components/terminal/TerminalCard";
+import { SeatAwarenessHoverForNode } from "../src/window/components/terminal/SeatAwarenessHoverForNode";
 import {
   applySeatAwarenessEvent,
   resetSeatAwareness,
-} from "../src/renderer/lib/seat-awareness";
-import type { SeatAwarenessAssessment } from "../src/renderer/lib/seat-awareness-contract";
+} from "../src/window/lib/seat-awareness";
+import type { SeatAwarenessAssessment } from "../src/window/lib/seat-awareness-contract";
 import { holdModelCanvas as holdCanvas } from "./support/hold-canvas";
 import {
   applyAgentSeatStateEvent,
   resetAgentSeatState,
-} from "../src/renderer/lib/agent-seat-state";
+} from "../src/window/lib/agent-seat-state";
 
 const T0 = 1_700_000_000_000;
 const MIDDLE_DOT = "\u00B7";

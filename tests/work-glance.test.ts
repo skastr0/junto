@@ -2,9 +2,9 @@ import { DatabaseSync } from "node:sqlite";
 import { Effect, Schema } from "effect";
 import { Reactivity } from "effect/reactivity";
 import { expect, it } from "vitest";
-import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
-import { readWorkAttention } from "../src/main/junto/work/repository";
-import { readWorkGlances } from "../src/main/junto/work/glance";
+import { makeSqliteClient } from "../src/core/state/sqlite-client";
+import { readWorkAttention } from "../src/core/work/repository";
+import { readWorkGlances } from "../src/core/work/glance";
 import { WorkSinkGlance } from "../src/shared/work-attention";
 
 it("counts a whole sink while excluding unrelated work contents and old-kind rows", async () => {

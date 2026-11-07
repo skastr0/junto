@@ -15,7 +15,7 @@ import {
   type OperatorRequestEnvelope,
   type OperatorResponseEnvelope,
 } from "../src/shared/operator-control";
-import { startOperatorControlServer, type OperatorControlServer } from "../src/main/junto/operator-control";
+import { startOperatorControlServer, type OperatorControlServer } from "../src/node/operator-control";
 
 const PAIRED = "dev_01J9Z3K4M5N6P7Q8R9S0T1V2W3";
 const GONE = "dev_01J9Z3K4M5N6P7Q8R9S0T1V2W4";

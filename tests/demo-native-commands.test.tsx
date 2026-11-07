@@ -6,13 +6,13 @@ import { THIS_MACHINE } from "./support/machines";
 import { Schema } from "effect";
 import { asCanvasName, asNodeId, asWireId, Command, Node } from "../src/shared/model";
 import type { DemoScenario } from "../src/shared/demo";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { EMPTY_SETTINGS, state$ } from "../src/renderer/lib/state";
-import { flushPendingCanvasSave, undo } from "../src/renderer/lib/mutations";
-import { executeBeat, resetDemoCanvas } from "../src/renderer/demo/ops";
-import { demo$, startTake, stopTake } from "../src/renderer/demo/conductor";
-import { DEMO_THIS_MACHINE } from "../src/renderer/demo/machine";
-import { demoScenarios } from "../src/renderer/demo/scenarios";
+import { modelStore } from "../src/window/lib/use-model";
+import { EMPTY_SETTINGS, state$ } from "../src/window/lib/state";
+import { flushPendingCanvasSave, undo } from "../src/window/lib/mutations";
+import { executeBeat, resetDemoCanvas } from "../src/window/demo/ops";
+import { demo$, startTake, stopTake } from "../src/window/demo/conductor";
+import { DEMO_THIS_MACHINE } from "../src/window/demo/machine";
+import { demoScenarios } from "../src/window/demo/scenarios";
 
 vi.hoisted(() => {
   globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };

@@ -19,7 +19,7 @@ import type { ItemId, OpId } from "./work-ids";
  * The one write path for a comment on a resource (plan 0.10, 03 section 4):
  * `junto task comment`, `junto artifact comment`, a file comment, a page
  * comment and a reply to a subject notice all post through
- * `postSubjectComment` (src/main/junto/work/subject-comment.ts). The poster
+ * `postSubjectComment` (src/core/work/subject-comment.ts). The poster
  * must reach the subject's node (region-reach). The comment is a row in the
  * subject's thread; its notices go to the resource's people, everyone it
  * mentions and everyone who posted in the thread before, each once, never the

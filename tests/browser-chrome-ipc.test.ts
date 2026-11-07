@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { chromeOutcome, installIpcBrowserChrome, makeIpcBrowserBox, makeIpcBrowserChrome } from "../src/renderer/lib/browser-chrome-ipc";
-import { browserChromeApi, setBrowserChromeApi } from "../src/renderer/lib/browser-chrome-source";
+import { chromeOutcome, installIpcBrowserChrome, makeIpcBrowserBox, makeIpcBrowserChrome } from "../src/window/lib/browser-chrome-ipc";
+import { browserChromeApi, setBrowserChromeApi } from "../src/window/lib/browser-chrome-source";
 import { initialPageDriving } from "../src/shared/page-driver";
 import { initialPageTabs } from "../src/shared/page-tabs";
 

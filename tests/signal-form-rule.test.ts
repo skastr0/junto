@@ -14,7 +14,7 @@ vi.mock("@shared/features", async (original) => ({
   get VAULT_ENABLED() { return flags.vault; },
 }));
 
-import { resolveSignalForm, signalKindTakesForm } from "../src/main/junto/signals/form-rule";
+import { resolveSignalForm, signalKindTakesForm } from "../src/core/signals/form-rule";
 import { artifacts, canvasOf, region, seat, taskBoard } from "./support/model-nodes";
 import { resourcesSeatReaches } from "../src/shared/region-reach";
 import type { NodeId } from "../src/shared/physics/schema";

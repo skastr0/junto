@@ -28,7 +28,7 @@ const ISOLATE_HINTS = [
   // timed-out child test there fails nondeterministically.
   /from ["']node:child_process["']/,
   /\bProcessSpawnerLive\b/,
-  /from ["'][./]*\/src\/main\/junto\/process-signal["']/,
+  /from ["'][./]*\/src\/node\/process-signal["']/,
   /makeFakeTerminalProcessAuthority/,
   /LocalSessionHost/,
   /createAppProcessPlane/,
@@ -43,7 +43,7 @@ const ISOLATE_HINTS = [
   /StateEngineLive/,
   /vi\.stubEnv\(/,
   /vi\.stubGlobal\(/,
-  /from ["'].*renderer\/lib\/(state|mutations|dock-state)/,
+  /from ["'].*window\/lib\/(state|mutations|dock-state)/,
 ] as const;
 
 const ALONE_MARKER = /^\/\/ vitest-lane: alone$/m;

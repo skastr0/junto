@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { TerminalClient } from "../src/main/terminal-process/client";
-import { placeTerminals, terminalPlace, terminalProcessClient } from "../src/main/terminal-process/use";
+import type { TerminalClient } from "../src/node/terminals/client";
+import { placeTerminals, terminalPlace, terminalProcessClient } from "../src/node/terminals/use";
 
 /**
  * Where a process's PTYs run is its boot's choice, never inferred from which
@@ -27,8 +27,8 @@ describe("where this process's terminals run", () => {
 
   it("decides by no process identity: the module reads neither process.type nor parentPort", async () => {
     const { readFileSync } = await import("node:fs");
-    const source = readFileSync("src/main/terminal-process/use.ts", "utf8");
+    const source = readFileSync("src/node/terminals/use.ts", "utf8");
     expect(source).not.toMatch(/process\.type|parentPort|\(process as/u);
-    expect(readFileSync("src/main/junto/core.ts", "utf8")).not.toMatch(/\(process as unknown as \{ parentPort/u);
+    expect(readFileSync("src/core/core.ts", "utf8")).not.toMatch(/\(process as unknown as \{ parentPort/u);
   });
 });

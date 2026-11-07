@@ -11,15 +11,15 @@ import { Effect, Schema, Stream } from "effect";
 import { Argument, Command } from "effect/cli";
 import { loadJsonInput } from "../src/cli/core/json";
 import { executeJsonCommandWithVerdict } from "../src/cli/core/output";
-import { inspectMachineBundle } from "../src/main/junto/hosts/bundle";
-import { sendMachine } from "../src/main/junto/hosts/send";
-import { parseSshRoute, SshTransport, SshTransportLive } from "../src/main/junto/ssh";
-import { makeRemoteCommand } from "../src/main/junto/ssh/domain";
-import { dedicatedStream } from "../src/main/junto/ssh/program";
+import { inspectMachineBundle } from "../src/node/hosts/bundle";
+import { sendMachine } from "../src/core/hosts/send";
+import { parseSshRoute, SshTransport, SshTransportLive } from "../src/core/ssh";
+import { makeRemoteCommand } from "../src/core/ssh/domain";
+import { dedicatedStream } from "../src/core/ssh/program";
 import { MachineOwnStatus } from "../src/shared/machine-control";
 import { MachineAbsolutePath, MachineInstallResult, MachineSendInput, MachineUninstallResult } from "../src/shared/machine-install";
 import { exerciseMachineLink } from "./machine-link-exercise";
-import { createLogger, LogService } from "../src/main/junto/observability/logger";
+import { createLogger, LogService } from "../src/node/observability/logger";
 
 const Input = Schema.Struct({
   sshTarget: MachineSendInput.fields.sshTarget,

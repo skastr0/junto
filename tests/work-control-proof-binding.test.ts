@@ -11,17 +11,17 @@ import { publishSeatCredential } from "./helpers/seat-credential";
 import {
   WorkService,
   type WorkServiceShape,
-} from "../src/main/junto/work/service";
-import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
+} from "../src/core/work/service";
+import { PausePlaneAllPlaying } from "../src/core/pause-plane";
 import {
   type ProcessPrincipal,
-} from "../src/main/junto/process-identity";
+} from "../src/core/process-identity";
 import {
   startWorkControlServer,
   type WorkControlServer,
-} from "../src/main/junto/work/control";
-import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
-import { injectionSupervisor } from "../src/main/junto/term/injection-supervisor";
+} from "../src/core/work/control";
+import { createMainAuthoringGate } from "../src/node/main-authoring-gate";
+import { injectionSupervisor } from "../src/core/term/injection-supervisor";
 import { makeTestLog } from "./support/test-log";
 
 const testLog = makeTestLog();

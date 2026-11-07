@@ -8,7 +8,7 @@
  * not yet on main names the cli seat building it, and is never a skip.
  */
 import type { ManagedRuntime } from "effect";
-import type { SeatCredentialRegistry } from "../../src/main/junto/work/seat-credentials";
+import type { SeatCredentialRegistry } from "../../src/core/work/seat-credentials";
 import type { WorkCliCommandResult } from "../work-cli-acceptance";
 
 export type CaseVerdict =

@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { ProfileRepository, ProfileRepositoryLive } from "../src/main/junto/profiles/repository";
-import { SeatGuidanceRepository, SeatGuidanceRepositoryLive } from "../src/main/junto/seat-guidance/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { ProfileRepository, ProfileRepositoryLive } from "../src/core/profiles/repository";
+import { SeatGuidanceRepository, SeatGuidanceRepositoryLive } from "../src/core/seat-guidance/repository";
 import type { AgentProfileBody } from "../src/shared/agent-profiles";
 
 type Stores = ProfileRepository | SeatGuidanceRepository;

@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   TURN_STALLED_REASON,
   progressFingerprint,
-} from "../../../src/main/junto/term/agent-state/turn-progress-watch";
+} from "../../../src/core/term/agent-state/turn-progress-watch";
 import { loadP1Fixture } from "../runner";
 import {
   TIMER_SLICE_MS,

@@ -12,10 +12,10 @@
  * wires them.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OperatorInterlock } from "../../../src/main/junto/term/drive";
-import { MailReadinessLatch } from "../../../src/main/junto/term/drive/mail-readiness";
-import { InjectionSupervisor } from "../../../src/main/junto/term/injection-supervisor";
-import { makeOnboardNudgeInterject, watchSeatReadiness } from "../../../src/main/junto/term/onboard-nudge-interject";
+import { OperatorInterlock } from "../../../src/core/term/drive";
+import { MailReadinessLatch } from "../../../src/core/term/drive/mail-readiness";
+import { InjectionSupervisor } from "../../../src/core/term/injection-supervisor";
+import { makeOnboardNudgeInterject, watchSeatReadiness } from "../../../src/core/term/onboard-nudge-interject";
 import { mailExtensionMetadata } from "../../../src/shared/crew";
 import { buildOnboardNudge } from "../../../src/shared/managed-terminal-injection";
 import { composeImmediatePromptPayload } from "../../../src/shared/message-delivery";

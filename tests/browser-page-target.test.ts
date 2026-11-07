@@ -1,10 +1,10 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import type { ModelNodeReader } from "../src/main/junto/node-ref-resolver";
-import { ModelStorageError } from "../src/main/junto/model/records";
+import type { ModelNodeReader } from "../src/core/node-ref-resolver";
+import { ModelStorageError } from "../src/core/model/records";
 import { asCanvasName, asNodeId, type Node } from "../src/shared/model";
 import { canvasOf, page as pageNode } from "./support/model-nodes";
-import { makePageTargetResolver } from "../src/main/junto/browser/page-target";
+import { makePageTargetResolver } from "../src/core/browser/page-target";
 
 const page = (id: string, url: string, profile = "personal"): Node =>
   pageNode(id, { url, width: 400, height: 300, profile });

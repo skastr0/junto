@@ -10,7 +10,7 @@ import {
   captureDeskRowOf,
   openRefOf,
   reopenedDesk,
-} from "../src/renderer/components/capture/capture-desk-state";
+} from "../src/window/components/capture/capture-desk-state";
 
 const stored = {
   open_kind: "artifact",

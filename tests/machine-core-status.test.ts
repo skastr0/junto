@@ -1,8 +1,8 @@
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { expect, it, vi } from "vitest";
-import { MachineCoreStatus, machineCoreStatusLayer } from "../src/main/core-runtime";
-import { MachineRepository } from "../src/main/junto/machines/repository";
-import { ModelRecords } from "../src/main/junto/model/records";
+import { MachineCoreStatus, machineCoreStatusLayer } from "../src/core/core-runtime";
+import { MachineRepository } from "../src/core/machines/repository";
+import { ModelRecords } from "../src/core/model/records";
 import { InstallationId } from "../src/shared/installation-id";
 import { MachineHarnesses, MachineOwnStatus, MachinePeerStatus } from "../src/shared/machine-control";
 import { makeTestLog } from "./support/test-log";
@@ -10,15 +10,15 @@ import { makeTestLog } from "./support/test-log";
 const testLog = makeTestLog();
 
 const probe = vi.hoisted(() => vi.fn());
-vi.mock("../src/main/junto/hosts/machine-form", async () => {
+vi.mock("../src/core/hosts/machine-form", async () => {
   const { Effect } = await import("effect");
   return { detectMachineForm: () => Effect.succeed("mac-mini") };
 });
-vi.mock("../src/main/junto/hosts/machine-keychain", async () => {
+vi.mock("../src/core/hosts/machine-keychain", async () => {
   const { Effect } = await import("effect");
   return { detectMachineKeychain: () => Effect.sync(() => { probe(); return "unavailable"; }) };
 });
-vi.mock("../src/main/junto/term/templates/harness-install", () => ({
+vi.mock("../src/core/term/templates/harness-install", () => ({
   probeManagedHarnessInstalls: async () => [
     { harness: "claude", installed: true, binary: "local-only-path" },
     { harness: "codex", installed: false, binary: "local-only-path" },

@@ -22,7 +22,7 @@ import {
   statementTimingTop,
   withinBudget,
   type BudgetViolation,
-} from "../src/main/junto/observability/main-thread-budget";
+} from "../src/node/observability/main-thread-budget";
 
 const seen: Array<BudgetViolation> = [];
 

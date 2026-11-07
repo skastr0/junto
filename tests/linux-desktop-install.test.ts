@@ -10,8 +10,8 @@ import { Header } from "tar";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LINUX_DESKTOP_RELEASE_SCHEMA, LINUX_DESKTOP_TARGET, linuxDesktopArchiveName, type LinuxDesktopReleaseDescriptor } from "../src/shared/linux-desktop-release";
 import { signLinuxDesktopRelease, verifyLinuxDesktopRelease, type LinuxDesktopReleaseTrust, type VerifiedLinuxDesktopRelease } from "../src/shared/linux-desktop-release-crypto";
-import { installLinuxDesktop } from "../src/main/junto/update/linux-first-install";
-import { activateLinuxDesktopRelease, assertLinuxDesktopFirstInstallAvailable, assertLinuxDesktopManagedIncumbent, holdLinuxDesktopInstallReadiness, LinuxDesktopActivationError, linuxDesktopInstallStorageDoctor, markLinuxDesktopInstallReady, revalidateLinuxDesktopRelease, stageLinuxDesktopRelease, type StagedLinuxDesktopRelease } from "../src/main/junto/update/linux-install";
+import { installLinuxDesktop } from "../src/app/update/linux-first-install";
+import { activateLinuxDesktopRelease, assertLinuxDesktopFirstInstallAvailable, assertLinuxDesktopManagedIncumbent, holdLinuxDesktopInstallReadiness, LinuxDesktopActivationError, linuxDesktopInstallStorageDoctor, markLinuxDesktopInstallReady, revalidateLinuxDesktopRelease, stageLinuxDesktopRelease, type StagedLinuxDesktopRelease } from "../src/node/update/linux-install";
 import { itOnLinux } from "./helpers/platform";
 
 const fault = vi.hoisted(() => ({ syncPath: undefined as string | undefined, syncSuffix: undefined as string | undefined }));

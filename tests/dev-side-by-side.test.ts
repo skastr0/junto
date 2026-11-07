@@ -8,7 +8,7 @@ import {
 } from "../src/shared/junto-home";
 
 const main = readFileSync(
-  new URL("../src/main/index.ts", import.meta.url),
+  new URL("../src/app/index.ts", import.meta.url),
   "utf8",
 );
 const devSh = readFileSync(

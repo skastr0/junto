@@ -38,25 +38,25 @@ import {
   rotateControlToken,
   tokenMatches,
   type ControlAdmitContext,
-} from "../src/main/junto/browser/control";
+} from "../src/app/browser/control";
 import { canvasOf, note, page as pageNode } from "./support/model-nodes";
 import type {
   PageTargetResolver,
   ResolvedPageTarget,
-} from "../src/main/junto/browser/page-target";
-import { makeBrowserProfileService } from "../src/main/junto/browser/profiles";
+} from "../src/core/browser/page-target";
+import { makeBrowserProfileService } from "../src/node/browser/profiles";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
   type BrowserViewHandle,
-} from "../src/main/junto/browser/sessions";
+} from "../src/app/browser/sessions";
 import { localBrowserTestMachineName } from "./browser-test-machine";
 import {
   BROWSER_CAPABILITY_ACTIONS,
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
-} from "../src/main/junto/browser/capabilities";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+} from "../src/app/browser/capabilities";
+import { makeStateEngineLive } from "../src/core/state/engine";
 
 const REF = "junto://canvas/work?node=n1";
 const DEFAULT_TARGET: ResolvedPageTarget = {

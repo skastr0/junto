@@ -7,7 +7,7 @@ import { asCanvasName, asNodeId, type Node } from "../src/shared/model";
 import { canvasFromOpened, inPaintOrder } from "../src/shared/model/canvas";
 import { note, region, seat, terminal } from "./support/model-nodes";
 import { titleOf } from "../src/shared/model/title";
-import { flowNodesFromModel, type ModelFlowCache } from "../src/renderer/lib/flow-nodes";
+import { flowNodesFromModel, type ModelFlowCache } from "../src/window/lib/flow-nodes";
 import { contentObjectUrl } from "../src/shared/content-url";
 
 const at = (x: number, y: number, width = 216, height = 96) => ({ x, y, width, height });

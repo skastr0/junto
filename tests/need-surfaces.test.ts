@@ -43,8 +43,8 @@ import type { AgentSignal } from "../src/shared/agent-signals";
 import type { SeatRaiseKind } from "../src/shared/wire/agent-signals";
 import type { ThreadHealthReading } from "../src/shared/thread-health";
 import type { BindingId as ModelBindingId } from "../src/shared/model";
-import { clueFromAgentSeat, workSurfaceFromSeat } from "../src/renderer/lib/agent-seat-state";
-import { seatSubjects, subjectsFromFeed } from "../src/renderer/lib/desktop-notify";
+import { clueFromAgentSeat, workSurfaceFromSeat } from "../src/window/lib/agent-seat-state";
+import { seatSubjects, subjectsFromFeed } from "../src/window/lib/desktop-notify";
 import { canvasOf, region, seat as seatNode } from "./support/model-nodes";
 
 const NOW = 50_000_000;

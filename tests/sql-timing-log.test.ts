@@ -5,9 +5,9 @@ import { DatabaseSync } from "node:sqlite";
 import { Effect } from "effect";
 import { Reactivity } from "effect/reactivity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { armMainThreadBudget, resetMainThreadBudget, statementTimingTop, withinBudget } from "../src/main/junto/observability/main-thread-budget";
-import { SQL_TIMING_FILE, SQL_TIMING_INTERVAL_MS, sqlTimingReport, startSqlTimingLog } from "../src/main/junto/observability/sql-timing-log";
-import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
+import { armMainThreadBudget, resetMainThreadBudget, statementTimingTop, withinBudget } from "../src/node/observability/main-thread-budget";
+import { SQL_TIMING_FILE, SQL_TIMING_INTERVAL_MS, sqlTimingReport, startSqlTimingLog } from "../src/core/observability/sql-timing-log";
+import { makeSqliteClient } from "../src/core/state/sqlite-client";
 
 let home: string;
 const file = (): string => join(home, ".junto", "logs", SQL_TIMING_FILE);

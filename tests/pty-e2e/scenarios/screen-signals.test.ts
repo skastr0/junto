@@ -11,9 +11,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { evaluate } from "../../../src/main/junto/term/agent-state";
-import { SeatStateRuntime } from "../../../src/main/junto/term/agent-state/runtime";
-import { SessionObserver } from "../../../src/main/junto/term/observer/session-observer";
+import { evaluate } from "../../../src/core/term/agent-state";
+import { SeatStateRuntime } from "../../../src/core/term/agent-state/runtime";
+import { SessionObserver } from "../../../src/core/term/observer/session-observer";
 import { topNeed, type SeatSignal, type SeatSnapshot, type SeatStatus } from "../../../src/shared/harness-domain";
 import { chunkEvents, corpusRoot, loadFixture } from "../runner";
 

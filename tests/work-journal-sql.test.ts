@@ -6,9 +6,9 @@ import { SqlClient } from "effect/sql";
 import { expect, test } from "vitest";
 import { InstallationId } from "../src/shared/installation-id";
 import { DisplayTimestamp } from "../src/shared/work-protocol";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { WorkJournal, WorkJournalLive } from "../src/main/junto/work/journal";
-import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { WorkJournal, WorkJournalLive } from "../src/core/work/journal";
+import { unjournaledWorkMutationEffect } from "../src/core/work/mutation-seam";
 
 const receivedAt = Schema.decodeUnknownSync(DisplayTimestamp)(
   "2026-08-27T12:00:00.000Z",

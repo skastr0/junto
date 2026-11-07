@@ -16,21 +16,22 @@ export default defineConfig(({ command, mode }) => {
   const mainInput: Record<string, string> =
     command === "serve"
       ? {
-          index: resolve("src/main/index.ts"),
-          "core-process": resolve("src/main/core-process/entry.ts"),
+          index: resolve("src/app/index.ts"),
+          "core-process": resolve("src/core/entry.ts"),
         }
-      : { index: resolve("src/main/index.ts") };
+      : { index: resolve("src/app/index.ts") };
 
   return {
     main: mainBuildSection({ command, mode, input: mainInput, stampBuild: true }),
     preload: {
-      // The sandboxed preload carries only src/preload, src/shared and
+      // The sandboxed preload carries only src/window/preload, src/shared and
       // require("electron"); anything else fails the build.
       plugins: [externalizeDepsPlugin(), overlayDepsPlugin(overlay), preloadBundleGuard()],
       resolve: { alias },
       define: productDefines,
       build: {
         rollupOptions: {
+          input: { index: resolve("src/window/preload/index.ts") },
           output: {
             format: "cjs",
             entryFileNames: "[name].cjs",

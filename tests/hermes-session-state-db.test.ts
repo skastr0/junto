@@ -24,8 +24,8 @@ import {
   harnessSessionExists,
   isHermesSessionId,
   shouldResumeHarnessSession,
-} from "../src/main/junto/term/session-existence";
-import { launchForManagedSpawn } from "../src/main/junto/term/managed-spawn-plan";
+} from "../src/core/term/session-existence";
+import { launchForManagedSpawn } from "../src/core/term/managed-spawn-plan";
 
 const temps: string[] = [];
 const originalJuntoHome = process.env.JUNTO_HOME;

@@ -12,8 +12,8 @@ import {
   composerVerdictFor,
   composerVerdictForHarness,
   rulePackFor,
-} from "../src/main/junto/term/agent-state";
-import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
+} from "../src/core/term/agent-state";
+import type { ObserverGridSnapshot } from "../src/core/term/observer/types";
 
 const snap = (
   partial: Partial<ObserverGridSnapshot> & { lines?: readonly string[] },

@@ -5,14 +5,14 @@ import {
   MAIL_DRAFT_RECHECK_MS,
   ManagedTerminalDrive,
   encodeBracketedPaste,
-} from "../src/main/junto/term/drive";
+} from "../src/core/term/drive";
 import {
   admitMail,
   MAIL_MODE_ASKED,
   mailModeFor,
   mailSubmits,
   type MailAdmission,
-} from "../src/main/junto/term/drive/mail-admission";
+} from "../src/core/term/drive/mail-admission";
 import {
   COMMAND_CAPABILITIES,
   HARNESS_SIGNAL_KINDS,

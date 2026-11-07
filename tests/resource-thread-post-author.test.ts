@@ -10,7 +10,7 @@ import { ARTIFACTS_ENABLED, TASKS_ENABLED, productResourceKindEnabled } from "..
 import { asNodeId } from "../src/shared/model";
 import { RESOURCE_IPC_CHANNELS, ThreadPostInput, type ThreadResourceSubject } from "../src/shared/resource-ipc";
 import { ItemId, OpId } from "../src/shared/work-ids";
-import { registerResourceIpc, type ResourceIpcPorts } from "../src/main/junto/work/resource-ipc";
+import { registerResourceIpc, type ResourceIpcPorts } from "../src/core/work/resource-ipc";
 
 const OP = OpId.make("01M5FA00000000000000000001");
 const SEAT_ACTOR = { kind: "seat", seatId: `seat_${"b".repeat(64)}`, nodeId: "S" };

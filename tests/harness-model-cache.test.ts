@@ -14,7 +14,7 @@ import { SqlClient } from "effect/sql";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveJuntoHome } from "../src/shared/junto-home";
 import { templateFor } from "../src/shared/managed-terminal-templates";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/core/state/engine";
 
 type Cli = { readonly ok: boolean; readonly stdout: string; readonly error?: string };
 type Profiles = readonly { readonly name: string; readonly model?: string }[] | undefined;
@@ -26,10 +26,10 @@ const scans = vi.hoisted(() => ({
   cli: async (): Promise<Cli> => VERSION,
 }));
 
-vi.mock("../src/main/junto/term/templates/harness-install", () => ({
+vi.mock("../src/core/term/templates/harness-install", () => ({
   probeManagedHarnessInstalls: async () => [{ harness: "claude", installed: true, executable: scans.executable }],
 }));
-vi.mock("../src/main/junto/term/templates/enumerate-dispatch", () => ({
+vi.mock("../src/core/term/templates/enumerate-dispatch", () => ({
   // As a real scan answers: the harness's efforts are its template's.
   enumerateManagedModels: async () => {
     scans.count += 1;
@@ -37,11 +37,11 @@ vi.mock("../src/main/junto/term/templates/enumerate-dispatch", () => ({
   },
   listManagedProfiles: () => scans.profiles(),
 }));
-vi.mock("../src/main/junto/adapters/exec", () => ({
+vi.mock("../src/core/adapters/exec", () => ({
   runCli: () => scans.cli(),
 }));
 
-const { harnessModelCacheIn, makeHarnessInventory } = await import("../src/main/junto/term/templates/harness-inventory");
+const { harnessModelCacheIn, makeHarnessInventory } = await import("../src/core/term/templates/harness-inventory");
 
 let root: string;
 let runtime: ManagedRuntime.ManagedRuntime<SqlClient.SqlClient, unknown>;
@@ -231,8 +231,8 @@ describe("the harness model cache", () => {
   });
 
   it("lists profiles only from a command that ran", async () => {
-    const { listManagedProfiles } = await vi.importActual<typeof import("../src/main/junto/term/templates/enumerate-dispatch")>(
-      "../src/main/junto/term/templates/enumerate-dispatch",
+    const { listManagedProfiles } = await vi.importActual<typeof import("../src/core/term/templates/enumerate-dispatch")>(
+      "../src/core/term/templates/enumerate-dispatch",
     );
     scans.cli = async () => ({ ok: false, stdout: "", error: "adapter command timed out after 12000ms" });
     await expect(listManagedProfiles("hermes")).rejects.toThrow("Hermes did not list its profiles: adapter command timed out after 12000ms");

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { nameFromFile } from "../src/renderer/components/settings/ReferencesSettingsSection";
-import { appendText, textSize } from "../src/renderer/components/settings/text-edit";
+import { nameFromFile } from "../src/window/components/settings/ReferencesSettingsSection";
+import { appendText, textSize } from "../src/window/components/settings/text-edit";
 
 describe("bringing text into the Briefing and References editors", () => {
   test("a file's text lands after what is written, one blank line between", () => {

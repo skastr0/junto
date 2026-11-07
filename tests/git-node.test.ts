@@ -1,13 +1,13 @@
-import { newGit, newNote } from "../src/renderer/lib/model-factories";
+import { newGit, newNote } from "../src/window/lib/model-factories";
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import { Node, NODE_KINDS } from "../src/shared/model";
 import { resolveSpec, roleOf } from "../src/shared/physics";
-import { toFlowOfCanvas } from "../src/renderer/lib/convert";
-import { targetPlanOn } from "../src/renderer/lib/edge-mutations";
+import { toFlowOfCanvas } from "../src/window/lib/convert";
+import { targetPlanOn } from "../src/window/lib/edge-mutations";
 import { canvasOf, seat } from "./support/model-nodes";
-import { nodeSurfaceKind } from "../src/renderer/lib/activate-node-surface";
-import { DEFAULT_NODE_CATALOG_ENTRIES } from "../src/renderer/components/node-palette/NodeCatalogGrid";
+import { nodeSurfaceKind } from "../src/window/lib/activate-node-surface";
+import { DEFAULT_NODE_CATALOG_ENTRIES } from "../src/window/components/node-palette/NodeCatalogGrid";
 
 const emptyContext = {
   canvasName: "test",

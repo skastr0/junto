@@ -4,8 +4,8 @@
  * is a Boat one, and a wake does nothing.
  */
 import { Effect, Layer } from "effect";
-import { BoatRoutesService, BoatWake } from "../../src/main/junto/boat/plane";
-import { BoatMachineRefused, type BoatRoutes } from "../../src/main/junto/boat/machines";
+import { BoatRoutesService, BoatWake } from "../../src/core/boat/plane";
+import { BoatMachineRefused, type BoatRoutes } from "../../src/core/boat/machines";
 
 const notBoat = (name: string) =>
   new BoatMachineRefused({ machine: name, check: "not-boat", message: `${name} is not a Boat machine` });

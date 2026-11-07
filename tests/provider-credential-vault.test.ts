@@ -7,17 +7,17 @@ import { SqlClient } from "effect/sql";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { MASKED_SECRET } from "../src/shared/settings";
-import { makeSettingsService } from "../src/main/junto/settings/service";
-import { CredentialBindingRepository, CredentialPersistenceError } from "../src/main/junto/credentials/bindings";
-import { MachineConfigurationRepository } from "../src/main/junto/machines/configuration";
-import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
-import { StateTransactionOperation } from "../src/main/junto/state/service";
+import { makeSettingsService } from "../src/core/settings/service";
+import { CredentialBindingRepository, CredentialPersistenceError } from "../src/core/credentials/bindings";
+import { MachineConfigurationRepository } from "../src/core/machines/configuration";
+import { makeStateEngineLive, StateEngine } from "../src/core/state/engine";
+import { StateTransactionOperation } from "../src/core/state/service";
 import {
   MemoryCredentialStore,
   UnavailableCredentialStore,
-} from "../src/main/junto/credentials/store";
-import { PROVIDER_CREDENTIAL_SLOT_VALUES } from "../src/main/junto/credentials/state-schema";
-import { reconcilePendingStateBackups } from "../src/main/junto/state/backup";
+} from "../src/core/credentials/store";
+import { PROVIDER_CREDENTIAL_SLOT_VALUES } from "../src/core/credentials/state-schema";
+import { reconcilePendingStateBackups } from "../src/core/state/backup";
 
 const SECRET = "sk-proof-plaintext-credential-9f8e7d6c-UNIQUE";
 const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);

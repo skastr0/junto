@@ -18,7 +18,7 @@ import {
   type FeedRegion,
   type FeedSection,
 } from "../src/shared/operator-feed";
-import { feedStatusLine, viewFeedSections } from "../src/renderer/lib/operator-feed";
+import { feedStatusLine, viewFeedSections } from "../src/window/lib/operator-feed";
 
 const at = (itemId: string, kind: FeedItemKind, seat: string, text: string, detail?: string): FeedItem => ({
   itemId,

@@ -6,7 +6,7 @@ import {
   captureMuseSessionId,
   isMuseSessionId,
   museSessionsRoot,
-} from "../src/main/junto/term/templates/muse-session";
+} from "../src/core/term/templates/muse-session";
 import { MUSE_TEMPLATE } from "../src/shared/managed-terminal-templates";
 import { resolveManagedLaunch } from "../src/shared/managed-terminal-launch";
 

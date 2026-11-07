@@ -7,7 +7,7 @@ import {
   nextSlot,
   signalWatchMatches,
   type Considered,
-} from "../src/main/junto/automation/plan";
+} from "../src/core/automation/plan";
 import { asNodeId } from "../src/shared/physics/schema";
 import { type Automation, type AutomationWire, decodeAutomation } from "../src/shared/automation";
 

@@ -4,10 +4,10 @@ import { expect, it } from "vitest";
 import { createSandbox, destroySandbox, writeFixtureModel } from "../e2e/harness/sandbox";
 import { modelFixture, modelNote, modelSeat, modelWire } from "../e2e/harness/model";
 import { Command } from "../src/shared/model";
-import { ModelLive } from "../src/main/junto/model/layer";
-import { ModelDependents } from "../src/main/junto/model/dependents";
-import { ModelService } from "../src/main/junto/model/service";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { ModelLive } from "../src/core/model/layer";
+import { ModelDependents } from "../src/core/model/dependents";
+import { ModelService } from "../src/core/model/service";
+import { makeStateEngineLive } from "../src/core/state/engine";
 
 it("a batch publishes one committed delta for add, move, edit, paint order and wire replacement", async () => {
   const sandbox = await createSandbox();

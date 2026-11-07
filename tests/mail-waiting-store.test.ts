@@ -5,7 +5,7 @@ import {
   mailWaiting$,
   mailWaitsOn,
   startMailWaitingWatch,
-} from "../src/renderer/lib/mail-waiting";
+} from "../src/window/lib/mail-waiting";
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 

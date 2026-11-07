@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { COMMAND_ROW_MAX_BYTES } from "../src/shared/resource-command";
 import { MAIL_ENVELOPE_BYTES, MAIL_TEXT_INLINE_MAX_BYTES, mailTextBytes, textCarriage } from "../src/shared/mail-text-bound";
-import { longTextOf } from "../src/renderer/lib/long-text";
+import { longTextOf } from "../src/window/lib/long-text";
 
 describe("a composer's text bound", () => {
   it("leaves the row its envelope", () => {

@@ -5,11 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const account = vi.hoisted(() => ({ home: "", isLive: (_pid: number): boolean => false }));
 vi.mock("node:os", async original => ({ ...await original<typeof import("node:os")>(), homedir: () => account.home }));
-vi.mock("../src/main/junto/process-epoch", () => ({
+vi.mock("../src/node/process-epoch", () => ({
   readSingleProcessEpochSnapshot: (pid: number) => account.isLive(pid) ? [{ pid, startKey: `fixture-${pid}` }] : [],
 }));
-import { admitMachineServiceLabel, darwinMachineService, machineService, MachineServiceRefused } from "../src/main/junto/hosts/install-service";
-import { removeMachineServiceFile } from "../src/main/junto/hosts/install-paths";
+import { admitMachineServiceLabel, darwinMachineService, machineService, MachineServiceRefused } from "../src/cli/hosts/install-service";
+import { removeMachineServiceFile } from "../src/cli/hosts/install-paths";
 
 type Job = { pid: number; path: string; program: string; args: string[]; home: string };
 let root: string, home: string, file: string;

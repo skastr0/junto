@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { OverseerHostEvent, OverseerHostRun } from "../src/shared/overseer-host-control";
-import { requestBackendResponse, runOverseerTurn } from "../src/overseer-host/session";
-import { decodeHostTool, overseerHostTools } from "../src/overseer-host/tools";
+import { requestBackendResponse, runOverseerTurn } from "../src/cli/overseer-host/session";
+import { decodeHostTool, overseerHostTools } from "../src/cli/overseer-host/tools";
 import { earlyDispatchFromArgv } from "../src/cli/early-dispatch";
 
 const assignment = (): OverseerHostRun => ({

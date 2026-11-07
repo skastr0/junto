@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
+import { migrateMachineNames } from "../src/core/state/migrate-machine-names";
 import {
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
@@ -18,8 +18,8 @@ import {
   STATE_SCHEMA_V35_IDENTITY,
   migrateStateSchema,
   type StateSchemaMigrationPlan,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { Port } from "../src/shared/physics/schema";
 import { STATE_SCHEMA_V34_SQL, STATE_SCHEMA_V35_SQL } from "./fixtures/state-v13/schema";
 

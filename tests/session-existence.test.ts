@@ -14,9 +14,9 @@ import {
   parseHarnessSessionArgv,
   reclaimOrphanedHarnessArgv,
   shouldResumeHarnessSession,
-} from "../src/main/junto/term/session-existence";
-import { launchForManagedSpawn } from "../src/main/junto/term/managed-spawn-plan";
-import { newSeat } from "../src/renderer/lib/model-factories";
+} from "../src/core/term/session-existence";
+import { launchForManagedSpawn } from "../src/core/term/managed-spawn-plan";
+import { newSeat } from "../src/window/lib/model-factories";
 
 const temps: string[] = [];
 

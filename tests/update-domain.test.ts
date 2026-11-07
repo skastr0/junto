@@ -12,7 +12,7 @@ import {
   isMintedCandidate,
   mintAuthorizedCandidate,
   remoteRolloutTargetVersion,
-} from "../src/main/junto/update/domain";
+} from "../src/app/update/domain";
 
 const roots: string[] = [];
 

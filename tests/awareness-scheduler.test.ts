@@ -17,10 +17,10 @@ import {
   type AwarenessAdvisory,
   type AwarenessSchedulerConfig,
   type AwarenessSchedulerShape,
-} from "../src/main/junto/term/awareness/scheduler";
-import type { AwarenessEvidenceWindow } from "../src/main/junto/term/awareness/select-input";
-import type { AwarenessAsk, AwarenessAskOutcome } from "../src/main/junto/term/awareness/jev-client";
-import type { ObserverGridSnapshot } from "../src/main/junto/term/observer";
+} from "../src/core/term/awareness/scheduler";
+import type { AwarenessEvidenceWindow } from "../src/core/term/awareness/select-input";
+import type { AwarenessAsk, AwarenessAskOutcome } from "../src/core/term/awareness/jev-client";
+import type { ObserverGridSnapshot } from "../src/core/term/observer";
 import {
   EVIDENCE_TEXT,
   abstainedOutcome,

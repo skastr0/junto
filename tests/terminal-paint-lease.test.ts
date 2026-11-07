@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldPresentTerminalFrames } from "../src/renderer/lib/terminal-paint-lease";
+import { shouldPresentTerminalFrames } from "../src/window/lib/terminal-paint-lease";
 
 describe("shouldPresentTerminalFrames", () => {
   it("presents when the seat is visible and motion flags are omitted", () => {

@@ -4,7 +4,7 @@ import {
   REGION_RETAP_GAP_MS,
   regionDigitVerdict,
   type RegionRetapMemory,
-} from "../src/renderer/lib/region-retap";
+} from "../src/window/lib/region-retap";
 
 describe("regionDigitVerdict", () => {
   it("first press selects the region", () => {

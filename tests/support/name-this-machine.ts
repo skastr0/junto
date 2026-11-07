@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { MachineRepository } from "../../src/main/junto/machines/repository";
+import { MachineRepository } from "../../src/core/machines/repository";
 import { THIS_MACHINE } from "./machines";
 
 /**

@@ -13,16 +13,16 @@ import {
   COMPANION_WRITE_OPS,
   decodeCompanionRequestLine,
 } from "../src/shared/companion-protocol";
-import { makeArtifactReadBackend, type ArtifactReadPorts } from "../src/main/junto/companion/artifact-reads";
-import { captureRowsOf } from "../src/renderer/components/capture/capture-list";
+import { makeArtifactReadBackend, type ArtifactReadPorts } from "../src/core/companion/artifact-reads";
+import { captureRowsOf } from "../src/window/components/capture/capture-list";
 import type { Artifact, ArtifactBody } from "../src/shared/wire/artifact";
 import { COMPANION_ARTIFACT_GET_BUDGET_BYTES } from "../src/shared/wire/companion-artifact-reads";
 import { COMPANION_MAX_OUTBOUND_BYTES } from "../src/shared/companion-protocol";
 import { asNodeId, type Canvas } from "../src/shared/model";
 import type { JuntoViewStateApi } from "../src/shared/ipc";
 import type { ViewStateEvent, ViewStateSnapshot } from "../src/shared/view-state";
-import { createMainViewState } from "../src/renderer/lib/view-state-main";
-import { publishViewStateChange, subscribeViewStateChanges } from "../src/main/junto/view-state/changes";
+import { createMainViewState } from "../src/window/lib/view-state-main";
+import { publishViewStateChange, subscribeViewStateChanges } from "../src/core/view-state/changes";
 
 const line = (id: string, op: string, args: object): string => JSON.stringify({ v: COMPANION_PROTOCOL, type: "request", id, op, args });
 

@@ -4,13 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Exit } from "effect";
 import type { MachineLogRead, MachineLogRow } from "../src/shared/machine-log";
-import { ModelRecords } from "../src/main/junto/model/records";
-import { LogService } from "../src/main/junto/observability/logger";
+import { ModelRecords } from "../src/core/model/records";
+import { LogService } from "../src/node/observability/logger";
 import { makeTestLog } from "./support/test-log";
 
 const { log } = makeTestLog({ machine: "macbook" });
-import { fitLogRead } from "../src/main/junto/observability/log-file";
-import { answerPeerLogRead, peerLogScope, receivePeerLogRead } from "../src/main/junto/observability/log-link";
+import { fitLogRead } from "../src/node/observability/log-file";
+import { answerPeerLogRead, peerLogScope, receivePeerLogRead } from "../src/core/observability/log-link";
 
 const homes: string[] = [];
 afterEach(() => {

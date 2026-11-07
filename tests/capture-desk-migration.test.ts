@@ -17,10 +17,10 @@ import {
   STATE_SCHEMA_V69_IDENTITY,
   migrateStateSchema,
   type StateSchemaMigrationPlan,
-} from "../src/main/junto/state/migrations";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
-import { VIEW_CAPTURE_DESK_SCHEMA_SQL } from "../src/main/junto/view-state/state-schema";
-import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { STATE_SCHEMA_SQL } from "../src/core/state/schema";
+import { VIEW_CAPTURE_DESK_SCHEMA_SQL } from "../src/core/view-state/state-schema";
+import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V68_SQL, STATE_SCHEMA_V69_SQL } from "./fixtures/state-v13/schema";
 
 const upTo = (version: number, currentSchemaSql: string): StateSchemaMigrationPlan => ({

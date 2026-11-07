@@ -21,10 +21,10 @@ describe("code steps and the automation signal action (0.11 gates)", () => {
     expect(readFileSync("src/shared/automation-domain.ts", "utf8")).toContain(
       "const refused = actionKindRefusal(action.kind) ?? actionRefusal(action);",
     );
-    expect(readFileSync("src/main/junto/automation/live.ts", "utf8")).toContain(
+    expect(readFileSync("src/core/automation/live.ts", "utf8")).toContain(
       "!actionKindInBuild(action.kind) ? Effect.succeed(notAvailable(index))",
     );
-    expect(readFileSync("src/renderer/components/automations/AutomationEditor.tsx", "utf8")).toContain(
+    expect(readFileSync("src/window/components/automations/AutomationEditor.tsx", "utf8")).toContain(
       "(Object.keys(ACTION_LABEL) as ReadonlyArray<ActionKind>).filter(actionKindInBuild)",
     );
   });

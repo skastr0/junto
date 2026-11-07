@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/model";
 import type { ArtifactHead } from "../src/shared/resource-ipc";
 import type { TaskView } from "../src/shared/task-model";
-import { mentionItemsOf } from "../src/renderer/lib/mention-items";
+import { mentionItemsOf } from "../src/window/lib/mention-items";
 
 // Only the fields mentionItemsOf reads.
 const task = (taskId: string, node: string, state: string, number?: number): TaskView =>

@@ -13,7 +13,7 @@ import {
   parseOffboardMinutes,
   planOffboardRulesChange,
   seedHarnessOverride,
-} from "../src/renderer/lib/seat-offboard";
+} from "../src/window/lib/seat-offboard";
 import { defaultOffboardRules } from "../src/shared/seat-offboard";
 import type {
   OffboardRefusalCode,

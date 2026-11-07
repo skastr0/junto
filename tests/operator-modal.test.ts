@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { focusSwitcher$ } from "../src/renderer/lib/focus-switcher";
+import { focusSwitcher$ } from "../src/window/lib/focus-switcher";
 import {
   closeOperatorModal,
   isOperatorModalOpen,
@@ -8,7 +8,7 @@ import {
   operatorModal$,
   operatorModalPlace,
   toggleOperatorModal,
-} from "../src/renderer/lib/operator-modal";
+} from "../src/window/lib/operator-modal";
 
 describe("the operator slot", () => {
   afterEach(() => {

@@ -9,8 +9,8 @@ import {
   ArtifactLabelFilter,
   addLabel,
   labelOptions,
-} from "../src/renderer/components/artifacts/ArtifactLabelChips";
-import { labelChoices, labelsInNode, visibleArtifacts } from "../src/renderer/components/artifacts/artifacts-pane-model";
+} from "../src/window/components/artifacts/ArtifactLabelChips";
+import { labelChoices, labelsInNode, visibleArtifacts } from "../src/window/components/artifacts/artifacts-pane-model";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

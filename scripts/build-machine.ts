@@ -12,7 +12,7 @@ import { executeJsonCommand } from "../src/cli/core/output";
 import { featureViteDefines, resolveBuildFeatures } from "./build-features";
 import { buildIdentity } from "./build-identity";
 import { compileNativeCli, NATIVE_CLI_TARGET_OF } from "./build-native-cli";
-import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
+import { machineBundleFiles } from "../src/node/hosts/bundle";
 import { bootRelocatedMachineBundle } from "./machine-bundle-boot";
 import { normalizeMachineBundleModes } from "./machine-bundle-modes";
 import { signMachineBundle } from "./sign-machine-bundle.mjs";
@@ -118,7 +118,7 @@ export const bundleMachineCore = async (outdir: string, input: {
 }): Promise<void> => {
   // Bun.build throws an AggregateError on failure; its BuildMessages are the cause.
   const result = await Bun.build({
-    entrypoints: [join(repoRoot, "src/main/headless.ts")], outdir, naming: "junto.cjs", target: "node", format: "cjs",
+    entrypoints: [join(repoRoot, "src/core/headless.ts")], outdir, naming: "junto.cjs", target: "node", format: "cjs",
     external: ["node-pty", "@xterm/headless", "@xterm/addon-serialize", "electron"],
     // Bun otherwise replaces __filename with each source module's build path,
     // and folds NODE_ENV to "development" for every package in the core.
@@ -145,7 +145,7 @@ export const bundleMachineCore = async (outdir: string, input: {
 };
 
 /**
- * What runs on a machine's own files (src/main/machine-local.ts), bundled
+ * What runs on a machine's own files (src/cli/machine-local.ts), bundled
  * into `outdir/machine-local.cjs` for the bundle's Node: install, uninstall
  * and a Boat machine's key, which the native bin/junto hands to it.
  */
@@ -155,7 +155,7 @@ export const bundleMachineLocal = async (outdir: string, input: {
   readonly features: ReturnType<typeof resolveBuildFeatures>;
 }): Promise<void> => {
   const result = await Bun.build({
-    entrypoints: [join(repoRoot, "src/main/machine-local.ts")], outdir, naming: "machine-local.cjs", target: "node", format: "cjs",
+    entrypoints: [join(repoRoot, "src/cli/machine-local.ts")], outdir, naming: "machine-local.cjs", target: "node", format: "cjs",
     external: ["node-pty", "electron"],
     define: { "process.env.NODE_ENV": JSON.stringify("production"), __JUNTO_BUILD_ID__: JSON.stringify(input.build), __JUNTO_APP_VERSION__: JSON.stringify(input.version), __JUNTO_MACHINE_BUILD__: "true", ...featureViteDefines(input.features) },
   }).catch((error: unknown) => { throw MachineBundleBuildFailed.from(error); });

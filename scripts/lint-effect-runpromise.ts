@@ -24,14 +24,17 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ALLOWLIST_REL = "scripts/effect-runpromise-allowlist.json";
-const PRODUCT_ROOT_REL = "src/main";
+/** The Node programs' product code: what lived under src/main before the folder move. */
+const PRODUCT_ROOTS_REL = ["src/app", "src/core", "src/node", "src/terminal", "src/contract", "src/cli/hosts", "src/cli/machine-local.ts"] as const;
 
 const CALL_PATTERN = /Effect\.runPromise\b/;
 
 /** Paths that must never appear under permanent (S2 territory). */
 const FORBIDDEN_PERMANENT_PREFIXES = [
-  "src/main/junto/kernel/",
-  "src/main/junto/work/",
+  "src/core/kernel/",
+  "src/core/work/",
+  "src/node/work/",
+  "src/app/work/",
 ] as const;
 
 type AllowEntry = {
@@ -142,11 +145,12 @@ const indexEntries = (
 };
 
 const main = async (): Promise<number> => {
-  const productRoot = path.join(ROOT, PRODUCT_ROOT_REL);
-  const st = await stat(productRoot);
-  if (!st.isDirectory()) {
-    console.error(`missing product root: ${PRODUCT_ROOT_REL}`);
-    return 1;
+  for (const rel of PRODUCT_ROOTS_REL) {
+    const ok = await stat(path.join(ROOT, rel)).then(() => true, () => false);
+    if (!ok) {
+      console.error(`missing product root: ${rel}`);
+      return 1;
+    }
   }
 
   const allowlist = await loadAllowlist();
@@ -178,7 +182,14 @@ const main = async (): Promise<number> => {
     return 1;
   }
 
-  const files = await walk(productRoot);
+  const files = (
+    await Promise.all(
+      PRODUCT_ROOTS_REL.map(async (rel) => {
+        const abs = path.join(ROOT, rel);
+        return (await stat(abs)).isDirectory() ? walk(abs) : [abs];
+      }),
+    )
+  ).flat();
   const hitsByFile = new Map<string, Hit[]>();
   for (const abs of files) {
     const rel = path.relative(ROOT, abs).split(path.sep).join("/");

@@ -13,7 +13,7 @@ import {
   quietNotesOf,
   sanitizeQuickReplies,
 } from "../src/shared/settings";
-import { decodeStoredSettings, preferencesFromSettings } from "../src/main/junto/settings/state-schema";
+import { decodeStoredSettings, preferencesFromSettings } from "../src/core/settings/state-schema";
 
 const decodePatch = Schema.decodeUnknownSync(SettingsPatch, { onExcessProperty: "error" });
 const decodeSettings = Schema.decodeUnknownSync(Settings, { onExcessProperty: "error" });

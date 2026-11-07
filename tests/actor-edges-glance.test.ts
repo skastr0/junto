@@ -3,7 +3,7 @@ import { canvasOf, note, page, seat, wire } from "./support/model-nodes";
 import {
   actorEdgePhaseLabel,
   actorEdgeRows,
-} from "../src/renderer/lib/actor-edges";
+} from "../src/window/lib/actor-edges";
 
 const agent = (id: string, label: string) => seat(id, { label: label as never });
 

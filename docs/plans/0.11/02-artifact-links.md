@@ -18,7 +18,7 @@ CLI.
   A document's `#` picker writes them (`artifacts/mention-picker.tsx`).
 - Backlinks are a projection of mail rows only: `work_mentions`, keyed to
   `work_messages` by a cascading foreign key
-  (`src/main/junto/work/mention-state-schema.ts:12`), written with each row
+  (`src/core/work/mention-state-schema.ts:12`), written with each row
   (`repository.ts:2711`). The Artifacts and Tasks panes show them
   (`threads/MentionedIn.tsx`). A link written inside an artifact's body counts
   for nothing.

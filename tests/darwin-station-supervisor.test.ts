@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   LaunchctlRunResult,
   JuntoLaunchAgentTarget,
-} from "../src/main/junto/settings/launchctl-runner";
+} from "../src/node/settings/launchctl-runner";
 
 const mocks = vi.hoisted(() => ({
   target: Object.freeze({}) as JuntoLaunchAgentTarget,
@@ -11,14 +11,14 @@ const mocks = vi.hoisted(() => ({
   kickstartLaunchAgent: vi.fn(),
 }));
 
-vi.mock("../src/main/junto/settings/launchctl-runner", () => ({
+vi.mock("../src/node/settings/launchctl-runner", () => ({
   JUNTO_LAUNCHD_LABEL: "com.skastr0.junto",
   launchAgentTargetForCurrentUser: mocks.launchAgentTargetForCurrentUser,
   printLaunchAgent: mocks.printLaunchAgent,
   kickstartLaunchAgent: mocks.kickstartLaunchAgent,
 }));
 
-import { createDarwinStationSupervisor } from "../src/main/junto/supervision/darwin";
+import { createDarwinStationSupervisor } from "../src/node/supervision/darwin";
 
 const launchdPrint = (
   body: string,

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { NodeKind } from "../src/shared/model/kinds";
 import type { NodeId } from "../src/shared/physics/schema";
 import type { ResourceSubject } from "../src/shared/thread-subject";
-import { mentionChipParts, subjectChipOf } from "../src/renderer/lib/mention-open";
+import { mentionChipParts, subjectChipOf } from "../src/window/lib/mention-open";
 
 const ITEM = "01M5ESSJRFWT6RVS5HMWMGJXGD";
 const KINDS: Record<string, NodeKind> = { s: "agent", t: "task", a: "artifacts", p: "page" };

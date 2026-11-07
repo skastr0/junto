@@ -7,7 +7,7 @@ import {
   nextDeadline,
   tickFeed,
   type FeedState,
-} from "../src/renderer/lib/preamble-feed";
+} from "../src/window/lib/preamble-feed";
 
 const T0 = 1_000_000;
 let n = 0;

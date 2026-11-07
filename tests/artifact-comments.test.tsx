@@ -3,9 +3,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mintItemId } from "../src/shared/resource-command";
-import { makeLocalSubjectThreads, newPostOpId, type SubjectThread } from "../src/renderer/lib/subject-threads-source";
+import { makeLocalSubjectThreads, newPostOpId, type SubjectThread } from "../src/window/lib/subject-threads-source";
 import { asNodeId } from "../src/shared/physics/schema";
-import { ArtifactComments, ArtifactCommentsEdge } from "../src/renderer/components/artifacts/ArtifactComments";
+import { ArtifactComments, ArtifactCommentsEdge } from "../src/window/components/artifacts/ArtifactComments";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

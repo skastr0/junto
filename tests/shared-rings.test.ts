@@ -6,8 +6,8 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ringCells } from "../src/renderer/lib/activity-atlas";
-import { RING_PAINT } from "../src/renderer/lib/activity-rings";
+import { ringCells } from "../src/window/lib/activity-atlas";
+import { RING_PAINT } from "../src/window/lib/activity-rings";
 import { RING_MOTION, ringState, type LoopRing } from "../src/shared/rings";
 
 const root = resolve(__dirname, "..");

@@ -13,14 +13,14 @@ import {
 } from "@shared/files";
 import { fileUrl } from "@shared/file-url";
 import { asNodeId } from "@shared/physics/schema";
-import { COUNT_KEEP_MS, makeFilesService, type FilesNodeFacts, type NameSources } from "../src/main/junto/files/service";
-import { walkNames } from "../src/main/junto/files/sources";
-import { mainNameSources } from "../src/main/junto/files/git-spawn";
+import { COUNT_KEEP_MS, makeFilesService, type FilesNodeFacts, type NameSources } from "../src/core/files/service";
+import { walkNames } from "../src/core/files/sources";
+import { mainNameSources } from "../src/core/files/git-spawn";
 import { execFileSync } from "node:child_process";
-import { numberedName } from "../src/main/junto/files/fs-ops";
-import { createFileProtocolHandler } from "../src/main/junto/files/protocol";
-import { readerOfHandle } from "../src/main/junto/files/bytes";
-import { BURST, watchRoot, type WatchBatch, type WatchFactory } from "../src/main/junto/files/watcher";
+import { numberedName } from "../src/core/files/fs-ops";
+import { createFileProtocolHandler } from "../src/app/files/protocol";
+import { readerOfHandle } from "../src/core/files/bytes";
+import { BURST, watchRoot, type WatchBatch, type WatchFactory } from "../src/core/files/watcher";
 
 const p = (raw: string): FilePath => {
   const path = parseFilePath(raw);

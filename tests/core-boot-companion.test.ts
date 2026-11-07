@@ -3,9 +3,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { Result } from "effect";
 import { expect, it } from "vitest";
-import { startCore } from "../src/main/junto/core";
-import { companionService } from "../src/main/junto/companion/service";
-import { coreCompanionSettings } from "../src/main/core-process/main-side/companion";
+import { startCore } from "../src/core/core";
+import { companionService } from "../src/core/companion/service";
+import { coreCompanionSettings } from "../src/app/core-process/main-side/companion";
 import { inProcessCore, type CoreRunner } from "./support/in-process-core";
 import { decodeOperatorResponse, encodeOperatorFrame, operatorControlSocketPath, type OperatorRequestEnvelope } from "../src/shared/operator-control";
 

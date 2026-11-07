@@ -3,10 +3,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { asCanvasName, type Node, type Wire } from "../src/shared/model";
-import { ActorRail } from "../src/renderer/components/terminal/ActorRail";
-import { SeatCollaborationBlock } from "../src/renderer/components/terminal/SeatCollaborationBlock";
-import { state$ } from "../src/renderer/lib/state";
-import { modelStore } from "../src/renderer/lib/use-model";
+import { ActorRail } from "../src/window/components/terminal/ActorRail";
+import { SeatCollaborationBlock } from "../src/window/components/terminal/SeatCollaborationBlock";
+import { state$ } from "../src/window/lib/state";
+import { modelStore } from "../src/window/lib/use-model";
 import { page, seat, wire } from "./support/model-nodes";
 
 // The terminal family reads the node store. Each case mounts the real

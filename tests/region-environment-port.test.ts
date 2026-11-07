@@ -8,9 +8,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { seat as agentSeat, region as regionNode, note, terminal } from "./support/model-nodes";
 
 const bridge: { current: Record<string, unknown> | undefined } = { current: undefined };
-vi.mock("../src/renderer/lib/junto-api", () => ({ getJuntoApi: () => bridge.current }));
+vi.mock("../src/window/lib/junto-api", () => ({ getJuntoApi: () => bridge.current }));
 
-const { regionEnvironmentPort } = await import("../src/renderer/lib/region-environment-port");
+const { regionEnvironmentPort } = await import("../src/window/lib/region-environment-port");
 
 const seat = agentSeat("seat-1");
 const region = regionNode("region-1", { x: 0, y: 0, width: 400, height: 300 }, { label: "R" });

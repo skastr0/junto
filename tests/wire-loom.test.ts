@@ -9,7 +9,7 @@ import {
   type LoomObstacle,
   type LoomPlan,
   type LoomStrand,
-} from "../src/renderer/lib/wire-loom";
+} from "../src/window/lib/wire-loom";
 import {
   polylineHitsObstacles,
   segmentHitsRect,

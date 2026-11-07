@@ -12,7 +12,7 @@ import { COMPANION_PROTOCOL } from "../src/shared/companion-protocol";
 import { runCompanionSession } from "../src/shared/companion-session";
 import { parseCompanionStdioArgs } from "../src/cli/companion-stdio";
 import { THIS_MACHINE } from "./support/machines";
-import { rasterizePortraitSvg } from "../src/main/junto/companion/portrait-png";
+import { rasterizePortraitSvg } from "../src/node/companion/portrait-png";
 
 type Frame = Record<string, any>;
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyHotbarLeases,
   emptyHotbarSlots,
-} from "../src/renderer/lib/hotbar-slots";
+} from "../src/window/lib/hotbar-slots";
 import {
   cardMark,
   digitHue,
@@ -10,7 +10,7 @@ import {
   notifyItem,
   seatFactsForNode,
   type SeatFacts,
-} from "../src/renderer/lib/seat-projections";
+} from "../src/window/lib/seat-projections";
 
 const facts = (over: Partial<SeatFacts> & { readonly nodeId?: string }): SeatFacts => ({
   nodeId: over.nodeId ?? "n1",

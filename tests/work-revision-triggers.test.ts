@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
+import { STATE_SCHEMA_SQL } from "../src/core/state/schema";
 
 // Every mailbox mutation moves its canvas Work counter, independently of a
 // document, a facade cache, or the repository method used to write the row.

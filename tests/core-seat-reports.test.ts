@@ -3,10 +3,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect } from "effect";
 import { expect, it, vi } from "vitest";
-import { startCore } from "../src/main/junto/core";
-import { AgentSignalRepository } from "../src/main/junto/signals/repository";
-import { seatStateRuntime } from "../src/main/junto/term/agent-state/runtime";
-import { termPlane } from "../src/main/junto/term/plane";
+import { startCore } from "../src/core/core";
+import { AgentSignalRepository } from "../src/core/signals/repository";
+import { seatStateRuntime } from "../src/core/term/agent-state/runtime";
+import { termPlane } from "../src/core/term/plane";
 
 it("a windowless core puts a seat's open blocked signal on its snapshot, so the cut sees it waiting", async () => {
   const home = await mkdtemp(join(tmpdir(), "junto-core-reports-"));

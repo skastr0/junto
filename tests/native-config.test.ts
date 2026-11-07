@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Exit, Layer } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import { readJsonKey, readTomlKey, writeJsonKey, writeTomlKey } from "../src/main/junto/native-config/edit";
-import { makeNativeConfig } from "../src/main/junto/native-config/service";
-import { HarnessInventory } from "../src/main/junto/term/templates/harness-inventory";
+import { readJsonKey, readTomlKey, writeJsonKey, writeTomlKey } from "../src/core/native-config/edit";
+import { makeNativeConfig } from "../src/core/native-config/service";
+import { HarnessInventory } from "../src/core/term/templates/harness-inventory";
 import type { MachineInventory } from "../src/shared/harness-domain/inventory";
 
 describe("JSON keys", () => {

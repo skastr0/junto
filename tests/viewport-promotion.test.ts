@@ -7,12 +7,12 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const read = (path: string): string => readFileSync(resolve(__dirname, "..", path), "utf8");
-const css = read("src/renderer/styles.css");
+const css = read("src/window/styles.css");
 const sheets = [
   css,
-  read("src/renderer/styles/factory-grammar.css"),
-  read("src/renderer/components/edges/wire-pulse.css"),
-  read("src/renderer/components/rts/RtsBottomBar.css"),
+  read("src/window/styles/factory-grammar.css"),
+  read("src/window/components/edges/wire-pulse.css"),
+  read("src/window/components/rts/RtsBottomBar.css"),
 ];
 
 describe("viewport compositor promotion (CSS)", () => {

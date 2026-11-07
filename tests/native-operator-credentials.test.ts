@@ -1,33 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { resolveOpenRouterCredentials } from "../src/main/junto/usage/openrouter-source";
+import { resolveOpenRouterCredentials } from "../src/core/usage/openrouter-source";
 import {
   resolveSyntheticApiKey,
   makeSyntheticSource,
-} from "../src/main/junto/usage/synthetic-source";
+} from "../src/core/usage/synthetic-source";
 import {
   resolveKimiCredential,
   detectKimiPresence,
-} from "../src/main/junto/usage/kimi-source";
+} from "../src/core/usage/kimi-source";
 import {
   resolveDevinCredential,
   detectDevinCredential,
-} from "../src/main/junto/usage/devin-auth";
+} from "../src/core/usage/devin-auth";
 import {
   resolveGoApiKey,
   makeOpencodeGoSource,
-} from "../src/main/junto/usage/opencodego-source";
-import { resolveCopilotToken } from "../src/main/junto/usage/copilot-auth";
+} from "../src/core/usage/opencodego-source";
+import { resolveCopilotToken } from "../src/core/usage/copilot-auth";
 import {
   resolveSessionCookie as resolveOllamaSessionCookie,
   resolveApiKey as resolveOllamaApiKey,
   makeOllamaSource,
-} from "../src/main/junto/usage/ollama-source";
+} from "../src/core/usage/ollama-source";
 import {
   resolveCursorCredential,
-} from "../src/main/junto/usage/cursor-auth";
+} from "../src/core/usage/cursor-auth";
 import {
   makeNativeUsageSources,
-} from "../src/main/junto/usage/native-sources";
+} from "../src/core/usage/native-sources";
 
 // Every configurable usage source resolves credentials in ONE order:
 //   operator settings (Settings > Providers) -> env var -> local files.

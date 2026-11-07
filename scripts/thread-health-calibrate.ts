@@ -14,9 +14,9 @@
 
 import { writeFileSync } from "node:fs";
 import { Effect } from "effect";
-import { makeAwarenessModel } from "../src/main/junto/term/awareness/jev-client";
-import { AWARENESS_QUESTIONS } from "../src/main/junto/term/awareness/questions";
-import { selectAwarenessInput } from "../src/main/junto/term/awareness/select-input";
+import { makeAwarenessModel } from "../src/core/term/awareness/jev-client";
+import { AWARENESS_QUESTIONS } from "../src/core/term/awareness/questions";
+import { selectAwarenessInput } from "../src/core/term/awareness/select-input";
 import type { ThreadHealthValue } from "../src/shared/thread-health";
 
 type Case = {
@@ -108,7 +108,7 @@ const CASES: readonly Case[] = [
       "",
       "⏺ Apologies, I misread that. Let me look at the styles for the rate",
       "  limiter page.",
-      "⏺ Read(src/renderer/login.css)",
+      "⏺ Read(src/window/login.css)",
       "⏺ Actually, I'm not sure which rate limiter you mean; there is no page",
       "  for it. Sorry, let me re-read the task. I think you want the login",
       "  page to show a rate limit message, so I'll edit login.css again.",
@@ -140,8 +140,8 @@ const CASES: readonly Case[] = [
       "  ⎿  18 pass",
       "     0 fail",
       "⏺ Step 3 of 5: wiring the field through the IPC handler.",
-      "⏺ Update(src/main/ipc.ts)",
-      "  ⎿  Updated src/main/ipc.ts with 12 additions",
+      "⏺ Update(src/app/ipc-handlers.ts)",
+      "  ⎿  Updated src/app/ipc-handlers.ts with 12 additions",
       "⏺ Bash(bun test tests/ipc.test.ts)",
       "  ⎿  9 pass",
       "     0 fail",

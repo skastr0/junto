@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { attachWebglRenderer } from "../src/renderer/components/terminal/TerminalSurface";
+import { attachWebglRenderer } from "../src/window/components/terminal/TerminalSurface";
 
 type Report = { readonly kind: string; readonly detail: Record<string, unknown> };
 

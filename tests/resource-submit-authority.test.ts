@@ -19,13 +19,13 @@ vi.mock("@shared/features", async (original) => ({
   get AUTHORITY_ENABLED() { return flags.authority; },
 }));
 
-import { CanvasAuthorities } from "../src/main/junto/fleet/authorities";
-import { FleetDriverError } from "../src/main/junto/fleet/driver";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { writeResult } from "../src/main/junto/work/artifact-control";
-import { WorkRepositoryLive } from "../src/main/junto/work/repository";
-import { ResourceSubmit, makeResourceSubmitLayer } from "../src/main/junto/work/resource-submit";
-import { writeResultOf } from "../src/main/junto/work/task-control";
+import { CanvasAuthorities } from "../src/core/fleet/authorities";
+import { FleetDriverError } from "../src/core/fleet/driver";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { writeResult } from "../src/core/work/artifact-control";
+import { WorkRepositoryLive } from "../src/core/work/repository";
+import { ResourceSubmit, makeResourceSubmitLayer } from "../src/core/work/resource-submit";
+import { writeResultOf } from "../src/core/work/task-control";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import type { AuthorityMachineFacts, AuthorityRead } from "../src/shared/authority";
 import type { QueuedCommand } from "../src/shared/command-row";

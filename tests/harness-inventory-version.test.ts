@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseHarnessVersion, versionProbeOutcome } from "../src/main/junto/term/templates/harness-inventory";
+import { parseHarnessVersion, versionProbeOutcome } from "../src/core/term/templates/harness-inventory";
 
 describe("parseHarnessVersion", () => {
   it.each([

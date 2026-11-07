@@ -21,13 +21,13 @@ import {
   makeLocalArtifactsSource,
   setArtifactsSource,
   type ArtifactsSource,
-} from "../src/renderer/lib/artifacts-source";
-import { isOperatorModalOpen, closeOperatorModal, openOperatorModal } from "../src/renderer/lib/operator-modal";
-import { setCaptureInbox } from "../src/renderer/lib/capture-inbox";
-import { isMac } from "../src/renderer/lib/platform";
-import { state$ } from "../src/renderer/lib/state";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { QuickCapture } from "../src/renderer/components/capture/QuickCapture";
+} from "../src/window/lib/artifacts-source";
+import { isOperatorModalOpen, closeOperatorModal, openOperatorModal } from "../src/window/lib/operator-modal";
+import { setCaptureInbox } from "../src/window/lib/capture-inbox";
+import { isMac } from "../src/window/lib/platform";
+import { state$ } from "../src/window/lib/state";
+import { modelStore } from "../src/window/lib/use-model";
+import { QuickCapture } from "../src/window/components/capture/QuickCapture";
 import { artifacts, canvasOf, region } from "./support/model-nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

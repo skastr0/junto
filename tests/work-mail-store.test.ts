@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { WorkMailChanged, WorkMailPage, WorkMailQuery } from "../src/shared/work-mail";
-import { createWorkMailStore } from "../src/renderer/lib/work-mail-store";
+import { createWorkMailStore } from "../src/window/lib/work-mail-store";
 const page = (id: string, position: number, nextBeforePosition?: number): WorkMailPage => ({
   items: [{ position, message: { messageId: id, role: "user", parts: [{ kind: "text", text: id }] } }],
   ...(nextBeforePosition === undefined ? {} : { nextBeforePosition }),

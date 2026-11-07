@@ -4,13 +4,13 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { expect, it } from "vitest";
 import { modelFixture, modelNote, modelSeat, modelSeedCommands } from "../e2e/harness/model";
 import { createSandbox, destroySandbox, writeFixtureModel, type Sandbox } from "../e2e/harness/sandbox";
-import { MachineRepository, MachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { ModelDependents } from "../src/main/junto/model/dependents";
-import { ModelService } from "../src/main/junto/model/service";
-import { SettingsLive } from "../src/main/junto/settings/service";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { WorkModelDependentsLive } from "../src/main/junto/work/model-dependents";
-import { WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { MachineRepository, MachineRepositoryLive } from "../src/core/machines/repository";
+import { ModelDependents } from "../src/core/model/dependents";
+import { ModelService } from "../src/core/model/service";
+import { SettingsLive } from "../src/core/settings/service";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { WorkModelDependentsLive } from "../src/core/work/model-dependents";
+import { WorkRepositoryLive } from "../src/core/work/repository";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 
 const databaseOf = (sandbox: Sandbox): string =>

@@ -18,8 +18,8 @@ import {
 import {
   TerminalSettingsSection,
   nextNumericValue,
-} from "../src/renderer/components/settings/TerminalSettingsSection";
-import { state$ } from "../src/renderer/lib/state";
+} from "../src/window/components/settings/TerminalSettingsSection";
+import { state$ } from "../src/window/lib/state";
 
 const render = (settings: Settings): string => {
   state$.settings.set(settings);
@@ -197,7 +197,7 @@ describe("terminal settings section", () => {
 describe("settings panel nav", () => {
   it("carries Terminal as a core section, ungated, wired to the surface", async () => {
     const source = await readFile(
-      new URL("../src/renderer/components/SettingsPanel.tsx", import.meta.url),
+      new URL("../src/window/components/SettingsPanel.tsx", import.meta.url),
       "utf8",
     );
     const sections = source.slice(

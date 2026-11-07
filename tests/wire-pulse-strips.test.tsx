@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { PulseHold, PulseStrips } from "../src/renderer/components/edges/WirePulse";
+import { PulseHold, PulseStrips } from "../src/window/components/edges/WirePulse";
 
 const WIRE = "M0,0 L92,0 Q100,0 100,8 L100,100";
 

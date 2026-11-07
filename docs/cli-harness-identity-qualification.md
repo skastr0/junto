@@ -105,7 +105,7 @@ Do not put the token in config argv as a workaround.
 
 ## Prime Agent: daemon and tool routes
 
-Junto's [`prime-agent-daemon.ts`](../src/main/junto/term/prime-agent-daemon.ts:484)
+Junto's [`prime-agent-daemon.ts`](../src/core/term/prime-agent-daemon.ts:484)
 retains arbitrary launch environment while removing nested internal-role
 markers. It hands copies to both the per-seat daemon and terminal client
 (:507, :1170). Thus the token must be prepared before this manager starts the

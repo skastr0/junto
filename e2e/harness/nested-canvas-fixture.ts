@@ -25,7 +25,7 @@ import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { AgentSignal } from "../../src/shared/agent-signals";
 import type { Node, Wire, Region } from "../../src/shared/model";
-import { KIND_TABLES } from "../../src/main/junto/model/state-schema";
+import { KIND_TABLES } from "../../src/core/model/state-schema";
 import { verbsForPair, type Verb } from "../../src/shared/physics/verbs";
 import { modelSeat, modelFixture, modelTerminal, modelNote, modelWire, modelRegion, modelNode, type ModelFixture } from "./model";
 

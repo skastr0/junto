@@ -56,7 +56,7 @@ clocks, ledgers) and product caches live in `junto.db`, never as files under
 `~/.junto`.
 
 **SQLite evolution law:** Version 1 is the baseline Junto schema, and
-`CURRENT_STATE_SCHEMA_VERSION` in `src/main/junto/state/migrations.ts` names
+`CURRENT_STATE_SCHEMA_VERSION` in `src/core/state/migrations.ts` names
 the head. `PRAGMA user_version` selects a contiguous forward-only migration
 chain, and `state_schema_identity` proves the exact shape expected at each
 step. Every schema edit must increment the current version, append an atomic
@@ -269,7 +269,7 @@ Plain connect (no picker) stamps the pair's first verb, `messages` between two s
 
 **Stoppage is still derived, not authored**: a seat is blocked when it is the assignee of a task in `input-required`, on any task node of the canvas (`src/shared/execution-graph.ts`). Open work never blocks, nor does a task in review, and nothing cascades along a wire. To carry stoppage further, an automation watches the task or the seat's raised hand and mails whoever must know. (Blockability is `role === "actor"` only; see [`architecture-canvas-physics.md`](docs/architecture-canvas-physics.md) §2a.) Lexicon word **stops** may appear in wire sentences when derived stoppage applies: speech, never a document field.
 
-There is **no edge dialog**. Edges are authored and read from the RTS bottom bar (`EdgeCommandCard`, `src/renderer/components/rts/RtsControls.tsx`) as a plain sentence ("Planner messages Builder"), painted in a fixed per-verb hue (`--wire-verb-*` custom properties, [`factory-grammar.css`](src/renderer/styles/factory-grammar.css)) — solid strokes only; no dash, width, or arrowhead carries meaning.
+There is **no edge dialog**. Edges are authored and read from the RTS bottom bar (`EdgeCommandCard`, `src/window/components/rts/RtsControls.tsx`) as a plain sentence ("Planner messages Builder"), painted in a fixed per-verb hue (`--wire-verb-*` custom properties, [`factory-grammar.css`](src/window/styles/factory-grammar.css)) — solid strokes only; no dash, width, or arrowhead carries meaning.
 
 Live **phase** is only `blocks` | `relates`, and it is derived, never stored.
 Derived state (blocked seats, region membership, live phase) is recomputed from
@@ -297,7 +297,7 @@ the contract.
 Motion is never traded away, and motion never runs on the main thread.
 Seat rings move on the compositor every display frame: their still parts
 are baked once into the atlas and only `transform` and `opacity` animate
-(`src/renderer/lib/activity-atlas.ts`). A per-frame main-thread loop (the
+(`src/window/lib/activity-atlas.ts`). A per-frame main-thread loop (the
 old live ring painter) lagged panning and the terminal stream, so the cost
 of motion is where it runs, not the motion itself. CSS animation is allowed
 everywhere. No agent slows, steps, throttles, stills or swaps a moving
@@ -309,7 +309,7 @@ motion the operator can see; motion no one can see may stop (operator
 signal 01M63W6RQY1YT2Q65MCM0N3YQ8: never force motion nobody can see at
 the cost of performance or bugs). That covers a hidden window, reduced
 motion, a ring wholly under an opaque surface
-(`src/renderer/lib/mark-occlusion.ts`, operator signal
+(`src/window/lib/mark-occlusion.ts`, operator signal
 01M630R3Y59C42SSY754K3ADZZ), and a ring off screen or clipped to nothing.
 A ring coming onto the screen may show its rest pose for one frame. A ring
 partly covered, or partly on screen, keeps turning every frame, and a ring
@@ -336,7 +336,7 @@ no node or region pause.
 
 ## Sources (read-only adapters)
 
-`src/main/junto/adapters/` — live: **hermes** (+ exec helpers). A down hermes degrades to a stale badge; it never touches the model. hermes enumerates profiles on this machine and on other hosts over ssh.
+`src/core/adapters/` — live: **hermes** (+ exec helpers). A down hermes degrades to a stale badge; it never touches the model. hermes enumerates profiles on this machine and on other hosts over ssh.
 
 ## In-app planes
 
@@ -353,7 +353,7 @@ process-signal capability plane (never bare `process.kill(pid)`).
 - Resumable / crashed / stalled / paused belong to the occupant process, not the seat.
 - A seat on any machine shares this contract. Its machine selects the process Layer. It does not change occupancy.
 - Pin / unpin / remount must not occupy. They activate (or just keep the view).
-- Code: `src/shared/terminal-seat-occupancy.ts`, `src/main/junto/term/seat-process.ts`.
+- Code: `src/shared/terminal-seat-occupancy.ts`, `src/core/term/seat-process.ts`.
 
 **Named session resume law** — a seat resumes one explicit harness session id,
 or it starts fresh. There is no "continue whatever was last." Harness
@@ -362,7 +362,7 @@ Junto feature and must never be emitted. (`junto offboard --continue` is
 unrelated: the agent hands off to a fresh session of its own seat.) Code:
 `src/shared/managed-terminal-launch.ts`.
 
-**Focus surfaces** — centered, measure-constrained overlays for single-subject work (one agent, one terminal, one page). Prefer these over full-bleed or stage-split when the interaction is deep and solitary. Shell: `FocusSurface` (`src/renderer/components/FocusSurface.tsx`); measures + math: `src/renderer/lib/focus-measure.ts`.
+**Focus surfaces** — centered, measure-constrained overlays for single-subject work (one agent, one terminal, one page). Prefer these over full-bleed or stage-split when the interaction is deep and solitary. Shell: `FocusSurface` (`src/window/components/FocusSurface.tsx`); measures + math: `src/window/lib/focus-measure.ts`.
 
 | measure | width intent | use |
 |---|---|---|
@@ -378,15 +378,15 @@ Techniques baked in: dim+blur backdrop, titlebar-aware padding, enter animation 
 
 The renderer has one visual language with two modes — `dark` (default) and `bright`, a designed daylight edition, never a mechanical inversion. Shared traits: warm ground (never pure black, never pure white), ink text, ~95% amber with sparse accents, crimson reserved for blockers, hairline ink strokes, mono instrument type + condensed display for titles. One token source, several projections, never a second palette:
 
-- **Tokens** — `src/shared/theme/` is the single source of truth: OKLCH primitives (`primitives.ts`) assigned meaning per mode in the semantic layer (`semantic.ts`). `bun run theme:build` projects it to `src/renderer/styles/theme.generated.css`, which registers the palette as Tailwind v4 utilities (`text-ink`, `text-dim`, `text-faint`, `bg-ground/raise/raise-2/inset/well`, `border-stroke`, `text-amber/cyan/violet/crimson/…`, `font-mono`, `font-display`) plus `html[data-theme="bright"]` overrides. `src/renderer/lib/theme.ts` re-exports the same source for runtime consumers (canvas paint, inline styles); `src/shared/svg.ts` imports it for the SVG export. Never hardcode palette hex/rgba — edit the source and regenerate.
-- **Primitives** — `src/renderer/components/ui/`: `Button` (chrome/primary/subtle/danger - xs/sm/md), `IconButton`, `Eyebrow`, `StatusDot`, `Chip`, `Input`/`Select`/`FieldLabel`, `OverlayHeader` (eyebrow/title/status/actions chrome header for every work-surface panel), `ToolbarPill` (floating node toolbar), `Kbd` (hotkey/gesture chip), `HelpMap` + `HelpMapGroup` / `HelpMapKeys` (interaction maps — compose anywhere; canvas fill lives in `components/help/CanvasInteractionMap.tsx`). New surfaces compose these; do not hand-roll buttons, headers, status dots, or help chrome.
+- **Tokens** — `src/shared/theme/` is the single source of truth: OKLCH primitives (`primitives.ts`) assigned meaning per mode in the semantic layer (`semantic.ts`). `bun run theme:build` projects it to `src/window/styles/theme.generated.css`, which registers the palette as Tailwind v4 utilities (`text-ink`, `text-dim`, `text-faint`, `bg-ground/raise/raise-2/inset/well`, `border-stroke`, `text-amber/cyan/violet/crimson/…`, `font-mono`, `font-display`) plus `html[data-theme="bright"]` overrides. `src/window/lib/theme.ts` re-exports the same source for runtime consumers (canvas paint, inline styles); `src/shared/svg.ts` imports it for the SVG export. Never hardcode palette hex/rgba — edit the source and regenerate.
+- **Primitives** — `src/window/components/ui/`: `Button` (chrome/primary/subtle/danger - xs/sm/md), `IconButton`, `Eyebrow`, `StatusDot`, `Chip`, `Input`/`Select`/`FieldLabel`, `OverlayHeader` (eyebrow/title/status/actions chrome header for every work-surface panel), `ToolbarPill` (floating node toolbar), `Kbd` (hotkey/gesture chip), `HelpMap` + `HelpMapGroup` / `HelpMapKeys` (interaction maps — compose anywhere; canvas fill lives in `components/help/CanvasInteractionMap.tsx`). New surfaces compose these; do not hand-roll buttons, headers, status dots, or help chrome.
 - **Canvas card law — no action buttons on nodes.** Cards are glance + identity only. Open via double-click or RTS kind-strip keys; config via kind-strip pops; delete and Stop live on the selection toolbar / RTS command card. The only on-card controls allowed are pure instrumentation (enqueue + on tasks glance, activity marks). Never put "open" / "stop" / "detach" / form CTAs on the card body.
 - **Seat portrait law — a seat is always drawn with its portrait.** Every place a seat is mentioned or named as a chip shows that seat's portrait (`AgentPortrait`), never a generic glyph: mention chips in every thread, comment and feed, the `MentionCombobox` options, signal and task chips, automation targets, reviewers and assignees. Operator ruling, final. A seat with no portrait yet (a peer, a removed seat) shows its portrait fallback, not a robot.
-- **Terminal look** — `src/renderer/lib/terminal-theme.ts` (`xtermThemeFor(mode)`, font family/size) is the one xterm theme for every terminal surface.
-- **Focus law** — focus is operator-owned. `src/renderer/lib/focus-ownership.ts` is the only place that calls `focus()`, `blur()`, or `select()`: use `claimFocus(el, "gesture" | "open" | "async")`, `releaseFocus`, and `claimFocusOnMount` (never JSX `autoFocus`). While the operator types in a field (input, textarea, select, contenteditable, xterm), only a pointer press outside it or a Cmd/Ctrl chord licenses a claim elsewhere; async work never takes or drops it, and background canvas flushes never blur. Global key listeners return early on `isOperatorTyping(event.target)` or carry a `// focus-law:` note. Gate: `bun run lint:focus-law` (in `verify`).
-- **Sound** — `src/renderer/lib/sound/` is the only sound path: synthesized on Web Audio, with no audio files and no HTMLMediaElement (that path raises the macOS media library prompt). Callers name what happened (`playCue`, `playNotificationCue`); the cue catalog picks the sound and the mixer decides whether it plays. Louder means more urgent: `bun scripts/sound-demo/render.ts` renders every cue to a WAV and fails if measured loudness stops following urgency.
-- **Layers** — the app stacks in three systems and every overlay belongs to exactly one: **base** (the canvas, pinned tabs, the dock, the bars), **working modals** (terminals, the agent focus view, grids, readers, settings), and **operator modals** (search `cmd+K`, the needs-you feed `cmd+I`, the agent switcher), which sit above everything and open from anywhere. One source for app-level z-index: `src/renderer/styles/layers.css` (`--layer-working`, `--layer-working-dialog`, `--layer-popover`, `--layer-flyout`, `--layer-operator`, `--layer-operator-popover`, `--layer-tooltip`). A z-index of 100 or more must be one of those tokens (gate: `bun run lint:layers`).
-- **Shells** — an overlay renders through its layer's shell, never a hand-rolled portal: `FocusSurface` for a working modal, `Dialog` / `ConfirmDialog` (`components/ui/`) for a short decision or form above it, `Popover` and `Dropdown` for anchored panels, `OperatorModalShell` (`components/operator-modal/`) for operator modals. A shell owns the backdrop (one recipe, the `[data-layer-backdrop]` rule in `layers.css`), the focus trap, focus restore, and Escape, which `src/renderer/lib/modal-stack.ts` sends to the topmost modal only. Do not add a backdrop, a window Escape listener or a z-index number to a surface; give the shell an `onKeyDown` for body keys. Panel headers go through `OverlayHeader`.
+- **Terminal look** — `src/window/lib/terminal-theme.ts` (`xtermThemeFor(mode)`, font family/size) is the one xterm theme for every terminal surface.
+- **Focus law** — focus is operator-owned. `src/window/lib/focus-ownership.ts` is the only place that calls `focus()`, `blur()`, or `select()`: use `claimFocus(el, "gesture" | "open" | "async")`, `releaseFocus`, and `claimFocusOnMount` (never JSX `autoFocus`). While the operator types in a field (input, textarea, select, contenteditable, xterm), only a pointer press outside it or a Cmd/Ctrl chord licenses a claim elsewhere; async work never takes or drops it, and background canvas flushes never blur. Global key listeners return early on `isOperatorTyping(event.target)` or carry a `// focus-law:` note. Gate: `bun run lint:focus-law` (in `verify`).
+- **Sound** — `src/window/lib/sound/` is the only sound path: synthesized on Web Audio, with no audio files and no HTMLMediaElement (that path raises the macOS media library prompt). Callers name what happened (`playCue`, `playNotificationCue`); the cue catalog picks the sound and the mixer decides whether it plays. Louder means more urgent: `bun scripts/sound-demo/render.ts` renders every cue to a WAV and fails if measured loudness stops following urgency.
+- **Layers** — the app stacks in three systems and every overlay belongs to exactly one: **base** (the canvas, pinned tabs, the dock, the bars), **working modals** (terminals, the agent focus view, grids, readers, settings), and **operator modals** (search `cmd+K`, the needs-you feed `cmd+I`, the agent switcher), which sit above everything and open from anywhere. One source for app-level z-index: `src/window/styles/layers.css` (`--layer-working`, `--layer-working-dialog`, `--layer-popover`, `--layer-flyout`, `--layer-operator`, `--layer-operator-popover`, `--layer-tooltip`). A z-index of 100 or more must be one of those tokens (gate: `bun run lint:layers`).
+- **Shells** — an overlay renders through its layer's shell, never a hand-rolled portal: `FocusSurface` for a working modal, `Dialog` / `ConfirmDialog` (`components/ui/`) for a short decision or form above it, `Popover` and `Dropdown` for anchored panels, `OperatorModalShell` (`components/operator-modal/`) for operator modals. A shell owns the backdrop (one recipe, the `[data-layer-backdrop]` rule in `layers.css`), the focus trap, focus restore, and Escape, which `src/window/lib/modal-stack.ts` sends to the topmost modal only. Do not add a backdrop, a window Escape listener or a z-index number to a surface; give the shell an `onKeyDown` for body keys. Panel headers go through `OverlayHeader`.
 
 The **E2E design-audit loop** (`e2e/scenarios/design-audit.spec.ts`) drives every reachable surface with seeded fixtures + fake hermes/codexbar and screenshots them to `test-results/design-audit/`. It is an explicit capture tool (`bun run test:e2e:audit`), not a routine gate: a local visual change needs the relevant surface spec's screenshots, not every surface; broad theme/shell changes can justify the full audit. Screenshots are disposable test output and must never be committed.
 
@@ -400,9 +400,13 @@ other headless Linux hosts.
 
 - `src/shared/model/` — **the contract**: kinds, wires, commands, events. Change deliberately; everything depends on it.
 - `src/shared/` — shared pure logic: `entities.ts` (snapshots), `graph.ts` (derived), `region-rollup.ts` (derived region severity rollups), `digest.ts`, `svg.ts`.
-- `src/main/junto/state/` — the one SQLite engine and composed current schema.
-- `src/main/junto/` — model/work services, data adapters, and IPC/control boundaries.
-- `src/renderer/` — the canvas surface.
+- `src/core/` — the core process: model/work services, data adapters, and control boundaries. `src/core/state/` is the one SQLite engine and composed current schema.
+- `src/app/` — Electron main: windows, the browser, and the IPC the window calls.
+- `src/terminal/` — the terminal process.
+- `src/contract/` — what crosses between programs: the main to core and terminal contracts.
+- `src/node/` — Node code more than one program loads. The window and the preload never import it.
+- `src/cli/` — the `junto` CLI.
+- `src/window/` — the canvas surface; `src/window/preload/` is its sandboxed preload.
 - `scripts/` — the headless CLIs above.
 
 ## Machine safety (architecture north star)
@@ -413,7 +417,7 @@ Junto mints when it owns the resource.
 
 - **Law:** no ambient `kill(pid)` / open host wipe APIs. Domain types + Effect
   Schema + branded handles only.
-- **Process signals:** `src/main/junto/process-signal.ts` — sole site for
+- **Process signals:** `src/node/process-signal.ts` — sole site for
   `process.kill(-pid)`. Flow: `admitSpawnedProcess` → `OwnedProcess` (unique
   symbol + WeakMap authority) → `signalOwned` / `releaseOwned`.
 - **Full doctrine:** [`docs/architecture-machine-safety.md`](docs/architecture-machine-safety.md).
@@ -475,7 +479,7 @@ needs minutes of wall time is deleted, not skipped.
 Two kinds of migration exist and they never mix:
 
 1. **Schema evolution** — DDL steps in
-   `src/main/junto/state/migrations.ts`: versioned (`user_version` N→N+1),
+   `src/core/state/migrations.ts`: versioned (`user_version` N→N+1),
    identity-witnessed, one startup transaction, authorizer-guarded. An
    expand-only step adds tables/columns/triggers and never rewrites rows; a
    consolidate step may also drop exactly the tables it names in

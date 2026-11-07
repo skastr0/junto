@@ -2,7 +2,7 @@
  * Node http static server for out/renderer. Unpackaged Electron windowed
  * launches require ELECTRON_RENDERER_URL to load a real origin — the trusted
  * custom renderer protocol only installs when app.isPackaged (see
- * src/main/index.ts:468 and :592) — so e2e serves the built renderer over
+ * src/app/index.ts:468 and :592) — so e2e serves the built renderer over
  * plain 127.0.0.1 http with correct MIME types instead.
  */
 import { createServer, type Server } from "node:http";

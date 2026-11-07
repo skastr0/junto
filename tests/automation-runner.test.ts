@@ -3,10 +3,10 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { Reactivity } from "effect/reactivity";
 import { SqlClient } from "effect/sql";
 import { describe, expect, it } from "vitest";
-import { AutomationRepository, makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
-import { makeAutomationRunner, type RunnerPorts } from "../src/main/junto/automation/runner";
-import { AUTOMATION_STATE_SCHEMA_SQL } from "../src/main/junto/automation/state-schema";
-import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
+import { AutomationRepository, makeAutomationRepositoryLive } from "../src/core/automation/repository";
+import { makeAutomationRunner, type RunnerPorts } from "../src/core/automation/runner";
+import { AUTOMATION_STATE_SCHEMA_SQL } from "../src/core/automation/state-schema";
+import { makeSqliteClient } from "../src/core/state/sqlite-client";
 import {
   type Action,
   type Automation,

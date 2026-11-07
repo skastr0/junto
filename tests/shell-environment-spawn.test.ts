@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { clearMachines, seedThisMachine } from "./support/seed-this-machine";
-import { LocalSessionHost } from "../src/main/junto/term/local-host";
+import { LocalSessionHost } from "../src/core/term/local-host";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 // A seat starts only once the shell environment is settled, and records the

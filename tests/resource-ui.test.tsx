@@ -7,10 +7,10 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ListRow, PaneEmpty, PaneHeader, ResourceChip, StampTally, TaskStateMark, TwoPane } from "../src/renderer/components/ui";
-import { nodeViewStore, setNodeViewStore } from "../src/renderer/lib/node-view-state";
-import { makeMemoryNodeViewStore } from "../src/renderer/lib/view-state-stand-in";
-import { TASK_STATES, stampTally } from "../src/renderer/lib/resource-visuals";
+import { ListRow, PaneEmpty, PaneHeader, ResourceChip, StampTally, TaskStateMark, TwoPane } from "../src/window/components/ui";
+import { nodeViewStore, setNodeViewStore } from "../src/window/lib/node-view-state";
+import { makeMemoryNodeViewStore } from "../src/window/lib/view-state-stand-in";
+import { TASK_STATES, stampTally } from "../src/window/lib/resource-visuals";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

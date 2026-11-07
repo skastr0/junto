@@ -5,10 +5,10 @@ import {
   BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE,
   BrowserCompositionStartupError,
   makeBrowserShutdownCoordinator,
-} from "../src/main/junto/browser/composition";
-import { makeBrowserCapabilityRegistry } from "../src/main/junto/browser/capabilities";
-import { makeBrowserProfileGate } from "../src/main/junto/browser/profile-gate";
-import type { BrowserSessionService } from "../src/main/junto/browser/sessions";
+} from "../src/app/browser/composition";
+import { makeBrowserCapabilityRegistry } from "../src/app/browser/capabilities";
+import { makeBrowserProfileGate } from "../src/app/browser/profile-gate";
+import type { BrowserSessionService } from "../src/app/browser/sessions";
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
@@ -63,10 +63,10 @@ describe("browser composition (no ceremony)", () => {
   it("source no longer wires grant delivery / agent product", () => {
     const root = join(import.meta.dirname, "..");
     const composition = readFileSync(
-      join(root, "src/main/junto/browser/composition.ts"),
+      join(root, "src/app/browser/composition.ts"),
       "utf8",
     );
-    const index = readFileSync(join(root, "src/main/index.ts"), "utf8");
+    const index = readFileSync(join(root, "src/app/index.ts"), "utf8");
     expect(composition).not.toContain("agent-product");
     expect(composition).not.toContain("makeBrowserAutomationProduct");
     expect(composition).not.toContain("agent-runtime");
@@ -81,11 +81,11 @@ describe("browser composition (no ceremony)", () => {
   it("ceremony modules are gone from the tree", () => {
     const root = join(import.meta.dirname, "..");
     for (const rel of [
-      "src/main/junto/browser/agent-product.ts",
-      "src/main/junto/browser/agent-runtime.ts",
-      "src/main/junto/browser/agent-authority.ts",
-      "src/main/junto/browser/agent-confirmation.ts",
-      "src/main/junto/browser/agent-ipc.ts",
+      "src/app/browser/agent-product.ts",
+      "src/app/browser/agent-runtime.ts",
+      "src/app/browser/agent-authority.ts",
+      "src/app/browser/agent-confirmation.ts",
+      "src/app/browser/agent-ipc.ts",
     ]) {
       expect(() => readFileSync(join(root, rel))).toThrow();
     }

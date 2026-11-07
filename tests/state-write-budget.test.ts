@@ -17,11 +17,11 @@ import {
   armMainThreadBudget,
   resetMainThreadBudget,
   type BudgetViolation,
-} from "../src/main/junto/observability/main-thread-budget";
+} from "../src/node/observability/main-thread-budget";
 import {
   makeStateEngineLive,
-} from "../src/main/junto/state/engine";
-import { StateTransactionOperation } from "../src/main/junto/state/service";
+} from "../src/core/state/engine";
+import { StateTransactionOperation } from "../src/core/state/service";
 
 const roots: string[] = [];
 const runtimes: Array<{ dispose: () => Promise<void> }> = [];

@@ -8,15 +8,15 @@ and the feature's examples and tests. It is not a whole-application security aud
 
 | Finding | Evidence | Result |
 |---|---|---|
-| High: command stderr could disclose credentials through environment reports | A failed command with empty stdout and a canary on stderr returned that canary in `reason`. The reason reaches region IPC reports, seat `env.report`, and overseer `env.doctor`. | [sources.ts](../src/main/junto/region-env/sources.ts) now reports status without forwarding either output stream. Regressions cover unknown, short, and encoded stderr values. |
+| High: command stderr could disclose credentials through environment reports | A failed command with empty stdout and a canary on stderr returned that canary in `reason`. The reason reaches region IPC reports, seat `env.report`, and overseer `env.doctor`. | [sources.ts](../src/core/region-env/sources.ts) now reports status without forwarding either output stream. Regressions cover unknown, short, and encoded stderr values. |
 | Medium: inherited Connect settings overrode an explicit service-account selection | The `tokenFrom` branch added the selected token to the entire ambient tool environment. [1Password's documented precedence](https://www.1password.dev/service-accounts/use-with-1password-cli) makes Connect credentials win in that environment. | The explicit-token branch removes Connect credentials from a private copy. The base environment is unchanged; no-selection behavior is retained. |
-| High: removing one source deleted a secret used by other sources | Two sources can reference the same `secretId`. Removing one called the store's delete operation without checking other regions or canvases. The shared-reference regression failed before the fix. | [RegionEnvironmentScreen.tsx](../src/renderer/components/region-environment/RegionEnvironmentScreen.tsx) only unlinks the source. Stored secrets remain until explicit retirement through the secret-delete operation. |
-| Medium: timeout left subprocesses running outside app-owned cleanup | A timed-out command's child wrote a disposable marker after its parent was killed. The old runner used `execFile` outside the central process plane. | [tool.ts](../src/main/junto/region-env/tool.ts) registers an owned process group. Timeout and output overflow signal that lease, and app quit drains it. Regressions cover the child, output limit, shutdown, and refusal to spawn after shutdown. |
+| High: removing one source deleted a secret used by other sources | Two sources can reference the same `secretId`. Removing one called the store's delete operation without checking other regions or canvases. The shared-reference regression failed before the fix. | [RegionEnvironmentScreen.tsx](../src/window/components/region-environment/RegionEnvironmentScreen.tsx) only unlinks the source. Stored secrets remain until explicit retirement through the secret-delete operation. |
+| Medium: timeout left subprocesses running outside app-owned cleanup | A timed-out command's child wrote a disposable marker after its parent was killed. The old runner used `execFile` outside the central process plane. | [tool.ts](../src/core/region-env/tool.ts) registers an owned process group. Timeout and output overflow signal that lease, and app quit drains it. Regressions cover the child, output limit, shutdown, and refusal to spawn after shutdown. |
 
 The secret-store save boundary also forwarded backend exception text. A fake backend
 that quoted the submitted value proved this violated the boundary's contract; this
 was not evidence that the built-in Keychain backend had disclosed a real value.
-[secret-store.ts](../src/main/junto/region-env/secret-store.ts) now returns fixed words.
+[secret-store.ts](../src/core/region-env/secret-store.ts) now returns fixed words.
 
 Generic UI/CLI examples and fixtures use fictional variables and item names. The
 manual test that read an operator-selected real Keychain item was removed. The

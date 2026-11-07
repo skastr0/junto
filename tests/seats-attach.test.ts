@@ -7,14 +7,14 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { LinkEventContext } from "../src/main/junto/link/types";
+import type { LinkEventContext } from "../src/core/link/types";
 import { makeTestLog } from "./support/test-log";
 
 const testLog = makeTestLog();
-import { machineLogDir } from "../src/main/junto/observability/log-file";
-import { ATTACH_CREDITS, BACKLOG_LIMIT_UNITS, type SeatsStreamFrame, type SeatsViewFrame } from "../src/main/junto/term/seat-attach";
+import { machineLogDir } from "../src/node/observability/log-file";
+import { ATTACH_CREDITS, BACKLOG_LIMIT_UNITS, type SeatsStreamFrame, type SeatsViewFrame } from "../src/core/term/seat-attach";
 import { eventually, miniSeat, twoCoreCanvas as canvas, twoCoreProcess, twoCores } from "./support/two-cores";
-import type { Log } from "../src/main/junto/observability/logger";
+import type { Log } from "../src/node/observability/logger";
 
 const cleanups: Array<() => Promise<void>> = [];
 let restore: () => void;

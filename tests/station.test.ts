@@ -4,7 +4,7 @@ import { assessSupervisedRuntime } from "../src/shared/supervised-runtime";
 import {
   newSeat,
   newPage,
-} from "../src/renderer/lib/model-factories";
+} from "../src/window/lib/model-factories";
 
 describe("node host assignment", () => {
   it("factories stamp host on executable nodes", () => {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Layer gate. App-level stacking has one source: src/renderer/styles/layers.css.
+ * Layer gate. App-level stacking has one source: src/window/styles/layers.css.
  *
  * Rules (renderer sources):
  * 1. A z-index of 100 or more is an app-level layer and must be a --layer-*
@@ -10,7 +10,7 @@
  *    (bars, dock, HUDs), and are left alone.
  * 2. No native dialog: window.confirm, window.alert and window.prompt draw
  *    outside the app, with no layer, no theme and no focus rule. Ask through
- *    askConfirm (src/renderer/lib/confirm.ts), which renders ui ConfirmDialog.
+ *    askConfirm (src/window/lib/confirm.ts), which renders ui ConfirmDialog.
  *
  * Run: `bun run lint:layers`. Exit 0 = clean; exit 1 = violations printed.
  */
@@ -19,17 +19,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const RENDERER = path.join(ROOT, "src/renderer");
-const TOKENS = "src/renderer/styles/layers.css";
+const RENDERER = path.join(ROOT, "src/window");
+const TOKENS = "src/window/styles/layers.css";
 const LAYER_FLOOR = 100;
 
 // Canvas internals, owned by the canvas team: order inside the React Flow
 // viewport and the loupe. Each leaves this list when its owner moves it to a
 // token or shows it never leaves the canvas's own stacking context.
 const CANVAS_OWNED = new Set([
-  "src/renderer/styles/canvas-lod.css",
-  "src/renderer/components/nodes/preamble-bubble.css",
-  "src/renderer/components/CanvasMagnifier.css",
+  "src/window/styles/canvas-lod.css",
+  "src/window/components/nodes/preamble-bubble.css",
+  "src/window/components/CanvasMagnifier.css",
 ]);
 
 const RAW_Z = [
@@ -39,10 +39,10 @@ const RAW_Z = [
 ];
 
 // The canvas delete paths still ask through window.confirm. Each leaves this
-// list when it asks through askConfirm (src/renderer/lib/confirm.ts) instead.
+// list when it asks through askConfirm (src/window/lib/confirm.ts) instead.
 const NATIVE_DIALOG_OWNED = new Set([
-  "src/renderer/lib/mutations.ts",
-  "src/renderer/lib/edge-mutations.ts",
+  "src/window/lib/mutations.ts",
+  "src/window/lib/edge-mutations.ts",
 ]);
 
 const NATIVE_DIALOG =

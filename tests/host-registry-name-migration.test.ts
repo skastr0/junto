@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { HOSTS_STATE_SCHEMA_SQL } from "../src/main/junto/hosts/state-schema";
-import { migrateHostRegistry } from "../src/main/junto/hosts/migrate";
+import { HOSTS_STATE_SCHEMA_SQL } from "../src/core/hosts/state-schema";
+import { migrateHostRegistry } from "../src/core/hosts/migrate";
 
 const open = () => {
   const database = new DatabaseSync(":memory:");

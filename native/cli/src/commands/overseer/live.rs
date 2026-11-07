@@ -1,7 +1,7 @@
 //! The live verbs: each closed operation is sent as the outer op `overseer`,
 //! `{operation, args}`, and the inner OverseerResult is unwrapped. Main
 //! decodes every operation's args against its exact schema (decodeOverseerArgs
-//! in src/main/junto/work/control.ts), so the args go as given: this side
+//! in src/core/work/control.ts), so the args go as given: this side
 //! keeps only what it alone can say, before anything is sent.
 
 use std::process::ExitCode;

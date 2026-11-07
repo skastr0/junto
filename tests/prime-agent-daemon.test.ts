@@ -9,17 +9,17 @@ import type {
   AppProcessLease,
   AppProcessPlane,
   AppProcessSignalReceipt,
-} from "../src/main/junto/app-process-plane";
+} from "../src/node/app-process-plane";
 import {
   makePrimeAgentDaemons,
   type PrimeAgentDaemonHandle,
   type PrimeAgentDaemonProcessPlane,
   type PrimeAgentDaemonUnexpectedExit,
-} from "../src/main/junto/term/prime-agent-daemon";
+} from "../src/core/term/prime-agent-daemon";
 import type {
   PrimeAgentReporterRegisterInput,
   PrimeAgentReporterRegistration,
-} from "../src/main/junto/term/prime-agent-reporter";
+} from "../src/core/term/prime-agent-reporter";
 
 type CommandPlan = Readonly<{
   stdout?: string;

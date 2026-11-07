@@ -9,12 +9,12 @@ import {
   discoverDevinSessionId,
   isDevinSessionSlug,
   readDevinLocks,
-} from "../src/main/junto/term/devin-session-capture";
+} from "../src/core/term/devin-session-capture";
 import {
   __setSessionExistenceHomeForTest,
   harnessSessionExists,
   isHarnessResumeFailureText,
-} from "../src/main/junto/term/session-existence";
+} from "../src/core/term/session-existence";
 
 /**
  * Devin prints no session id. It writes `session_locks/<slug>.lock` holding a

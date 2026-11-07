@@ -11,26 +11,26 @@ const allowed = new Set([
   // copy, and a read-only comparison of that copy with its baseline.
   "scripts/preview-db-check.ts",
   "scripts/preview-snapshot.ts",
-  "src/main/junto/state/backup.ts",
-  "src/main/junto/state/engine.ts",
-  "src/main/junto/state/migrations.ts",
-  "src/main/junto/state/recovery.ts",
-  "src/main/junto/state/schema-identity.ts",
+  "src/core/state/backup.ts",
+  "src/core/state/engine.ts",
+  "src/core/state/migrations.ts",
+  "src/core/state/recovery.ts",
+  "src/core/state/schema-identity.ts",
   // Effect SQL adapter receives the owner's connection; it never opens one.
-  "src/main/junto/state/sqlite-client.ts",
+  "src/core/state/sqlite-client.ts",
   // Read-only pre-AppRuntime probe for newer-than-supported schema recovery.
-  "src/main/junto/state/schema-version-probe.ts",
+  "src/node/state/schema-version-probe.ts",
   // Install-local ledger (install-ops.db) — not product state; separate opener.
-  "src/main/junto/install-ops/engine.ts",
+  "src/core/install-ops/engine.ts",
   // Read-only external harness receipts; never Junto product state.
-  "src/main/junto/term/read-only-sqlite.ts",
+  "src/core/term/read-only-sqlite.ts",
   // The core's read-only connection in its mail read worker, off the main
   // thread; StateEngine stays the only writer (operator ruling 2026-10-30).
-  "src/main/junto/work/mail-read-worker.ts",
-  "src/main/junto/work/mail-read-sql.ts",
+  "src/core/work/mail-read-worker.ts",
+  "src/core/work/mail-read-sql.ts",
   // The core's maintenance writer, off the main thread: checkpoints and
   // ANALYZE only, never a row (operator ruling 2026-10-30).
-  "src/main/junto/state/maintenance-worker.ts",
+  "src/core/state/maintenance-worker.ts",
 ]);
 
 const filesUnder = (directory: string): string[] => {

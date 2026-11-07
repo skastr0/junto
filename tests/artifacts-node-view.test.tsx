@@ -4,9 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ArtifactLabel } from "../src/shared/artifact-labels";
 import type { ArtifactHead } from "../src/shared/resource-ipc";
-import { labelsStillHeld, useArtifactsNodeView } from "../src/renderer/lib/artifacts-node-view";
-import { nodeViewStore, setNodeViewStore } from "../src/renderer/lib/node-view-state";
-import { makeMemoryNodeViewStore } from "../src/renderer/lib/view-state-stand-in";
+import { labelsStillHeld, useArtifactsNodeView } from "../src/window/lib/artifacts-node-view";
+import { nodeViewStore, setNodeViewStore } from "../src/window/lib/node-view-state";
+import { makeMemoryNodeViewStore } from "../src/window/lib/view-state-stand-in";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

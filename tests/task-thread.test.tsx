@@ -7,15 +7,15 @@ import { mentionLink } from "../src/shared/mention";
 import { asNodeId } from "../src/shared/model";
 import { mintItemId } from "../src/shared/resource-command";
 import { taskNodeId, type TaskId } from "../src/shared/task-model";
-import { mentionLabelKind } from "../src/renderer/components/tasks/mention-chip";
-import { textPieces } from "../src/renderer/components/tasks/mention-text";
-import { TaskThread, ThreadPosts } from "../src/renderer/components/tasks/TaskThread";
+import { mentionLabelKind } from "../src/window/components/tasks/mention-chip";
+import { textPieces } from "../src/window/components/tasks/mention-text";
+import { TaskThread, ThreadPosts } from "../src/window/components/tasks/TaskThread";
 import {
   makeLocalSubjectThreads,
   setSubjectThreadsSource,
   type SubjectThreadsSource,
   type ThreadPostOutcome,
-} from "../src/renderer/lib/subject-threads-source";
+} from "../src/window/lib/subject-threads-source";
 
 const ada = asNodeId("seat-ada");
 const board = asNodeId("tasks-build");

@@ -20,9 +20,9 @@ import {
   migrateStateSchema,
   type StateSchemaMigrationDatabase,
   type StateSchemaMigrationPlan,
-} from "../src/main/junto/state/migrations";
-import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
-import { expectedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { migrateMachineNames } from "../src/core/state/migrate-machine-names";
+import { expectedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V71_SQL, STATE_SCHEMA_V72_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;

@@ -6,7 +6,7 @@ import {
   installIpcSubjectThreads,
   makeIpcSubjectThreads,
   subjectThreadsLive,
-} from "../src/renderer/lib/subject-threads-source";
+} from "../src/window/lib/subject-threads-source";
 
 const board = asNodeId("tasks-build");
 const task = mintItemId();

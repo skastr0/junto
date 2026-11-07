@@ -22,10 +22,10 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
 import { afterAll, describe, expect, it } from "vitest";
-import { LocalSessionHost } from "../../src/main/junto/term/local-host";
-import { createAppProcessPlane } from "../../src/main/junto/app-process-plane";
-import { seatStateRuntime } from "../../src/main/junto/term/agent-state";
-import { projectAgentSeatState } from "../../src/main/junto/term/agent-state/projection";
+import { LocalSessionHost } from "../../src/core/term/local-host";
+import { createAppProcessPlane } from "../../src/node/app-process-plane";
+import { seatStateRuntime } from "../../src/core/term/agent-state";
+import { projectAgentSeatState } from "../../src/core/term/agent-state/projection";
 import {
   agentSeatStatusOf,
   type AgentSeatStateEvent,

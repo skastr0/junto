@@ -5,11 +5,11 @@
  */
 import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
-import { ArtifactRepository } from "../src/main/junto/work/artifact-repository";
-import { liveArtifactPorts, writeResult } from "../src/main/junto/work/artifact-control";
-import { ResourceSubmit, type QueuedOutcome } from "../src/main/junto/work/resource-submit";
-import { liveTaskPorts, writeResultOf } from "../src/main/junto/work/task-control";
-import { TaskRepository } from "../src/main/junto/work/task-repository";
+import { ArtifactRepository } from "../src/core/work/artifact-repository";
+import { liveArtifactPorts, writeResult } from "../src/core/work/artifact-control";
+import { ResourceSubmit, type QueuedOutcome } from "../src/core/work/resource-submit";
+import { liveTaskPorts, writeResultOf } from "../src/core/work/task-control";
+import { TaskRepository } from "../src/core/work/task-repository";
 import type { ArtifactOp } from "../src/shared/artifact";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { ResourceCommand } from "../src/shared/resource-command";

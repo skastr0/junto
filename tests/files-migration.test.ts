@@ -10,9 +10,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { nodeFromRow, nodeToRow } from "../src/main/junto/model/rows";
-import { KIND_TABLES } from "../src/main/junto/model/state-schema";
-import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
+import { nodeFromRow, nodeToRow } from "../src/core/model/rows";
+import { KIND_TABLES } from "../src/core/model/state-schema";
+import { migrateMachineNames } from "../src/core/state/migrate-machine-names";
 import {
   CURRENT_STATE_SCHEMA_VERSION,
   STATE_SCHEMA_MIGRATION_PLAN,
@@ -21,8 +21,8 @@ import {
   STATE_SCHEMA_V51_IDENTITY,
   migrateStateSchema,
   type StateSchemaMigrationPlan,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { decodeNode } from "../src/shared/model/kinds";
 import { Effect } from "effect";
 import { STATE_SCHEMA_V50_SQL, STATE_SCHEMA_V51_SQL } from "./fixtures/state-v13/schema";

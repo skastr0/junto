@@ -25,22 +25,22 @@ import {
   clampUtf8Bytes,
   utf8ByteLength,
 } from "../src/shared/browser-limits";
-import type { ResolvedPageTarget } from "../src/main/junto/browser/page-target";
+import type { ResolvedPageTarget } from "../src/core/browser/page-target";
 import {
   BrowserProfileError,
   makeBrowserProfileService,
   type BrowserProfileServiceApi,
-} from "../src/main/junto/browser/profiles";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { StateEngine } from "../src/main/junto/state/service";
-import { BrowserProfileGate } from "../src/main/junto/browser/profile-gate";
+} from "../src/node/browser/profiles";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { StateEngine } from "../src/core/state/service";
+import { BrowserProfileGate } from "../src/app/browser/profile-gate";
 import {
   BROWSER_STEP_START_MS,
   BrowserSessionService,
   type BrowserViewAdapter,
   type BrowserViewEvents,
   type BrowserViewHandle,
-} from "../src/main/junto/browser/sessions";
+} from "../src/app/browser/sessions";
 import { localBrowserTestMachineName } from "./browser-test-machine";
 
 describe("warmPoolEvictions (pure)", () => {

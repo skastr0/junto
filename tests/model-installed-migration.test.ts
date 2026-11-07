@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
 import { expect, it } from "vitest";
-import { CURRENT_STATE_SCHEMA_VERSION, STATE_SCHEMA_MIGRATIONS, migrateStateSchema } from "../src/main/junto/state/migrations";
-import { KIND_TABLES } from "../src/main/junto/model/state-schema";
+import { CURRENT_STATE_SCHEMA_VERSION, STATE_SCHEMA_MIGRATIONS, migrateStateSchema } from "../src/core/state/migrations";
+import { KIND_TABLES } from "../src/core/model/state-schema";
 
 const baseline = process.env.JUNTO_MODEL_INSTALLED_COPY;
 const digest = (database: DatabaseSync, table: string) => createHash("sha256").update(

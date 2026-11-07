@@ -3,7 +3,7 @@
  * dies instead of failing: that answer is scrubbed like every other one.
  */
 import { describe, expect, it } from "vitest";
-import { composeOverseer } from "../src/main/junto/overseer/composition";
+import { composeOverseer } from "../src/core/overseer/composition";
 
 describe("an overseer program that dies, through onOverseer", () => {
   it("answers InternalError with the thrown secret scrubbed", async () => {

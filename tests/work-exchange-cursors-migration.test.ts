@@ -16,8 +16,8 @@ import {
   STATE_SCHEMA_V15_IDENTITY,
   STATE_SCHEMA_V16_IDENTITY,
   migrateStateSchema,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V15_SQL, STATE_SCHEMA_V16_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;

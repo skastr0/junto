@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { decodeCanvasDoc } from "./fixtures/frozen-canvas-types";
 import { defaultSettings, SETTINGS_VERSION } from "../src/shared/settings";
-import { decodeStoredSettings, preferencesFromSettings } from "../src/main/junto/settings/state-schema";
+import { decodeStoredSettings, preferencesFromSettings } from "../src/core/settings/state-schema";
 
 // Token pressure is retired: Junto no longer reads a seat's context size, and
 // agents offboard on their own. Rows and documents written while it existed

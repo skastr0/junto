@@ -6,33 +6,33 @@ import { SqlClient } from "effect/sql";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { Command } from "../src/shared/model";
-import { ModelService } from "../src/main/junto/model/service";
-import { ModelDependents } from "../src/main/junto/model/dependents";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { SeatSessionRepository, makeSeatSessionRepositoryLive } from "../src/main/junto/seat-sessions/repository";
+import { ModelService } from "../src/core/model/service";
+import { ModelDependents } from "../src/core/model/dependents";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
+import { SeatSessionRepository, makeSeatSessionRepositoryLive } from "../src/core/seat-sessions/repository";
 import { makeThisMachine } from "../src/shared/remote-hosts";
-import { hostsSnapshot, setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
-import { ActorSeatOccupy, makeActorSeatOccupy } from "../src/main/junto/term/actor-seat-occupy";
-import { LocalSessionHost } from "../src/main/junto/term/local-host";
-import { TermPlane } from "../src/main/junto/term/plane";
+import { hostsSnapshot, setHostsSnapshot } from "../src/core/hosts/snapshot";
+import { ActorSeatOccupy, makeActorSeatOccupy } from "../src/core/term/actor-seat-occupy";
+import { LocalSessionHost } from "../src/core/term/local-host";
+import { TermPlane } from "../src/core/term/plane";
 import { EMPTY_LAUNCH_RECORD } from "../src/shared/region-environment";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 import { seat } from "./support/model-nodes";
 
 const app = vi.hoisted(() => ({ runPromise: vi.fn(), runPromiseExit: vi.fn() }));
 // Spread the real module: a later export must not break this file at load.
-vi.mock("../src/main/core-runner", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/main/core-runner")>()),
+vi.mock("../src/core/core-runner", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/core/core-runner")>()),
   coreRunner: app,
   installCoreReads: vi.fn(),
 }));
-vi.mock("../src/main/runtime", () => ({ AppRuntime: app }));
-import { registerTerminalIpc } from "../src/main/junto/term/ipc";
-import { bindTermIpcPlane } from "../src/main/core-process/ops/term-ipc";
-import "../src/main/core-process/ops/term-ipc";
-import { writeSeatSessionId } from "../src/main/junto/term/seat-session-id";
-import { useCoreClient } from "../src/main/core-process/main-client";
+vi.mock("../src/app/runtime", () => ({ AppRuntime: app }));
+import { registerTerminalIpc } from "../src/app/term/ipc";
+import { bindTermIpcPlane } from "../src/core/ops/term-ipc";
+import "../src/core/ops/term-ipc";
+import { writeSeatSessionId } from "../src/core/term/seat-session-id";
+import { useCoreClient } from "../src/app/core-process/main-client";
 import { inProcessCore } from "./support/in-process-core";
 
 // Main runs no operation body: the test installs the core the app installs at

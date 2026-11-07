@@ -19,10 +19,10 @@ const readSource = (relativePath: string): { path: string; source: string } => {
   return { path, source: readFileSync(path, "utf8") };
 };
 
-const LOCAL_HOST = "src/main/junto/term/local-host.ts";
-const ROUTER = "src/main/junto/term/router.ts";
-const CONTROL_SERVER = "src/main/junto/term/control-server.ts";
-const TERMINAL_ACTIONS = "src/renderer/lib/terminal-actions.ts";
+const LOCAL_HOST = "src/core/term/local-host.ts";
+const ROUTER = "src/core/term/router.ts";
+const CONTROL_SERVER = "src/core/term/control-server.ts";
+const TERMINAL_ACTIONS = "src/window/lib/terminal-actions.ts";
 
 const OCCUPANCY =
   /\b(?:occupyVacantSeat|occupancyFromSession|occupancyFromSummary|SeatOccupancy)\b/u;

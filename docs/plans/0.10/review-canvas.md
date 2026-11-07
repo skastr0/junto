@@ -45,7 +45,7 @@ and reviews every step, but each phase writes its own step with its code (see
    task; reach governs everything else. The canvas must show the reach change
    while the operator drags.
 5. **Overseer moves become grants.** `node.move` and `node.resize` are closed
-   overseer commands (`src/main/junto/overseer/canvas.ts:83-84`), so an
+   overseer commands (`src/core/overseer/canvas.ts:83-84`), so an
    overseer can now widen its own reach by moving its own seat. The doctrine
    must decide whether moving its own seat is refused, as deleting it is
    (`security-doctrine.md:98`).
@@ -68,7 +68,7 @@ and reviews every step, but each phase writes its own step with its code (see
    `machines.md:85-87` (rule 6), and `AGENTS.md:463`. `security-doctrine.md:6`
    requires both documents to change together. Tests that lock today's law:
    `tests/physics/physics.test.ts:107`, `tests/work-control-protocol.test.ts:149-225`.
-9. Citation fix: the `wires.verb` CHECK is at `src/main/junto/model/state-schema.ts:186`.
+9. Citation fix: the `wires.verb` CHECK is at `src/core/model/state-schema.ts:186`.
 
 ## Answers
 
@@ -100,7 +100,7 @@ answer; reviewers get mail.
 **02, size of carrying every non-host node.** Yes, there is a hard limit.
 The whole copy travels as one `CopyFrame` event on `rows`
 (`src/shared/work-exchange.ts:113`), and a frame is at most 1 MiB
-(`src/main/junto/link/protocol.ts:9-10`). Today's content is small (10 notes,
+(`src/core/link/protocol.ts:9-10`). Today's content is small (10 notes,
 37 KB of text; region instructions, 12 KB), but carrying everything to every
 machine moves toward that limit, and the only failure mode is a canvas that
 stops syncing. Recommendation: the copy carries geometry and labels, and
@@ -171,7 +171,7 @@ facts. A loop through a seat (automation mails a seat, the seat acts, its
 fact fires the automation) is caught only by `limits`; say so.
 
 **09, one migration or one per phase.** One per phase, each landing with its
-code. Steps are a chain of +1 versions (`src/main/junto/state/migrations.ts:1200-1202`),
+code. Steps are a chain of +1 versions (`src/core/state/migrations.ts:1200-1202`),
 and "a phase is done when its old path is deleted" means each phase drops
 its own tables. Proposal: v26 for phase 0 deletions; v27 for phase 1
 (collapse `entity_home`, the ruling table, fact families); v28 for the task

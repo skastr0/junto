@@ -3,11 +3,11 @@ import { describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { FilesChanged, FilesNodeRef, FilesResult } from "../src/shared/files";
 import { decodeFilesEvent, FILES_LINK_TEXT_JSON_MAX } from "../src/shared/files-link";
-import { eventOf } from "../src/main/junto/files/link";
-import { makeFilesRemote, type RemoteChange } from "../src/main/junto/files/link-client";
-import { MachineLink } from "../src/main/junto/link/service";
-import { linkClosed, LinkRequestFailed, LinkUnavailable, type LinkEventContext } from "../src/main/junto/link/types";
-import { MachineRepository } from "../src/main/junto/machines/repository";
+import { eventOf } from "../src/core/files/link";
+import { makeFilesRemote, type RemoteChange } from "../src/core/files/link-client";
+import { MachineLink } from "../src/core/link/service";
+import { linkClosed, LinkRequestFailed, LinkUnavailable, type LinkEventContext } from "../src/core/link/types";
+import { MachineRepository } from "../src/core/machines/repository";
 
 const MINI = "mini";
 const ref: FilesNodeRef = { canvas: "factory", node: asNodeId("files-1") };

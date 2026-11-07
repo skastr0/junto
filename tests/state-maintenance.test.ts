@@ -7,7 +7,7 @@ import {
   analyzeTables,
   checkpoint,
   openMaintenanceDatabase,
-} from "../src/main/junto/state/maintenance-worker";
+} from "../src/core/state/maintenance-worker";
 
 // The maintenance writer runs a closed set of commands that change no row
 // (operator ruling 2026-10-30): a passive checkpoint and a bounded ANALYZE.

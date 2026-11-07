@@ -9,7 +9,7 @@ import {
   markAtlasCss,
   ringCells,
   type RingInput,
-} from "../src/renderer/lib/activity-atlas";
+} from "../src/window/lib/activity-atlas";
 
 const ring = (input: Partial<RingInput> & Pick<RingInput, "glyph">) =>
   ringCells({ tone: "cyan", animate: true, ...input });

@@ -32,10 +32,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentSeatState, AgentSeatStateEvent } from "../../../src/shared/agent-seat-state";
-import { SessionObserver } from "../../../src/main/junto/term/observer";
-import type { ObserverGridSnapshot } from "../../../src/main/junto/term/observer/types";
-import { SeatStateRuntime } from "../../../src/main/junto/term/agent-state/runtime";
-import { TURN_STALLED_REASON } from "../../../src/main/junto/term/agent-state/turn-progress-watch";
+import { SessionObserver } from "../../../src/core/term/observer";
+import type { ObserverGridSnapshot } from "../../../src/core/term/observer/types";
+import { SeatStateRuntime } from "../../../src/core/term/agent-state/runtime";
+import { TURN_STALLED_REASON } from "../../../src/core/term/agent-state/turn-progress-watch";
 import { corpusRoot, loadP1Fixture, type SeatSlotProjection } from "../runner";
 import type { CaptureGeometry, StepGrid } from "./types";
 

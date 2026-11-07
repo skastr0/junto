@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   decodeGrokAuthPayload,
   isGrokCredentialExpired,
-} from "../src/main/junto/usage/grok-auth";
+} from "../src/core/usage/grok-auth";
 import {
   grpcWebDataFrames,
   grpcWebTrailerFields,
@@ -12,11 +12,11 @@ import {
   parseGrokProxyBilling,
   parseGrokSettingsTier,
   redactSecret,
-} from "../src/main/junto/usage/grok-billing";
+} from "../src/core/usage/grok-billing";
 import {
   assembleGrokSnapshot,
   grokAuthRejectedError,
-} from "../src/main/junto/usage/grok-source";
+} from "../src/core/usage/grok-source";
 
 const FETCHED = "2026-08-01T12:00:00.000Z";
 const NOW_MS = Date.parse(FETCHED);

@@ -3,11 +3,11 @@ import { join } from "node:path";
 import {
   OPERATOR_CONTROL_SWITCH,
   operatorControlEnabledFromInitialArgv,
-} from "../src/main/junto/operator-control";
+} from "../src/node/operator-control";
 import { describe, expect, it } from "vitest";
 
 const source = readFileSync(
-  join(import.meta.dirname, "..", "src/main/index.ts"),
+  join(import.meta.dirname, "..", "src/app/index.ts"),
   "utf8",
 );
 

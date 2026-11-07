@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it } from "vitest";
-import { ArtifactMarkdown } from "../src/renderer/components/work/ArtifactMarkdown";
+import { ArtifactMarkdown } from "../src/window/components/work/ArtifactMarkdown";
 
 const href = "junto://canvas/factory?node=agent-01M46TAATD7VE4ZQA4VRKMX3MP";
 

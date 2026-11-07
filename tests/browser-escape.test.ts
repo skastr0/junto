@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { warmDetachOnEscape } from "../src/renderer/lib/browser-escape";
+import { warmDetachOnEscape } from "../src/window/lib/browser-escape";
 
 const shellHolding = (...surfaceIds: string[]) => {
   const shell = document.createElement("div");

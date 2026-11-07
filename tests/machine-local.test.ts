@@ -12,11 +12,11 @@ import { join } from "node:path";
 import { Effect } from "effect";
 import { ChildProcess as Command } from "effect/process";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { boatDir } from "../src/main/junto/boat/files";
-import { parseSshRoute } from "../src/main/junto/ssh";
-import { makeRemoteStdin } from "../src/main/junto/ssh/domain";
-import { placeBoatMachineKey } from "../src/main/junto/ssh/machine-commands";
-import { createSshProgramCompiler, type OneShotProgram } from "../src/main/junto/ssh/program";
+import { boatDir } from "../src/node/boat/files";
+import { parseSshRoute } from "../src/core/ssh";
+import { makeRemoteStdin } from "../src/core/ssh/domain";
+import { placeBoatMachineKey } from "../src/core/ssh/machine-commands";
+import { createSshProgramCompiler, type OneShotProgram } from "../src/core/ssh/program";
 
 const compiler = createSshProgramCompiler({ controlDir: "/tmp/junto-local-mux", envExecutable: "/usr/bin/env", sshExecutable: "/usr/bin/ssh", environment: {} });
 const remoteText = (program: OneShotProgram) => {

@@ -13,9 +13,9 @@ import type { Pad } from "../src/shared/pad";
 import type { PadLinkTitleOf } from "../src/shared/pad-project";
 import type { ArtifactHead } from "../src/shared/resource-ipc";
 import { ItemId } from "../src/shared/work-ids";
-import { usePadLinkTitles } from "../src/renderer/components/pad/pad-link-titles";
-import { artifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/renderer/lib/artifacts-source";
-import { modelStore } from "../src/renderer/lib/use-model";
+import { usePadLinkTitles } from "../src/window/components/pad/pad-link-titles";
+import { artifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/window/lib/artifacts-source";
+import { modelStore } from "../src/window/lib/use-model";
 import { artifacts } from "./support/model-nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

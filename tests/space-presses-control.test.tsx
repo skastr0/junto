@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { spacePressesControl } from "../src/renderer/lib/urgency-step";
+import { spacePressesControl } from "../src/window/lib/urgency-step";
 
 afterEach(() => {
   document.body.innerHTML = "";

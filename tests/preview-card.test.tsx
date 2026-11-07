@@ -12,14 +12,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArtifactBody } from "../src/shared/artifact";
 import { formatNodeRef } from "../src/shared/node-ref";
-import { PreviewCard, type PreviewCardProps } from "../src/renderer/components/embeds/PreviewCard";
+import { PreviewCard, type PreviewCardProps } from "../src/window/components/embeds/PreviewCard";
 import {
   artifactFirstLines,
   parsePreviewLink,
   taskKindState,
   taskLedgerOf,
   type PreviewCardFace,
-} from "../src/renderer/lib/preview-face";
+} from "../src/window/lib/preview-face";
 import { SeatUrgency } from "../src/shared/wire/urgency";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

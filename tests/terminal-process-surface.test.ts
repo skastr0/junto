@@ -12,10 +12,10 @@
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CoreMessage, CorePort } from "../src/main/core-process/port";
-import { serveTerminals, SURFACE_RING_BYTES, type SpawnPty, type SurfacePort } from "../src/main/terminal-process/serve";
-import { terminalClient } from "../src/main/terminal-process/client";
-import { TerminalSurface, type SurfaceOut, type TerminalInput } from "../src/main/terminal-process/protocol";
+import type { CoreMessage, CorePort } from "../src/contract/core/port";
+import { serveTerminals, SURFACE_RING_BYTES, type SpawnPty, type SurfacePort } from "../src/terminal/serve";
+import { terminalClient } from "../src/node/terminals/client";
+import { TerminalSurface, type SurfaceOut, type TerminalInput } from "../src/contract/terminal/protocol";
 
 const nodePty = createRequire(import.meta.url)("node-pty") as typeof import("node-pty");
 const realPty: SpawnPty = (command, args, options) => nodePty.spawn(command, [...args], options);

@@ -3,9 +3,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("canvas quit durability wiring", () => {
-  const source = readFileSync(join(import.meta.dirname, "..", "src/main/index.ts"), "utf8");
+  const source = readFileSync(join(import.meta.dirname, "..", "src/app/index.ts"), "utf8");
   const terminationSource = readFileSync(
-    join(import.meta.dirname, "..", "src/main/junto/process-signal-termination.ts"),
+    join(import.meta.dirname, "..", "src/app/process-signal-termination.ts"),
     "utf8",
   );
   const flushHelper = source.slice(
@@ -145,7 +145,7 @@ describe("canvas quit durability wiring", () => {
     // The plane's bounded drain and its unclean receipt are the core's now:
     // junto/term/core-seats.ts starts the plane, drains it once, and throws
     // only when host-owned local PTY generations were retained.
-    const coreSeats = readFileSync(join(import.meta.dirname, "..", "src/main/junto/term/core-seats.ts"), "utf8");
+    const coreSeats = readFileSync(join(import.meta.dirname, "..", "src/core/term/core-seats.ts"), "utf8");
     expect(coreSeats).toContain("closeFlight ??= (async () => {");
     expect(coreSeats).toContain("await termPlane.drainOnQuit(reason)");
     expect(coreSeats).toContain("if (termPlaneBlocksAppExit(receipt)) {");

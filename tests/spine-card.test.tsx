@@ -7,12 +7,12 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { KindCard, SpineCard, spineStatusLook } from "../src/renderer/components/nodes/SpineCard";
-import { kindStateOf } from "../src/renderer/components/nodes/KindSeat";
-import { nodeScale } from "../src/renderer/lib/canvas-tier";
-import { spokenNodeName } from "../src/renderer/lib/flow-nodes";
-import { NODE_STATUSES, NodeBlockedContext, NodeIdContext, nodeSpokenKind$, nodeStatus$, shownStatus } from "../src/renderer/lib/node-status";
-import { PeerCard, StubCard } from "../src/renderer/components/nodes/RemoteNodeCards";
+import { KindCard, SpineCard, spineStatusLook } from "../src/window/components/nodes/SpineCard";
+import { kindStateOf } from "../src/window/components/nodes/KindSeat";
+import { nodeScale } from "../src/window/lib/canvas-tier";
+import { spokenNodeName } from "../src/window/lib/flow-nodes";
+import { NODE_STATUSES, NodeBlockedContext, NodeIdContext, nodeSpokenKind$, nodeStatus$, shownStatus } from "../src/window/lib/node-status";
+import { PeerCard, StubCard } from "../src/window/components/nodes/RemoteNodeCards";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

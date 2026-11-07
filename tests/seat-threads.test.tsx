@@ -24,12 +24,12 @@ import {
   type SeatThreadMessage,
   type SeatThreadsSource,
   type SeatThreadSummary,
-} from "../src/renderer/lib/seat-threads";
-import { setOperatorContentPutter } from "../src/renderer/lib/operator-attachments";
-import { SeatThreadsButton } from "../src/renderer/components/threads/SeatThreads";
+} from "../src/window/lib/seat-threads";
+import { setOperatorContentPutter } from "../src/window/lib/operator-attachments";
+import { SeatThreadsButton } from "../src/window/components/threads/SeatThreads";
 import { asCanvasName } from "../src/shared/model";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { workDetailOpen$ } from "../src/renderer/lib/work-detail-open";
+import { modelStore } from "../src/window/lib/use-model";
+import { workDetailOpen$ } from "../src/window/lib/work-detail-open";
 import { seat as seatNode, taskBoard } from "./support/model-nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

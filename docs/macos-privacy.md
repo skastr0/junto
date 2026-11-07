@@ -131,7 +131,7 @@ after one of the shell's own startup files changed since the last read
 for zsh; `.bash_profile`, `.bashrc` and `.profile` for bash). That check is a
 `stat` of those home-root dotfiles, never a protected folder, and nothing
 polls. A running seat keeps the environment it started with.
-`src/main/junto/shell-environment/` holds the one read path. What a surface
+`src/core/shell-environment/` holds the one read path. What a surface
 shows of it is variable names, `PATH` directories and a typed cause, never a
 value.
 

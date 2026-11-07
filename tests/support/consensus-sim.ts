@@ -27,7 +27,7 @@ import {
   type MachineId,
   type MemberList,
   type Message,
-} from "../../src/main/junto/fleet/consensus";
+} from "../../src/core/fleet/consensus";
 
 /** mulberry32: small, fast, and the same everywhere. */
 export const seeded = (seed: number) => {

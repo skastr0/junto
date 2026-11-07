@@ -17,17 +17,17 @@ import {
   OPERATOR_INPUT_LATCH_MS,
   OperatorInterlock,
   seatOperatorInterlock,
-} from "../../../src/main/junto/term/drive";
-import { composerVerdictForHarness } from "../../../src/main/junto/term/agent-state";
-import { createManagedTerminalDrive } from "../../../src/main/junto/term/drive/managed-drive-factory";
-import { MailReadinessLatch } from "../../../src/main/junto/term/drive/mail-readiness";
-import { InjectionSupervisor } from "../../../src/main/junto/term/injection-supervisor";
+} from "../../../src/core/term/drive";
+import { composerVerdictForHarness } from "../../../src/core/term/agent-state";
+import { createManagedTerminalDrive } from "../../../src/core/term/drive/managed-drive-factory";
+import { MailReadinessLatch } from "../../../src/core/term/drive/mail-readiness";
+import { InjectionSupervisor } from "../../../src/core/term/injection-supervisor";
 import {
   makeOnboardNudgeInterject,
   watchSeatReadiness,
-} from "../../../src/main/junto/term/onboard-nudge-interject";
+} from "../../../src/core/term/onboard-nudge-interject";
 import type { AgentSeatStateEvent } from "../../../src/shared/agent-seat-state";
-import { SessionObserver } from "../../../src/main/junto/term/observer";
+import { SessionObserver } from "../../../src/core/term/observer";
 import { buildOnboardNudge } from "../../../src/shared/managed-terminal-injection";
 import { DriveLoop, type DriveLoopOptions } from "../scripted-tui";
 

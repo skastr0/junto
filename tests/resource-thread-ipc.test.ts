@@ -19,12 +19,12 @@ import {
 import type { Message } from "../src/shared/work-model";
 import { threadSubjectOf } from "../src/shared/thread-subject";
 import { ItemId, OpId } from "../src/shared/work-ids";
-import { MachineRepository } from "../src/main/junto/machines/repository";
-import { ArtifactRepository } from "../src/main/junto/work/artifact-repository";
-import { onResourceChanged } from "../src/main/junto/work/resource-changes";
-import { listThreads, postThread, registerResourceIpc, type ResourceIpcPorts } from "../src/main/junto/work/resource-ipc";
-import { WorkService, type WorkServiceShape } from "../src/main/junto/work/service";
-import { postSubjectComment } from "../src/main/junto/work/subject-comment";
+import { MachineRepository } from "../src/core/machines/repository";
+import { ArtifactRepository } from "../src/core/work/artifact-repository";
+import { onResourceChanged } from "../src/core/work/resource-changes";
+import { listThreads, postThread, registerResourceIpc, type ResourceIpcPorts } from "../src/core/work/resource-ipc";
+import { WorkService, type WorkServiceShape } from "../src/core/work/service";
+import { postSubjectComment } from "../src/core/work/subject-comment";
 import { artifacts, canvasOf, region, seat, taskBoard } from "./support/model-nodes";
 
 // Region R holds seat S, task node T and Artifacts node A; seat FAR sits in

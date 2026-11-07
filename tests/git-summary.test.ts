@@ -23,8 +23,8 @@ import {
   type GitSummary,
   parseNumstat,
 } from "../src/shared/git";
-import { GIT_REVIEW_UNTRACKED_MAX, GIT_SUMMARY_FRESH_MS, readGitCommit, readGitReview, readGitSummary } from "../src/main/junto/adapters/git";
-import { seatGitFolder } from "../src/renderer/lib/git-summary";
+import { GIT_REVIEW_UNTRACKED_MAX, GIT_SUMMARY_FRESH_MS, readGitCommit, readGitReview, readGitSummary } from "../src/core/adapters/git";
+import { seatGitFolder } from "../src/window/lib/git-summary";
 
 const text = (parts: ReturnType<typeof gitSummaryParts>): string => parts.map((part) => part.text).join(" ");
 const NOW = Date.parse("2026-10-05T12:00:00.000Z");

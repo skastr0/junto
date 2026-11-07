@@ -10,9 +10,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AgentSignal, AgentSignalKind } from "../src/shared/agent-signals";
 import { buildOperatorFeed, feedItemRank, OPERATOR_FEED_VERSION, type FeedItem, type FeedRegion, type OperatorFeed as Feed } from "../src/shared/operator-feed";
-import { OperatorFeed } from "../src/renderer/components/feed/OperatorFeed";
-import { clearFeedFilters, feedView$ } from "../src/renderer/lib/operator-feed";
-import { state$ } from "../src/renderer/lib/state";
+import { OperatorFeed } from "../src/window/components/feed/OperatorFeed";
+import { clearFeedFilters, feedView$ } from "../src/window/lib/operator-feed";
+import { state$ } from "../src/window/lib/state";
 
 const live = vi.hoisted(() => {
   let feed: Feed | undefined;
@@ -30,8 +30,8 @@ const live = vi.hoisted(() => {
   };
 });
 
-vi.mock("../src/renderer/lib/operator-feed", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/renderer/lib/operator-feed")>()),
+vi.mock("../src/window/lib/operator-feed", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/window/lib/operator-feed")>()),
   useOperatorFeed: (): Feed => {
     const feed = useSyncExternalStore(live.subscribe, live.read);
     return { ...feed, sections: feed.sections.map((section) => ({ ...section, items: [...section.items] })) };

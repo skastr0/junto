@@ -4,8 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AgentSignal } from "../src/shared/agent-signals";
 import { buildOperatorFeed, type FeedRegion, type OperatorFeed as Feed } from "../src/shared/operator-feed";
-import { OperatorFeed } from "../src/renderer/components/feed/OperatorFeed";
-import { state$ } from "../src/renderer/lib/state";
+import { OperatorFeed } from "../src/window/components/feed/OperatorFeed";
+import { state$ } from "../src/window/lib/state";
 
 // The real feed, fed by hand. The live feed is rebuilt as its stores move,
 // often with nothing in it changed, so every render here hands the feed a
@@ -26,8 +26,8 @@ const live = vi.hoisted(() => {
   };
 });
 
-vi.mock("../src/renderer/lib/operator-feed", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/renderer/lib/operator-feed")>()),
+vi.mock("../src/window/lib/operator-feed", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/window/lib/operator-feed")>()),
   useOperatorFeed: (): Feed => {
     const feed = useSyncExternalStore(live.subscribe, live.read);
     return { ...feed, sections: feed.sections.map((section) => ({ ...section, items: [...section.items] })) };

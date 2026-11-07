@@ -11,16 +11,16 @@ import { resolveJuntoHome } from "../shared/junto-home";
 import {
   CONTENT_TRANSFER_COMMAND,
   parseContentHelperArgs,
-} from "../main/junto/content/helper-contract";
-import { contentStoreRoot } from "../main/junto/content/paths";
+} from "../node/content/helper-contract";
+import { contentStoreRoot } from "../node/content/paths";
 import {
   contentRefForTransfer,
   encodeContentHelperStatus,
   receiveContentTransfer,
   sendContentTransfer,
   statContentForTransfer,
-} from "../main/junto/content/transfer-local";
-import { ContentStoreError } from "../main/junto/content/store";
+} from "../node/content/transfer-local";
+import { ContentStoreError } from "../node/content/store";
 
 export { CONTENT_TRANSFER_COMMAND };
 

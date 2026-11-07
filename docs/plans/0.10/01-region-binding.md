@@ -41,7 +41,7 @@ edge rule only ever meant direct mail; this side effect is intended.
   may overlap; `regionStack` returns every container sorted by area
   (`canvas.ts:108-115`).
 - Region scoped reads already exist without edges: references
-  (`src/main/junto/references/seat-reads.ts:17-52`), region environment, task
+  (`src/core/references/seat-reads.ts:17-52`), region environment, task
   dependency scope (innermost region only, `src/shared/task-dep-scope.ts:18-31`),
   git review candidates (`src/shared/review-candidates.ts:12-37`).
 - Blocked detection is computed per actor to task wire
@@ -81,7 +81,7 @@ The assignee exemption (rule 6) is the task domain's `reachExempt`
 Rules:
 
 1. A seat's position is its **innermost** region. Using the whole stack would
-   leak sibling contents (`regionCoMemberIds`, `src/main/junto/work/authz.ts:73-86`,
+   leak sibling contents (`regionCoMemberIds`, `src/core/work/authz.ts:73-86`,
    does exactly that today for visibility; it is not reused).
 2. A node outside every region sits at the canvas root, so every seat on the
    canvas reaches it, and a seat outside every region reaches every resource
@@ -134,7 +134,7 @@ none changes any seat's reach.
 | Kept | `messages` and `navigates` edges, `admitPure` structure, `regionStack`, `regionMembers`, region instructions joined outer to inner |
 | Reshaped | `admitPure` (reach branch), `canvasToCapabilityView` (no per-resource masks), `connectedCapabilities` (seats only), execution graph blocked derivation reads task assignment, not wires (04), `task-dep-scope` uses reach |
 | Deleted | Verbs `manages`, `contributes`, `works`, `publishes`, `participates`, `reads`, `edits`, `announces`, `fires`, `wakes`, `enqueues`, `chains`, `reviews`; `claimable`; board `wake`; the port bundles and `OPS_BY_SINK` entries for deleted kinds; `LegacyEdgeEther` and `inferVerb` (`verbs.ts:404-520`) |
-| New | `region-reach.ts`; task to task verb (04 names it); a migration deleting wires with removed verbs and rebuilding the `wires.verb` CHECK (`src/main/junto/model/state-schema.ts:174-179`) |
+| New | `region-reach.ts`; task to task verb (04 names it); a migration deleting wires with removed verbs and rebuilding the `wires.verb` CHECK (`src/core/model/state-schema.ts:174-179`) |
 
 ## Questions
 
@@ -145,7 +145,7 @@ none changes any seat's reach.
   `auth-required` and requests stop being sources; `in-review` is not blocked.
 - Full canvas review: [review-canvas.md](review-canvas.md).
 - ~~**cli**: name resolution~~ Answered (cli-lead): `resolveWorkTarget`
-  (`src/main/junto/work/authz.ts:703-746`) adds `resourcesInReach` for resource
+  (`src/core/work/authz.ts:703-746`) adds `resourcesInReach` for resource
   ops and keeps both refusals. The candidate list, typed as seats only
   (`details.seats`, `src/shared/work-control.ts:182`), becomes a general list of
   refs. Resolution also accepts `junto://` refs, not only ids and names

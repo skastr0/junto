@@ -6,8 +6,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { AgentSignal } from "../src/shared/agent-signals";
-import { AgentSeatView } from "../src/renderer/components/nodes/AgentSeat";
-import { terminalActivity } from "../src/renderer/lib/activity";
+import { AgentSeatView } from "../src/window/components/nodes/AgentSeat";
+import { terminalActivity } from "../src/window/lib/activity";
 
 const signal: AgentSignal = {
   signalId: "s1",

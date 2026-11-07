@@ -15,14 +15,14 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SessionObserver, TerminalObserverPlane } from "../src/main/junto/term/observer";
-import { MAX_EVIDENCE_BYTES, MAX_EVIDENCE_CANDIDATE_LINES } from "../src/main/junto/term/awareness/questions";
-import { selectAwarenessInput } from "../src/main/junto/term/awareness/select-input";
+import { SessionObserver, TerminalObserverPlane } from "../src/core/term/observer";
+import { MAX_EVIDENCE_BYTES, MAX_EVIDENCE_CANDIDATE_LINES } from "../src/core/term/awareness/questions";
+import { selectAwarenessInput } from "../src/core/term/awareness/select-input";
 import {
   AWARENESS_WINDOW_LINES,
   makeAwarenessRuntime,
-} from "../src/main/junto/term/awareness/runtime";
-import { makeAwarenessScheduler } from "../src/main/junto/term/awareness/scheduler";
+} from "../src/core/term/awareness/runtime";
+import { makeAwarenessScheduler } from "../src/core/term/awareness/scheduler";
 import {
   makeAskRecorder,
   makeFakeProjectionPort,

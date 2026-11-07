@@ -5,7 +5,7 @@
  * flip), while every other key, and every keyup, still travels.
  */
 import { afterEach, expect, it } from "vitest";
-import { attachTerminalModifierFence, isModifierOnlyKey } from "../src/renderer/lib/terminal-modifier-fence";
+import { attachTerminalModifierFence, isModifierOnlyKey } from "../src/window/lib/terminal-modifier-fence";
 
 const seen: string[] = [];
 const onDocument = (event: KeyboardEvent): void => {

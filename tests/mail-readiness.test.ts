@@ -5,14 +5,14 @@ import {
   MailReadinessLatch,
   mailFirstReady,
   type MailReadinessInput,
-} from "../src/main/junto/term/drive/mail-readiness";
+} from "../src/core/term/drive/mail-readiness";
 import {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START,
   buildMailWriteSequence,
   CR,
   encodeBracketedPaste,
-} from "../src/main/junto/term/drive/typing";
+} from "../src/core/term/drive/typing";
 
 const seat = (over: Partial<MailReadinessInput> = {}): MailReadinessInput => ({
   running: true,

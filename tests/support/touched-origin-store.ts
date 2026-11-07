@@ -1,7 +1,7 @@
 import type {
   BrowserTouchedOrigin,
   BrowserTouchedOriginStore,
-} from "../../src/main/junto/browser/touched-origins";
+} from "../../src/node/browser/touched-origins";
 
 /** The write-ahead record in memory, for tests whose seats evaluate. */
 export const memoryTouchedOriginStore = (): BrowserTouchedOriginStore & {

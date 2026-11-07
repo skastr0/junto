@@ -28,7 +28,7 @@ service on its own folder) and Rule 9 (a folder belongs to its machine).
   `rename`, `move`, `trash`, `import`, `search`. Each names the Files node by
   id and a path relative to its root, and nothing else. The host takes the
   root from its own copy of the node and runs the call through the service it
-  already has (`src/main/junto/files/service.ts`), so realpath scoping, the
+  already has (`src/core/files/service.ts`), so realpath scoping, the
   deny list and stale-save stamps hold unchanged. A peer never sends a root,
   an absolute path or a command. `elsewhere` stays the refusal for a node
   that is not on the answering machine.

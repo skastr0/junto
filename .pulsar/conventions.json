@@ -38,7 +38,7 @@
         "effect"
       ]
     },
-    "src/main": {
+    "src/app": {
       "visibility": "internal",
       "allowed_imports": [
         "effect",
@@ -50,7 +50,55 @@
         "ulid"
       ]
     },
-    "src/renderer": {
+    "src/core": {
+      "visibility": "internal",
+      "allowed_imports": [
+        "effect",
+        "@effect/platform-node",
+        "electron",
+        "electron-updater",
+        "node-pty",
+        "tar",
+        "ulid"
+      ]
+    },
+    "src/node": {
+      "visibility": "internal",
+      "allowed_imports": [
+        "effect",
+        "@effect/platform-node",
+        "electron",
+        "electron-updater",
+        "node-pty",
+        "tar",
+        "ulid"
+      ]
+    },
+    "src/terminal": {
+      "visibility": "internal",
+      "allowed_imports": [
+        "effect",
+        "@effect/platform-node",
+        "electron",
+        "electron-updater",
+        "node-pty",
+        "tar",
+        "ulid"
+      ]
+    },
+    "src/contract": {
+      "visibility": "internal",
+      "allowed_imports": [
+        "effect",
+        "@effect/platform-node",
+        "electron",
+        "electron-updater",
+        "node-pty",
+        "tar",
+        "ulid"
+      ]
+    },
+    "src/window": {
       "visibility": "internal",
       "allowed_imports": [
         "effect",
@@ -72,7 +120,7 @@
         "thinking-orbs"
       ]
     },
-    "src/preload": {
+    "src/window/preload": {
       "visibility": "internal",
       "allowed_imports": [
         "electron"

@@ -3,7 +3,7 @@
  * until it is asked, and a window hears of the new core only once it has them.
  */
 import { describe, expect, it, vi } from "vitest";
-import { askEveryCoreAsk, askOnEveryCore, askOnLaterCores } from "../src/main/core-process/every-core";
+import { askEveryCoreAsk, askOnEveryCore, askOnLaterCores } from "../src/app/core-process/every-core";
 
 describe("asks of every core", () => {
   it("asks at once, and again on each new core, then says so", async () => {

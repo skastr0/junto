@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { existsSync, realpathSync } from "node:fs";
-import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+import { makeStateEngineLive, StateEngine } from "../src/core/state/engine";
 
 // This loads the database owner only, never AppRuntime, Electron, PTYs or timers.
 const home = resolve(process.env.JUNTO_HOME ?? join(homedir(), ".junto-preview-copy"));

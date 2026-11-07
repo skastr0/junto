@@ -3,7 +3,7 @@ import {
   DEFAULT_NODE_CATALOG_ENTRIES,
   NODE_CATALOG_CATEGORY_ACCENT,
   catalogMatchesQuery,
-} from "../src/renderer/components/node-palette/NodeCatalogGrid";
+} from "../src/window/components/node-palette/NodeCatalogGrid";
 
 const entry = (id: string) => {
   const match = DEFAULT_NODE_CATALOG_ENTRIES.find((candidate) => candidate.id === id);

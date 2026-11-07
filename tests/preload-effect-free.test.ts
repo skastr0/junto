@@ -10,7 +10,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const root = process.cwd();
-const ENTRY = join(root, "src", "preload", "index.ts");
+const ENTRY = join(root, "src", "window", "preload", "index.ts");
 
 const isEffect = (specifier: string): boolean =>
   specifier === "effect" || specifier.startsWith("effect/") || specifier.startsWith("@effect/");

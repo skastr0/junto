@@ -31,12 +31,12 @@ import {
   termControlSocketPath,
   termControlTokenPath,
 } from "../src/shared/term-control";
-import type { LocalHostEvent } from "../src/main/junto/term/local-host";
-import { TermControlClient } from "../src/main/junto/term/control-client";
+import type { LocalHostEvent } from "../src/core/term/local-host";
+import { TermControlClient } from "../src/core/term/control-client";
 import {
   createAppProcessPlane,
   type AppProcessLease,
-} from "../src/main/junto/app-process-plane";
+} from "../src/node/app-process-plane";
 import {
   finalizePackagedRuntimeSandbox,
   observeSpawnedRuntimeLease,

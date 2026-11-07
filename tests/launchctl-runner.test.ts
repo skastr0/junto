@@ -6,13 +6,13 @@ import {
   createLaunchctlRunner,
   launchAgentTargetForCurrentUser,
   type JuntoLaunchAgentTarget,
-} from "../src/main/junto/settings/launchctl-runner";
+} from "../src/node/settings/launchctl-runner";
 import type {
   AppProcessClose,
   AppProcessLease,
   AppProcessPlane,
   AppProcessSignalReceipt,
-} from "../src/main/junto/app-process-plane";
+} from "../src/node/app-process-plane";
 
 type RunnerProcessPlane = Pick<
   AppProcessPlane,

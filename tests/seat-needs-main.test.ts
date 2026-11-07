@@ -4,9 +4,9 @@
  * rides its snapshot while it is open.
  */
 import { describe, expect, it } from "vitest";
-import { SeatStateMachine } from "../src/main/junto/term/agent-state";
-import { SeatStateRuntime } from "../src/main/junto/term/agent-state/runtime";
-import { wireSeatReports } from "../src/main/junto/term/agent-state/seat-reports";
+import { SeatStateMachine } from "../src/core/term/agent-state";
+import { SeatStateRuntime } from "../src/core/term/agent-state/runtime";
+import { wireSeatReports } from "../src/core/term/agent-state/seat-reports";
 import { agentSeatStatusOf, type AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import { topNeed } from "../src/shared/harness-domain";
 import type { AgentSignal } from "../src/shared/wire/agent-signals";

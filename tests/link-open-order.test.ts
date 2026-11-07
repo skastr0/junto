@@ -1,9 +1,9 @@
 import { PassThrough } from "node:stream";
 import { Effect, Schema } from "effect";
 import { expect, it } from "vitest";
-import { makeLinkSession } from "../src/main/junto/link/session";
-import { LinkHelloSchema } from "../src/main/junto/link/protocol";
-import type { LinkChannelHandler } from "../src/main/junto/link/types";
+import { makeLinkSession } from "../src/core/link/session";
+import { LinkHelloSchema } from "../src/core/link/protocol";
+import type { LinkChannelHandler } from "../src/core/link/types";
 
 it("finishes the channel open hook before handling its events in arrival order", async () => {
   const ab = new PassThrough();

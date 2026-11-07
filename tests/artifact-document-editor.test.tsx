@@ -4,8 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
 import type { ArtifactVersion, TextPatch } from "../src/shared/artifact";
-import { DocumentEditor } from "../src/renderer/components/artifacts/DocumentEditor";
-import { postAfterSave } from "../src/renderer/components/artifacts/artifacts-pane-model";
+import { DocumentEditor } from "../src/window/components/artifacts/DocumentEditor";
+import { postAfterSave } from "../src/window/components/artifacts/artifacts-pane-model";
 
 let root: Root;
 let host: HTMLDivElement;

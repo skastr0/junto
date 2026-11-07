@@ -6,7 +6,7 @@ import type { TerminalSessionSummary } from "../src/shared/terminal";
 import {
   sessionChromeUnchanged,
   shouldRefreshSessionFromTerminalEvent,
-} from "../src/renderer/lib/terminal-session-refresh";
+} from "../src/window/lib/terminal-session-refresh";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -72,8 +72,8 @@ describe("sessionChromeUnchanged", () => {
 
 describe("card wiring", () => {
   const files = [
-    "src/renderer/components/terminal/TerminalCard.tsx",
-    "src/renderer/components/nodes/SeatCard.tsx",
+    "src/window/components/terminal/TerminalCard.tsx",
+    "src/window/components/nodes/SeatCard.tsx",
   ] as const;
 
   it("gates terminalGet on session/exit, not output", () => {

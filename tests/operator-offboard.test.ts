@@ -9,7 +9,7 @@ import type { NodeOf } from "../src/shared/model";
 import {
   SeatSessionRepository,
   type SeatSessionRepository as SeatSessions,
-} from "../src/main/junto/seat-sessions/repository";
+} from "../src/core/seat-sessions/repository";
 import {
   CACHE_QUESTION_GONE,
   SeatStatusClock,
@@ -25,7 +25,7 @@ import {
   type SeatCacheQuestion,
   type SeatClockRecord,
   type SeatOffboardFacts,
-} from "../src/main/junto/seat-sessions/operator-offboard";
+} from "../src/core/seat-sessions/operator-offboard";
 // Static, not awaited inside a test: the IPC module's cold import pulls the
 // terminal graph and costs seconds on a loaded CI runner, past the 5 s test budget.
 import {
@@ -33,14 +33,14 @@ import {
   handleSeatOffboardRun,
   handleSeatOffboardStatus,
   seatCacheDueHere,
-} from "../src/main/junto/seat-sessions/operator-offboard-ipc";
-import { makeOperatorHolds, type OperatorHolds } from "../src/main/junto/term/operator-holds";
-import { seatLaunchState } from "../src/main/junto/term/seat-launch-state";
+} from "../src/core/seat-sessions/operator-offboard-ipc";
+import { makeOperatorHolds, type OperatorHolds } from "../src/core/term/operator-holds";
+import { seatLaunchState } from "../src/core/term/seat-launch-state";
 import { OPERATOR_TYPING_GRACE_MS } from "../src/shared/operator-hold";
 import { initialSnapshot, type SeatSnapshot, type SeatStatus } from "../src/shared/harness-domain";
 import type { BindingId } from "../src/shared/terminal-session-domain";
 import type { SeatCacheDue } from "../src/shared/seat-cache-due";
-import type { SeatStartCause } from "../src/main/junto/term/seat-start-cause";
+import type { SeatStartCause } from "../src/core/term/seat-start-cause";
 import {
   CACHE_MODES,
   OFFBOARD_REFUSAL_REASON,

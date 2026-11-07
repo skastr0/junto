@@ -35,7 +35,7 @@ const installBridge = (): Bridge => {
  */
 const loadFanOut = async () => {
   vi.resetModules();
-  return await import("../src/renderer/lib/terminal-events");
+  return await import("../src/window/lib/terminal-events");
 };
 
 const output = (bindingId: string) => ({

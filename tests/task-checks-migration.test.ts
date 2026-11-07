@@ -10,15 +10,15 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
+import { migrateMachineNames } from "../src/core/state/migrate-machine-names";
 import {
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V36_IDENTITY,
   STATE_SCHEMA_V37_IDENTITY,
   migrateStateSchema,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V36_SQL, STATE_SCHEMA_V37_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;

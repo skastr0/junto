@@ -10,9 +10,9 @@ import {
 
 // The one source of truth for the Junto design language. Projections:
 //   - Tailwind theme CSS  -> scripts/theme-build.ts (theme.generated.css)
-//   - TS runtime mirror   -> src/renderer/lib/theme.ts (re-exports this)
+//   - TS runtime mirror   -> src/window/lib/theme.ts (re-exports this)
 //   - SVG export palette  -> src/shared/svg.ts (imports this)
-//   - main-process colors -> src/main (imports this)
+//   - main-process colors -> src/app (imports this)
 // Edit values in primitives.ts / semantic.ts / type.ts / shape.ts, then run `bun run theme:build`.
 //
 // A second theme, when Themes land: one more value map over the same token

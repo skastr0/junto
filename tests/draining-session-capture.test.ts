@@ -14,21 +14,21 @@ const persistence = vi.hoisted(() => ({
 
 // The canvas write is recorded; every discovery reads real files in a temp
 // folder and every capture decision runs through the production service.
-vi.mock("../src/main/junto/term/seat-session-id", () => ({
+vi.mock("../src/core/term/seat-session-id", () => ({
   writeSeatSessionId: persistence.write,
 }));
 
-import { SeatSessionCapture } from "../src/main/junto/term/seat-session-capture";
+import { SeatSessionCapture } from "../src/core/term/seat-session-capture";
 import {
   __setCapturedSessionWriterForTest,
   persistCapturedSessionId,
   scheduleCapturedSessionPersist,
   resetCapturedSessionPersistForTest,
-} from "../src/main/junto/term/session-capture-persist";
-import { __setSessionExistenceHomeForTest } from "../src/main/junto/term/session-existence";
-import { discoverCodexSessionId } from "../src/main/junto/term/templates/codex-session";
-import { FX_INDEX_SCHEMA_VERSION, discoverFxSessionId } from "../src/main/junto/term/templates/fx-session";
-import { discoverOmpSessionId, ompSessionsDir } from "../src/main/junto/term/templates/omp-session";
+} from "../src/core/term/session-capture-persist";
+import { __setSessionExistenceHomeForTest } from "../src/core/term/session-existence";
+import { discoverCodexSessionId } from "../src/core/term/templates/codex-session";
+import { FX_INDEX_SCHEMA_VERSION, discoverFxSessionId } from "../src/core/term/templates/fx-session";
+import { discoverOmpSessionId, ompSessionsDir } from "../src/core/term/templates/omp-session";
 
 const temps: string[] = [];
 const temp = (prefix: string): string => {

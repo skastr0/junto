@@ -8,10 +8,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, expect, it } from "vitest";
-import { ContentService, makeContentServiceLive } from "../src/main/junto/content/service";
-import { receiveContentTransfer } from "../src/main/junto/content/transfer-local";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { ContentService, makeContentServiceLive } from "../src/core/content/service";
+import { receiveContentTransfer } from "../src/node/content/transfer-local";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import type { ContentRef } from "../src/shared/wire/content-ref";
 
 const roots: string[] = [];

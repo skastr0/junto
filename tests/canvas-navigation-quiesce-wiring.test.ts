@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("canvas navigation quiesce wiring", () => {
-  const source = readFileSync(join(import.meta.dirname, "..", "src/renderer/App.tsx"), "utf8");
+  const source = readFileSync(join(import.meta.dirname, "..", "src/window/App.tsx"), "utf8");
 
   it("admits and drains open navigation as one authoring operation", () => {
     const start = source.indexOf("const openCanvas = async");

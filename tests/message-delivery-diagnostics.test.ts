@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { canvasOf, note, seat } from "./support/model-nodes";
 import type { Message } from "../src/shared/work-model";
-import { MessageDeliveryService, type MessageDeliveryStore, type MessageDeliveryTransport } from "../src/main/junto/work/message-delivery";
+import { MessageDeliveryService, type MessageDeliveryStore, type MessageDeliveryTransport } from "../src/core/work/message-delivery";
 import { THIS_MACHINE } from "./support/machines";
 
 const canvas = "cold";

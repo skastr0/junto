@@ -182,7 +182,7 @@ replay.
 | Exit rule | the CLI prints the result whole and exits non-zero when `refused` is above zero |
 | `agent.offboard-status` | `SeatOffboardStatus[]` unchanged |
 | Rules | `agent.offboard-rules` answers `{rules, effective}`; `agent.offboard-configure` takes `OffboardRulesPatch`, main applies, checks and saves it, and a refused change is `InvalidArguments` with main's message unchanged |
-| One entry point | `src/main/junto/overseer/offboard-seam.ts`; the handler adds no idle test, no ask wording, no rows and no retry |
+| One entry point | `src/core/overseer/offboard-seam.ts`; the handler adds no idle test, no ask wording, no rows and no retry |
 
 The seam is bound to main's `runSeatOffboard`, `seatOffboardStatus`,
 `readOffboardRules` and `patchOffboardRules`. Tests replace it with a fake
@@ -212,8 +212,8 @@ entry point, and one test drives the real operation module over fake ports.
 | `junto references list` and `read` | ordinary commands; a seat reads its own scope from work ops `references.list` and `references.read` |
 
 Product bindings sit behind one import each:
-`src/main/junto/overseer/secret-store-seam.ts` (the platform secret store) and
-`src/main/junto/overseer/env-report-seam.ts` (the resolver). Tests replace
+`src/core/overseer/secret-store-seam.ts` (the platform secret store) and
+`src/core/overseer/env-report-seam.ts` (the resolver). Tests replace
 both with a fake store and a fake resolver. No test reads the platform
 Keychain, the keyring, or the operator's home.
 

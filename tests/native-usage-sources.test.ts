@@ -1,15 +1,15 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { parseClaudeCachedUsage } from "../src/main/junto/usage/claude-source";
+import { parseClaudeCachedUsage } from "../src/core/usage/claude-source";
 import {
   buildGrokQuota,
   parseGrokUpdateLine,
-} from "../src/main/junto/usage/grok-source";
+} from "../src/core/usage/grok-source";
 import {
   buildHermesQuota,
   mergeHermesPartials,
   parseHermesSqlRow,
-} from "../src/main/junto/usage/hermes-source";
+} from "../src/core/usage/hermes-source";
 import { usageStateIsPartial, UsageSnapshot } from "../src/shared/usage";
 
 const FETCHED = "2026-07-26T12:00:00.000Z";

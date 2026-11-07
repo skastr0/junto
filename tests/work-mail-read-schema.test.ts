@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/sql";
-import { withSqlRead } from "../src/main/junto/state/sql-read";
+import { withSqlRead } from "../src/core/state/sql-read";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { InstallationId } from "../src/shared/installation-id";
@@ -12,8 +12,8 @@ import {
   readCanvasWorkRevision,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/junto/work/repository";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+} from "../src/core/work/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import { Message } from "../src/shared/work-model";
 import { ContentRef } from "../src/shared/content";

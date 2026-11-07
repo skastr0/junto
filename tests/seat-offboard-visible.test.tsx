@@ -16,7 +16,7 @@ const bridge = {
   listeners: new Set<(progress: SeatOffboardProgress) => void>(),
   current: [] as SeatOffboardProgress[],
 };
-vi.mock("../src/renderer/lib/junto-api", () => ({
+vi.mock("../src/window/lib/junto-api", () => ({
   getJuntoApi: () => ({
     seatOffboardProgressList: async () => bridge.current,
     onSeatOffboardProgress: (listener: (progress: SeatOffboardProgress) => void) => {
@@ -26,13 +26,13 @@ vi.mock("../src/renderer/lib/junto-api", () => ({
   }),
 }));
 
-const { state$ } = await import("../src/renderer/lib/state");
+const { state$ } = await import("../src/window/lib/state");
 const { applySeatOffboardProgress, offboardFailureLine, seatOffboard$, subscribeSeatOffboard, useSeatOffboardFailure } = await import(
-  "../src/renderer/lib/seat-offboard-state"
+  "../src/window/lib/seat-offboard-state"
 );
-const { OffboardControls } = await import("../src/renderer/components/sessions/OffboardControls");
-const { AgentSeatView } = await import("../src/renderer/components/nodes/AgentSeat");
-const { terminalActivity } = await import("../src/renderer/lib/activity");
+const { OffboardControls } = await import("../src/window/components/sessions/OffboardControls");
+const { AgentSeatView } = await import("../src/window/components/nodes/AgentSeat");
+const { terminalActivity } = await import("../src/window/lib/activity");
 
 const progress = (over: Partial<SeatOffboardProgress>): SeatOffboardProgress => ({
   seatId: "seat-1",

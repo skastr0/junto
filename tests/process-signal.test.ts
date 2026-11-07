@@ -13,8 +13,8 @@ import {
   KillablePid,
   type OwnedProcess,
   type DetachedProcessGroup,
-} from "../src/main/junto/process-signal";
-import * as processSignal from "../src/main/junto/process-signal";
+} from "../src/node/process-signal";
+import * as processSignal from "../src/node/process-signal";
 import {
   captureChildProcessEpoch,
   captureProcessGroupEpoch,
@@ -23,7 +23,7 @@ import {
   setProcessEpochReaderForTests,
   type ProcessEpochRow,
   type ProcessGroupEpoch,
-} from "../src/main/junto/process-epoch";
+} from "../src/node/process-epoch";
 import { Schema } from "effect";
 
 const row = (
@@ -368,7 +368,7 @@ describe("process-signal authority", () => {
   });
 
   it("source contains no positive terminating process.kill branch", async () => {
-    const source = await readFile("src/main/junto/process-signal.ts", "utf8");
+    const source = await readFile("src/node/process-signal.ts", "utf8");
     expect(source).not.toMatch(/process\.kill\(rec\.pid/);
     expect(source).toMatch(/process\.kill\(-rec\.pid/);
   });

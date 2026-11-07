@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { staticPathDirs } from "../src/main/junto/adapters/spawn-env";
+import { staticPathDirs } from "../src/core/adapters/spawn-env";
 import {
   defaultSettings,
 } from "../src/shared/settings";
@@ -31,9 +31,9 @@ describe("macOS privacy policy", () => {
       read("build/entitlements.mac.inherit.plist"),
     ].join("\n");
     const runtime = [
-      read("src/main/index.ts"),
-      read("src/main/junto/trusted-renderer-protocol.ts"),
-      read("src/main/junto/browser/web-policy.ts"),
+      read("src/app/index.ts"),
+      read("src/app/trusted-renderer-protocol.ts"),
+      read("src/app/browser/web-policy.ts"),
       read("scripts/app-paths.sh"),
     ].join("\n");
 
@@ -77,12 +77,12 @@ describe("macOS privacy policy", () => {
   });
 
   it("runs the operator's login shell once per start, bounded, owned and away from home", () => {
-    const probe = read("src/main/junto/shell-environment/probe.ts");
-    const environment = read("src/main/junto/shell-environment/environment.ts");
-    const entry = read("src/main/junto/shell-environment/index.ts");
-    const tool = read("src/main/junto/region-env/tool.ts");
-    const exec = read("src/main/junto/adapters/spawn-env.ts");
-    const coreEnvironmentOps = read("src/main/core-process/ops/shell-environment.ts");
+    const probe = read("src/core/shell-environment/probe.ts");
+    const environment = read("src/core/shell-environment/environment.ts");
+    const entry = read("src/core/shell-environment/index.ts");
+    const tool = read("src/core/region-env/tool.ts");
+    const exec = read("src/core/adapters/spawn-env.ts");
+    const coreEnvironmentOps = read("src/core/ops/shell-environment.ts");
     const docs = read("docs/macos-privacy.md");
 
     // One probe: `$SHELL -l -i -c` printing a framed `env -0`, an owned
@@ -140,7 +140,7 @@ describe("macOS privacy policy", () => {
 
   it("discloses local Hermes usage and its refresh cadence", () => {
     const docs = read("docs/macos-privacy.md");
-    const ui = read("src/renderer/components/settings/ProvidersSettingsSection.tsx");
+    const ui = read("src/window/components/settings/ProvidersSettingsSection.tsx");
     expect(docs).toContain("Hermes usage");
     expect(docs).not.toContain("Hermes host snapshots");
     expect(docs).toContain("every five minutes");
@@ -154,17 +154,17 @@ describe("macOS privacy policy", () => {
     expect(docs).toContain("Nothing is shown at launch");
     // The banner is what makes macOS ask; only the notification plane may raise one.
     const main = [
-      read("src/main/index.ts"),
-      read("src/main/junto/ipc.ts"),
-      read("src/main/junto/notifications/plane.ts"),
+      read("src/app/index.ts"),
+      read("src/app/ipc.ts"),
+      read("src/app/notifications/plane.ts"),
     ].join("\n");
     expect(main).not.toMatch(/new Notification\(/u);
-    expect(read("src/main/junto/notifications/ipc.ts").match(/new Notification\(/gu)).toHaveLength(1);
+    expect(read("src/app/notifications/ipc.ts").match(/new Notification\(/gu)).toHaveLength(1);
   });
 
   it("revokes admitted provider work without the global adapter shutdown switch", () => {
-    const usage = read("src/main/junto/usage/usage-service.ts");
-    const exec = read("src/main/junto/adapters/exec.ts");
+    const usage = read("src/core/usage/usage-service.ts");
+    const exec = read("src/core/adapters/exec.ts");
 
     expect(usage).toContain("abortAdmittedAccess");
     expect(usage).not.toContain("terminateAdapterChildrenOnQuit");

@@ -2,21 +2,21 @@ import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { expect, it, vi } from "vitest";
 import type { CoreRunner } from "./support/in-process-core";
-import { portCore, type CorePort } from "../src/main/core-process/port";
-import { runHostOp } from "../src/main/core-process/main-side/host-op-bodies";
-import { serveCore } from "../src/main/core-process/serve";
-import { subscribe } from "../src/main/core-process/main-side/core-pushes";
-import { AGENT_SIGNAL_CHANGED, WORK_PREAMBLE } from "../src/main/core-process/channels";
+import { portCore, type CorePort } from "../src/contract/core/port";
+import { runHostOp } from "../src/app/core-process/main-side/host-op-bodies";
+import { serveCore } from "../src/core/serve";
+import { subscribe } from "../src/app/core-process/main-side/core-pushes";
+import { AGENT_SIGNAL_CHANGED, WORK_PREAMBLE } from "../src/contract/core/channels";
 // The operations the served core answers: entry.ts imports this registry at boot.
-import "../src/main/core-process/ops/index";
-import { SettingsService } from "../src/main/junto/settings/service";
+import "../src/core/ops/index";
+import { SettingsService } from "../src/core/settings/service";
 
 vi.mock("electron", () => ({ utilityProcess: { fork: () => { throw new Error("no utilityProcess in tests"); } } }));
-vi.mock("../src/main/core-process/entry?modulePath", () => ({ default: "/core-entry.js" }));
-vi.mock("../src/main/runtime", () => ({ AppRuntime: ManagedRuntime.make(Layer.empty) }));
+vi.mock("../src/core/entry?modulePath", () => ({ default: "/core-entry.js" }));
+vi.mock("../src/app/runtime", () => ({ AppRuntime: ManagedRuntime.make(Layer.empty) }));
 
-const { startCoreProcessForMain } = await import("../src/main/core-process/main-boot");
-const { core } = await import("../src/main/core-process/main-client");
+const { startCoreProcessForMain } = await import("../src/app/core-process/main-boot");
+const { core } = await import("../src/app/core-process/main-client");
 
 const portOf = (port: MessagePort): CorePort => ({
   post: (message) => port.postMessage(message),

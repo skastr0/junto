@@ -7,8 +7,8 @@ import {
   minutesWords,
   nextCacheStatusChange,
   seatCacheStatusCopy,
-} from "../src/renderer/components/nodes/seat-cache-status";
-import { nextMoment } from "../src/renderer/lib/seat-next-launch";
+} from "../src/window/components/nodes/seat-cache-status";
+import { nextMoment } from "../src/window/lib/seat-next-launch";
 import type { SeatCacheWindow } from "../src/shared/seat-next-launch";
 
 const MIN = 60_000;

@@ -1,25 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
-import * as ampThread from "../src/main/junto/term/templates/amp-thread";
-import * as seatSession from "../src/main/junto/term/seat-session-id";
+import * as ampThread from "../src/core/term/templates/amp-thread";
+import * as seatSession from "../src/core/term/seat-session-id";
 import {
   isAmpThreadId,
   parseAmpThreadReceipt,
   provisionAmpThread,
-} from "../src/main/junto/term/templates/amp-thread";
+} from "../src/core/term/templates/amp-thread";
 import {
   ensureProvisionedSessionId,
   usesProvisionedSession,
-} from "../src/main/junto/term/amp-seat-thread";
+} from "../src/core/term/amp-seat-thread";
 import {
   launchForManagedSpawn,
   planManagedSpawn,
-} from "../src/main/junto/term/managed-spawn-plan";
-import { newSeat } from "../src/renderer/lib/model-factories";
-import { firstCascadeColumn } from "../src/renderer/components/node-palette/agent-launch-model";
-import { harnessBinaryInstalled } from "../src/main/junto/term/templates/harness-install";
-import { evaluate } from "../src/main/junto/term/agent-state";
-import { ManagedTerminalDrive } from "../src/main/junto/term/drive";
-import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
+} from "../src/core/term/managed-spawn-plan";
+import { newSeat } from "../src/window/lib/model-factories";
+import { firstCascadeColumn } from "../src/window/components/node-palette/agent-launch-model";
+import { harnessBinaryInstalled } from "../src/core/term/templates/harness-install";
+import { evaluate } from "../src/core/term/agent-state";
+import { ManagedTerminalDrive } from "../src/core/term/drive";
+import type { ObserverGridSnapshot } from "../src/core/term/observer/types";
 import { AMP_TEMPLATE } from "../src/shared/managed-terminal-templates";
 
 // The receipt shape below is real output from

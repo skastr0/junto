@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { activateNodeSurface } from "../src/renderer/lib/activate-node-surface";
-import { openActorMirror } from "../src/renderer/lib/actor-mirrors";
-import { focusCanvasNode } from "../src/renderer/lib/command-bar";
-import { dock$ } from "../src/renderer/lib/dock-state";
-import { buildFocusSwitcherCatalog } from "../src/renderer/lib/focus-switcher";
-import { emptyHotbarSlots } from "../src/renderer/lib/hotbar-slots";
-import { recordSeatVisit } from "../src/renderer/lib/seat-visits";
-import { state$ } from "../src/renderer/lib/state";
-import { initialWorkbenchState } from "../src/renderer/lib/surface-registry";
-import { modelStore } from "../src/renderer/lib/use-model";
+import { activateNodeSurface } from "../src/window/lib/activate-node-surface";
+import { openActorMirror } from "../src/window/lib/actor-mirrors";
+import { focusCanvasNode } from "../src/window/lib/command-bar";
+import { dock$ } from "../src/window/lib/dock-state";
+import { buildFocusSwitcherCatalog } from "../src/window/lib/focus-switcher";
+import { emptyHotbarSlots } from "../src/window/lib/hotbar-slots";
+import { recordSeatVisit } from "../src/window/lib/seat-visits";
+import { state$ } from "../src/window/lib/state";
+import { initialWorkbenchState } from "../src/window/lib/surface-registry";
+import { modelStore } from "../src/window/lib/use-model";
 import { asCanvasName, type Seat } from "../src/shared/model";
 import { note, seat } from "./support/model-nodes";
 

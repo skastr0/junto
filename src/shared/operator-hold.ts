@@ -1,7 +1,7 @@
 /**
  * The operator's hold on a seat: while a window shows the seat's terminal, or
  * the operator has just typed into it, its session is not cut at the cache
- * window. Main keeps the holds (src/main/junto/term/operator-holds.ts); each
+ * window. Main keeps the holds (src/core/term/operator-holds.ts); each
  * window reports what it shows and what it is typed into.
  *
  * Imported by the preload's reach: keep this module free of Effect.

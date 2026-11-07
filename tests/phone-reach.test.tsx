@@ -6,16 +6,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSignal } from "../src/shared/agent-signals";
 import type { CompanionDeviceRecord } from "../src/shared/companion-devices";
 import { buildOperatorFeed, type OperatorFeed as Feed } from "../src/shared/operator-feed";
-import { OperatorFeed } from "../src/renderer/components/feed/OperatorFeed";
-import { subjectsFromFeed } from "../src/renderer/lib/desktop-notify";
+import { OperatorFeed } from "../src/window/components/feed/OperatorFeed";
+import { subjectsFromFeed } from "../src/window/lib/desktop-notify";
 import {
   phoneReach$,
   phoneReachSection,
   REMOTE_LOGIN_ITEM_ID,
   startPhoneReachWatch,
   withPhoneReach,
-} from "../src/renderer/lib/phone-reach";
-import { state$ } from "../src/renderer/lib/state";
+} from "../src/window/lib/phone-reach";
+import { state$ } from "../src/window/lib/state";
 
 // The real feed, fed by hand, with this Mac's item folded in the way
 // useOperatorFeed folds it.
@@ -35,10 +35,10 @@ const live = vi.hoisted(() => {
   };
 });
 
-vi.mock("../src/renderer/lib/operator-feed", async (importOriginal) => {
-  const { phoneReach$: reach$, withPhoneReach: fold } = await import("../src/renderer/lib/phone-reach");
+vi.mock("../src/window/lib/operator-feed", async (importOriginal) => {
+  const { phoneReach$: reach$, withPhoneReach: fold } = await import("../src/window/lib/phone-reach");
   return {
-    ...(await importOriginal<typeof import("../src/renderer/lib/operator-feed")>()),
+    ...(await importOriginal<typeof import("../src/window/lib/operator-feed")>()),
     useOperatorFeed: (): Feed => {
       const feed = useSyncExternalStore(live.subscribe, live.read);
       const paired = use$(reach$.paired);

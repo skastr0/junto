@@ -7,8 +7,8 @@
  */
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import type { AutomationRepository } from "../src/main/junto/automation/repository";
-import { automationAuthorsOf } from "../src/main/junto/work/resource-ruler";
+import type { AutomationRepository } from "../src/core/automation/repository";
+import { automationAuthorsOf } from "../src/core/work/resource-ruler";
 import type { AutomationEntry } from "../src/shared/automation-domain";
 import { asNodeId } from "../src/shared/model";
 import type { NodeKind } from "../src/shared/model/kinds";

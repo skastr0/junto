@@ -15,18 +15,18 @@ import {
   readSeeded,
   seedCanvas,
 } from "./support/seed-canvas";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
-import { WorkRepositoryLive } from "../src/main/junto/work/repository";
-import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { CrewRepositoryLive } from "../src/core/work/crew-repository";
+import { WorkRepositoryLive } from "../src/core/work/repository";
+import { MachineRepositoryLive } from "../src/core/machines/repository";
 import { nameThisMachine } from "./support/name-this-machine";
-import { SettingsLive } from "../src/main/junto/settings/service";
-import { WorkLive } from "../src/main/junto/work/service";
-import { makeContentServiceLive } from "../src/main/junto/content/service";
-import { executeOverseer, type OverseerRuntime } from "../src/main/junto/overseer/dispatch";
-import { onReferencesChanged } from "../src/main/junto/references/changes";
-import { ReferencesRepository, ReferencesRepositoryLive } from "../src/main/junto/references/repository";
+import { SettingsLive } from "../src/core/settings/service";
+import { WorkLive } from "../src/core/work/service";
+import { makeContentServiceLive } from "../src/core/content/service";
+import { executeOverseer, type OverseerRuntime } from "../src/core/overseer/dispatch";
+import { onReferencesChanged } from "../src/core/references/changes";
+import { ReferencesRepository, ReferencesRepositoryLive } from "../src/core/references/repository";
 import {
   OVERSEER_CATALOG,
   OverseerReferencesWriteInput,

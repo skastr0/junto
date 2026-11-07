@@ -9,7 +9,7 @@ import {
   matchDirectoryEntries,
   parseDirectoryDraft,
   trimTrailingSlash,
-} from "../src/renderer/lib/directory-picker";
+} from "../src/window/lib/directory-picker";
 
 const entry = (name: string, kind: "file" | "directory" = "directory") => ({
   name,

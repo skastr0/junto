@@ -2,12 +2,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { Schema } from "effect";
 import { expect, it } from "vitest";
-import { startCore } from "../src/main/junto/core";
-import { coreControlSocketPath } from "../src/main/junto/link/listener";
-import { decodeLinkFrame, LinkHelloSchema, type LinkFrame } from "../src/main/junto/link/protocol";
-import { MachineRepository } from "../src/main/junto/machines/repository";
-import { MachineLink } from "../src/main/junto/link/service";
-import { LinkUnavailable } from "../src/main/junto/link/types";
+import { startCore } from "../src/core/core";
+import { coreControlSocketPath } from "../src/core/link/listener";
+import { decodeLinkFrame, LinkHelloSchema, type LinkFrame } from "../src/core/link/protocol";
+import { MachineRepository } from "../src/core/machines/repository";
+import { MachineLink } from "../src/core/link/service";
+import { LinkUnavailable } from "../src/core/link/types";
 
 const connectPeer = async (home: string, hello: typeof LinkHelloSchema.Type) => {
   const socket = createConnection(coreControlSocketPath(home));

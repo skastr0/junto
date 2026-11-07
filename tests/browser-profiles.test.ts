@@ -32,18 +32,18 @@ import {
   type BrowserProfilePendingWipe,
   type BrowserProfileWipeLifecycle,
   type BrowserProfileWipeOutcome,
-} from "../src/main/junto/browser/profiles";
-import { BrowserProfileGate } from "../src/main/junto/browser/profile-gate";
+} from "../src/node/browser/profiles";
+import { BrowserProfileGate } from "../src/app/browser/profile-gate";
 import { inProcessCore } from "./support/in-process-core";
-import { coreBrowserProfileStore } from "../src/main/core-process/main-side/browser";
+import { coreBrowserProfileStore } from "../src/app/core-process/main-side/browser";
 import {
   BROWSER_MAX_VISIBLE_SURFACES_HARD,
   BROWSER_MAX_WARM_SESSIONS_HARD,
 } from "../src/shared/browser-limits";
 import {
   makeStateEngineLive,
-} from "../src/main/junto/state/engine";
-import { StateEngine, StateTransactionOperation } from "../src/main/junto/state/service";
+} from "../src/core/state/engine";
+import { StateEngine, StateTransactionOperation } from "../src/core/state/service";
 
 const FIXED_TIME = "2026-07-17T12:00:00.000Z";
 const MODE_MASK = 0o777;

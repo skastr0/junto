@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { THIS_MACHINE } from "./support/machines";
 import type { Node, NodeOf } from "../src/shared/model";
-import { quiesceAndFlushCanvasEdits } from "../src/renderer/lib/canvas-editor-flush";
+import { quiesceAndFlushCanvasEdits } from "../src/window/lib/canvas-editor-flush";
 import {
   canvasMutationsQuiesced,
   deleteNode,
   deleteNodes,
-} from "../src/renderer/lib/mutations";
+} from "../src/window/lib/mutations";
 import { seat } from "./support/model-nodes";
 import { held, openCanvas } from "./support/open-canvas";
-import { state$ } from "../src/renderer/lib/state";
+import { state$ } from "../src/window/lib/state";
 
 const confirmDelete = vi.fn(() => true);
 type TerminalDeleteResource = { readonly bindingId: string; readonly hostId?: string };

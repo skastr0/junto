@@ -19,13 +19,16 @@ import { describe, expect, it } from "vitest";
 const ROOT = path.resolve(import.meta.dirname, "..");
 const LINT = path.join(ROOT, "scripts/lint-effect-runpromise.ts");
 const ALLOWLIST = path.join(ROOT, "scripts/effect-runpromise-allowlist.json");
+/** The Node programs the gate scans, and the work claim plane's folders in them. */
+const PRODUCT_ROOTS = ["src/app", "src/core", "src/node", "src/terminal", "src/contract", "src/cli/hosts", "src/cli/machine-local.ts"];
+const WORK_DIRS = ["src/core/work", "src/node/work", "src/app/work"];
 
 /** IRON V4-ENTRY surfaces — domain Effects only via ManagedRuntime. */
 const ENTRY_SURFACES = [
-  "src/main/index.ts",
-  "src/main/ipc.ts",
-  "src/main/junto/ipc.ts",
-  "src/main/junto/core.ts",
+  "src/app/index.ts",
+  "src/app/ipc-handlers.ts",
+  "src/app/ipc.ts",
+  "src/core/core.ts",
 ] as const;
 
 const CALL_PATTERN = /Effect\.runPromise\b/;
@@ -88,10 +91,9 @@ describe("effect-runpromise boundary (S0)", () => {
 
     const forbidden = raw.permanent.filter(
       (e) =>
-        e.path.startsWith("src/main/junto/kernel/") ||
-        e.path === "src/main/junto/kernel" ||
-        e.path.startsWith("src/main/junto/work/") ||
-        e.path === "src/main/junto/work",
+        e.path.startsWith("src/core/kernel/") ||
+        e.path === "src/core/kernel" ||
+        WORK_DIRS.some((dir) => e.path.startsWith(`${dir}/`) || e.path === dir),
     );
     expect(forbidden).toEqual([]);
   });
@@ -100,7 +102,7 @@ describe("effect-runpromise boundary (S0)", () => {
     const raw = JSON.parse(readFileSync(ALLOWLIST, "utf8")) as Allowlist;
     expect(raw.permanent.length).toBeGreaterThan(0);
     for (const entry of raw.permanent) {
-      expect(entry.path.startsWith("src/main/")).toBe(true);
+      expect(PRODUCT_ROOTS.some((root) => entry.path === root || entry.path.startsWith(`${root}/`))).toBe(true);
       expect(entry.maxCount).toBeGreaterThan(0);
       expect(entry.reason.length).toBeGreaterThan(10);
       // Permanent exceptions are host/post-dispose edges only.
@@ -116,13 +118,13 @@ describe("effect-runpromise boundary (S0)", () => {
     // S2: kernel debt entry is gone — zero bare Effect.runPromise in
     // kernel/service.ts. Permanent must still never cover kernel/work.
     expect(
-      raw.debt.some((e) => e.path.startsWith("src/main/junto/kernel/")),
+      raw.debt.some((e) => e.path.startsWith("src/core/kernel/")),
     ).toBe(false);
     expect(
-      raw.permanent.some((e) => e.path.startsWith("src/main/junto/kernel/")),
+      raw.permanent.some((e) => e.path.startsWith("src/core/kernel/")),
     ).toBe(false);
     expect(
-      raw.permanent.some((e) => e.path.startsWith("src/main/junto/work/")),
+      raw.permanent.some((e) => WORK_DIRS.some((dir) => e.path.startsWith(`${dir}/`))),
     ).toBe(false);
   });
 
@@ -155,13 +157,13 @@ describe("V4-ENTRY managed runtime domain entry", () => {
 
   it("routes domain entry through the warm core or shell runtime", () => {
     // Cement: entry surfaces import and call the warm ManagedRuntime, not bare.
-    const cc = readFileSync(path.join(ROOT, "src/main/index.ts"), "utf8");
-    const ipc = readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8");
+    const cc = readFileSync(path.join(ROOT, "src/app/index.ts"), "utf8");
+    const ipc = readFileSync(path.join(ROOT, "src/app/ipc-handlers.ts"), "utf8");
     const juntoIpc = readFileSync(
-      path.join(ROOT, "src/main/junto/ipc.ts"),
+      path.join(ROOT, "src/app/ipc.ts"),
       "utf8",
     );
-    const core = readFileSync(path.join(ROOT, "src/main/junto/core.ts"), "utf8");
+    const core = readFileSync(path.join(ROOT, "src/core/core.ts"), "utf8");
 
     expect(core).toMatch(/makeCoreRuntime/);
     expect(core).toMatch(/runtime\.runPromise/);
@@ -198,15 +200,15 @@ describe("V4-ENTRY managed runtime domain entry", () => {
           });
       }
     };
-    walk(path.join(ROOT, "src/main"));
+    for (const root of ["src/app", "src/core", "src/node", "src/terminal", "src/contract"]) walk(path.join(ROOT, root));
     expect(
       constructions.map((l) => l.split(":")[0]).sort(),
       constructions.join("\n"),
     ).toEqual([
-      "src/main/core-runtime.ts",
+      "src/core/core-runtime.ts",
       // Main's terminal router makes no runtime of its own any more: 2f64c200f
       // took its SSH runner out, so the shell and the core are the only sites.
-      "src/main/runtime.ts",
-    ]);
+      "src/app/runtime.ts",
+    ].sort());
   });
 });

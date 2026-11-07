@@ -5,9 +5,9 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { FileBody, FileSource } from "../src/shared/artifact";
 import type { ContentRef } from "../src/shared/content";
 import type { NodeId } from "../src/shared/physics/schema";
-import { FilePreview, fileSourceLine } from "../src/renderer/components/artifacts/ArtifactPreview";
+import { FilePreview, fileSourceLine } from "../src/window/components/artifacts/ArtifactPreview";
 
-vi.mock("../src/renderer/components/work/ContentMedia", () => ({ ContentMedia: () => null }));
+vi.mock("../src/window/components/work/ContentMedia", () => ({ ContentMedia: () => null }));
 
 let root: Root;
 let host: HTMLDivElement;

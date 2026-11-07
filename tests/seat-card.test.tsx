@@ -6,11 +6,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import { decodeNode, type Node } from "../src/shared/model";
-import { SeatCard } from "../src/renderer/components/nodes/SeatCard";
-import { agentSeat$ } from "../src/renderer/lib/agent-seat-state";
-import { replaceAgentSignals } from "../src/renderer/lib/agent-signals-state";
-import { seatCacheWindow$, seatNextTurn$ } from "../src/renderer/lib/seat-next-launch";
-import { state$ } from "../src/renderer/lib/state";
+import { SeatCard } from "../src/window/components/nodes/SeatCard";
+import { agentSeat$ } from "../src/window/lib/agent-seat-state";
+import { replaceAgentSignals } from "../src/window/lib/agent-signals-state";
+import { seatCacheWindow$, seatNextTurn$ } from "../src/window/lib/seat-next-launch";
+import { state$ } from "../src/window/lib/state";
 import { holdModelCanvas as holdCanvas } from "./support/hold-canvas";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 

@@ -6,7 +6,7 @@ const source = (relative: string): string =>
 
 describe("actor seat production architecture", () => {
   it("roots expose the actor WHEN without exposing a process HOW", () => {
-    for (const path of ["src/main/core-product.ts"]) {
+    for (const path of ["src/core/core-product.ts"]) {
       const root = source(path);
       expect(root, path).toContain("ActorSeatOccupyLive");
       expect(root, path).toMatch(
@@ -16,17 +16,17 @@ describe("actor seat production architecture", () => {
     }
     // The core's runtime builds the machine core layer; main's runtime is Electron's
     // alone and must not build a second copy of it.
-    expect(source("src/main/core-runtime.ts")).toContain("makeMachineCoreLayer");
-    expect(source("src/main/runtime.ts")).not.toContain("makeMachineCoreLayer");
-    for (const path of ["src/main/runtime.ts", "src/main/core-runtime.ts"]) {
+    expect(source("src/core/core-runtime.ts")).toContain("makeMachineCoreLayer");
+    expect(source("src/app/runtime.ts")).not.toContain("makeMachineCoreLayer");
+    for (const path of ["src/app/runtime.ts", "src/core/core-runtime.ts"]) {
       expect(source(path), path).not.toContain("TerminalSeatProcess");
     }
-    expect(source("src/main/core-runtime.ts")).toContain("makeCoreProductLayer(options.home, options.log)");
+    expect(source("src/core/core-runtime.ts")).toContain("makeCoreProductLayer(options.home, options.log)");
   });
 
   it("keeps mutable machine identity and the seats link client in the live adapter", () => {
     const live = source(
-      "src/main/junto/term/actor-seat-occupy-live.ts",
+      "src/core/term/actor-seat-occupy-live.ts",
     );
 
     expect(live).toContain("const installation = yield* MachineRepository");
@@ -39,11 +39,11 @@ describe("actor seat production architecture", () => {
 
   it("compiles spawn intent before placement and finalizes only on the process host", () => {
     // The window's and the owner commands' agent seat start (seat-control.ts).
-    const ipc = source("src/main/junto/term/seat-control.ts");
-    const ensure = source("src/main/junto/term/ensure-managed-seat.ts");
-    const process = source("src/main/junto/term/seat-process.ts");
-    const server = source("src/main/junto/term/control-server.ts");
-    const host = source("src/main/junto/term/local-host.ts");
+    const ipc = source("src/core/term/seat-control.ts");
+    const ensure = source("src/core/term/ensure-managed-seat.ts");
+    const process = source("src/core/term/seat-process.ts");
+    const server = source("src/core/term/control-server.ts");
+    const host = source("src/core/term/local-host.ts");
     const wire = source("src/shared/term-control.ts");
 
     expect(ipc).toContain("makeManagedSpawnIntent");
@@ -73,8 +73,8 @@ describe("actor seat production architecture", () => {
   });
 
   it("starts an overseer's seat the way every start does, never on a spawn intent of its own", () => {
-    const native = source("src/main/junto/overseer/native.ts");
-    const composition = source("src/main/junto/overseer/composition.ts");
+    const native = source("src/core/overseer/native.ts");
+    const composition = source("src/core/overseer/composition.ts");
 
     for (const [path, text] of [["native.ts", native], ["composition.ts", composition]] as const) {
       expect(text, path).not.toContain("makeManagedSpawnIntent");
@@ -86,8 +86,8 @@ describe("actor seat production architecture", () => {
   });
 
   it("routes every managed wake through ActorSeatOccupy", () => {
-    const ensure = source("src/main/junto/term/ensure-managed-seat.ts");
-    const kernel = source("src/main/junto/kernel/service.ts");
+    const ensure = source("src/core/term/ensure-managed-seat.ts");
+    const kernel = source("src/core/kernel/service.ts");
 
     expect(ensure).toContain("actorSeatOccupy.occupy(spec)");
     expect(ensure).not.toContain("termPlane.host.createAgentSeat");

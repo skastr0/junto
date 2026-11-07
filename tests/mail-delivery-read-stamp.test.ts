@@ -5,15 +5,15 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 import { expect, it } from "vitest";
 import { Command } from "../src/shared/model";
-import { ModelLive } from "../src/main/junto/model/layer";
-import { ModelDependents } from "../src/main/junto/model/dependents";
-import { ModelService } from "../src/main/junto/model/service";
-import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
-import { canvasReceiptBasis } from "../src/main/junto/work/delivery-receipts";
-import { makeMessageDeliveryStore } from "../src/main/junto/work/message-delivery-store";
-import { ContentService, type ContentServiceShape } from "../src/main/junto/content/service";
+import { ModelLive } from "../src/core/model/layer";
+import { ModelDependents } from "../src/core/model/dependents";
+import { ModelService } from "../src/core/model/service";
+import { ModelActorRefs } from "../src/core/model/actor-refs";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { WorkRepository, WorkRepositoryLive } from "../src/core/work/repository";
+import { canvasReceiptBasis } from "../src/core/work/delivery-receipts";
+import { makeMessageDeliveryStore } from "../src/core/work/message-delivery-store";
+import { ContentService, type ContentServiceShape } from "../src/core/content/service";
 import { THIS_MACHINE } from "./support/machines";
 
 it("a delivery that typed the mail whole stamps it read with its receipt; any other leaves it unread", async () => {

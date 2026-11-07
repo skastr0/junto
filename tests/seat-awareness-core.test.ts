@@ -13,18 +13,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SEAT_AWARENESS_COMPILED } from "../src/shared/features";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { defaultSettings, type Settings, type SettingsError } from "../src/shared/settings";
-import type { SeatAwarenessEvent } from "../src/renderer/lib/seat-awareness-contract";
-import { runCoreOp } from "../src/main/core-process/serve";
-import type { CoreClient } from "../src/main/core-process/client";
-import "../src/main/core-process/ops/seat-awareness";
-import { subscribe } from "../src/main/core-process/main-side/core-pushes";
-import { SettingsService } from "../src/main/junto/settings/service";
+import type { SeatAwarenessEvent } from "../src/window/lib/seat-awareness-contract";
+import { runCoreOp } from "../src/core/serve";
+import type { CoreClient } from "../src/contract/core/client";
+import "../src/core/ops/seat-awareness";
+import { subscribe } from "../src/app/core-process/main-side/core-pushes";
+import { SettingsService } from "../src/core/settings/service";
 import {
   SEAT_AWARENESS_ENV,
   type SeatAwarenessPlane,
   type SeatAwarenessPlaneStartOptions,
-} from "../src/main/junto/term/seat-awareness";
-import { makeSeatAwarenessLive } from "../src/main/junto/term/seat-awareness-live";
+} from "../src/core/term/seat-awareness";
+import { makeSeatAwarenessLive } from "../src/core/term/seat-awareness-live";
 
 const source = (relative: string): string =>
   readFileSync(new URL(`../${relative}`, import.meta.url), "utf8");
@@ -98,15 +98,15 @@ afterEach(() => {
 
 describe("the seat awareness plane in the core", () => {
   it("answers the window's snapshot and the collaboration gate from the core", () => {
-    const ipc = source("src/main/junto/ipc.ts");
+    const ipc = source("src/app/ipc.ts");
     // Main asks; it never holds a plane it has no seats to feed.
     expect(ipc).toContain('core.call("seats.awareness", {})');
     expect(ipc).not.toContain("seatAwarenessPlane");
     // The core starts it: entry.ts boots startCore, which builds the product layer.
-    expect(source("src/main/core-process/entry.ts")).toContain("startCore(");
-    expect(source("src/main/junto/core.ts")).toContain("makeCoreRuntime(");
-    expect(source("src/main/core-runtime.ts")).toContain("makeCoreProductLayer(options.home, options.log)");
-    expect(source("src/main/core-product.ts")).toContain("Layer.provide(SeatAwarenessLive, settings)");
+    expect(source("src/core/entry.ts")).toContain("startCore(");
+    expect(source("src/core/core.ts")).toContain("makeCoreRuntime(");
+    expect(source("src/core/core-runtime.ts")).toContain("makeCoreProductLayer(options.home, options.log)");
+    expect(source("src/core/core-product.ts")).toContain("Layer.provide(SeatAwarenessLive, settings)");
   });
 
   it.runIf(SEAT_AWARENESS_COMPILED)(

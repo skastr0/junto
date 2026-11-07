@@ -29,8 +29,8 @@ import {
   titled,
   topZ,
   verbsForDraw,
-} from "../src/renderer/lib/model-edits";
-import { canvasAfter, stepBack } from "../src/renderer/lib/model-undo";
+} from "../src/window/lib/model-edits";
+import { canvasAfter, stepBack } from "../src/window/lib/model-undo";
 
 const name = asCanvasName("factory");
 const place = { x: 0, y: 0, width: 216, height: 96 };

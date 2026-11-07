@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 const readCss = (rel: string): string =>
   readFileSync(resolve(__dirname, rel), "utf8");
 
-const media = readCss("../src/renderer/components/work/content-media.css");
+const media = readCss("../src/window/components/work/content-media.css");
 
 describe("chrome loading spinners", () => {
   it("spin, and pause under data-surface-motion", () => {

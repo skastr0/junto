@@ -11,8 +11,8 @@ import { SqlClient } from "effect/sql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ViewStateWrite } from "../src/shared/view-state";
 import { artifactLabelOf, type ArtifactLabel } from "../src/shared/artifact-labels";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { ViewStateRepository, ViewStateRepositoryLive } from "../src/main/junto/view-state/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { ViewStateRepository, ViewStateRepositoryLive } from "../src/core/view-state/repository";
 
 let dir: string;
 let runtime: ReturnType<typeof machineAt>;

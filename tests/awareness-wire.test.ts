@@ -19,24 +19,24 @@ import {
   SEAT_AWARENESS_SNAPSHOT_CHANNEL,
   decodeSeatAwarenessEvent,
   type SeatAwarenessEvent,
-} from "../src/renderer/lib/seat-awareness-contract";
+} from "../src/window/lib/seat-awareness-contract";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import {
   SEAT_AWARENESS_UNOBSERVED_DIGEST,
   seatAwarenessEventsForAdvisory,
-} from "../src/main/junto/term/awareness/awareness-wire";
+} from "../src/core/term/awareness/awareness-wire";
 import {
   projectAwarenessAnswers,
   projectAwarenessUnavailable,
   type AwarenessAssessment,
-} from "../src/main/junto/term/awareness/project-result";
+} from "../src/core/term/awareness/project-result";
 import {
   selectAwarenessInput,
   type AwarenessEvidenceWindow,
   type AwarenessRequestState,
-} from "../src/main/junto/term/awareness/select-input";
-import type { AwarenessAdvisory } from "../src/main/junto/term/awareness/scheduler";
-import { notConfiguredAdvisory } from "../src/main/junto/term/seat-awareness";
+} from "../src/core/term/awareness/select-input";
+import type { AwarenessAdvisory } from "../src/core/term/awareness/scheduler";
+import { notConfiguredAdvisory } from "../src/core/term/seat-awareness";
 
 const T0 = 1_700_000_000_000;
 const AT = T0 + 1_000;

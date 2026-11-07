@@ -1,8 +1,8 @@
 import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
-import { appended, type ArtifactAction, type ArtifactPort, performArtifactAction } from "../src/main/junto/automation/artifact-actions";
-import type { ChangeEvent } from "../src/main/junto/automation/plan";
-import { firedValue } from "../src/main/junto/automation/values";
+import { appended, type ArtifactAction, type ArtifactPort, performArtifactAction } from "../src/core/automation/artifact-actions";
+import type { ChangeEvent } from "../src/core/automation/plan";
+import { firedValue } from "../src/core/automation/values";
 import type { ArtifactOp } from "../src/shared/artifact";
 import {
   actionRefusal,

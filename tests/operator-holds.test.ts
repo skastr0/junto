@@ -6,11 +6,11 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
-import { makeOperatorHolds, liveOperatorHolds, subscribeOperatorTyped } from "../src/main/junto/term/operator-holds";
-import { registerOperatorHoldsIpc } from "../src/main/junto/term/operator-holds-ipc";
+import { makeOperatorHolds, liveOperatorHolds, subscribeOperatorTyped } from "../src/core/term/operator-holds";
+import { registerOperatorHoldsIpc } from "../src/app/term/operator-holds-ipc";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { OPERATOR_TYPED_REPORT_MS, OPERATOR_TYPING_GRACE_MS } from "../src/shared/operator-hold";
-import { openSurfaceBindingIds } from "../src/renderer/lib/agent-seat-state";
+import { openSurfaceBindingIds } from "../src/window/lib/agent-seat-state";
 
 const T0 = Date.UTC(2026, 9, 18, 12, 0);
 

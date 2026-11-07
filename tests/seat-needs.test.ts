@@ -15,7 +15,7 @@ import {
 } from "../src/shared/harness-domain";
 import { projectNeeds, ROLLUP_FROM_NEED } from "../src/shared/need-surfaces";
 import { BindingId } from "../src/shared/terminal-session-domain";
-import { seatNeedsOf } from "../src/renderer/lib/agent-seat-state";
+import { seatNeedsOf } from "../src/window/lib/agent-seat-state";
 
 const seat = Schema.decodeSync(BindingId)("b-n");
 let clock = 1_000;

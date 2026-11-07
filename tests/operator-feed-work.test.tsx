@@ -4,12 +4,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AgentSignal } from "../src/shared/agent-signals";
 import { buildOperatorFeed, type FeedItem, type OperatorFeed as Feed } from "../src/shared/operator-feed";
-import { OperatorFeed } from "../src/renderer/components/feed/OperatorFeed";
-import type { SignalForm, WorkTiming } from "../src/renderer/lib/signal-work";
-import { state$ } from "../src/renderer/lib/state";
+import { OperatorFeed } from "../src/window/components/feed/OperatorFeed";
+import type { SignalForm, WorkTiming } from "../src/window/lib/signal-work";
+import { state$ } from "../src/window/lib/state";
 import { VAULT_ENABLED } from "../src/shared/features";
 import { settleLazy } from "./support/settle-lazy";
-import { loadLazySurfaces } from "../src/renderer/lib/lazy-surface";
+import { loadLazySurfaces } from "../src/window/lib/lazy-surface";
 
 // The editors and viewers load before any test, so no test waits on an import.
 await loadLazySurfaces();
@@ -31,8 +31,8 @@ const live = vi.hoisted(() => {
   };
 });
 
-vi.mock("../src/renderer/lib/operator-feed", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/renderer/lib/operator-feed")>()),
+vi.mock("../src/window/lib/operator-feed", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/window/lib/operator-feed")>()),
   useOperatorFeed: (): Feed => useSyncExternalStore(live.subscribe, live.read),
 }));
 

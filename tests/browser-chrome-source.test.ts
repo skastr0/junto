@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/model";
 import { driverMark } from "../src/shared/page-driver";
 import { activeTab } from "../src/shared/page-tabs";
-import { makeLocalBrowserChrome, runChromeCommand } from "../src/renderer/lib/browser-chrome-source";
+import { makeLocalBrowserChrome, runChromeCommand } from "../src/window/lib/browser-chrome-source";
 
 const S = "session-1";
 

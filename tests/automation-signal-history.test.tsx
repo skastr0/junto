@@ -6,12 +6,12 @@ import { DEFAULT_AUTOMATION_LIMITS, type Automation, type AutomationDefinition }
 import { asNodeId } from "@shared/physics/schema";
 import { ItemId } from "@shared/work-ids";
 import type { AgentSignal } from "@shared/wire/agent-signals";
-import { AutomationsPane } from "../src/renderer/components/automations/AutomationsPane";
-import { makeLocalAutomationsSource, setAutomationsSource } from "../src/renderer/lib/automations-source";
-import { agentSignals$, replaceAgentSignals } from "../src/renderer/lib/agent-signals-state";
-import { setNodeViewStore } from "../src/renderer/lib/node-view-state";
-import { state$ } from "../src/renderer/lib/state";
-import { makeMemoryNodeViewStore } from "../src/renderer/lib/view-state-stand-in";
+import { AutomationsPane } from "../src/window/components/automations/AutomationsPane";
+import { makeLocalAutomationsSource, setAutomationsSource } from "../src/window/lib/automations-source";
+import { agentSignals$, replaceAgentSignals } from "../src/window/lib/agent-signals-state";
+import { setNodeViewStore } from "../src/window/lib/node-view-state";
+import { state$ } from "../src/window/lib/state";
+import { makeMemoryNodeViewStore } from "../src/window/lib/view-state-stand-in";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

@@ -7,9 +7,9 @@ import { wordsText } from "./helpers/command-words";
 import { ChildProcess as Command } from "effect/process";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { parseSshRoute } from "../src/main/junto/ssh";
-import { makeRemoteCommand } from "../src/main/junto/ssh/domain";
-import { createSshProgramCompiler, dedicatedStream, resolveSshConfig } from "../src/main/junto/ssh/program";
+import { parseSshRoute } from "../src/core/ssh";
+import { makeRemoteCommand } from "../src/core/ssh/domain";
+import { createSshProgramCompiler, dedicatedStream, resolveSshConfig } from "../src/core/ssh/program";
 
 const compiler = createSshProgramCompiler({ controlDir: "/tmp/junto-ssh-bound-test", envExecutable: "/usr/bin/env", sshExecutable: "/usr/bin/ssh", environment: {} });
 const argv = (command: Command.Command): ReadonlyArray<string> => {

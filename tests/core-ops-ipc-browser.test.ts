@@ -1,8 +1,8 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { expect, it } from "vitest";
 import { inProcessCore, type CoreRunner } from "./support/in-process-core";
-import "../src/main/core-process/ops/ipc-browser";
-import { SettingsService } from "../src/main/junto/settings/service";
+import "../src/core/ops/ipc-browser";
+import { SettingsService } from "../src/core/settings/service";
 
 // Main draws the box and takes the shot; the core holds the staged shots and the store.
 it("answers the browser's pool limits and box comments in the core, refusing what it never staged", async () => {

@@ -295,7 +295,7 @@ hundred canvases do not mean a hundred timers per peer.
 **F2: SQLite holds it cleanly, if the authority judges ahead and applies at
 commit through the one fold.** Today a ruler writes the projection and its
 `ruling.applied` in one transaction, and every other machine reaches the same
-tables by `foldRuling` (`src/main/junto/work/ruling-projection.ts`). F2 makes
+tables by `foldRuling` (`src/core/work/ruling-projection.ts`). F2 makes
 the fold the only apply path, on the authority too.
 
 1. **Judge.** The authority takes a canvas's pending commands as one batch.
@@ -362,7 +362,7 @@ preferred machine would.
   structure edit touches. Waiting for the preferred machine would stall every
   overseer seat and the operator's window all night, for no safety gained.
 - **One count across handovers.** The canvas `seq` (`canvases.seq`,
-  `src/main/junto/model/records.ts`) belongs to the canvas, not to a
+  `src/core/model/records.ts`) belongs to the canvas, not to a
   machine. The new authority continues from the head it was handed, so
   "a copy replaces an older one" (Rule 2) still works by `seq` alone, and a
   returning machine catches up by applying `structure.changed` in `seq`
@@ -372,7 +372,7 @@ preferred machine would.
   always on the successor, and an uncommitted one was never shown.
 - **The window predicts a drop and settles it at commit.** The window already
   shows a command first and sends it afterwards (`store.show`, then
-  `store.deliver`, in `src/renderer/lib/model-authoring.ts`). That stays.
+  `store.deliver`, in `src/window/lib/model-authoring.ts`). That stays.
   "Nothing is shown before commit" applies to every other reader: panes,
   seats, automations, the exchange. It does not apply to the window's own
   echo of the operator's own gesture. Without the prediction, a dropped card
@@ -385,7 +385,7 @@ preferred machine would.
   synchronous and are never queued. If the authority steps down before such
   an edit commits, the window gets a retryable refusal ("authority moved to
   <machine>"). The prediction rolls back through the re-read the window
-  already does on a refusal (`readAgain` in `src/renderer/lib/mutations.ts`),
+  already does on a refusal (`readAgain` in `src/window/lib/mutations.ts`),
   and nothing goes into undo. The window then sends the edit once to the new
   authority, built afresh against the canvas as that authority holds it.
 - **The authority list is a quorum change, not an ordinary edit.**
@@ -438,7 +438,7 @@ here means nodes, wires, regions and placements.
    already judged "at the canvas count the row states" (Rule 4). The stated
    count may be no older than the newest copy that machine confirmed it
    installed. `canvas_copies_sent` already records each count sent to each
-   machine (`src/main/junto/work/repository.ts`, `recordCanvasCopySent`);
+   machine (`src/core/work/repository.ts`, `recordCanvasCopySent`);
    this adds an install acknowledgement.
 3. **Structure becomes an ordered journal with one writer.** Each committed
    canvas command already moves `seq` up by one and names the rows it changed

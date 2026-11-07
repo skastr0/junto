@@ -1,5 +1,5 @@
 import { memoryTouchedOriginStore } from "./support/touched-origin-store";
-import { overseerPagesOn } from "../src/main/junto/overseer/pages";
+import { overseerPagesOn } from "../src/node/overseer/pages";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,30 +13,30 @@ import { decodeOverseerArgs } from "../src/shared/overseer-control";
 import {
   INTERRUPT_BYTE,
   ManagedTerminalDrive,
-} from "../src/main/junto/term/drive";
-import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
+} from "../src/core/term/drive";
+import { TerminalNodeDeleteService } from "../src/core/term/node-delete";
 import {
   admitOverseerPage,
   overseerPageNodeIds,
-} from "../src/main/junto/overseer/authz";
-import { callerMayAccessPage } from "../src/main/junto/browser/authz";
+} from "../src/core/overseer/authz";
+import { callerMayAccessPage } from "../src/app/browser/authz";
 import type { SeatParts } from "../src/shared/model/seat-parts";
 import {
   makeOverseerNativeLive,
   type OverseerNativeLiveOptions,
-} from "../src/main/junto/overseer/native";
-import type { TermPlane } from "../src/main/junto/term/plane";
-import { LinkBuildMismatch } from "../src/main/junto/link/types";
+} from "../src/core/overseer/native";
+import type { TermPlane } from "../src/core/term/plane";
+import { LinkBuildMismatch } from "../src/core/link/types";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
-} from "../src/main/junto/browser/sessions";
-import { makeBrowserProfileService } from "../src/main/junto/browser/profiles";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { StateEngine } from "../src/main/junto/state/service";
+} from "../src/app/browser/sessions";
+import { makeBrowserProfileService } from "../src/node/browser/profiles";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { StateEngine } from "../src/core/state/service";
 import { localBrowserTestMachineName } from "./browser-test-machine";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
-import type { ResolvedPageTarget } from "../src/main/junto/browser/page-target";
+import type { ResolvedPageTarget } from "../src/core/browser/page-target";
 import { occupiedSeat, seatAdmission } from "../src/shared/terminal-seat-occupancy";
 
 

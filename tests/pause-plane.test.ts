@@ -3,9 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   FactoryPausePersistenceError,
   FactoryPauseRepository,
-} from "../src/main/junto/pause/repository";
-import { PausePlane } from "../src/main/junto/pause-plane";
-import { PausePlaneLaunchPlayingLive, PausePlaneLive } from "../src/main/junto/pause-plane-live";
+} from "../src/core/pause/repository";
+import { PausePlane } from "../src/core/pause-plane";
+import { PausePlaneLaunchPlayingLive, PausePlaneLive } from "../src/core/pause-plane-live";
 import {
   PAUSED_CANVAS,
   pauseWasResumed,

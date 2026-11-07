@@ -36,7 +36,7 @@
   - Sent to pty-lead via product-lead, and fixed in 815dde913.
 - **7195b33ee, PASS.**
   - t10-reader was Blocked at 19:25:52 and idle from 19:26:01. It was past its window from 19:28:16 through 19:29:46 with the same epoch and nextTurn fresh false throughout. The card shows "blocked" and no "fresh next" (`shots/23`).
-  - The answer at 19:30:16 reached session 6a301a96, the session that asked, with no new session row. The seat replied `src/main/junto/git/state-schema.ts`, the last file it read before the question (`records/6a301a96...jsonl`).
+  - The answer at 19:30:16 reached session 6a301a96, the session that asked, with no new session row. The seat replied `src/app/git/state-schema.ts`, the last file it read before the question (`records/6a301a96...jsonl`).
 
 ## Mini
 
@@ -64,7 +64,7 @@
 
 - **(A) A windowless core gives its seats no Junto CLI (cli-lead).**
   - Mini seats have no `JUNTO_CLI` and no `junto` on PATH.
-  - `juntoCliPathPrefixes` (`src/main/junto/term/templates/seat-env.ts:27-40`) only tries `<resources>/bin` and `<cwd>/dist`. The core runs `bin/node` from launchd, with no resources path and cwd `/`.
+  - `juntoCliPathPrefixes` (`src/core/term/templates/seat-env.ts:27-40`) only tries `<resources>/bin` and `<cwd>/dist`. The core runs `bin/node` from launchd, with no resources path and cwd `/`.
   - Receipts: the post-commit hook printed "junto: this commit is not attributed to the seat: the junto CLI was not found", and `junto blocked` gave "zsh: command not found: junto" (`mini/transcripts/`).
 - **(B) The core records a different session id than the one it launches (pty-lead).**
   - For m10-blocked, the process is `claude --session-id 19f242d7...`, but `seat_sessions` and `offboard-clock.json` hold `39f08e2b...`. For m10-reader, the process is `d39ffd4a...` and the records hold `a5f90d78...`.
@@ -121,7 +121,7 @@ The parallel install was removed with `machine uninstall-local`: its service def
 
 ## Findings beyond the items
 
-- **Seat CLI path (cli-lead).** A packaged app hands seats `<process cwd>/dist/junto` ahead of its bundled bin (`src/main/junto/term/templates/seat-env.ts:22-35`). Launched from a repo checkout, it gave seats a stale CLI that lacked `commit-observed`, so the first two commits went unattributed. `preview.sh` and the installed app are not affected.
+- **Seat CLI path (cli-lead).** A packaged app hands seats `<process cwd>/dist/junto` ahead of its bundled bin (`src/core/term/templates/seat-env.ts:22-35`). Launched from a repo checkout, it gave seats a stale CLI that lacked `commit-observed`, so the first two commits went unattributed. `preview.sh` and the installed app are not affected.
 - **Compaction and the worth guard (pty-lead).** For claude, sessionTokens is the latest context size, so an auto-compacted session drops below the guard: t10-reader went from 341,752 to 139,391 tokens. A long session that compacted is never cut by size alone, only by its work minutes.
 
 ## Mini rerun 3 (730ea3478)
@@ -138,7 +138,7 @@ The parallel install was removed with `machine uninstall-local`: its service def
 | Check | Result | Receipt |
 |---|---|---|
 | 5, Blocked past its window is not cut | PASS | Session 698de3e3 had 251,509 tokens. `junto blocked` opened signal `01M58HK5T6PG8JFZ4GTXHJVKXN` at 22:19:54, and the seat was idle from 22:19:57.5 (mini `offboard-clock.json`). Its window passed at 22:21:57, and at 22:25:28 there was still no `ended.json` and `seat_sessions` showed no end. The card reads "blocked" with no "fresh next" (`shots/51`), and nextTurn stayed fresh false. |
-| 5, the answer lands in the session that asked | PASS | Answered at 22:25:46.9 (`agentSignalRespond`, not the open feed). The mail arrived in 698de3e3 at 22:25:47.6, with the same claude pid 50195 and no new `seat_sessions` row. The seat replied with `src/main/junto/hosts/tailscale-peers.ts`, the last file it read before the question. |
+| 5, the answer lands in the session that asked | PASS | Answered at 22:25:46.9 (`agentSignalRespond`, not the open feed). The mail arrived in 698de3e3 at 22:25:47.6, with the same claude pid 50195 and no new `seat_sessions` row. The seat replied with `src/core/hosts/tailscale-peers.ts`, the last file it read before the question. |
 | Desktop status of a mini seat | PASS | `seatOffboardStatus` showed sessionTokens 251,509 and stillSince 1792361997504, against the mini's idleSince 1792361997535. idleMinutes counted from that point (1, then 3, then 5), with worth true and pastWindow true after 2 min. |
 
 - **Correction to Mini rerun.** `seatOffboardStatus` carries no sessionId field for any seat, local seats included, so "sessionId null" there was my misreading, not a gap. The launch state gives `hasSession: true` for the mini seat, as for a local one. The mini's own `seat_sessions` holds the launched id `698de3e3...`.

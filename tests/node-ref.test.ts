@@ -9,8 +9,8 @@ import {
 import {
   resolveNodeRef,
   type ModelNodeReader,
-} from "../src/main/junto/node-ref-resolver";
-import { ModelStorageError } from "../src/main/junto/model/records";
+} from "../src/core/node-ref-resolver";
+import { ModelStorageError } from "../src/core/model/records";
 import { asCanvasName, type Node } from "../src/shared/model";
 import { canvasOf, page, seat } from "./support/model-nodes";
 

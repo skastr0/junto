@@ -7,27 +7,27 @@
  *
  * Fakes: a temp directory is the persistence root. Nothing else is faked.
  */
-import { CrewRepositoryLive } from "../../src/main/junto/work/crew-repository";
+import { CrewRepositoryLive } from "../../src/core/work/crew-repository";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Context, Layer, ManagedRuntime } from "effect";
 import type { Node, Wire } from "../../src/shared/model";
-import { makeStateEngineLive } from "../../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../../src/core/state/engine";
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../../src/main/junto/work/repository";
-import { WorkLive, WorkService } from "../../src/main/junto/work/service";
-import { MachineRepositoryLive } from "../../src/main/junto/machines/repository";
+} from "../../src/core/work/repository";
+import { WorkLive, WorkService } from "../../src/core/work/service";
+import { MachineRepositoryLive } from "../../src/core/machines/repository";
 import { nameThisMachine } from "../support/name-this-machine";
-import { SettingsLive, SettingsService } from "../../src/main/junto/settings/service";
-import { makeContentServiceLive } from "../../src/main/junto/content/service";
-import { makeInstallOpsLive } from "../../src/main/junto/install-ops/engine";
+import { SettingsLive, SettingsService } from "../../src/core/settings/service";
+import { makeContentServiceLive } from "../../src/core/content/service";
+import { makeInstallOpsLive } from "../../src/core/install-ops/engine";
 import {
   FactoryPauseRepositoryLive,
-} from "../../src/main/junto/pause/repository";
-import { PausePlane } from "../../src/main/junto/pause-plane";
-import { PausePlaneLive } from "../../src/main/junto/pause-plane-live";
+} from "../../src/core/pause/repository";
+import { PausePlane } from "../../src/core/pause-plane";
+import { PausePlaneLive } from "../../src/core/pause-plane-live";
 import { ModelStoresLive, seedCanvas } from "../support/seed-canvas";
 
 export const makeProtoRuntime = (root: string) => {

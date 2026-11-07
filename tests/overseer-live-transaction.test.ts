@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { Effect, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/sql";
 import { describe, expect, it } from "vitest";
-import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
-import { StateTransactionOperation } from "../src/main/junto/state/service";
-import { OverseerLiveExecution, type OverseerLiveExecutionConstraint } from "../src/main/junto/overseer/live/execution";
+import { makeStateEngineLive, StateEngine } from "../src/core/state/engine";
+import { StateTransactionOperation } from "../src/core/state/service";
+import { OverseerLiveExecution, type OverseerLiveExecutionConstraint } from "../src/core/overseer/live/execution";
 
 describe("Live execution at the sole StateEngine transaction", () => {
   const exercise = async (test: (runtime: ManagedRuntime.ManagedRuntime<StateEngine | SqlClient.SqlClient, unknown>) => Promise<void>) => {

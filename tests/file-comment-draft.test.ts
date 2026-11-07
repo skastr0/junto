@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import { LINES_QUOTE_MAX, LinesAnchor } from "../src/shared/thread-subject";
-import { lineAnchorOf, lineDraftOf, LINES_COMMENT_MAX } from "../src/renderer/lib/file-comments";
+import { lineAnchorOf, lineDraftOf, LINES_COMMENT_MAX } from "../src/window/lib/file-comments";
 
 const block = (lines: number): string => Array.from({ length: lines }, (_, index) => `line ${String(index + 1)}`).join("\n");
 

@@ -1,10 +1,10 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { defaultRemoteHostsDocument, type RemoteHost } from "../src/shared/remote-hosts";
-import { testHostConnection, runRemoteHostsDoctorSnapshot } from "../src/main/junto/hosts/doctor";
-import type { HostsRegistry } from "../src/main/junto/hosts/registry";
-import type { SshTransportShape } from "../src/main/junto/ssh/service";
-import { SshExitError } from "../src/main/junto/ssh/domain";
+import { testHostConnection, runRemoteHostsDoctorSnapshot } from "../src/core/hosts/doctor";
+import type { HostsRegistry } from "../src/core/hosts/registry";
+import type { SshTransportShape } from "../src/core/ssh/service";
+import { SshExitError } from "../src/core/ssh/domain";
 
 const remote = { id: "mini", label: "Mini", isThisMachine: false, sshEndpoint: "mac-mini", capabilities: ["terminal"] } as RemoteHost;
 const sshWith = (warm: SshTransportShape["warm"]) => ({ warm }) as SshTransportShape;

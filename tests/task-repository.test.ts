@@ -14,21 +14,21 @@ import {
   type RulingContext,
 } from "../src/shared/resource-command";
 import { seatNodeId, taskNodeId, type TaskCommand, type TaskId } from "../src/shared/task-model";
-import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
-import { TASKS_STATE_SCHEMA_SQL } from "../src/main/junto/work/task-state-schema";
-import { REVIEW_VERDICTS_SCHEMA_SQL } from "../src/main/junto/state/migrate-review-stamps";
-import { RESOURCE_RULINGS_STATE_SCHEMA_SQL } from "../src/main/junto/work/resource-rulings-schema";
-import { writeRuling } from "../src/main/junto/work/resource-rulings";
-import type { RecordRulingInput } from "../src/main/junto/work/repository";
+import { makeSqliteClient } from "../src/core/state/sqlite-client";
+import { TASKS_STATE_SCHEMA_SQL } from "../src/core/work/task-state-schema";
+import { REVIEW_VERDICTS_SCHEMA_SQL } from "../src/core/state/migrate-review-stamps";
+import { RESOURCE_RULINGS_STATE_SCHEMA_SQL } from "../src/core/work/resource-rulings-schema";
+import { writeRuling } from "../src/core/work/resource-rulings";
+import type { RecordRulingInput } from "../src/core/work/repository";
 import { rulingRowOf } from "../src/shared/command-row";
-import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
+import { RulingRecorder } from "../src/core/work/ruling-recorder";
 import {
   TaskRepository,
   TaskRepositoryLive,
   projectTaskFact,
   type TaskCanvasEnv,
   type TaskSubmitOutcome,
-} from "../src/main/junto/work/task-repository";
+} from "../src/core/work/task-repository";
 
 let database: DatabaseSync;
 let runtime: ManagedRuntime.ManagedRuntime<TaskRepository, unknown>;

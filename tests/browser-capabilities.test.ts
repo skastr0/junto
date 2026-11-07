@@ -17,8 +17,8 @@ import {
   type BrowserCapabilityTarget,
   type BrowserCapabilityTerminationNotice,
   type BrowserCapabilityUseTarget,
-} from "../src/main/junto/browser/capabilities";
-import { BrowserProfileGate } from "../src/main/junto/browser/profile-gate";
+} from "../src/app/browser/capabilities";
+import { BrowserProfileGate } from "../src/app/browser/profile-gate";
 
 const REF_ONE = "junto://canvas/work?node=n1";
 const REF_TWO = "junto://canvas/work?node=n2";

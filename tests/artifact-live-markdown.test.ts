@@ -11,7 +11,7 @@ import {
   revealAnchorEffects,
   setFocused,
   toggleWrap,
-} from "../src/renderer/components/artifacts/live-markdown";
+} from "../src/window/components/artifacts/live-markdown";
 
 const DOC = [
   "# Title",

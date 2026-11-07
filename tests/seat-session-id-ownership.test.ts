@@ -7,21 +7,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ModelStoresLive, readSeeded, seedCanvas } from "./support/seed-canvas";
 import { seat } from "./support/model-nodes";
 import { asNodeId, type Node } from "../src/shared/model";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { ModelService } from "../src/main/junto/model/service";
-import { ModelDependents } from "../src/main/junto/model/dependents";
-import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../src/main/junto/seat-sessions/repository";
-import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { ModelService } from "../src/core/model/service";
+import { ModelDependents } from "../src/core/model/dependents";
+import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../src/core/seat-sessions/repository";
+import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
 
 // Keep the public writer's app-runtime boundary while executing its actual
 // Effect against a disposable, fully composed canvas authority store.
 const app = vi.hoisted(() => ({ runPromise: vi.fn() }));
 // Spread the real module: a later export must not break this file at load.
-vi.mock("../src/main/core-runner", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/main/core-runner")>()),
+vi.mock("../src/core/core-runner", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/core/core-runner")>()),
   coreRunner: app,
 }));
-import { writeSeatSessionId } from "../src/main/junto/term/seat-session-id";
+import { writeSeatSessionId } from "../src/core/term/seat-session-id";
 
 const SESSION = "1787761861883-1787761861883720000-7afaf80c8f5acd35";
 const OTHER_SESSION = "1787761862883-1787761862883720000-97d25f70d04d6c5e";

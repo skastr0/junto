@@ -23,8 +23,8 @@ import {
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/junto/work/repository";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+} from "../src/core/work/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import { seedCanvasRows } from "./support/seed-canvas";
 import { seat as seatNode } from "./support/model-nodes";
 import { THIS_MACHINE } from "./support/machines";

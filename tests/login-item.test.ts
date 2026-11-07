@@ -6,7 +6,7 @@ import {
   readLoginItemState,
   setLoginItemOpenAtLogin,
   type LoginItemApp,
-} from "../src/main/junto/login-item";
+} from "../src/app/login-item";
 
 const mockApp = (initial: {
   openAtLogin?: boolean;

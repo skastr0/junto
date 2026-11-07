@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, expect, test } from "vitest";
-import { MAIL_READ_CACHE_SIZE_KIB, openMailReadDatabase } from "../src/main/junto/work/mail-read-worker";
+import { MAIL_READ_CACHE_SIZE_KIB, openMailReadDatabase } from "../src/core/work/mail-read-worker";
 
 let root: string;
 let path: string;

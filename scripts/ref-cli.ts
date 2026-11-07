@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { Effect } from "effect";
-import { readCanvasThroughControl } from "../src/main/junto/canvas-control/client";
+import { readCanvasThroughControl } from "../src/core/canvas-control/client";
 import { formatNodeRef, nodeRefKey, parseNodeRef } from "../src/shared/node-ref";
 
 const usage = `junto node references

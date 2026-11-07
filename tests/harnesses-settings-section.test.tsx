@@ -7,12 +7,12 @@ import { applySettingsPatch, defaultSettings, type Settings, type SettingsPatch 
 import { InventoryUnavailableError, paramsOfTemplate, type MachineInventory } from "@shared/harness-domain";
 import { NativeConfigWriteError } from "@shared/harness-domain/native-config-write";
 import { templateFor } from "@shared/managed-terminal-templates";
-import { HarnessesSettingsSection } from "../src/renderer/components/settings/HarnessesSettingsSection";
+import { HarnessesSettingsSection } from "../src/window/components/settings/HarnessesSettingsSection";
 import {
   pendingHarnessMachineSource,
   setHarnessMachineSource,
-} from "../src/renderer/lib/harness-machine-source";
-import { state$ } from "../src/renderer/lib/state";
+} from "../src/window/lib/harness-machine-source";
+import { state$ } from "../src/window/lib/state";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

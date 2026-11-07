@@ -18,8 +18,8 @@ vi.mock("node:child_process", async (importOriginal) => ({
   spawn: mocks.spawn,
 }));
 
-vi.mock("../src/main/junto/process-signal", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/main/junto/process-signal")>()),
+vi.mock("../src/node/process-signal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/node/process-signal")>()),
   admitChildProcess: mocks.admitChildProcess,
   spawnDetachedProcessGroup: (...args: unknown[]) => {
     const spawned = mocks.spawnDetachedProcessGroup(...args);
@@ -32,9 +32,9 @@ vi.mock("../src/main/junto/process-signal", async (importOriginal) => ({
   releaseOwned: mocks.releaseOwned,
 }));
 
-vi.mock("../src/main/junto/process-epoch", async (importOriginal) => {
+vi.mock("../src/node/process-epoch", async (importOriginal) => {
   const actual = await importOriginal<
-    typeof import("../src/main/junto/process-epoch")
+    typeof import("../src/node/process-epoch")
   >();
   return {
     ...actual,
@@ -53,14 +53,14 @@ import {
   TerminalBackendUnavailableError,
   type AppProcessLease,
   type AppTerminalLease,
-} from "../src/main/junto/app-process-plane";
+} from "../src/node/app-process-plane";
 import {
   captureProcessGroupEpoch,
   setProcessEpochReaderForTests,
   type ProcessGroupObservation,
   type ProcessGroupObservationRefresh,
   type ProcessEpochRow,
-} from "../src/main/junto/process-epoch";
+} from "../src/node/process-epoch";
 
 class FakeChild extends EventEmitter {
   readonly stdin = new PassThrough();

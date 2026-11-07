@@ -20,7 +20,7 @@ import {
   ARTIFACT_MOVE_FAILED,
   ARTIFACT_MOVE_MISSING,
   executeOverseerArtifactMove,
-} from "../src/main/junto/overseer/artifact-move";
+} from "../src/core/overseer/artifact-move";
 import { offboardRefusedAny, overseerExamples } from "../src/cli/commands/overseer";
 import { OVERSEER_SKILL_MARKDOWN } from "../src/cli/commands/overseer-skill";
 

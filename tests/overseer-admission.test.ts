@@ -3,16 +3,16 @@ import { Effect, Layer, Result, Schema } from "effect";
 import { asCanvasName, type Changed, type Node } from "../src/shared/model";
 import { canvasOf, note, page, seat, terminal } from "./support/model-nodes";
 import { InstallationId } from "../src/shared/installation-id";
-import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
-import { ModelService } from "../src/main/junto/model/service";
-import { MachineRepository } from "../src/main/junto/machines/repository";
+import { ModelActorRefs } from "../src/core/model/actor-refs";
+import { ModelService } from "../src/core/model/service";
+import { MachineRepository } from "../src/core/machines/repository";
 import { THIS_MACHINE } from "./support/machines";
-import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
+import { deriveActorSeatId } from "../src/core/actor-seat-id";
 import {
   resolveOverseerActor,
   watchOverseerRevocation,
   type OverseerSeatRead,
-} from "../src/main/junto/overseer/admission";
+} from "../src/core/overseer/admission";
 
 const local = Schema.decodeUnknownSync(InstallationId)("cc-test");
 const remote = Schema.decodeUnknownSync(InstallationId)("remote-test");

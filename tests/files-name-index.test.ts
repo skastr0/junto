@@ -5,10 +5,10 @@ import { join } from "node:path";
 import { MessageChannel } from "node:worker_threads";
 import { describe, expect, it } from "vitest";
 import { foldForSearch, scoreFilePath } from "@shared/files";
-import { NameIndexBuilder, scoreCodes } from "../src/main/junto/files/name-index";
-import { spawnGit } from "../src/main/junto/files/git-spawn";
-import type { RootEvent } from "../src/main/junto/files/root-index";
-import { portRootIndex, serveRootIndex } from "../src/main/junto/files/root-index-port";
+import { NameIndexBuilder, scoreCodes } from "../src/core/files/name-index";
+import { spawnGit } from "../src/core/files/git-spawn";
+import type { RootEvent } from "../src/core/files/root-index";
+import { portRootIndex, serveRootIndex } from "../src/core/files/root-index-port";
 
 describe("name index", () => {
   it("removes, adds and sweeps folders by delta", async () => {

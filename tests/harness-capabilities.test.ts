@@ -18,7 +18,7 @@ import {
   templateFor,
   type HarnessId,
 } from "../src/shared/managed-terminal-templates";
-import { rulePackFor } from "../src/main/junto/term/agent-state/rules";
+import { rulePackFor } from "../src/core/term/agent-state/rules";
 
 /** State rules and the facts read beside them: both are screen grounds. */
 const screenRulesOf = (harness: HarnessId) => {

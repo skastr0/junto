@@ -15,9 +15,9 @@ import {
   applyOscHookFromSnapshot,
   evaluate,
   hookStateFromSnapshot,
-} from "../src/main/junto/term/agent-state";
-import { ManagedTerminalDrive } from "../src/main/junto/term/drive";
-import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
+} from "../src/core/term/agent-state";
+import { ManagedTerminalDrive } from "../src/core/term/drive";
+import type { ObserverGridSnapshot } from "../src/core/term/observer/types";
 
 const HR = "────────────────";
 

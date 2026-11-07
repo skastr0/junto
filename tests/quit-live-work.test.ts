@@ -5,7 +5,7 @@ import {
   hasLiveWork,
   probeLiveWork,
   QUIT_CONFIRM_ACCEPT_INDEX,
-} from "../src/main/junto/quit-live-work";
+} from "../src/app/quit-live-work";
 
 describe("quit live-work assessment", () => {
   it("idle snapshot requires no confirm", () => {

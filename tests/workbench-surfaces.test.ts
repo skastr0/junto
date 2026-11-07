@@ -13,7 +13,7 @@ import {
   visiblePanes,
   workFocusSizeKeyForSurfaces,
   type WorkbenchState,
-} from "../src/renderer/lib/surface-registry";
+} from "../src/window/lib/surface-registry";
 import {
   closeDockBrowser,
   closeFocusModalSurface,
@@ -28,17 +28,17 @@ import {
   reconcileDockFromLiveSessions,
   stopDockBrowser,
   terminalSurfaceId,
-} from "../src/renderer/lib/dock-state";
-import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
-import { terminal$ } from "../src/renderer/lib/terminal-state";
+} from "../src/window/lib/dock-state";
+import { browser$, cacheBrowserSession } from "../src/window/lib/browser-state";
+import { terminal$ } from "../src/window/lib/terminal-state";
 import { asCanvasName } from "../src/shared/model";
 import { terminal, note as modelNote } from "./support/model-nodes";
 import {
   discardAndCloseNoteSurface,
   saveNoteSurfaceDraft,
-} from "../src/renderer/components/workbench/NoteSurface";
-import { state$ } from "../src/renderer/lib/state";
-import { modelStore } from "../src/renderer/lib/use-model";
+} from "../src/window/components/workbench/NoteSurface";
+import { state$ } from "../src/window/lib/state";
+import { modelStore } from "../src/window/lib/use-model";
 
 // --- pure registry ---------------------------------------------------------
 

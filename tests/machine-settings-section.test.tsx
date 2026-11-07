@@ -5,10 +5,10 @@ import { Result } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MachineSettingsUnavailableError } from "@shared/machine-settings";
 import { defaultSettings } from "@shared/settings";
-import { MachineSettingsSection } from "../src/renderer/components/settings/MachineSettingsSection";
-import { coreMachineSettingsSource, setMachineSettingsSource } from "../src/renderer/lib/machine-settings-source";
-import { chooseSettingsMachine, forgetSettingsMachine } from "../src/renderer/lib/settings-machine";
-import { state$ } from "../src/renderer/lib/state";
+import { MachineSettingsSection } from "../src/window/components/settings/MachineSettingsSection";
+import { coreMachineSettingsSource, setMachineSettingsSource } from "../src/window/lib/machine-settings-source";
+import { chooseSettingsMachine, forgetSettingsMachine } from "../src/window/lib/settings-machine";
+import { state$ } from "../src/window/lib/state";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

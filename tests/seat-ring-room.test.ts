@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { evenRingCaps, RING_FOOTPRINT, RING_GAP, RING_SCALE_MAX, seatRingCaps, type RoomNode } from "../src/renderer/lib/seat-ring-room";
-import { FAR_RING_SCREEN_PX, farSeatScale } from "../src/renderer/lib/canvas-tier";
+import { evenRingCaps, RING_FOOTPRINT, RING_GAP, RING_SCALE_MAX, seatRingCaps, type RoomNode } from "../src/window/lib/seat-ring-room";
+import { FAR_RING_SCREEN_PX, farSeatScale } from "../src/window/lib/canvas-tier";
 
 const seat = (id: string, x: number, y: number): RoomNode => ({ id, x, y, width: 184, height: 56, ringPx: 52 });
 const card = (id: string, x: number, y: number, width = 220, height = 84): RoomNode => ({ id, x, y, width, height });

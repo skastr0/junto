@@ -3,7 +3,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { artifactsSource, setArtifactsSource, useNodeArtifactCount, type ArtifactsSource } from "../src/renderer/lib/artifacts-source";
+import { artifactsSource, setArtifactsSource, useNodeArtifactCount, type ArtifactsSource } from "../src/window/lib/artifacts-source";
 import type { ArtifactHead } from "../src/shared/resource-ipc";
 import type { NodeId } from "../src/shared/physics/schema";
 

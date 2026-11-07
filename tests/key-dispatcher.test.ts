@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { OPERATOR_TYPING_SELECTOR } from "../src/renderer/lib/focus-ownership";
-import { focusSwitcher$ } from "../src/renderer/lib/focus-switcher";
+import { OPERATOR_TYPING_SELECTOR } from "../src/window/lib/focus-ownership";
+import { focusSwitcher$ } from "../src/window/lib/focus-switcher";
 import {
   TERMINAL_SELECTOR,
   dispatchKey,
@@ -9,7 +9,7 @@ import {
   installKeyDispatcher,
   keyContextOf,
   type KeyActions,
-} from "../src/renderer/lib/key-dispatcher";
+} from "../src/window/lib/key-dispatcher";
 import type { KeyContext, KeySituation } from "../src/shared/key-table";
 
 const press = (over: Partial<KeyboardEvent> & { key: string }) => {

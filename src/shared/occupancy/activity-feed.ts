@@ -7,7 +7,7 @@ import type { OccupancyActivity } from "./derive";
 // `ActivityFeed` is bound in scope — never by reaching into a specific
 // runtime plane themselves. Producers plug in without touching consumers:
 // this file ships the interface plus the shippable-today null producer
-// (everything vacant); `src/renderer/lib/occupancy-feed.ts` binds the real
+// (everything vacant); `src/window/lib/occupancy-feed.ts` binds the real
 // ACP-chat-plane producer this cut also wires. The PTY/terminal lane and the
 // fleet lane bind their own producers to this same Tag later — neither is
 // touched here.

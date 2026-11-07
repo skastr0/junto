@@ -4,8 +4,8 @@ import {
   decodeShellEnvironmentStatus,
   type ShellEnvironmentChange,
 } from "@shared/shell-environment";
-import type { ToolCall, ToolResult } from "../src/main/junto/region-env/tool";
-import { makeShellEnvironment } from "../src/main/junto/shell-environment";
+import type { ToolCall, ToolResult } from "../src/core/region-env/tool";
+import { makeShellEnvironment } from "../src/core/shell-environment";
 
 // The module against a scripted shell: every read is a ToolResult the test
 // hands back when it chooses, and the clock is a counter.

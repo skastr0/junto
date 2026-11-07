@@ -6,27 +6,27 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
+import { setHostsSnapshot } from "../src/core/hosts/snapshot";
 import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 import {
   parseRemoteUnixSocketPath,
   parseSshEndpoint,
   parseSshRoute,
   SshTransport,
-} from "../src/main/junto/ssh";
-import { makeRemoteCommand } from "../src/main/junto/ssh/domain";
+} from "../src/core/ssh";
+import { makeRemoteCommand } from "../src/core/ssh/domain";
 import {
   createSshProgramCompiler,
   dedicatedStream,
   oneShot,
   sharedStream,
   unixForward,
-} from "../src/main/junto/ssh/program";
+} from "../src/core/ssh/program";
 import {
   ProcessSpawner,
   type ProcessHandle,
-} from "../src/main/junto/ssh/process-spawner";
-import { SshTransportConfig, SshTransportLayer } from "../src/main/junto/ssh/service";
+} from "../src/core/ssh/process-spawner";
+import { SshTransportConfig, SshTransportLayer } from "../src/core/ssh/service";
 
 const encoder = new TextEncoder();
 const temporaryDirs: string[] = [];

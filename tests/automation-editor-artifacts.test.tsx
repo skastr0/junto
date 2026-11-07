@@ -7,7 +7,7 @@ import { asCanvasName } from "../src/shared/model";
 import { AutomationVersion, DEFAULT_AUTOMATION_LIMITS, type Automation } from "../src/shared/automation";
 import { asNodeId } from "../src/shared/physics/schema";
 import { ItemId } from "../src/shared/work-ids";
-import { AutomationEditor } from "../src/renderer/components/automations/AutomationEditor";
+import { AutomationEditor } from "../src/window/components/automations/AutomationEditor";
 import {
   APPEND_HEADING,
   actionWords,
@@ -22,8 +22,8 @@ import {
   type AutomationDraft,
   type NameOf,
   type TriggerDraft,
-} from "../src/renderer/lib/automation-editor";
-import { modelStore } from "../src/renderer/lib/use-model";
+} from "../src/window/lib/automation-editor";
+import { modelStore } from "../src/window/lib/use-model";
 import { artifacts, automations } from "./support/model-nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

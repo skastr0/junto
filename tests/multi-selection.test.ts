@@ -1,8 +1,8 @@
-import { agentKeysAmong, classifySelectionOf, seatIdsAmong, selectionLabelOf, surfaceKeyOf } from "../src/renderer/lib/multi-selection";
+import { agentKeysAmong, classifySelectionOf, seatIdsAmong, selectionLabelOf, surfaceKeyOf } from "../src/window/lib/multi-selection";
 import { note, region, seat, taskBoard } from "./support/model-nodes";
 import { describe, expect, it } from "vitest";
 import { asNodeId, type Node } from "../src/shared/model";
-import { surfaceLabel } from "../src/renderer/lib/multi-selection";
+import { surfaceLabel } from "../src/window/lib/multi-selection";
 
 describe("labels", () => {
   it("names a surface in the plural", () => {

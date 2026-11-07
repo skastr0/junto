@@ -5,11 +5,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { asCanvasName } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
 import { taskNodeId, type TaskId } from "../src/shared/task-model";
-import { AutomationEditor } from "../src/renderer/components/automations/AutomationEditor";
-import { newDraft, type AutomationDraft } from "../src/renderer/lib/automation-editor";
-import { artifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/renderer/lib/artifacts-source";
-import { makeLocalTasksSource, setTasksSource } from "../src/renderer/lib/tasks-source";
-import { modelStore } from "../src/renderer/lib/use-model";
+import { AutomationEditor } from "../src/window/components/automations/AutomationEditor";
+import { newDraft, type AutomationDraft } from "../src/window/lib/automation-editor";
+import { artifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/window/lib/artifacts-source";
+import { makeLocalTasksSource, setTasksSource } from "../src/window/lib/tasks-source";
+import { modelStore } from "../src/window/lib/use-model";
 import { artifacts, automations, taskBoard } from "./support/model-nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

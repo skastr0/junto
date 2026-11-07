@@ -15,29 +15,29 @@ import { SqlClient } from "effect/sql";
 import type { Canvas } from "../src/shared/model";
 import { BROWSER_ENABLED } from "../src/shared/features";
 import { canvasOf, page as pageNode, seat, wire } from "./support/model-nodes";
-import { makeEdgeGrantService } from "../src/main/junto/browser/edge-grant";
+import { makeEdgeGrantService } from "../src/app/browser/edge-grant";
 import {
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
-} from "../src/main/junto/browser/capabilities";
-import { makeBrowserProfileService } from "../src/main/junto/browser/profiles";
+} from "../src/app/browser/capabilities";
+import { makeBrowserProfileService } from "../src/node/browser/profiles";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
   type BrowserViewHandle,
-} from "../src/main/junto/browser/sessions";
+} from "../src/app/browser/sessions";
 import { localBrowserTestMachineName } from "./browser-test-machine";
 import type {
   PageTargetResolver,
   ResolvedPageTarget,
-} from "../src/main/junto/browser/page-target";
+} from "../src/core/browser/page-target";
 import {
   lostPageTargetsForCaller,
   receiptForTeardown,
-} from "../src/main/junto/browser/edge-revocation";
-import type { ProcessPrincipal } from "../src/main/junto/process-identity";
+} from "../src/app/browser/edge-revocation";
+import type { ProcessPrincipal } from "../src/core/process-identity";
 import { isValidControlRequestId } from "../src/shared/browser-control";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/core/state/engine";
 
 const REF_P1 = "junto://canvas/work?node=p1";
 const REF_P2 = "junto://canvas/work?node=p2";

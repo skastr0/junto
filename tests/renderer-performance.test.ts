@@ -7,7 +7,7 @@ import {
   runCanvasPerformanceScenario,
   type ActivityPopulation,
   type PerformanceObservation,
-} from "../src/renderer/lib/performance/canvas-performance";
+} from "../src/window/lib/performance/canvas-performance";
 
 const population = (intentionalContinuous = 12): ActivityPopulation => ({
   mounted: 24,

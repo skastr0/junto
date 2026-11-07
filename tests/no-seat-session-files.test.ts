@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 const SRC = fileURLToPath(new URL("../src", import.meta.url));
 
 /** The step that retires the files reads them once; nothing else may. */
-const IMPORTER = join("main", "junto", "state", "migrate-seat-session-data.ts");
+const IMPORTER = join("core", "state", "migrate-seat-session-data.ts");
 
 const sources = (dir: string): string[] =>
   readdirSync(dir).flatMap((name) => {

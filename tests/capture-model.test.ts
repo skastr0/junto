@@ -8,7 +8,7 @@ import { decodeArtifactBody, type ArtifactBody } from "../src/shared/artifact";
 import { mentionHref } from "../src/shared/mention";
 import type { NodeId } from "../src/shared/physics/schema";
 import type { ItemId } from "../src/shared/work-ids";
-import { captureTitleOf, convertCapture, isEmptyCapture, moveSuggestionsFor, UNTITLED_CAPTURE } from "../src/renderer/components/capture/capture-model";
+import { captureTitleOf, convertCapture, isEmptyCapture, moveSuggestionsFor, UNTITLED_CAPTURE } from "../src/window/components/capture/capture-model";
 import { artifacts, canvasOf } from "./support/model-nodes";
 
 const doc = (markdown: string): ArtifactBody => ({ type: "document", markdown });

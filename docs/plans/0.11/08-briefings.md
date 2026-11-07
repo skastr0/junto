@@ -16,14 +16,14 @@ on. Mentions are never expanded into the text.
 ## Today
 
 - App briefing: a plain `Textarea` in
-  `src/renderer/components/settings/BriefingSettingsSection.tsx:87`.
-- References: `src/renderer/components/settings/ReferencesSettingsSection.tsx`.
+  `src/window/components/settings/BriefingSettingsSection.tsx:87`.
+- References: `src/window/components/settings/ReferencesSettingsSection.tsx`.
 - Region instruction: a plain field in
-  `src/renderer/components/InspectorFields.tsx:388` (`commitRegionInstruction`).
-- The editor to reuse: `src/renderer/components/artifacts/LiveMarkdownField.tsx`,
+  `src/window/components/InspectorFields.tsx:388` (`commitRegionInstruction`).
+- The editor to reuse: `src/window/components/artifacts/LiveMarkdownField.tsx`,
   which already takes `DocumentMentions` and the mention picker; links are
   `mentionLink` / `parseMentionHref` in `src/shared/mention.ts`.
-- Onboard is built in `src/main/junto/work/control.ts`; it returns
+- Onboard is built in `src/core/work/control.ts`; it returns
   `region.instruction` as a string.
 
 ## Decisions

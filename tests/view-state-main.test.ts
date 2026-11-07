@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { JuntoViewStateApi } from "../src/shared/ipc";
 import { artifactLabelOf, type ArtifactLabel } from "../src/shared/artifact-labels";
 import type { CaptureDesk, ViewStateEvent, ViewStateSnapshot, ViewStateWrite } from "../src/shared/view-state";
-import { createMainViewState } from "../src/renderer/lib/view-state-main";
+import { createMainViewState } from "../src/window/lib/view-state-main";
 
 const EMPTY: ViewStateSnapshot = { commandGroups: {}, nodes: {}, focusSizes: {}, sections: {}, captureInboxes: {} };
 

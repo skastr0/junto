@@ -1,6 +1,6 @@
 //! `junto content-transfer receive|send|stat <sha256> <byteLength> [offset]`
 //! (src/cli/content-transfer.ts): the closed argv one machine runs on another
-//! to move a content object (src/main/junto/content/transfer-local.ts).
+//! to move a content object (src/node/content/transfer-local.ts).
 //!
 //! Bytes land in a digest-keyed partial under the content store, resume by its
 //! size, and publish atomically only once digest and length verify. Nothing is

@@ -22,14 +22,14 @@ import {
   BACKFILL_INLINE_MEDIA_V1,
   InstallOpsService,
   makeInstallOpsLive,
-} from "../src/main/junto/install-ops/engine";
+} from "../src/core/install-ops/engine";
 import {
   INSTALL_OPS_SCHEMA_SQL,
   INSTALL_OPS_SCHEMA_VERSION,
-} from "../src/main/junto/install-ops/schema";
-import { ContentService, makeContentServiceLive } from "../src/main/junto/content/service";
-import { StateEngine, makeStateEngineLive } from "../src/main/junto/state/engine";
-import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/junto/state/migrations";
+} from "../src/core/install-ops/schema";
+import { ContentService, makeContentServiceLive } from "../src/core/content/service";
+import { StateEngine, makeStateEngineLive } from "../src/core/state/engine";
+import { CURRENT_STATE_SCHEMA_VERSION } from "../src/core/state/migrations";
 
 const FAMILY_SUFFIXES = ["", "-journal", "-wal", "-shm"] as const;
 type FamilySuffix = (typeof FAMILY_SUFFIXES)[number];

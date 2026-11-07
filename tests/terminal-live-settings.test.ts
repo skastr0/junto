@@ -4,7 +4,7 @@ import {
   terminalSettings,
   type TerminalSettings,
 } from "@shared/settings";
-import { JUNTO_XTERM_FONT_FAMILY } from "../src/renderer/lib/terminal-theme";
+import { JUNTO_XTERM_FONT_FAMILY } from "../src/window/lib/terminal-theme";
 import {
   applyTerminalPreferences,
   bellResponse,
@@ -16,7 +16,7 @@ import {
   wheelReportFanout,
   writeManagedTerminalOptions,
   type LiveTerminalTarget,
-} from "../src/renderer/components/terminal/TerminalSurface";
+} from "../src/window/components/terminal/TerminalSurface";
 
 /**
  * A terminal that is already open, built from `prefs` exactly the way the

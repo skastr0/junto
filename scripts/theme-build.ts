@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Generates src/renderer/styles/theme.generated.css from the single token
+// Generates src/window/styles/theme.generated.css from the single token
 // source (src/shared/theme/). Dark values land in @theme (Tailwind v4
 // registers utilities from them); bright overrides ride on
 // html[data-theme="bright"]. Run after editing the source: bun run theme:build
@@ -25,7 +25,7 @@ import {
 } from "../src/shared/theme";
 import { SEMANTIC_BRIGHT_OVERRIDES } from "../src/shared/theme/semantic";
 
-const OUT = resolve(__dirname, "../src/renderer/styles/theme.generated.css");
+const OUT = resolve(__dirname, "../src/window/styles/theme.generated.css");
 
 // The palette the app shipped before tokenization. Dark must keep rendering
 // these exact colors; the generator fails loudly if a source edit shifts one.

@@ -17,19 +17,19 @@ const calls = vi.hoisted(() => ({
   closed: 0,
 }));
 
-vi.mock("../src/renderer/lib/operator-modal", () => ({ closeOperatorModal: () => (calls.closed += 1) }));
-vi.mock("../src/renderer/lib/work-detail-open", () => ({
+vi.mock("../src/window/lib/operator-modal", () => ({ closeOperatorModal: () => (calls.closed += 1) }));
+vi.mock("../src/window/lib/work-detail-open", () => ({
   openWorkDetail: (nodeId: string, options: unknown) => calls.opened.push({ nodeId, options }),
 }));
-vi.mock("../src/renderer/lib/activate-node-surface", () => ({
+vi.mock("../src/window/lib/activate-node-surface", () => ({
   activateNodeSurface: (nodeId: string) => calls.activated.push(nodeId),
 }));
-vi.mock("../src/renderer/lib/sidebar-sections", () => ({
+vi.mock("../src/window/lib/sidebar-sections", () => ({
   requestSectionReveal: (nodeId: string, section: string) => calls.revealed.push({ nodeId, section }),
 }));
-vi.mock("../src/renderer/lib/agent-signals-view", () => ({ SIGNALS_SECTION: "signals" }));
+vi.mock("../src/window/lib/agent-signals-view", () => ({ SIGNALS_SECTION: "signals" }));
 
-const { openSeat } = await import("../src/renderer/components/feed/OperatorFeed");
+const { openSeat } = await import("../src/window/components/feed/OperatorFeed");
 
 const item = (over: Partial<FeedItem>): FeedItem =>
   ({

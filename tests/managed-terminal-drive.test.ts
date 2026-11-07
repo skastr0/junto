@@ -15,9 +15,9 @@ import {
   encodeBracketedPaste,
   hermesRefusesMultilinePaste,
   payloadMayChip,
-} from "../src/main/junto/term/drive";
+} from "../src/core/term/drive";
 import { isPromptSubmitted } from "../src/shared/managed-prompt";
-import type { PtyDeliveryTraceEvent } from "../src/main/junto/term/drive/pty-delivery-trace";
+import type { PtyDeliveryTraceEvent } from "../src/core/term/drive/pty-delivery-trace";
 
 describe("typing recipe", () => {
   it("encodes bracketed paste as one envelope", () => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_AUTOMATION_LIMITS, type AutomationDefinition, type Firing } from "../src/shared/automation";
 import { asNodeId } from "../src/shared/physics/schema";
 import { ItemId } from "../src/shared/work-ids";
-import { makeLocalAutomationsSource } from "../src/renderer/lib/automations-source";
+import { makeLocalAutomationsSource } from "../src/window/lib/automations-source";
 
 const canvas = "factory";
 const node = asNodeId("automations-1");

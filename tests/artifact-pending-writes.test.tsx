@@ -3,9 +3,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mintItemId, mintOpId } from "../src/shared/resource-command";
-import type { ArtifactPendingWrite } from "../src/renderer/lib/artifacts-source";
-import { ArtifactPendingWrites } from "../src/renderer/components/artifacts/ArtifactPendingWrites";
-import { opLabel, pendingWriteLine } from "../src/renderer/components/artifacts/artifacts-pane-model";
+import type { ArtifactPendingWrite } from "../src/window/lib/artifacts-source";
+import { ArtifactPendingWrites } from "../src/window/components/artifacts/ArtifactPendingWrites";
+import { opLabel, pendingWriteLine } from "../src/window/components/artifacts/artifacts-pane-model";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

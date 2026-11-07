@@ -28,7 +28,7 @@ import {
 import { waitForControlDoctor, readSandboxControlToken, sandboxControlSocketPath } from "../harness/browser-control-client";
 import { launchJunto } from "../harness/launch";
 import { installModelFixture, modelFixture, modelNode, modelSeat, modelWire } from "../harness/model";
-import { OFFBOARDED_SESSION_MESSAGE } from "../../src/main/junto/process-identity-facts";
+import { OFFBOARDED_SESSION_MESSAGE } from "../../src/node/process-identity-facts";
 
 /** The canvas this scenario installs into when the app has none yet. */
 const CANVAS_FALLBACK = "browser-seat-credential";

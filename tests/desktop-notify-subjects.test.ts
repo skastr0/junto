@@ -10,7 +10,7 @@ import { BindingId as SeatBindingId } from "../src/shared/terminal-session-domai
 import { buildOperatorFeed, feedSeatsFromCanvas } from "../src/shared/operator-feed";
 import type { AgentSignal } from "../src/shared/agent-signals";
 import type { BindingId } from "../src/shared/model";
-import { seatSubjects, subjectsFromFeed } from "../src/renderer/lib/desktop-notify";
+import { seatSubjects, subjectsFromFeed } from "../src/window/lib/desktop-notify";
 import { canvasOf, seat } from "./support/model-nodes";
 import { Level } from "../src/shared/wire/urgency";
 

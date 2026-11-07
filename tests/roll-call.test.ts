@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MemberStatus, RegionRollup } from "../src/shared/region-rollup";
-import { buildRollCall, rollCallBucketLabel } from "../src/renderer/lib/roll-call";
+import { buildRollCall, rollCallBucketLabel } from "../src/window/lib/roll-call";
 import { MemberSeverity } from "../src/shared/region-rollup";
 
 const S = MemberSeverity.group;

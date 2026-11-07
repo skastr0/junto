@@ -18,8 +18,8 @@ import {
   staticNamesOf,
   type SourceContext,
   type SourceDeps,
-} from "../src/main/junto/region-env/sources";
-import type { ToolCall, ToolResult } from "../src/main/junto/region-env/tool";
+} from "../src/core/region-env/sources";
+import type { ToolCall, ToolResult } from "../src/core/region-env/tool";
 
 const TOKEN = "test-only-service-account-token";
 

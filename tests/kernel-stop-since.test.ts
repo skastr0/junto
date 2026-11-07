@@ -10,7 +10,7 @@ import {
   __setWorldsForTest,
   getExecutionByCanvas,
   runEvaluationCycle,
-} from "../src/main/junto/kernel/cycle";
+} from "../src/core/kernel/cycle";
 import { canvasOf, seat, taskBoard, worldOf } from "./support/model-nodes";
 import { heldTask } from "./support/seat-tasks";
 

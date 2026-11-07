@@ -8,12 +8,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { NodeOf } from "../src/shared/model";
 import { formatNodeRef } from "../src/shared/node-ref";
-import { PageCard } from "../src/renderer/components/browser/PageCard";
-import { kindStateOf } from "../src/renderer/components/nodes/KindSeat";
-import { browser$ } from "../src/renderer/lib/browser-state";
-import { dock$ } from "../src/renderer/lib/dock-state";
-import { pageDriving$ } from "../src/renderer/lib/page-driving";
-import { state$ } from "../src/renderer/lib/state";
+import { PageCard } from "../src/window/components/browser/PageCard";
+import { kindStateOf } from "../src/window/components/nodes/KindSeat";
+import { browser$ } from "../src/window/lib/browser-state";
+import { dock$ } from "../src/window/lib/dock-state";
+import { pageDriving$ } from "../src/window/lib/page-driving";
+import { state$ } from "../src/window/lib/state";
 
 const node = { kind: "page", id: "p1", url: "https://docs.example.com/guide?x=1", profile: "personal", onRemove: "kill-session" } as unknown as NodeOf<"page">;
 const ref = formatNodeRef({ canvasName: "work", nodeId: "p1" });

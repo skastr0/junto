@@ -16,8 +16,8 @@ import {
   registerTrustedRendererScheme,
   TRUSTED_RENDERER_SCHEME,
   TRUSTED_RENDERER_URL,
-} from "../src/main/junto/trusted-renderer-protocol";
-import { setTrustedMainWebContents } from "../src/main/junto/trusted-main-webcontents";
+} from "../src/app/trusted-renderer-protocol";
+import { setTrustedMainWebContents } from "../src/app/trusted-main-webcontents";
 
 describe("trusted renderer protocol", () => {
   let root = "";

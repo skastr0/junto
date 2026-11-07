@@ -5,7 +5,7 @@ import {
   threadHealthFreshness,
   threadHealthMark,
   threadHealthSectionModel,
-} from "../src/renderer/lib/thread-health";
+} from "../src/window/lib/thread-health";
 
 const T0 = 1_700_000_000_000;
 

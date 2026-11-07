@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { STATE_SCHEMA_V32_SQL } from "./fixtures/state-v13/schema";
-import { migrateReviewStamps } from "../src/main/junto/state/migrate-review-stamps";
+import { migrateReviewStamps } from "../src/core/state/migrate-review-stamps";
 
 const SEAT = `seat_${"a".repeat(64)}`;
 

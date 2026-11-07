@@ -17,7 +17,7 @@ import {
   writtenText,
   type MentionCandidate,
   type MentionDraft,
-} from "../src/renderer/lib/mention-draft";
+} from "../src/window/lib/mention-draft";
 
 const feed: MentionRef = { kind: "seat", nodeId: asNodeId("agent-feed") };
 const lead: MentionRef = { kind: "seat", nodeId: asNodeId("agent-lead") };

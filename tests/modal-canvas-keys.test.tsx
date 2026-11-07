@@ -2,9 +2,9 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CANVAS_DELETE_KEY_CODE, canvasKeyboardTaken } from "../src/renderer/lib/canvas-keys";
-import { dispatchKey, keySituation } from "../src/renderer/lib/key-dispatcher";
-import { pushModal, resetModalStack, topModal, useAnyModalOpen } from "../src/renderer/lib/modal-stack";
+import { CANVAS_DELETE_KEY_CODE, canvasKeyboardTaken } from "../src/window/lib/canvas-keys";
+import { dispatchKey, keySituation } from "../src/window/lib/key-dispatcher";
+import { pushModal, resetModalStack, topModal, useAnyModalOpen } from "../src/window/lib/modal-stack";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

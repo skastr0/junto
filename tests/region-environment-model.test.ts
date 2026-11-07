@@ -28,7 +28,7 @@ import {
   type EnvSource,
   type SourceDraft,
   type SourceReport,
-} from "../src/renderer/lib/region-environment";
+} from "../src/window/lib/region-environment";
 
 const draft = (kind: SourceDraft["kind"], fields: Record<string, string>, over: Partial<SourceDraft> = {}): SourceDraft => ({
   ...newSourceDraft("s1", kind),

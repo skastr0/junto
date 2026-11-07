@@ -4,7 +4,7 @@ import {
   classifyMainAuthoringWorkOperation,
   createMainAuthoringGate,
   mainAuthoringLabelForWorkOperation,
-} from "../src/main/junto/main-authoring-gate";
+} from "../src/node/main-authoring-gate";
 import type { WorkOpName } from "../src/shared/work-control";
 
 const deferred = <A>() => {

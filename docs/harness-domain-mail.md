@@ -4,7 +4,7 @@ Status: wired, step 6 of `docs/harness-domain.md` (mail delivery goes through
 `admitCommand`). Owner: pty-mail. PTY stream only.
 
 Mail is a `DeliverMail { mode: "steer" }` command. Before it is typed, the drive
-asks `admitMail` (`src/main/junto/term/drive/mail-admission.ts`), which calls
+asks `admitMail` (`src/core/term/drive/mail-admission.ts`), which calls
 `admitCommand` with the seat's `SeatSnapshot` and its harness's
 `HarnessCapabilities`. A refusal becomes a hold the mailbox already tells; an
 admitted seat still goes through the composer gate.
@@ -44,8 +44,8 @@ mail was held before too.
 | Operator draft holds mail | drive `operatorDrafting`, `OperatorInterlock` | none: the operator, not the seat | stays |
 | Unread box holds after a grace | `MAIL_UNREADABLE_GRACE_MS`, drive | none: composer | stays |
 | Held mail rechecked, mail behind held mail waits | drive `holdMail`, `mailHeld` | admission rechecked with the composer | admission included |
-| Delivery waits for a live, onboarded, unfenced seat | `transport.seatLive`, `src/main/junto/term/core-mail.ts` | none: occupancy and lifecycle | stays |
-| Held mail retried and told every minute | `MAIL_HELD_RETRY_MS`, `tellHeld`, `src/main/junto/work/message-delivery.ts` | carries every `MailHold` | the three seat holds are told like `dialog` |
+| Delivery waits for a live, onboarded, unfenced seat | `transport.seatLive`, `src/core/term/core-mail.ts` | none: occupancy and lifecycle | stays |
+| Held mail retried and told every minute | `MAIL_HELD_RETRY_MS`, `tellHeld`, `src/core/work/message-delivery.ts` | carries every `MailHold` | the three seat holds are told like `dialog` |
 | `typedNotice` working or unavailable-setup | `HARNESS_MAIL_TRANSPORT` | none: reported by harness list and doctor, never read by delivery | stays a report fact |
 
 ## Hold vocabulary
@@ -54,5 +54,5 @@ mail was held before too.
 `unreadable` plus the seat's `busy`, `stopped` and `unsupported`. It types the
 drive outcome, the delivery transport and the `held` field of a wire traffic
 event, and each reason has its own copy in `HELD_REASON`
-(`src/renderer/lib/preamble-sources.ts`). An onboarding nudge refused by the
+(`src/window/lib/preamble-sources.ts`). An onboarding nudge refused by the
 seat's status reads `unavailable`.

@@ -15,7 +15,7 @@
  * and raw var(--color-*) elsewhere. A few @theme vars unused by the app are
  * tree-shaken out of the built CSS (main-hi, main-fg, second-fg, selection,
  * selection-inactive); the page re-declares those aliases exactly as
- * src/renderer/styles/theme.generated.css does.
+ * src/window/styles/theme.generated.css does.
  */
 import { chromium } from "playwright";
 import { mkdirSync, readdirSync, writeFileSync } from "node:fs";

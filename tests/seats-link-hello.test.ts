@@ -7,10 +7,10 @@
 import { PassThrough } from "node:stream";
 import { Effect, Schema } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LinkBuildMismatch, makeLinkSession } from "../src/main/junto/link/session";
-import { decodeLinkFrame, LinkHelloSchema } from "../src/main/junto/link/protocol";
-import type { LinkChannelHandler, LinkHello, LinkSession } from "../src/main/junto/link/types";
-import { decodeSeatsStatus, toSeatsStatus } from "../src/main/junto/term/seats-status";
+import { LinkBuildMismatch, makeLinkSession } from "../src/core/link/session";
+import { decodeLinkFrame, LinkHelloSchema } from "../src/core/link/protocol";
+import type { LinkChannelHandler, LinkHello, LinkSession } from "../src/core/link/types";
+import { decodeSeatsStatus, toSeatsStatus } from "../src/core/term/seats-status";
 import { initialSnapshot, topNeed, type BindingId } from "../src/shared/harness-domain";
 import { Level, rankOf, URGENCY_LADDER } from "../src/shared/wire/urgency";
 

@@ -7,10 +7,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   LocalSessionHost,
   type LocalHostEvent,
-} from "../src/main/junto/term/local-host";
-import { startTermControlServer } from "../src/main/junto/term/control-server";
-import { TermControlClient } from "../src/main/junto/term/control-client";
-import { seatStateRuntime } from "../src/main/junto/term/agent-state";
+} from "../src/core/term/local-host";
+import { startTermControlServer } from "../src/core/term/control-server";
+import { TermControlClient } from "../src/core/term/control-client";
+import { seatStateRuntime } from "../src/core/term/agent-state";
 import {
   TERM_CONTROL_PROTOCOL,
   type TermControlResponse,
@@ -18,8 +18,8 @@ import {
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
-} from "../src/main/junto/process-identity";
-import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
+} from "../src/core/process-identity";
+import { setProcessEpochReaderForTests } from "../src/node/process-epoch";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 import { installHermeticHarnessBins } from "./helpers/hermetic-harness-bins";
 

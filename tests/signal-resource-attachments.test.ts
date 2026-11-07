@@ -7,7 +7,7 @@ import { ItemId } from "../src/shared/work-ids";
 import { AgentSignalAttachment, agentSignalAttachmentKind, isResourceAttachment } from "../src/shared/agent-signals";
 import { previewRefsOfAttachments } from "../src/shared/preview";
 import { Effect } from "effect";
-import { admitResourceAttachment, claimSignalAttachments, type SignalResources } from "../src/main/junto/signals/attachments";
+import { admitResourceAttachment, claimSignalAttachments, type SignalResources } from "../src/core/signals/attachments";
 
 const node = (id: string, kind: NodeKind, x: number, y: number, width = 50, height = 50): ReachNode => ({
   id: asNodeId(id),

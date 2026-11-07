@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import { writeMailCarryingText } from "../src/main/junto/content/mail-text-file";
-import { ContentService } from "../src/main/junto/content/service";
+import { writeMailCarryingText } from "../src/core/content/mail-text-file";
+import { ContentService } from "../src/core/content/service";
 import type { ContentRef } from "../src/shared/wire/content-ref";
 
 const fileRef = { sha256: "b".repeat(64), byteLength: 5, mediaType: "text/markdown", displayName: "message.md" } as ContentRef;

@@ -3,7 +3,7 @@ import {
   activateOnPointerUp,
   activateSurfaceOnMouseDown,
   isInteractiveTarget,
-} from "../src/renderer/lib/pointer-activation";
+} from "../src/window/lib/pointer-activation";
 
 describe("activateOnPointerUp", () => {
   it("fires on primary pointer-up and ignores its subsequent click", () => {

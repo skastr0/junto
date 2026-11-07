@@ -12,11 +12,11 @@ import { SqlClient } from "effect/sql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { asCanvasName, asNodeId } from "../src/shared/model";
 import type { Node } from "../src/shared/model";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { ModelLive } from "../src/main/junto/model/layer";
-import { ModelService } from "../src/main/junto/model/service";
-import { subscribeViewStateChanges } from "../src/main/junto/view-state/changes";
-import { ProductModelDependentsLive } from "../src/main/junto/view-state/model-dependents";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { ModelLive } from "../src/core/model/layer";
+import { ModelService } from "../src/core/model/service";
+import { subscribeViewStateChanges } from "../src/core/view-state/changes";
+import { ProductModelDependentsLive } from "../src/core/view-state/model-dependents";
 
 const canvas = asCanvasName("main");
 const shelf = asNodeId("shelf");

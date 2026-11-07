@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { InspectorTabs } = await import("../src/renderer/components/ui/InspectorTabs");
+const { InspectorTabs } = await import("../src/window/components/ui/InspectorTabs");
 
 let root: Root;
 let host: HTMLDivElement;

@@ -19,11 +19,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   exportStateBackup,
   listStateBackups,
-} from "../src/main/junto/state/recovery";
+} from "../src/core/state/recovery";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/junto/state/engine";
+} from "../src/core/state/engine";
 
 const roots: string[] = [];
 const runtimes: Array<

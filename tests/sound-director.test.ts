@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentSignal } from "@shared/agent-signals";
-import { alertCue, signalCue } from "../src/renderer/lib/sound/director";
-import { CUES } from "../src/renderer/lib/sound/cues";
+import { alertCue, signalCue } from "../src/window/lib/sound/director";
+import { CUES } from "../src/window/lib/sound/cues";
 import { AlertKind } from "../src/shared/wire/urgency";
 
 const signal = (over: Partial<AgentSignal> = {}): AgentSignal => ({

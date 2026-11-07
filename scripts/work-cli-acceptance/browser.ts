@@ -4,7 +4,7 @@
  *
  * The net first asserts the text bound, which holds before transport, and the
  * refusal a comment gets where no app hosts browser control. Then it hosts
- * the browser control server as the app composes it (src/main/index.ts): the
+ * the browser control server as the app composes it (src/app/index.ts): the
  * edge grant admits a seat on its generation credential against this core's
  * seat credential registry (dbd961246), over this core's canvases, pause
  * plane and box-comment writer. The core has no window, so its view adapter
@@ -21,16 +21,16 @@ import { Effect } from "effect";
 import { SqlClient } from "effect/sql";
 import { BROWSER_MAX_COMMENT_TEXT_BYTES } from "../../src/shared/browser-control";
 import { BROWSER_ENABLED } from "../../src/shared/features";
-import { makeBrowserCapabilityRegistry } from "../../src/main/junto/browser/capabilities";
-import { startBrowserControlServer } from "../../src/main/junto/browser/control";
-import { makeEdgeGrantService } from "../../src/main/junto/browser/edge-grant";
-import { makePageTargetResolver } from "../../src/main/junto/browser/page-target";
-import { makeBrowserProfileService } from "../../src/main/junto/browser/profiles";
-import { BrowserSessionService } from "../../src/main/junto/browser/sessions";
-import { ModelRecords } from "../../src/main/junto/model/records";
-import { ModelService } from "../../src/main/junto/model/service";
-import { PausePlane } from "../../src/main/junto/pause-plane";
-import { postSeatPageBox } from "../../src/main/junto/work/page-box-comment";
+import { makeBrowserCapabilityRegistry } from "../../src/app/browser/capabilities";
+import { startBrowserControlServer } from "../../src/app/browser/control";
+import { makeEdgeGrantService } from "../../src/app/browser/edge-grant";
+import { makePageTargetResolver } from "../../src/core/browser/page-target";
+import { makeBrowserProfileService } from "../../src/node/browser/profiles";
+import { BrowserSessionService } from "../../src/app/browser/sessions";
+import { ModelRecords } from "../../src/core/model/records";
+import { ModelService } from "../../src/core/model/service";
+import { PausePlane } from "../../src/core/pause-plane";
+import { postSeatPageBox } from "../../src/core/work/page-box-comment";
 import { casesFor, type AcceptanceArea } from "./area";
 import { envelopeOf } from "./envelope";
 

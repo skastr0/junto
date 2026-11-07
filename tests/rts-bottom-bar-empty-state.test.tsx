@@ -6,7 +6,7 @@ import { THIS_MACHINE } from "./support/machines";
 import { Schema } from "effect";
 import { Node, Wire } from "@shared/model";
 import { batch } from "@legendapp/state";
-import { modelStore } from "../src/renderer/lib/use-model";
+import { modelStore } from "../src/window/lib/use-model";
 
 // jsdom has no ResizeObserver; a module the bar imports builds one at load.
 vi.hoisted(() => {
@@ -17,8 +17,8 @@ vi.hoisted(() => {
   };
 });
 
-import { RtsBottomBar } from "../src/renderer/components/rts/RtsBottomBar";
-import { state$ } from "../src/renderer/lib/state";
+import { RtsBottomBar } from "../src/window/components/rts/RtsBottomBar";
+import { state$ } from "../src/window/lib/state";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

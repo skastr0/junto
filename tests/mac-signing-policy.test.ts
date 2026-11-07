@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   compiledMacSigningPolicy,
   parseMacSigningPolicy,
-} from "../src/main/junto/mac-signing-policy";
-import { admitStagedMacApp } from "../src/main/junto/update/admit-mac-app";
+} from "../src/app/mac-signing-policy";
+import { admitStagedMacApp } from "../src/app/update/admit-mac-app";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -12,8 +12,8 @@ import {
   routesForTick,
   routesOwed,
   routesOwedWithCause,
-} from "../src/renderer/lib/loom-view";
-import type { LoomEdgeInput, LoomObstacle } from "../src/renderer/lib/wire-loom";
+} from "../src/window/lib/loom-view";
+import type { LoomEdgeInput, LoomObstacle } from "../src/window/lib/wire-loom";
 import { routeWire } from "../src/shared/wire-route";
 
 const COLS = 10;

@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { asCanvasName } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
 import { ItemId } from "../src/shared/work-ids";
-import { ActionText, type ValueChoice } from "../src/renderer/components/automations/ActionText";
-import { AutomationEditor } from "../src/renderer/components/automations/AutomationEditor";
+import { ActionText, type ValueChoice } from "../src/window/components/automations/ActionText";
+import { AutomationEditor } from "../src/window/components/automations/AutomationEditor";
 import {
   blankTrigger,
   cadenceWords,
@@ -22,11 +22,11 @@ import {
   signalAnswerOf,
   answerIsLong,
   type AutomationDraft,
-} from "../src/renderer/lib/automation-editor";
+} from "../src/window/lib/automation-editor";
 import { automationValuesOf, type ActionRuling, type Firing } from "../src/shared/automation";
 import type { AgentSignal } from "../src/shared/wire/agent-signals";
-import { setTasksSource, makeLocalTasksSource } from "../src/renderer/lib/tasks-source";
-import { modelStore } from "../src/renderer/lib/use-model";
+import { setTasksSource, makeLocalTasksSource } from "../src/window/lib/tasks-source";
+import { modelStore } from "../src/window/lib/use-model";
 import { automations } from "./support/model-nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

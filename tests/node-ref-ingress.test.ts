@@ -6,8 +6,8 @@ import {
   latestNodeRefUri,
   makeNodeRefIngress,
   type NodeRefIngressTarget,
-} from "../src/main/junto/node-ref-ingress";
-import * as nodeRefIngress from "../src/main/junto/node-ref-ingress";
+} from "../src/app/node-ref-ingress";
+import * as nodeRefIngress from "../src/app/node-ref-ingress";
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
@@ -152,10 +152,10 @@ describe("owner-memory open-url selection", () => {
   it("has no filesystem relay exports, paths, artifacts, or watcher", async () => {
     const [ingressSource, indexSource] = await Promise.all([
       readFile(
-        new URL("../src/main/junto/node-ref-ingress.ts", import.meta.url),
+        new URL("../src/app/node-ref-ingress.ts", import.meta.url),
         "utf8",
       ),
-      readFile(new URL("../src/main/index.ts", import.meta.url), "utf8"),
+      readFile(new URL("../src/app/index.ts", import.meta.url), "utf8"),
     ]);
     const productSource = `${ingressSource}\n${indexSource}`;
     const retiredExports = [

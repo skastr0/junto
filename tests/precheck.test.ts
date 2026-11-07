@@ -9,7 +9,7 @@ import type { ActorSeatId } from "../src/shared/actor-seat";
 import { type ArtifactOp, type ArtifactVersion, emptyBody } from "../src/shared/artifact";
 import { artifactDomain, emptyArtifactState } from "../src/shared/artifact-domain";
 import type { InstallationId } from "../src/shared/installation-id";
-import { localBodyRef } from "../src/renderer/lib/artifacts-source";
+import { localBodyRef } from "../src/window/lib/artifacts-source";
 import { asNodeId } from "../src/shared/physics/schema";
 import {
   commandKey,

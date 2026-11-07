@@ -9,17 +9,17 @@ import { EditorView } from "@codemirror/view";
 import type { NodeKind } from "../src/shared/model/kinds";
 import { asNodeId, type NodeId } from "../src/shared/physics/schema";
 import type { ItemId } from "../src/shared/work-ids";
-import type { MentionCandidate } from "../src/renderer/lib/mention-draft";
-import { artifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/renderer/lib/artifacts-source";
+import type { MentionCandidate } from "../src/window/lib/mention-draft";
+import { artifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/window/lib/artifacts-source";
 import type { ArtifactHead } from "../src/shared/resource-ipc";
-import { mentionPicker, mentionSourceChanged, pickerQueryAt } from "../src/renderer/components/artifacts/mention-picker";
+import { mentionPicker, mentionSourceChanged, pickerQueryAt } from "../src/window/components/artifacts/mention-picker";
 
 const opened = vi.hoisted(() => [] as unknown[]);
-vi.mock("../src/renderer/lib/mention-open", async (load) => ({
-  ...(await load<typeof import("../src/renderer/lib/mention-open")>()),
+vi.mock("../src/window/lib/mention-open", async (load) => ({
+  ...(await load<typeof import("../src/window/lib/mention-open")>()),
   openMention: (ref: unknown) => opened.push(ref),
 }));
-const { DocumentMentionChip } = await import("../src/renderer/components/artifacts/DocumentMentionChip");
+const { DocumentMentionChip } = await import("../src/window/components/artifacts/DocumentMentionChip");
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 // jsdom lays nothing out; CodeMirror's measuring asks a range for its boxes.

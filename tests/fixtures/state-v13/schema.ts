@@ -11,8 +11,8 @@ import {
   STATE_SCHEMA_V14_FRAGMENTS,
 } from "./v14-fragments";
 import { DatabaseSync } from "node:sqlite";
-import { migrateOneMachineLog } from "../../../src/main/junto/work/migrate-one-machine-log";
-import { STATE_SCHEMA_MIGRATIONS } from "../../../src/main/junto/state/migrations";
+import { migrateOneMachineLog } from "../../../src/core/work/migrate-one-machine-log";
+import { STATE_SCHEMA_MIGRATIONS } from "../../../src/core/state/migrations";
 
 const STATE_SCHEMA_FRAGMENTS: ReadonlyArray<string> = Object.values(STATE_SCHEMA_V14_FRAGMENTS);
 

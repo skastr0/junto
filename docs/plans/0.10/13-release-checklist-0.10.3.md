@@ -30,7 +30,7 @@ Run on a copy of `~/.junto/state/junto.db`, never the live file.
 under `state/`.)
 
 - [x] Head is v50 (`CURRENT_STATE_SCHEMA_VERSION` in
-      `src/main/junto/state/migrations.ts`) and `bun run schema:identity`
+      `src/core/state/migrations.ts`) and `bun run schema:identity`
       matches `STATE_SCHEMA_V50_IDENTITY` (47696d80...).
       Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): schema-identity prints clean (v50 = 47696d80...);
       canvas-lead spot-checked migrations.ts:650 is 50 and :645 is the v50 identity.

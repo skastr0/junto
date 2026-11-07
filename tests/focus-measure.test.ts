@@ -6,7 +6,7 @@ import {
   terminalFocusWidthPx,
   TERMINAL_FOCUS,
   TERMINAL_RAILS_PX,
-} from "../src/renderer/lib/focus-measure";
+} from "../src/window/lib/focus-measure";
 
 describe("focus-measure", () => {
   it("mono cell width matches xterm fallback (fontSize × 0.6)", () => {

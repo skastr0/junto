@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { productNodeKindEnabled } from "../src/shared/features";
-import { canConnect } from "../src/renderer/lib/edge-mutations";
+import { canConnect } from "../src/window/lib/edge-mutations";
 import { note, region, seat, taskBoard } from "./support/model-nodes";
 
 // Whether a wire could be drawn between two nodes at all, asked of the nodes

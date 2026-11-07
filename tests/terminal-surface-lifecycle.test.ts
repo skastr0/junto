@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Terminal } from "@xterm/headless";
 import { terminal } from "./support/model-nodes";
 import { defaultTerminal } from "../src/shared/settings";
-import type { LocalHostEvent } from "../src/main/junto/term/local-host";
-import { TerminalStreamCoalescer } from "../src/main/junto/term/stream-coalescer";
+import type { LocalHostEvent } from "../src/core/term/local-host";
+import { TerminalStreamCoalescer } from "../src/app/term/stream-coalescer";
 
 type Effect = { run: () => void | (() => void); deps?: readonly unknown[] };
 const hooks = vi.hoisted(() => ({
@@ -41,11 +41,11 @@ vi.mock("@legendapp/state/react", async (load) => ({
   use$: (value: (() => unknown) | { get: () => unknown }) =>
     typeof value === "function" ? value() : value.get(),
 }));
-vi.mock("../src/renderer/lib/junto-api", () => ({
+vi.mock("../src/window/lib/junto-api", () => ({
   getJuntoApi: () => hooks.api,
 }));
 
-import { fallbackCell, TerminalSurface } from "../src/renderer/components/terminal/TerminalSurface";
+import { fallbackCell, TerminalSurface } from "../src/window/components/terminal/TerminalSurface";
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;

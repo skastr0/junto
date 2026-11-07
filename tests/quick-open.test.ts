@@ -8,9 +8,9 @@ import {
   QUICK_OPEN_WORDS,
   type QuickOpenItem,
   type QuickOpenSource,
-} from "../src/renderer/lib/quick-open";
-import { registerQuickOpenHost, toggleQuickOpenFor } from "../src/renderer/lib/quick-open-host";
-import { artifactQuickOpen, labelsOf } from "../src/renderer/components/artifacts/artifacts-pane-model";
+} from "../src/window/lib/quick-open";
+import { registerQuickOpenHost, toggleQuickOpenFor } from "../src/window/lib/quick-open-host";
+import { artifactQuickOpen, labelsOf } from "../src/window/components/artifacts/artifacts-pane-model";
 import type { ArtifactHead } from "../src/shared/resource-ipc";
 
 const node = asNodeId("shelf");

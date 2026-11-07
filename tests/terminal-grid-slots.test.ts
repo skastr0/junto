@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { terminal } from "./support/model-nodes";
-import { closeAllWorkbenchSurfaces, dock$, openTerminalSurface, terminalSurfaceId } from "../src/renderer/lib/dock-state";
-import { initialWorkbenchState } from "../src/renderer/lib/surface-registry";
+import { closeAllWorkbenchSurfaces, dock$, openTerminalSurface, terminalSurfaceId } from "../src/window/lib/dock-state";
+import { initialWorkbenchState } from "../src/window/lib/surface-registry";
 import {
   closeGridTerminalSurfaces,
   openGridTerminalSurface,
@@ -10,7 +10,7 @@ import {
   setGridTerminalCell,
   terminal$,
   terminalSlotElement,
-} from "../src/renderer/lib/terminal-state";
+} from "../src/window/lib/terminal-state";
 
 const node = (id: string) => terminal(id);
 

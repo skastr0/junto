@@ -5,10 +5,10 @@
  */
 import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
-import { MachineRepository } from "../src/main/junto/machines/repository";
-import { onResourceChanged, onThreadChanged } from "../src/main/junto/work/resource-changes";
-import { WorkService, type WorkServiceShape } from "../src/main/junto/work/service";
-import { postSubjectComment } from "../src/main/junto/work/subject-comment";
+import { MachineRepository } from "../src/core/machines/repository";
+import { onResourceChanged, onThreadChanged } from "../src/core/work/resource-changes";
+import { WorkService, type WorkServiceShape } from "../src/core/work/service";
+import { postSubjectComment } from "../src/core/work/subject-comment";
 import { asNodeId, type Canvas, type Node } from "../src/shared/model";
 import { ItemId, OpId } from "../src/shared/work-ids";
 import { seat } from "./support/model-nodes";

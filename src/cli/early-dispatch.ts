@@ -3,7 +3,7 @@
  *
  * Stdio relays bypass the Effect CLI tree.
  */
-import { CONTENT_TRANSFER_COMMAND } from "../main/junto/content/helper-contract";
+import { CONTENT_TRANSFER_COMMAND } from "../node/content/helper-contract";
 import { COMPANION_STDIO_COMMAND } from "./protocol-command-names";
 import { ownerCommandRefusal } from "./core/owner-access";
 

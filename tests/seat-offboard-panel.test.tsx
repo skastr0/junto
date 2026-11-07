@@ -17,12 +17,12 @@ import {
   type SeatOffboardRunRow,
   type SeatOffboardStatus,
 } from "../src/shared/seat-offboard";
-import type { SeatOffboardOps } from "../src/renderer/lib/seat-offboard";
+import type { SeatOffboardOps } from "../src/window/lib/seat-offboard";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { state$ } = await import("../src/renderer/lib/state");
-const { SeatOffboardPanel } = await import("../src/renderer/components/nodes/SeatOffboard");
+const { state$ } = await import("../src/window/lib/state");
+const { SeatOffboardPanel } = await import("../src/window/components/nodes/SeatOffboard");
 
 const seat = (id: string, label: string): Node => Effect.runSync(decodeNode({
   kind: "agent", id, label, x: 0, y: 0, width: 200, height: 80, z: 0,

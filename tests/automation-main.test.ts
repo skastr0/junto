@@ -13,8 +13,8 @@ import {
   type AutomationCaller,
   type AutomationPorts,
   type AutomationWriter,
-} from "../src/main/junto/work/automation-control";
-import { automationTargetResolver } from "../src/main/junto/work/automation-targets";
+} from "../src/core/work/automation-control";
+import { automationTargetResolver } from "../src/core/work/automation-targets";
 import { emptyAutomationState, ruleAutomationCommand } from "../src/shared/automation-domain";
 import { automationTargets } from "../src/shared/region-reach";
 

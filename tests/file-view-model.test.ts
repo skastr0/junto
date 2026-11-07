@@ -19,7 +19,7 @@ import {
   ZOOM_MIN,
   zoomIn,
   zoomOut,
-} from "../src/renderer/components/file-view/file-view-model";
+} from "../src/window/components/file-view/file-view-model";
 
 describe("file viewer kind", () => {
   it("previews a PDF and an image, and offers the default app for anything else", () => {

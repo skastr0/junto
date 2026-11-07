@@ -4,7 +4,7 @@
  */
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { LINK_EVENT_WINDOW } from "../src/main/junto/link/protocol";
+import { LINK_EVENT_WINDOW } from "../src/core/link/protocol";
 import {
   EXCHANGE_ROWS_ENVELOPE_BYTES,
   EXCHANGE_ROWS_PAGE_BYTES,

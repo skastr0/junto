@@ -7,7 +7,7 @@ import {
   agyHistoryPath,
   discoverAgySessionId,
   isAgySessionId,
-} from "../src/main/junto/term/templates/agy-session";
+} from "../src/core/term/templates/agy-session";
 
 let home: string | undefined;
 

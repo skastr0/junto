@@ -7,10 +7,10 @@ import { asNodeId } from "../src/shared/physics/schema";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { UnsavedFilesHost } = await import("../src/renderer/components/files/UnsavedFilesHost");
-const { installFileDraftsUnloadGuard, settleFileDrafts } = await import("../src/renderer/lib/files-drafts-settle");
+const { UnsavedFilesHost } = await import("../src/window/components/files/UnsavedFilesHost");
+const { installFileDraftsUnloadGuard, settleFileDrafts } = await import("../src/window/lib/files-drafts-settle");
 const { fileDraft, heldFileDrafts, installFilesSource, makeLocalFiles, setFileDraft, useFilesRoot } = await import(
-  "../src/renderer/lib/files-source"
+  "../src/window/lib/files-source"
 );
 
 const node = asNodeId("files-settle");

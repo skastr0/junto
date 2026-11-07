@@ -9,9 +9,9 @@ import { formatNodeRef } from "../src/shared/node-ref";
 import { applyPatch, decodePadShape, emptyPad, type Pad } from "../src/shared/pad";
 import type { NodeId } from "../src/shared/physics/schema";
 import type { ItemId } from "../src/shared/work-ids";
-import { padCardFor, padCardSourceOfPick, padCardSourceOfText } from "../src/renderer/components/pad/pad-card";
-import { pickCandidates } from "../src/renderer/components/pad/PadCardPicker";
-import type { MentionCandidate } from "../src/renderer/lib/mention-draft";
+import { padCardFor, padCardSourceOfPick, padCardSourceOfText } from "../src/window/components/pad/pad-card";
+import { pickCandidates } from "../src/window/components/pad/PadCardPicker";
+import type { MentionCandidate } from "../src/window/lib/mention-draft";
 
 const SEAT = "agent-01M46TX8WR2Q4YGKZ6NFW4GTG8" as NodeId;
 const BOARD = "task-01M5G1KYYMFQASGJKGBDQZA2D3" as NodeId;

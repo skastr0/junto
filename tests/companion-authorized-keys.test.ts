@@ -17,8 +17,8 @@ import {
   pruneCompanionKeys,
   removeCompanionKey,
   upsertCompanionKey,
-} from "../src/main/junto/companion/authorized-keys";
-import { encodeOpenSshEd25519, generatePairingKey } from "../src/main/junto/companion/pairing-key";
+} from "../src/core/companion/authorized-keys";
+import { encodeOpenSshEd25519, generatePairingKey } from "../src/core/companion/pairing-key";
 
 const DEV_A = "dev_01J9Z3K4M5N6P7Q8R9S0T1V2W3";
 const DEV_B = "dev_01J9Z3K4M5N6P7Q8R9S0T1V2W4";

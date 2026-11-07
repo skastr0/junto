@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { colorFgBgFor, schemeDsrFor, themeRuntime } from "@shared/theme";
-import { xtermThemeFor } from "../src/renderer/lib/terminal-theme";
+import { xtermThemeFor } from "../src/window/lib/terminal-theme";
 
 describe("xtermThemeFor", () => {
   it("projects a complete 16-colour ANSI table from Junto tokens (dark)", () => {

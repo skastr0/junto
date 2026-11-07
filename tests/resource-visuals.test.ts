@@ -18,7 +18,7 @@ import {
   type ResourceKind,
   type StampSlot,
   type TaskStateV10,
-} from "../src/renderer/lib/resource-visuals";
+} from "../src/window/lib/resource-visuals";
 
 describe("the visual tables are total over their closed unions", () => {
   it("draws every resource kind, each with its own mark hue", () => {

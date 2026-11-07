@@ -3,7 +3,7 @@ import {
   isEditableEventTarget,
   isMultiSelectGesture,
   stopNodeGestureUnlessMultiSelect,
-} from "../src/renderer/lib/multi-select-gesture";
+} from "../src/window/lib/multi-select-gesture";
 
 describe("multi-select-gesture", () => {
   it("isMultiSelectGesture is shift only", () => {

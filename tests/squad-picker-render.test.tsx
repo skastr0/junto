@@ -5,8 +5,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Squad } from "../src/shared/squads";
-import { SquadPickerSection } from "../src/renderer/components/squads/SquadPickerSection";
-import { squads$ } from "../src/renderer/lib/squads-state";
+import { SquadPickerSection } from "../src/window/components/squads/SquadPickerSection";
+import { squads$ } from "../src/window/lib/squads-state";
 
 const squad = (squadId: string, name: string, seats: number): Squad => ({
   squadId,

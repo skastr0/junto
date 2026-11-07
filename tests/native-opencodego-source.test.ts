@@ -12,7 +12,7 @@ import {
   resolveGoApiKey,
   ZEN_PLAN_LIMITS_USD,
   type GoCostRow,
-} from "../src/main/junto/usage/opencodego-source";
+} from "../src/core/usage/opencodego-source";
 
 const FETCHED = "2026-07-26T12:00:00.000Z";
 const FETCHED_MS = Date.parse(FETCHED);

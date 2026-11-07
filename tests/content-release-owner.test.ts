@@ -9,11 +9,11 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/sql";
 import { afterEach, describe, expect, it } from "vitest";
-import { ContentManifest } from "../src/main/junto/content/manifest";
-import { contentStoreRoot } from "../src/main/junto/content/paths";
-import { createContentService } from "../src/main/junto/content/service";
-import { signalAttachmentOwner } from "../src/main/junto/signals/attachments";
-import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+import { ContentManifest } from "../src/core/content/manifest";
+import { contentStoreRoot } from "../src/node/content/paths";
+import { createContentService } from "../src/core/content/service";
+import { signalAttachmentOwner } from "../src/core/signals/attachments";
+import { makeStateEngineLive, StateEngine } from "../src/core/state/engine";
 
 let home: string | undefined;
 let runtime:

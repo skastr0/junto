@@ -7,13 +7,13 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { inProcessCore, type CoreRunner } from "./support/in-process-core";
-import { useCoreClient } from "../src/main/core-process/main-client";
-import "../src/main/core-process/ops/shell-environment";
-import { SHELL_ENVIRONMENT_CHANGED } from "../src/main/core-process/channels";
-import { publish } from "../src/main/core-process/push";
-import { subscribe } from "../src/main/core-process/main-side/core-pushes";
-import { shellEnvironment } from "../src/main/junto/shell-environment";
-import { registerShellEnvironmentIpc } from "../src/main/junto/shell-environment/ipc";
+import { useCoreClient } from "../src/app/core-process/main-client";
+import "../src/core/ops/shell-environment";
+import { SHELL_ENVIRONMENT_CHANGED } from "../src/contract/core/channels";
+import { publish } from "../src/core/push";
+import { subscribe } from "../src/app/core-process/main-side/core-pushes";
+import { shellEnvironment } from "../src/core/shell-environment";
+import { registerShellEnvironmentIpc } from "../src/app/shell-environment/ipc";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 
 const STATUS = { _tag: "Applied", generation: 2, shell: "/bin/zsh", variables: [], failures: [] };

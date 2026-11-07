@@ -11,11 +11,11 @@ import { resolve } from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { LiveSeatViewSource } from "../src/renderer/components/LiveSeatViewSource";
-import { AgentSeatView } from "../src/renderer/components/nodes/AgentSeatView";
-import { terminalActivity } from "../src/renderer/lib/activity";
-import { canvasTier$ } from "../src/renderer/lib/canvas-tier";
-import { themeMode$ } from "../src/renderer/lib/theme-mode";
+import { LiveSeatViewSource } from "../src/window/components/LiveSeatViewSource";
+import { AgentSeatView } from "../src/window/components/nodes/AgentSeatView";
+import { terminalActivity } from "../src/window/lib/activity";
+import { canvasTier$ } from "../src/window/lib/canvas-tier";
+import { themeMode$ } from "../src/window/lib/theme-mode";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -81,12 +81,12 @@ describe("seat view source", () => {
   });
 
   it("the app's root mounts every seat under the live source", () => {
-    const main = readFileSync(resolve(__dirname, "../src/renderer/main.tsx"), "utf8");
+    const main = readFileSync(resolve(__dirname, "../src/window/main.tsx"), "utf8");
     expect(main).toMatch(/<LiveSeatViewSource>\s*<AppRoot \/>\s*<\/LiveSeatViewSource>/);
   });
 
   it("every React root in the renderer is fed the live source: context does not cross roots", () => {
-    const renderer = resolve(__dirname, "../src/renderer");
+    const renderer = resolve(__dirname, "../src/window");
     const roots = readdirSync(renderer, { recursive: true, encoding: "utf8" })
       .filter((file) => /\.tsx?$/.test(file) && !file.endsWith(".d.ts"))
       .map((file) => ({ file, text: readFileSync(resolve(renderer, file), "utf8") }))

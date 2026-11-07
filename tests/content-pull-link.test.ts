@@ -15,13 +15,13 @@ import { ContentPullRefused, CONTENT_PULL_PIECE_BYTES, operatorReachesResource, 
 import { InstallationId } from "../src/shared/installation-id";
 import type { NodeId } from "../src/shared/model/base";
 import type { ContentRef } from "../src/shared/wire/content-ref";
-import { makeContentChannel, makeContentPulls, pullContent, type PulledOwner } from "../src/main/junto/content/pull";
-import { contentObjectPath, contentPartialPath } from "../src/main/junto/content/paths";
-import { ingestContentBytes } from "../src/main/junto/content/store";
-import { contentTransferPartialId, statContentForTransfer } from "../src/main/junto/content/transfer-local";
-import { LinkHelloSchema } from "../src/main/junto/link/protocol";
-import { makeLinkSession } from "../src/main/junto/link/session";
-import type { LinkChannelContext, LinkSession } from "../src/main/junto/link/types";
+import { makeContentChannel, makeContentPulls, pullContent, type PulledOwner } from "../src/core/content/pull";
+import { contentObjectPath, contentPartialPath } from "../src/node/content/paths";
+import { ingestContentBytes } from "../src/node/content/store";
+import { contentTransferPartialId, statContentForTransfer } from "../src/node/content/transfer-local";
+import { LinkHelloSchema } from "../src/core/link/protocol";
+import { makeLinkSession } from "../src/core/link/session";
+import type { LinkChannelContext, LinkSession } from "../src/core/link/types";
 
 const id = Schema.decodeUnknownSync(InstallationId);
 const EDITOR = id("macbook-install");

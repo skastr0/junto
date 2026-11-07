@@ -5,7 +5,7 @@ import {
   getTrustedMainWebContents,
   setTrustedMainWebContents,
   trustedRendererIpc,
-} from "../src/main/junto/trusted-main-webcontents";
+} from "../src/app/trusted-main-webcontents";
 
 const trustedUrl = "http://localhost:5173/";
 

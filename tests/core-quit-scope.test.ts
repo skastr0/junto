@@ -20,15 +20,15 @@ const terminals = {
   }),
 };
 
-vi.mock("../src/main/terminal-process/host", () => ({
+vi.mock("../src/app/terminals/host", () => ({
   startTerminalProcessForCore: () => {
     order.push("terminals acquired");
     return terminals;
   },
 }));
 
-const { openChildren, takeChildStopFailures } = await import("../src/main/core-process/children");
-const { CoreDidNotStop } = await import("../src/main/core-process/host");
+const { openChildren, takeChildStopFailures } = await import("../src/app/core-process/children");
+const { CoreDidNotStop } = await import("../src/app/core-process/host");
 
 const core = (stop: () => Effect.Effect<void, InstanceType<typeof CoreDidNotStop>>) => ({
   client: { call: () => Promise.reject(new Error("no call in this test")), onPush: () => () => undefined, fail: () => undefined },

@@ -1,0 +1,669 @@
+import { asNodeId, type Canvas } from "@shared/model";
+import { createHash } from "node:crypto";
+import {
+  BROWSER_CAPABILITY_ACTIONS,
+  type BrowserAutomationPrincipal,
+  type BrowserCapabilityGrant,
+  type BrowserCapabilityRegistry,
+  type BrowserCapabilityTarget,
+} from "./capabilities";
+import { resolveBrowserCallerFromProcess } from "./process-bind";
+import type { PageTargetResolver } from "../../core/browser/page-target";
+import type { ProcessPrincipal } from "../../core/process-identity";
+import { OFFBOARDED_SESSION_MESSAGE } from "../../node/process-identity-facts";
+import type { SeatCredentialEvent, SeatCredentialLookup } from "../../core/work/seat-credentials";
+import { core } from "../core-process/main-client";
+import { subscribe as onCorePush } from "../core-process/main-side/core-pushes";
+import { SEAT_CREDENTIAL_CHANGED } from "../../contract/core/channels";
+import { isThisMachine } from "@shared/machine-identity";
+import { parseNodeRef } from "@shared/node-ref";
+import {
+  allTargetsLost,
+  lostPageTargetsForCaller,
+  receiptForTeardown,
+  type EdgeRevocationReceipt,
+} from "./edge-revocation";
+
+export interface CanvasChangeDetail {
+  readonly previous?: Canvas;
+  readonly next?: Canvas;
+}
+
+// Edge-grant admission:
+//   seat generation credential → live principal → canvas actor node → edges → pages
+//   mint a short-lived capability under the hood so existing handlers keep
+//   their lease model. Agents never present nodeRef or capability secrets.
+//
+// Who may hold a grant is decided by the factory role of the caller's node
+// (`isBrowserCallerNode`), never by a kind ACL in this file.
+
+export const EDGE_GRANT_TTL_MS = 15 * 60 * 1_000;
+export const EDGE_GRANT_MAX_USES = 4_096;
+export const EDGE_GRANT_MAX_IN_FLIGHT = 8;
+
+const exactHttpOrigin = (value: string): string | undefined => {
+  try {
+    const parsed = new URL(value);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      parsed.username === "" &&
+      parsed.password === "" &&
+      parsed.origin !== "null"
+      ? parsed.origin
+      : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+export type EdgeGrantDenial =
+  | "process_unbound"
+  | "seat_suspended"
+  | "process_offboarded"
+  | "not_found"
+  | "ambiguous"
+  | "caller_wrong_kind"
+  | "not_connected"
+  | "physical_host_mismatch"
+  | "canvas_unreadable"
+  | "capacity"
+  | "closed";
+
+export type EdgeGrantResult =
+  | {
+      readonly ok: true;
+      readonly secret: string;
+      /** Registry-created identity that owns `secret`; never caller supplied. */
+      readonly expectedPrincipal: BrowserAutomationPrincipal;
+      readonly principal: ProcessPrincipal;
+      /** The canvas the admitted seat sits on; its pause state rules acting routes. */
+      readonly canvasName: string;
+      readonly targetCount: number;
+    }
+  | { readonly ok: false; readonly denial: EdgeGrantDenial; readonly message: string };
+
+export interface EdgeGrantService {
+  /**
+   * Admit the seat generation credential a control request presents (product
+   * path). The same registry lookup the work socket admits on.
+   */
+  readonly admitCredential: (credential: string | undefined) => Promise<EdgeGrantResult>;
+  /** Admit from an already-resolved principal (tests / internal). */
+  readonly admitPrincipal: (principal: ProcessPrincipal) => Promise<EdgeGrantResult>;
+  readonly clear: () => void;
+  /**
+   * Document-commit invalidation. With change detail, selectively tears down
+   * (caller, target) sessions for lost edges and attenuates grants in place.
+   * Without detail, falls back to full canvas grant revoke (legacy / clear).
+   */
+  readonly invalidateCanvas: (
+    canvasName: string,
+    detail?: CanvasChangeDetail,
+  ) => ReadonlyArray<EdgeRevocationReceipt>;
+  /** Test / doctor seam: last edge-delete receipts for this process. */
+  readonly lastRevocationReceipts: () => ReadonlyArray<EdgeRevocationReceipt>;
+}
+
+interface CacheEntry {
+  readonly secret: string;
+  readonly principal: BrowserAutomationPrincipal;
+  readonly handle: BrowserCapabilityGrant["handle"];
+  readonly processKey: string;
+  readonly processPrincipal: ProcessPrincipal;
+  readonly callerNodeId: string;
+  targetSignature: string;
+  targets: ReadonlyArray<BrowserCapabilityTarget>;
+  readonly canvasName: string;
+  readonly expiresAt: number;
+}
+
+/** Session plane used only for edge-delete (caller, target) teardown. */
+export interface EdgeGrantSessionTeardown {
+  readonly destroyOwnerTargetSessions: (
+    owner: string,
+    ref: string,
+    reason?: string,
+  ) => number;
+}
+
+export interface EdgeGrantDependencies {
+  readonly capabilities: BrowserCapabilityRegistry;
+  readonly resolvePageTarget: PageTargetResolver;
+  /** Where seat credentials are read, and how their ends are heard (the core's registry). */
+  readonly credentials?: SeatCredentialPort;
+  readonly wallNow?: () => number;
+  readonly ttlMs?: number;
+  /**
+   * Browser composition supplies this from the core's machine record. A caller
+   * assigned to another machine never gets a secret: pages are local. It is
+   * async because main holds no copy of that name, and a name it cannot read
+   * fails closed.
+   */
+  readonly machineName: () => Promise<string | undefined>;
+  /**
+   * Whether this machine edits the canvas. Pages live on the editing machine,
+   * so a page on a canvas held as a copy is never admitted, whatever the copy
+   * holds.
+   */
+  readonly editsCanvas: (canvasName: string) => Promise<boolean>;
+  /**
+   * Optional session teardown for edge-delete (I10). When omitted, grants
+   * still attenuate / revoke but live views are not destroyed here.
+   */
+  readonly sessions?: EdgeGrantSessionTeardown;
+  /** Current model rows from the main-owned service. */
+  readonly listCanvasModels: () => Promise<
+    ReadonlyArray<{ readonly name: string; readonly doc: Canvas }>
+  >;
+}
+
+const fail = (denial: EdgeGrantDenial, message: string): EdgeGrantResult => ({
+  ok: false,
+  denial,
+  message,
+});
+
+/** Cache key for a bound process. Total over principal kinds — a caller that
+ * physics admits as an actor must be revocable here, so there is no kind that
+ * fails to produce a key. */
+const processKeyOf = (principal: ProcessPrincipal): string => {
+  const anchor = `${principal.canvasName ?? ""}:${principal.nodeId ?? ""}`;
+  const seat = principal.agentKey ?? principal.bindingId ?? "";
+  return `agent:${seat}:${anchor}`;
+};
+
+const sameTargetSignature = (
+  cached: string,
+  targets: ReadonlyArray<BrowserCapabilityTarget>,
+): boolean => cached === makeTargetSignature(targets);
+
+const makeTargetSignature = (targets: ReadonlyArray<BrowserCapabilityTarget>): string => {
+  const stable = targets
+    .map((target) =>
+      JSON.stringify({
+        ref: target.ref,
+        profile: target.profile,
+        exactOrigins: [...target.exactOrigins].sort(),
+      }),
+    )
+    .sort();
+  return createHash("sha256")
+    .update(stable.join("|"))
+    .digest("base64url");
+};
+
+/**
+ * The seat credentials the browser door admits on. The registry lives in the
+ * core, beside the seats that mint them; main holds no copy, so a suspension
+ * or a revocation is never a stale yes here.
+ */
+export type SeatCredentialPort = {
+  readonly lookup: (credential: string) => Promise<SeatCredentialLookup>;
+  /** Every publish, suspension and revocation, as it happens. Returns the unsubscribe. */
+  readonly onEvent: (listener: (event: SeatCredentialEvent) => void) => () => void;
+};
+
+/** Main's side: the core's registry by name, and its changes on the push bus. */
+const coreCredentials = (): SeatCredentialPort => ({
+  lookup: (credential) => core.call("seatCredential.lookup", { credential }),
+  onEvent: (listener) =>
+    onCorePush(SEAT_CREDENTIAL_CHANGED, (event) => listener(event as SeatCredentialEvent)),
+});
+
+export const makeEdgeGrantService = (
+  dependencies: EdgeGrantDependencies,
+): EdgeGrantService => {
+  const credentials = dependencies.credentials ?? coreCredentials();
+  const wallNow = dependencies.wallNow ?? Date.now;
+  const ttlMs = dependencies.ttlMs ?? EDGE_GRANT_TTL_MS;
+  const cache = new Map<string, CacheEntry>();
+  const cacheByCanvas = new Map<string, Set<string>>();
+  const capabilityPrincipals = new Map<string, BrowserAutomationPrincipal>();
+  let lastReceipts: ReadonlyArray<EdgeRevocationReceipt> = Object.freeze([]);
+  // A generation that ends takes its grant with it; the next one remints.
+  credentials.onEvent((event) => {
+    if (event.type !== "revoked") return;
+    const cacheKey = processKeyOf(event.principal);
+    revokeCacheEntry(cacheKey);
+    capabilityPrincipals.delete(cacheKey);
+  });
+  // Admissions cross async document and page-target reads. Record every
+  // canvas invalidation even when no cached grant exists yet, so a request
+  // that observed an older graph cannot mint authority after an edge delete.
+  let changeSequence = 0;
+  let lastClearSequence = 0;
+  const canvasInvalidatedAt = new Map<string, number>();
+
+  const removeCacheIndex = (canvasName: string, cacheKey: string): void => {
+    const keys = cacheByCanvas.get(canvasName);
+    if (keys === undefined) return;
+    keys.delete(cacheKey);
+    if (keys.size === 0) cacheByCanvas.delete(canvasName);
+  };
+
+  const revokeCacheEntry = (cacheKey: string): void => {
+    const existing = cache.get(cacheKey);
+    if (existing === undefined) return;
+    cache.delete(cacheKey);
+    removeCacheIndex(existing.canvasName, cacheKey);
+    try {
+      dependencies.capabilities.revoke(existing.handle, "superseded");
+    } catch {
+      // best-effort
+    }
+  };
+
+  const tearDownLostTargets = (
+    entry: CacheEntry,
+    lost: ReadonlyArray<{
+      readonly pageRef: string;
+      readonly callerNodeId: string;
+    }>,
+    canvasName: string,
+  ): EdgeRevocationReceipt[] => {
+    if (lost.length === 0) return [];
+    const lostRefs = lost.map((item) => item.pageRef);
+    try {
+      dependencies.capabilities.dropTargets(entry.handle, lostRefs);
+    } catch {
+      // best-effort attenuation; continue to session teardown
+    }
+    const receipts: EdgeRevocationReceipt[] = [];
+    for (const item of lost) {
+      let sessionsDestroyed: number | undefined;
+      if (dependencies.sessions !== undefined) {
+        try {
+          sessionsDestroyed = dependencies.sessions.destroyOwnerTargetSessions(
+            entry.handle.auditId,
+            item.pageRef,
+            "browser edge revoked",
+          );
+        } catch {
+          sessionsDestroyed = undefined;
+        }
+      }
+      receipts.push(
+        receiptForTeardown({
+          canvasName,
+          pageRef: item.pageRef as EdgeRevocationReceipt["pageRef"],
+          callerNodeId: item.callerNodeId,
+          sessionsDestroyed,
+        }),
+      );
+    }
+    const remaining = entry.targets.filter(
+      (target) => !lostRefs.includes(target.ref),
+    );
+    entry.targets = remaining;
+    entry.targetSignature = makeTargetSignature(remaining);
+    if (remaining.length === 0) {
+      // dropTargets already terminated when empty; drop cache index.
+      cache.delete(entry.processKey);
+      removeCacheIndex(entry.canvasName, entry.processKey);
+    }
+    return receipts;
+  };
+
+  const invalidateCanvas = (
+    canvasName: string,
+    detail?: CanvasChangeDetail,
+  ): ReadonlyArray<EdgeRevocationReceipt> => {
+    changeSequence += 1;
+    canvasInvalidatedAt.set(canvasName, changeSequence);
+    const affected = cacheByCanvas.get(canvasName);
+    if (affected === undefined) {
+      lastReceipts = Object.freeze([]);
+      return lastReceipts;
+    }
+
+    // No change detail → full revoke (process unbind / clear paths).
+    if (detail === undefined) {
+      for (const cacheKey of [...affected]) {
+        revokeCacheEntry(cacheKey);
+      }
+      lastReceipts = Object.freeze([]);
+      return lastReceipts;
+    }
+
+    const receipts: EdgeRevocationReceipt[] = [];
+    for (const cacheKey of [...affected]) {
+      const entry = cache.get(cacheKey);
+      if (entry === undefined) continue;
+
+      const nextCaller = detail.next === undefined ? undefined
+        : resolveBrowserCallerFromProcess(detail.next, canvasName, entry.processPrincipal);
+      const callerAdmitted = nextCaller?.ok === true
+        && nextCaller.principal.nodeId === entry.callerNodeId
+        && callerDenialFor(detail.next!, entry.callerNodeId, knownMachineName) === undefined;
+      const lost =
+        !callerAdmitted
+          ? allTargetsLost(entry.targets, canvasName, entry.callerNodeId)
+          : lostPageTargetsForCaller(
+              detail.previous,
+              detail.next,
+              canvasName,
+              entry.callerNodeId,
+              entry.targets,
+            );
+
+      if (lost.length === 0) continue;
+      receipts.push(...tearDownLostTargets(entry, lost, canvasName));
+    }
+    lastReceipts = Object.freeze(receipts);
+    return lastReceipts;
+  };
+
+  const loadDocs = async (): Promise<ReadonlyArray<{ name: string; doc: Canvas }>> => {
+    try {
+      const rows = await dependencies.listCanvasModels();
+      return [...rows]
+        .map((r) => ({ name: r.name, doc: r.doc }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    } catch {
+      return [];
+    }
+  };
+
+  const buildTargets = async (
+    pageRefs: ReadonlyArray<string>,
+  ): Promise<ReadonlyArray<BrowserCapabilityTarget>> => {
+    const targets: BrowserCapabilityTarget[] = [];
+    for (const ref of pageRefs) {
+      const resolved = await dependencies.resolvePageTarget(ref);
+      if (!resolved.ok || resolved.data.ref !== ref) continue;
+      const origin = exactHttpOrigin(resolved.data.url);
+      if (origin === undefined) continue;
+      targets.push(
+        Object.freeze({
+          ref,
+          profile: resolved.data.profile,
+          exactOrigins: Object.freeze([origin]),
+        }),
+      );
+    }
+    return Object.freeze(
+      [...targets].sort((a, b) => a.ref.localeCompare(b.ref)),
+    );
+  };
+
+  /**
+   * The machine name this grant last read, kept for the synchronous canvas
+   * change path: admission may await the core, invalidation cannot. A name
+   * nobody has read yet fails closed, which tears every target down.
+   */
+  let knownMachineName: string | undefined;
+
+  const callerDenialFor = (
+    doc: Canvas,
+    callerNodeId: string,
+    machineName: string | undefined,
+  ): EdgeGrantResult | undefined => {
+    const caller = doc.nodes.get(asNodeId(callerNodeId));
+    if (
+      machineName === undefined ||
+      caller === undefined ||
+      !isThisMachine("host" in caller ? caller.host : undefined, machineName)
+    ) {
+      return fail(
+        "physical_host_mismatch",
+        "caller node is not assigned to this machine",
+      );
+    }
+    return undefined;
+  };
+
+  const admitsCallerOnThisMachine = async (
+    doc: Canvas,
+    callerNodeId: string,
+  ): Promise<EdgeGrantResult | undefined> => {
+    const machineName = await dependencies.machineName().catch(() => undefined);
+    if (machineName !== undefined) knownMachineName = machineName;
+    return callerDenialFor(doc, callerNodeId, machineName);
+  };
+
+  const admitPrincipal = async (
+    principal: ProcessPrincipal,
+  ): Promise<EdgeGrantResult> => {
+    const admissionStartedAt = changeSequence;
+    const docs = await loadDocs();
+    if (docs.length === 0) {
+      return fail("canvas_unreadable", "no canvases available for process-bind resolution");
+    }
+
+    const matches: Array<{
+      canvasName: string;
+      callerNodeId: string;
+      doc: Canvas;
+      pageRefs: ReadonlyArray<string>;
+    }> = [];
+
+    let lastDenial: EdgeGrantDenial = "not_found";
+    let lastMessage = "no matching actor node for connecting process";
+
+    for (const { name, doc } of docs) {
+      const resolved = resolveBrowserCallerFromProcess(doc, name, principal);
+      if (!resolved.ok) {
+        lastDenial =
+          resolved.denial === "not_connected"
+            ? "not_connected"
+            : resolved.denial === "ambiguous"
+              ? "ambiguous"
+              : resolved.denial === "caller_wrong_kind"
+                ? "caller_wrong_kind"
+              : "not_found";
+        lastMessage = resolved.message;
+        continue;
+      }
+      matches.push({
+        canvasName: resolved.principal.canvasName,
+        callerNodeId: resolved.principal.nodeId,
+        doc,
+        pageRefs: resolved.pageRefs,
+      });
+    }
+
+    if (matches.length === 0) {
+      return fail(lastDenial, lastMessage);
+    }
+    if (matches.length > 1) {
+      return fail(
+        "ambiguous",
+        "connecting process matches multiple canvas nodes — keep one actor card per process",
+      );
+    }
+
+    const match = matches[0]!;
+    const callerDenial = await admitsCallerOnThisMachine(match.doc, match.callerNodeId);
+    if (callerDenial !== undefined) return callerDenial;
+    if (!(await dependencies.editsCanvas(match.canvasName).catch(() => false))) {
+      return fail(
+        "physical_host_mismatch",
+        "this machine holds a copy of the canvas; its pages live on the machine that edits it",
+      );
+    }
+    const targets = await buildTargets(match.pageRefs);
+    if (targets.length === 0) {
+      return fail(
+        "not_connected",
+        "missing edge between caller and a page node — draw an edge in Junto",
+      );
+    }
+    if (
+      lastClearSequence > admissionStartedAt ||
+      (canvasInvalidatedAt.get(match.canvasName) ?? 0) > admissionStartedAt
+    ) {
+      return fail(
+        "not_connected",
+        "canvas changed during browser edge admission — retry against the current graph",
+      );
+    }
+
+    const cacheKey = processKeyOf(principal);
+    const now = wallNow();
+    const existing = cache.get(cacheKey);
+    if (existing !== undefined) {
+      if (
+        existing.expiresAt > now + 5_000 &&
+        sameTargetSignature(existing.targetSignature, targets)
+      ) {
+        return {
+          ok: true,
+          secret: existing.secret,
+          expectedPrincipal: existing.principal,
+          principal,
+          canvasName: match.canvasName,
+          targetCount: targets.length,
+        };
+      }
+      // Target set changed since mint: drop lost pages in place so remaining
+      // (caller, target) sessions keep their auditId; then remint only when
+      // the grant is empty or fully superseded by a different signature that
+      // we cannot expand in place (origin change on a kept ref).
+      const existingRefs = new Set(existing.targets.map((t) => t.ref));
+      const nextRefs = new Set(targets.map((t) => t.ref));
+      const lostOnly = existing.targets.filter((t) => !nextRefs.has(t.ref));
+      const gainedOnly = targets.filter((t) => !existingRefs.has(t.ref));
+      const sameRefs =
+        lostOnly.length === 0 &&
+        gainedOnly.length === 0 &&
+        existing.targets.length === targets.length;
+      if (lostOnly.length > 0 && gainedOnly.length === 0) {
+        tearDownLostTargets(
+          existing,
+          lostOnly.map((t) => ({
+            pageRef: t.ref,
+            callerNodeId: existing.callerNodeId,
+          })),
+          match.canvasName,
+        );
+        if (cache.has(cacheKey) && existing.expiresAt > now + 5_000) {
+          return {
+            ok: true,
+            secret: existing.secret,
+            expectedPrincipal: existing.principal,
+            principal,
+            canvasName: match.canvasName,
+            targetCount: existing.targets.length,
+          };
+        }
+      } else if (sameRefs) {
+        // Origin metadata drift — remint quietly without owner wipe of
+        // remaining pages: full revoke then reissue below.
+        revokeCacheEntry(cacheKey);
+      } else {
+        // Gained targets or mixed gain/loss: remint (new auditId). Surviving
+        // sessions under the old auditId are destroyed with the grant.
+        revokeCacheEntry(cacheKey);
+      }
+    }
+
+    let capPrincipal = capabilityPrincipals.get(cacheKey);
+    if (capPrincipal === undefined) {
+      try {
+        capPrincipal = dependencies.capabilities.createPrincipal();
+        capabilityPrincipals.set(cacheKey, capPrincipal);
+      } catch {
+        return fail("closed", "browser authority is closed");
+      }
+    }
+
+    let grant: BrowserCapabilityGrant;
+    try {
+      grant = dependencies.capabilities.issue(capPrincipal, {
+        actions: [...BROWSER_CAPABILITY_ACTIONS],
+        targets,
+        ttlMs,
+        maxUses: EDGE_GRANT_MAX_USES,
+        maxInFlight: EDGE_GRANT_MAX_IN_FLIGHT,
+        actorNodeId: match.callerNodeId,
+      });
+    } catch (error) {
+      const reason =
+        error instanceof Error && "reason" in error
+          ? String((error as { reason: unknown }).reason)
+          : "invalid";
+      if (reason === "capacity") return fail("capacity", "browser authority capacity reached");
+      if (reason === "closed") return fail("closed", "browser authority is closed");
+      return fail("not_connected", "could not mint edge-scoped browser authority");
+    }
+
+    cache.set(cacheKey, {
+      secret: grant.secret,
+      principal: capPrincipal,
+      handle: grant.handle,
+      processKey: cacheKey,
+      processPrincipal: principal,
+      callerNodeId: match.callerNodeId,
+      targetSignature: makeTargetSignature(targets),
+      targets,
+      canvasName: match.canvasName,
+      expiresAt: grant.expiresAt,
+    });
+    const keys = cacheByCanvas.get(match.canvasName);
+    if (keys === undefined) {
+      cacheByCanvas.set(match.canvasName, new Set([cacheKey]));
+    } else {
+      keys.add(cacheKey);
+    }
+
+    return {
+      ok: true,
+      secret: grant.secret,
+      expectedPrincipal: capPrincipal,
+      principal,
+      canvasName: match.canvasName,
+      targetCount: targets.length,
+    };
+  };
+
+  // Live credentials admit as their seat, suspended ones fail closed until
+  // canvas reattach, revoked ones hear the offboarded sentence, and absent or
+  // unknown values are strangers. Sentences match the work socket's.
+  const admitCredential = async (
+    credential: string | undefined,
+  ): Promise<EdgeGrantResult> => {
+    let found: SeatCredentialLookup;
+    if (credential === undefined) found = { status: "unknown" };
+    else {
+      try {
+        found = await credentials.lookup(credential);
+      } catch {
+        // The core did not answer: a stranger, never a yes.
+        found = { status: "unknown" };
+      }
+    }
+    if (found.status === "live") return admitPrincipal(found.principal);
+    if (found.status === "suspended") {
+      return fail(
+        "seat_suspended",
+        "this seat is detached from its canvas — reattach it on the canvas and retry",
+      );
+    }
+    if (found.status === "revoked") {
+      return fail("process_offboarded", OFFBOARDED_SESSION_MESSAGE);
+    }
+    return fail(
+      "process_unbound",
+      "connecting process presents no live seat credential — run the CLI from inside your Junto seat",
+    );
+  };
+
+  return Object.freeze({
+    admitCredential,
+    admitPrincipal,
+    clear: () => {
+      changeSequence += 1;
+      lastClearSequence = changeSequence;
+      const entries = [...cache.keys()];
+      for (const cacheKey of entries) {
+        revokeCacheEntry(cacheKey);
+      }
+      cache.clear();
+      cacheByCanvas.clear();
+      capabilityPrincipals.clear();
+      canvasInvalidatedAt.clear();
+      lastReceipts = Object.freeze([]);
+    },
+    invalidateCanvas,
+    lastRevocationReceipts: () => lastReceipts,
+  });
+};

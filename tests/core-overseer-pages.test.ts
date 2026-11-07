@@ -1,13 +1,13 @@
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { Layer, ManagedRuntime } from "effect";
 import { afterEach, expect, it } from "vitest";
-import { portCore, type CorePort } from "../src/main/core-process/port";
-import { runHostOp } from "../src/main/core-process/main-side/host-op-bodies";
-import { serveCore } from "../src/main/core-process/serve";
-import { hostCaptureApplicationPage, hostOverseerPages } from "../src/main/core-process/ops/overseer-pages";
-import { serveOverseerHost } from "../src/main/core-process/main-side/overseer-pages";
-import type { OverseerPages } from "../src/main/junto/overseer/pages";
-import type { ResolvedPageTarget } from "../src/main/junto/browser/page-target";
+import { portCore, type CorePort } from "../src/contract/core/port";
+import { runHostOp } from "../src/app/core-process/main-side/host-op-bodies";
+import { serveCore } from "../src/core/serve";
+import { hostCaptureApplicationPage, hostOverseerPages } from "../src/core/ops/overseer-pages";
+import { serveOverseerHost } from "../src/app/core-process/main-side/overseer-pages";
+import type { OverseerPages } from "../src/node/overseer/pages";
+import type { ResolvedPageTarget } from "../src/core/browser/page-target";
 import type { CoreRunner } from "./support/in-process-core";
 
 const portOf = (port: MessagePort): CorePort => ({

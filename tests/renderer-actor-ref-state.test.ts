@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import { ActorRef } from "../src/shared/work-protocol";
 import {
   replaceActiveActorRefs,
-} from "../src/renderer/lib/mutations";
+} from "../src/window/lib/mutations";
 import { note } from "./support/model-nodes";
 import { openCanvas } from "./support/open-canvas";
-import { state$ } from "../src/renderer/lib/state";
+import { state$ } from "../src/window/lib/state";
 
 const actorRef = Schema.decodeUnknownSync(ActorRef);
 

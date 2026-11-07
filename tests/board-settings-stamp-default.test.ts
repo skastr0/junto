@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeBoardSettings } from "../src/renderer/components/rules/board-settings";
+import { normalizeBoardSettings } from "../src/window/components/rules/board-settings";
 
 describe("normalizeBoardSettings keeps the stamp default", () => {
   it("keeps a default above zero and drops zero, which omitted already means", () => {

@@ -9,25 +9,25 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/sql";
-import { ModelService } from "../../src/main/junto/model/service";
-import { WorkModelDependentsLive } from "../../src/main/junto/work/model-dependents";
+import { ModelService } from "../../src/core/model/service";
+import { WorkModelDependentsLive } from "../../src/core/work/model-dependents";
 import { Command } from "../../src/shared/model";
 import { modelSeedCommands, type ModelFixture } from "./model";
-import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../../src/main/junto/seat-sessions/repository";
-import type { SeatClockRecord } from "../../src/main/junto/seat-sessions/operator-offboard";
+import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../../src/core/seat-sessions/repository";
+import type { SeatClockRecord } from "../../src/core/seat-sessions/operator-offboard";
 import {
   makeStateEngineLive,
-} from "../../src/main/junto/state/engine";
-import { SettingsLive } from "../../src/main/junto/settings/service";
+} from "../../src/core/state/engine";
+import { SettingsLive } from "../../src/core/settings/service";
 import type { UsageState } from "../../src/shared/usage";
 import type { AgentSignal } from "../../src/shared/agent-signals";
 import {
   WorkRepositoryLive,
-} from "../../src/main/junto/work/repository";
+} from "../../src/core/work/repository";
 import {
   MachineRepository,
   makeMachineRepositoryLive,
-} from "../../src/main/junto/machines/repository";
+} from "../../src/core/machines/repository";
 import { THIS_MACHINE } from "../../tests/support/machines";
 export interface Sandbox {
   readonly root: string;

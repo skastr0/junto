@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, test } from "vitest";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
+import { STATE_SCHEMA_SQL } from "../src/core/state/schema";
 
 // The reads that ask the log by kind of fact must search an index, never walk
 // every event on the canvas (protect the main thread, v72). Each shape below

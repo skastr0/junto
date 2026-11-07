@@ -26,23 +26,23 @@ import {
   startBrowserControlServer,
   type BrowserControlRuntime,
   type BrowserControlServer,
-} from "../src/main/junto/browser/control";
-import type { EdgeGrantService } from "../src/main/junto/browser/edge-grant";
-import { makeBrowserProfileService } from "../src/main/junto/browser/profiles";
+} from "../src/app/browser/control";
+import type { EdgeGrantService } from "../src/app/browser/edge-grant";
+import { makeBrowserProfileService } from "../src/node/browser/profiles";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
   type BrowserViewHandle,
-} from "../src/main/junto/browser/sessions";
-import type { PageTargetResolver } from "../src/main/junto/browser/page-target";
+} from "../src/app/browser/sessions";
+import type { PageTargetResolver } from "../src/core/browser/page-target";
 import {
   BROWSER_CAPABILITY_ACTIONS,
   makeBrowserCapabilityRegistry,
   type BrowserAutomationPrincipal,
   type BrowserCapabilityRegistry,
-} from "../src/main/junto/browser/capabilities";
+} from "../src/app/browser/capabilities";
 import { localBrowserTestMachineName } from "./browser-test-machine";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/core/state/engine";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const TEST_ROOT_PREFIX = "/tmp/vct-";

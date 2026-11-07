@@ -11,16 +11,16 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
+import { migrateMachineNames } from "../src/core/state/migrate-machine-names";
 import {
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V28_IDENTITY,
   STATE_SCHEMA_V29_IDENTITY,
   migrateStateSchema,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { artifactBodyRef } from "../src/main/junto/work/artifact-repository";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/core/state/schema-identity";
+import { artifactBodyRef } from "../src/core/work/artifact-repository";
 import { STATE_SCHEMA_V28_SQL, STATE_SCHEMA_V29_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;

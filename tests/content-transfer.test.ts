@@ -6,12 +6,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   parseContentHelperArgs,
   contentHelperArgv,
-} from "../src/main/junto/content/helper-contract";
+} from "../src/node/content/helper-contract";
 import {
   contentObjectPath,
   contentPartialPath,
   contentStoreRoot,
-} from "../src/main/junto/content/paths";
+} from "../src/node/content/paths";
 import {
   contentRefForTransfer,
   contentTransferPartialId,
@@ -20,11 +20,11 @@ import {
   statContentForTransfer,
   parseContentHelperStatus,
   encodeContentHelperStatus,
-} from "../src/main/junto/content/transfer-local";
+} from "../src/node/content/transfer-local";
 import {
   ContentStoreError,
   ingestContentBytes,
-} from "../src/main/junto/content/store";
+} from "../src/node/content/store";
 import { lstatSync, existsSync } from "node:fs";
 
 const roots: string[] = [];

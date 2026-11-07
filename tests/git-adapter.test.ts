@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { readGitLog, readGitShow, readGitStatus } from "../src/main/junto/adapters/git";
+import { readGitLog, readGitShow, readGitStatus } from "../src/core/adapters/git";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 

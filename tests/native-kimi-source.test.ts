@@ -17,7 +17,7 @@ import {
   resolveKimiCredential,
   suppressDuplicateCodeWeekly,
   windowDurationMinutes,
-} from "../src/main/junto/usage/kimi-source";
+} from "../src/core/usage/kimi-source";
 
 const FETCHED = "2026-08-17T12:00:00.000Z";
 

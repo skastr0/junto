@@ -7,7 +7,7 @@ import path from "node:path";
 import { gunzipSync } from "node:zlib";
 import { createPackage } from "@electron/asar";
 import { afterEach, expect, it } from "vitest";
-import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
+import { machineBundleFiles } from "../src/node/hosts/bundle";
 import { decodeMachineReleaseCatalog, getCompiledMachineReleaseCatalog, MACHINE_RELEASE_ORIGIN, MAX_MACHINE_ARCHIVE_BYTES, type MachineReleaseCatalog } from "../src/shared/machine-release";
 import { archiveMachineBundle, machineTarHeader } from "../scripts/machine-release";
 import { extractMachineReleaseCatalog, machineReleaseCatalogConstant } from "../scripts/machine-release-catalog";

@@ -5,7 +5,7 @@ import type {
   AppProcessLease,
   AppProcessPlane,
   AppProcessSignalReceipt,
-} from "../src/main/junto/app-process-plane";
+} from "../src/node/app-process-plane";
 import {
   SYSTEMCTL_DEADLINE_MS,
   SYSTEMCTL_PATH,
@@ -13,7 +13,7 @@ import {
   createSystemctlRunner,
   systemdUserUnitTarget,
   type JuntoSystemdUserUnitTarget,
-} from "../src/main/junto/supervision/systemctl-runner";
+} from "../src/node/supervision/systemctl-runner";
 
 type RunnerProcessPlane = Pick<
   AppProcessPlane,

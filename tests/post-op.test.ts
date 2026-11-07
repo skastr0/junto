@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { makePostOps } from "../src/renderer/lib/post-op";
-import { makeLocalSubjectThreads } from "../src/renderer/lib/subject-threads-source";
+import { makePostOps } from "../src/window/lib/post-op";
+import { makeLocalSubjectThreads } from "../src/window/lib/subject-threads-source";
 import { asNodeId } from "../src/shared/model";
 
 const counter = () => {

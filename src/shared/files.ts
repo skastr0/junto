@@ -2,7 +2,7 @@ import type { NodeId } from "./physics/schema";
 
 /**
  * The Files node's reach into its folder (0.11, F2): what the renderer may
- * ask main for, and what comes back. Main is `src/main/junto/files/`.
+ * ask main for, and what comes back. The core serves it, from `src/core/files/`.
  *
  * The renderer never names an absolute path. Every call names the node (its
  * canvas and id) and a path relative to the node's root; main reads the root

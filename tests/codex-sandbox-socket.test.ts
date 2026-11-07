@@ -16,11 +16,11 @@ import {
   CLAUDE_TEMPLATE,
   CODEX_TEMPLATE,
 } from "../src/shared/managed-terminal-templates";
-import { resolveLaunch } from "../src/main/junto/term/local-host";
+import { resolveLaunch } from "../src/core/term/local-host";
 import {
   resetHostProbedFlagCacheForTests,
   supportedHostProbedFlags,
-} from "../src/main/junto/term/templates/harness-install";
+} from "../src/core/term/templates/harness-install";
 
 const WORK_SOCKET = "/Users/operator/.junto/work/control.sock";
 const PROFILE = "junto-1a2b3c4d5e6f7a8b";

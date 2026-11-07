@@ -26,8 +26,8 @@ import {
   wholeMinutesBetween,
 } from "../src/shared/seat-offboard";
 import { SETTINGS_VERSION, applySettingsPatch, defaultSettings, offboardRules } from "../src/shared/settings";
-import { applyAndValidatePatch, decodePatchInput } from "../src/main/junto/settings/patch";
-import { decodeStoredSettings, preferencesFromSettings } from "../src/main/junto/settings/state-schema";
+import { applyAndValidatePatch, decodePatchInput } from "../src/core/settings/patch";
+import { decodeStoredSettings, preferencesFromSettings } from "../src/core/settings/state-schema";
 
 describe("offboard rules", () => {
   it("default to one cache window of 60 minutes, with no per-harness windows", () => {

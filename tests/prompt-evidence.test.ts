@@ -3,7 +3,7 @@ import {
   PASTE_CHIP_TEXT,
   promptHasPasteChip,
   promptStillPending,
-} from "../src/main/junto/term/drive";
+} from "../src/core/term/drive";
 
 const RULE = "─".repeat(40);
 

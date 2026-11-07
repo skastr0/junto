@@ -26,7 +26,7 @@ vi.mock("electron", () => ({
 }));
 
 const loadPreload = async (): Promise<JuntoApi> => {
-  await import("../src/preload/index");
+  await import("../src/window/preload/index");
   const api = electron.exposed.get("junto") as
     | JuntoApi
     | undefined;

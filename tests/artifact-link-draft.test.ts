@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { NodeId } from "../src/shared/physics/schema";
 import type { ItemId } from "../src/shared/work-ids";
-import { artifactLinkCandidates, linkCandidateLabel, linkQueryAt, type LinkableArtifact } from "../src/renderer/lib/artifact-link-draft";
+import { artifactLinkCandidates, linkCandidateLabel, linkQueryAt, type LinkableArtifact } from "../src/window/lib/artifact-link-draft";
 
 const artifact = (title: string, id: string): LinkableArtifact => ({
   ref: { kind: "artifact", nodeId: "artifacts-01M5ZC0000000000000000000A" as NodeId, artifactId: id as ItemId },

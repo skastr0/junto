@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { verbSentence } from "../src/renderer/lib/verb-sentence";
+import { verbSentence } from "../src/window/lib/verb-sentence";
 import { VERBS } from "../src/shared/physics";
 
 describe("verbSentence", () => {

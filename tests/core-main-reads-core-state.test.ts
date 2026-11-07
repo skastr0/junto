@@ -7,15 +7,15 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { inProcessCore, type CoreRunner } from "./support/in-process-core";
-import "../src/main/core-process/ops/companion";
-import { useCoreClient } from "../src/main/core-process/main-client";
+import "../src/core/ops/companion";
+import { useCoreClient } from "../src/app/core-process/main-client";
 import { ARTIFACT_LINKS_IPC_CHANNELS } from "../src/shared/artifact-links-ipc-channels";
-import { registerArtifactLinksIpc } from "../src/main/junto/work/artifact-links-ipc";
+import { registerArtifactLinksIpc } from "../src/app/work/artifact-links-ipc";
 import {
   desktopActiveCanvas,
   desktopDoneUnread,
   noteDesktopReport,
-} from "../src/main/junto/companion/desktop-report";
+} from "../src/core/companion/desktop-report";
 
 const runtimes: Array<ManagedRuntime.ManagedRuntime<never, never>> = [];
 const runtimeOf = (): ManagedRuntime.ManagedRuntime<never, never> => {

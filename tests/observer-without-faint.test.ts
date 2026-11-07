@@ -7,9 +7,9 @@
 import { readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
-import { SessionObserver } from "../src/main/junto/term/observer";
-import { withoutFaint } from "../src/main/junto/term/observer/session-observer";
-import { promptBoxRows } from "../src/main/junto/term/observer/regions";
+import { SessionObserver } from "../src/core/term/observer";
+import { withoutFaint } from "../src/core/term/observer/session-observer";
+import { promptBoxRows } from "../src/core/term/observer/regions";
 import { chunkEvents, corpusRoot, loadP1Fixture } from "./pty-e2e/runner";
 
 type Cell = { getChars: () => string; getWidth: () => number; isDim: () => number };

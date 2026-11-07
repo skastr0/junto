@@ -4,15 +4,15 @@ import {
   recordCapturedSessionId,
   getCapturedSessionId,
   resetSessionIdStoreForTest,
-} from "../src/main/junto/term/session-id-store";
-import { launchForManagedSpawn } from "../src/main/junto/term/managed-spawn-plan";
+} from "../src/core/term/session-id-store";
+import { launchForManagedSpawn } from "../src/core/term/managed-spawn-plan";
 import {
   GROK_MIN_POST_SPAWN_MS,
   ManagedTerminalDrive,
   CR,
   encodeBracketedPaste,
-} from "../src/main/junto/term/drive";
-import { newSeat } from "../src/renderer/lib/model-factories";
+} from "../src/core/term/drive";
+import { newSeat } from "../src/window/lib/model-factories";
 
 const originalJuntoHome = process.env.JUNTO_HOME;
 

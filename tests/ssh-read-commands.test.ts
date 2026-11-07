@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { inspectRemoteCommand } from "../src/main/junto/ssh/domain";
-import { remoteCat, remoteUname } from "../src/main/junto/ssh/read-commands";
+import { inspectRemoteCommand } from "../src/core/ssh/domain";
+import { remoteCat, remoteUname } from "../src/core/ssh/read-commands";
 
 describe("SSH read commands", () => {
   it("keeps named commands as argv", () => {

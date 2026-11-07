@@ -68,8 +68,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@shared": resolve(__dirname, "src/shared"),
-      "@main": resolve(__dirname, "src/main"),
-      "@renderer": resolve(__dirname, "src/renderer"),
+      "@window": resolve(__dirname, "src/window"),
       // Tests always run against the open-source stub, whatever the shell sets.
       ...overlayAlias(resolveOverlay({})),
     },

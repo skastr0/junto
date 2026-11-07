@@ -108,7 +108,7 @@ fi
 if [[ ! -f .preview-build-ready ]]; then
   # The window sends these exact builds, so validate both before packaging.
   JUNTO_FEATURE_PROFILE="$PREVIEW_PROFILE" JUNTO_FLEET_UI=1 bun -e '
-    import { inspectMachineBundle } from "./src/main/junto/hosts/bundle";
+    import { inspectMachineBundle } from "./src/node/hosts/bundle";
     import { buildIdentity } from "./scripts/build-identity";
     const build = buildIdentity(process.cwd());
     for (const target of ["darwin-arm64", "linux-x64"]) {

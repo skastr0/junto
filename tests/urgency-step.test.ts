@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { stepUrgencyWalk, type UrgencyWalk } from "../src/renderer/lib/urgency-step";
+import { stepUrgencyWalk, type UrgencyWalk } from "../src/window/lib/urgency-step";
 
 describe("stepUrgencyWalk", () => {
   const order = ["blocked", "waiting", "working"];

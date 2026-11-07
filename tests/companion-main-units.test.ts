@@ -6,8 +6,8 @@
 import { describe, expect, it } from "vitest";
 import type { AgentSignal } from "../src/shared/agent-signals";
 import { companionSeat } from "../src/shared/companion-seats";
-import { makeCompanionChanges } from "../src/main/junto/companion/changes";
-import { lanAddressesOf, pairingHosts, parseTailscaleStatus } from "../src/main/junto/companion/environment";
+import { makeCompanionChanges } from "../src/core/companion/changes";
+import { lanAddressesOf, pairingHosts, parseTailscaleStatus } from "../src/node/companion/environment";
 
 const signal = (state: AgentSignal["state"]): AgentSignal => ({
   signalId: "sig_1",

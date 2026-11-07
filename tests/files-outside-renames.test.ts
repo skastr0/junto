@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseFilePath, type FilePath } from "../src/shared/files";
-import { pairRenames, probePath, type FileId } from "../src/main/junto/files/outside-renames";
+import { pairRenames, probePath, type FileId } from "../src/core/files/outside-renames";
 
 const p = (path: string): FilePath => parseFilePath(path)!;
 

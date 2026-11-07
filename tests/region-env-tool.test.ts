@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { makeToolRunner, type ToolRunner } from "../src/main/junto/region-env/tool";
-import { createAppProcessPlane, type AppProcessPlane } from "../src/main/junto/app-process-plane";
+import { makeToolRunner, type ToolRunner } from "../src/core/region-env/tool";
+import { createAppProcessPlane, type AppProcessPlane } from "../src/node/app-process-plane";
 
 const node = process.execPath;
 let plane: AppProcessPlane;

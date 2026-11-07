@@ -10,9 +10,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { printedSessionIdOf } from "../src/main/junto/term/harness-record";
-import { extractSessionIdFromText } from "../src/main/junto/term/session-id-store";
-import { __setSessionExistenceHomeForTest, harnessSessionExists } from "../src/main/junto/term/session-existence";
+import { printedSessionIdOf } from "../src/core/term/harness-record";
+import { extractSessionIdFromText } from "../src/core/term/session-id-store";
+import { __setSessionExistenceHomeForTest, harnessSessionExists } from "../src/core/term/session-existence";
 
 const PAST = "01a11910-f9f3-7392-b27b-5fec896a6d87";
 /** What the reader took: the past id, cut where the screen cut it. */

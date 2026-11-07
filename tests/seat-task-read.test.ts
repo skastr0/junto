@@ -7,8 +7,8 @@ import { describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/model";
 import { mintItemId } from "../src/shared/resource-command";
 import { OPEN_TASK_STATES, seatNodeId, taskNodeId, type TaskState, type TaskView } from "../src/shared/task-model";
-import type { TaskListQuery } from "../src/main/junto/work/task-repository";
-import { readSeatTaskIndex, readTasksByNode } from "../src/main/junto/work/seat-task-read";
+import type { TaskListQuery } from "../src/core/work/task-repository";
+import { readSeatTaskIndex, readTasksByNode } from "../src/core/work/seat-task-read";
 import { canvasOf, note, seat, taskBoard } from "./support/model-nodes";
 
 const ada = seatNodeId(asNodeId("ada"));

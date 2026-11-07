@@ -4,7 +4,7 @@ import {
   currentThemeMode,
   setSystemPrefersDark,
   setThemePreference,
-} from "../src/main/junto/theme-state";
+} from "../src/core/theme-state";
 
 describe("theme resolution — one rule for main and renderer", () => {
   it("an explicit preference wins and never consults the OS", () => {

@@ -8,8 +8,8 @@ import { EventEmitter } from "node:events";
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CoreMessage } from "../src/main/core-process/port";
-import { serveTerminals, type SpawnPty } from "../src/main/terminal-process/serve";
+import type { CoreMessage } from "../src/contract/core/port";
+import { serveTerminals, type SpawnPty } from "../src/terminal/serve";
 
 const nodePty = createRequire(import.meta.url)("node-pty") as typeof import("node-pty");
 
@@ -19,7 +19,7 @@ vi.mock("electron", () => {
   const electron = { utilityProcess: { fork: () => fakeFork() } };
   return { ...electron, default: electron };
 });
-vi.mock("../src/main/terminal-process/entry?modulePath", () => ({ default: "/terminal-entry.js" }));
+vi.mock("../src/terminal/entry?modulePath", () => ({ default: "/terminal-entry.js" }));
 
 const opened: MessagePort[] = [];
 const fakeFork = () => {
@@ -65,9 +65,9 @@ const fakeFork = () => {
   return child;
 };
 
-const { startTerminalProcess } = await import("../src/main/terminal-process/host");
-const { createAppProcessPlane } = await import("../src/main/junto/app-process-plane");
-const { placeTerminals } = await import("../src/main/terminal-process/use");
+const { startTerminalProcess } = await import("../src/app/terminals/host");
+const { createAppProcessPlane } = await import("../src/node/app-process-plane");
+const { placeTerminals } = await import("../src/node/terminals/use");
 
 afterEach(() => {
   placeTerminals({ kind: "here" });

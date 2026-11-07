@@ -5,9 +5,9 @@
  * one line.
  */
 import { describe, expect, it } from "vitest";
-import { SeatStateMachine } from "../src/main/junto/term/agent-state";
-import { reviveTermHostEvent } from "../src/main/junto/term/control-client";
-import { decodeAgentSeatStateEvent } from "../src/renderer/lib/agent-seat-state";
+import { SeatStateMachine } from "../src/core/term/agent-state";
+import { reviveTermHostEvent } from "../src/core/term/control-client";
+import { decodeAgentSeatStateEvent } from "../src/window/lib/agent-seat-state";
 import { agentSeatStatusOf } from "../src/shared/agent-seat-state";
 import type { BindingId, SeatSnapshot, SeatStatus } from "../src/shared/harness-domain";
 import { describeSeatStatus, seatStatusTime } from "../src/shared/seat-status-text";

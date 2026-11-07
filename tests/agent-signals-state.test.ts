@@ -7,8 +7,8 @@ import {
   seatSignalRollups$,
   startAgentSignalSync,
   upsertAgentSignal,
-} from "../src/renderer/lib/agent-signals-state";
-import { state$ } from "../src/renderer/lib/state";
+} from "../src/window/lib/agent-signals-state";
+import { state$ } from "../src/window/lib/state";
 
 const signal = (over: Partial<AgentSignal>): AgentSignal => ({
   signalId: "s1",

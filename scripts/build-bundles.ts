@@ -8,7 +8,7 @@
  * window loads: main evaluated the core's module-level singletons as empty
  * copies. Every script that builds and then runs the app, every e2e lane, the
  * release stamp and bun run verify call this, so the app always has
- * `out/main/core-process.js` to fork (src/main/core-process/host.ts:105).
+ * `out/main/core-process.js` to fork (src/app/core-process/host.ts:105).
  */
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";

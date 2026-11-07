@@ -5,12 +5,12 @@ import { DatabaseSync } from "node:sqlite";
 import { Effect, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/sql";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
-import { StateTransactionOperation } from "../src/main/junto/state/service";
-import { withSqlRead } from "../src/main/junto/state/sql-read";
-import { CURRENT_STATE_SCHEMA_VERSION, STATE_SCHEMA_MIGRATIONS } from "../src/main/junto/state/migrations";
-import { LiveRepository, makeLiveRepository, operationArgsHash, type LiveRequestCorrelation } from "../src/main/junto/overseer/live/repository";
-import { MACHINE_NAMES_CORRECTED_TABLES } from "../src/main/junto/state/migrate-machine-names";
+import { makeStateEngineLive, StateEngine } from "../src/core/state/engine";
+import { StateTransactionOperation } from "../src/core/state/service";
+import { withSqlRead } from "../src/core/state/sql-read";
+import { CURRENT_STATE_SCHEMA_VERSION, STATE_SCHEMA_MIGRATIONS } from "../src/core/state/migrations";
+import { LiveRepository, makeLiveRepository, operationArgsHash, type LiveRequestCorrelation } from "../src/core/overseer/live/repository";
+import { MACHINE_NAMES_CORRECTED_TABLES } from "../src/core/state/migrate-machine-names";
 
 const roots: string[] = [];
 const runtimes: Array<ManagedRuntime.ManagedRuntime<StateEngine | SqlClient.SqlClient, unknown>> = [];

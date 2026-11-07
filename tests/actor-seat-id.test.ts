@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { expect, it } from "vitest";
 import { InstallationId } from "../src/shared/installation-id";
-import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
+import { deriveActorSeatId } from "../src/core/actor-seat-id";
 
 it("preserves the installed seat identity while separating machines and bindings", () => {
   const installation = Schema.decodeUnknownSync(InstallationId)("install-command");

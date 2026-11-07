@@ -2,14 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const flushCanvasEdits = vi.fn(async () => undefined);
 
-vi.mock("../src/renderer/lib/canvas-editor-flush", () => ({
+vi.mock("../src/window/lib/canvas-editor-flush", () => ({
   flushCanvasEdits: () => flushCanvasEdits(),
 }));
 
 import {
   OverseerSetError,
   setOverseerSeat,
-} from "../src/renderer/lib/overseer-set";
+} from "../src/window/lib/overseer-set";
 
 const modelCommand = vi.fn(async (_command: unknown) => ({ seq: 1 }));
 

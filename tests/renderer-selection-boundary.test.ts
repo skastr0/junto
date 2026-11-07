@@ -8,10 +8,10 @@ import {
   selectEdge,
   selectNode,
   state$,
-} from "../src/renderer/lib/state";
+} from "../src/window/lib/state";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const stateBoundary = join(root, "src", "renderer", "lib", "state.ts");
+const stateBoundary = join(root, "src", "window", "lib", "state.ts");
 
 const sourceFiles = (directory: string): ReadonlyArray<string> =>
   readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -25,7 +25,7 @@ describe("renderer selection boundary", () => {
 
   it("keeps mirrored selection writes inside the state boundary", () => {
     const directWrite = /state\$\.selected(?:NodeId|NodeIds|EdgeId)\.set\(/u;
-    const violations = sourceFiles(join(root, "src", "renderer"))
+    const violations = sourceFiles(join(root, "src", "window"))
       .filter((path) => path !== stateBoundary)
       .filter((path) => directWrite.test(readFileSync(path, "utf8")))
       .map((path) => relative(root, path));

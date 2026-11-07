@@ -18,8 +18,8 @@ import {
   STATE_SCHEMA_V61_IDENTITY,
   migrateStateSchema,
   type StateSchemaMigrationPlan,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V60_SQL, STATE_SCHEMA_V61_SQL } from "./fixtures/state-v13/schema";
 
 const FLEET_TABLES = ["canvas_authorities", "canvas_consensus", "canvas_log", "canvas_log_members", "canvas_log_waiting"];

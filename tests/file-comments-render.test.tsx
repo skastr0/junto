@@ -19,12 +19,12 @@ globalThis.ResizeObserver ??= class {
   disconnect(): void {}
 } as unknown as typeof ResizeObserver;
 
-const { FilesNode } = await import("../src/renderer/components/files/FilesNode");
-const { installFilesSource, makeLocalFiles, setFileDraft, fileDraft } = await import("../src/renderer/lib/files-source");
-const { setSubjectThreadsSource } = await import("../src/renderer/lib/subject-threads-source");
+const { FilesNode } = await import("../src/window/components/files/FilesNode");
+const { installFilesSource, makeLocalFiles, setFileDraft, fileDraft } = await import("../src/window/lib/files-source");
+const { setSubjectThreadsSource } = await import("../src/window/lib/subject-threads-source");
 // The viewers are lazily imported by FileView; warming the chunk keeps the
 // first paint from being the suspense fallback inside act().
-await import("../src/renderer/components/file-view/ImageViewer");
+await import("../src/window/components/file-view/ImageViewer");
 
 const nodeId = asNodeId("files-comments-render");
 const canvasName = "c";

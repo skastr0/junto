@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { OccupancySpectrum, deriveOccupancy } from "../src/shared/occupancy";
-import { actorOccupancyAttr, occupancyChrome } from "../src/renderer/lib/occupancy-chrome";
+import { actorOccupancyAttr, occupancyChrome } from "../src/window/lib/occupancy-chrome";
 
 
 const STATES = OccupancySpectrum.literals;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { keyAria, keyIs } from "../src/renderer/lib/key-match";
+import { keyAria, keyIs } from "../src/window/lib/key-match";
 
 const key = (over: { key: string; metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean }) => ({
   metaKey: false,

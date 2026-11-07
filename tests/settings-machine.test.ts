@@ -4,8 +4,8 @@
  */
 import { describe, expect, it } from "vitest";
 import type { RemoteHost } from "../src/shared/remote-hosts";
-import type { MachineFacts } from "../src/renderer/lib/machines";
-import { settingsMachineIn, settingsMachinesIn } from "../src/renderer/lib/settings-machine";
+import type { MachineFacts } from "../src/window/lib/machines";
+import { settingsMachineIn, settingsMachinesIn } from "../src/window/lib/settings-machine";
 
 const row = (id: string, more: Partial<RemoteHost> = {}): RemoteHost => ({
   id,

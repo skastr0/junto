@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, Effect, Result, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/sql";
-import { withSqlRead } from "../src/main/junto/state/sql-read";
+import { withSqlRead } from "../src/core/state/sql-read";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { ContentRef } from "../src/shared/content";
@@ -15,13 +15,13 @@ import {
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/junto/work/repository";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+} from "../src/core/work/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import { seedCanvasRows } from "./support/seed-canvas";
 import { seat } from "./support/model-nodes";
-import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
-import { mailboxMessageDeliveryId, mailboxMessageReadId } from "../src/main/junto/work/mailbox-receipts";
+import { unjournaledWorkMutationEffect } from "../src/core/work/mutation-seam";
+import { mailboxMessageDeliveryId, mailboxMessageReadId } from "../src/core/work/mailbox-receipts";
 import { THIS_MACHINE } from "./support/machines";
 
 const root = join(tmpdir(), `junto-work-v2-${randomUUID()}`);

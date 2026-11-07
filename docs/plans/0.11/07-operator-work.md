@@ -23,8 +23,8 @@ or a Cloudflare secret and the operator supplies them in the signal.
 - Signals are raised by seats only, three kinds: `escalate`, `blocked`,
   `feedback` (`src/shared/wire/agent-signals.ts:16`), states `open`,
   `answered`, `dismissed`, `withdrawn` (`:20`).
-- The feed: `src/renderer/components/feed/OperatorFeed.tsx`; replies:
-  `src/renderer/components/signals/SignalReply.tsx`, quick replies.
+- The feed: `src/window/components/feed/OperatorFeed.tsx`; replies:
+  `src/window/components/signals/SignalReply.tsx`, quick replies.
 - Region secrets: `src/shared/region-secrets.ts`, values per machine
   (`docs/machines.md` Rule 9).
 

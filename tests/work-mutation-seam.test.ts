@@ -14,9 +14,9 @@ import { DatabaseSync } from "node:sqlite";
 import { Cause, Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/sql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { StateTransactionOperation } from "../src/main/junto/state/service";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { StateTransactionOperation } from "../src/core/state/service";
+import { STATE_SCHEMA_SQL } from "../src/core/state/schema";
 import {
   CANVAS_REVISION_TABLES,
   UNJOURNALED_WORK_REASONS,
@@ -26,7 +26,7 @@ import {
   workStatementSinkParams,
   unjournaledWorkMutationEffect,
   type WorkPlaneTableRole,
-} from "../src/main/junto/work/mutation-seam";
+} from "../src/core/work/mutation-seam";
 
 const root = join(tmpdir(), `junto-seam-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -493,9 +493,9 @@ describe("work mutation sink attribution", () => {
 
   it("reads the sink out of every mutation the work plane can emit", () => {
     const sources = [
-      "src/main/junto/work/repository.ts",
-      "src/main/junto/work/journal.ts",
-      "src/main/junto/content/inline-media-migration.ts",
+      "src/core/work/repository.ts",
+      "src/core/work/journal.ts",
+      "src/core/content/inline-media-migration.ts",
     ];
     // Expand computed table targets into the concrete projection tables the
     // repository supports, then check their sink attribution independently.

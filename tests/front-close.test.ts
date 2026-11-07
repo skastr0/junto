@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { WINDOW_CLOSE_GUARD_MS, frontCloseFor } from "../src/renderer/lib/front-close";
+import { WINDOW_CLOSE_GUARD_MS, frontCloseFor } from "../src/window/lib/front-close";
 
 describe("frontCloseFor", () => {
   it("closes one layer when something is in front", () => {

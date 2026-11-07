@@ -7,14 +7,14 @@ import {
   remoteUname,
   type OneShotProgram,
   type ScopedStreamProgram,
-} from "../src/main/junto/ssh";
+} from "../src/core/ssh";
 import {
   makeRemoteCommand,
   makeRemoteStdin,
-} from "../src/main/junto/ssh/domain";
+} from "../src/core/ssh/domain";
 import {
   oneShot,
-} from "../src/main/junto/ssh/program";
+} from "../src/core/ssh/program";
 
 describe("SSH domain", () => {
   it("accepts option-safe SSH aliases and rejects option injection", async () => {
@@ -55,7 +55,7 @@ describe("SSH domain", () => {
 
   it("makes free-form destructive sh -c unrepresentable from the product API", async () => {
     // Product surface: fixed executables only — never /bin/sh.
-    type ProductApi = typeof import("../src/main/junto/ssh");
+    type ProductApi = typeof import("../src/core/ssh");
     type HasGenericMint = "makeRemoteCommand" extends keyof ProductApi ? true : false;
     expectTypeOf<HasGenericMint>().toEqualTypeOf<false>();
 
@@ -106,7 +106,7 @@ describe("SSH domain", () => {
   });
 
   it("does not expose generic remote command or transport-topology constructors", () => {
-    type PublicSsh = typeof import("../src/main/junto/ssh");
+    type PublicSsh = typeof import("../src/core/ssh");
     type HasGenericCommand = "makeRemoteCommand" extends keyof PublicSsh ? true : false;
     type HasGenericStdin = "makeRemoteStdin" extends keyof PublicSsh ? true : false;
     type HasOneShot = "oneShot" extends keyof PublicSsh ? true : false;

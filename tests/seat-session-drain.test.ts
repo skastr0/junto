@@ -10,7 +10,7 @@ import {
   SessionDrainManager,
   type DrainEnd,
   type DrainingSession,
-} from "../src/main/junto/seat-sessions/drain";
+} from "../src/core/seat-sessions/drain";
 
 beforeEach(() => {
   vi.useFakeTimers({ now: 1_000_000 });

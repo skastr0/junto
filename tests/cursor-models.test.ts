@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   enumerateCursorModels,
   parseCursorModelsList,
-} from "../src/main/junto/term/templates/enumerate-models";
+} from "../src/core/term/templates/enumerate-models";
 
 const LIVE_STDOUT = `Available models
 

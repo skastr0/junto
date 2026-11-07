@@ -8,8 +8,8 @@ import {
   fxSessionIdCreatedAtMs,
   fxSessionsRoot,
   isFxSessionId,
-} from "../src/main/junto/term/templates/fx-session";
-import { parseFxModelsJson } from "../src/main/junto/term/templates/enumerate-models";
+} from "../src/core/term/templates/fx-session";
+import { parseFxModelsJson } from "../src/core/term/templates/enumerate-models";
 import { seatParts } from "../src/shared/model/seat-parts";
 import { planSeatLaunch } from "../src/shared/seat-launch-params";
 import { recoverDocumentLaunchChoices } from "../src/shared/launch-choices";
@@ -21,8 +21,8 @@ import {
   resolveManagedLaunch,
   stripIdlessSessionContinue,
 } from "../src/shared/managed-terminal-launch";
-import { evaluate } from "../src/main/junto/term/agent-state";
-import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
+import { evaluate } from "../src/core/term/agent-state";
+import type { ObserverGridSnapshot } from "../src/core/term/observer/types";
 
 // Ids below are real directory names from ~/.fx/sessions on the probed machine.
 const A = "1787761861883-1787761861883720000-7afaf80c8f5acd35";

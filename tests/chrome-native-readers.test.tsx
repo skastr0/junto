@@ -3,14 +3,14 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { asCanvasName } from "../src/shared/model";
-import { CanvasChrome } from "../src/renderer/components/CanvasChrome";
-import { FocusSwitcherHud } from "../src/renderer/components/FocusSwitcherHud";
-import { CommandGroupChip } from "../src/renderer/components/command-groups/CommandGroupChip";
-import { FeedCard } from "../src/renderer/components/feed/OperatorFeed";
+import { CanvasChrome } from "../src/window/components/CanvasChrome";
+import { FocusSwitcherHud } from "../src/window/components/FocusSwitcherHud";
+import { CommandGroupChip } from "../src/window/components/command-groups/CommandGroupChip";
+import { FeedCard } from "../src/window/components/feed/OperatorFeed";
 import { feedItemRank, type FeedItem } from "../src/shared/operator-feed";
-import { focusSwitcher$ } from "../src/renderer/lib/focus-switcher";
-import { state$ } from "../src/renderer/lib/state";
-import { modelStore } from "../src/renderer/lib/use-model";
+import { focusSwitcher$ } from "../src/window/lib/focus-switcher";
+import { state$ } from "../src/window/lib/state";
+import { modelStore } from "../src/window/lib/use-model";
 import { note, region, seat } from "./support/model-nodes";
 
 // The always-mounted chrome reads the node store. Each case mounts the real

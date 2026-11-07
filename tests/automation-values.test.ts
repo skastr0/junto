@@ -1,11 +1,11 @@
 import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
-import { performAction } from "../src/main/junto/automation/live";
-import { changeMatches, type ChangeEvent } from "../src/main/junto/automation/plan";
+import { performAction } from "../src/core/automation/live";
+import { changeMatches, type ChangeEvent } from "../src/core/automation/plan";
 import { automationTargets } from "../src/shared/region-reach";
 import { artifacts, automations, canvasOf, region } from "./support/model-nodes";
-import { firedValue } from "../src/main/junto/automation/values";
-import type { WorkServiceShape } from "../src/main/junto/work/service";
+import { firedValue } from "../src/core/automation/values";
+import type { WorkServiceShape } from "../src/core/work/service";
 import {
   actionRefusal,
   type Automation,

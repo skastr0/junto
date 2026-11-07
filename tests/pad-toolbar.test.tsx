@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ArtifactPadPatch } from "../src/shared/artifact";
 import { asPadElementId, emptyPad, type Pad } from "../src/shared/pad";
-import { ArtifactPadEditor } from "../src/renderer/components/artifacts/ArtifactPadEditor";
+import { ArtifactPadEditor } from "../src/window/components/artifacts/ArtifactPadEditor";
 
 vi.hoisted(() => {
   globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };

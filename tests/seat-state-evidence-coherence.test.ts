@@ -8,12 +8,12 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
-import { SeatStateRuntime } from "../src/main/junto/term/agent-state/runtime";
+import { SeatStateRuntime } from "../src/core/term/agent-state/runtime";
 import {
   SessionObserver,
   terminalObserverPlane,
-} from "../src/main/junto/term/observer";
-import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
+} from "../src/core/term/observer";
+import type { ObserverGridSnapshot } from "../src/core/term/observer/types";
 
 const HR = "─".repeat(40);
 const IDLE_EMPTY = [HR, "❯ ", HR, "footer"];

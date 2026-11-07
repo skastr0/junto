@@ -17,9 +17,9 @@ import {
   forcedSecretStoreOf,
   openPlatformSecretStore,
   type SecretToolExec,
-} from "../src/main/junto/credentials/store";
-import { redactSecretValues } from "../src/main/junto/credentials/redact";
-import { makeRegionSecrets } from "../src/main/junto/region-env/secret-store";
+} from "../src/core/credentials/store";
+import { redactSecretValues } from "../src/node/credentials/redact";
+import { makeRegionSecrets } from "../src/core/region-env/secret-store";
 import { SECRET_VALUE_MAX_BYTES, secretValueProblem } from "../src/shared/region-secrets";
 
 const ID = "0b6f4c1e-2f0a-4c55-9d3e-6a1f1f0c9a11";

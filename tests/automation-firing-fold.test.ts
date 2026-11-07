@@ -11,13 +11,13 @@ import { Deferred, Effect, Fiber, Layer, ManagedRuntime, Schema } from "effect";
 import { Reactivity } from "effect/reactivity";
 import { SqlClient } from "effect/sql";
 import { describe, expect, it, afterEach } from "vitest";
-import { AUTOMATION_RULING_CURSORS_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../src/main/junto/automation/state-schema";
+import { AUTOMATION_RULING_CURSORS_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../src/core/automation/state-schema";
 import {
   AutomationRepository,
   makeAutomationRepositoryLive,
   setFiringCrossing,
-} from "../src/main/junto/automation/repository";
-import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
+} from "../src/core/automation/repository";
+import { makeSqliteClient } from "../src/core/state/sqlite-client";
 import {
   type ActionRuling,
   AutomationId,

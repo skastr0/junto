@@ -7,7 +7,7 @@ import {
   shouldNotifyPtyResize,
   shouldPaintView,
   UNKNOWN_TERMINAL_GEOMETRY,
-} from "../src/renderer/lib/terminal-resize";
+} from "../src/window/lib/terminal-resize";
 
 describe("terminal PTY resize policy", () => {
   it("does not signal a child PTY for a same-geometry renderer repaint", () => {

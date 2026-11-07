@@ -8,7 +8,7 @@ import {
   applySeatOnboardingEvent,
   decodeSeatOnboardingEvent,
   seatOnboarding$,
-} from "../src/renderer/lib/seat-onboarding";
+} from "../src/window/lib/seat-onboarding";
 import { onboardNudgeRefusal, SEAT_ONBOARDING_LABEL } from "../src/shared/seat-onboarding-status";
 
 beforeEach(() => {

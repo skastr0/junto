@@ -8,7 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SeatNextTurn } from "../src/shared/seat-next-launch";
-import { seatNextTurn$, useSeatFreshNext } from "../src/renderer/lib/seat-next-launch";
+import { seatNextTurn$, useSeatFreshNext } from "../src/window/lib/seat-next-launch";
 
 const NOW = 1_792_000_000_000;
 const COLD_AT = NOW + 30_000;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { asNodeId, type Canvas, type Node } from "../src/shared/model";
 import type { ItemId } from "../src/shared/work-ids";
-import { candidatesOfNodes, resourceNodesInReach, withRegionDetail } from "../src/renderer/lib/mention-sources";
+import { candidatesOfNodes, resourceNodesInReach, withRegionDetail } from "../src/window/lib/mention-sources";
 
 // Only the fields titleOf and reach read: kind, place, and the name fields.
 const node = (id: string, kind: Node["kind"], x: number, y: number, extra: Record<string, unknown> = {}, size = 50): Node =>

@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { asCanvasName, asNodeId, type Command } from "../src/shared/model";
-import { createModelStore, type ModelApi } from "../src/renderer/lib/model-store";
+import { createModelStore, type ModelApi } from "../src/window/lib/model-store";
 
 const storeAnswering = (tasksKept?: number) =>
   createModelStore((): ModelApi => ({

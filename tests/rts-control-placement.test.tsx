@@ -6,24 +6,24 @@ import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 import { Schema } from "effect";
 import { batch } from "@legendapp/state";
 import { Node, Opened } from "../src/shared/model";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { state$ } from "../src/renderer/lib/state";
-import { rtsNode, readRtsNode, useRtsNodes } from "../src/renderer/lib/rts-selection";
-import { terminal$ } from "../src/renderer/lib/terminal-state";
-import { dock$ } from "../src/renderer/lib/dock-state";
-import { profileDialog$ } from "../src/renderer/lib/profiles-state";
-import { writeSkipReseatConfirm } from "../src/renderer/lib/agent-reseat";
+import { modelStore } from "../src/window/lib/use-model";
+import { state$ } from "../src/window/lib/state";
+import { rtsNode, readRtsNode, useRtsNodes } from "../src/window/lib/rts-selection";
+import { terminal$ } from "../src/window/lib/terminal-state";
+import { dock$ } from "../src/window/lib/dock-state";
+import { profileDialog$ } from "../src/window/lib/profiles-state";
+import { writeSkipReseatConfirm } from "../src/window/lib/agent-reseat";
 
 vi.hoisted(() => {
   (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 });
 // Select a different harness without probing a real CLI or spawning a process.
 // The re-seat control, native commands and surface actions are real.
-vi.mock("../src/renderer/components/node-palette/AgentHarnessPick", () => ({
+vi.mock("../src/window/components/node-palette/AgentHarnessPick", () => ({
   AgentHarnessPick: ({ onConfigure }: { onConfigure: (value: { harness: "claude" }) => void }) =>
     <button onClick={() => onConfigure({ harness: "claude" })}>Pick Claude</button>,
 }));
-import { RtsBottomBar } from "../src/renderer/components/rts/RtsBottomBar";
+import { RtsBottomBar } from "../src/window/components/rts/RtsBottomBar";
 
 const canvas = "rts-write-placement";
 const frame = { id: "subject", x: 123, y: 456, width: 310, height: 145, z: 4, color: "1" };

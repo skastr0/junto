@@ -25,11 +25,11 @@ vi.mock("electron", () => ({
 }));
 import type { CompanionBackend } from "../src/shared/companion-core";
 import { OPERATOR_PROTOCOL_VERSION } from "../src/shared/operator-control";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { companionDevicesIn, companionKeyLine } from "../src/main/junto/companion/authorized-keys";
-import { CompanionDeviceRepository, CompanionDeviceRepositoryLive } from "../src/main/junto/companion/repository";
-import { makeCompanionService, type CompanionService } from "../src/main/junto/companion/service";
-import type { CompanionEnvironment } from "../src/main/junto/companion/environment";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { companionDevicesIn, companionKeyLine } from "../src/core/companion/authorized-keys";
+import { CompanionDeviceRepository, CompanionDeviceRepositoryLive } from "../src/core/companion/repository";
+import { makeCompanionService, type CompanionService } from "../src/core/companion/service";
+import type { CompanionEnvironment } from "../src/node/companion/environment";
 
 const A = "dev_01M594P2JVSWRGRSHY8GWTJN5B";
 const B = "dev_01M594P2JVSWRGRSHY8GWTJN5C";

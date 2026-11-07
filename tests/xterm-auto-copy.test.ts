@@ -4,7 +4,7 @@ import {
   selectionTextForCopy,
   shouldAutoCopySelection,
   type XtermSelectionApi,
-} from "../src/renderer/lib/xterm-auto-copy";
+} from "../src/window/lib/xterm-auto-copy";
 
 const term = (
   selection: string | undefined,

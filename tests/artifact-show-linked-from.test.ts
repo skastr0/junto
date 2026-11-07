@@ -18,13 +18,13 @@ import type { InstallationId } from "../src/shared/installation-id";
 import { asNodeId, type Canvas, type Node } from "../src/shared/model";
 import { mintItemId, mintOpId, type ResourceCommand } from "../src/shared/resource-command";
 import type { ItemId } from "../src/shared/work-ids";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { ContentService, makeContentServiceLive } from "../src/main/junto/content/service";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { writeRuling } from "../src/main/junto/work/resource-rulings";
-import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
-import { ArtifactRepository, ArtifactRepositoryLive } from "../src/main/junto/work/artifact-repository";
-import { handleArtifactOp, liveArtifactPorts } from "../src/main/junto/work/artifact-control";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { ContentService, makeContentServiceLive } from "../src/core/content/service";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { writeRuling } from "../src/core/work/resource-rulings";
+import { RulingRecorder } from "../src/core/work/ruling-recorder";
+import { ArtifactRepository, ArtifactRepositoryLive } from "../src/core/work/artifact-repository";
+import { handleArtifactOp, liveArtifactPorts } from "../src/core/work/artifact-control";
 
 const recorder = Layer.effect(
   RulingRecorder,

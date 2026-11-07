@@ -22,7 +22,7 @@ import {
   __setSessionExistenceHomeForTest,
   harnessSessionExists,
   shouldResumeHarnessSession,
-} from "../src/main/junto/term/session-existence";
+} from "../src/core/term/session-existence";
 import {
   __setCapturedSessionWriterForTest,
   persistCapturedSessionId,
@@ -30,7 +30,7 @@ import {
   scheduleCapturedSessionPersist,
   usesCapturedSession,
   type CapturedSeatSession,
-} from "../src/main/junto/term/session-capture-persist";
+} from "../src/core/term/session-capture-persist";
 
 const temps: string[] = [];
 

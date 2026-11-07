@@ -8,7 +8,7 @@
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { modelStore } from "../src/renderer/lib/use-model";
+import { modelStore } from "../src/window/lib/use-model";
 import { region as regionNode } from "./support/model-nodes";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { asCanvasName, type Region } from "../src/shared/model";
@@ -22,7 +22,7 @@ import { asCanvasName, type Region } from "../src/shared/model";
   disconnect(): void {}
 };
 
-vi.mock("../src/renderer/components/region-environment/RegionEnvironmentModal", () => ({
+vi.mock("../src/window/components/region-environment/RegionEnvironmentModal", () => ({
   RegionEnvironmentModal: ({ nodeId, onClose }: { readonly nodeId: string; readonly onClose: () => void }) => (
     <div data-testid="region-environment-modal" data-node={nodeId}>
       <button data-testid="close-environment" onClick={onClose}>
@@ -32,8 +32,8 @@ vi.mock("../src/renderer/components/region-environment/RegionEnvironmentModal", 
   ),
 }));
 
-const { state$ } = await import("../src/renderer/lib/state");
-const { KindSurface } = await import("../src/renderer/components/rts/KindSurface");
+const { state$ } = await import("../src/window/lib/state");
+const { KindSurface } = await import("../src/window/components/rts/KindSurface");
 
 const region = (id: string): Region => regionNode(id,
   { x: 0, y: 0, width: 600, height: 400 }, { label: "backend" });

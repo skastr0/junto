@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   resolveControlHome,
   usableControlHome,
-} from "../src/main/junto/control-home";
+} from "../src/app/control-home";
 
 const ELECTRON_HOME = "/Users/operator";
 const USER_DATA = "/tmp/junto-e2e-xyz/user-data";

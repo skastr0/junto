@@ -3,14 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { encodeError } from "../src/main/junto/failure-encode";
-import { HostsService } from "../src/main/junto/hosts/service";
-import { MachineLink } from "../src/main/junto/link/service";
-import { type LinkChannelContext, LinkRequestFailed } from "../src/main/junto/link/types";
-import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { ModelService } from "../src/main/junto/model/service";
-import { makePeerSettingsClient } from "../src/main/junto/settings/link-client";
-import { makeSettingsChannel } from "../src/main/junto/settings/link-channel";
+import { encodeError } from "../src/node/failure-encode";
+import { HostsService } from "../src/core/hosts/service";
+import { MachineLink } from "../src/core/link/service";
+import { type LinkChannelContext, LinkRequestFailed } from "../src/core/link/types";
+import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
+import { ModelService } from "../src/core/model/service";
+import { makePeerSettingsClient } from "../src/core/settings/link-client";
+import { makeSettingsChannel } from "../src/core/settings/link-channel";
 import {
   decodeLinkCacheWindows,
   decodeLinkProviders,
@@ -18,13 +18,13 @@ import {
   SettingsLinkFailure,
   SettingsNoSeatHere,
   wireProviders,
-} from "../src/main/junto/settings/link-wire";
-import { SettingsService } from "../src/main/junto/settings/service";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+} from "../src/core/settings/link-wire";
+import { SettingsService } from "../src/core/settings/service";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import { makeTestLog } from "./support/test-log";
 
 const { log: settingsLog } = makeTestLog();
-import { WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { WorkRepositoryLive } from "../src/core/work/repository";
 import { InstallationId } from "../src/shared/installation-id";
 import { asCanvasName, type Node } from "../src/shared/model";
 import { RemoteHost } from "../src/shared/remote-hosts";

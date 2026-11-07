@@ -10,15 +10,15 @@ import { EventEmitter } from "node:events";
 import { MessageChannel } from "node:worker_threads";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IPC_CHANNELS, type TerminalParkResult } from "../src/shared/ipc";
-import { registerTerminalIpc } from "../src/main/junto/term/ipc";
-import type { TermPlane } from "../src/main/junto/term/plane";
-import type { SurfacePlane } from "../src/main/core-process/main-side/term-surface";
-import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
+import { registerTerminalIpc } from "../src/app/term/ipc";
+import type { TermPlane } from "../src/core/term/plane";
+import type { SurfacePlane } from "../src/app/core-process/main-side/term-surface";
+import { TerminalNodeDeleteService } from "../src/core/term/node-delete";
 import { Layer, ManagedRuntime } from "effect";
 import { inProcessCore } from "./support/in-process-core";
-import { useCoreClient } from "../src/main/core-process/main-client";
-import { bindTermIpcPlane } from "../src/main/core-process/ops/term-ipc";
-import "../src/main/core-process/ops/term-ipc";
+import { useCoreClient } from "../src/app/core-process/main-client";
+import { bindTermIpcPlane } from "../src/core/ops/term-ipc";
+import "../src/core/ops/term-ipc";
 
 vi.mock("electron", () => ({ MessageChannelMain: MessageChannel }));
 

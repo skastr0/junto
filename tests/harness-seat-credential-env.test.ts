@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { Result } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HARNESS_IDS, templateFor } from "../src/shared/managed-terminal-templates";
-import { resolveLaunch } from "../src/main/junto/term/local-host";
+import { resolveLaunch } from "../src/core/term/local-host";
 import { installHermeticHarnessBins } from "./helpers/hermetic-harness-bins";
 
 const HOST_MARKER = "synthetic-host-generation";

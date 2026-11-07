@@ -15,23 +15,23 @@ import {
   continuationStoreIn,
   rotateOwing,
   type ContinuationStore,
-} from "../src/main/junto/seat-sessions/continuation-pending";
+} from "../src/core/seat-sessions/continuation-pending";
 import {
   makeSeatSessionRepositoryLive,
   SeatSessionRepository,
   type OwedContinuation,
-} from "../src/main/junto/seat-sessions/repository";
-import type { SeatSessionStoreRun } from "../src/main/junto/seat-sessions/continuation-pending";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+} from "../src/core/seat-sessions/repository";
+import type { SeatSessionStoreRun } from "../src/core/seat-sessions/continuation-pending";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import {
   SeatOffboardCloser,
   type OffboardClosePorts,
-} from "../src/main/junto/seat-sessions/offboard-close";
+} from "../src/core/seat-sessions/offboard-close";
 import {
   InjectionSupervisor,
   type ComposerLookup,
   type NoticeWriter,
-} from "../src/main/junto/term/injection-supervisor";
+} from "../src/core/term/injection-supervisor";
 import { buildOnboardNudge } from "../src/shared/managed-terminal-injection";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import { CONTINUATION_LINE, type OffboardMode } from "../src/shared/seat-sessions";
@@ -468,25 +468,25 @@ describe("nothing else starts a session with a message", () => {
     // The supervisor is armed by the ledger alone: when a continuation is
     // owed, and again for what a previous run recorded and never delivered.
     expect(new Set(callersOf(/\.armContinuation\(/g).map((caller) => caller.file))).toEqual(
-      new Set(["main/junto/seat-sessions/continuation-pending.ts"]),
+      new Set(["core/seat-sessions/continuation-pending.ts"]),
     );
     // A continuation becomes owed in exactly one place: the closer's close
     // port, for a rotation asked to wake, before that rotation starts.
     expect(callersOf(/\.owe\(/g).map((caller) => caller.file)).toEqual([
-      "main/junto/seat-sessions/continuation-pending.ts",
+      "core/seat-sessions/continuation-pending.ts",
     ]);
     const owing = callersOf(/\browing: *|\brotateOwing\(\{/g);
-    expect(owing.map((caller) => caller.file)).toEqual(["main/junto/seat-sessions/start-seat-sessions.ts"]);
+    expect(owing.map((caller) => caller.file)).toEqual(["core/seat-sessions/start-seat-sessions.ts"]);
     expect(owing[0]?.before).toMatch(/const seat = wake \? await seatOn\(address\) : undefined;/);
     expect(callersOf(/\bnew ContinuationLedger\(/g).map((caller) => caller.file)).toEqual([
-      "main/junto/seat-sessions/start-seat-sessions.ts",
+      "core/seat-sessions/start-seat-sessions.ts",
     ]);
     // And the line itself is typed from one place.
     const users = sources
       .filter((path) => /\bCONTINUATION_LINE\b/.test(readFileSync(path, "utf8")))
       .map((path) => path.slice(root.length + 1))
       .sort();
-    expect(users).toEqual(["main/junto/term/injection-supervisor.ts", "shared/seat-sessions.ts"]);
+    expect(users).toEqual(["core/term/injection-supervisor.ts", "shared/seat-sessions.ts"]);
   });
 });
 

@@ -12,7 +12,7 @@ import {
   defaultSettings,
 } from "../src/shared/settings";
 import { Schema, Result } from "effect";
-import { makeObservabilityRing, observabilityRing } from "../src/main/junto/observability/ring";
+import { makeObservabilityRing, observabilityRing } from "../src/core/observability/ring";
 import { makeTestLog } from "./support/test-log";
 
 const entry = (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fuzzyMatch, rankMatches } from "../src/renderer/lib/fuzzy-match";
+import { fuzzyMatch, rankMatches } from "../src/window/lib/fuzzy-match";
 
 const scoreOf = (query: string, identity: readonly string[], metadata: readonly string[] = []) =>
   fuzzyMatch(query, { identity, metadata })?.score ?? null;

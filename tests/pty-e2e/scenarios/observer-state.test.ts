@@ -33,10 +33,10 @@ import {
   loadFixture,
   runScenario,
 } from "../runner";
-import { SessionObserver } from "../../../src/main/junto/term/observer";
-import { SeatStateRuntime, progressFingerprint } from "../../../src/main/junto/term/agent-state/runtime";
-import { terminalActivity, isActiveProcessLabel } from "../../../src/renderer/lib/activity";
-import type { ObserverGridSnapshot } from "../../../src/main/junto/term/observer/types";
+import { SessionObserver } from "../../../src/core/term/observer";
+import { SeatStateRuntime, progressFingerprint } from "../../../src/core/term/agent-state/runtime";
+import { terminalActivity, isActiveProcessLabel } from "../../../src/window/lib/activity";
+import type { ObserverGridSnapshot } from "../../../src/core/term/observer/types";
 
 afterEach(() => {
   vi.useRealTimers();

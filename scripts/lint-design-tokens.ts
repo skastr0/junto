@@ -26,11 +26,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const SCAN_ROOT = "src/renderer";
+const SCAN_ROOT = "src/window";
 const BASELINE = path.join(ROOT, "scripts/design-token-baseline.json");
 
 // The build output of the token source: the one file where values are born.
-const EXEMPT_FILES = new Set(["src/renderer/styles/theme.generated.css"]);
+const EXEMPT_FILES = new Set(["src/window/styles/theme.generated.css"]);
 
 export const RULES = ["font-size", "font-family", "tracking", "leading", "radius", "color", "text-hue"] as const;
 export type Rule = (typeof RULES)[number];

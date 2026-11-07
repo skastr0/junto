@@ -1,4 +1,4 @@
-import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
+import { CrewRepositoryLive } from "../src/core/work/crew-repository";
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -16,18 +16,18 @@ import {
   executeOverseerCanvas,
   setOverseerNativeDeleteHooks,
   type OverseerNativeDeleteHooks,
-} from "../src/main/junto/overseer/canvas";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { WorkRepositoryLive } from "../src/main/junto/work/repository";
-import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
+} from "../src/core/overseer/canvas";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { WorkRepositoryLive } from "../src/core/work/repository";
+import { MachineRepositoryLive } from "../src/core/machines/repository";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 import { nameThisMachine } from "./support/name-this-machine";
 import { clearMachines, seedThisMachine } from "./support/seed-this-machine";
-import { WorkLive } from "../src/main/junto/work/service";
-import { ModelService } from "../src/main/junto/model/service";
-import { SettingsLive } from "../src/main/junto/settings/service";
-import { makeContentServiceLive } from "../src/main/junto/content/service";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
+import { WorkLive } from "../src/core/work/service";
+import { ModelService } from "../src/core/model/service";
+import { SettingsLive } from "../src/core/settings/service";
+import { makeContentServiceLive } from "../src/core/content/service";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
 import { asNodeId, type Node, type NodeOf, type Wire } from "../src/shared/model";
 import type { OverseerCaller, OverseerRequest } from "../src/shared/overseer-control";
 import type { WorkErrorBody } from "../src/shared/work-control";

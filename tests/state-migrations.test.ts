@@ -7,15 +7,15 @@ import {
   migrateStateSchema,
   validateStateSchemaMigrationPlan,
   type StateSchemaMigrationPlan,
-} from "../src/main/junto/state/migrations";
+} from "../src/core/state/migrations";
 import {
   STATE_SCHEMA_IDENTITY_SQL,
   STATE_SCHEMA_SQL,
-} from "../src/main/junto/state/schema";
+} from "../src/core/state/schema";
 import {
   expectedStateSchemaIdentity,
   verifyAndStampStateSchema,
-} from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/schema-identity";
 
 const VERSION_ONE_SQL = `
   ${STATE_SCHEMA_IDENTITY_SQL}

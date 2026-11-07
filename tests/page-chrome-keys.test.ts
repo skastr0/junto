@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { registerPageChromeKeys, runPageChromeKey } from "../src/renderer/lib/page-chrome-keys";
+import { registerPageChromeKeys, runPageChromeKey } from "../src/window/lib/page-chrome-keys";
 
 describe("page chrome keys", () => {
   it("with no page showing the key passes", () => {

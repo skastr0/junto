@@ -8,7 +8,7 @@ const MachineName = Schema.String.pipe(Schema.check(Schema.makeFilter(isValidMac
  * Schemas only. A failure as it crosses a machine or enters a log: its tag, its scrubbed message, the
  * machine it happened on, the operation id, and its cause chain as tag and
  * message pairs (docs/machines.md, Failures and logs). The one encoder is
- * `src/main/junto/failure-encode.ts`; nothing else builds this shape.
+ * `src/node/failure-encode.ts`; nothing else builds this shape.
  */
 export const MAX_FAILURE_CAUSES = 8;
 export const MAX_FAILURE_DETAIL_BYTES = 4 * 1024;

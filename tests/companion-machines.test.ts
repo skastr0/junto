@@ -32,7 +32,7 @@ import { runCompanionSession, type CompanionHost } from "../src/shared/companion
 import { DEMO_MACHINES, DEMO_TAILNET } from "../src/shared/wire/companion-demo-fixture";
 import type { MachineListData, MachinePeerStatus } from "../src/shared/machine-control";
 import type { MachineLogRead } from "../src/shared/machine-log";
-import { companionMachineScrub as scrub } from "../src/main/junto/companion/machine-scrub";
+import { companionMachineScrub as scrub } from "../src/core/companion/machine-scrub";
 import { THIS_MACHINE } from "./support/machines";
 
 const TOKEN = "ghp_0123456789abcdefghijABCDEFGHIJ0123456789";

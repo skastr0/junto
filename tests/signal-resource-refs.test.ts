@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/model";
 import { taskNumber } from "../src/shared/task-model";
 import type { ItemId } from "../src/shared/work-ids";
-import { holdsOf, resolveResourceRef, type ReachedItem } from "../src/main/junto/signals/resource-refs";
-import { admitResourceAttachment } from "../src/main/junto/signals/attachments";
+import { holdsOf, resolveResourceRef, type ReachedItem } from "../src/core/signals/resource-refs";
+import { admitResourceAttachment } from "../src/core/signals/attachments";
 import { artifacts, canvasOf, region, seat, taskBoard } from "./support/model-nodes";
 
 // Region R holds seat S, board T and shelf A; board TX sits in a sibling region Q.

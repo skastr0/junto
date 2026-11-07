@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserBoxApi, BrowserBoxDraft, BrowserBoxResult, BrowserChromeState } from "../src/shared/browser-chrome";
 import { initialPageDriving } from "../src/shared/page-driver";
 import { initialPageTabs } from "../src/shared/page-tabs";
-import { BrowserChrome } from "../src/renderer/components/browser/BrowserChrome";
-import { pngDataUrl } from "../src/renderer/lib/png-data-url";
+import { BrowserChrome } from "../src/window/components/browser/BrowserChrome";
+import { pngDataUrl } from "../src/window/lib/png-data-url";
 
 const SIGNATURE = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const draft: BrowserBoxDraft = {

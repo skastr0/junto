@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { ModelService } from "../src/main/junto/model/service";
+import { ModelService } from "../src/core/model/service";
 /**
  * Live acceptance for the work control plane + compiled `dist/junto`.
  *
@@ -28,46 +28,46 @@ import {
   createAppProcessPlane,
   type AppProcessDrainResult,
   type AppProcessPlane,
-} from "../src/main/junto/app-process-plane";
-import { ModelLive } from "../src/main/junto/model/layer";
-import { WorkModelDependentsLive } from "../src/main/junto/work/model-dependents";
+} from "../src/node/app-process-plane";
+import { ModelLive } from "../src/core/model/layer";
+import { WorkModelDependentsLive } from "../src/core/work/model-dependents";
 import { Command } from "../src/shared/model";
 import {
   startWorkControlServer,
   type WorkControlShutdownReceipt,
-} from "../src/main/junto/work/control";
+} from "../src/core/work/control";
 import {
   makeSeatCredentialRegistry,
   mintSeatCredential,
-} from "../src/main/junto/work/seat-credentials";
-import { WorkLive, WorkService } from "../src/main/junto/work/service";
-import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
-import { AgentSignalRepositoryLive } from "../src/main/junto/signals/repository";
-import { makeContentServiceLive } from "../src/main/junto/content/service";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
+} from "../src/core/work/seat-credentials";
+import { WorkLive, WorkService } from "../src/core/work/service";
+import { CrewRepositoryLive } from "../src/core/work/crew-repository";
+import { AgentSignalRepositoryLive } from "../src/core/signals/repository";
+import { makeContentServiceLive } from "../src/core/content/service";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/junto/work/repository";
-import { MachineRepository, MachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
+} from "../src/core/work/repository";
+import { MachineRepository, MachineRepositoryLive } from "../src/core/machines/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { PausePlaneAllPlaying } from "../src/core/pause-plane";
 import {
   SettingsLive,
   SettingsService,
-} from "../src/main/junto/settings/service";
+} from "../src/core/settings/service";
 import { WORK_MAX_FRAME_BYTES, WORK_TOKEN_ENV } from "../src/shared/work-control";
-import { composeOverseer, type OverseerComposition } from "../src/main/junto/overseer/composition";
-import { ActorSeatOccupyLive } from "../src/main/junto/term/actor-seat-occupy-live";
+import { composeOverseer, type OverseerComposition } from "../src/core/overseer/composition";
+import { ActorSeatOccupyLive } from "../src/core/term/actor-seat-occupy-live";
 import { ARTIFACTS_ENABLED, TASKS_ENABLED } from "../src/shared/features";
 import { usableJuntoHome } from "../src/shared/junto-home";
-import { ArtifactRepositoryLive } from "../src/main/junto/work/artifact-repository";
-import { makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
-import { OpRepositoryLive } from "../src/main/junto/work/op-repository";
-import { makeResourceSubmitLayer } from "../src/main/junto/work/resource-submit";
-import { ResourceRulerLive } from "../src/main/junto/work/resource-ruler";
-import { RulingRecorderLive } from "../src/main/junto/work/ruling-recorder";
-import { TaskRepositoryLive } from "../src/main/junto/work/task-repository";
+import { ArtifactRepositoryLive } from "../src/core/work/artifact-repository";
+import { makeAutomationRepositoryLive } from "../src/core/automation/repository";
+import { OpRepositoryLive } from "../src/core/work/op-repository";
+import { makeResourceSubmitLayer } from "../src/core/work/resource-submit";
+import { ResourceRulerLive } from "../src/core/work/resource-ruler";
+import { RulingRecorderLive } from "../src/core/work/ruling-recorder";
+import { TaskRepositoryLive } from "../src/core/work/task-repository";
 import type { AcceptanceContext, AcceptanceSeat, CaseVerdict } from "./work-cli-acceptance/area";
 import { AREAS } from "./work-cli-acceptance/index";
 

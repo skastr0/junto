@@ -37,7 +37,7 @@ const NAMES: ReadonlyArray<readonly [label: string, pattern: RegExp]> = [
 const ALLOWED = new Set([
   "AGENTS.md",
   "scripts/lint-no-canvas-document.ts",
-  "src/main/junto/state/migrations.ts",
+  "src/core/state/migrations.ts",
   // Tests of what old databases held.
   "tests/model-installed-migration.test.ts",
   "tests/one-machine-log-migration.test.ts",
@@ -74,7 +74,7 @@ const TEXT = /\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|css|sh|sql|yml|yaml|html)$/;
 const areaOf = (file: string): string => {
   if (/\.test\.tsx?$/.test(file) || file.startsWith("tests/")) return "tests";
   if (file.startsWith("e2e/")) return "e2e";
-  for (const area of ["src/renderer", "src/main", "src/shared", "src/cli", "src/preload"]) {
+  for (const area of ["src/window/preload", "src/window", "src/app", "src/core", "src/node", "src/terminal", "src/contract", "src/shared", "src/cli"]) {
     if (file.startsWith(`${area}/`)) return area;
   }
   if (file.startsWith("scripts/")) return "scripts";

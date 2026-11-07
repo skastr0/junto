@@ -20,18 +20,18 @@ vi.mock("@shared/features", async (original) => ({
   get AUTHORITY_ENABLED() { return flags.authority; },
 }));
 
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
-import { CanvasAuthorities } from "../src/main/junto/fleet/authorities";
-import { ALONE_TERM_STRIDE } from "../src/main/junto/fleet/consensus";
-import { CanvasAuthoritiesLive } from "../src/main/junto/fleet/host";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { RulingRecorder } from "../src/core/work/ruling-recorder";
+import { CanvasAuthorities } from "../src/core/fleet/authorities";
+import { ALONE_TERM_STRIDE } from "../src/core/fleet/consensus";
+import { CanvasAuthoritiesLive } from "../src/core/fleet/host";
 import { authorityListOf, authorityViewOf } from "../src/shared/authority";
 import type { InstallationId } from "../src/shared/installation-id";
-import { FleetDriverError } from "../src/main/junto/fleet/driver";
+import { FleetDriverError } from "../src/core/fleet/driver";
 import { seedCanvasRows } from "./support/seed-canvas";
-import { subscribe } from "../src/main/core-process/main-side/core-pushes";
+import { subscribe } from "../src/app/core-process/main-side/core-pushes";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 
 const SELF = "mini" as InstallationId;

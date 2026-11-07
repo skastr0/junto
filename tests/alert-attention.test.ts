@@ -6,10 +6,10 @@ import {
   mergeAlertSignals,
   observeAlertSignals,
   resetAlertQueue,
-} from "../src/renderer/lib/alert-attention";
-import { alertId, compareAlerts, type AlertSignal } from "../src/renderer/lib/alert-queue";
+} from "../src/window/lib/alert-attention";
+import { alertId, compareAlerts, type AlertSignal } from "../src/window/lib/alert-queue";
 import { AlertKind } from "../src/shared/wire/urgency";
-import * as sound from "../src/renderer/lib/sound";
+import * as sound from "../src/window/lib/sound";
 import type { RegionRollup } from "../src/shared/region-rollup";
 import { note, seat, terminal } from "./support/model-nodes";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";

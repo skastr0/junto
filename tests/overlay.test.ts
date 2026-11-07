@@ -10,7 +10,7 @@ import { overlay } from "@junto/overlay";
 import { surfaces } from "@junto/overlay/renderer";
 import { overlayManifest } from "@shared/overlay";
 import { decodeOverlay, OSS_OVERLAY_MARKER } from "@shared/overlay-contract";
-import { hasStore, openStore, store$ } from "../src/renderer/overlay/surfaces";
+import { hasStore, openStore, store$ } from "../src/window/overlay/surfaces";
 import {
   bundleMarkerViolations,
   checkBundle,
@@ -145,7 +145,7 @@ describe("Vite overlay build intent", () => {
 
 describe("overlay gates", () => {
   it("forbids reaching overlay code by path", () => {
-    expect(overlayImportViolations("src/renderer/x.ts", `import { overlay } from "../overlay-oss";`)).toHaveLength(1);
+    expect(overlayImportViolations("src/window/x.ts", `import { overlay } from "../overlay-oss";`)).toHaveLength(1);
     expect(overlayImportViolations("src/x.ts", `const m = await import("/p/junto-premium/overlay");`)).toHaveLength(1);
     expect(overlayImportViolations("src/x.ts", `import { overlay } from "@junto/overlay";`)).toEqual([]);
   });

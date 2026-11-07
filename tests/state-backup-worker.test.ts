@@ -9,10 +9,10 @@ import {
   createVerifiedStateBackup,
   openStateBackupSource,
   STATE_BACKUP_ATTEMPTS,
-} from "../src/main/junto/state/backup";
-import { answerBackup } from "../src/main/junto/state/backup-worker";
-import { runStateBackup } from "../src/main/junto/state/backup-host";
-import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+} from "../src/core/state/backup";
+import { answerBackup } from "../src/core/state/backup-worker";
+import { runStateBackup } from "../src/core/state/backup-host";
+import { makeStateEngineLive, StateEngine } from "../src/core/state/engine";
 
 let root: string;
 let stateDirectory: string;

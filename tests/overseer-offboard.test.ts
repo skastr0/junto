@@ -17,9 +17,9 @@ import {
   OFFBOARD_FAILED,
   OFFBOARD_MISSING,
   executeOverseerOffboard,
-} from "../src/main/junto/overseer/offboard";
-import { overseerOffboard, type OverseerOffboard } from "../src/main/junto/overseer/offboard-seam";
-import { setOperatorOffboard } from "../src/main/junto/seat-sessions/operator-offboard";
+} from "../src/core/overseer/offboard";
+import { overseerOffboard, type OverseerOffboard } from "../src/core/overseer/offboard-seam";
+import { setOperatorOffboard } from "../src/core/seat-sessions/operator-offboard";
 import { offboardRefusedAny } from "../src/cli/commands/overseer";
 
 const caller = { canvasName: "factory", nodeId: "boss" };

@@ -2,8 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import { Effect, Schema } from "effect";
 import { Reactivity } from "effect/reactivity";
 import { expect, it } from "vitest";
-import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
-import { readWorkActorPage } from "../src/main/junto/work/repository";
+import { makeSqliteClient } from "../src/core/state/sqlite-client";
+import { readWorkActorPage } from "../src/core/work/repository";
 import { WorkActorPage } from "../src/shared/work-sinks";
 import { ActorSeatId } from "../src/shared/actor-seat";
 

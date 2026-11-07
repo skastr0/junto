@@ -19,12 +19,12 @@ vi.mock("@shared/features", async (original) => ({
   },
 }));
 
-const { FilesCard } = await import("../src/renderer/components/files/FilesCard");
-const { FilesNode } = await import("../src/renderer/components/files/FilesNode");
-const { FileView } = await import("../src/renderer/components/file-view/FileView");
-const { installFilesSource, makeLocalFiles, unreachableLine, refusedOf, useFilesRoot } = await import("../src/renderer/lib/files-source");
-const { modelStore } = await import("../src/renderer/lib/use-model");
-const { state$ } = await import("../src/renderer/lib/state");
+const { FilesCard } = await import("../src/window/components/files/FilesCard");
+const { FilesNode } = await import("../src/window/components/files/FilesNode");
+const { FileView } = await import("../src/window/components/file-view/FileView");
+const { installFilesSource, makeLocalFiles, unreachableLine, refusedOf, useFilesRoot } = await import("../src/window/lib/files-source");
+const { modelStore } = await import("../src/window/lib/use-model");
+const { state$ } = await import("../src/window/lib/state");
 
 const MINUTE = 60_000;
 const nodeId = asNodeId("files-remote");

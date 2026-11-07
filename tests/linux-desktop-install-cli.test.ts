@@ -1,12 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LinuxDesktopActivationError } from "../src/main/junto/update/linux-install";
+import { LinuxDesktopActivationError } from "../src/node/update/linux-install";
 import {
   installLinuxDesktop,
   linuxDesktopBootstrapIdentity,
   parseLinuxDesktopBootstrapArgs,
   runLinuxDesktopBootstrap,
-} from "../src/main/junto/update/linux-first-install";
+} from "../src/app/update/linux-first-install";
 import { linuxDesktopBootstrapReleaseAssets } from "../scripts/prepare-linux-desktop-bootstrap-release";
 
 const seam = vi.hoisted(() => ({
@@ -17,9 +17,9 @@ const seam = vi.hoisted(() => ({
   target: vi.fn(),
   firstInstall: vi.fn(),
 }));
-vi.mock("../src/main/junto/update/linux-target", async () => {
-  const actual = await vi.importActual<typeof import("../src/main/junto/update/linux-target")>(
-    "../src/main/junto/update/linux-target",
+vi.mock("../src/app/update/linux-target", async () => {
+  const actual = await vi.importActual<typeof import("../src/app/update/linux-target")>(
+    "../src/app/update/linux-target",
   );
   return { ...actual, assertCurrentLinuxDesktopTarget: seam.target };
 });
@@ -29,9 +29,9 @@ vi.mock("../src/shared/linux-desktop-release-files", async () => {
   );
   return { ...actual, verifyLinuxDesktopReleaseFiles: seam.verify };
 });
-vi.mock("../src/main/junto/update/linux-install", async () => {
-  const actual = await vi.importActual<typeof import("../src/main/junto/update/linux-install")>(
-    "../src/main/junto/update/linux-install",
+vi.mock("../src/node/update/linux-install", async () => {
+  const actual = await vi.importActual<typeof import("../src/node/update/linux-install")>(
+    "../src/node/update/linux-install",
   );
   return {
     ...actual,

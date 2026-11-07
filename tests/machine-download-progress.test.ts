@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { makeDownloadProgress } from "../src/main/junto/hosts/download-progress";
+import { makeDownloadProgress } from "../src/core/hosts/download-progress";
 import type { MachineDownloadProgress } from "../src/shared/machine-progress";
 
 it("reports byte movement, a stall and recovery, but waits for admission before completion", () => {

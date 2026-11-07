@@ -33,7 +33,7 @@ its header or from the CLI, and the sidebar filters by them.
   optional `labels`. Labels are not versioned body: they never touch
   `baseVersion`.
 - A fact `artifact.labelled` crosses machines like `artifact.retitled`
-  (`src/main/junto/work/artifact-repository.ts:370`). Expand-only schema
+  (`src/core/work/artifact-repository.ts:370`). Expand-only schema
   step for the labels column or table, numbered when it lands.
 - The word is "Labels" in the UI. In code, `ArtifactLabel` and `labels`,
   never bare `Label` (that is the canvas label kind).

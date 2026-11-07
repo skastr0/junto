@@ -7,14 +7,14 @@ import { canvasOf, note as noteNode, region as regionNode, wire as modelWire } f
 import { Result } from "effect";
 import { decodeSquadBody, type SquadBody, type SquadSeat } from "../src/shared/squads";
 import { portraitCharacter } from "../src/shared/agent-portrait";
-import { resolvedPortrait } from "../src/renderer/lib/agent-profiles";
-import { SquadDialogHost } from "../src/renderer/components/squads/SquadDialog";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { state$ } from "../src/renderer/lib/state";
-import { closeSaveSquad, openSaveSquad, placeSquadAt, squads$ } from "../src/renderer/lib/squads-state";
-import { placeProfileInSlot, profiles$ } from "../src/renderer/lib/profiles-state";
-import { flushPendingCanvasSave, undo } from "../src/renderer/lib/mutations";
-import { newSeat } from "../src/renderer/lib/model-factories";
+import { resolvedPortrait } from "../src/window/lib/agent-profiles";
+import { SquadDialogHost } from "../src/window/components/squads/SquadDialog";
+import { modelStore } from "../src/window/lib/use-model";
+import { state$ } from "../src/window/lib/state";
+import { closeSaveSquad, openSaveSquad, placeSquadAt, squads$ } from "../src/window/lib/squads-state";
+import { placeProfileInSlot, profiles$ } from "../src/window/lib/profiles-state";
+import { flushPendingCanvasSave, undo } from "../src/window/lib/mutations";
+import { newSeat } from "../src/window/lib/model-factories";
 import {
   SQUAD_REGION_PAD,
   captureSquad,
@@ -23,7 +23,7 @@ import {
   squadOrigin,
   squadSummary,
   type SquadIds,
-} from "../src/renderer/lib/squads";
+} from "../src/window/lib/squads";
 import { THIS_MACHINE } from "./support/machines";
 
 const seat = (id: string, x: number, y: number, harness: "claude" | "codex" = "claude"): NodeOf<"agent"> => ({

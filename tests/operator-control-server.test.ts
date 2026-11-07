@@ -13,7 +13,7 @@ import {
   startOperatorControlServer,
   type OperatorControlServer,
   type OperatorControlServerRuntime,
-} from "../src/main/junto/operator-control";
+} from "../src/node/operator-control";
 import { Result } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

@@ -18,10 +18,10 @@ const RECORDS_AND_DECODERS = [
   /^src\/shared\/harness-capabilities\.ts$/,
   /^src\/shared\/managed-terminal-templates\.ts$/,
   /^src\/shared\/harness-domain\//,
-  /^src\/main\/junto\/term\/harness-record\.ts$/,
-  /^src\/main\/junto\/term\/agent-state\/rules\//,
+  /^src\/core\/term\/harness-record\.ts$/,
+  /^src\/core\/term\/agent-state\/rules\//,
   // Hook payloads, one shape per harness; hooks are outside the PTY effort.
-  /^src\/main\/junto\/term\/agent-state\/hook-feed\.ts$/,
+  /^src\/core\/term\/agent-state\/hook-feed\.ts$/,
 ];
 
 /**
@@ -30,12 +30,12 @@ const RECORDS_AND_DECODERS = [
  */
 const KNOWN: readonly { readonly file: string; readonly text: string; readonly why: string }[] = [
   {
-    file: "src/main/junto/term/agent-state/engine.ts",
+    file: "src/core/term/agent-state/engine.ts",
     text: 'pack.harness !== "codex"',
     why: "the hook ladder, outside the PTY effort",
   },
   {
-    file: "src/main/junto/term/drive/claude-resume-recovery.ts",
+    file: "src/core/term/drive/claude-resume-recovery.ts",
     text: 'deps.harnessOf(event.bindingId) !== "claude"',
     why: "Claude's attention recovery; the same comparison, now in the core's resume drive",
   },
@@ -61,7 +61,7 @@ const sourcesUnder = (directory: string): string[] =>
 describe("harness literals", () => {
   it("are compared only inside the records and their decoders", () => {
     const found: string[] = [];
-    for (const file of [...sourcesUnder(join(root, "src", "shared")), ...sourcesUnder(join(root, "src", "main"))]) {
+    for (const file of [...sourcesUnder(join(root, "src", "shared")), ...["app", "core", "node", "terminal", "contract"].flatMap((program) => sourcesUnder(join(root, "src", program)))]) {
       if (RECORDS_AND_DECODERS.some((pattern) => pattern.test(file))) continue;
       readFileSync(join(root, file), "utf8")
         .split("\n")

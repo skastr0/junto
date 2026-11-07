@@ -21,17 +21,17 @@ import { THREAD_SUBJECT_KEY } from "../src/shared/thread-subject";
 import { ItemId } from "../src/shared/work-ids";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import { operatorActorRef } from "../src/shared/work-reference";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import {
   MENTIONABLE_TABLES_V46,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V45_IDENTITY,
   STATE_SCHEMA_V46_IDENTITY,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { MENTIONABLE, readMentions, rebuildMentions } from "../src/main/junto/work/mention-backlinks";
-import { listMentions, type MentionIpcPorts } from "../src/main/junto/work/mentions";
-import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity } from "../src/core/state/schema-identity";
+import { MENTIONABLE, readMentions, rebuildMentions } from "../src/core/work/mention-backlinks";
+import { listMentions, type MentionIpcPorts } from "../src/core/work/mentions";
+import { WorkRepository, WorkRepositoryLive } from "../src/core/work/repository";
 import { STATE_SCHEMA_V45_SQL, STATE_SCHEMA_V46_SQL } from "./fixtures/state-v13/schema";
 import { seedCanvasRows } from "./support/seed-canvas";
 import { canvasOf, page, seat, taskBoard } from "./support/model-nodes";

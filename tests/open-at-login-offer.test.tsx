@@ -11,10 +11,10 @@ import { Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { SETTINGS_VERSION, defaultSettings } from "@shared/settings";
 import type { LoginItemOpResult } from "@shared/ipc";
-import { answerOpenAtLogin, openAtLoginOfferVisible } from "../src/renderer/lib/open-at-login-offer";
-import { OpenAtLoginOffer } from "../src/renderer/components/settings/CompanionSettingsSection";
-import { applyAndValidatePatch } from "../src/main/junto/settings/patch";
-import { decodeStoredSettings, preferencesFromSettings } from "../src/main/junto/settings/state-schema";
+import { answerOpenAtLogin, openAtLoginOfferVisible } from "../src/window/lib/open-at-login-offer";
+import { OpenAtLoginOffer } from "../src/window/components/settings/CompanionSettingsSection";
+import { applyAndValidatePatch } from "../src/core/settings/patch";
+import { decodeStoredSettings, preferencesFromSettings } from "../src/core/settings/state-schema";
 
 const off: LoginItemOpResult = {
   ok: true,

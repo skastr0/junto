@@ -4,7 +4,7 @@ import {
   MailReadinessLatch,
   mailFirstReady,
   type MailReadinessInput,
-} from "../src/main/junto/term/drive/mail-readiness";
+} from "../src/core/term/drive/mail-readiness";
 
 const seat = (over: Partial<MailReadinessInput> = {}): MailReadinessInput => ({
   running: true,

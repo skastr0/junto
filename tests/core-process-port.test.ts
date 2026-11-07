@@ -1,18 +1,18 @@
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { Context, Data, Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import { coreOps, type CoreOp, type CoreOpBody } from "../src/main/core-process/ops";
-import { portCore, refuseHostCalls, type CorePort } from "../src/main/core-process/port";
-import { runHostOp } from "../src/main/core-process/main-side/host-op-bodies";
-import { serveCore } from "../src/main/core-process/serve";
-import { type HostOp } from "../src/main/core-process/host-ops";
-import { hostOps } from "../src/main/core-process/main-side/host-op-bodies";
+import { coreOps, type CoreOp, type CoreOpBody } from "../src/core/ops";
+import { portCore, refuseHostCalls, type CorePort } from "../src/contract/core/port";
+import { runHostOp } from "../src/app/core-process/main-side/host-op-bodies";
+import { serveCore } from "../src/core/serve";
+import { type HostOp } from "../src/core/host-ops";
+import { hostOps } from "../src/app/core-process/main-side/host-op-bodies";
 
 // One operation group, registered as a group under ops/ registers its own.
 class Counter extends Context.Service<Counter, { readonly add: (n: number) => Effect.Effect<number> }>()("test/Counter") {}
 class Refused extends Data.TaggedError("Refused")<{ readonly message: string }> {}
 
-declare module "../src/main/core-process/ops" {
+declare module "../src/core/ops" {
   interface CoreOps {
     "test.add": CoreOp<{ readonly n: number }, { readonly total: number }>;
     "test.refuse": CoreOp<{ readonly why: string }, never>;
@@ -20,7 +20,7 @@ declare module "../src/main/core-process/ops" {
   }
 }
 
-declare module "../src/main/core-process/host-ops" {
+declare module "../src/core/host-ops" {
   interface HostOps {
     "test.shot": HostOp<{ readonly scale: number }, { readonly bytes: ReadonlyArray<number> }>;
     "test.hostRefuse": HostOp<Record<string, never>, never>;

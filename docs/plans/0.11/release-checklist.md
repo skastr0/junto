@@ -60,7 +60,7 @@ export, copy by `sqlite3 -readonly .backup` taken at 23:53:54, the only open of
 the live file. They rerun everything at the cut hash. Results per line:
 
 - [ ] Head version and identity match: `CURRENT_STATE_SCHEMA_VERSION` in
-      `src/main/junto/state/migrations.ts`, `bun run schema:identity` clean.
+      `src/core/state/migrations.ts`, `bun run schema:identity` clean.
       Run 1: head 63 (`migrations.ts:808`), "clean (v63 = 83d7611b0b8a2869...)".
 - [ ] The copy migrates from v50 to the head (read from the code, see section 0); `PRAGMA quick_check` ok, foreign keys empty.
       Run 1: copy was v50 (identity 47696d80), migrated to v63 in 7.2 s,

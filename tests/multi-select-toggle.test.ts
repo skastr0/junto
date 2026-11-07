@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toggleInSelection } from "../src/renderer/lib/multi-select-gesture";
+import { toggleInSelection } from "../src/window/lib/multi-select-gesture";
 
 type FakeNode = { id: string; selected: boolean };
 

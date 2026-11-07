@@ -10,7 +10,7 @@ import {
   stripAuthorPreamble,
   stripHeadTag,
   threadHeadline,
-} from "../src/renderer/lib/thread-text";
+} from "../src/window/lib/thread-text";
 
 /** The runs as a line of words, to read a composition back. */
 const words = (text: string, known: ReadonlyArray<string>): string =>

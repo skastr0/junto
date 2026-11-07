@@ -13,7 +13,7 @@ its tests and its CLI surface are gone and `bun run verify` passes.
   `src/shared/physics/schema.ts:99`, `src/shared/physics/kinds.ts:69-71`,
   `src/shared/physics/work-ports.ts:132-138`, `src/shared/work-sinks.ts`.
 - Tables `work_requests`, `request_boards`; repository
-  `src/main/junto/work/repository.ts:3393-3524`; `src/shared/work.ts:1123-1205`;
+  `src/core/work/repository.ts:3393-3524`; `src/shared/work.ts:1123-1205`;
   overseer `request.*`; UI `RequestsCard`, `RequestInbox`.
 - Hazard: the execution graph and attention treat requests as a stoppage
   source (`src/shared/execution-graph.ts:119-157`, `canvas-needs.ts:84`,
@@ -38,13 +38,13 @@ its tests and its CLI surface are gone and `bun run verify` passes.
   `requires-review` rule cannot finish.
 
 ### Hermes integration (keep the Hermes terminal harness)
-- `src/main/junto/hermes/`, `src/main/junto/adapters/hermes.ts`,
-  `src/main/junto/chat/` and `src/renderer/components/chat/`, chat state and
+- `src/main/junto/hermes/`, `src/core/adapters/hermes.ts`,
+  `src/main/junto/chat/` and `src/window/components/chat/`, chat state and
   chrome, `src/shared/legacy-surfaces.ts`, `snapshots.ts`, `entities.ts`,
   Providers card and `hermesHostSnapshots`, host identity `hermesId` and the
   host registry columns and capability bit.
 - Hazards, in order: seat deletion goes through the chat service delete lease
-  (`src/main/junto/overseer/native.ts:1354-1370`, `chat/node-delete.ts`); seat
+  (`src/core/overseer/native.ts:1354-1370`, `chat/node-delete.ts`); seat
   ring occupancy reads chat state (`occupancy-feed.ts:54`); the kernel
   subscribes to snapshots; the canvas-control wire has a `snapshots` field;
   host registry CHECKs need a table rebuild. Cut the seat deletion lease
@@ -67,7 +67,7 @@ its tests and its CLI surface are gone and `bun run verify` passes.
   repository, `PulseRecord`, `pulseLogRetention`; `LegacyEdgeEther` and
   `inferVerb`.
 - `src/shared/model/from-legacy-row.ts` is needed only by migration 12 to 13
-  (`src/main/junto/state/migrations.ts:513-530`). Deleting it raises the
+  (`src/core/state/migrations.ts:513-530`). Deleting it raises the
   oldest database Junto can open to v13. Decided: delete it (operator
   decision 5).
 
@@ -84,20 +84,20 @@ keeps; a ready expand-only step does not wait behind a blocked one. Queued steps
 fact families; task state remap; automations; `artifact_versions`
 (cli-identity). Collapsing `entity_home` belongs to its own step, not the deletions step. Wires with
 removed verbs go by a filtered copy forward (the guard allows row deletes
-only in replaced or removed tables, `src/main/junto/state/migrations.ts:1089-1105`);
+only in replaced or removed tables, `src/core/state/migrations.ts:1089-1105`);
 the live canvas has 420 wires, all `messages`. Pad and sheet: 0 exist, so
 dropped. Steps use the `removesTables` precedent
-(`src/main/junto/state/migrations.ts:394-401,515-518`):
+(`src/core/state/migrations.ts:394-401,515-518`):
 
 1. Delete nodes and wires of removed kinds and verbs; rebuild the
-   `wires.verb` CHECK (`src/main/junto/model/state-schema.ts:186`).
+   `wires.verb` CHECK (`src/core/model/state-schema.ts:186`).
 2. Drop the removed tables.
 3. Rebuild the host registry without Hermes columns.
 4. Collapse `entity_home` lanes on tasks and artifacts (02).
 5. `bun run schema:identity`.
 
 Peers on an older build cannot send copies with removed kinds: a build
-mismatch already closes the link (`src/main/junto/link/protocol.ts:6`). The
+mismatch already closes the link (`src/core/link/protocol.ts:6`). The
 companion protocol's kind list (`src/shared/wire/companion-protocol.ts:296-316`)
 changes with it.
 
@@ -116,16 +116,16 @@ changes with it.
 
 - ~~**canvas**: migrations~~ Answered above.
 - ~~**pty**: chat delete lease~~ pty-lead owns it. Every seat deletion takes
-  it today, from `src/main/junto/overseer/native.ts:1353-1365` and
-  `src/renderer/lib/chat-state.ts:614-660`. After the cut, seat deletion goes
+  it today, from `src/core/overseer/native.ts:1353-1365` and
+  `src/window/lib/chat-state.ts:614-660`. After the cut, seat deletion goes
   through `term/node-delete.ts` only. Lands before the Hermes chat removal.
 - ~~**remote**: hermesId on remotes~~ Answered: no link frame carries it,
   but every core reads and writes it: `machine configure` on the remote
-  (`src/main/junto/machines/repository.ts:127`), `machine.add` hardcoding
-  `["terminal","hermes"]` (`src/main/junto/hosts/machine-owner.ts:94-95`),
+  (`src/core/machines/repository.ts:127`), `machine.add` hardcoding
+  `["terminal","hermes"]` (`src/core/hosts/machine-owner.ts:94-95`),
   registry hydrate and upsert (`hosts/registry.ts:281,292-311`), the eager
   identity in `HermesPlaneLive` on every core (`hermes/plane.ts:420-424`), and
   the settings channel's `hermesHostSnapshots`
-  (`src/main/junto/settings/link-wire.ts:34,68-69`). Cut those writers and the
+  (`src/core/settings/link-wire.ts:34,68-69`). Cut those writers and the
   settings field in the same change as the `host_registry` rebuild, which
   lands in canvas's deletions step with remote's column and CHECK spec.

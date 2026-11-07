@@ -8,7 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readHostDirectory } from "../src/main/junto/term/host-directory";
+import { readHostDirectory } from "../src/core/term/host-directory";
 
 const roots: string[] = [];
 

@@ -13,11 +13,11 @@ import type { MachineInventory } from "../src/shared/harness-domain";
 import { MachineSettingsUnavailableError, type MachineCacheWindows } from "../src/shared/machine-settings";
 import type { OffboardRulesPatch } from "../src/shared/seat-offboard";
 import { defaultSettings } from "../src/shared/settings";
-import { OffboardSettingsSection } from "../src/renderer/components/settings/OffboardSettingsSection";
-import { harnessMachineSource, setHarnessMachineSource } from "../src/renderer/lib/harness-machine-source";
-import { coreMachineSettingsSource, setMachineSettingsSource } from "../src/renderer/lib/machine-settings-source";
-import { forgetSettingsMachine } from "../src/renderer/lib/settings-machine";
-import { state$ } from "../src/renderer/lib/state";
+import { OffboardSettingsSection } from "../src/window/components/settings/OffboardSettingsSection";
+import { harnessMachineSource, setHarnessMachineSource } from "../src/window/lib/harness-machine-source";
+import { coreMachineSettingsSource, setMachineSettingsSource } from "../src/window/lib/machine-settings-source";
+import { forgetSettingsMachine } from "../src/window/lib/settings-machine";
+import { state$ } from "../src/window/lib/state";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

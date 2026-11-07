@@ -49,12 +49,18 @@ const architectureRoleRule = (
   const path = normalizePath(file)
 
   if (
-    pathHasPrefix(path, "src/main/junto/state") ||
-    pathHasPrefix(path, "src/main/junto/station") ||
-    pathHasPrefix(path, "src/main/junto/work") ||
-    pathHasPrefix(path, "src/main/junto/kernel") ||
-    pathHasPrefix(path, "src/main/junto/browser") ||
-    pathHasPrefix(path, "src/main/junto/term") ||
+    pathHasPrefix(path, "src/core/state") ||
+    pathHasPrefix(path, "src/node/state") ||
+    pathHasPrefix(path, "src/app/state") ||
+    pathHasPrefix(path, "src/core/work") ||
+    pathHasPrefix(path, "src/node/work") ||
+    pathHasPrefix(path, "src/app/work") ||
+    pathHasPrefix(path, "src/core/kernel") ||
+    pathHasPrefix(path, "src/app/browser") ||
+    pathHasPrefix(path, "src/core/browser") ||
+    pathHasPrefix(path, "src/node/browser") ||
+    pathHasPrefix(path, "src/core/term") ||
+    pathHasPrefix(path, "src/app/term") ||
     pathHasPrefix(path, "src/cli")
   ) {
     return { id: "integration.process-boundary", role: "integration" }
@@ -64,19 +70,19 @@ const architectureRoleRule = (
     return { id: "shared.frozen-contracts", role: "shared_contextual" }
   }
 
-  if (pathHasPrefix(path, "src/preload")) {
+  if (pathHasPrefix(path, "src/window/preload")) {
     return { id: "preload.ipc-bridge", role: "shared_contextual" }
   }
 
   if (
-    pathHasPrefix(path, "src/renderer/lib") ||
+    pathHasPrefix(path, "src/window/lib") ||
     pathHasPrefix(path, "src/shared/theme") ||
     pathHasPrefix(path, "src/shared/physics")
   ) {
     return { id: "pure.projection-helpers", role: "pure_utility" }
   }
 
-  if (pathHasPrefix(path, "src/main") || pathHasPrefix(path, "src/renderer")) {
+  if (["src/app", "src/core", "src/node", "src/terminal", "src/contract", "src/window"].some((prefix) => pathHasPrefix(path, prefix))) {
     return { id: "integration.surface", role: "integration" }
   }
 

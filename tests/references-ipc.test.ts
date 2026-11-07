@@ -10,12 +10,12 @@ import { DatabaseSync } from "node:sqlite";
 import { Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { ReferencesRepository, ReferencesRepositoryLive } from "../src/main/junto/references/repository";
-import { runCoreOp } from "../src/main/core-process/serve";
-import { subscribe as onCorePush } from "../src/main/core-process/main-side/core-pushes";
-import { coreOpBody } from "../src/main/core-process/ops";
-import "../src/main/core-process/ops/index";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { ReferencesRepository, ReferencesRepositoryLive } from "../src/core/references/repository";
+import { runCoreOp } from "../src/core/serve";
+import { subscribe as onCorePush } from "../src/app/core-process/main-side/core-pushes";
+import { coreOpBody } from "../src/core/ops";
+import "../src/core/ops/index";
 
 let root: string;
 let runtime: ManagedRuntime.ManagedRuntime<ReferencesRepository, unknown>;

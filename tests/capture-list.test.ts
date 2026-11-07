@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ArtifactHead } from "@shared/resource-ipc";
 import { asNodeId } from "@shared/physics/schema";
 import type { ArtifactId } from "@shared/artifact";
-import { captureRowsOf } from "../src/renderer/components/capture/capture-list";
+import { captureRowsOf } from "../src/window/components/capture/capture-list";
 
 const inbox = asNodeId("inbox");
 const shelf = asNodeId("shelf");

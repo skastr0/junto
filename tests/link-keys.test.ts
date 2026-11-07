@@ -1,5 +1,5 @@
 /**
- * Link keys (src/main/junto/link/link-keys.ts): every authorized_keys and
+ * Link keys (src/core/link/link-keys.ts): every authorized_keys and
  * known_hosts line is built from typed fields, so no input can open an
  * unrestricted line or accept a host it should not.
  */
@@ -11,8 +11,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   hasLinkLine, linkHomeTag, linkKeyLine, linkLineOwner, makeLinkKey, readBoundRoute, removeLinkLines,
   upsertLinkLine, verifiedHostKeys, writeBoundRoute, writeLinkKnownHosts,
-} from "../src/main/junto/link/link-keys";
-import { generatePairingKey } from "../src/main/junto/companion/pairing-key";
+} from "../src/core/link/link-keys";
+import { generatePairingKey } from "../src/core/companion/pairing-key";
 
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });

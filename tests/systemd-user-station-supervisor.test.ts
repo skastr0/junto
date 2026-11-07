@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   SystemctlRunResult,
   JuntoSystemdUserUnitTarget,
-} from "../src/main/junto/supervision/systemctl-runner";
+} from "../src/node/supervision/systemctl-runner";
 
 const mocks = vi.hoisted(() => ({
   target: Object.freeze({}) as JuntoSystemdUserUnitTarget,
@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   startJuntoSystemdUserUnit: vi.fn(),
 }));
 
-vi.mock("../src/main/junto/supervision/systemctl-runner", () => ({
+vi.mock("../src/node/supervision/systemctl-runner", () => ({
   JUNTO_SYSTEMD_USER_UNIT: "junto-remote.service",
   systemdUserUnitTarget: mocks.systemdUserUnitTarget,
   showJuntoSystemdUserUnit: mocks.showJuntoSystemdUserUnit,
@@ -22,7 +22,7 @@ import {
   createSystemdUserStationSupervisor,
   renderUserlandLinuxService,
   USERLAND_LINUX_SERVICE_PATH,
-} from "../src/main/junto/supervision/systemd-user";
+} from "../src/node/supervision/systemd-user";
 
 const showOutput = (overrides: Partial<Record<
   "LoadState" | "ActiveState" | "SubState" | "MainPID" | "ControlGroup" | "InvocationID",

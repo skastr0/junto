@@ -23,31 +23,31 @@ import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
 import { linesAnchorOf } from "../src/shared/thread-subject";
 import { page as pageNode, region, seat as seatNode, taskBoard, wire } from "./support/model-nodes";
-import { postSubjectComment } from "../src/main/junto/work/subject-comment";
+import { postSubjectComment } from "../src/core/work/subject-comment";
 import { mentionLink } from "../src/shared/mention";
-import { ModelService } from "../src/main/junto/model/service";
+import { ModelService } from "../src/core/model/service";
 import { ItemId, OpId } from "../src/shared/work-ids";
 import type { MailMessageId } from "../src/shared/crew";
 import { asNodeId } from "../src/shared/physics/schema";
-import { startWorkControlServer, type WorkControlServer } from "../src/main/junto/work/control";
-import { WorkLive, WorkService } from "../src/main/junto/work/service";
-import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
-import { makeContentServiceLive } from "../src/main/junto/content/service";
-import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
-import type { WorkChange } from "../src/main/junto/work/projection-changes";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { SettingsLive } from "../src/main/junto/settings/service";
+import { startWorkControlServer, type WorkControlServer } from "../src/core/work/control";
+import { WorkLive, WorkService } from "../src/core/work/service";
+import { CrewRepositoryLive } from "../src/core/work/crew-repository";
+import { makeContentServiceLive } from "../src/core/content/service";
+import { WorkRepository, WorkRepositoryLive } from "../src/core/work/repository";
+import type { WorkChange } from "../src/core/work/projection-changes";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { MachineRepositoryLive } from "../src/core/machines/repository";
+import { SettingsLive } from "../src/core/settings/service";
 import { nameThisMachine } from "./support/name-this-machine";
-import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
+import { PausePlaneAllPlaying } from "../src/core/pause-plane";
 import {
   mentionableSeats,
   reviewCopyId,
   seatThreadMessages,
   seatThreads,
   sendOperatorThreadMail,
-} from "../src/main/junto/work/operator-threads";
+} from "../src/core/work/operator-threads";
 import {
   OPERATOR_MAIL_MAX_TEXT,
   OperatorThreadSend as OperatorThreadSendSchema,
@@ -55,8 +55,8 @@ import {
 } from "../src/shared/mail-threads";
 import type { MailThreadMessage, MailThreadSummary } from "../src/shared/wire/mail-threads";
 import { OPERATOR_ATTACHMENTS_MAX } from "../src/shared/operator-attachments";
-import { putOperatorContent } from "../src/main/junto/content/operator-attachments";
-import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
+import { putOperatorContent } from "../src/core/content/operator-attachments";
+import { createMainAuthoringGate } from "../src/node/main-authoring-gate";
 import { makeTestLog } from "./support/test-log";
 
 const testLog = makeTestLog();

@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { classifyMachineForm } from "../src/main/junto/hosts/machine-form";
+import { classifyMachineForm } from "../src/core/hosts/machine-form";
 
 it("classifies Apple hardware identifiers without guessing from machine names", () => {
   expect(classifyMachineForm("darwin", "Mac16,10\n")).toBe("mac-mini");

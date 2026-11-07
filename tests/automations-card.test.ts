@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_AUTOMATION_LIMITS, type Automation, type AutomationId } from "@shared/automation";
 import { asNodeId } from "@shared/physics/schema";
 import { ItemId } from "@shared/work-ids";
-import { automationsCardFacts } from "../src/renderer/lib/automations-card";
+import { automationsCardFacts } from "../src/window/lib/automations-card";
 
 const node = asNodeId("automations-1");
 const idOf = (n: number): AutomationId => ItemId.make(`01JAAAAAAAAAAAAAAAAAAAAAA${n}`) as AutomationId;

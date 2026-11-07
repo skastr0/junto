@@ -9,15 +9,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { migrateSignalContentOwner } from "../src/main/junto/state/migrate-signal-content-owner";
+import { migrateSignalContentOwner } from "../src/core/state/migrate-signal-content-owner";
 import {
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V46_IDENTITY,
   STATE_SCHEMA_V47_IDENTITY,
   migrateStateSchema,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V46_SQL, STATE_SCHEMA_V47_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;

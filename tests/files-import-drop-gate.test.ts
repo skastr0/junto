@@ -3,15 +3,15 @@
  * section 3; 3776924fc). The preload reports each OS path it saw on a dropped
  * File; the core copies a source only if that window reported it, and each
  * such path once. A renderer call alone cannot name a source. The gate under
- * test is the real one in src/main/core-process/ops/files.ts, driven the way
+ * test is the real one in src/core/ops/files.ts, driven the way
  * main drives it; the service is a stand-in that records what it was asked to
  * copy.
  */
 import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../src/main/junto/files/index-worker-host", () => ({ workerRootIndex: {} }));
-vi.mock("../src/main/junto/files/service", () => ({
+vi.mock("../src/core/files/index-worker-host", () => ({ workerRootIndex: {} }));
+vi.mock("../src/core/files/service", () => ({
   makeFilesService: () => ({
     closeSubscriber: () => undefined,
     import: async (_ref: unknown, _into: unknown, sources: ReadonlyArray<string>) => {
@@ -22,8 +22,8 @@ vi.mock("../src/main/junto/files/service", () => ({
 }));
 
 const imported: Array<ReadonlyArray<string>> = [];
-const { coreOpBody } = await import("../src/main/core-process/ops");
-await import("../src/main/core-process/ops/files");
+const { coreOpBody } = await import("../src/core/ops");
+await import("../src/core/ops/files");
 
 const run = <A>(name: string, input: unknown): Promise<A> => {
   const body = coreOpBody(name);

@@ -3,9 +3,9 @@
  * seat-state reading, the drain manager and the record, joined.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DRAIN_CAP_MS, DRAIN_SETTLE_MS } from "../src/main/junto/seat-sessions/drain";
-import { composeSeatDrain } from "../src/main/junto/seat-sessions/drain-seat";
-import { rotateSeatSession, type RotatingSeat, type SeatRotatePorts } from "../src/main/junto/seat-sessions/rotate";
+import { DRAIN_CAP_MS, DRAIN_SETTLE_MS } from "../src/core/seat-sessions/drain";
+import { composeSeatDrain } from "../src/core/seat-sessions/drain-seat";
+import { rotateSeatSession, type RotatingSeat, type SeatRotatePorts } from "../src/core/seat-sessions/rotate";
 
 const seatOf = (bindingId: string, sessionId: string | null = "s1"): RotatingSeat => ({
   canvasName: "c",

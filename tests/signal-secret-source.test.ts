@@ -6,7 +6,7 @@
  * one depth that both declare the name are ambiguous rather than a guess.
  */
 import { describe, expect, it } from "vitest";
-import { secretSourceOf } from "../src/main/junto/signals/form-rule";
+import { secretSourceOf } from "../src/core/signals/form-rule";
 import { artifacts, canvasOf, region, seat } from "./support/model-nodes";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { EnvSource } from "../src/shared/model";

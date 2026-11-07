@@ -3,7 +3,7 @@ import { Result } from "effect";
 import type { Canvas } from "../src/shared/model";
 import { TASK_REACH_OPS, isTargetWorkOp } from "../src/shared/physics";
 import { TASKS_ENABLED } from "../src/shared/features";
-import { admitOverseerWorkTarget, admitWorkTarget, kindAllowsOp } from "../src/main/junto/work/authz";
+import { admitOverseerWorkTarget, admitWorkTarget, kindAllowsOp } from "../src/core/work/authz";
 import { OPERATOR_SEAT_ID } from "../src/shared/work-reference";
 
 // Region R holds seat alpha and task node tasks-1; sibling region S holds seat

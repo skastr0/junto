@@ -7,7 +7,7 @@ import {
   createSignalQuitState,
   installProcessSignalTermination,
   runNormalQuitPreparation,
-} from "../src/main/junto/process-signal-termination";
+} from "../src/app/process-signal-termination";
 
 afterEach(() => {
   vi.useRealTimers();

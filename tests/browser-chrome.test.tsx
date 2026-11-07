@@ -4,7 +4,7 @@ import { asNodeId } from "../src/shared/model";
 import type { BrowserChromeState } from "../src/shared/browser-chrome";
 import { initialPageDriving, reducePageDriving } from "../src/shared/page-driver";
 import { initialPageTabs, reducePageTabs } from "../src/shared/page-tabs";
-import { BrowserChrome, PendingChrome } from "../src/renderer/components/browser/BrowserChrome";
+import { BrowserChrome, PendingChrome } from "../src/window/components/browser/BrowserChrome";
 
 const seat = asNodeId("seat-ada");
 const tabsTwo = (() => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { closeCoreProcess, drainCoreProcessPlane, stopCoreOnSignal } from "../src/main/core-process/core-stop";
-import type { AppProcessDrainResult, AppProcessStraggler } from "../src/main/junto/app-process-plane";
+import { closeCoreProcess, drainCoreProcessPlane, stopCoreOnSignal } from "../src/core/core-stop";
+import type { AppProcessDrainResult, AppProcessStraggler } from "../src/node/app-process-plane";
 
 const harness = () => {
   const exits: number[] = [];

@@ -13,9 +13,9 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { harnessRecordFor } from "../src/shared/harness-records";
-import { host } from "../src/main/core-process/core-host";
-import { serveClipboardFormats } from "../src/main/core-process/main-side/clipboard";
-import { ClipboardUnreadable, clipboardSafeAssert } from "../src/main/junto/term/drive/clipboard-guard";
+import { host } from "../src/core/core-host";
+import { serveClipboardFormats } from "../src/app/core-process/main-side/clipboard";
+import { ClipboardUnreadable, clipboardSafeAssert } from "../src/core/term/drive/clipboard-guard";
 
 /** The harness each binding runs, as the core reads it from the seat's slot. */
 const HARNESS: Readonly<Record<string, string>> = { "grok-seat": "grok", "claude-seat": "claude" };

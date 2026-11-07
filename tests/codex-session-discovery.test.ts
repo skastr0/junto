@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   discoverCodexSessionId,
   isCodexSessionId,
-} from "../src/main/junto/term/templates/codex-session";
-import { discoversSessionAfterSpawn } from "../src/main/junto/term/seat-session-capture";
+} from "../src/core/term/templates/codex-session";
+import { discoversSessionAfterSpawn } from "../src/core/term/seat-session-capture";
 
 const ROOT_ID = "01a0e983-fee2-7ff2-97db-b10259aa4d84";
 const CHILD_ID = "01a0e983-aaaa-7ff2-97db-b10259aa4d84";

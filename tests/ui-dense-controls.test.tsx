@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Button, IconButton, Switch, Textarea } from "../src/renderer/components/ui";
+import { Button, IconButton, Switch, Textarea } from "../src/window/components/ui";
 
 const html = (node: React.ReactElement): string => renderToStaticMarkup(node);
 

@@ -12,7 +12,7 @@ import {
   optionId,
   type ListboxAriaState,
   type ListboxSelection,
-} from "../src/renderer/lib/listbox-aria";
+} from "../src/window/lib/listbox-aria";
 
 const mention = (overrides: Partial<ListboxAriaState> = {}): ListboxAriaState => ({
   baseId: ":r1:",

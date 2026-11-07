@@ -4,11 +4,11 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { asCanvasName } from "../src/shared/model";
-import { Canvas } from "../src/renderer/components/Canvas";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { dock$, noteSurfaceId, closeAllWorkbenchSurfaces } from "../src/renderer/lib/dock-state";
-import { newGit } from "../src/renderer/lib/model-factories";
-import { EMPTY_SETTINGS, state$ } from "../src/renderer/lib/state";
+import { Canvas } from "../src/window/components/Canvas";
+import { modelStore } from "../src/window/lib/use-model";
+import { dock$, noteSurfaceId, closeAllWorkbenchSurfaces } from "../src/window/lib/dock-state";
+import { newGit } from "../src/window/lib/model-factories";
+import { EMPTY_SETTINGS, state$ } from "../src/window/lib/state";
 import { page, note, seat } from "./support/model-nodes";
 
 vi.hoisted(() => {

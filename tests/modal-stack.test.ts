@@ -9,7 +9,7 @@ import {
   resetModalStack,
   topOf,
   type ModalLayer,
-} from "../src/renderer/lib/modal-stack";
+} from "../src/window/lib/modal-stack";
 
 const entry = (layer: ModalLayer, seq: number) => ({ layer, seq });
 

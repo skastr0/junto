@@ -51,7 +51,7 @@ const delivery = (nodeId: string, deliveryId: string): NodeRefOpenedDelivery => 
 });
 
 const loadPreload = async (): Promise<JuntoApi> => {
-  await import("../src/preload/index");
+  await import("../src/window/preload/index");
   const api = electron.exposed.get("junto") as JuntoApi | undefined;
   if (api === undefined) throw new Error("preload did not expose Junto API");
   return api;
@@ -145,7 +145,7 @@ describe("preload node-reference delivery", () => {
       value: { href: "https://attacker.invalid/" },
     });
     try {
-      await import("../src/preload/index");
+      await import("../src/window/preload/index");
       expect(electron.exposed.has("junto")).toBe(false);
       expect(electron.exposed.has("chassis")).toBe(false);
     } finally {

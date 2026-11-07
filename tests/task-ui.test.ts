@@ -26,7 +26,7 @@ import {
   verbLabel,
   type SeatChoice,
   type TaskVerb,
-} from "../src/renderer/lib/task-ui";
+} from "../src/window/lib/task-ui";
 import { TASK_STATES } from "../src/shared/task-model";
 
 const ada = seatNodeId(asNodeId("seat-ada"));

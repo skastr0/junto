@@ -6,16 +6,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Schema, Stream } from "effect";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
-import { sendMachine } from "../src/main/junto/hosts/send";
-import { LogService } from "../src/main/junto/observability/logger";
+import { machineBundleFiles } from "../src/node/hosts/bundle";
+import { sendMachine } from "../src/core/hosts/send";
+import { LogService } from "../src/node/observability/logger";
 import { makeTestLog } from "./support/test-log";
 
 const { log: sendLog } = makeTestLog();
-import { parseSshEndpoint, parseSshRoute, SshInputError, SshTransport } from "../src/main/junto/ssh";
+import { parseSshEndpoint, parseSshRoute, SshInputError, SshTransport } from "../src/core/ssh";
 import { InstallationId } from "../src/shared/installation-id";
-import { createSshProgramCompiler } from "../src/main/junto/ssh/program";
-import { SshTransferExitError } from "../src/main/junto/ssh/service";
+import { createSshProgramCompiler } from "../src/core/ssh/program";
+import { SshTransferExitError } from "../src/core/ssh/service";
 import { ChildProcess as Command } from "effect/process";
 
 let root: string;

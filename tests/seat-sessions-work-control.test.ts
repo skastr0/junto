@@ -16,31 +16,31 @@ import { encodeWorkFrame } from "../src/shared/work-control";
 import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
 import { seat } from "./support/model-nodes";
-import { ModelService } from "../src/main/junto/model/service";
+import { ModelService } from "../src/core/model/service";
 import { asCanvasName, asNodeId } from "../src/shared/model";
 import {
   respondThen,
   setSeatSessionLookup,
   startWorkControlServer,
   type WorkControlServer,
-} from "../src/main/junto/work/control";
-import { closingFence } from "../src/main/junto/term/closing-fence";
-import { WorkLive } from "../src/main/junto/work/service";
-import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
-import { makeContentServiceLive } from "../src/main/junto/content/service";
-import { WorkRepositoryLive } from "../src/main/junto/work/repository";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { SettingsLive, SettingsService } from "../src/main/junto/settings/service";
-import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
-import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
+} from "../src/core/work/control";
+import { closingFence } from "../src/core/term/closing-fence";
+import { WorkLive } from "../src/core/work/service";
+import { CrewRepositoryLive } from "../src/core/work/crew-repository";
+import { makeContentServiceLive } from "../src/core/content/service";
+import { WorkRepositoryLive } from "../src/core/work/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
+import { SettingsLive, SettingsService } from "../src/core/settings/service";
+import { PausePlaneAllPlaying } from "../src/core/pause-plane";
+import { createMainAuthoringGate } from "../src/node/main-authoring-gate";
 import {
   makeSeatSessionRepositoryLive,
   SeatSessionRepository,
-} from "../src/main/junto/seat-sessions/repository";
-import { subscribeSeatOffboard, type SeatOffboardEvent } from "../src/main/junto/seat-sessions/service";
-import { __setSessionExistenceHomeForTest } from "../src/main/junto/term/session-existence";
+} from "../src/core/seat-sessions/repository";
+import { subscribeSeatOffboard, type SeatOffboardEvent } from "../src/core/seat-sessions/service";
+import { __setSessionExistenceHomeForTest } from "../src/core/term/session-existence";
 import {
   CONTINUATION_FRAMING,
   describeTranscriptMissing,

@@ -25,8 +25,8 @@ import {
   handleArtifactOp,
   type ArtifactCaller,
   type ArtifactPorts,
-} from "../src/main/junto/work/artifact-control";
-import { artifactBodyRef } from "../src/main/junto/work/artifact-repository";
+} from "../src/core/work/artifact-control";
+import { artifactBodyRef } from "../src/core/work/artifact-repository";
 
 const at = (id: string, kind: string, x: number, y: number, extra: Record<string, unknown> = {}, width = 50, height = 50) =>
   ({ id: asNodeId(id), kind, x, y, width, height, ...extra }) as unknown as Node;

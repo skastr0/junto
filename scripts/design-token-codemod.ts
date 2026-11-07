@@ -9,7 +9,7 @@
  *
  *   bun run tokens:convert <file or folder>...        rewrite in place
  *   bun run tokens:convert --dry <file or folder>...  report only
- *   bun run tokens:convert --only .station-,.command-bar src/renderer/styles.css
+ *   bun run tokens:convert --only .station-,.command-bar src/window/styles.css
  *                                    only the css rules whose selector names
  *                                    one of these: for a stylesheet with
  *                                    several owners

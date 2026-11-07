@@ -12,8 +12,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createConnection } from "node:net";
 import { encodeWorkFrame } from "../../../src/shared/work-control";
 import { ProtoHarness } from "../proto-harness";
-import { startWorkControlServer, type WorkControlServer } from "../../../src/main/junto/work/control";
-import { createMainAuthoringGate } from "../../../src/main/junto/main-authoring-gate";
+import { startWorkControlServer, type WorkControlServer } from "../../../src/core/work/control";
+import { createMainAuthoringGate } from "../../../src/node/main-authoring-gate";
 import { publishSeatCredential } from "../../helpers/seat-credential";
 import { seat, wire } from "../../support/model-nodes";
 

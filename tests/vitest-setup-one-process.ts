@@ -9,12 +9,12 @@
  * sink, no secret source and no terminal place.
  */
 import { beforeAll } from "vitest";
-import { sendPushesTo } from "../src/main/core-process/push";
-import { deliverPush } from "../src/main/core-process/main-side/core-pushes";
-import { useHostClient } from "../src/main/core-process/core-host";
-import { HostCallError } from "../src/main/core-process/host-ops";
-import { runHostOp } from "../src/main/core-process/main-side/host-op-bodies";
-import { placeTerminals } from "../src/main/terminal-process/use";
+import { sendPushesTo } from "../src/core/push";
+import { deliverPush } from "../src/app/core-process/main-side/core-pushes";
+import { useHostClient } from "../src/core/core-host";
+import { HostCallError } from "../src/core/host-ops";
+import { runHostOp } from "../src/app/core-process/main-side/host-op-bodies";
+import { placeTerminals } from "../src/node/terminals/use";
 
 sendPushesTo(deliverPush);
 useHostClient({
@@ -30,7 +30,7 @@ placeTerminals({ kind: "here" });
 // app-process-plane's dependencies must see its mocks, not the real graph.
 beforeAll(async () => {
   const { installInProcessCoreReads } = await import(
-    "../src/main/core-process/in-process-reads"
+    "../src/core/in-process-reads"
   );
   installInProcessCoreReads();
 });

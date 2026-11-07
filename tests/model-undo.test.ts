@@ -7,7 +7,7 @@ import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 import { asCanvasName, decodeCommand, type Command, type Node, type Wire } from "../src/shared/model";
 import { canvasFromOpened, type Canvas } from "../src/shared/model/canvas";
-import { asOneAct, canvasAfter, createEditHistory, inverseOf, stepBack } from "../src/renderer/lib/model-undo";
+import { asOneAct, canvasAfter, createEditHistory, inverseOf, stepBack } from "../src/window/lib/model-undo";
 
 const name = asCanvasName("factory");
 

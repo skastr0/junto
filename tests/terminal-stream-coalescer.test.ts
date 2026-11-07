@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { LocalHostEvent } from "../src/main/junto/term/local-host";
+import type { LocalHostEvent } from "../src/core/term/local-host";
 import {
   TERMINAL_STREAM_FLUSH_BYTES,
   TERMINAL_STREAM_FLUSH_MS,
   TerminalStreamCoalescer,
   terminalBindingKey,
-} from "../src/main/junto/term/stream-coalescer";
+} from "../src/app/term/stream-coalescer";
 
 const output = (
   seq: bigint,

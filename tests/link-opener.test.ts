@@ -11,9 +11,9 @@ import { PassThrough } from "node:stream";
 import { Effect, Schema } from "effect";
 import { afterEach, expect, it } from "vitest";
 import { relayMachineLink } from "../src/cli/link";
-import { makeLinkSession } from "../src/main/junto/link/session";
-import { LinkHelloSchema } from "../src/main/junto/link/protocol";
-import type { LinkChannels, LinkHello } from "../src/main/junto/link/types";
+import { makeLinkSession } from "../src/core/link/session";
+import { LinkHelloSchema } from "../src/core/link/protocol";
+import type { LinkChannels, LinkHello } from "../src/core/link/types";
 import { InstallationId } from "../src/shared/installation-id";
 
 const BUILD = "d".repeat(64);

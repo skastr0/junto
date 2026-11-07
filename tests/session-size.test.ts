@@ -13,8 +13,8 @@ import {
   SESSION_SIZE_TAIL_BYTES,
   sessionSizeOf,
   sessionTranscriptOf,
-} from "../src/main/junto/term/session-size";
-import { harnessSessionLocation } from "../src/main/junto/term/session-existence";
+} from "../src/core/term/session-size";
+import { harnessSessionLocation } from "../src/core/term/session-existence";
 import { HARNESS_IDS } from "../src/shared/managed-terminal-templates";
 
 const homes: string[] = [];

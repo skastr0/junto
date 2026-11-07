@@ -28,9 +28,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { choice, noul, TypeSafeClient } from "@typesafe-ai/sdk";
 import type { JsonValue } from "@typesafe-ai/sdk";
-import { SessionObserver } from "../src/main/junto/term/observer";
-import { SeatStateRuntime } from "../src/main/junto/term/agent-state/runtime";
-import { evaluate } from "../src/main/junto/term/agent-state/engine";
+import { SessionObserver } from "../src/core/term/observer";
+import { SeatStateRuntime } from "../src/core/term/agent-state/runtime";
+import { evaluate } from "../src/core/term/agent-state/engine";
 import { isHarnessId } from "../src/shared/managed-terminal-templates";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -572,7 +572,7 @@ const adversarial: ReadonlyArray<Adversarial> = [
     expectText: "approval_requested accepted (>= 0.9)",
     expect: (a) => a.accepted.concerns.includes("approval_requested"),
     screen: [
-      "● Read(src/main/junto/term/observer/session-observer.ts)",
+      "● Read(src/core/term/observer/session-observer.ts)",
       "  ⎿  Read 812 lines",
       "",
       "● I need to run the PTY capture to confirm the byte shape.",

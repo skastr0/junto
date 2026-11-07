@@ -5,8 +5,8 @@
  * for a canvas it did not subscribe to.
  */
 import { describe, expect, it } from "vitest";
-import { makeCompanionChanges } from "../src/main/junto/companion/changes";
-import { noteArtifactCanvasChanged, type ScannedHead } from "../src/main/junto/companion/artifact-changes";
+import { makeCompanionChanges } from "../src/core/companion/changes";
+import { noteArtifactCanvasChanged, type ScannedHead } from "../src/core/companion/artifact-changes";
 import { COMPANION_PROTOCOL, decodeCompanionRequestLine } from "../src/shared/wire/companion-protocol";
 import type { CompanionArtifactChanged } from "../src/shared/wire/companion-artifacts";
 import { runCompanionSession, type CompanionChange } from "../src/shared/companion-session";

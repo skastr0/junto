@@ -17,23 +17,23 @@ import {
   contentIncomingDir,
   contentObjectPath,
   contentStoreRoot,
-} from "../src/main/junto/content/paths";
-import { createContentService } from "../src/main/junto/content/service";
+} from "../src/node/content/paths";
+import { createContentService } from "../src/core/content/service";
 import {
   ContentManifest,
   ContentManifestError,
-} from "../src/main/junto/content/manifest";
+} from "../src/core/content/manifest";
 import {
   ContentStoreError,
   ensureContentLayout,
   hashContentObjectFile,
   ingestContentBytes,
   verifyContentObjectFile,
-} from "../src/main/junto/content/store";
+} from "../src/node/content/store";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/junto/state/engine";
+} from "../src/core/state/engine";
 
 const roots: string[] = [];
 const runtimes: Array<ManagedRuntime.ManagedRuntime<StateEngine, unknown>> = [];

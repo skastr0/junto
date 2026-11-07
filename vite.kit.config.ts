@@ -7,7 +7,7 @@ import { defineConfig, type Plugin } from "vite";
 import { featureViteDefines, resolveBuildFeatures } from "./scripts/build-features";
 import { overlayAlias, resolveOverlay } from "./scripts/overlay";
 
-// The kit build (bun run kit:build): src/renderer/kit as an ES library for
+// The kit build (bun run kit:build): src/window/kit as an ES library for
 // the website and docs. React stays the host's; everything else is bundled.
 // Always the open-source overlay and the ship feature set: the site shows
 // what a downloaded app shows.
@@ -53,7 +53,7 @@ export default defineConfig(() => {
   return {
     resolve: {
       alias: {
-        "@renderer": resolve("src/renderer"),
+        "@window": resolve("src/window"),
         "@shared": resolve("src/shared"),
         ...overlayAlias(resolveOverlay({})),
       },
@@ -71,7 +71,7 @@ export default defineConfig(() => {
       sourcemap: true,
       lib: {
         // learn: the lessons' schema alone, for hosts that cannot load React.
-        entry: { index: resolve("src/renderer/kit/index.ts"), learn: resolve("src/renderer/kit/learn.ts") },
+        entry: { index: resolve("src/window/kit/index.ts"), learn: resolve("src/window/kit/learn.ts") },
         formats: ["es"],
         fileName: (_format, name) => `${name}.js`,
         cssFileName: "kit",

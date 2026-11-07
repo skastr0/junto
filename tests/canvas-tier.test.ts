@@ -8,7 +8,7 @@ import {
   clearCanvasTier,
   publishCanvasTier,
   tierForZoom,
-} from "../src/renderer/lib/canvas-tier";
+} from "../src/window/lib/canvas-tier";
 
 describe("canvas tier", () => {
   afterEach(() => clearCanvasTier());

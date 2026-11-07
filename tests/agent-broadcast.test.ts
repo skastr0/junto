@@ -13,7 +13,7 @@ import {
   broadcastToAgents,
   formatBroadcastOutcome,
   planAgentBroadcast,
-} from "../src/renderer/lib/agent-broadcast";
+} from "../src/window/lib/agent-broadcast";
 
 // A seat always has a binding in the model; one given none here keeps its
 // default, which no case reports a state for, so it reads as not live.

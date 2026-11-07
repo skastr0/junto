@@ -5,8 +5,8 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 import { describe, expect, it } from "vitest";
 import { ContentRef } from "../src/shared/content";
-import { ContentManifest } from "../src/main/junto/content/manifest";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { ContentManifest } from "../src/core/content/manifest";
+import { makeStateEngineLive } from "../src/core/state/engine";
 
 const withManifest = async <A, E>(
   body: Effect.Effect<A, E, ContentManifest | SqlClient.SqlClient>,

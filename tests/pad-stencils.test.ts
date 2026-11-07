@@ -8,7 +8,7 @@ import {
   imageRow,
   restyleShape,
   stencilPatches,
-} from "../src/renderer/components/pad/pad-stencils";
+} from "../src/window/components/pad/pad-stencils";
 import { isPadPaintLiteral } from "../src/shared/pad-project";
 
 const counter = () => {

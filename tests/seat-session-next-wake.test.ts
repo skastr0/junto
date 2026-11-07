@@ -13,28 +13,28 @@ import { seedCanvas } from "./support/seed-canvas";
 import { seat } from "./support/model-nodes";
 import type { Node } from "../src/shared/model";
 import { seatNextLaunch } from "../src/shared/seat-next-launch";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { ModelService } from "../src/main/junto/model/service";
-import { ModelDependents } from "../src/main/junto/model/dependents";
-import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../src/main/junto/seat-sessions/repository";
-import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { makeManagedSpawnIntent } from "../src/main/junto/term/managed-spawn-plan";
-import { LocalSessionHost } from "../src/main/junto/term/local-host";
-import { makeProcessIdentityMap, setProcessIdentityMapForTests } from "../src/main/junto/process-identity";
-import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { ModelService } from "../src/core/model/service";
+import { ModelDependents } from "../src/core/model/dependents";
+import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../src/core/seat-sessions/repository";
+import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
+import { makeManagedSpawnIntent } from "../src/core/term/managed-spawn-plan";
+import { LocalSessionHost } from "../src/core/term/local-host";
+import { makeProcessIdentityMap, setProcessIdentityMapForTests } from "../src/core/process-identity";
+import { setProcessEpochReaderForTests } from "../src/node/process-epoch";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 import { installHermeticHarnessBins } from "./helpers/hermetic-harness-bins";
 import { seedThisMachine, clearMachines } from "./support/seed-this-machine";
 
 const app = vi.hoisted(() => ({ runPromise: vi.fn() }));
 // Spread the real module: a later export must not break this file at load.
-vi.mock("../src/main/core-runner", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/main/core-runner")>()),
+vi.mock("../src/core/core-runner", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/core/core-runner")>()),
   coreRunner: app,
 }));
-import { ensureSeatSessionId } from "../src/main/junto/term/seat-session-before-start";
-import type { SeatThreadResult } from "../src/main/junto/term/amp-seat-thread";
-import { writeSeatSessionId } from "../src/main/junto/term/seat-session-id";
+import { ensureSeatSessionId } from "../src/core/term/seat-session-before-start";
+import type { SeatThreadResult } from "../src/core/term/amp-seat-thread";
+import { writeSeatSessionId } from "../src/core/term/seat-session-id";
 
 const MACHINE = "command";
 const CANVAS = "next-wake";

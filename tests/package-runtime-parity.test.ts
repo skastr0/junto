@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   CURRENT_STATE_SCHEMA_VERSION,
   STATE_SCHEMA_MIGRATIONS,
-} from "../src/main/junto/state/migrations";
+} from "../src/core/state/migrations";
 import {
   MAIN_PAYLOAD_SOURCE_RELATIVE,
   MAIN_PROVENANCE_SOURCE_RELATIVE,
@@ -182,7 +182,8 @@ const createSourceRepository = async (
   git(root, ["config", "user.email", "package-test@example.invalid"]);
   git(root, ["config", "user.name", "Package Test"]);
   git(root, ["config", "commit.gpgsign", "false"]);
-  await mkdir(path.join(root, "src/main/junto/state"), { recursive: true });
+  await mkdir(path.join(root, "src/node/state"), { recursive: true });
+  await mkdir(path.join(root, "src/core/state"), { recursive: true });
   await writeFile(
     path.join(root, "package.json"),
     `${JSON.stringify({ version: appVersion })}\n`,
@@ -190,11 +191,11 @@ const createSourceRepository = async (
   // The head version lives on its own (state/schema-version.ts); migrations
   // imports and re-exports it.
   await writeFile(
-    path.join(root, "src/main/junto/state/schema-version.ts"),
+    path.join(root, "src/node/state/schema-version.ts"),
     `export const CURRENT_STATE_SCHEMA_VERSION = ${String(schemaVersion)};\n`,
   );
   await writeFile(
-    path.join(root, "src/main/junto/state/migrations.ts"),
+    path.join(root, "src/core/state/migrations.ts"),
     [
       `export const STATE_SCHEMA_V${String(schemaVersion)}_IDENTITY = { actualSchemaSha256: ${JSON.stringify(migrationIdentitySha256)} };`,
       schemaVersion === 1
@@ -221,7 +222,7 @@ const mutatePackageSourceFacts = async (
   }
   const migrationPath = path.join(
     root,
-    "src/main/junto/state/migrations.ts",
+    "src/core/state/migrations.ts",
   );
   const body = await readFile(migrationPath, "utf8");
   if (field === "schema") {
@@ -229,7 +230,7 @@ const mutatePackageSourceFacts = async (
     // migrations.ts.
     const versionPath = path.join(
       root,
-      "src/main/junto/state/schema-version.ts",
+      "src/node/state/schema-version.ts",
     );
     const versions = await readFile(versionPath, "utf8");
     const bumped = versions.replace(
@@ -426,12 +427,12 @@ describe("package source facts", () => {
         ...provenance, state: missingHead,
       })).toThrow(/migration head/u);
 
-      const migrationPath = path.join(fixture.root, "src/main/junto/state/migrations.ts");
+      const migrationPath = path.join(fixture.root, "src/core/state/migrations.ts");
       const baseline = await readFile(migrationPath, "utf8");
       await writeFile(migrationPath, baseline.replace("const migrations = [];",
         'const migrations = [{ fromVersion: 0, toVersion: 1, name: "invented" }];'));
       await expect(readPackageSchemaFacts(fixture.root)).rejects.toThrow(/baseline must have no migrations/u);
-      const versionPath = path.join(fixture.root, "src/main/junto/state/schema-version.ts");
+      const versionPath = path.join(fixture.root, "src/node/state/schema-version.ts");
       const versionSource = await readFile(versionPath, "utf8");
       await writeFile(versionPath, versionSource.replaceAll("VERSION = 1", "VERSION = 2"));
       await writeFile(migrationPath, baseline.replaceAll("VERSION = 1", "VERSION = 2")

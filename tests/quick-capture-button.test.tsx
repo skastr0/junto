@@ -5,11 +5,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { QuickCaptureButton } = await import("../src/renderer/components/QuickCaptureButton");
-const { closeOperatorModal, operatorModal$ } = await import("../src/renderer/lib/operator-modal");
-const { keyAria, keyCaps } = await import("../src/renderer/lib/key-match");
-const { isMac } = await import("../src/renderer/lib/platform");
-const { focusSwitcher$ } = await import("../src/renderer/lib/focus-switcher");
+const { QuickCaptureButton } = await import("../src/window/components/QuickCaptureButton");
+const { closeOperatorModal, operatorModal$ } = await import("../src/window/lib/operator-modal");
+const { keyAria, keyCaps } = await import("../src/window/lib/key-match");
+const { isMac } = await import("../src/window/lib/platform");
+const { focusSwitcher$ } = await import("../src/window/lib/focus-switcher");
 
 let root: Root;
 let host: HTMLDivElement;

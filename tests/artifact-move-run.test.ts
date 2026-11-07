@@ -5,8 +5,8 @@ import { artifactDomain, emptyArtifactState, type ArtifactFact, type ArtifactSta
 import type { InstallationId } from "../src/shared/installation-id";
 import { asNodeId } from "../src/shared/physics/schema";
 import { emptyRuled, mintItemId, mintOpId, rule, type ItemId, type ResourceActor, type ResourceCommand, type Ruled } from "../src/shared/resource-command";
-import { localBodyRef } from "../src/renderer/lib/artifacts-source";
-import { moveArtifacts, type ArtifactMovePorts } from "../src/main/junto/work/artifact-move";
+import { localBodyRef } from "../src/window/lib/artifacts-source";
+import { moveArtifacts, type ArtifactMovePorts } from "../src/core/work/artifact-move";
 import { artifacts, canvasOf, region, seat } from "./support/model-nodes";
 
 const domain = artifactDomain({ now: () => 5_000, bodyRef: localBodyRef });

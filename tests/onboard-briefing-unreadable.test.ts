@@ -7,8 +7,8 @@ import { describe, expect, it } from "vitest";
 import {
   ReferencesPersistenceError,
   ReferencesRepository,
-} from "../src/main/junto/references/repository";
-import { BRIEFING_UNREADABLE, onboardReferenceFields } from "../src/main/junto/references/seat-reads";
+} from "../src/core/references/repository";
+import { BRIEFING_UNREADABLE, onboardReferenceFields } from "../src/core/references/seat-reads";
 
 const SEAT = { canvasName: "onboard", nodeId: "agent" };
 

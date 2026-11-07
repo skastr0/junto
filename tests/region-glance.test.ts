@@ -10,7 +10,7 @@ import {
   SUBREGION_BAND,
   subregionGlanceOpacity,
   type RegionTally,
-} from "../src/renderer/lib/region-glance";
+} from "../src/window/lib/region-glance";
 
 describe("subregionGlanceOpacity", () => {
   it("stays silent while cards inside the nested plate are readable", () => {

@@ -10,9 +10,9 @@ import { Effect } from "effect";
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CoreMessage, CorePort } from "../src/main/core-process/port";
-import { serveTerminals, type SpawnPty } from "../src/main/terminal-process/serve";
-import { terminalClient, type RemoteTerminal, type RemoteTerminalExit } from "../src/main/terminal-process/client";
+import type { CoreMessage, CorePort } from "../src/contract/core/port";
+import { serveTerminals, type SpawnPty } from "../src/terminal/serve";
+import { terminalClient, type RemoteTerminal, type RemoteTerminalExit } from "../src/node/terminals/client";
 
 const nodePty = createRequire(import.meta.url)("node-pty") as typeof import("node-pty");
 const realPty: SpawnPty = (command, args, options) => nodePty.spawn(command, [...args], options);

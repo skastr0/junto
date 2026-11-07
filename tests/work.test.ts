@@ -1,4 +1,4 @@
-import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
+import { CrewRepositoryLive } from "../src/core/work/crew-repository";
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Message } from "../src/shared/work-model";
 import type { Canvas, Node, Wire } from "../src/shared/model";
 import type { ActorRef } from "../src/shared/work-protocol";
-import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
+import { ModelActorRefs } from "../src/core/model/actor-refs";
 import { ModelStoresLive, readSeeded, seedCanvas } from "./support/seed-canvas";
 import { seat, taskBoard, wire } from "./support/model-nodes";
 
@@ -47,21 +47,21 @@ vi.mock("node:os", async (importOriginal) => {
 
 vi.mock("@shared/seed", () => import("../src/shared/seed"));
 
-import { WorkLive, WorkService } from "../src/main/junto/work/service";
+import { WorkLive, WorkService } from "../src/core/work/service";
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/junto/work/repository";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
+} from "../src/core/work/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { makeMachineRepositoryLive } from "../src/core/machines/repository";
 import {
   makeSettingsLive,
   SettingsService,
-} from "../src/main/junto/settings/service";
+} from "../src/core/settings/service";
 import {
   makeContentServiceLive,
-} from "../src/main/junto/content/service";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
+} from "../src/core/content/service";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
 import { THIS_MACHINE } from "./support/machines";
 
 const makeWorkRuntime = (databasePath: string) => {

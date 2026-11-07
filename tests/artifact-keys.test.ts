@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { artifactKeyRows } from "../src/renderer/components/artifacts/ArtifactKeys";
+import { artifactKeyRows } from "../src/window/components/artifacts/ArtifactKeys";
 
 describe("an artifact's keys, from the key table", () => {
   it("names the pane's keys for every type, the rail and the comment send among them", () => {

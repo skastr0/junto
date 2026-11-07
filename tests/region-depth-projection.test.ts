@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Node, NodeOf } from "../src/shared/model";
 import { canvasOf } from "./support/model-nodes";
-import { createFlowIdentityCache, toFlowOfCanvas } from "../src/renderer/lib/convert";
+import { createFlowIdentityCache, toFlowOfCanvas } from "../src/window/lib/convert";
 
 // Region nesting depth is projected once per toFlow and carried on node data,
 // so GroupNode reads its MAX_REGION_DEPTH warning off props instead of the doc.

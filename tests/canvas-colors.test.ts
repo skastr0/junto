@@ -10,7 +10,7 @@ import {
 import { AppearanceSettings, applySettingsPatch, defaultSettings } from "../src/shared/settings";
 import { HUES } from "../src/shared/theme/primitives";
 import { oklchToHex } from "../src/shared/theme/oklch";
-import { accentColor, borderColor } from "../src/renderer/lib/theme";
+import { accentColor, borderColor } from "../src/window/lib/theme";
 
 describe("canvas palette", () => {
   it("keeps the six accent presets as digits and adds a clear yellow", () => {

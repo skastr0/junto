@@ -18,16 +18,16 @@ vi.mock("@shared/features", async (original) => ({
   get AUTHORITY_ENABLED() { return flags.authority; },
 }));
 
-import { makeContentServiceLive } from "../src/main/junto/content/service";
-import { CanvasAuthoritiesLive } from "../src/main/junto/fleet/host";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { MachineRepository, MachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { ModelRecords } from "../src/main/junto/model/records";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { ArtifactRepository, ArtifactRepositoryLive } from "../src/main/junto/work/artifact-repository";
-import { workProjectionChanges } from "../src/main/junto/work/projection-changes";
-import { WorkRepositoryLive } from "../src/main/junto/work/repository";
-import { RulingRecorderLive } from "../src/main/junto/work/ruling-recorder";
+import { makeContentServiceLive } from "../src/core/content/service";
+import { CanvasAuthoritiesLive } from "../src/core/fleet/host";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { MachineRepository, MachineRepositoryLive } from "../src/core/machines/repository";
+import { ModelRecords } from "../src/core/model/records";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { ArtifactRepository, ArtifactRepositoryLive } from "../src/core/work/artifact-repository";
+import { workProjectionChanges } from "../src/core/work/projection-changes";
+import { WorkRepositoryLive } from "../src/core/work/repository";
+import { RulingRecorderLive } from "../src/core/work/ruling-recorder";
 import { asNodeId } from "../src/shared/model";
 import type { ArtifactOp, ArtifactVersion } from "../src/shared/artifact";
 import { mintOpId, type ResourceActor, type ResourceCommand, type RulingContext } from "../src/shared/resource-command";

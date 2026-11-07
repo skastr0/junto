@@ -7,9 +7,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readGitLog, readGitReview, readGitStatus, readGitSummary } from "../src/main/junto/adapters/git";
-import { filterDriverNames, filterGuardArgs } from "../src/main/junto/adapters/git-guard";
-import { mainNameSources } from "../src/main/junto/files/git-spawn";
+import { readGitLog, readGitReview, readGitStatus, readGitSummary } from "../src/core/adapters/git";
+import { filterDriverNames, filterGuardArgs } from "../src/core/adapters/git-guard";
+import { mainNameSources } from "../src/core/files/git-spawn";
 
 const { gitNames, isGitRoot } = mainNameSources;
 

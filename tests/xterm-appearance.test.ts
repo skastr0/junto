@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { schemeDsrFor } from "@shared/theme";
-import { attachXtermAppearance } from "../src/renderer/lib/xterm-appearance";
+import { attachXtermAppearance } from "../src/window/lib/xterm-appearance";
 import type { Terminal } from "@xterm/xterm";
 
 /**

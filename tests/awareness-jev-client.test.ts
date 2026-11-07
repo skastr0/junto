@@ -19,8 +19,8 @@ import {
   runAwarenessAsk,
   type AwarenessAsk,
   type AwarenessModelShape,
-} from "../src/main/junto/term/awareness/jev-client";
-import { selectAwarenessInput } from "../src/main/junto/term/awareness/select-input";
+} from "../src/core/term/awareness/jev-client";
+import { selectAwarenessInput } from "../src/core/term/awareness/select-input";
 import { EVIDENCE_TEXT } from "./helpers/awareness-fakes";
 
 // ---------------------------------------------------------------------------

@@ -15,8 +15,8 @@ import {
   isHorizontalRule,
   promptBoxBody,
   sanitizeTitle,
-} from "../src/main/junto/term/observer";
-import { evaluate } from "../src/main/junto/term/agent-state";
+} from "../src/core/term/observer";
+import { evaluate } from "../src/core/term/agent-state";
 
 const feedAndWait = async (
   obs: SessionObserver,

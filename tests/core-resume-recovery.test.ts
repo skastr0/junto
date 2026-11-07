@@ -1,11 +1,11 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { expect, it, vi } from "vitest";
-import { MachineCoreMail } from "../src/main/core-runtime";
-import { startCore } from "../src/main/junto/core";
+import { MachineCoreMail } from "../src/core/core-runtime";
+import { startCore } from "../src/core/core";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
-import { seatStateRuntime } from "../src/main/junto/term/agent-state/runtime";
-import { terminalObserverPlane } from "../src/main/junto/term/observer";
-import { termPlane } from "../src/main/junto/term/plane";
+import { seatStateRuntime } from "../src/core/term/agent-state/runtime";
+import { terminalObserverPlane } from "../src/core/term/observer";
+import { termPlane } from "../src/core/term/plane";
 
 const frame = (lines: readonly string[]) => ({ lines, signals: { modes: { bracketedPaste: false } } }) as never;
 const SELECTOR = ["Resume from summary", "Resume full session as-is", "Enter to confirm", "Esc to cancel"];

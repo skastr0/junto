@@ -4,8 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "vitest";
 import { openSearchPanel } from "@codemirror/search";
 import { EditorView } from "@codemirror/view";
-import { CodeEditor, type CodeEditorHandle, type LineRange } from "../src/renderer/components/ui/CodeEditor";
-import { commentLabel, COMMENT_TEST_ID } from "../src/renderer/components/ui/code-editor-lines";
+import { CodeEditor, type CodeEditorHandle, type LineRange } from "../src/window/components/ui/CodeEditor";
+import { commentLabel, COMMENT_TEST_ID } from "../src/window/components/ui/code-editor-lines";
 
 let root: Root;
 let host: HTMLDivElement;

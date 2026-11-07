@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, it } from "vitest";
 import { normalizeMachineBundleModes } from "../scripts/machine-bundle-modes";
-import { inspectMachineBundle, machineBundleFiles } from "../src/main/junto/hosts/bundle";
+import { inspectMachineBundle, machineBundleFiles } from "../src/node/hosts/bundle";
 
 it("turns permissive build output into a package the strict installer can admit", async () => {
   const root = await mkdtemp(join(tmpdir(), "junto-bundle-modes-"));

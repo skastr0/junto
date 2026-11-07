@@ -6,16 +6,16 @@ import { asNodeId } from "../src/shared/physics/schema";
 import { parseFilePath } from "../src/shared/files";
 import { asCanvasName } from "../src/shared/model";
 import { files as filesNode } from "./support/model-nodes";
-import { loadLazySurfaces } from "../src/renderer/lib/lazy-surface";
+import { loadLazySurfaces } from "../src/window/lib/lazy-surface";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { FilesNode } = await import("../src/renderer/components/files/FilesNode");
-const { saveFileInFront } = await import("../src/renderer/lib/file-editor-keys");
-const { installFilesSource, makeLocalFiles, setFileDraft, fileDraft } = await import("../src/renderer/lib/files-source");
-const { modelStore } = await import("../src/renderer/lib/use-model");
-const { nodeViewStore, setNodeViewStore } = await import("../src/renderer/lib/node-view-state");
-const { makeMemoryNodeViewStore } = await import("../src/renderer/lib/view-state-stand-in");
+const { FilesNode } = await import("../src/window/components/files/FilesNode");
+const { saveFileInFront } = await import("../src/window/lib/file-editor-keys");
+const { installFilesSource, makeLocalFiles, setFileDraft, fileDraft } = await import("../src/window/lib/files-source");
+const { modelStore } = await import("../src/window/lib/use-model");
+const { nodeViewStore, setNodeViewStore } = await import("../src/window/lib/node-view-state");
+const { makeMemoryNodeViewStore } = await import("../src/window/lib/view-state-stand-in");
 
 // The editors and viewers load before any test, so no test waits on an import.
 await loadLazySurfaces();

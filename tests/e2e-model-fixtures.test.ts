@@ -4,10 +4,10 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { expect, it, vi } from "vitest";
 import { createSandbox, destroySandbox, writeFixtureModel } from "../e2e/harness/sandbox";
 import { installModelFixture, modelFixture, modelSeatSession, modelMessagesWire, modelNote, modelRegion, modelSeat, modelTerminal, modelWire, readModelCanvas, commandModel, modelNode } from "../e2e/harness/model";
-import { ModelService } from "../src/main/junto/model/service";
-import { ModelDependents } from "../src/main/junto/model/dependents";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../src/main/junto/seat-sessions/repository";
+import { ModelService } from "../src/core/model/service";
+import { ModelDependents } from "../src/core/model/dependents";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../src/core/seat-sessions/repository";
 import { Command, Wire } from "../src/shared/model";
 
 it("seeds native kinds and sink names into the durable model", async () => {

@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OPERATOR_PROTOCOL_VERSION } from "../src/shared/operator-control";
 import type { RemoteHost } from "../src/shared/remote-hosts";
-import { checkSeatMachine, forgetMachineChecks } from "../src/renderer/lib/machine-list";
+import { checkSeatMachine, forgetMachineChecks } from "../src/window/lib/machine-list";
 import {
   loadMachines,
   loadSetUpMachines,
@@ -14,8 +14,8 @@ import {
   seatMachineLine,
   setUpMachinesIn,
   type MachineFacts,
-} from "../src/renderer/lib/machines";
-import { state$ } from "../src/renderer/lib/state";
+} from "../src/window/lib/machines";
+import { state$ } from "../src/window/lib/state";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 
 type Request = { readonly id: string; readonly op: string; readonly args: { readonly name?: string } };

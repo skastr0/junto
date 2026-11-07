@@ -20,7 +20,7 @@ import {
   importNotice,
   movesForDrop,
   parentOf,
-} from "../src/renderer/lib/files-drop";
+} from "../src/window/lib/files-drop";
 import type { FilePath, FilesError, FilesResult } from "../src/shared/files";
 import type { NodeId } from "../src/shared/physics/schema";
 import {
@@ -30,8 +30,8 @@ import {
   type FilesDropModel,
   type FilesDropPort,
   type FilesMoved,
-} from "../src/renderer/components/files/useFilesDrop";
-import { FilesDropHighlight } from "../src/renderer/components/files/FilesDropHighlight";
+} from "../src/window/components/files/useFilesDrop";
+import { FilesDropHighlight } from "../src/window/components/files/FilesDropHighlight";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

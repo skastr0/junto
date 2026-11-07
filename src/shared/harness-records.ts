@@ -3,7 +3,7 @@
  * accepts, its params, how its TUI behaves on a PTY, and where it keeps its
  * sessions. Code that branches on
  * a harness reads the record instead of naming one. Main joins the screen rule
- * pack (`src/main/junto/term/harness-record.ts`). Design: `docs/harness-domain.md`.
+ * pack (`src/core/term/harness-record.ts`). Design: `docs/harness-domain.md`.
  */
 import { HARNESS_CAPABILITIES } from "./harness-capabilities";
 import { isProfileName } from "./profile-name";
@@ -132,7 +132,7 @@ const store = (...holds: readonly [SessionHolds, ...SessionHolds[]]): SessionSto
 
 /**
  * What each harness's sessions are where it keeps them, as main's session
- * store finds them (`src/main/junto/term/session-existence.ts`), which a test
+ * store finds them (`src/core/term/session-existence.ts`), which a test
  * holds this to.
  */
 export const HARNESS_SESSION_STORE_SUPPORT: Readonly<Record<HarnessId, SessionStoreSupport>> = {

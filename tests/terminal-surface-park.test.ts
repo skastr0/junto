@@ -4,7 +4,7 @@ import { terminal } from "./support/model-nodes";
 import { defaultTerminal } from "../src/shared/settings";
 import type { TerminalParkResult } from "../src/shared/ipc";
 import type { TerminalOutputBatch } from "../src/shared/terminal";
-import { SessionObserver } from "../src/main/junto/term/observer";
+import { SessionObserver } from "../src/core/term/observer";
 
 type Effect = { run: () => void | (() => void); deps?: readonly unknown[] };
 const hooks = vi.hoisted(() => ({
@@ -41,11 +41,11 @@ vi.mock("@legendapp/state/react", async (load) => ({
   use$: (value: (() => unknown) | { get: () => unknown }) =>
     typeof value === "function" ? value() : value.get(),
 }));
-vi.mock("../src/renderer/lib/junto-api", () => ({
+vi.mock("../src/window/lib/junto-api", () => ({
   getJuntoApi: () => hooks.api,
 }));
 
-import { fallbackCell, PARK_GRACE_MS, TerminalSurface } from "../src/renderer/components/terminal/TerminalSurface";
+import { fallbackCell, PARK_GRACE_MS, TerminalSurface } from "../src/window/components/terminal/TerminalSurface";
 
 const COLS = 100, ROWS = 40;
 const EPOCH = "epoch-a";

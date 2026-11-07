@@ -17,7 +17,7 @@ import {
   SLACK,
   surfaceRootMargin,
   watchCoverable,
-} from "../src/renderer/lib/mark-occlusion";
+} from "../src/window/lib/mark-occlusion";
 
 type Rect = { left: number; top: number; right: number; bottom: number };
 type Reading = { target: Element; isIntersecting: boolean; intersectionRatio: number; boundingClientRect: Rect; rootBounds: Rect | null };

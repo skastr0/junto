@@ -23,7 +23,7 @@ import type { InstallationId } from "../src/shared/installation-id";
 import { ItemId } from "../src/shared/work-ids";
 import { AutomationNodeId } from "../src/shared/mail-author";
 import { asNodeId } from "../src/shared/model";
-import { runSeatControl } from "../src/main/junto/work/exchange/seat-controls";
+import { runSeatControl } from "../src/core/work/exchange/seat-controls";
 import { automations, canvasOf, region, seat } from "./support/model-nodes";
 
 const decodeControl = Schema.decodeUnknownResult(SeatControlResult, { onExcessProperty: "error" });

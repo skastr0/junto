@@ -16,18 +16,18 @@ import {
   type ResourceCommand,
   type RulingContext,
 } from "../src/shared/resource-command";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { ContentService, makeContentServiceLive } from "../src/main/junto/content/service";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { writeRuling } from "../src/main/junto/work/resource-rulings";
-import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { ContentService, makeContentServiceLive } from "../src/core/content/service";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { writeRuling } from "../src/core/work/resource-rulings";
+import { RulingRecorder } from "../src/core/work/ruling-recorder";
 import {
   ArtifactRepository,
   ArtifactRepositoryLive,
   type ArtifactSubmitOutcome,
   artifactBodyRef,
   projectArtifactFacts,
-} from "../src/main/junto/work/artifact-repository";
+} from "../src/core/work/artifact-repository";
 
 // The ruling's row as the recorder writes it; its fact row needs a canvas this machine edits (tests/ruling-recorder.test.ts).
 const recorder = Layer.effect(

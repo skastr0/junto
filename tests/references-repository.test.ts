@@ -8,8 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { ReferencesRepository, ReferencesRepositoryLive } from "../src/main/junto/references/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { ReferencesRepository, ReferencesRepositoryLive } from "../src/core/references/repository";
 import {
   APP_REFERENCE_PLACE,
   normalizeReferenceName,

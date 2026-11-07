@@ -12,10 +12,10 @@ import { join, resolve } from "node:path";
 import { Effect } from "effect";
 import { ChildProcess as Command } from "effect/process";
 import { afterEach, expect, it } from "vitest";
-import { contentObjectPath, contentStoreRoot } from "../src/main/junto/content/paths";
-import { parseSshRoute } from "../src/main/junto/ssh";
-import { receiveMachineContent, statMachineContent } from "../src/main/junto/ssh/machine-commands";
-import { createSshProgramCompiler, type OneShotProgram } from "../src/main/junto/ssh/program";
+import { contentObjectPath, contentStoreRoot } from "../src/node/content/paths";
+import { parseSshRoute } from "../src/core/ssh";
+import { receiveMachineContent, statMachineContent } from "../src/core/ssh/machine-commands";
+import { createSshProgramCompiler, type OneShotProgram } from "../src/core/ssh/program";
 
 const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
 const compiler = createSshProgramCompiler({ controlDir: "/tmp/junto-content-mux", envExecutable: "/usr/bin/env", sshExecutable: "/usr/bin/ssh", environment: {} });

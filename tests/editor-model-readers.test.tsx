@@ -5,16 +5,16 @@ import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 import { Schema } from "effect";
 import { Node } from "../src/shared/model";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { state$ } from "../src/renderer/lib/state";
-import { emptyHotbarSlots } from "../src/renderer/lib/hotbar-slots";
-import { SaveToGroupPicker } from "../src/renderer/components/rts/SaveToGroupPicker";
-import { CommandBar } from "../src/renderer/components/command-bar/CommandBar";
-import { dock$ } from "../src/renderer/lib/dock-state";
-import { agentSeat$ } from "../src/renderer/lib/agent-seat-state";
-import { RegionPathsModal } from "../src/renderer/components/RegionPathsModal";
+import { modelStore } from "../src/window/lib/use-model";
+import { state$ } from "../src/window/lib/state";
+import { emptyHotbarSlots } from "../src/window/lib/hotbar-slots";
+import { SaveToGroupPicker } from "../src/window/components/rts/SaveToGroupPicker";
+import { CommandBar } from "../src/window/components/command-bar/CommandBar";
+import { dock$ } from "../src/window/lib/dock-state";
+import { agentSeat$ } from "../src/window/lib/agent-seat-state";
+import { RegionPathsModal } from "../src/window/components/RegionPathsModal";
 
-vi.mock("../src/renderer/components/node-palette/HostDirectoryPicker", () => ({
+vi.mock("../src/window/components/node-palette/HostDirectoryPicker", () => ({
   HostDirectoryPicker: ({ initialPath }: { initialPath: string }) => <output data-testid="path">{initialPath}</output>,
 }));
 

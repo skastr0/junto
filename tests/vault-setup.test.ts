@@ -19,16 +19,16 @@ vi.mock("@shared/features", async (original) => ({
   get VAULT_ENABLED() { return flags.vault; },
 }));
 
-import { HostsService } from "../src/main/junto/hosts/service";
-import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
-import type { ToolCall, ToolResult } from "../src/main/junto/region-env/tool";
-import { SshExitError } from "../src/main/junto/ssh/domain";
-import { createSshProgramCompiler } from "../src/main/junto/ssh/program";
-import { SshTransport, type SshTransportShape } from "../src/main/junto/ssh/service";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { makeVaultTokens } from "../src/main/junto/vault/repository";
-import { makeVaultSetup, mintArgv } from "../src/main/junto/vault/setup";
-import { readVaultToken, vaultDir } from "../src/main/junto/vault/token-file";
+import { HostsService } from "../src/core/hosts/service";
+import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
+import type { ToolCall, ToolResult } from "../src/core/region-env/tool";
+import { SshExitError } from "../src/core/ssh/domain";
+import { createSshProgramCompiler } from "../src/core/ssh/program";
+import { SshTransport, type SshTransportShape } from "../src/core/ssh/service";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { makeVaultTokens } from "../src/core/vault/repository";
+import { makeVaultSetup, mintArgv } from "../src/core/vault/setup";
+import { readVaultToken, vaultDir } from "../src/core/vault/token-file";
 import { InstallationId } from "../src/shared/installation-id";
 import { RemoteHost } from "../src/shared/remote-hosts";
 
@@ -264,7 +264,7 @@ describe("--mint: Junto makes the token itself, so its scope is verified", () =>
 
 it("the CLI waits out a mint's approval and its placement, under the operator socket's ceiling", async () => {
   const { VAULT_MINT_CALL_MS } = await import("../src/cli/commands/machine");
-  const { MINT_MS } = await import("../src/main/junto/vault/setup");
+  const { MINT_MS } = await import("../src/core/vault/setup");
   const { OPERATOR_MAX_TIMEOUT_MS } = await import("../src/shared/operator-control");
   // The mint's wait, the far placement's one-shot SSH (standard budget) and two op liveness calls.
   expect(VAULT_MINT_CALL_MS).toBeGreaterThan(MINT_MS + 12_000 + 2 * 15_000);

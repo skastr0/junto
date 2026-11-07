@@ -22,9 +22,9 @@
  */
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { SessionObserver } from "../../../src/main/junto/term/observer";
-import { SeatStateRuntime } from "../../../src/main/junto/term/agent-state/runtime";
-import { FALLBACK_IDLE } from "../../../src/main/junto/term/agent-state/engine";
+import { SessionObserver } from "../../../src/core/term/observer";
+import { SeatStateRuntime } from "../../../src/core/term/agent-state/runtime";
+import { FALLBACK_IDLE } from "../../../src/core/term/agent-state/engine";
 import {
   capturePath,
   captureDeclaration,

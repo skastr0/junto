@@ -4,8 +4,8 @@ import {
   unixSocketPathLimit,
   WorkSocketPathTooLong,
   workControlSocketPathBudget,
-} from "../src/main/junto/work/socket-path";
-import { buildStartupStateFailureCopy } from "../src/main/junto/state/startup-state-failure-dialog";
+} from "../src/node/work/socket-path";
+import { buildStartupStateFailureCopy } from "../src/app/state/startup-state-failure-dialog";
 import { PRODUCT_NAME } from "../src/shared/product-name";
 
 /** A work home whose `<workHome>/control.sock` is exactly `bytes` bytes. */

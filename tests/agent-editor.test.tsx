@@ -9,22 +9,22 @@ import { holdModelCanvas as holdCanvas } from "./support/hold-canvas";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-vi.mock("../src/renderer/lib/theme-mode", async () => {
+vi.mock("../src/window/lib/theme-mode", async () => {
   const { observable } = await import("@legendapp/state");
   return { themeMode$: observable<"dark" | "bright">("dark") };
 });
 
 const renames: Array<readonly [string, string]> = [];
-vi.mock("../src/renderer/lib/mutations", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/renderer/lib/mutations")>()),
+vi.mock("../src/window/lib/mutations", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/window/lib/mutations")>()),
   renameTerminalNode: (id: string, name: string) => renames.push([id, name]),
 }));
 
-const { AgentEditorHost, CustomizeAgentButton } = await import("../src/renderer/components/agent-editor/AgentEditor");
-const { AGENT_EDITOR_SECTIONS } = await import("../src/renderer/components/agent-editor/sections");
-const { agentEditor$, closeAgentEditor, openAgentEditor } = await import("../src/renderer/lib/agent-editor-state");
-const { state$ } = await import("../src/renderer/lib/state");
-const { portraitOverrides$ } = await import("../src/renderer/lib/portrait-overrides-state");
+const { AgentEditorHost, CustomizeAgentButton } = await import("../src/window/components/agent-editor/AgentEditor");
+const { AGENT_EDITOR_SECTIONS } = await import("../src/window/components/agent-editor/sections");
+const { agentEditor$, closeAgentEditor, openAgentEditor } = await import("../src/window/lib/agent-editor-state");
+const { state$ } = await import("../src/window/lib/state");
+const { portraitOverrides$ } = await import("../src/window/lib/portrait-overrides-state");
 const { normalizePortraitOverride } = await import("../src/shared/portrait-overrides");
 const { installCosmeticPacks } = await import("../src/shared/cosmetics/catalog");
 const { decodeCosmeticPacks } = await import("../src/shared/cosmetics/load");

@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { makeCopyProgress } from "../src/main/junto/hosts/copy-progress";
+import { makeCopyProgress } from "../src/core/hosts/copy-progress";
 import type { MachineCopyProgress } from "../src/shared/machine-progress";
 
 it("reports bounded byte progress, a 30-second stall, resumption and completion", () => {

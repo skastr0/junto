@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { StationSupervisor } from "../src/main/junto/supervision/contract";
-import { JUNTO_LAUNCHD_LABEL } from "../src/main/junto/settings/launchctl-runner";
-import { createSupervisedProbe } from "../src/main/junto/settings/supervised-probe";
+import type { StationSupervisor } from "../src/node/supervision/contract";
+import { JUNTO_LAUNCHD_LABEL } from "../src/node/settings/launchctl-runner";
+import { createSupervisedProbe } from "../src/core/settings/supervised-probe";
 
 const supervisor = (state: unknown) =>
   ({ observe: vi.fn(async () => state) }) as unknown as StationSupervisor;
@@ -12,11 +12,11 @@ describe("supervised station probe", () => {
   it("keeps one canonical launchd service label", () => {
     const root = join(import.meta.dirname, "..");
     const runner = readFileSync(
-      join(root, "src/main/junto/settings/launchctl-runner.ts"),
+      join(root, "src/node/settings/launchctl-runner.ts"),
       "utf8",
     );
     const probe = readFileSync(
-      join(root, "src/main/junto/settings/supervised-probe.ts"),
+      join(root, "src/core/settings/supervised-probe.ts"),
       "utf8",
     );
     expect(JUNTO_LAUNCHD_LABEL).toBe("com.skastr0.junto");

@@ -29,7 +29,7 @@ import { BindingId as SeatBindingId } from "../src/shared/terminal-session-domai
 import {
   AI_ACTIVITY_VALUES,
   AI_CONCERN_VALUES,
-} from "../src/main/junto/term/awareness/questions";
+} from "../src/core/term/awareness/questions";
 
 const seat = Schema.decodeSync(SeatBindingId)("seat-a");
 

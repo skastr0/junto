@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/physics/schema";
-import { makePostOps } from "../src/renderer/lib/post-op";
+import { makePostOps } from "../src/window/lib/post-op";
 
 const nodeId = asNodeId("files-1");
 const subject = { kind: "file" as const, nodeId, path: "src/big.ts" };

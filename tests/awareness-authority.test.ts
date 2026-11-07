@@ -46,8 +46,8 @@ import {
   acceptanceThresholdsFor,
   formatEvidenceLineId,
   type NoulQuestion,
-} from "../src/main/junto/term/awareness/questions";
-import { UNAVAILABLE_REASONS } from "../src/main/junto/term/awareness/project-result";
+} from "../src/core/term/awareness/questions";
+import { UNAVAILABLE_REASONS } from "../src/core/term/awareness/project-result";
 import { THREAD_HEALTH_VALUES } from "../src/shared/thread-health";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -55,10 +55,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (path: string): string => readFileSync(join(root, path), "utf8");
 
 const AWARENESS_SOURCES = [
-  "src/main/junto/term/awareness/questions.ts",
-  "src/main/junto/term/awareness/select-input.ts",
-  "src/main/junto/term/awareness/project-result.ts",
-  "src/main/junto/term/awareness/seat-signals.ts",
+  "src/core/term/awareness/questions.ts",
+  "src/core/term/awareness/select-input.ts",
+  "src/core/term/awareness/project-result.ts",
+  "src/core/term/awareness/seat-signals.ts",
 ] as const;
 
 const sourceFilesUnder = (path: string): ReadonlyArray<string> => {
@@ -114,12 +114,13 @@ describe("awareness authority boundary", () => {
 
   it("is not imported by any state-engine, drive, or delivery module", () => {
     const boundary = [
-      ...sourceFilesUnder("src/main/junto/term/agent-state"),
-      ...sourceFilesUnder("src/main/junto/term/drive"),
-      "src/main/junto/term/core-mail.ts",
-      "src/main/junto/term/seat-process.ts",
-      "src/main/junto/term/factory-delivery-composition.ts",
-      "src/main/junto/term/injection-supervisor.ts",
+      ...sourceFilesUnder("src/core/term/agent-state"),
+      ...sourceFilesUnder("src/core/term/drive"),
+      ...sourceFilesUnder("src/app/term/drive"),
+      "src/core/term/core-mail.ts",
+      "src/core/term/seat-process.ts",
+      "src/core/term/factory-delivery-composition.ts",
+      "src/core/term/injection-supervisor.ts",
     ];
     const violations = boundary.filter((path) => {
       if (!statSync(join(root, path)).isFile()) return false;
@@ -131,8 +132,8 @@ describe("awareness authority boundary", () => {
   it("gates no delivery: whether a seat may be typed into is the rule engine's call alone", () => {
     // Both shells use the same core drive. Advisory display never supplies
     // its idle gate or a shell's decision to deliver mail.
-    const wiring = read("src/main/junto/term/core-mail.ts");
-    for (const source of [wiring, read("src/main/junto/ipc.ts"), read("src/main/junto/core.ts")]) {
+    const wiring = read("src/core/term/core-mail.ts");
+    for (const source of [wiring, read("src/app/ipc.ts"), read("src/core/core.ts")]) {
       expect(/from\s+["'][^"']*awareness\/[^"']*["']/u.test(source)).toBe(false);
     }
     const idleGates = wiring.match(/\bis(?:Seat)?Idle:\s*\(bindingId\)\s*=>[^,]*,/gu) ?? [];
@@ -143,7 +144,7 @@ describe("awareness authority boundary", () => {
       );
     }
     // The plane offers the drive nothing to ask.
-    expect(read("src/main/junto/term/seat-awareness.ts")).not.toMatch(/\bholds?\b\s*[:(]/u);
+    expect(read("src/core/term/seat-awareness.ts")).not.toMatch(/\bholds?\b\s*[:(]/u);
   });
 
   it("declares the read-only axes exactly, publishing only the three values the wire accepts", () => {

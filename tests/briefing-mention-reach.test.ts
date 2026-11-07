@@ -4,7 +4,7 @@ import { briefingLinksOf } from "../src/shared/briefing-mentions";
 import { mentionLink, type MentionOf } from "../src/shared/mention";
 import { briefingMentionableNodes } from "../src/shared/mention-reach";
 import { mintItemId } from "../src/shared/resource-command";
-import { candidatesOfNodes } from "../src/renderer/lib/mention-sources";
+import { candidatesOfNodes } from "../src/window/lib/mention-sources";
 import * as model from "./support/model-nodes";
 import { asNodeId } from "../src/shared/model";
 import type { Node } from "../src/shared/model";

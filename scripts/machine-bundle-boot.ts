@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { Schema } from "effect";
 import { MachineOwnStatus } from "../src/shared/machine-control";
-import { spawnServiceChild } from "../src/main/services/process";
+import { spawnServiceChild } from "../src/core/services/process";
 
 const exec = promisify(execFile);
 const Status = Schema.Struct({ ok: Schema.Literal(true), command: Schema.Literal("machine status"), data: MachineOwnStatus });

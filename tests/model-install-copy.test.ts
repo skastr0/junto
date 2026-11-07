@@ -8,12 +8,12 @@ import { Effect, Schema } from "effect";
 import { Reactivity } from "effect/reactivity";
 import { SqlClient } from "effect/sql";
 import { expect, it } from "vitest";
-import { FLEET_CONSENSUS_STATE_SCHEMA_SQL } from "../src/main/junto/fleet/state-schema";
-import { ModelDependents } from "../src/main/junto/model/dependents";
-import { ModelService } from "../src/main/junto/model/service";
-import { MODEL_STATE_SCHEMA_SQL } from "../src/main/junto/model/state-schema";
-import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
-import { installSqlCommitCallbacks } from "../src/main/junto/state/sql-commit";
+import { FLEET_CONSENSUS_STATE_SCHEMA_SQL } from "../src/core/fleet/state-schema";
+import { ModelDependents } from "../src/core/model/dependents";
+import { ModelService } from "../src/core/model/service";
+import { MODEL_STATE_SCHEMA_SQL } from "../src/core/model/state-schema";
+import { makeSqliteClient } from "../src/core/state/sqlite-client";
+import { installSqlCommitCallbacks } from "../src/core/state/sql-commit";
 import { Command, Node, asCanvasName, type CanvasesChanged } from "../src/shared/model";
 import { seat as seatNode, wire } from "./support/model-nodes";
 

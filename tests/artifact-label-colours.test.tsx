@@ -3,17 +3,17 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArtifactLabel } from "../src/shared/artifact-labels";
-import { ArtifactLabelChips, ArtifactLabelFilter } from "../src/renderer/components/artifacts/ArtifactLabelChips";
+import { ArtifactLabelChips, ArtifactLabelFilter } from "../src/window/components/artifacts/ArtifactLabelChips";
 import {
   type ArtifactLabelColour,
   type LabelColours,
   labelColoursMap,
   labelColourWords,
   useLabelColours,
-} from "../src/renderer/lib/artifact-label-colours";
-import { makeLocalArtifactsSource, setArtifactsSource } from "../src/renderer/lib/artifacts-source";
-import { resetOperatorGesture } from "../src/renderer/lib/focus-ownership";
-import { resetModalStack } from "../src/renderer/lib/modal-stack";
+} from "../src/window/lib/artifact-label-colours";
+import { makeLocalArtifactsSource, setArtifactsSource } from "../src/window/lib/artifacts-source";
+import { resetOperatorGesture } from "../src/window/lib/focus-ownership";
+import { resetModalStack } from "../src/window/lib/modal-stack";
 import type { ArtifactLabelColours } from "../src/shared/artifact-labels";
 import type { NodeId } from "../src/shared/physics/schema";
 import type { ResourceApplyOutcome } from "../src/shared/resource-ipc";

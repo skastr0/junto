@@ -12,8 +12,8 @@ import {
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V41_IDENTITY,
   STATE_SCHEMA_V42_IDENTITY,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V41_SQL, STATE_SCHEMA_V42_SQL } from "./fixtures/state-v13/schema";
 
 describe("state step 41 to 42: the purged page comment shots", () => {
@@ -42,8 +42,8 @@ describe("state step 41 to 42: the purged page comment shots", () => {
   it("is named by no exchange, copy or link code: a purge crosses as its own row, never as this table", () => {
     const files = (dir: string) => readdirSync(dir).filter((name) => name.endsWith(".ts")).map((name) => join(dir, name));
     const sources = [
-      ...files("src/main/junto/work/exchange"),
-      ...files("src/main/junto/link"),
+      ...files("src/core/work/exchange"),
+      ...files("src/core/link"),
       "src/shared/canvas-copy.ts",
       "src/shared/work-exchange.ts",
     ];

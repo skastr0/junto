@@ -18,18 +18,18 @@ import { BindingId } from "../src/shared/terminal-session-domain";
 import {
   AWARENESS_PACK_VERSION,
   AWARENESS_QUESTIONS,
-} from "../src/main/junto/term/awareness/questions";
+} from "../src/core/term/awareness/questions";
 import {
   selectAwarenessInput,
   type AwarenessRequestState,
-} from "../src/main/junto/term/awareness/select-input";
+} from "../src/core/term/awareness/select-input";
 import {
   projectAwarenessAnswers,
   type RawAwarenessAnswer,
-} from "../src/main/junto/term/awareness/project-result";
-import { assessmentSignals, awarenessRetired } from "../src/main/junto/term/awareness/seat-signals";
-import { makeAwarenessRuntime } from "../src/main/junto/term/awareness/runtime";
-import { makeAwarenessScheduler } from "../src/main/junto/term/awareness/scheduler";
+} from "../src/core/term/awareness/project-result";
+import { assessmentSignals, awarenessRetired } from "../src/core/term/awareness/seat-signals";
+import { makeAwarenessRuntime } from "../src/core/term/awareness/runtime";
+import { makeAwarenessScheduler } from "../src/core/term/awareness/scheduler";
 import {
   EVIDENCE_TEXT,
   makeAskRecorder,

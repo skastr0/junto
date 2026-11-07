@@ -24,8 +24,8 @@ import { act, memo, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ReactFlow, ReactFlowProvider, useNodesState, type Node, type NodeChange, type NodeProps } from "@xyflow/react";
-import { keepHeldNodes, sameCard } from "../src/renderer/lib/flow-identity";
-import { nodeTypes } from "../src/renderer/components/nodes";
+import { keepHeldNodes, sameCard } from "../src/window/lib/flow-identity";
+import { nodeTypes } from "../src/window/components/nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

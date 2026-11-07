@@ -9,13 +9,13 @@ import {
 } from "../src/shared/agent-profiles";
 import { SEAT_SOUL_MAX } from "../src/shared/seat-guidance";
 import { portraitCharacter } from "../src/shared/agent-portrait";
-import { newSeat } from "../src/renderer/lib/model-factories";
+import { newSeat } from "../src/window/lib/model-factories";
 import { note, terminal } from "./support/model-nodes";
 import {
   profileBodyOfSeat,
   resolvedPortrait,
   seatFromProfile,
-} from "../src/renderer/lib/agent-profiles";
+} from "../src/window/lib/agent-profiles";
 import { THIS_MACHINE } from "./support/machines";
 
 const claude = (id: string): NodeOf<"agent"> => ({

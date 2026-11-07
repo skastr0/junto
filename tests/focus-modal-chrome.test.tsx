@@ -14,14 +14,14 @@ import { join, resolve } from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { FocusWindowContext } from "../src/renderer/components/ui/FocusWindow";
-import { OverlayHeader } from "../src/renderer/components/ui/OverlayHeader";
-import { PaneHeader, TwoPane } from "../src/renderer/components/ui/TwoPane";
+import { FocusWindowContext } from "../src/window/components/ui/FocusWindow";
+import { OverlayHeader } from "../src/window/components/ui/OverlayHeader";
+import { PaneHeader, TwoPane } from "../src/window/components/ui/TwoPane";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const root = resolve(__dirname, "..");
-const css = readFileSync(join(root, "src/renderer/styles.css"), "utf8");
+const css = readFileSync(join(root, "src/window/styles.css"), "utf8");
 
 /** Every rule whose declarations set the app region, as selector list -> value. */
 const appRegions = (sheet: string): Array<{ selectors: string[]; value: string }> =>
@@ -43,7 +43,7 @@ describe("focus modal chrome: the top bar never eats a click", () => {
   });
 
   it("no component stylesheet or inline style makes another drag region", () => {
-    for (const rel of ["src/renderer/components/UsageHud.css"]) {
+    for (const rel of ["src/window/components/UsageHud.css"]) {
       expect(appRegions(readFileSync(join(root, rel), "utf8")).filter((r) => r.value === "drag")).toEqual([]);
     }
   });
@@ -182,12 +182,12 @@ describe("focus modal chrome: maximize and sidebar collapse", () => {
   });
 
   it("a split workbench shows one Maximize: only the front pane passes the window on", () => {
-    const panes = readFileSync(join(root, "src/renderer/components/workbench/WorkbenchPanes.tsx"), "utf8");
+    const panes = readFileSync(join(root, "src/window/components/workbench/WorkbenchPanes.tsx"), "utf8");
     expect(panes).toContain('<FocusWindowContext.Provider value={paneSlot === "0" ? focusWindow : null}>');
   });
 
   it("the terminal grid, already at frame width, offers no Maximize", () => {
-    expect(readFileSync(join(root, "src/renderer/components/terminal/TerminalGridFocus.tsx"), "utf8")).toContain(
+    expect(readFileSync(join(root, "src/window/components/terminal/TerminalGridFocus.tsx"), "utf8")).toContain(
       "maximizable={false}",
     );
   });

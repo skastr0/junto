@@ -4,10 +4,10 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { asCanvasName } from "../src/shared/model";
-import { LinkNode } from "../src/renderer/components/nodes/LinkNode";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { state$ } from "../src/renderer/lib/state";
-import { toFlowOfCanvas } from "../src/renderer/lib/convert";
+import { LinkNode } from "../src/window/components/nodes/LinkNode";
+import { modelStore } from "../src/window/lib/use-model";
+import { state$ } from "../src/window/lib/state";
+import { toFlowOfCanvas } from "../src/window/lib/convert";
 import { page } from "./support/model-nodes";
 
 it("draws a page from the store with the window document empty", async () => {

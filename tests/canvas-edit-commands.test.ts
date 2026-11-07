@@ -4,8 +4,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Command } from "../src/shared/model";
-import { authoring } from "../src/renderer/lib/authoring";
-import { flushCanvasEdits, registerCanvasDraftCommit } from "../src/renderer/lib/canvas-editor-flush";
+import { authoring } from "../src/window/lib/authoring";
+import { flushCanvasEdits, registerCanvasDraftCommit } from "../src/window/lib/canvas-editor-flush";
 import {
   clearAbandonedCanvas,
   commitCommands,
@@ -16,11 +16,11 @@ import {
   prepareCanvasRemoval,
   redo,
   undo,
-} from "../src/renderer/lib/mutations";
+} from "../src/window/lib/mutations";
 import { note } from "./support/model-nodes";
 import { held, nodeHeld, openCanvas } from "./support/open-canvas";
-import { state$ } from "../src/renderer/lib/state";
-import { modelStore } from "../src/renderer/lib/use-model";
+import { state$ } from "../src/window/lib/state";
+import { modelStore } from "../src/window/lib/use-model";
 
 const modelCommand = vi.fn(async (_command: Command) => ({ seq: 1 }));
 // Main, asked for a canvas again, answers with what the store holds: these

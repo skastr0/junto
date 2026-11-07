@@ -7,7 +7,7 @@ import {
   referencedItem,
   type NodeRefNavigationError,
   type NavigationRead,
-} from "../src/renderer/lib/node-ref-navigation";
+} from "../src/window/lib/node-ref-navigation";
 
 const canvas = (name: string, nodeIds: ReadonlyArray<string>): NavigationRead => ({
   name,

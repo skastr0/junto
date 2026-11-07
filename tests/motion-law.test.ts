@@ -16,8 +16,8 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { markAtlasCss, ringCells } from "../src/renderer/lib/activity-atlas";
-import { coversMark } from "../src/renderer/lib/mark-occlusion";
+import { markAtlasCss, ringCells } from "../src/window/lib/activity-atlas";
+import { coversMark } from "../src/window/lib/mark-occlusion";
 import { MARK_PHASE_MS, RING_CYCLE_FRAMES, RING_FRAME_MS, RING_MOTION, type LoopRing } from "../src/shared/rings";
 
 const root = resolve(__dirname, "..");
@@ -32,10 +32,10 @@ const filesUnder = (dir: string): string[] =>
 const LOOPS = Object.keys(RING_MOTION) as LoopRing[];
 const RING_SOURCES = [
   "src/shared/rings.ts",
-  "src/renderer/lib/activity-atlas.ts",
-  "src/renderer/lib/activity-rings.ts",
-  "src/renderer/components/ActivityMark.tsx",
-  "src/renderer/lib/mark-occlusion.ts",
+  "src/window/lib/activity-atlas.ts",
+  "src/window/lib/activity-rings.ts",
+  "src/window/components/ActivityMark.tsx",
+  "src/window/lib/mark-occlusion.ts",
 ];
 
 /** Every @keyframes block in the ring sheet, by name. */
@@ -99,7 +99,7 @@ describe("motion law: rings move on the compositor", () => {
       const source = read(rel);
       expect(source, rel).not.toMatch(/requestAnimationFrame|\bset(Interval|Timeout)\s*\(/);
     }
-    expect(() => read("src/renderer/lib/activity-live.ts")).toThrow();
+    expect(() => read("src/window/lib/activity-live.ts")).toThrow();
   });
 
   // The operator's third exception (signal 01M630R3Y59C42SSY754K3ADZZ): a ring
@@ -115,7 +115,7 @@ describe("motion law: rings move on the compositor", () => {
   });
 
   it("a ring shown again goes back on the shared clock in the same task", () => {
-    const source = read("src/renderer/components/ActivityMark.tsx");
+    const source = read("src/window/components/ActivityMark.tsx");
     expect(source).toMatch(/const showIfSeen = \(el: HTMLElement\): void => setVisible\(el, intersecting\.has\(el\) && !isCovered\(el\)\)/);
     expect(source).toMatch(/if \(on && !visible\.has\(el\)\) \{\s*syncPhase\(el\);/);
   });
@@ -124,7 +124,7 @@ describe("motion law: rings move on the compositor", () => {
   // main thread and re-layerizes the whole board every frame (canvas-scale lab,
   // 2026-10-29: the attached terminal's screen-reader status, 53 full updates/s).
   it("no ring sits in a box that is never drawn", () => {
-    const source = read("src/renderer/components/terminal/TerminalSurface.tsx");
+    const source = read("src/window/components/terminal/TerminalSurface.tsx");
     expect(source).toMatch(/attached \? "sr-only" : ""/);
     expect(source).toMatch(/\{attached \? null : \(\s*<ActivityMark/);
   });
@@ -134,7 +134,7 @@ describe("motion law: rings move on the compositor", () => {
   // signal 01M63W6RQY1YT2Q65MCM0N3YQ8: an entering ring may show its rest pose
   // for a frame.
   it("a ring or track run moves only on screen: its observer has no margin", () => {
-    for (const rel of ["src/renderer/components/ActivityMark.tsx", "src/renderer/components/edges/FlowTrack.tsx"]) {
+    for (const rel of ["src/window/components/ActivityMark.tsx", "src/window/components/edges/FlowTrack.tsx"]) {
       const source = read(rel);
       expect(source, rel).toMatch(/\{ rootMargin: "0px" \}/);
       expect(source, rel).not.toMatch(/rootMargin: "[1-9-]/);
@@ -145,25 +145,25 @@ describe("motion law: rings move on the compositor", () => {
 
   // Operator signal 01M63W6RQY1YT2Q65MCM0N3YQ8: motion no one can see stops.
   it("a parked pane's spinners stop: the pane is opacity 0 and off screen", () => {
-    const css = read("src/renderer/styles.css");
+    const css = read("src/window/styles.css");
     expect(css).toMatch(/\.workbench-pane--parked \{[^}]*opacity: 0;/);
     expect(css).toMatch(/\.workbench-pane--parked :is\(\.session-load__spinner, \.content-media__spin, \.animate-spin\) \{\s*animation: none !important;/);
   });
 
   it("a reach preview ring on a card hidden at overview or in a cluster does not breathe", () => {
-    const css = read("src/renderer/styles/reach-preview.css");
+    const css = read("src/window/styles/reach-preview.css");
     expect(css).toMatch(
       /html\[data-canvas-tier="overview"\] \.react-flow__viewport \.react-flow__node:not\(\.react-flow__node-group\):not\(\.junto-flow-agent\):not\(:has\(\.kind-seat\)\)\[data-reach-preview\]::before \{ animation: none; \}/,
     );
-    const cluster = read("src/renderer/components/SeatClusterLayer.tsx");
+    const cluster = read("src/window/components/SeatClusterLayer.tsx");
     expect(cluster).toMatch(/\{ visibility: hidden !important; \}/);
     expect(cluster).toMatch(/`\$\{node\}::before`\)\.join\(",\\n"\)\} \{ animation: none !important; \}/);
   });
 
   it("a media spinner on a card whose body is not drawn at far or overview stops", () => {
-    const css = read("src/renderer/components/work/content-media.css").replace(/\s+/g, " ");
+    const css = read("src/window/components/work/content-media.css").replace(/\s+/g, " ");
     // Each selector mirrors a hide rule; if a hide rule changes, so must this.
-    const lod = read("src/renderer/styles/canvas-lod.css");
+    const lod = read("src/window/styles/canvas-lod.css");
     expect(lod).toContain(
       `html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], :has(.kind-seat))):not([data-look="spine"]) > * {\n  visibility: hidden;`,
     );
@@ -178,45 +178,45 @@ describe("motion law: rings move on the compositor", () => {
   });
 
   it("a wire pulse starts only at near, the one tier that draws it", () => {
-    expect(read("src/renderer/styles/canvas-lod-regions.css")).toMatch(
+    expect(read("src/window/styles/canvas-lod-regions.css")).toMatch(
       /html:is\(\[data-canvas-tier="mid"\], \[data-canvas-tier="far"\], \[data-canvas-tier="overview"\]\) \.react-flow__viewport :is\(\.junto-edge-label, \.junto-wire-pulse, path\.junto-wire-pulse-hold\) \{\s*visibility: hidden;/,
     );
-    const feed = read("src/renderer/components/edges/WirePulseFeed.tsx");
+    const feed = read("src/window/components/edges/WirePulseFeed.tsx");
     expect(feed).toMatch(/const drawn = canvasTier\$\.peek\(\) === "near";/);
     expect(feed).toMatch(/if \(!drawn \|\| wirePulseScheduler\.fire\(target, event\.kind\) !== "dropped"\)/);
   });
 
   it("a browser tab scrolled out of the strip stops its spinner; a seen one spins", () => {
-    const chrome = read("src/renderer/components/browser/BrowserChrome.tsx");
+    const chrome = read("src/window/components/browser/BrowserChrome.tsx");
     expect(chrome).toMatch(/entry\.target\.toggleAttribute\("data-unseen", !entry\.isIntersecting\)/);
     expect(chrome).toMatch(/\{ root: list \}/);
-    const css = read("src/renderer/components/browser/browser-chrome.css");
+    const css = read("src/window/components/browser/browser-chrome.css");
     expect(css).toMatch(/\.tab-strip__loading \{[^}]*animation: tab-strip-spin 0\.9s linear infinite;/);
     expect(css).toMatch(/\.tab-strip__tab\[data-unseen\] \.tab-strip__loading \{\s*animation: none;/);
   });
 
   it("the top bar's opening and saving pulses stop when the bar cuts them off", () => {
-    const unseen = read("src/renderer/lib/unseen.ts");
+    const unseen = read("src/window/lib/unseen.ts");
     expect(unseen).toMatch(/entry\.target\.toggleAttribute\("data-unseen", !entry\.isIntersecting\)/);
-    const bar = read("src/renderer/components/TopBar.tsx");
+    const bar = read("src/window/components/TopBar.tsx");
     expect(bar).toMatch(/<span ref=\{unseenRef\} className="station-context__loading"/);
     expect(bar).toMatch(/<div ref=\{unseenRef\} role="status" aria-live="polite" className=\{`station-save /);
-    expect(read("src/renderer/styles.css")).toContain(
+    expect(read("src/window/styles.css")).toContain(
       ".station-context__loading[data-unseen], .station-save[data-unseen] .station-save__dot { animation: none; }",
     );
   });
 
   it("a minimap with no part in the window runs no ping", () => {
-    expect(read("src/renderer/components/FactoryMinimap.tsx")).toMatch(/<div ref=\{unseenRef\} className="react-flow__panel react-flow__minimap/);
-    expect(read("src/renderer/components/factory-minimap.css")).toContain(".react-flow__minimap[data-unseen] .junto-minimap-ping { animation: none; }");
+    expect(read("src/window/components/FactoryMinimap.tsx")).toMatch(/<div ref=\{unseenRef\} className="react-flow__panel react-flow__minimap/);
+    expect(read("src/window/components/factory-minimap.css")).toContain(".react-flow__minimap[data-unseen] .junto-minimap-ping { animation: none; }");
   });
 
   it("a reach preview ring on a card off screen does not breathe", () => {
-    const lib = read("src/renderer/lib/reach-preview.ts");
+    const lib = read("src/window/lib/reach-preview.ts");
     expect(lib).toMatch(/if \(!els\.has\(el\)\) els\.set\(el, watchUnseen\(el\)\);/);
     // Unmarking walks the elements it marked, so a card remounted mid-drag is still let go.
     expect(lib).toMatch(/for \(const \[el, unwatch\] of marked\.get\(id\) \?\? \[\]\) \{\s*el\.removeAttribute\(MARK\);\s*unwatch\(\);/);
-    expect(read("src/renderer/styles/reach-preview.css")).toContain(".react-flow__node[data-reach-preview][data-unseen]::before { animation: none; }");
+    expect(read("src/window/styles/reach-preview.css")).toContain(".react-flow__node[data-reach-preview][data-unseen]::before { animation: none; }");
   });
 
   it("the motion law lets motion no one can see stop, and names where", () => {
@@ -231,7 +231,7 @@ describe("motion law: rings move on the compositor", () => {
   });
 
   it("the wire pulse travels on the compositor: transform alone, no stroke repaint", () => {
-    const sheet = read("src/renderer/components/edges/wire-pulse.css");
+    const sheet = read("src/window/components/edges/wire-pulse.css");
     expect(sheet).not.toMatch(/stroke-dash(offset|array)/);
     for (const name of ["wire-pulse-forward", "wire-pulse-reverse"]) {
       const body = keyframes(sheet.replace(/\s+/g, " ").replace(/ ?([{}:;]) ?/g, "$1")).get(name);
@@ -241,12 +241,12 @@ describe("motion law: rings move on the compositor", () => {
   });
 
   it("no frame-stamping clock comes back to step the rings", () => {
-    for (const rel of filesUnder("src/renderer")) {
+    for (const rel of filesUnder("src/window")) {
       if (!/\.(ts|tsx|css)$/.test(rel)) continue;
       const source = read(rel);
       expect(source, rel).not.toMatch(/data-mark-frame|dataset\.markFrame|attention-clock/);
     }
-    const sheet = [read("src/renderer/lib/activity-atlas.ts"), read("src/renderer/components/factory-minimap.css")];
+    const sheet = [read("src/window/lib/activity-atlas.ts"), read("src/window/components/factory-minimap.css")];
     for (const css of sheet) expect(css).not.toMatch(/steps\(/);
   });
 });

@@ -12,12 +12,12 @@ import {
   openingIndex,
   selectFocusSwitcherIndex,
   wrapIndex,
-} from "../src/renderer/lib/focus-switcher";
-import { emptyHotbarSlots, type HotbarSlot } from "../src/renderer/lib/hotbar-slots";
-import { dock$, terminalSurfaceId } from "../src/renderer/lib/dock-state";
-import { initialWorkbenchState, openSurface } from "../src/renderer/lib/surface-registry";
-import { state$ } from "../src/renderer/lib/state";
-import { modelStore } from "../src/renderer/lib/use-model";
+} from "../src/window/lib/focus-switcher";
+import { emptyHotbarSlots, type HotbarSlot } from "../src/window/lib/hotbar-slots";
+import { dock$, terminalSurfaceId } from "../src/window/lib/dock-state";
+import { initialWorkbenchState, openSurface } from "../src/window/lib/surface-registry";
+import { state$ } from "../src/window/lib/state";
+import { modelStore } from "../src/window/lib/use-model";
 import { note, region, seat, taskBoard } from "./support/model-nodes";
 
 const agent = (id: string, label: string) => seat(id, { label });

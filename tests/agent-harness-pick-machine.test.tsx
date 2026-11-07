@@ -6,15 +6,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultSettings } from "@shared/settings";
 import { templateFor, type HarnessId } from "@shared/managed-terminal-templates";
 import { InventoryUnavailableError, type MachineInventory } from "@shared/harness-domain";
-import { AgentHarnessPick } from "../src/renderer/components/node-palette/AgentHarnessPick";
-import { LaunchSection } from "../src/renderer/components/customize/LaunchSection";
-import { AgentCascadeMenu } from "../src/renderer/components/node-palette/AgentCascadeMenu";
+import { AgentHarnessPick } from "../src/window/components/node-palette/AgentHarnessPick";
+import { LaunchSection } from "../src/window/components/customize/LaunchSection";
+import { AgentCascadeMenu } from "../src/window/components/node-palette/AgentCascadeMenu";
 import {
   coreHarnessMachineSource,
   pendingHarnessMachineSource,
   setHarnessMachineSource,
-} from "../src/renderer/lib/harness-machine-source";
-import { state$ } from "../src/renderer/lib/state";
+} from "../src/window/lib/harness-machine-source";
+import { state$ } from "../src/window/lib/state";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

@@ -15,7 +15,7 @@
 
 import { Effect, Result, Schema } from "effect";
 import { makeDemoHost } from "../shared/companion-demo";
-import { rasterizePortraitSvg } from "../main/junto/companion/portrait-png";
+import { rasterizePortraitSvg } from "../node/companion/portrait-png";
 import { defaultMachineName } from "../shared/machine-name";
 import {
   COMPANION_ERROR_COPY,

@@ -7,11 +7,11 @@ import { KEY_TABLE } from "@shared/key-table";
 import {
   KeyboardSettingsSection,
   shortcutMatches,
-} from "../src/renderer/components/settings/KeyboardSettingsSection";
-import { KEY_ACTIONS } from "../src/renderer/lib/key-actions";
-import { installKeyDispatcher } from "../src/renderer/lib/key-dispatcher";
-import { isOperatorModalOpen, closeOperatorModal } from "../src/renderer/lib/operator-modal";
-import { state$ } from "../src/renderer/lib/state";
+} from "../src/window/components/settings/KeyboardSettingsSection";
+import { KEY_ACTIONS } from "../src/window/lib/key-actions";
+import { installKeyDispatcher } from "../src/window/lib/key-dispatcher";
+import { isOperatorModalOpen, closeOperatorModal } from "../src/window/lib/operator-modal";
+import { state$ } from "../src/window/lib/state";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

@@ -6,9 +6,9 @@
  */
 import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
-import { ArtifactRepository } from "../src/main/junto/work/artifact-repository";
-import { liveArtifactPorts, type LabelColourWrite } from "../src/main/junto/work/artifact-control";
-import { ResourceSubmit, type QueuedOutcome } from "../src/main/junto/work/resource-submit";
+import { ArtifactRepository } from "../src/core/work/artifact-repository";
+import { liveArtifactPorts, type LabelColourWrite } from "../src/core/work/artifact-control";
+import { ResourceSubmit, type QueuedOutcome } from "../src/core/work/resource-submit";
 import type { ArtifactLabel } from "../src/shared/artifact-labels";
 import type { ArtifactOp } from "../src/shared/artifact";
 import { asNodeId } from "../src/shared/physics/schema";

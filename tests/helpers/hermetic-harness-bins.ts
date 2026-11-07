@@ -20,7 +20,7 @@ import {
   HARNESS_IDS,
   templateFor,
 } from "../../src/shared/managed-terminal-templates";
-import { setConfiguredToolDirectories } from "../../src/main/junto/shell-environment";
+import { setConfiguredToolDirectories } from "../../src/core/shell-environment";
 
 /**
  * Install one no-op executable per harness template binary and register the

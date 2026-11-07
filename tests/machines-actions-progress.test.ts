@@ -1,5 +1,5 @@
 import { beforeEach, expect, it } from "vitest";
-import { applyMachineProgress, machines$ } from "../src/renderer/lib/machines-actions";
+import { applyMachineProgress, machines$ } from "../src/window/lib/machines-actions";
 
 beforeEach(() => { machines$.copies.set({
   mini: { kind: "running", op: "update", id: "copy-mini", steps: [] },

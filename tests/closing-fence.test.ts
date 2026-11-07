@@ -5,11 +5,11 @@ import { canvasOf, seat as seatNode } from "./support/model-nodes";
  * fresh session (continue) or wakes the seat (rest), exactly once.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ClosingFence, fencedWriter } from "../src/main/junto/term/closing-fence";
-import { createManagedTerminalDrive } from "../src/main/junto/term/drive/managed-drive-factory";
-import { InjectionSupervisor } from "../src/main/junto/term/injection-supervisor";
-import { makeOnboardNudgeInterject } from "../src/main/junto/term/onboard-nudge-interject";
-import { MessageDeliveryService, type MessageDeliveryStore } from "../src/main/junto/work/message-delivery";
+import { ClosingFence, fencedWriter } from "../src/core/term/closing-fence";
+import { createManagedTerminalDrive } from "../src/core/term/drive/managed-drive-factory";
+import { InjectionSupervisor } from "../src/core/term/injection-supervisor";
+import { makeOnboardNudgeInterject } from "../src/core/term/onboard-nudge-interject";
+import { MessageDeliveryService, type MessageDeliveryStore } from "../src/core/work/message-delivery";
 import type { Message } from "../src/shared/work-model";
 import { mailExtensionMetadata, type MailExtension } from "../src/shared/crew";
 import { buildOnboardNudge } from "../src/shared/managed-terminal-injection";

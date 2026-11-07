@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { KIND_STATES, KindSeat, kindRing, kindStateOf } from "../src/renderer/components/nodes/KindSeat";
+import { KIND_STATES, KindSeat, kindRing, kindStateOf } from "../src/window/components/nodes/KindSeat";
 import { KIND_ICON_KINDS } from "../src/shared/kind-icon";
 import { SeatUrgency } from "../src/shared/wire/urgency";
 

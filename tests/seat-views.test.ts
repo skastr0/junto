@@ -5,17 +5,17 @@
  * router output for the view only.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { LinkEventContext } from "../src/main/junto/link/types";
-import type { LocalHostEvent } from "../src/main/junto/term/local-host";
-import { CHUNK_UNITS } from "../src/main/junto/term/seat-attach";
-import { TerminalRouter } from "../src/main/junto/term/router";
+import type { LinkEventContext } from "../src/core/link/types";
+import type { LocalHostEvent } from "../src/core/term/local-host";
+import { CHUNK_UNITS } from "../src/core/term/seat-attach";
+import { TerminalRouter } from "../src/core/term/router";
 import { seatExitMessage } from "../src/shared/spawn-failure";
-import { unwrapSeatsFailure } from "../src/main/junto/term/seats-failure";
-import { linkSeatViewTransport, makeSeatViews, type SeatViews } from "../src/main/junto/term/seat-views";
+import { unwrapSeatsFailure } from "../src/core/term/seats-failure";
+import { linkSeatViewTransport, makeSeatViews, type SeatViews } from "../src/core/term/seat-views";
 import { Effect } from "effect";
-import { LinkBuildMismatch } from "../src/main/junto/link/types";
-import { MachineLink } from "../src/main/junto/link/service";
-import { HostsService } from "../src/main/junto/hosts/service";
+import { LinkBuildMismatch } from "../src/core/link/types";
+import { MachineLink } from "../src/core/link/service";
+import { HostsService } from "../src/core/hosts/service";
 import { eventually, miniSeat, twoCoreCanvas as canvas, twoCoreProcess, twoCores } from "./support/two-cores";
 
 const cleanups: Array<() => Promise<void>> = [];

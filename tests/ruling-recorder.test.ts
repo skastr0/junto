@@ -11,9 +11,9 @@ import { join } from "node:path";
 import { Effect, Exit, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { WorkRepositoryLive, type RecordRulingInput } from "../src/main/junto/work/repository";
-import { RulingRecorder, RulingRecorderLive } from "../src/main/junto/work/ruling-recorder";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { WorkRepositoryLive, type RecordRulingInput } from "../src/core/work/repository";
+import { RulingRecorder, RulingRecorderLive } from "../src/core/work/ruling-recorder";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { InstallationId } from "../src/shared/installation-id";
 import { OpId } from "../src/shared/work-ids";
@@ -152,6 +152,6 @@ describe("the one caller of writeRuling", () => {
       .filter((path) => /\bwriteRuling\s*\(/.test(readFileSync(path, "utf8")))
       .map((path) => path.slice(root.length + 1));
     // WorkRepository.recordRuling, which RulingRecorder.record calls.
-    expect(callers).toEqual(["src/main/junto/work/repository.ts"]);
+    expect(callers).toEqual(["src/core/work/repository.ts"]);
   });
 });

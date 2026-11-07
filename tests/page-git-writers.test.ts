@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { asCanvasName, asNodeId, type Node, type NodeOf } from "../src/shared/model";
-import { editLink, setGitCwd, setPageBinding } from "../src/renderer/lib/mutations";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { state$ } from "../src/renderer/lib/state";
+import { editLink, setGitCwd, setPageBinding } from "../src/window/lib/mutations";
+import { modelStore } from "../src/window/lib/use-model";
+import { state$ } from "../src/window/lib/state";
 import { page } from "./support/model-nodes";
 
 const name = "page-git-writers";

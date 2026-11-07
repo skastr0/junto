@@ -10,8 +10,8 @@ import {
   type Log,
   type LogInput,
   type RendererConsoleInput,
-} from "../src/main/junto/observability/logger";
-import { machineLogDir, openMachineLogSink, readMachineLog, seatLogScope } from "../src/main/junto/observability/log-file";
+} from "../src/node/observability/logger";
+import { machineLogDir, openMachineLogSink, readMachineLog, seatLogScope } from "../src/node/observability/log-file";
 
 /**
  * Each test builds the log it exercises, with the process and the file it
@@ -308,7 +308,7 @@ describe("row ids", () => {
 describe("console hook", () => {
   it("routes console.* into the scrubbed row and, without echo, prints nothing", () => {
     const home = freshHome();
-    const logger = join(__dirname, "../src/main/junto/observability/logger.ts");
+    const logger = join(__dirname, "../src/node/observability/logger.ts");
     const script = [
       `const { createLogger } = await import(${JSON.stringify(logger)});`,
       `const childLog = createLogger({ process: "core", echo: false });`,

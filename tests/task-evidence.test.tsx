@@ -7,11 +7,11 @@ import { asNodeId } from "../src/shared/model";
 import { mintItemId } from "../src/shared/resource-command";
 import { seatNodeId, taskNodeId, type ClosedTaskLayer, type TaskId, type TaskView } from "../src/shared/task-model";
 import type { CompletionEvidence } from "../src/shared/work-model";
-import { evidenceGroups, hasEvidence, shortCommit } from "../src/renderer/components/tasks/task-evidence-model";
-import { TaskEvidence } from "../src/renderer/components/tasks/TaskEvidence";
-import { TaskLayers } from "../src/renderer/components/tasks/TaskLayers";
-import { SelectedTask } from "../src/renderer/components/tasks/TasksNode";
-import { artifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/renderer/lib/artifacts-source";
+import { evidenceGroups, hasEvidence, shortCommit } from "../src/window/components/tasks/task-evidence-model";
+import { TaskEvidence } from "../src/window/components/tasks/TaskEvidence";
+import { TaskLayers } from "../src/window/components/tasks/TaskLayers";
+import { SelectedTask } from "../src/window/components/tasks/TasksNode";
+import { artifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/window/lib/artifacts-source";
 
 const evidence: CompletionEvidence = {
   artifacts: [

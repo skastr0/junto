@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   actorHostChoicesFromEnrollment,
   type AgentHostChoice,
-} from "../src/renderer/components/node-palette/agent-launch-model";
-import { newSeat } from "../src/renderer/lib/model-factories";
+} from "../src/window/components/node-palette/agent-launch-model";
+import { newSeat } from "../src/window/lib/model-factories";
 
 const configured: AgentHostChoice = {
   id: "studio",

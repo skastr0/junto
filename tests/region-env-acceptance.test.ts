@@ -12,12 +12,12 @@ import { describe, expect, it } from "vitest";
 import type { Canvas } from "../src/shared/model";
 import type { EnvSource } from "../src/shared/model/region";
 import { canvasOf, note, region as regionNode } from "./support/model-nodes";
-import { makeRegionEnvironmentResolution } from "../src/main/junto/region-env/resolve";
-import { makeEnvSourceResolver, OP_TOKEN_NAME } from "../src/main/junto/region-env/sources";
-import { removeRegionSecret, saveRegionSecret } from "../src/main/junto/region-env/secret-ipc";
-import { makeRegionSecrets } from "../src/main/junto/region-env/secret-store";
-import { MemoryCredentialStore } from "../src/main/junto/credentials/store";
-import type { ToolCall } from "../src/main/junto/region-env/tool";
+import { makeRegionEnvironmentResolution } from "../src/core/region-env/resolve";
+import { makeEnvSourceResolver, OP_TOKEN_NAME } from "../src/core/region-env/sources";
+import { removeRegionSecret, saveRegionSecret } from "../src/core/region-env/secret-ipc";
+import { makeRegionSecrets } from "../src/core/region-env/secret-store";
+import { MemoryCredentialStore } from "../src/core/credentials/store";
+import type { ToolCall } from "../src/core/region-env/tool";
 
 const TOKEN = "test-only-region-auth-token";
 const REGION_TOKEN_NAME = "EXAMPLE_AUTH_TOKEN";

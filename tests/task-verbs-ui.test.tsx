@@ -9,10 +9,10 @@ import { asNodeId } from "../src/shared/model";
 import type { TaskContext } from "../src/shared/task-machine";
 import { STAMPS_REQUIRED_MAX, seatNodeId, taskNodeId, type Reviewer, type TaskActor, type TaskCore } from "../src/shared/task-model";
 import { ItemId } from "../src/shared/work-ids";
-import { TaskVerbBar } from "../src/renderer/components/work/TaskVerbBar";
-import { TaskReviewers } from "../src/renderer/components/work/TaskReviewers";
-import type { SeatChoice } from "../src/renderer/lib/task-ui";
-import { TaskControlsGallery } from "../src/renderer/components/gallery/TaskControlsGallery";
+import { TaskVerbBar } from "../src/window/components/work/TaskVerbBar";
+import { TaskReviewers } from "../src/window/components/work/TaskReviewers";
+import type { SeatChoice } from "../src/window/lib/task-ui";
+import { TaskControlsGallery } from "../src/window/components/gallery/TaskControlsGallery";
 
 const ada = seatNodeId(asNodeId("seat-ada"));
 const bo = seatNodeId(asNodeId("seat-bo"));

@@ -7,7 +7,7 @@
  * a session reads them again only after one of those.
  */
 import { describe, expect, it } from "vitest";
-import { makeCompanionChanges } from "../src/main/junto/companion/changes";
+import { makeCompanionChanges } from "../src/core/companion/changes";
 import { runCompanionSession, type CompanionChange } from "../src/shared/companion-session";
 import { COMPANION_PROTOCOL, type CompanionRequestFrame, type CompanionResponseFrame } from "../src/shared/wire/companion-protocol";
 

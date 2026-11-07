@@ -7,7 +7,7 @@ const readSource = (relative: string) =>
 describe("state recovery renderer boundary", () => {
   it("does not expose a renderer-controlled destination or a restore verb", async () => {
     const ipc = await readSource("../src/shared/ipc.ts");
-    const preload = await readSource("../src/preload/index.ts");
+    const preload = await readSource("../src/window/preload/index.ts");
 
     expect(ipc).toContain(
       "readonly stateBackupExport: (\n    id: StateBackupId,\n  )",
@@ -27,10 +27,10 @@ describe("state recovery renderer boundary", () => {
 
   it("keeps native save selection and overwrite refusal in Main", async () => {
     const settingsIpc = await readSource(
-      "../src/main/junto/settings/ipc.ts",
+      "../src/app/settings/ipc.ts",
     );
     const recovery = await readSource(
-      "../src/main/junto/state/recovery.ts",
+      "../src/core/state/recovery.ts",
     );
 
     expect(settingsIpc).toContain("dialog.showSaveDialog");
@@ -42,7 +42,7 @@ describe("state recovery renderer boundary", () => {
 
   it("offers verified export in Advanced without restore or replacement controls", async () => {
     const settings = await readSource(
-      "../src/renderer/components/SettingsPanel.tsx",
+      "../src/window/components/SettingsPanel.tsx",
     );
 
     expect(settings).toContain("Verified retained backups");

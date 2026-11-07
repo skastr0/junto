@@ -8,8 +8,8 @@ import {
   resetHostProbedFlagCacheForTests,
   resolveHarnessExecutable,
   supportedHostProbedFlags,
-} from "../src/main/junto/term/templates/harness-install";
-import { resolveLaunch } from "../src/main/junto/term/local-host";
+} from "../src/core/term/templates/harness-install";
+import { resolveLaunch } from "../src/core/term/local-host";
 import { Result } from "effect";
 
 const scratchDirs: string[] = [];

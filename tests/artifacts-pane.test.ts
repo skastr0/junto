@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { emptyBody } from "../src/shared/artifact";
 import { asNodeId } from "../src/shared/physics/schema";
-import { makeLocalArtifactsSource } from "../src/renderer/lib/artifacts-source";
+import { makeLocalArtifactsSource } from "../src/window/lib/artifacts-source";
 import { mintItemId, mintOpId } from "../src/shared/resource-command";
 import {
   ageLabel,
@@ -9,8 +9,8 @@ import {
   isLinkUrl,
   textSplice,
   visibleArtifacts,
-} from "../src/renderer/components/artifacts/artifacts-pane-model";
-import { isMarkdownFile } from "../src/renderer/components/artifacts/ArtifactPreview";
+} from "../src/window/components/artifacts/artifacts-pane-model";
+import { isMarkdownFile } from "../src/window/components/artifacts/ArtifactPreview";
 
 const node = asNodeId("artifacts");
 

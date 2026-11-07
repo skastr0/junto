@@ -10,7 +10,7 @@ import {
   SEAT_FLOOR_SCREEN_PX,
   screensAt,
   type ClusterSeat,
-} from "../src/renderer/lib/seat-clusters";
+} from "../src/window/lib/seat-clusters";
 
 const seat = (id: string, x: number, y: number, region = "r"): ClusterSeat => ({ id, x, y, region });
 

@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/model";
 import { mintItemId } from "../src/shared/resource-command";
 import { seatNodeId, taskNodeId, type TaskId } from "../src/shared/task-model";
-import { makeLocalTasksSource, setTasksSource } from "../src/renderer/lib/tasks-source";
+import { makeLocalTasksSource, setTasksSource } from "../src/window/lib/tasks-source";
 import {
   buildSeatTaskIndex,
   publishSeatTaskIndex,
   refreshSeatTasks,
   seatTasks$,
-} from "../src/renderer/lib/seat-tasks";
+} from "../src/window/lib/seat-tasks";
 
 const ada = seatNodeId(asNodeId("seat-ada"));
 const bo = seatNodeId(asNodeId("seat-bo"));

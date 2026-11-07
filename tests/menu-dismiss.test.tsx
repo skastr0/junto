@@ -15,7 +15,7 @@ import { act, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { useMenuDismiss } from "../src/renderer/lib/menu-dismiss";
+import { useMenuDismiss } from "../src/window/lib/menu-dismiss";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

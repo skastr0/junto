@@ -11,7 +11,7 @@ import {
   HARNESS_IDS,
   allTemplates,
 } from "../src/shared/managed-terminal-templates";
-import { newSeat } from "../src/renderer/lib/model-factories";
+import { newSeat } from "../src/window/lib/model-factories";
 import { SHIP_FEATURES } from "../src/shared/feature-catalog";
 import { resolveBuildFeatures } from "../scripts/build-features";
 

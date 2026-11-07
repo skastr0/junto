@@ -18,9 +18,9 @@ import {
   STATE_SCHEMA_V67_IDENTITY,
   migrateStateSchema,
   type StateSchemaMigrationPlan,
-} from "../src/main/junto/state/migrations";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
-import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { STATE_SCHEMA_SQL } from "../src/core/state/schema";
+import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V66_SQL, STATE_SCHEMA_V67_SQL } from "./fixtures/state-v13/schema";
 
 const upTo = (version: number, currentSchemaSql: string): StateSchemaMigrationPlan => ({

@@ -11,14 +11,14 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SessionObserver } from "../src/main/junto/term/observer";
-import type { ObserverGridWindow } from "../src/main/junto/term/observer/types";
+import { SessionObserver } from "../src/core/term/observer";
+import type { ObserverGridWindow } from "../src/core/term/observer/types";
 import {
   MAX_EVIDENCE_BYTES,
   MAX_EVIDENCE_CANDIDATE_LINES,
   MAX_REQUEST_BYTES,
   formatEvidenceLineId,
-} from "../src/main/junto/term/awareness/questions";
+} from "../src/core/term/awareness/questions";
 import {
   FAILURE_MARKERS,
   REDACTION_DISCLAIMER,
@@ -28,7 +28,7 @@ import {
   redactEvidenceText,
   selectAwarenessInput,
   type AwarenessEvidenceWindow,
-} from "../src/main/junto/term/awareness/select-input";
+} from "../src/core/term/awareness/select-input";
 import { capturePath, chunkEvents, gateFixture, loadP1Fixture } from "./pty-e2e/runner";
 
 // ---------------------------------------------------------------------------
@@ -465,11 +465,11 @@ describe("awareness redaction", () => {
 
   it("leaves ordinary output and ordinary assignments untouched", () => {
     const untouched = [
-      "src/main/junto/term/awareness/questions.ts:120  const packVersion = 1",
+      "src/core/term/awareness/questions.ts:120  const packVersion = 1",
       "PATH=/usr/bin:/bin",
       "NODE_ENV=production",
       "CI=true",
-      "  FAIL src/main/junto/term/awareness/select-input.test.ts",
+      "  FAIL src/core/term/awareness/select-input.test.ts",
     ];
     for (const line of untouched) {
       const result = redactEvidenceText(line);

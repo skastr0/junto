@@ -3,7 +3,7 @@
  * body (face resolved, launch, soul, instructions) without any seat; a closed
  * draft waits for the next open; saving ends it and adds the profile.
  */
-import { modelStore } from "../src/renderer/lib/use-model";
+import { modelStore } from "../src/window/lib/use-model";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentProfile, ProfileSaveInput } from "../src/shared/agent-profiles";
 import {
@@ -16,9 +16,9 @@ import {
   profileDraftOpen$,
   saveProfileDraft,
   updateProfileDraft,
-} from "../src/renderer/lib/profile-draft-state";
-import { profiles$ } from "../src/renderer/lib/profiles-state";
-import { state$ } from "../src/renderer/lib/state";
+} from "../src/window/lib/profile-draft-state";
+import { profiles$ } from "../src/window/lib/profiles-state";
+import { state$ } from "../src/window/lib/state";
 import { portraitOptions } from "../src/shared/agent-portrait";
 
 const saved: ProfileSaveInput[] = [];

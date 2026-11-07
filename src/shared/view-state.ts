@@ -5,9 +5,9 @@
  *
  * One snapshot at window load, one small write per changed row as it changes,
  * last write wins, and a push to every window as a change lands. The tables
- * are in `src/main/junto/view-state/state-schema.ts`; the IPC in
- * `src/main/junto/view-state/ipc.ts`; the renderer's synchronous read is
- * `src/renderer/lib/view-state.ts`.
+ * are in `src/core/view-state/state-schema.ts`; the IPC in
+ * `src/app/view-state/ipc.ts`; the renderer's synchronous read is
+ * `src/window/lib/view-state.ts`.
  *
  * A node's state is sparse: an absent field is its default. Only what the
  * operator arranged differs from the defaults, so a node they never touched

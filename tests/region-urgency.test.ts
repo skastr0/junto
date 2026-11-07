@@ -7,7 +7,7 @@ import {
   seatUrgencyOfRing,
   worseUrgency,
   type Urgency,
-} from "../src/renderer/lib/region-urgency";
+} from "../src/window/lib/region-urgency";
 import { RegionUrgency } from "../src/shared/wire/urgency";
 
 const { blocked, review } = RegionUrgency.group;

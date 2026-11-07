@@ -11,10 +11,10 @@ import {
   grokRules,
   hermesRules,
   rulePackFor,
-} from "../src/main/junto/term/agent-state";
-import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
+} from "../src/core/term/agent-state";
+import type { ObserverGridSnapshot } from "../src/core/term/observer/types";
 import { agentSeatStatusOf, type AgentSeatStateEvent } from "../src/shared/agent-seat-state";
-import type { SeatMatcher } from "../src/main/junto/term/agent-state/types";
+import type { SeatMatcher } from "../src/core/term/agent-state/types";
 import { HARNESS_IDS } from "../src/shared/managed-terminal-templates";
 
 afterEach(() => {

@@ -6,8 +6,8 @@ import { Effect, Layer, ManagedRuntime, Result, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 import { afterAll, describe, expect, it } from "vitest";
 import { ReviewVerdict } from "../src/shared/crew";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { CrewRepository, CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { CrewRepository, CrewRepositoryLive } from "../src/core/work/crew-repository";
 
 const root = join(tmpdir(), `junto-crew-sql-${randomUUID()}`);
 const runtime = ManagedRuntime.make(CrewRepositoryLive.pipe(

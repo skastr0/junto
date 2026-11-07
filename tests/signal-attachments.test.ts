@@ -11,16 +11,16 @@ import { Effect, Layer, ManagedRuntime, Result } from "effect";
 import { SqlClient } from "effect/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentSignalAttachment } from "../src/shared/agent-signals";
-import { ContentManifest } from "../src/main/junto/content/manifest";
-import { contentStoreRoot } from "../src/main/junto/content/paths";
-import { ContentService, createContentService } from "../src/main/junto/content/service";
+import { ContentManifest } from "../src/core/content/manifest";
+import { contentStoreRoot } from "../src/node/content/paths";
+import { ContentService, createContentService } from "../src/core/content/service";
 import {
   attachmentName,
   claimSignalAttachments,
   signalAttachmentOwner,
-} from "../src/main/junto/signals/attachments";
-import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
-import { handleContentStage } from "../src/main/junto/work/content-stage";
+} from "../src/core/signals/attachments";
+import { makeStateEngineLive, StateEngine } from "../src/core/state/engine";
+import { handleContentStage } from "../src/core/work/content-stage";
 
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",

@@ -18,7 +18,7 @@ import {
   slotIndexOf,
   slotNodeId,
   touchActiveMru,
-} from "../src/renderer/lib/hotbar-slots";
+} from "../src/window/lib/hotbar-slots";
 
 describe("HotbarSlot schema", () => {
   it("decodes empty, fixed, leased, and evicted brands", () => {

@@ -9,9 +9,9 @@ import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { createFileProtocolHandler } from "../src/main/junto/files/protocol";
-import { coreFileBytes, registerFilesIpc } from "../src/main/junto/files/ipc";
-import { useCoreClient } from "../src/main/core-process/main-client";
+import { createFileProtocolHandler } from "../src/app/files/protocol";
+import { coreFileBytes, registerFilesIpc } from "../src/app/files/ipc";
+import { useCoreClient } from "../src/app/core-process/main-client";
 
 const SIZE = 40 * 1024 * 1024;
 const dirs: string[] = [];

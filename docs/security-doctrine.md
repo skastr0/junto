@@ -214,7 +214,7 @@ transports bytes. A link key binds the id to the key instead:
   up. The host key the editing machine already verified becomes the link's
   own known hosts, so there is no trust on first use.
 - `from` makes an ed25519 key for `to` in process, created exclusive at
-  0600 under a 0700 directory (`src/main/junto/link/link-keys.ts`). The
+  0600 under a 0700 directory (`src/core/link/link-keys.ts`). The
   private key never leaves `from` and never enters a copy, a row, a log or a
   failure. Keys and facts travel on stdin, never argv.
 - `to` pins `from` with `machine_peers.binding = key` and writes one
@@ -229,7 +229,7 @@ transports bytes. A link key binds the id to the key instead:
   first, decoded closed; a second one closes the link. The hello must carry
   exactly that id.
 - A bound dial runs with `-F none`, no agent, that key alone, the recorded
-  route and its own known hosts, strict (`src/main/junto/ssh/program.ts`).
+  route and its own known hosts, strict (`src/core/ssh/program.ts`).
 - A peer pinned with `binding = key` is refused any link without its opener
   frame (`opener-key-required`). The binding lives in `machine_peers`, the
   one source of identity facts, never in `authorized_keys`: a line removed by
@@ -237,7 +237,7 @@ transports bytes. A link key binds the id to the key instead:
   admitted unbound. Only retiring the peer clears the binding.
 - Removing a machine (`junto machine remove`) takes its key and line off
   this machine and every machine the editing machine reaches
-  (`src/main/junto/hosts/machine-owner.ts`); one it cannot reach is listed as
+  (`src/core/hosts/machine-owner.ts`); one it cannot reach is listed as
   still holding the key and retried until the removal lands. Retiring a peer
   alone clears only the binding. The editing machine is keyed to both ends the same way.
 
@@ -453,7 +453,7 @@ new machine or owner command handlers sharing a process.
 **Files node.** A Files node opens one folder, its root, on one machine:
 its host, the editing machine's real short name when the node was made. In
 0.11 only the editing machine serves Files, because no link verb reads a
-peer's files. The service in main (`src/main/junto/files/`) refuses any node
+peer's files. The service in the core (`src/core/files/`) refuses any node
 whose host is not this machine (`elsewhere`), so after a later handover the
 same root path is never opened on a different disk. The root is set by the
 operator, or by an overseer through `node.create` and `node.configure`
@@ -476,7 +476,7 @@ a folder's own git config names: every git main runs (the Files index, the
 git node, the checkout watch) overrides `core.fsmonitor`, `core.hooksPath`,
 `log.showSignature` and every filter driver the repository config names,
 never looks into a submodule's work tree, and builds diffs with
-`--no-ext-diff --no-textconv` (`src/main/junto/adapters/git-guard.ts`).
+`--no-ext-diff --no-textconv` (`src/core/adapters/git-guard.ts`).
 Renaming, moving or trashing a symlink acts on
 the link, never on what it points at. Delete moves to the Trash
 (`shell.trashItem`), never `unlink`. A write names the version it read
@@ -555,7 +555,7 @@ Each run:
   every import form. So the step is bundled in memory with a closed
   resolver, run as a module with no folder, `require` is limited to
   built-ins and a computed `import()` is refused
-  (`src/main/junto/automation/code-sdk.ts`;
+  (`src/core/automation/code-sdk.ts`;
   `tests/automation-code-runner.test.ts` plants each file in the parent and
   in `HOME`). This keeps folders from changing what a step means. It is not
   a sandbox against the step's author: `eval` or `new Function` reaches the
@@ -630,7 +630,7 @@ machine that read the bytes makes the tail, in this order:
    controls, and bidirectional overrides and isolates. A carriage return ends
    a line.
 3. Replace every known value with `[redacted]` through `redactSecretValues`
-   (`src/main/junto/credentials/redact.ts`). Known values are the generation
+   (`src/node/credentials/redact.ts`). Known values are the generation
    credential and every value in the process environment and in each live
    seat's and code step's child environment, region values included, except those named
    `HOME`, `USER`, `LOGNAME`, `SHELL`, `PATH`, `TMPDIR`, `PWD`, `TERM`,

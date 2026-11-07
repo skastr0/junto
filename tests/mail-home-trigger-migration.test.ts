@@ -17,8 +17,8 @@ import {
   STATE_SCHEMA_V13_IDENTITY,
   STATE_SCHEMA_V14_IDENTITY,
   migrateStateSchema,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V13_SQL, STATE_SCHEMA_V14_SQL } from "./fixtures/state-v13/schema";
 
 const TRIGGER = "work_messages_require_cc_home";

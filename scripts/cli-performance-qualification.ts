@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { unitTestEnvironment } from "./unit-test-environment";
 import { WORK_TOKEN_ENV } from "../src/shared/work-control";
-import { createLogger } from "../src/main/junto/observability/logger";
+import { createLogger } from "../src/node/observability/logger";
 
 const [, , mode, ...args] = process.argv;
 
@@ -17,16 +17,16 @@ const serve = async (root: string) => {
     { MachineRepositoryLive, MachineRepository },
     { SettingsLive, SettingsService }, { makeContentServiceLive }, { PausePlaneAllPlaying },
     { startWorkControlServer }, { makeSeatCredentialRegistry, mintSeatCredential }] = await Promise.all([
-    import("../src/main/junto/state/engine"), import("../src/main/junto/install-ops/engine"),
-    import("../src/main/junto/model/layer"), import("../src/main/junto/work/service"),
-    import("../src/main/junto/work/repository"), import("../src/main/junto/work/crew-repository"),
-    import("../src/main/junto/signals/repository"), import("../src/main/junto/machines/repository"),
-    import("../src/main/junto/settings/service"), import("../src/main/junto/content/service"),
-    import("../src/main/junto/pause-plane"), import("../src/main/junto/work/control"),
-    import("../src/main/junto/work/seat-credentials"),
+    import("../src/core/state/engine"), import("../src/core/install-ops/engine"),
+    import("../src/core/model/layer"), import("../src/core/work/service"),
+    import("../src/core/work/repository"), import("../src/core/work/crew-repository"),
+    import("../src/core/signals/repository"), import("../src/core/machines/repository"),
+    import("../src/core/settings/service"), import("../src/core/content/service"),
+    import("../src/core/pause-plane"), import("../src/core/work/control"),
+    import("../src/core/work/seat-credentials"),
   ]);
   const [{ ModelService }, { WorkModelDependentsLive }, { Command }] = await Promise.all([
-    import("../src/main/junto/model/service"), import("../src/main/junto/work/model-dependents"), import("../src/shared/model"),
+    import("../src/core/model/service"), import("../src/core/work/model-dependents"), import("../src/shared/model"),
   ]);
   const repositories = Layer.provideMerge(Layer.mergeAll(
     WorkRepositoryLive, CrewRepositoryLive, AgentSignalRepositoryLive, MachineRepositoryLive, SettingsLive,

@@ -24,27 +24,27 @@ import {
   SshOutputLimitError,
   SshTimeoutError,
   SshTransport,
-} from "../src/main/junto/ssh";
+} from "../src/core/ssh";
 import {
   makeRemoteCommand,
   makeRemoteStdin,
-} from "../src/main/junto/ssh/domain";
+} from "../src/core/ssh/domain";
 import {
   dedicatedStream,
   oneShot,
   oneShotWithStdin,
   sharedStream,
-} from "../src/main/junto/ssh/program";
+} from "../src/core/ssh/program";
 import {
   ProcessSpawner,
   ProcessFailure,
   type ProcessHandle,
-} from "../src/main/junto/ssh/process-spawner";
+} from "../src/core/ssh/process-spawner";
 import {
   SshTransferExitError,
   SshTransportConfig,
   SshTransportLayer,
-} from "../src/main/junto/ssh/service";
+} from "../src/core/ssh/service";
 
 interface FakeResult {
   readonly stdout?: Uint8Array;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createQuitPhaseLog } from "../src/main/junto/quit-phase-log";
+import { createQuitPhaseLog } from "../src/app/quit-phase-log";
 
 const clock = () => {
   let t = 1_000;

@@ -7,7 +7,7 @@ import {
   quitMarkerPath,
   requestLockAfterQuittingHolder,
   writeQuitMarker,
-} from "../src/main/junto/quit-marker";
+} from "../src/app/quit-marker";
 
 const homes: string[] = [];
 const home = (): string => {

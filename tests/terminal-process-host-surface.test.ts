@@ -9,16 +9,16 @@
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { CoreMessage, CorePort } from "../src/main/core-process/port";
-import { createAppProcessPlane } from "../src/main/junto/app-process-plane";
-import { LocalSessionHost } from "../src/main/junto/term/local-host";
-import { OperatorInterlock } from "../src/main/junto/term/drive/operator-interlock";
-import { serveTerminals, type SpawnPty, type SurfacePort } from "../src/main/terminal-process/serve";
-import { terminalClient } from "../src/main/terminal-process/client";
-import { placeTerminals } from "../src/main/terminal-process/use";
-import { TerminalSurface, type SurfaceOut, type TerminalGate, type TerminalHold, type TerminalSurfaceOpen } from "../src/main/terminal-process/protocol";
+import type { CoreMessage, CorePort } from "../src/contract/core/port";
+import { createAppProcessPlane } from "../src/node/app-process-plane";
+import { LocalSessionHost } from "../src/core/term/local-host";
+import { OperatorInterlock } from "../src/core/term/drive/operator-interlock";
+import { serveTerminals, type SpawnPty, type SurfacePort } from "../src/terminal/serve";
+import { terminalClient } from "../src/node/terminals/client";
+import { placeTerminals } from "../src/node/terminals/use";
+import { TerminalSurface, type SurfaceOut, type TerminalGate, type TerminalHold, type TerminalSurfaceOpen } from "../src/contract/terminal/protocol";
 import { makeThisMachine } from "../src/shared/remote-hosts";
-import { hostsSnapshot, setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
+import { hostsSnapshot, setHostsSnapshot } from "../src/core/hosts/snapshot";
 
 const nodePty = createRequire(import.meta.url)("node-pty") as typeof import("node-pty");
 const realPty: SpawnPty = (command, args, options) => nodePty.spawn(command, [...args], options);

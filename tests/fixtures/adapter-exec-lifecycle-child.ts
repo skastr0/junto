@@ -2,30 +2,30 @@ import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type * as AdapterExecModule from "../../src/main/junto/adapters/exec";
-import type * as SpawnEnvModule from "../../src/main/junto/adapters/spawn-env";
-import type * as AppProcessPlaneModule from "../../src/main/junto/app-process-plane";
-import type * as InProcessReadsModule from "../../src/main/core-process/in-process-reads";
-import type * as ProcessEpochModule from "../../src/main/junto/process-epoch";
+import type * as AdapterExecModule from "../../src/core/adapters/exec";
+import type * as SpawnEnvModule from "../../src/core/adapters/spawn-env";
+import type * as AppProcessPlaneModule from "../../src/node/app-process-plane";
+import type * as InProcessReadsModule from "../../src/core/in-process-reads";
+import type * as ProcessEpochModule from "../../src/node/process-epoch";
 
-const adapterExecModulePath = "../../src/main/junto/adapters/exec" + ".ts";
+const adapterExecModulePath = "../../src/core/adapters/exec" + ".ts";
 const {
   runCli,
   terminateAdapterChildrenOnQuit,
 } = (await import(adapterExecModulePath)) as typeof AdapterExecModule;
-const spawnEnvModulePath = "../../src/main/junto/adapters/spawn-env" + ".ts";
+const spawnEnvModulePath = "../../src/core/adapters/spawn-env" + ".ts";
 const { resolvedSpawnEnv } = (await import(spawnEnvModulePath)) as typeof SpawnEnvModule;
-const appProcessPlaneModulePath = "../../src/main/junto/app-process-plane" + ".ts";
+const appProcessPlaneModulePath = "../../src/node/app-process-plane" + ".ts";
 const { appProcessPlane } = (await import(
   appProcessPlaneModulePath
 )) as typeof AppProcessPlaneModule;
-const processEpochModulePath = "../../src/main/junto/process-epoch" + ".ts";
+const processEpochModulePath = "../../src/node/process-epoch" + ".ts";
 const { setProcessEpochReaderForTests } = (await import(
   processEpochModulePath
 )) as typeof ProcessEpochModule;
 // The child is its own process, so the vitest setup never runs here: install
 // the in-process reads itself before any adapter resolves the spawn env.
-const inProcessReadsModulePath = "../../src/main/core-process/in-process-reads" + ".ts";
+const inProcessReadsModulePath = "../../src/core/in-process-reads" + ".ts";
 const { installInProcessCoreReads } = (await import(
   inProcessReadsModulePath
 )) as typeof InProcessReadsModule;

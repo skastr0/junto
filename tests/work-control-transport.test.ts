@@ -18,8 +18,8 @@ import {
 } from "../src/shared/work-control";
 import { Level, rankOf } from "../src/shared/wire/urgency";
 import type { PreambleEvent } from "../src/shared/preamble";
-import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
-import { ModelService } from "../src/main/junto/model/service";
+import { ModelActorRefs } from "../src/core/model/actor-refs";
+import { ModelService } from "../src/core/model/service";
 import { asCanvasName, asNodeId, type Command } from "../src/shared/model";
 import { grantOverseer, ModelStoresLive, readSeeded, seedCanvas } from "./support/seed-canvas";
 import { seat, wire } from "./support/model-nodes";
@@ -30,33 +30,33 @@ import {
   type WorkControlRuntime,
   type WorkControlServer,
   type WorkControlServerOptions,
-} from "../src/main/junto/work/control";
-import { mailboxMessageReadId } from "../src/main/junto/work/mailbox-receipts";
-import { messageDelivery } from "../src/main/junto/work/message-delivery";
-import { WorkLive, WorkService } from "../src/main/junto/work/service";
-import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
-import { makeContentServiceLive } from "../src/main/junto/content/service";
+} from "../src/core/work/control";
+import { mailboxMessageReadId } from "../src/core/work/mailbox-receipts";
+import { messageDelivery } from "../src/core/work/message-delivery";
+import { WorkLive, WorkService } from "../src/core/work/service";
+import { CrewRepositoryLive } from "../src/core/work/crew-repository";
+import { makeContentServiceLive } from "../src/core/content/service";
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/junto/work/repository";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
+} from "../src/core/work/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { makeMachineRepositoryLive } from "../src/core/machines/repository";
 import {
   SettingsLive,
   SettingsService,
-} from "../src/main/junto/settings/service";
-import { PausePlane, PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
+} from "../src/core/settings/service";
+import { PausePlane, PausePlaneAllPlaying } from "../src/core/pause-plane";
 import {
   makeSeatCredentialRegistry,
   mintSeatCredential,
   type SeatCredentialRegistry,
-} from "../src/main/junto/work/seat-credentials";
+} from "../src/core/work/seat-credentials";
 import {
   createMainAuthoringGate,
   type MainAuthoringGate,
-} from "../src/main/junto/main-authoring-gate";
+} from "../src/node/main-authoring-gate";
 import {
   actorRefFixture,
 } from "./helpers/actor-ref-fixtures";
@@ -66,9 +66,9 @@ import {
   type IntentFactBasis as IntentFactBasisValue,
 } from "../src/shared/work-protocol";
 
-import { AgentSignalRepositoryLive } from "../src/main/junto/signals/repository";
-import { answerAgentSignal, dismissAgentSignal } from "../src/main/junto/signals/operator";
-import { putOperatorContent } from "../src/main/junto/content/operator-attachments";
+import { AgentSignalRepositoryLive } from "../src/core/signals/repository";
+import { answerAgentSignal, dismissAgentSignal } from "../src/core/signals/operator";
+import { putOperatorContent } from "../src/core/content/operator-attachments";
 import { WORK_HOME_ENV } from "../src/shared/work-control";
 import { AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE, AGENT_SIGNAL_FILES_RESPONSE, type AgentSignal } from "../src/shared/agent-signals";
 import { THIS_MACHINE } from "./support/machines";

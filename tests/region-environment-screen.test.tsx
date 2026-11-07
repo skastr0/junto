@@ -4,21 +4,21 @@
  * kind, a secret that goes to the store and is never held or shown again, the
  * resolved list, the sealed switch, folders, reordering and restart to apply.
  */
-import { RegionEnvironmentModal } from "../src/renderer/components/region-environment/RegionEnvironmentModal";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { state$ } from "../src/renderer/lib/state";
+import { RegionEnvironmentModal } from "../src/window/components/region-environment/RegionEnvironmentModal";
+import { modelStore } from "../src/window/lib/use-model";
+import { state$ } from "../src/window/lib/state";
 import { region } from "./support/model-nodes";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { pickPrimaryFocusControl } from "../src/renderer/lib/focus-ownership";
-import type { EnvSource, RegionEnvironment, SourceReport } from "../src/renderer/lib/region-environment";
+import { pickPrimaryFocusControl } from "../src/window/lib/focus-ownership";
+import type { EnvSource, RegionEnvironment, SourceReport } from "../src/window/lib/region-environment";
 import { makeFakeRegionEnvironmentPort } from "./helpers/fake-region-environment-port";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const { RegionEnvironmentScreen } = await import(
-  "../src/renderer/components/region-environment/RegionEnvironmentScreen"
+  "../src/window/components/region-environment/RegionEnvironmentScreen"
 );
 
 let host: HTMLDivElement;

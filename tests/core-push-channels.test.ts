@@ -3,12 +3,12 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { MENTION_IPC_CHANNELS } from "../src/shared/mention-ipc-channels";
-import { CORE_PUSHES, CORE_PUSH_CHANNELS } from "../src/main/core-process/channels";
-import { relayWindowPushes } from "../src/main/core-process/main-side/window-pushes";
-import { subscribe } from "../src/main/core-process/main-side/core-pushes";
-import { portCore, type CorePort } from "../src/main/core-process/port";
-import { runHostOp } from "../src/main/core-process/main-side/host-op-bodies";
-import { serveCore } from "../src/main/core-process/serve";
+import { CORE_PUSHES, CORE_PUSH_CHANNELS } from "../src/contract/core/channels";
+import { relayWindowPushes } from "../src/app/core-process/main-side/window-pushes";
+import { subscribe } from "../src/app/core-process/main-side/core-pushes";
+import { portCore, type CorePort } from "../src/contract/core/port";
+import { runHostOp } from "../src/app/core-process/main-side/host-op-bodies";
+import { serveCore } from "../src/core/serve";
 import { MessageChannel } from "node:worker_threads";
 
 /**
@@ -17,7 +17,7 @@ import { MessageChannel } from "node:worker_threads";
  * compile; this window checks the registry itself, then carries each channel
  * across a real port to show main hears it.
  */
-const CHANNELS = "src/main/core-process/channels.ts";
+const CHANNELS = "src/contract/core/channels.ts";
 
 const channelValue = (token: string, declared: ReadonlyMap<string, string>): string | undefined => {
   const qualified = /^(IPC_CHANNELS|MENTION_IPC_CHANNELS|RESOURCE_IPC_CHANNELS)\.(\w+)$/u.exec(token);
@@ -44,14 +44,14 @@ const publishers = (): ReadonlyArray<{ readonly name: string; readonly source: s
         if (entry.name !== "node_modules") walk(path);
       } else if (entry.name.endsWith(".ts")) {
         const source = readFileSync(path, "utf8");
-        const group = path.includes(join("core-process", "ops"));
-        if (group || source.includes("core-process/push") || /from "(\\.\\.\/)+push"/u.test(source)) {
+        const group = path.includes(join("src", "core", "ops"));
+        if (group || /from "(?:\.\.?\/)+push"/u.test(source)) {
           found.push({ name: path, source });
         }
       }
     }
   };
-  walk("src/main");
+  for (const root of ["src/app", "src/core", "src/node", "src/terminal", "src/contract"]) walk(root);
   return found;
 };
 

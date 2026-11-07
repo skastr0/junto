@@ -21,7 +21,7 @@ import {
   type AppProcessDrainResult,
   type AppProcessLease,
   type AppProcessPlane,
-} from "../src/main/junto/app-process-plane";
+} from "../src/node/app-process-plane";
 
 const SMOKE_TIMEOUT_MS = 45_000;
 const STARTUP_TIMEOUT_MS = 25_000;

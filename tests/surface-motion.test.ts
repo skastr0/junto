@@ -5,7 +5,7 @@ import {
   setSurfaceMotionForTests,
   startSurfaceMotionGate,
   surfaceMotionLive$,
-} from "../src/renderer/lib/surface-motion";
+} from "../src/window/lib/surface-motion";
 
 describe("computeSurfaceMotion", () => {
   it("is live only when the page is visible and motion is allowed", () => {

@@ -5,9 +5,9 @@ import {
   LISTED_SETTINGS,
   searchSettings,
   type SettingEntry,
-} from "../src/renderer/components/settings/search-index";
+} from "../src/window/components/settings/search-index";
 
-const ROOT = join(process.cwd(), "src", "renderer", "components");
+const ROOT = join(process.cwd(), "src", "window", "components");
 
 /** The file that draws each page whose settings are listed by hand. */
 const PAGE_SOURCE: Readonly<Record<string, string>> = {

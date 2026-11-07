@@ -6,7 +6,7 @@
  * `docs/harness-domain.md`.
  *
  * Every level that is not "none" names its ground: a rule in the harness's
- * screen rule pack (`src/main/junto/term/agent-state/rules/`), a template
+ * screen rule pack (`src/core/term/agent-state/rules/`), a template
  * table in `managed-terminal-templates.ts`, or a code witness. A rule ground
  * says the pack recognizes that chrome today; step 2 of the build order makes
  * the same rule emit the signal. Tests check every ground resolves.
@@ -60,14 +60,14 @@ const screen = (...rules: readonly string[]): Grounded<SignalSupport> => ({
 const OSC7501: Grounded<SignalSupport> = {
   level: "native",
   channel: "osc7501",
-  grounds: [{ code: "src/main/junto/term/program-status.ts#programStatusSignals" }],
+  grounds: [{ code: "src/core/term/program-status.ts#programStatusSignals" }],
 };
 
 /** The PTY child's exit code and signal (`AppTerminalBackend.attach`). */
 const EXITED: Grounded<SignalSupport> = {
   level: "native",
   channel: "process",
-  grounds: [{ code: "src/main/junto/app-process-plane.ts#pty.onExit" }],
+  grounds: [{ code: "src/node/app-process-plane.ts#pty.onExit" }],
 };
 
 /** Mail always asks to steer; `HARNESS_FOLLOW_UP` holds the Enter count. */
@@ -125,7 +125,7 @@ export const HARNESS_CAPABILITY_DECLARATIONS: Readonly<
       mailInterrupt: NONE,
       answerPermission: NONE,
       interrupt: NONE,
-      compact: typed({ code: "src/main/junto/term/drive/claude-startup.ts#isClaudeCompactNoop" }),
+      compact: typed({ code: "src/core/term/drive/claude-startup.ts#isClaudeCompactNoop" }),
       resume: RESUME,
     },
   },
@@ -276,7 +276,7 @@ export const HARNESS_CAPABILITY_DECLARATIONS: Readonly<
   },
   kimi: {
     signals: {
-      SessionIdentified: { level: "screen", channel: "screen", grounds: [{ code: "src/main/junto/term/templates/kimi-session.ts#extractKimiSessionIdFromText" }] },
+      SessionIdentified: { level: "screen", channel: "screen", grounds: [{ code: "src/core/term/templates/kimi-session.ts#extractKimiSessionIdFromText" }] },
       ActivityObserved: screen("braille_spinner_working", "prompt_footer_idle"),
       TurnStarted: NONE,
       TurnEnded: NONE,

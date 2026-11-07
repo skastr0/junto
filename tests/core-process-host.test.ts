@@ -29,8 +29,8 @@ vi.mock("electron", () => ({
   },
 }));
 
-const { startCoreProcess } = await import("../src/main/core-process/host");
-const { hostOps } = await import("../src/main/core-process/main-side/host-op-bodies");
+const { startCoreProcess } = await import("../src/app/core-process/host");
+const { hostOps } = await import("../src/app/core-process/main-side/host-op-bodies");
 
 const BOOT = {
   home: "/home", build: "test", bundlesRoot: "/bundles", operatorCommands: false,

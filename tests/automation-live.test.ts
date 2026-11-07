@@ -1,6 +1,6 @@
 import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
-import { automationMailId, artifactsWritten, changesBetween, conditionHolds, performAction, signalChange, taskChangesOf, type ConditionView } from "../src/main/junto/automation/live";
+import { automationMailId, artifactsWritten, changesBetween, conditionHolds, performAction, signalChange, taskChangesOf, type ConditionView } from "../src/core/automation/live";
 import { type Automation, AutomationId, AutomationVersion, FiringId } from "../src/shared/automation";
 import type { Canvas } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";

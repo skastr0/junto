@@ -12,8 +12,8 @@ import { Deferred, Effect, Layer, ManagedRuntime } from "effect";
 import { Reactivity } from "effect/reactivity";
 import { SqlClient } from "effect/sql";
 import { afterEach, expect, it } from "vitest";
-import { durableTransaction } from "../src/main/junto/fleet/driver";
-import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
+import { durableTransaction } from "../src/core/fleet/driver";
+import { makeSqliteClient } from "../src/core/state/sqlite-client";
 
 let root: string | undefined;
 afterEach(async () => {

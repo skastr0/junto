@@ -6,23 +6,23 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   evaluateSchemaCompatibility,
   probeInstalledStateSchema,
-} from "../src/main/junto/state/schema-version-probe";
+} from "../src/node/state/schema-version-probe";
 import {
   feedVersionUnbricks,
   makeSchemaRecoveryUpdater,
   runStartupSchemaRecovery,
-} from "../src/main/junto/update/startup-schema-recovery";
+} from "../src/app/update/startup-schema-recovery";
 
-import { linuxX64UpdateFeed } from "../src/main/junto/update/compiled-config";
+import { linuxX64UpdateFeed } from "../src/app/update/compiled-config";
 import type {
   StagedUpdate,
   UpdateHostHooks,
   UpdateProvider,
   UpdateProviderListener,
-} from "../src/main/junto/update/provider";
+} from "../src/app/update/provider";
 
 const { makePlatformProvider } = vi.hoisted(() => ({ makePlatformProvider: vi.fn() }));
-vi.mock("../src/main/junto/update/platform", () => ({
+vi.mock("../src/app/update/platform", () => ({
   makePlatformUpdateProvider: makePlatformProvider,
 }));
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { Effect } from "effect";
-import { readCanvasThroughControl } from "../src/main/junto/canvas-control/client";
+import { readCanvasThroughControl } from "../src/core/canvas-control/client";
 
 // The running app supplies one compiled canvas plus its current Hermes snapshot.
 // This process prints the deterministic digest and writes nothing.

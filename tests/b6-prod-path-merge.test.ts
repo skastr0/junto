@@ -6,9 +6,9 @@ import {
   mergePath,
   resolvedSpawnEnvSync,
   staticPathDirs,
-} from "../src/main/junto/adapters/spawn-env";
-import { runTool } from "../src/main/junto/region-env/tool";
-import { probeShellEnvironment, shellEnvironmentFromProbeOutput } from "../src/main/junto/shell-environment";
+} from "../src/core/adapters/spawn-env";
+import { runTool } from "../src/core/region-env/tool";
+import { probeShellEnvironment, shellEnvironmentFromProbeOutput } from "../src/core/shell-environment";
 
 // The spawn plane resolves user-installed CLIs under a packaged/launchd/Finder
 // launch from the operator's login-shell environment, merged over inherited
@@ -253,9 +253,9 @@ describe("resolvedSpawnEnv", () => {
     vi.resetModules();
     // Main asks the core for this environment; here the core's own reads are
     // the ones installed, so the read below is the one a spawn takes.
-    const { installInProcessCoreReads } = await import("../src/main/core-process/in-process-reads");
+    const { installInProcessCoreReads } = await import("../src/core/in-process-reads");
     installInProcessCoreReads();
-    const { resolvedSpawnEnv } = await import("../src/main/junto/adapters/spawn-env");
+    const { resolvedSpawnEnv } = await import("../src/core/adapters/spawn-env");
     const env = await resolvedSpawnEnv();
     const dirs = split(env.PATH ?? "");
     // The shell's PATH leads; the static floor still backs it.

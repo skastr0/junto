@@ -4,7 +4,7 @@ import {
   clearSlot,
   mergeSlotOrder,
   pruneSlotOrder,
-} from "../src/renderer/lib/region-rollups";
+} from "../src/window/lib/region-rollups";
 import {
   deriveRegionRollups as deriveRegionRollupsWithContext,
 } from "../src/shared/region-rollup";

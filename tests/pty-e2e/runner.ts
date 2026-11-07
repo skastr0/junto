@@ -21,10 +21,10 @@ import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "vitest";
-import { SessionObserver } from "../../src/main/junto/term/observer";
-import { SeatStateRuntime } from "../../src/main/junto/term/agent-state/runtime";
+import { SessionObserver } from "../../src/core/term/observer";
+import { SeatStateRuntime } from "../../src/core/term/agent-state/runtime";
 import type { AgentSeatStateEvent } from "../../src/shared/agent-seat-state";
-import type { ObserverGridSnapshot } from "../../src/main/junto/term/observer/types";
+import type { ObserverGridSnapshot } from "../../src/core/term/observer/types";
 
 // ---------------------------------------------------------------------------
 // Corpus / fixture types

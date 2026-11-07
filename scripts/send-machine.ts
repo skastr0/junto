@@ -4,9 +4,9 @@ import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { MachineSendInput } from "../src/shared/machine-install";
 import { loadJsonInput } from "../src/cli/core/json";
 import { executeJsonCommand } from "../src/cli/core/output";
-import { parseSshRoute, SshTransportLive } from "../src/main/junto/ssh";
-import { sendMachine } from "../src/main/junto/hosts/send";
-import { createLogger, LogService } from "../src/main/junto/observability/logger";
+import { parseSshRoute, SshTransportLive } from "../src/core/ssh";
+import { sendMachine } from "../src/core/hosts/send";
+import { createLogger, LogService } from "../src/node/observability/logger";
 
 const log = createLogger({ process: "core", echo: false });
 

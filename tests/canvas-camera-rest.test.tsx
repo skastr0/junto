@@ -45,8 +45,8 @@ const camera = vi.hoisted(() => {
 
 vi.mock("@xyflow/react", () => ({ useStoreApi: () => camera }));
 
-import { CanvasTierGate } from "../src/renderer/components/CanvasTierGate";
-import { RegionGlanceGate } from "../src/renderer/components/RegionGlanceGate";
+import { CanvasTierGate } from "../src/window/components/CanvasTierGate";
+import { RegionGlanceGate } from "../src/window/components/RegionGlanceGate";
 import {
   CAMERA_SETTLE_MS,
   FAR_SEAT_SCALE_VAR,
@@ -57,8 +57,8 @@ import {
   farSeatScale,
   nodeScale,
   seatFloorScale,
-} from "../src/renderer/lib/canvas-tier";
-import { GLANCE_SUB_VAR, GLANCE_VAR, regionGlanceOpacity, subregionGlanceOpacity } from "../src/renderer/lib/region-glance";
+} from "../src/window/lib/canvas-tier";
+import { GLANCE_SUB_VAR, GLANCE_VAR, regionGlanceOpacity, subregionGlanceOpacity } from "../src/window/lib/region-glance";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -178,7 +178,7 @@ describe("level-of-detail properties wait for the camera to rest", () => {
 });
 
 describe("ring size easing", () => {
-  const styles = readFileSync(join(__dirname, "..", "src/renderer/styles/canvas-lod.css"), "utf8");
+  const styles = readFileSync(join(__dirname, "..", "src/window/styles/canvas-lod.css"), "utf8");
 
   it("eases the far ring scale on the compositor, and jumps when motion is paused", () => {
     expect(styles).toMatch(

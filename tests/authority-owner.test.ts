@@ -5,11 +5,11 @@
  */
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { CanvasAuthorities } from "../src/main/junto/fleet/authorities";
-import { FleetDriverError } from "../src/main/junto/fleet/driver";
-import { AuthorityOwnerControl, makeAuthorityOwnerActions } from "../src/main/junto/hosts/authority-owner";
+import { CanvasAuthorities } from "../src/core/fleet/authorities";
+import { FleetDriverError } from "../src/core/fleet/driver";
+import { AuthorityOwnerControl, makeAuthorityOwnerActions } from "../src/core/hosts/authority-owner";
 import type { AuthorityMachineFacts, AuthorityRead } from "../src/shared/authority";
-import { ALONE_TERM_STRIDE } from "../src/main/junto/fleet/consensus";
+import { ALONE_TERM_STRIDE } from "../src/core/fleet/consensus";
 import type { InstallationId } from "../src/shared/installation-id";
 import { OPERATOR_PROTOCOL_VERSION, decodeOperatorResponse } from "../src/shared/operator-control";
 

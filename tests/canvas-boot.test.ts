@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BOOT_STEP_STALL_MS, bootStep, nextCanvasBootAction } from "../src/renderer/lib/canvas-boot";
+import { BOOT_STEP_STALL_MS, bootStep, nextCanvasBootAction } from "../src/window/lib/canvas-boot";
 
 afterEach(() => {
   vi.useRealTimers();

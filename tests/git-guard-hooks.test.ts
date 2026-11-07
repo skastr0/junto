@@ -11,8 +11,8 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readGitLog, readGitReview, readGitStatus, readGitSummary } from "../src/main/junto/adapters/git";
-import { mainNameSources } from "../src/main/junto/files/git-spawn";
+import { readGitLog, readGitReview, readGitStatus, readGitSummary } from "../src/core/adapters/git";
+import { mainNameSources } from "../src/core/files/git-spawn";
 
 let dir: string;
 let repo: string;

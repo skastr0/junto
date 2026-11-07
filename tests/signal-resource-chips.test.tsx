@@ -11,22 +11,22 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AgentSignalResourceAttachment } from "../src/shared/agent-signals";
 import type { ArtifactHead } from "../src/shared/resource-ipc";
 import type { ItemId } from "../src/shared/work-ids";
-import { artifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/renderer/lib/artifacts-source";
+import { artifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/window/lib/artifacts-source";
 import { artifacts, canvasOf, seat } from "./support/model-nodes";
 
 const opened = vi.hoisted(() => ({ calls: [] as Array<{ nodeId: string; itemId: string | undefined }> }));
-vi.mock("../src/renderer/lib/work-detail-open", () => ({
+vi.mock("../src/window/lib/work-detail-open", () => ({
   openWorkDetail: (nodeId: string, options?: { readonly itemId?: string }) =>
     opened.calls.push({ nodeId, itemId: options?.itemId }),
 }));
 
 const canvas = canvasOf([artifacts("specs", { label: "Specs" }), artifacts("release", { label: "Release" }), seat("lead")]);
-vi.mock("../src/renderer/lib/use-model", async (load) => ({
-  ...(await load<typeof import("../src/renderer/lib/use-model")>()),
+vi.mock("../src/window/lib/use-model", async (load) => ({
+  ...(await load<typeof import("../src/window/lib/use-model")>()),
   useCanvas: () => canvas,
 }));
 
-const { SignalResourceChips } = await import("../src/renderer/components/signals/SignalResourceChips");
+const { SignalResourceChips } = await import("../src/window/components/signals/SignalResourceChips");
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

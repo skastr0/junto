@@ -1,7 +1,7 @@
 import { observe } from "@legendapp/state";
 import { describe, expect, it, vi } from "vitest";
 import type { Changed, Command, Node, Opened, Wire } from "../src/shared/model";
-import { createModelStore, keepUnchanged, type ModelApi } from "../src/renderer/lib/model-store";
+import { createModelStore, keepUnchanged, type ModelApi } from "../src/window/lib/model-store";
 
 const canvas = "factory" as Opened["canvas"];
 

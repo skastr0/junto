@@ -1,8 +1,8 @@
-import { identityHueOf } from "../src/renderer/lib/signal-mark";
+import { identityHueOf } from "../src/window/lib/signal-mark";
 import { note, region, seat } from "./support/model-nodes";
 import { describe, expect, it } from "vitest";
-import { signalMark, signalMarkForMember } from "../src/renderer/lib/signal-mark";
-import { GREEN, HUE, withAlpha } from "../src/renderer/lib/theme";
+import { signalMark, signalMarkForMember } from "../src/window/lib/signal-mark";
+import { GREEN, HUE, withAlpha } from "../src/window/lib/theme";
 import { MemberSeverity } from "../src/shared/region-rollup";
 
 const S = MemberSeverity.group;

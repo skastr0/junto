@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { migrateMachineConfiguration, migrateMachineIdentity, migrateMachinePeers } from "../src/main/junto/machines/migrate";
+import { migrateMachineConfiguration, migrateMachineIdentity, migrateMachinePeers } from "../src/core/machines/migrate";
 import { STATE_SCHEMA_V14_FRAGMENTS } from "./fixtures/state-v13/v14-fragments";
 
 const open = (): DatabaseSync => {

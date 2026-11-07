@@ -4,10 +4,10 @@ import type { UsageSnapshot, UsageState } from "../src/shared/usage";
 import {
   UsageCache,
   UsageCacheError,
-} from "../src/main/junto/usage/usage-cache";
-import { UsageSources, type UsageSource } from "../src/main/junto/usage/usage-source";
-import { UsageService, UsageServiceLive } from "../src/main/junto/usage/usage-service";
-import { UsagePreferences } from "../src/main/junto/usage/preferences";
+} from "../src/core/usage/usage-cache";
+import { UsageSources, type UsageSource } from "../src/core/usage/usage-source";
+import { UsageService, UsageServiceLive } from "../src/core/usage/usage-service";
+import { UsagePreferences } from "../src/core/usage/preferences";
 
 // UsageService keeps closure state, a single in-flight
 // fan-out, subscribe, idempotent start. Sources are total (envelope-folded),

@@ -5,10 +5,10 @@
  */
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { heldMailbox } from "../src/main/junto/work/mailbox-cache";
-import type { WorkChange } from "../src/main/junto/work/projection-changes";
-import { WorkRepository } from "../src/main/junto/work/repository";
-import { WorkService } from "../src/main/junto/work/service";
+import { heldMailbox } from "../src/core/work/mailbox-cache";
+import type { WorkChange } from "../src/core/work/projection-changes";
+import { WorkRepository } from "../src/core/work/repository";
+import { WorkService } from "../src/core/work/service";
 import type { Message } from "../src/shared/work-model";
 
 type Listener = (canvasName: string, nodeId: string, kind?: "mail" | "work", change?: WorkChange) => void;

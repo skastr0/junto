@@ -22,9 +22,9 @@ const sourceFiles = (root: string): string[] =>
 
 describe("launch permission surface", () => {
   it("starts terminals and seats only from the explicit open path", () => {
-    const creators = sourceFiles("src/renderer").filter((path) =>
+    const creators = sourceFiles("src/window").filter((path) =>
       source(path).includes("modelStart("),
     );
-    expect(creators).toEqual([join("src/renderer/lib/terminal-actions.ts")]);
+    expect(creators).toEqual([join("src/window/lib/terminal-actions.ts")]);
   });
 });

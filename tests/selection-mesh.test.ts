@@ -1,20 +1,20 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { Node, Wire } from "../src/shared/model";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { authoring } from "../src/renderer/lib/authoring";
+import { modelStore } from "../src/window/lib/use-model";
+import { authoring } from "../src/window/lib/authoring";
 import { openModelCanvas } from "./support/open-model-canvas";
-import { undo } from "../src/renderer/lib/mutations";
+import { undo } from "../src/window/lib/mutations";
 import {
   connectMesh,
   disconnectWithin,
   meshPlanOn,
   targetPlanOn,
   wireIdsWithin,
-} from "../src/renderer/lib/edge-mutations";
+} from "../src/window/lib/edge-mutations";
 import { canvasOf, region, seat, wire as modelWire } from "./support/model-nodes";
-import { agentCountLabel, seatIdsAmong } from "../src/renderer/lib/multi-selection";
-import { placeBesideRect } from "../src/renderer/lib/menu-placement";
-import { state$ } from "../src/renderer/lib/state";
+import { agentCountLabel, seatIdsAmong } from "../src/window/lib/multi-selection";
+import { placeBesideRect } from "../src/window/lib/menu-placement";
+import { state$ } from "../src/window/lib/state";
 
 const nodes: ReadonlyArray<Node> = [seat("a"), seat("b"), seat("c"), seat("d"), region("region", { x: 0, y: 0, width: 400, height: 200 }, { label: "R" })];
 const wire = (id: string, from: string, to: string): Wire => modelWire(id, from, to, "messages");

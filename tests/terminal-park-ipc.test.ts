@@ -7,14 +7,14 @@ import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
 import { inProcessCore } from "./support/in-process-core";
-import { core } from "../src/main/core-process/main-client";
+import { core } from "../src/app/core-process/main-client";
 import { IPC_CHANNELS, type TerminalParkResult } from "../src/shared/ipc";
-import { registerTerminalIpc } from "../src/main/junto/term/ipc";
-import { bindTermIpcPlane } from "../src/main/core-process/ops/term-ipc";
-import "../src/main/core-process/ops/term-ipc";
-import type { TermPlane } from "../src/main/junto/term/plane";
-import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
-import { OBSERVER_WATCHED_SCROLLBACK } from "../src/main/junto/term/observer/session-observer";
+import { registerTerminalIpc } from "../src/app/term/ipc";
+import { bindTermIpcPlane } from "../src/core/ops/term-ipc";
+import "../src/core/ops/term-ipc";
+import type { TermPlane } from "../src/core/term/plane";
+import { TerminalNodeDeleteService } from "../src/core/term/node-delete";
+import { OBSERVER_WATCHED_SCROLLBACK } from "../src/core/term/observer/session-observer";
 import { TERMINAL_BOUNDS } from "../src/shared/settings";
 
 // The terminal ops run on the plane this test binds; they need no service.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { SeatStateRuntime } from "../src/main/junto/term/agent-state/runtime";
-import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
+import { SeatStateRuntime } from "../src/core/term/agent-state/runtime";
+import type { ObserverGridSnapshot } from "../src/core/term/observer/types";
 
 const snap = (
   bindingId: string,

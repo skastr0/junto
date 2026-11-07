@@ -13,8 +13,8 @@
  */
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { wireFromRow } from "../src/main/junto/model/rows";
-import { TASK_ARTIFACT_PORTS } from "../src/main/junto/state/migrate-task-artifact-ports";
+import { wireFromRow } from "../src/core/model/rows";
+import { TASK_ARTIFACT_PORTS } from "../src/core/state/migrate-task-artifact-ports";
 import {
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
@@ -22,8 +22,8 @@ import {
   STATE_SCHEMA_V48_IDENTITY,
   migrateStateSchema,
   type StateSchemaMigrationPlan,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { Port } from "../src/shared/physics/schema";
 import { STATE_SCHEMA_V47_SQL, STATE_SCHEMA_V48_SQL } from "./fixtures/state-v13/schema";
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { asPadElementId, emptyPad, type PadShape } from "../src/shared/pad";
-import { connectTargets, connectedWords, readingOrder, selectedWords, shapeName, walkShapes } from "../src/renderer/components/pad/pad-walk";
+import { connectTargets, connectedWords, readingOrder, selectedWords, shapeName, walkShapes } from "../src/window/components/pad/pad-walk";
 
 const shape = (id: string, x: number, y: number, more: Partial<PadShape> = {}): PadShape =>
   ({ id: asPadElementId(id), type: "box", x, y, w: 100, h: 60, z: 0, ...more }) as PadShape;

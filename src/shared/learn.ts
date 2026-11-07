@@ -3,7 +3,7 @@
  * the landing page all teach from (content/learn/{scenes,quizzes}/*.json).
  *
  * A scene is a scripted patch of canvas: seats, regions and wires, and beats
- * that change them over time, drawn with the app's own views (src/renderer/kit).
+ * that change them over time, drawn with the app's own views (src/window/kit).
  * Its vocabulary is the app's, so a scene can only show what Junto draws.
  * A quiz is a section's questions, each one grounded in code receipts that
  * tests/learn-content.test.ts checks against the commit they name.

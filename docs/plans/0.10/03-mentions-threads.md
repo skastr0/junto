@@ -13,23 +13,23 @@ thread with a subject.
 ## Today
 
 Three mention copies, three regexes, three meanings
-(research: `src/renderer/components/threads/ThreadComposer.tsx`,
-`src/renderer/components/pad/pad-editor-model.ts:431-480`,
+(research: `src/window/components/threads/ThreadComposer.tsx`,
+`src/window/components/pad/pad-editor-model.ts:431-480`,
 `src/shared/git-review.ts:236-270`):
 
 | Composer | Candidates | Meaning |
 |---|---|---|
-| Seat threads | seats wired either way (`src/main/junto/work/operator-threads.ts:75-86`) | reference only, no copy |
+| Seat threads | seats wired either way (`src/core/work/operator-threads.ts:75-86`) | reference only, no copy |
 | Pad pins | seats wired into the pad (`src/shared/board-actors.ts:57-73`) | wakes the seat (`src/main/junto/work/pad-rules.ts:22-36`) |
 | Git review | seats in the anchor's regions (`src/shared/review-candidates.ts:12-40`) | recipient, one mail each |
 
 No mentions in the needs-you composer (`SignalReply.tsx`), task comments or
-chat. None use the design system `Combobox` (`src/renderer/components/ui/Combobox.tsx`).
+chat. None use the design system `Combobox` (`src/window/components/ui/Combobox.tsx`).
 
 Threads: keyed by `metadata.threadId` or the opening message id
 (`src/shared/crew.ts:139-154`), derived from seat mailboxes only, participants
 are operator or seat (`src/shared/mail-threads.ts:18-31,95-96`). A task comment
-cannot join a thread (`src/main/junto/work/control.ts:2091-2094`). Pad pins and
+cannot join a thread (`src/core/work/control.ts:2091-2094`). Pad pins and
 board topics are separate thread-like stores.
 
 ## 1. Mention contract: `src/shared/mention.ts` (new)
@@ -54,7 +54,7 @@ per-canvas number (04); tasks have only opaque ids today
 (`src/shared/work-model.ts:363-364`). `mentionsOf(text)`
 parses the refs; nothing is stored beside the text that could disagree with
 it (today `metadata.mentions` sits beside plain `@Name`, matched by name,
-`src/renderer/lib/seat-threads.ts:561-573`).
+`src/window/lib/seat-threads.ts:561-573`).
 
 **Writing from the CLI.** A seat writes `@product-feed` or `#42`; main (not
 the CLI, which is a thin socket client) resolves each on send with the same
@@ -73,7 +73,7 @@ Operator direction (2026-10-21): a combobox component, availability
 components, and side effect hooks that each composer chooses. Nothing about
 what a mention does is universal.
 
-1. **`MentionCombobox`** (`src/renderer/components/ui/`): the `@` and `#`
+1. **`MentionCombobox`** (`src/window/components/ui/`): the `@` and `#`
    query, the list, keyboard, inline chips, and writing the link form into
    the text. It knows nothing about who may be mentioned or what happens
    after. It follows the combobox pattern (ARIA from `lib/listbox-aria`) but
@@ -191,7 +191,7 @@ hook (section 2).
 - ~~**cli**: where resolution lives~~ Answered: main, same resolver as 01.
 - ~~**canvas**: backlinks~~ Answered: projection table (section 3).
 - **cli + canvas**: the link form embeds the canvas name, but `canvas_name`
-  is a mutable key (`ON UPDATE CASCADE`, `src/main/junto/model/state-schema.ts:3`),
+  is a mutable key (`ON UPDATE CASCADE`, `src/core/model/state-schema.ts:3`),
   so a rename breaks every stored link (canvas-lead). Node ids are unique per
   canvas; the encoding should carry the node id and item and take the canvas
   from context. cli to settle the ref shape with the `item` parameter.

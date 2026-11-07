@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SEAT_CODE_NOTICE, type BrowserChromeState } from "../src/shared/browser-chrome";
 import { initialPageDriving, reducePageDriving } from "../src/shared/page-driver";
 import { initialPageTabs, reducePageTabs } from "../src/shared/page-tabs";
-import { BrowserChrome } from "../src/renderer/components/browser/BrowserChrome";
+import { BrowserChrome } from "../src/window/components/browser/BrowserChrome";
 
 const held = reducePageDriving(initialPageDriving, { kind: "take-over", at: 1 });
 const loaded = (() => {

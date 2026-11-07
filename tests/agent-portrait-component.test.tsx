@@ -1,15 +1,15 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../src/renderer/lib/theme-mode", async () => {
+vi.mock("../src/window/lib/theme-mode", async () => {
   const { observable } = await import("@legendapp/state");
   return { themeMode$: observable<"dark" | "bright">("dark") };
 });
 
-const { AgentPortrait, agentPortraitSrc } = await import("../src/renderer/components/AgentPortrait");
-const { portraitOverrides$ } = await import("../src/renderer/lib/portrait-overrides-state");
-const { LiveSeatViewSource } = await import("../src/renderer/components/LiveSeatViewSource");
-const { seatPortraitMood } = await import("../src/renderer/lib/portrait-mood");
+const { AgentPortrait, agentPortraitSrc } = await import("../src/window/components/AgentPortrait");
+const { portraitOverrides$ } = await import("../src/window/lib/portrait-overrides-state");
+const { LiveSeatViewSource } = await import("../src/window/components/LiveSeatViewSource");
+const { seatPortraitMood } = await import("../src/window/lib/portrait-mood");
 
 describe("AgentPortrait", () => {
   it("renders one cached portrait image plus a harness badge", () => {

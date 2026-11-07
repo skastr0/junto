@@ -13,10 +13,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { AwarenessObservationPlane } from "../src/main/junto/term/awareness/runtime";
-import { computeWindowDigest } from "../src/main/junto/term/awareness/select-input";
+import type { AwarenessObservationPlane } from "../src/core/term/awareness/runtime";
+import { computeWindowDigest } from "../src/core/term/awareness/select-input";
 
-const AWARENESS_DIR = join(process.cwd(), "src", "main", "junto", "term", "awareness");
+const AWARENESS_DIR = join(process.cwd(), "src", "core", "term", "awareness");
 const FILES = ["jev-client.ts", "scheduler.ts", "runtime.ts"] as const;
 
 const read = (name: string): string => readFileSync(join(AWARENESS_DIR, name), "utf8");

@@ -3,7 +3,7 @@ import {
   isSeatCredentialShape,
   makeSeatCredentialRegistry,
   mintSeatCredential,
-} from "../src/main/junto/work/seat-credentials";
+} from "../src/core/work/seat-credentials";
 
 const PRINCIPAL = {
   agentKey: "local:worker",

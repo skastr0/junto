@@ -21,11 +21,11 @@ task carries its layers (one per node it passed through) as it flows.
   agent) grant ports and claimability (`src/shared/physics/verbs.ts:177-187,280-299`).
 - Automatic assignment: `selectFactoryClaims` gives each open task the first
   free `works` seat (`src/shared/factory-tick.ts:73-157`), driven by the
-  kernel (`src/main/junto/kernel/service.ts`, about :600-1090) with a claim
+  kernel (`src/core/kernel/service.ts`, about :600-1090) with a claim
   prompt (`src/shared/factory-claim-prompt.ts`, 324 lines).
 - Tasks a seat creates wait for operator approval (`admissionOmitted:
-  "approval"`, `src/main/junto/work/control.ts:1628-1629`; promote at
-  `src/main/junto/work/service.ts:1642-1660`; board setting "Who starts
+  "approval"`, `src/core/work/control.ts:1628-1629`; promote at
+  `src/core/work/service.ts:1642-1660`; board setting "Who starts
   tasks").
 - Pipelines: `feeds` wires between task nodes form a DAG
   (`src/shared/flow-graph.ts:31-152`); `sendTaskOn` closes a visit and opens a
@@ -34,10 +34,10 @@ task carries its layers (one per node it passed through) as it flows.
 - Layers: region rules, then node rules, then the task's rules for this node
   (`src/shared/rules.ts:71-97`). Seats see earlier visits as handoff note plus
   cited refs (`service.ts:1718-1760`); the UI draws the visit timeline
-  (`src/renderer/components/work/task-visits.ts`).
+  (`src/window/components/work/task-visits.ts`).
 - Review: `ReviewVerdict` green or blocking, bound to epoch and subject hash
   (`src/shared/crew.ts:170-212`); `requires-review` rule gates completion
-  (`src/main/junto/work/reviews.ts:482-560`); reviewers come from an agent to
+  (`src/core/work/reviews.ts:482-560`); reviewers come from an agent to
   agent `reviews` edge (`reviews.ts:565-627`).
 - Tests are thin: no tests found for factory tick, rules or flow graph.
 
@@ -152,7 +152,7 @@ task's thread. That replaces the factory claim prompt.
   local and are not replicated.
 - ~~**pty**: assignment mail~~ Answered: like any mail, kind `notice`.
   Delivery already starts a seat that is not running when mail waits for it
-  (`src/main/junto/work/message-delivery.ts:560-563,784`) and holds mail while
+  (`src/core/work/message-delivery.ts:560-563,784`) and holds mail while
   paused. Nothing from the factory claim prompt carries over.
 - ~~**cli**: rename~~ Answered: `junto task` now, no alias. The same commit
   renames op ids, schema ids (`tasks.*.input/v1`), `tasks.*` ports

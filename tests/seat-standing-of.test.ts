@@ -1,7 +1,7 @@
 import { observe } from "@legendapp/state";
 import { afterEach, describe, expect, it } from "vitest";
-import { seatStandingOf } from "../src/renderer/components/SeatRing";
-import { agentSeat$ } from "../src/renderer/lib/agent-seat-state";
+import { seatStandingOf } from "../src/window/components/SeatRing";
+import { agentSeat$ } from "../src/window/lib/agent-seat-state";
 import { Palette } from "../src/shared/wire/urgency";
 import { seat } from "./support/model-nodes";
 

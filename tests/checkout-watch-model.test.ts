@@ -9,8 +9,8 @@ import { defaultSettings } from "../src/shared/settings";
 import { seatNodeId, taskNodeId, type TaskId, type TaskView } from "../src/shared/task-model";
 
 import type { TerminalSessionSummary } from "../src/shared/terminal";
-import { canvasReceiptBasis } from "../src/main/junto/work/delivery-receipts";
-import { makeCheckoutWatchComposition, type CheckoutWatchCompositionOptions } from "../src/main/junto/work/checkout-watch-composition";
+import { canvasReceiptBasis } from "../src/core/work/delivery-receipts";
+import { makeCheckoutWatchComposition, type CheckoutWatchCompositionOptions } from "../src/core/work/checkout-watch-composition";
 import { THIS_MACHINE } from "./support/machines";
 
 const seatId = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"a".repeat(64)}`);

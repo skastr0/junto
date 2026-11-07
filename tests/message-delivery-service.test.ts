@@ -13,7 +13,7 @@ import {
   MessageDeliveryService,
   type MailBatching,
   type MessageDeliveryStore,
-} from "../src/main/junto/work/message-delivery";
+} from "../src/core/work/message-delivery";
 import { composeMailBatch, MAIL_BATCH_BODY_MAX, MAIL_TYPED_BODY_MAX } from "../src/shared/message-delivery";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 import { MAIL_WAITING_AFTER_MS, type MailWaitingFact } from "../src/shared/mail-waiting";

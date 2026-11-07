@@ -10,12 +10,12 @@ import { asNodeId } from "@shared/physics/schema";
 import { ItemId } from "@shared/work-ids";
 import { ContentRef } from "@shared/wire/content-ref";
 import { settleLazy } from "./support/settle-lazy";
-import { AutomationsPane } from "../src/renderer/components/automations/AutomationsPane";
-import { CODE_TEMPLATE } from "../src/renderer/components/automations/AutomationCodeEditor";
-import { makeLocalAutomationsSource, setAutomationsSource, type AutomationsSource } from "../src/renderer/lib/automations-source";
-import { setNodeViewStore } from "../src/renderer/lib/node-view-state";
-import { makeMemoryNodeViewStore } from "../src/renderer/lib/view-state-stand-in";
-import { loadLazySurfaces } from "../src/renderer/lib/lazy-surface";
+import { AutomationsPane } from "../src/window/components/automations/AutomationsPane";
+import { CODE_TEMPLATE } from "../src/window/components/automations/AutomationCodeEditor";
+import { makeLocalAutomationsSource, setAutomationsSource, type AutomationsSource } from "../src/window/lib/automations-source";
+import { setNodeViewStore } from "../src/window/lib/node-view-state";
+import { makeMemoryNodeViewStore } from "../src/window/lib/view-state-stand-in";
+import { loadLazySurfaces } from "../src/window/lib/lazy-surface";
 
 // The editors and viewers load before any test, so no test waits on an import.
 await loadLazySurfaces();

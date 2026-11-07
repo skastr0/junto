@@ -14,9 +14,9 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { chunkEvents, corpusRoot, feedStream, loadP1Fixture } from "../runner";
-import { TerminalObserverPlane } from "../../../src/main/junto/term/observer";
-import { SessionObserver } from "../../../src/main/junto/term/observer/session-observer";
-import { SeatStateRuntime } from "../../../src/main/junto/term/agent-state/runtime";
+import { TerminalObserverPlane } from "../../../src/core/term/observer";
+import { SessionObserver } from "../../../src/core/term/observer/session-observer";
+import { SeatStateRuntime } from "../../../src/core/term/agent-state/runtime";
 import { drainKeyOf, isDrainKey } from "../../../src/shared/seat-drain";
 import type { AgentSeatStateEvent } from "../../../src/shared/agent-seat-state";
 

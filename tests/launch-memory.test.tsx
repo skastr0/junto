@@ -7,12 +7,12 @@ const hostDirectoryRead = vi.fn(async (_host: string, path: string) => ({
   root: path === "~" ? "/Users/op" : path,
   entries: [],
 }));
-vi.mock("../src/renderer/lib/junto-api", () => ({ getJuntoApi: () => ({ hostDirectoryRead }) }));
+vi.mock("../src/window/lib/junto-api", () => ({ getJuntoApi: () => ({ hostDirectoryRead }) }));
 
-import { AgentLaunchContext, type AgentLaunchContextValue } from "../src/renderer/components/node-palette/AgentLaunchContext";
-import { forgetLaunches, isHomeFolder, rememberLaunch } from "../src/renderer/lib/launch-memory";
-import { thisMachineName } from "../src/renderer/lib/machines";
-import { state$ } from "../src/renderer/lib/state";
+import { AgentLaunchContext, type AgentLaunchContextValue } from "../src/window/components/node-palette/AgentLaunchContext";
+import { forgetLaunches, isHomeFolder, rememberLaunch } from "../src/window/lib/launch-memory";
+import { thisMachineName } from "../src/window/lib/machines";
+import { state$ } from "../src/window/lib/state";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

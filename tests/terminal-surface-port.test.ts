@@ -33,7 +33,7 @@ const post = (leaseId: string, source: unknown = fakeWindow) => {
 
 describe("surface ports for a lease", () => {
   it("delivers one that arrived early, then each later one, to the view that holds the lease", async () => {
-    const { takeSurfacePorts } = await import("../src/renderer/lib/terminal-surface-port");
+    const { takeSurfacePorts } = await import("../src/window/lib/terminal-surface-port");
     const taken: unknown[] = [];
     takeSurfacePorts("other", () => undefined);
     const early = post("lease-1");
@@ -44,7 +44,7 @@ describe("surface ports for a lease", () => {
   });
 
   it("holds a port that arrives before any view has asked, from the moment the module loads", async () => {
-    const { takeSurfacePorts } = await import("../src/renderer/lib/terminal-surface-port");
+    const { takeSurfacePorts } = await import("../src/window/lib/terminal-surface-port");
     // Main posts the port before it answers the attach: nothing has asked yet.
     const first = post("lease-1");
     const taken: unknown[] = [];
@@ -53,7 +53,7 @@ describe("surface ports for a lease", () => {
   });
 
   it("ignores a message that did not come from this window", async () => {
-    const { takeSurfacePorts } = await import("../src/renderer/lib/terminal-surface-port");
+    const { takeSurfacePorts } = await import("../src/window/lib/terminal-surface-port");
     const taken: unknown[] = [];
     takeSurfacePorts("lease-1", (port) => taken.push(port));
     post("lease-1", {});

@@ -3,8 +3,8 @@ import { Deferred, Effect, Fiber, Layer, Result, Schema, Stream } from "effect";
 import { Reactivity } from "effect/reactivity";
 import { SqlClient, SqlSchema } from "effect/sql";
 import { describe, expect, test, vi } from "vitest";
-import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
-import { withSqlRead } from "../src/main/junto/state/sql-read";
+import { makeSqliteClient } from "../src/core/state/sqlite-client";
+import { withSqlRead } from "../src/core/state/sql-read";
 
 const layer = () => Layer.effect(SqlClient.SqlClient, Effect.gen(function* () {
   const db = yield* Effect.acquireRelease(

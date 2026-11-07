@@ -12,16 +12,16 @@ import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/sql";
 import { afterEach, describe, expect, it } from "vitest";
-import { ModelRecords } from "../src/main/junto/model/records";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { ModelRecords } from "../src/core/model/records";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import {
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V17_IDENTITY,
   STATE_SCHEMA_V18_IDENTITY,
   migrateStateSchema,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V17_SQL, STATE_SCHEMA_V18_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;

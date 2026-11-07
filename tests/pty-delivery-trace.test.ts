@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { __resetJuntoHomeCache } from "../src/shared/junto-home";
-import { CR, ManagedTerminalDrive, OperatorInterlock, encodeBracketedPaste } from "../src/main/junto/term/drive";
+import { CR, ManagedTerminalDrive, OperatorInterlock, encodeBracketedPaste } from "../src/core/term/drive";
 import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
 import {
   createPtyDeliveryTracer,
@@ -12,7 +12,7 @@ import {
   ptyDeliveryTracePath,
   type PtyDeliveryTraceEvent,
   type PtyDeliveryTraceSink,
-} from "../src/main/junto/term/drive/pty-delivery-trace";
+} from "../src/core/term/drive/pty-delivery-trace";
 
 const digest = (text: string): string => createHash("sha256").update(text).digest("hex");
 const submittedOutcome = (writesBefore = 0): ManagedPromptOutcome => ({

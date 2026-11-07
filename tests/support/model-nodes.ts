@@ -9,7 +9,7 @@ import {
   type Wire,
 } from "../../src/shared/model";
 import type { SeatTaskIndex } from "../../src/shared/execution-graph";
-import type { World } from "../../src/main/junto/kernel/world";
+import type { World } from "../../src/core/kernel/world";
 import { THIS_MACHINE } from "./machines";
 
 // Model nodes and wires for a test to put on a canvas. Each builder gives the

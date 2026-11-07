@@ -8,11 +8,11 @@
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CoreMessage, CorePort } from "../src/main/core-process/port";
-import { createAppProcessPlane, type AppTerminalLease } from "../src/main/junto/app-process-plane";
-import { serveTerminals, type SpawnPty } from "../src/main/terminal-process/serve";
-import { terminalClient } from "../src/main/terminal-process/client";
-import { placeTerminals } from "../src/main/terminal-process/use";
+import type { CoreMessage, CorePort } from "../src/contract/core/port";
+import { createAppProcessPlane, type AppTerminalLease } from "../src/node/app-process-plane";
+import { serveTerminals, type SpawnPty } from "../src/terminal/serve";
+import { terminalClient } from "../src/node/terminals/client";
+import { placeTerminals } from "../src/node/terminals/use";
 
 const nodePty = createRequire(import.meta.url)("node-pty") as typeof import("node-pty");
 

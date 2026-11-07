@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { Effect } from "effect";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import type { RemoteHost } from "../src/shared/remote-hosts";
-import { makeBoatClient, type BoatFetch, type BoatRun } from "../src/main/junto/boat/client";
-import { boatDir, readBoatRecords, updateBoatRecords, writeBoatMachineSelf } from "../src/main/junto/boat/files";
-import { keepBoatMachines } from "../src/main/junto/boat/keeper";
-import { startBoatLease } from "../src/main/junto/boat/lease";
-import { hostKeyFingerprint, makeBoatMachines, makeBoatRoutes } from "../src/main/junto/boat/machines";
+import { makeBoatClient, type BoatFetch, type BoatRun } from "../src/core/boat/client";
+import { boatDir, readBoatRecords, updateBoatRecords, writeBoatMachineSelf } from "../src/node/boat/files";
+import { keepBoatMachines } from "../src/core/boat/keeper";
+import { startBoatLease } from "../src/core/boat/lease";
+import { hostKeyFingerprint, makeBoatMachines, makeBoatRoutes } from "../src/core/boat/machines";
 
 const HOST_KEY_A = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE5/mmasa1p8XO64RQ37Ej9vKxWLMZ2J9hw51Cu8MhpS";
 const HOST_KEY_B = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC9i1Ij7IS8w2mtQvgc0YbEw2TcR0qHdJ5nM8cWbXtQ7";

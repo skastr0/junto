@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import { expect, it } from "vitest";
 import { OPERATOR_PROTOCOL_VERSION, type OperatorRequestEnvelope, type OperatorResponseEnvelope } from "../src/shared/operator-control";
-import { boatOwnerDispatch } from "../src/main/junto/boat/owner";
-import type { BoatMachines } from "../src/main/junto/boat/machines";
+import { boatOwnerDispatch } from "../src/core/boat/owner";
+import type { BoatMachines } from "../src/core/boat/machines";
 
 const request = (op: string, args: unknown) => ({ protocol: OPERATOR_PROTOCOL_VERSION, id: "r1", op, args }) as OperatorRequestEnvelope;
 const okFor = (req: OperatorRequestEnvelope) => ({ protocol: OPERATOR_PROTOCOL_VERSION, id: req.id, op: req.op, ok: true, data: {} }) as unknown as OperatorResponseEnvelope;
@@ -63,11 +63,11 @@ it("deletes a sandbox whose add failed before it reached the machine list, witho
   const { mkdtemp, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  const { makeBoatClient } = await import("../src/main/junto/boat/client");
-  const { readBoatRecords, updateBoatRecords } = await import("../src/main/junto/boat/files");
-  const { storeBoatAccountKey } = await import("../src/main/junto/boat/account");
-  const { makeBoatOwner } = await import("../src/main/junto/boat/owner");
-  const { SshTransport } = await import("../src/main/junto/ssh");
+  const { makeBoatClient } = await import("../src/core/boat/client");
+  const { readBoatRecords, updateBoatRecords } = await import("../src/node/boat/files");
+  const { storeBoatAccountKey } = await import("../src/core/boat/account");
+  const { makeBoatOwner } = await import("../src/core/boat/owner");
+  const { SshTransport } = await import("../src/core/ssh");
   const previous = process.env.JUNTO_SECRET_STORE;
   process.env.JUNTO_SECRET_STORE = "file";
   const home = await mkdtemp(join(tmpdir(), "junto-boat-owner-"));

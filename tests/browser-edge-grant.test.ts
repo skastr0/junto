@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Layer, ManagedRuntime, Schema } from "effect";
 import { inProcessCore, type CoreRunner } from "./support/in-process-core";
-import "../src/main/core-process/ops/main-index";
-import { PausePlane } from "../src/main/junto/pause-plane";
+import "../src/core/ops/main-index";
+import { PausePlane } from "../src/core/pause-plane";
 import { BindingId } from "../src/shared/model/kinds";
 import { SqlClient } from "effect/sql";
 import type { Canvas } from "../src/shared/model";
@@ -15,35 +15,35 @@ import {
   dispatchControlRequest,
   makeControlHandlers,
   rotateControlToken,
-} from "../src/main/junto/browser/control";
+} from "../src/app/browser/control";
 import {
   makeEdgeGrantService,
   type EdgeGrantService,
-} from "../src/main/junto/browser/edge-grant";
+} from "../src/app/browser/edge-grant";
 import {
   BROWSER_CAPABILITY_ACTIONS,
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
-} from "../src/main/junto/browser/capabilities";
-import { makeBrowserProfileService } from "../src/main/junto/browser/profiles";
+} from "../src/app/browser/capabilities";
+import { makeBrowserProfileService } from "../src/node/browser/profiles";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
   type BrowserViewHandle,
-} from "../src/main/junto/browser/sessions";
+} from "../src/app/browser/sessions";
 import { localBrowserTestMachineName } from "./browser-test-machine";
-import type { ProcessPrincipal } from "../src/main/junto/process-identity";
-import { OFFBOARDED_SESSION_MESSAGE } from "../src/main/junto/process-identity-facts";
+import type { ProcessPrincipal } from "../src/core/process-identity";
+import { OFFBOARDED_SESSION_MESSAGE } from "../src/node/process-identity-facts";
 import {
   makeSeatCredentialRegistry,
   mintSeatCredential,
   type SeatCredentialRegistry,
-} from "../src/main/junto/work/seat-credentials";
+} from "../src/core/work/seat-credentials";
 import type {
   PageTargetResolver,
   ResolvedPageTarget,
-} from "../src/main/junto/browser/page-target";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+} from "../src/core/browser/page-target";
+import { makeStateEngineLive } from "../src/core/state/engine";
 
 const REF_PAGE = "junto://canvas/work?node=p1";
 const TARGET: ResolvedPageTarget = {

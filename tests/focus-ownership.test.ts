@@ -3,7 +3,7 @@ import {
   canClaimFocusAfterAsyncWork,
   pickPrimaryFocusControl,
   shouldClaimFocusOnSurfaceOpen,
-} from "../src/renderer/lib/focus-ownership";
+} from "../src/window/lib/focus-ownership";
 
 type OwnerOptions = {
   readonly connected?: boolean;

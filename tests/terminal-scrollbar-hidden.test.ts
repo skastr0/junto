@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 
 const root = join(import.meta.dirname, "..");
-const styles = readFileSync(join(root, "src/renderer/styles.css"), "utf8");
+const styles = readFileSync(join(root, "src/window/styles.css"), "utf8");
 const xtermScrollbar = readFileSync(
   join(root, "node_modules/@xterm/xterm/src/browser/scrollable/abstractScrollbar.ts"),
   "utf8",

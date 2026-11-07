@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { expect, it } from "vitest";
-import { CompanionRuntime, bindCompanionHost, showCompanionSignal } from "../src/main/junto/companion/runtime";
+import { CompanionRuntime, bindCompanionHost, showCompanionSignal } from "../src/core/companion/runtime";
 
 // The phone companion runs on the core it is bound to, in main or the core process alike.
 it("runs on the core it is bound to, and shows a signal through it", async () => {

@@ -18,7 +18,7 @@ import {
   pulsePlan,
   type PulseEdge,
   type WirePulse,
-} from "../src/renderer/lib/wire-pulse";
+} from "../src/window/lib/wire-pulse";
 
 const SEAT = `seat_${"a".repeat(64)}` as MailExtension["fromSeat"];
 

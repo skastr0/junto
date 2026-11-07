@@ -6,11 +6,11 @@
  */
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { makeStateEngineLive } from "../../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../../src/core/state/engine";
 import {
   FactoryPauseRepository,
   FactoryPauseRepositoryLive,
-} from "../../src/main/junto/pause/repository";
+} from "../../src/core/pause/repository";
 import { modelFixture } from "../harness/model";
 import { expect, test } from "../harness/launch";
 

@@ -1,8 +1,8 @@
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { carriedValues, performSignalAction, type SignalAction } from "../src/main/junto/automation/signal-action";
+import { carriedValues, performSignalAction, type SignalAction } from "../src/core/automation/signal-action";
 import { SignalSource } from "../src/shared/wire/agent-signals";
-import { AgentSignalNotFound, type AgentSignalRepository, type RaiseAgentSignal } from "../src/main/junto/signals/repository";
+import { AgentSignalNotFound, type AgentSignalRepository, type RaiseAgentSignal } from "../src/core/signals/repository";
 import { AUTOMATION_CODE_FIELD, type Automation, AutomationId, AutomationVersion } from "../src/shared/automation";
 import type { Canvas } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";

@@ -4,7 +4,7 @@
  * alone.
  */
 import { describe, expect, it } from "vitest";
-import { openingAnchors, openingViewport, type PlacedNode } from "../src/renderer/lib/camera-placement";
+import { openingAnchors, openingViewport, type PlacedNode } from "../src/window/lib/camera-placement";
 
 const card = (id: string, x: number, y: number, width = 216, height = 56): PlacedNode => ({
   id, type: "text", position: { x, y }, style: { width, height },

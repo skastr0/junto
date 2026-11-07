@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { MentionRef } from "../src/shared/mention";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { ItemId } from "../src/shared/work-ids";
-import { MentionCombobox } from "../src/renderer/components/ui/MentionCombobox";
-import type { MentionCandidate } from "../src/renderer/lib/mention-draft";
+import { MentionCombobox } from "../src/window/components/ui/MentionCombobox";
+import type { MentionCandidate } from "../src/window/lib/mention-draft";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

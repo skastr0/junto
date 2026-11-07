@@ -7,7 +7,7 @@ import {
   seatStatePreamble,
   signalPreamble,
   wirePreambles,
-} from "../src/renderer/lib/preamble-sources";
+} from "../src/window/lib/preamble-sources";
 
 const NOW = 5_000_000;
 

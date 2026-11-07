@@ -7,10 +7,10 @@ import { afterEach, describe, expect, test } from "vitest";
 import {
   FactoryPauseRepository,
   FactoryPauseRepositoryLive,
-} from "../src/main/junto/pause/repository";
+} from "../src/core/pause/repository";
 import {
   makeStateEngineLive,
-} from "../src/main/junto/state/engine";
+} from "../src/core/state/engine";
 
 const roots: string[] = [];
 const runtimes: Array<{ readonly dispose: () => Promise<void> }> = [];

@@ -25,7 +25,7 @@ import {
   type DraftEdit,
   type NameOf,
   type TargetRef,
-} from "../src/renderer/lib/automation-editor";
+} from "../src/window/lib/automation-editor";
 
 const id = ItemId.make("01JAAAAAAAAAAAAAAAAAAAAAA1");
 const t1 = ItemId.make("01JTTTTTTTTTTTTTTTTTTTTTT1");

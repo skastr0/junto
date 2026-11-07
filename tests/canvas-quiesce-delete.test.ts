@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { formatNodeRef } from "../src/shared/node-ref";
-import { cacheBrowserSession } from "../src/renderer/lib/browser-state";
+import { cacheBrowserSession } from "../src/window/lib/browser-state";
 import {
   canvasMutationsQuiesced,
   deleteNode,
-} from "../src/renderer/lib/mutations";
+} from "../src/window/lib/mutations";
 import { page } from "./support/model-nodes";
 import { held, openCanvas } from "./support/open-canvas";
-import { quiesceAndFlushCanvasEdits } from "../src/renderer/lib/canvas-editor-flush";
-import { state$ } from "../src/renderer/lib/state";
+import { quiesceAndFlushCanvasEdits } from "../src/window/lib/canvas-editor-flush";
+import { state$ } from "../src/window/lib/state";
 
 const pageNode = page("page", { url: "https://example.com", profile: "personal", onRemove: "kill-session" });
 

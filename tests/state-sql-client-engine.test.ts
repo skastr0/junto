@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { Deferred, Effect, Fiber, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/sql";
 import { expect, test, vi } from "vitest";
-import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
-import { StateTransactionOperation } from "../src/main/junto/state/service";
-import { withSqlRead } from "../src/main/junto/state/sql-read";
-import { OverseerLiveExecution } from "../src/main/junto/overseer/live/execution";
-import { WorkMutationContext, unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
+import { makeStateEngineLive, StateEngine } from "../src/core/state/engine";
+import { StateTransactionOperation } from "../src/core/state/service";
+import { withSqlRead } from "../src/core/state/sql-read";
+import { OverseerLiveExecution } from "../src/core/overseer/live/execution";
+import { WorkMutationContext, unjournaledWorkMutationEffect } from "../src/core/work/mutation-seam";
 
 test("StateEngine publishes the same migrated, scoped connection as SqlClient", async () => {
   const root = await mkdtemp(join(tmpdir(), "junto-sql-engine-"));

@@ -35,7 +35,7 @@ an away editing machine.
 
 ## Today
 
-- No scheduler service; the kernel runs it (`src/main/junto/kernel/cycle.ts`,
+- No scheduler service; the kernel runs it (`src/core/kernel/cycle.ts`,
   `tick.ts`, `effects.ts`, `evaluate.ts`). `src/main/junto/scheduler/` holds
   only cron claim slots (`scheduler_interval_state` and `_firings`).
 - Cron: `{host, expression}`, fires a five-field schedule at most once via
@@ -108,7 +108,7 @@ edit by one overseer still fits the targets of both.
   task on lands it in backlog on the next node, so "node A becomes done"
   never fires for a task sent on. Seat state comes from the existing runtime.
 - **Seat states are not stable raw** (pty-lead): working to idle holds only
-  700 ms for the rings (`src/main/junto/term/agent-state/seat-state-machine.ts:47-55`),
+  700 ms for the rings (`src/core/term/agent-state/seat-state-machine.ts:47-55`),
   attention republishes every 800 ms, a fifth state `unknown` exists
   (`src/shared/agent-seat-state.ts:70-76`), and `gone` is published on every
   generation exit, including cache cuts. Runner rules, owned by pty: fire on
@@ -116,7 +116,7 @@ edit by one overseer still fits the targets of both.
   resets a hold; `idle` and `working` must hold 30 s; `attention` fires at
   once, once per episode; `gone` fires only when no new generation takes the
   seat within 60 s.
-- **Sender.** Mail rows need a seat actor (`src/main/junto/work/state-schema.ts:318-323`).
+- **Sender.** Mail rows need a seat actor (`src/core/work/state-schema.ts:318-323`).
   Automation mail is sent from the automation's node with no reply command
   (an absent reply target is allowed, `message-delivery.ts:120`); never as
   the operator.
@@ -149,7 +149,7 @@ connection it opens. Shape reserved now so nothing in 0.10 blocks it:
 
 | | |
 |---|---|
-| Kept | `cron-expression.ts`, claim slots and coalescing; the clock is `AUTOMATION_TICK` (`src/main/junto/automation/live.ts`), a 15 s loop that finds due slots, not the kernel tick |
+| Kept | `cron-expression.ts`, claim slots and coalescing; the clock is `AUTOMATION_TICK` (`src/core/automation/live.ts`), a 15 s loop that finds due slots, not the kernel tick |
 | Reshaped | Claim slots renamed and keyed by automation; scheduler effects become `Action`s |
 | Deleted | `cron`, `relay`, `watcher`, `timer` kinds and tables; verbs `announces`, `fires`, `wakes`, `enqueues`, `chains`; `scheduler-effects.ts` wiring; Region Pulse tables, `PulseRecord`, `pulseLogRetention`; `LegacyEdgeEther`, `inferVerb`; host fields on schedulers |
 | New | `automations` kind and node, `automation.ts`, firing history, CLI `junto automation list|show|create|edit|enable|disable|run|history`, UI |
@@ -163,7 +163,7 @@ connection it opens. Shape reserved now so nothing in 0.10 blocks it:
   applied. It never fires in a burst; that one firing records how many
   earlier slots were missed (a count, capped at `MISSED_SLOTS_COUNTED`),
   never a row per slot. This is today's cron coalescing
-  (`src/main/junto/kernel/cycle.ts:406`). The automation
+  (`src/core/kernel/cycle.ts:406`). The automation
   node is the mail and ruling principal. Loop safety catches direct facts
   only; a loop through a seat (mail, the seat acts, its fact fires the
   automation) is caught only by `limits`.

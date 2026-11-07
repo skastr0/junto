@@ -4,14 +4,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EditorView } from "@codemirror/view";
 import { asCanvasName } from "../src/shared/model";
-import { SignalWorkForm } from "../src/renderer/components/signals/SignalWorkForm";
-import type { SignalActionResult } from "../src/renderer/lib/agent-signals-view";
-import { forgetWorkDrafts, type SignalForm, type WorkReply } from "../src/renderer/lib/signal-work";
-import { modelStore } from "../src/renderer/lib/use-model";
+import { SignalWorkForm } from "../src/window/components/signals/SignalWorkForm";
+import type { SignalActionResult } from "../src/window/lib/agent-signals-view";
+import { forgetWorkDrafts, type SignalForm, type WorkReply } from "../src/window/lib/signal-work";
+import { modelStore } from "../src/window/lib/use-model";
 import { artifactLabelsOf } from "../src/shared/artifact-labels";
 import { settleLazy } from "./support/settle-lazy";
 import { artifacts, region } from "./support/model-nodes";
-import { loadLazySurfaces } from "../src/renderer/lib/lazy-surface";
+import { loadLazySurfaces } from "../src/window/lib/lazy-surface";
 
 // The editors and viewers load before any test, so no test waits on an import.
 await loadLazySurfaces();

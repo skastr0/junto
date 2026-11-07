@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { terminalActivity } from "../src/renderer/lib/activity";
-import { seatLevel, seatLine, seatUrgency } from "../src/renderer/lib/seat-line";
+import { terminalActivity } from "../src/window/lib/activity";
+import { seatLevel, seatLine, seatUrgency } from "../src/window/lib/seat-line";
 import { compareUrgency, Level, SeatUrgency } from "../src/shared/wire/urgency";
 
 const words = (input: Parameters<typeof terminalActivity>[0]) => seatLine(terminalActivity(input)).text;

@@ -1,8 +1,8 @@
 import { asCanvasName, type Node, type Wire } from "../../src/shared/model";
 import type { Canvas } from "../../src/shared/model/canvas";
-import { followStore, showOpenedCanvas } from "../../src/renderer/lib/mutations";
-import { state$ } from "../../src/renderer/lib/state";
-import { modelStore } from "../../src/renderer/lib/use-model";
+import { followStore, showOpenedCanvas } from "../../src/window/lib/mutations";
+import { state$ } from "../../src/window/lib/state";
+import { modelStore } from "../../src/window/lib/use-model";
 
 // A writer rig: the canvas is put in the node store as main would have sent
 // it, and the window is told it has just opened, with no main to read from.

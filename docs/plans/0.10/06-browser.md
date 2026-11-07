@@ -83,7 +83,7 @@ without a window.
   runtime-gated import at `src/cli/main.ts:47-52`, `src/cli/early-dispatch.ts:13,35-36`,
   `src/cli/core/discovery.ts:2-9`), so cli's port must keep it out of the
   machine build with a compile-time define; per-host admission
-  (`src/main/index.ts:1771-1774`, `browser/station-authority.ts`, the host
+  (`src/app/index.ts:1771-1774`, `browser/station-authority.ts`, the host
   argument in `edge-grant.ts` and `sessions.ts`). The `browser_profiles`
   tables and browser settings stay in the shared schema; harmless.
 - ~~**cli**: CLI home~~ Answered, cli-lead owns it: `src/cli/main.ts:47`

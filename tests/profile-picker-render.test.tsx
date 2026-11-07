@@ -5,9 +5,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentProfile } from "../src/shared/agent-profiles";
-import { ProfilePickerSection } from "../src/renderer/components/profiles/ProfilePickerSection";
-import { profiles$ } from "../src/renderer/lib/profiles-state";
-import { discardProfileDraft, openProfileDraft, updateProfileDraft } from "../src/renderer/lib/profile-draft-state";
+import { ProfilePickerSection } from "../src/window/components/profiles/ProfilePickerSection";
+import { profiles$ } from "../src/window/lib/profiles-state";
+import { discardProfileDraft, openProfileDraft, updateProfileDraft } from "../src/window/lib/profile-draft-state";
 
 const profile = (profileId: string, name: string, extra: Partial<AgentProfile> = {}): AgentProfile => ({
   profileId,

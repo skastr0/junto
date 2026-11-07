@@ -28,7 +28,7 @@ import {
   type SeatCollaborationDraft,
 } from "../src/shared/seat-collaboration";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
-import type { SeatAwarenessAssessment } from "../src/renderer/lib/seat-awareness-contract";
+import type { SeatAwarenessAssessment } from "../src/window/lib/seat-awareness-contract";
 import {
   askSeatPeer,
   awaitingPeerNodeIds,
@@ -45,7 +45,7 @@ import {
   seatCollaborationSent$,
   seatCollaborationUi$,
   type CollaborationSeatFacts,
-} from "../src/renderer/lib/seat-collaboration";
+} from "../src/window/lib/seat-collaboration";
 
 // ---------------------------------------------------------------------------
 // Fixtures

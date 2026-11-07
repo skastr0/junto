@@ -4,12 +4,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { Schema } from "effect";
 import { asCanvasName, Command } from "../src/shared/model";
-import { TasksCard, ArtifactsCard } from "../src/renderer/components/work/WorkSurfaces";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { EMPTY_SETTINGS, state$ } from "../src/renderer/lib/state";
-import { dock$, taskCreateSurfaceId } from "../src/renderer/lib/dock-state";
-import { initialWorkbenchState } from "../src/renderer/lib/surface-registry";
-import { flushPendingCanvasSave } from "../src/renderer/lib/mutations";
+import { TasksCard, ArtifactsCard } from "../src/window/components/work/WorkSurfaces";
+import { modelStore } from "../src/window/lib/use-model";
+import { EMPTY_SETTINGS, state$ } from "../src/window/lib/state";
+import { dock$, taskCreateSurfaceId } from "../src/window/lib/dock-state";
+import { initialWorkbenchState } from "../src/window/lib/surface-registry";
+import { flushPendingCanvasSave } from "../src/window/lib/mutations";
 import { taskBoard, artifacts } from "./support/model-nodes";
 
 vi.hoisted(() => {

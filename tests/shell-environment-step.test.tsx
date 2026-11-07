@@ -17,8 +17,8 @@ import {
   reloadShellStep,
   shellName,
   shellStepView,
-} from "../src/renderer/lib/shell-environment-view";
-import { ShellEnvironmentPanel } from "../src/renderer/components/onboarding/tour-shell";
+} from "../src/window/lib/shell-environment-view";
+import { ShellEnvironmentPanel } from "../src/window/components/onboarding/tour-shell";
 
 const SECRET = "sk-ant-api03-DO-NOT-SHOW-1234567890";
 

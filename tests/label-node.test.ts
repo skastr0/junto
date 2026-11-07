@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { NODE_KINDS } from "../src/shared/model";
 import { resolveSpec, roleOf } from "../src/shared/physics";
-import { toFlowOfCanvas } from "../src/renderer/lib/convert";
-import { newRegion, newLabel, newNote } from "../src/renderer/lib/model-factories";
-import { targetPlanOn } from "../src/renderer/lib/edge-mutations";
+import { toFlowOfCanvas } from "../src/window/lib/convert";
+import { newRegion, newLabel, newNote } from "../src/window/lib/model-factories";
+import { targetPlanOn } from "../src/window/lib/edge-mutations";
 import { asNodeId, type Node } from "../src/shared/model";
 import { canvasOf, seat } from "./support/model-nodes";
-import { DEFAULT_NODE_CATALOG_ENTRIES } from "../src/renderer/components/node-palette/NodeCatalogGrid";
+import { DEFAULT_NODE_CATALOG_ENTRIES } from "../src/window/components/node-palette/NodeCatalogGrid";
 
 const emptyContext = {
   canvasName: "test",

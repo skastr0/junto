@@ -8,8 +8,8 @@ import {
   writeFixtureAgentSignals,
   writeFixtureUsageState,
 } from "../e2e/harness/sandbox";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { withSqlRead } from "../src/main/junto/state/sql-read";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { withSqlRead } from "../src/core/state/sql-read";
 
 describe("E2E SQLite fixture seeding", () => {
   it("lands the usage-state and agent-signal seeds in the product database", async () => {

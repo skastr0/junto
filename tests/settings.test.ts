@@ -17,29 +17,29 @@ import {
   defaultTerminal,
   terminalSettings,
 } from "../src/shared/settings";
-import { MONO_CELL } from "../src/renderer/lib/focus-measure";
+import { MONO_CELL } from "../src/window/lib/focus-measure";
 import {
   JUNTO_XTERM_FONT_FAMILY,
   JUNTO_XTERM_FONT_SIZE,
-} from "../src/renderer/lib/terminal-theme";
+} from "../src/window/lib/terminal-theme";
 import {
   applyAndValidatePatch,
   decodePatchInput,
   decodeMachinePreferencesPatch,
-} from "../src/main/junto/settings/patch";
+} from "../src/core/settings/patch";
 import {
   decodeStoredSettings,
-} from "../src/main/junto/settings/state-schema";
+} from "../src/core/settings/state-schema";
 import {
   makeSettingsService,
   type SettingsServiceApi,
-} from "../src/main/junto/settings/service";
+} from "../src/core/settings/service";
 import {
   CredentialBindingRepository,
-} from "../src/main/junto/credentials/bindings";
-import { MachineConfigurationRepository } from "../src/main/junto/machines/configuration";
+} from "../src/core/credentials/bindings";
+import { MachineConfigurationRepository } from "../src/core/machines/configuration";
 import { defaultMachineName } from "../src/shared/machine-name";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/core/state/engine";
 
 const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
   Effect.runPromise(effect);

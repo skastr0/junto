@@ -15,16 +15,16 @@ import { join } from "node:path";
 import type { IDisposable, IPty } from "node-pty";
 import { Effect, Scope } from "effect";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { createAppProcessPlane } from "../src/main/junto/app-process-plane";
-import { setHostsSnapshot, hostsSnapshot } from "../src/main/junto/hosts/snapshot";
-import { TermControlClient } from "../src/main/junto/term/control-client";
+import { createAppProcessPlane } from "../src/node/app-process-plane";
+import { setHostsSnapshot, hostsSnapshot } from "../src/core/hosts/snapshot";
+import { TermControlClient } from "../src/core/term/control-client";
 import {
   startTermControlServer,
   TermControlStartupError,
-} from "../src/main/junto/term/control-server";
-import { LocalSessionHost } from "../src/main/junto/term/local-host";
-import { TermPlane, termPlaneBlocksAppExit } from "../src/main/junto/term/plane";
-import { TerminalRouter } from "../src/main/junto/term/router";
+} from "../src/core/term/control-server";
+import { LocalSessionHost } from "../src/core/term/local-host";
+import { TermPlane, termPlaneBlocksAppExit } from "../src/core/term/plane";
+import { TerminalRouter } from "../src/core/term/router";
 import {
   TERM_CONTROL_PROTOCOL,
   termControlSocketPath,

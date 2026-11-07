@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { LINUX_DESKTOP_BOOTSTRAP_VERSION } from "../src/main/junto/update/linux-first-install";
+import { LINUX_DESKTOP_BOOTSTRAP_VERSION } from "../src/app/update/linux-first-install";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const LINUX_DESKTOP_BOOTSTRAP_NAME =

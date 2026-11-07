@@ -14,18 +14,18 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/sql";
 import { Reactivity } from "effect/reactivity";
 import { afterEach, describe, expect, it } from "vitest";
-import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
+import { migrateMachineNames } from "../src/core/state/migrate-machine-names";
 import {
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V26_IDENTITY,
   STATE_SCHEMA_V27_IDENTITY,
   migrateStateSchema,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
-import { rulingActorOf, writeRuling } from "../src/main/junto/work/resource-rulings";
-import { RESOURCE_RULINGS_STATE_SCHEMA_SQL } from "../src/main/junto/work/resource-rulings-schema";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/core/state/schema-identity";
+import { makeSqliteClient } from "../src/core/state/sqlite-client";
+import { rulingActorOf, writeRuling } from "../src/core/work/resource-rulings";
+import { RESOURCE_RULINGS_STATE_SCHEMA_SQL } from "../src/core/work/resource-rulings-schema";
 import type { InstallationId } from "../src/shared/installation-id";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { ResourceActor } from "../src/shared/resource-command";

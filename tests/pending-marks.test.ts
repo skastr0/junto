@@ -16,12 +16,12 @@ import { asNodeId } from "../src/shared/physics/schema";
 import { mintItemId, mintOpId, type ItemId, type OpId, type PendingEntry } from "../src/shared/resource-command";
 import { taskNodeId, type TaskView } from "../src/shared/task-model";
 import { TaskNumber } from "../src/shared/work-ids";
-import { handleArtifactOp, type ArtifactCaller, type ArtifactPorts } from "../src/main/junto/work/artifact-control";
-import { ArtifactRepository } from "../src/main/junto/work/artifact-repository";
-import { handleOpOp, pendingMarksOf, queuedOverlays } from "../src/main/junto/work/op-control";
-import { OpRepository } from "../src/main/junto/work/op-repository";
-import { handleTaskOp, type TaskCaller, type TaskPorts } from "../src/main/junto/work/task-control";
-import { TaskRepository } from "../src/main/junto/work/task-repository";
+import { handleArtifactOp, type ArtifactCaller, type ArtifactPorts } from "../src/core/work/artifact-control";
+import { ArtifactRepository } from "../src/core/work/artifact-repository";
+import { handleOpOp, pendingMarksOf, queuedOverlays } from "../src/core/work/op-control";
+import { OpRepository } from "../src/core/work/op-repository";
+import { handleTaskOp, type TaskCaller, type TaskPorts } from "../src/core/work/task-control";
+import { TaskRepository } from "../src/core/work/task-repository";
 
 const box = (x: number, y: number, width = 50, height = 50) => ({ x, y, width, height });
 const canvas = {

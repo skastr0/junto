@@ -1,8 +1,8 @@
 import { createHash, generateKeyPairSync } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { makeLinuxUpdateProvider, type LinuxUpdateDependencies } from "../src/main/junto/update/linux";
-import type { UpdateProvider, UpdateProviderEvent } from "../src/main/junto/update/provider";
+import { makeLinuxUpdateProvider, type LinuxUpdateDependencies } from "../src/app/update/linux";
+import type { UpdateProvider, UpdateProviderEvent } from "../src/app/update/provider";
 import { LINUX_DESKTOP_TARGET, linuxDesktopArchiveName, type LinuxDesktopReleaseDescriptor } from "../src/shared/linux-desktop-release";
 import { signLinuxDesktopRelease, verifyLinuxDesktopRelease, type LinuxDesktopReleaseTrust } from "../src/shared/linux-desktop-release-crypto";
 

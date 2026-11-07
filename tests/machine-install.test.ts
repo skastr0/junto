@@ -20,11 +20,11 @@ vi.mock("node:fs/promises", async original => {
     return fs.cp(fixture.copiedFrom || source, destination, options);
   } };
 });
-vi.mock("../src/main/junto/process-epoch", () => ({
+vi.mock("../src/node/process-epoch", () => ({
   readSingleProcessEpochSnapshot: (pid: number) => fixture.stopped ? [] : [{ pid, startKey: "incumbent" }],
 }));
-vi.mock("../src/main/junto/hosts/install-service", async (original) => ({
-  ...await original<typeof import("../src/main/junto/hosts/install-service")>(),
+vi.mock("../src/cli/hosts/install-service", async (original) => ({
+  ...await original<typeof import("../src/cli/hosts/install-service")>(),
   machineService: async () => ({
     provider: "launchd",
     reconcile: async () => {},
@@ -46,11 +46,11 @@ vi.mock("../src/main/junto/hosts/install-service", async (original) => ({
   }),
 }));
 
-import { installMachine, machineServiceLabel, readInstalledMachineStatus } from "../src/main/junto/hosts/install";
-import { uninstallMachine } from "../src/main/junto/hosts/uninstall";
-import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
-import { writeMachineServiceFile } from "../src/main/junto/hosts/install-paths";
-import { acquireInstallLock, admitInstallLockRoot, type OwnedInstallLockRoot } from "../src/main/junto/hosts/install-lock";
+import { installMachine, machineServiceLabel, readInstalledMachineStatus } from "../src/cli/hosts/install";
+import { uninstallMachine } from "../src/cli/hosts/uninstall";
+import { machineBundleFiles } from "../src/node/hosts/bundle";
+import { writeMachineServiceFile } from "../src/cli/hosts/install-paths";
+import { acquireInstallLock, admitInstallLockRoot, type OwnedInstallLockRoot } from "../src/cli/hosts/install-lock";
 
 let scratch: string;
 const makeBundle = async (build: string): Promise<string> => {
@@ -90,7 +90,7 @@ beforeAll(async () => {
   }
   // The lease module as the bundle's Node loads it: bundled, no Bun.
   leaseModule = join(tools, "install-lock.mjs");
-  await promisify(execFile)("bun", ["build", "src/main/junto/hosts/install-lock.ts", "--target", "node", "--format", "esm", "--outfile", leaseModule], { cwd: process.cwd() });
+  await promisify(execFile)("bun", ["build", "src/cli/hosts/install-lock.ts", "--target", "node", "--format", "esm", "--outfile", leaseModule], { cwd: process.cwd() });
 });
 
 describe("machine install", () => {

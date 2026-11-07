@@ -1,8 +1,8 @@
 import { Effect, Logger, ManagedRuntime } from "effect";
 import { expect, it } from "vitest";
-import { discardStaged } from "../src/main/junto/credentials/coordinator";
+import { discardStaged } from "../src/core/credentials/coordinator";
 import { makeTestLog } from "./support/test-log";
-import { observabilityRing } from "../src/main/junto/observability/ring";
+import { observabilityRing } from "../src/core/observability/ring";
 
 const { log: effectLog } = makeTestLog({ sink: (row) => observabilityRing.append(row) });
 

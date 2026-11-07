@@ -7,14 +7,14 @@ import { SqlClient } from "effect/sql";
 import { describe, expect, it } from "vitest";
 import { InstallationId } from "../src/shared/installation-id";
 import { makeTestLog } from "./support/test-log";
-import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
-import { MACHINE_STATE_SCHEMA_SQL } from "../src/main/junto/machines/state-schema";
-import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { MODEL_STATE_SCHEMA_SQL } from "../src/main/junto/model/state-schema";
-import { MACHINE_REGISTRY_STATE_SCHEMA_SQL } from "../src/main/junto/hosts/state-schema";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { ModelService } from "../src/main/junto/model/service";
-import { ModelDependents } from "../src/main/junto/model/dependents";
+import { makeSqliteClient } from "../src/core/state/sqlite-client";
+import { MACHINE_STATE_SCHEMA_SQL } from "../src/core/machines/state-schema";
+import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
+import { MODEL_STATE_SCHEMA_SQL } from "../src/core/model/state-schema";
+import { MACHINE_REGISTRY_STATE_SCHEMA_SQL } from "../src/core/hosts/state-schema";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { ModelService } from "../src/core/model/service";
+import { ModelDependents } from "../src/core/model/dependents";
 
 const fixture = () => {
   const database = new DatabaseSync(":memory:");

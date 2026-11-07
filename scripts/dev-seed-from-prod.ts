@@ -14,12 +14,12 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/junto/state/migrations";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
+import { CURRENT_STATE_SCHEMA_VERSION } from "../src/core/state/migrations";
+import { STATE_SCHEMA_SQL } from "../src/core/state/schema";
 import {
   actualStateSchemaSha256,
   expectedStateSchemaIdentity,
-} from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/schema-identity";
 
 const prodDb = join(homedir(), ".junto", "state", "junto.db");
 const juntoHome =

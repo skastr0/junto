@@ -19,7 +19,7 @@ import {
 } from "../scripts/audit-packaged-app";
 import { signingProfileForPath } from "../scripts/electron-builder-sign.mjs";
 import { MACHINE_PAYLOAD_MACHO_PATHS, isMachinePayloadPath } from "../scripts/machine-payloads.mjs";
-import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
+import { machineBundleFiles } from "../src/node/hosts/bundle";
 
 const manifestPaths = MACOS_RUNTIME_POLICY.machO.map((entry) => entry.path);
 

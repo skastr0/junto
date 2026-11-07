@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { SheetPatch } from "../src/shared/artifact";
 import type { SheetGrid } from "../src/shared/model/sheet";
-import { ArtifactSheetEditor, selectionRange } from "../src/renderer/components/artifacts/ArtifactSheetEditor";
+import { ArtifactSheetEditor, selectionRange } from "../src/window/components/artifacts/ArtifactSheetEditor";
 
 vi.hoisted(() => {
   globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };

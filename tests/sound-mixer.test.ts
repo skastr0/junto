@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { CUE_IDS, CUES, cuesInCategory, type CueGroup } from "../src/renderer/lib/sound/cues";
+import { CUE_IDS, CUES, cuesInCategory, type CueGroup } from "../src/window/lib/sound/cues";
 import { CueUrgency } from "../src/shared/wire/urgency";
-import { CueMixer, MIXER_LIMITS } from "../src/renderer/lib/sound/mixer";
+import { CueMixer, MIXER_LIMITS } from "../src/window/lib/sound/mixer";
 import { SOUND_CATEGORIES } from "@shared/settings";
-import { PAN_SPREAD, panForScreenX } from "../src/renderer/lib/sound";
+import { PAN_SPREAD, panForScreenX } from "../src/window/lib/sound";
 
 const mixer = () => new CueMixer(CUES);
 

@@ -3,8 +3,8 @@ import { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
-import { LiveMarkdownField, type LiveMarkdownFieldHandle } from "../src/renderer/components/artifacts/LiveMarkdownField";
-import { COMMENT_TEST_ID, type LineRange } from "../src/renderer/components/ui/code-editor-lines";
+import { LiveMarkdownField, type LiveMarkdownFieldHandle } from "../src/window/components/artifacts/LiveMarkdownField";
+import { COMMENT_TEST_ID, type LineRange } from "../src/window/components/ui/code-editor-lines";
 
 // jsdom lays nothing out; CodeMirror's measuring asks a range for its boxes.
 Range.prototype.getClientRects = () => [] as unknown as DOMRectList;

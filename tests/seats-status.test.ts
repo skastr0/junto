@@ -5,8 +5,8 @@
  */
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { ACTIVITY_AGO_MAX_MS } from "../src/main/junto/term/seats-launch";
-import { decodeSeatsStatus, fromSeatsStatus, statusIssueAt, toSeatsStatus } from "../src/main/junto/term/seats-status";
+import { ACTIVITY_AGO_MAX_MS } from "../src/core/term/seats-launch";
+import { decodeSeatsStatus, fromSeatsStatus, statusIssueAt, toSeatsStatus } from "../src/core/term/seats-status";
 import { AgentSeatStatus } from "../src/shared/agent-seat-state";
 import { topNeed, type BindingId, type SeatSnapshot } from "../src/shared/harness-domain";
 

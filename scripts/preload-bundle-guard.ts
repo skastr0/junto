@@ -15,7 +15,7 @@ import { relative, sep } from "node:path";
 import type { Plugin } from "vite";
 
 /** Folders whose modules the preload may bundle, relative to the repository. */
-export const PRELOAD_BUNDLED_ALLOWED = ["src/preload/", "src/shared/"] as const;
+export const PRELOAD_BUNDLED_ALLOWED = ["src/window/preload/", "src/shared/"] as const;
 
 /** What the preload may leave to the sandbox's `require`. */
 export const PRELOAD_EXTERNAL_ALLOWED = ["electron"] as const;

@@ -10,9 +10,9 @@ import { join } from "node:path";
 describe("browser detach-on-quit product lock", () => {
   const root = join(import.meta.dirname, "..");
 
-  const indexSrc = readFileSync(join(root, "src/main/index.ts"), "utf8");
-  const sessionsSrc = readFileSync(join(root, "src/main/junto/browser/sessions.ts"), "utf8");
-  const adapterSrc = readFileSync(join(root, "src/main/junto/browser/view-adapter.ts"), "utf8");
+  const indexSrc = readFileSync(join(root, "src/app/index.ts"), "utf8");
+  const sessionsSrc = readFileSync(join(root, "src/app/browser/sessions.ts"), "utf8");
+  const adapterSrc = readFileSync(join(root, "src/app/browser/view-adapter.ts"), "utf8");
 
   it("main process quit path detaches browser sessions", () => {
     expect(indexSrc).toMatch(/beginShutdownAdmission[\s\S]*browserComposition\?\.drainOnQuit/);
@@ -54,9 +54,11 @@ describe("browser detach-on-quit product lock", () => {
 
   it("clears profile storage only at the listed sites", () => {
     // A source-text review guard, not a boundary: an aliased call passes it.
-    const dir = join(root, "src/main/junto/browser");
+    // The browser's files, wherever its program keeps them.
+    const dirs = ["src/app/browser", "src/core/browser", "src/node/browser"].map((dir) => join(root, dir));
     const found: string[] = [];
-    for (const name of readdirSync(dir).filter((file) => file.endsWith(".ts")).sort()) {
+    const files = dirs.flatMap((dir) => readdirSync(dir).filter((file) => file.endsWith(".ts")).map((name) => ({ dir, name })));
+    for (const { dir, name } of files.sort((a, b) => a.name.localeCompare(b.name))) {
       const source = readFileSync(join(dir, name), "utf8");
       for (const call of source.match(/\b(?:clearStorageData|clearData|clearCache|clearAuthCache|clearCodeCaches|clearHostResolverCache)\([^)]*\)/g) ?? []) {
         found.push(`${name}: ${call}`);

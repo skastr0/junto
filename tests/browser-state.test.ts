@@ -5,7 +5,7 @@ import {
   browser$,
   refreshBrowserSession,
   subscribeBrowserSessionEvents,
-} from "../src/renderer/lib/browser-state";
+} from "../src/window/lib/browser-state";
 
 const sessionOf = (ref: string) => browser$.sessionByRef[ref].peek();
 

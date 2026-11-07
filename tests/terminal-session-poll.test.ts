@@ -6,7 +6,7 @@ import type { TerminalSessionSummary } from "../src/shared/terminal";
 import {
   __resetTerminalSessionPollForTests,
   registerTerminalSessionPoll,
-} from "../src/renderer/lib/terminal-session-poll";
+} from "../src/window/lib/terminal-session-poll";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -241,7 +241,7 @@ describe("registerTerminalSessionPoll", () => {
 
 describe("card wiring", () => {
   const source = readFileSync(
-    join(root, "src/renderer/components/terminal/TerminalCard.tsx"),
+    join(root, "src/window/components/terminal/TerminalCard.tsx"),
     "utf8",
   );
 

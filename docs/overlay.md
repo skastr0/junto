@@ -47,7 +47,7 @@ share that resolution.
 
 The contract is `src/shared/overlay-contract.ts`. App code reads the decoded
 manifest from `@shared/overlay` (`overlayManifest`) and renderer slots from
-`src/renderer/overlay/surfaces.tsx` (`StoreSlot`, `hasStore`). Cosmetic packs
+`src/window/overlay/surfaces.tsx` (`StoreSlot`, `hasStore`). Cosmetic packs
 stay raw in the manifest; the portrait system decodes each one with
 `src/shared/cosmetics/pack-schema.ts` and drops a bad pack alone. A pack may
 keep bare keys (`keys: "bare"`: its items resolve by plain id, so looks saved
@@ -66,7 +66,7 @@ and currently installed identity tables, so their appearance may also differ
 between a Plus preview and an OSS-only build without rewriting any state.
 
 The build also defines `__JUNTO_PREMIUM__` (true only with `JUNTO_OVERLAY`),
-read as `PREMIUM_BUILD` in `src/renderer/overlay/surfaces.tsx`. Every premium
+read as `PREMIUM_BUILD` in `src/window/overlay/surfaces.tsx`. Every premium
 surface (the store host and its command, locked items, pack headings, Get)
 is behind it, so the open-source bundle does not carry them at all: it shows
 the free items, fully usable, and nothing else. An item nobody can wear and no

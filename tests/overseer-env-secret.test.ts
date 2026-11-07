@@ -17,8 +17,8 @@ import type { RegionEnvironmentReport } from "../src/shared/region-environment";
 import {
   SECRET_STORE_MISSING,
   executeOverseerSecret,
-} from "../src/main/junto/overseer/secret";
-import type { OverseerSecretStore } from "../src/main/junto/overseer/secret-store-seam";
+} from "../src/core/overseer/secret";
+import type { OverseerSecretStore } from "../src/core/overseer/secret-store-seam";
 import { reportBlocksLaunch } from "../src/cli/core/env-report";
 import { InputError } from "../src/cli/core/errors";
 import {

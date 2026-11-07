@@ -11,9 +11,9 @@ import type { InstallationId } from "../src/shared/installation-id";
 import type { OpView } from "../src/shared/op-control";
 import { asNodeId } from "../src/shared/physics/schema";
 import { mintItemId, mintOpId, type PendingEntry } from "../src/shared/resource-command";
-import { ArtifactRepository } from "../src/main/junto/work/artifact-repository";
-import { handleOpOp } from "../src/main/junto/work/op-control";
-import { OpRepository } from "../src/main/junto/work/op-repository";
+import { ArtifactRepository } from "../src/core/work/artifact-repository";
+import { handleOpOp } from "../src/core/work/op-control";
+import { OpRepository } from "../src/core/work/op-repository";
 
 const mini = "mini" as InstallationId;
 const seat = { kind: "seat" as const, seatId: `seat_${"b".repeat(64)}`, nodeId: asNodeId("a") };

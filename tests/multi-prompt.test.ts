@@ -1,11 +1,11 @@
-import { multiPromptTargetsOf } from "../src/renderer/lib/multi-prompt";
+import { multiPromptTargetsOf } from "../src/window/lib/multi-prompt";
 import { note as modelNote, seat as modelSeat } from "./support/model-nodes";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TerminalManagedPromptResult } from "../src/shared/ipc";
 import {
   formatMultiPromptStatus,
   multiPromptAgents,
-} from "../src/renderer/lib/multi-prompt";
+} from "../src/window/lib/multi-prompt";
 
 describe("multiPromptAgents", () => {
   const writePrompt = vi.fn();

@@ -17,7 +17,7 @@ import {
   removeOwnedControlSocketPath,
   rotateControlFileToken,
   type ControlListenerLease,
-} from "../src/main/junto/control-filesystem";
+} from "../src/node/control-filesystem";
 
 const roots: string[] = [];
 const root = async () => { const path = await mkdtemp(join(tmpdir(), "junto-control-fs-")); roots.push(path); return path; };

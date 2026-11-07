@@ -11,13 +11,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentProfile } from "../src/shared/agent-profiles";
 import type { Squad } from "../src/shared/squads";
-import { NodeCatalogGrid } from "../src/renderer/components/node-palette/NodeCatalogGrid";
-import { ProfilePickerSection } from "../src/renderer/components/profiles/ProfilePickerSection";
-import { SquadPickerSection } from "../src/renderer/components/squads/SquadPickerSection";
-import { profiles$ } from "../src/renderer/lib/profiles-state";
-import { squads$ } from "../src/renderer/lib/squads-state";
+import { NodeCatalogGrid } from "../src/window/components/node-palette/NodeCatalogGrid";
+import { ProfilePickerSection } from "../src/window/components/profiles/ProfilePickerSection";
+import { SquadPickerSection } from "../src/window/components/squads/SquadPickerSection";
+import { profiles$ } from "../src/window/lib/profiles-state";
+import { squads$ } from "../src/window/lib/squads-state";
 
-const DECK = "src/renderer/components/node-palette/NodePaletteModeDeck.tsx";
+const DECK = "src/window/components/node-palette/NodePaletteModeDeck.tsx";
 
 const profile: AgentProfile = {
   profileId: "p1",

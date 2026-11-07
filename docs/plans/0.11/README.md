@@ -79,7 +79,7 @@ mails product-lead with the receipt.
   when the root is a repo, else a walk that skips `.git` and `node_modules`),
   kept fresh by a watcher. The renderer gets the top 50 per keystroke.
   Artifacts, tasks and automations rank in the renderer with
-  `src/renderer/lib/fuzzy-match.ts`.
+  `src/window/lib/fuzzy-match.ts`.
 - **Drops copy, never move or overwrite.** A name that exists gets ` 2`,
   ` 3`. Moves inside the tree are renames.
 - **Out of scope:** grep across files, language servers, a terminal in the
@@ -93,7 +93,7 @@ mails product-lead with the receipt.
 | Files service: list, index, search, read, write, create, rename, move, trash, import, watch | `src/shared/files.ts`, IPC in `src/shared/ipc.ts` | tech | product |
 | File bytes for preview: `junto-file://<nodeId>/<relpath>` | `src/shared/file-url.ts` | tech | product |
 | File thread subject and anchors: `lines` with a quote, `box`, new `pageBox {page, x, y, w, h}` normalised 0..1 | `src/shared/wire/thread-subject.ts` | product (product-feed) | canvas, cli |
-| Quick open source | `src/renderer/lib/quick-open.ts` | product (product-modals) | product |
+| Quick open source | `src/window/lib/quick-open.ts` | product (product-modals) | product |
 
 ```ts
 // src/shared/files.ts (sketch; tech owns the final shape)
@@ -138,7 +138,7 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
   comments ("Comment on line N", `file-editor-gutter-comment`).
 - **F4 Quick open, product-modals with product-keyboard.** The Cmd+P palette
   and its header button in Files, Artifacts, Tasks and Automations; the key
-  table entry; list navigation from `src/renderer/lib/list-nav.ts`.
+  table entry; list navigation from `src/window/lib/list-nav.ts`.
 - **F5 Drops, product-sheet.** Drop on the modal and on a folder row, with a
   drop highlight; tree drag to move.
 - **F6 Preview, product-pad.** The PDF viewer (pages, zoom, text selection)
@@ -159,7 +159,7 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
 ### cli (cli-lead)
 - No files command: seats use the filesystem. Two consumer changes once F7
   lands the file subject: `msg reply` maps subjects by an exhaustive switch
-  with a file case (`src/main/junto/work/control.ts:2071`,
+  with a file case (`src/core/work/control.ts:2071`,
   `operator-threads.ts:226`), and onboard gains a files reach row (node id,
   label, and the absolute root to same-host seats only). Seats starting a
   line comment on a file is out of 0.11.

@@ -1,15 +1,15 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { activateNodeSurface, nodeSurfaceKind } from "../src/renderer/lib/activate-node-surface";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { state$ } from "../src/renderer/lib/state";
-import { dock$ } from "../src/renderer/lib/dock-state";
-import { workDetailOpen$ } from "../src/renderer/lib/work-detail-open";
+import { activateNodeSurface, nodeSurfaceKind } from "../src/window/lib/activate-node-surface";
+import { modelStore } from "../src/window/lib/use-model";
+import { state$ } from "../src/window/lib/state";
+import { dock$ } from "../src/window/lib/dock-state";
+import { workDetailOpen$ } from "../src/window/lib/work-detail-open";
 import { TASKS_ENABLED } from "../src/shared/features";
 import { seat, note, region, taskBoard, terminal } from "./support/model-nodes";
 
 const opens = vi.hoisted(() => vi.fn());
-vi.mock("../src/renderer/lib/terminal-actions", () => ({ openTerminal: opens }));
+vi.mock("../src/window/lib/terminal-actions", () => ({ openTerminal: opens }));
 const canvas = "native-surface-activation";
 const oldCanvas = state$.canvasName.peek();
 beforeEach(() => { state$.canvasName.set(canvas); opens.mockClear(); });

@@ -5,15 +5,15 @@ import { join } from "node:path";
 import {
   ManagedTerminalDrive,
   DEFAULT_QUEUE_TIMEOUT_MS,
-} from "../src/main/junto/term/drive";
-import { isManagedTerminalReady } from "../src/main/junto/term/drive/readiness";
+} from "../src/core/term/drive";
+import { isManagedTerminalReady } from "../src/core/term/drive/readiness";
 import {
   launchForManagedSpawn,
   launchForManagedSpawnIntent,
   makeManagedSpawnIntent,
   shouldAvoidSharedHarnessResume,
-} from "../src/main/junto/term/managed-spawn-plan";
-import { __setSessionExistenceHomeForTest } from "../src/main/junto/term/session-existence";
+} from "../src/core/term/managed-spawn-plan";
+import { __setSessionExistenceHomeForTest } from "../src/core/term/session-existence";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);

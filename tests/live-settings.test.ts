@@ -13,10 +13,10 @@ import {
   liveSettings,
   redactProvidersForIpc,
 } from "../src/shared/settings";
-import { MemoryCredentialStore } from "../src/main/junto/credentials/store";
-import { makeSettingsLive, SettingsService } from "../src/main/junto/settings/service";
-import { decodeStoredSettings, preferencesFromSettings } from "../src/main/junto/settings/state-schema";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { MemoryCredentialStore } from "../src/core/credentials/store";
+import { makeSettingsLive, SettingsService } from "../src/core/settings/service";
+import { decodeStoredSettings, preferencesFromSettings } from "../src/core/settings/state-schema";
+import { makeStateEngineLive } from "../src/core/state/engine";
 
 const decodePatch = Schema.decodeUnknownSync(SettingsPatch, { onExcessProperty: "error" });
 const SECRET = "sk-openai-live-test-only";

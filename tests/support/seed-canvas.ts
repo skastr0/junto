@@ -1,10 +1,10 @@
 import { Effect, Layer } from "effect";
 import { SqlClient } from "effect/sql";
 import { asCanvasName, asNodeId, type Node, type Wire } from "../../src/shared/model";
-import { ModelLive } from "../../src/main/junto/model/layer";
-import { ModelRecords } from "../../src/main/junto/model/records";
-import { ModelService } from "../../src/main/junto/model/service";
-import { WorkModelDependentsLive } from "../../src/main/junto/work/model-dependents";
+import { ModelLive } from "../../src/core/model/layer";
+import { ModelRecords } from "../../src/core/model/records";
+import { ModelService } from "../../src/core/model/service";
+import { WorkModelDependentsLive } from "../../src/core/work/model-dependents";
 
 // Canvases for a test, put in the model with commands as the operator would.
 

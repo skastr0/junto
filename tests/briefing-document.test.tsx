@@ -4,14 +4,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
 import { asCanvasName } from "../src/shared/model";
-import { RegionBriefingEditor } from "../src/renderer/components/InspectorFields";
-import { BriefingSettingsSection } from "../src/renderer/components/settings/BriefingSettingsSection";
-import { state$ } from "../src/renderer/lib/state";
-import { makeLocalTasksSource, setTasksSource } from "../src/renderer/lib/tasks-source";
-import { modelStore } from "../src/renderer/lib/use-model";
+import { RegionBriefingEditor } from "../src/window/components/InspectorFields";
+import { BriefingSettingsSection } from "../src/window/components/settings/BriefingSettingsSection";
+import { state$ } from "../src/window/lib/state";
+import { makeLocalTasksSource, setTasksSource } from "../src/window/lib/tasks-source";
+import { modelStore } from "../src/window/lib/use-model";
 import { region } from "./support/model-nodes";
 import { settleLazy } from "./support/settle-lazy";
-import { loadLazySurfaces } from "../src/renderer/lib/lazy-surface";
+import { loadLazySurfaces } from "../src/window/lib/lazy-surface";
 
 // The editors and viewers load before any test, so no test waits on an import.
 await loadLazySurfaces();
@@ -23,12 +23,12 @@ Range.prototype.getBoundingClientRect = () => new DOMRect();
 
 /** Each region instruction the editor saved, as (region, text). */
 const saves: Array<readonly [string, string | null]> = [];
-vi.mock("../src/renderer/lib/mutations", async (original) => ({
-  ...(await original<typeof import("../src/renderer/lib/mutations")>()),
+vi.mock("../src/window/lib/mutations", async (original) => ({
+  ...(await original<typeof import("../src/window/lib/mutations")>()),
   commitCommands: (edit: (canvas: unknown) => unknown) => edit(undefined),
 }));
-vi.mock("../src/renderer/lib/model-edits", async (original) => ({
-  ...(await original<typeof import("../src/renderer/lib/model-edits")>()),
+vi.mock("../src/window/lib/model-edits", async (original) => ({
+  ...(await original<typeof import("../src/window/lib/model-edits")>()),
   regionEdited: (_canvas: unknown, regionId: string, patch: { readonly instruction?: string | null }) => {
     saves.push([regionId, patch.instruction ?? null]);
     return [];

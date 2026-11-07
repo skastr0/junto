@@ -1,6 +1,6 @@
 import type { SqlClient } from "effect/sql";
 import { describe, expect, it } from "vitest";
-import { workProjectionChanges } from "../src/main/junto/work/projection-changes";
+import { workProjectionChanges } from "../src/core/work/projection-changes";
 
 describe("work projection change dispatch", () => {
   it("defers replacement subscriptions to the next committed change", () => {

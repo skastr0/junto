@@ -5,7 +5,7 @@ import { parseFilePath, ROOT_PATH, type FilePath } from "./files";
  * `junto-file://<nodeId>/<relpath>`, each segment percent-encoded. Main
  * serves it only for a node a window has opened (`files.open`), on this
  * machine, inside the root after `realpath`, with byte ranges
- * (`src/main/junto/files/protocol.ts`). The URL never carries the root.
+ * (`src/app/files/protocol.ts`). The URL never carries the root.
  *
  * A standard scheme lower-cases its host, so main matches the node id
  * without case. `v` is an optional cache key (a stamp's mtime) a viewer adds

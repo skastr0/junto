@@ -87,7 +87,7 @@ indexes and triggers are exactly the shape that step expects.
 
 Version 1 is the baseline. A fresh database executes the current DDL and is
 stamped at the head. Every schema change increments
-`CURRENT_STATE_SCHEMA_VERSION` (`src/main/junto/state/migrations.ts`) and
+`CURRENT_STATE_SCHEMA_VERSION` (`src/core/state/migrations.ts`) and
 appends one synchronous step. A shipped step is immutable: its version, its
 input witness, its behaviour and the DDL it creates never follow the head. A
 repair is a new step.

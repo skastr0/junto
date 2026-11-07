@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { PadShape } from "../src/shared/pad";
 import { PAD_LOOK, padArrowHead, padEdgeMid, padTextLayout } from "../src/shared/pad-project";
-import { FIT_ZOOM_MIN, fitCamera } from "../src/renderer/components/pad/pad-editor-model";
+import { FIT_ZOOM_MIN, fitCamera } from "../src/window/components/pad/pad-editor-model";
 
 const box = (w: number, h: number, type: PadShape["type"] = "box"): PadShape =>
   ({ id: "s", type, x: 0, y: 0, w, h, z: 0 }) as PadShape;

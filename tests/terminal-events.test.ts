@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { onTerminalEvent } from "../src/renderer/lib/terminal-events";
+import { onTerminalEvent } from "../src/window/lib/terminal-events";
 
 type TerminalBridge = {
   readonly onTerminalEvent: (listener: (event: unknown) => void) => () => void;

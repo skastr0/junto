@@ -16,19 +16,19 @@ vi.mock("@shared/features", async (original) => ({
   ...(await original<typeof import("../src/shared/features")>()),
   AUTHORITY_ENABLED: false,
 }));
-import { makeContentServiceLive } from "../src/main/junto/content/service";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { MachineRepository, MachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { SettingsLive } from "../src/main/junto/settings/service";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { editCanvases } from "../src/main/junto/overseer/portfolio";
-import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
-import { WorkRepositoryLive } from "../src/main/junto/work/repository";
-import { RulingRecorderLive } from "../src/main/junto/work/ruling-recorder";
-import { commandReleasingSeats, SEAT_RELEASE_LINE } from "../src/main/junto/work/seat-release";
-import { WorkLive, WorkService } from "../src/main/junto/work/service";
-import { taskCanvasEnv, taskRulingContext } from "../src/main/junto/work/task-control";
-import { TaskRepository, TaskRepositoryLive } from "../src/main/junto/work/task-repository";
+import { makeContentServiceLive } from "../src/core/content/service";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { MachineRepository, MachineRepositoryLive } from "../src/core/machines/repository";
+import { SettingsLive } from "../src/core/settings/service";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { editCanvases } from "../src/core/overseer/portfolio";
+import { CrewRepositoryLive } from "../src/core/work/crew-repository";
+import { WorkRepositoryLive } from "../src/core/work/repository";
+import { RulingRecorderLive } from "../src/core/work/ruling-recorder";
+import { commandReleasingSeats, SEAT_RELEASE_LINE } from "../src/core/work/seat-release";
+import { WorkLive, WorkService } from "../src/core/work/service";
+import { taskCanvasEnv, taskRulingContext } from "../src/core/work/task-control";
+import { TaskRepository, TaskRepositoryLive } from "../src/core/work/task-repository";
 import { asCanvasName, asNodeId, type Command } from "../src/shared/model";
 import { mintItemId, mintOpId } from "../src/shared/resource-command";
 import { seatNodeId, taskNodeId, type TaskCommand, type TaskId } from "../src/shared/task-model";

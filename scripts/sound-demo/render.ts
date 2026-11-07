@@ -14,7 +14,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
-import type { CueId, CueVariant } from "../../src/renderer/lib/sound/cues";
+import type { CueId, CueVariant } from "../../src/window/lib/sound/cues";
 import { compareView, CueUrgency } from "../../src/shared/wire/urgency";
 import type { Shot } from "./page";
 

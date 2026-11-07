@@ -347,10 +347,10 @@ they are not degraded through a compatibility rewrite. Unknown
 | Execution graph (phase from task state) | `src/shared/execution-graph.ts` |
 | Derived graph / phase | `src/shared/graph.ts` |
 | Region reach | `src/shared/region-reach.ts`; admission in `src/shared/physics/admit.ts` |
-| Work control authz | `src/main/junto/work/authz.ts` |
-| Control socket + ScopeError | `src/main/junto/work/control.ts` |
-| Seat generation credential | `src/main/junto/work/seat-credentials.ts` |
-| Automations | `src/shared/automation.ts`, `src/main/junto/automation/` |
+| Work control authz | `src/core/work/authz.ts` |
+| Control socket + ScopeError | `src/core/work/control.ts` |
+| Seat generation credential | `src/core/work/seat-credentials.ts` |
+| Automations | `src/shared/automation.ts`, `src/core/automation/` |
 | Machine safety (host seal) | `docs/architecture-machine-safety.md` |
 
 ---

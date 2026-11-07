@@ -70,7 +70,7 @@ only one mint function in the owning module
 ### 4. Single sealed implementation site
 
 There is **one** module allowed to call `process.kill` with a negative pid
-(process-group signal): `src/main/junto/process-signal.ts`.
+(process-group signal): `src/node/process-signal.ts`.
 
 Callers hold `OwnedProcess` and use `signalOwned` / `releaseOwned`.
 `admitChildProcess({ source, child })` cannot receive a pid. Intentional POSIX
@@ -245,12 +245,12 @@ Code review question for every PR:
 
 | Area | Module |
 |------|--------|
-| Process kill seal | `src/main/junto/process-signal.ts` |
-| Central process lifetime | `src/main/junto/app-process-plane.ts` |
-| Terminal sessions | `src/main/junto/term/local-host.ts` |
-| Adapter CLI children | `src/main/junto/adapters/exec.ts` |
-| SSH child stop | `src/main/junto/ssh/process-spawner.ts` |
-| SSH brand precedent | `src/main/junto/ssh/domain.ts` |
+| Process kill seal | `src/node/process-signal.ts` |
+| Central process lifetime | `src/node/app-process-plane.ts` |
+| Terminal sessions | `src/core/term/local-host.ts` |
+| Adapter CLI children | `src/core/adapters/exec.ts` |
+| SSH child stop | `src/core/ssh/process-spawner.ts` |
+| SSH brand precedent | `src/core/ssh/domain.ts` |
 | Canvas repository boundary | `src/main/junto/canvases.ts` |
 | Architecture fitness | `tests/process-safety-architecture.test.ts` |
 | Runtime safety tests | `tests/process-signal.test.ts`, `tests/canvas-path-capabilities.test.ts` |

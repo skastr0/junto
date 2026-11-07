@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { asNodeId, type NodeId } from "../src/shared/physics/schema";
 import type { NodeKind } from "../src/shared/model/kinds";
 import { mentionLink } from "../src/shared/mention";
-import { answerCopies, answerCopyId, composeAnswerCopy } from "../src/main/junto/signals/answer-mentions";
+import { answerCopies, answerCopyId, composeAnswerCopy } from "../src/core/signals/answer-mentions";
 
 const asker = asNodeId("agent-asker");
 const wired = asNodeId("agent-wired");

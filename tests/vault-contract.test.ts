@@ -11,10 +11,10 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { RegionEnvironment } from "../src/shared/model/region";
 import { isRefInVault, VaultName, vaultOfRef } from "../src/shared/vault";
-import { scrubMessage } from "../src/main/junto/credentials/scrub";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { VaultTokens, VaultTokensLive } from "../src/main/junto/vault/repository";
-import { readVaultToken, removeVaultToken, vaultDir, writeVaultToken } from "../src/main/junto/vault/token-file";
+import { scrubMessage } from "../src/node/credentials/scrub";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { VaultTokens, VaultTokensLive } from "../src/core/vault/repository";
+import { readVaultToken, removeVaultToken, vaultDir, writeVaultToken } from "../src/core/vault/token-file";
 
 const TOKEN = "ops_test-only-vault-token-abcdefghijklmnop0123";
 
@@ -120,7 +120,7 @@ describe("the scope record", () => {
 });
 
 it("the scrub's 1Password token shape covers every character VaultTokenSecret admits", async () => {
-  const { scrubText } = await import("../src/main/junto/credentials/scrub");
+  const { scrubText } = await import("../src/node/credentials/scrub");
   const { VaultTokenSecret } = await import("../src/shared/vault");
   const body = "eyJzaWduSW5BZGRyZXNzIjoibXkuMXBhc3N3b3JkLmNvbSJ9+/=_.-AbC0123456789xyz";
   const token = `ops_${body}`;

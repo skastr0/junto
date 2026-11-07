@@ -13,36 +13,36 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/sql";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import * as contentIntegrity from "../src/main/junto/content/integrity";
+import * as contentIntegrity from "../src/core/content/integrity";
 import {
   assertRestoredContentCoherent,
   verifyContentSnapshotCoherence,
-} from "../src/main/junto/content/backup";
+} from "../src/core/content/backup";
 import {
   admitContentWrite,
   DEFAULT_CONTENT_DISK_RESERVE_BYTES,
-} from "../src/main/junto/content/disk-admission";
-import { ContentManifest } from "../src/main/junto/content/manifest";
+} from "../src/node/content/disk-admission";
+import { ContentManifest } from "../src/core/content/manifest";
 import {
   contentObjectPath,
   contentPartialPath,
   contentStoreRoot,
-} from "../src/main/junto/content/paths";
-import { createContentService } from "../src/main/junto/content/service";
+} from "../src/node/content/paths";
+import { createContentService } from "../src/core/content/service";
 import {
   ContentStoreError,
   ensureContentLayout,
-} from "../src/main/junto/content/store";
+} from "../src/node/content/store";
 import {
   contentTransferPartialId,
   receiveContentTransfer,
-} from "../src/main/junto/content/transfer-local";
+} from "../src/node/content/transfer-local";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/junto/state/engine";
-import { StateTransactionOperation } from "../src/main/junto/state/service";
-import { OverseerLiveExecution } from "../src/main/junto/overseer/live/execution";
+} from "../src/core/state/engine";
+import { StateTransactionOperation } from "../src/core/state/service";
+import { OverseerLiveExecution } from "../src/core/overseer/live/execution";
 
 const roots: string[] = [];
 const runtimes: Array<ManagedRuntime.ManagedRuntime<StateEngine, unknown>> = [];

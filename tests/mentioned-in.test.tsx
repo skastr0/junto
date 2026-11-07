@@ -2,9 +2,9 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MentionedIn } from "../src/renderer/components/threads/MentionedIn";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { workDetailOpen$ } from "../src/renderer/lib/work-detail-open";
+import { MentionedIn } from "../src/window/components/threads/MentionedIn";
+import { modelStore } from "../src/window/lib/use-model";
+import { workDetailOpen$ } from "../src/window/lib/work-detail-open";
 import type { MentionedIn as Entry, MentionPage } from "../src/shared/mention-ipc";
 import { asCanvasName } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";

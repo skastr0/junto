@@ -6,11 +6,11 @@
  */
 
 import { defaultSoundCategories, SOUND_CATEGORIES } from "@shared/settings";
-import { CUE_IDS, CUES, type CueGroup, type CueId, type CueVariant, type MailTone } from "../../src/renderer/lib/sound/cues";
-import { buildSoundGraph, duckAmbient, renderCue } from "../../src/renderer/lib/sound/graph";
-import { CueMixer, type CueRequest } from "../../src/renderer/lib/sound/mixer";
+import { CUE_IDS, CUES, type CueGroup, type CueId, type CueVariant, type MailTone } from "../../src/window/lib/sound/cues";
+import { buildSoundGraph, duckAmbient, renderCue } from "../../src/window/lib/sound/graph";
+import { CueMixer, type CueRequest } from "../../src/window/lib/sound/mixer";
 import { takesAttentionSlot } from "@shared/wire/urgency";
-import { seeded } from "../../src/renderer/lib/sound/palette";
+import { seeded } from "../../src/window/lib/sound/palette";
 
 export type Shot = { readonly cue: CueId; readonly at: number; readonly variant: CueVariant };
 

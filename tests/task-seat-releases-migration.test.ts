@@ -9,8 +9,8 @@ import {
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V40_IDENTITY,
   STATE_SCHEMA_V41_IDENTITY,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V40_SQL, STATE_SCHEMA_V41_SQL } from "./fixtures/state-v13/schema";
 
 describe("state step 40 to 41: the tasks a seat delete released", () => {

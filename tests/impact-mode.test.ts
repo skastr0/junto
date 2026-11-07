@@ -3,7 +3,7 @@ import {
   connectionFocusSelection,
   edgeImpactClass,
   nodeImpactClass,
-} from "../src/renderer/lib/impact-mode";
+} from "../src/window/lib/impact-mode";
 import { canvasOf, seat, wire } from "./support/model-nodes";
 
 const agent = (id: string, label: string) => seat(id, { label: label as never });

@@ -5,10 +5,10 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { Command } from "../src/shared/model";
 import { modelNote } from "../e2e/harness/model";
-import { ModelLive } from "../src/main/junto/model/layer";
-import { ModelDependents } from "../src/main/junto/model/dependents";
-import { ModelService } from "../src/main/junto/model/service";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { ModelLive } from "../src/core/model/layer";
+import { ModelDependents } from "../src/core/model/dependents";
+import { ModelService } from "../src/core/model/service";
+import { makeStateEngineLive } from "../src/core/state/engine";
 
 const run = async (test: (model: ModelService["Service"], runtime: ReturnType<typeof makeRuntime>) => Promise<void>) => {
   const home = await mkdtemp(join(tmpdir(), "junto-model-remove-"));

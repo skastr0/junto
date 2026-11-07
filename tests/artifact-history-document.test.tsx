@@ -3,9 +3,9 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import type { ArtifactVersionRecord } from "../src/shared/artifact";
-import { ArtifactHistory } from "../src/renderer/components/artifacts/ArtifactHistory";
+import { ArtifactHistory } from "../src/window/components/artifacts/ArtifactHistory";
 import { settleLazy } from "./support/settle-lazy";
-import { loadLazySurfaces } from "../src/renderer/lib/lazy-surface";
+import { loadLazySurfaces } from "../src/window/lib/lazy-surface";
 
 // The editors and viewers load before any test, so no test waits on an import.
 await loadLazySurfaces();

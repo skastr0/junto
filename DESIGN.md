@@ -177,7 +177,7 @@ The voice is an instrument panel, not a dashboard. Type is monospace by default 
 
 This system rejects: cards with action buttons on them, decorative motion, gradients and blur shadows on canvas nodes, color as the only carrier of state, generic robot glyphs where a seat's portrait belongs, and operator copy that explains mechanics (ports, grants, masks, wire families). Canvas nodes are not cards at all: a node is one chip with its contents hanging from a thin spine, and the ground shows through (`docs/node-card-language.md`).
 
-Tokens have one source, `src/shared/theme/` (OKLCH primitives in `primitives.ts`, meaning per mode in `semantic.ts`), projected by `scripts/theme-build.ts` into `src/renderer/styles/theme.generated.css` with `bun run theme:build`. Runtime consumers (canvas paint, inline styles) read the same source through `src/renderer/lib/theme.ts` (`HUE`, `HUE_TEXT`, `INK`, `DIM`).
+Tokens have one source, `src/shared/theme/` (OKLCH primitives in `primitives.ts`, meaning per mode in `semantic.ts`), projected by `scripts/theme-build.ts` into `src/window/styles/theme.generated.css` with `bun run theme:build`. Runtime consumers (canvas paint, inline styles) read the same source through `src/window/lib/theme.ts` (`HUE`, `HUE_TEXT`, `INK`, `DIM`).
 
 **Key Characteristics:**
 - Warm near-black ground, never pure black; warm paper in bright, never pure white.
@@ -253,7 +253,7 @@ Tracking steps are `flat` 0, `soft` 0.04em, `label` 0.08em and `eyebrow` 0.14em;
 
 ## Layout
 
-The app is a full-window spatial canvas with a fixed chrome around it: a 64px bar (`--bar-height`), pinned tabs, the dock and floating HUDs on the base layer. Regions are geography on the canvas: a 24px title bar and a 12px frame (`src/renderer/styles/region-title.css`). Working modals center one subject at a measured width over a dimmed periphery (`.focus-surface`, 16px inset), because one subject reads better measure-constrained than full-bleed. Operator modals anchor near the top at 3vh, centred, 700px wide for Cmd+K.
+The app is a full-window spatial canvas with a fixed chrome around it: a 64px bar (`--bar-height`), pinned tabs, the dock and floating HUDs on the base layer. Regions are geography on the canvas: a 24px title bar and a 12px frame (`src/window/styles/region-title.css`). Working modals center one subject at a measured width over a dimmed periphery (`.focus-surface`, 16px inset), because one subject reads better measure-constrained than full-bleed. Operator modals anchor near the top at 3vh, centred, 700px wide for Cmd+K.
 
 Spacing rides Tailwind's 4px step with dense, fixed measures: 28px list rows, dense fields and node chips; 22px status tags; a 24px minimum hit area on every button; a 46px palette input row; 6px list padding with 1px gaps in popups. Gaps inside a row are 6 to 10px; node chips use 7px. The canvas zooms through tiers (near, far, overview): at far a node becomes a held disc no smaller than 26 screen pixels, its text and spine hidden by `visibility` so size never changes, and status climbs to the region frame when a box is too small to show it.
 
@@ -262,7 +262,7 @@ Spacing rides Tailwind's 4px step with dense, fixed measures: 28px list rows, de
 
 ## Elevation & Depth
 
-Dark carries depth with surface lightness, not shadows: `well` below `ground`, `inset` for fields, `raise` and `raise-2` for panels, each a step of about 0.03 to 0.04 in OKLCH lightness. The canvas and everything on it is flat paint: borders, outlines, and one 1px box-shadow ring on a selected node, no blur, no gradient. Shadows appear only on surfaces that float above the canvas, and they return with more presence in bright, where paper needs them. Stacking is three systems, in order, from one source, `src/renderer/styles/layers.css`.
+Dark carries depth with surface lightness, not shadows: `well` below `ground`, `inset` for fields, `raise` and `raise-2` for panels, each a step of about 0.03 to 0.04 in OKLCH lightness. The canvas and everything on it is flat paint: borders, outlines, and one 1px box-shadow ring on a selected node, no blur, no gradient. Shadows appear only on surfaces that float above the canvas, and they return with more presence in bright, where paper needs them. Stacking is three systems, in order, from one source, `src/window/styles/layers.css`.
 
 ### Shadow Vocabulary
 - **Modal lift** (`box-shadow: 0 24px 80px var(--color-shadow-1), 0 0 0 1px var(--color-overlay-1)`): the one card chrome for dialogs and operator modals (`.layer-frame`).
@@ -284,7 +284,7 @@ Small, even corners and hairline borders. The radius scale is `sm` 4px (list row
 
 ## Components
 
-Familiar, quiet and exact: controls look like the controls of the best tools in the category, drawn in hairlines and ink alpha, with color only where state lives. New surfaces compose the primitives in `src/renderer/components/ui/`; nobody hand-rolls a button, header, status dot or help chrome.
+Familiar, quiet and exact: controls look like the controls of the best tools in the category, drawn in hairlines and ink alpha, with color only where state lives. New surfaces compose the primitives in `src/window/components/ui/`; nobody hand-rolls a button, header, status dot or help chrome.
 
 ### Buttons
 - **Shape:** gently squared (`rounded-md`, 6px; xs uses 4px). Every button is hit across at least 24px of height through an invisible centred area, whatever its drawn size.
@@ -305,7 +305,7 @@ Familiar, quiet and exact: controls look like the controls of the best tools in 
 
 ### Cards and containers
 - **Modal frame:** `raise` fill, 1px `stroke` border, `rounded-xl` 12px, the modal lift. Dialogs pad 18px 20px 16px.
-- **Callout:** a full 1px border in its hue at 30 percent, a fill of the same hue at 8 percent, `rounded-md` 6px, padding 8px 12px. The canvas note is the reference (`src/renderer/components/nodes/spine-card.css`).
+- **Callout:** a full 1px border in its hue at 30 percent, a fill of the same hue at 8 percent, `rounded-md` 6px, padding 8px 12px. The canvas note is the reference (`src/window/components/nodes/spine-card.css`).
 - **Canvas nodes are not cards.** Cards are glance and identity only, with no action buttons: open by double-click or kind keys, delete and Stop from the selection toolbar. The only on-card control is the task enqueue plus, a 20px ghost with a 24px hit area.
 - **Spine:** a 1.5px `stroke-hi` rule 15px in from the chip, rows hanging from 11px ticks, at most four rows then a dim "+N more". Text on bare ground takes a ground-colored halo, not a wash.
 
@@ -321,10 +321,10 @@ Familiar, quiet and exact: controls look like the controls of the best tools in 
 - **Key caps:** cyan at 22 percent border, cyan at 6 percent fill, `cyan-fg` text, label size, `rounded-sm`; the md size is 22px wide and body size.
 
 ### Cmd+K command palette (signature)
-The reference palette surface (`src/renderer/components/command-bar/CommandBar.tsx`, `.command-bar__*` in `src/renderer/styles.css`). A 700px operator modal anchored near the top, filling the window's height so the list never resizes as it filters. A 46px input row in body-lg with a hairline under it; rows padded 7px 10px with a 28px hue mark (hue at 30 percent border, 12 percent fill) beside a body-lg 500 title and a mono label-size detail in `faint`. The active row is an `overlay-2` tint, and its mark border rises to 60 percent. A footer under a hairline carries the count and key hints in label type.
+The reference palette surface (`src/window/components/command-bar/CommandBar.tsx`, `.command-bar__*` in `src/window/styles.css`). A 700px operator modal anchored near the top, filling the window's height so the list never resizes as it filters. A 46px input row in body-lg with a hairline under it; rows padded 7px 10px with a 28px hue mark (hue at 30 percent border, 12 percent fill) beside a body-lg 500 title and a mono label-size detail in `faint`. The active row is an `overlay-2` tint, and its mark border rises to 60 percent. A footer under a hairline carries the count and key hints in label type.
 
 ### Focus
-**The House Focus Ring Rule.** Keyboard focus is one mark everywhere: 2px of full-strength `cyan`. Outside with a 2px offset where there is room (`FOCUS_OUTLINE` in `src/renderer/components/ui/focus.ts`), inset as a 2px shadow where a clipping parent would cut it (`FOCUS_RING_INSET`). Canvas nodes ring the head chip at a 3px offset in screen pixels at every zoom. Selection (the 1px amber ring) and focus (the cyan outline) are always distinct. Only `src/renderer/lib/focus-ownership.ts` moves focus.
+**The House Focus Ring Rule.** Keyboard focus is one mark everywhere: 2px of full-strength `cyan`. Outside with a 2px offset where there is room (`FOCUS_OUTLINE` in `src/window/components/ui/focus.ts`), inset as a 2px shadow where a clipping parent would cut it (`FOCUS_RING_INSET`). Canvas nodes ring the head chip at a 3px offset in screen pixels at every zoom. Selection (the 1px amber ring) and focus (the cyan outline) are always distinct. Only `src/window/lib/focus-ownership.ts` moves focus.
 
 ## Do's and Don'ts
 
@@ -332,7 +332,7 @@ The reference palette surface (`src/renderer/components/command-bar/CommandBar.t
 
 **The Copy Law.** No middle dot (U+00B7) on any surface: product copy, UI strings, generated documents, artifacts. Separate with commas, em dashes or spaces. Derived wire sentences read as spoken compounds ("access stops", "watch completes").
 
-**The Motion Law.** Never slow, step, throttle or still a moving animation anyone can see to save frames, GPU or power. Motion runs on the compositor: seat rings turn and pulse every display frame with `transform` and `opacity` only, still parts baked once into the atlas (`src/renderer/lib/activity-atlas.ts`). Motion no one can see (hidden window, reduced motion, a ring under an opaque surface or off screen) may stop. Only the operator changes motion. `tests/motion-law.test.ts` is the lock.
+**The Motion Law.** Never slow, step, throttle or still a moving animation anyone can see to save frames, GPU or power. Motion runs on the compositor: seat rings turn and pulse every display frame with `transform` and `opacity` only, still parts baked once into the atlas (`src/window/lib/activity-atlas.ts`). Motion no one can see (hidden window, reduced motion, a ring under an opaque surface or off screen) may stop. Only the operator changes motion. `tests/motion-law.test.ts` is the lock.
 
 ### Do:
 - **Do** show a selected row with the `overlay-2` tint and a hovered row with `overlay-1`.

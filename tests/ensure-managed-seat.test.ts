@@ -2,13 +2,13 @@ import { Effect, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Node, type Seat } from "../src/shared/model";
 import { InstallationId } from "../src/shared/installation-id";
-import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
+import { deriveActorSeatId } from "../src/core/actor-seat-id";
 import {
   ActorSeatOccupy,
   type ActorOccupySpec,
-} from "../src/main/junto/term/actor-seat-occupy";
-import * as seatSessionBeforeStart from "../src/main/junto/term/seat-session-before-start";
-import { termPlane } from "../src/main/junto/term/plane";
+} from "../src/core/term/actor-seat-occupy";
+import * as seatSessionBeforeStart from "../src/core/term/seat-session-before-start";
+import { termPlane } from "../src/core/term/plane";
 import {
   AUTO_RESTART_BACKOFF_MS,
   AUTO_RESTART_MAX,
@@ -16,8 +16,8 @@ import {
   isManagedSeatRuntimeLocal,
   managedSeatWakeDecision,
   resetAutoRestartBudgetsForTest,
-} from "../src/main/junto/term/ensure-managed-seat";
-import { makeSeatCredentialRegistry } from "../src/main/junto/work/seat-credentials";
+} from "../src/core/term/ensure-managed-seat";
+import { makeSeatCredentialRegistry } from "../src/core/work/seat-credentials";
 import { SEAT_CREDENTIAL_PREFIX } from "../src/shared/work-control";
 
 const base = {

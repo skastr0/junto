@@ -3,7 +3,7 @@
  * overlay is app-owned, but its answer is still decoded, never trusted.
  */
 import { describe, expect, it } from "vitest";
-import { BOX_OVERLAY_SCRIPT, BOX_OVERLAY_URL, drawnBoxOf } from "../src/main/junto/browser/box-overlay";
+import { BOX_OVERLAY_SCRIPT, BOX_OVERLAY_URL, drawnBoxOf } from "../src/app/browser/box-overlay";
 
 describe("the box overlay", () => {
   it("reads its box into the page's CSS pixels at the page's zoom", () => {

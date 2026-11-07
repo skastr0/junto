@@ -12,15 +12,15 @@ import { tmpdir } from "node:os";
 import { ChildProcess as Command } from "effect/process";
 import { Effect, Layer, ManagedRuntime, Schema, Stream } from "effect";
 import { afterEach, expect, it } from "vitest";
-import { generatePairingKey } from "../src/main/junto/companion/pairing-key";
-import { makeMachineLinkSetup, type MachineLinkSetup } from "../src/main/junto/hosts/machine-link";
-import { HostsService } from "../src/main/junto/hosts/service";
-import { linkHomeTag, readBoundRoute } from "../src/main/junto/link/link-keys";
-import { MachineLink } from "../src/main/junto/link/service";
-import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { createSshProgramCompiler } from "../src/main/junto/ssh/program";
-import { SshTransport, SshTransferExitError, type SshTransportShape } from "../src/main/junto/ssh/service";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { generatePairingKey } from "../src/core/companion/pairing-key";
+import { makeMachineLinkSetup, type MachineLinkSetup } from "../src/core/hosts/machine-link";
+import { HostsService } from "../src/core/hosts/service";
+import { linkHomeTag, readBoundRoute } from "../src/core/link/link-keys";
+import { MachineLink } from "../src/core/link/service";
+import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
+import { createSshProgramCompiler } from "../src/core/ssh/program";
+import { SshTransport, SshTransferExitError, type SshTransportShape } from "../src/core/ssh/service";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import { InstallationId } from "../src/shared/installation-id";
 import {
   MachineLinkAcceptInput, MachineLinkKeyInput, MachineLinkOpenInput, MachineLinkRevokeInput,

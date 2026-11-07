@@ -14,8 +14,8 @@ import {
   seatStartPreviewArgv,
 } from "../src/shared/seat-launch-params";
 import { applySettingsPatch, defaultSettings, harnessPrefsFor } from "../src/shared/settings";
-import { planManagedSpawn } from "../src/main/junto/term/managed-spawn-plan";
-import { profileBodyOfSeat, seatFromProfile } from "../src/renderer/lib/agent-profiles";
+import { planManagedSpawn } from "../src/core/term/managed-spawn-plan";
+import { profileBodyOfSeat, seatFromProfile } from "../src/window/lib/agent-profiles";
 import { decodeProfileBody } from "../src/shared/agent-profiles";
 import { decodeSquadBody } from "../src/shared/squads";
 import { Result } from "effect";

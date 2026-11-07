@@ -13,7 +13,7 @@ import {
 } from "../e2e/harness/nested-canvas-fixture";
 import { asNodeId, asCanvasName, canvasFromOpened, Node, Wire, type Region, regionStack as modelRegionStack } from "../src/shared/model";
 import type { ModelFixture } from "../e2e/harness/model";
-import { MODEL_STATE_SCHEMA_SQL } from "../src/main/junto/model/state-schema";
+import { MODEL_STATE_SCHEMA_SQL } from "../src/core/model/state-schema";
 
 const isGroup = (node: Node): node is Region => node.kind === "region";
 

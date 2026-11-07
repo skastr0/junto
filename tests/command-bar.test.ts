@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { filterCommandBarNodes } from "../src/renderer/lib/command-bar";
+import { filterCommandBarNodes } from "../src/window/lib/command-bar";
 import { Palette } from "../src/shared/wire/urgency";
-import { regionPath, regionPaths } from "../src/renderer/lib/region-path";
+import { regionPath, regionPaths } from "../src/window/lib/region-path";
 import { asNodeId, type Node } from "../src/shared/model";
 import { canvasOf, note, region as regionNode, seat } from "./support/model-nodes";
 
@@ -214,8 +214,8 @@ import {
   filterCommandBarActions,
   openCanvasDigest,
   type CommandBarAction,
-} from "../src/renderer/lib/command-bar-actions";
-import { state$ } from "../src/renderer/lib/state";
+} from "../src/window/lib/command-bar-actions";
+import { state$ } from "../src/window/lib/state";
 
 const action = (id: string, label: string, detail = ""): CommandBarAction => ({
   id,

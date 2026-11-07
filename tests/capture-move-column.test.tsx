@@ -11,10 +11,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { asCanvasName } from "../src/shared/model";
 import { asNodeId, type NodeId } from "../src/shared/physics/schema";
 import { mintItemId, type ItemId } from "../src/shared/resource-command";
-import { makeLocalArtifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/renderer/lib/artifacts-source";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { CaptureMoveColumn, useCaptureMove, type CaptureMove } from "../src/renderer/components/capture/CaptureMoveColumn";
-import type { CaptureArtifactRef } from "../src/renderer/components/capture/CaptureEditor";
+import { makeLocalArtifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/window/lib/artifacts-source";
+import { modelStore } from "../src/window/lib/use-model";
+import { CaptureMoveColumn, useCaptureMove, type CaptureMove } from "../src/window/components/capture/CaptureMoveColumn";
+import type { CaptureArtifactRef } from "../src/window/components/capture/CaptureEditor";
 import { artifacts, region } from "./support/model-nodes";
 
 const CANVAS = "desk";

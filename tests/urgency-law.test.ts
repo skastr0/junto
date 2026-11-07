@@ -114,24 +114,24 @@ const ALLOWED: readonly Allowed[] = [
 
   // Ring-to-paint maps: exempt.
   { file: "src/shared/wire/seat-activity.ts", name: "SEVERITY_TONE", rule: "names", reason: PAINT },
-  { file: "src/renderer/lib/signal-mark.ts", name: "MARK", rule: "names", reason: PAINT },
+  { file: "src/window/lib/signal-mark.ts", name: "MARK", rule: "names", reason: PAINT },
 
   // Copy.
-  { file: "src/renderer/lib/sound/cues.ts", name: "CATEGORY_LABEL", rule: "names", reason: COPY },
+  { file: "src/window/lib/sound/cues.ts", name: "CATEGORY_LABEL", rule: "names", reason: COPY },
 
   // Kind maps.
-  { file: "src/renderer/lib/sound/cues.ts", name: "CUE_IDS", rule: "names", reason: "the cue catalog's ids, some named like levels" },
-  { file: "src/renderer/lib/sound/cues.ts", name: "CUES", rule: "names", reason: "the cue catalog keyed by cue id" },
-  { file: "src/renderer/lib/sound/director.ts", name: "SIGNAL_CUE", rule: "names", reason: KIND_MAP },
-  { file: "src/renderer/lib/sound/index.ts", name: "NOTIFICATION_CUE", rule: "names", reason: KIND_MAP },
-  { file: "src/renderer/lib/sound/index.ts", name: "DEMO_CUE", rule: "names", reason: KIND_MAP },
+  { file: "src/window/lib/sound/cues.ts", name: "CUE_IDS", rule: "names", reason: "the cue catalog's ids, some named like levels" },
+  { file: "src/window/lib/sound/cues.ts", name: "CUES", rule: "names", reason: "the cue catalog keyed by cue id" },
+  { file: "src/window/lib/sound/director.ts", name: "SIGNAL_CUE", rule: "names", reason: KIND_MAP },
+  { file: "src/window/lib/sound/index.ts", name: "NOTIFICATION_CUE", rule: "names", reason: KIND_MAP },
+  { file: "src/window/lib/sound/index.ts", name: "DEMO_CUE", rule: "names", reason: KIND_MAP },
 
   // Vocabularies.
   { file: "src/shared/wire/companion-protocol.ts", name: "COMPANION_SEAT_STATES", rule: "names", reason: VOCAB },
   { file: "src/shared/wire/companion-artifacts.ts", name: "COMPANION_FACE_SEAT_STATES", rule: "names", reason: `${VOCAB}; held equal to COMPANION_SEAT_STATES by companion-protocol.test.ts` },
   { file: "src/shared/terminal.ts", name: "TerminalHarnessState", rule: "names", reason: VOCAB },
   { file: "src/shared/occupancy/derive.ts", name: "OccupancyHarnessState", rule: "names", reason: VOCAB },
-  { file: "src/main/junto/term/program-status.ts", name: "PROGRAM_STATES", rule: "names", reason: VOCAB },
+  { file: "src/core/term/program-status.ts", name: "PROGRAM_STATES", rule: "names", reason: VOCAB },
   { file: "src/shared/seat-sessions.ts", name: "SEAT_OFFBOARD_STAGES", rule: "names", reason: VOCAB },
   { file: "src/shared/settings.ts", name: "SOUND_CATEGORIES", rule: "names", reason: "sound setting categories, not seat urgency" },
   { file: "src/shared/settings.ts", name: "SoundCategoriesSettings", rule: "names", reason: "sound setting categories, not seat urgency" },
@@ -147,7 +147,7 @@ const ALLOWED: readonly Allowed[] = [
   // Counts.
   { file: "src/shared/region-rollup.ts", name: "RegionRollup.counts", rule: "names", reason: COUNTS },
   { file: "src/shared/region-rollup.ts", name: "countBySeverity.counts", rule: "names", reason: COUNTS },
-  { file: "src/main/junto/overseer/live/context.ts", name: "buildLiveContext.context.authoritative.counts", rule: "names", reason: COUNTS },
+  { file: "src/core/overseer/live/context.ts", name: "buildLiveContext.context.authoritative.counts", rule: "names", reason: COUNTS },
 
   // Fixtures.
   { file: "src/shared/wire/companion-demo-fixture.ts", name: "DEMO_SEATS", rule: "names", reason: "demo seats for the phone's showcase; data, not an order" },
@@ -157,17 +157,17 @@ const ALLOWED: readonly Allowed[] = [
   // Ranks of other things.
   { file: "src/shared/harness-domain/status.ts", name: "RANK", rule: "table", reason: `signal source precedence; ${NOT_URGENCY}` },
   { file: "src/shared/region-rollup.ts", name: "kindRank", rule: "table", reason: `roll call's node kind order; ${NOT_URGENCY}` },
-  { file: "src/renderer/lib/command-bar.ts", name: "kindRank", rule: "table", reason: `the palette's node kind groups; ${NOT_URGENCY}` },
+  { file: "src/window/lib/command-bar.ts", name: "kindRank", rule: "table", reason: `the palette's node kind groups; ${NOT_URGENCY}` },
   { file: "src/shared/impact/rank.ts", name: "rankStoppageSeeds", rule: "table", reason: `stoppage seeds by cone size; ${NOT_URGENCY}` },
-  { file: "src/renderer/lib/modal-stack.ts", name: "LAYER_RANK", rule: "table", reason: `modal layers; ${NOT_URGENCY}` },
+  { file: "src/window/lib/modal-stack.ts", name: "LAYER_RANK", rule: "table", reason: `modal layers; ${NOT_URGENCY}` },
   { file: "src/shared/observability.ts", name: "OBSERVABILITY_LEVEL_RANK", rule: "table", reason: `log levels; ${NOT_URGENCY}` },
   { file: "src/shared/cosmetics/draw.ts", name: "DETAIL_RANK", rule: "table", reason: `cosmetic detail levels; ${NOT_URGENCY}` },
   { file: "src/shared/machine-figure/draw.ts", name: "RANK", rule: "table", reason: `machine figure detail levels; ${NOT_URGENCY}` },
-  { file: "src/main/junto/usage/antigravity-source.ts", name: "windowsFromQuotaSummary.groupRank", rule: "table", reason: `usage quota groups; ${NOT_URGENCY}` },
-  { file: "src/main/junto/usage/antigravity-source.ts", name: "windowsFromQuotaSummary.kindRank", rule: "table", reason: `usage quota kinds; ${NOT_URGENCY}` },
-  { file: "src/renderer/components/pad/pad-editor-model.ts", name: "layerRank", rule: "table", reason: `pad element layers; ${NOT_URGENCY}` },
-  { file: "src/renderer/components/settings/search-index.ts", name: "searchSettings.rank", rule: "table", reason: `settings search matches; ${NOT_URGENCY}` },
-  { file: "src/renderer/lib/focus-switcher.ts", name: "recencyOrder.rank", rule: "table", reason: `focus recency; ${NOT_URGENCY}` },
+  { file: "src/core/usage/antigravity-source.ts", name: "windowsFromQuotaSummary.groupRank", rule: "table", reason: `usage quota groups; ${NOT_URGENCY}` },
+  { file: "src/core/usage/antigravity-source.ts", name: "windowsFromQuotaSummary.kindRank", rule: "table", reason: `usage quota kinds; ${NOT_URGENCY}` },
+  { file: "src/window/components/pad/pad-editor-model.ts", name: "layerRank", rule: "table", reason: `pad element layers; ${NOT_URGENCY}` },
+  { file: "src/window/components/settings/search-index.ts", name: "searchSettings.rank", rule: "table", reason: `settings search matches; ${NOT_URGENCY}` },
+  { file: "src/window/lib/focus-switcher.ts", name: "recencyOrder.rank", rule: "table", reason: `focus recency; ${NOT_URGENCY}` },
   { file: "tests/pty-e2e/jev/checkpoints.ts", name: "CLASS_RANK", rule: "table", reason: `screen checkpoint classes; ${NOT_URGENCY}` },
 ];
 

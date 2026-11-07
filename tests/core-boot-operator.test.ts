@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { Result } from "effect";
 import { expect, it } from "vitest";
-import { startCore } from "../src/main/junto/core";
+import { startCore } from "../src/core/core";
 import { decodeOperatorResponse, encodeOperatorFrame, operatorControlSocketPath, type OperatorRequestEnvelope } from "../src/shared/operator-control";
 
 const ask = (home: string, request: OperatorRequestEnvelope) =>

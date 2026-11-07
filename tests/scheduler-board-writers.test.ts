@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { asCanvasName, type Node, type NodeOf } from "../src/shared/model";
-import { setBoardSettings } from "../src/renderer/lib/mutations";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { state$ } from "../src/renderer/lib/state";
+import { setBoardSettings } from "../src/window/lib/mutations";
+import { modelStore } from "../src/window/lib/use-model";
+import { state$ } from "../src/window/lib/state";
 import { note, taskBoard } from "./support/model-nodes";
 
 const name = "scheduler-board-writers";

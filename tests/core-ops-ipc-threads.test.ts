@@ -1,18 +1,18 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { expect, it, vi } from "vitest";
 import { inProcessCore, type CoreRunner } from "./support/in-process-core";
-import { MAIL_WAITING, SEAT_THREAD_READ_CHANGED } from "../src/main/core-process/channels";
-import { subscribe } from "../src/main/core-process/main-side/core-pushes";
-import { ModelService } from "../src/main/junto/model/service";
-import { messageDelivery } from "../src/main/junto/work/message-delivery";
+import { MAIL_WAITING, SEAT_THREAD_READ_CHANGED } from "../src/contract/core/channels";
+import { subscribe } from "../src/app/core-process/main-side/core-pushes";
+import { ModelService } from "../src/core/model/service";
+import { messageDelivery } from "../src/core/work/message-delivery";
 
 const readListeners = vi.hoisted(() => [] as Array<(change: unknown) => void>);
-vi.mock("../src/main/junto/work/mail-reads", async (original) => ({
-  ...(await original<typeof import("../src/main/junto/work/mail-reads")>()),
+vi.mock("../src/core/work/mail-reads", async (original) => ({
+  ...(await original<typeof import("../src/core/work/mail-reads")>()),
   onReadChanged: (listener: (change: unknown) => void) => (readListeners.push(listener), () => undefined),
 }));
 
-await import("../src/main/core-process/ops/ipc-threads");
+await import("../src/core/ops/ipc-threads");
 
 // The window's threads ask the core by name; renderer input is decoded there, and
 // read points and waiting mail come back as pushes, subscribed once.

@@ -14,7 +14,7 @@ import {
   fromSeatsLaunch,
   toSeatsLaunch,
   type SeatLaunchState,
-} from "../src/main/junto/term/seats-launch";
+} from "../src/core/term/seats-launch";
 import {
   forgetRemoteSeatLaunches,
   heldRemoteSeatLaunch,
@@ -22,7 +22,7 @@ import {
   rememberRemoteSeatLaunch,
   remoteSeatLaunch,
   resetRemoteSeatLaunches,
-} from "../src/main/junto/term/remote-seat-launch";
+} from "../src/core/term/remote-seat-launch";
 import { OFFBOARD_MINUTES_MAX } from "../src/shared/seat-offboard";
 
 const NOW = 1_792_000_000_000;

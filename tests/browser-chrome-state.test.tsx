@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { BrowserChromeApi, BrowserChromeState } from "../src/shared/browser-chrome";
 import { initialPageDriving } from "../src/shared/page-driver";
 import { initialPageTabs, reducePageTabs, type PageTabs } from "../src/shared/page-tabs";
-import { useBrowserChromeState } from "../src/renderer/lib/browser-chrome-source";
+import { useBrowserChromeState } from "../src/window/lib/browser-chrome-source";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

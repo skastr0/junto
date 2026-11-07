@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { NeedsYouButton } = await import("../src/renderer/components/feed/NeedsYouButton");
-const { closeOperatorModal, operatorModal$ } = await import("../src/renderer/lib/operator-modal");
-const { focusSwitcher$ } = await import("../src/renderer/lib/focus-switcher");
+const { NeedsYouButton } = await import("../src/window/components/feed/NeedsYouButton");
+const { closeOperatorModal, operatorModal$ } = await import("../src/window/lib/operator-modal");
+const { focusSwitcher$ } = await import("../src/window/lib/focus-switcher");
 
 let root: Root;
 let host: HTMLDivElement;

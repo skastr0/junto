@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { signalWordCount as wordCountOf } from "../src/shared/word-count";
 import { afterEach, vi } from "vitest";
-import { dueWords, handInSignalWork, putSignalSecret, replyRefusalOf, sentenceOf, wordProgressOf, wordProgressWords, workIsDue } from "../src/renderer/lib/signal-work";
+import { dueWords, handInSignalWork, putSignalSecret, replyRefusalOf, sentenceOf, wordProgressOf, wordProgressWords, workIsDue } from "../src/window/lib/signal-work";
 import { artifactLabelsOf } from "../src/shared/artifact-labels";
 import { IPC_CHANNELS, ipcNoAnswerMessage } from "../src/shared/ipc";
 

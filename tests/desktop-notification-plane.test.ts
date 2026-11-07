@@ -6,8 +6,8 @@ import type { BrowserWindow } from "electron";
 import { URGENT_SETTLE_MS, type NotifySubject } from "../src/shared/desktop-notifications";
 import { defaultNotifications } from "../src/shared/settings";
 import { Level } from "../src/shared/wire/urgency";
-import { decodeNotifyReport } from "../src/main/junto/notifications/ipc";
-import { createNotificationPlane, windowAway } from "../src/main/junto/notifications/plane";
+import { decodeNotifyReport } from "../src/app/notifications/ipc";
+import { createNotificationPlane, windowAway } from "../src/app/notifications/plane";
 
 type Banner = {
   readonly options: { id: string; groupId: string; title: string; subtitle?: string; body: string; silent: true };

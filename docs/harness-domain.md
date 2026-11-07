@@ -187,7 +187,7 @@ The harness is one of four authors of facts about a seat. All four write the sam
 |---|---|---|---|
 | harness | the signals above, through the channels below | screen state only | deterministic |
 | seat | the seat's own report: `junto blocked`, `junto escalate`, `junto feedback`, suggested replies | operator feed items | deterministic, self-reported |
-| awareness | Jev classification of a bounded terminal window: 6 `activity.*`, 5 `concern.*`, 9 `health.*` questions (`src/main/junto/term/awareness/questions.ts`), each with its own probability and evidence hash | feed `health` items, advisory display | advisory |
+| awareness | Jev classification of a bounded terminal window: 6 `activity.*`, 5 `concern.*`, 9 `health.*` questions (`src/core/term/awareness/questions.ts`), each with its own probability and evidence hash | feed `health` items, advisory display | advisory |
 | system | process exit, heartbeat stall, delivery receipts | occupancy `stalled`, `gone` | deterministic |
 
 Awareness signals keep their current boundary: they carry `probability`,

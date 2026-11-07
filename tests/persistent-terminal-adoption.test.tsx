@@ -2,13 +2,13 @@
 import { act, useLayoutEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
-import { PersistentTerminalHost } from "../src/renderer/components/terminal/PersistentTerminalHost";
-import { terminal$, registerTerminalSlot } from "../src/renderer/lib/terminal-state";
+import { PersistentTerminalHost } from "../src/window/components/terminal/PersistentTerminalHost";
+import { terminal$, registerTerminalSlot } from "../src/window/lib/terminal-state";
 import { terminal } from "./support/model-nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const opened = vi.hoisted(() => vi.fn());
-vi.mock("../src/renderer/components/terminal/TerminalSurface", () => ({
+vi.mock("../src/window/components/terminal/TerminalSurface", () => ({
   TerminalSurface: () => {
     const ref = useRef<HTMLDivElement>(null);
     useLayoutEffect(() => {

@@ -4,7 +4,7 @@
  * window never knows whether main or a stand-in answers it. Main's side is
  * product-attention's (`sessions.ts`: `takeOver`, `release`, `drivingFor`, and
  * the page's `PageTabs`); the window's is product-modals' (the chrome in
- * `src/renderer/components/browser`).
+ * `src/window/components/browser`).
  *
  * Built on the shared page types: tabs are `PageTabs` (page-tabs.ts), the mark
  * is read from `PageDriving` with `driverMark(state, now)` (page-driver.ts).

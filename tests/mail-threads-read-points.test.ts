@@ -17,7 +17,7 @@ import { makeAgentMessage, makeUserMessage } from "../src/shared/task";
 import { OPERATOR_SEAT_ID } from "../src/shared/work-reference";
 import { ActorSeatId } from "../src/shared/wire/resource-actor";
 import type { Message } from "../src/shared/work-model";
-import { withReadPoints } from "../src/main/junto/work/operator-threads";
+import { withReadPoints } from "../src/core/work/operator-threads";
 
 const SEAT = "seat-1";
 const T0 = Date.UTC(2026, 9, 19, 12);

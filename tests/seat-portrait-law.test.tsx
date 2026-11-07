@@ -10,10 +10,10 @@ import { join } from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ResourceChip, ResourceGlyphMark } from "../src/renderer/components/ui";
-import { mentionMark } from "../src/renderer/components/ui/ResourceChip";
-import { PostText } from "../src/renderer/components/tasks/TaskThread";
-import { RESOURCE_KIND_VISUAL } from "../src/renderer/lib/resource-visuals";
+import { ResourceChip, ResourceGlyphMark } from "../src/window/components/ui";
+import { mentionMark } from "../src/window/components/ui/ResourceChip";
+import { PostText } from "../src/window/components/tasks/TaskThread";
+import { RESOURCE_KIND_VISUAL } from "../src/window/lib/resource-visuals";
 import { mentionLink } from "../src/shared/mention";
 import { asNodeId } from "../src/shared/physics/schema";
 
@@ -89,7 +89,7 @@ describe("seat portrait law", () => {
 
   it("no glyph is named for seats, and the chip never imports the robot", () => {
     expect(RESOURCE_KIND_VISUAL.seat).not.toHaveProperty("glyph");
-    const chip = readFileSync(join(__dirname, "../src/renderer/components/ui/ResourceChip.tsx"), "utf8");
+    const chip = readFileSync(join(__dirname, "../src/window/components/ui/ResourceChip.tsx"), "utf8");
     expect(chip).not.toMatch(/\bBot\b/);
   });
 });

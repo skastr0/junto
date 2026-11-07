@@ -4,13 +4,13 @@ import {
   ManagedTerminalDrive,
   OperatorInterlock,
   encodeBracketedPaste,
-} from "../src/main/junto/term/drive";
-import { isLiveClaudeResumeSummaryChoice } from "../src/main/junto/term/drive/claude-startup";
+} from "../src/core/term/drive";
+import { isLiveClaudeResumeSummaryChoice } from "../src/core/term/drive/claude-startup";
 import {
   claudeRules,
   ruleMatches,
-} from "../src/main/junto/term/agent-state";
-import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
+} from "../src/core/term/agent-state";
+import type { ObserverGridSnapshot } from "../src/core/term/observer/types";
 
 describe("recovery CR (harness-owned selector submit)", () => {
   const drives: ManagedTerminalDrive[] = [];

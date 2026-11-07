@@ -30,9 +30,7 @@ const bundlePreload = async (
       logLevel: "silent",
       resolve: {
         alias: {
-          "@main": resolve(root, "src/main"),
-          "@preload": resolve(root, "src/preload"),
-          "@renderer": resolve(root, "src/renderer"),
+          "@window": resolve(root, "src/window"),
           "@shared": resolve(root, "src/shared"),
           ...overlayAlias(resolveOverlay({})),
         },
@@ -62,11 +60,11 @@ const bundlePreload = async (
 };
 
 describe("sandboxed preload bundle", () => {
-  it("carries only src/preload, src/shared and require(\"electron\")", async () => {
-    const result = await bundlePreload(resolve(root, "src/preload/index.ts"));
+  it("carries only src/window/preload, src/shared and require(\"electron\")", async () => {
+    const result = await bundlePreload(resolve(root, "src/window/preload/index.ts"));
     expect(result.error).toBeUndefined();
     expect(result.refusals).toEqual([]);
-    expect(result.bundled).toContain("src/preload/index.ts");
+    expect(result.bundled).toContain("src/window/preload/index.ts");
     expect(result.external).toEqual(["electron"]);
   }, 60_000);
 
@@ -84,10 +82,10 @@ describe("sandboxed preload bundle", () => {
   }, 60_000);
 
   it("allows the preload's own folders and electron, and nothing else", () => {
-    expect(preloadModuleRefusal(root, resolve(root, "src/preload/index.ts"), false)).toBeUndefined();
+    expect(preloadModuleRefusal(root, resolve(root, "src/window/preload/index.ts"), false)).toBeUndefined();
     expect(preloadModuleRefusal(root, resolve(root, "src/shared/ipc.ts"), false)).toBeUndefined();
     expect(preloadModuleRefusal(root, "electron", true)).toBeUndefined();
-    expect(preloadModuleRefusal(root, resolve(root, "src/main/runtime.ts"), false)).toMatch(/bundles only/);
+    expect(preloadModuleRefusal(root, resolve(root, "src/app/runtime.ts"), false)).toMatch(/bundles only/);
     expect(preloadModuleRefusal(root, resolve(root, "node_modules/ws/index.js"), false)).toMatch(/bundles only/);
     expect(preloadModuleRefusal(root, "ws", true)).toMatch(/may require only/);
     expect(preloadModuleRefusal(root, "effect", true)).toMatch(/^Effect is refused/);

@@ -3,12 +3,12 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect, Schema } from "effect";
 import { expect, it, vi } from "vitest";
-import { startCore } from "../src/main/junto/core";
-import { ModelService } from "../src/main/junto/model/service";
-import { MachineRepository } from "../src/main/junto/machines/repository";
-import { SeatSessionRepository } from "../src/main/junto/seat-sessions/repository";
-import { announceSeatOffboard } from "../src/main/junto/seat-sessions/service";
-import { coldSessionStartsFresh, seatOffboardStatus } from "../src/main/junto/seat-sessions/operator-offboard";
+import { startCore } from "../src/core/core";
+import { ModelService } from "../src/core/model/service";
+import { MachineRepository } from "../src/core/machines/repository";
+import { SeatSessionRepository } from "../src/core/seat-sessions/repository";
+import { announceSeatOffboard } from "../src/core/seat-sessions/service";
+import { coldSessionStartsFresh, seatOffboardStatus } from "../src/core/seat-sessions/operator-offboard";
 import { Command } from "../src/shared/model";
 
 it("a windowless core closes a session on the agent's own offboard, and answers the cut", async () => {

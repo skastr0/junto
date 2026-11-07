@@ -8,7 +8,7 @@ import type { ResourceSubject } from "./wire/thread-subject";
 /**
  * Backlinks over IPC (docs/plans/0.10/03 section 3): where a seat, a task,
  * an artifact or a page is mentioned, newest first, a page at a time. Main
- * reads `work_mentions` (src/main/junto/work/mention-backlinks.ts); the
+ * reads `work_mentions` (src/core/work/mention-backlinks.ts); the
  * window reads only. A mention counts once, where its words were written:
  * notices and copies of a row are not places.
  */

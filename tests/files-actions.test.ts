@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseFilePath, ROOT_PATH, type FilePath } from "../src/shared/files";
-import { folderOfRow, isWithin, moveTargets, rowOf, typedFolder } from "../src/renderer/components/files/files-actions";
+import { folderOfRow, isWithin, moveTargets, rowOf, typedFolder } from "../src/window/components/files/files-actions";
 
 const path = (raw: string): FilePath => parseFilePath(raw)!;
 

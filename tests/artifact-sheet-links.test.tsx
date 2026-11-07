@@ -8,7 +8,7 @@ import type { MentionOf } from "../src/shared/mention";
 import type { SheetGrid } from "../src/shared/model/sheet";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { ItemId } from "../src/shared/work-ids";
-import type { LinkableArtifact } from "../src/renderer/lib/artifact-link-draft";
+import type { LinkableArtifact } from "../src/window/lib/artifact-link-draft";
 
 const { opened, heads, mac } = vi.hoisted(() => {
   globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
@@ -17,19 +17,19 @@ const { opened, heads, mac } = vi.hoisted(() => {
 });
 
 // The link chord is the key table's: Cmd+Enter on macOS, Ctrl+Enter elsewhere.
-vi.mock("../src/renderer/lib/platform", async (actual) => ({
-  ...(await actual<typeof import("../src/renderer/lib/platform")>()),
+vi.mock("../src/window/lib/platform", async (actual) => ({
+  ...(await actual<typeof import("../src/window/lib/platform")>()),
   isMac: () => mac.value,
 }));
-vi.mock("../src/renderer/lib/mention-open", () => ({ openMention: (ref: unknown) => opened.push(ref) }));
-vi.mock("../src/renderer/lib/artifacts-source", () => ({
+vi.mock("../src/window/lib/mention-open", () => ({ openMention: (ref: unknown) => opened.push(ref) }));
+vi.mock("../src/window/lib/artifacts-source", () => ({
   artifactsSource: () => ({
     list: async (_canvas: string, nodeId: string) => await (heads.get(nodeId) ?? []),
     onChanged: () => () => {},
   }),
 }));
 
-const { ArtifactSheetEditor } = await import("../src/renderer/components/artifacts/ArtifactSheetEditor");
+const { ArtifactSheetEditor } = await import("../src/window/components/artifacts/ArtifactSheetEditor");
 
 const shelf = asNodeId("artifacts-shelf");
 const ref = (artifactId: string): MentionOf<"artifact"> => ({ kind: "artifact", nodeId: shelf, artifactId: artifactId as ItemId });

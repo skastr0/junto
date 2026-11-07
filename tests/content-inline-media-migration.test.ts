@@ -8,24 +8,24 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   ContentManifest,
   ContentManifestError,
-} from "../src/main/junto/content/manifest";
+} from "../src/core/content/manifest";
 import {
   WorkContentProjections,
   WorkContentProjectionsLive,
-} from "../src/main/junto/work/repository";
-import { runInlineMediaMigration } from "../src/main/junto/content/inline-media-migration";
-import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
+} from "../src/core/work/repository";
+import { runInlineMediaMigration } from "../src/core/content/inline-media-migration";
+import { unjournaledWorkMutationEffect } from "../src/core/work/mutation-seam";
 import {
   contentObjectPath,
   contentStoreRoot,
-} from "../src/main/junto/content/paths";
+} from "../src/node/content/paths";
 import {
   BACKFILL_INLINE_MEDIA_V1,
   InstallOpsService,
   makeInstallOpsLive,
-} from "../src/main/junto/install-ops/engine";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { OverseerLiveExecution } from "../src/main/junto/overseer/live/execution";
+} from "../src/core/install-ops/engine";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { OverseerLiveExecution } from "../src/core/overseer/live/execution";
 
 const roots: string[] = [];
 const runtimes: Array<ManagedRuntime.ManagedRuntime<any, unknown>> = [];

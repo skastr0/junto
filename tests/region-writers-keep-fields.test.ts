@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { asNodeId, type NodeOf } from "../src/shared/model";
-import { modelStore } from "../src/renderer/lib/use-model";
+import { modelStore } from "../src/window/lib/use-model";
 import { openModelCanvas } from "./support/open-model-canvas";
-import { renameGroup, setNodeColor, setRegionHold } from "../src/renderer/lib/mutations";
-import { state$ } from "../src/renderer/lib/state";
+import { renameGroup, setNodeColor, setRegionHold } from "../src/window/lib/mutations";
+import { state$ } from "../src/window/lib/state";
 
 // A region carrying everything a region can carry. Each writer that edits a
 // region changes its own field and nothing else: a partial edit that dropped

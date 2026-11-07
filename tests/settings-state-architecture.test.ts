@@ -2,7 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { extname, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const rendererRoot = new URL("../src/renderer/", import.meta.url);
+const rendererRoot = new URL("../src/window/", import.meta.url);
 
 const rendererSources = async (
   directory: URL = rendererRoot,
@@ -24,7 +24,7 @@ const rendererSources = async (
 describe("settings state architecture", () => {
   it("keeps the canonical repository on the pure StateEngine seam", async () => {
     const source = await readFile(
-      new URL("../src/main/junto/settings/service.ts", import.meta.url),
+      new URL("../src/core/settings/service.ts", import.meta.url),
       "utf8",
     );
     expect(source).toContain('from "../state/service"');
@@ -36,7 +36,7 @@ describe("settings state architecture", () => {
 
   it("has no local file-store migration or fallback path", async () => {
     const source = await readFile(
-      new URL("../src/main/junto/settings/service.ts", import.meta.url),
+      new URL("../src/core/settings/service.ts", import.meta.url),
       "utf8",
     );
     // Strip comments — prose may say "rename" without a file-store path.
@@ -51,7 +51,7 @@ describe("settings state architecture", () => {
 
   it("stores preferences without creating a second topology authority", async () => {
     const source = await readFile(
-      new URL("../src/main/junto/settings/state-schema.ts", import.meta.url),
+      new URL("../src/core/settings/state-schema.ts", import.meta.url),
       "utf8",
     );
     expect(source).toContain("CREATE TABLE IF NOT EXISTS settings_preferences");
@@ -64,7 +64,7 @@ describe("settings state architecture", () => {
 
   it("joins the aggregate from canonical normalized machine state", async () => {
     const source = await readFile(
-      new URL("../src/main/junto/settings/service.ts", import.meta.url),
+      new URL("../src/core/settings/service.ts", import.meta.url),
       "utf8",
     );
     expect(source).toContain("yield* MachineConfigurationRepository");
@@ -76,7 +76,7 @@ describe("settings state architecture", () => {
 
   it("boots the settings fragment in the sole StateEngine schema", async () => {
     const source = await readFile(
-      new URL("../src/main/junto/state/schema.ts", import.meta.url),
+      new URL("../src/core/state/schema.ts", import.meta.url),
       "utf8",
     );
     expect(source).toContain(
@@ -120,7 +120,7 @@ describe("settings state architecture", () => {
     }
 
     // The react-scan switch stays DEV-gated.
-    const mainSource = await readFile(new URL("../src/renderer/main.tsx", import.meta.url), "utf8");
+    const mainSource = await readFile(new URL("../src/window/main.tsx", import.meta.url), "utf8");
     expect(mainSource).toContain("import.meta.env.DEV");
     expect(executable(mainSource).match(/\blocalStorage\b/gu)).toHaveLength(1);
   });

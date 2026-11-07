@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { expect, it, vi } from "vitest";
-import { startCore } from "../src/main/junto/core";
-import type { OverseerPages } from "../src/main/junto/overseer/pages";
+import { startCore } from "../src/core/core";
+import type { OverseerPages } from "../src/node/overseer/pages";
 
 // The core starts once per process, so the desktop core's overseer is its own file.
 it("composes the overseer and the live overseer in the core, on the page port it is given, and lets them go on close", async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { identityCamera } from "../src/shared/pad-geom";
-import { CAMERA_ZOOM_MAX, wheelCamera } from "../src/renderer/components/pad/pad-editor-model";
+import { CAMERA_ZOOM_MAX, wheelCamera } from "../src/window/components/pad/pad-editor-model";
 
 const wheel = (deltaX: number, deltaY: number, mods: { ctrlKey?: boolean; metaKey?: boolean; deltaMode?: number } = {}) => ({
   deltaX,

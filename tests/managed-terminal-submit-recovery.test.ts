@@ -7,7 +7,7 @@ import {
   OPERATOR_RESIZE_LATCH_MS,
   OperatorInterlock,
   encodeBracketedPaste,
-} from "../src/main/junto/term/drive";
+} from "../src/core/term/drive";
 
 describe("submission recovery ownership", () => {
   const drives: ManagedTerminalDrive[] = [];

@@ -8,8 +8,8 @@ const mocks = vi.hoisted(() => ({
   handles: [] as unknown[],
 }));
 
-vi.mock("../src/main/junto/process-epoch", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/main/junto/process-epoch")>();
+vi.mock("../src/node/process-epoch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/node/process-epoch")>();
   return {
     ...actual,
     captureChildProcessEpoch: (pid: number) => ({
@@ -28,12 +28,12 @@ vi.mock("node:child_process", async (importOriginal) => ({
   spawn: mocks.spawn,
 }));
 
-vi.mock("../src/main/junto/adapters/spawn-env", () => ({
+vi.mock("../src/core/adapters/spawn-env", () => ({
   resolvedSpawnEnv: mocks.resolvedSpawnEnv,
 }));
 
-vi.mock("../src/main/junto/process-signal", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/main/junto/process-signal")>();
+vi.mock("../src/node/process-signal", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/node/process-signal")>();
   return {
     ...actual,
     admitChildProcess: (input: Parameters<typeof actual.admitChildProcess>[0]) => {
@@ -50,8 +50,8 @@ import {
   SERVICE_CHILD_PLANE_QUIESCING_ERROR,
   SERVICE_CHILD_TEARDOWN_PENDING_ERROR,
   spawnServiceChild,
-} from "../src/main/services/process";
-import { signalOwned, type OwnedProcess } from "../src/main/junto/process-signal";
+} from "../src/core/services/process";
+import { signalOwned, type OwnedProcess } from "../src/node/process-signal";
 
 class FakeWritable extends EventEmitter {
   readonly write = vi.fn(() => true);

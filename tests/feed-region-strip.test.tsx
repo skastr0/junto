@@ -2,8 +2,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { FeedRegionChip } from "../src/renderer/lib/operator-feed";
-import { FeedRegionStrip } from "../src/renderer/components/feed/FeedRegionStrip";
+import type { FeedRegionChip } from "../src/window/lib/operator-feed";
+import { FeedRegionStrip } from "../src/window/components/feed/FeedRegionStrip";
 
 let root: Root;
 let host: HTMLDivElement;

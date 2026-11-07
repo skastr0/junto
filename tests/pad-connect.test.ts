@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { asPadElementId, emptyPad, type Pad, type PadShape } from "../src/shared/pad";
-import { connectEdge, portAt, portOf, shapePorts, snapTarget } from "../src/renderer/components/pad/pad-connect";
+import { connectEdge, portAt, portOf, shapePorts, snapTarget } from "../src/window/components/pad/pad-connect";
 import { routeEdge } from "../src/shared/pad-geom";
 
 const shape = (id: string, x: number, y: number, z = 0): PadShape =>

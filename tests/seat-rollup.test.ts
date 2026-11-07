@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { ThreadHealthValue } from "../src/shared/thread-health";
 import { THREAD_HEALTH_TONE, THREAD_HEALTH_VALUES } from "../src/shared/thread-health";
-import { controlFromActivity, seatRollup, worseRollup } from "../src/renderer/lib/seat-rollup";
-import { decodeRollups, encodeRollups, minimapNodeColors, seatRollupsForCanvas } from "../src/renderer/lib/minimap-seat-colors";
+import { controlFromActivity, seatRollup, worseRollup } from "../src/window/lib/seat-rollup";
+import { decodeRollups, encodeRollups, minimapNodeColors, seatRollupsForCanvas } from "../src/window/lib/minimap-seat-colors";
 import { canvasOf, region as regionNode, seat as seatNode, note as noteNode } from "./support/model-nodes";
-import { applySeatAwarenessEvent, resetSeatAwareness } from "../src/renderer/lib/seat-awareness";
-import { HUE, GREEN } from "../src/renderer/lib/theme";
+import { applySeatAwarenessEvent, resetSeatAwareness } from "../src/window/lib/seat-awareness";
+import { HUE, GREEN } from "../src/window/lib/theme";
 import { MemberSeverity } from "../src/shared/region-rollup";
 
 const S = MemberSeverity.group;

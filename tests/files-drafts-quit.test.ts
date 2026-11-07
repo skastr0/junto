@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { IPC_CHANNELS, type JuntoApi } from "../src/shared/ipc";
-import { FILES_DRAFTS_START_TIMEOUT_MS, makeFilesDraftsSettle } from "../src/main/junto/files/drafts-settle";
+import { FILES_DRAFTS_START_TIMEOUT_MS, makeFilesDraftsSettle } from "../src/app/files/drafts-settle";
 
 const electron = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, payload: unknown) => void>(),
@@ -115,7 +115,7 @@ describe("the preload answers the settle ask", () => {
   });
 
   const loadPreload = async (): Promise<JuntoApi> => {
-    await import("../src/preload/index");
+    await import("../src/window/preload/index");
     return electron.exposed.get("junto") as JuntoApi;
   };
   const request = (requestId: string): void =>
@@ -145,7 +145,7 @@ describe("the preload answers the settle ask", () => {
 });
 
 describe("quit and close ask about Files drafts first", () => {
-  const source = readFileSync(join(import.meta.dirname, "..", "src/main/index.ts"), "utf8");
+  const source = readFileSync(join(import.meta.dirname, "..", "src/app/index.ts"), "utf8");
 
   it("asks on the dialog path of a quit, before the live work confirm, and Cancel stops the quit", () => {
     const beforeQuit = source.indexOf('app.on("before-quit"');

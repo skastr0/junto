@@ -2,7 +2,7 @@
 //! owner installs and manages Junto on machines. A seat is refused before
 //! parsing (main.rs). What runs on the target machine's own files, install,
 //! uninstall and a Boat machine's key, is the bundle's Node entry
-//! (src/main/junto/hosts/machine-local.ts); this binary hands those to it.
+//! (src/cli/hosts/machine-local.ts); this binary hands those to it.
 
 use std::io::{IsTerminal, Read};
 use std::os::unix::process::CommandExt;

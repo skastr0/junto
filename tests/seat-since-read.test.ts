@@ -9,7 +9,7 @@
 import { Effect, Schema } from "effect";
 import { ulid } from "ulid";
 import { describe, expect, it } from "vitest";
-import { SINCE_UNAVAILABLE, onboardSinceSection, seatMailboxes } from "../src/main/junto/work/seat-since-read";
+import { SINCE_UNAVAILABLE, onboardSinceSection, seatMailboxes } from "../src/core/work/seat-since-read";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import type { AgentSignal } from "../src/shared/agent-signals";
 import { mailExtensionMetadata } from "../src/shared/crew";

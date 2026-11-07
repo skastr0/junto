@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { BROWSER_ENABLED } from "../src/shared/features";
 import { THIS_MACHINE_CAPABILITIES } from "../src/shared/remote-hosts";
-import { DEFAULT_NODE_CATALOG_ENTRIES } from "../src/renderer/components/node-palette/NodeCatalogGrid";
+import { DEFAULT_NODE_CATALOG_ENTRIES } from "../src/window/components/node-palette/NodeCatalogGrid";
 
 const catalogIds = (): ReadonlyArray<string> =>
   DEFAULT_NODE_CATALOG_ENTRIES.map((entry) => entry.id);
@@ -14,15 +14,15 @@ describe("browser hard product gate", () => {
     () => {
       expect(catalogIds()).not.toContain("page");
 
-      const preload = readFileSync("src/preload/index.ts", "utf8");
-      const main = readFileSync("src/main/index.ts", "utf8");
+      const preload = readFileSync("src/window/preload/index.ts", "utf8");
+      const main = readFileSync("src/app/index.ts", "utf8");
       const cli = readFileSync("src/cli/main.ts", "utf8");
       const canvas = readFileSync(
-        "src/renderer/components/Canvas.tsx",
+        "src/window/components/Canvas.tsx",
         "utf8",
       );
       const linkNode = readFileSync(
-        "src/renderer/components/nodes/LinkNode.tsx",
+        "src/window/components/nodes/LinkNode.tsx",
         "utf8",
       );
       expect(preload).toContain("...(BROWSER_ENABLED ? browserApi : {})");

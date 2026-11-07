@@ -4,12 +4,12 @@ import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { setConfiguredToolDirectories } from "../src/main/junto/shell-environment";
+import { setConfiguredToolDirectories } from "../src/core/shell-environment";
 import {
   probeManagedHarnessInstalls,
   resetManagedHarnessInstallCacheForTests,
   resolveHarnessExecutable,
-} from "../src/main/junto/term/templates/harness-install";
+} from "../src/core/term/templates/harness-install";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();

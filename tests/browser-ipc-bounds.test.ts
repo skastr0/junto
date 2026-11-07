@@ -5,13 +5,13 @@ import { BROWSER_MAX_REF_BYTES } from "../src/shared/browser-limits";
 import {
   browserProfileWipeDialogOptions,
   registerBrowserIpc,
-} from "../src/main/junto/browser/ipc";
-import type { PageTargetResolver } from "../src/main/junto/browser/page-target";
+} from "../src/app/browser/ipc";
+import type { PageTargetResolver } from "../src/core/browser/page-target";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
-} from "../src/main/junto/browser/sessions";
-import type { BrowserProfileServiceApi } from "../src/main/junto/browser/profiles";
+} from "../src/app/browser/sessions";
+import type { BrowserProfileServiceApi } from "../src/node/browser/profiles";
 import { localBrowserTestMachineName } from "./browser-test-machine";
 
 type InvokeHandler = (event: unknown, ...args: ReadonlyArray<unknown>) => unknown;

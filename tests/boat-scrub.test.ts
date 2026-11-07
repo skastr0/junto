@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { scrubMessage } from "../src/main/junto/credentials/scrub";
+import { scrubMessage } from "../src/node/credentials/scrub";
 import { isLogIdAnnotation } from "../src/shared/machine-log";
 
 // The measured shape: `boat_` and 64 base64url characters; a minted key may carry "-".

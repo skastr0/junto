@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const recoverySource = new URL(
-  "../src/main/junto/state/recovery.ts",
+  "../src/core/state/recovery.ts",
   import.meta.url,
 );
 

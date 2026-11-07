@@ -23,7 +23,7 @@ import {
   makeManagedSpawnIntent,
   planFreshManagedSpawnIntent,
   planManagedSpawn,
-} from "../src/main/junto/term/managed-spawn-plan";
+} from "../src/core/term/managed-spawn-plan";
 
 const SESSION = "11111111-2222-4333-8444-555555555555";
 const REGION_BRIEFING = "REGION-BRIEFING-CANARY ship the region";

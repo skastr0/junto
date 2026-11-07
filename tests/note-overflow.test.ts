@@ -25,7 +25,7 @@ vi.stubGlobal(
   },
 );
 
-const { watchNoteOverflow } = await import("../src/renderer/lib/note-overflow");
+const { watchNoteOverflow } = await import("../src/window/lib/note-overflow");
 
 /** A note box of `client` px holding text `scroll` px tall, with one block. */
 const note = (client: number, scroll: number) => {
@@ -77,7 +77,7 @@ it("follows the box and the blocks inside it, and lets go on release", () => {
 });
 
 it("fades exactly one line, at the bottom, and only on a marked note", () => {
-  const css = readFileSync(join(__dirname, "../src/renderer/styles.css"), "utf8");
+  const css = readFileSync(join(__dirname, "../src/window/styles.css"), "utf8");
   expect(css).toMatch(/\.note-md\[data-overflows\] \{\s*mask-image: linear-gradient\(to bottom, var\(--color-ground\) calc\(100% - 1lh\), transparent\);\s*\}/);
   // No other rule masks a note.
   expect(css.match(/\.note-md[^{]*\{[^}]*mask-image/g)).toHaveLength(1);

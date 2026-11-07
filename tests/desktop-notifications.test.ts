@@ -26,7 +26,7 @@ import {
   defaultSettings,
   notificationSettings,
 } from "../src/shared/settings";
-import { decodeStoredSettings, preferencesFromSettings } from "../src/main/junto/settings/state-schema";
+import { decodeStoredSettings, preferencesFromSettings } from "../src/core/settings/state-schema";
 
 const prefs = defaultNotifications();
 

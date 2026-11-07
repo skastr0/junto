@@ -11,9 +11,9 @@ import {
   marks,
   type HarnessGlyph,
   type MarksService,
-} from "../src/renderer/lib/harness-icons";
-import { PROVIDER_MARKS } from "../src/renderer/lib/provider-marks.generated";
-import { DIM, INK } from "../src/renderer/lib/theme";
+} from "../src/window/lib/harness-icons";
+import { PROVIDER_MARKS } from "../src/window/lib/provider-marks.generated";
+import { DIM, INK } from "../src/window/lib/theme";
 import { HARNESS_IDS } from "../src/shared/managed-terminal-templates";
 
 describe("PROVIDER_MARKS (generated table integrity)", () => {

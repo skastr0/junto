@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createTrustedRendererNavigation } from "../src/main/junto/trusted-renderer-navigation";
+import { createTrustedRendererNavigation } from "../src/app/trusted-renderer-navigation";
 
 const trustedUrl = "http://localhost:5173/";
 

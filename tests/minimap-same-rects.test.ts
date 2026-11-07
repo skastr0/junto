@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sameRects, type MinimapNodeRect } from "../src/renderer/components/FactoryMinimap";
+import { sameRects, type MinimapNodeRect } from "../src/window/components/FactoryMinimap";
 import { RegionUrgency } from "../src/shared/wire/urgency";
 
 const blocked = RegionUrgency.group.blocked;

@@ -20,7 +20,7 @@ pinned so a renderer re-roll never moves them) live in
 | --- | --- | --- |
 | macOS icon | `build/icon.icns` (light), `build/icon-light.icns`, `build/icon-dark.icns` | `brand-export.ts icon` |
 | Linux icon, README | `assets/brand/junto-icon.png` (1024, light) | `brand-export.ts icon` |
-| Renderer copy | `src/renderer/assets/brand/junto-icon.png` (256, light) | `brand-export.ts icon` |
+| Renderer copy | `src/window/assets/brand/junto-icon.png` (256, light) | `brand-export.ts icon` |
 | DMG background | `build/dmg-background.png`, `build/dmg-background@2x.png` | `brand-export.ts dmg` |
 | Election board | `docs/brand/mascot-election.png` | `brand-export.ts board` |
 

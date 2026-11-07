@@ -6,7 +6,7 @@ import {
   declareMachineCoreOwnsSessions,
   launchForManagedSpawn,
   shouldAvoidSharedHarnessResume,
-} from "../src/main/junto/term/managed-spawn-plan";
+} from "../src/core/term/managed-spawn-plan";
 
 describe("isolated JUNTO_HOME that owns its sessions", () => {
   it("still refuses shared resume by default", () => {
@@ -45,7 +45,7 @@ describe("a machine core's home", () => {
   });
 
   it("is declared owned by the machine entry before the core starts", () => {
-    const entry = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../src/main/headless.ts"), "utf8");
+    const entry = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../src/core/headless.ts"), "utf8");
     const declared = entry.indexOf("declareMachineCoreOwnsSessions(process.env)");
     expect(declared).toBeGreaterThan(-1);
     expect(declared).toBeLessThan(entry.indexOf("await startCore("));

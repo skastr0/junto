@@ -7,11 +7,11 @@ import {
   resourceMentionCandidates,
   type LinkedText,
   type MentionPlace,
-} from "../src/main/junto/work/authz";
-import { ArtifactRepository } from "../src/main/junto/work/artifact-repository";
-import { linkMentionsAt } from "../src/main/junto/work/mention-links";
-import { TaskRepository } from "../src/main/junto/work/task-repository";
-import { resourceNodesInReach } from "../src/renderer/lib/mention-sources";
+} from "../src/core/work/authz";
+import { ArtifactRepository } from "../src/core/work/artifact-repository";
+import { linkMentionsAt } from "../src/core/work/mention-links";
+import { TaskRepository } from "../src/core/work/task-repository";
+import { resourceNodesInReach } from "../src/window/lib/mention-sources";
 import type { Canvas } from "../src/shared/model";
 import { mentionLink, type MentionRef } from "../src/shared/mention";
 import { asNodeId } from "../src/shared/physics/schema";

@@ -8,38 +8,38 @@ import { SqlClient } from "effect/sql";
 import { afterEach, expect, it, vi } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { Command } from "../src/shared/model";
-import { ModelService } from "../src/main/junto/model/service";
-import { ModelDependents } from "../src/main/junto/model/dependents";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../src/main/junto/seat-sessions/repository";
-import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { ActorSeatOccupy, type ActorOccupySpec } from "../src/main/junto/term/actor-seat-occupy";
-import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
-import { launchForManagedSpawnIntent } from "../src/main/junto/term/managed-spawn-plan";
+import { ModelService } from "../src/core/model/service";
+import { ModelDependents } from "../src/core/model/dependents";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../src/core/seat-sessions/repository";
+import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
+import { ActorSeatOccupy, type ActorOccupySpec } from "../src/core/term/actor-seat-occupy";
+import { TerminalNodeDeleteService } from "../src/core/term/node-delete";
+import { launchForManagedSpawnIntent } from "../src/core/term/managed-spawn-plan";
 import { seat } from "./support/model-nodes";
 import { managedHarnessEnabled } from "../src/shared/managed-terminal-templates";
 import { InstallationId } from "../src/shared/installation-id";
-import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
-import { ensureManagedSeatRunning } from "../src/main/junto/term/ensure-managed-seat";
-import { termPlane } from "../src/main/junto/term/plane";
+import { deriveActorSeatId } from "../src/core/actor-seat-id";
+import { ensureManagedSeatRunning } from "../src/core/term/ensure-managed-seat";
+import { termPlane } from "../src/core/term/plane";
 
 const app = vi.hoisted(() => ({ runPromise: vi.fn(), runPromiseExit: vi.fn() }));
 // Spread the real module: a later export must not break this file at load.
-vi.mock("../src/main/core-runner", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/main/core-runner")>()),
+vi.mock("../src/core/core-runner", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/core/core-runner")>()),
   coreRunner: app,
   installCoreReads: vi.fn(),
 }));
-vi.mock("../src/main/runtime", () => ({ AppRuntime: app }));
+vi.mock("../src/app/runtime", () => ({ AppRuntime: app }));
 vi.mock("node:crypto", async (original) => {
   const actual = await original<typeof import("node:crypto")>();
   return { ...actual, randomUUID: vi.fn(actual.randomUUID) };
 });
-import { registerTerminalIpc } from "../src/main/junto/term/ipc";
-import { bindTermIpcPlane } from "../src/main/core-process/ops/term-ipc";
-import "../src/main/core-process/ops/term-ipc";
-import { ensureSeatSessionId } from "../src/main/junto/term/seat-session-before-start";
-import { useCoreClient } from "../src/main/core-process/main-client";
+import { registerTerminalIpc } from "../src/app/term/ipc";
+import { bindTermIpcPlane } from "../src/core/ops/term-ipc";
+import "../src/core/ops/term-ipc";
+import { ensureSeatSessionId } from "../src/core/term/seat-session-before-start";
+import { useCoreClient } from "../src/app/core-process/main-client";
 import { inProcessCore } from "./support/in-process-core";
 
 // Main runs no operation body: the test installs the core the app installs at

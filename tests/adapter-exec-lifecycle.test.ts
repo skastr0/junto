@@ -145,7 +145,7 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
 
   it("delegates group spawn and all OS lifecycle authority to appProcessPlane", () => {
     const source = readFileSync(
-      join(import.meta.dirname, "..", "src/main/junto/adapters/exec.ts"),
+      join(import.meta.dirname, "..", "src/core/adapters/exec.ts"),
       "utf8",
     );
     expect(source).toContain("appProcessPlane.spawnGroup({");
@@ -160,11 +160,11 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
 
   it("drains adapters in the core's close, the one process that spawns them", () => {
     const indexSource = readFileSync(
-      join(import.meta.dirname, "..", "src/main/index.ts"),
+      join(import.meta.dirname, "..", "src/app/index.ts"),
       "utf8",
     );
     const coreSource = readFileSync(
-      join(import.meta.dirname, "..", "src/main/junto/core.ts"),
+      join(import.meta.dirname, "..", "src/core/core.ts"),
       "utf8",
     );
     const closeBlock = coreSource.slice(coreSource.indexOf("const close = (cause"));
@@ -190,7 +190,7 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
       /relaunchInstalled: \(executablePath\) => \{\s*skipQuitConfirm = true;\s*runtimeDisposed = true;\s*app\.relaunch\(\{ execPath: executablePath, args: \[\] \}\);\s*app\.exit\(0\);/u,
     );
     const linuxUpdateSource = readFileSync(
-      join(import.meta.dirname, "..", "src/main/junto/update/linux.ts"),
+      join(import.meta.dirname, "..", "src/app/update/linux.ts"),
       "utf8",
     );
     expect(linuxUpdateSource).toMatch(

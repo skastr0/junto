@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Builds the Junto kit (src/renderer/kit) into dist/kit as a package the
+// Builds the Junto kit (src/window/kit) into dist/kit as a package the
 // website and docs install: an ES module, one stylesheet that also works in
 // a shadow root, and declarations. bun run kit:build
 //

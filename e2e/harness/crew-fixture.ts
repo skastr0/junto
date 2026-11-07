@@ -8,7 +8,7 @@ import { readSeatMailbox } from "./work-mail";
  * `[fake-tui]` in its title and evidence. The fake is a `codex` binary
  * planted on the sandbox PATH ahead of the fakes dir: it paints the exact
  * screens the codex seat-state rule pack classifies
- * (src/main/junto/term/agent-state/rules/codex.ts), echoes PTY
+ * (src/core/term/agent-state/rules/codex.ts), echoes PTY
  * input the way a real composer does, and proxies REAL work-control
  * operations over the app's Unix control socket with the seat's own
  * injected env (process-bind admission — the same path a registered

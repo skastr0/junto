@@ -2,11 +2,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultSettings } from "@shared/settings";
 import { resolveKey, type KeyContext, type KeySituation } from "../src/shared/key-table";
-import { registerFileEditorSave, saveFileInFront } from "../src/renderer/lib/file-editor-keys";
-import { KEY_ACTIONS } from "../src/renderer/lib/key-actions";
-import { dispatchKey } from "../src/renderer/lib/key-dispatcher";
-import { registerQuickOpenHost, toggleQuickOpenFor } from "../src/renderer/lib/quick-open-host";
-import { state$ } from "../src/renderer/lib/state";
+import { registerFileEditorSave, saveFileInFront } from "../src/window/lib/file-editor-keys";
+import { KEY_ACTIONS } from "../src/window/lib/key-actions";
+import { dispatchKey } from "../src/window/lib/key-dispatcher";
+import { registerQuickOpenHost, toggleQuickOpenFor } from "../src/window/lib/quick-open-host";
+import { state$ } from "../src/window/lib/state";
 
 const key = (over: Partial<KeyboardEvent> & { key: string }) => ({
   metaKey: false,

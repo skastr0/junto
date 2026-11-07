@@ -1,5 +1,5 @@
 import { Cause, Effect, Exit, Option, Schema } from "effect";
-import { SeatStateMachine } from "../src/main/junto/term/agent-state";
+import { SeatStateMachine } from "../src/core/term/agent-state";
 import { SeatReadResult } from "../src/shared/seat-control";
 import { describe, expect, it } from "vitest";
 import type { Canvas, Node, Wire } from "../src/shared/model";
@@ -8,8 +8,8 @@ import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import type {
   ObserverGridSnapshot,
   ObserverGridWindow,
-} from "../src/main/junto/term/observer";
-import { makeSeatObservation } from "../src/main/junto/work/seat-observation";
+} from "../src/core/term/observer";
+import { makeSeatObservation } from "../src/core/work/seat-observation";
 
 // Independent adversarial seam tests for the seat wait/observe contract
 // (historical crew contract, deleted by operator ruling 2026-09-16). The service's own rules: authority is re-derived

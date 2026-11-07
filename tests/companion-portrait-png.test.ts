@@ -1,6 +1,6 @@
 import { inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { rasterizePortraitSvg } from "../src/main/junto/companion/portrait-png";
+import { rasterizePortraitSvg } from "../src/node/companion/portrait-png";
 import { companionPortraitSvg } from "../src/shared/companion-portrait";
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];

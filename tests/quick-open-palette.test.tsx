@@ -2,9 +2,9 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { QuickOpen } from "../src/renderer/components/quick-open/QuickOpen";
-import { itemsQuickOpen, QUICK_OPEN_WORDS, type QuickOpenItem, type QuickOpenSource } from "../src/renderer/lib/quick-open";
-import { isModalLayerOpen } from "../src/renderer/lib/modal-stack";
+import { QuickOpen } from "../src/window/components/quick-open/QuickOpen";
+import { itemsQuickOpen, QUICK_OPEN_WORDS, type QuickOpenItem, type QuickOpenSource } from "../src/window/lib/quick-open";
+import { isModalLayerOpen } from "../src/window/lib/modal-stack";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

@@ -8,10 +8,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { OPERATOR_PROTOCOL_VERSION } from "../src/shared/operator-control";
-import { MachinesWindow } from "../src/renderer/components/machines/MachinesWindow";
-import { ConfirmHost } from "../src/renderer/components/ConfirmHost";
-import { machines$, refreshMachines } from "../src/renderer/lib/machines-actions";
-import { state$ } from "../src/renderer/lib/state";
+import { MachinesWindow } from "../src/window/components/machines/MachinesWindow";
+import { ConfirmHost } from "../src/window/components/ConfirmHost";
+import { machines$, refreshMachines } from "../src/window/lib/machines-actions";
+import { state$ } from "../src/window/lib/state";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 
 vi.hoisted(() => {

@@ -20,10 +20,10 @@ import {
   STATE_SCHEMA_V57_IDENTITY,
   migrateStateSchema,
   type StateSchemaMigrationPlan,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V56_SQL, STATE_SCHEMA_V57_SQL } from "./fixtures/state-v13/schema";
-import { MACHINE_CODE_ALLOWANCE_TABLES } from "../src/main/junto/automation/code-allowance-schema";
+import { MACHINE_CODE_ALLOWANCE_TABLES } from "../src/core/automation/code-allowance-schema";
 
 /** A version-56 database, fresh and in memory. */
 const openAt56 = (): DatabaseSync => {

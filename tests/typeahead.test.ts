@@ -3,7 +3,7 @@ import {
   TYPEAHEAD_EXPIRY_MS,
   typeaheadAccept,
   typeaheadIndex,
-} from "../src/renderer/lib/typeahead";
+} from "../src/window/lib/typeahead";
 
 const empty = { text: "", at: 0 };
 

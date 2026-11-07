@@ -11,8 +11,8 @@ import {
   holdFeedPlaces,
   reconcileSelection,
   viewFeedSections,
-} from "../src/renderer/lib/operator-feed";
-import { mergedQuickReplies, moveQuickReply, quickReplyForKey } from "../src/renderer/lib/quick-replies";
+} from "../src/window/lib/operator-feed";
+import { mergedQuickReplies, moveQuickReply, quickReplyForKey } from "../src/window/lib/quick-replies";
 
 const item = (itemId: string): FeedItem => ({
   itemId,

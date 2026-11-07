@@ -7,7 +7,7 @@
  * - the read contract: what the renderer may ask main for, and what comes
  *   back. Main runs the same detection on the stored text and serves only
  *   the paths it finds there, so the renderer cannot ask for an arbitrary
- *   file (see `src/main/junto/preview/read.ts`).
+ *   file (see `src/app/preview/read.ts`).
  */
 
 export type PreviewKind = "image" | "video" | "text" | "file" | "compare" | "commit" | "link";

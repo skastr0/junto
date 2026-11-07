@@ -16,7 +16,7 @@ import { workControlDir, workControlSocketPath } from "../src/shared/work-contro
 import {
   createAppProcessPlane,
   type AppProcessLease,
-} from "../src/main/junto/app-process-plane";
+} from "../src/node/app-process-plane";
 import {
   assertNoTcpListeners,
   descendantRows,

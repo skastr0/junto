@@ -1,5 +1,5 @@
 /**
- * The kit (src/renderer/kit) is what the website and docs draw seats with.
+ * The kit (src/window/kit) is what the website and docs draw seats with.
  * It must never reach the app: no store, no canvas camera, no IPC. Bundles
  * its real import graph (type imports drop out, as in a build) and fails on
  * the first module that would.
@@ -12,11 +12,11 @@ import { describe, expect, it } from "vitest";
 const root = resolve(__dirname, "..");
 
 const FORBIDDEN_PACKAGES = [/^@legendapp\/state/, /^@xyflow\//, /^electron$/];
-const FORBIDDEN_MODULES = ["src/renderer/lib/state.ts", "src/renderer/lib/junto-api.ts"];
+const FORBIDDEN_MODULES = ["src/window/lib/state.ts", "src/window/lib/junto-api.ts"];
 /** What the kit may ask its host for; everything else is bundled in. */
 const PEERS = ["react", "react-dom", "react/jsx-runtime", "lucide-react", "effect", "ulid"];
 
-const kitGraph = async (entry = "src/renderer/kit/index.ts"): Promise<Metafile> => {
+const kitGraph = async (entry = "src/window/kit/index.ts"): Promise<Metafile> => {
   const result = await build({
     absWorkingDir: root,
     entryPoints: [entry],
@@ -37,7 +37,7 @@ describe("kit purity", () => {
   it("reaches no store, camera or IPC, and asks its host only for its peers", async () => {
     const graph = await kitGraph();
     const modules = Object.keys(graph.inputs);
-    expect(modules).toContain("src/renderer/kit/index.ts");
+    expect(modules).toContain("src/window/kit/index.ts");
     expect(modules.filter((path) => FORBIDDEN_MODULES.includes(path))).toEqual([]);
 
     const packages = new Set<string>();
@@ -54,14 +54,14 @@ describe("kit purity", () => {
 
   it("builds utilities for every kit module: kit.css names each one as a Tailwind source", async () => {
     const graph = await kitGraph();
-    const sheet = readFileSync(resolve(root, "src/renderer/kit/kit.css"), "utf8");
-    const sources = new Set([...sheet.matchAll(/@source "\.\.\/([^"]+)";/g)].map((match) => `src/renderer/${match[1]!}`));
+    const sheet = readFileSync(resolve(root, "src/window/kit/kit.css"), "utf8");
+    const sources = new Set([...sheet.matchAll(/@source "\.\.\/([^"]+)";/g)].map((match) => `src/window/${match[1]!}`));
     const views = Object.keys(graph.inputs).filter((path) => path.endsWith(".tsx"));
     expect(views.filter((path) => !sources.has(path))).toEqual([]);
   });
 
   it("keeps the learn entry free of views: effect is all it asks for", async () => {
-    const graph = await kitGraph("src/renderer/kit/learn.ts");
+    const graph = await kitGraph("src/window/kit/learn.ts");
     const packages = new Set(Object.values(graph.inputs).flatMap((input) => input.imports.filter((i) => i.external && !i.path.startsWith(".")).map((i) => i.path)));
     expect([...packages].filter((name) => name !== "effect" && !name.startsWith("effect/"))).toEqual([]);
     expect(Object.keys(graph.inputs).filter((path) => path.endsWith(".tsx") || path.endsWith(".css"))).toEqual([]);

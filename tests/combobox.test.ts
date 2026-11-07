@@ -3,7 +3,7 @@ import {
   comboboxKeyIntent,
   ghostSuffix,
   type ComboboxKeyState,
-} from "../src/renderer/lib/combobox";
+} from "../src/window/lib/combobox";
 
 describe("ghostSuffix", () => {
   const base = {

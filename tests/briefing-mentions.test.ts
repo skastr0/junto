@@ -6,9 +6,9 @@
 import { Effect, Layer, Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { briefingItemKind, briefingLinksOf, briefingMentionOf, BriefingMentions } from "../src/shared/briefing-mentions";
-import { briefingMentionsOn } from "../src/main/junto/references/briefing-mentions";
-import { ArtifactRepository } from "../src/main/junto/work/artifact-repository";
-import { TaskRepository } from "../src/main/junto/work/task-repository";
+import { briefingMentionsOn } from "../src/core/references/briefing-mentions";
+import { ArtifactRepository } from "../src/core/work/artifact-repository";
+import { TaskRepository } from "../src/core/work/task-repository";
 import type { Canvas } from "../src/shared/model";
 import { artifacts, files, page, region, seat, taskBoard, wire } from "./support/model-nodes";
 import { asNodeId } from "../src/shared/model/base";

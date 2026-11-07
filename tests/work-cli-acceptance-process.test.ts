@@ -7,7 +7,7 @@ import {
   createAppProcessPlane,
   type AppProcessLease,
   type AppProcessPlane,
-} from "../src/main/junto/app-process-plane";
+} from "../src/node/app-process-plane";
 import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import {

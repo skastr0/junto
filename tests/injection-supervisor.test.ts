@@ -3,9 +3,9 @@ import {
   InjectionSupervisor,
   type ComposerLookup,
   type NoticeWriter,
-} from "../src/main/junto/term/injection-supervisor";
+} from "../src/core/term/injection-supervisor";
 import { buildOnboardNudge } from "../src/shared/managed-terminal-injection";
-import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
+import type { ObserverGridSnapshot } from "../src/core/term/observer/types";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import type { SeatOnboardingEvent } from "../src/shared/seat-onboarding-status";
 

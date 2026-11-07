@@ -9,9 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { AgentSignalRepository, AgentSignalRepositoryLive } from "../src/main/junto/signals/repository";
-import { onAgentSignalChanged } from "../src/main/junto/signals/changes";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { AgentSignalRepository, AgentSignalRepositoryLive } from "../src/core/signals/repository";
+import { onAgentSignalChanged } from "../src/core/signals/changes";
 import { artifactLabelOf } from "../src/shared/artifact-labels";
 
 let root: string;

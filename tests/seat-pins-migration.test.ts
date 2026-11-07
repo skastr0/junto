@@ -17,9 +17,9 @@ import {
   STATE_SCHEMA_V19_IDENTITY,
   STATE_SCHEMA_V20_IDENTITY,
   migrateStateSchema,
-} from "../src/main/junto/state/migrations";
-import { notesPathAtVersion20 } from "../src/main/junto/state/migrate-seat-pins";
-import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { notesPathAtVersion20 } from "../src/core/state/migrate-seat-pins";
+import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V19_SQL, STATE_SCHEMA_V20_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;

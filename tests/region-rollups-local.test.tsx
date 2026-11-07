@@ -5,9 +5,9 @@ import { expect, it, vi } from "vitest";
 import { THIS_MACHINE } from "./support/machines";
 import { Schema } from "effect";
 import { Node, asCanvasName, type Changed, type Opened } from "../src/shared/model";
-import { useRegionRollups } from "../src/renderer/lib/region-rollups";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { state$ } from "../src/renderer/lib/state";
+import { useRegionRollups } from "../src/window/lib/region-rollups";
+import { modelStore } from "../src/window/lib/use-model";
+import { state$ } from "../src/window/lib/state";
 
 it("derives rollups locally, and reads no rollup and no old work store after model commands", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);

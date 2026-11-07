@@ -1,9 +1,9 @@
 import { makeThisMachine } from "../src/shared/remote-hosts";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { Effect, Scope } from "effect";
-import { hostsSnapshot, setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
-import { LocalSessionHost } from "../src/main/junto/term/local-host";
-import { TerminalRouter } from "../src/main/junto/term/router";
+import { hostsSnapshot, setHostsSnapshot } from "../src/core/hosts/snapshot";
+import { LocalSessionHost } from "../src/core/term/local-host";
+import { TerminalRouter } from "../src/core/term/router";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const initialHosts = hostsSnapshot();

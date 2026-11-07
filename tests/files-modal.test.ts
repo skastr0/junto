@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/physics/schema";
 import { parseFilePath, ROOT_PATH, type FileEntry, type FilePath } from "../src/shared/files";
-import { expandedAfter, fileOfSelection, folderOps, movedPath, treePathOf } from "../src/renderer/components/files/files-tree";
-import { changeTouches, dirtyPaths, fileDraft, fileViewOf, filesErrorLine, foldersTouched, makeLocalFiles, setFileDraft } from "../src/renderer/lib/files-source";
+import { expandedAfter, fileOfSelection, folderOps, movedPath, treePathOf } from "../src/window/components/files/files-tree";
+import { changeTouches, dirtyPaths, fileDraft, fileViewOf, filesErrorLine, foldersTouched, makeLocalFiles, setFileDraft } from "../src/window/lib/files-source";
 
 const node = asNodeId("files-test");
 const ref = { canvas: "c", node };

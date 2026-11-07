@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Seat } from "../src/shared/model";
 import { seat } from "./support/model-nodes";
-import type { SeatGroup } from "../src/renderer/lib/seat-line";
-import { seatUrgencyOrder } from "../src/renderer/lib/urgency-order";
+import type { SeatGroup } from "../src/window/lib/seat-line";
+import { seatUrgencyOrder } from "../src/window/lib/urgency-order";
 import { SeatUrgency } from "../src/shared/wire/urgency";
 
 const agent = (id: string, name: string): Seat => seat(id, { label: name as never });

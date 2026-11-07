@@ -1,9 +1,9 @@
 import { PassThrough } from "node:stream";
 import { Effect, Schema } from "effect";
 import { afterEach, expect, it, vi } from "vitest";
-import { LinkBuildMismatch, makeLinkSession, type LinkSessionOptions } from "../src/main/junto/link/session";
-import { LinkHelloSchema, decodeLinkFrame } from "../src/main/junto/link/protocol";
-import { linkClosed, LinkPeerNotPinned, LinkRequestFailed, type LinkChannelContext, type LinkChannelHandler, type LinkHello, type LinkSession } from "../src/main/junto/link/types";
+import { LinkBuildMismatch, makeLinkSession, type LinkSessionOptions } from "../src/core/link/session";
+import { LinkHelloSchema, decodeLinkFrame } from "../src/core/link/protocol";
+import { linkClosed, LinkPeerNotPinned, LinkRequestFailed, type LinkChannelContext, type LinkChannelHandler, type LinkHello, type LinkSession } from "../src/core/link/types";
 
 const sessions: LinkSession[] = [];
 afterEach(async () => { await Promise.all(sessions.splice(0).map(session => session.close())); });

@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { OverseerMark } from "../src/renderer/components/OverseerMark";
+import { OverseerMark } from "../src/window/components/OverseerMark";
 
 describe("OverseerMark", () => {
   it("reads OVERSEER in indigo, never amber or crimson", () => {

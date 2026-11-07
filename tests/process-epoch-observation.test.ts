@@ -15,8 +15,8 @@ import {
   type ProcessEpochPsRequest,
   type ProcessEpochPsResult,
   type ProcessEpochRow,
-} from "../src/main/junto/process-epoch";
-import { resolveSystemPs } from "../src/main/junto/platform-executables";
+} from "../src/node/process-epoch";
+import { resolveSystemPs } from "../src/node/platform-executables";
 
 const START = "Wed Jul 22 04:36:13 2026";
 const RESTARTED = "Thu Jul 23 11:02:44 2026";

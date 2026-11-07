@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { FilesChanged, FilesNodeRef, FilesResult } from "../src/shared/files";
 import { asNodeId } from "../src/shared/physics/schema";
-import { makeFilesRouter, type FilesRemotePort } from "../src/main/junto/files/router";
-import type { FilesService } from "../src/main/junto/files/service";
+import { makeFilesRouter, type FilesRemotePort } from "../src/core/files/router";
+import type { FilesService } from "../src/core/files/service";
 
 const HERE = "studio";
 const here: FilesNodeRef = { canvas: "c", node: asNodeId("files-here") };

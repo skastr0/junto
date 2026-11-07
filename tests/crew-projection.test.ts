@@ -4,12 +4,12 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 import { afterEach, describe, expect, it } from "vitest";
-import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
+import { ModelActorRefs } from "../src/core/model/actor-refs";
 import { ModelStoresLive, readSeeded, seedCanvas } from "./support/seed-canvas";
 import { seat, wire } from "./support/model-nodes";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { mailboxMessageDeliveryId, mailboxMessageReactId, mailboxMessageReadId } from "../src/main/junto/work/mailbox-receipts";
-import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { mailboxMessageDeliveryId, mailboxMessageReactId, mailboxMessageReadId } from "../src/core/work/mailbox-receipts";
+import { WorkRepository, WorkRepositoryLive } from "../src/core/work/repository";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import { THIS_MACHINE } from "./support/machines";
 

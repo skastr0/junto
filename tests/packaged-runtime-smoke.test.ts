@@ -12,8 +12,8 @@ const processMocks = vi.hoisted(() => ({
   releaseOwned: vi.fn(),
 }));
 
-vi.mock("../src/main/junto/process-signal", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/main/junto/process-signal")>()),
+vi.mock("../src/node/process-signal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/node/process-signal")>()),
   spawnDetachedProcessGroup: processMocks.spawnDetachedProcessGroup,
   signalOwned: processMocks.signalOwned,
   releaseOwned: processMocks.releaseOwned,
@@ -41,12 +41,12 @@ import {
 import {
   createAppProcessPlane,
   type AppProcessLease,
-} from "../src/main/junto/app-process-plane";
+} from "../src/node/app-process-plane";
 import {
   captureProcessGroupEpoch,
   setProcessEpochReaderForTests,
   type ProcessEpochRow,
-} from "../src/main/junto/process-epoch";
+} from "../src/node/process-epoch";
 
 class FakeRuntimeChild extends EventEmitter {
   readonly stdin = new PassThrough();

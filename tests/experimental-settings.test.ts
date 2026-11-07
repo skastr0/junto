@@ -13,10 +13,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Effect, Layer, ManagedRuntime, Result } from "effect";
 import { applySettingsPatch, defaultSettings } from "../src/shared/settings";
-import { applyAndValidatePatch, decodePatchInput } from "../src/main/junto/settings/patch";
-import { SettingsLive, SettingsService } from "../src/main/junto/settings/service";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { seatAwarenessEnrolled } from "../src/main/junto/term/seat-awareness";
+import { applyAndValidatePatch, decodePatchInput } from "../src/core/settings/patch";
+import { SettingsLive, SettingsService } from "../src/core/settings/service";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { seatAwarenessEnrolled } from "../src/core/term/seat-awareness";
 import { SEAT_AWARENESS_TIER } from "../src/shared/features";
 
 const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(effect);

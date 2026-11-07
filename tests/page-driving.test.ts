@@ -9,8 +9,8 @@ import { DRIVER_RECENT_MS, initialPageDriving, reducePageDriving } from "../src/
 import type { BrowserChromeState } from "../src/shared/browser-chrome";
 import type { BrowserSessionInfo } from "../src/shared/ipc";
 import { initialPageTabs } from "../src/shared/page-tabs";
-import { browser$ } from "../src/renderer/lib/browser-state";
-import { applyPageDriving, pageDriving$, refreshPageDriving, subscribePageDriving } from "../src/renderer/lib/page-driving";
+import { browser$ } from "../src/window/lib/browser-state";
+import { applyPageDriving, pageDriving$, refreshPageDriving, subscribePageDriving } from "../src/window/lib/page-driving";
 
 const REF = "junto://canvas/work?node=p1";
 const seat = asNodeId("scout");

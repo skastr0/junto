@@ -1,8 +1,8 @@
 import { Cause, Schema } from "effect";
 import { expect, it } from "vitest";
 import { failureSentence, MAX_FAILURE_CAUSES } from "../src/shared/failure";
-import { decodeEncodedFailure, encodeError, encodeFailure } from "../src/main/junto/failure-encode";
-import { linkClosed } from "../src/main/junto/link/types";
+import { decodeEncodedFailure, encodeError, encodeFailure } from "../src/node/failure-encode";
+import { linkClosed } from "../src/core/link/types";
 
 class SeatStart extends Schema.TaggedError<SeatStart>()("SeatStart", { message: Schema.String, cause: Schema.optionalKey(Schema.Unknown) }) {}
 
@@ -68,7 +68,7 @@ it("skips a cause link that adds no text when it reads the sentence", () => {
 it("keeps the typed chain an install or hosts error wrapped", async () => {
   const { MachineInstallError } = await import("../src/shared/machine-install");
   const { RemoteHostsError } = await import("../src/shared/remote-hosts");
-  const { failureHere } = await import("../src/main/junto/hosts/failure-here");
+  const { failureHere } = await import("../src/core/hosts/failure-here");
   const ssh = Object.assign(new Error("The link to mini closed, its SSH process ended: exit code 127"), { _tag: "LinkClosed", cause: Object.assign(new Error("env: /x/bin/junto: No such file or directory"), { _tag: "SshExitError" }) });
   const install = new MachineInstallError({ message: ssh.message, disposition: "staged", retryable: false, ...failureHere(ssh) });
   expect(encodeFailure(install, { machine: "macbook" })?.causes.map(link => link.tag)).toEqual(expect.arrayContaining(["LinkClosed", "SshExitError"]));

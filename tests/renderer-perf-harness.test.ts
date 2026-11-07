@@ -10,9 +10,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const FLAG = "JUNTO_PERF";
 
-type HarnessModule = typeof import("../src/renderer/lib/performance/perf-harness");
-type RecorderModule = typeof import("../src/renderer/lib/performance/canvas-performance");
-type FlagModule = typeof import("../src/renderer/lib/performance/perf-flag");
+type HarnessModule = typeof import("../src/window/lib/performance/perf-harness");
+type RecorderModule = typeof import("../src/window/lib/performance/canvas-performance");
+type FlagModule = typeof import("../src/window/lib/performance/perf-flag");
 
 const loadModules = async (): Promise<{
   readonly harness: HarnessModule;
@@ -21,9 +21,9 @@ const loadModules = async (): Promise<{
 }> => {
   vi.resetModules();
   const [harness, recorder, flag] = await Promise.all([
-    import("../src/renderer/lib/performance/perf-harness"),
-    import("../src/renderer/lib/performance/canvas-performance"),
-    import("../src/renderer/lib/performance/perf-flag"),
+    import("../src/window/lib/performance/perf-harness"),
+    import("../src/window/lib/performance/canvas-performance"),
+    import("../src/window/lib/performance/perf-flag"),
   ]);
   return { harness, recorder, flag };
 };

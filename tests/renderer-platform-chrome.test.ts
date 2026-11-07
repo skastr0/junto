@@ -4,9 +4,9 @@ import { describe, expect, it } from "vitest";
 
 describe("renderer platform chrome", () => {
   const root = join(import.meta.dirname, "..");
-  const index = readFileSync(join(root, "src/main/index.ts"), "utf8");
-  const main = readFileSync(join(root, "src/renderer/main.tsx"), "utf8");
-  const styles = readFileSync(join(root, "src/renderer/styles.css"), "utf8");
+  const index = readFileSync(join(root, "src/app/index.ts"), "utf8");
+  const main = readFileSync(join(root, "src/window/main.tsx"), "utf8");
+  const styles = readFileSync(join(root, "src/window/styles.css"), "utf8");
 
   it("uses a preload platform marker for macOS-only geometry", () => {
     expect(main).toContain("dataset.juntoPlatform = window.junto?.platform ?? \"unknown\"");

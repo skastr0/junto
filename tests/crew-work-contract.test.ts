@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   MsgPromptArgs, MsgSendArgs, decodeWorkRequest,
 } from "../src/shared/work-control";
-import { admitWorkTarget, connectedCapabilities } from "../src/main/junto/work/authz";
+import { admitWorkTarget, connectedCapabilities } from "../src/core/work/authz";
 import { asNodeId, type Peer } from "../src/shared/model";
 import { OTHER_MACHINE } from "./support/machines";
 import { canvasOf, seat, wire } from "./support/model-nodes";

@@ -5,21 +5,21 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ManagedRuntime } from "effect";
 import { SqlClient } from "effect/sql";
-import { clearTouchedServiceWorkersAtStart } from "../src/main/junto/browser/composition";
-import { makeBrowserProfileService } from "../src/main/junto/browser/profiles";
+import { clearTouchedServiceWorkersAtStart } from "../src/app/browser/composition";
+import { makeBrowserProfileService } from "../src/node/browser/profiles";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
   type BrowserViewHandle,
-} from "../src/main/junto/browser/sessions";
-import type { ResolvedPageTarget } from "../src/main/junto/browser/page-target";
+} from "../src/app/browser/sessions";
+import type { ResolvedPageTarget } from "../src/core/browser/page-target";
 import {
   makeBrowserTouchedOriginStore,
   type BrowserTouchedOriginStore,
-} from "../src/main/junto/browser/touched-origins";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+} from "../src/node/browser/touched-origins";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import { inProcessCore } from "./support/in-process-core";
-import { coreTouchedOriginStore } from "../src/main/core-process/main-side/browser";
+import { coreTouchedOriginStore } from "../src/app/core-process/main-side/browser";
 import { partitionNameForProfile } from "../src/shared/browser";
 import { localBrowserTestMachineName } from "./browser-test-machine";
 
@@ -155,11 +155,11 @@ describe("write-ahead touched origins", () => {
       .filter((path) => readFileSync(join(src, path), "utf8").includes("browser_touched_origins"))
       .sort();
     expect(naming).toEqual([
-      "main/junto/browser/state-schema.ts",
-      "main/junto/browser/touched-origins.ts",
+      "core/browser/state-schema.ts",
+      "node/browser/touched-origins.ts",
       // The step that creates it, on this machine's database.
-      "main/junto/state/migrations.ts",
-    ]);
+      "core/state/migrations.ts",
+    ].sort());
   });
 
   it("refuses a seat's eval when no record is bound", async () => {

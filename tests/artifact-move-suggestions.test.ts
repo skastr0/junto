@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/physics/schema";
-import { matchTargets, moveTargets, suggestedFirst } from "../src/renderer/components/artifacts/artifact-move-model";
+import { matchTargets, moveTargets, suggestedFirst } from "../src/window/components/artifacts/artifact-move-model";
 import { artifacts, canvasOf, region } from "./support/model-nodes";
 
 const canvas = canvasOf([

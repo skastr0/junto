@@ -6,10 +6,10 @@ import {
   FLEET_UI_ENABLED,
   USAGE_ENABLED,
 } from "../src/shared/features";
-import { ProvidersSettingsSection } from "../src/renderer/components/settings/ProvidersSettingsSection";
-import { openMachines, prefetchMachinesWindow } from "../src/renderer/lib/machines-window";
-import { playCue } from "../src/renderer/lib/sound";
-import { state$ } from "../src/renderer/lib/state";
+import { ProvidersSettingsSection } from "../src/window/components/settings/ProvidersSettingsSection";
+import { openMachines, prefetchMachinesWindow } from "../src/window/lib/machines-window";
+import { playCue } from "../src/window/lib/sound";
+import { state$ } from "../src/window/lib/state";
 
 describe("ship-profile UI feature gates", () => {
   it.runIf(!FLEET_UI_ENABLED)("does not open or prefetch the Machines window while disabled", () => {

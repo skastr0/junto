@@ -13,11 +13,11 @@ import { MachineInstallInput, MachineLocalPaths } from "@shared/machine-install"
 import { BoatAddInput, BoatMachineKeyDelivery } from "@shared/boat";
 import { MachineLinkAcceptInput, MachineLinkInput, MachineLinkKeyInput, MachineLinkOpenInput, MachineLinkRevokeInput } from "@shared/machine-link";
 import { resolveJuntoHome } from "@shared/junto-home";
-import { writeBoatMachineSelf } from "../../main/junto/boat/files";
+import { writeBoatMachineSelf } from "../../node/boat/files";
 import { VAULT_ENABLED } from "@shared/features";
 import { MachineVaultTokenInput, VaultName, VaultTokenDelivery, VaultTokenSecret } from "@shared/vault";
-import { installMachine } from "../../main/junto/hosts/install";
-import { uninstallMachine } from "../../main/junto/hosts/uninstall";
+import { installMachine } from "../hosts/install";
+import { uninstallMachine } from "../hosts/uninstall";
 import { loadJsonInput } from "../core/json";
 import { executeJsonCommand } from "../core/output";
 import { logsFilterFlags, logsFlagsOf, lowerLogsFlags } from "./logs";

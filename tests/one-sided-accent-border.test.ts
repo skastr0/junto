@@ -18,7 +18,7 @@ import { join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const root = resolve(__dirname, "..");
-const RENDERER = "src/renderer";
+const RENDERER = "src/window";
 
 const filesUnder = (dir: string, ext: RegExp): string[] =>
   readdirSync(join(root, dir)).flatMap((name) => {
@@ -177,15 +177,15 @@ type Kept = { readonly file: string; readonly selector: RegExp; readonly reason:
 
 /** Colored one-side edges that are not state on a row, card or callout. */
 const KEPT: ReadonlyArray<Kept> = [
-  { file: "src/renderer/components/ui/code-editor.css", selector: /\.cm-cursor$/, reason: "the text caret" },
-  { file: "src/renderer/components/artifacts/live-markdown.css", selector: /\.cm-cursor$/, reason: "the text caret" },
-  { file: "src/renderer/styles.css", selector: /session-load__spinner/, reason: "a spinner arc" },
-  { file: "src/renderer/styles.css", selector: /^\.note-md__link(?::hover)?$/, reason: "a link underline" },
-  { file: "src/renderer/components/work/artifact-markdown.css", selector: /^\.artifact-markdown a(?::hover)?$/, reason: "a link underline" },
-  { file: "src/renderer/components/artifacts/live-markdown.css", selector: /\.cm-md-link$|artifact-document__anchor$/, reason: "a link or anchor underline" },
-  { file: "src/renderer/components/ui/mention-combobox.css", selector: /^\.mention-combobox__chip$/, reason: "an inline mention chip underline, a link in running text" },
-  { file: "src/renderer/components/artifacts/artifact-sheet.css", selector: /^\.junto-artifact-sheet__link$/, reason: "a link underline in a cell" },
-  { file: "src/renderer/components/nodes/spine-card.css", selector: /^\.spine__row\[data-tone="(?:crimson|amber)"\]::before$/, reason: "the spine's branch tick, a drawn tree line, not an edge of the row" },
+  { file: "src/window/components/ui/code-editor.css", selector: /\.cm-cursor$/, reason: "the text caret" },
+  { file: "src/window/components/artifacts/live-markdown.css", selector: /\.cm-cursor$/, reason: "the text caret" },
+  { file: "src/window/styles.css", selector: /session-load__spinner/, reason: "a spinner arc" },
+  { file: "src/window/styles.css", selector: /^\.note-md__link(?::hover)?$/, reason: "a link underline" },
+  { file: "src/window/components/work/artifact-markdown.css", selector: /^\.artifact-markdown a(?::hover)?$/, reason: "a link underline" },
+  { file: "src/window/components/artifacts/live-markdown.css", selector: /\.cm-md-link$|artifact-document__anchor$/, reason: "a link or anchor underline" },
+  { file: "src/window/components/ui/mention-combobox.css", selector: /^\.mention-combobox__chip$/, reason: "an inline mention chip underline, a link in running text" },
+  { file: "src/window/components/artifacts/artifact-sheet.css", selector: /^\.junto-artifact-sheet__link$/, reason: "a link underline in a cell" },
+  { file: "src/window/components/nodes/spine-card.css", selector: /^\.spine__row\[data-tone="(?:crimson|amber)"\]::before$/, reason: "the spine's branch tick, a drawn tree line, not an edge of the row" },
 ];
 
 /**

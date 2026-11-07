@@ -1,6 +1,6 @@
 import { seatMayBeBlocked } from "../src/shared/physics/phase-membership";
 import { describe, expect, it } from "vitest";
-import { newPage } from "../src/renderer/lib/model-factories";
+import { newPage } from "../src/window/lib/model-factories";
 
 describe("browser page model", () => {
   it("sink seats (incl. page registry kind) are not phase-blockable", () => {

@@ -9,9 +9,9 @@ import { describe, expect, it } from "vitest";
  */
 describe("background continuity wiring", () => {
   const root = join(import.meta.dirname, "..");
-  const indexSrc = readFileSync(join(root, "src/main/index.ts"), "utf8");
+  const indexSrc = readFileSync(join(root, "src/app/index.ts"), "utf8");
   const terminationSrc = readFileSync(
-    join(root, "src/main/junto/process-signal-termination.ts"),
+    join(root, "src/app/process-signal-termination.ts"),
     "utf8",
   );
 
@@ -133,7 +133,7 @@ describe("background continuity wiring", () => {
   });
 
   it("login item uses Electron get/setLoginItemSettings (no silent enrollment)", () => {
-    const loginSrc = readFileSync(join(root, "src/main/junto/login-item.ts"), "utf8");
+    const loginSrc = readFileSync(join(root, "src/app/login-item.ts"), "utf8");
     expect(loginSrc).toMatch(/getLoginItemSettings/);
     expect(loginSrc).toMatch(/setLoginItemSettings/);
     expect(loginSrc).toMatch(/openAtLogin/);

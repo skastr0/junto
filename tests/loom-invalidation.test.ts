@@ -12,8 +12,8 @@ import {
   shouldPublishCorridors,
   shouldPublishObstacles,
   type LoomRoute,
-} from "../src/renderer/lib/loom-view";
-import type { LoomEdgeInput, LoomObstacle } from "../src/renderer/lib/wire-loom";
+} from "../src/window/lib/loom-view";
+import type { LoomEdgeInput, LoomObstacle } from "../src/window/lib/wire-loom";
 import type { WireRect } from "../src/shared/wire-route";
 
 const rect = (
@@ -186,7 +186,7 @@ describe("planStandaloneRoutes", () => {
 describe("renderer subscription contract (static)", () => {
   it("WireEdge source does not read full obstacle/corridor observables", () => {
     const src = readFileSync(
-      resolve(__dirname, "../src/renderer/components/edges/WireEdge.tsx"),
+      resolve(__dirname, "../src/window/components/edges/WireEdge.tsx"),
       "utf8",
     );
     expect(src).not.toMatch(/loomObstacles\$/);
@@ -199,7 +199,7 @@ describe("renderer subscription contract (static)", () => {
 
   it("CanvasLoom publishes obstacles only when unequal", () => {
     const src = readFileSync(
-      resolve(__dirname, "../src/renderer/components/edges/CanvasLoom.tsx"),
+      resolve(__dirname, "../src/window/components/edges/CanvasLoom.tsx"),
       "utf8",
     );
     expect(src).toMatch(/shouldPublishObstacles/);

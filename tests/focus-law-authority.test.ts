@@ -9,7 +9,7 @@ import {
   noteOperatorGesture,
   releaseFocus,
   resetOperatorGesture,
-} from "../src/renderer/lib/focus-ownership";
+} from "../src/window/lib/focus-ownership";
 
 const mount = (html: string): HTMLElement => {
   const root = document.createElement("div");

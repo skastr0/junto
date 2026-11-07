@@ -7,7 +7,7 @@ import {
   filesDetailOpening,
   openWorkDetail,
   useFollowOpen,
-} from "../src/renderer/lib/work-detail-open";
+} from "../src/window/lib/work-detail-open";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

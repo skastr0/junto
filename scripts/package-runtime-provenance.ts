@@ -382,7 +382,7 @@ export const readPackageSchemaFacts = async (
 ): Promise<PackageSchemaFacts> => {
   const migrationsPath = path.join(
     path.resolve(repoRoot),
-    "src/main/junto/state/migrations.ts",
+    "src/core/state/migrations.ts",
   );
   await requireRegularFile(migrationsPath, "state migration source");
   const body = await readFile(migrationsPath, "utf8");
@@ -390,7 +390,7 @@ export const readPackageSchemaFacts = async (
   // migration chain; migrations.ts imports and re-exports it.
   const versionPath = path.join(
     path.resolve(repoRoot),
-    "src/main/junto/state/schema-version.ts",
+    "src/node/state/schema-version.ts",
   );
   await requireRegularFile(versionPath, "state schema version source");
   const versionMatch = uniqueMatch(

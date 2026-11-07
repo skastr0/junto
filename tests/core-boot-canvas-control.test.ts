@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import { lstat, mkdtemp, rm } from "node:fs/promises";
 import { expect, it } from "vitest";
-import { startCore } from "../src/main/junto/core";
-import { canvasControlDir, canvasControlSocketPath } from "../src/main/junto/canvas-control/protocol";
+import { startCore } from "../src/core/core";
+import { canvasControlDir, canvasControlSocketPath } from "../src/core/canvas-control/protocol";
 
 // The core starts once per process, so the desktop core's canvas edits are their own file.
 it("serves canvas edits from the desktop core, and closes them with it", async () => {

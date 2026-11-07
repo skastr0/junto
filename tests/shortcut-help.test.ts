@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shortcutHelpRows } from "../src/renderer/components/help/CanvasInteractionMap";
+import { shortcutHelpRows } from "../src/window/components/help/CanvasInteractionMap";
 import { KEY_TABLE } from "../src/shared/key-table";
 
 describe("the help's keys come from the key table", () => {

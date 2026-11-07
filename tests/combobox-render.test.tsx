@@ -5,7 +5,7 @@
  */
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { Combobox } from "../src/renderer/components/ui";
+import { Combobox } from "../src/window/components/ui";
 
 const render = (props: Partial<Parameters<typeof Combobox<string>>[0]> = {}) =>
   renderToStaticMarkup(

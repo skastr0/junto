@@ -7,8 +7,8 @@ import {
   signalGroupResidue,
   spawnDetachedProcessGroup,
   type DetachedProcessGroup,
-} from "../src/main/junto/process-signal";
-import { setProcessEpochReaderForTests, type ProcessEpochRow } from "../src/main/junto/process-epoch";
+} from "../src/node/process-signal";
+import { setProcessEpochReaderForTests, type ProcessEpochRow } from "../src/node/process-epoch";
 
 const spawned: DetachedProcessGroup[] = [];
 

@@ -10,7 +10,7 @@ import {
   publishRemoteSeatState,
   remoteSeatOccupied,
   resetRemoteSeatState,
-} from "../src/main/junto/term/remote-seat-state";
+} from "../src/core/term/remote-seat-state";
 
 const remote = (state: AgentSeatStateEvent["state"]): AgentSeatStateEvent => ({
   bindingId: "mini-seat", epoch: "e1", state, reason: "", confidence: "high", at: 42, harness: "claude",

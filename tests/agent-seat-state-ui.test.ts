@@ -11,7 +11,7 @@ import {
   subscribeAgentSeatState,
   workSurfaceFromSeat,
   agentSeat$,
-} from "../src/renderer/lib/agent-seat-state";
+} from "../src/window/lib/agent-seat-state";
 
 const event = (partial: Partial<AgentSeatStateEvent> & { bindingId: string; state: AgentSeatStateEvent["state"] }): AgentSeatStateEvent => ({
   epoch: "e1",

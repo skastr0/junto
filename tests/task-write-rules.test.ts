@@ -9,8 +9,8 @@ import { TASK_TITLE_MAX_LENGTH } from "../src/shared/task-control";
 import { mintItemId } from "../src/shared/resource-command";
 import { taskNodeId, type TaskCommand, type TaskId } from "../src/shared/task-model";
 import { asNodeId } from "../src/shared/model";
-import { makeIpcTasksSource } from "../src/renderer/lib/tasks-source";
-import { taskWriteRefusalOf } from "../src/renderer/lib/task-write-rules";
+import { makeIpcTasksSource } from "../src/window/lib/tasks-source";
+import { taskWriteRefusalOf } from "../src/window/lib/task-write-rules";
 
 const taskId = mintItemId() as TaskId;
 

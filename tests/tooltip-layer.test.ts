@@ -4,7 +4,7 @@ import {
   absorbNativeTitlesInTree,
   placeTooltip,
   type TitleHost,
-} from "../src/renderer/components/TooltipLayer";
+} from "../src/window/components/TooltipLayer";
 
 const host = (init: {
   title?: string;

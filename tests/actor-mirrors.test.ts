@@ -7,7 +7,7 @@ import {
   mirrorPeerIds,
   nextInRing,
   resolveRing,
-} from "../src/renderer/lib/actor-mirrors";
+} from "../src/window/lib/actor-mirrors";
 
 const agent = (id: string, label: string) => seat(id, { label: label as never });
 const shell = (id: string) => terminal(id);

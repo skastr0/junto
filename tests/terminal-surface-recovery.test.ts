@@ -3,7 +3,7 @@ import { Terminal } from "@xterm/headless";
 import type { Seat } from "../src/shared/model";
 import { seat } from "./support/model-nodes";
 import { defaultTerminal } from "../src/shared/settings";
-import { seatDeadReason } from "../src/renderer/lib/seat-recovery";
+import { seatDeadReason } from "../src/window/lib/seat-recovery";
 
 type Effect = { run: () => void | (() => void); deps?: readonly unknown[] };
 const hooks = vi.hoisted(() => ({
@@ -41,24 +41,24 @@ vi.mock("@legendapp/state/react", async (load) => ({
   use$: (value: (() => unknown) | { get: () => unknown }) =>
     typeof value === "function" ? value() : value.get(),
 }));
-vi.mock("../src/renderer/lib/junto-api", () => ({
+vi.mock("../src/window/lib/junto-api", () => ({
   getJuntoApi: () => hooks.api,
 }));
-vi.mock("../src/renderer/lib/terminal-actions", async (load) => ({
-  ...await load<typeof import("../src/renderer/lib/terminal-actions")>(),
+vi.mock("../src/window/lib/terminal-actions", async (load) => ({
+  ...await load<typeof import("../src/window/lib/terminal-actions")>(),
   ensureTerminalRunning: vi.fn(async () => ({ ok: true })),
 }));
-vi.mock("../src/renderer/lib/terminal-events", () => ({
+vi.mock("../src/window/lib/terminal-events", () => ({
   onTerminalEvent: (listener: (event: unknown) => void) => {
     hooks.listeners.add(listener);
     return () => hooks.listeners.delete(listener);
   },
 }));
 
-import { fallbackCell, TerminalSurface } from "../src/renderer/components/terminal/TerminalSurface";
-import { ensureTerminalRunning } from "../src/renderer/lib/terminal-actions";
-import { applySeatOffboardProgress } from "../src/renderer/lib/seat-offboard-state";
-import { state$ } from "../src/renderer/lib/state";
+import { fallbackCell, TerminalSurface } from "../src/window/components/terminal/TerminalSurface";
+import { ensureTerminalRunning } from "../src/window/lib/terminal-actions";
+import { applySeatOffboardProgress } from "../src/window/lib/seat-offboard-state";
+import { state$ } from "../src/window/lib/state";
 
 // useState order in TerminalSurface: status, geomLabel, releasePending,
 // releaseError, attachKey, killPhase, reopenPending, deadInfo, loadPhase.

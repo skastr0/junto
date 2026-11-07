@@ -6,7 +6,7 @@
  */
 import { expect, it } from "vitest";
 import { taskTitleWords } from "../src/shared/task-title-words";
-import { feedTasksByNumber, feedTextPieces, type FeedTaskRef } from "../src/renderer/components/feed/feed-text";
+import { feedTasksByNumber, feedTextPieces, type FeedTaskRef } from "../src/window/components/feed/feed-text";
 
 const task = (number: number | undefined, title: string, nodeId = "board"): { taskId: string; number?: number; title: string; current: { node: string } } => ({
   taskId: `task-${title}`,

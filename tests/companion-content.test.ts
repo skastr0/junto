@@ -20,8 +20,8 @@ import {
 } from "../src/shared/companion-protocol";
 import { DEMO_CONTENT, DEMO_CONTENT_AFTER, DEMO_CONTENT_BEFORE, DEMO_CONTENT_NOTES } from "../src/shared/wire/companion-demo-fixture";
 import type { ContentRef } from "../src/shared/wire/content-ref";
-import { contentObjectPath } from "../src/main/junto/content/paths";
-import { ingestContentBytes, readContentObjectRange } from "../src/main/junto/content/store";
+import { contentObjectPath } from "../src/node/content/paths";
+import { ingestContentBytes, readContentObjectRange } from "../src/node/content/store";
 import { THIS_MACHINE } from "./support/machines";
 
 const frame = (args: object, id = "c1"): CompanionRequestFrame => {

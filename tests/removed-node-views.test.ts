@@ -1,16 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { asCanvasName, asNodeId } from "../src/shared/model";
-import { dock$, noteSurfaceId, terminalSurfaceId } from "../src/renderer/lib/dock-state";
+import { dock$, noteSurfaceId, terminalSurfaceId } from "../src/window/lib/dock-state";
 import {
   closeViewsOfNodes,
   installRemovedNodeViews,
   removedNodeIds,
-} from "../src/renderer/lib/removed-node-views";
-import { state$ } from "../src/renderer/lib/state";
-import { initialWorkbenchState, openSurface } from "../src/renderer/lib/surface-registry";
-import { terminalGrid$ } from "../src/renderer/lib/terminal-grid-state";
-import { terminal$ } from "../src/renderer/lib/terminal-state";
-import { modelStore } from "../src/renderer/lib/use-model";
+} from "../src/window/lib/removed-node-views";
+import { state$ } from "../src/window/lib/state";
+import { initialWorkbenchState, openSurface } from "../src/window/lib/surface-registry";
+import { terminalGrid$ } from "../src/window/lib/terminal-grid-state";
+import { terminal$ } from "../src/window/lib/terminal-state";
+import { modelStore } from "../src/window/lib/use-model";
 import { terminal, note } from "./support/model-nodes";
 
 const openIds = (): string[] => dock$.registry.peek().surfaces.map((surface) => surface.id);

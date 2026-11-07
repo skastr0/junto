@@ -5,20 +5,20 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { THIS_MACHINE } from "./support/machines";
 import { Schema } from "effect";
 import { Node, Wire } from "../src/shared/model";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { EMPTY_SETTINGS, state$ } from "../src/renderer/lib/state";
-import { dock$, terminalSurfaceId } from "../src/renderer/lib/dock-state";
-import { initialWorkbenchState } from "../src/renderer/lib/surface-registry";
-import { terminal$ } from "../src/renderer/lib/terminal-state";
-import { setActorRailExpanded } from "../src/renderer/lib/actor-rail";
-import { setNodeViewStore } from "../src/renderer/lib/node-view-state";
-import { makeMemoryNodeViewStore } from "../src/renderer/lib/view-state-stand-in";
-import { actorTerminalRailsPx } from "../src/renderer/lib/focus-measure";
-import { SeatMessageForm, SeatMessageToolbarAction } from "../src/renderer/components/nodes/SeatMessage";
-import { WorkFocusShell } from "../src/renderer/components/workbench/WorkFocusShell";
+import { modelStore } from "../src/window/lib/use-model";
+import { EMPTY_SETTINGS, state$ } from "../src/window/lib/state";
+import { dock$, terminalSurfaceId } from "../src/window/lib/dock-state";
+import { initialWorkbenchState } from "../src/window/lib/surface-registry";
+import { terminal$ } from "../src/window/lib/terminal-state";
+import { setActorRailExpanded } from "../src/window/lib/actor-rail";
+import { setNodeViewStore } from "../src/window/lib/node-view-state";
+import { makeMemoryNodeViewStore } from "../src/window/lib/view-state-stand-in";
+import { actorTerminalRailsPx } from "../src/window/lib/focus-measure";
+import { SeatMessageForm, SeatMessageToolbarAction } from "../src/window/components/nodes/SeatMessage";
+import { WorkFocusShell } from "../src/window/components/workbench/WorkFocusShell";
 
 // The terminal contents do not determine the shell's rail width.
-vi.mock("../src/renderer/components/workbench/WorkbenchPanes", () => ({ WorkbenchPanes: () => null }));
+vi.mock("../src/window/components/workbench/WorkbenchPanes", () => ({ WorkbenchPanes: () => null }));
 vi.hoisted(() => {
   HTMLElement.prototype.scrollIntoView = () => {};
   globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };

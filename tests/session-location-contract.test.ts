@@ -11,15 +11,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import { reportedLocationAdmissible, type SessionHolds } from "../src/shared/harness-domain";
 import { HARNESS_RECORDS } from "../src/shared/harness-records";
 import { HARNESS_IDS } from "../src/shared/managed-terminal-templates";
-import { harnessRuntimeRecordFor } from "../src/main/junto/term/harness-record";
-import { SeatStateMachine, type SessionReport } from "../src/main/junto/term/agent-state/seat-state-machine";
+import { harnessRuntimeRecordFor } from "../src/core/term/harness-record";
+import { SeatStateMachine, type SessionReport } from "../src/core/term/agent-state/seat-state-machine";
 import {
   __setSessionExistenceHomeForTest,
   admitReportedSessionLocation,
   encodeClaudeProjectCwd,
   locateHarnessSession,
   type SessionMatch,
-} from "../src/main/junto/term/session-existence";
+} from "../src/core/term/session-existence";
 
 const temps: string[] = [];
 afterEach(() => {

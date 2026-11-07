@@ -7,9 +7,9 @@
  * shared drive factory, the way the app and the Remote build their drive.
  */
 import { afterEach, describe, expect, it } from "vitest";
-import { CR, encodeBracketedPaste } from "../src/main/junto/term/drive";
-import { createManagedTerminalDrive } from "../src/main/junto/term/drive/managed-drive-factory";
-import { harnessHasComposerProbes } from "../src/main/junto/term/agent-state/composer";
+import { CR, encodeBracketedPaste } from "../src/core/term/drive";
+import { createManagedTerminalDrive } from "../src/core/term/drive/managed-drive-factory";
+import { harnessHasComposerProbes } from "../src/core/term/agent-state/composer";
 import { HARNESS_IDS } from "../src/shared/managed-terminal-templates";
 import type { AgentSeatState } from "../src/shared/agent-seat-state";
 

@@ -5,8 +5,8 @@
  */
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import type { ArtifactRepository } from "../src/main/junto/work/artifact-repository";
-import { artifactRuler } from "../src/main/junto/work/resource-ruler";
+import type { ArtifactRepository } from "../src/core/work/artifact-repository";
+import { artifactRuler } from "../src/core/work/resource-ruler";
 import type { QueuedCommand } from "../src/shared/command-row";
 import { InstallationId } from "../src/shared/installation-id";
 import { OpId } from "../src/shared/work-ids";

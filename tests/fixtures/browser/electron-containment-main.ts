@@ -1,4 +1,4 @@
-import { ModelService } from "../../../src/main/junto/model/service";
+import { ModelService } from "../../../src/core/model/service";
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
 import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -7,42 +7,42 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 import { app, BrowserWindow, session, webContents } from "electron";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/sql";
-import { WorkModelDependentsLive } from "../../../src/main/junto/work/model-dependents";
+import { WorkModelDependentsLive } from "../../../src/core/work/model-dependents";
 import { Command, Node, Wire } from "../../../src/shared/model";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../../../src/main/junto/state/engine";
-import { WorkRepositoryLive } from "../../../src/main/junto/work/repository";
+} from "../../../src/core/state/engine";
+import { WorkRepositoryLive } from "../../../src/core/work/repository";
 import {
   MachineRepository,
   MachineRepositoryLive,
-} from "../../../src/main/junto/machines/repository";
+} from "../../../src/core/machines/repository";
 import {
   BROWSER_CAPABILITY_ACTIONS,
   makeBrowserCapabilityRegistry,
   type BrowserAutomationPrincipal,
   type BrowserCapabilityAuditOutcome,
   type BrowserCapabilityRegistry,
-} from "../../../src/main/junto/browser/capabilities";
+} from "../../../src/app/browser/capabilities";
 import {
   makeEdgeGrantService,
   type EdgeGrantResult,
   type EdgeGrantService,
-} from "../../../src/main/junto/browser/edge-grant";
-import { startBrowserControlServer, type BrowserControlServer } from "../../../src/main/junto/browser/control";
-import { makePageTargetResolver } from "../../../src/main/junto/browser/page-target";
-import { makeBrowserProfileService } from "../../../src/main/junto/browser/profiles";
-import { BrowserSessionService } from "../../../src/main/junto/browser/sessions";
-import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/junto/browser/view-adapter";
-import { installBrowserEgressProxyAuth, ensureManagedBrowserPartitionNetwork } from "../../../src/main/junto/browser/partition-network";
+} from "../../../src/app/browser/edge-grant";
+import { startBrowserControlServer, type BrowserControlServer } from "../../../src/app/browser/control";
+import { makePageTargetResolver } from "../../../src/core/browser/page-target";
+import { makeBrowserProfileService } from "../../../src/node/browser/profiles";
+import { BrowserSessionService } from "../../../src/app/browser/sessions";
+import { makeBrowserTestOnlyElectronHarness } from "../../../src/app/browser/view-adapter";
+import { installBrowserEgressProxyAuth, ensureManagedBrowserPartitionNetwork } from "../../../src/app/browser/partition-network";
 import {
   isManagedBrowserWebContents,
   makeBrowserTestOnlyExactOriginGrant,
-} from "../../../src/main/junto/browser/web-policy";
+} from "../../../src/app/browser/web-policy";
 import {
   type ProcessPrincipal,
-} from "../../../src/main/junto/process-identity";
+} from "../../../src/core/process-identity";
 import { formatNodeRef } from "../../../src/shared/node-ref";
 import { partitionNameForProfile } from "../../../src/shared/browser";
 import { LOCAL_BROWSER_TEST_MACHINE, localBrowserTestMachineName } from "../../browser-test-machine";
@@ -53,7 +53,7 @@ import { LOCAL_BROWSER_TEST_MACHINE, localBrowserTestMachineName } from "../../b
 // (DIRECT, or an uncontrolled proxy) right after
 // ensureManagedBrowserPartitionNetwork pins the owned CONNECT proxy. Strip
 // the inherited switches before any Session can exist, exactly like
-// src/main/index.ts does. Never re-add no-proxy-server instead: the
+// src/app/index.ts does. Never re-add no-proxy-server instead: the
 // whenReady setup below pins defaultSession DIRECT through setProxy.
 app.commandLine.removeSwitch("no-proxy-server");
 app.commandLine.removeSwitch("proxy-server");

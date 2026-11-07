@@ -17,8 +17,8 @@ globalThis.ResizeObserver ??= class {
   disconnect(): void {}
 } as unknown as typeof ResizeObserver;
 
-const { CodeEditor } = await import("../src/renderer/components/ui/CodeEditor");
-const { LiveMarkdownField } = await import("../src/renderer/components/artifacts/LiveMarkdownField");
+const { CodeEditor } = await import("../src/window/components/ui/CodeEditor");
+const { LiveMarkdownField } = await import("../src/window/components/artifacts/LiveMarkdownField");
 
 let root: Root;
 let host: HTMLDivElement;

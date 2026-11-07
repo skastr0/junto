@@ -14,7 +14,7 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clampToFrame, inResizeGrip, RESIZE_GRIP_PX, watchOperatorResize } from "../src/renderer/lib/operator-resize";
+import { clampToFrame, inResizeGrip, RESIZE_GRIP_PX, watchOperatorResize } from "../src/window/lib/operator-resize";
 
 const root = resolve(__dirname, "..");
 const read = (rel: string): string => readFileSync(join(root, rel), "utf8");
@@ -124,7 +124,7 @@ describe("operator resize: the grip and the frame", () => {
 });
 
 describe("operator resize: no surface remembers a size by watching the box", () => {
-  it.each(["src/renderer/components/workbench/WorkFocusShell.tsx", "src/renderer/components/FocusSurface.tsx"])(
+  it.each(["src/window/components/workbench/WorkFocusShell.tsx", "src/window/components/FocusSurface.tsx"])(
     "%s never feeds size memory from a ResizeObserver",
     (rel) => {
       const source = read(rel);
@@ -134,13 +134,13 @@ describe("operator resize: no surface remembers a size by watching the box", () 
   );
 
   it("a remembered terminal width is clamped to the frame where it is restored", () => {
-    expect(read("src/renderer/components/workbench/WorkFocusShell.tsx")).toMatch(
+    expect(read("src/window/components/workbench/WorkFocusShell.tsx")).toMatch(
       /clampToFrame\(stored\.width \+ terminalRailsPx, frame\)/,
     );
   });
 
   it("resizable document sizes are kept per surface, not per shared measure", () => {
-    const source = read("src/renderer/components/FocusSurface.tsx");
+    const source = read("src/window/components/FocusSurface.tsx");
     // Kept in view state by the surface's label (0.11, 04, V3), never by measure.
     expect(source).toContain("writeSurfaceSize(label, ");
     expect(source).toContain("surfaceSize(label)");

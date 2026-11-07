@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { overseerRouteOf } from "../src/main/junto/overseer/dispatch";
+import { overseerRouteOf } from "../src/core/overseer/dispatch";
 import { OVERSEER_OPERATION_NAMES, OVERSEER_RETIRED_OPERATIONS } from "../src/shared/overseer-control";
 import { isAutomationWriteOp } from "../src/shared/automation-control";
 
@@ -10,9 +10,9 @@ import { isAutomationWriteOp } from "../src/shared/automation-control";
 // which refuses it; every spec that reached the same handler another way
 // stayed green while the direct command was dead. This walks the catalog.
 
-const canvasSource = readFileSync(resolve(__dirname, "../src/main/junto/overseer/canvas.ts"), "utf8");
-const nativeSource = readFileSync(resolve(__dirname, "../src/main/junto/overseer/native.ts"), "utf8");
-const workSource = readFileSync(resolve(__dirname, "../src/main/junto/overseer/work.ts"), "utf8");
+const canvasSource = readFileSync(resolve(__dirname, "../src/core/overseer/canvas.ts"), "utf8");
+const nativeSource = readFileSync(resolve(__dirname, "../src/core/overseer/native.ts"), "utf8");
+const workSource = readFileSync(resolve(__dirname, "../src/core/overseer/work.ts"), "utf8");
 
 /** Whether a handler file names the operation as one it answers. */
 const answers = (source: string, operation: string): boolean => source.includes(`"${operation}"`);

@@ -19,18 +19,18 @@ import {
   isThumbnailType,
 } from "../src/shared/operator-attachments";
 import type { ContentRef } from "../src/shared/wire/content-ref";
-import { ContentManifest } from "../src/main/junto/content/manifest";
+import { ContentManifest } from "../src/core/content/manifest";
 import {
   claimOperatorAttachments,
   operatorAttachmentLines,
   operatorMailOwner,
   operatorUploadsCounted,
   putOperatorContent,
-} from "../src/main/junto/content/operator-attachments";
-import { contentStoreRoot } from "../src/main/junto/content/paths";
-import { ContentService, createContentService } from "../src/main/junto/content/service";
-import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
-import { handleContentStage } from "../src/main/junto/work/content-stage";
+} from "../src/core/content/operator-attachments";
+import { contentStoreRoot } from "../src/node/content/paths";
+import { ContentService, createContentService } from "../src/core/content/service";
+import { makeStateEngineLive, StateEngine } from "../src/core/state/engine";
+import { handleContentStage } from "../src/core/work/content-stage";
 import { WORK_HOME_ENV } from "../src/shared/work-control";
 
 const PNG = Buffer.from(

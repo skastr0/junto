@@ -1,7 +1,7 @@
-import type * as SignalTerminationModule from "../../src/main/junto/process-signal-termination";
+import type * as SignalTerminationModule from "../../src/app/process-signal-termination";
 
 const signalTerminationModulePath =
-  "../../src/main/junto/process-signal-termination" + ".ts";
+  "../../src/app/process-signal-termination" + ".ts";
 const { installProcessSignalTermination } = (await import(
   signalTerminationModulePath
 )) as typeof SignalTerminationModule;

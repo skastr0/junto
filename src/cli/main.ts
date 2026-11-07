@@ -34,7 +34,7 @@ if (import.meta.main) {
     await (await import("./link")).runMachineLink(dispatch.args);
   } else if (dispatch.kind === "overseer-host") {
     if (LIVE_OVERSEER_ENABLED) {
-      await (await import("../overseer-host/main")).runOverseerHost(dispatch.args);
+      await (await import("./overseer-host/main")).runOverseerHost(dispatch.args);
     } else {
       process.stderr.write("Junto live conversation is disabled in this build\n");
       process.exitCode = 2;

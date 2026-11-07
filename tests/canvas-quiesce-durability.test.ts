@@ -6,7 +6,7 @@ import {
   showOpenedCanvas,
   hasPendingCanvasChanges,
   undo,
-} from "../src/renderer/lib/mutations";
+} from "../src/window/lib/mutations";
 import { note } from "./support/model-nodes";
 import { nodeHeld, openCanvas } from "./support/open-canvas";
 import {
@@ -14,8 +14,8 @@ import {
   quiesceAndFlushCanvasEdits,
   registerCanvasDraftCommit,
   runCanvasAuthoringOperation,
-} from "../src/renderer/lib/canvas-editor-flush";
-import { state$ } from "../src/renderer/lib/state";
+} from "../src/window/lib/canvas-editor-flush";
+import { state$ } from "../src/window/lib/state";
 
 /** The text the note on the open canvas holds. */
 const noteText = (): unknown => {

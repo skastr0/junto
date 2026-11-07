@@ -1,6 +1,6 @@
 import { Effect, Exit } from "effect";
 import { expect, it } from "vitest";
-import { BoatApiFailed, makeBoatClient, type BoatFetch } from "../src/main/junto/boat/client";
+import { BoatApiFailed, makeBoatClient, type BoatFetch } from "../src/core/boat/client";
 import { boatPower } from "../src/shared/boat";
 
 const KEY = "boat_TESTKEY0000000000000000000000";

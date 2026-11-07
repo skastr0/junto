@@ -14,12 +14,12 @@ import { asCanvasName } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { ArtifactHead } from "../src/shared/resource-ipc";
 import { mintItemId, type ItemId } from "../src/shared/resource-command";
-import { makeLocalArtifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/renderer/lib/artifacts-source";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { CaptureEditor, type CaptureFlush, type CaptureOpen, type CaptureRef } from "../src/renderer/components/capture/CaptureEditor";
-import { captureDraftOf } from "../src/renderer/components/capture/capture-draft";
-import { makeMemoryNodeViewStore } from "../src/renderer/lib/view-state-stand-in";
-import { nodeViewStore, setNodeViewStore } from "../src/renderer/lib/node-view-state";
+import { makeLocalArtifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/window/lib/artifacts-source";
+import { modelStore } from "../src/window/lib/use-model";
+import { CaptureEditor, type CaptureFlush, type CaptureOpen, type CaptureRef } from "../src/window/components/capture/CaptureEditor";
+import { captureDraftOf } from "../src/window/components/capture/capture-draft";
+import { makeMemoryNodeViewStore } from "../src/window/lib/view-state-stand-in";
+import { nodeViewStore, setNodeViewStore } from "../src/window/lib/node-view-state";
 import { artifacts, region } from "./support/model-nodes";
 
 // jsdom lays nothing out; CodeMirror's measuring asks a range for its boxes.

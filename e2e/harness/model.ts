@@ -9,7 +9,7 @@ import { resolveManagedLaunch } from "../../src/shared/managed-terminal-launch";
 import { verbsForPair, type Verb } from "../../src/shared/physics/verbs";
 import type { Task, Artifact } from "../../src/shared/work-model";
 import { THIS_MACHINE } from "../../tests/support/machines";
-import type { SeatSessionObservation } from "../../src/main/junto/seat-sessions/repository";
+import type { SeatSessionObservation } from "../../src/core/seat-sessions/repository";
 
 /** A native fixture contains authored rows; Work is queried separately. */
 export type ModelFixture = {

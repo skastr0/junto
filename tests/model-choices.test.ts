@@ -3,7 +3,7 @@ import { Schema } from "effect";
 import {
   arrangeModels,
   orderModels,
-} from "../src/renderer/components/node-palette/model-choices";
+} from "../src/window/components/node-palette/model-choices";
 import {
   applySettingsPatch,
   defaultSettings,

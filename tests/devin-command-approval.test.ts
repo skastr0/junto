@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { Schema, Struct } from "effect";
 import { describe, expect, it } from "vitest";
 import { SeatReadResult } from "../src/shared/seat-control";
-import { evaluate, SeatStateRuntime } from "../src/main/junto/term/agent-state";
-import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
+import { evaluate, SeatStateRuntime } from "../src/core/term/agent-state";
+import type { ObserverGridSnapshot } from "../src/core/term/observer/types";
 
 // Exact decoded SeatReadResult from the isolated native Devin session on
 // 2026-09-15, before the operator approved `junto onboard`.

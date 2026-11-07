@@ -9,37 +9,37 @@ import { canvasOf, seat } from "./support/model-nodes";
 import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
 import {
   LocalSessionHost,
-} from "../src/main/junto/term/local-host";
-import { startTermControlServer } from "../src/main/junto/term/control-server";
-import { TermControlClient } from "../src/main/junto/term/control-client";
-import { TermControlTransportUncertainError } from "../src/main/junto/term/control-client";
-import { TerminalRouter } from "../src/main/junto/term/router";
+} from "../src/core/term/local-host";
+import { startTermControlServer } from "../src/core/term/control-server";
+import { TermControlClient } from "../src/core/term/control-client";
+import { TermControlTransportUncertainError } from "../src/core/term/control-client";
+import { TerminalRouter } from "../src/core/term/router";
 import {
   hostsSnapshot,
   setHostsSnapshot,
-} from "../src/main/junto/hosts/snapshot";
+} from "../src/core/hosts/snapshot";
 import { Scope } from "effect";
 import { FLEET_UI_ENABLED } from "../src/shared/features";
 import {
   bindManagedTerminalDriveForOverseer,
-} from "../src/main/junto/term/managed-drive-holder";
-import { createManagedTerminalDrive } from "../src/main/junto/term/drive/managed-drive-factory";
+} from "../src/core/term/managed-drive-holder";
+import { createManagedTerminalDrive } from "../src/core/term/drive/managed-drive-factory";
 import {
   attachManagedTerminalDriveRuntime,
   type ManagedDriveHostEvent,
   type ManagedDriveSeatEvent,
-} from "../src/main/junto/term/drive/managed-drive-runtime";
+} from "../src/core/term/drive/managed-drive-runtime";
 import {
   makeOverseerNativeLive,
   type OverseerNativeLiveOptions,
-} from "../src/main/junto/overseer/native";
-import type { TermPlane } from "../src/main/junto/term/plane";
-import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
+} from "../src/core/overseer/native";
+import type { TermPlane } from "../src/core/term/plane";
+import { TerminalNodeDeleteService } from "../src/core/term/node-delete";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
-} from "../src/main/junto/process-identity";
-import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
+} from "../src/core/process-identity";
+import { setProcessEpochReaderForTests } from "../src/node/process-epoch";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const initialHosts = hostsSnapshot();
@@ -137,7 +137,7 @@ describe("term control managedPrompt", () => {
         return submitted;
       },
       interrupt: async (_bindingId: string) => true,
-    } as unknown as import("../src/main/junto/term/drive").ManagedTerminalDrive);
+    } as unknown as import("../src/core/term/drive").ManagedTerminalDrive);
     const { client } = await bootServer();
     await expect(
       client.managedPrompt("bind-y", "do the thing", true),

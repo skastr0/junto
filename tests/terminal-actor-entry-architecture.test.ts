@@ -12,12 +12,12 @@ const readSource = (path: string): string =>
   readFileSync(join(root, path), "utf8");
 
 const IPC_CONTRACT = "src/shared/ipc.ts";
-const RENDERER_ENTRY = "src/renderer/lib/terminal-actions.ts";
+const RENDERER_ENTRY = "src/window/lib/terminal-actions.ts";
 const TERMINAL_SURFACE =
-  "src/renderer/components/terminal/TerminalSurface.tsx";
-const MAIN_ENTRY = "src/main/junto/term/ipc.ts";
-const SEAT_CONTROL = "src/main/junto/term/seat-control.ts";
-const SEAT_NODE_OP = "src/main/core-process/ops/term-ipc.ts";
+  "src/window/components/terminal/TerminalSurface.tsx";
+const MAIN_ENTRY = "src/app/term/ipc.ts";
+const SEAT_CONTROL = "src/core/term/seat-control.ts";
+const SEAT_NODE_OP = "src/core/ops/term-ipc.ts";
 
 const between = (source: string, start: string, end: string): string => {
   const from = source.indexOf(start);

@@ -6,9 +6,9 @@ import {
   InstallationId,
   type InstallationId as InstallationIdValue,
 } from "../src/shared/installation-id";
-import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
-import { isManagedSeatRuntimeLocal } from "../src/main/junto/term/ensure-managed-seat";
-import { activeActorRegistry } from "../src/main/junto/kernel/service";
+import { deriveActorSeatId } from "../src/core/actor-seat-id";
+import { isManagedSeatRuntimeLocal } from "../src/core/term/ensure-managed-seat";
+import { activeActorRegistry } from "../src/core/kernel/service";
 
 const actorNode = (
   hostId: string,

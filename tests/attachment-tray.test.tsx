@@ -16,9 +16,9 @@ import {
   uploadOperatorFile,
   useAttachments,
   type Attachments,
-} from "../src/renderer/lib/operator-attachments";
-import { AttachButton, AttachmentTray } from "../src/renderer/components/attachments/AttachmentTray";
-import { SignalReply } from "../src/renderer/components/signals/SignalReply";
+} from "../src/window/lib/operator-attachments";
+import { AttachButton, AttachmentTray } from "../src/window/components/attachments/AttachmentTray";
+import { SignalReply } from "../src/window/components/signals/SignalReply";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

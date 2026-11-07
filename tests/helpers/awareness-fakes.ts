@@ -11,29 +11,29 @@
 import type {
   ObserverGridSnapshot,
   ObserverListener,
-} from "../../src/main/junto/term/observer";
-import type { AwarenessObservationPlane } from "../../src/main/junto/term/awareness/runtime";
+} from "../../src/core/term/observer";
+import type { AwarenessObservationPlane } from "../../src/core/term/awareness/runtime";
 import type {
   AwarenessProjectionPort,
   AwarenessSeatFacts,
   AwarenessSeatPort,
   AwarenessTimers,
-} from "../../src/main/junto/term/awareness/scheduler";
+} from "../../src/core/term/awareness/scheduler";
 import {
   isRetryableFailure,
   type AwarenessAsk,
   type AwarenessAskOutcome,
   type AwarenessModelShape,
   type AwarenessTransportFailureKind,
-} from "../../src/main/junto/term/awareness/jev-client";
+} from "../../src/core/term/awareness/jev-client";
 import {
   assembleAwarenessRequest,
   selectAwarenessEvidence,
-} from "../../src/main/junto/term/awareness/select-input";
+} from "../../src/core/term/awareness/select-input";
 import {
   projectAwarenessAnswers,
   projectAwarenessUnavailable,
-} from "../../src/main/junto/term/awareness/project-result";
+} from "../../src/core/term/awareness/project-result";
 
 // ---------------------------------------------------------------------------
 // Clock and timers

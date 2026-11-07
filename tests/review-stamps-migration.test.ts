@@ -19,8 +19,8 @@ import {
   STATE_SCHEMA_V33_IDENTITY,
   migrateStateSchema,
   type StateSchemaMigrationDatabase,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V32_SQL, STATE_SCHEMA_V33_SQL, stepped } from "./fixtures/state-v13/schema";
 
 /** A version-32 database, fresh and in memory. */

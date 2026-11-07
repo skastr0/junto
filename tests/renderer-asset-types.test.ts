@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { auditRendererAssetTypes } from "../scripts/audit-packaged-app";
-import { createTrustedRendererHandler, trustedRendererMimeType } from "../src/main/junto/trusted-renderer-protocol";
+import { createTrustedRendererHandler, trustedRendererMimeType } from "../src/app/trusted-renderer-protocol";
 
 /**
  * The packaged app serves its renderer through `junto-app:`, which refuses a
@@ -47,7 +47,7 @@ describe("renderer asset types under the packaged protocol", () => {
 
   it("has a served type for every file the renderer imports by URL", async () => {
     const imports: string[] = [];
-    for (const file of await sourceFiles(join(__dirname, "../src/renderer"))) {
+    for (const file of await sourceFiles(join(__dirname, "../src/window"))) {
       const text = await readFile(file, "utf8");
       for (const match of text.matchAll(/["']([^"']+)\?url["']/gu)) imports.push(match[1] ?? "");
     }

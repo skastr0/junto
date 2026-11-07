@@ -4,8 +4,8 @@ import {
   SshProcessError,
   SshSetupError,
   SshTimeoutError,
-} from "../src/main/junto/ssh/domain";
-import { classifySshStderr, formatSshFailure } from "../src/main/junto/ssh/format";
+} from "../src/core/ssh/domain";
+import { classifySshStderr, formatSshFailure } from "../src/core/ssh/format";
 
 describe("SSH failure formatting", () => {
   it("classifies known OpenSSH failures without copying remote bytes", () => {

@@ -1,7 +1,7 @@
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { inspectMachineBundle } from "../src/main/junto/hosts/bundle";
+import { inspectMachineBundle } from "../src/node/hosts/bundle";
 import { buildIdentity } from "./build-identity";
 import { resolveBuildFeatures } from "./build-features";
 

@@ -6,7 +6,7 @@
  * Raft's safety properties run after every step.
  */
 import { describe, expect, it } from "vitest";
-import { ALONE_TERM_STRIDE, ConsensusNode, isListQuorum, isQuorum, ProposalRefused, type MachineId } from "../src/main/junto/fleet/consensus";
+import { ALONE_TERM_STRIDE, ConsensusNode, isListQuorum, isQuorum, ProposalRefused, type MachineId } from "../src/core/fleet/consensus";
 import { Cluster } from "./support/consensus-sim";
 
 const set = (...ids: string[]) => new Set(ids);

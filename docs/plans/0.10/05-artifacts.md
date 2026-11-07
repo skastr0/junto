@@ -14,14 +14,14 @@ create and edit artifacts from the CLI; the operator edits in the app.
 
 - Artifacts: immutable published records `{artifactId, name, parts, task?}`
   (`src/shared/work-model.ts:455-462`), one row each in `work_artifacts`
-  (`src/main/junto/work/state-schema.ts:360-440`). Publish once, archive,
+  (`src/core/work/state-schema.ts:360-440`). Publish once, archive,
   operator delete. No edit, no versions, no comments. CLI has only
   `artifact publish` (`src/cli/commands/work.ts:408-437`).
 - Pad: spatial page of images, shapes, edges, ink and pins; `applyPatch` is
   the only mutation (`src/shared/pad.ts`, `docs/pad.md`). Pins are positional
   comment sites with mentions (`pad.ts:112-132`). About 3.5k renderer lines.
 - Sheet: text-only grid, operator writes, agents read (`src/shared/sheet.ts`,
-  `src/main/junto/model/records.ts:297-311`). Lives on the model plane, not the
+  `src/core/model/records.ts:297-311`). Lives on the model plane, not the
   work plane.
 - All three are compiled out of ship.
 

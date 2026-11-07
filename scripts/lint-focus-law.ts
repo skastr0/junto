@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Focus law gate. Focus is operator-owned and `src/renderer/lib/focus-ownership.ts`
+ * Focus law gate. Focus is operator-owned and `src/window/lib/focus-ownership.ts`
  * is its only authority.
  *
  * Rules (renderer sources, tests excluded):
@@ -17,8 +17,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const RENDERER = path.join(ROOT, "src/renderer");
-const AUTHORITY = "src/renderer/lib/focus-ownership.ts";
+const RENDERER = path.join(ROOT, "src/window");
+const AUTHORITY = "src/window/lib/focus-ownership.ts";
 
 const RAW_FOCUS = /\.(?:focus|blur)\(|\.select\(\s*\)|\bautoFocus\b/;
 const GLOBAL_KEY_LISTENER =
@@ -112,7 +112,7 @@ const files = await walk(RENDERER);
 const hits = (await Promise.all(files.map(scan))).flat();
 
 if (hits.length > 0) {
-  console.error("lint:focus-law: focus is operator-owned; route it through src/renderer/lib/focus-ownership.ts\n");
+  console.error("lint:focus-law: focus is operator-owned; route it through src/window/lib/focus-ownership.ts\n");
   for (const hit of hits) {
     console.error(`  ${hit.file}:${hit.line}  ${hit.rule}\n    ${hit.text}`);
   }

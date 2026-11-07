@@ -7,13 +7,13 @@ import { Schema } from "effect";
 import { batch } from "@legendapp/state";
 import { Node, Opened } from "../src/shared/model";
 import { titleOf } from "../src/shared/model/title";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { state$ } from "../src/renderer/lib/state";
+import { modelStore } from "../src/window/lib/use-model";
+import { state$ } from "../src/window/lib/state";
 
 vi.hoisted(() => {
   (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 });
-import { RtsBottomBar } from "../src/renderer/components/rts/RtsBottomBar";
+import { RtsBottomBar } from "../src/window/components/rts/RtsBottomBar";
 
 // Every kind is renamed from the bottom bar's selection card, by the same
 // key, and the name lands in the field that kind keeps it in.

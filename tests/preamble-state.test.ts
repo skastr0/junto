@@ -4,9 +4,9 @@ import {
   dismissPreamble,
   preambleByNodeId$,
   showPreamble,
-} from "../src/renderer/lib/preamble-state";
+} from "../src/window/lib/preamble-state";
 import type { PreambleEvent } from "../src/shared/preamble";
-import { FEED_TUNING } from "../src/renderer/lib/preamble-feed";
+import { FEED_TUNING } from "../src/window/lib/preamble-feed";
 
 const event = (overrides: Partial<PreambleEvent> = {}): PreambleEvent => ({
   preambleId: "preamble-1",

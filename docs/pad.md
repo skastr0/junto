@@ -28,8 +28,8 @@ updates this file, then the code.
 | `src/shared/pad.ts` | `Pad`, elements, `PadPatch`, `applyPatch`, `PadError` |
 | `src/shared/pad-geom.ts` | camera, hit-test, bounds, edge anchors, `strokePath` |
 | `src/shared/pad-project.ts` | `padToSvg`, `padToDigest`, `padToFocused` |
-| `src/renderer/components/pad/PadEditor.tsx` | the editor, host-agnostic |
-| `src/renderer/components/artifacts/ArtifactPadEditor.tsx` | the artifact host |
+| `src/window/components/pad/PadEditor.tsx` | the editor, host-agnostic |
+| `src/window/components/artifacts/ArtifactPadEditor.tsx` | the artifact host |
 
 ## Domain
 

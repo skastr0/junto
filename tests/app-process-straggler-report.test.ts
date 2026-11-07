@@ -4,7 +4,7 @@ import {
   createAppProcessPlane,
   describeAppProcessStraggler,
   type AppProcessStraggler,
-} from "../src/main/junto/app-process-plane";
+} from "../src/node/app-process-plane";
 
 const leftovers: number[] = [];
 

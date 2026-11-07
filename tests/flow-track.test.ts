@@ -20,9 +20,9 @@ import {
   trackRuns,
   trackTile,
   WIRE_WIDTH,
-} from "../src/renderer/lib/flow-track";
+} from "../src/window/lib/flow-track";
 
-const css = readFileSync(join(resolve(__dirname, ".."), "src/renderer/components/edges/flow-track.css"), "utf8");
+const css = readFileSync(join(resolve(__dirname, ".."), "src/window/components/edges/flow-track.css"), "utf8");
 
 describe("flow track geometry", () => {
   it("is half again a wire's weight", () => {

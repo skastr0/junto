@@ -5,20 +5,20 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/sql";
 import { afterEach, describe, expect, test } from "vitest";
 import type { UsageSnapshot, UsageState } from "../src/shared/usage";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import {
   makeUsageCacheLive,
   UsageCache,
-} from "../src/main/junto/usage/usage-cache";
+} from "../src/core/usage/usage-cache";
 import {
   UsageSources,
   type UsageSource,
-} from "../src/main/junto/usage/usage-source";
+} from "../src/core/usage/usage-source";
 import {
   UsageService,
   UsageServiceLive,
-} from "../src/main/junto/usage/usage-service";
-import { UsagePreferences } from "../src/main/junto/usage/preferences";
+} from "../src/core/usage/usage-service";
+import { UsagePreferences } from "../src/core/usage/preferences";
 
 const roots: string[] = [];
 const dispose: Array<() => Promise<void>> = [];

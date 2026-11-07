@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { STAMPS_REQUIRED_MAX } from "../src/shared/task-model";
-import { StampDefaultControl } from "../src/renderer/components/tasks/StampDefaultControl";
+import { StampDefaultControl } from "../src/window/components/tasks/StampDefaultControl";
 
 const draw = (required: number) =>
   renderToStaticMarkup(<StampDefaultControl required={required} onChange={() => undefined} />);

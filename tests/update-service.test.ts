@@ -6,12 +6,12 @@ import {
   makeUpdateService,
   UpdateService,
   type InstallPlan,
-} from "../src/main/junto/update/service";
-import type { AuthorizedUpdateCandidate } from "../src/main/junto/update/domain";
+} from "../src/app/update/service";
+import type { AuthorizedUpdateCandidate } from "../src/app/update/domain";
 import type {
   UpdateProvider,
   UpdateProviderListener,
-} from "../src/main/junto/update/provider";
+} from "../src/app/update/provider";
 import { writeFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -387,7 +387,7 @@ describe("UpdateService", () => {
 });
 
 describe("platform-neutral staged installation", () => {
-  const readyLinux = async (installation: import("../src/main/junto/update/provider").StagedUpdate, host: import("../src/main/junto/update/provider").UpdateHostHooks) => {
+  const readyLinux = async (installation: import("../src/app/update/provider").StagedUpdate, host: import("../src/app/update/provider").UpdateHostHooks) => {
     const root = await mkdtemp(join(tmpdir(), "junto-linux-coordinator-"));
     roots.push(root);
     const archivePath = join(root, "release.tar.gz");

@@ -7,8 +7,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { RemoteHost } from "../src/shared/remote-hosts";
-import { DEMO_THIS_MACHINE, onDemoMachine } from "../src/renderer/demo/machine";
-import { isOnMachine, machineChoices, machineLabelIn } from "../src/renderer/lib/machines";
+import { DEMO_THIS_MACHINE, onDemoMachine } from "../src/window/demo/machine";
+import { isOnMachine, machineChoices, machineLabelIn } from "../src/window/lib/machines";
 import { seat, note } from "./support/model-nodes";
 
 const row = (id: string, more: Partial<RemoteHost> = {}): RemoteHost => ({
@@ -116,7 +116,7 @@ describe("the window never compares a host against a written name", () => {
     }
   });
 
-  const root = join(__dirname, "..", "src", "renderer");
+  const root = join(__dirname, "..", "src", "window");
   const sources = (dir: string): ReadonlyArray<string> =>
     readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
       const path = join(dir, entry.name);

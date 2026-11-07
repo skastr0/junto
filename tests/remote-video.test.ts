@@ -3,7 +3,7 @@
  * at a time, only for an address it opened, and never anywhere else.
  */
 import { describe, expect, it } from "vitest";
-import { createRemoteVideos } from "../src/main/junto/preview/remote-video";
+import { createRemoteVideos } from "../src/app/preview/remote-video";
 
 type Call = { readonly url: string; readonly method: string; readonly range: string | null; readonly redirect: string | undefined; readonly credentials: string | undefined };
 

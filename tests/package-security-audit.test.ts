@@ -336,7 +336,7 @@ describe("electron-builder fitness", () => {
     ]);
 
     const sshFileSystemLayer = await readFile(
-      new URL("../src/main/junto/ssh/live.ts", import.meta.url),
+      new URL("../src/core/ssh/live.ts", import.meta.url),
       "utf8",
     );
     expect(sshFileSystemLayer).toContain(

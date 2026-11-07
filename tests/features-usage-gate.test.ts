@@ -4,13 +4,13 @@ import { USAGE_ENABLED } from "../src/shared/features";
 
 describe("usage product gate", () => {
   it.runIf(!USAGE_ENABLED)("omits usage bridges and live polling in the ship profile", () => {
-    const preload = readFileSync("src/preload/index.ts", "utf8");
-    const main = readFileSync("src/main/junto/ipc.ts", "utf8");
-    const app = readFileSync("src/renderer/App.tsx", "utf8");
+    const preload = readFileSync("src/window/preload/index.ts", "utf8");
+    const main = readFileSync("src/app/ipc.ts", "utf8");
+    const app = readFileSync("src/window/App.tsx", "utf8");
 
     expect(preload).toContain("...(USAGE_ENABLED ? usageApi : {})");
     // Usage polls in the core, started with the core's startup wiring.
-    expect(readFileSync("src/main/core-process/ops/ipc-startup.ts", "utf8")).toContain("if (USAGE_ENABLED) usage.start()");
+    expect(readFileSync("src/core/ops/ipc-startup.ts", "utf8")).toContain("if (USAGE_ENABLED) usage.start()");
     expect(main).toContain("if (USAGE_ENABLED) {");
     expect(app).toContain("USAGE_ENABLED && junto.onUsageChanged");
     expect(app).toContain("USAGE_ENABLED && junto.getUsage");

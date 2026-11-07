@@ -38,7 +38,7 @@ fi
 
 CURRENT="$(
   sed -nE 's/^export const CURRENT_STATE_SCHEMA_VERSION = ([0-9]+);$/\1/p' \
-    "${ROOT}/src/main/junto/state/migrations.ts" | head -1
+    "${ROOT}/src/core/state/migrations.ts" | head -1
 )"
 if [[ -z "${CURRENT}" ]]; then
   log "could not read CURRENT_STATE_SCHEMA_VERSION; keeping isolated state"

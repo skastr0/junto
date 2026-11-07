@@ -43,8 +43,8 @@ import {
   type TaskCaller,
   type TaskListPortQuery,
   type TaskPorts,
-} from "../src/main/junto/work/task-control";
-import type { TaskSubmitOutcome } from "../src/main/junto/work/task-repository";
+} from "../src/core/work/task-control";
+import type { TaskSubmitOutcome } from "../src/core/work/task-repository";
 
 const OP = OpId.make("01M5ESM1XHCJ7JYJDBC37MREBZ");
 const ID = ItemId.make("01M5ESMQ2ZT55QZ073EWPH10SG");

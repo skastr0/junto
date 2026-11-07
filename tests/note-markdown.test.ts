@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseBlocks, parseInline } from "../src/renderer/lib/note-markdown";
+import { parseBlocks, parseInline } from "../src/window/lib/note-markdown";
 
 describe("parseInline", () => {
   it("keeps plain text stable", () => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   appProcessBlocksAppExit,
   createAppProcessPlane,
-} from "../src/main/junto/app-process-plane";
+} from "../src/node/app-process-plane";
 
 // No mocks: the real process table and a real child, the case that left an
 // update install unable to quit when a fast command beat the first table read.

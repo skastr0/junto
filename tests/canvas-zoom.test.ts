@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canvasZoomRequest$, resetCanvasZoom, zoomCanvasIn, zoomCanvasOut } from "../src/renderer/lib/canvas-zoom";
+import { canvasZoomRequest$, resetCanvasZoom, zoomCanvasIn, zoomCanvasOut } from "../src/window/lib/canvas-zoom";
 
 describe("canvas zoom requests", () => {
   it("publishes each call as its kind", () => {

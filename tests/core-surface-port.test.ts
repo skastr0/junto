@@ -1,10 +1,10 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { expect, it, vi } from "vitest";
 import { inProcessCore, type CoreRunner } from "./support/in-process-core";
-import { openCoreSurface } from "../src/main/core-process/ops/term-surface";
-import { coreSurfacePlane, type PortedCoreMessage } from "../src/main/core-process/main-side/term-surface";
-import { SURFACE_OPENED } from "../src/main/core-process/channels";
-import { termPlane } from "../src/main/junto/term/plane";
+import { openCoreSurface } from "../src/core/ops/term-surface";
+import { coreSurfacePlane, type PortedCoreMessage } from "../src/app/core-process/main-side/term-surface";
+import { SURFACE_OPENED } from "../src/contract/core/channels";
+import { termPlane } from "../src/core/term/plane";
 
 // Plan B: a view's surface port rides from main to the core's plane, which says whether it opened.
 it("carries a surface port to the core's plane, answers whether it opened, and closes it by name", async () => {

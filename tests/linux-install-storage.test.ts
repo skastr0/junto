@@ -20,14 +20,14 @@ import {
   holdLinuxDesktopInstallReadiness,
   markLinuxDesktopInstallReady,
   stageLinuxDesktopRelease,
-} from "../src/main/junto/update/linux-install";
+} from "../src/node/update/linux-install";
 import {
   assertLinuxInstallDiskAdmission,
   requiredLinuxInstallStageBytes,
   retireLinuxInstallTree,
   type OwnedLinuxInstallRoot,
   type RetirableLinuxInstallTree,
-} from "../src/main/junto/update/linux-install-storage";
+} from "../src/node/update/linux-install-storage";
 import { itOnLinux } from "./helpers/platform";
 
 const roots: string[] = [];

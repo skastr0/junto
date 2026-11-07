@@ -16,8 +16,8 @@ import {
   allTemplates,
 } from "../src/shared/managed-terminal-templates";
 import { THIS_MACHINE_CAPABILITIES } from "../src/shared/remote-hosts";
-import { actorHostChoicesFromEnrollment } from "../src/renderer/components/node-palette/agent-launch-model";
-import { newSeat } from "../src/renderer/lib/model-factories";
+import { actorHostChoicesFromEnrollment } from "../src/window/components/node-palette/agent-launch-model";
+import { newSeat } from "../src/window/lib/model-factories";
 import { THIS_MACHINE } from "./support/machines";
 
 describe("Hermes terminal harness without the integration", () => {
@@ -92,7 +92,7 @@ describe("Hermes terminal harness without the integration", () => {
         agentHost: "station-a",
       });
 
-      const terminalIpc = readFileSync("src/main/junto/term/seat-control.ts", "utf8");
+      const terminalIpc = readFileSync("src/core/term/seat-control.ts", "utf8");
       expect(terminalIpc).toMatch(
         /if \(!managedHarnessEnabled\(node\.harness\)\)\s+return yield\* new HarnessDisabled\(/u,
       );

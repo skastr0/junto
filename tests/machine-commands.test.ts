@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OPERATOR_PROTOCOL_VERSION } from "../src/shared/operator-control";
-import { machineCommand, onMachineCommandProgress } from "../src/renderer/lib/machine-commands";
+import { machineCommand, onMachineCommandProgress } from "../src/window/lib/machine-commands";
 import { OTHER_MACHINE } from "./support/machines";
 
 type Sent = { readonly protocol: string; readonly id: string; readonly op: string; readonly args: unknown };

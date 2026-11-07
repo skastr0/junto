@@ -21,7 +21,7 @@ can name the thing that fired it.
 - **An artifact watch takes one artifact only**; there is no "any artifact
   in this Artifacts node" (`src/shared/automation.ts:147`).
 - **An action never sees what fired it.** `ChangeEvent` carries the task,
-  artifact, seat or signal (`src/main/junto/automation/plan.ts:146`), but
+  artifact, seat or signal (`src/core/automation/plan.ts:146`), but
   `perform` is called without it (`runner.ts:122`) and actions write their
   stored text as typed (`live.ts:298`, `:313`, `:334`).
 - **Action text is one line** (`AutomationEditor.tsx:330`, `:389`), too

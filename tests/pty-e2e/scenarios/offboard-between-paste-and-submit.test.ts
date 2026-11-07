@@ -10,8 +10,8 @@
  * front of the drive's write exactly as ipc.ts puts it there.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ClosingFence, fencedWriter } from "../../../src/main/junto/term/closing-fence";
-import { BRACKETED_PASTE_START, OperatorInterlock } from "../../../src/main/junto/term/drive";
+import { ClosingFence, fencedWriter } from "../../../src/core/term/closing-fence";
+import { BRACKETED_PASTE_START, OperatorInterlock } from "../../../src/core/term/drive";
 import { DriveLoop } from "../scripted-tui";
 
 const BINDING = "seat-b1";

@@ -22,7 +22,7 @@ import {
   SEAT_AWARENESS_TIER,
   seatAwarenessOn,
 } from "../src/shared/features";
-import { makeSeatAwarenessPlane } from "../src/main/junto/term/seat-awareness";
+import { makeSeatAwarenessPlane } from "../src/core/term/seat-awareness";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = (path: string): string => readFileSync(join(root, path), "utf8");
@@ -60,21 +60,21 @@ describe("seat awareness product gate", () => {
   });
 
   it("gates every surface on the resolved predicate, never the tier", () => {
-    const textNode = source("src/renderer/components/nodes/TextNode.tsx");
+    const textNode = source("src/window/components/nodes/TextNode.tsx");
     expect(textNode).toContain("const seatNode = seatAwarenessOn && (managedTerminal || isAgent);");
     expect(textNode).toContain("useSeatAwarenessOn()");
     // The window side holds no seat-awareness read any more: f05329a81 moved
     // the plane into the core. The same resolved predicate gates it there, off
     // the core's own settings service rather than a push from main.
-    const live = source("src/main/junto/term/seat-awareness-live.ts");
+    const live = source("src/core/term/seat-awareness-live.ts");
     expect(live).toContain("const on = resolveSeatAwarenessGate({");
     expect(live).toContain("if (on === plane.isEnabled()) return;");
     expect(live).toContain("yield* settings.get.pipe(");
-    expect(source("src/renderer/lib/seat-awareness.ts")).toContain(
+    expect(source("src/window/lib/seat-awareness.ts")).toContain(
       "if (!seatAwarenessOnNow()) return;",
     );
     // The retired Advanced opt-out has no surface any more.
-    expect(source("src/renderer/components/SettingsPanel.tsx")).not.toContain(
+    expect(source("src/window/components/SettingsPanel.tsx")).not.toContain(
       "advanced.seatAwareness",
     );
   });

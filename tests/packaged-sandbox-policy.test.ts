@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   findPackagedSandboxDisablingSwitch,
   PACKAGED_SANDBOX_DISABLING_SWITCHES,
-} from "../src/main/junto/packaged-sandbox-policy";
+} from "../src/app/packaged-sandbox-policy";
 
 describe("packaged Chromium sandbox policy", () => {
   it.each(PACKAGED_SANDBOX_DISABLING_SWITCHES)(

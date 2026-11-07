@@ -5,11 +5,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_AUTOMATION_LIMITS, type Automation, type AutomationDefinition } from "@shared/automation";
 import { asNodeId } from "@shared/physics/schema";
 import { ItemId } from "@shared/work-ids";
-import { AutomationsPane } from "../src/renderer/components/automations/AutomationsPane";
-import { makeLocalAutomationsSource, setAutomationsSource } from "../src/renderer/lib/automations-source";
-import { nodeViewStore, setNodeViewStore } from "../src/renderer/lib/node-view-state";
-import { makeMemoryNodeViewStore } from "../src/renderer/lib/view-state-stand-in";
-import { loadLazySurfaces } from "../src/renderer/lib/lazy-surface";
+import { AutomationsPane } from "../src/window/components/automations/AutomationsPane";
+import { makeLocalAutomationsSource, setAutomationsSource } from "../src/window/lib/automations-source";
+import { nodeViewStore, setNodeViewStore } from "../src/window/lib/node-view-state";
+import { makeMemoryNodeViewStore } from "../src/window/lib/view-state-stand-in";
+import { loadLazySurfaces } from "../src/window/lib/lazy-surface";
 
 // The editors and viewers load before any test, so no test waits on an import.
 await loadLazySurfaces();

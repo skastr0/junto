@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { makeProcessIdentityMap, processAlive } from "../src/main/junto/process-identity";
-import { readProcessStartKey } from "../src/main/junto/process-identity-facts";
+import { makeProcessIdentityMap, processAlive } from "../src/core/process-identity";
+import { readProcessStartKey } from "../src/node/process-identity-facts";
 
 describe("process identity epoch", () => {
   it("binds only live PIDs and resolves with start-key match", () => {

@@ -3,12 +3,12 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect, Schema } from "effect";
 import { expect, it } from "vitest";
-import { startCore } from "../src/main/junto/core";
-import { ModelService } from "../src/main/junto/model/service";
-import { MachineRepository } from "../src/main/junto/machines/repository";
-import { SeatSessionRepository } from "../src/main/junto/seat-sessions/repository";
-import { setOperatorOffboard, type OperatorOffboard } from "../src/main/junto/seat-sessions/operator-offboard";
-import { ensureSeatSessionId } from "../src/main/junto/term/seat-session-before-start";
+import { startCore } from "../src/core/core";
+import { ModelService } from "../src/core/model/service";
+import { MachineRepository } from "../src/core/machines/repository";
+import { SeatSessionRepository } from "../src/core/seat-sessions/repository";
+import { setOperatorOffboard, type OperatorOffboard } from "../src/core/seat-sessions/operator-offboard";
+import { ensureSeatSessionId } from "../src/core/term/seat-session-before-start";
 import { Command } from "../src/shared/model";
 
 it("a windowless core's start asks the start decision, with why it starts: a cold session starts fresh, a warm one resumes", async () => {

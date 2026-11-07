@@ -808,7 +808,7 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly agentSignalDismiss: (signalId: string) => Promise<AgentSignalOperatorResult>;
   /**
    * Preview a local file that the source's stored text names. Main serves
-   * nothing the text does not name: see `src/main/junto/preview/read.ts`.
+   * nothing the text does not name: see `src/app/preview/read.ts`.
    */
   readonly previewRead: (request: PreviewRequest) => Promise<PreviewResult>;
   /**

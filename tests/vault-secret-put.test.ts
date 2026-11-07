@@ -16,14 +16,14 @@ vi.mock("@shared/features", async (original) => ({
   get VAULT_ENABLED() { return flags.vault; },
 }));
 
-import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
-import type { ToolCall, ToolResult } from "../src/main/junto/region-env/tool";
-import { AgentSignalRepository, AgentSignalRepositoryLive } from "../src/main/junto/signals/repository";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { makeVaultTokens } from "../src/main/junto/vault/repository";
-import { putSignalSecret } from "../src/main/junto/vault/secret-put";
-import { writeVaultToken } from "../src/main/junto/vault/token-file";
-import { WorkService } from "../src/main/junto/work/service";
+import { makeMachineRepositoryLive } from "../src/core/machines/repository";
+import type { ToolCall, ToolResult } from "../src/core/region-env/tool";
+import { AgentSignalRepository, AgentSignalRepositoryLive } from "../src/core/signals/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { makeVaultTokens } from "../src/core/vault/repository";
+import { putSignalSecret } from "../src/core/vault/secret-put";
+import { writeVaultToken } from "../src/core/vault/token-file";
+import { WorkService } from "../src/core/work/service";
 import type { EnvSource, RegionEnvironment } from "../src/shared/model/region";
 import { canvasOf, region, seat } from "./support/model-nodes";
 

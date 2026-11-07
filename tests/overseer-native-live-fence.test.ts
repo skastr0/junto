@@ -1,9 +1,9 @@
 import { Effect, Fiber } from "effect";
 import { describe, expect, it } from "vitest";
 import { canvasOf, seat } from "./support/model-nodes";
-import { makeOverseerNativeLive } from "../src/main/junto/overseer/native";
-import { ManagedTerminalDrive } from "../src/main/junto/term/drive";
-import type { TermPlane } from "../src/main/junto/term/plane";
+import { makeOverseerNativeLive } from "../src/core/overseer/native";
+import { ManagedTerminalDrive } from "../src/core/term/drive";
+import type { TermPlane } from "../src/core/term/plane";
 
 const factory = canvasOf([
   seat("worker", { label: "Worker", width: 240, height: 120, harness: "codex", bindingId: "worker-binding" as never }),

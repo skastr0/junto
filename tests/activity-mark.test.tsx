@@ -5,8 +5,8 @@
  */
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { ActivityMark, ActivityMarkFromSpec } from "../src/renderer/components/ActivityMark";
-import { terminalActivity } from "../src/renderer/lib/activity";
+import { ActivityMark, ActivityMarkFromSpec } from "../src/window/components/ActivityMark";
+import { terminalActivity } from "../src/window/lib/activity";
 
 const attr = (html: string, name: string): string | undefined =>
   new RegExp(`${name}="([^"]*)"`).exec(html)?.[1];

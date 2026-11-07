@@ -9,31 +9,31 @@ import {
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
   type BrowserCapabilityTarget,
-} from "../../../src/main/junto/browser/capabilities";
-import { makeBrowserProfileGate } from "../../../src/main/junto/browser/profile-gate";
+} from "../../../src/app/browser/capabilities";
+import { makeBrowserProfileGate } from "../../../src/app/browser/profile-gate";
 import {
   browserProfileQuarantinePath,
   makeBrowserProfileStorageLifecycle,
   type BrowserProfileStoragePlatform,
   type BrowserProfileStorageSessionControl,
-} from "../../../src/main/junto/browser/profile-storage";
-import { makeElectronBrowserProfileStoragePlatform } from "../../../src/main/junto/browser/profile-storage-electron";
+} from "../../../src/app/browser/profile-storage";
+import { makeElectronBrowserProfileStoragePlatform } from "../../../src/app/browser/profile-storage-electron";
 import {
   makeBrowserProfileService,
   type BrowserProfilePendingWipe,
-} from "../../../src/main/junto/browser/profiles";
+} from "../../../src/node/browser/profiles";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../../../src/main/junto/state/engine";
-import type { ResolvedPageTarget } from "../../../src/main/junto/browser/page-target";
+} from "../../../src/core/state/engine";
+import type { ResolvedPageTarget } from "../../../src/core/browser/page-target";
 import {
   BROWSER_UI_SESSION_OWNER,
   BrowserSessionService,
   type BrowserResult,
   type BrowserProfileQuiescence,
-} from "../../../src/main/junto/browser/sessions";
-import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/junto/browser/view-adapter";
+} from "../../../src/app/browser/sessions";
+import { makeBrowserTestOnlyElectronHarness } from "../../../src/app/browser/view-adapter";
 import { partitionNameForProfile } from "../../../src/shared/browser";
 import { formatNodeRef } from "../../../src/shared/node-ref";
 import { localBrowserTestMachineName } from "../../browser-test-machine";
@@ -43,7 +43,7 @@ import { localBrowserTestMachineName } from "../../browser-test-machine";
 // --no-proxy-server / --proxy-server would restamp a managed browser
 // partition (DIRECT, or an uncontrolled proxy) after its owned CONNECT proxy
 // is pinned. Strip the inherited switches before any Session can exist,
-// exactly like src/main/index.ts does. Never re-add no-proxy-server instead.
+// exactly like src/app/index.ts does. Never re-add no-proxy-server instead.
 app.commandLine.removeSwitch("no-proxy-server");
 app.commandLine.removeSwitch("proxy-server");
 app.commandLine.removeSwitch("proxy-bypass-list");

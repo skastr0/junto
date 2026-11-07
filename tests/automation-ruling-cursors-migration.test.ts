@@ -9,8 +9,8 @@ import {
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V43_IDENTITY,
   STATE_SCHEMA_V44_IDENTITY,
-} from "../src/main/junto/state/migrations";
-import { expectedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+} from "../src/core/state/migrations";
+import { expectedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V43_SQL, STATE_SCHEMA_V44_SQL } from "./fixtures/state-v13/schema";
 
 describe("state step 43 to 44: the automation ruling cursors", () => {

@@ -6,7 +6,7 @@
  * rest pose.
  */
 import { afterEach, expect, it, vi } from "vitest";
-import { ensureMarkAtlas, mirrorMarkAtlas, resetMarkAtlasForTests } from "../src/renderer/lib/activity-atlas";
+import { ensureMarkAtlas, mirrorMarkAtlas, resetMarkAtlasForTests } from "../src/window/lib/activity-atlas";
 
 afterEach(() => {
   vi.restoreAllMocks();

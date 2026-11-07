@@ -20,18 +20,18 @@ import {
 import {
   type TermControlMaintenanceLease,
   TermControlClient,
-} from "../src/main/junto/term/control-client";
+} from "../src/core/term/control-client";
 import {
   startTermControlServer,
   type TermControlServer,
-} from "../src/main/junto/term/control-server";
-import type { LinuxReleaseFenceObservation } from "../src/main/junto/term/release-fence";
-import { LocalSessionHost } from "../src/main/junto/term/local-host";
+} from "../src/core/term/control-server";
+import type { LinuxReleaseFenceObservation } from "../src/core/term/release-fence";
+import { LocalSessionHost } from "../src/core/term/local-host";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
-} from "../src/main/junto/process-identity";
-import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
+} from "../src/core/process-identity";
+import { setProcessEpochReaderForTests } from "../src/node/process-epoch";
 import {
   makeFakeTerminalProcessAuthority,
   type FakeTerminalProcessAuthority,

@@ -1,6 +1,6 @@
-import type { ModelActorRefs } from "../src/main/junto/model/actor-refs";
-import type { ModelService } from "../src/main/junto/model/service";
-import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
+import type { ModelActorRefs } from "../src/core/model/actor-refs";
+import type { ModelService } from "../src/core/model/service";
+import { CrewRepositoryLive } from "../src/core/work/crew-repository";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -18,21 +18,21 @@ import {
   readSeeded,
   seedCanvas,
 } from "./support/seed-canvas";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { WorkRepositoryLive } from "../src/main/junto/work/repository";
-import { MachineRepository, MachineRepositoryLive } from "../src/main/junto/machines/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { WorkRepositoryLive } from "../src/core/work/repository";
+import { MachineRepository, MachineRepositoryLive } from "../src/core/machines/repository";
 import { THIS_MACHINE } from "./support/machines";
 import { nameThisMachine } from "./support/name-this-machine";
-import { WorkLive } from "../src/main/junto/work/service";
-import { SettingsLive } from "../src/main/junto/settings/service";
-import { makeContentServiceLive } from "../src/main/junto/content/service";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { commitAgentReseat } from "../src/main/junto/overseer/canvas";
+import { WorkLive } from "../src/core/work/service";
+import { SettingsLive } from "../src/core/settings/service";
+import { makeContentServiceLive } from "../src/core/content/service";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { commitAgentReseat } from "../src/core/overseer/canvas";
 import {
   createDispatchGrant,
   lateBoundDrive,
   runCanvasHook,
-} from "../src/main/junto/overseer/composition";
+} from "../src/core/overseer/composition";
 
 
 const origin: OverseerCaller = { canvasName: "ops", nodeId: "overseer" };

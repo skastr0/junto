@@ -11,9 +11,9 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Result } from "effect";
 import { SqlClient } from "effect/sql";
 import { afterEach, describe, expect, it } from "vitest";
-import { ContentManifest } from "../src/main/junto/content/manifest";
-import { contentStoreRoot } from "../src/main/junto/content/paths";
-import { createContentService, type ContentServiceShape } from "../src/main/junto/content/service";
+import { ContentManifest } from "../src/core/content/manifest";
+import { contentStoreRoot } from "../src/node/content/paths";
+import { createContentService, type ContentServiceShape } from "../src/core/content/service";
 import {
   ContentStageError,
   NotStagedByCaller,
@@ -21,8 +21,8 @@ import {
   contentStagingDir,
   makeContentStager,
   type ContentStager,
-} from "../src/main/junto/content/stage";
-import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+} from "../src/core/content/stage";
+import { makeStateEngineLive, StateEngine } from "../src/core/state/engine";
 import {
   CONTENT_STAGE_IDLE_MS,
   CONTENT_STAGE_MAX_OPEN_PER_SEAT,

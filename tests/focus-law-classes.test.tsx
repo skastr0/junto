@@ -2,14 +2,14 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FirstLineRenameInput } from "../src/renderer/components/nodes/FirstLineRenameInput";
+import { FirstLineRenameInput } from "../src/window/components/nodes/FirstLineRenameInput";
 import {
   claimFocusOnMount,
   noteOperatorGesture,
   resetOperatorGesture,
-} from "../src/renderer/lib/focus-ownership";
-import { keySituation } from "../src/renderer/lib/key-dispatcher";
-import { isEditableEventTarget } from "../src/renderer/lib/multi-select-gesture";
+} from "../src/window/lib/focus-ownership";
+import { keySituation } from "../src/window/lib/key-dispatcher";
+import { isEditableEventTarget } from "../src/window/lib/multi-select-gesture";
 import { resolveKey } from "../src/shared/key-table";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

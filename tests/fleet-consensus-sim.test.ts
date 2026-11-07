@@ -7,7 +7,7 @@
  * replay it. Then every fault stops, and the fleet must agree and commit.
  */
 import { describe, expect, it } from "vitest";
-import { ProposalRefused, type MachineId } from "../src/main/junto/fleet/consensus";
+import { ProposalRefused, type MachineId } from "../src/core/fleet/consensus";
 import { Cluster } from "./support/consensus-sim";
 
 const POOL = ["macbook", "mini", "vps", "nuc", "pi"] as const;

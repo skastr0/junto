@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/sql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CredentialBindingRepository } from "../src/main/junto/credentials/bindings";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { CredentialBindingRepository } from "../src/core/credentials/bindings";
+import { makeStateEngineLive } from "../src/core/state/engine";
 
 let root: string;
 let runtime: ManagedRuntime.ManagedRuntime<CredentialBindingRepository | SqlClient.SqlClient, unknown>;

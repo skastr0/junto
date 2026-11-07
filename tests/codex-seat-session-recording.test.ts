@@ -4,20 +4,20 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { expect, it, vi } from "vitest";
 import { createSandbox, destroySandbox, writeFixtureModel } from "../e2e/harness/sandbox";
 import { modelFixture, modelSeat } from "../e2e/harness/model";
-import { ModelService } from "../src/main/junto/model/service";
-import { ModelDependents } from "../src/main/junto/model/dependents";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../src/main/junto/seat-sessions/repository";
+import { ModelService } from "../src/core/model/service";
+import { ModelDependents } from "../src/core/model/dependents";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { makeMachineRepositoryLive } from "../src/core/machines/repository";
+import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../src/core/seat-sessions/repository";
 import { THIS_MACHINE } from "./support/machines";
 
 const app = vi.hoisted(() => ({ runPromise: vi.fn() }));
 // Spread the real module: a later export must not break this file at load.
-vi.mock("../src/main/core-runner", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/main/core-runner")>()),
+vi.mock("../src/core/core-runner", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/core/core-runner")>()),
   coreRunner: app,
 }));
-import { SeatSessionCapture } from "../src/main/junto/term/seat-session-capture";
+import { SeatSessionCapture } from "../src/core/term/seat-session-capture";
 
 it("captures a Codex rollout into the machine's private pin without changing the canvas", async () => {
   const sandbox = await createSandbox();

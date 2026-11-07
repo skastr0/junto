@@ -8,8 +8,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { MemberStatus, RegionRollup } from "../src/shared/region-rollup";
-import { RollCall } from "../src/renderer/components/rts/RollCall";
-import { GREEN } from "../src/renderer/lib/theme";
+import { RollCall } from "../src/window/components/rts/RollCall";
+import { GREEN } from "../src/window/lib/theme";
 import { MemberSeverity } from "../src/shared/region-rollup";
 
 const S = MemberSeverity.group;

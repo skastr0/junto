@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it } from "vitest";
-import { ArtifactMarkdown } from "../src/renderer/components/work/ArtifactMarkdown";
+import { ArtifactMarkdown } from "../src/window/components/work/ArtifactMarkdown";
 
 it("shows a tag as the literal text the writer typed, never dropped and never drawn as HTML", () => {
   const drawn = renderToStaticMarkup(<ArtifactMarkdown source={"From <author>: a <b> c"} />);

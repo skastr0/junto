@@ -13,7 +13,7 @@ import {
   resolveHotbarSlots,
   slotIndexOf,
   slotMemberIds,
-} from "../src/renderer/lib/hotbar-slots";
+} from "../src/window/lib/hotbar-slots";
 import {
   currentSelectionIds,
   firstFreeSlotIndex,
@@ -32,10 +32,10 @@ import {
   swapHotbarSlots,
   type CommandGroupRetap,
   type RecallContext,
-} from "../src/renderer/lib/command-groups";
-import { REGION_RETAP_GAP_MS } from "../src/renderer/lib/region-retap";
-import { makeMemoryViewStateStore } from "../src/renderer/lib/view-state-stand-in";
-import type { ViewCommandSlot, ViewStateStore } from "../src/renderer/lib/view-state";
+} from "../src/window/lib/command-groups";
+import { REGION_RETAP_GAP_MS } from "../src/window/lib/region-retap";
+import { makeMemoryViewStateStore } from "../src/window/lib/view-state-stand-in";
+import type { ViewCommandSlot, ViewStateStore } from "../src/window/lib/view-state";
 
 const board = (entries: ReadonlyArray<readonly [number, HotbarSlot]>): HotbarSlot[] => {
   const slots = emptyHotbarSlots();

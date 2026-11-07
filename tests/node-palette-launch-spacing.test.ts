@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
  */
 describe("node palette launch spacing", () => {
   const css = readFileSync(
-    resolve(import.meta.dirname, "../src/renderer/components/node-palette/node-palette-mode-deck.css"),
+    resolve(import.meta.dirname, "../src/window/components/node-palette/node-palette-mode-deck.css"),
     "utf8",
   );
 

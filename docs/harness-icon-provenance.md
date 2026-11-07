@@ -13,8 +13,8 @@ its vendor's own vector mark") and the two-theme spec
 
 ## How the repository is shaped
 
-- `GLYPHS` in `src/renderer/lib/harness-icons.ts` is the generated table
-  `PROVIDER_MARKS` (`src/renderer/lib/provider-marks.generated.ts`) plus
+- `GLYPHS` in `src/window/lib/harness-icons.ts` is the generated table
+  `PROVIDER_MARKS` (`src/window/lib/provider-marks.generated.ts`) plus
   `CURATED`, where curated wins on a key collision.
 - `PROVIDER_MARKS` holds monochrome path data extracted from each vendor's
   own artwork. Each entry carries a `// Source:` comment.
@@ -153,4 +153,4 @@ doubao, jetbrains, kiro, minimax, ollama, perplexity, poe, sakana, synthetic,
 t3chat, venice, vertexai, warp) still render the vendor's raster icon in the
 usage HUD, because none publishes a vector. They are providers, not
 harnesses, and none appears in Add item. Their sources are recorded beside
-each constant in `src/renderer/lib/official-agent-assets.ts`.
+each constant in `src/window/lib/official-agent-assets.ts`.

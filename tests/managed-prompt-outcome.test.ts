@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ManagedTerminalDrive } from "../src/main/junto/term/drive/managed-terminal-drive";
+import { ManagedTerminalDrive } from "../src/core/term/drive/managed-terminal-drive";
 import {
   readManagedPromptOutcome,
   type ManagedPromptOutcome,

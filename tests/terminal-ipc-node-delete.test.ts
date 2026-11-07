@@ -4,14 +4,14 @@ import { IPC_CHANNELS } from "../src/shared/ipc";
 import { Node, type Node as ModelNode } from "../src/shared/model";
 import { Effect, Schema } from "effect";
 import { inProcessCore } from "./support/in-process-core";
-import { core } from "../src/main/core-process/main-client";
-import * as seatControl from "../src/main/junto/term/seat-control";
-import { registerTerminalIpc } from "../src/main/junto/term/ipc";
-import { bindTermIpcPlane } from "../src/main/core-process/ops/term-ipc";
-import "../src/main/core-process/ops/term-ipc";
-import type { TermPlane } from "../src/main/junto/term/plane";
-import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
-import { ModelService } from "../src/main/junto/model/service";
+import { core } from "../src/app/core-process/main-client";
+import * as seatControl from "../src/core/term/seat-control";
+import { registerTerminalIpc } from "../src/app/term/ipc";
+import { bindTermIpcPlane } from "../src/core/ops/term-ipc";
+import "../src/core/ops/term-ipc";
+import type { TermPlane } from "../src/core/term/plane";
+import { TerminalNodeDeleteService } from "../src/core/term/node-delete";
+import { ModelService } from "../src/core/model/service";
 import type { HarnessId } from "../src/shared/managed-terminal-templates";
 
 const sender = {

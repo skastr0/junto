@@ -7,10 +7,10 @@ import { HARNESS_RECORDS, harnessRecordFor } from "../src/shared/harness-records
 
 const versionVerdict = (range: VerifiedRange, installed: string | undefined) => verifyVersion(installed, range).verdict;
 import { HARNESS_IDS, templateFor } from "../src/shared/managed-terminal-templates";
-import { GROK_MIN_POST_SPAWN_MS } from "../src/main/junto/term/drive/managed-terminal-drive";
-import { BRACKETED_PASTE_HARNESSES } from "../src/main/junto/term/drive/mail-readiness";
-import { harnessRuntimeRecordFor } from "../src/main/junto/term/harness-record";
-import { rulePackFor } from "../src/main/junto/term/agent-state/rules";
+import { GROK_MIN_POST_SPAWN_MS } from "../src/core/term/drive/managed-terminal-drive";
+import { BRACKETED_PASTE_HARNESSES } from "../src/core/term/drive/mail-readiness";
+import { harnessRuntimeRecordFor } from "../src/core/term/harness-record";
+import { rulePackFor } from "../src/core/term/agent-state/rules";
 
 describe("harness records", () => {
   it("joins template, capabilities, params and PTY profile for every harness", () => {

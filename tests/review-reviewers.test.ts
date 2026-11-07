@@ -9,7 +9,7 @@ import {
   evaluateReviewGate,
   reviewerSeatsOf,
   type ReviewSubjectProjection,
-} from "../src/main/junto/work/reviews";
+} from "../src/core/work/reviews";
 
 // Review eligibility lives on the task's reviewer list; no edge grants it.
 

@@ -2,7 +2,7 @@
  * L2 mail nits: durable read-ack idempotency (stable readAt).
  * Control-plane foreign-mailbox refusal lives in work-control-transport.
  */
-import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
+import { CrewRepositoryLive } from "../src/core/work/crew-repository";
 import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,24 +13,24 @@ import type { Canvas } from "../src/shared/model";
 import type { ActorRef } from "../src/shared/work-protocol";
 import { seat } from "./support/model-nodes";
 import { IntentFactBasis } from "../src/shared/work-protocol";
-import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
+import { ModelActorRefs } from "../src/core/model/actor-refs";
 import { ModelStoresLive, readSeeded, seedCanvas } from "./support/seed-canvas";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import {
   SettingsLive,
   SettingsService,
-} from "../src/main/junto/settings/service";
-import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { mailboxMessageReadId } from "../src/main/junto/work/mailbox-receipts";
+} from "../src/core/settings/service";
+import { makeMachineRepositoryLive } from "../src/core/machines/repository";
+import { mailboxMessageReadId } from "../src/core/work/mailbox-receipts";
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/junto/work/repository";
-import { WorkLive, WorkService } from "../src/main/junto/work/service";
+} from "../src/core/work/repository";
+import { WorkLive, WorkService } from "../src/core/work/service";
 import {
   makeContentServiceLive,
-} from "../src/main/junto/content/service";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
+} from "../src/core/content/service";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
 import { THIS_MACHINE } from "./support/machines";
 
 const roots: string[] = [];

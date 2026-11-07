@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
-import { coreOpBody } from "../src/main/core-process/ops";
-import "../src/main/core-process/ops/index";
+import { coreOpBody } from "../src/core/ops";
+import "../src/core/ops/index";
 
 /**
  * A group committed without its line in ops/index.ts is not registered, and

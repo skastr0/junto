@@ -3,24 +3,24 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { asCanvasName } from "../src/shared/model";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { state$ } from "../src/renderer/lib/state";
-import { setNodeViewStore } from "../src/renderer/lib/node-view-state";
-import { makeMemoryNodeViewStore } from "../src/renderer/lib/view-state-stand-in";
+import { modelStore } from "../src/window/lib/use-model";
+import { state$ } from "../src/window/lib/state";
+import { setNodeViewStore } from "../src/window/lib/node-view-state";
+import { makeMemoryNodeViewStore } from "../src/window/lib/view-state-stand-in";
 import { artifacts, region } from "./support/model-nodes";
 
 // Main has the added node only once the flush resolves: the order is what the Inbox row depends on.
 const sent: string[] = [];
 let flush: () => void = () => undefined;
-vi.mock("../src/renderer/lib/mutations", () => ({
+vi.mock("../src/window/lib/mutations", () => ({
   addNode: (node: { id: string }) => sent.push(`add ${node.id}`),
   renameNode: (id: string, name: string) => sent.push(`rename ${id} ${name}`),
   flushPendingCanvasSave: () => new Promise<void>((done) => (flush = done)),
 }));
 
-const { captureInboxOf, edgeSpot, makeCaptureInbox, setCaptureInbox, INBOX_NAME } = await import("../src/renderer/lib/capture-inbox");
-const { CaptureInboxAsk } = await import("../src/renderer/components/capture/CaptureInboxAsk");
-const { InboxSettingsSection } = await import("../src/renderer/components/settings/InboxSettingsSection");
+const { captureInboxOf, edgeSpot, makeCaptureInbox, setCaptureInbox, INBOX_NAME } = await import("../src/window/lib/capture-inbox");
+const { CaptureInboxAsk } = await import("../src/window/components/capture/CaptureInboxAsk");
+const { InboxSettingsSection } = await import("../src/window/components/settings/InboxSettingsSection");
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

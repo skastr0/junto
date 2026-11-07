@@ -15,12 +15,12 @@ import { type ArtifactOp, type ArtifactVersion, emptyBody } from "../src/shared/
 import type { InstallationId } from "../src/shared/installation-id";
 import { asNodeId } from "../src/shared/physics/schema";
 import { mintItemId, mintOpId, type ItemId, type OpId, type ResourceActor, type ResourceCommand } from "../src/shared/resource-command";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { ContentService, makeContentServiceLive } from "../src/main/junto/content/service";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { writeRuling } from "../src/main/junto/work/resource-rulings";
-import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
-import { ArtifactRepository, ArtifactRepositoryLive, artifactBodyRef, projectArtifactFacts } from "../src/main/junto/work/artifact-repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { ContentService, makeContentServiceLive } from "../src/core/content/service";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { writeRuling } from "../src/core/work/resource-rulings";
+import { RulingRecorder } from "../src/core/work/ruling-recorder";
+import { ArtifactRepository, ArtifactRepositoryLive, artifactBodyRef, projectArtifactFacts } from "../src/core/work/artifact-repository";
 
 const recorder = Layer.effect(
   RulingRecorder,

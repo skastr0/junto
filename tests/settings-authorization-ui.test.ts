@@ -2,8 +2,8 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const rendererFiles = [
-  "../src/renderer/components/SettingsPanel.tsx",
-  "../src/renderer/components/machines/MachinesWindow.tsx",
+  "../src/window/components/SettingsPanel.tsx",
+  "../src/window/components/machines/MachinesWindow.tsx",
 ] as const;
 
 describe("Linux host preparation UI", () => {

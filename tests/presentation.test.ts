@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { hostOf } from "../src/renderer/lib/presentation";
-import { detailOf, searchOf } from "../src/renderer/lib/node-presentation";
+import { hostOf } from "../src/window/lib/presentation";
+import { detailOf, searchOf } from "../src/window/lib/node-presentation";
 import { titleOf } from "../src/shared/model/title";
 import { asNodeId, type Node } from "../src/shared/model";
 import { note, page, region, seat, taskBoard } from "./support/model-nodes";

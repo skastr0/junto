@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createAppProcessPlane } from "../src/main/junto/app-process-plane";
+import { createAppProcessPlane } from "../src/node/app-process-plane";
 
 // No mocks: a real group that dies on the drain's TERM. Its record retires on
 // close plus a verified-empty group, which no event announces; the drain must

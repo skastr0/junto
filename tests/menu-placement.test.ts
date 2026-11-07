@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { placeBesideRect } from "../src/renderer/lib/menu-placement";
+import { placeBesideRect } from "../src/window/lib/menu-placement";
 
 describe("placeBesideRect", () => {
   const viewport = { width: 1000, height: 800 };

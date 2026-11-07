@@ -6,7 +6,7 @@ import {
   ManagedTerminalDrive,
   OperatorInterlock,
   encodeBracketedPaste,
-} from "../src/main/junto/term/drive";
+} from "../src/core/term/drive";
 
 describe("positive terminal submission evidence", () => {
   const drives: ManagedTerminalDrive[] = [];

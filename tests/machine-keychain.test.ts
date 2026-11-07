@@ -1,6 +1,6 @@
 import { Effect, Result, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import { detectMachineKeychain } from "../src/main/junto/hosts/machine-keychain";
+import { detectMachineKeychain } from "../src/core/hosts/machine-keychain";
 import { machineHarnessSignIn } from "../src/shared/machine-harness-status";
 import { MachineHarness, MachineHarnessSignIn, MachineKeychainStatus } from "../src/shared/machine-control";
 import { HARNESS_IDS } from "../src/shared/managed-terminal-templates";

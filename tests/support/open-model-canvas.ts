@@ -1,7 +1,7 @@
 import { asCanvasName, type Node, type Wire } from "../../src/shared/model";
-import { authoring } from "../../src/renderer/lib/authoring";
-import { modelStore } from "../../src/renderer/lib/use-model";
-import { state$ } from "../../src/renderer/lib/state";
+import { authoring } from "../../src/window/lib/authoring";
+import { modelStore } from "../../src/window/lib/use-model";
+import { state$ } from "../../src/window/lib/state";
 
 /** Open typed rows with a main that accepts commands, including undo and redo. */
 export const openModelCanvas = (name: string, nodes: ReadonlyArray<Node>, wires: ReadonlyArray<Wire> = []): (() => Promise<void>) => {

@@ -9,11 +9,11 @@ import { wordsText } from "./helpers/command-words";
 import { ChildProcess as Command } from "effect/process";
 import { Effect, Scope } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { hostsSnapshot, setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
-import { createSshProgramCompiler } from "../src/main/junto/ssh/program";
-import { SshTransport, type LocalForwardSocket } from "../src/main/junto/ssh/service";
-import { LocalSessionHost } from "../src/main/junto/term/local-host";
-import { TerminalRouter } from "../src/main/junto/term/router";
+import { hostsSnapshot, setHostsSnapshot } from "../src/core/hosts/snapshot";
+import { createSshProgramCompiler } from "../src/core/ssh/program";
+import { SshTransport, type LocalForwardSocket } from "../src/core/ssh/service";
+import { LocalSessionHost } from "../src/core/term/local-host";
+import { TerminalRouter } from "../src/core/term/router";
 import { makeThisMachine } from "../src/shared/remote-hosts";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 

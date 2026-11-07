@@ -10,14 +10,14 @@ import { LIVE_OVERSEER_ENABLED } from "../src/shared/features";
 import { managedHarnessEnabled } from "../src/shared/managed-terminal-templates";
 import { HARNESS_IDS, allTemplates } from "../src/shared/managed-terminal-templates";
 import { defaultSettings } from "../src/shared/settings";
-import { ProvidersSettingsSection } from "../src/renderer/components/settings/ProvidersSettingsSection";
-import { newSeat } from "../src/renderer/lib/model-factories";
-import { canStartOverseerLive, openOverseerLive, overseerLive$ } from "../src/renderer/lib/overseer-live-state";
-import { state$ } from "../src/renderer/lib/state";
-import { LocalSessionHost } from "../src/main/junto/term/local-host";
+import { ProvidersSettingsSection } from "../src/window/components/settings/ProvidersSettingsSection";
+import { newSeat } from "../src/window/lib/model-factories";
+import { canStartOverseerLive, openOverseerLive, overseerLive$ } from "../src/window/lib/overseer-live-state";
+import { state$ } from "../src/window/lib/state";
+import { LocalSessionHost } from "../src/core/term/local-host";
 import { makeLocalSeatProcess,
   noSeatEnvironment,
-} from "../src/main/junto/term/seat-process";
+} from "../src/core/term/seat-process";
 import { occupancyFromSession, occupyVacantSeat } from "../src/shared/terminal-seat-occupancy";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
@@ -88,8 +88,8 @@ describe("Live Overseer product gate", () => {
   });
 
   it("keeps main composition, preload exposure, and app mounting behind the same gate", () => {
-    expect(readFileSync("src/main/index.ts", "utf8")).toContain("if (LIVE_OVERSEER_ENABLED) unregisterOverseerLiveIpc = registerOverseerLiveIpc(coreOverseerLive(core));");
-    expect(readFileSync("src/preload/index.ts", "utf8")).toContain("...(LIVE_OVERSEER_ENABLED ? liveApi : {})");
-    expect(readFileSync("src/renderer/App.tsx", "utf8")).toContain("{LIVE_OVERSEER_ENABLED && <LiveConversationHost />}");
+    expect(readFileSync("src/app/index.ts", "utf8")).toContain("if (LIVE_OVERSEER_ENABLED) unregisterOverseerLiveIpc = registerOverseerLiveIpc(coreOverseerLive(core));");
+    expect(readFileSync("src/window/preload/index.ts", "utf8")).toContain("...(LIVE_OVERSEER_ENABLED ? liveApi : {})");
+    expect(readFileSync("src/window/App.tsx", "utf8")).toContain("{LIVE_OVERSEER_ENABLED && <LiveConversationHost />}");
   });
 });

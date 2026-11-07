@@ -25,17 +25,17 @@ import {
   type ResourceCommand,
   type RulingContext,
 } from "../src/shared/resource-command";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { ContentService, makeContentServiceLive } from "../src/main/junto/content/service";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { writeRuling } from "../src/main/junto/work/resource-rulings";
-import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
-import { ArtifactRepository, ArtifactRepositoryLive } from "../src/main/junto/work/artifact-repository";
-import { linkedFromBodies, rebuildBodyLinks } from "../src/main/junto/work/body-links";
-import { runArtifactLinksBackfill } from "../src/main/junto/work/artifact-links-backfill";
-import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
-import { InstallOpsService } from "../src/main/junto/install-ops/service";
-import { BACKFILL_ARTIFACT_LINKS_V1 } from "../src/main/junto/install-ops/engine";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { ContentService, makeContentServiceLive } from "../src/core/content/service";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { writeRuling } from "../src/core/work/resource-rulings";
+import { RulingRecorder } from "../src/core/work/ruling-recorder";
+import { ArtifactRepository, ArtifactRepositoryLive } from "../src/core/work/artifact-repository";
+import { linkedFromBodies, rebuildBodyLinks } from "../src/core/work/body-links";
+import { runArtifactLinksBackfill } from "../src/core/work/artifact-links-backfill";
+import { unjournaledWorkMutationEffect } from "../src/core/work/mutation-seam";
+import { InstallOpsService } from "../src/core/install-ops/service";
+import { BACKFILL_ARTIFACT_LINKS_V1 } from "../src/core/install-ops/engine";
 import { seat } from "./support/model-nodes";
 
 

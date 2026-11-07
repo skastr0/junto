@@ -20,10 +20,10 @@ import {
   ManagedTerminalDrive,
   OperatorInterlock,
   encodeBracketedPaste,
-} from "../../../src/main/junto/term/drive";
-import { OPERATOR_INPUT_LATCH_MS } from "../../../src/main/junto/term/drive/operator-interlock";
-import { SessionObserver } from "../../../src/main/junto/term/observer/session-observer";
-import { SeatStateRuntime } from "../../../src/main/junto/term/agent-state/runtime";
+} from "../../../src/core/term/drive";
+import { OPERATOR_INPUT_LATCH_MS } from "../../../src/core/term/drive/operator-interlock";
+import { SessionObserver } from "../../../src/core/term/observer/session-observer";
+import { SeatStateRuntime } from "../../../src/core/term/agent-state/runtime";
 import { composerAvailability } from "../../../src/shared/composer-availability";
 import { chunkEvents, corpusRoot, loadFixture, type FixtureEvent } from "../runner";
 

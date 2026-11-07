@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CANVAS_SWATCHES } from "../src/shared/canvas-colors";
 import { THEME_MODES, themeRuntime } from "../src/shared/theme";
-import { REGION_WORD_SHARE, regionWordContrast, regionWordShare } from "../src/renderer/lib/region-word-ink";
+import { REGION_WORD_SHARE, regionWordContrast, regionWordShare } from "../src/window/lib/region-word-ink";
 
 // Free hexes an operator could type that the theme's share does not carry:
 // pale ones wash out on bright, dark ones sink into dark.

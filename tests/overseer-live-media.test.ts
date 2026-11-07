@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OverseerLiveMedia, type LiveMediaState } from "../src/renderer/lib/overseer-live-media";
+import { OverseerLiveMedia, type LiveMediaState } from "../src/window/lib/overseer-live-media";
 import type { LiveSnapshot, LiveStartResult } from "../src/shared/overseer-live";
 
 const snapshot: LiveSnapshot = {

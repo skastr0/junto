@@ -6,10 +6,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import { Node } from "@shared/model";
-import { SaveToGroupPicker } from "../src/renderer/components/rts/SaveToGroupPicker";
-import { emptyHotbarSlots, type HotbarSlot } from "../src/renderer/lib/hotbar-slots";
-import { state$ } from "../src/renderer/lib/state";
-import { modelStore } from "../src/renderer/lib/use-model";
+import { SaveToGroupPicker } from "../src/window/components/rts/SaveToGroupPicker";
+import { emptyHotbarSlots, type HotbarSlot } from "../src/window/lib/hotbar-slots";
+import { state$ } from "../src/window/lib/state";
+import { modelStore } from "../src/window/lib/use-model";
 
 const node = (id: string, text: string) => ({
   id,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LIVE_STRUCTURAL_WRITES } from "../src/main/junto/overseer/live/service";
+import { LIVE_STRUCTURAL_WRITES } from "../src/core/overseer/live/service";
 import { OVERSEER_OPERATION_NAMES, isOverseerMutation } from "../src/shared/overseer-control";
 
 // A voice request's receipt is committed with the canvas write only for the

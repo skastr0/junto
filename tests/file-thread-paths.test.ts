@@ -10,10 +10,10 @@ import { join } from "node:path";
 import { Effect, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/sql";
 import { describe, expect, it } from "vitest";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { carriedPath, carriedSubject, carryFileThreads, pathUnder } from "../src/main/junto/work/file-thread-paths";
-import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
-import { onThreadChanged } from "../src/main/junto/work/resource-changes";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { carriedPath, carriedSubject, carryFileThreads, pathUnder } from "../src/core/work/file-thread-paths";
+import { unjournaledWorkMutationEffect } from "../src/core/work/mutation-seam";
+import { onThreadChanged } from "../src/core/work/resource-changes";
 import { threadSubjectOf } from "../src/shared/thread-subject";
 
 const NODE = "files-1";

@@ -1,18 +1,18 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { describe, expect, it } from "vitest";
 import { inProcessCore, type CoreRunner } from "./support/in-process-core";
-import { publishWindowBroadcasts } from "../src/main/core-process/ops/main-index";
-import { relayWindowPushes } from "../src/main/core-process/main-side/window-pushes";
-import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, SETTINGS_CHANGED, WORK_PREAMBLE } from "../src/main/core-process/channels";
-import { ModelService } from "../src/main/junto/model/service";
-import { PausePlane } from "../src/main/junto/pause-plane";
+import { publishWindowBroadcasts } from "../src/core/ops/main-index";
+import { relayWindowPushes } from "../src/app/core-process/main-side/window-pushes";
+import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, SETTINGS_CHANGED, WORK_PREAMBLE } from "../src/contract/core/channels";
+import { ModelService } from "../src/core/model/service";
+import { PausePlane } from "../src/core/pause-plane";
 import { MessageChannel, type MessagePort } from "node:worker_threads";
-import { portCore, type CorePort } from "../src/main/core-process/port";
-import { runHostOp } from "../src/main/core-process/main-side/host-op-bodies";
-import { serveCore } from "../src/main/core-process/serve";
-import { emitAgentSignalChanged } from "../src/main/junto/signals/changes";
-import { subscribe } from "../src/main/core-process/main-side/core-pushes";
-import { SettingsService } from "../src/main/junto/settings/service";
+import { portCore, type CorePort } from "../src/contract/core/port";
+import { runHostOp } from "../src/app/core-process/main-side/host-op-bodies";
+import { serveCore } from "../src/core/serve";
+import { emitAgentSignalChanged } from "../src/core/signals/changes";
+import { subscribe } from "../src/app/core-process/main-side/core-pushes";
+import { SettingsService } from "../src/core/settings/service";
 import { redactProvidersForIpc, type Settings } from "../src/shared/settings";
 
 // The index.ts request group: answers cross as data, and a change the core

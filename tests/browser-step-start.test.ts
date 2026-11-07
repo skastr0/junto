@@ -10,10 +10,10 @@ import { join } from "node:path";
 import { ManagedRuntime } from "effect";
 import { SqlClient } from "effect/sql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { makeBrowserProfileService } from "../src/main/junto/browser/profiles";
-import { BrowserSessionService, type BrowserViewAdapter, type BrowserViewHandle } from "../src/main/junto/browser/sessions";
-import type { ResolvedPageTarget } from "../src/main/junto/browser/page-target";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { makeBrowserProfileService } from "../src/node/browser/profiles";
+import { BrowserSessionService, type BrowserViewAdapter, type BrowserViewHandle } from "../src/app/browser/sessions";
+import type { ResolvedPageTarget } from "../src/core/browser/page-target";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import { localBrowserTestMachineName } from "./browser-test-machine";
 
 const PAGE: ResolvedPageTarget = { ref: "junto://canvas/work?node=n1", nodeId: "n1", url: "https://step.example.com/", profile: "personal" };

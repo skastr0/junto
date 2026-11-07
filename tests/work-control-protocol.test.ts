@@ -22,7 +22,7 @@ import {
   scopeDenialToWorkError,
   scopeError,
   visibilityOf,
-} from "../src/main/junto/work/authz";
+} from "../src/core/work/authz";
 import { canvasOf, region, seat, taskBoard, wire } from "./support/model-nodes";
 import { ALL_PORTS, ScopeDenial, admitPure, canvasToCapabilityView } from "../src/shared/physics";
 import { productNodeKindEnabled } from "../src/shared/features";

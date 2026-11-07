@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clearSelection, replaceSelection, state$ } from "../src/renderer/lib/state";
+import { clearSelection, replaceSelection, state$ } from "../src/window/lib/state";
 
 describe("the same cards selected is not a new selection", () => {
   it("keeps the list it holds when the same ids come back in a new array or a new order", () => {

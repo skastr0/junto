@@ -24,7 +24,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { canonicalJson } from "@shared/work-canonical-json";
-import { SessionObserver } from "../src/main/junto/term/observer";
+import { SessionObserver } from "../src/core/term/observer";
 import {
   VOLATILE_CHROME_RULES,
   WINDOW_DIGEST_VERSION,
@@ -34,7 +34,7 @@ import {
   windowDigestMaterial,
   type AwarenessEvidenceWindow,
   type AwarenessRequestState,
-} from "../src/main/junto/term/awareness/select-input";
+} from "../src/core/term/awareness/select-input";
 import { capturePath, chunkEvents, loadP1Fixture } from "./pty-e2e/runner";
 
 // ---------------------------------------------------------------------------
@@ -238,7 +238,7 @@ describe("awareness window digest — volatile chrome normalizes to one digest",
     { why: "a failing versus a passing run", a: "FAIL src/a.test.ts", b: "PASS src/a.test.ts" },
     { why: "an exit status", a: "exit code 1", b: "exit code 0" },
     { why: "an error message", a: "Error: cannot find module 'left-pad'", b: "Error: cannot find module 'right-pad'" },
-    { why: "a file path", a: "src/main/junto/term/awareness/questions.ts", b: "src/main/junto/term/awareness/select-input.ts" },
+    { why: "a file path", a: "src/core/term/awareness/questions.ts", b: "src/core/term/awareness/select-input.ts" },
     { why: "a payload line", a: "PASTE_LINE_00", b: "PASTE_LINE_01" },
     { why: "a question versus a statement", a: "Should I delete the branch?", b: "Deleted the branch." },
     { why: "a count that is not a counter", a: "error count: 3", b: "error count: 4" },

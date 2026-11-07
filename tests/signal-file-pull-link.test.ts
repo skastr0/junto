@@ -12,17 +12,17 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { makeContentChannel, type PulledOwner } from "../src/main/junto/content/pull";
-import { signalFileEntitled } from "../src/main/junto/content/signal-entitlement";
-import { ingestContentBytes } from "../src/main/junto/content/store";
-import { statContentForTransfer } from "../src/main/junto/content/transfer-local";
-import { LinkHelloSchema } from "../src/main/junto/link/protocol";
-import { makeLinkSession } from "../src/main/junto/link/session";
-import type { LinkSession } from "../src/main/junto/link/types";
-import { pullSignalFile, type SignalFilePullDeps } from "../src/main/junto/signals/file-pull";
-import { AgentSignalRepository, AgentSignalRepositoryLive } from "../src/main/junto/signals/repository";
-import { takenSignalAttachments } from "../src/main/junto/signals/taken-attachments";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { makeContentChannel, type PulledOwner } from "../src/core/content/pull";
+import { signalFileEntitled } from "../src/core/content/signal-entitlement";
+import { ingestContentBytes } from "../src/node/content/store";
+import { statContentForTransfer } from "../src/node/content/transfer-local";
+import { LinkHelloSchema } from "../src/core/link/protocol";
+import { makeLinkSession } from "../src/core/link/session";
+import type { LinkSession } from "../src/core/link/types";
+import { pullSignalFile, type SignalFilePullDeps } from "../src/core/signals/file-pull";
+import { AgentSignalRepository, AgentSignalRepositoryLive } from "../src/core/signals/repository";
+import { takenSignalAttachments } from "../src/node/signals/taken-attachments";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import type { AgentSignal } from "../src/shared/agent-signals";
 import type { ContentPullRequest } from "../src/shared/content-pull";
 import { InstallationId } from "../src/shared/installation-id";
@@ -159,21 +159,21 @@ it("starts a pull only from the operator's preview: no other source names the pu
       entry.isDirectory() ? sources(join(dir, entry.name)) : entry.name.endsWith(".ts") || entry.name.endsWith(".tsx") ? [join(dir, entry.name)] : []);
   const naming = sources("src").filter((file) => /SignalFilePuller|pullSignalFile/u.test(readFileSync(file, "utf8")));
   expect(naming.sort()).toEqual([
-    "src/main/core-process/ops/ipc-library.ts",
-    "src/main/core-runtime.ts",
-    "src/main/junto/ipc.ts",
-    "src/main/junto/signals/file-pull.ts",
-    "src/main/junto/signals/file-puller.ts",
-  ]);
+    "src/core/ops/ipc-library.ts",
+    "src/core/core-runtime.ts",
+    "src/app/ipc.ts",
+    "src/core/signals/file-pull.ts",
+    "src/core/signals/file-puller.ts",
+  ].sort());
   // In the trusted IPC, only the preview read asks the core for a pull: every call is inside it.
-  const ipc = readFileSync("src/main/junto/ipc.ts", "utf8");
+  const ipc = readFileSync("src/app/ipc.ts", "utf8");
   const preview = ipc.indexOf("IPC_CHANNELS.previewRead");
   const next = ipc.indexOf("privilegedIpc.handle(", preview + 1);
   const uses = [...ipc.matchAll(/ipc\.library\.pullSignalFiles/gu)].map((match) => match.index!);
   expect(uses.length).toBeGreaterThan(0);
   expect(uses.every((at) => at > preview && at < next)).toBe(true);
   // In the core, the puller is named only by that one operation.
-  const ops = readFileSync("src/main/core-process/ops/ipc-library.ts", "utf8");
+  const ops = readFileSync("src/core/ops/ipc-library.ts", "utf8");
   const op = ops.indexOf('"ipc.library.pullSignalFiles": ({');
   const after = ops.indexOf('\n  "ipc.library.', op + 1);
   const named = [...ops.matchAll(/SignalFilePuller/gu)].map((match) => match.index!).filter((at) => !ops.slice(ops.lastIndexOf("\n", at) + 1, at).startsWith("import"));

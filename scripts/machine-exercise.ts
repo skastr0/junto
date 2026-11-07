@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Effect, Schema } from "effect";
 import { Argument, Command } from "effect/cli";
-import { inspectMachineBundle } from "../src/main/junto/hosts/bundle";
+import { inspectMachineBundle } from "../src/node/hosts/bundle";
 import { loadJsonInput } from "../src/cli/core/json";
 import { executeJsonCommandWithVerdict } from "../src/cli/core/output";
 

@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Result } from "effect";
 import { SqlClient } from "effect/sql";
 import { afterAll, expect, it } from "vitest";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
-import { WorkContentProjections, WorkContentProjectionsLive } from "../src/main/junto/work/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { unjournaledWorkMutationEffect } from "../src/core/work/mutation-seam";
+import { WorkContentProjections, WorkContentProjectionsLive } from "../src/core/work/repository";
 
 const root = join(tmpdir(), `junto-work-content-${randomUUID()}`);
 const runtime = ManagedRuntime.make(WorkContentProjectionsLive.pipe(

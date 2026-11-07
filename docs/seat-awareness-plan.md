@@ -331,8 +331,8 @@ real silence longer than the threshold.
 | workstream | owns (new files only) | must not touch |
 |---|---|---|
 | A evidence and replay | `tests/pty-e2e/jev/**`, labels, checkpoint manifests, replay report | product source |
-| B provider and scheduling | `src/main/junto/term/awareness/{jev-client,scheduler,runtime}.ts` + tests | questions, IPC, renderer |
-| C questions and evidence projection | `src/main/junto/term/awareness/{questions,select-input,project-result}.ts` + tests | provider transport, IPC, renderer |
+| B provider and scheduling | `src/core/term/awareness/{jev-client,scheduler,runtime}.ts` + tests | questions, IPC, renderer |
+| C questions and evidence projection | `src/core/term/awareness/{questions,select-input,project-result}.ts` + tests | provider transport, IPC, renderer |
 | D operator presentation | awareness renderer store + `SeatAwarenessHover` + tests | canvas mutation, control state |
 
 The parent thread owns the shared schema, `package.json` and the lockfile, existing

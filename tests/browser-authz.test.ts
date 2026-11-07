@@ -9,8 +9,8 @@ import {
   isBrowserCallerKind,
   isBrowserCallerNode,
   resolveBrowserCaller,
-} from "../src/main/junto/browser/authz";
-import { resolveBrowserCallerFromProcess } from "../src/main/junto/browser/process-bind";
+} from "../src/app/browser/authz";
+import { resolveBrowserCallerFromProcess } from "../src/app/browser/process-bind";
 import { BROWSER_ENABLED } from "../src/shared/features";
 
 // Where the build gates the browser off (ship), a page offers no

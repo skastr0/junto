@@ -9,7 +9,7 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { Effect, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/sql";
-import { makeStateEngineLive } from "../../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../../src/core/state/engine";
 import type { Sandbox } from "../harness/sandbox";
 import { asNodeId, Node } from "../../src/shared/model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";

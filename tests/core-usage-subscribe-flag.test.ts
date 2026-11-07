@@ -4,7 +4,7 @@
  * must keep that gate or a build without usage starts publishing nothing.
  */
 import { describe, expect, it, vi } from "vitest";
-import { subscribeUsageWhenEnabled } from "../src/main/core-process/ops/ipc-startup";
+import { subscribeUsageWhenEnabled } from "../src/core/ops/ipc-startup";
 
 describe("the usage snapshot publish", () => {
   it("subscribes where the build turns usage on", () => {

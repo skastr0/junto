@@ -13,7 +13,7 @@ import { Result } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_QUICK_REPLIES, SETTINGS_VERSION, defaultSettings, type Settings, type SettingsPatch } from "@shared/settings";
 
-vi.mock("../src/renderer/components/FocusSurface", () => ({
+vi.mock("../src/window/components/FocusSurface", () => ({
   FocusSurface: ({ label, children }: { readonly label: string; readonly children: ReactNode }) => (
     <div role="dialog" aria-label={label}>{children}</div>
   ),
@@ -23,12 +23,12 @@ import {
   FirstRunIntro,
   FirstRunIntroSurface,
   tourChapters,
-} from "../src/renderer/components/onboarding/FirstRunIntro";
-import { finishIntro, introVisible, openIntro } from "../src/renderer/lib/first-run-intro";
+} from "../src/window/components/onboarding/FirstRunIntro";
+import { finishIntro, introVisible, openIntro } from "../src/window/lib/first-run-intro";
 import { SEAT_AWARENESS_COMPILED } from "../src/shared/features";
-import { state$ } from "../src/renderer/lib/state";
-import { applyAndValidatePatch } from "../src/main/junto/settings/patch";
-import { decodeStoredSettings, preferencesFromSettings } from "../src/main/junto/settings/state-schema";
+import { state$ } from "../src/window/lib/state";
+import { applyAndValidatePatch } from "../src/core/settings/patch";
+import { decodeStoredSettings, preferencesFromSettings } from "../src/core/settings/state-schema";
 
 const text = (html: string): string =>
   html.replace(/<[^>]+>/gu, " ").replace(/&amp;/gu, "&").replace(/&#x27;|&#39;/gu, "'").replace(/\s+/gu, " ").trim();

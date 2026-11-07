@@ -8,18 +8,18 @@
 
 import { Context, Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
-import { TerminalObserverPlane } from "../src/main/junto/term/observer";
+import { TerminalObserverPlane } from "../src/core/term/observer";
 import {
   AWARENESS_FLUSH_BATCH,
   AwarenessRuntime,
   makeAwarenessLayer,
   makeAwarenessRuntime,
   type AwarenessRuntimeShape,
-} from "../src/main/junto/term/awareness/runtime";
+} from "../src/core/term/awareness/runtime";
 import {
   makeAwarenessScheduler,
   type AwarenessSchedulerConfig,
-} from "../src/main/junto/term/awareness/scheduler";
+} from "../src/core/term/awareness/scheduler";
 import {
   EVIDENCE_TEXT,
   currentOutcome,

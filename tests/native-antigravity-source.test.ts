@@ -22,7 +22,7 @@ import {
   resolveProcessCsrfToken,
   windowsFromQuotaSummary,
   type LocalEndpoint,
-} from "../src/main/junto/usage/antigravity-source";
+} from "../src/core/usage/antigravity-source";
 
 const FETCHED = "2026-08-24T12:00:00.000Z";
 

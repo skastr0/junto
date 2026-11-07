@@ -10,7 +10,7 @@ import {
   panModifiersAllow,
   panVectorFor,
   panViewportDelta,
-} from "../src/renderer/lib/canvas-keyboard-pan";
+} from "../src/window/lib/canvas-keyboard-pan";
 
 const focusOn = (matches: string[]) => ({
   closest: (selector: string) =>

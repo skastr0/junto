@@ -27,7 +27,7 @@ import {
   type MachineCopy,
   type MachineListItem,
   type MachineRead,
-} from "../src/renderer/lib/machines-view";
+} from "../src/window/lib/machines-view";
 
 it("shows copied bytes and the owner's stated no-progress interval", () => {
   const copy: MachineCopy = { kind: "running", op: "update", id: "copy-1", steps: [], transfer: {

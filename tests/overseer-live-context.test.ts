@@ -9,7 +9,7 @@ import {
   meaningfulLiveChanges,
   quietLiveContext,
   type LiveCanvasRead,
-} from "../src/main/junto/overseer/live/context";
+} from "../src/core/overseer/live/context";
 import { canvasOf, note, page, seat, taskBoard, wire } from "./support/model-nodes";
 
 const assignee = seatNodeId(asNodeId("worker"));

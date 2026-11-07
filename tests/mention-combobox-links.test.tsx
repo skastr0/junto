@@ -6,8 +6,8 @@ import { artifactLink } from "../src/shared/artifact-link";
 import type { MentionOf } from "../src/shared/mention";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { ItemId } from "../src/shared/work-ids";
-import { MentionCombobox, type ComboboxLinks } from "../src/renderer/components/ui/MentionCombobox";
-import type { LinkableArtifact } from "../src/renderer/lib/artifact-link-draft";
+import { MentionCombobox, type ComboboxLinks } from "../src/window/components/ui/MentionCombobox";
+import type { LinkableArtifact } from "../src/window/lib/artifact-link-draft";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

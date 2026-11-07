@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { answerLabel, feedAnswerForKey, sendSignalAnswer, type SignalAnswer } from "../src/renderer/lib/quick-replies";
+import { answerLabel, feedAnswerForKey, sendSignalAnswer, type SignalAnswer } from "../src/window/lib/quick-replies";
 
 const replies = ["Yes", "Looks good", "Go on"];
 const notes = ["Acknowledged", "Good"];

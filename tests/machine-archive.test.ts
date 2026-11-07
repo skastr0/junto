@@ -7,10 +7,10 @@ import { join } from "node:path";
 import { Effect } from "effect";
 import { ChildProcess as Command } from "effect/process";
 import { expect, it } from "vitest";
-import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
-import { parseSshRoute } from "../src/main/junto/ssh";
-import { receiveMachineBundle } from "../src/main/junto/ssh/machine-commands";
-import { createSshProgramCompiler } from "../src/main/junto/ssh/program";
+import { machineBundleFiles } from "../src/node/hosts/bundle";
+import { parseSshRoute } from "../src/core/ssh";
+import { receiveMachineBundle } from "../src/core/ssh/machine-commands";
+import { createSshProgramCompiler } from "../src/core/ssh/program";
 
 const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
 

@@ -1,14 +1,14 @@
 import { makeThisMachine } from "../src/shared/remote-hosts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect, Scope } from "effect";
-import { LocalSessionHost } from "../src/main/junto/term/local-host";
-import { remapRemoteAttach, TerminalRouter } from "../src/main/junto/term/router";
+import { LocalSessionHost } from "../src/core/term/local-host";
+import { remapRemoteAttach, TerminalRouter } from "../src/core/term/router";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
-} from "../src/main/junto/process-identity";
-import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
-import { hostsSnapshot, setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
+} from "../src/core/process-identity";
+import { setProcessEpochReaderForTests } from "../src/node/process-epoch";
+import { hostsSnapshot, setHostsSnapshot } from "../src/core/hosts/snapshot";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const hosts: LocalSessionHost[] = [];

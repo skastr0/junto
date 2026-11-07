@@ -7,7 +7,7 @@ import {
 } from "vitest";
 import { Effect, Exit } from "effect";
 import { IPC_CHANNELS } from "../src/shared/ipc";
-import type { CoreClient } from "../src/main/core-process/client";
+import type { CoreClient } from "../src/contract/core/client";
 
 type InvokeEvent = Readonly<{
   sender: Readonly<{
@@ -38,14 +38,14 @@ vi.mock("electron", () => ({
   },
 }));
 
-vi.mock("../src/main/runtime", () => ({ AppRuntime: runtime }));
-vi.mock("../src/main/junto/browser/ipc", () => ({ registerBrowserIpc: vi.fn() }));
-vi.mock("../src/main/junto/hosts/ipc", () => ({ registerHostsIpc: vi.fn() }));
-vi.mock("../src/main/junto/settings/ipc", () => ({ registerSettingsIpc: vi.fn() }));
-vi.mock("../src/main/junto/term/ipc", () => ({ registerTerminalIpc: vi.fn() }));
-vi.mock("../src/main/junto/term/plane", () => ({ termPlane: {} }));
+vi.mock("../src/app/runtime", () => ({ AppRuntime: runtime }));
+vi.mock("../src/app/browser/ipc", () => ({ registerBrowserIpc: vi.fn() }));
+vi.mock("../src/app/hosts/ipc", () => ({ registerHostsIpc: vi.fn() }));
+vi.mock("../src/app/settings/ipc", () => ({ registerSettingsIpc: vi.fn() }));
+vi.mock("../src/app/term/ipc", () => ({ registerTerminalIpc: vi.fn() }));
+vi.mock("../src/core/term/plane", () => ({ termPlane: {} }));
 // Every core call here answers "executed"; the seat awareness read at registration is not under test.
-vi.mock("../src/main/junto/term/seat-awareness", async (importOriginal) => ({
+vi.mock("../src/core/term/seat-awareness", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   seatAwarenessEnrolled: () => false,
 }));
@@ -77,19 +77,19 @@ beforeEach(async () => {
   runtime.runPromiseExit.mockImplementation(async () => Exit.succeed("executed"));
   // The main module graph is fresh after resetModules: install the core client
   // that graph will call, as boot does.
-  const { useCoreClient } = await import("../src/main/core-process/main-client");
+  const { useCoreClient } = await import("../src/app/core-process/main-client");
   useCoreClient(answered);
 });
 
 describe("renderer canvas authoring IPC", () => {
   it("lands the renderer flush through the same handlers while the gate is closing", async () => {
-    const { registerJuntoIpc } = await import("../src/main/junto/ipc");
+    const { registerJuntoIpc } = await import("../src/app/ipc");
     const {
       MainAuthoringRefused,
       mainAuthoringGate,
-    } = await import("../src/main/junto/main-authoring-gate");
+    } = await import("../src/node/main-authoring-gate");
     const { setTrustedMainWebContents, TrustedRendererRefused } = await import(
-      "../src/main/junto/trusted-main-webcontents"
+      "../src/app/trusted-main-webcontents"
     );
     const trustedSender = {
       id: 71,

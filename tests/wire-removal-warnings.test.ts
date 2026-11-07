@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boardRemovalWarnings, openTasksOf, removalTasks, seatRemovalWarnings, wireRemovalWarnings } from "../src/renderer/lib/deletion-impact";
+import { boardRemovalWarnings, openTasksOf, removalTasks, seatRemovalWarnings, wireRemovalWarnings } from "../src/window/lib/deletion-impact";
 import { canvasOf, seat, taskBoard, wire } from "./support/model-nodes";
 import { taskView } from "./support/seat-tasks";
 

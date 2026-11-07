@@ -45,19 +45,19 @@ vi.mock("@legendapp/state/react", async (load) => ({
   use$: (value: (() => unknown) | { get: () => unknown }) =>
     typeof value === "function" ? value() : value.get(),
 }));
-vi.mock("../src/renderer/lib/junto-api", () => ({
+vi.mock("../src/window/lib/junto-api", () => ({
   getJuntoApi: () => hooks.api,
 }));
 const ports = vi.hoisted(() => ({ takers: new Map<string, (port: MessagePort) => void>() }));
 // Main posts each port to the window; here the test hands it over by lease.
-vi.mock("../src/renderer/lib/terminal-surface-port", () => ({
+vi.mock("../src/window/lib/terminal-surface-port", () => ({
   takeSurfacePorts: (leaseId: string, take: (port: MessagePort) => void) => {
     ports.takers.set(leaseId, take);
     return () => ports.takers.delete(leaseId);
   },
 }));
 
-import { fallbackCell, TerminalSurface } from "../src/renderer/components/terminal/TerminalSurface";
+import { fallbackCell, TerminalSurface } from "../src/window/components/terminal/TerminalSurface";
 
 const COLS = 100, ROWS = 40;
 const EPOCH = "epoch-a";

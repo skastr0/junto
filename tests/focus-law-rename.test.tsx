@@ -2,8 +2,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { flushCanvasEdits } from "../src/renderer/lib/canvas-editor-flush";
-import { FirstLineRenameInput } from "../src/renderer/components/nodes/FirstLineRenameInput";
+import { flushCanvasEdits } from "../src/window/lib/canvas-editor-flush";
+import { FirstLineRenameInput } from "../src/window/components/nodes/FirstLineRenameInput";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

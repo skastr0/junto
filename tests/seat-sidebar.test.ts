@@ -4,9 +4,9 @@ import {
   orderSignals,
   signalOutcomeLabel,
   summarizeSeatSignals,
-} from "../src/renderer/lib/agent-signals-view";
-import { sectionOpen } from "../src/renderer/lib/sidebar-sections";
-import { placeBesideRect } from "../src/renderer/lib/menu-placement";
+} from "../src/window/lib/agent-signals-view";
+import { sectionOpen } from "../src/window/lib/sidebar-sections";
+import { placeBesideRect } from "../src/window/lib/menu-placement";
 
 const signal = (over: Partial<AgentSignal> & Pick<AgentSignal, "signalId">): AgentSignal => ({
   canvasName: "main",

@@ -9,8 +9,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { readSignalAttachmentPreview, type SignalAttachmentPreviewDeps } from "../src/main/junto/signals/attachment-preview";
-import { previewTile } from "../src/renderer/components/preview/use-previews";
+import { readSignalAttachmentPreview, type SignalAttachmentPreviewDeps } from "../src/app/signals/attachment-preview";
+import { previewTile } from "../src/window/components/preview/use-previews";
 import type { AgentSignal } from "../src/shared/agent-signals";
 import type { ContentRef } from "../src/shared/content";
 

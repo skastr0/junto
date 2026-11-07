@@ -10,21 +10,21 @@ import { encodeWorkFrame } from "../src/shared/work-control";
 import {
   WorkService,
   type WorkServiceShape,
-} from "../src/main/junto/work/service";
-import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
-import { makeProcessIdentityMap, type ProcessPrincipal } from "../src/main/junto/process-identity";
-import { OFFBOARDED_SESSION_MESSAGE } from "../src/main/junto/process-identity-facts";
+} from "../src/core/work/service";
+import { PausePlaneAllPlaying } from "../src/core/pause-plane";
+import { makeProcessIdentityMap, type ProcessPrincipal } from "../src/core/process-identity";
+import { OFFBOARDED_SESSION_MESSAGE } from "../src/node/process-identity-facts";
 import {
   makeSeatCredentialRegistry,
   mintSeatCredential,
   type SeatCredentialRegistry,
-} from "../src/main/junto/work/seat-credentials";
-import { injectionSupervisor } from "../src/main/junto/term/injection-supervisor";
+} from "../src/core/work/seat-credentials";
+import { injectionSupervisor } from "../src/core/term/injection-supervisor";
 import {
   startWorkControlServer,
   type WorkControlServer,
-} from "../src/main/junto/work/control";
-import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
+} from "../src/core/work/control";
+import { createMainAuthoringGate } from "../src/node/main-authoring-gate";
 import { makeTestLog } from "./support/test-log";
 
 const testLog = makeTestLog();

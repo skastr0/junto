@@ -7,19 +7,19 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { Reactivity } from "effect/reactivity";
 import { SqlClient } from "effect/sql";
 import { describe, expect, it } from "vitest";
-import { coreOpBody } from "../src/main/core-process/ops";
-import "../src/main/core-process/ops/ipc-automation";
-import { makeContentServiceLive } from "../src/main/junto/content/service";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { codeRefusalOf, codeRulingOf, runCodeStep, type CodeStep, type CodeStepContext } from "../src/main/junto/automation/code-step";
-import type { CodeRunRequest } from "../src/main/junto/automation/code-runner";
-import { AutomationRepository, makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
-import { makeAutomationRunner, type RunnerPorts } from "../src/main/junto/automation/runner";
-import { AUTOMATION_STATE_SCHEMA_SQL } from "../src/main/junto/automation/state-schema";
-import type { Fired } from "../src/main/junto/automation/values";
-import { firedValue } from "../src/main/junto/automation/values";
-import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
+import { coreOpBody } from "../src/core/ops";
+import "../src/core/ops/ipc-automation";
+import { makeContentServiceLive } from "../src/core/content/service";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { codeRefusalOf, codeRulingOf, runCodeStep, type CodeStep, type CodeStepContext } from "../src/core/automation/code-step";
+import type { CodeRunRequest } from "../src/core/automation/code-runner";
+import { AutomationRepository, makeAutomationRepositoryLive } from "../src/core/automation/repository";
+import { makeAutomationRunner, type RunnerPorts } from "../src/core/automation/runner";
+import { AUTOMATION_STATE_SCHEMA_SQL } from "../src/core/automation/state-schema";
+import type { Fired } from "../src/core/automation/values";
+import { firedValue } from "../src/core/automation/values";
+import { makeSqliteClient } from "../src/core/state/sqlite-client";
 import {
   type Action,
   type ActionRuling,

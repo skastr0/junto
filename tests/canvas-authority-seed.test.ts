@@ -17,8 +17,8 @@ vi.mock("@shared/features", async (original) => ({
   get AUTHORITY_ENABLED() { return flags.authority; },
 }));
 
-import { ModelRecords } from "../src/main/junto/model/records";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { ModelRecords } from "../src/core/model/records";
+import { makeStateEngineLive } from "../src/core/state/engine";
 
 let dir: string | undefined;
 afterEach(async () => {

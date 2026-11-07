@@ -2,12 +2,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { seat as seatNode, canvasOf } from "./support/model-nodes";
 import { Result, Schema } from "effect";
-import { resolveOverseerActor } from "../src/main/junto/overseer/admission";
+import { resolveOverseerActor } from "../src/core/overseer/admission";
 import { InstallationId } from "../src/shared/installation-id";
 import type { LiveSnapshot } from "../src/shared/overseer-live";
-import { LiveConversationBody } from "../src/renderer/components/live/LiveConversation";
-import { canStartOverseerLive, openOverseerLive, overseerLive$, readLiveAttention } from "../src/renderer/lib/overseer-live-state";
-import { state$ } from "../src/renderer/lib/state";
+import { LiveConversationBody } from "../src/window/components/live/LiveConversation";
+import { canStartOverseerLive, openOverseerLive, overseerLive$, readLiveAttention } from "../src/window/lib/overseer-live-state";
+import { state$ } from "../src/window/lib/state";
 
 const snapshot: LiveSnapshot = {
   sessionId: "s1", canvasName: "Factory", nodeId: "overseer", connectionEpoch: 2,

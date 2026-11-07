@@ -1,18 +1,18 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { clearTouchedServiceWorkersAtStart } from "../src/main/junto/browser/composition";
-import type { BrowserTouchedOrigin } from "../src/main/junto/browser/touched-origins";
+import { clearTouchedServiceWorkersAtStart } from "../src/app/browser/composition";
+import type { BrowserTouchedOrigin } from "../src/node/browser/touched-origins";
 import { partitionNameForProfile } from "../src/shared/browser";
 
 describe("browser startup recovery gate", () => {
   const root = join(import.meta.dirname, "..");
-  const indexSrc = readFileSync(join(root, "src/main/index.ts"), "utf8");
+  const indexSrc = readFileSync(join(root, "src/app/index.ts"), "utf8");
   const browserIpcSrc = readFileSync(
-    join(root, "src/main/junto/browser/ipc.ts"),
+    join(root, "src/app/browser/ipc.ts"),
     "utf8",
   );
-  const juntoIpcSrc = readFileSync(join(root, "src/main/junto/ipc.ts"), "utf8");
+  const juntoIpcSrc = readFileSync(join(root, "src/app/ipc.ts"), "utf8");
 
   it("keeps browser handlers inside the post-recovery activation boundary", () => {
     const ready = indexSrc.slice(indexSrc.indexOf("app.whenReady().then"));
@@ -33,7 +33,7 @@ describe("browser startup recovery gate", () => {
   });
 
   it("clears the touched origins' service workers before the browser activates", async () => {
-    const compositionSrc = readFileSync(join(root, "src/main/junto/browser/composition.ts"), "utf8");
+    const compositionSrc = readFileSync(join(root, "src/app/browser/composition.ts"), "utf8");
     const start = compositionSrc.slice(compositionSrc.indexOf("export const startBrowserComposition"));
     const clear = start.indexOf("await clearTouchedServiceWorkersAtStart(");
     expect(clear).toBeGreaterThan(start.indexOf("await runClosedBrowserEffect(profiles.recoverPendingWipe)"));
@@ -122,7 +122,7 @@ describe("browser startup recovery gate", () => {
     const ready = indexSrc.slice(indexSrc.indexOf("app.whenReady().then"));
     const supervised = ready.indexOf("if (!(await ensureSupervised())) return;");
     const host = ready.indexOf("await browserCompositionHost.ensureHeadlessHost()");
-    expect(indexSrc).toContain('import { loadStationSupervisor } from "./junto/supervision/select";');
+    expect(indexSrc).toContain('import { loadStationSupervisor } from "../node/supervision/select";');
     expect(indexSrc).toContain("const handoff = await supervisor.requestHandoff();");
     expect(indexSrc).not.toContain("kickstartLaunchAgent");
     expect(supervised).toBeGreaterThanOrEqual(0);

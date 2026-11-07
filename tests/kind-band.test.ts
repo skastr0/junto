@@ -8,13 +8,13 @@ import {
   kindBandLayers,
   type BandMotion,
   type KindState,
-} from "../src/renderer/lib/kind-band";
+} from "../src/window/lib/kind-band";
 import { KIND_ICON_KINDS } from "../src/shared/kind-icon";
 import { MARK_PHASE_MS, RING_FRAME_MS } from "../src/shared/wire/rings";
 import { SeatUrgency } from "../src/shared/wire/urgency";
 import { THEME_MODES } from "../src/shared/theme";
 
-const css = readFileSync(join(resolve(__dirname, ".."), "src/renderer/components/nodes/kind-seat.css"), "utf8");
+const css = readFileSync(join(resolve(__dirname, ".."), "src/window/components/nodes/kind-seat.css"), "utf8");
 const G = SeatUrgency.group;
 const STATES: readonly KindState[] = [G.resting, G.working, G.waiting, G.blocked, G.done, G.offline];
 const MOTIONS = Object.keys(BAND_PERIOD_FRAMES) as BandMotion[];

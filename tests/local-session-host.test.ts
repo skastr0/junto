@@ -5,7 +5,7 @@ import type {
   AppProcessSignalReceipt,
   AppTerminalExit,
   AppTerminalLease,
-} from "../src/main/junto/app-process-plane";
+} from "../src/node/app-process-plane";
 import { homedir, tmpdir } from "node:os";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -15,12 +15,12 @@ import {
   resolveLaunch,
   TerminalLaunchError,
   type LocalTerminalProcessAuthority,
-} from "../src/main/junto/term/local-host";
+} from "../src/core/term/local-host";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
-} from "../src/main/junto/process-identity";
-import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
+} from "../src/core/process-identity";
+import { setProcessEpochReaderForTests } from "../src/node/process-epoch";
 import {
   makeFakeTerminalProcessAuthority,
   type FakeTerminalProcessAuthority,
@@ -29,22 +29,22 @@ import { installHermeticHarnessBins } from "./helpers/hermetic-harness-bins";
 import {
   getCapturedSessionId,
   resetSessionIdStoreForTest,
-} from "../src/main/junto/term/session-id-store";
+} from "../src/core/term/session-id-store";
 import type {
   PrimeAgentDaemonHandle,
   PrimeAgentDaemons,
-} from "../src/main/junto/term/prime-agent-daemon";
-import { seatStateRuntime } from "../src/main/junto/term/agent-state";
-import { OperatorInterlock } from "../src/main/junto/term/drive/operator-interlock";
+} from "../src/core/term/prime-agent-daemon";
+import { seatStateRuntime } from "../src/core/term/agent-state";
+import { OperatorInterlock } from "../src/core/term/drive/operator-interlock";
 import {
   OBSERVER_UNWATCHED_SCROLLBACK,
   OBSERVER_WATCHED_SCROLLBACK,
   TerminalObserverPlane,
-} from "../src/main/junto/term/observer";
+} from "../src/core/term/observer";
 import { SeatOccupationFailedError } from "../src/shared/terminal-seat-occupancy";
-import type { AdoptedTerminal } from "../src/main/terminal-process/client";
-import { getSeatCredentialRegistry } from "../src/main/junto/work/seat-credentials";
-import type { PrimeAgentReporterReport } from "../src/main/junto/term/prime-agent-reporter";
+import type { AdoptedTerminal } from "../src/node/terminals/client";
+import { getSeatCredentialRegistry } from "../src/core/work/seat-credentials";
+import type { PrimeAgentReporterReport } from "../src/core/term/prime-agent-reporter";
 
 const hosts: LocalSessionHost[] = [];
 const syntheticEpochs = new Map<number, string>();

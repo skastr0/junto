@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TASKS_ENABLED } from "../src/shared/features";
 import { asCanvasName, type Node, type NodeOf } from "../src/shared/model";
-import { setRegionContract, setRegionDefaults, setRegionEnvironment } from "../src/renderer/lib/mutations";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { state$ } from "../src/renderer/lib/state";
+import { setRegionContract, setRegionDefaults, setRegionEnvironment } from "../src/window/lib/mutations";
+import { modelStore } from "../src/window/lib/use-model";
+import { state$ } from "../src/window/lib/state";
 import { note, region } from "./support/model-nodes";
 
 const name = "region-settings";

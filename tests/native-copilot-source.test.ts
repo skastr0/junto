@@ -3,7 +3,7 @@ import {
   parseHostsTokens,
   pickEnvToken,
   COPILOT_DEVICE_FLOW_CLIENT_ID,
-} from "../src/main/junto/usage/copilot-auth";
+} from "../src/core/usage/copilot-auth";
 import {
   buildCopilotSnapshot,
   parseQuotaResetDate,
@@ -11,7 +11,7 @@ import {
   selectQuotaSnapshots,
   parseCopilotUsage,
   type CopilotOutcome,
-} from "../src/main/junto/usage/copilot-source";
+} from "../src/core/usage/copilot-source";
 
 const FETCHED = "2026-08-17T12:00:00.000Z";
 

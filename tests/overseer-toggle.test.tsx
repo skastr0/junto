@@ -2,9 +2,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Node } from "../src/shared/model";
 import { seat, note } from "./support/model-nodes";
-import { EMPTY_SETTINGS, state$ } from "../src/renderer/lib/state";
-import { modelStore } from "../src/renderer/lib/use-model";
-import { OverseerToggleKey } from "../src/renderer/components/rts/OverseerToggle";
+import { EMPTY_SETTINGS, state$ } from "../src/window/lib/state";
+import { modelStore } from "../src/window/lib/use-model";
+import { OverseerToggleKey } from "../src/window/components/rts/OverseerToggle";
 
 const managed = (overseer = false) => seat("seat", { label: "worker", overseer });
 

@@ -22,9 +22,7 @@ export const buildContext = ({ command, mode }: BuildContext) => {
   const overlay = resolveOverlay(process.env, undefined, preview ? "preview" : "production");
 
   const alias = {
-    "@main": resolve("src/main"),
-    "@preload": resolve("src/preload"),
-    "@renderer": resolve("src/renderer"),
+    "@window": resolve("src/window"),
     "@shared": resolve("src/shared"),
     ...overlayAlias(overlay),
   };

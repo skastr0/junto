@@ -18,7 +18,7 @@ import {
   makeSeatStateSource,
   remoteSeatStateFeedsOf,
   type SeatStateFeed,
-} from "../src/main/junto/automation/seat-state-source";
+} from "../src/core/automation/seat-state-source";
 import {
   onRemoteSeatFeed,
   publishRemoteSeatState,
@@ -26,7 +26,7 @@ import {
   remoteSeatStateFeeds,
   resetRemoteSeatState,
   type RemoteSeatFeed,
-} from "../src/main/junto/term/remote-seat-state";
+} from "../src/core/term/remote-seat-state";
 
 const MACHINE = InstallationId.make("inst-test");
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ListRow } from "../src/renderer/components/ui/ListRow";
+import { ListRow } from "../src/window/components/ui/ListRow";
 
 const html = (node: React.ReactElement): string => renderToStaticMarkup(node);
 

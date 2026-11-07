@@ -8,14 +8,14 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ManagedRuntime } from "effect";
 import { SqlClient } from "effect/sql";
-import { makeBrowserProfileService } from "../src/main/junto/browser/profiles";
+import { makeBrowserProfileService } from "../src/node/browser/profiles";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
   type BrowserViewHandle,
-} from "../src/main/junto/browser/sessions";
-import type { ResolvedPageTarget } from "../src/main/junto/browser/page-target";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
+} from "../src/app/browser/sessions";
+import type { ResolvedPageTarget } from "../src/core/browser/page-target";
+import { makeStateEngineLive } from "../src/core/state/engine";
 import type { Rect } from "../src/shared/page-box";
 import { PAGE_SHOT_MAX_BYTES, pageShotRefusal, pngSize } from "../src/shared/page-shot";
 import { localBrowserTestMachineName } from "./browser-test-machine";

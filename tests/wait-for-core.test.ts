@@ -4,9 +4,9 @@
  * is what keeps a restarting core from taking the app down before the window.
  */
 import { expect, it } from "vitest";
-import { BrowserProfileError } from "../src/main/junto/browser/profiles";
-import { CoreCallError } from "../src/main/core-process/client";
-import { awaitCore, isCoreUnavailable } from "../src/main/core-process/wait-for-core";
+import { BrowserProfileError } from "../src/node/browser/profiles";
+import { CoreCallError } from "../src/contract/core/client";
+import { awaitCore, isCoreUnavailable } from "../src/app/core-process/wait-for-core";
 
 const stopped = (): CoreCallError => new CoreCallError("browser.profiles.initialize", "CoreStopped", "the Junto core process exited with code 1");
 const refused = (): CoreCallError => new CoreCallError("browser.profiles.initialize", "BrowserProfileError", "no such profile");

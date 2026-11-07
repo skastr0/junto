@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mintItemId } from "../src/shared/resource-command";
 import type { TaskView } from "../src/shared/task-model";
-import { ArtifactTasks } from "../src/renderer/components/artifacts/ArtifactTasks";
+import { ArtifactTasks } from "../src/window/components/artifacts/ArtifactTasks";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

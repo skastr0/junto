@@ -4,11 +4,11 @@ import {
   fetchClaudeUsageApi,
   parseClaudeOAuthUsage,
   type ClaudeLiveOutcome,
-} from "../src/main/junto/usage/claude-oauth";
+} from "../src/core/usage/claude-oauth";
 import {
   assembleClaudeSnapshot,
   parseClaudeCachedUsage,
-} from "../src/main/junto/usage/claude-source";
+} from "../src/core/usage/claude-source";
 
 const FETCHED = "2026-07-26T12:00:00.000Z";
 

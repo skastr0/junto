@@ -1,7 +1,7 @@
 ---
 version: 1
 slug: "src-renderer-components-capture-quickcapture-tsx"
-primary_target: "src/renderer/components/capture/QuickCapture.tsx"
+primary_target: "src/window/components/capture/QuickCapture.tsx"
 related_targets: []
 ---
 

@@ -33,7 +33,7 @@ import { checkMachinePackage, sourceMachinePackage, type MachinePackageExpectati
 import { isCiSourcePackage } from "./source-package-mode";
 import { machineSigningIdentifier, machineNeedsJit, machineMachOFiles } from "./sign-machine-bundle.mjs";
 import { auditMachineReleaseApp } from "./machine-release-publication";
-import { trustedRendererMimeType } from "../src/main/junto/trusted-renderer-protocol";
+import { trustedRendererMimeType } from "../src/app/trusted-renderer-protocol";
 
 export const FUSE_NAMES = [
   "RunAsNode",

@@ -4,7 +4,7 @@ import {
   OperatorInterlock,
   OPERATOR_INPUT_LATCH_MS,
   OPERATOR_RESIZE_LATCH_MS,
-} from "../src/main/junto/term/drive/operator-interlock";
+} from "../src/core/term/drive/operator-interlock";
 
 describe("OperatorInterlock", () => {
   it("flushes nested holds only after each owner releases", () => {

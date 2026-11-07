@@ -14,22 +14,22 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { asCanvasName, asNodeId, type Opened } from "../src/shared/model";
 import type { ActorRef } from "../src/shared/work-protocol";
-import { CanvasControlQueries, CanvasControlQueryError } from "../src/main/junto/canvas-control/queries";
+import { CanvasControlQueries, CanvasControlQueryError } from "../src/core/canvas-control/queries";
 import {
   listCanvasesThroughControl,
   readCanvasThroughControl,
-} from "../src/main/junto/canvas-control/client";
+} from "../src/core/canvas-control/client";
 import {
   CANVAS_CONTROL_PROTOCOL_VERSION,
   CanvasControlReadData,
   decodeCanvasControlResponse,
   encodeCanvasControlFrame,
-} from "../src/main/junto/canvas-control/protocol";
+} from "../src/core/canvas-control/protocol";
 import {
   startCanvasControlServer,
   type CanvasControlServer,
   type CanvasControlServerRuntime,
-} from "../src/main/junto/canvas-control/server";
+} from "../src/core/canvas-control/server";
 import { actorRefFixture } from "./helpers/actor-ref-fixtures";
 
 const roots: string[] = [];

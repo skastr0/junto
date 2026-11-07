@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { asCanvasName, type Node, type Wire } from "../src/shared/model";
 import { canvasFromOpened, type Canvas } from "../src/shared/model/canvas";
 import { VERB_COLOR_TOKEN } from "../src/shared/physics";
-import { flowEdgesFromModel, type ModelFlowEdgeCache } from "../src/renderer/lib/flow-edges";
+import { flowEdgesFromModel, type ModelFlowEdgeCache } from "../src/window/lib/flow-edges";
 
 const name = asCanvasName("factory");
 const seat = (id: string, x: number, y: number): Node =>

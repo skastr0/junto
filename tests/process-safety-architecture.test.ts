@@ -5,7 +5,8 @@ import ts from "typescript-api";
 import { describe, expect, it } from "vitest";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const mainRoot = join(root, "src", "main");
+/** The Node programs: what lived under src/main before the folder move. */
+const programRoots = ["app", "core", "node", "terminal", "contract"].map((program) => join(root, "src", program));
 
 const sourceFiles = (directory: string): ReadonlyArray<string> =>
   readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -14,7 +15,7 @@ const sourceFiles = (directory: string): ReadonlyArray<string> =>
     return [".ts", ".tsx"].includes(extname(path)) ? [path] : [];
   });
 
-const files = sourceFiles(mainRoot);
+const files = programRoots.flatMap((dir) => sourceFiles(dir));
 const display = (path: string): string => relative(root, path);
 
 type CallSite = {
@@ -338,12 +339,12 @@ describe("machine-safety architecture", () => {
       .sort();
 
     expect(uses).toEqual([
-      "src/main/junto/process-identity.ts:probe",
-      "src/main/junto/process-signal.ts:group",
-      "src/main/junto/process-signal.ts:probe",
+      "src/core/process-identity.ts:probe",
+      "src/node/process-signal.ts:group",
+      "src/node/process-signal.ts:probe",
       // signalGroupResidue: one member the leader left, by positive pid, only
       // while its pgid and start time still match the recording read.
-      "src/main/junto/process-signal.ts:residual-member",
+      "src/node/process-signal.ts:residual-member",
     ]);
   });
 
@@ -363,68 +364,68 @@ describe("machine-safety architecture", () => {
       // child has not exited by the stop deadline. It holds no PTY, so no
       // process group is signalled, and no pid ever names it.
       // The same child, killed when it has not said core.ready by its boot deadline.
-      "src/main/core-process/host.ts:forked.kill",
-      "src/main/core-process/host.ts:leaving.kill",
-      "src/main/core-process/host.ts:leaving.kill",
+      "src/app/core-process/host.ts:forked.kill",
+      "src/app/core-process/host.ts:leaving.kill",
+      "src/app/core-process/host.ts:leaving.kill",
       // The window's terminal kill, asked of the core's plane by name: the
       // same owned-session stop through the router that term/ipc.ts made.
-      "src/main/core-process/ops/term-ipc.ts:plane.router.kill",
-      "src/main/junto/app-process-plane.ts:forbidden-reference:child.kill",
-      "src/main/junto/app-process-plane.ts:forbidden-reference:pty.kill",
-      "src/main/junto/app-process-plane.ts:forbidden-reference:record.kill",
-      "src/main/junto/app-process-plane.ts:forbidden-reference:record.kill",
-      "src/main/junto/app-process-plane.ts:forbidden-reference:record.kill",
-      "src/main/junto/app-process-plane.ts:forbidden-reference:record.kill",
-      "src/main/junto/app-process-plane.ts:forbidden-reference:record.kill",
-      "src/main/junto/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/core/ops/term-ipc.ts:plane.router.kill",
+      "src/node/app-process-plane.ts:forbidden-reference:child.kill",
+      "src/node/app-process-plane.ts:forbidden-reference:pty.kill",
+      "src/node/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/node/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/node/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/node/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/node/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/node/app-process-plane.ts:forbidden-reference:record.kill",
       // Log formatting of a frozen KILL receipt; a straggler carries no process authority.
-      "src/main/junto/app-process-plane.ts:forbidden-reference:straggler.kill",
+      "src/node/app-process-plane.ts:forbidden-reference:straggler.kill",
       // A terminal-process PTY's signal sink: the plane's own signal, sent
       // across the terminal port (terminal-process/serve.ts signals it).
-      "src/main/junto/app-process-plane.ts:remote.kill",
+      "src/node/app-process-plane.ts:remote.kill",
       // Live-granted node targets resolve bindings, never PIDs. Router delegates
       // to the same owned-session stop capability as terminal IPC.
-      "src/main/junto/overseer/native.ts:ctx.termPlane.router.kill",
-      "src/main/junto/overseer/native.ts:ctx.termPlane.router.kill",
-      "src/main/junto/overseer/native.ts:ctx.termPlane.router.kill",
-      "src/main/junto/process-signal.ts:forbidden-reference:child.kill",
-      "src/main/junto/process-signal.ts:rec.child.kill",
+      "src/core/overseer/native.ts:ctx.termPlane.router.kill",
+      "src/core/overseer/native.ts:ctx.termPlane.router.kill",
+      "src/core/overseer/native.ts:ctx.termPlane.router.kill",
+      "src/node/process-signal.ts:forbidden-reference:child.kill",
+      "src/node/process-signal.ts:rec.child.kill",
       // Seat rotation after an offboard stops the seat's own local session
       // through the router, the same owned-session stop as terminal IPC.
-      "src/main/junto/seat-sessions/rotate.ts:termPlane.router.kill",
-      "src/main/junto/term/control-server.ts:host.kill",
-      "src/main/junto/term/router.ts:c.kill",
-      "src/main/junto/term/router.ts:this.local.kill",
+      "src/core/seat-sessions/rotate.ts:termPlane.router.kill",
+      "src/core/term/control-server.ts:host.kill",
+      "src/core/term/router.ts:c.kill",
+      "src/core/term/router.ts:this.local.kill",
       // The one agent-seat stop the window and the owner commands share: a
       // binding on this machine through the router's owned-session stop.
-      "src/main/junto/term/seat-control.ts:plane.router.kill",
+      "src/core/term/seat-control.ts:plane.router.kill",
       // A pinned peer's admitted Stop of its seat's live binding on this
       // machine, the link's twin of control-server's host.kill.
-      "src/main/junto/term/seats-link.ts:host.kill",
+      "src/core/term/seats-link.ts:host.kill",
       // Owned child only: codesign/plutil admit timeout.
-      "src/main/junto/update/admit-mac-app.ts:child.kill",
+      "src/app/update/admit-mac-app.ts:child.kill",
       // The terminal process (protect the main thread): the plane's PTY signal
       // crosses the port by its channel name, and the far side signals a PTY
       // it spawned only while its pid still has the start epoch taken at spawn.
-      "src/main/terminal-process/client.ts:forbidden-reference:TerminalInbound.kill",
+      "src/node/terminals/client.ts:forbidden-reference:TerminalInbound.kill",
       // The terminal utilityProcess, Electron's own child, stopped at quit after
       // the plane drained every PTY it held.
-      "src/main/terminal-process/host.ts:child?.kill",
+      "src/app/terminals/host.ts:child?.kill",
       // The same child, signalled through its own handle only if it has not
       // left by the stop deadline; a stop first asks it to hang up and exit.
-      "src/main/terminal-process/host.ts:leaving.kill",
+      "src/app/terminals/host.ts:leaving.kill",
       // The core's kill, and an orderly quit's hangup, both reach the PTY
       // through one epoch-checked signal path, never by pid alone.
-      "src/main/terminal-process/serve.ts:forbidden-reference:TerminalInbound.kill",
-      "src/main/terminal-process/serve.ts:pty.kill",
-    ]);
+      "src/terminal/serve.ts:forbidden-reference:TerminalInbound.kill",
+      "src/terminal/serve.ts:pty.kill",
+    ].sort());
   });
 
   it("keeps asynchronous spawn sites on a reviewed lifetime inventory", () => {
     expect(unsafeSpawnReferences).toEqual([
-      "src/main/junto/app-process-plane.ts:spawn",
+      "src/node/app-process-plane.ts:spawn",
       // spawnTerminal's terminal-process spawn, registered on the plane at once.
-      "src/main/junto/app-process-plane.ts:spawn",
+      "src/node/app-process-plane.ts:spawn",
     ]);
 
     const uses = [
@@ -440,22 +441,22 @@ describe("machine-safety architecture", () => {
       .sort();
 
     expect(uses).toEqual([
-      "src/main/junto/app-process-plane.ts:nodePty.spawn",
-      "src/main/junto/app-process-plane.ts:spawn",
-      "src/main/junto/app-process-plane.ts:spawn",
-      "src/main/junto/process-signal.ts:spawn",
+      "src/node/app-process-plane.ts:nodePty.spawn",
+      "src/node/app-process-plane.ts:spawn",
+      "src/node/app-process-plane.ts:spawn",
+      "src/node/process-signal.ts:spawn",
       // Owned children only: codesign admit, ditto extract.
-      "src/main/junto/update/admit-mac-app.ts:spawn",
-      "src/main/junto/update/staging.ts:spawn",
+      "src/app/update/admit-mac-app.ts:spawn",
+      "src/app/update/staging.ts:spawn",
       // The terminal process's one PTY spawn, served for the plane's spawnTerminal.
-      "src/main/terminal-process/entry.ts:nodePty.spawn",
-    ]);
+      "src/terminal/entry.ts:nodePty.spawn",
+    ].sort());
 
     // Raw child admission is now centralized in the app process plane. Other
     // modules must route through that plane instead of minting authority
     // beside their own spawn calls.
     for (const name of [
-      "src/main/junto/app-process-plane.ts",
+      "src/node/app-process-plane.ts",
     ]) {
       const admissions = callSites.filter(
         (site) => site.file === name && site.callee === "admitChildProcess",
@@ -471,7 +472,7 @@ describe("machine-safety architecture", () => {
       .sort();
 
     expect(uses).toEqual([
-      "src/main/junto/app-process-plane.ts",
+      "src/node/app-process-plane.ts",
     ]);
 
     const detachedTrue = parsedSources
@@ -490,14 +491,14 @@ describe("machine-safety architecture", () => {
       })
       .sort();
     expect(detachedTrue).toEqual([
-      "src/main/junto/app-process-plane.ts",
-      "src/main/junto/process-signal.ts",
+      "src/node/app-process-plane.ts",
+      "src/node/process-signal.ts",
     ]);
   });
 
   it("does not expose bypass admission or a second Effect group-kill plane", () => {
     const processSignal = readFileSync(
-      join(root, "src/main/junto/process-signal.ts"),
+      join(root, "src/node/process-signal.ts"),
       "utf8",
     );
     expect(processSignal).not.toMatch(
@@ -505,7 +506,7 @@ describe("machine-safety architecture", () => {
     );
 
     const forbiddenEffectImports = parsedSources.flatMap(({ file, source }) => {
-      if (!file.startsWith("src/main/junto/ssh/")) return [];
+      if (!file.startsWith("src/core/ssh/") && !file.startsWith("src/node/ssh/")) return [];
       return source.statements.flatMap((statement) => {
         if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
           return [];
@@ -536,7 +537,7 @@ describe("machine-safety architecture", () => {
       "node:path",
     ]);
     const unapprovedSshImports = parsedSources.flatMap(({ file, source }) => {
-      if (!file.startsWith("src/main/junto/ssh/")) return [];
+      if (!file.startsWith("src/core/ssh/") && !file.startsWith("src/node/ssh/")) return [];
       return source.statements.flatMap((statement) => {
         if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
           return [];

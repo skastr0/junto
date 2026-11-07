@@ -21,7 +21,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Schema } from "effect";
 import type { Page } from "@playwright/test";
-import { promptBoxBody } from "../../src/main/junto/term/observer/regions";
+import { promptBoxBody } from "../../src/core/term/observer/regions";
 import type { Message } from "../../src/shared/work-model";
 import { composeMessageDeliveryPayload } from "../../src/shared/message-delivery";
 import { SeatReadResult } from "../../src/shared/seat-control";

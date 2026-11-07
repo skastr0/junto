@@ -73,7 +73,7 @@ describe("previewRefsIn", () => {
       "Use and/or either/or, 3/4 done.",
       "See https://example.com/shots/a.png and http://x.dev/b.png?c=1",
       "![remote](https://example.com/a.png)",
-      "Relative src/renderer/a.png and ./b.png and ../c.png",
+      "Relative src/window/a.png and ./b.png and ../c.png",
       "The folder /usr/local/bin and the root /",
       "A scheme junto-content://sha/a.png",
     ].join("\n");

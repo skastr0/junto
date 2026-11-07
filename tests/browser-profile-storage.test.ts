@@ -27,18 +27,18 @@ import {
   type BrowserProfileStoragePlatform,
   type BrowserProfileStorageSession,
   type BrowserProfileStorageSessionControl,
-} from "../src/main/junto/browser/profile-storage";
-import { makeBrowserProfileGate, type BrowserProfileGate } from "../src/main/junto/browser/profile-gate";
+} from "../src/app/browser/profile-storage";
+import { makeBrowserProfileGate, type BrowserProfileGate } from "../src/app/browser/profile-gate";
 import {
   makeBrowserProfileService,
   type BrowserProfilePendingWipe,
-} from "../src/main/junto/browser/profiles";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { StateEngine } from "../src/main/junto/state/service";
+} from "../src/node/browser/profiles";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { StateEngine } from "../src/core/state/service";
 import type {
   BrowserProfileQuiescenceSummary,
   BrowserResult,
-} from "../src/main/junto/browser/sessions";
+} from "../src/app/browser/sessions";
 
 const WIPE_ID = "11111111-1111-4111-8111-111111111111";
 const SECOND_WIPE_ID = "22222222-2222-4222-8222-222222222222";

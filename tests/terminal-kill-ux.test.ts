@@ -3,7 +3,7 @@ import {
   deadStateCopy,
   isAgentTerminalSeat,
   killActionCopy,
-} from "../src/renderer/lib/terminal-kill-ux";
+} from "../src/window/lib/terminal-kill-ux";
 
 describe("terminal kill UX copy", () => {
   it("labels shell stop as stopping the process, not kill session", () => {

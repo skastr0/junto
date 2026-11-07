@@ -6,7 +6,7 @@ import {
   primaryCommandActions,
   regionSlotCueLabel,
   slotIndexOf,
-} from "../src/renderer/lib/command-card";
+} from "../src/window/lib/command-card";
 
 describe("commandSelectionKind", () => {
   it("classifies region, page, and other native kinds", () => {

@@ -7,8 +7,8 @@ import {
   POLICY_TABLE,
   PTY_WRITE_KINDS,
   decideIntervention,
-} from "../src/main/junto/term/intervention/policy";
-import type { InteractionContext as InteractionContextT } from "../src/main/junto/term/intervention/policy";
+} from "../src/core/term/intervention/policy";
+import type { InteractionContext as InteractionContextT } from "../src/core/term/intervention/policy";
 
 /**
  * Onboarding nudge policy.

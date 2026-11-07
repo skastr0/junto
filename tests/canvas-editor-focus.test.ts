@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   commitCanvasEditorDrafts,
   shouldBlurCanvasFlushTarget,
-} from "../src/renderer/lib/canvas-editor-flush";
-import { CANVAS_DRAFT_FOCUS_SELECTOR } from "../src/renderer/lib/focus-ownership";
+} from "../src/window/lib/canvas-editor-flush";
+import { CANVAS_DRAFT_FOCUS_SELECTOR } from "../src/window/lib/focus-ownership";
 
 describe("canvas editor flush focus boundary", () => {
   it("protects unmarked interactive controls by default", () => {

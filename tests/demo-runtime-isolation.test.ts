@@ -64,14 +64,14 @@ describe("demo runtime isolation", () => {
     process.env.JUNTO_STATE_DB = "/tmp/caller-selected-state.db";
 
     const isolation = await import(
-      "../src/main/junto/demo/runtime-isolation"
+      "../src/core/demo/runtime-isolation"
     );
     releaseDemo = isolation.releaseDemoRuntimeIsolation;
     const { makeStateEngineLive, stateDatabasePath } = await import(
-      "../src/main/junto/state/engine"
+      "../src/core/state/engine"
     );
     const { StateEngine } = await import(
-      "../src/main/junto/state/service"
+      "../src/core/state/service"
     );
 
     const databasePath = stateDatabasePath();
@@ -97,7 +97,7 @@ describe("demo runtime isolation", () => {
 
   it("is inert outside demo mode", async () => {
     const isolation = await import(
-      "../src/main/junto/demo/runtime-isolation"
+      "../src/core/demo/runtime-isolation"
     );
     releaseDemo = isolation.releaseDemoRuntimeIsolation;
 
@@ -110,7 +110,7 @@ describe("demo runtime isolation", () => {
     process.env.JUNTO_STATE_DB = "/tmp/untrusted-second-home.db";
 
     const { stateDatabasePath } = await import(
-      "../src/main/junto/state/engine"
+      "../src/core/state/engine"
     );
     const { resolveJuntoHome } = await import("../src/shared/junto-home");
 
@@ -123,12 +123,12 @@ describe("demo runtime isolation", () => {
   });
 
   it("keeps database override vocabulary out of every shipped main source", () => {
-    const mainRoot = join(import.meta.dirname, "..", "src", "main");
-    const offenders = runtimeSources(mainRoot)
+    const repo = join(import.meta.dirname, "..");
+    const offenders = ["app", "core", "node", "terminal", "contract"].flatMap((program) => runtimeSources(join(repo, "src", program)))
       .filter((path) =>
         readFileSync(path, "utf8").includes("JUNTO_STATE_DB")
       )
-      .map((path) => relative(mainRoot, path));
+      .map((path) => relative(repo, path));
 
     expect(offenders).toEqual([]);
     // The retired-signature audit remains anchored to the historical token so
@@ -138,7 +138,7 @@ describe("demo runtime isolation", () => {
 
   it("releases the demo capability after the sole runtime owner disposes", () => {
     const coreSource = readFileSync(
-      join(import.meta.dirname, "..", "src", "main", "junto", "core.ts"),
+      join(import.meta.dirname, "..", "src", "core", "core.ts"),
       "utf8",
     );
     const engineSource = readFileSync(
@@ -146,8 +146,7 @@ describe("demo runtime isolation", () => {
         import.meta.dirname,
         "..",
         "src",
-        "main",
-        "junto",
+        "core",
         "state",
         "engine.ts",
       ),

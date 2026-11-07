@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Kbd, KeyChord } from "../src/renderer/components/ui";
+import { Kbd, KeyChord } from "../src/window/components/ui";
 
 const html = (node: React.ReactElement): string => renderToStaticMarkup(node);
 

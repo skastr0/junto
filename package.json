@@ -49,7 +49,7 @@
     "test:features:ship": "JUNTO_TEST_FEATURE_PROFILE=ship vitest run tests/features-build-profile.test.ts tests/features-*-gate.test.ts tests/features-ui-gates.test.ts",
     "test:features:all-on": "JUNTO_TEST_FEATURE_PROFILE=all-on bun scripts/run-unit-tests.ts",
     "test:sqlite:electron": "ELECTRON_RUN_AS_NODE=1 electron scripts/electron-sqlite-smoke.mjs",
-    "doctor": "react-doctor --no-telemetry src/renderer",
+    "doctor": "react-doctor --no-telemetry src/window",
     "test:e2e": "scripts/with-app-run-lock.sh sh -c 'JUNTO_FEATURE_PROFILE=all-on bun run build:bundles && scripts/run-e2e.sh e2e/scenarios/free-startup.spec.ts \"$@\"' --",
     "test:e2e:fast": "scripts/run-e2e.sh",
     "test:e2e:full": "scripts/with-app-run-lock.sh sh -c 'JUNTO_FEATURE_PROFILE=all-on bun run build:bundles && scripts/run-e2e.sh --all \"$@\"' --",

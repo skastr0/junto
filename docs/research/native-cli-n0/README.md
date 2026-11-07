@@ -29,7 +29,7 @@ Installed CLI v0.11.0, app 0.11.0, MacBook, 2026-10-29.
 Loaded (370 to 490), so the absolutes are inflated; the idle table replaces it.
 
 Mail, 7 days, 6,247 delivered: send to typed p50 2.17 s, p90 2.78 s. 2.0 s is
-the batching wait (`MAIL_BATCHING`, `src/main/junto/work/message-delivery.ts`).
+the batching wait (`MAIL_BATCHING`, `src/core/work/message-delivery.ts`).
 Prompts skip it: p50 0.18 s.
 
 Most called, 7 days, 8,920 calls: msg reply 39.7%, msg send 28.2%, msg list

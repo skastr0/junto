@@ -3,8 +3,8 @@ import {
   hotbarNodeSeverity,
   liveActivitySeverity,
   worseMemberSeverity,
-} from "../src/renderer/lib/hotbar-signal";
-import { digitHue } from "../src/renderer/lib/seat-projections";
+} from "../src/window/lib/hotbar-signal";
+import { digitHue } from "../src/window/lib/seat-projections";
 import { MemberSeverity } from "../src/shared/region-rollup";
 
 const S = MemberSeverity.group;

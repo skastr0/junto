@@ -19,17 +19,17 @@ import {
 import {
   applyAndValidatePatch,
   decodePatchInput,
-} from "../src/main/junto/settings/patch";
+} from "../src/core/settings/patch";
 import {
   decodeStoredSettings,
-} from "../src/main/junto/settings/state-schema";
+} from "../src/core/settings/state-schema";
 import {
   makeSettingsLive,
   SettingsService,
   type SettingsServiceApi,
-} from "../src/main/junto/settings/service";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { MemoryCredentialStore } from "../src/main/junto/credentials/store";
+} from "../src/core/settings/service";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { MemoryCredentialStore } from "../src/core/credentials/store";
 
 const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
   Effect.runPromise(effect);

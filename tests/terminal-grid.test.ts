@@ -11,7 +11,7 @@ import {
   layoutGrid,
   parseGridChoice,
   pickableGridShapes,
-} from "../src/renderer/lib/terminal-grid";
+} from "../src/window/lib/terminal-grid";
 
 const PREFS = { fontSize: 13, lineHeight: 1 };
 const LANDSCAPE = { width: 1800, height: 1000 };

@@ -2,10 +2,10 @@ import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { Effect, Schema } from "effect";
 import { expect, it } from "vitest";
-import { makeCoreRuntime, MachineBoatKeeper, MachineLinkKeeper } from "../src/main/core-runtime";
-import { HostsService } from "../src/main/junto/hosts/service";
-import { MachineRepository } from "../src/main/junto/machines/repository";
-import { ModelService } from "../src/main/junto/model/service";
+import { makeCoreRuntime, MachineBoatKeeper, MachineLinkKeeper } from "../src/core/core-runtime";
+import { HostsService } from "../src/core/hosts/service";
+import { MachineRepository } from "../src/core/machines/repository";
+import { ModelService } from "../src/core/model/service";
 import { MachinePeerIdentity } from "../src/shared/machine-control";
 import { Command } from "../src/shared/model";
 import { makeTestLog } from "./support/test-log";
@@ -16,16 +16,16 @@ const source = (relative: string): string => readFileSync(new URL(`../${relative
 
 it("the window boots the link and Boat keepers: only the core's runtime is the machine core layer", () => {
   // The core's one runtime is makeCoreRuntime, built over the machine core layer.
-  const core = source("src/main/core-runtime.ts");
+  const core = source("src/core/core-runtime.ts");
   expect(core).toMatch(/const makeMachineCoreLayer = [\s\S]*makeCoreProductLayer\(options\.home, options\.log\)/u);
   expect(core).toMatch(/export const makeCoreRuntime = \(options: MachineCoreOptions\) =>\s*ManagedRuntime\.make\(options\.log\.withLogger\(makeMachineCoreLayer\(options\)\)\)/u);
   // Electron main's runtime is Electron's alone: it builds no core service, no
   // second copy of a singleton (the state engine, the link, the plane), so a
   // service asked of it is a compile error, not an empty instance.
-  const window = source("src/main/runtime.ts");
+  const window = source("src/app/runtime.ts");
   expect(window).not.toMatch(/makeMachineCoreLayer|MachineServicesLive|RootLayer|ProductLayer/u);
   expect(window).toContain("const AppLayer = mainLog.withLogger(Layer.mergeAll(UpdateServiceLive));");
-  for (const path of ["src/main/index.ts", "src/main/runtime.ts", "src/main/junto/core.ts", "src/main/headless.ts"]) {
+  for (const path of ["src/app/index.ts", "src/app/runtime.ts", "src/core/core.ts", "src/core/headless.ts"]) {
     for (const start of ["startLinkKeeper", "startBoatKeeper", "startBoatLease"]) expect(source(path), path).not.toContain(start);
   }
 });

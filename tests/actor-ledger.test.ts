@@ -11,7 +11,7 @@ import {
   recentOpLabel,
   unreadMailByPeer,
   visibleMailRows,
-} from "../src/renderer/lib/actor-ledger";
+} from "../src/window/lib/actor-ledger";
 
 const T0 = 1_700_000_000_000;
 

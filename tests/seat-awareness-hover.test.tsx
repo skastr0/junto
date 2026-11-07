@@ -15,28 +15,28 @@
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SeatAwarenessHover } from "../src/renderer/components/terminal/SeatAwarenessHover";
-import { cardMark, seatFactsForNode } from "../src/renderer/lib/seat-projections";
+import { SeatAwarenessHover } from "../src/window/components/terminal/SeatAwarenessHover";
+import { cardMark, seatFactsForNode } from "../src/window/lib/seat-projections";
 import {
   agentSeat$,
   resetAgentSeatState,
-} from "../src/renderer/lib/agent-seat-state";
+} from "../src/window/lib/agent-seat-state";
 import type {
   SeatAwarenessAssessment,
   SeatAwarenessEvidenceLine,
-} from "../src/renderer/lib/seat-awareness-contract";
+} from "../src/window/lib/seat-awareness-contract";
 import {
   applySeatAwarenessEvent,
   awarenessForBinding,
   resetSeatAwareness,
   seatAwarenessViewForBinding,
   type SeatAwarenessControl,
-} from "../src/renderer/lib/seat-awareness";
+} from "../src/window/lib/seat-awareness";
 
 const T0 = 1_700_000_000_000;
 const MIDDLE_DOT = "\u00B7";
 const HOVER_SOURCE = new URL(
-  "../src/renderer/components/terminal/SeatAwarenessHover.tsx",
+  "../src/window/components/terminal/SeatAwarenessHover.tsx",
   import.meta.url,
 );
 
