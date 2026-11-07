@@ -23,7 +23,7 @@ export default defineConfig(({ command, mode }) => ({
   main: mainBuildSection({
     command,
     mode,
-    input: { "core-process": resolve("src/core/entry.ts") },
+    input: { "core-process": resolve("src/core/entry.ts"), "terminal-process": resolve("src/terminal/entry.ts") },
     emptyOutDir: false,
   }),
 }));

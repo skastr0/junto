@@ -18,6 +18,7 @@ export default defineConfig(({ command, mode }) => {
       ? {
           index: resolve("src/app/index.ts"),
           "core-process": resolve("src/core/entry.ts"),
+          "terminal-process": resolve("src/terminal/entry.ts"),
         }
       : { index: resolve("src/app/index.ts") };
 
