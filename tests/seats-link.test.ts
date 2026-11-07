@@ -299,7 +299,7 @@ describe("seats link status", () => {
     expect(JSON.stringify(wire)).not.toMatch(/Not logged in|session-on-the-mini|\/Users\/mini/u);
   });
 
-  it("the receiver publishes a status that reads, and refuses one that does not without failing", async () => {
+  it("the receiver publishes a status that reads, and a status that does not read fails the event's decode", async () => {
     const published: AgentSeatStateEvent[] = [];
     const remote = seat("mac-seat", { host: "macbook", agentKey: "macbook:mac-seat" });
     const f = await fixture({ nodes: [localSeat, remote], publishState: (event) => { published.push(event); } });
@@ -311,10 +311,11 @@ describe("seats link status", () => {
       seat: remote.bindingId, status: { _tag: "Blocked", reason: { _tag: "Error", kind: "auth" } },
     });
     expect(agentSeatStatusOf(published[0])?.snapshot.sessionId).toBeUndefined();
-    // A status with a field the wire does not name: that event is refused and logged, the link stays.
-    await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.decodeEvent({
+    // A status with a field the wire does not name fails the event's own decode:
+    // the contract types status, so it never reaches the handler.
+    expect(() => f.decodeEvent({
       ...wire, status: { ...status, snapshot: { ...status.snapshot, transcriptPath: "/etc/passwd" } },
-    })).pipe(Effect.provide(seatsLog.loggerLayer)));
+    })).toThrow();
     expect(published).toHaveLength(1);
   });
 
@@ -413,7 +414,7 @@ describe("seats link launch state", () => {
     });
   });
 
-  it("the receiver holds a launch state that reads, refuses one that does not, and drops it when the link closes", async () => {
+  it("the receiver holds a launch state that reads, a launch that does not read fails the event's decode, and it drops when the link closes", async () => {
     const published: AgentSeatStateEvent[] = [];
     const remote = seat("mac-seat", { host: "macbook", agentKey: "macbook:mac-seat" });
     const f = await fixture({ nodes: [localSeat, remote], publishState: (event) => { published.push(event); } });
@@ -423,10 +424,11 @@ describe("seats link launch state", () => {
     await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.decodeEvent(wire)));
     expect(published).toHaveLength(1);
     expect(heldRemoteSeatLaunch(remote.bindingId, "macbook", Date.now())).toMatchObject({ settingsFixed: true, nextTurn: { fresh: false } });
-    // Over its bound: that event is refused and logged, the link stays and the answer held stays.
-    await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.decodeEvent({
+    // Over its bound the launch fails the event's decode: it never reaches the
+    // handler, the answer held stays.
+    expect(() => f.decodeEvent({
       ...wire, epoch: "ep_10", launch: { settingsFixed: true, nextTurn: { fresh: false, freshInMs: Number.MAX_SAFE_INTEGER } },
-    })).pipe(Effect.provide(seatsLog.loggerLayer)));
+    })).toThrow();
     expect(published).toHaveLength(1);
     expect(heldRemoteSeatLaunch(remote.bindingId, "macbook", Date.now())).toBeDefined();
     f.controller.abort();

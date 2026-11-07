@@ -37,7 +37,7 @@ import {
   SeatStopRefused,
 } from "./seats-failure";
 import {
-  decodeSeatsLaunch, fromSeatsLaunch, toSeatsLaunch, type RemoteSeatLaunch, type SeatLaunchState,
+  fromSeatsLaunch, toSeatsLaunch, type RemoteSeatLaunch, type SeatLaunchState,
 } from "./seats-launch";
 import { seatLaunchState } from "./seat-launch-state";
 import {
@@ -45,7 +45,7 @@ import {
   type SeatCacheAnswerOutcome, type SeatOffboardFacts,
 } from "../seat-sessions/operator-offboard";
 import { SeatSessionRepository } from "../seat-sessions/repository";
-import { decodeSeatsStatus, fromSeatsStatus, statusIssueAt, toSeatsStatus } from "./seats-status";
+import { fromSeatsStatus, statusIssueAt, toSeatsStatus } from "./seats-status";
 import { forgetRemoteSeatLaunches, openedRemoteSeatLaunches, rememberRemoteSeatLaunch } from "./remote-seat-launch";
 import { seatStateRuntime } from "./agent-state/runtime";
 import { RemoteSeatState } from "./remote-seat-state";
@@ -540,9 +540,9 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
     let reading = "status";
     try {
       if (event.status !== undefined)
-        status = encodeAgentSeatStatus(fromSeatsStatus(decodeSeatsStatus(event.status), seat.bindingId as BindingId, receivedAt));
+        status = encodeAgentSeatStatus(fromSeatsStatus(event.status, seat.bindingId as BindingId, receivedAt));
       reading = "launch";
-      if (event.launch !== undefined) launch = fromSeatsLaunch(decodeSeatsLaunch(event.launch), receivedAt);
+      if (event.launch !== undefined) launch = fromSeatsLaunch(event.launch, receivedAt);
     } catch (cause) {
       // One event refused, logged with its tag; the link stays open.
       const refused = new SeatStatusInvalid({ ...where, peer: context.peer.machineName,

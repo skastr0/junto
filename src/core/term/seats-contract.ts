@@ -20,6 +20,7 @@ import {
 import { SeatsRead, SeatsReadWindow } from "./seat-read-window";
 import { SeatsLaunchState } from "./seats-launch";
 import { SeatsFailure } from "./seats-failure";
+import { SeatsStatus } from "./seats-status";
 
 const Generation = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(256)));
 
@@ -83,12 +84,12 @@ export const SeatsStateEvent = Schema.Struct({
   at: Schema.Number,
   reason: Schema.String.pipe(Schema.check(Schema.isPattern(/^(rule:[A-Za-z0-9_.:-]{1,128}|idle|working|attention|unknown|gone)$/))),
   /**
-   * The seat's status (seats-status.ts). Read on arrival with its own closed
-   * schema, so a status that does not read refuses its event, not the link.
+   * The seat's status (seats-status.ts), already the reduced wire struct: a
+   * status that does not read fails this event's decode before its handler runs.
    */
-  status: Schema.optionalKey(Schema.Unknown),
-  /** What the seat's next start and turn do (seats-launch.ts), read on arrival the same way. */
-  launch: Schema.optionalKey(Schema.Unknown),
+  status: Schema.optionalKey(SeatsStatus),
+  /** What the seat's next start and turn do (seats-launch.ts), the same reduced wire struct. */
+  launch: Schema.optionalKey(SeatsLaunchState),
 });
 export type SeatsStateEvent = typeof SeatsStateEvent.Type;
 export const SeatsEvent = Schema.Union([SeatsStateEvent, ...SeatsAttachEvent.members]);
