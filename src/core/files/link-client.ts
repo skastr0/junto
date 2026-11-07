@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Context, Effect, Layer } from "effect";
 import type {
   FileEntry, FileImported, FilePath, FileRead, FilesCount, FilesNodeRef, FilesResult, FilesRoot,
   FilesSearchResult, FileStamp,
@@ -176,3 +176,13 @@ export const makeFilesRemote = Effect.fn("FilesRemote.make")(function* (options:
 });
 
 export type FilesRemote = Effect.Success<ReturnType<typeof makeFilesRemote>>;
+
+/**
+ * The core's one `FilesRemote`, held by its runtime: the Layer builds it once,
+ * and the link channel and the files router both take it from the context. A
+ * core with `filesRemote` off does not provide the Layer, so the service is
+ * absent there (`Effect.serviceOption`), as the router already reads it.
+ */
+export class FilesRemoteService extends Context.Service<FilesRemoteService, FilesRemote>()("@junto/FilesRemote") {}
+
+export const filesRemoteLayer = (options?: FilesRemoteOptions) => Layer.effect(FilesRemoteService, makeFilesRemote(options));

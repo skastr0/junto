@@ -1,10 +1,10 @@
-import { Effect, Layer } from "effect";
+import { Effect, Layer, ManagedRuntime, Option } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { FilePath, FilesChanged, FilesNodeRef } from "../src/shared/files";
 import { FILES_LINK_TEXT_JSON_MAX, FilesRefused, type FilesLinkFailure, type HostFilesError } from "../src/shared/files-link";
 import { eventOf, FilesLink } from "../src/core/files/link";
-import { makeFilesRemote, type RemoteChange } from "../src/core/files/link-client";
+import { filesRemoteLayer, FilesRemoteService, makeFilesRemote, type RemoteChange } from "../src/core/files/link-client";
 import { bindLinkChannel } from "../src/core/link/contract";
 import type { LinkEventContext, LinkSession } from "../src/core/link/types";
 import { MachineRepository } from "../src/core/machines/repository";
@@ -265,5 +265,29 @@ describe("files remote: events and the link coming and going", () => {
     f.script.push(answers(null));
     await f.remote.close(MINI, ref);
     expect(f.remote.watched(MINI)).toEqual([]);
+  });
+});
+
+describe("files remote: held by a Layer", () => {
+  const deps = () => Layer.mergeAll(
+    machineLinkLayer(() => undefined),
+    Layer.succeed(MachineRepository, { peer: () => Effect.succeed(undefined) } as never),
+  );
+
+  it("is one remote for the runtime that has the Layer, and absent in one that has not", async () => {
+    const held = ManagedRuntime.make(Layer.provideMerge(filesRemoteLayer(), deps()));
+    const bare = ManagedRuntime.make(deps());
+    try {
+      const [first, second] = await Promise.all([
+        held.runPromise(Effect.serviceOption(FilesRemoteService)),
+        held.runPromise(Effect.serviceOption(FilesRemoteService)),
+      ]);
+      expect(Option.isSome(first) && Option.isSome(second) && first.value === second.value).toBe(true);
+      expect(Option.isNone(await bare.runPromise(Effect.serviceOption(FilesRemoteService)))).toBe(true);
+      // It is the same remote the router asks: with no link open it answers unreachable.
+      if (Option.isSome(first)) expect(await first.value.count(MINI, ref)).toEqual(unreachable(null));
+    } finally {
+      await Promise.all([held.dispose(), bare.dispose()]);
+    }
   });
 });
