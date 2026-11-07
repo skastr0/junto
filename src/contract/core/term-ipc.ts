@@ -273,7 +273,7 @@ export const TermRpcs = RpcGroup.make(
   Rpc.make("TermMachineInventory", { payload: TermMachineAsk, success: MachineInventoryResult, error: TermRefused }),
   Rpc.make("TermNativeSettingsRead", { payload: TermNativeSettingsAsk, success: NativeSettingsReadResult, error: TermRefused }),
   Rpc.make("TermNativeSettingWrite", { payload: TermNativeSettingWriteAsk, success: NativeSettingWriteResult, error: TermRefused }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the terminal group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class TermCore extends Context.Service<TermCore, RpcClient.FromGroup<typeof TermRpcs, RpcClientError.RpcClientError>>()(

@@ -108,4 +108,4 @@ export const TerminalRpcs = RpcGroup.make(
    * force there, and every surface key that arrived before it has been heard.
    */
   Rpc.make("TerminalFence"),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
