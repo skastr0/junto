@@ -28,7 +28,7 @@ import {
 } from "../../shared/mail-threads";
 import { MailWaitingFact } from "../../shared/mail-waiting";
 import { SeatCollaborationAskResult, SeatCollaborationDraft } from "../../shared/seat-collaboration";
-import type { SeatOnboardingEvent as SeatOnboardingEventModel } from "../../shared/seat-onboarding-status";
+import { SeatOnboardingEvent } from "../../shared/seat-onboarding-status";
 import { MailThreadMessage, MailThreadSummary } from "../../shared/wire/mail-threads";
 import { coreClient } from "./link";
 
@@ -65,19 +65,11 @@ export const ThreadsWritten = Schema.Union([
   Schema.Struct({ written: ThreadMailWritten, canvasName: Schema.String, nodeId: Schema.String }),
 ]);
 
-/** One seat's last settled onboarding status. */
-export const SeatOnboardingEvent = Schema.Struct({
-  bindingId: Schema.String,
-  status: Schema.Literals(["onboarded", "not-onboarded"]),
-  at: Schema.Number,
-});
-
 // A Schema's encode drops what it does not name, so the wire must name every
 // field the model has.
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 const writtenIsTheModel: Same<typeof ThreadMailWritten.Type, OperatorThreadWritten> = true;
-const onboardingIsTheModel: Same<typeof SeatOnboardingEvent.Type, SeatOnboardingEventModel> = true;
-void [writtenIsTheModel, onboardingIsTheModel];
+void [writtenIsTheModel];
 
 export const ThreadsRpcs = RpcGroup.make(
   Rpc.make("ThreadsList", { payload: SeatThreadsPageQuery, success: ThreadsPage, error: ThreadsUnavailable }),
@@ -112,7 +104,7 @@ export const ThreadsRpcs = RpcGroup.make(
   Rpc.make("ThreadsMailWaiting", { success: Schema.Array(MailWaitingFact) }),
   /** Starts the pushes of read points and waiting mail; asking again of the same core changes nothing. */
   Rpc.make("ThreadsWatch"),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the threads group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class ThreadsCore extends Context.Service<ThreadsCore, RpcClient.FromGroup<typeof ThreadsRpcs, RpcClientError.RpcClientError>>()(

@@ -7,14 +7,18 @@
  * Pure module, no Node imports (renderer-safe).
  */
 
-export type SeatOnboardingStatus = "onboarded" | "not-onboarded";
+import { Schema } from "effect";
+
+export const SeatOnboardingStatus = Schema.Literals(["onboarded", "not-onboarded"]);
+export type SeatOnboardingStatus = typeof SeatOnboardingStatus.Type;
 
 /** One seat's status, keyed like seat state: by terminal binding. */
-export type SeatOnboardingEvent = {
-  readonly bindingId: string;
-  readonly status: SeatOnboardingStatus;
-  readonly at: number;
-};
+export const SeatOnboardingEvent = Schema.Struct({
+  bindingId: Schema.String,
+  status: SeatOnboardingStatus,
+  at: Schema.Number,
+});
+export type SeatOnboardingEvent = typeof SeatOnboardingEvent.Type;
 
 export const SEAT_ONBOARDING_LABEL: Readonly<Record<SeatOnboardingStatus, string>> = {
   onboarded: "Onboarded",
