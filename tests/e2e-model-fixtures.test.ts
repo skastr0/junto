@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { expect, it, vi } from "vitest";
 import { createSandbox, destroySandbox, writeFixtureModel } from "../e2e/harness/sandbox";
-import { installModelFixture, modelFixture, modelSeatSession, modelMessagesWire, modelNote, modelRegion, modelSeat, modelTerminal, modelWire, readModelCanvas, commandModel, modelNode } from "../e2e/harness/model";
+import { installModelFixture, modelFixture, modelSeatSession, modelMessagesWire, modelNote, modelRegion, modelSeat, modelTerminal, modelWire, placeOnMachine, readModelCanvas, commandModel, modelNode } from "../e2e/harness/model";
+import { THIS_MACHINE } from "./support/machines";
 import { ModelService } from "../src/core/model/service";
 import { ModelDependents } from "../src/core/model/dependents";
 import { makeStateEngineLive } from "../src/core/state/engine";
@@ -69,6 +70,8 @@ it("installs a native scenario topology in one event and rolls back an invalid r
       const events: unknown[] = [];
       const stop = model.subscribeChanges((event) => events.push(event));
       vi.stubGlobal("window", { junto: {
+        // writeFixtureModel named the fresh database THIS_MACHINE.
+        settingsGet: async () => ({ settings: { machine: { name: THIS_MACHINE } } }),
         modelCanvases: async () => (await runtime.runPromise(model.listCanvases())).map((name) => ({ name })),
         modelOpen: ({ canvas }: { canvas: string }) => runtime.runPromise(model.open(canvas)),
         modelCommand: (command: unknown) => runtime.runPromise(model.command(Schema.decodeUnknownSync(Command)(command), "operator")),
@@ -91,6 +94,19 @@ it("installs a native scenario topology in one event and rolls back an invalid r
   } finally { await destroySandbox(sandbox); }
 });
 
+
+it("places a fixture's hosts and region path keys on the app's machine name", () => {
+  const seat = modelSeat({ id: "a", key: "local:a", label: "A" });
+  const region = modelRegion({ id: "r", label: "R", defaults: { paths: { [THIS_MACHINE]: "/tmp/r", "other-box": "/srv/r" } } });
+  const placed = placeOnMachine(modelFixture([seat, region], []), "vm-box");
+  expect(placed.nodes).toMatchObject([
+    { id: "a", host: "vm-box" },
+    { id: "r", defaults: { paths: { "vm-box": "/tmp/r", "other-box": "/srv/r" } } },
+  ]);
+  const region$ = placed.nodes[1];
+  expect(region$?.kind === "region" ? Object.keys(region$.defaults?.paths ?? {}).sort() : []).toEqual(["other-box", "vm-box"]);
+  expect(placeOnMachine(modelFixture([seat], []), THIS_MACHINE).nodes).toEqual([seat]);
+});
 
 it("applies a native fixture edit in one event and refuses authored runtime session fields", async () => {
   const sandbox = await createSandbox();
