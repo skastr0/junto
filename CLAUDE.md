@@ -6,7 +6,7 @@ Read `AGENTS.md` — it is the canonical project guide for this repository.
 
 **The product name is Junto.**
 
-Every public, user-facing, and runtime string in this repo uses the name **Junto**. Runtime surfaces use `JuntoApi`, `~/.junto/`, `junto.db`, and the canonical CLI bin `junto`. Source paths live under `src/main/junto/`.
+Every public, user-facing, and runtime string in this repo uses the name **Junto**. Runtime surfaces use `JuntoApi`, `~/.junto/`, `junto.db`, and the canonical CLI bin `junto`.
 
 Gate: `bun run lint:product-name` (also in `bun run verify`).
 Constant: `src/shared/product-name.ts`.
