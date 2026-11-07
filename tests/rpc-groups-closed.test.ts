@@ -8,7 +8,7 @@
  * all of them, so a group that drifts back fails here, not in a decode.
  */
 import { Context } from "effect";
-import { Rpc, type RpcGroup } from "effect/rpc";
+import { Rpc } from "effect/rpc";
 import { describe, expect, it } from "vitest";
 import { CoreRpcs } from "../src/contract/core/rpcs";
 import { HostRpcs } from "../src/contract/host/rpcs";
@@ -16,7 +16,8 @@ import { TerminalRpcs } from "../src/contract/terminal/rpcs";
 import { WindowRpcs } from "../src/contract/window/rpcs";
 import { MsgRpcs } from "../src/contract/work/msg";
 
-const groups: ReadonlyArray<readonly [string, RpcGroup.RpcGroup<Rpc.Any>]> = [
+// Only the requests are read; a concrete group does not assign to RpcGroup<Rpc.Any>.
+const groups: ReadonlyArray<readonly [string, { readonly requests: ReadonlyMap<string, Rpc.AnyWithProps> }]> = [
   ["CoreRpcs", CoreRpcs],
   ["HostRpcs", HostRpcs],
   ["TerminalRpcs", TerminalRpcs],
