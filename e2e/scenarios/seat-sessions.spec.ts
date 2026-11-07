@@ -106,20 +106,20 @@ test("a seat's second session onboards with the first one's notes", async ({}, t
       { message: "runtime capture stored the second session", timeout: 30_000 }).toBe(SECOND);
     await seat.control({ screen: { mode: "idle" } });
 
-    // The fresh session onboards: the first session is listed as history,
-    // with its notes inline from junto.db.
+    // The fresh session onboards: the first session is the last one, as
+    // history, with its notes inline from junto.db, and none came before it.
     await expect
       .poll(async () => data(await seat.op("onboard", {})).sessions?.current?.session_id, { timeout: 15_000 })
       .toBe(SECOND);
     const sessions = data(await seat.op("onboard", {})).sessions;
     expect(sessions.note).toBe(PAST_SESSIONS_FRAMING);
-    expect(sessions.past).toHaveLength(1);
-    expect(sessions.past[0]).toMatchObject({
+    expect(sessions.earlier).toBe(0);
+    expect(sessions.last).toMatchObject({
       session_id: FIRST,
       gist: "Parser wired for all three feeds",
       ended_because: "offboard",
     });
-    expect(sessions.past[0].notes).toContain("retry on 429");
+    expect(sessions.last.notes).toContain("retry on 429");
   } finally {
     try {
       await testInfo.attach("app-main-capture.log", { body: mainLog.join("").slice(-100_000), contentType: "text/plain" });

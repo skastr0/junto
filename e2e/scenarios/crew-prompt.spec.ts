@@ -131,9 +131,12 @@ const promptDelivered = async (
 
   const message = await projectedMessage(page, messageId);
   expect(readMailExtension(message.metadata)?.mailKind).toBe("prompt");
-  // Seat B has never run `junto onboard`, so the first line points at it.
+  // Seat B has never run `junto onboard`, so the first line, which names the
+  // sender and how to reply, ends by pointing at it.
   const payload = composeImmediatePromptPayload(message, { onboarded: false });
-  expect(payload.startsWith(`mail from ${A} — ${MAIL_ONBOARD_POINTER}\n`)).toBe(true);
+  const [firstLine] = payload.split("\n");
+  expect(firstLine!.startsWith(`mail from ${A}`)).toBe(true);
+  expect(firstLine!.endsWith(` — ${MAIL_ONBOARD_POINTER}`)).toBe(true);
   expect(payload.endsWith(text)).toBe(true);
 
   await expect
