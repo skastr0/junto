@@ -7,7 +7,7 @@
  * `captureRowsOf` itself.
  */
 import type { Artifact, ArtifactBody, ArtifactType } from "@shared/wire/artifact";
-import { fuzzyMatch } from "@window/lib/fuzzy-match";
+import { fuzzyMatch } from "@shared/fuzzy-match";
 
 /** The type as the desktop names it in a row's quieter line (`TYPE_NOUN`). */
 const TYPE_NOUN: { readonly [T in ArtifactType]: string } = {

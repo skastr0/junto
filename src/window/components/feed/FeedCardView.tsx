@@ -11,7 +11,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { FEED_KIND_LABEL, type FeedItem, type FeedItemKind } from "@shared/operator-feed";
-import { mailAgeLabel } from "../../lib/actor-ledger";
+import { mailAgeLabel } from "@shared/actor-ledger";
 import type { SignalAnswer } from "../../lib/quick-reply-rules";
 import { dueWords, itemWorkOf, workIsDue } from "../../lib/signal-work-words";
 import { THREAD_HEALTH_STATUS_TONE } from "../../lib/thread-health-tone";

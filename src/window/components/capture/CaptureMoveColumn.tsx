@@ -11,7 +11,7 @@ import { useCanvas } from "../../lib/use-model";
 import { Kbd } from "../ui";
 import { FOCUS_RING_INSET } from "../ui/focus";
 import { ArtifactMoveDialog } from "../artifacts/ArtifactMove";
-import { movedLine, moveTargets, reachChange, reachLine, suggestedFirst } from "../artifacts/artifact-move-model";
+import { movedLine, moveTargets, reachChange, reachLine, suggestedFirst } from "@shared/artifact-move-model";
 import type { CaptureArtifactRef } from "./CaptureEditor";
 import { moveSuggestionsFor } from "./capture-model";
 import "./capture-move.css";

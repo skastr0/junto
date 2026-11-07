@@ -36,7 +36,7 @@ import {
   type CompanionArtifactPendingWrite,
   type CompanionArtifactVersion,
 } from "@shared/wire/companion-artifact-reads";
-import { reachChange, reachLine } from "@window/components/artifacts/artifact-move-model";
+import { reachChange, reachLine } from "@shared/artifact-move-model";
 import { CompanionRuntime, type CompanionServices } from "./runtime";
 import { ModelService } from "../model/service";
 import { withSqlRead } from "../state/sql-read";

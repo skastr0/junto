@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { NodeId } from "@shared/physics/schema";
 import { makeCaptureInbox } from "../../lib/capture-inbox";
 import { useCanvas } from "../../lib/use-model";
-import { moveTargets } from "../artifacts/artifact-move-model";
+import { moveTargets } from "@shared/artifact-move-model";
 import { radioGroupKeys, radioTabIndex } from "../settings/radio-keys";
 import { Button } from "../ui";
 import "./capture-inbox.css";

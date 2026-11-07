@@ -1,22 +1,22 @@
-import { asNodeId, type Canvas } from "@shared/model";
+import { asNodeId, type Canvas } from "./model";
 /**
  * Operator mail projection: sender, kind, subject, refs, and one plain
  * delivery state. Mail is delivered once its text is written into the
  * recipient's input; until then it waits for the seat to start. Nothing here
  * invents a status the document did not record.
  */
-import type { Message } from "@shared/work-model";
+import type { Message } from "./work-model";
 import {
   isMessageDelivered,
   isMessageRead,
   stripFactoryEnvelope,
-} from "@shared/message-delivery";
+} from "./message-delivery";
 import {
   readMailEvidenceRef,
   readMailExtension,
   type MailEvidenceRef,
   type MailKind,
-} from "@shared/crew";
+} from "./crew";
 
 export type { MailEvidenceRef, MailKind };
 

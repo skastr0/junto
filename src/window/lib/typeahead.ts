@@ -1,4 +1,4 @@
-import { fuzzyMatch } from "./fuzzy-match";
+import { fuzzyMatch } from "@shared/fuzzy-match";
 
 export type TypeaheadBuffer = {
   readonly text: string;

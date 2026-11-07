@@ -1,5 +1,5 @@
 import type { ManagedTerminalModelOption, ManagedTerminalModelsResult } from "@shared/ipc";
-import { rankMatches } from "../../lib/fuzzy-match";
+import { rankMatches } from "@shared/fuzzy-match";
 
 /**
  * How the model column lays out its choices: the harness's defaults first

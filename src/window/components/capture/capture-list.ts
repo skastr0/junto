@@ -1,7 +1,7 @@
 import type { ArtifactType } from "@shared/artifact";
 import type { ArtifactHead } from "@shared/resource-ipc";
 import type { NodeId } from "@shared/physics/schema";
-import { fuzzyMatch } from "../../lib/fuzzy-match";
+import { fuzzyMatch } from "@shared/fuzzy-match";
 import { TYPE_NOUN } from "../artifacts/artifacts-pane-model";
 
 /**

@@ -60,7 +60,7 @@ import {
 import { overlayManifest } from "@shared/overlay";
 import { feedSettings, quietNotesOf } from "@shared/settings";
 import { THREAD_HEALTH_LABEL, THREAD_HEALTH_TONE, THREAD_HEALTH_TTL_MS, type ThreadHealthReading } from "@shared/thread-health";
-import { mailboxRows, recentOpAtMs, recentOpLabel } from "@window/lib/actor-ledger";
+import { mailboxRows, recentOpAtMs, recentOpLabel } from "@shared/actor-ledger";
 import type { WorkSeatRecentOp } from "@shared/work-recent-ops";
 import { CompanionRuntime } from "./runtime";
 import { unreadTotals } from "../work/mail-reads";

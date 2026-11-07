@@ -9,7 +9,7 @@ import {
   resolveMailSenderNodeId,
   resolveMailSenderStamp,
   stripMailEnvelope,
-} from "../src/window/lib/crew-mail-view";
+} from "../src/shared/crew-mail-view";
 
 const message = (metadata: Message["metadata"], text = "hello"): Message => ({
   messageId: "01ARZ3NDEKTSV4RRFFQ69G5FAV",

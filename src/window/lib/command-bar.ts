@@ -2,7 +2,7 @@ import { batch } from "@legendapp/state";
 import type { Node } from "@shared/model";
 import { compareView, Palette, type ViewGroup } from "@shared/wire/urgency";
 import { titleOf } from "@shared/model/title";
-import { fuzzyMatch } from "./fuzzy-match";
+import { fuzzyMatch } from "@shared/fuzzy-match";
 import { touchActiveMru } from "./hotbar-slots";
 import { roleOfKind } from "./model-kind";
 import { searchOf } from "./node-presentation";

@@ -24,8 +24,8 @@ import {
   mailboxRows,
   visibleMailRows,
   type MailRow,
-} from "../../lib/actor-ledger";
-import { mailEvidenceLabel } from "../../lib/crew-mail-view";
+} from "@shared/actor-ledger";
+import { mailEvidenceLabel } from "@shared/crew-mail-view";
 import "./actor-ledger-mail.css";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { state$ } from "../../lib/state";

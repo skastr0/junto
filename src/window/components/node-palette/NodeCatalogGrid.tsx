@@ -18,7 +18,7 @@ import {
   BROWSER_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
-import { fuzzyMatch } from "../../lib/fuzzy-match";
+import { fuzzyMatch } from "@shared/fuzzy-match";
 import { PickerCard, PickerCardGrid } from "../ui";
 
 export type NodeCatalogCategory = "shell" | "sinks" | "canvas";

@@ -1,5 +1,5 @@
-import { asNodeId, type Canvas } from "@shared/model";
-import { titleOf } from "@shared/model/title";
+import { asNodeId, type Canvas } from "./model";
+import { titleOf } from "./model/title";
 /**
  * Actor ledger — pure projections of one actor's standing with the work
  * model. Message rows come from the independent seat mailbox store.
@@ -10,12 +10,12 @@ import { titleOf } from "@shared/model/title";
  *   - delivery: `metadata.deliveredAt` (written into the seat), else waiting
  *   - age: the messageId is a ULID — its timestamp is birth time
  */
-import type { Message, Part } from "@shared/work-model";
-import type { WorkSeatRecentOp } from "@shared/work-recent-ops";
+import type { Message, Part } from "./work-model";
+import type { WorkSeatRecentOp } from "./work-recent-ops";
 import {
   compareMessageIdsNewestFirst,
   messageIdTimeMs,
-} from "@shared/message-delivery";
+} from "./message-delivery";
 import {
   countMailViews,
   crewMailViewOf,

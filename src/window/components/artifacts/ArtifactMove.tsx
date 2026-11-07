@@ -6,7 +6,7 @@ import { applyArtifactOp } from "../../lib/artifacts-source";
 import { claimFocus } from "../../lib/focus-ownership";
 import { useCanvas } from "../../lib/use-model";
 import { Button, Combobox, Dialog, MenuItem, Popover } from "../ui";
-import { matchTargets, moveTargets, reachChange, reachLine, suggestedFirst, type MoveSuggestion, type MoveTarget } from "./artifact-move-model";
+import { matchTargets, moveTargets, reachChange, reachLine, suggestedFirst, type MoveSuggestion, type MoveTarget } from "@shared/artifact-move-model";
 
 /** What the picker moves: each artifact by id, with the title its lines name it by. */
 export type MovingArtifact = { readonly artifactId: ItemId; readonly title: string };

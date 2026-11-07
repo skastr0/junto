@@ -4,12 +4,12 @@
  * to, the one line that says whose reach changes, which rows a Move to takes,
  * and how a move reads in history.
  */
-import type { Canvas } from "@shared/model/canvas";
-import { frameContains } from "@shared/model/canvas";
-import type { Node } from "@shared/model";
-import { titleOf } from "@shared/model/title";
-import type { NodeId } from "@shared/physics/schema";
-import { inReachOfRegion, positionsOf } from "@shared/region-reach";
+import type { Canvas } from "./model/canvas";
+import { frameContains } from "./model/canvas";
+import type { Node } from "./model";
+import { titleOf } from "./model/title";
+import type { NodeId } from "./physics/schema";
+import { inReachOfRegion, positionsOf } from "./region-reach";
 
 /** One place the picker offers: an Artifacts node, by its name and the regions it sits in. */
 export type MoveTarget = {

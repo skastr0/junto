@@ -38,7 +38,7 @@ import { LinkedFromList, linkedFromCount, useLinkedFrom } from "./LinkedFrom";
 import { ArtifactHistory } from "./ArtifactHistory";
 import { ArtifactKeys } from "./ArtifactKeys";
 import { ArtifactMoveDialog, ArtifactRowMenu, type MovingArtifact } from "./ArtifactMove";
-import { moveEntryTitle, movedLine, moveSetOf, rangeOf } from "./artifact-move-model";
+import { moveEntryTitle, movedLine, moveSetOf, rangeOf } from "@shared/artifact-move-model";
 import { ArtifactLabelChips, ArtifactLabelFilter } from "./ArtifactLabelChips";
 import { ArtifactTasks } from "./ArtifactTasks";
 import { ArtifactPendingWrites } from "./ArtifactPendingWrites";

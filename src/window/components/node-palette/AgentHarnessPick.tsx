@@ -30,7 +30,7 @@ import { pickerInventory } from "../../lib/harness-machine-source";
 import { useThisMachineName } from "../../lib/machines";
 import { state$ } from "../../lib/state";
 import { patchSettings } from "../../lib/settings-state";
-import { rankMatches } from "../../lib/fuzzy-match";
+import { rankMatches } from "@shared/fuzzy-match";
 import {
   typeaheadAccept,
   typeaheadIndex,

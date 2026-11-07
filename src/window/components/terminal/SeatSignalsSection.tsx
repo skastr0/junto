@@ -8,7 +8,7 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import type { AgentSignal } from "@shared/agent-signals";
-import { mailAgeLabel } from "../../lib/actor-ledger";
+import { mailAgeLabel } from "@shared/actor-ledger";
 import {
   SIGNAL_KIND_LABEL,
   SIGNAL_KIND_TONE,

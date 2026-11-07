@@ -18,7 +18,7 @@
 import { baseName, parentOf, ROOT_PATH, type FilesSearchResult, type FilesResult } from "@shared/files";
 import type { NodeId } from "@shared/physics/schema";
 import type { FilesSource } from "./files-source";
-import { type MatchFields, rankMatches } from "./fuzzy-match";
+import { type MatchFields, rankMatches } from "@shared/fuzzy-match";
 
 export type QuickOpenKind = "file" | "artifact" | "task" | "automation";
 

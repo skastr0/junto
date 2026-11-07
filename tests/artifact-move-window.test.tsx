@@ -17,7 +17,7 @@ import {
   rangeOf,
   reachChange,
   reachLine,
-} from "../src/window/components/artifacts/artifact-move-model";
+} from "../src/shared/artifact-move-model";
 import { artifacts, canvasOf, region } from "./support/model-nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
