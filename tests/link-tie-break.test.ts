@@ -134,31 +134,29 @@ const settledOn = async (low: Awaited<ReturnType<typeof machine>>, high: Awaited
   }
 };
 
-it("settles a double open on the link the lower installation id dialed, at both ends", async () => {
-  for (let round = 0; round < 5; round++) {
-    const { low, high, connect } = await pair();
-    const [fromLow, fromHigh] = await Promise.all([connect(low, high), connect(high, low)]);
-    expect(fromLow.installationId).toBe(high.installationId);
-    expect(fromHigh.installationId).toBe(low.installationId);
-    // Both ends dialed: this was a double open, not one dial finding the other's link.
-    expect(low.dialed).toHaveLength(1);
-    expect(high.dialed).toHaveLength(1);
-    await settledOn(low, high, low);
-    for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
-  }
+// Each round is two fresh machines (two runtimes, each with its own state
+// database), so each is its own test with its own time budget: five in one
+// test went over vitest's 5 s default when run directly, a timeout that was
+// slowness, never a hang. The double open races again in every round.
+it.each([1, 2, 3, 4, 5])("settles a double open on the link the lower installation id dialed, at both ends (round %i)", async () => {
+  const { low, high, connect } = await pair();
+  const [fromLow, fromHigh] = await Promise.all([connect(low, high), connect(high, low)]);
+  expect(fromLow.installationId).toBe(high.installationId);
+  expect(fromHigh.installationId).toBe(low.installationId);
+  // Both ends dialed: this was a double open, not one dial finding the other's link.
+  expect(low.dialed).toHaveLength(1);
+  expect(high.dialed).toHaveLength(1);
+  await settledOn(low, high, low);
 });
 
-it("keeps a link already open when the other end dials it, whichever end opened it", async () => {
-  for (const order of ["low first", "high first"] as const) {
-    const { low, high, connect } = await pair();
-    const [first, second] = order === "low first" ? [low, high] : [high, low];
-    await connect(first, second);
-    await eventually(() => { expect(low.open.size).toBe(1); expect(high.open.size).toBe(1); });
-    const peer = await connect(second, first);
-    expect(peer.installationId).toBe(first.installationId);
-    await settledOn(low, high, first);
-    for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
-  }
+it.each(["low first", "high first"] as const)("keeps a link already open when the other end dials it (%s)", async (order) => {
+  const { low, high, connect } = await pair();
+  const [first, second] = order === "low first" ? [low, high] : [high, low];
+  await connect(first, second);
+  await eventually(() => { expect(low.open.size).toBe(1); expect(high.open.size).toBe(1); });
+  const peer = await connect(second, first);
+  expect(peer.installationId).toBe(first.installationId);
+  await settledOn(low, high, first);
 });
 
 it("stops only the rows link that closed, never the one kept in its place", async () => {
