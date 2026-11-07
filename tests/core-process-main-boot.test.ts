@@ -15,6 +15,8 @@ import { runHostOp } from "../src/app/core-process/main-side/host-op-bodies";
 import { serveCore } from "../src/core/serve";
 import { subscribe } from "../src/app/core-process/main-side/core-pushes";
 import { AGENT_SIGNAL_CHANGED, WORK_PREAMBLE } from "../src/contract/core/channels";
+import type { AgentSignal } from "../src/shared/agent-signals";
+import type { PreambleEvent } from "../src/shared/preamble";
 // The operations the served core answers: entry.ts imports this registry at boot.
 import "../src/core/ops/index";
 
@@ -73,10 +75,13 @@ it("hooks main up to a core in its own process: calls go to it, its pushes reach
     expect(await Effect.runPromise(shell.ShellEnvironmentStatus())).toEqual(status);
     expect(asked).toHaveBeenCalledTimes(1);
     // The core's window pushes land on main's bus.
-    served.push(WORK_PREAMBLE, { preambleId: "p1" });
-    served.push(AGENT_SIGNAL_CHANGED, { signalId: "s1" });
+    // Whole payloads: main decodes each push with its Schema, and refuses a partial one.
+    const preamble: PreambleEvent = { preambleId: "p1", canvasName: "factory", nodeId: "seat", text: "hello", expiresAt: 1 };
+    const signal: AgentSignal = { signalId: "s1", canvasName: "factory", nodeId: "seat", kind: "blocked", text: "needs a hand", createdAt: 1, state: "open" };
+    served.push(WORK_PREAMBLE, preamble);
+    served.push(AGENT_SIGNAL_CHANGED, signal);
     // What the core asks of Electron is a host group each, proven over the host link in host-link-*.test.ts and core-overseer-pages.test.ts.
-    await vi.waitFor(() => expect(seen).toEqual([[WORK_PREAMBLE, { preambleId: "p1" }], [AGENT_SIGNAL_CHANGED, { signalId: "s1" }]]));
+    await vi.waitFor(() => expect(seen).toEqual([[WORK_PREAMBLE, preamble], [AGENT_SIGNAL_CHANGED, signal]]));
     await Effect.runPromise(main.stop());
     expect(stopped).toBe(1);
   } finally {
