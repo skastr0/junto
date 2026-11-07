@@ -68,6 +68,9 @@ test("Agents, Providers and Name and startup follow the chosen machine", async (
     await nav(page, /Machine|Name and startup/);
     const own = (await page.getByTestId("settings-machine-section").locator('span[style*="color"]').first().innerText()).trim();
     await linkMini(app, own);
+    // The machines are read as Settings opens: open it again on the fixture.
+    await page.locator(".settings-panel__close").click();
+    await page.getByRole("button", { name: "Open settings" }).click();
 
     // (1) Agents on this machine: real version, saved values from the file.
     await nav(page, /^Agents$/);

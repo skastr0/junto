@@ -37,6 +37,9 @@ test("Settings > Agents follows the chosen machine", async ({ junto }) => {
       return { protocol, id: request.id, op: request.op, ok: false, error: { type: "unavailable", message: "Fixture does not run this command" } };
     });
   }, { command: IPC_CHANNELS.machineCommand, protocol: OPERATOR_PROTOCOL_VERSION, own });
+  // The machines are read as Settings opens: open it again on the fixture.
+  await page.locator(".settings-panel__close").click();
+  await page.getByRole("button", { name: "Open settings" }).click();
 
   await page.locator(".settings-nav__item", { hasText: /^Agents$/ }).click();
   const picker = page.getByTestId("settings-machine-picker");
