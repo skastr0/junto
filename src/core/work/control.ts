@@ -912,6 +912,7 @@ const dispatchOp = (
         mailboxOf,
         sentMailOf,
         beginWrite: beginWrite(fence),
+        observation: Effect.provideService(liveSeatObservation(), WorkService, work),
       });
     }
 
