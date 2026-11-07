@@ -38,7 +38,7 @@ import { runStopSteps } from "./stop-scope";
 import { appMenuTemplate } from "./junto/app-menu";
 import { appProcessBlocksAppExit, appProcessPlane, describeAppProcessStraggler } from "./junto/app-process-plane";
 import { enforceBootRefusal } from "./junto/boot-guard";
-import { AppRuntime } from "./runtime";
+import { AppRuntime, updateProvider } from "./runtime";
 import { core } from "./core-process/main-client";
 import { startChildren, takeChildStopFailures, type Children } from "./core-process/children";
 import { subscribe as subscribeCore } from "./core-process/main-side/core-pushes";
@@ -132,7 +132,7 @@ import {
   type TrustedRendererOrigin,
 } from "@shared/trusted-renderer-origin";
 import { loadStationSupervisor } from "./junto/supervision/select";
-import { installUpdateHostHooks } from "./junto/update";
+import type { UpdateHostHooks } from "./junto/update";
 import {
   operatorControlEnabledFromInitialArgv,
 } from "./junto/operator-control";
@@ -1488,7 +1488,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // relaunch without Squirrel install when finalize fails after quiesce.
     // After successful quiesce we mark runtimeDisposed + skipQuitConfirm so
     // electron-updater quitAndInstall is not blocked by before-quit re-commit.
-    installUpdateHostHooks({
+    // The install IPC reads them from this one object; nothing installs them.
+    const updateHost: UpdateHostHooks = {
       quiesceForInstall: async () => {
         await flushCanvasOnQuit();
         detachRuntimeOnQuit("update-install");
@@ -1511,8 +1512,11 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         app.relaunch({ execPath: executablePath, args: [] });
         app.exit(0);
       },
+    };
+    registerIpcHandlers({
+      surfacePlanes: { current: () => coreChildren?.core.surfacePlanes.current() },
+      update: { host: updateHost, provider: updateProvider },
     });
-    registerIpcHandlers({ current: () => coreChildren?.core.surfacePlanes.current() });
     registerDemoIpcHandlers();
     // Settings reads the phones from wherever the companion runs.
     registerCompanionIpc();

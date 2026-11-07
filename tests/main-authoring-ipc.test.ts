@@ -100,7 +100,13 @@ describe("renderer canvas authoring IPC", () => {
       initialUrl: "junto-app://renderer/index.html",
       allows: (url) => url === "junto-app://renderer/index.html",
     });
-    registerJuntoIpc({ current: () => undefined });
+    registerJuntoIpc({
+      surfacePlanes: { current: () => undefined },
+      update: {
+        host: { quiesceForInstall: async () => undefined, relaunchWithoutInstall: () => undefined },
+        provider: {} as never,
+      },
+    });
 
     for (const name of ["list-canvases", "read-canvas", "write-canvas", "canvas-overseer-set", "create-canvas", "delete-canvas"]) {
       expect(electron.handlers.has(`junto:${name}`)).toBe(false);

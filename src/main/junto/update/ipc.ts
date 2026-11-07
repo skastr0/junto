@@ -7,13 +7,10 @@ import {
   type UpdateStatus,
 } from "@shared/update";
 import { AppRuntime } from "../../runtime";
-import {
-  captureInstallAuthority,
-  requireUpdateHostHooks,
-  requireUpdateProviderHandle,
-  takeInstallAuthority,
-} from "./host-slot";
 import { UpdateError } from "./errors";
+import type { AuthorizedUpdateCandidate } from "./domain";
+import type { UpdateInstall } from "./provider";
+import type { InstallPlan } from "./service";
 import {
   finalizeInstallAfterQuiesce,
   UpdateService,
@@ -41,7 +38,24 @@ export const registerUpdateIpc = (
   ipcMain: IpcMain,
   broadcast: (channel: string, payload: unknown) => void,
   currentVersion: string,
+  install: UpdateInstall,
 ): (() => void) => {
+  // This window's one install in flight: minted by prepare, consumed by finalize.
+  let pendingPlan: InstallPlan | undefined;
+  let pendingCandidate: AuthorizedUpdateCandidate | undefined;
+  const captureInstallAuthority = (plan: InstallPlan, candidate: AuthorizedUpdateCandidate): void => {
+    pendingPlan = plan;
+    pendingCandidate = candidate;
+  };
+  const takeInstallAuthority = ():
+    | { readonly plan: InstallPlan; readonly candidate: AuthorizedUpdateCandidate }
+    | undefined => {
+    if (pendingPlan === undefined || pendingCandidate === undefined) return undefined;
+    const authority = { plan: pendingPlan, candidate: pendingCandidate };
+    pendingPlan = undefined;
+    pendingCandidate = undefined;
+    return authority;
+  };
   const handlers = [
     IPC_CHANNELS.updateGetState,
     IPC_CHANNELS.updateCheck,
@@ -104,7 +118,7 @@ export const registerUpdateIpc = (
     }
 
     try {
-      await requireUpdateHostHooks().quiesceForInstall();
+      await install.host.quiesceForInstall();
     } catch (error) {
       // Clear pending install authority before relaunch so a later path
       // cannot finalize with a stale captured plan.
@@ -113,13 +127,13 @@ export const registerUpdateIpc = (
         error instanceof Error
           ? `failed to quiesce for install: ${error.message}`
           : "failed to quiesce for install";
-      requireUpdateHostHooks().relaunchWithoutInstall();
+      install.host.relaunchWithoutInstall();
       return errorStatus(currentVersion, "readiness-failed", message);
     }
 
     const authority = takeInstallAuthority();
     if (authority === undefined) {
-      requireUpdateHostHooks().relaunchWithoutInstall();
+      install.host.relaunchWithoutInstall();
       return errorStatus(
         currentVersion,
         "install-refused",
@@ -132,8 +146,8 @@ export const registerUpdateIpc = (
         finalizeInstallAfterQuiesce({
           plan: authority.plan,
           candidate: authority.candidate,
-          provider: requireUpdateProviderHandle(),
-          host: requireUpdateHostHooks(),
+          provider: install.provider,
+          host: install.host,
         }),
       );
     } catch (error) {

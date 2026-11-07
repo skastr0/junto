@@ -44,10 +44,11 @@ export class UpdateService extends Context.Service<UpdateService,
       UpdateError
     >;
     /**
-     * Full operator path when host.quiesce does not dispose this service
-     * (tests / no-op quiesce). Production IPC splits prepare + finalize.
+     * Full operator path when the host's quiesce does not dispose this service
+     * (tests / no-op quiesce). Production IPC splits prepare + finalize. The
+     * host is the caller's: this service holds none of main's boot.
      */
-    readonly restartAndInstall: Effect.Effect<UpdateStatus, UpdateError>;
+    readonly restartAndInstall: (host: UpdateHostHooks) => Effect.Effect<UpdateStatus, UpdateError>;
     readonly subscribe: (
       listener: (status: UpdateStatus) => void,
     ) => () => void;
@@ -73,7 +74,6 @@ export const isMintedInstallPlan = (
 export type UpdateServiceOptions = {
   readonly currentVersion: string;
   readonly provider: UpdateProvider;
-  readonly host: UpdateHostHooks;
   /** Operator-visible install identity; mirrored onto every projected status. */
   readonly install?: UpdateInstallProvenance;
   readonly stageDownloaded?: (downloadedFile: string, release: AvailableRelease) => Effect.Effect<StagedUpdate, UpdateError>;
@@ -571,12 +571,12 @@ export const makeUpdateService = (
       return { plan, candidate };
     });
 
-    const restartAndInstall: Effect.Effect<UpdateStatus, UpdateError> =
+    const restartAndInstall = (host: UpdateHostHooks): Effect.Effect<UpdateStatus, UpdateError> =>
       Effect.gen(function* () {
         const prepared = yield* prepareInstall;
 
         yield* Effect.tryPromise({
-          try: () => options.host.quiesceForInstall(),
+          try: () => host.quiesceForInstall(),
           catch: (cause) =>
             updateError(
               "readiness-failed",
@@ -590,7 +590,7 @@ export const makeUpdateService = (
         return yield* finalizeInstallAfterQuiesce({
           plan: prepared.plan,
           provider: options.provider,
-          host: options.host,
+          host,
           candidate: prepared.candidate,
         });
       }).pipe(

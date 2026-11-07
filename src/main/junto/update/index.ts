@@ -15,18 +15,9 @@ export {
   type AdmitStagedMacAppOptions,
 } from "./admit-mac-app";
 export { UpdateError, updateError } from "./errors";
-export {
-  captureInstallAuthority,
-  deferredUpdateHostHooks,
-  installUpdateHostHooks,
-  installUpdateProviderHandle,
-  requireUpdateHostHooks,
-  requireUpdateProviderHandle,
-  takeInstallAuthority,
-} from "./host-slot";
 export { registerUpdateIpc } from "./ipc";
 export { makePlatformUpdateProvider } from "./platform";
-export type { UpdateHostHooks, UpdateProvider } from "./provider";
+export type { UpdateHostHooks, UpdateInstall, UpdateProvider } from "./provider";
 export {
   finalizeInstallAfterQuiesce,
   isMintedInstallPlan,

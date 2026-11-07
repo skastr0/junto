@@ -179,7 +179,7 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
     const executableIndexSource = indexSource
       .replace(/\/\*[\s\S]*?\*\//gu, "")
       .replace(/\/\/[^\n]*/gu, "");
-    const updateHooksStart = executableIndexSource.indexOf("installUpdateHostHooks({");
+    const updateHooksStart = executableIndexSource.indexOf("const updateHost: UpdateHostHooks = {");
     const updateHooksEnd = executableIndexSource.indexOf("\n    });", updateHooksStart);
     const updateHooks = executableIndexSource.slice(updateHooksStart, updateHooksEnd);
     expect(updateHooks).toMatch(

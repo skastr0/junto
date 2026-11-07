@@ -20,6 +20,7 @@ import type { BrowserSessionService } from "./browser/sessions";
 import { askOnEveryCore } from "../core-process/every-core";
 import { core } from "../core-process/main-client";
 import type { SurfacePlanes } from "../core-process/main-side/term-surface";
+import type { UpdateInstall } from "./update";
 import { subscribe as onCorePush } from "../core-process/main-side/core-pushes";
 
 import {
@@ -129,7 +130,13 @@ const runMainAuthoring = <A>(
   operation: () => Promise<A>,
 ): Promise<A> => mainAuthoringGate.run(label, operation);
 
-export const registerJuntoIpc = (surfacePlanes: SurfacePlanes): void => {
+/** What main's boot hands its IPC registrars: the surface plane it owns and the one update install. */
+export type MainBoot = {
+  readonly surfacePlanes: SurfacePlanes;
+  readonly update: UpdateInstall;
+};
+
+export const registerJuntoIpc = (boot: MainBoot): void => {
   const privilegedIpc = trustedRendererIpc(ipcMain);
   privilegedIpc.handle(IPC_CHANNELS.modelCanvases, () => core.call("ipc.model.canvases", {}));
   privilegedIpc.handle(IPC_CHANNELS.modelOpen, (_event, input: unknown) =>
@@ -148,7 +155,7 @@ export const registerJuntoIpc = (surfacePlanes: SurfacePlanes): void => {
   registerTerminalIpc(privilegedIpc, {
     isTrustedSender: isTrustedMainWebContents,
     broadcast,
-    surfacePlane: surfacePlanes.current,
+    surfacePlane: boot.surfacePlanes.current,
   });
   registerGitIpc(privilegedIpc);
   registerSettingsIpc(privilegedIpc, broadcast);
@@ -203,6 +210,7 @@ export const registerJuntoIpc = (surfacePlanes: SurfacePlanes): void => {
     privilegedIpc,
     broadcast,
     app.getVersion(),
+    boot.update,
   );
   privilegedIpc.handle(IPC_CHANNELS.canvasDigest, (_event, name: string) =>
     core.call("ipc.status.digest", { name }),

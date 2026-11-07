@@ -3,29 +3,32 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { withMachineLogger } from "./junto/observability/logger";
 import productMetadata from "../../package.json";
 import {
-  deferredUpdateHostHooks,
-  installUpdateProviderHandle,
   macArm64UpdateFeed,
   linuxX64UpdateFeed,
   makePlatformUpdateProvider,
   makeUpdateServiceLayer,
+  type UpdateProvider,
 } from "./junto/update";
 
+/**
+ * The one update provider this main process offers: the service checks and
+ * stages through it, and the install IPC finalizes through the same object.
+ * Made once, here, from what only Electron's app knows.
+ */
+export const updateProvider: UpdateProvider = makePlatformUpdateProvider({
+  platform: process.platform,
+  isPackaged: app.isPackaged,
+  currentVersion: app.getVersion() || productMetadata.version,
+});
+
 // UpdateService joins this ManagedRuntime — never a second runtime.
-// Host quiesce/relaunch hooks are late-bound from main/index after boot.
 const UpdateServiceLive = Layer.unwrap(
   Effect.sync(() => {
-    const provider = makePlatformUpdateProvider({
-      platform: process.platform,
-      isPackaged: app.isPackaged,
-      currentVersion: app.getVersion() || productMetadata.version,
-    });
-    installUpdateProviderHandle(provider);
+    const provider = updateProvider;
     const packaged = app.isPackaged;
     return makeUpdateServiceLayer({
       currentVersion: app.getVersion() || productMetadata.version,
       provider,
-      host: deferredUpdateHostHooks(),
       install: {
         packaged,
         platform: process.platform,

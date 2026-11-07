@@ -86,7 +86,13 @@ describe("main boot IPC registration", () => {
     const { registerOverseerLiveIpc } = await import("../src/main/junto/overseer/live/ipc");
 
     // In src/main/index.ts boot order.
-    registerIpcHandlers({ current: () => undefined });
+    registerIpcHandlers({
+      surfacePlanes: { current: () => undefined },
+      update: {
+        host: { quiesceForInstall: async () => undefined, relaunchWithoutInstall: () => undefined },
+        provider: inert as never,
+      },
+    });
     registerDemoIpcHandlers();
     registerCompanionIpc();
     registerNotificationIpc({ window: () => undefined, enabled: false });

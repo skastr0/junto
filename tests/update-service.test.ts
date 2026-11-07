@@ -85,10 +85,6 @@ describe("UpdateService", () => {
       makeUpdateService({
         currentVersion: "0.1.0",
         provider,
-        host: {
-          quiesceForInstall: async () => undefined,
-          relaunchWithoutInstall: () => undefined,
-        },
       }),
     );
 
@@ -115,10 +111,6 @@ describe("UpdateService", () => {
       makeUpdateService({
         currentVersion: "0.1.0",
         provider,
-        host: {
-          quiesceForInstall: async () => undefined,
-          relaunchWithoutInstall: () => undefined,
-        },
       }),
     );
 
@@ -143,10 +135,6 @@ describe("UpdateService", () => {
       makeUpdateService({
         currentVersion: "0.1.0",
         provider: harness.provider,
-        host: {
-          quiesceForInstall: async () => undefined,
-          relaunchWithoutInstall: () => undefined,
-        },
         stageDownloaded: () =>
           Effect.succeed({
             stagingRoot: root,
@@ -181,10 +169,6 @@ describe("UpdateService", () => {
       makeUpdateService({
         currentVersion: "0.1.0",
         provider: harness.provider,
-        host: {
-          quiesceForInstall: async () => undefined,
-          relaunchWithoutInstall: () => undefined,
-        },
         stageDownloaded: () =>
           Effect.succeed({
             stagingRoot: root,
@@ -225,10 +209,6 @@ describe("UpdateService", () => {
       makeUpdateService({
         currentVersion: "0.1.0",
         provider: harness.provider,
-        host: {
-          quiesceForInstall: async () => undefined,
-          relaunchWithoutInstall: () => undefined,
-        },
         stageDownloaded: () =>
           Effect.tryPromise({
             try: async () => {
@@ -290,10 +270,6 @@ describe("UpdateService", () => {
       makeUpdateService({
         currentVersion: "0.1.0",
         provider: harness.provider,
-        host: {
-          quiesceForInstall: async () => undefined,
-          relaunchWithoutInstall: () => undefined,
-        },
         stageDownloaded: () =>
           Effect.succeed({
             stagingRoot: root,
@@ -349,10 +325,6 @@ describe("UpdateService", () => {
       makeUpdateService({
         currentVersion: "0.1.0",
         provider: harness.provider,
-        host: {
-          quiesceForInstall: async () => undefined,
-          relaunchWithoutInstall: relaunch,
-        },
         stageDownloaded: () =>
           Effect.succeed({
             stagingRoot: root,
@@ -396,10 +368,6 @@ describe("UpdateService", () => {
       makeUpdateService({
         currentVersion: "0.1.0",
         provider,
-        host: {
-          quiesceForInstall: async () => undefined,
-          relaunchWithoutInstall: () => undefined,
-        },
       }),
     );
     const runtime = ManagedRuntime.make(layer);
@@ -427,7 +395,7 @@ describe("platform-neutral staged installation", () => {
     const harness = makeFakeProvider();
     const stageDownloaded = vi.fn(async () => installation);
     const provider: UpdateProvider = { ...harness.provider, kind: "linux", stageDownloaded };
-    const service = await Effect.runPromise(makeUpdateService({ currentVersion: "0.2.0", provider, host }));
+    const service = await Effect.runPromise(makeUpdateService({ currentVersion: "0.2.0", provider }));
     harness.emit({ _tag: "downloaded", release: { version: "0.2.1" }, downloadedFile: archivePath });
     await waitFor(async () => (await Effect.runPromise(service.getState)).phase === "ready");
     return { service, provider, harness, stageDownloaded };
@@ -439,7 +407,7 @@ describe("platform-neutral staged installation", () => {
     const installation = { executablePath: "/owned/new/junto", revalidate: async () => { calls.push("revalidate"); },
       installAfterQuiesce: async () => { calls.push("install"); } };
     const { service, harness, stageDownloaded } = await readyLinux(installation, host);
-    const state = await Effect.runPromise(service.restartAndInstall);
+    const state = await Effect.runPromise(service.restartAndInstall(host));
     expect(state.phase).toBe("installing");
     expect(calls).toEqual(["revalidate", "quiesce", "install"]);
     expect(stageDownloaded).toHaveBeenCalledWith(expect.stringContaining("release.tar.gz"), { version: "0.2.1" });
@@ -452,7 +420,7 @@ describe("platform-neutral staged installation", () => {
     const installAfterQuiesce = vi.fn();
     const { service } = await readyLinux({ executablePath: "/owned/new/junto", installAfterQuiesce,
       revalidate: async () => { throw new Error("generation contents changed"); } }, host);
-    await expect(Effect.runPromise(service.restartAndInstall)).rejects.toThrow(/generation contents changed/);
+    await expect(Effect.runPromise(service.restartAndInstall(host))).rejects.toThrow(/generation contents changed/);
     expect(host.quiesceForInstall).not.toHaveBeenCalled();
     expect(installAfterQuiesce).not.toHaveBeenCalled();
     expect((await Effect.runPromise(service.getState)).canInstall).toBe(false);
@@ -462,15 +430,14 @@ describe("platform-neutral staged installation", () => {
     const host = { quiesceForInstall: vi.fn(async () => undefined), relaunchWithoutInstall: vi.fn() };
     const { service } = await readyLinux({ executablePath: "/owned/new/junto", hasActivated: () => activated,
       installAfterQuiesce: async () => { throw new Error("handoff failed"); } }, host);
-    await expect(Effect.runPromise(service.restartAndInstall)).rejects.toThrow(activated ? /previous release cannot be restored/ : /handoff failed/);
+    await expect(Effect.runPromise(service.restartAndInstall(host))).rejects.toThrow(activated ? /previous release cannot be restored/ : /handoff failed/);
     expect(host.quiesceForInstall).toHaveBeenCalledOnce();
     expect(host.relaunchWithoutInstall).toHaveBeenCalledTimes(activated ? 0 : 1);
   });
 
   it("preserves typed Linux download failures instead of calling every failure unsupported", async () => {
     const harness = makeFakeProvider();
-    const service = await Effect.runPromise(makeUpdateService({ currentVersion: "0.2.0", provider: { ...harness.provider, kind: "linux" },
-      host: { quiesceForInstall: async () => undefined, relaunchWithoutInstall: () => undefined } }));
+    const service = await Effect.runPromise(makeUpdateService({ currentVersion: "0.2.0", provider: { ...harness.provider, kind: "linux" } }));
     harness.emit({ _tag: "error", code: "download-failed", message: "archive digest mismatch" });
     await waitFor(async () => (await Effect.runPromise(service.getState)).phase === "error");
     expect((await Effect.runPromise(service.getState)).error?.code).toBe("download-failed");

@@ -59,3 +59,13 @@ export type UpdateHostHooks = {
   /** Native Electron handoff to the exact admitted generation, with clean args. */
   readonly relaunchInstalled?: (executablePath: string) => void;
 };
+
+/**
+ * What an install needs from main's boot, made once there and passed to the
+ * one reader that stages and finalizes: the operator's host actions, and the
+ * provider that downloads, admits and activates a release.
+ */
+export type UpdateInstall = {
+  readonly host: UpdateHostHooks;
+  readonly provider: UpdateProvider;
+};
