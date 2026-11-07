@@ -19,7 +19,7 @@ import { seatLaunchState } from "../term/seat-launch-state";
 import type { LocalHostEvent } from "../term/local-host";
 import type { TermPlane } from "../term/plane";
 import { injectionSupervisor } from "../term/injection-supervisor";
-import { onRemoteSeatState, rememberRemoteSeatState } from "../term/remote-seat-state";
+import { RemoteSeatState } from "../term/remote-seat-state";
 import { remoteSeatLaunchOf } from "../term/seats-client";
 import { cardSeatLaunch } from "../term/seats-launch";
 import { liveSeatEnvironment } from "../region-env/live";
@@ -41,16 +41,16 @@ export class TermIpcPlane extends Context.Service<TermIpcPlane, Pick<TermPlane, 
  * linked seat's machine ended, and every seat's state, this machine's and a
  * linked one's. The returned function unbinds them.
  */
-export const bindTermIpcPlane = (plane: TermPlane): (() => void) => {
+export const bindTermIpcPlane = (plane: TermPlane, remoteState: RemoteSeatState["Service"]): (() => void) => {
   plane.router.setTerminalEnvironment(liveSeatEnvironment);
   const onEvent = (payload: LocalHostEvent): void => {
-    if (payload.type === "seat-state") rememberRemoteSeatState(payload.event);
+    if (payload.type === "seat-state") remoteState.remember(payload.event);
     publish(TERM_EVENT, payload);
   };
   const onLeaseEnded = (end: { readonly leaseId: string; readonly reason: string }): void => publish(TERM_LEASE_ENDED, end);
   plane.router.on("event", onEvent);
   plane.router.on("lease-ended", onLeaseEnded);
-  const stopSeatState = onRemoteSeatState((event) => publish(TERM_SEAT_STATE, event));
+  const stopSeatState = remoteState.onState((event) => publish(TERM_SEAT_STATE, event));
   const stopLocalSeatState = seatStateRuntime.subscribe((event) => publish(TERM_SEAT_STATE, event));
   return () => {
     plane.router.off("event", onEvent);

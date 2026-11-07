@@ -11,6 +11,7 @@ import { ModelNotFound, ModelRecords } from "../src/core/model/records";
 import { ModelService } from "../src/core/model/service";
 import { CorePushes } from "../src/core/push";
 import { makeStateEngineLive } from "../src/core/state/engine";
+import { RemoteSeatStateLive } from "../src/core/term/remote-seat-state";
 import { messageDelivery } from "../src/core/work/message-delivery";
 import { WorkRepository } from "../src/core/work/repository";
 import { WorkService } from "../src/core/work/service";
@@ -95,6 +96,7 @@ it("answers thread asks in the core, and pushes read points and waiting mail onc
               Layer.succeed(CorePushes, { publish: (channel, payload) => Effect.sync(() => void pushed.push([channel, payload])) }),
               services,
               makeStateEngineLive(join(dir, "junto.db")),
+              RemoteSeatStateLive,
             ),
           ),
         ),

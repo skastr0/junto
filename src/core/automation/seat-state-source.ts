@@ -37,7 +37,7 @@ import {
 } from "@shared/seat-state-trigger";
 import { MachineRepository } from "../machines/repository";
 import { seatStateRuntime } from "../term/agent-state/runtime";
-import { onRemoteSeatFeed, remoteSeatStateFeeds } from "../term/remote-seat-state";
+import { RemoteSeatState } from "../term/remote-seat-state";
 
 export class SeatStateSource extends Context.Service<
   SeatStateSource,
@@ -183,19 +183,16 @@ export const localSeatStateFeeds = (
  * every later one.
  */
 export const remoteSeatStateFeedsOf = (
-  remote: { readonly current: typeof remoteSeatStateFeeds; readonly subscribe: typeof onRemoteSeatFeed } = {
-    current: remoteSeatStateFeeds,
-    subscribe: onRemoteSeatFeed,
-  },
+  remote: Pick<RemoteSeatState["Service"], "feeds" | "onFeed">,
   now: () => number = Date.now,
 ): Stream.Stream<SeatStateFeed> =>
   Stream.callback<SeatStateFeed>((queue) =>
     Effect.acquireRelease(
       Effect.sync(() => {
-        for (const { machine, event } of remote.current()) {
+        for (const { machine, event } of remote.feeds()) {
           Queue.offerUnsafe(queue, { machine, kind: "seed", event: { ...event, at: now() } });
         }
-        return remote.subscribe((feed) => {
+        return remote.onFeed((feed) => {
           Queue.offerUnsafe(
             queue,
             feed._tag === "Lost"
@@ -213,6 +210,7 @@ export const SeatStateSourceLive = Layer.effect(
   Effect.gen(function* () {
     const machines = yield* MachineRepository;
     const machine = yield* machines.installationId.pipe(Effect.orDie);
-    return yield* makeSeatStateSource(Stream.merge(localSeatStateFeeds(machine), remoteSeatStateFeedsOf()));
+    const remoteState = yield* RemoteSeatState;
+    return yield* makeSeatStateSource(Stream.merge(localSeatStateFeeds(machine), remoteSeatStateFeedsOf(remoteState)));
   }),
 );

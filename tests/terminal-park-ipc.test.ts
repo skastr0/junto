@@ -14,6 +14,7 @@ import { bindTermIpcPlane, TermIpcPlane, TermPlaneHandlers } from "../src/core/o
 import { TermTemplatesHandlers } from "../src/core/ops/term-templates";
 import type { TermPlane } from "../src/core/term/plane";
 import { TerminalNodeDeleteService } from "../src/core/term/node-delete";
+import { makeRemoteSeatState } from "../src/core/term/remote-seat-state";
 import { ModelService } from "../src/core/model/service";
 import { OBSERVER_WATCHED_SCROLLBACK } from "../src/core/term/observer/session-observer";
 import { TERMINAL_BOUNDS } from "../src/shared/settings";
@@ -86,7 +87,7 @@ const rig = async () => {
   });
   // The plane is the core's; the test binds its events and gives it to the handlers.
   const plane = { router, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane;
-  bindTermIpcPlane(plane);
+  bindTermIpcPlane(plane, makeRemoteSeatState());
   registerTerminalIpc(
     { handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never,
     { isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => undefined },

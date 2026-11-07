@@ -18,7 +18,7 @@ import { ModelService } from "../model/service";
 import { CorePushes } from "../push";
 import { seatStateRuntime } from "../term/agent-state";
 import { injectionSupervisor } from "../term/injection-supervisor";
-import { mergeSeatStateSnapshot, remoteSeatStateEvents } from "../term/remote-seat-state";
+import { mergeSeatStateSnapshot, RemoteSeatState } from "../term/remote-seat-state";
 import { makeSeatsProcessClient, remoteSeatMachine } from "../term/seats-client";
 import { markRead, onReadChanged, readPoints, unreadTotal } from "../work/mail-reads";
 import { messageDelivery } from "../work/message-delivery";
@@ -41,6 +41,7 @@ const unavailable = <A, E, R>(read: Effect.Effect<A, E, R>) =>
 export const ThreadsHandlers = ThreadsRpcs.toLayer(
   Effect.gen(function* () {
     const pushes = yield* CorePushes;
+    const remoteState = yield* RemoteSeatState;
     const publishing = Effect.runForkWith(yield* Effect.context<never>());
     const scope = yield* Effect.scope;
     // Whether this core already told its pushes to start: asking again changes nothing.
@@ -103,11 +104,11 @@ export const ThreadsHandlers = ThreadsRpcs.toLayer(
             return { ok: true as const, requestId };
           }),
         ),
-      ThreadsSeatStates: () => Effect.sync(() => mergeSeatStateSnapshot(seatStateRuntime.currentEvents())),
+      ThreadsSeatStates: () => Effect.sync(() => mergeSeatStateSnapshot(seatStateRuntime.currentEvents(), remoteState.events())),
       ThreadsOnboarding: () => Effect.sync(() => injectionSupervisor.currentOnboarding()),
       ThreadsSeatViewed: ({ bindingId }) => {
         if (seatStateRuntime.snapshot(bindingId) !== undefined) return Effect.sync(() => { seatStateRuntime.viewed(bindingId); });
-        const remote = remoteSeatStateEvents().find((event) => event.bindingId === bindingId);
+        const remote = remoteState.events().find((event) => event.bindingId === bindingId);
         if (remote === undefined || remote.state === "gone") return Effect.void;
         const epoch = remote.epoch;
         return remoteSeatMachine(bindingId).pipe(

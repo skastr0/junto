@@ -38,6 +38,7 @@ import { seatStateRuntime } from "./term/agent-state/runtime";
 import { watchClaudeResumeRecovery } from "./term/drive/claude-resume-recovery";
 import { terminalObserverPlane } from "./term/observer";
 import { onSeatViewQuestions } from "./term/seat-views";
+import { RemoteSeatState } from "./term/remote-seat-state";
 import { watchSeatReadiness } from "./term/onboard-nudge-interject";
 import { termPlane } from "./term/plane";
 import { IPC_CHANNELS } from "@shared/ipc";
@@ -303,7 +304,9 @@ export const startCore = async (options: CoreOptions) => {
     // numbers its spawns from 1, so a spawn admitted before the adopt could
     // collide with a PTY that is still running there.
     await adoptCoreTerminals();
-    if (windowTerminals !== undefined) unbindTermIpcPlane = bindTermIpcPlane(termPlane);
+    if (windowTerminals !== undefined) {
+      unbindTermIpcPlane = bindTermIpcPlane(termPlane, await runtime.runPromise(RemoteSeatState));
+    }
     // A seated seat this core did not get back is over, with its reason, so no
     // card keeps the last core's ring for a process that is not there.
     await runtime.runPromise(reconcileSeatsLostToCoreRestart());

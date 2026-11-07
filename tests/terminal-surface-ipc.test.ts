@@ -13,6 +13,7 @@ import { IPC_CHANNELS, type TerminalParkResult } from "../src/shared/ipc";
 import type { TermPlane } from "../src/core/term/plane";
 import type { SurfacePlane } from "../src/app/core-process/main-side/term-surface";
 import { TerminalNodeDeleteService } from "../src/core/term/node-delete";
+import { makeRemoteSeatState } from "../src/core/term/remote-seat-state";
 import { Layer, ManagedRuntime } from "effect";
 import { RpcTest } from "effect/rpc";
 import { TermCore, TermRpcs } from "../src/contract/core/term-ipc";
@@ -107,7 +108,7 @@ const rig = async (surfaces: boolean | (() => boolean) = true) => {
     closeSurface: vi.fn(),
   };
   const plane = { router, host, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane;
-  unbind = bindTermIpcPlane(plane);
+  unbind = bindTermIpcPlane(plane, makeRemoteSeatState());
   // Main's surface ports reach the core: here the core is the same process, and
   // this stands in for its plane handing the port to the terminal process.
   const surfacePlane: SurfacePlane = {

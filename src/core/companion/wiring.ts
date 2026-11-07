@@ -14,10 +14,10 @@ import { PausePlane } from "../pause-plane";
 import { onAgentSignalChanged } from "../signals/changes";
 import { seatStateRuntime } from "../term/agent-state";
 import { onMachinesChanged } from "../hosts/machine-changes";
-import { onRemoteSeatState } from "../term/remote-seat-state";
+import { RemoteSeatState } from "../term/remote-seat-state";
 import { seatAwarenessPlane } from "../term/seat-awareness";
 import { messageDelivery } from "../work/message-delivery";
-import { forgetSeatUnread, noteMailFailure } from "./backend";
+import { bindRemoteSeatState, forgetSeatUnread, noteMailFailure } from "./backend";
 import { noteArtifactCanvasChanged, noteArtifactChanged } from "./artifact-changes";
 import type { CompanionChanges } from "./changes";
 import { onDesktopReport } from "./desktop-report";
@@ -29,7 +29,8 @@ let changesRef: CompanionChanges | undefined;
 
 export const wireCompanionChanges = async (changes: CompanionChanges): Promise<() => void> => {
   changesRef = changes;
-  const [model, work, pause] = await CompanionRuntime.runPromise(Effect.all([ModelService, WorkRepository, PausePlane]));
+  const [model, work, pause, remoteState] = await CompanionRuntime.runPromise(Effect.all([ModelService, WorkRepository, PausePlane, RemoteSeatState]));
+  bindRemoteSeatState(remoteState);
   const offs = [
     // A thread names its seats and canvas, so a canvas change is a mail change too.
     model.subscribeChanges(() => changes.bump("mail")),
@@ -40,7 +41,7 @@ export const wireCompanionChanges = async (changes: CompanionChanges): Promise<(
     }),
     pause.subscribe(() => changes.bump()),
     seatStateRuntime.subscribe(() => changes.bump()),
-    onRemoteSeatState(() => changes.bump()),
+    remoteState.onState(() => changes.bump()),
     onMachinesChanged(() => changes.bump()),
     seatAwarenessPlane.subscribe(() => changes.bump()),
     // Every committed signal write, whichever path made it.

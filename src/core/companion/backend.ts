@@ -86,7 +86,7 @@ import { AgentSignalRepository } from "../signals/repository";
 import { listCanvasAgentSignals } from "../signals/operator";
 import { seatStateRuntime } from "../term/agent-state";
 import { termPlane } from "../term/plane";
-import { mergeSeatStateSnapshot, remoteSeatOccupied } from "../term/remote-seat-state";
+import { mergeSeatStateSnapshot, type RemoteSeatState } from "../term/remote-seat-state";
 import { seatAwarenessPlane } from "../term/seat-awareness";
 import { WorkService } from "../work/service";
 import { desktopActiveCanvas, desktopDoneUnread } from "./desktop-report";
@@ -153,10 +153,17 @@ const healthByBinding = (): ReadonlyMap<string, ThreadHealthReading> => {
   return out;
 };
 
+let remoteSeatState: RemoteSeatState["Service"] | undefined;
+
+/** Boot: the core's remembered remote seat states, for the sync feed reads below. */
+export const bindRemoteSeatState = (state: RemoteSeatState["Service"]): void => {
+  remoteSeatState = state;
+};
+
 // A seat on another machine reads as its machine last reported it over the
 // link, as the window's cards do; this machine's own runtime wins a collision.
 const controlByBinding = () =>
-  new Map(mergeSeatStateSnapshot(seatStateRuntime.currentEvents()).map((event) => [event.bindingId, event] as const));
+  new Map(mergeSeatStateSnapshot(seatStateRuntime.currentEvents(), remoteSeatState?.events() ?? []).map((event) => [event.bindingId, event] as const));
 
 const feedHealthOf = (reading: ThreadHealthReading, now: number): FeedHealth => ({
   value: reading.value,
@@ -221,7 +228,7 @@ const processOf = (binding: string | undefined): "running" | "starting" | "stopp
   if (local === undefined) {
     // No occupant here: a seat another machine runs is running while that
     // machine reports an occupant for it.
-    return remoteSeatOccupied(binding) ? "running" : "stopped";
+    return remoteSeatState?.occupied(binding) === true ? "running" : "stopped";
   }
   if (local.status === "running") return "running";
   if (local.status === "starting") return "starting";

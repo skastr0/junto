@@ -6,7 +6,7 @@
  */
 import { afterEach, beforeEach, expect, it } from "vitest";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
-import { eventually, miniSeat, twoCoreCanvas as canvas, twoCoreProcess, twoCores } from "./support/two-cores";
+import { eventually, miniSeat, seatsRequest, twoCoreCanvas as canvas, twoCoreProcess, twoCores } from "./support/two-cores";
 
 const cleanups: Array<() => Promise<void>> = [];
 let restore: () => void;
@@ -20,10 +20,10 @@ it("a seat started over the link reads running from the editing core, and its st
   const published: AgentSeatStateEvent[] = [];
   const { mini, bookEnd } = await twoCores({ cleanups, book: { publishState: (event) => { published.push(event); } } });
 
-  const started = await bookEnd.request("seats", { _tag: "Start", canvas, seatId: miniSeat.id });
+  const started = await seatsRequest(bookEnd, { _tag: "Start", canvas, seatId: miniSeat.id });
   expect(started).toMatchObject({ _tag: "Started", machine: "mini" });
   // The book's window reads the seat over the same link: running.
-  expect(await bookEnd.request("seats", { _tag: "Get", canvas, seatId: miniSeat.id }))
+  expect(await seatsRequest(bookEnd, { _tag: "Get", canvas, seatId: miniSeat.id }))
     .toMatchObject({ _tag: "Started", status: "running" });
 
   // The stand-in prints, as a harness does; the mini's runtime reads it.

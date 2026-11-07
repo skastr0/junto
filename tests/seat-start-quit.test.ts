@@ -17,6 +17,7 @@ import { hostsSnapshot, setHostsSnapshot } from "../src/core/hosts/snapshot";
 import { ActorSeatOccupy, makeActorSeatOccupy } from "../src/core/term/actor-seat-occupy";
 import { LocalSessionHost } from "../src/core/term/local-host";
 import { TermPlane } from "../src/core/term/plane";
+import { makeRemoteSeatState } from "../src/core/term/remote-seat-state";
 import { EMPTY_LAUNCH_RECORD } from "../src/shared/region-environment";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 import { seat } from "./support/model-nodes";
@@ -106,7 +107,7 @@ const fixture = async () => {
   await command({ _tag: "Add", canvas: "quit", nodes: [{ ...node, host: "workbench" }], wires: [] });
   type Handler = (...args: readonly unknown[]) => unknown;
   const handlers = new Map<string, Handler>();
-  bindTermIpcPlane(plane);
+  bindTermIpcPlane(plane, makeRemoteSeatState());
   registerTerminalIpc({ handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never, {
     isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => undefined,
   }, await runtime.context());

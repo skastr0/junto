@@ -16,6 +16,7 @@ import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../src/cor
 import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
 import { ActorSeatOccupy, type ActorOccupySpec } from "../src/core/term/actor-seat-occupy";
 import { TerminalNodeDeleteService } from "../src/core/term/node-delete";
+import { makeRemoteSeatState } from "../src/core/term/remote-seat-state";
 import { launchForManagedSpawnIntent } from "../src/core/term/managed-spawn-plan";
 import { seat } from "./support/model-nodes";
 import { managedHarnessEnabled } from "../src/shared/managed-terminal-templates";
@@ -107,7 +108,7 @@ const fixture = async () => {
   const node = seat("subject", { host: "workbench", harness: "codex", launch: { kind: "harness", argv: ["codex"], cwd: root } });
   await command({ _tag: "Add", canvas: "proof", nodes: [node], wires: [] });
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
-  bindTermIpcPlane(plane as never);
+  bindTermIpcPlane(plane as never, makeRemoteSeatState());
   registerTerminalIpc({ handle: (channel: string, handler: (...args: unknown[]) => unknown) => handlers.set(channel, handler) } as never,
     { isTrustedSender: () => true, broadcast: () => {}, surfacePlane: () => undefined }, await runtime.context());
   const start = () => Promise.resolve(handlers.get(IPC_CHANNELS.modelStart)!(

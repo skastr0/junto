@@ -24,7 +24,7 @@ import { automationRunnerLayer, makeCoreProductLayer } from "./core-product";
 import { MachineLink } from "./link/service";
 import { machineLinkLayer } from "./link/live";
 import { peerInventoryLayer } from "./inventory/client";
-import { LinkBuildMismatch, LinkPeerNotPinned, type LinkChannelHandler, type MachineLinkError } from "./link/types";
+import { LinkBuildMismatch, LinkPeerNotPinned, type MachineLinkError } from "./link/types";
 import { linkClient, type LinkContractChannel } from "./link/contract";
 import { makeStatusChannel, StatusLink } from "./link/status";
 import { encodeError, encodeFailure } from "../node/failure-encode";
@@ -47,6 +47,7 @@ import { SshTransport } from "./ssh";
 import { makeMachineExchangeQuery } from "./work/exchange/queries";
 import { OPERATOR_PROTOCOL_VERSION, decodeOperatorResponse } from "@shared/operator-control";
 import { makeSeatsChannel } from "./term/seats-link";
+import { RemoteSeatStateLive } from "./term/remote-seat-state";
 import { readSeatWindow } from "./term/seat-read";
 import { makeCoreMailTransport, type CoreMailSeats } from "./term/core-mail";
 import { makeMessageDeliveryStore } from "./work/message-delivery-store";
@@ -124,7 +125,7 @@ export class MachineCoreRows extends Context.Service<MachineCoreRows, {
 }>()("@junto/MachineCoreRows") {}
 
 export class MachineCoreSeats extends Context.Service<MachineCoreSeats, {
-  readonly handler: LinkChannelHandler;
+  readonly handler: LinkContractChannel;
 }>()("@junto/MachineCoreSeats") {}
 
 export class MachineCoreMail extends Context.Service<MachineCoreMail, {
@@ -440,7 +441,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
     Layer.unwrap(Effect.map(MachineCoreRows, (held) => makeResourceSubmitLayer((peer) => held.exchange.linked(peer)))),
     pulls,
   );
-  const seats = Layer.provideMerge(machineCoreSeatsLayer, submit);
+  const seats = Layer.provideMerge(machineCoreSeatsLayer, Layer.merge(submit, RemoteSeatStateLive));
   const mail = Layer.provideMerge(machineCoreMailLayer, seats);
   const keepers = Layer.provideMerge(
     Layer.mergeAll(machineLinkKeeperLayer(options.home, options.ready), machineBoatKeeperLayer(options.ready)),
