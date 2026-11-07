@@ -11,6 +11,9 @@ import { EMPTY_SETTINGS, state$ } from "../src/window/lib/state";
 import { flushPendingCanvasSave, undo } from "../src/window/lib/mutations";
 import { executeBeat, resetDemoCanvas } from "../src/window/demo/ops";
 import { demo$, startTake, stopTake } from "../src/window/demo/conductor";
+
+/** Where a finished take's EDL goes; these takes never finish. */
+const writeEdl = vi.fn();
 import { DEMO_THIS_MACHINE } from "../src/window/demo/machine";
 import { demoScenarios } from "../src/window/demo/scenarios";
 
@@ -43,7 +46,7 @@ beforeEach(() => {
   });
   oldApi = window.junto;
   (window as unknown as { junto: unknown }).junto = {
-    modelCommand: command, demoWriteEdl: vi.fn(async () => ({ ok: true })),
+    modelCommand: command,
     onWorkSinkChanged: () => () => {}, workAttention: async () => ({ glances: [], items: [] }),
     onWorkMailChanged: () => () => {}, workMailPage: async () => ({ items: [] }),
   };
@@ -98,10 +101,10 @@ it("ends a tween with one rounded Move that preserves size and kind", async () =
 it("resets main and the native store before a second take reuses its deterministic ids", async () => {
   vi.useFakeTimers();
   const take: DemoScenario = { ...scenario, beats: [{ at: 0, ops: [{ kind: "add-nodes", nodes: [note("note", "Take")] }] }] };
-  startTake(take); await flush(); await vi.advanceTimersByTimeAsync(0); await flush();
+  startTake(take, writeEdl); await flush(); await vi.advanceTimersByTimeAsync(0); await flush();
   expect(modelStore.node$(canvas, "note").peek()?.kind).toBe("note");
   stopTake(); command.mockClear();
-  startTake(take); await flush(); await vi.advanceTimersByTimeAsync(0); await flush();
+  startTake(take, writeEdl); await flush(); await vi.advanceTimersByTimeAsync(0); await flush();
   expect(command.mock.calls.map(call => call[0]._tag)).toEqual(["Remove", "Add"]);
   expect(modelStore.canvasOf(canvas).nodes.size).toBe(1);
   expect(demo$.running.peek()).toBe(true);
@@ -114,9 +117,9 @@ it("keeps a stopped take cancelled when another starts during its reset", async 
   let finish!: () => void;
   command.mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve({ seq: 2 }); }));
   const take = (id: string): DemoScenario => ({ ...scenario, id, beats: [{ at: 0, ops: [{ kind: "add-nodes", nodes: [note(id, id)] }] }] });
-  startTake(take("cancelled"));
+  startTake(take("cancelled"), writeEdl);
   for (let i = 0; i < 10; i++) await Promise.resolve();
-  stopTake(); startTake(take("current"));
+  stopTake(); startTake(take("current"), writeEdl);
   finish(); await flush(); await vi.advanceTimersByTimeAsync(0); await flush();
   expect(modelStore.node$(canvas, "cancelled").peek()).toBeUndefined();
   expect(modelStore.node$(canvas, "current").peek()?.kind).toBe("note");

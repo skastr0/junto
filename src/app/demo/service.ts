@@ -6,7 +6,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { join } from "node:path";
-import type { DemoEdl, DemoWriteEdlResult } from "@shared/demo";
+import type { DemoEdl, DemoWriteEdlResult } from "../../contract/window/demo";
 
 export const writeDemoEdl = async (edl: DemoEdl): Promise<DemoWriteEdlResult> => {
   try {

@@ -24,7 +24,6 @@ import {
   type LoginItemOpResult,
   type JuntoApi,
   type JuntoBrowserApi,
-  type JuntoDemoApi,
   type JuntoHostsApi,
   type JuntoTerminalApi,
   type JuntoUsageApi,
@@ -842,11 +841,6 @@ const filesApi: JuntoFilesApi = {
   },
 };
 
-const demoApi: JuntoDemoApi = {
-  demoState: () => invoke(IPC_CHANNELS.demoState, IPC_TIMEOUT_MS),
-  demoWriteEdl: (edl) => invoke(IPC_CHANNELS.demoWriteEdl, IPC_TIMEOUT_MS, edl),
-};
-
 const hostsApi: JuntoHostsApi = {
   machineCommand: (request) => invoke(IPC_CHANNELS.machineCommand, MACHINE_COMMAND_TIMEOUT_MS, request),
   onMachineProgress: (listener) => subscribe<MachineCommandProgress>(IPC_CHANNELS.machineProgress, listener),
@@ -879,6 +873,5 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
     ...terminalApi,
     ...filesApi,
     ...(BROWSER_ENABLED ? browserApi : {}),
-    ...demoApi,
   });
 }

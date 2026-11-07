@@ -50,7 +50,6 @@ import { mainLog } from "./observability/main-log";
 import { mainIndexCalls, type MainIndexCalls } from "./core-process/main-index-ipc";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc-handlers";
 import { resolveControlHome } from "./control-home";
-import { registerDemoIpcHandlers } from "./demo/ipc";
 import { makeMainNotifications, type MainNotifications } from "./notifications/ipc";
 import {
   BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE,
@@ -1530,7 +1529,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       update: { host: updateHost, provider: updateProvider },
       notifications: notificationPlane,
     });
-    registerDemoIpcHandlers();
     // Settings reads the phones from wherever the companion runs.
     registerCompanionIpc(coreClients);
     const notifyWindow = currentTrustedMainWindow();

@@ -2,7 +2,6 @@ import type {
   ChassisApi,
   JuntoApi,
   JuntoBrowserApi,
-  JuntoDemoApi,
   JuntoHostsApi,
   JuntoTerminalApi,
   JuntoUsageApi,
@@ -18,7 +17,6 @@ declare global {
     readonly junto?: JuntoApi &
       JuntoTerminalApi &
       JuntoFilesApi &
-      JuntoDemoApi &
       Partial<
           JuntoBrowserApi &
           JuntoUsageApi &

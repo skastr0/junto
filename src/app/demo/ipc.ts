@@ -1,26 +1,24 @@
 /**
- * Demo/scripting engine IPC surface (--junto-demo only; inert otherwise).
- * Handlers are ALWAYS registered so the renderer's demoState probe never
- * hangs waiting on a missing channel — behavior is flag-gated, not
- * registration.
+ * Main's handlers of the window's demo group (--junto-demo only; inert
+ * otherwise). Always served, so a window's DemoState never waits on a missing
+ * handler: the behaviour is the flag's, never the registration's.
  */
-import { ipcMain } from "electron";
-import type { DemoEdl } from "@shared/demo";
-import { IPC_CHANNELS } from "@shared/ipc";
+import { Effect } from "effect";
+import { DemoWindowRpcs } from "../../contract/window/demo";
 import { isDemoMode } from "../../node/demo/mode";
 import { writeDemoEdl } from "./service";
-import { trustedRendererIpc } from "../trusted-main-webcontents";
 
-export const registerDemoIpcHandlers = (): void => {
-  const privilegedIpc = trustedRendererIpc(ipcMain);
-  privilegedIpc.handle(IPC_CHANNELS.demoState, () => ({
-    active: isDemoMode(),
-    autoroll: isDemoMode() && process.env.JUNTO_DEMO_AUTOROLL === "1",
-    scenarioId: isDemoMode() ? process.env.JUNTO_DEMO_SCENARIO : undefined,
-  }));
-
-  privilegedIpc.handle(IPC_CHANNELS.demoWriteEdl, (_event, edl: DemoEdl) => {
-    if (!isDemoMode()) return { ok: false, error: "demo mode off" };
-    return writeDemoEdl(edl);
-  });
-};
+export const DemoWindowHandlers = DemoWindowRpcs.toLayer({
+  DemoState: () =>
+    Effect.sync(() =>
+      isDemoMode()
+        ? {
+            active: true,
+            autoroll: process.env.JUNTO_DEMO_AUTOROLL === "1",
+            ...(process.env.JUNTO_DEMO_SCENARIO === undefined ? {} : { scenarioId: process.env.JUNTO_DEMO_SCENARIO }),
+          }
+        : { active: false, autoroll: false },
+    ),
+  DemoWriteEdl: ({ edl }) =>
+    isDemoMode() ? Effect.promise(() => writeDemoEdl(edl)) : Effect.succeed({ ok: false, error: "demo mode off" }),
+});

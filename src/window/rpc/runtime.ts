@@ -12,6 +12,7 @@ import { type Context, Effect, Fiber, Layer, ManagedRuntime, Stream } from "effe
 import type { RpcPort } from "@shared/rpc-port";
 import { GitWindow } from "../../contract/window/git";
 import { WindowLink } from "../../contract/window/link";
+import { DemoWindow } from "../../contract/window/demo";
 import { NotificationsWindow } from "../../contract/window/notifications";
 import { ObservabilityWindow } from "../../contract/window/observability";
 import { ReferencesWindow } from "../../contract/window/references";
@@ -19,7 +20,7 @@ import { ShellEnvironmentWindow } from "../../contract/window/shell-environment"
 import { UpdateWindow } from "../../contract/window/update";
 import { UpdateState } from "../lib/update-state";
 
-export const WindowClientsLive = Layer.mergeAll(UpdateWindow.layer, ReferencesWindow.layer, ShellEnvironmentWindow.layer, GitWindow.layer, ObservabilityWindow.layer, NotificationsWindow.layer);
+export const WindowClientsLive = Layer.mergeAll(UpdateWindow.layer, ReferencesWindow.layer, ShellEnvironmentWindow.layer, GitWindow.layer, ObservabilityWindow.layer, NotificationsWindow.layer, DemoWindow.layer);
 
 export const WindowServicesLive = Layer.mergeAll(UpdateState.layer).pipe(Layer.provideMerge(WindowClientsLive));
 

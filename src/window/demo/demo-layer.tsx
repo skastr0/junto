@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { DemoScenario } from "@shared/demo";
+import { DemoWindow, type DemoEdl } from "../../contract/window/demo";
+import { useWindowRuntime, useWindowService } from "../rpc/runtime";
 import { demoScenarios } from "./scenarios";
 import { demo$, startTake, stopTake } from "./conductor";
 import { demoHud$ } from "./ops";
@@ -15,16 +17,23 @@ const scenariosById = demoScenarios as Readonly<Record<string, DemoScenario | un
 // and renders null forever when the app wasn't launched with --junto-demo /
 // JUNTO_DEMO=1, so product behavior with demo off is byte-identical.
 export function DemoLayer() {
+  const runtime = useWindowRuntime();
+  const demo = useWindowService(DemoWindow);
+  // A finished take's EDL goes to main, which writes it under ~/.junto/demo.
+  const writeEdl = useCallback(
+    (edl: DemoEdl): void => {
+      void runtime.runPromise(demo.DemoWriteEdl({ edl })).catch(() => undefined);
+    },
+    [runtime, demo],
+  );
   const [active, setActive] = useState(false);
   const [scenarioId, setScenarioId] = useState(DEFAULT_SCENARIO_ID);
 
   useEffect(() => {
-    const api = window.junto;
-    if (!api) return;
     let cancelled = false;
     let rollTimer: number | undefined;
-    void api
-      .demoState()
+    void runtime
+      .runPromise(demo.DemoState())
       .then((info) => {
         if (cancelled || !info.active) return;
         setActive(true);
@@ -37,7 +46,7 @@ export function DemoLayer() {
           // Delay past first paint so the camera bridge is mounted before beat 0.
           rollTimer = window.setTimeout(() => {
             const scenario = scenariosById[requested];
-            if (scenario && !demo$.running.peek()) startTake(scenario);
+            if (scenario && !demo$.running.peek()) startTake(scenario, writeEdl);
           }, 2_000);
         }
       })
@@ -46,7 +55,7 @@ export function DemoLayer() {
       cancelled = true;
       if (rollTimer !== undefined) window.clearTimeout(rollTimer);
     };
-  }, []);
+  }, [runtime, demo, writeEdl]);
 
   useEffect(() => {
     if (!active) return;
@@ -55,7 +64,7 @@ export function DemoLayer() {
       if (event.key === "F9") {
         event.preventDefault();
         const scenario = scenariosById[scenarioId];
-        if (scenario) startTake(scenario);
+        if (scenario) startTake(scenario, writeEdl);
         return;
       }
       if (event.key === "Escape" && demo$.running.peek()) {
@@ -65,7 +74,7 @@ export function DemoLayer() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [active, scenarioId]);
+  }, [active, scenarioId, writeEdl]);
 
   const running = use$(demo$.running);
   const beat = use$(demo$.beat);

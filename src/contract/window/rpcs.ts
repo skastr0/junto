@@ -3,6 +3,7 @@
  * server per window, so a group here without a handler fails main's compile,
  * and a client of a group missing here fails the window's (`windowClient`).
  */
+import { DemoWindowRpcs } from "./demo";
 import { GitWindowRpcs } from "./git";
 import { NotificationsWindowRpcs } from "./notifications";
 import { ObservabilityWindowRpcs } from "./observability";
@@ -10,4 +11,4 @@ import { ReferencesWindowRpcs } from "./references";
 import { ShellEnvironmentWindowRpcs } from "./shell-environment";
 import { UpdateWindowRpcs } from "./update";
 
-export const WindowRpcs = UpdateWindowRpcs.merge(ReferencesWindowRpcs, ShellEnvironmentWindowRpcs, GitWindowRpcs, ObservabilityWindowRpcs, NotificationsWindowRpcs);
+export const WindowRpcs = UpdateWindowRpcs.merge(ReferencesWindowRpcs, ShellEnvironmentWindowRpcs, GitWindowRpcs, ObservabilityWindowRpcs, NotificationsWindowRpcs, DemoWindowRpcs);

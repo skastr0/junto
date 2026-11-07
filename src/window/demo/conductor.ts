@@ -1,5 +1,6 @@
 import { observable } from "@legendapp/state";
-import type { DemoEdl, DemoEdlEntry, DemoOp, DemoScenario } from "@shared/demo";
+import type { DemoEdl, DemoEdlEntry } from "../../contract/window/demo";
+import type { DemoOp, DemoScenario } from "@shared/demo";
 import { beatMs } from "@shared/demo";
 import { clearSelection, state$ } from "../lib/state";
 import { flushPendingCanvasSave } from "../lib/mutations";
@@ -47,7 +48,7 @@ const opTag = (op: DemoOp): string => {
   }
 };
 
-const runTake = async (scenario: DemoScenario, id: number): Promise<void> => {
+const runTake = async (scenario: DemoScenario, id: number, writeEdl: (edl: DemoEdl) => void): Promise<void> => {
   resetDemoCanvas();
   clearSelection();
   state$.editNodeId.set(""); state$.focusNodeId.set("");
@@ -70,7 +71,7 @@ const runTake = async (scenario: DemoScenario, id: number): Promise<void> => {
     pendingTimer = null;
     demo$.running.set(false);
     const edl: DemoEdl = { scenarioId: scenario.id, bpm: scenario.bpm, startedAtEpochMs, entries };
-    void window.junto?.demoWriteEdl(edl).catch(() => undefined);
+    writeEdl(edl);
   };
 
   const scheduleAt = (targetBeat: number, action: () => void): void => {
@@ -100,12 +101,13 @@ const runTake = async (scenario: DemoScenario, id: number): Promise<void> => {
 };
 
 /** Start a take. Noop if one is already running. */
-export const startTake = (scenario: DemoScenario): void => {
+/** Roll a take; when it finishes, its EDL goes to `writeEdl`. */
+export const startTake = (scenario: DemoScenario, writeEdl: (edl: DemoEdl) => void): void => {
   if (demo$.running.peek()) return;
   demo$.running.set(true);
   demo$.beat.set(0);
   demo$.total.set(scenario.beats.length);
-  void runTake(scenario, ++takeId);
+  void runTake(scenario, ++takeId, writeEdl);
 };
 
 /** Abort the running take. No EDL is written on abort. */

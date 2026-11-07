@@ -13,15 +13,6 @@ import type { Node, Wire } from "./model";
 /** Milliseconds per beat at a given tempo. */
 export const beatMs = (bpm: number): number => 60_000 / bpm;
 
-export interface DemoStateInfo {
-  readonly active: boolean;
-  /** JUNTO_DEMO_AUTOROLL=1 — the take starts itself shortly after mount
-   * (headless/scripted capture; also dodges any pre-mount beat-0 race). */
-  readonly autoroll?: boolean;
-  /** JUNTO_DEMO_SCENARIO — scenario id to roll (F9 and autoroll). Unknown or
-   * absent falls back to the default scenario in the renderer registry. */
-  readonly scenarioId?: string;
-}
 
 // --- scenario ---------------------------------------------------------------
 
@@ -73,27 +64,5 @@ export type DemoOp =
   /** Opens the real browser surface (WebContentsView) for a page node. */
   | { readonly kind: "page-open"; readonly nodeId: string };
 
-// --- EDL (edit decision list) ------------------------------------------------
-// The conductor logs every executed op with planned vs actual time so post
-// (music sync, overlays, cuts) is computed from data, never hand-timed.
-
-export interface DemoEdlEntry {
-  readonly beat: number;
-  readonly plannedMs: number;
-  readonly actualMs: number;
-  /** Compact op tag, e.g. "add-nodes:12" or "camera-fit". */
-  readonly op: string;
-}
-
-export interface DemoEdl {
-  readonly scenarioId: string;
-  readonly bpm: number;
-  readonly startedAtEpochMs: number;
-  readonly entries: ReadonlyArray<DemoEdlEntry>;
-}
-
-export interface DemoWriteEdlResult {
-  readonly ok: boolean;
-  readonly path?: string;
-  readonly error?: string;
-}
+// The state, the EDL (edit decision list) and its write are the window's
+// demo group: src/contract/window/demo.ts.

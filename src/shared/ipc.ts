@@ -58,11 +58,6 @@ import type {
 } from "./seat-collaboration";
 import type { WorkErrorDetails } from "./work-control";
 import type { ContentRef } from "./content";
-import type {
-  DemoEdl,
-  DemoStateInfo,
-  DemoWriteEdlResult,
-} from "./demo";
 import type { NodeRefKey } from "./node-ref";
 import type { CanvasPauseState } from "./pause";
 import type {
@@ -343,9 +338,6 @@ export const IPC_CHANNELS = {
   browserFocusPage: "junto:browser-focus-page",
   /** Main → renderer: a page's tabs or driving changed; the payload is its shown tab's session. */
   browserPageChanged: "junto:browser-page-changed",
-  // demo/scripting engine (--junto-demo only; inert otherwise)
-  demoState: "junto:demo-state",
-  demoWriteEdl: "junto:demo-write-edl",
   // user settings plane (app-owned SQLite state)
   settingsGet: "junto:settings-get",
   settingsPatch: "junto:settings-patch",
@@ -1336,15 +1328,6 @@ export interface JuntoTerminalApi {
    * answers the file's ContentRef, which the mail then names.
    */
   readonly operatorContentPut: (input: OperatorContentPut) => Promise<OperatorContentPutResult>;
-}
-
-// --- demo/scripting engine (--junto-demo only) ------------------------------
-// Outside demo mode: demoState answers { active: false } and the other two
-// answer ok:false — handlers are always registered, behavior is flag-gated.
-
-export interface JuntoDemoApi {
-  readonly demoState: () => Promise<DemoStateInfo>;
-  readonly demoWriteEdl: (edl: DemoEdl) => Promise<DemoWriteEdlResult>;
 }
 
 // --- browser work surface (partitioned WebContentsView; not a corpus join) ---
