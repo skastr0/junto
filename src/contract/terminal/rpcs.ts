@@ -77,6 +77,11 @@ export const TerminalAdoption = Schema.Struct({
 });
 export type TerminalAdoption = typeof TerminalAdoption.Type;
 
+/** The core could not adopt: the terminal process is gone, refused the call, or answered what does not decode. */
+export class TerminalAdoptFailed extends Schema.TaggedError<TerminalAdoptFailed>()("TerminalAdoptFailed", {
+  message: Schema.String,
+}) {}
+
 /** The core and the terminal process speak different link versions. */
 export class TerminalLinkVersionMismatch extends Schema.TaggedError<TerminalLinkVersionMismatch>()("TerminalLinkVersionMismatch", {
   expected: Schema.Number,
