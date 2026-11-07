@@ -772,8 +772,9 @@ describe("the terminal process", () => {
     const fenced = Effect.runPromise(core.calls.TerminalFence());
     // A gate for the surface's lease, then a surface, then a key, all posted
     // after the fence call: they arrive behind its answer only on this port,
-    // but the hold was already applied when it resolved.
-    await fenced;
+    // but the hold was already applied when it resolved. Its answer names the
+    // last key event each live terminal pushed — none yet, so last k is 0.
+    expect(await fenced).toEqual(new Map([[1, 0]]));
     core.command({ _tag: "gate", id: 1, n: 3, lease: { leaseId: "lease-1", epoch: "1" } });
     const { port1: s1, port2: s2 } = new MessageChannel();
     opened.push(s1, s2);

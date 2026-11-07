@@ -351,7 +351,9 @@ const openServer = (spawnPty: SpawnPty, epochs: PtyEpochs): {
       ...(link.meta === undefined ? {} : { meta: link.meta }),
       history: link.history.map((chunk) => chunk.data).join(""),
       seq: link.history.at(-1)?.seq ?? (link.unacked[0] === undefined ? link.lastSeq : link.unacked[0].seq - 1),
-      ...(link.exit === undefined ? {} : { exit: link.exit }),
+      lastN: link.appliedN,
+      lastK: link.lastK,
+      ...(link.exit === undefined ? {} : { exit: { ...link.exit, afterSeq: link.exitSeq } }),
     }));
 
   /** After the adopt answer, on the same ordered port: what the last core never handled, then held exits. */
@@ -695,7 +697,12 @@ const openServer = (spawnPty: SpawnPty, epochs: PtyEpochs): {
             return answer;
           })
         : Effect.fail(new TerminalLinkVersionMismatch({ expected: TERMINAL_LINK_VERSION, actual: version })),
-    TerminalFence: () => Effect.void,
+    // Every live terminal's last pushed key event, so a handle's fence waits
+    // on a number it can still reach, never on one that went to a dead core.
+    TerminalFence: () =>
+      Effect.sync(
+        () => new Map([...links].flatMap(([id, link]) => (ptys.has(id) ? [[id, link.lastK] as const] : []))),
+      ),
   });
 
   /** One RPC server on the link for every core generation; a joined peer per attach. */

@@ -28,6 +28,10 @@ export const TerminalExitStatus = Schema.Struct({
 });
 export type TerminalExitStatus = typeof TerminalExitStatus.Type;
 
+/** An exit the terminal process holds for a core: it came after chunk `afterSeq`. */
+export const TerminalHeldExit = Schema.Struct({ ...TerminalExitStatus.fields, afterSeq: Schema.Number });
+export type TerminalHeldExit = typeof TerminalHeldExit.Type;
+
 export const TerminalSpawnInput = Schema.Struct({
   /** The core's name for this terminal; every later message for it carries it. */
   id: Schema.Number,
@@ -60,9 +64,13 @@ export const TerminalAdopted = Schema.Struct({
   meta: Schema.optionalKey(Schema.Unknown),
   /** Output the last core handled, up to `TERMINAL_HISTORY_CHARS`, cut on a chunk boundary. */
   history: Schema.String,
-  /** The last chunk `history` holds; what follows it arrives as `pty.data`. */
+  /** The last chunk `history` holds; the core applies output from the chunk after it, by `seq`. */
   seq: Schema.Number,
-  exit: Schema.optionalKey(TerminalExitStatus),
+  /** The last control number the terminal process applied for this terminal; the new core continues from `lastN + 1`. */
+  lastN: Schema.Number,
+  /** The last `typing` or `input` number it pushed, so a fence never waits on an event that went to the dead core. */
+  lastK: Schema.Number,
+  exit: Schema.optionalKey(TerminalHeldExit),
 });
 export type TerminalAdopted = typeof TerminalAdopted.Type;
 
@@ -76,6 +84,10 @@ export const TerminalAdoption = Schema.Struct({
   nextId: Schema.Number,
 });
 export type TerminalAdoption = typeof TerminalAdoption.Type;
+
+/** Per terminal, the last `typing` or `input` number the terminal process has pushed. */
+export const TerminalFenced = Schema.ReadonlyMap(Schema.Number, Schema.Number);
+export type TerminalFenced = typeof TerminalFenced.Type;
 
 /** The core could not adopt: the terminal process is gone, refused the call, or answered what does not decode. */
 export class TerminalAdoptFailed extends Schema.TaggedError<TerminalAdoptFailed>()("TerminalAdoptFailed", {
@@ -93,9 +105,9 @@ export const TerminalRpcs = RpcGroup.make(
   Rpc.make("TerminalSpawn", { payload: TerminalSpawnInput, success: TerminalSpawned, error: TerminalSpawnRefused }),
   /**
    * A new core's first ask on its port: every PTY held, exited ones with their
-   * exit. Every PTY's unacknowledged output, then any held exit, follow as
-   * ordinary `pty.data` and `pty.exit`; the core holds what reaches it before
-   * this answer.
+   * exit. Every PTY's unacknowledged output and any held exit are posted as
+   * ordinary `data` and `exit` events, placed by `seq` and `afterSeq`, not by
+   * when they arrive; the core holds what reaches it before this answer.
    */
   Rpc.make("TerminalAdopt", {
     payload: { version: Schema.Number },
@@ -103,9 +115,9 @@ export const TerminalRpcs = RpcGroup.make(
     error: TerminalLinkVersionMismatch,
   }),
   /**
-   * Answered once the terminal process took it, so its answer comes back
-   * behind every push it sent before: a hold posted before a fence is in
-   * force there, and every surface key that arrived before it has been heard.
+   * Names, per terminal, the last key event the terminal process pushed. A
+   * handle's fence resolves once the core has applied its terminal's events
+   * through that number, wherever the answer lands among them.
    */
-  Rpc.make("TerminalFence"),
+  Rpc.make("TerminalFence", { success: TerminalFenced }),
 ).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });

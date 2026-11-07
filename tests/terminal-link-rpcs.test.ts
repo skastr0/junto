@@ -8,12 +8,12 @@
  * with the refusal.
  */
 import { MessageChannel, type MessagePort } from "node:worker_threads";
-import { Effect, Exit, Result } from "effect";
+import { Effect, Exit, Result, Schema } from "effect";
 import { RpcClient, type RpcClientError, type RpcGroup } from "effect/rpc";
 import { afterEach, describe, expect, it } from "vitest";
 import { clientProtocol } from "../src/shared/rpc-port";
 import { TerminalInbound, type TerminalLink, type TerminalLinkMessage, type TerminalLinkPort } from "../src/contract/terminal/protocol";
-import { TERMINAL_LINK_VERSION, TerminalRpcs } from "../src/contract/terminal/rpcs";
+import { TERMINAL_LINK_VERSION, TerminalAdopted, TerminalFenced, TerminalRpcs } from "../src/contract/terminal/rpcs";
 import { serveTerminals, type SpawnPty } from "../src/terminal/serve";
 import { commandEdge, eventEdge, parentEdge } from "../src/contract/terminal/edge";
 import type { Command, CommandHandlers, Event, EventHandlers, ParentCommandHandlers } from "../src/contract/terminal/messages";
@@ -258,5 +258,28 @@ describe("the terminal link's one-way edges", () => {
     // @ts-expect-error: transfer takes no frame that carries no port.
     typed.transfer({ kind: "command", message: { _tag: "write", id: 1, n: 3, data: "x" } }, "the surface port");
     expect([missing, extra, drifted]).toHaveLength(3);
+  });
+});
+
+describe("the terminal link's answers, as the RPC codec carries them", () => {
+  const json = <S extends Schema.Top>(schema: S) => Schema.toCodecJson(schema);
+
+  it("carries the fence answer, terminal id to last key event, as JSON-safe pairs and back to a map", () => {
+    const fenced: TerminalFenced = new Map([[1, 4], [7, 0]]);
+    const encoded = Schema.encodeSync(json(TerminalFenced))(fenced);
+    expect(JSON.parse(JSON.stringify(encoded))).toEqual([[1, 4], [7, 0]]);
+    expect(Schema.decodeUnknownSync(json(TerminalFenced))(encoded)).toEqual(fenced);
+  });
+
+  it("decodes an adopted terminal only with its last control and key numbers, and its held exit only with afterSeq", () => {
+    const decode = Schema.decodeUnknownResult(TerminalAdopted, { onExcessProperty: "error" });
+    const adopted = { id: 3, pid: 4242, cols: 80, rows: 24, history: "", seq: 9, lastN: 12, lastK: 5 };
+    expect(Result.isSuccess(decode(adopted))).toBe(true);
+    expect(Result.isSuccess(decode({ ...adopted, exit: { code: 0, signal: undefined, afterSeq: 9 } }))).toBe(true);
+    expect(Result.isFailure(decode({ ...adopted, exit: { code: 0, signal: undefined } }))).toBe(true);
+    const { lastN: _lastN, ...withoutN } = adopted;
+    const { lastK: _lastK, ...withoutK } = adopted;
+    expect(Result.isFailure(decode(withoutN))).toBe(true);
+    expect(Result.isFailure(decode(withoutK))).toBe(true);
   });
 });
