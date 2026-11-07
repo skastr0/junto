@@ -7,10 +7,12 @@ import { withSqlRead } from "../state/sql-read";
 import { ModelService } from "./service";
 import { ModelRefused, modelError } from "./records";
 
-export type ActorRefsChanged = {
-  readonly canvas: string;
-  readonly refs: ReadonlyArray<ActorRef>;
-};
+/** A canvas's actor refs, whole, whenever they change; the window's channel carries it. */
+export const ActorRefsChanged = Schema.Struct({
+  canvas: Schema.String,
+  refs: Schema.Array(ActorRef),
+});
+export type ActorRefsChanged = typeof ActorRefsChanged.Type;
 
 /** Execution references have their own read and stream; spatial rows stay small. */
 export class ModelActorRefs extends Context.Service<ModelActorRefs>()(
