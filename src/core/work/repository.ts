@@ -3164,6 +3164,9 @@ export type CanvasCopySent = {
   readonly sentAt?: string;
 };
 
+/** A frame for a canvas this machine does not hold: nothing taken, nothing to tell. */
+const EXCHANGE_ROWS_DROPPED: AppliedExchangeRows = { taken: 0, commands: 0, changed: [], mail: [], seatControls: [], seatSettlements: [], automationFirings: [] };
+
 export type AppliedExchangeRows = {
   /** Rows that were new to this machine. */
   readonly taken: number;
@@ -4679,9 +4682,9 @@ export const WorkRepositoryLive = Layer.effect(
         { canvasName: frame.canvasName, nodeId: "exchange" },
         (writer: SqlClient.SqlClient) =>
           Effect.gen(function* () {
-            if (placement === undefined) {
-              return yield* Effect.fail(refuseExchange("this machine does not hold that canvas"));
-            }
+            // Rows for a canvas this machine does not hold are dropped, and close
+            // nothing: a peer may send them as the canvas leaves this machine.
+            if (placement === undefined) return EXCHANGE_ROWS_DROPPED;
             if (placement.canvasId !== frame.canvasId) {
               return yield* Effect.fail(refuseExchange("this machine holds another canvas of that name"));
             }
@@ -4695,7 +4698,15 @@ export const WorkRepositoryLive = Layer.effect(
               return yield* Effect.fail(refuseExchange("a machine is never sent its own rows"));
             }
             const cursor = yield* exchangeCursorOf(writer, frame.canvasName, frame.writer);
-            let lastSeq = "0";
+            // A frame vouches only from the cursor it continues from, so this
+            // machine must have reached it: a frame past a gap is refused.
+            if (compareSequence(frame.after, cursor.through) > 0) {
+              return yield* Effect.fail(refuseExchange("rows continue from further than this machine has the writer"));
+            }
+            if (compareSequence(frame.through, frame.after) < 0) {
+              return yield* Effect.fail(refuseExchange("a frame vouches for less than it continues from"));
+            }
+            let lastSeq = frame.after;
             let lastBasisSeq = cursor.lastBasisSeq;
             const fresh: ExchangeFact[] = [];
             for (const fact of frame.facts) {

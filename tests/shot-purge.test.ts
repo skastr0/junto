@@ -140,7 +140,7 @@ const frameFor = async (to: Machine, keep: (fact: RowsFrame["facts"][number]) =>
     editor.work.exchangeRows({ canvasName: "factory", writer: EDITOR, after: "0", limit: 64, bytes: EXCHANGE_ROWS_PAGE_BYTES }),
   );
   const facts = rows.rows.map((row) => row.fact).filter((fact) => entitledTo(to.self, fact, placement) && keep(fact));
-  return JSON.parse(JSON.stringify({ kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: EDITOR, facts, through: rows.through }));
+  return JSON.parse(JSON.stringify({ kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: EDITOR, after: "0", facts, through: rows.through }));
 };
 
 const take = (to: Machine, frame: RowsFrame, peer: InstallationId = EDITOR) =>
@@ -273,7 +273,7 @@ describe("who may purge", () => {
       body: { operation: "shot.purged", messageId: C2 },
     };
     const forged = { ...semantic, originAt, contentSha256: workRecordContentSha256(semantic as never) };
-    const frame = { kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: MINI, facts: [forged], through: "9001" } as unknown as RowsFrame;
+    const frame = { kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: MINI, after: "0", facts: [forged], through: "9001" } as unknown as RowsFrame;
     await expect(take(editor, frame, MINI)).rejects.toThrow(/only the machine that edits a canvas writes this row/);
     await expect(take(other, frame, EDITOR)).rejects.toThrow(/only the machine that edits a canvas writes this row/);
     expect(await purged(editor, C2)).toBe(false);

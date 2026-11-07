@@ -118,7 +118,7 @@ describe("pending marks on a real store", () => {
     await mini.runPromise(Effect.flatMap(WorkRepository, (work) =>
       work.applyExchangeRows({
         peer: EDITOR,
-        frame: { kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: EDITOR, facts: [refusalRow(opId)], through: "1" } as unknown as RowsFrame,
+        frame: { kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: EDITOR, after: "0", facts: [refusalRow(opId)], through: "1" } as unknown as RowsFrame,
         placement,
         receivedAt: at,
       })));

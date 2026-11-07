@@ -196,6 +196,7 @@ const frameFrom = async (from: Machine): Promise<RowsFrame> => {
       canvasName: "factory",
       canvasId: "canvas-factory",
       writer: from.self,
+      after: "0",
       facts: page.rows.map((row) => row.fact),
       through: page.through,
     }),
@@ -419,7 +420,7 @@ describe("a canvas a machine does not hold", () => {
   });
 
   it("takes no rows for it from that machine, not even an empty frame", async () => {
-    await refused(editor, MINI, { kind: "rows", canvasName: "private", canvasId: "canvas-private", writer: MINI, facts: [], through: "9" });
+    await refused(editor, MINI, { kind: "rows", canvasName: "private", canvasId: "canvas-private", writer: MINI, after: "0", facts: [], through: "9" });
   });
 
   it("keeps apart two canvases of one name: another canvas's word is not kept, and its rows are refused", async () => {
@@ -522,14 +523,18 @@ describe("what a machine refuses, writing nothing", () => {
     await refused(mini, EDITOR, { ...frame, facts: [tampered] });
   });
 
-  it("refuses a row for a seat that is not its own, and a row for a canvas it does not hold", async () => {
+  it("refuses a row for a seat that is not its own, and drops a frame for a canvas it does not hold", async () => {
     await link(editor, mini);
     await settle();
     const frame = await frameFrom(editor);
     const notForTheMini = frame.facts.find((fact) => fact.item.sink.nodeId === "lead")!;
     await refused(mini, EDITOR, { ...frame, facts: [notForTheMini] });
     await link(editor, mini);
-    await refused(mini, EDITOR, { ...frame, canvasName: "another-canvas", facts: [] });
+    // Rows for a canvas this machine does not hold are dropped and close
+    // nothing: a peer may send them as the canvas leaves this machine.
+    const before = await counts(mini);
+    await mini.runtime.runPromise(mini.exchange.receive(EDITOR, { ...frame, canvasName: "another-canvas", facts: [] }));
+    expect(await counts(mini)).toEqual(before);
   });
 
   it("refuses a receipt that points at another canvas: a fresh row with a matching hash, where the honest one is taken", async () => {

@@ -48,6 +48,7 @@ const widest = {
   canvasName: "\u0000".repeat(256),
   canvasId: "\u0001".repeat(128),
   writer: Schema.decodeUnknownSync(InstallationId)("m".repeat(128)),
+  after: "9".repeat(32),
   through: "9".repeat(32),
 };
 

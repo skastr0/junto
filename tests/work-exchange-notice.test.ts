@@ -76,7 +76,7 @@ const mailRow = (sentBy: ActorRef, mailbox: string, count: number): ExchangeFact
 };
 
 const frameOf = (fact: ExchangeFact): RowsFrame =>
-  ({ kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: MINI, facts: [fact], through: fact.id.seq }) as RowsFrame;
+  ({ kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: MINI, after: "0", facts: [fact], through: fact.id.seq }) as RowsFrame;
 
 let root: string;
 let runtime: ManagedRuntime.ManagedRuntime<WorkRepository | SqlClient.SqlClient, unknown>;

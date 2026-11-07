@@ -115,15 +115,20 @@ export const HaveFrame = Schema.Struct({
 export type HaveFrame = typeof HaveFrame.Type;
 
 /**
- * Rows of one writer for one canvas, in sequence order. `through` is the
+ * Rows of one writer for one canvas, in sequence order, after `after`.
+ * `after` is the cursor the frame continues from: the receiver's own word of
+ * how far it had that writer, as the sender last heard it. `through` is the
  * sender's word that the receiver now has every row of that writer and canvas
- * it is entitled to, up to that sequence.
+ * it is entitled to, from `after` up to that sequence, and for nothing before
+ * `after`: a receiver whose cursor is short of `after` refuses the frame, so
+ * one frame never vouches for rows it does not carry.
  */
 export const RowsFrame = Schema.Struct({
   kind: Schema.Literal("rows"),
   canvasName: WorkCanvasName,
   canvasId: CanvasId,
   writer: InstallationId,
+  after: ExchangeThrough,
   facts: Schema.Array(ExchangeFact).pipe(Schema.check(Schema.isMaxLength(EXCHANGE_MAX_FACTS_PER_FRAME))),
   through: ExchangeThrough,
 });

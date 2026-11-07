@@ -270,6 +270,7 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
             canvasName,
             canvasId: placement.canvasId,
             writer,
+            after,
             facts,
             through: page.through,
           });

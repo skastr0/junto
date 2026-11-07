@@ -77,6 +77,7 @@ const rulingArrives = (opId: OpId, seq: string, body: object) => {
     canvasName: "factory",
     canvasId: "canvas-factory",
     writer: EDITOR,
+    after: "0",
     facts: [{ ...semantic, originAt: at, contentSha256: workRecordContentSha256(semantic as never) }],
     through: seq,
   } as unknown as RowsFrame;

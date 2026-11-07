@@ -141,7 +141,7 @@ const crossToMini = async () => {
     editor.work.exchangeRows({ canvasName: "factory", writer: EDITOR, after: "0", limit: 64, bytes: EXCHANGE_ROWS_PAGE_BYTES }),
   );
   const facts = rows.rows.map((row) => row.fact).filter((fact) => entitledTo(MINI, fact, placement));
-  const frame: RowsFrame = JSON.parse(JSON.stringify({ kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: EDITOR, facts, through: rows.through }));
+  const frame: RowsFrame = JSON.parse(JSON.stringify({ kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: EDITOR, after: "0", facts, through: rows.through }));
   await mini.runtime.runPromise(mini.work.applyExchangeRows({ peer: EDITOR, frame, placement }));
 };
 

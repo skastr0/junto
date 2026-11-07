@@ -146,7 +146,7 @@ describe("the rows that may cross machines", () => {
 
   it("bounds a frame and refuses a frame it does not know", () => {
     const one = mail(editor, lead, "peer");
-    const frame = (facts: unknown[]) => ({ kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: editor, facts, through: "1" });
+    const frame = (facts: unknown[]) => ({ kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: editor, after: "0", facts, through: "1" });
     expect(Result.isSuccess(decodeExchangeFrame(frame([one])))).toBe(true);
     expect(Result.isSuccess(decodeExchangeFrame(frame(Array.from({ length: EXCHANGE_MAX_FACTS_PER_FRAME + 1 }, () => one))))).toBe(false);
     expect(Result.isSuccess(decodeExchangeFrame({ ...frame([]), through: "007" }))).toBe(false);
@@ -248,7 +248,7 @@ describe("the rows that may cross machines", () => {
 
     // A row: nothing rides inside its body or its receipt beyond what the row is.
     const sent = mail(editor, lead, "peer");
-    const frame = (fact: unknown) => ({ kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: editor, facts: [fact], through: "1" });
+    const frame = (fact: unknown) => ({ kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: editor, after: "0", facts: [fact], through: "1" });
     expect(Result.isSuccess(decodeExchangeFrame(frame(sent)))).toBe(true);
     expect(Result.isSuccess(decodeExchangeFrame(frame({ ...sent, body: { ...sent.body, environment: { TOKEN: "s3cr3t" } } })))).toBe(false);
     expect(Result.isSuccess(decodeExchangeFrame(frame({ ...sent, body: { ...sent.body, sentBy: { ...sent.body.sentBy, credential: "s3cr3t" } } })))).toBe(false);

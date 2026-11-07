@@ -89,7 +89,7 @@ const refusal = (seq: string, opId: OpId, overrides: Record<string, unknown> = {
 };
 
 const frame = (facts: ReadonlyArray<unknown>, through: string): RowsFrame =>
-  ({ kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: EDITOR, facts, through }) as unknown as RowsFrame;
+  ({ kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: EDITOR, after: "0", facts, through }) as unknown as RowsFrame;
 
 const take = (sent: RowsFrame) =>
   runtime.runPromise(Effect.gen(function* () {

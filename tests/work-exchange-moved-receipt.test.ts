@@ -246,7 +246,7 @@ describe("a seat that moves from M2 to M3", () => {
       body: { ...body, receipt: { ...body.receipt, deliveredItem: { ...body.receipt.deliveredItem, itemId: "other-mail" } } },
     };
     const forged = { ...semantic, originAt, contentSha256: workRecordContentSha256(semantic as never) };
-    const frame = { kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: M3, facts: [forged], through: seq } as unknown as RowsFrame;
+    const frame = { kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: M3, after: "0", facts: [forged], through: seq } as unknown as RowsFrame;
 
     const through = await throughOf(editor, M3);
     await expect(editor.runtime.runPromise(editor.exchange.receive(M3, frame))).rejects.toBeInstanceOf(ExchangeClosed);

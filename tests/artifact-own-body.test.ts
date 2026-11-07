@@ -107,7 +107,7 @@ const write = async (artifactId: ItemId, written: ArtifactOp) => {
   const outcome = await editor.runtime.runPromise(editor.artifacts.submit(MINI, queued, rulingContextOf(canvasOf(nodes), () => undefined)));
   expect(outcome.kind).toBe("applied");
   const page = await editor.runtime.runPromise(editor.work.exchangeRows({ canvasName: "factory", writer: EDITOR, after: through, limit: 100, bytes: EXCHANGE_ROWS_PAGE_BYTES }));
-  const frame = { kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: EDITOR, facts: page.rows.map((row) => row.fact), through: page.through } as unknown as RowsFrame;
+  const frame = { kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: EDITOR, after: "0", facts: page.rows.map((row) => row.fact), through: page.through } as unknown as RowsFrame;
   through = page.through;
   for (const replica of [mini, other]) {
     await replica.runtime.runPromise(replica.work.applyExchangeRows({ peer: EDITOR, frame, placement, receivedAt: at }));

@@ -200,7 +200,7 @@ const rulingRow = (seq: string) => row(E, seq, { kind: "ruling", itemId: OP, sin
 
 const take = (on: Machine, writer: InstallationId, facts: ReadonlyArray<unknown>, through: string, held = placement) =>
   on.runPromise(Effect.gen(function* () {
-    const frame = { kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer, facts, through } as unknown as RowsFrame;
+    const frame = { kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer, after: "0", facts, through } as unknown as RowsFrame;
     return yield* (yield* WorkRepository).applyExchangeRows({ peer: E, frame, placement: held, receivedAt: at });
   }));
 

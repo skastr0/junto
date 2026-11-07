@@ -112,7 +112,7 @@ const operatorCommand = (writer: InstallationId, seq: string) =>
   );
 
 const frame = (writer: InstallationId, facts: ReadonlyArray<unknown>, through: string): RowsFrame =>
-  ({ kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer, facts, through }) as unknown as RowsFrame;
+  ({ kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer, after: "0", facts, through }) as unknown as RowsFrame;
 
 const apply = (on: Machine, peer: InstallationId, sent: RowsFrame) =>
   on.runtime.runPromiseExit(on.repository.applyExchangeRows({ peer, frame: sent, placement, receivedAt: at }));

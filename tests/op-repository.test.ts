@@ -101,7 +101,7 @@ beforeAll(async () => {
       }
       yield* work.applyExchangeRows({
         peer: EDITOR,
-        frame: { kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: EDITOR, facts: [refusalRow(REFUSED)], through: "1" } as unknown as RowsFrame,
+        frame: { kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: EDITOR, after: "0", facts: [refusalRow(REFUSED)], through: "1" } as unknown as RowsFrame,
         placement,
         receivedAt: at,
       });
