@@ -16,7 +16,7 @@ export const ClipboardHostRpcs = RpcGroup.make(
   Rpc.make("ClipboardClearIf", { payload: { text: Schema.String } }),
   /** Whether the pasteboard holds only formats a guarded seat can paste. */
   Rpc.make("ClipboardSafeForGrok", { success: Schema.Boolean }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** The core's client of the clipboard group. */
 export class ClipboardHost extends Context.Service<

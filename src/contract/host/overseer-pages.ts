@@ -93,7 +93,7 @@ export const OverseerPagesHostRpcs = RpcGroup.make(
   /** The fence a node delete holds over a page: sent in order, answered once main has it. */
   Rpc.make("OverseerPagesBeginDelete", { payload: Fence, success: Schema.Void }),
   Rpc.make("OverseerPagesFinishDelete", { payload: Fence, success: Schema.Void }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** The core's client of the overseer pages group. */
 export class OverseerPagesHost extends Context.Service<

@@ -68,7 +68,7 @@ export const LibraryRpcs = RpcGroup.make(
   }),
   /** Answers the id it removed. */
   Rpc.make("LibraryProfileRemove", { payload: { profileId: Schema.String }, success: Schema.String, error: LibraryRefused }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the library group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class LibraryCore extends Context.Service<LibraryCore, RpcClient.FromGroup<typeof LibraryRpcs, RpcClientError.RpcClientError>>()(

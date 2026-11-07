@@ -25,7 +25,7 @@ export const ViewStateRpcs = RpcGroup.make(
   Rpc.make("ViewStateSnapshot", { success: ViewStateSnapshot, error: ViewStateUnavailable }),
   /** One changed row, already decoded at main's edge. A refusal by the store is an answer, not a failure. */
   Rpc.make("ViewStateApply", { payload: { write: ViewStateWrite }, success: ViewStateApplyResult }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the view-state group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class ViewStateCore extends Context.Service<ViewStateCore, RpcClient.FromGroup<typeof ViewStateRpcs, RpcClientError.RpcClientError>>()(

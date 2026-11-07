@@ -125,7 +125,7 @@ export const MainIndexRpcs = RpcGroup.make(
   Rpc.make("MainIndexPageBoxCheck", { payload: SeatPageBoxTarget, success: PageBoxChecked }),
   /** Checked again, since the canvas may have moved while main captured, then staged and posted as the seat. */
   Rpc.make("MainIndexPageBoxPost", { payload: { request: SeatPageBoxTarget, shot: SeatPageShot }, success: PageBoxPosted }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the main-index group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class MainIndexCore extends Context.Service<MainIndexCore, RpcClient.FromGroup<typeof MainIndexRpcs, RpcClientError.RpcClientError>>()(

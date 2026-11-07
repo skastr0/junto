@@ -38,7 +38,7 @@ export const OverseerLiveRpcs = RpcGroup.make(
     error: OverseerLiveFailed,
   }),
   Rpc.make("OverseerLiveStopActions", { payload: Session, success: LiveSnapshot, error: OverseerLiveFailed }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the live overseer group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class OverseerLiveCore extends Context.Service<

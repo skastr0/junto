@@ -44,7 +44,7 @@ export const SeatCredentialLookup = Schema.Union([
 export const SeatCredentialsRpcs = RpcGroup.make(
   /** The same lookup the work socket admits on, for main's browser door. */
   Rpc.make("SeatCredentialsLookup", { payload: { credential: Schema.String }, success: SeatCredentialLookup }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the registry. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class SeatCredentialsCore extends Context.Service<

@@ -78,7 +78,7 @@ export const SettingsRpcs = RpcGroup.make(
    * cannot disagree.
    */
   Rpc.make("SettingsApply", { payload: { systemPrefersDark: Schema.optionalKey(Schema.Boolean) } }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the settings group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class SettingsCore extends Context.Service<SettingsCore, RpcClient.FromGroup<typeof SettingsRpcs, RpcClientError.RpcClientError>>()(

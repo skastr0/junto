@@ -40,7 +40,7 @@ export const SignalsRpcs = RpcGroup.make(
   }),
   Rpc.make("SignalsDismiss", { payload: { signalId: Schema.String }, success: AgentSignalOperatorResult, error: SignalsUnavailable }),
   Rpc.make("SignalsSecretPut", { payload: { request: SignalSecretPutRequest }, success: SignalSecretPutResult, error: SignalsUnavailable }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the signals group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class SignalsCore extends Context.Service<SignalsCore, RpcClient.FromGroup<typeof SignalsRpcs, RpcClientError.RpcClientError>>()(

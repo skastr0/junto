@@ -53,7 +53,7 @@ export const AutomationRpcs = RpcGroup.make(
   Rpc.make("AutomationApply", { payload: AutomationApplyAsk, success: AutomationApplyResponse, error: AutomationUnavailable }),
   Rpc.make("AutomationCodePut", { payload: AutomationCodePutAsk, success: AutomationCodePutResponse }),
   Rpc.make("AutomationCodeRead", { payload: AutomationCodeReadAsk, success: AutomationCodeReadResponse }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the automation group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class AutomationCore extends Context.Service<

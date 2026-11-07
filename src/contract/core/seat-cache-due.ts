@@ -100,7 +100,7 @@ export const SeatCacheDueRpcs = RpcGroup.make(
   /** The operator's run, as the overseer and the automatic rules go through it (seat-sessions/operator-offboard.ts). */
   Rpc.make("SeatCacheDueOffboardRun", { payload: { input: SeatOffboardRunInput }, success: SeatOffboardRunResult }),
   Rpc.make("SeatCacheDueOffboardStatus", { payload: SeatOffboardStatusAsk, success: Schema.Array(SeatOffboardStatus) }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the cache question and the offboard buttons. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class SeatCacheDueCore extends Context.Service<

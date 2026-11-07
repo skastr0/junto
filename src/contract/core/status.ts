@@ -50,7 +50,7 @@ export const StatusRpcs = RpcGroup.make(
   Rpc.make("StatusUsageCurrent", { success: UsageState }),
   Rpc.make("StatusUsageRefresh", { success: UsageState }),
   Rpc.make("StatusKernel", { success: KernelSnapshot }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the status group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class StatusCore extends Context.Service<StatusCore, RpcClient.FromGroup<typeof StatusRpcs, RpcClientError.RpcClientError>>()(

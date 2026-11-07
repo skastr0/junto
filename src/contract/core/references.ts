@@ -52,7 +52,7 @@ export const ReferencesRpcs = RpcGroup.make(
     payload: { place: ReferencePlace, name: Schema.String },
     success: ReferenceDeleteResult,
   }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the references group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class ReferencesCore extends Context.Service<

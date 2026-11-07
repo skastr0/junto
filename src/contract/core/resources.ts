@@ -85,7 +85,7 @@ export const ResourcesRpcs = RpcGroup.make(
   Rpc.make("ResourceArtifactColour", { payload: ArtifactColourInput, success: ResourceApplyOutcomeWire }),
   Rpc.make("ResourceThreadList", { payload: ThreadListInput, success: Schema.Array(SubjectThreadView), error: ResourceUnavailable }),
   Rpc.make("ResourceThreadPost", { payload: ThreadPostInput, success: ThreadPostOutcome }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the resources group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class ResourcesCore extends Context.Service<ResourcesCore, RpcClient.FromGroup<typeof ResourcesRpcs, RpcClientError.RpcClientError>>()(

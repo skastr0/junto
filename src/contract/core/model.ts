@@ -36,7 +36,7 @@ export const ModelRpcs = RpcGroup.make(
   Rpc.make("ModelOpen", { payload: ModelCanvasQuery, success: Opened, error: ModelFailed }),
   Rpc.make("ModelCommand", { payload: { command: Command }, success: ModelCommandResult, error: ModelFailed }),
   Rpc.make("ModelActorRefs", { payload: ModelCanvasQuery, success: Schema.Array(ActorRef), error: ModelFailed }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the model group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class ModelCore extends Context.Service<ModelCore, RpcClient.FromGroup<typeof ModelRpcs, RpcClientError.RpcClientError>>()(

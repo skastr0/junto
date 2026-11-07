@@ -33,7 +33,7 @@ export const CompanionRpcs = RpcGroup.make(
   Rpc.make("CompanionRestore", { payload: { target: Schema.String }, success: CompanionKeyRestore }),
   /** What the desktop last told its window, written where the phone companion reads it. */
   Rpc.make("CompanionDesktopReport", { payload: { report: NotifyReport } }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the companion group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class CompanionCore extends Context.Service<CompanionCore, RpcClient.FromGroup<typeof CompanionRpcs, RpcClientError.RpcClientError>>()(

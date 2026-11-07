@@ -17,7 +17,7 @@ export const SeatHoldsRpcs = RpcGroup.make(
   Rpc.make("SeatHoldsTyped", { payload: { windowId: Schema.Number, bindingId: Schema.String } }),
   /** The window closed or reloaded: every hold it had goes. */
   Rpc.make("SeatHoldsDropWindow", { payload: { windowId: Schema.Number } }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the holds. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class SeatHoldsCore extends Context.Service<

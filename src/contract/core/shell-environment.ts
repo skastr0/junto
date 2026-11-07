@@ -15,7 +15,7 @@ export const ShellEnvironmentRpcs = RpcGroup.make(
   Rpc.make("ShellEnvironmentStatus", { success: ShellEnvironmentStatus }),
   /** The operator asked for a fresh read: the next spawn uses it. */
   Rpc.make("ShellEnvironmentRefresh", { success: ShellEnvironmentStatus }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the shell environment group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class ShellEnvironmentCore extends Context.Service<

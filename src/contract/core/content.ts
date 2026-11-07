@@ -56,7 +56,7 @@ export const ContentRpcs = RpcGroup.make(
   }),
   /** The operator's purge of a page box comment's shot; the window holds the main-authoring gate around this call. */
   Rpc.make("ContentPageShotPurge", { payload: PageShotPurgeRequest, success: PageShotPurged }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the content group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class ContentCore extends Context.Service<ContentCore, RpcClient.FromGroup<typeof ContentRpcs, RpcClientError.RpcClientError>>()(

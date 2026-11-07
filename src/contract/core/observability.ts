@@ -21,7 +21,7 @@ export const ObservabilityRpcs = RpcGroup.make(
   Rpc.make("ObservabilityUnwatch"),
   /** Electron main's own row, scrubbed again in the core with the registry only the core holds. */
   Rpc.make("ObservabilityAppend", { payload: { entry: ObservabilityAppendInput } }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the observability group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class ObservabilityCore extends Context.Service<

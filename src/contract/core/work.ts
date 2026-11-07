@@ -75,7 +75,7 @@ export const WorkRpcs = RpcGroup.make(
   Rpc.make("WorkSeatRecentOps", { payload: WorkSeatRecentOpsQuery, success: WorkSeatRecentOpsResult }),
   /** The artifacts whose body links one artifact (`work/body-links.ts`), read where the store is. */
   Rpc.make("WorkArtifactLinks", { payload: ArtifactLinksInput, success: Schema.Array(LinkedFromBody), error: WorkReadFailed }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the work group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class WorkCore extends Context.Service<WorkCore, RpcClient.FromGroup<typeof WorkRpcs, RpcClientError.RpcClientError>>()(

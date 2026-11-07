@@ -26,7 +26,7 @@ export const HostsRpcs = RpcGroup.make(
     success: OperatorResponseEnvelope,
   }),
   Rpc.make("HostsDoctorReport", { payload: { station: StationInfo }, success: DoctorReport }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the hosts group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class HostsCore extends Context.Service<HostsCore, RpcClient.FromGroup<typeof HostsRpcs, RpcClientError.RpcClientError>>()(

@@ -83,7 +83,7 @@ export const FilesRpcs = RpcGroup.make(
     success: FilesResult(Schema.Uint8Array),
   }),
   Rpc.make("FilesBytesClose", { payload: { token: Schema.String } }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the Files group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class FilesCore extends Context.Service<FilesCore, RpcClient.FromGroup<typeof FilesRpcs, RpcClientError.RpcClientError>>()(

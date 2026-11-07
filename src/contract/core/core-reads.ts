@@ -11,7 +11,7 @@ import { coreClient } from "./link";
 export const CoreReadsRpcs = RpcGroup.make(
   /** The name this machine holds. */
   Rpc.make("CoreReadsMachineName", { success: Schema.String }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the core-reads group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class CoreReadsCore extends Context.Service<CoreReadsCore, RpcClient.FromGroup<typeof CoreReadsRpcs, RpcClientError.RpcClientError>>()(

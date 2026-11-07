@@ -25,7 +25,7 @@ export const GitRpcs = RpcGroup.make(
   Rpc.make("GitCommit", { payload: { cwd: Schema.String, sha: Schema.String }, success: GitCommitResult }),
   Rpc.make("GitSummary", { payload: { cwd: Schema.String }, success: GitSummaryResult }),
   Rpc.make("GitReview", { payload: { cwd: Schema.String, view: GitReviewView }, success: GitReviewResult }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the git group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class GitCore extends Context.Service<GitCore, RpcClient.FromGroup<typeof GitRpcs, RpcClientError.RpcClientError>>()(

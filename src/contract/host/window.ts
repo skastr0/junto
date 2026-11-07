@@ -16,7 +16,7 @@ export const ApplicationCaptureResult = Schema.Union([
 
 export const WindowHostRpcs = RpcGroup.make(
   Rpc.make("WindowCapturePage", { success: ApplicationCaptureResult }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** The core's client of the window group. */
 export class WindowHost extends Context.Service<

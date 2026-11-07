@@ -65,7 +65,7 @@ export const TermTemplatesRpcs = RpcGroup.make(
     success: Schema.Struct({ harnesses: Schema.Array(HarnessInstallProbe) }),
   }),
   Rpc.make("TermTemplatesHarnessFlags", { payload: TermTemplatesFlagsAsk, success: ManagedTerminalFlagsResult }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the picker reads. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class TermTemplatesCore extends Context.Service<

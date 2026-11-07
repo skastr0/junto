@@ -12,7 +12,7 @@ import { coreClient } from "./link";
 
 export const OverseerPagesRpcs = RpcGroup.make(
   Rpc.make("OverseerPagesRecheck", { payload: { callId: Schema.Int }, success: PageTargetResult }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the overseer pages group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class OverseerPagesCore extends Context.Service<

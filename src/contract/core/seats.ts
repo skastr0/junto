@@ -114,7 +114,7 @@ export const SeatsRpcs = RpcGroup.make(
     success: SeatOffboardAskResult,
   }),
   Rpc.make("SeatsOnboardNudge", { payload: { canvasName: NonEmpty, seatId: NonEmpty }, success: SeatOnboardNudgeResult }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the seats group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class SeatsCore extends Context.Service<SeatsCore, RpcClient.FromGroup<typeof SeatsRpcs, RpcClientError.RpcClientError>>()(

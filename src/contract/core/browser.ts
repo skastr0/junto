@@ -100,7 +100,7 @@ export const BrowserRpcs = RpcGroup.make(
   Rpc.make("BrowserPageBoxDiscard", { payload: { sessionId: Schema.String, shotId: Schema.String } }),
   /** Every staged shot of a session that ended. */
   Rpc.make("BrowserPageBoxReleaseSession", { payload: { sessionId: Schema.String } }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the browser group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class BrowserCore extends Context.Service<BrowserCore, RpcClient.FromGroup<typeof BrowserRpcs, RpcClientError.RpcClientError>>()(

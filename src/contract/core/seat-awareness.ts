@@ -21,7 +21,7 @@ export const SeatAwarenessSnapshot = Schema.Struct({
 
 export const SeatAwarenessRpcs = RpcGroup.make(
   Rpc.make("SeatAwarenessSnapshot", { success: SeatAwarenessSnapshot }),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the awareness reads. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class SeatAwarenessCore extends Context.Service<

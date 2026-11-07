@@ -13,7 +13,7 @@ export const WatchRpcs = RpcGroup.make(
   Rpc.make("WatchModel"),
   Rpc.make("WatchModelCanvases"),
   Rpc.make("WatchModelActorRefs"),
-).annotate(Rpc.ParseOptions, { onExcessProperty: "error" });
+).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the watch group. A call fails with `RpcClientError` when the core it asked left before it answered. */
 export class WatchCore extends Context.Service<WatchCore, RpcClient.FromGroup<typeof WatchRpcs, RpcClientError.RpcClientError>>()(
