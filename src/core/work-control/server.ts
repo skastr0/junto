@@ -18,11 +18,8 @@ import { Context, Deferred, Effect, Layer, Queue, Result, Schema } from "effect"
 import { type RpcMessage, RpcServer } from "effect/rpc";
 import { type WorkErrorBody } from "@shared/work-control";
 import { WorkFailure, WorkInputRefusal, workErrorBody } from "../../contract/work/failure";
-import { MsgHandlers, MsgServed } from "./msg";
+import { WorkHandlers, WorkServed } from "./families";
 import { WorkAdmission, WorkSeat } from "./seat";
-
-/** Every group the work socket serves through RPC. A group here without its handler Layer fails the core's compile. */
-const WorkServed = MsgServed;
 
 const decodeFailure = Schema.decodeUnknownResult(Schema.toCodecJson(WorkFailure));
 /** A defect as the server encoded it, back as the error it was, so its words reach the v1 InternalError. */
@@ -143,5 +140,5 @@ export class WorkRpcServer extends Context.Service<WorkRpcServer, {
           }),
       });
     }),
-  ).pipe(Layer.provide(MsgHandlers));
+  ).pipe(Layer.provide(WorkHandlers));
 }
