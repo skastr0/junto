@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { use$ } from "@legendapp/state/react";
 import { asNodeId, type Seat } from "@shared/model";
@@ -47,6 +47,7 @@ const SwitcherCard = memo(function SwitcherCard({
   trail,
   selected,
   index,
+  total,
   onSelect,
   onCommit,
 }: {
@@ -55,6 +56,8 @@ const SwitcherCard = memo(function SwitcherCard({
   readonly trail: ReadonlyArray<RegionStep> | undefined;
   readonly selected: boolean;
   readonly index: number;
+  /** The catalog's size, for the option's place in the listbox. */
+  readonly total: number;
   readonly onSelect: (index: number) => void;
   readonly onCommit: (index: number) => void;
 }) {
@@ -74,6 +77,8 @@ const SwitcherCard = memo(function SwitcherCard({
       id={id}
       role="option"
       aria-selected={selected}
+      aria-setsize={total}
+      aria-posinset={index + 1}
       aria-labelledby={`${id}-name ${id}-state${trail ? ` ${id}-region` : ""}`}
       data-node-id={entry.nodeId}
       data-testid={selected ? "focus-switcher-selected" : undefined}
@@ -113,6 +118,16 @@ const SwitcherCard = memo(function SwitcherCard({
   );
 });
 
+// One card's slot in the strip: the card's 124px plus the strip's 6px gap
+// (styles.css .focus-switcher__card / .focus-switcher__strip). Every card is
+// the same width, so a card's place is its index times this pitch.
+const CARD_PITCH = 130;
+// Cards mounted past each edge of the viewport, so a scroll or a selection
+// step finds its card already drawn well before it can be seen arriving.
+const OVERSCAN = 8;
+// Around the selection itself: it is never unmounted, wherever it sits.
+const SELECT_OVERSCAN = 2;
+
 /**
  * The switcher's shell, an operator modal: the shared dim and frame, above
  * every working modal. The list holds the keyboard while it is up, so a
@@ -124,6 +139,11 @@ function SwitcherShell({ session }: { readonly session: FocusSwitcherSession }) 
   const trails = useMemo(() => regionTrails(canvas), [canvas]);
   const frameRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  // The strip's scroll window: which slice of the catalog is mounted. The
+  // rest of the strip is two spacers the width of the unmounted cards, so the
+  // scroll extent, the scrollbar and every card's place are exactly what they
+  // were when all of them mounted — only the cards near the eye cost anything.
+  const [view, setView] = useState({ left: 0, width: 0 });
 
   const layer = useModalLayer({
     layer: "operator",
@@ -140,11 +160,37 @@ function SwitcherShell({ session }: { readonly session: FocusSwitcherSession }) 
     claimFocus(listRef.current, "open", { preventScroll: true });
   }, []);
 
+  // Measure before the first paint, then follow the strip's own box.
+  useLayoutEffect(() => {
+    const strip = listRef.current;
+    if (!strip) return;
+    const measure = (): void =>
+      setView((current) =>
+        current.width === strip.clientWidth && current.left === strip.scrollLeft
+          ? current
+          : { left: strip.scrollLeft, width: strip.clientWidth },
+      );
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(strip);
+    return () => observer.disconnect();
+  }, []);
+
   const selected = session.entries[session.selectedIndex];
   const selectedId = selected ? optionId(selected.nodeId) : undefined;
   useEffect(() => {
     if (selectedId) document.getElementById(selectedId)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [selectedId]);
+
+  const total = session.entries.length;
+  const firstVisible = Math.max(0, Math.floor(view.left / CARD_PITCH) - OVERSCAN);
+  const lastVisible = Math.min(total, Math.ceil((view.left + view.width) / CARD_PITCH) + OVERSCAN);
+  const windowStart = Math.min(firstVisible, Math.max(0, session.selectedIndex - SELECT_OVERSCAN));
+  const windowEnd = Math.max(
+    lastVisible,
+    Math.min(total, session.selectedIndex + SELECT_OVERSCAN + 1),
+  );
 
   return createPortal(
     <div className="focus-switcher" data-layer="operator" data-testid="focus-switcher" onKeyDown={layer.onKeyDown}>
@@ -165,8 +211,23 @@ function SwitcherShell({ session }: { readonly session: FocusSwitcherSession }) 
           aria-orientation="horizontal"
           aria-activedescendant={selectedId}
           tabIndex={-1}
+          onScroll={(event) => {
+            const strip = event.currentTarget;
+            setView((current) =>
+              current.left === strip.scrollLeft && current.width === strip.clientWidth
+                ? current
+                : { left: strip.scrollLeft, width: strip.clientWidth },
+            );
+          }}
         >
-          {session.entries.map((entry, index) => {
+          {windowStart > 0 ? (
+            <div
+              aria-hidden
+              style={{ flex: "0 0 auto", width: windowStart * CARD_PITCH - 6 }}
+            />
+          ) : null}
+          {session.entries.slice(windowStart, windowEnd).map((entry, offset) => {
+            const index = windowStart + offset;
             const node = canvas.nodes.get(asNodeId(entry.nodeId));
             // Deleted while the switcher was up: nothing left to open.
             if (node?.kind !== "agent") return null;
@@ -178,11 +239,18 @@ function SwitcherShell({ session }: { readonly session: FocusSwitcherSession }) 
                 trail={trails.get(entry.nodeId)}
                 selected={index === session.selectedIndex}
                 index={index}
+                total={total}
                 onSelect={selectEntry}
                 onCommit={commitEntry}
               />
             );
           })}
+          {windowEnd < total ? (
+            <div
+              aria-hidden
+              style={{ flex: "0 0 auto", width: (total - windowEnd) * CARD_PITCH - 6 }}
+            />
+          ) : null}
         </div>
         <div className="focus-switcher__footer">
           <span className="focus-switcher__hint">
