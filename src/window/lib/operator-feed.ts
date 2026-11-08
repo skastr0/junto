@@ -29,7 +29,9 @@ import {
   type OperatorFeed,
 } from "@shared/operator-feed";
 import type { ThreadHealthReading } from "@shared/thread-health";
-import type { SeatSnapshot } from "@shared/harness-domain";
+import { deriveNeeds, type SeatSnapshot } from "@shared/harness-domain";
+import { agentSeatStatusOf, type AgentSeatStateEvent } from "@shared/agent-seat-state";
+import { Level } from "@shared/wire/urgency";
 import { agentSeat$, seatEventForBinding, seatStatusForBinding } from "./agent-seat-state";
 import { agentSignals$ } from "./agent-signals-state";
 import { executionGraphForImpact } from "./impact-mode";
@@ -194,6 +196,99 @@ const sharedResult = <T,>(): ((inputs: ReadonlyArray<unknown>, compute: () => T)
 const sharedNeeds = sharedResult<ReadonlyArray<FeedCanvasNeed>>();
 const sharedFeed = sharedResult<OperatorFeed>();
 
+// --- live-seat signatures ----------------------------------------------------
+//
+// A seat report bumps agentSeat$.rev once per event, and every feed reader
+// used to rebuild its whole projection on each bump: on the factory board
+// that was the feed's pass over all 207 seats plus a React render of every
+// subscriber, ten times a second, for reports that changed nothing the feed
+// can draw (a working/idle flip carries no attention, no stopped need and no
+// health reading). The signatures below name exactly what the feed and the
+// canvas needs read from the seat stores; a report that leaves them equal
+// re-renders nobody.
+//
+// Per-seat parts are cached on the objects that carry them: an event object
+// lives until its seat reports again, a snapshot until its event is replaced,
+// so a report pays for one seat's share and the rest hit caches.
+
+/** The status slice feedStopOf reads, as a string; equal strings stop alike. */
+const stoppedStatusSig = (status: SeatSnapshot["status"]): string => {
+  if (status._tag === "Blocked") {
+    const reason = status.reason;
+    if (reason._tag === "UsageLimit") return `U${reason.resetsAt ?? ""}`;
+    if (reason._tag === "Error") return `E${reason.kind}|${reason.message ?? ""}`;
+    return `B${reason._tag}`;
+  }
+  if (status._tag === "Exited") return `X${status.signal ?? ""}|${status.code ?? ""}`;
+  return status._tag;
+};
+
+/** The stopped item a snapshot would raise, cached per snapshot object. */
+const stoppedSigs = new WeakMap<SeatSnapshot, string>();
+const stoppedSigOf = (snapshot: SeatSnapshot): string => {
+  const held = stoppedSigs.get(snapshot);
+  if (held !== undefined) return held;
+  const need = deriveNeeds(snapshot).find((entry) => entry.level === Level.stopped);
+  const sig = need === undefined ? "" : `s${need.cause}@${need.since}${stoppedStatusSig(snapshot.status)}`;
+  stoppedSigs.set(snapshot, sig);
+  return sig;
+};
+
+/** Attention and stopped-need parts of one seat event, cached per event object. */
+const eventSigs = new WeakMap<AgentSeatStateEvent, string>();
+const eventSigOf = (event: AgentSeatStateEvent | undefined): string => {
+  if (event === undefined) return "";
+  const held = eventSigs.get(event);
+  if (held !== undefined) return held;
+  const status = agentSeatStatusOf(event);
+  const sig = `${event.state === "attention" ? `a${event.reason}@${event.at}` : ""}${status === undefined ? "" : stoppedSigOf(status.snapshot)}`;
+  eventSigs.set(event, sig);
+  return sig;
+};
+
+/**
+ * The feed's seat signature: per agent node, its attention mark, the stopped
+ * need its snapshot would raise and the health reading with the freshness
+ * inputs threadHealthView weighs. Read inside a use$ selector so every store
+ * read is tracked; equal signatures mean an identical feed.
+ */
+const feedSeatSig = (canvas: Canvas): string => {
+  const events = agentSeat$.byBindingId.get();
+  const assessments = seatAwareness$.byBindingId.get();
+  const digests = seatAwareness$.windowDigestByBindingId.get();
+  const parts: string[] = [];
+  for (const node of canvas.nodes.values()) {
+    if (node.kind !== "agent" || node.bindingId === undefined) continue;
+    const part = `${node.id}=${eventSigOf(events[node.bindingId])}`;
+    const assessment = assessments[node.bindingId];
+    const reading = assessment?.health;
+    if (assessment !== undefined && reading !== undefined) {
+      parts.push(`${part}h${reading.value}|${reading.confidence}|${reading.observedAt}|${assessment.evidence.digest}|${digests[node.bindingId] ?? ""}`);
+    } else {
+      parts.push(part);
+    }
+  }
+  return parts.join("|");
+};
+
+/**
+ * The canvas needs' seat signature: attention marks on the nodes that are
+ * not agent seats, which is all liveWantsInput reads. Agent reports do not
+ * touch it, so a seat storm leaves the needs projection asleep.
+ */
+const feedWantsSig = (canvas: Canvas): string => {
+  const events = agentSeat$.byBindingId.get();
+  const binds = agentSeat$.bindingIdByNodeId.get();
+  const parts: string[] = [];
+  for (const node of canvas.nodes.values()) {
+    if (node.kind === "agent") continue;
+    const bindingId = node.kind === "terminal" ? node.bindingId : binds[node.id];
+    const event = bindingId === undefined ? undefined : events[bindingId];
+    if (event?.state === "attention") parts.push(`${node.id}:${event.reason}@${event.at}`);
+  }
+  return parts.join("|");
+};
+
 /** The open canvas's needs that no seat declared, read from the live stores. */
 const useCanvasNeeds = (): ReadonlyArray<FeedCanvasNeed> => {
   const canvasName = use$(state$.canvasName);
@@ -203,11 +298,11 @@ const useCanvasNeeds = (): ReadonlyArray<FeedCanvasNeed> => {
   const actorRefs = use$(state$.actorRefs);
   const execution = use$(kernel$.execution);
   const executionRev = use$(kernel$.executionRev);
-  const seatRev = use$(agentSeat$.rev);
+  const wantsSig = use$(() => feedWantsSig(canvas));
   return useMemo(
     () =>
       // Kernel execution and seat state mutate in place; their revs carry the change.
-      sharedNeeds([canvas, canvasName, actorRefs, execution, executionRev, seatRev, byNode, heldBy], () => {
+      sharedNeeds([canvas, canvasName, actorRefs, execution, executionRev, wantsSig, byNode, heldBy], () => {
         const context = executionGraphContextFromActorRefs(
           canvasName,
           actorRefs,
@@ -222,7 +317,7 @@ const useCanvasNeeds = (): ReadonlyArray<FeedCanvasNeed> => {
         });
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canvas, canvasName, actorRefs, execution, executionRev, seatRev, byNode, heldBy],
+    [canvas, canvasName, actorRefs, execution, executionRev, wantsSig, byNode, heldBy],
   );
 };
 
@@ -240,8 +335,7 @@ export const useOperatorFeed = (): OperatorFeed => {
   );
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const signals = useMemo(() => Object.values(agentSignals$.peek()), [signalsKey]);
-  const seatRev = use$(agentSeat$.rev);
-  const awarenessRev = use$(seatAwareness$.rev);
+  const seatSig = use$(() => feedSeatSig(canvas));
   const needs = useCanvasNeeds();
   const now = useHealthClock();
   // By field: the store mutates in place.
@@ -270,11 +364,11 @@ export const useOperatorFeed = (): OperatorFeed => {
       // Signals, waits and automation names are keyed by what they say: each
       // reader holds its own copy of the same list. Seat and awareness stores
       // mutate in place; their revs carry the change.
-      sharedFeed([canvasName, canvas, signalsKey, needs, seatRev, awarenessRev, now, paired, remoteLogin, waitsKey, namesKey], () =>
+      sharedFeed([canvasName, canvas, signalsKey, needs, seatSig, now, paired, remoteLogin, waitsKey, namesKey], () =>
         withPhoneReach(operatorFeedFor(canvasName, canvas, signals, now, needs, waits, automationNames), { paired, remoteLogin }),
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canvasName, canvas, signals, needs, seatRev, awarenessRev, now, paired, remoteLogin, waits, automationNames],
+    [canvasName, canvas, signals, needs, seatSig, now, paired, remoteLogin, waits, automationNames],
   );
 };
 
