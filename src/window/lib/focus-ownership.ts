@@ -155,6 +155,7 @@ type FocusNode = Closest & {
   readonly isConnected?: boolean;
   readonly contains?: (other: never) => boolean;
   readonly getClientRects?: () => { readonly length: number };
+  readonly checkVisibility?: (options?: { readonly contentVisibilityAuto?: boolean }) => boolean;
 };
 
 const containsNode = (outer: unknown, inner: unknown): boolean => {
@@ -172,14 +173,29 @@ const isPageRoot = (active: unknown): boolean => {
   return active === document.body || active === document.documentElement;
 };
 
+/**
+ * Whether the engine would put this element on screen at all. A rendered
+ * gate, never a focus decision: who calls focus() is the law further down, and
+ * this only asks what the engine has already laid out.
+ *
+ * checkVisibility answers from style, with no layout read, which matters here
+ * because asking for a rect forces the document's pending style and layout. An
+ * open retried this gate five times across a rAF and 48 ms timers, and the
+ * board is 16,810 elements, so a retry that only needed a yes or no paid 12-20
+ * ms of restyle. Engines without it (jsdom and the tests) keep the rect walk,
+ * which is what this asked for before.
+ */
+const isRendered = (el: FocusNode): boolean => {
+  if (typeof el.checkVisibility === "function") return el.checkVisibility({ contentVisibilityAuto: true });
+  return typeof el.getClientRects === "function" && el.getClientRects().length > 0;
+};
+
 const isAvailable = (target: FocusNode, cause: FocusClaimCause): boolean => {
   if (target.isConnected !== true) return false;
   if (closestOf(target, "[inert]")) return false;
   // Parked terminals keep their DOM but have no boxes. Async work must not
   // resurrect them under the operator's keyboard.
-  if (cause === "async" && typeof target.getClientRects === "function") {
-    if (target.getClientRects().length === 0) return false;
-  }
+  if (cause === "async" && !isRendered(target)) return false;
   return true;
 };
 
@@ -466,7 +482,7 @@ export const shouldClaimFocusOnSurfaceOpen = (
 ): boolean => {
   if (!owner?.isConnected) return false;
   if (owner.closest("[inert]")) return false;
-  if (owner.getClientRects().length === 0) return false;
+  if (!isRendered(owner)) return false;
   if (activeElement === null) return true;
   if (isPageRoot(activeElement)) return true;
   if (owner.contains(activeElement) && !isNeutralContainer(owner, activeElement)) {
