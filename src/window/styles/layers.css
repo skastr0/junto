@@ -39,7 +39,15 @@
   --layer-tooltip: 20000;
 }
 
-/* The one dim behind every modal shell: the same recipe on every layer. */
+/* The one dim behind every modal shell: the same recipe on every layer.
+   No backdrop blur: a blur here is re-captured on every presented frame the
+   backdrop changes, so a dim over the turning canvas cost a full render
+   surface per frame. One dim sat the GPU on its ceiling (832 ms/s on the
+   factory board, M1 minI) and a second, stacked, dropped presented frames
+   from 55 to 36 a second and drove CoreAnimation backpressure to p95 27 ms,
+   which is the tear the operator saw through a stacked modal. Without the
+   blur the same stack runs 60 fps at 415 ms/s with no backpressure. Operator
+   chose this over the blur on 2026-11-08. */
 [data-layer-backdrop] {
   position: absolute;
   inset: 0;
@@ -47,7 +55,6 @@
   padding: 0;
   border: 0;
   background: var(--color-backdrop);
-  backdrop-filter: blur(2px);
   cursor: default;
 }
 

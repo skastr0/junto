@@ -2710,7 +2710,6 @@ button.actor-ledger__item-row:focus-visible {
   justify-content: center;
   padding: 16px;
   background: var(--color-shadow-1);
-  backdrop-filter: blur(1.5px);
   pointer-events: auto;
 }
 .native-terminal-surface__dead-card {
@@ -2892,7 +2891,9 @@ button.actor-ledger__item-row:focus-visible {
   display: none !important;
 }
 
-/* The Machines window while its code loads. */
+/* The Machines window while its code loads. Full-window dims carry no
+   backdrop blur: the blur is re-captured every presented frame (layers.css,
+   [data-layer-backdrop]). */
 .machines-opening {
   position: fixed;
   inset: 0;
@@ -2900,7 +2901,6 @@ button.actor-ledger__item-row:focus-visible {
   display: grid;
   place-items: center;
   background: var(--color-backdrop);
-  backdrop-filter: blur(2px);
   color: var(--color-faint);
   font-family: var(--font-mono);
   font-size: 11px;
