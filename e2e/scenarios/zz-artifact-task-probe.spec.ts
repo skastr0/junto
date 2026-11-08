@@ -379,8 +379,11 @@ test("artifact/task probe: factory-shaped work data, opens and write busy", asyn
       await centerOn(nodeId);
       if (openSurface?.kind === kind && openSurface.node === nodeId) return -1;
       if (openSurface !== null) {
-        await page.keyboard.press("Escape");
-        await page.waitForTimeout(250);
+        // Escape can be eaten inside the surface (the document editor keeps
+        // it for itself); the backdrop button is the deterministic close.
+        await page.evaluate(() => document.querySelector<HTMLButtonElement>("[data-layer-backdrop]")?.click());
+        await expect(page.locator(".focus-surface")).toHaveCount(0, { timeout: 5_000 });
+        openSurface = null;
       }
       const t0 = await page.evaluate(() => performance.now());
       await page.locator(`.react-flow__node[data-id="${nodeId}"]`).dblclick();
