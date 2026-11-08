@@ -47,6 +47,7 @@ import {
   type Ruled,
 } from "@shared/resource-command";
 import { InstallationId } from "@shared/installation-id";
+import { makeSharedReads, type SharedReadSpec } from "./shared-read";
 import type { ArtifactLabelColour } from "@shared/artifact-labels";
 import type { ArtifactMoveRecord } from "@shared/artifact-move";
 
@@ -268,41 +269,40 @@ const useSourced = <T>(read: () => Promise<T>, initial: T, canvasName: string, k
 
 const NONE: ReadonlyArray<never> = [];
 
-export const useNodeArtifacts = (canvasName: string, nodeId: NodeId): ReadonlyArray<ArtifactHead> =>
-  useSourced(() => artifactsSource().list(canvasName, nodeId), NONE, canvasName, nodeId);
+/**
+ * Artifact reads shared by every caller (shared-read.ts): one read per node
+ * per change, whether one card, its count, a pane and Quick capture ask.
+ */
+const artifactReads = makeSharedReads(
+  () => source,
+  (from, changed) => (from as ArtifactsSource).onChanged((notice) => changed(notice.canvasName)),
+);
+
+/** One node's heads, as a shared read. */
+export const nodeArtifactsRead = (canvasName: string, nodeId: NodeId): SharedReadSpec<ReadonlyArray<ArtifactHead>> => ({
+  key: `${canvasName}\u0000${nodeId}`,
+  canvas: canvasName,
+  read: () => artifactsSource().list(canvasName, nodeId),
+});
+
+export const useNodeArtifacts = (canvasName: string, nodeId: NodeId): ReadonlyArray<ArtifactHead> => {
+  const { value, confirmed } = artifactReads.use(nodeArtifactsRead(canvasName, nodeId));
+  return confirmed && value !== undefined ? value : NONE;
+};
+
+/** Several nodes' heads at once, for the canvas-wide list (canvas-artifacts.ts). */
+export const useNodesArtifacts = (canvasName: string, nodeIds: ReadonlyArray<NodeId>) =>
+  artifactReads.useAll(nodeIds.map((nodeId) => nodeArtifactsRead(canvasName, nodeId)));
+
+const liveCount = (heads: ReadonlyArray<ArtifactHead>): number => heads.filter((head) => !head.artifact.archived).length;
 
 /**
  * How many live (unarchived) artifacts a node holds, for its card's glance.
- * Any artifact change on the canvas re-reads, but only a change of this
- * count repaints the card. Only the latest read lands, and a failed read
- * keeps the last count.
+ * It rides the node's shared read, and only a change of this count repaints
+ * the card. A failed read keeps the last count.
  */
-export const useNodeArtifactCount = (canvasName: string, nodeId: NodeId, enabled: boolean): number => {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    if (!enabled || !canvasName) return;
-    let live = true;
-    let generation = 0;
-    const refresh = (): void => {
-      const mine = ++generation;
-      artifactsSource().list(canvasName, nodeId).then(
-        (heads) => {
-          if (live && mine === generation) setCount(heads.filter((head) => !head.artifact.archived).length);
-        },
-        () => undefined,
-      );
-    };
-    refresh();
-    const unsubscribe = artifactsSource().onChanged((changed) => {
-      if (changed.canvasName === canvasName) refresh();
-    });
-    return () => {
-      live = false;
-      unsubscribe();
-    };
-  }, [canvasName, nodeId, enabled]);
-  return enabled && canvasName ? count : 0;
-};
+export const useNodeArtifactCount = (canvasName: string, nodeId: NodeId, enabled: boolean): number =>
+  artifactReads.useSelected(enabled && canvasName ? nodeArtifactsRead(canvasName, nodeId) : null, liveCount, 0);
 
 /**
  * The head's body: the listed one, or, when main lists it as not loaded,

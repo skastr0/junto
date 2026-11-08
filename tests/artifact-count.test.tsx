@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** An Artifacts card's count: only the newest read lands, and a failed read keeps the last count. */
+/** An Artifacts card's count: reads land in order, a change waits behind the read out, and a failed read keeps the last count. */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -42,17 +42,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("keeps the newest count when two reads resolve out of order, and the last count when a read fails", async () => {
+it("queues a change behind the read out, lands each read in order, and keeps the last count when a read fails", async () => {
   await act(async () => root.render(<Count />));
+  // A change while the first read is out waits behind it: one read at a time, never two racing.
   await act(async () => changed!({ canvasName: "work" }));
-  expect(reads).toHaveLength(2);
+  expect(reads).toHaveLength(1);
 
+  await act(async () => reads[0]!.resolve(heads(5)));
+  expect(host.textContent).toBe("5");
+  expect(reads).toHaveLength(2);
   await act(async () => reads[1]!.resolve(heads(2, 1)));
   expect(host.textContent).toBe("2");
-  await act(async () => reads[0]!.resolve(heads(5)));
-  expect(host.textContent).toBe("2");
 
   await act(async () => changed!({ canvasName: "work" }));
+  expect(reads).toHaveLength(3);
   await act(async () => reads[2]!.reject(new Error("main is gone")));
   expect(host.textContent).toBe("2");
 });

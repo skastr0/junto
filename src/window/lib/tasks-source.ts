@@ -21,6 +21,7 @@ import {
   type TaskRecord,
 } from "@shared/task-machine";
 import { mintOpId } from "@shared/resource-command";
+import { makeSharedReads, type SharedReadSpec } from "./shared-read";
 import { taskEnvOf, taskRefusalOf, type TaskPendingWrite, type TaskResourceApi } from "@shared/resource-ipc";
 import type {
   ClosedTaskLayer,
@@ -227,8 +228,27 @@ const useSourced = <T>(read: () => Promise<T>, initial: T, key: string): T => {
 
 const NONE: ReadonlyArray<never> = [];
 
+/**
+ * Task lists shared by every caller (shared-read.ts): each Tasks card reads
+ * its node and the canvas's tasks, the feed, the Artifacts panes and the
+ * capture editor read the canvas's tasks, and any task change used to make
+ * every one of them read again on its own. Now one read per key per change
+ * serves them all. A task view can carry what a task change does not
+ * announce, so a new mount still reads (sharing a read already out).
+ */
+const taskReads = makeSharedReads(
+  () => source,
+  (from, changed) => (from as TasksSource).subscribe(() => changed(undefined)),
+  { trustKept: false },
+);
+
+const sharedTasks = (spec: SharedReadSpec<ReadonlyArray<TaskView>>): ReadonlyArray<TaskView> => {
+  const { value, confirmed } = taskReads.use(spec);
+  return confirmed && value !== undefined ? value : NONE;
+};
+
 export const useNodeTasks = (canvasName: string, node: TaskNodeId): ReadonlyArray<TaskView> =>
-  useSourced(() => tasksSource().list(canvasName, node), NONE, `${canvasName}\u0000${node}`);
+  sharedTasks({ key: `node\u0000${canvasName}\u0000${node}`, canvas: canvasName, read: () => tasksSource().list(canvasName, node) });
 
 const NO_FACTS: TaskFacts = {
   downstream: () => [],
@@ -245,7 +265,7 @@ export const useNodePending = (canvasName: string, node: TaskNodeId): ReadonlyAr
   useSourced(() => tasksSource().pending(canvasName, node), NONE, `${canvasName}\u0000${node}`);
 
 export const useCanvasTasks = (canvasName: string): ReadonlyArray<TaskView> =>
-  useSourced(() => tasksSource().all(canvasName), NONE, canvasName);
+  sharedTasks({ key: `all\u0000${canvasName}`, canvas: canvasName, read: () => tasksSource().all(canvasName) });
 
 let installed = false;
 

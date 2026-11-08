@@ -10,7 +10,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { asCanvasName } from "../src/shared/model";
 import type { ArtifactHead, ResourceChanged } from "../src/shared/resource-ipc";
-import { artifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/window/lib/artifacts-source";
+import { artifactsSource, setArtifactsSource, useNodeArtifactCount, useNodeArtifacts, type ArtifactsSource } from "../src/window/lib/artifacts-source";
+import { asNodeId } from "../src/shared/physics/schema";
 import { useCanvasArtifactHeads, useCanvasArtifacts } from "../src/window/lib/canvas-artifacts";
 import { modelStore } from "../src/window/lib/use-model";
 import { artifacts } from "./support/model-nodes";
@@ -198,5 +199,49 @@ describe("canvas artifacts, one read for every caller", () => {
     });
     expect(seen["again"]).toBe("r1-shelf-1,r1-shelf-2");
     expect(fake.calls).toHaveLength(0);
+  });
+
+  it("serves an Artifacts card, its count and the canvas list from one read per node; the count repaints only when it changes", async () => {
+    let countRenders = 0;
+    const Card = () => {
+      seen["card"] = useNodeArtifacts(CANVAS, asNodeId("shelf-1")).map((one) => one.artifact.artifactId).join(",");
+      return null;
+    };
+    const Count = () => {
+      countRenders += 1;
+      seen["count"] = String(useNodeArtifactCount(CANVAS, asNodeId("shelf-1"), true));
+      return null;
+    };
+    await act(async () => {
+      root.render(
+        <>
+          <Card />
+          <Count />
+          <Kept />
+        </>,
+      );
+      await flush();
+    });
+    expect(fake.calls.map((call) => call.nodeId).sort()).toEqual(["shelf-1", "shelf-2"]);
+    await act(async () => {
+      fake.answer("r1");
+      await flush();
+    });
+    expect(seen["card"]).toBe("r1-shelf-1");
+    expect(seen["count"]).toBe("1");
+    expect(seen["kept"]).toBe("r1-shelf-1,r1-shelf-2|true");
+    const rendersAfterFirst = countRenders;
+    // A change re-reads each node once for all three; the count is still one, so it does not repaint.
+    await act(async () => {
+      fake.change();
+      await flush();
+    });
+    expect(fake.calls.map((call) => call.nodeId).sort()).toEqual(["shelf-1", "shelf-2"]);
+    await act(async () => {
+      fake.answer("r2");
+      await flush();
+    });
+    expect(seen["card"]).toBe("r2-shelf-1");
+    expect(countRenders).toBe(rendersAfterFirst);
   });
 });
