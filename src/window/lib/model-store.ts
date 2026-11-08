@@ -112,12 +112,41 @@ export const canvasOfState = (name: string, state: Pick<ModelCanvasState, "seq" 
   wires: new Map(Object.values(state.wires).map((wire) => [wire.id, wire])),
 });
 
+/** Every entry of `held` is the same object in `map`, and nothing more: a node or wire is replaced whole, never edited in place. */
+const sameEntries = <T,>(map: ReadonlyMap<string, T>, held: Readonly<Record<string, T>>): boolean => {
+  let count = 0;
+  for (const id in held) {
+    if (map.get(id) !== held[id]) return false;
+    count += 1;
+  }
+  return count === map.size;
+};
+
+/**
+ * The canvas a state was last read as, while the state still holds exactly
+ * it: the same seq and the same node and wire objects. A new Canvas, with
+ * fresh Maps over every node, on each read made every useCanvas reader a new
+ * object on every render, so every useMemo keyed on the canvas recomputed on
+ * every render, cmd+K's region trails on each keystroke among them (0.11.10
+ * trace). Checking identity costs one lookup a node and allocates nothing.
+ */
+export const heldCanvasOf = (
+  held: Canvas | undefined,
+  name: string,
+  state: Pick<ModelCanvasState, "seq" | "nodes" | "wires">,
+): Canvas =>
+  held !== undefined && held.name === name && held.seq === state.seq && sameEntries(held.nodes, state.nodes) && sameEntries(held.wires, state.wires)
+    ? held
+    : canvasOfState(name, state);
+
 export const createModelStore = (getApi: () => ModelApi | undefined) => {
   const canvases$ = observable<Record<string, ModelCanvasState>>({});
   const users = new Map<string, number>();
   /** Events that arrived while a canvas was being read, applied after it. */
   const held = new Map<string, Changed[]>();
   const opening = new Map<string, Promise<void>>();
+  /** The Canvas each canvas was last read as, handed out again while it still holds (heldCanvasOf). */
+  const views = new Map<string, Canvas>();
   let unsubscribe: (() => void) | undefined;
 
   const canvas$ = (canvas: string): Observable<ModelCanvasState> => {
@@ -241,6 +270,7 @@ export const createModelStore = (getApi: () => ModelApi | undefined) => {
   const close = (canvas: string): void => {
     held.delete(canvas);
     opening.delete(canvas);
+    views.delete(canvas);
     canvases$[canvas].delete();
   };
 
@@ -284,8 +314,15 @@ export const createModelStore = (getApi: () => ModelApi | undefined) => {
       };
     },
 
-    /** The canvas as it stands now, for working out an edit or its way back. Not tracked. */
-    canvasOf: (canvas: string): Canvas => canvasOfState(canvas, canvas$(canvas).peek()),
+    /**
+     * The canvas as it stands now, for working out an edit or its way back. Not
+     * tracked. The same object until the canvas changes (heldCanvasOf).
+     */
+    canvasOf: (canvas: string): Canvas => {
+      const next = heldCanvasOf(views.get(canvas), canvas, canvas$(canvas).peek());
+      views.set(canvas, next);
+      return next;
+    },
 
     /** Resolves when the canvas has been read, or the read has failed. */
     ready: (canvas: string): Promise<void> => opening.get(canvas) ?? Promise.resolve(),

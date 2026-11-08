@@ -1,6 +1,6 @@
 import { observe } from "@legendapp/state";
 import { describe, expect, it, vi } from "vitest";
-import type { Changed, Command, Node, Opened, Wire } from "../src/shared/model";
+import { asNodeId, asWireId, type Changed, type Command, type Node, type Opened, type Wire } from "../src/shared/model";
 import { createModelStore, keepUnchanged, type ModelApi } from "../src/window/lib/model-store";
 
 const canvas = "factory" as Opened["canvas"];
@@ -211,6 +211,35 @@ describe("model store", () => {
     emit(changed(2, { nodes: [seat("b")] }));
     expect(store.canvas$(canvas).status.peek()).toBe("closed");
     expect(store.canvas$(canvas).nodeIds.peek()).toEqual([]);
+  });
+
+  it("hands out the same canvas until the canvas changes, so a memo on it holds", async () => {
+    const { store, emit } = harness(() => ({ canvas, seq: 1, nodes: [seat("a"), seat("b")], wires: [wire("w", "a", "b")] }));
+    store.open(canvas);
+    await store.ready(canvas);
+    const first = store.canvasOf(canvas);
+    expect(store.canvasOf(canvas)).toBe(first);
+
+    // A seat moves: a new canvas, the untouched seat and wire the same objects.
+    emit(changed(2, { nodes: [seat("a", { x: 40 })] }));
+    const moved = store.canvasOf(canvas);
+    expect(moved).not.toBe(first);
+    expect(moved.seq).toBe(2);
+    expect(moved.nodes.get(asNodeId("a"))?.x).toBe(40);
+    expect(moved.nodes.get(asNodeId("b"))).toBe(first.nodes.get(asNodeId("b")));
+    expect(moved.wires.get(asWireId("w"))).toBe(first.wires.get(asWireId("w")));
+    expect(store.canvasOf(canvas)).toBe(moved);
+
+    // A node set straight on the store, with no new seq, is still seen.
+    store.node$(canvas, "c").set(seat("c"));
+    const added = store.canvasOf(canvas);
+    expect(added).not.toBe(moved);
+    expect([...added.nodes.keys()].sort()).toEqual(["a", "b", "c"]);
+
+    emit(changed(3, { removedNodes: [asNodeId("c")] }));
+    expect([...store.canvasOf(canvas).nodes.keys()].sort()).toEqual(["a", "b"]);
+    emit(changed(4, { removedWires: [asWireId("w")] }));
+    expect(store.canvasOf(canvas).wires.size).toBe(0);
   });
 });
 
