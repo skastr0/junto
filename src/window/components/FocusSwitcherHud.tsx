@@ -122,6 +122,7 @@ const SwitcherCard = memo(function SwitcherCard({
 // (styles.css .focus-switcher__card / .focus-switcher__strip). Every card is
 // the same width, so a card's place is its index times this pitch.
 const CARD_PITCH = 130;
+const CARD_WIDTH = 124;
 // Cards mounted past each edge of the viewport, so a scroll or a selection
 // step finds its card already drawn well before it can be seen arriving.
 const OVERSCAN = 8;
@@ -177,9 +178,21 @@ function SwitcherShell({ session }: { readonly session: FocusSwitcherSession }) 
 
   const selected = session.entries[session.selectedIndex];
   const selectedId = selected ? optionId(selected.nodeId) : undefined;
+  // Keep the chosen card in view exactly where scrollIntoView's "nearest"
+  // would put it — the strip is the only thing that scrolls (body overflow is
+  // hidden, the frame is not a scroller, and neither has padding or
+  // scroll-padding) — but a card's place is its index times the pitch, so
+  // this is arithmetic, not a layout read.
   useEffect(() => {
-    if (selectedId) document.getElementById(selectedId)?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [selectedId]);
+    const strip = listRef.current;
+    if (!strip) return;
+    const left = session.selectedIndex * CARD_PITCH;
+    const right = left + CARD_WIDTH;
+    const viewLeft = strip.scrollLeft;
+    const viewRight = viewLeft + strip.clientWidth;
+    if (left < viewLeft) strip.scrollLeft = left;
+    else if (right > viewRight) strip.scrollLeft = right - strip.clientWidth;
+  }, [session.selectedIndex]);
 
   const total = session.entries.length;
   const firstVisible = Math.max(0, Math.floor(view.left / CARD_PITCH) - OVERSCAN);
