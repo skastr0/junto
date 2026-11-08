@@ -125,8 +125,6 @@ const CARD_PITCH = 130;
 // Cards mounted past each edge of the viewport, so a scroll or a selection
 // step finds its card already drawn well before it can be seen arriving.
 const OVERSCAN = 8;
-// Around the selection itself: it is never unmounted, wherever it sits.
-const SELECT_OVERSCAN = 2;
 
 /**
  * The switcher's shell, an operator modal: the shared dim and frame, above
@@ -186,11 +184,12 @@ function SwitcherShell({ session }: { readonly session: FocusSwitcherSession }) 
   const total = session.entries.length;
   const firstVisible = Math.max(0, Math.floor(view.left / CARD_PITCH) - OVERSCAN);
   const lastVisible = Math.min(total, Math.ceil((view.left + view.width) / CARD_PITCH) + OVERSCAN);
-  const windowStart = Math.min(firstVisible, Math.max(0, session.selectedIndex - SELECT_OVERSCAN));
-  const windowEnd = Math.max(
-    lastVisible,
-    Math.min(total, session.selectedIndex + SELECT_OVERSCAN + 1),
-  );
+  // The selection's own neighbourhood is a whole viewport plus margin, so a
+  // jump (the wrap, or opening at the far end) lands on cards already mounted:
+  // the scrollIntoView below can never reveal a spacer where a card belongs.
+  const selectPad = Math.ceil(view.width / CARD_PITCH) + OVERSCAN;
+  const windowStart = Math.min(firstVisible, Math.max(0, session.selectedIndex - selectPad));
+  const windowEnd = Math.max(lastVisible, Math.min(total, session.selectedIndex + selectPad + 1));
 
   return createPortal(
     <div className="focus-switcher" data-layer="operator" data-testid="focus-switcher" onKeyDown={layer.onKeyDown}>
