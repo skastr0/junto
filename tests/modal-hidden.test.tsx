@@ -120,6 +120,56 @@ describe("a modal hides what it covers", () => {
   });
 });
 
+describe("focus never stays in a hidden subtree", () => {
+  beforeEach(() => resetModalStack());
+  afterEach(() => {
+    resetModalStack();
+    document.body.innerHTML = "";
+  });
+
+  /** A pointer or a Tab landed on `target`: the guard hears focusin. */
+  const land = (target: Element): void => {
+    (target as HTMLElement).focus();
+    target.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+  };
+
+  it("steps forward out of the canvas to the next stop after it", () => {
+    const { canvas, surface, after } = page();
+    const inside = canvas.querySelector("button")!;
+    const surfaceButton = surface.querySelector("button")!;
+    const leave = openDocked(surface);
+    land(inside);
+    // The nearest stop after the canvas in document order: the surface itself.
+    expect(document.activeElement).toBe(surfaceButton);
+    expect(canvas.contains(document.activeElement), "never the canvas").toBe(false);
+    // And from there the ordinary next stop is the chrome outside.
+    surfaceButton.focus();
+    expect(canvas.contains(document.activeElement)).toBe(false);
+    expect(after).not.toBe(null);
+    leave();
+  });
+
+  it("steps backwards out of the canvas to the chrome before it", () => {
+    const { canvas, surface, bar } = page();
+    const inside = canvas.querySelector("button")!;
+    const leave = openDocked(surface);
+    // Shift+Tab is what a backwards move is.
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true }));
+    land(inside);
+    expect(document.activeElement).toBe(bar);
+    leave();
+  });
+
+  it("does not move focus while no modal is open, so a return is never bounced", () => {
+    const { canvas, surface } = page();
+    const inside = canvas.querySelector("button")!;
+    const leave = openDocked(surface);
+    leave();
+    land(inside);
+    expect(document.activeElement).toBe(inside);
+  });
+});
+
 describe("style is never keyed on what a modal hides", () => {
   it("no stylesheet under src/window keys a selector on aria-hidden", async () => {
     const { readdirSync, readFileSync, statSync } = await import("node:fs");

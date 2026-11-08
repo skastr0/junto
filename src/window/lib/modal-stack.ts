@@ -294,6 +294,47 @@ const onOutsideEscape = (event: KeyboardEvent): void => {
   takeEscape(event, top);
 };
 
+/** Which way the operator was moving when Tab went for a hidden subtree. */
+let tabDirection: "forward" | "back" = "forward";
+
+/**
+ * The nearest Tab stop outside a hidden subtree, in the direction the operator
+ * was moving. One query for the whole document, then a document-order filter:
+ * this runs only when focus lands where it should not have.
+ */
+const stopOutside = (hidden: Element, backwards: boolean): HTMLElement | null => {
+  const candidates = Array.from(document.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (el) => el.closest(`[${HIDDEN_MARK}]`) === null && el.closest(FLOATING_SELECTOR) === null,
+  );
+  const outside = candidates.filter((el) => {
+    const position = hidden.compareDocumentPosition(el);
+    return backwards
+      ? (position & Node.DOCUMENT_POSITION_PRECEDING) !== 0
+      : (position & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  });
+  const stop = backwards ? outside.at(-1) : outside[0];
+  if (!stop) return null;
+  const visible = typeof stop.checkVisibility === "function" ? stop.checkVisibility({ visibilityProperty: true }) : true;
+  return visible ? stop : null;
+};
+
+/**
+ * Focus landed inside a subtree the front modal hides. With the canvas hidden
+ * rather than inert, Tab could reach it: step over the whole hidden subtree
+ * and keep going the way the operator was going, through the focus authority
+ * only. This fires only on the bad case, so Tab in ordinary use pays nothing,
+ * and a return of focus on close (markers cleared first, no modal left) is
+ * never touched.
+ */
+const onHiddenFocusIn = (event: FocusEvent): void => {
+  const target = event.target;
+  if (!(target instanceof Element) || topModal() === undefined) return;
+  const hidden = target.closest(`[${HIDDEN_MARK}]`);
+  if (hidden === null) return;
+  const next = stopOutside(hidden, tabDirection === "back");
+  if (next !== null) claimFocus(next, "gesture", { preventScroll: true });
+};
+
 /**
  * The fence the focus authority asks: while the topmost modal traps the
  * keyboard, a claim may land inside it or in something floating above the
@@ -321,8 +362,15 @@ const ensureListening = (): void => {
   window.addEventListener("keydown", onPageKey, { capture: true });
   // focus-law: Escape-only close of the topmost modal.
   window.addEventListener("keydown", onOutsideEscape);
+  // focus-law: steps over a hidden subtree only, always through claimFocus.
+  window.addEventListener("keydown", onTabDirection, { capture: true });
+  window.addEventListener("focusin", onHiddenFocusIn, true);
 };
 
+/** Tab's direction, read before the browser moves focus. */
+const onTabDirection = (event: KeyboardEvent): void => {
+  if (event.key === "Tab") tabDirection = event.shiftKey ? "back" : "forward";
+};
 
 // What floats above a modal and stays live with it: popovers, menus and
 // tooltips portal to the body as its siblings.
