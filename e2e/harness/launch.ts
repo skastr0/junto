@@ -534,6 +534,20 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
       kind: "observed",
       witness: observeElectronApplicationClose(app),
     };
+    // Native confirm dialogs (honest-quit live-work gate, browser-automation
+    // grant) cannot be clicked under focus isolation, so auto-accept them
+    // everywhere. Response index 1 is QUIT_CONFIRM_ACCEPT_INDEX ("quit anyway");
+    // the browser grant flow uses the same index for "allow".
+    // Installed before firstWindow, never after: a launch that fails before its
+    // window (an incomplete out/, say) is torn down by a quit, and an unstubbed
+    // honest-quit confirm then shows natively on the operator's display and
+    // holds the process until someone clicks.
+    await app.evaluate(({ dialog }) => {
+      dialog.showMessageBox = (async () => ({
+        response: 1,
+        checkboxChecked: false,
+      })) as typeof dialog.showMessageBox;
+    });
     // JUNTO_E2E_MAIN_LOG=<dir>: every launch's main-process stdout and stderr,
     // one file per launch, so a run can list what main said went wrong.
     const mainLogDir = process.env.JUNTO_E2E_MAIN_LOG;
@@ -583,17 +597,6 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
         await page.reload();
       }
     }
-
-    // Native confirm dialogs (honest-quit live-work gate, browser-automation
-    // grant) cannot be clicked under focus isolation — auto-accept them
-    // everywhere. Response index 1 is QUIT_CONFIRM_ACCEPT_INDEX ("quit anyway");
-    // the browser grant flow uses the same index for "allow".
-    await app.evaluate(({ dialog }) => {
-      dialog.showMessageBox = (async () => ({
-        response: 1,
-        checkboxChecked: false,
-      })) as typeof dialog.showMessageBox;
-    });
 
     // Defense in depth on macOS: if a window was somehow shown, re-hide Dock
     // and do not activate. Main already applies accessory policy + show:false
