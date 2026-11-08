@@ -7,8 +7,23 @@ import { buildContext, mainBuildSection } from "./scripts/vite-sections";
 import { overlayDepsPlugin } from "./scripts/overlay";
 import { preloadBundleGuard } from "./scripts/preload-bundle-guard";
 
+/**
+ * A perf build (JUNTO_PERF_BUILD=1, for measurement, never shipped): the
+ * window gets source maps, so a CPU profile resolves each frame to the package
+ * and file that spent the time, and React's profiling build, which keeps
+ * <Profiler> timings and writes its Scheduler and Components tracks into a
+ * Chromium trace. Without the variable the build is byte for byte the same.
+ */
+const PERF_BUILD = process.env.JUNTO_PERF_BUILD === "1";
+
 export default defineConfig(({ command, mode }) => {
   const { overlay, alias, productDefines } = buildContext({ command, mode });
+  const rendererAlias = PERF_BUILD
+    ? [
+        ...Object.entries(alias).map(([find, replacement]) => ({ find, replacement })),
+        { find: /^react-dom\/client$/, replacement: "react-dom/profiling" },
+      ]
+    : alias;
   // Dev keeps both entries in one build: the app forks out/main/core-process.js,
   // and a second watcher for it would be a build system of its own. The
   // production build splits them (electron.core.vite.config.ts), so a module
@@ -46,12 +61,13 @@ export default defineConfig(({ command, mode }) => {
       // resolve the app's `react` and the copy `react-dom` requires as two
       // modules: the root renders with one dispatcher and every hook reads
       // the other, so the first component throws on a null `useEffect`.
-      resolve: { alias, dedupe: ["react", "react-dom"] },
+      resolve: { alias: rendererAlias, dedupe: ["react", "react-dom"] },
       define: productDefines,
       plugins: [overlayDepsPlugin(overlay), react(), tailwindcss(), writeBuildSourceStamp(process.cwd())],
       // The dev server may serve overlay files from outside this repository.
       ...(overlay.kind === "official" ? { server: { fs: { allow: [".", overlay.dir] } } } : {}),
       build: {
+        ...(PERF_BUILD ? { sourcemap: true } : {}),
         rollupOptions: {
           input: resolve("index.html"),
         },
