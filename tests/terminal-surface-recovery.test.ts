@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Terminal } from "@xterm/headless";
 import type { Seat } from "../src/shared/model";
@@ -8,6 +10,8 @@ import { seatDeadReason } from "../src/window/lib/seat-recovery";
 type Effect = { run: () => void | (() => void); deps?: readonly unknown[] };
 const hooks = vi.hoisted(() => ({
   refs: [] as { current: unknown }[],
+  /** The TerminalSurface.tsx line each ref was made on, so a test reads a ref by its name. */
+  refLines: [] as (number | undefined)[],
   states: [] as unknown[],
   effects: [] as Effect[],
   refIndex: 0,
@@ -22,6 +26,8 @@ vi.mock("react", async (load) => ({
   ...await load<typeof import("react")>(),
   useRef: (initial: unknown) => {
     const index = hooks.refIndex++;
+    const at = /TerminalSurface\.tsx:(\d+):/.exec(new Error().stack ?? "");
+    hooks.refLines[index] = at ? Number(at[1]) : undefined;
     return hooks.refs[index] ??= { current: initial };
   },
   useState: (initial: unknown) => {
@@ -66,8 +72,17 @@ const STATUS = 0;
 const ATTACH_KEY = 4;
 const KILL_PHASE = 5;
 const LOAD_PHASE = 8;
-/** useRef order in TerminalSurface: `operatorStopped`. */
-const OPERATOR_STOPPED = 23;
+/**
+ * A TerminalSurface ref by its name: the one made on the line that declares
+ * it. Read by position, any ref added above it moved the index (78a619842).
+ */
+const refNamed = (name: string): { current: unknown } => {
+  const source = readFileSync(resolve(__dirname, "../src/window/components/terminal/TerminalSurface.tsx"), "utf8").split("\n");
+  const line = source.findIndex((text) => text.includes(`const ${name} = useRef(`)) + 1;
+  const index = hooks.refLines.indexOf(line);
+  if (line === 0 || index < 0) throw new Error(`no ref ${name} made at TerminalSurface.tsx:${String(line)}`);
+  return hooks.refs[index]!;
+};
 
 const REASON = "Codex could not start: the folder ~/gone does not exist";
 const EXIT_REASON = "Claude Code exited by itself with code 1: Error: Session ID 421f87b3 is already in use.";
@@ -168,6 +183,7 @@ const ensureMock = vi.mocked(ensureTerminalRunning);
 beforeEach(() => {
   vi.useFakeTimers();
   hooks.refs = [];
+  hooks.refLines = [];
   hooks.states = [];
   hooks.effects = [];
   hooks.listeners.clear();
@@ -334,11 +350,9 @@ describe("TerminalSurface when Junto replaces the seat's process", () => {
     await vi.advanceTimersByTimeAsync(50);
     const key = hooks.states[ATTACH_KEY];
     // The operator's stop: the surface marks it before the process exits.
-    // Guards the index against a ref being added above it in the component:
-    // the ref just before the epoch ref's neighbours must be the lease epoch.
-    expect(hooks.refs[OPERATOR_STOPPED - 9]?.current).toBe("gen-1");
-    expect(hooks.refs[OPERATOR_STOPPED]?.current).toBe(false);
-    hooks.refs[OPERATOR_STOPPED]!.current = true;
+    const operatorStopped = refNamed("operatorStopped");
+    expect(operatorStopped.current).toBe(false);
+    operatorStopped.current = true;
     exit();
     await vi.advanceTimersByTimeAsync(0);
     start("gen-2");
