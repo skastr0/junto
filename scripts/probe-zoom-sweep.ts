@@ -156,6 +156,8 @@ const fixtureName = arg("fixture", "factory");
  * tier change, no ring remount) so the per-frame cost shows on its own.
  */
 const sweepArm = arg("arm", "cross");
+/** A model fixture file ({ model: { nodes, wires } }) to use instead of the built-in grid. */
+const fixtureFile = arg("fixture-file", "");
 /**
  * A page-side variant that turns one mechanism off, to name what it costs.
  * Any variant other than `product` makes the run a diagnostic: it is never a
@@ -248,7 +250,24 @@ const wires = seatIds.flatMap((id, index) =>
   index % 4 === 3 || index + 1 >= seatIds.length
     ? []
     : [modelMessagesWire(`zoom-wire-${String(index).padStart(3, "0")}`, id, seatIds[index + 1]!, nodes)]);
-const fixtureRows = [...regions, ...nodes, ...notes];
+const builtFixture = fixtureFile === ""
+  ? { nodes: [...regions, ...nodes, ...notes], wires }
+  : (() => {
+      const file = JSON.parse(readFileSync(fixtureFile, "utf8")) as { model?: { nodes?: unknown[]; wires?: unknown[] } };
+      const read = file.model ?? (file as { nodes?: unknown[]; wires?: unknown[] });
+      if (!Array.isArray(read.nodes)) throw new Error(`fixture file ${fixtureFile} has no model.nodes`);
+      return { nodes: read.nodes as never[], wires: (read.wires ?? []) as never[] };
+    })();
+/** The binding main knows each seat by: the fixture's own, or the probe's default. */
+const seatBindings = new Map<string, string>();
+if (fixtureFile !== "") {
+  seatIds.length = 0;
+  for (const node of builtFixture.nodes as Array<{ kind?: string; id?: string; bindingId?: string; agentKey?: string }>) {
+    if (node.kind !== "agent" || typeof node.id !== "string") continue;
+    seatIds.push(node.id);
+    seatBindings.set(node.id, node.bindingId ?? node.agentKey ?? `local:${node.id}`);
+  }
+}
 const seatCount = seatIds.length;
 
 function region(ward: string): string {
@@ -471,6 +490,7 @@ const summarizeTrace = (events: any[], rendererPid: number, gpuPid: number) => {
   const byName = new Map<string, number>();
   const styleRecalcs: number[] = [];
   const invalidations: Array<{ reason: string; node: string; extra: string }> = [];
+  const animationEvents: Array<Record<string, unknown>> = [];
   const mouseMoves = { count: 0, us: 0 };
   const rendererByName = new Map<string, number>();
   const gpuByName = new Map<string, number>();
@@ -501,6 +521,7 @@ const summarizeTrace = (events: any[], rendererPid: number, gpuPid: number) => {
   }
   for (const event of events) {
     if (typeof event.name !== "string") continue;
+    if (event.name === "Animation") animationEvents.push(event.args?.data ?? {});
     if (event.name === "StyleRecalcInvalidationTracking" || event.name === "StyleInvalidatorInvalidationTracking") {
       const data = event.args?.data ?? {};
       invalidations.push({
@@ -560,6 +581,20 @@ const summarizeTrace = (events: any[], rendererPid: number, gpuPid: number) => {
         },
       },
       mouseMoves: { count: mouseMoves.count, ms: Math.round(mouseMoves.us / 100) / 10 },
+      animations: (() => {
+        const seat = animationEvents.filter((data) => String(data.nodeName ?? "").includes("junto-mark"));
+        const failed = animationEvents.filter((data) => Number(data.compositeFailed ?? 0) !== 0);
+        return {
+          events: animationEvents.length,
+          seatEvents: seat.length,
+          compositeFailed: failed.length,
+          compositeFailedValues: [...new Set(failed.map((data) => Number(data.compositeFailed)))].slice(0, 8),
+          unsupported: [...new Set(failed.flatMap((data) => (Array.isArray(data.unsupportedProperties) ? data.unsupportedProperties.map(String) : [])))].slice(0, 8),
+          failedNodes: [...new Set(failed.map((data) => String(data.nodeName ?? "").slice(0, 50)))].slice(0, 8),
+          reasons: [...new Set(seat.map((data) => String(data.reason ?? data.name ?? "")).filter(Boolean))].slice(0, 6),
+          raw: animationEvents.filter((data) => Number(data.compositeFailed ?? 0) !== 0).slice(0, 2),
+        };
+      })(),
       invalidations: (() => {
         const counts = new Map<string, number>();
         for (const row of invalidations) {
@@ -606,11 +641,11 @@ try {
   // opens a product database, so it needs no core imports (probe-ring-cost's
   // seeded sandbox does, and the core bundle's ?nodeWorker import stopped it
   // loading under bun on 2026-11-08).
-  const canvasName = await installCanvas(modelFixture(fixtureRows, wires));
+  const canvasName = await installCanvas(fixtureFile === "" ? modelFixture(builtFixture.nodes, builtFixture.wires) : builtFixture as ReturnType<typeof modelFixture>);
   await page.evaluate(`window.junto.modelOpen(${JSON.stringify({ canvas: canvasName })})`);
 
   await waitFor("the seat cards", 120_000, async () =>
-    (await page!.evaluate<number>(`document.querySelectorAll('.react-flow__node[data-id^="zoom-seat-"]').length`)) >= seatCount,
+    (await page!.evaluate<number>(`document.querySelectorAll('.react-flow__node').length`)) >= (builtFixture.nodes as unknown[]).length,
   );
   await page.evaluate(`document.querySelector(".react-flow__controls-fitview")?.click()`);
   await sleep(1_000);
@@ -656,13 +691,11 @@ try {
   const sendWorking = () =>
     main!.evaluate(`(() => {
       const at = Date.now();
+      const seats = ${JSON.stringify(seatIds.map((id) => ({ id, bindingId: seatBindings.get(id) ?? `local:${id}` })))};
       for (const window of __probe.BrowserWindow.getAllWindows())
-        for (let i = 1; i <= ${seatCount}; i += 1) {
-          const ward = Math.floor((i - 1) / 16) + 1;
-          const within = (i - 1) % 16;
-          const id = "zoom-seat-" + String(ward).padStart(2, "0") + "-" + String(Math.floor(within / 4)) + String(within % 4);
+        for (const seat of seats) {
           window.webContents.send("junto:agent-seat-state-changed", {
-            bindingId: "local:" + id, epoch: "zoom-sweep", state: "working",
+            bindingId: seat.bindingId, epoch: "zoom-sweep", state: "working",
             reason: "rule:osc_title_working", confidence: "high", at,
           });
         }
@@ -898,7 +931,7 @@ try {
       browser!.on("Tracing.dataCollected", (params: { value: any[] }) => { options.trace!.push(...params.value); });
       traceDone = new Promise<void>((done) => browser!.on("Tracing.tracingComplete", () => done()));
       await browser!.send("Tracing.start", {
-        traceConfig: { includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline.frame", "disabled-by-default-devtools.timeline.invalidationTracking", "blink", "cc", "viz", "gpu", "benchmark", "toplevel"] },
+        traceConfig: { includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline.frame", "disabled-by-default-devtools.timeline.invalidationTracking", "blink", "blink.animations", "cc", "viz", "gpu", "benchmark", "toplevel"] },
         transferMode: "ReportEvents",
       } as never);
     }
@@ -948,6 +981,13 @@ try {
       })();
       return true;
     })()`);
+    if (options.trace) {
+      // The renderer's V8 profiler starts at the first JS after startRecording
+      // and blocks for 100-300 ms, which reads as a fake long task. Kick it
+      // once, then let it settle before the gesture.
+      await page!.evaluate(`(() => 0)()`).catch(() => undefined);
+      await sleep(500);
+    }
     const shotTaken = new Set<number>();
     const driven = await waitFor("the zoom sweep to finish", 120_000, async () => {
       if (options.shots !== undefined) {
@@ -1161,7 +1201,14 @@ try {
     arm: sweepArm,
     variant,
     ...(variant === "product" ? {} : { diagnostic: { kind: variant, comparableToProduct: false } }),
-    fixture: { name: fixtureName, seats: seatCount, regions: regions.length, notes: notes.length, wires: wires.length, nodes: fixtureRows.length },
+    fixture: {
+      name: fixtureFile === "" ? fixtureName : fixtureFile,
+      seats: seatCount,
+      regions: regions.length,
+      notes: notes.length,
+      wires: builtFixture.wires.length,
+      nodes: builtFixture.nodes.length,
+    },
     valid: zoom.valid,
     zoom,
     events: zoom.events,
