@@ -41,8 +41,8 @@ const fakeSource = (base: ArtifactsSource) => {
     answer: (round: string) => {
       for (const call of calls.splice(0)) call.resolve([head(`${round}-${call.nodeId}`, call.nodeId)]);
     },
-    change: () => {
-      for (const listener of listeners) listener({ canvasName: CANVAS });
+    change: (nodeIds?: ReadonlyArray<string>) => {
+      for (const listener of listeners) listener({ canvasName: CANVAS, ...(nodeIds === undefined ? {} : { nodeIds }) });
     },
   };
 };
@@ -243,5 +243,48 @@ describe("canvas artifacts, one read for every caller", () => {
     });
     expect(seen["card"]).toBe("r2-shelf-1");
     expect(countRenders).toBe(rendersAfterFirst);
+  });
+
+  it("re-reads only the nodes a notice names, and every node when it names none", async () => {
+    await act(async () => {
+      root.render(<Kept />);
+      await flush();
+    });
+    await act(async () => {
+      fake.answer("r1");
+      await flush();
+    });
+    // A write on shelf-2: only shelf-2 is read again; shelf-1 keeps its read.
+    await act(async () => {
+      fake.change(["shelf-2"]);
+      await flush();
+    });
+    expect(fake.calls.map((call) => call.nodeId)).toEqual(["shelf-2"]);
+    await act(async () => {
+      fake.answer("r2");
+      await flush();
+    });
+    expect(seen["kept"]).toBe("r1-shelf-1,r2-shelf-2|true");
+    // A move names both ends.
+    await act(async () => {
+      fake.change(["shelf-1", "shelf-2"]);
+      await flush();
+    });
+    expect(fake.calls.map((call) => call.nodeId).sort()).toEqual(["shelf-1", "shelf-2"]);
+    await act(async () => {
+      fake.answer("r3");
+      await flush();
+    });
+    // A replicated row names nothing: every node is read again, or a write from another machine stays stale.
+    await act(async () => {
+      fake.change();
+      await flush();
+    });
+    expect(fake.calls.map((call) => call.nodeId).sort()).toEqual(["shelf-1", "shelf-2"]);
+    await act(async () => {
+      fake.answer("r4");
+      await flush();
+    });
+    expect(seen["kept"]).toBe("r4-shelf-1,r4-shelf-2|true");
   });
 });

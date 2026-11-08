@@ -28,6 +28,8 @@ type Snap = {
 
 type Entry = {
   readonly canvas: string;
+  /** The node the read is of, when it is one node's: a notice naming other nodes leaves it fresh. */
+  readonly node: string | undefined;
   snap: Snap;
   /** The newest read a caller gave for this key. */
   read: () => Promise<unknown>;
@@ -48,6 +50,8 @@ export type SharedValue<T> = {
 export type SharedReadSpec<T> = {
   readonly key: string;
   readonly canvas: string;
+  /** The one node this read is of, if it is; a change naming nodes re-reads only theirs. */
+  readonly node?: string;
   readonly read: () => Promise<T>;
 };
 
@@ -67,7 +71,7 @@ export type SharedReads = {
  */
 export const makeSharedReads = (
   sourceOf: () => object,
-  listen: (source: object, changed: (canvas: string | undefined) => void) => () => void,
+  listen: (source: object, changed: (canvas: string | undefined, nodes?: ReadonlyArray<string>) => void) => () => void,
   {
     /**
      * Whether a kept value with no change since may be trusted by a new mount.
@@ -111,9 +115,11 @@ export const makeSharedReads = (
     if (listening?.source === source) return;
     listening?.stop();
     entries.clear();
-    const stop = listen(source, (canvas) => {
+    const stop = listen(source, (canvas, nodes) => {
       for (const entry of entries.values()) {
         if (canvas !== undefined && entry.canvas !== canvas) continue;
+        // A notice that names its nodes leaves every other node's read fresh; one that names none means them all.
+        if (nodes !== undefined && entry.node !== undefined && !nodes.includes(entry.node)) continue;
         if (entry.snap.fresh) entry.snap = { ...entry.snap, fresh: false };
         if (entry.readers.size > 0) start(entry);
       }
@@ -125,7 +131,7 @@ export const makeSharedReads = (
     ensureListening();
     let entry = entries.get(spec.key);
     if (entry === undefined) {
-      entry = { canvas: spec.canvas, snap: EMPTY, read: spec.read, readers: new Set(), reading: false, again: false };
+      entry = { canvas: spec.canvas, node: spec.node, snap: EMPTY, read: spec.read, readers: new Set(), reading: false, again: false };
       entries.set(spec.key, entry);
     }
     entry.read = spec.read;

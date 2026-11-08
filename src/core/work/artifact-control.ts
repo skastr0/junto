@@ -4,7 +4,7 @@
 // ResourceCommand (02). Storage reaches this file through `ArtifactPorts`, so
 // the verbs are tested without a database and the store can move under them.
 
-import { noteResourceChanged } from "./resource-changes";
+import { artifactNodesOf, noteResourceChanged } from "./resource-changes";
 import { Effect, Option, Result, Schema } from "effect";
 import {
   type ArtifactBody,
@@ -272,7 +272,9 @@ export const liveArtifactPorts: ArtifactPorts = (() => {
         // A resend answered from the stored ruling made nothing.
         Effect.tap((outcome) =>
           Effect.sync(() => {
-            if (outcome.kind === "applied" && outcome.facts.length > 0) noteResourceChanged("artifact", command.canvasName, { command });
+            if (outcome.kind === "applied" && outcome.facts.length > 0) {
+              noteResourceChanged("artifact", command.canvasName, { command }, artifactNodesOf(command.target.nodeId, outcome.facts));
+            }
           })),
       ),
     labelColours: (canvasName, nodeIds) => withRepo((repo) => repo.labelColours(canvasName, nodeIds)),
@@ -316,7 +318,8 @@ export const liveArtifactPorts: ArtifactPorts = (() => {
         // A resend answered from the stored ruling made nothing.
         Effect.tap((outcome) =>
           Effect.sync(() => {
-            if (outcome.kind === "applied" && outcome.changed) noteResourceChanged("artifact", command.canvasName, { command });
+            // A label colour is a fact of the node itself (artifact.label.coloured names the target).
+            if (outcome.kind === "applied" && outcome.changed) noteResourceChanged("artifact", command.canvasName, { command }, [command.target.nodeId]);
           })),
         Effect.map((outcome): LabelColourOutcome => (outcome.kind === "refused" ? outcome : { kind: outcome.kind, opId: outcome.opId })),
       );

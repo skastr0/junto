@@ -138,7 +138,7 @@ export const registerJuntoIpc = (boot: MainBoot): void => {
   );
   subscribeCore(RESOURCE_CHANGED, (event) => {
     const notice = event as ResourceChangedPush;
-    broadcast(notice.channel, { canvasName: notice.canvasName });
+    broadcast(notice.channel, { canvasName: notice.canvasName, ...(notice.nodeIds === undefined ? {} : { nodeIds: notice.nodeIds }) });
     // A body link lives or dies with an artifact write, and that write is the
     // only thing that changes one (work/body-links.ts): the same notice tells
     // the panes that read links.

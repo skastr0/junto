@@ -249,7 +249,8 @@ void [
  * Said to every window after a write to a canvas's tasks or artifacts, by
  * anyone, and when one of this machine's queued writes is ruled.
  */
-export type ResourceChanged = { readonly canvasName: string };
+/** A resource changed on a canvas: on `nodeIds` when named, anywhere on the canvas when not. */
+export type ResourceChanged = { readonly canvasName: string; readonly nodeIds?: ReadonlyArray<string> };
 
 const isTaskRefusalKind = (kind: unknown): kind is TaskRefusalDetail["kind"] =>
   typeof kind === "string" && Object.hasOwn(TASK_REFUSAL_REASON, kind);

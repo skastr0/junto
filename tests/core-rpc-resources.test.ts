@@ -58,7 +58,11 @@ it("fails a read the store cannot make with the contract's error, and tells the 
     [RESOURCE_THREAD_CHANGED, { channel: RESOURCE_IPC_CHANNELS.thread.changed, canvasName: "factory", kind: "task" }],
   ]);
 
+  // A write that names its nodes carries them on, so the window re-reads those alone.
+  noteResourceChanged("artifact", "factory", undefined, ["arts-1", "arts-2"]);
+  expect(pushed[3]).toEqual([RESOURCE_CHANGED, { channel: RESOURCE_IPC_CHANNELS.artifact.changed, canvasName: "factory", nodeIds: ["arts-1", "arts-2"] }]);
+
   await Effect.runPromise(Scope.close(scope, Exit.void));
   noteResourceChanged("task", "factory");
-  expect(pushed).toHaveLength(3);
+  expect(pushed).toHaveLength(5);
 });

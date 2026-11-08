@@ -275,13 +275,14 @@ const NONE: ReadonlyArray<never> = [];
  */
 const artifactReads = makeSharedReads(
   () => source,
-  (from, changed) => (from as ArtifactsSource).onChanged((notice) => changed(notice.canvasName)),
+  (from, changed) => (from as ArtifactsSource).onChanged((notice) => changed(notice.canvasName, notice.nodeIds)),
 );
 
 /** One node's heads, as a shared read. */
 export const nodeArtifactsRead = (canvasName: string, nodeId: NodeId): SharedReadSpec<ReadonlyArray<ArtifactHead>> => ({
   key: `${canvasName}\u0000${nodeId}`,
   canvas: canvasName,
+  node: nodeId,
   read: () => artifactsSource().list(canvasName, nodeId),
 });
 

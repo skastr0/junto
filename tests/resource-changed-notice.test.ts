@@ -71,9 +71,9 @@ const created = {
   },
 };
 
-const noted: Array<[ResourceIpcDomain, string]> = [];
+const noted: Array<[ResourceIpcDomain, string, ReadonlyArray<string> | undefined]> = [];
 const stops: Array<() => void> = [];
-const listen = () => stops.push(onResourceChanged((domain, canvasName) => void noted.push([domain, canvasName])));
+const listen = () => stops.push(onResourceChanged((domain, canvasName, _artifact, nodeIds) => void noted.push([domain, canvasName, nodeIds])));
 
 type Machine = { root: string; runtime: ManagedRuntime.ManagedRuntime<WorkRepository | SqlClient.SqlClient, unknown>; repository: Context.Service.Shape<typeof WorkRepository>; exchange: RowExchange };
 const booted: Machine[] = [];
@@ -127,11 +127,16 @@ it("the ruler notes an artifact ruling that changed something, and not a replay"
   const repo = { submit: () => Effect.sync(() => ({ kind: "applied", opId, artifactId, version: 1, facts })) } as unknown as ArtifactRepository["Service"];
   const rule = artifactRuler(repo);
   expect(await Effect.runPromise(rule(MINI, command, canvasOf(nodes)))).toEqual({ kind: "ruled" });
-  expect(noted).toEqual([["artifact", "factory"]]);
+  // The notice names the node the ruling touched, so a window re-reads that node alone.
+  expect(noted).toEqual([["artifact", "factory", ["arts-1"]]]);
   // A replay answers from the stored ruling and changes nothing.
   facts = [];
   await Effect.runPromise(rule(MINI, command, canvasOf(nodes)));
-  expect(noted).toEqual([["artifact", "factory"]]);
+  expect(noted).toEqual([["artifact", "factory", ["arts-1"]]]);
+  // A move touches both ends, named from its fact.
+  facts = [{ fact: "artifact.moved", artifactId, from: "arts-1", to: "arts-2", by: command.actor, at: 2 }];
+  await Effect.runPromise(rule(MINI, command, canvasOf(nodes)));
+  expect(noted.at(-1)).toEqual(["artifact", "factory", ["arts-1", "arts-2"]]);
 });
 
 it("a replica notes the change once the ruling that crossed the link is folded", async () => {
@@ -157,7 +162,8 @@ it("a replica notes the change once the ruling that crossed the link is folded",
     const poll = () => (noted.length > 0 ? resolve() : Date.now() > deadline ? reject(new Error("no change was noted")) : setTimeout(poll, 5));
     poll();
   });
-  expect(noted).toEqual([["artifact", "factory"]]);
+  // A replicated row cannot know its nodes: the notice means the whole canvas.
+  expect(noted).toEqual([["artifact", "factory", undefined]]);
   // Noted after the fold committed: the replica holds the artifact the ruling made.
   const held = await mini.runtime.runPromise(Effect.flatMap(SqlClient.SqlClient, (sql) =>
     sql.unsafe<{ n: number }>("SELECT count(*) AS n FROM artifact_versions WHERE canvas_name = 'factory' AND artifact_id = ?", [artifactId])));

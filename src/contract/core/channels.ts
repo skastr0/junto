@@ -66,8 +66,16 @@ export const RESOURCE_CHANGED = "resource.changed";
 /** A comment landed on a resource whose own rows did not change. */
 export const RESOURCE_THREAD_CHANGED = "resource.threadChanged";
 
-/** What crosses on the two notices: the window's own channel and what it carries. */
-export const ResourceChangedPush = Schema.Struct({ channel: Schema.String, canvasName: Schema.String });
+/**
+ * What crosses on the two notices: the window's own channel and what it
+ * carries. `nodeIds` names the nodes a write touched (a move touches two);
+ * absent, the notice means the whole canvas, as a replicated row's does.
+ */
+export const ResourceChangedPush = Schema.Struct({
+  channel: Schema.String,
+  canvasName: Schema.String,
+  nodeIds: Schema.optionalKey(Schema.Array(Schema.String)),
+});
 export type ResourceChangedPush = typeof ResourceChangedPush.Type;
 export const ResourceThreadChangedPush = Schema.Struct({ ...ResourceChangedPush.fields, kind: Schema.String });
 export type ResourceThreadChangedPush = typeof ResourceThreadChangedPush.Type;

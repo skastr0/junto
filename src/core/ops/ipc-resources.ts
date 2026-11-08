@@ -51,11 +51,13 @@ export const ResourcesHandlers = ResourcesRpcs.toLayer(
 
     // The notices a write leaves. Told from here so any surface's write reaches
     // the window; main relays both onto the channels the window listens to.
-    const stopResourceNotice = onResourceChanged((domain, canvasName) => {
+    const stopResourceNotice = onResourceChanged((domain, canvasName, _artifact, nodeIds) => {
       publishing(
         pushes.publish(RESOURCE_CHANGED, {
           channel: RESOURCE_IPC_CHANNELS[domain].changed,
           canvasName,
+          // Named nodes go on as named; none means the whole canvas.
+          ...(nodeIds === undefined ? {} : { nodeIds }),
         } satisfies ResourceChangedPush),
       );
       // A comment on a task or an artifact is a change of it (subject-comment.ts),
