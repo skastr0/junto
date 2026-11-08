@@ -234,6 +234,11 @@ const easeSeatRings = (host: HTMLElement, tier: CanvasTier, from: SeatScales, to
   for (const mark of host.querySelectorAll<HTMLElement>(".react-flow__viewport .junto-seat > .junto-mark")) {
     const node = mark.closest<HTMLElement>(".react-flow__node");
     if (node !== null && camera !== undefined && !onScreen(node, camera, RING_UNITS * Math.max(to.far, to.floor))) continue;
+    // A gathered seat is visibility:hidden by the cluster sheet, and a
+    // transform animation on it cannot composite (Blink reports the target's
+    // compositing state as invalid and runs it on the main thread for nothing:
+    // 171 of them in one zoom sweep). Only a mark that can be seen eases.
+    if (mark.checkVisibility?.({ checkVisibilityCSS: true, contentVisibilityAuto: false }) === false) continue;
     const cap = Number(node?.style.getPropertyValue("--ring-cap")) || 1.75;
     const ratio = seatEaseRatio(tier, from, to, cap);
     if (!Number.isFinite(ratio) || Math.abs(ratio - 1) < 0.002) continue;

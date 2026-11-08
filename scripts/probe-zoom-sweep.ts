@@ -145,6 +145,10 @@ const label = arg("label", "run");
 const seconds = Number(arg("seconds", "8"));
 const port = Number(arg("port", "9345"));
 const outPath = arg("out", "");
+/** Inspect the first seat mark's matched rules (why an animation cannot composite) and exit. */
+const inspectMark = flag("inspect-mark");
+/** Run one animation per case under a trace and report whether each composited. */
+const animProbe = flag("anim-probe");
 /** Where to write one screenshot per phase end (the zoom reached, for ring sharpness). */
 const shotsDir = arg("shots", "");
 /** Zooms to settle at and capture after the sweep, for a sharpness comparison. */
@@ -676,6 +680,100 @@ try {
       await send(placeOnMachine(fixture, defaultMachineName()));
     }
     return name;
+  }
+
+  if (inspectMark) {
+    await page.send("DOM.enable");
+    await page.send("CSS.enable");
+    const doc = await page.send("DOM.getDocument", { depth: 1 }) as { root: { nodeId: number } };
+    const found = await page.send("DOM.querySelector", { nodeId: doc.root.nodeId, selector: ".junto-seat > .junto-mark" }) as { nodeId: number };
+    const matched = await page.send("CSS.getMatchedStylesForNode", { nodeId: found.nodeId }) as any;
+    const interesting = /^(transform|scale|translate|rotate|animation|transition|contain|display|will-change)$/u;
+    const rows: Array<{ selector: string; origin: string; important: Array<string>; plain: Array<string> }> = [];
+    for (const entry of matched?.matchedCSSRules ?? []) {
+      const props: Array<{ name: string; important?: boolean }> = entry.rule?.style?.cssProperties ?? [];
+      const important = props.filter((prop) => prop.important && interesting.test(prop.name)).map((prop) => prop.name);
+      const plain = props.filter((prop) => !prop.important && interesting.test(prop.name)).map((prop) => prop.name);
+      if (important.length === 0 && plain.length === 0) continue;
+      rows.push({
+        selector: String(entry.rule?.selectorList?.text ?? "").slice(0, 160),
+        origin: String(entry.rule?.origin ?? ""),
+        important,
+        plain,
+      });
+    }
+    const inline = matched?.inlineStyle?.cssProperties ?? [];
+    console.log(JSON.stringify({
+      nodeId: found.nodeId,
+      inlineImportant: inline.filter((prop: any) => prop.important).map((prop: any) => prop.name),
+      rows,
+      inherited: (matched?.inherited ?? []).length,
+    }, null, 2));
+    await teardown();
+    process.exit(0);
+  }
+
+  if (animProbe) {
+    const animateMark = `document.querySelector(".junto-seat > .junto-mark").animate([{ transform: "scale(0.9)" }, { transform: "none" }], { duration: 400 })`;
+    const cases: Array<[string, string]> = [
+      ["waapi transform on the mark", animateMark],
+      ["waapi on the mark, overflow visible up the chain", `{ let el = document.querySelector(".junto-seat > .junto-mark"); while (el) { el.style.overflow = "visible"; el = el.parentElement; } ${animateMark}; }`],
+      ["waapi on the mark, border-radius 0 up the chain", `{ let el = document.querySelector(".junto-seat > .junto-mark"); while (el) { el.style.borderRadius = "0"; el = el.parentElement; } ${animateMark}; }`],
+      ["waapi on the mark, contain none everywhere", `{ let el = document.querySelector(".junto-seat > .junto-mark"); while (el) { el.style.contain = "none"; el = el.parentElement; } ${animateMark}; }`],
+      ["waapi on the mark, isolation auto + z-index auto", `{ let el = document.querySelector(".junto-seat > .junto-mark"); while (el) { el.style.isolation = "auto"; el.style.zIndex = "auto"; el = el.parentElement; } ${animateMark}; }`],
+      ["waapi on the mark, will-change transform", `{ const mark = document.querySelector(".junto-seat > .junto-mark"); mark.style.willChange = "transform"; mark.animate([{ transform: "scale(0.9)" }, { transform: "none" }], { duration: 400 }); }`],
+      ["waapi on the mark, static translateZ(0)", `{ const mark = document.querySelector(".junto-seat > .junto-mark"); mark.style.transform = "translateZ(0)"; mark.animate([{ transform: "scale(0.9) translateZ(0)" }, { transform: "translateZ(0)" }], { duration: 400 }); }`],
+      ["waapi on the mark, backdrop-filter none", `{ const mark = document.querySelector(".junto-seat > .junto-mark"); mark.animate([{ transform: "scale(0.9)" }, { transform: "none" }], { duration: 400 }); }`],
+      ["waapi on the first VISIBLE card mark", `{ const marks = [...document.querySelectorAll(".junto-seat > .junto-mark")]; const visible = marks.filter((m) => m.checkVisibility({ checkVisibilityCSS: true })); window.__animCounts = { marks: marks.length, visible: visible.length, cardVisible: [...document.querySelectorAll(".react-flow__node")].filter((n) => n.checkVisibility({ checkVisibilityCSS: true })).length }; if (visible[0]) visible[0].animate([{ transform: "scale(0.9)" }, { transform: "none" }], { duration: 400 }); }`],
+      ["waapi on a mark in a cluster portal", `{ const mark = document.querySelector(".junto-seat-cluster__body > .junto-seat-cluster__stack > .junto-mark") ?? document.querySelector(".junto-seat-cluster__stack > .junto-mark"); if (mark) mark.animate([{ transform: "scale(0.9)" }, { transform: "none" }], { duration: 400 }); }`],
+    ];
+    const chain = await page!.evaluate<Array<Record<string, unknown>>>(`(() => {
+      const props = ["transform", "filter", "backdrop-filter", "opacity", "contain", "will-change", "isolation", "mix-blend-mode", "clip-path", "mask", "perspective", "transform-style", "content-visibility", "z-index", "position", "display"];
+      const rows = [];
+      let el = document.querySelector(".junto-seat > .junto-mark");
+      while (el && el !== document.body) {
+        const style = getComputedStyle(el);
+        rows.push({
+          node: el.className ? el.tagName + "." + String(el.className).slice(0, 60) : el.tagName,
+          id: el.id || undefined,
+          ...Object.fromEntries(props.map((prop) => [prop, style.getPropertyValue(prop)])),
+        });
+        el = el.parentElement;
+      }
+      return rows;
+    })()`);
+    console.log(JSON.stringify(chain, null, 2));
+    const out: Array<Record<string, unknown>> = [];
+    for (const [name, script] of cases) {
+      const events: Array<Record<string, unknown>> = [];
+      const collect = (params: { value: any[] }) => {
+        for (const event of params.value) if (event.name === "Animation") events.push(event.args?.data ?? {});
+      };
+      browser!.on("Tracing.dataCollected", collect);
+      const done = new Promise<void>((ok) => browser!.on("Tracing.tracingComplete", () => ok()));
+      await browser!.send("Tracing.start", { traceConfig: { includedCategories: ["devtools.timeline", "blink.animations"] }, transferMode: "ReportEvents" } as never);
+      const started = await page!.evaluate<boolean>(`(() => {
+        const el = document.querySelector(".junto-seat > .junto-mark");
+        if (!el) return false;
+        ${script};
+        return true;
+      })()`);
+      await sleep(700);
+      await browser!.send("Tracing.end");
+      await done;
+      const failed = events.filter((data) => Number(data.compositeFailed ?? 0) !== 0);
+      out.push({
+        name,
+        counts: await page!.evaluate<unknown>(`window.__animCounts ?? null`).catch(() => null),
+        started,
+        events: events.length,
+        failed: failed.length,
+        values: [...new Set(failed.map((data) => data.compositeFailed))],
+      });
+    }
+    console.log(JSON.stringify(out, null, 2));
+    await teardown();
+    process.exit(0);
   }
 
   const environment = await main.evaluate<{ accessibility: boolean; electron: string; chrome: string; displays: number; darkOs: boolean; displayHz: number; window: string }>(`({
