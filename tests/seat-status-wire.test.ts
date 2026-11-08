@@ -80,6 +80,16 @@ describe("a status crosses a hop only when it decodes", () => {
     const junk = decodeAgentSeatStateEvent({ ...limited(), status: 7 });
     expect(junk?.state).toBe("attention");
     expect(junk?.status).toBeUndefined();
+    expect(agentSeatStatusOf({ status: 7 } as never)).toBeUndefined();
+  });
+
+  it("decodes a carried status once: the same event reads the same status", () => {
+    const event = limited();
+    const first = agentSeatStatusOf(event);
+    expect(first?.need.cause).toBe("usage_limit");
+    expect(agentSeatStatusOf(event)).toBe(first);
+    // A new event brings a new status object, read on its own.
+    expect(agentSeatStatusOf(limited())).not.toBe(first);
   });
 });
 

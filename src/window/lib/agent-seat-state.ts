@@ -278,7 +278,9 @@ export const seatEventForBinding = (
   bindingId: string | undefined,
 ): AgentSeatStateEvent | undefined => {
   if (!bindingId) return undefined;
-  return agentSeat$.byBindingId[bindingId].peek();
+  // The raw record, not a child observable: the same untracked value without
+  // a proxy walk per seat, which every feed build paid for every seat.
+  return agentSeat$.byBindingId.peek()[bindingId];
 };
 
 /**

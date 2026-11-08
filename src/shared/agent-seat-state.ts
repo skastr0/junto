@@ -56,13 +56,28 @@ export const encodeAgentSeatStatus = Schema.encodeSync(AgentSeatStatus);
 
 const decodeStatus = Schema.decodeUnknownOption(AgentSeatStatus);
 
+/**
+ * Each carried status decoded once. A status object rides its event unchanged
+ * (a new event brings a new one), and the feed, the desktop notifications and
+ * every seat's need asked for every seat's status on each seat change: a
+ * schema decode per seat per read, 30 ms over 30 s on the operator's board
+ * (0.11.10 trace).
+ */
+const decodedStatus = new WeakMap<object, AgentSeatStatus | undefined>();
+
 /** The status an event carries, or undefined when it carries none that reads. */
 export const agentSeatStatusOf = (
   event: Pick<AgentSeatStateEvent, "status"> | undefined,
 ): AgentSeatStatus | undefined => {
-  if (event?.status === undefined) return undefined;
-  const decoded = decodeStatus(event.status);
-  return decoded._tag === "Some" ? decoded.value : undefined;
+  const status: unknown = event?.status;
+  if (status === undefined) return undefined;
+  // Only an object can be held; anything else off the wire is junk that does not read.
+  const holdable = typeof status === "object" && status !== null;
+  if (holdable && decodedStatus.has(status)) return decodedStatus.get(status);
+  const decoded = decodeStatus(status);
+  const value = decoded._tag === "Some" ? decoded.value : undefined;
+  if (holdable) decodedStatus.set(status, value);
+  return value;
 };
 
 /** Optional hook/events feed (Claude settings, Grok events.jsonl, Hermes plugins). */
