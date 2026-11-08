@@ -156,6 +156,20 @@
           }
         ]
       }
+    ],
+    "junto/change-names-its-subject": [
+      "error",
+      {
+        "known": [
+          "src/shared/artifact-links-ipc.ts#ArtifactLinksChanged",
+          "src/contract/core/push-payloads.ts#MentionChanged",
+          "src/shared/mention-ipc.ts#MentionsChanged",
+          "src/shared/resource-ipc.ts#ResourceChanged",
+          "src/contract/core/channels.ts#ResourceChangedPush",
+          "src/core/hosts/machine-changes.ts#noteMachinesChanged",
+          "src/core/work/resource-changes.ts#noteThreadChanged"
+        ]
+      }
     ]
   }
 }
