@@ -122,12 +122,12 @@ describe("performance traces", () => {
     expect(await recorder.record("a second test", 1)).toBeUndefined();
     release();
     const path = await first;
-    expect(path).toBe(join(home, "traces", "trace-2026-11-06T22-48-41Z.json"));
+    expect(path).toBe(join(home, ".junto", "traces", "trace-2026-11-06T22-48-41Z.json"));
     expect(statSync(path!).mode & 0o777).toBe(0o600);
-    expect(statSync(join(home, "traces")).mode & 0o777).toBe(0o700);
+    expect(statSync(join(home, ".junto", "traces")).mode & 0o777).toBe(0o700);
     expect(started[0]).toContain("disabled-by-default-v8.cpu_profiler");
     expect(started[0]).toContain("viz");
-    expect(readdirSync(join(home, "traces"))).toEqual(["trace-2026-11-06T22-48-41Z.json"]);
+    expect(readdirSync(join(home, ".junto", "traces"))).toEqual(["trace-2026-11-06T22-48-41Z.json"]);
     expect(rows.some((row) => row.includes("ignored the a second test request"))).toBe(true);
     expect(recorder.recording()).toBe(false);
   });

@@ -53,7 +53,8 @@ export const TRACE_CATEGORIES: ReadonlyArray<string> = [
   "disabled-by-default-v8.cpu_profiler",
 ];
 
-export const traceDir = (juntoHome: string): string => join(juntoHome, TRACE_DIR);
+/** `juntoHome` is the home folder itself (resolveJuntoHome), so `.junto` is joined here. */
+export const traceDir = (juntoHome: string): string => join(juntoHome, ".junto", TRACE_DIR);
 
 /** `trace-2026-11-06T22-48-41Z.json`: sortable, and safe in every file system. */
 export const traceFileName = (now: Date): string =>
