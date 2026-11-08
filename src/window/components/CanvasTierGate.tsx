@@ -1,6 +1,14 @@
 import { useEffect } from "react";
 import { useStoreApi } from "@xyflow/react";
-import { CAMERA_SETTLE_MS, cameraSettled$, clearCanvasTier, publishCanvasTier, publishFarSeatScale } from "../lib/canvas-tier";
+import {
+  CAMERA_SETTLE_MS,
+  cameraSettled$,
+  canvasTier$,
+  clearCanvasTier,
+  easeSeatScaleOnTierEntry,
+  publishCanvasTier,
+  publishFarSeatScale,
+} from "../lib/canvas-tier";
 
 /**
  * Publishes the canvas level-of-detail tier for the camera zoom (canvas-tier.ts),
@@ -49,7 +57,8 @@ export function CanvasTierGate() {
       }
       if (state.transform[2] === zoom) return;
       zoom = state.transform[2];
-      publishCanvasTier(zoom);
+      const was = canvasTier$.peek();
+      easeSeatScaleOnTierEntry(state.domNode, was, publishCanvasTier(zoom));
     });
     return () => {
       unsubscribe();

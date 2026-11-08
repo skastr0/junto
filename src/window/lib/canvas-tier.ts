@@ -117,9 +117,52 @@ export const farSeatScale = (zoom: number): number => scaleFor(FAR_RING_SCREEN_P
 /** The scale that draws a seat ring OVERVIEW_RING_FLOOR_PX across at this zoom. */
 export const seatFloorScale = (zoom: number): number => scaleFor(OVERVIEW_RING_FLOOR_PX, zoom, 1);
 
-const writeScale = (host: HTMLElement, name: string, value: number): void => {
+const writeScale = (host: HTMLElement, name: string, value: number): boolean => {
   const text = value.toFixed(1);
-  if (host.style.getPropertyValue(name) !== text) host.style.setProperty(name, text);
+  if (host.style.getPropertyValue(name) === text) return false;
+  host.style.setProperty(name, text);
+  return true;
+};
+
+/**
+ * The far seat scale and the overview floor a ring's size eases from
+ * (canvas-lod.css). A far ring is sized by layout (its --mark-u), not by a
+ * scale transform: a scale over the turning parts made Chromium draw every
+ * ring offscreen on every frame ("2D scale transform with composited
+ * descendants", 16 render passes a frame on the operator's board at the
+ * overview). So the size change after a zoom is a FLIP: the new size lands in
+ * layout at once, and the ring eases from the old size to it as a transform
+ * animation on the compositor, which ends at no transform at all.
+ */
+export const FAR_SEAT_SCALE_WAS_VAR = "--far-seat-scale-was";
+export const SEAT_FLOOR_SCALE_WAS_VAR = "--seat-floor-scale-was";
+/**
+ * Attribute on the ReactFlow root that restarts the ease: "a" and "b" ease
+ * from the size written in the two properties above, after a rest; "in-a"
+ * and "in-b" ease from the near size, as a ring enters far or overview. Each
+ * pair alternates so the same ease twice in a row restarts.
+ */
+export const SEAT_EASE_ATTR = "data-seat-ease";
+
+const flipEase = (host: HTMLElement, pair: readonly [string, string]): void => {
+  host.setAttribute(SEAT_EASE_ATTR, host.getAttribute(SEAT_EASE_ATTR) === pair[0] ? pair[1] : pair[0]);
+};
+
+const easeSeatScale = (host: HTMLElement, farWas: string, floorWas: string): void => {
+  host.style.setProperty(FAR_SEAT_SCALE_WAS_VAR, farWas);
+  host.style.setProperty(SEAT_FLOOR_SCALE_WAS_VAR, floorWas);
+  flipEase(host, ["a", "b"]);
+};
+
+/**
+ * A ring entering far or overview grows from its near size, as the transform
+ * transition did when the tier rule first applied. Mid-gesture, so it writes
+ * no inherited property: the attribute alone restarts it.
+ */
+export const easeSeatScaleOnTierEntry = (host: HTMLElement | null, was: CanvasTier, next: CanvasTier): void => {
+  const enlarged = (tier: CanvasTier): boolean => tier === "far" || tier === "overview";
+  if (host === null || enlarged(was) || !enlarged(next)) return;
+  flipEase(host, ["in-a", "in-b"]);
 };
 
 /** Custom property on the ReactFlow root: the inverse zoom, for sizes held in screen pixels (spine discs, focus rings). */
@@ -138,6 +181,10 @@ export const nodeScale = (zoom: number): number => {
 export const publishFarSeatScale = (host: HTMLElement | null, zoom: number): void => {
   if (host === null) return;
   writeScale(host, NODE_SCALE_VAR, nodeScale(zoom));
-  writeScale(host, FAR_SEAT_SCALE_VAR, farSeatScale(zoom));
-  writeScale(host, SEAT_FLOOR_SCALE_VAR, seatFloorScale(zoom));
+  // The first write lands without an ease, as a ring's first style did.
+  const farWas = host.style.getPropertyValue(FAR_SEAT_SCALE_VAR);
+  const floorWas = host.style.getPropertyValue(SEAT_FLOOR_SCALE_VAR);
+  const far = writeScale(host, FAR_SEAT_SCALE_VAR, farSeatScale(zoom));
+  const floor = writeScale(host, SEAT_FLOOR_SCALE_VAR, seatFloorScale(zoom));
+  if ((far || floor) && farWas !== "" && floorWas !== "") easeSeatScale(host, farWas, floorWas);
 };

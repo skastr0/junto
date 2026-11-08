@@ -84,18 +84,48 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
 html[data-canvas-tier="overview"] .react-flow__viewport .junto-seat {
   --seat-s: max(var(--seat-floor-scale, 1), min(var(--far-seat-scale, 1.75), var(--ring-cap, 1.75)));
 }
+/* The ring is enlarged by its own unit, in layout, never by a scale
+   transform: a scale over the turning parts is a 2D scale with composited
+   descendants, which Chromium draws offscreen on every frame (16 render
+   passes a frame on the operator's board at the overview, measured by the
+   idle probe; the GPU work fell 33% without it on the operator's Mac). The
+   negative margin keeps the ring's footprint at 52px, so its centre, the
+   name tag and the wires stay where the scale put them. */
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat > .junto-mark {
-  transform: scale(var(--seat-s));
+  --mark-u: calc(52px * var(--seat-s));
+  margin: calc(26px * (1 - var(--seat-s)));
 }
 /* The scale is published once the camera rests (CanvasTierGate), so a ring
    changes size after a zoom gesture, not on each frame of it. The change is
-   traced by a transform transition, on the compositor the ring already turns
-   on; a ring's motion is never slowed or stilled, only its size eased into
-   place. 160ms is CAMERA_SETTLE_MS, the rest the camera is counted at. With
-   motion paused (reduced motion) the size lands at once. */
-html:not([data-surface-motion="paused"]):is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat > .junto-mark {
-  transition: transform 160ms cubic-bezier(.33, 1, .68, 1);
+   eased on the compositor the ring already turns on, as a FLIP: the new size
+   lands in layout, and the ring runs from its old size to it in 160ms
+   (CAMERA_SETTLE_MS) as a transform animation that ends at no transform, so
+   a ring at rest holds no scale. A ring's motion is never slowed or stilled,
+   only its size eased into place. canvas-tier.ts writes the size it eases
+   from and flips data-seat-ease to restart the ease. With motion paused
+   (reduced motion) the size lands at once. */
+html[data-canvas-tier="far"] .react-flow__viewport .junto-seat {
+  --seat-s-was: max(1, min(var(--far-seat-scale-was, 1.75), var(--ring-cap, 1.75)));
 }
+html[data-canvas-tier="overview"] .react-flow__viewport .junto-seat {
+  --seat-s-was: max(var(--seat-floor-scale-was, 1), min(var(--far-seat-scale-was, 1.75), var(--ring-cap, 1.75)));
+}
+html:not([data-surface-motion="paused"]):is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow[data-seat-ease="a"] .react-flow__viewport .junto-seat > .junto-mark {
+  animation: junto-seat-ease-a 160ms cubic-bezier(.33, 1, .68, 1);
+}
+html:not([data-surface-motion="paused"]):is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow[data-seat-ease="b"] .react-flow__viewport .junto-seat > .junto-mark {
+  animation: junto-seat-ease-b 160ms cubic-bezier(.33, 1, .68, 1);
+}
+html:not([data-surface-motion="paused"]):is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow[data-seat-ease="in-a"] .react-flow__viewport .junto-seat > .junto-mark {
+  animation: junto-seat-ease-in-a 160ms cubic-bezier(.33, 1, .68, 1);
+}
+html:not([data-surface-motion="paused"]):is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow[data-seat-ease="in-b"] .react-flow__viewport .junto-seat > .junto-mark {
+  animation: junto-seat-ease-in-b 160ms cubic-bezier(.33, 1, .68, 1);
+}
+@keyframes junto-seat-ease-a { from { transform: scale(calc(var(--seat-s-was) / var(--seat-s))); } }
+@keyframes junto-seat-ease-b { from { transform: scale(calc(var(--seat-s-was) / var(--seat-s))); } }
+@keyframes junto-seat-ease-in-a { from { transform: scale(calc(1 / var(--seat-s))); } }
+@keyframes junto-seat-ease-in-b { from { transform: scale(calc(1 / var(--seat-s))); } }
 /* The scaled mark is already its own compositor layer, holding the ring and
    its turning parts, so the card's own layer (styles.css, a card with a
    turning ring) would only double it: far and overview drop it. The rings

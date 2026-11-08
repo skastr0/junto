@@ -50,8 +50,11 @@ import { RegionGlanceGate } from "../src/window/components/RegionGlanceGate";
 import {
   CAMERA_SETTLE_MS,
   FAR_SEAT_SCALE_VAR,
+  FAR_SEAT_SCALE_WAS_VAR,
   NODE_SCALE_VAR,
+  SEAT_EASE_ATTR,
   SEAT_FLOOR_SCALE_VAR,
+  SEAT_FLOOR_SCALE_WAS_VAR,
   cameraSettled$,
   clearCanvasTier,
   farSeatScale,
@@ -133,14 +136,32 @@ describe("level-of-detail properties wait for the camera to rest", () => {
     expect(value(NODE_SCALE_VAR)).toBe(text(nodeScale(1)));
 
     await rest();
-    // One write per property, all five of them, at the values of the rest.
+    // One write per property, all five of them, at the values of the rest,
+    // and the two sizes the ring eases from (the values before the rest).
     expect(written.mock.calls.map((call) => call.join("="))).toEqual([
       `${NODE_SCALE_VAR}=${text(nodeScale(0.2))}`,
       `${FAR_SEAT_SCALE_VAR}=${text(farSeatScale(0.2))}`,
       `${SEAT_FLOOR_SCALE_VAR}=${text(seatFloorScale(0.2))}`,
+      `${FAR_SEAT_SCALE_WAS_VAR}=${text(farSeatScale(1))}`,
+      `${SEAT_FLOOR_SCALE_WAS_VAR}=${text(seatFloorScale(1))}`,
       `${GLANCE_VAR}=${opacity(regionGlanceOpacity(0.2))}`,
       `${GLANCE_SUB_VAR}=${opacity(subregionGlanceOpacity(0.2))}`,
     ]);
+  });
+
+  it("restarts the ring's ease: from the near size as it enters far, from the old size at rest", async () => {
+    expect(surface.getAttribute(SEAT_EASE_ATTR)).toBeNull();
+    await gesture([0.2]);
+    expect(surface.getAttribute(SEAT_EASE_ATTR)).toBe("in-a");
+    await rest();
+    expect(surface.getAttribute(SEAT_EASE_ATTR)).toBe("a");
+    await gesture([0.15]);
+    await rest();
+    expect(surface.getAttribute(SEAT_EASE_ATTR)).toBe("b");
+    // Back to near and in again: the entry ease restarts.
+    await gesture([0.9]);
+    await gesture([0.2]);
+    expect(surface.getAttribute(SEAT_EASE_ATTR)).toBe("in-a");
   });
 
   it("moves the tier with the camera, so the detail under the hand stays true", async () => {
@@ -181,8 +202,20 @@ describe("ring size easing", () => {
   const styles = readFileSync(join(__dirname, "..", "src/window/styles/canvas-lod.css"), "utf8");
 
   it("eases the far ring scale on the compositor, and jumps when motion is paused", () => {
-    expect(styles).toMatch(
-      /html:not\(\[data-surface-motion="paused"\]\)[^{]*\.junto-seat > \.junto-mark \{[^}]*transition: transform \d+ms/,
-    );
+    // Every ease runs only while motion is live, as a transform animation.
+    for (const ease of ["a", "b", "in-a", "in-b"]) {
+      expect(styles).toMatch(
+        new RegExp(
+          String.raw`html:not\(\[data-surface-motion="paused"\]\)[^{]*\.react-flow\[data-seat-ease="${ease}"\][^{]*\.junto-seat > \.junto-mark \{[^}]*animation: junto-seat-ease-${ease} \d+ms`,
+        ),
+      );
+      expect(styles).toMatch(new RegExp(String.raw`@keyframes junto-seat-ease-${ease} \{ from \{ transform: scale\(`));
+    }
+  });
+
+  it("sizes a far ring by its unit, never by a scale transform at rest", () => {
+    // A scale over the turning parts drew every ring offscreen every frame.
+    expect(styles).not.toMatch(/\.junto-seat > \.junto-mark \{[^}]*transform: scale\(var\(--seat-s\)\)/);
+    expect(styles).toMatch(/\.junto-seat > \.junto-mark \{\s*--mark-u: calc\(52px \* var\(--seat-s\)\);\s*margin: calc\(26px \* \(1 - var\(--seat-s\)\)\);/);
   });
 });
