@@ -797,7 +797,7 @@ try {
     await sleep(900);
     const before = await page!.evaluate<string>(`document.querySelector(".react-flow__viewport")?.style.transform ?? ""`);
     await browser!.send("Tracing.start", {
-      traceConfig: { includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline.frame", "disabled-by-default-devtools.timeline.invalidationTracking", "blink", "blink.user_timing", "cc", "viz", "gpu", "disabled-by-default-cc.debug.scheduler", "benchmark", "toplevel"] },
+      traceConfig: { includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline.frame", "disabled-by-default-devtools.timeline.invalidationTracking", "disabled-by-default-devtools.timeline.stack", "blink", "blink.user_timing", "cc", "viz", "gpu", "disabled-by-default-cc.debug.scheduler", "benchmark", "toplevel"] },
       transferMode: "ReportEvents",
     } as never);
     await page!.evaluate(`(() => 0)()`).catch(() => undefined);
@@ -908,14 +908,29 @@ try {
     const slow = trace
       .filter((event) => event.name === "ProxyMain::BeginMainFrame" && event.ph === "X" && typeof event.dur === "number")
       .sort((a, b) => b.dur - a.dur)[0];
+    // Invalidation events are emitted where the change is scheduled, in the
+    // task that writes: tally the gap between the publish mark and the frame
+    // that pays, and the JS stacks that wrote there.
     const invalidations: any[] = [];
-    if (slow !== undefined) {
-      const from = slow.ts;
+    const writers = new Map<string, number>();
+    if (slow !== undefined && marker !== undefined) {
+      // The mark fires in a microtask after the write, so the scheduling
+      // events sit just before it; watch 250 ms back.
+      const from = marker.ts - 250_000;
       const to = slow.ts + slow.dur;
       for (const event of trace) {
-        if (event.name !== "StyleRecalcInvalidationTracking" && event.name !== "StyleInvalidatorInvalidationTracking") continue;
         if (typeof event.ts !== "number" || event.ts < from || event.ts >= to) continue;
-        invalidations.push({ reason: String(event.args?.data?.reason ?? "?"), node: String(event.args?.data?.nodeName ?? "").slice(0, 46), extra: String(event.args?.data?.extraData ?? "").slice(0, 60), kind: event.name });
+        if (event.name === "StyleRecalcInvalidationTracking" || event.name === "StyleInvalidatorInvalidationTracking") {
+          invalidations.push({ reason: String(event.args?.data?.reason ?? "?"), node: String(event.args?.data?.nodeName ?? "").slice(0, 46), extra: String(event.args?.data?.extraData ?? "").slice(0, 60), kind: event.name });
+        }
+        if (event.name === "FunctionCall" && event.ph === "X") {
+          const stack: any[] = event.args?.data?.stackTrace ?? event.args?.data?.callStack ?? [];
+          const frame = Array.isArray(stack) && stack.length > 0 ? stack[0] : undefined;
+          const label = frame === undefined
+            ? "(no stack)"
+            : `${String(frame.functionName ?? "(anonymous)")} @ ${String(frame.url ?? "").replace(/^.*\//u, "")}:${String(frame.lineNumber ?? 0)}`;
+          writers.set(label, (writers.get(label) ?? 0) + 1);
+        }
       }
     }
     const slowArgs = (() => {
@@ -943,6 +958,8 @@ try {
       allLong,
       slowArgs,
       invalidations: {
+        gapMs: slow === undefined || marker === undefined ? null : Math.round((slow.ts - marker.ts) / 1000),
+        writers: [...writers].sort((a, b) => b[1] - a[1]).slice(0, 10),
         slowFrameMs: slow === undefined ? null : Math.round(slow.dur / 100) / 10,
         total: invalidations.length,
         byReason: tally((row) => row.reason),
