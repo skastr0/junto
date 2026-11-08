@@ -6,6 +6,7 @@
  *
  *   PROBE_RATE=10 PROBE_SECONDS=8 scripts/run-e2e.sh e2e/scenarios/zz-anim-census.spec.ts
  */
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ElectronApplication } from "playwright-core";
@@ -24,6 +25,7 @@ const send = (app: ElectronApplication, events: ReadonlyArray<unknown>) =>
 
 test("anim census: which animations tick during a seat-event storm", async () => {
   test.setTimeout(900_000);
+  test.skip(!existsSync(join(process.cwd(), "e2e/scenarios/zz-idle-probe.factory.json")), "needs the operator factory capture e2e/scenarios/zz-idle-probe.factory.json (not in git)");
   const parsed = JSON.parse(await readFile(join(process.cwd(), "e2e/scenarios/zz-idle-probe.factory.json"), "utf8")) as Omit<NestedCanvasFixture, "signals"> & { signalRows: ReturnType<NestedCanvasFixture["signals"]> };
   const fixture: NestedCanvasFixture = { ...parsed, signals: () => parsed.signalRows };
   const seats = (parsed.model.nodes as ReadonlyArray<{ kind: string; bindingId?: string; harness?: string }>)

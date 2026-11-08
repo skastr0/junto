@@ -22,6 +22,7 @@
  *   scripts/run-e2e.sh e2e/scenarios/zz-artifact-task-probe.spec.ts
  */
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect, ManagedRuntime } from "effect";
@@ -247,6 +248,7 @@ const seedWork = (plan: SeedPlan, heads: ReadonlyArray<TaskHeadSeed>) => async (
 
 test("artifact/task probe: factory-shaped work data, opens and write busy", async () => {
   test.setTimeout(900_000);
+  test.skip(!existsSync(join(process.cwd(), "e2e/scenarios/zz-idle-probe.factory.json")), "needs the operator factory capture e2e/scenarios/zz-idle-probe.factory.json (not in git)");
   const parsed = JSON.parse(await readFile(join(process.cwd(), "e2e/scenarios/zz-idle-probe.factory.json"), "utf8")) as Omit<NestedCanvasFixture, "signals"> & { signalRows: ReturnType<NestedCanvasFixture["signals"]> };
   const seatIds = (parsed.model.nodes as ReadonlyArray<{ kind: string; id?: string }>)
     .filter((n) => n.kind === "agent" && n.id)
