@@ -225,8 +225,23 @@ const onScreen = (node: HTMLElement, camera: CameraWindow, ringUnits: number): b
   return x + SEAT_UNITS >= left && x <= right && y + SEAT_HEIGHT_UNITS >= top && y <= bottom;
 };
 
+/**
+ * The seats the cluster sheet hides at this tier (SeatClusterLayer): gathered
+ * into a badge, `visibility: hidden !important`. Their ids are read from the
+ * sheet's own text, never from a computed style: a style read here would flush
+ * the board the size publish just invalidated, inside the frame (p95 83 ms
+ * against 19 ms without the ease, factory fixture, 2026-11-08).
+ */
+const gatheredSeatIds = (): Set<string> => {
+  const sheet = typeof document === "undefined" ? null : document.getElementById("junto-seat-clusters");
+  const text = sheet?.textContent ?? "";
+  if (text === "") return new Set();
+  return new Set([...text.matchAll(/data-id="([^"]+)"/gu)].map((match) => match[1]!));
+};
+
 const easeSeatRings = (host: HTMLElement, tier: CanvasTier, from: SeatScales, to: SeatScales, camera?: CameraWindow): void => {
   if (motionPaused()) return;
+  const gathered = gatheredSeatIds();
   const started: Array<[HTMLElement, number]> = [];
   // Geometry, not data-mark-visible: a resting or stopped ring on screen
   // changes size after a rest too. A ring outside the camera window is
@@ -234,11 +249,10 @@ const easeSeatRings = (host: HTMLElement, tier: CanvasTier, from: SeatScales, to
   for (const mark of host.querySelectorAll<HTMLElement>(".react-flow__viewport .junto-seat > .junto-mark")) {
     const node = mark.closest<HTMLElement>(".react-flow__node");
     if (node !== null && camera !== undefined && !onScreen(node, camera, RING_UNITS * Math.max(to.far, to.floor))) continue;
-    // A gathered seat is visibility:hidden by the cluster sheet, and a
-    // transform animation on it cannot composite (Blink reports the target's
-    // compositing state as invalid and runs it on the main thread for nothing:
-    // 171 of them in one zoom sweep). Only a mark that can be seen eases.
-    if (mark.checkVisibility?.({ checkVisibilityCSS: true, contentVisibilityAuto: false }) === false) continue;
+    // A gathered seat is visibility:hidden, and a transform animation on it
+    // cannot composite (Blink runs it on the main thread for nothing: 171 of
+    // them in one zoom sweep). Only a mark that can be seen eases.
+    if (node !== null && gathered.has(node.dataset.id ?? "")) continue;
     const cap = Number(node?.style.getPropertyValue("--ring-cap")) || 1.75;
     const ratio = seatEaseRatio(tier, from, to, cap);
     if (!Number.isFinite(ratio) || Math.abs(ratio - 1) < 0.002) continue;
