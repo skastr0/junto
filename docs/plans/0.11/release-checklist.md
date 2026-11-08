@@ -455,3 +455,23 @@ submission `cd4e5d1c-6192-4f64-b6bd-f5c0ef1e362b` Accepted, stapled. Zip sha256
 `6134f39d2783cb99083a7cdb2eed0912c32719ea12902edc60ecf9f9c00a200c`. The feed says
 0.11.7 and the downloaded zip matches. Fresh-home smoke by product-verify: pass.
 Linux payloads built on the junto Orb.
+
+## 0.11.10 receipt (product-releases, 2026-11-08)
+
+Published from tag `v0.11.10` = `3258716bb` on main (pushed, that commit
+only): the bump `783d6f1c3` on c825687fd plus one test-only commit
+(`3258716bb`, the pi template probe assertion ca04c681b left at 0.85.1). Cut
+from a clean `git archive` export with full history (a depth-1 export fails
+the learn-content receipt test). Database stays at v73. Full lanes ran, no
+shim: lint:product-name, typecheck, unit shared, isolated and alone, all whole
+in run 4; `test:features:ship` 13 files; machine-bundle-boot `ready:true`
+relocated, build `0bc976282e31f85b87739ccf685814d4f49c7f06179ab12542c5f1ffc45f9bfe`.
+Runs 2 and 3 each had load flakes (focus-law-authority; kind-seat and
+terminal-card-seat-awareness teardown; local-session-host timer count), none
+repeated, each passing alone. Notarization submission `a7b1e9c1-f157-4e58-82d2-cc037b8b146e` Accepted, stapled,
+spctl "Notarized Developer ID". Zip sha256
+`819110546517b695c6013a77d0c7f8d9166dd6f38ab03573738c30744e2e1d4e` (133,647,628
+bytes), dmg sha256
+`2cdc7fde8c289d393c74e1a2d0f54d132ec6a7b885a6917f4908a0cb45a31894`
+(134,983,320 bytes). The feed says 0.11.10 and the downloaded zip hashes to the
+stapled sha256. Not yet installed: waits for the operator's moment.
