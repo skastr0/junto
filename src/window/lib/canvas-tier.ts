@@ -100,16 +100,25 @@ export const OVERVIEW_RING_FLOOR_PX = 22;
 /** Custom property on the ReactFlow root: the scale that draws a seat ring at the overview floor. */
 export const SEAT_FLOOR_SCALE_VAR = "--seat-floor-scale";
 
+/**
+ * Steps a scale is rounded up to. Half steps, not tenths: every published
+ * scale is one whole-board style change, because every seat resolves
+ * --seat-s from it, and a tenth made a zoom rest rewrite the board about
+ * three times as often as it needed to. A half step holds a far ring within
+ * 6% of 40px on screen.
+ */
+const SCALE_STEP = 0.5;
+
 const scaleFor = (screenPx: number, zoom: number, floor: number): number => {
   if (!Number.isFinite(zoom) || zoom <= 0) return floor;
   const exact = screenPx / (SEAT_RING_UNITS * zoom);
-  return Math.min(SEAT_SCALE_MAX, Math.max(floor, Math.ceil(exact * 10) / 10));
+  return Math.min(SEAT_SCALE_MAX, Math.max(floor, Math.ceil(exact / SCALE_STEP) * SCALE_STEP));
 };
 
 /**
  * The scale that draws a 52-unit seat ring FAR_RING_SCREEN_PX across at this
- * zoom, rounded up to a tenth so a zoom sweep writes a few dozen values, not
- * one per frame. Never below the 1.75 a ring is drawn at before the floor
+ * zoom, rounded up to a half step so a zoom gesture writes a few values, not
+ * one per rest. Never below the 1.75 a ring is drawn at before the floor
  * bites, never above SEAT_SCALE_MAX.
  */
 export const farSeatScale = (zoom: number): number => scaleFor(FAR_RING_SCREEN_PX, zoom, 1.75);
