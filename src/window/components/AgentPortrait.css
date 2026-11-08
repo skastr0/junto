@@ -26,6 +26,17 @@
 .agent-portrait__face--prev {
   position: absolute;
   inset: 0;
+  /* Once the 220ms fade-in is whole, the old face is covered forever; drop
+     its opacity on the compositor so it stops painting without a commit.
+     The 260ms delay matches the timer it replaces, so a slow decode keeps
+     the same backstop. React unmounts it on the seat's next render. */
+  animation: agent-portrait-face-gone 1ms linear 260ms forwards;
+}
+
+@keyframes agent-portrait-face-gone {
+  to {
+    opacity: 0;
+  }
 }
 
 .agent-portrait__face--enter {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   portraitCharacter,
   portraitConfigKey,
@@ -114,14 +114,20 @@ export function AgentPortrait({
     expressionProp ??
     (mood ? portraitExpression({ ...mood, temperament: portraitCharacter(identity, config).temperament }) : "resting");
   const src = agentPortraitSrc(identity, mode, portraitDetailFor(size), frame, config, expression);
-  // Cross-fade: keep the previous face under the new one for one fade.
-  const [shown, setShown] = useState({ src, prev: undefined as string | undefined });
-  if (shown.src !== src) setShown({ src, prev: shown.src });
-  useEffect(() => {
-    if (!shown.prev) return;
-    const timer = setTimeout(() => setShown((current) => ({ src: current.src, prev: undefined })), FADE_MS + 40);
-    return () => clearTimeout(timer);
-  }, [shown.prev]);
+  // Cross-fade: keep the previous face under the new one for one fade. The
+  // old face is not dropped by a timer: its own compositor-side opacity
+  // animation hides it when the fade ends, and the next render this seat
+  // already pays for unmounts it. Covered the whole time, so no frame is
+  // scheduled just to remove it.
+  const [shown, setShown] = useState({ src, prev: undefined as string | undefined, prevAt: 0 });
+  const now = performance.now();
+  const next =
+    shown.src !== src
+      ? { src, prev: shown.src, prevAt: now }
+      : shown.prev !== undefined && now - shown.prevAt > FADE_MS + 40
+        ? { src: shown.src, prev: undefined, prevAt: 0 }
+        : shown;
+  if (next !== shown) setShown(next);
   const round = frame === "round";
   // A bare critter stands on the caller's ground: nothing to round off.
   const radius = round ? "50%" : frame === "bare" ? 0 : Math.round(size * 0.26);
@@ -139,6 +145,7 @@ export function AgentPortrait({
     >
       {shown.prev ? (
         <img
+          key={shown.prev}
           src={shown.prev}
           width={size}
           height={size}
