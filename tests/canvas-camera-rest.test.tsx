@@ -79,11 +79,12 @@ type EaseCall = {
 const eases: EaseCall[] = [];
 
 /** One seat mark in the camera's plane, with the room cap its node carries. */
-const addMark = (cap = 1.75): HTMLElement => {
+const addMark = (cap = 1.75, id?: string): HTMLElement => {
   const viewport = document.createElement("div");
   viewport.className = "react-flow__viewport";
   const node = document.createElement("div");
   node.className = "react-flow__node";
+  if (id !== undefined) node.dataset.id = id;
   node.style.setProperty("--ring-cap", String(cap));
   const seat = document.createElement("div");
   seat.className = "junto-seat";
@@ -156,31 +157,68 @@ const rest = async (): Promise<void> => {
 };
 
 describe("level-of-detail properties wait for the camera to rest", () => {
-  it("publishes all five properties on the first paint", () => {
-    expect(value(NODE_SCALE_VAR)).toBe(text(nodeScale(1)));
-    expect(value(FAR_SEAT_SCALE_VAR)).toBe(text(farSeatScale(1)));
-    expect(value(SEAT_FLOOR_SCALE_VAR)).toBe(text(seatFloorScale(1)));
+  it("keeps the scale properties off the ReactFlow root, and still publishes the glance there", () => {
+    // The root is inherited by every element on the board. A scale write
+    // there restyled all 17,843 of them at a rest; the scales now travel on
+    // the marks and instruments that read them.
+    expect(value(NODE_SCALE_VAR)).toBe("");
+    expect(value(FAR_SEAT_SCALE_VAR)).toBe("");
+    expect(value(SEAT_FLOOR_SCALE_VAR)).toBe("");
     expect(value(GLANCE_VAR)).toBe(opacity(regionGlanceOpacity(1)));
     expect(value(GLANCE_SUB_VAR)).toBe(opacity(subregionGlanceOpacity(1)));
   });
 
-  it("holds every write through a zoom gesture, then publishes once at rest", async () => {
-    const written = vi.spyOn(surface.style, "setProperty");
+  it("holds every write through a zoom gesture, then publishes the mark and glance once", async () => {
+    const mark = addMark();
+    const rootWritten = vi.spyOn(surface.style, "setProperty");
+    const markWritten = vi.spyOn(mark.style, "setProperty");
     await gesture([0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.34, 0.3, 0.25, 0.2]);
     // Not one property moved while the camera was moving.
-    expect(written).not.toHaveBeenCalled();
-    expect(value(NODE_SCALE_VAR)).toBe(text(nodeScale(1)));
+    expect(rootWritten).not.toHaveBeenCalled();
+    expect(markWritten).not.toHaveBeenCalled();
 
     await rest();
-    // One write per property, all five of them, at the values of the rest,
-    // and the two sizes the ring eases from (the values before the rest).
-    expect(written.mock.calls.map((call) => call.join("="))).toEqual([
-      `${NODE_SCALE_VAR}=${text(nodeScale(0.2))}`,
-      `${FAR_SEAT_SCALE_VAR}=${text(farSeatScale(0.2))}`,
-      `${SEAT_FLOOR_SCALE_VAR}=${text(seatFloorScale(0.2))}`,
+    // The mark gets the capped far size; the root gets only the two glance
+    // values. The scale publish never reaches the root.
+    expect(markWritten.mock.calls.map((call) => call.join("="))).toEqual(["--seat-s=1.75"]);
+    expect(rootWritten.mock.calls.map((call) => call.join("="))).toEqual([
       `${GLANCE_VAR}=${opacity(regionGlanceOpacity(0.2))}`,
       `${GLANCE_SUB_VAR}=${opacity(subregionGlanceOpacity(0.2))}`,
     ]);
+  });
+
+  it("writes a seat that the cluster sheet has released by the time the rest lands", async () => {
+    const mark = addMark(2, "returns-at-rest");
+    const sheet = document.createElement("style");
+    sheet.id = "junto-seat-clusters";
+    sheet.textContent = ".react-flow__node[data-id=\"returns-at-rest\"] { visibility: hidden !important; }";
+    document.head.append(sheet);
+    await gesture([0.2]);
+    // The cluster layer rewrites the sheet in the same task as the rest; the
+    // publish reads it after that write, so the seat that comes out is sized
+    // in this rest, not the next one.
+    sheet.remove();
+    await rest();
+    expect(mark.style.getPropertyValue("--seat-s")).not.toBe("");
+  });
+
+  it("skips a gathered seat and writes the cluster body's transform directly", async () => {
+    const hidden = addMark(2, "hidden-seat");
+    const shown = addMark(2, "shown-seat");
+    const sheet = document.createElement("style");
+    sheet.id = "junto-seat-clusters";
+    sheet.textContent = ".react-flow__node[data-id=\"hidden-seat\"] { visibility: hidden !important; }";
+    document.head.append(sheet);
+    const body = document.createElement("div");
+    body.className = "junto-seat-cluster__body";
+    document.body.append(body);
+    await gesture([0.2]);
+    await rest();
+    expect(hidden.style.getPropertyValue("--seat-s")).toBe("");
+    expect(shown.style.getPropertyValue("--seat-s")).not.toBe("");
+    expect(body.style.transform).toBe(`translate(-50%, -50%) scale(${text(farSeatScale(0.2))})`);
+    sheet.remove();
+    body.remove();
   });
 
   it("starts the ring's size ease in the publish task, from the size it drew at", async () => {

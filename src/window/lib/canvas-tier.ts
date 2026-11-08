@@ -129,15 +129,82 @@ export const seatFloorScale = (zoom: number): number => scaleFor(OVERVIEW_RING_F
 const scaleText = (value: number): string => value.toFixed(1);
 const writtenScale = (value: number): number => Number(scaleText(value));
 
-const writeScale = (host: HTMLElement, name: string, value: number): boolean => {
-  const text = scaleText(value);
-  if (host.style.getPropertyValue(name) === text) return false;
-  host.style.setProperty(name, text);
+/** The two scales a ring's size is drawn from at far and overview (canvas-lod.css --seat-s). */
+export type SeatScales = { readonly far: number; readonly floor: number };
+
+const publishedScales = new WeakMap<HTMLElement, SeatScales>();
+
+/** Write a custom property only when its text changes; returns whether it wrote. */
+const writeCustom = (el: HTMLElement, name: string, text: string): boolean => {
+  if (el.style.getPropertyValue(name) === text) return false;
+  el.style.setProperty(name, text);
   return true;
 };
 
-/** The two scales a ring's size is drawn from at far and overview (canvas-lod.css --seat-s). */
-export type SeatScales = { readonly far: number; readonly floor: number };
+/**
+ * The scale consumers, written where they are read. A write on the ReactFlow
+ * root inherits into every element on the board, so Blink restyles all 17,843
+ * of them at a rest. Writing on the consumers scopes the restyle to them.
+ *
+ * The spine card carries its instruments at near and mid; at far and
+ * overview it is a chip and a pip, and a note or label keeps its tick. Those
+ * are the elements whose boxes are held in screen pixels.
+ */
+const writeNodeScale = (host: HTMLElement, tier: CanvasTier, value: number): void => {
+  const text = scaleText(value);
+  const selector = tier === "near" || tier === "mid"
+    ? ".react-flow__viewport :is(.spine-card, .tasks-enqueue)"
+    : ".react-flow__viewport :is(.spine-chip, .spine-pip, .tasks-enqueue), .react-flow__viewport .junto-node[data-look='spine'][data-node-kind='text'], .react-flow__viewport .junto-node[data-look='spine'][data-node-kind='label'] .label-surface";
+  for (const element of host.querySelectorAll<HTMLElement>(selector)) {
+    writeCustom(element, NODE_SCALE_VAR, text);
+  }
+};
+
+/** The cluster badges are outside the viewport: their body carries the far scale directly. */
+const writeClusterScale = (far: number): void => {
+  if (typeof document === "undefined") return;
+  const text = `translate(-50%, -50%) scale(${String(far)})`;
+  for (const body of document.querySelectorAll<HTMLElement>(".junto-seat-cluster__body")) {
+    if (body.style.transform !== text) body.style.transform = text;
+  }
+};
+
+/**
+ * Publish the ring size on the marks that are on screen and not gathered.
+ * The inline --seat-s stops at the mark and its seat, rather than inheriting
+ * from the ReactFlow root into every card. A gathered seat is hidden and
+ * takes its size when it comes out and the rest writes the marks again.
+ */
+const writeSeatScales = (
+  host: HTMLElement,
+  tier: CanvasTier,
+  to: SeatScales,
+  camera?: CameraWindow,
+): boolean => {
+  const gathered = gatheredSeatIds();
+  let changed = false;
+  for (const mark of host.querySelectorAll<HTMLElement>(".react-flow__viewport .junto-seat > .junto-mark")) {
+    const seat = mark.parentElement;
+    const node = mark.closest<HTMLElement>(".react-flow__node");
+    if (seat === null) continue;
+    if (node !== null && gathered.has(node.dataset.id ?? "")) continue;
+    if (node !== null && camera !== undefined && camera.zoom > 0 && !onScreen(node, camera, RING_UNITS * Math.max(to.far, to.floor))) continue;
+    const cap = Number(node?.style.getPropertyValue("--ring-cap")) || 1.75;
+    const size = String(seatScale(tier, to, cap));
+    if (writeCustom(mark, "--seat-s", size)) changed = true;
+    const text = seat.querySelector<HTMLElement>(".junto-seat__text");
+    if (text !== null) {
+      writeCustom(text, "--seat-s", size);
+      writeCustom(text, FAR_SEAT_SCALE_VAR, scaleText(to.far));
+    }
+    const ring = mark.getAttribute("data-mark-ring") ?? "rest";
+    const selected = node?.classList.contains("selected") === true || node?.matches(":hover") === true;
+    if (selected || ring === "call" || ring === "wait" || ring === "halt") {
+      writeCustom(seat, "--seat-s", size);
+    }
+  }
+  return changed;
+};
 
 /** How long the ring's size eases after a camera rest. Same 160 ms the CSS keyframe ran. */
 export const SEAT_EASE_MS = 160;
@@ -270,8 +337,6 @@ const easeSeatRings = (host: HTMLElement, tier: CanvasTier, from: SeatScales, to
   }
 };
 
-const readScale = (host: HTMLElement, name: string): number => Number.parseFloat(host.style.getPropertyValue(name));
-
 /**
  * A ring entering far or overview grows from its near size, as the transform
  * transition did when the tier rule first applied. Mid-gesture, so it writes
@@ -285,8 +350,8 @@ export const easeSeatScaleOnTierEntry = (
 ): void => {
   const enlarged = (tier: CanvasTier): boolean => tier === "far" || tier === "overview";
   if (host === null || enlarged(was) || !enlarged(next)) return;
-  const published = { far: readScale(host, FAR_SEAT_SCALE_VAR), floor: readScale(host, SEAT_FLOOR_SCALE_VAR) };
-  if (!(published.far > 0) || !(published.floor > 0)) return;
+  const published = publishedScales.get(host);
+  if (published === undefined) return;
   easeSeatRings(host, next, { far: 1, floor: 1 }, published, camera);
 };
 
@@ -314,12 +379,20 @@ export const publishFarSeatScale = (
   camera?: CameraWindow,
 ): void => {
   if (host === null) return;
-  writeScale(host, NODE_SCALE_VAR, nodeScale(zoom));
-  // The first write lands without an ease, as a ring's first style did.
-  const from = { far: readScale(host, FAR_SEAT_SCALE_VAR), floor: readScale(host, SEAT_FLOOR_SCALE_VAR) };
-  // The values as written, so the ease starts where the layout actually is.
+  writeNodeScale(host, tier, nodeScale(zoom));
   const to = { far: writtenScale(farSeatScale(zoom)), floor: writtenScale(seatFloorScale(zoom)) };
-  const far = writeScale(host, FAR_SEAT_SCALE_VAR, to.far);
-  const floor = writeScale(host, SEAT_FLOOR_SCALE_VAR, to.floor);
-  if ((far || floor) && from.far > 0 && from.floor > 0) easeSeatRings(host, tier, from, to, camera);
+  const from = publishedScales.get(host);
+  const rings = tier === "far" || tier === "overview";
+  if (rings) writeSeatScales(host, tier, to, camera);
+  writeClusterScale(to.far);
+  if (rings && from !== undefined && (from.far !== to.far || from.floor !== to.floor)) {
+    easeSeatRings(host, tier, from, to, camera);
+  }
+  publishedScales.set(host, to);
+  try {
+    // The rest-trace probe lands its frame on this publish.
+    performance.mark("seat-scale-publish");
+  } catch {
+    // performance.mark is diagnostics; the publish must still land.
+  }
 };
