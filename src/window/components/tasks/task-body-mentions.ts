@@ -1,49 +1,37 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import type { NodeKind } from "@shared/model/kinds";
 import type { NodeId } from "@shared/physics/schema";
 import type { TaskId, TaskNodeId, TaskView } from "@shared/task-model";
 import type { ArtifactHead } from "@shared/resource-ipc";
-import { artifactsSource } from "../../lib/artifacts-source";
+import { useNodesArtifacts } from "../../lib/artifacts-source";
 import { resourceNodesInReach, useResourcesInReach, useSeatsInReach, type MentionItem } from "../../lib/mention-sources";
 import { stateLabel } from "../../lib/task-ui";
 import { nodeAt, useCanvas } from "../../lib/use-model";
 import type { DocumentMentions } from "../artifacts/LiveMarkdownField";
 
-/** The live artifacts on every Artifacts node in reach, by node, read again on every artifact change on the canvas. */
+/**
+ * The live artifacts on every Artifacts node in reach, by node. Each node
+ * rides its shared read (artifacts-source.ts): an artifact change re-reads
+ * only the nodes it names, once for every caller. A node not yet read, or
+ * that could not be, is absent.
+ */
 const useArtifactsInReach = (canvasName: string, from: NodeId): ReadonlyMap<NodeId, ReadonlyArray<ArtifactHead>> => {
   const canvas = useCanvas(canvasName);
-  const shelves = useMemo(
-    () => resourceNodesInReach(canvas, from).filter((node) => node.kind === "artifacts").map((node) => node.id),
+  const key = useMemo(
+    () => resourceNodesInReach(canvas, from).filter((node) => node.kind === "artifacts").map((node) => node.id).join(","),
     [canvas, from],
   );
-  const key = shelves.join(",");
-  const [held, setHeld] = useState<ReadonlyMap<NodeId, ReadonlyArray<ArtifactHead>>>(new Map());
-  useEffect(() => {
-    if (shelves.length === 0) {
-      setHeld(new Map());
-      return;
-    }
-    let live = true;
-    let generation = 0;
-    const refresh = (): void => {
-      const mine = ++generation;
-      void Promise.all(shelves.map(async (id) => [id, await artifactsSource().list(canvasName, id)] as const)).then(
-        (lists) => {
-          if (live && mine === generation) setHeld(new Map(lists));
-        },
-        () => undefined,
-      );
-    };
-    refresh();
-    const unsubscribe = artifactsSource().onChanged((changed) => {
-      if (changed.canvasName === canvasName) refresh();
+  // The same list while the set of nodes holds, so a canvas change that moves nothing in reach reads nothing again.
+  const shelves = useMemo(() => (key === "" ? [] : (key.split(",") as NodeId[])), [key]);
+  const values = useNodesArtifacts(canvasName, shelves);
+  return useMemo(() => {
+    const held = new Map<NodeId, ReadonlyArray<ArtifactHead>>();
+    shelves.forEach((id, index) => {
+      const read = values[index];
+      if (read !== undefined && read.confirmed && read.value !== undefined) held.set(id, read.value);
     });
-    return () => {
-      live = false;
-      unsubscribe();
-    };
-  }, [canvasName, key]);
-  return held;
+    return held;
+  }, [shelves, values]);
 };
 
 /**

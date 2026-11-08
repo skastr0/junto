@@ -174,7 +174,8 @@ export const makeSharedReads = (
       last.current = { snaps, held };
       return snaps;
     };
-    const snaps = useSyncExternalStore(subscribe, snapshot);
+    // The same snapshot on a server render (static markup in tests), which never subscribes.
+    const snaps = useSyncExternalStore(subscribe, snapshot, snapshot);
     // A reader that arrives to a missing or stale value reads it, unless a read is already out.
     useEffect(() => {
       for (const entry of held) if (!entry.reading && (!trustKept || !entry.snap.has || !entry.snap.fresh)) start(entry);
@@ -217,7 +218,7 @@ export const makeSharedReads = (
       last.current = { snap, entry, picked: keep ? last.current.picked : picked };
       return last.current.picked;
     };
-    const picked = useSyncExternalStore(subscribe, snapshot);
+    const picked = useSyncExternalStore(subscribe, snapshot, snapshot);
     useEffect(() => {
       if (entry !== undefined && !entry.reading && (!trustKept || !entry.snap.has || !entry.snap.fresh)) start(entry);
     }, [entry]);

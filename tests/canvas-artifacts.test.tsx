@@ -13,6 +13,7 @@ import type { ArtifactHead, ResourceChanged } from "../src/shared/resource-ipc";
 import { artifactsSource, setArtifactsSource, useNodeArtifactCount, useNodeArtifacts, type ArtifactsSource } from "../src/window/lib/artifacts-source";
 import { asNodeId } from "../src/shared/physics/schema";
 import { useCanvasArtifactHeads, useCanvasArtifacts } from "../src/window/lib/canvas-artifacts";
+import { useArtifactsInReach } from "../src/window/lib/artifacts-in-reach";
 import { modelStore } from "../src/window/lib/use-model";
 import { artifacts } from "./support/model-nodes";
 
@@ -24,11 +25,11 @@ const head = (id: string, nodeId: string): ArtifactHead =>
 
 /** A source whose reads the test answers: each list call waits for `answer`. */
 const fakeSource = (base: ArtifactsSource) => {
-  const calls: Array<{ readonly nodeId: string; readonly resolve: (heads: ReadonlyArray<ArtifactHead>) => void }> = [];
+  const calls: Array<{ readonly nodeId: string; readonly resolve: (heads: ReadonlyArray<ArtifactHead>) => void; readonly reject: (error: Error) => void }> = [];
   const listeners = new Set<(changed: ResourceChanged) => void>();
   const source: ArtifactsSource = {
     ...base,
-    list: (_canvas, nodeId) => new Promise((resolve) => calls.push({ nodeId, resolve })),
+    list: (_canvas, nodeId) => new Promise((resolve, reject) => calls.push({ nodeId, resolve, reject })),
     onChanged: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -40,6 +41,13 @@ const fakeSource = (base: ArtifactsSource) => {
     /** Answer every waiting read with one head per node, titled `round`. */
     answer: (round: string) => {
       for (const call of calls.splice(0)) call.resolve([head(`${round}-${call.nodeId}`, call.nodeId)]);
+    },
+    /** Fail the waiting reads of one node. */
+    fail: (nodeId: string) => {
+      for (const call of calls.filter((one) => one.nodeId === nodeId)) {
+        calls.splice(calls.indexOf(call), 1);
+        call.reject(new Error("no node"));
+      }
     },
     change: (nodeIds?: ReadonlyArray<string>) => {
       for (const listener of listeners) listener({ canvasName: CANVAS, ...(nodeIds === undefined ? {} : { nodeIds }) });
@@ -286,5 +294,69 @@ describe("canvas artifacts, one read for every caller", () => {
       await flush();
     });
     expect(seen["kept"]).toBe("r4-shelf-1,r4-shelf-2|true");
+  });
+
+  it("serves the [[ links in reach from the same per-node reads; a named change re-reads that node alone", async () => {
+    const InReach = () => {
+      seen["reach"] = useArtifactsInReach(CANVAS, asNodeId("shelf-1")).map((one) => one.title).join(",");
+      return null;
+    };
+    await act(async () => {
+      root.render(
+        <>
+          <InReach />
+          <Kept />
+        </>,
+      );
+      await flush();
+    });
+    // The links in reach (both shelves, its own first) and the canvas list share one read per node.
+    expect(fake.calls.map((call) => call.nodeId).sort()).toEqual(["shelf-1", "shelf-2"]);
+    await act(async () => {
+      fake.answer("r1");
+      await flush();
+    });
+    expect(seen["reach"]).toBe("r1-shelf-1,r1-shelf-2");
+    // A change to one node reads that node only, once for both callers.
+    await act(async () => {
+      fake.change(["shelf-2"]);
+      await flush();
+    });
+    expect(fake.calls.map((call) => call.nodeId)).toEqual(["shelf-2"]);
+    await act(async () => {
+      fake.answer("r2");
+      await flush();
+    });
+    expect(seen["reach"]).toBe("r1-shelf-1,r2-shelf-2");
+    // And the other.
+    await act(async () => {
+      fake.change(["shelf-1"]);
+      await flush();
+    });
+    expect(fake.calls.map((call) => call.nodeId)).toEqual(["shelf-1"]);
+    await act(async () => {
+      fake.answer("r3");
+      await flush();
+    });
+    expect(seen["reach"]).toBe("r3-shelf-1,r2-shelf-2");
+    expect(seen["kept"]).toBe("r3-shelf-1,r2-shelf-2|true");
+  });
+
+  it("offers nothing from a node in reach whose read fails, and the others still offer theirs", async () => {
+    const InReach = () => {
+      seen["reach-failed"] = useArtifactsInReach(CANVAS, asNodeId("shelf-2")).map((one) => one.title).join(",");
+      return null;
+    };
+    await act(async () => {
+      root.render(<InReach />);
+      await flush();
+    });
+    expect(fake.calls.map((call) => call.nodeId).sort()).toEqual(["shelf-1", "shelf-2"]);
+    await act(async () => {
+      fake.fail("shelf-2");
+      fake.answer("r1");
+      await flush();
+    });
+    expect(seen["reach-failed"]).toBe("r1-shelf-1");
   });
 });

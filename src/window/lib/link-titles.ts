@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { artifactLinkStateOf, artifactLinkTitle, type ArtifactLinkState, type LinkedArtifactHead } from "@shared/artifact-link";
 import { mentionLinksOf, type MentionTarget } from "@shared/mention";
 import type { NodeId } from "@shared/physics/schema";
-import { artifactsSource } from "./artifacts-source";
+import { useNodesArtifacts } from "./artifacts-source";
 
 /**
  * Where an artifact link stands now (`artifactLinkStateOf`), from its target
@@ -44,7 +44,7 @@ const EMPTY: Read = new Map();
 
 /**
  * Where each artifact the texts link stands, read from the Artifacts nodes
- * those links name and read again on any artifact change on the canvas.
+ * those links name, each on its shared read.
  * `nodeKindOf` says which linked nodes are still Artifacts nodes; a link into
  * one that is not, or is gone, is missing without a read.
  */
@@ -60,49 +60,26 @@ export const useLinkStates = (
       ].sort(),
     [texts],
   );
-  // Read again only when the set of nodes changes, not on every edit.
+  // Read again only when the set of nodes, or which of them are Artifacts nodes, changes; not on every edit.
   const nodes = linked.join(" ");
-  const linkedRef = useRef(linked);
-  linkedRef.current = linked;
-  const kindRef = useRef(nodeKindOf);
-  kindRef.current = nodeKindOf;
-  const [read, setRead] = useState(EMPTY);
-  useEffect(() => {
-    if (canvasName === undefined || nodes === "") {
-      setRead(EMPTY);
-      return;
-    }
-    const nodeIds = linkedRef.current;
-    let live = true;
-    const refresh = (): void => {
-      void Promise.all(
-        nodeIds.map((nodeId) =>
-          kindRef.current(nodeId) === "artifacts"
-            ? artifactsSource()
-                .list(canvasName, nodeId)
-                .then((heads) => heads.map(({ artifact }): LinkedArtifactHead => artifact))
-                // A node that cannot be read says nothing about its artifacts: their links stay unread, never missing.
-                .catch(() => undefined)
-            : Promise.resolve(null),
-        ),
-      ).then((lists) => {
-        if (!live) return;
-        const next = new Map<string, ReadonlyArray<LinkedArtifactHead> | null>();
-        lists.forEach((list, index) => {
-          if (list !== undefined) next.set(nodeIds[index]!, list);
-        });
-        setRead(next);
-      });
-    };
-    refresh();
-    const unsubscribe = artifactsSource().onChanged((changed) => {
-      if (changed.canvasName === canvasName) refresh();
+  const kinds = linked.map((nodeId) => (nodeKindOf(nodeId) === "artifacts" ? "1" : "0")).join("");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `nodes` and `kinds` stand for `linked`.
+  const held = useMemo(() => ({ linked, shelves: canvasName === undefined ? [] : linked.filter((_, index) => kinds[index] === "1") }), [canvasName, nodes, kinds]);
+  // Each Artifacts node rides its shared read (artifacts-source.ts): a change re-reads only the nodes it names, once for every caller.
+  const values = useNodesArtifacts(canvasName ?? "", held.shelves);
+  const read = useMemo((): Read => {
+    if (canvasName === undefined || held.linked.length === 0) return EMPTY;
+    const next = new Map<string, ReadonlyArray<LinkedArtifactHead> | null>();
+    held.linked.forEach((nodeId, index) => {
+      if (kinds[index] !== "1") next.set(nodeId, null);
     });
-    return () => {
-      live = false;
-      unsubscribe();
-    };
-  }, [canvasName, nodes]);
+    held.shelves.forEach((nodeId, index) => {
+      const one = values[index];
+      // A node not yet read, or that could not be, says nothing about its artifacts: their links stay unread, never missing.
+      if (one !== undefined && one.confirmed && one.value !== undefined) next.set(nodeId, one.value.map(({ artifact }): LinkedArtifactHead => artifact));
+    });
+    return next;
+  }, [canvasName, held, kinds, values]);
   return useCallback<LinkStateOf>(
     (target, written) => (target.item === undefined ? undefined : artifactLinkStateOf(target.item, read.get(target.nodeId), written)),
     [read],

@@ -22,14 +22,16 @@ vi.mock("../src/window/lib/platform", async (actual) => ({
   isMac: () => mac.value,
 }));
 vi.mock("../src/window/lib/mention-open", () => ({ openMention: (ref: unknown) => opened.push(ref) }));
-vi.mock("../src/window/lib/artifacts-source", () => ({
-  artifactsSource: () => ({
-    list: async (_canvas: string, nodeId: string) => await (heads.get(nodeId) ?? []),
-    onChanged: () => () => {},
-  }),
-}));
-
 const { ArtifactSheetEditor } = await import("../src/window/components/artifacts/ArtifactSheetEditor");
+const { artifactsSource, setArtifactsSource } = await import("../src/window/lib/artifacts-source");
+const original = artifactsSource();
+// A fresh source per test: the shared reads drop what they read from the last one.
+const useHeads = (): void =>
+  setArtifactsSource({
+    ...original,
+    list: async (_canvas: string, nodeId: string) => (await (heads.get(nodeId) ?? [])) as never,
+    onChanged: () => () => {},
+  });
 
 const shelf = asNodeId("artifacts-shelf");
 const ref = (artifactId: string): MentionOf<"artifact"> => ({ kind: "artifact", nodeId: shelf, artifactId: artifactId as ItemId });
@@ -85,11 +87,13 @@ beforeEach(() => {
   document.body.append(host);
   root = createRoot(host);
   onPatch = vi.fn(async () => null);
+  useHeads();
 });
 
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  setArtifactsSource(original);
   vi.unstubAllGlobals();
 });
 
