@@ -1252,7 +1252,7 @@ html[data-surface-motion="paused"] *::after {
 }
 
 .node-deck-host { position: relative; }
-.node-deck-trigger { display: inline-flex; align-items: center; gap: 7px; border: 1px solid color-mix(in oklab, var(--color-main) 34%, transparent); border-radius: 6px; background: color-mix(in oklab, var(--color-inset) 90%, transparent); color: var(--color-amber); padding: 8px 10px; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; backdrop-filter: blur(12px); transition: border-color .18s ease, background .18s ease; cursor: pointer; }
+.node-deck-trigger { display: inline-flex; align-items: center; gap: 7px; border: 1px solid color-mix(in oklab, var(--color-main) 34%, transparent); border-radius: 6px; background: color-mix(in oklab, var(--color-inset) 90%, transparent); color: var(--color-amber); padding: 8px 10px; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; transition: border-color .18s ease, background .18s ease; cursor: pointer; }
 .node-deck-trigger:hover { border-color: color-mix(in oklab, var(--color-main) 72%, transparent); background: color-mix(in oklab, var(--color-main) 14%, var(--color-ground) 80%); }
 
 /* Canvas context actions are intentionally separate from the Mode Deck. */
@@ -1555,12 +1555,17 @@ html[data-surface-motion="paused"] *::after {
   background: color-mix(in oklab, var(--color-main) 35%, transparent);
 }
 
-/* Controls + minimap as wireframe chrome. */
+/* Controls + minimap as wireframe chrome. No backdrop blur here, on the deck
+   trigger or on the fit button (RtsBottomBar.css): each floats over the
+   canvas, and a turning ring anywhere on it damages the frame under the
+   blur, so Chromium redrew all three blurs on every display frame. Under
+   these fills (78 to 94%, buttons at 90%) the blur barely showed; dropping
+   all three cut the GPU's time 114 to 30 ms/s on the operator's board at
+   the overview (idle probe, Apple GPU counters). */
 .react-flow__controls {
   border: 1px solid var(--color-overlay-4);
   border-radius: 7px;
   background: color-mix(in oklab, var(--color-ground) 78%, transparent);
-  backdrop-filter: blur(12px);
   overflow: hidden;
   box-shadow: none;
 }
