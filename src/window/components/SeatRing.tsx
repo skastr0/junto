@@ -111,8 +111,8 @@ export type SeatStanding = { readonly group: ViewGroup<typeof Palette>; readonly
  * blocked, waiting and review, the finished turn for done, else the status
  * change in the seat's own snapshot (the last time it left rest, for working).
  */
-export function seatStandingOf(seat: Seat): SeatStanding {
-  const { control, seatEvent, rollup, doneAt } = seatReadOf(seat, true);
+export function seatStandingOf(seat: Seat, tracked = true): SeatStanding {
+  const { control, seatEvent, rollup, doneAt } = seatReadOf(seat, tracked);
   const level = seatLevel({ ...control, signal: rollup?.kind });
   const since = seatLevelSince({
     level,

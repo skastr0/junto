@@ -1,6 +1,6 @@
 import { use$ } from "@legendapp/state/react";
 import { Search, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Node, NodeOf } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import { harnessDisplayName } from "@shared/spawn-failure";
@@ -22,7 +22,11 @@ import { useRegionRollups } from "../../lib/region-rollups";
 import { regionPaths, regionTrails, type RegionStep } from "../../lib/region-path";
 import { regionTallyParts } from "../../lib/region-glance";
 import { seatSaying } from "../../lib/seat-line";
+import { agentSeat$ } from "../../lib/agent-seat-state";
+import { seatSignalRollups$ } from "../../lib/agent-signals-state";
+import { kernel$ } from "../../lib/kernel-view";
 import { state$ } from "../../lib/state";
+import { terminal$ } from "../../lib/terminal-state";
 import { useCanvas } from "../../lib/use-model";
 import { accentColor, HUE, HUE_TEXT } from "../../lib/theme";
 import { KindMark } from "../NodeKindMark";
@@ -202,6 +206,87 @@ type CommandBarRow =
 const rowKeyOf = (row: CommandBarRow): string =>
   row.kind === "node" ? row.node.id : `action:${row.action.id}`;
 
+// One option row. Memoized on its content: a keystroke re-filters the list,
+// but a row whose node, slot and active state did not move does not repaint
+// its ring. The seat's own glance still updates inside the row's hooks.
+const CommandBarNodeRow = memo(function CommandBarNodeRow({
+  node,
+  index,
+  position,
+  isActive,
+  trail,
+  onHover,
+  onCommit,
+}: {
+  readonly node: Node;
+  readonly index: number;
+  readonly position: number;
+  readonly isActive: boolean;
+  readonly trail: ReadonlyArray<RegionStep> | undefined;
+  readonly onHover: (key: string) => void;
+  readonly onCommit: (node: Node, open: boolean) => void;
+}) {
+  return (
+    <div
+      id={`command-bar-option-${index}`}
+      role="option"
+      aria-selected={isActive}
+      data-index={position}
+      className={["command-bar__row", isActive ? "command-bar__row--active" : ""].filter(Boolean).join(" ")}
+      onPointerMove={() => onHover(node.id)}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        onCommit(node, event.metaKey || event.ctrlKey);
+      }}
+    >
+      <NodeRowFace node={node} trail={trail} />
+      <span className="command-bar__row-kind">{node.kind}</span>
+    </div>
+  );
+});
+
+const CommandBarActionRow = memo(function CommandBarActionRow({
+  action,
+  position,
+  isActive,
+  onHover,
+  onCommit,
+}: {
+  readonly action: CommandBarAction;
+  readonly position: number;
+  readonly isActive: boolean;
+  readonly onHover: (key: string) => void;
+  readonly onCommit: (action: CommandBarAction) => void;
+}) {
+  return (
+    <div
+      id={`command-bar-action-${position}`}
+      role="option"
+      aria-selected={isActive}
+      data-index={position}
+      className={[
+        "command-bar__row",
+        "command-bar__row--action",
+        isActive ? "command-bar__row--active" : "",
+      ].filter(Boolean).join(" ")}
+      onPointerMove={() => onHover(`action:${action.id}`)}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        onCommit(action);
+      }}
+    >
+      <span className="command-bar__row-icon">
+        <action.icon size={13} />
+      </span>
+      <span className="command-bar__row-main">
+        <span className="command-bar__row-title">{action.label}</span>
+        <span className="command-bar__row-detail">{action.detail}</span>
+      </span>
+      {action.hotkey ? <Kbd>{action.hotkey}</Kbd> : null}
+    </div>
+  );
+});
+
 export function CommandBar() {
   const canvas = useCanvas(use$(state$.canvasName));
   const nodes = useMemo(() => [...canvas.nodes.values()].sort((a, b) => a.z - b.z), [canvas]);
@@ -221,15 +306,40 @@ export function CommandBar() {
   const mode = commandBarMode(query, tabMode);
   // Agents lead the list in the palette's one order (the Palette view). Live: a
   // seat's state change re-ranks the list while it is open, and the cursor
-  // stays on its row.
-  const standingById = use$(
-    (): ReadonlyMap<string, AgentStanding> =>
-      new Map(
-        nodes
-          .filter((node): node is NodeOf<"agent"> => node.kind === "agent")
-          .map((node) => [node.id, seatStandingOf(node)] as const),
-      ),
-  );
+  // stays on its row. The map keeps its identity while every agent's
+  // {group, since} is unchanged: the selector re-runs on any seat-store ping,
+  // and a fresh Map each time would re-rank (and repaint) the whole list for
+  // a change that moved nothing.
+  const standingsCache = useRef<ReadonlyMap<string, AgentStanding>>(new Map());
+  const standingById = use$((): ReadonlyMap<string, AgentStanding> => {
+    // Track the coarse stamps the standings read, not the per-seat paths:
+    // agentSeat$'s rev moves on every seat write, executionRev on the kernel
+    // snapshot, the rollups record and the session map on their own changes.
+    // The standings themselves are peeked, so one ping re-reads them without
+    // re-subscribing hundreds of paths.
+    agentSeat$.rev.get();
+    kernel$.executionRev.get();
+    seatSignalRollups$.get();
+    terminal$.sessionByBindingId.get();
+    const agents = nodes.filter((node): node is NodeOf<"agent"> => node.kind === "agent");
+    const previous = standingsCache.current;
+    let dirty = agents.length !== previous.size;
+    if (!dirty) {
+      for (const node of agents) {
+        const standing = seatStandingOf(node, false);
+        const before = previous.get(node.id);
+        if (before === undefined || before.group !== standing.group || before.since !== standing.since) {
+          dirty = true;
+          break;
+        }
+      }
+    }
+    if (!dirty) return previous;
+    const next = new Map<string, AgentStanding>();
+    for (const node of agents) next.set(node.id, seatStandingOf(node, false));
+    standingsCache.current = next;
+    return next;
+  });
   // Region paths are derived once per canvas change, never per keystroke.
   const regionPathById = useMemo(() => regionPaths(canvas), [canvas]);
   const regionTrailById = useMemo(() => regionTrails(canvas), [canvas]);
@@ -278,15 +388,23 @@ export function CommandBar() {
   // Read once per open: search sits over whatever the operator was in.
   const overModal = useMemo(() => isModalLayerOpen("working"), []);
 
-  const commit = (row: CommandBarRow, open: boolean): void => {
-    if (row.kind === "node") {
-      focusCanvasNode(row.node.id);
-      if (open || overModal) activateNodeSurface(row.node.id);
-    } else {
-      row.action.run();
-    }
+  const commitNode = useCallback(
+    (node: Node, open: boolean): void => {
+      focusCanvasNode(node.id);
+      if (open || overModal) activateNodeSurface(node.id);
+      closeCommandBar();
+    },
+    [overModal],
+  );
+  const commitAction = useCallback((action: CommandBarAction): void => {
+    action.run();
     closeCommandBar();
+  }, []);
+  const commit = (row: CommandBarRow, open: boolean): void => {
+    if (row.kind === "node") commitNode(row.node, open);
+    else commitAction(row.action);
   };
+  const hoverRow = useCallback((key: string) => setActiveKey(key), []);
 
   const rowKeyAt = (position: number): string | undefined => {
     const row = rows[position];
@@ -324,6 +442,7 @@ export function CommandBar() {
   };
 
   const activeRow = rows[active];
+  const activeRowKey = activeRow ? rowKeyOf(activeRow) : undefined;
   const activeId = activeRow
     ? activeRow.kind === "node"
       ? `command-bar-option-${activeRow.index}`
@@ -383,52 +502,25 @@ export function CommandBar() {
           ) : (
             rows.map((row) =>
               row.kind === "node" ? (
-                <div
+                <CommandBarNodeRow
                   key={row.node.id}
-                  id={`command-bar-option-${row.index}`}
-                  role="option"
-                  aria-selected={row.position === active}
-                  data-index={row.position}
-                  className={[
-                    "command-bar__row",
-                    row.position === active ? "command-bar__row--active" : "",
-                  ].filter(Boolean).join(" ")}
-                  onPointerMove={() => setActiveKey(rowKeyOf(row))}
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    commit(row, event.metaKey || event.ctrlKey);
-                  }}
-                >
-                  <NodeRowFace node={row.node} trail={regionTrailById.get(row.node.id)} />
-                  <span className="command-bar__row-kind">{row.node.kind}</span>
-                </div>
+                  node={row.node}
+                  index={row.index}
+                  position={row.position}
+                  isActive={rowKeyOf(row) === activeRowKey}
+                  trail={regionTrailById.get(row.node.id)}
+                  onHover={hoverRow}
+                  onCommit={commitNode}
+                />
               ) : (
-                <div
+                <CommandBarActionRow
                   key={row.action.id}
-                  id={`command-bar-action-${row.position}`}
-                  role="option"
-                  aria-selected={row.position === active}
-                  data-index={row.position}
-                  className={[
-                    "command-bar__row",
-                    "command-bar__row--action",
-                    row.position === active ? "command-bar__row--active" : "",
-                  ].filter(Boolean).join(" ")}
-                  onPointerMove={() => setActiveKey(rowKeyOf(row))}
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    commit(row, false);
-                  }}
-                >
-                  <span className="command-bar__row-icon">
-                    <row.action.icon size={13} />
-                  </span>
-                  <span className="command-bar__row-main">
-                    <span className="command-bar__row-title">{row.action.label}</span>
-                    <span className="command-bar__row-detail">{row.action.detail}</span>
-                  </span>
-                  {row.action.hotkey ? <Kbd>{row.action.hotkey}</Kbd> : null}
-                </div>
+                  action={row.action}
+                  position={row.position}
+                  isActive={rowKeyOf(row) === activeRowKey}
+                  onHover={hoverRow}
+                  onCommit={commitAction}
+                />
               )
             )
           )}
