@@ -101,13 +101,12 @@ export const OVERVIEW_RING_FLOOR_PX = 22;
 export const SEAT_FLOOR_SCALE_VAR = "--seat-floor-scale";
 
 /**
- * Steps a scale is rounded up to. Half steps, not tenths: every published
- * scale is one whole-board style change, because every seat resolves
- * --seat-s from it, and a tenth made a zoom rest rewrite the board about
- * three times as often as it needed to. A half step holds a far ring within
- * 6% of 40px on screen.
+ * Steps a scale is rounded up to. Tenths, not halves: the ring must never be
+ * more than 2px over its screen floor (seat-ring-room.test.ts), and at the
+ * far tier's closest zoom 40 + 2px leaves room for a step of only about 0.09.
+ * A coarser step bought fewer whole-board restyles but broke that bound.
  */
-const SCALE_STEP = 0.5;
+const SCALE_STEP = 0.1;
 
 const scaleFor = (screenPx: number, zoom: number, floor: number): number => {
   if (!Number.isFinite(zoom) || zoom <= 0) return floor;
@@ -117,8 +116,8 @@ const scaleFor = (screenPx: number, zoom: number, floor: number): number => {
 
 /**
  * The scale that draws a 52-unit seat ring FAR_RING_SCREEN_PX across at this
- * zoom, rounded up to a half step so a zoom gesture writes a few values, not
- * one per rest. Never below the 1.75 a ring is drawn at before the floor
+ * zoom, rounded up to a tenth so the ring never passes its screen floor.
+ * Never below the 1.75 a ring is drawn at before the floor
  * bites, never above SEAT_SCALE_MAX.
  */
 export const farSeatScale = (zoom: number): number => scaleFor(FAR_RING_SCREEN_PX, zoom, 1.75);

@@ -182,8 +182,8 @@ if (appRoot === "") {
   console.error("usage: bun scripts/probe-zoom-sweep.ts --app-root DIR [--label L] [--seconds S] [--port P] [--fixture NAME] [--out FILE]\n       bun scripts/probe-zoom-sweep.ts --compare before=DIR,after=DIR [--repeats 3]");
   process.exit(64);
 }
-if (!["product", "no-rest-scale", "no-tier-css", "coarse-rest", "integer-rest", "static-visibility"].includes(variant)) {
-  console.error("zoom sweep: --variant is product, no-rest-scale, no-tier-css, coarse-rest, integer-rest or static-visibility");
+if (!["product", "no-rest-scale", "no-tier-css", "coarse-rest", "integer-rest", "static-visibility", "no-ease", "ease-visible", "waapi-ease"].includes(variant)) {
+  console.error("zoom sweep: --variant is product, no-rest-scale, no-tier-css, coarse-rest, integer-rest, static-visibility, no-ease or ease-visible");
   process.exit(64);
 }
 if (sweepArm !== "cross" && sweepArm !== "within") {
@@ -730,6 +730,50 @@ try {
               }
               return setProperty.call(this, name, value, priority);
             };
+          }
+          if (variant === "no-ease") {
+            // Diagnostic: the camera rest still publishes the new ring size,
+            // but the FLIP ease never starts (no data-seat-ease flip).
+            const setAttribute = Element.prototype.setAttribute;
+            Element.prototype.setAttribute = function (name, value) {
+              if (name === "data-seat-ease") return;
+              return setAttribute.call(this, name, value);
+            };
+          }
+          if (variant === "waapi-ease") {
+            // Candidate (same look): the size ease runs as a WAAPI transform
+            // animation with a numeric ratio instead of a CSS keyframe whose
+            // from/to read custom properties. Transform-only animations
+            // composite; the keyframe one restyles every mark it starts on.
+            const style = document.createElement("style");
+            style.textContent = "html .react-flow[data-seat-ease] .react-flow__viewport .junto-seat > .junto-mark { animation: none !important; }";
+            document.head.append(style);
+            const ease = "cubic-bezier(.33,1,.68,1)";
+            const run = () => {
+              const flow = document.querySelector(".react-flow");
+              const mode = flow?.getAttribute("data-seat-ease") ?? "";
+              if (!flow || mode === "") return;
+              const read = (name) => Number.parseFloat(getComputedStyle(flow).getPropertyValue(name)) || 1;
+              const entering = mode.startsWith("in");
+              const ratio = entering
+                ? 1 / read("--seat-s")
+                : read("--seat-s-was") / read("--seat-s");
+              if (!Number.isFinite(ratio) || Math.abs(ratio - 1) < 0.01) return;
+              for (const mark of document.querySelectorAll(".react-flow__viewport .junto-seat > .junto-mark[data-mark-visible]")) {
+                mark.animate([{ transform: "scale(" + ratio + ")" }, { transform: "none" }], { duration: 160, easing: ease });
+              }
+            };
+            // The gate flips the attribute; catch it and run the ease there.
+            new MutationObserver(run).observe(document.querySelector(".react-flow") ?? document.body, { attributes: true, attributeFilter: ["data-seat-ease"] });
+          }
+          if (variant === "ease-visible") {
+            // Candidate (look-preserving): the ease still runs on every ring
+            // the operator can see; a ring off screen, which the size change
+            // would start turning a scale for anyway, takes the new size at
+            // once and holds no animation.
+            const style = document.createElement("style");
+            style.textContent = "html .react-flow[data-seat-ease] .react-flow__viewport .junto-seat > .junto-mark:not([data-mark-visible]) { animation: none !important; }";
+            document.head.append(style);
           }
           if (variant === "static-visibility") {
         // Diagnostic: every mark reports visible once and never again, so the
