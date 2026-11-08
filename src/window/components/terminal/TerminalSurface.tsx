@@ -21,6 +21,7 @@ import { themeMode$ } from "../../lib/theme-mode";
 import { shouldPresentTerminalFrames } from "../../lib/terminal-paint-lease";
 import {
   cellsForPane,
+  hostLayoutBox,
   ptyNotifyDelayMs,
   ptyNotifyShouldRetry,
   shouldNotifyPtyResize,
@@ -666,11 +667,19 @@ const measureHost = (
   fallback: CellSize,
   pad: { readonly x: number; readonly y: number },
 ): { cols: number; rows: number; w: number; h: number } | null => {
-  const hostRect = host.getBoundingClientRect();
+  // The layout box, not the visual box: an entering focus surface is scaled.
+  const hostBox = hostLayoutBox({
+    offsetWidth: host.offsetWidth,
+    offsetHeight: host.offsetHeight,
+    readVisual: () => {
+      const rect = host.getBoundingClientRect();
+      return { width: rect.width, height: rect.height };
+    },
+  });
   const { cellW, cellH } = readCellSize(term, fallback);
   return cellsForPane({
-    hostWidth: hostRect.width,
-    hostHeight: hostRect.height,
+    hostWidth: hostBox.width,
+    hostHeight: hostBox.height,
     cellW,
     cellH,
     padX: pad.x,
@@ -1143,6 +1152,12 @@ export function TerminalSurface({
         termRows: term.rows,
       });
     }
+    // The one real fit, synchronous and before the first frame: the surface is
+    // already at its layout size, and the entrance is only a composited scale.
+    // Resizing now runs while the GPU is idle; after the first raster the same
+    // resize waits behind it (~9 ms per GL sync, ~55 ms an open). The settle
+    // ladder below stays as the backstop for late layout and cell metrics.
+    pushResize({ forcePaint: true });
 
     /**
      * Wheel: do NOT capture-phase preventDefault.

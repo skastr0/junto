@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   cellsForPane,
+  hostLayoutBox,
   ptyNotifyDelayMs,
   ptyNotifyShouldRetry,
   PTY_NOTIFY_RETRY_CAP,
@@ -78,6 +79,26 @@ describe("terminal PTY resize policy", () => {
         { cols: 137, rows: 38 },
       ),
     ).toBe(true);
+  });
+});
+
+describe("hostLayoutBox", () => {
+  it("takes the transform-free layout box, not the scaled visual box", () => {
+    const readVisual = vi.fn(() => ({ width: 1063.8, height: 719.6 }));
+    expect(
+      hostLayoutBox({ offsetWidth: 1080, offsetHeight: 730, readVisual }),
+    ).toEqual({ width: 1080, height: 730 });
+    // The entrance animation is a transform; reading it would fit the grid
+    // 1.5% small and push that transient width to the child PTY.
+    expect(readVisual).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the visual box only while the host has no layout box", () => {
+    const readVisual = vi.fn(() => ({ width: 1080, height: 730 }));
+    expect(
+      hostLayoutBox({ offsetWidth: 0, offsetHeight: 0, readVisual }),
+    ).toEqual({ width: 1080, height: 730 });
+    expect(readVisual).toHaveBeenCalledTimes(1);
   });
 });
 

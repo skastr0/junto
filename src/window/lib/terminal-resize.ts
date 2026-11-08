@@ -51,6 +51,28 @@ export const ptyNotifyShouldRetry = (failCount: number): boolean =>
   failCount < PTY_NOTIFY_RETRY_CAP;
 
 /**
+ * The host's layout box, which is the pane's real size.
+ *
+ * `getBoundingClientRect` includes ancestor transforms: the focus surface
+ * enters with a 160 ms scale(0.985) animation, so a fit measured from the
+ * visual box lands about 1.5% small, resizes the grid, and tells the child
+ * PTY a width the pane never has. offsetWidth/offsetHeight are the
+ * transform-free border box; the visual box is only the fallback while the
+ * host has no layout box (display:none, or not yet laid out), where the fit
+ * is rejected downstream anyway.
+ */
+export const hostLayoutBox = (input: {
+  readonly offsetWidth: number;
+  readonly offsetHeight: number;
+  readonly readVisual: () => { readonly width: number; readonly height: number };
+}): { readonly width: number; readonly height: number } => {
+  if (input.offsetWidth > 0 && input.offsetHeight > 0) {
+    return { width: input.offsetWidth, height: input.offsetHeight };
+  }
+  return input.readVisual();
+};
+
+/**
  * Pane box is authority. Never measure the live .xterm node — that island
  * is sized to the current grid, so focus/grid growth would freeze.
  */
