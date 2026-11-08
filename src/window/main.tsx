@@ -19,6 +19,11 @@ import { pageLink } from "./rpc/link";
 import { makeWindowRuntime, WindowRuntimeContext } from "./rpc/runtime";
 import { windowTracing } from "./rpc/tracing";
 import "./styles.css";
+import { refuseAnimationIterationListeners } from "./lib/animation-iteration";
+
+// Before any React root or portal exists: no listener for animationiteration,
+// so a looping CSS animation never wakes the main thread (animation-iteration.ts).
+refuseAnimationIterationListeners();
 
 // Dev-only render highlighter (https://github.com/aidenybai/react-scan).
 // Import before createRoot so the scanner can instrument React.
