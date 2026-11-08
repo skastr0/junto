@@ -149,6 +149,8 @@ const outPath = arg("out", "");
 const inspectMark = flag("inspect-mark");
 /** Run one animation per case under a trace and report whether each composited. */
 const animProbe = flag("anim-probe");
+/** Trace one camera rest and report the slow frame's time per thread and phase. */
+const restTrace = flag("rest-trace");
 /** Where to write one screenshot per phase end (the zoom reached, for ring sharpness). */
 const shotsDir = arg("shots", "");
 /** Zooms to settle at and capture after the sweep, for a sharpness comparison. */
@@ -188,7 +190,7 @@ if (appRoot === "") {
   console.error("usage: bun scripts/probe-zoom-sweep.ts --app-root DIR [--label L] [--seconds S] [--port P] [--fixture NAME] [--out FILE]\n       bun scripts/probe-zoom-sweep.ts --compare before=DIR,after=DIR [--repeats 3]");
   process.exit(64);
 }
-if (!["product", "no-rest-scale", "no-tier-css", "coarse-rest", "integer-rest", "static-visibility", "no-ease", "ease-visible", "waapi-ease", "no-waapi", "waapi-first"].includes(variant)) {
+if (!["product", "no-rest-scale", "no-tier-css", "coarse-rest", "integer-rest", "static-visibility", "no-ease", "ease-visible", "waapi-ease", "no-waapi", "waapi-first", "seat-local-scale"].includes(variant)) {
   console.error("zoom sweep: --variant is product, no-rest-scale, no-tier-css, coarse-rest, integer-rest, static-visibility, no-ease or ease-visible");
   process.exit(64);
 }
@@ -776,6 +778,94 @@ try {
     process.exit(0);
   }
 
+  if (restTrace) {
+    const trace: any[] = [];
+    browser!.on("Tracing.dataCollected", (params: { value: any[] }) => { trace.push(...params.value); });
+    const done = new Promise<void>((ok) => browser!.on("Tracing.tracingComplete", () => ok()));
+    // Settle in the far tier first (its rest is not traced), then trace the next rest.
+    const zoomOnce = async (delta: number) => {
+      await page!.evaluate(`(() => {
+        const pane = document.querySelector(".react-flow__pane") || document.body;
+        pane.dispatchEvent(new WheelEvent("wheel", {
+          bubbles: true, cancelable: true, ctrlKey: true,
+          clientX: Math.round(innerWidth / 2), clientY: Math.round(innerHeight / 2),
+          deltaX: 0, deltaY: ${String(delta)},
+        }));
+      })()`);
+    };
+    for (let step = 0; step < 12; step += 1) { await zoomOnce(-2); await sleep(30); }
+    await sleep(900);
+    const before = await page!.evaluate<string>(`document.querySelector(".react-flow__viewport")?.style.transform ?? ""`);
+    await browser!.send("Tracing.start", {
+      traceConfig: { includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline.frame", "blink", "cc", "viz", "gpu", "disabled-by-default-cc.debug.scheduler", "benchmark", "toplevel"] },
+      transferMode: "ReportEvents",
+    } as never);
+    await page!.evaluate(`(() => 0)()`).catch(() => undefined);
+    await sleep(500);
+    for (let step = 0; step < 6; step += 1) { await zoomOnce(-1); await sleep(30); }
+    await sleep(1_000);
+    await browser!.send("Tracing.end");
+    await done;
+    // Thread names and per-thread busy time.
+    const threadName = new Map<string, string>();
+    for (const event of trace) {
+      if (event.name === "thread_name" && event.args?.name) threadName.set(`${String(event.pid)}:${String(event.tid)}`, String(event.args.name));
+    }
+    const perThread = new Map<string, { name: string; us: number; events: number }>();
+    const rasterTasks: any[] = [];
+    const frames: Array<{ begin: number; end: number; mainUs: number }> = [];
+    const open = new Map<string, number>();
+    for (const event of trace) {
+      const key = `${String(event.pid)}:${String(event.tid)}`;
+      if (event.name === "RasterTask") rasterTasks.push(event);
+      if (event.ph === "X" && typeof event.dur === "number") {
+        const row = perThread.get(key) ?? { name: threadName.get(key) ?? key, us: 0, events: 0 };
+        row.us += event.dur;
+        row.events += 1;
+        perThread.set(key, row);
+      }
+    }
+    const summary = [...perThread].map(([key, row]) => ({ thread: `${row.name} (${key})`, busyMs: Math.round(row.us / 100) / 10, events: row.events }))
+      .sort((a, b) => b.busyMs - a.busyMs).slice(0, 14);
+    // The slow frames: each long BeginMainFrame slice on the renderer main,
+    // with what ran inside it and what the other threads did in its window.
+    const mainThread = [...threadName].find(([, name]) => name === "CrRendererMain")?.[0] ?? "";
+    const longFrames = trace
+      .filter((event) => event.name === "ProxyMain::BeginMainFrame" && event.ph === "X" && typeof event.dur === "number" && event.dur > 25_000)
+      .map((event) => {
+        const from = event.ts;
+        const to = event.ts + event.dur;
+        const inside = trace.filter((other) => other.ph === "X" && typeof other.dur === "number" && other.ts >= from && other.ts < to && `${String(other.pid)}:${String(other.tid)}` === mainThread);
+        const byName = new Map<string, number>();
+        for (const other of inside) byName.set(other.name, (byName.get(other.name) ?? 0) + other.dur);
+        const windowRaster = trace.filter((other) => other.name === "RasterTask" && typeof other.ts === "number" && other.ts >= from && other.ts < to + 16_000);
+        const gpu = trace.filter((other) => other.ph === "X" && typeof other.dur === "number" && other.ts >= from && other.ts < to && String(other.pid) === String(event.pid) ? false : other.ph === "X" && typeof other.dur === "number" && other.ts >= from && other.ts < to && (threadName.get(`${String(other.pid)}:${String(other.tid)}`) ?? "") === "CrGpuMain");
+        return {
+          durationMs: Math.round(event.dur / 100) / 10,
+          top: [...byName].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, us]) => [name, Math.round(us / 100) / 10]),
+          rasterTasks: windowRaster.length,
+          gpuMs: Math.round(gpu.reduce((sum, other) => sum + other.dur, 0) / 100) / 10,
+        };
+      })
+      .sort((a, b) => b.durationMs - a.durationMs)
+      .slice(0, 5);
+    const rasterByName = new Map<string, number>();
+    for (const task of rasterTasks) rasterByName.set(String(task.args?.data?.source ?? "?"), (rasterByName.get(String(task.args?.data?.source ?? "?")) ?? 0) + 1);
+    console.log(JSON.stringify({
+      before,
+      threads: summary,
+      longFrames,
+      raster: { tasks: rasterTasks.length, bySource: [...rasterByName].slice(0, 6) },
+      topNames: [...(() => {
+        const byName = new Map<string, number>();
+        for (const event of trace) if (event.ph === "X" && typeof event.dur === "number") byName.set(event.name, (byName.get(event.name) ?? 0) + event.dur);
+        return byName;
+      })()].sort((a, b) => b[1] - a[1]).slice(0, 18).map(([name, us]) => [name, Math.round(us / 100) / 10]),
+    }, null, 2));
+    await teardown();
+    process.exit(0);
+  }
+
   const environment = await main.evaluate<{ accessibility: boolean; electron: string; chrome: string; displays: number; darkOs: boolean; displayHz: number; window: string }>(`({
     accessibility: __probe.app.accessibilitySupportEnabled,
     electron: process.versions.electron,
@@ -858,6 +948,21 @@ try {
                 const stepped = quantize(value);
                 if (this.getPropertyValue(name) === stepped) return;
                 return setProperty.call(this, name, stepped, priority);
+              }
+              return setProperty.call(this, name, value, priority);
+            };
+          }
+          if (variant === "seat-local-scale") {
+            // Diagnostic: the camera-rest scales are written on every seat
+            // instead of the ReactFlow root, so the inherited-property change
+            // restyles 253 seat subtrees rather than the whole document.
+            const setProperty = CSSStyleDeclaration.prototype.setProperty;
+            CSSStyleDeclaration.prototype.setProperty = function (name, value, priority) {
+              if (name === "--far-seat-scale" || name === "--seat-floor-scale") {
+                for (const seat of document.querySelectorAll(".react-flow__viewport .junto-seat")) {
+                  setProperty.call(seat.style, name, value, priority);
+                }
+                return;
               }
               return setProperty.call(this, name, value, priority);
             };
