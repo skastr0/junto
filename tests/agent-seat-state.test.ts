@@ -1033,6 +1033,31 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
     expect(result.ruleId).toBe("editor_prompt_idle");
   });
 
+  it("pi 1.5.0: a screen that says startup is still in progress is not idle", () => {
+    // Live 2026-11-08: pi keeps the static title and paints the editor box
+    // while it still refuses submits, then reports
+    // `Startup is still in progress`. Neither idle rule may claim it.
+    const result = evaluate(
+      snap({
+        lines: [
+          " [Context] ~/.pi/agent/AGENTS.md, AGENTS.md",
+          " [Skills] composio-cli, impeccable",
+          " Startup is still in progress",
+          "",
+          "─".repeat(130),
+          " Continuing from your previous session. Run `junto onboard` to read your handoff.",
+          "─".repeat(130),
+          PI15_CWD,
+          "0.0%/1.0M (auto)   (opencode-go) deepseek-v4.1-flash • high",
+        ],
+        title: "π - junto - junto",
+      }),
+      { harness: "pi" },
+    );
+    expect(result.visibleIdle).toBe(false);
+    expect(result.ruleId).toBe("startup_hold");
+  });
+
   it("pi 1.5.0: a queued notice mid-turn does not read idle", () => {
     const result = evaluate(
       snap({

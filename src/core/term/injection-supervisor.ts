@@ -78,6 +78,8 @@ export type ContinuationHold = "draft" | "dialog" | "unreadable";
 
 /** How soon a continuation line the terminal refused is offered again. */
 const CONTINUATION_RETRY_MS = 1_000;
+/** How long a typed continuation line may sit unsent before a bare Enter follows it. */
+const CONTINUATION_SUBMIT_GRACE_MS = 1_500;
 /** How long mail for a fresh session waits for its continuation line to go first. */
 const CONTINUATION_FIRST_MS = 10_000;
 
@@ -119,7 +121,15 @@ export class InjectionSupervisor {
    */
   private readonly continuations = new Map<
     string,
-    { readonly notEpoch: string | undefined; freshSince?: number; holdTimer?: ReturnType<typeof setTimeout> }
+    {
+      readonly notEpoch: string | undefined;
+      freshSince?: number;
+      holdTimer?: ReturnType<typeof setTimeout>;
+      /** When the line's bytes last reached the PTY, to notice a refused submit. */
+      typedAt?: number;
+      /** When the last bare Enter went after it, so one submit is not repeated every tick. */
+      submittedAt?: number;
+    }
   >();
   private readonly continuationClearedListeners = new Set<(bindingId: string) => void>();
   private readonly continuationHolds = new Map<string, ContinuationHold>();
@@ -129,6 +139,7 @@ export class InjectionSupervisor {
   private readonly continuationWaits = new Map<string, string>();
   private continuationLog: ((message: string) => void) | undefined;
   private continuationWriter: NoticeWriter | undefined;
+  private continuationSubmitter: ((bindingId: string) => boolean | Promise<boolean>) | undefined;
   private continuationSettled: ((bindingId: string) => void) | undefined;
   private composer: ComposerLookup | undefined;
   private loader: OnboardedLoader | undefined;
@@ -145,6 +156,16 @@ export class InjectionSupervisor {
    */
   setContinuationWriter(writer: NoticeWriter): void {
     this.continuationWriter = writer;
+  }
+
+  /**
+   * How a line that was typed but not submitted is submitted: a bare Enter,
+   * no text. A harness can keep the text and refuse the submit while it is
+   * still starting (pi 1.5.0's `Startup is still in progress`), so taking the
+   * write alone as delivery parks the fresh session at a filled box.
+   */
+  setContinuationSubmitter(submitter: (bindingId: string) => boolean | Promise<boolean>): void {
+    this.continuationSubmitter = submitter;
   }
 
   /** Told when a seat is no longer owed its continuation line. */
@@ -537,6 +558,42 @@ export class InjectionSupervisor {
       this.retryContinuation(bindingId);
       return true;
     };
+    const composer = this.composerOf(bindingId);
+    // The line's bytes are in. It is delivered when it left the box (a turn
+    // started) — a harness that keeps the text and refuses the submit (pi
+    // 1.5.0 while it finishes starting) is given a bare Enter instead.
+    if (armed.typedAt !== undefined) {
+      if (composer !== "draft" || seat.state === "working" || seat.inTurn) {
+        this.settleContinuation(bindingId);
+        // The session's first message, and the turn it starts. The nudge
+        // policy counts from here: that turn is not one of its own.
+        seat.firstMessageSeen = true;
+        seat.inTurn = true;
+        seat.turnsWaited = 0;
+        return false;
+      }
+      const submitter = this.continuationSubmitter;
+      const sinceTyped = this.now() - armed.typedAt;
+      const sinceSubmit = armed.submittedAt === undefined ? Number.POSITIVE_INFINITY : this.now() - armed.submittedAt;
+      if (submitter === undefined) return wait("its submit is not wired");
+      if (sinceTyped < CONTINUATION_SUBMIT_GRACE_MS || sinceSubmit < CONTINUATION_SUBMIT_GRACE_MS) {
+        return wait("it typed the line and the box still holds it");
+      }
+      armed.submittedAt = this.now();
+      const send = (ok: boolean): void => {
+        if (this.seats.get(bindingId) !== seat) return;
+        if (ok) this.continuationLog?.(`${bindingId}: the continuation line was submitted again`);
+        this.retryContinuation(bindingId);
+      };
+      try {
+        const result = submitter(bindingId);
+        if (typeof result === "boolean") send(result);
+        else void result.then(send, () => send(false));
+      } catch {
+        send(false);
+      }
+      return true;
+    }
     if (seat.onboarding === "unknown") {
       return wait("it is not yet known whether the fresh session has onboarded");
     }
@@ -549,7 +606,6 @@ export class InjectionSupervisor {
     // something else already started (the operator's prompt can reach the
     // fresh session first, and that turn may run for hours). Never on a
     // dialog, a draft, or a box that cannot be read at rest.
-    const composer = this.composerOf(bindingId);
     const typeable =
       (seat.state === "idle" && composer === "empty") || (seat.state === "working" && composer !== "draft");
     if (!typeable) {
@@ -576,6 +632,19 @@ export class InjectionSupervisor {
         // Refused for now (the terminal is not ready, the operator is
         // typing). A seat at rest tells nothing more, so ask again unprompted.
         wait(`the terminal refused it (seat ${seat.state}, box ${composer})`);
+        return;
+      }
+      const current = this.continuations.get(bindingId);
+      // The line's bytes are in. If the harness kept them in the box, the
+      // submit did not take (pi 1.5.0 while it finishes starting) and the
+      // session is not told yet: keep it owed and press Enter again below.
+      if (
+        current !== undefined &&
+        this.continuationSubmitter !== undefined &&
+        this.composerOf(bindingId) === "draft"
+      ) {
+        current.typedAt = this.now();
+        wait(`it typed the line and the box still holds it (seat ${seat.state})`);
         return;
       }
       this.settleContinuation(bindingId);

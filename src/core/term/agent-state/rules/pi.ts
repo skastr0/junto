@@ -30,8 +30,24 @@ const PI_WORKING_BORDER = "^\\s*─{2,}\\s+.*\\bWorking\\b";
 
 export const piRules: SeatRulePack = {
   harness: "pi",
-  version: "2026.11.08.1",
+  version: "2026.11.08.2",
   rules: [
+    /**
+     * Startup. pi paints its editor and title before it can take a submit, and
+     * says `Startup is still in progress` when one arrives too early (it keeps
+     * the text and starts nothing). Live 2026-11-08: a fresh session's handoff
+     * line waited 204 s behind that status. Hold the prior state rather than
+     * publish a writeable idle; it clears itself when the status goes.
+     */
+    {
+      id: "startup_hold",
+      state: "unknown",
+      priority: 1050,
+      region: "bottom_non_empty_lines",
+      regionN: 10,
+      skipStateUpdate: true,
+      matchers: { contains: ["Startup is still in progress"] },
+    },
     // Startup project-trust selector: "Trust project folder?" + Trust options
     // + "↑↓ navigate - save - cancel" hints (trust-selector chrome).
     {
@@ -130,13 +146,16 @@ export const piRules: SeatRulePack = {
     // does not churn while streaming. When the status strip is clean, the
     // static title is the idle proof — raise above residual footer noise that
     // is not a Working.../Compacting line.
+    // A title alone is not idle proof: pi keeps its static title while it is
+    // still starting, and says `Startup is still in progress` when it refuses
+    // a submit made too early. That screen is not a settled seat.
     {
       id: "osc_title_idle",
       state: "idle",
       priority: 150,
       region: "osc_title",
       visibleIdle: true,
-      matchers: { regex: ["^π - |^pi - "] },
+      matchers: { regex: ["^π - |^pi - "], not: [{ contains: ["Startup is still in progress"] }] },
     },
     // Positive idle chrome: editor caret / empty prompt at bottom without a
     // live "Working..." status. Covers the common idle surface when thinking
@@ -159,6 +178,7 @@ export const piRules: SeatRulePack = {
         not: [
           { contains: ["Working..."] },
           { lineRegex: [PI_WORKING_BORDER] },
+          { contains: ["Startup is still in progress"] },
           { contains: ["Compacting context..."] },
           { contains: ["Summarizing branch..."] },
           { lineRegex: ["^\\s*[Rr]etrying\\s*\\("] },

@@ -62,6 +62,10 @@ export type FactoryDeliverySupervisor = {
   readonly setContinuationWriter: (
     writer: (bindingId: string, text: string) => boolean | Promise<boolean>,
   ) => void;
+  /** Send a bare Enter after a continuation line the harness kept but would not submit. */
+  readonly setContinuationSubmitter: (
+    submit: (bindingId: string) => boolean | Promise<boolean>,
+  ) => void;
   readonly setComposerLookup: (
     lookup: (bindingId: string) => "empty" | "draft" | null,
   ) => void;
@@ -108,6 +112,8 @@ export const wireFactorySupervisor = (input: {
   readonly write: FactoryWritePrompt;
   /** The same composer reading the drive gates on. */
   readonly composerVerdict: (bindingId: string) => "empty" | "draft" | null;
+  /** A bare Enter, for a continuation line the harness kept and did not submit. */
+  readonly submit?: (bindingId: string) => boolean | Promise<boolean>;
   readonly subscribeSnapshots: (
     listener: (snap: ObserverGridSnapshot) => void,
   ) => () => void;
@@ -118,6 +124,7 @@ export const wireFactorySupervisor = (input: {
   // gate: it can land in a turn the operator's prompt already started, and a
   // hold on it is announced when it clears.
   input.supervisor.setContinuationWriter(input.interject);
+  if (input.submit !== undefined) input.supervisor.setContinuationSubmitter(input.submit);
   return input.subscribeSnapshots((snap) =>
     input.supervisor.onSnapshot(snap),
   );
@@ -131,6 +138,8 @@ export type ComposeFactoryDeliveryInput = {
   /** Types the supervisor's nudge mid-turn; see wireFactorySupervisor. */
   readonly interject: (bindingId: string, text: string) => Promise<boolean>;
   readonly composerVerdict: (bindingId: string) => "empty" | "draft" | null;
+  /** A bare Enter for a continuation line the harness kept; see the supervisor. */
+  readonly submit?: (bindingId: string) => boolean | Promise<boolean>;
 };
 
 export type ComposedFactoryDelivery = {
@@ -153,6 +162,7 @@ export const composeFactoryDelivery = (
       interject: input.interject,
       write,
       composerVerdict: input.composerVerdict,
+      ...(input.submit ? { submit: input.submit } : {}),
       subscribeSnapshots: input.events.subscribeSnapshots,
     }),
   );

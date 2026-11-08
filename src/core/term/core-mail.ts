@@ -72,6 +72,7 @@ export const createCoreMailTransport = (options: Options) => {
       harness: harnessFor(bindingId), seatState: state.getState(bindingId),
       bracketedPaste: snap?.signals.modes.bracketedPaste === true,
       idleConfirmed: state.isSeatIdle(bindingId), lines: snap?.lines,
+      ...(snap?.signals.title ? { title: snap.signals.title } : {}),
     });
   };
   fence.setLiveGeneration((bindingId) => {

@@ -111,6 +111,7 @@ describe("wireFactorySupervisor", () => {
         setContinuationWriter: (fn) => {
           continuation = fn;
         },
+        setContinuationSubmitter: () => {},
         setComposerLookup: (fn) => {
           composer = fn;
         },
@@ -180,6 +181,7 @@ describe("composeFactoryDelivery", () => {
       supervisor: {
         setWriter: () => {},
         setContinuationWriter: () => {},
+        setContinuationSubmitter: () => {},
         setComposerLookup: () => {},
         noteSeatState: (event) => {
           noted.push(event);

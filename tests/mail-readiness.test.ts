@@ -63,8 +63,24 @@ describe("mail readiness", () => {
   });
 
   it("is ready for every harness template once its TUI is up and idle", () => {
+    // pi proves its TUI from the screen it paints (title + editor footer), so
+    // its ready moment is a real settled screen, not a bare input row.
+    const BOX = "─".repeat(110);
+    const piSettled = {
+      harness: "pi",
+      title: "π - junto - junto",
+      lines: [
+        "",
+        BOX,
+        "",
+        BOX,
+        "~/Projects/junto (main)",
+        "↑34k ↓7.5k R444k CH99.5% $0.011 3.4%/1.0M (auto)   (opencode-go) deepseek-v4.1-flash • high",
+      ],
+    };
     for (const harness of HARNESS_IDS) {
-      expect(mailFirstReady(seat({ harness })), harness).toBe(true);
+      const input = harness === "pi" ? seat(piSettled) : seat({ harness });
+      expect(mailFirstReady(input), harness).toBe(true);
     }
   });
 
@@ -85,6 +101,49 @@ describe("mail readiness", () => {
     const lines = ["╭─────╮", "│ │ │", "╰ ~ Connecting"];
     expect(mailFirstReady(seat({ harness: "amp", lines }))).toBe(false);
     expect(mailFirstReady(seat({ harness: "amp", lines: ["╭─────╮", "│ │ │", "╰─────╯"] }))).toBe(true);
+  });
+
+  // pi 1.5.0, live on this machine 2026-11-08. It paints its whole editor box
+  // and footer before it takes input: a submit at 0.2 s was dropped, and one at
+  // 0.45 s put the text back with `Startup is still in progress`. A handoff
+  // line typed then sat unsent for 204 s. These lines are the live screens.
+  describe("pi 1.5.0 starts before it listens", () => {
+    const BOX = "─".repeat(110);
+    const settled = [
+      " useful history above the editor",
+      "",
+      BOX,
+      "",
+      BOX,
+      "~/Projects/junto (main)",
+      "↑34k ↓7.5k R444k CH99.5% $0.011 3.4%/1.0M (auto)   (opencode-go) deepseek-v4.1-flash • high",
+    ];
+    const title = "π - junto - junto";
+
+    it("is ready on a settled seat with the TUI's title and editor footer", () => {
+      expect(mailFirstReady(seat({ harness: "pi", lines: settled, title }))).toBe(true);
+    });
+
+    it("waits while the title is not up yet, even though the box is painted", () => {
+      expect(mailFirstReady(seat({ harness: "pi", lines: settled, title: "" }))).toBe(false);
+      expect(mailFirstReady(seat({ harness: "pi", lines: settled }))).toBe(false);
+    });
+
+    it("waits while pi says startup is still in progress", () => {
+      const starting = [
+        " [Context] ~/.pi/agent/AGENTS.md, AGENTS.md",
+        " [Skills] composio-cli, impeccable",
+        " Startup is still in progress",
+        ...settled.slice(-4),
+      ];
+      expect(mailFirstReady(seat({ harness: "pi", lines: starting, title }))).toBe(false);
+    });
+
+    it("waits while pi is working, whatever the box reads", () => {
+      expect(
+        mailFirstReady(seat({ harness: "pi", seatState: "working", lines: settled, title })),
+      ).toBe(false);
+    });
   });
 });
 

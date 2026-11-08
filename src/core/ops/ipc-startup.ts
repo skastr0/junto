@@ -165,6 +165,10 @@ export const CoreStartup = Layer.effectDiscard(
         interjectOnboardNudge(bindingId, text).then((outcome) => outcome === "written"),
       write: (bindingId, text, options) =>
         managedDrive.writePrompt(bindingId, text, { ready: options?.ready ?? driveReady(bindingId), ...(options ?? {}) }),
+      // A harness can keep the continuation line and refuse the submit while
+      // it is still starting (pi 1.5.0). The bare Enter is the drive's own
+      // recovery submit, which never pastes text.
+      submit: (bindingId) => managedDrive.submitRecoveryCr(bindingId),
       composerVerdict: (bindingId) => seatStateRuntime.composerVerdict(bindingId),
       subscribeSnapshots: (listener) => terminalObserverPlane.subscribeGlobal(listener),
     });

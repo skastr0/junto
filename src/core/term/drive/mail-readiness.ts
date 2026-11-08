@@ -27,6 +27,34 @@ export const BRACKETED_PASTE_HARNESSES: ReadonlySet<string> = new Set(
 const AMP_STARTUP_FOOTER =
   /^\s*╰\s*(?:[∼≈≋~]\s*)?(?:loading thread|connecting|reconnecting|catching up)\b/iu;
 
+/**
+ * pi 1.5.0 paints its whole editor box and a footer before it takes input.
+ * Two live shapes, both measured on this machine (2026-11-08):
+ *
+ * - Keys before its UI starts are dropped silently (a submit at 0.2 s did
+ *   nothing), which is where `offboard --continue`'s handoff line was typed.
+ * - A submit after the editor exists but while it is still provisioning its
+ *   managed tools puts the text back and paints
+ *   `Startup is still in progress` (`handleStartupSubmit` in pi's bundle),
+ *   leaving the line unsubmitted until something else presses Enter.
+ *
+ * The TUI's own OSC title is set during initialization (0.6-1.1 s after
+ * spawn, before the submit handler is installed), and the editor's footer
+ * (`0.0%/1.0M`) is painted with it, so the two together are the positive
+ * readiness pi offers. The startup status line always refuses.
+ */
+const PI_STARTUP_STATUS = /Startup is still in progress/iu;
+const PI_TITLE = /^(?:π|pi)\s*-/u;
+const PI_EDITOR_FOOTER = /\d+(?:\.\d+)?%\s*\/\s*[0-9.]+\s*[kKmM]\b/u;
+
+const isPiReady = (input: MailReadinessInput): boolean => {
+  if (input.seatState === "working" || input.seatState === "attention") return false;
+  const tail = (input.lines ?? []).filter((line: string) => line.trim()).slice(-12);
+  if (tail.some((line: string) => PI_STARTUP_STATUS.test(line))) return false;
+  if (!PI_TITLE.test((input.title ?? "").trim())) return false;
+  return tail.some((line: string) => PI_EDITOR_FOOTER.test(line));
+};
+
 export type MailReadinessInput = {
   /** The seat's process generation is running. */
   readonly running: boolean;
@@ -40,6 +68,8 @@ export type MailReadinessInput = {
   readonly idleConfirmed: boolean;
   /** Last screen lines, for harnesses that paint before they connect. */
   readonly lines?: ReadonlyArray<string>;
+  /** The terminal's OSC 0 title: a harness that sets it has finished initializing. */
+  readonly title?: string;
 };
 
 const ptyProfile = (harness: string | undefined) =>
@@ -66,6 +96,11 @@ export const mailFirstReady = (input: MailReadinessInput): boolean => {
     return input.bracketedPaste || input.idleConfirmed;
   }
   if (!input.bracketedPaste || !input.idleConfirmed) return false;
+  // pi 1.5.0 is up on screen before it can take a submit: wait for the TUI's
+  // own initialization marker, never for the box alone.
+  if (harnessRecordFor(input.harness?.trim().toLowerCase())?.harness === "pi" && !isPiReady(input)) {
+    return false;
+  }
   if (ptyProfile(input.harness)?.typingReady === "composer") {
     const tail = (input.lines ?? []).filter((line) => line.trim()).slice(-8);
     if (tail.some((line) => AMP_STARTUP_FOOTER.test(line))) return false;

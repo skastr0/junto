@@ -70,8 +70,16 @@ const rig = () => {
     typed.push({ epoch: epoch.current, via: "nudge", text });
     return true;
   }));
+  /** The fresh session's box keeps the line: the harness refused the submit. */
+  const kept = { line: false };
   supervisor.setContinuationWriter(vi.fn<NoticeWriter>((_b, text) => {
     typed.push({ epoch: epoch.current, via: "continuation", text });
+    if (kept.line) composer.verdict = "draft";
+    return true;
+  }));
+  const submits: string[] = [];
+  supervisor.setContinuationSubmitter(vi.fn((bindingId: string) => {
+    submits.push(bindingId);
     return true;
   }));
   const state = (value: AgentSeatStateEvent["state"], at = epoch.current) =>
@@ -83,6 +91,7 @@ const rig = () => {
     await settled();
   };
   const clock = { now: 1_000 };
+  supervisor.setNow(() => clock.now);
   const ledger = new ContinuationLedger(supervisor, memoryStore(), () => clock.now);
   /** What the fresh generation does as it comes up, and what happens to it meanwhile. */
   const wake = { steps: ["unknown", "idle"] as ReadonlyArray<AgentSeatStateEvent["state"]>, during: () => {} };
@@ -123,7 +132,7 @@ const rig = () => {
     state("working");
     state("idle");
   };
-  return { supervisor, typed, composer, epoch, state, boot, offboard, turn, wake, rotation };
+  return { supervisor, typed, composer, epoch, state, boot, offboard, turn, wake, rotation, kept, submits, clock };
 };
 
 afterEach(() => {
@@ -148,6 +157,33 @@ describe("continuing after junto offboard --continue", () => {
       "Continuing from your previous session. Run `junto onboard` to read your handoff.",
     );
     expect(CONTINUATION_LINE).not.toContain("\n");
+  });
+
+  // pi 1.5.0, live 2026-11-08: the fresh session's editor takes the paste but
+  // refuses the submit while it is still starting, keeping the text and
+  // painting "Startup is still in progress". The line sat 204 s unsent until
+  // unrelated mail pressed Enter, and that mail was glued onto it.
+  it("presses Enter again when the harness keeps the line and refuses the submit", async () => {
+    const { supervisor, typed, composer, boot, offboard, kept, submits, state, clock } = rig();
+    await boot("e1");
+    kept.line = true;
+    await offboard("continue");
+    // Typed, but not told: the box still holds the line.
+    expect(typed).toHaveLength(1);
+    expect(supervisor.continuationPending(BINDING)).toBe(true);
+    expect(submits).toEqual([]);
+    // Time passes with the box holding it: a bare Enter follows the text.
+    clock.now += 2_000;
+    state("idle");
+    await settled();
+    expect(submits).toEqual([BINDING]);
+    // The harness took it: the line cleared and the session is told.
+    composer.verdict = "empty";
+    state("idle");
+    await settled();
+    expect(supervisor.continuationPending(BINDING)).toBe(false);
+    // And nothing is typed twice.
+    expect(typed).toHaveLength(1);
   });
 
   it("never reaches the generation that offboarded", async () => {
