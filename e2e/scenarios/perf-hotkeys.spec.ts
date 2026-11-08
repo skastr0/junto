@@ -626,6 +626,36 @@ test("hotkey performance probe", async () => {
       return;
     }
 
+    // Timeline trace of one sweep: names the native share per step —
+    // UpdateLayoutTree elementCount, Layout dirty count, Paint,
+    // PaintArtifactCompositor, and invalidation reasons. Starts well before
+    // the sweep so its own start does not land inside a step.
+    if (process.env.PERF_HOTKEYS_TRACE === "sweep") {
+      const cdp = await page.context().newCDPSession(page);
+      const chunks: unknown[] = [];
+      cdp.on("Tracing.dataCollected", (e) => chunks.push(...((e as { value: unknown[] }).value ?? [])));
+      const finished = new Promise<void>((resolve) => cdp.once("Tracing.tracingComplete", () => resolve()));
+      await cdp.send("Tracing.start", {
+        categories: "toplevel,devtools.timeline,disabled-by-default-devtools.timeline.invalidationTracking,blink,cc",
+        transferMode: "ReportEvents",
+      });
+      await sleep(1_200);
+      await page.keyboard.down("Meta");
+      for (let i = 0; i < 40; i += 1) {
+        await page.keyboard.press("Backquote");
+        await sleep(45);
+      }
+      await sleep(300);
+      await page.keyboard.up("Meta");
+      await sleep(400);
+      await cdp.send("Tracing.end");
+      await finished;
+      await sleep(300);
+      mkdirSync(dirname(OUT), { recursive: true });
+      writeFileSync(OUT, JSON.stringify({ trace: "sweep", events: chunks }, null, 1));
+      return;
+    }
+
     const runScenario = async (scenario: Scenario): Promise<unknown[]> => {
       const reps: unknown[] = [];
       for (let rep = 0; rep < REPS; rep += 1) {
