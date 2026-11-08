@@ -56,8 +56,9 @@ test("anim census: which animations tick during a seat-event storm", async () =>
       (window as any).__animSampler = setInterval(() => {
         for (const a of document.getAnimations()) {
           // getAnimations() keeps finished fill-forwards animations in the
-          // list forever; only running/pending ones tick on the main thread.
-          if (a.playState !== "running" && a.playState !== "pending") continue;
+          // list forever; a pending animation reports running or idle, so
+          // only "running" ticks on the main thread.
+          if (a.playState !== "running") continue;
           const t = (a as any).effect?.target as Element | null;
           if (!t) continue;
           const cs = (a as any).animationName ?? (a as any).transitionProperty ?? "?";
