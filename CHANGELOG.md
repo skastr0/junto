@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+## 0.11.11 — 2026-11-08
+
+No database change: 0.11.11 opens the same version 73 as 0.11.10.
+
+- Opening a seat and stepping the switcher cost far less. A step mounts only
+  the seat cards the strip can show and repaints only the pair that moved, the
+  strip scrolls by arithmetic, a terminal fits its grid once before its first
+  frame instead of twice, and a modal hides what it covers without restyling the
+  whole board.
+- A full-window dim keeps its colour and drops its blur, so a modal over a
+  turning canvas no longer costs a render surface every frame.
+- A far seat's portrait and icon grow with its ring, and the seat answers a
+  click over all its room. The ring's size ease runs on the compositor.
+- Quick capture, the Artifacts and Tasks cards and the needs-you feed share
+  their reads. One artifact or task write re-reads only the nodes it touched,
+  and the needs-you button, the notifications and the open feed build one feed
+  between them.
+- Tab in the harness picker steps over a covered subtree instead of stopping in
+  it.
+- Pi seats take a submit reliably: Junto waits for the pi terminal to accept it
+  and presses Enter again if the line stays.
+- A `[metrics]` row reads CPU as one core = 100%, not Electron's share of all
+  cores.
+
 ## 0.11.10 — 2026-11-08
 
 No database change: 0.11.10 opens the same version 73 as 0.11.9.
