@@ -49,6 +49,12 @@ export type HarnessPtyProfile = {
   readonly postSpawnSettleMs?: number;
   /** A paste is aborted while the pasteboard advertises an image. */
   readonly clipboardImageGuard: boolean;
+  /**
+   * The TUI's first submit waits for its own initialization marker, not the
+   * box alone: pi 1.5.0 paints its editor before it takes a submit, and sets
+   * its OSC title with the editor footer once it can (mail-readiness.ts).
+   */
+  readonly awaitsInitMarker: boolean;
 };
 
 /**
@@ -104,6 +110,7 @@ const PASTE: HarnessPtyProfile = {
   typingReady: "bound",
   multilinePasteSticks: false,
   clipboardImageGuard: false,
+  awaitsInitMarker: false,
 };
 
 const NO_PASTE: HarnessPtyProfile = { ...PASTE, bracketedPaste: false };
@@ -115,7 +122,8 @@ export const HARNESS_PTY_PROFILES: Readonly<Record<HarnessId, HarnessPtyProfile>
   // along with a paste into it.
   grok: { ...PASTE, postSpawnSettleMs: 1_500, clipboardImageGuard: true },
   hermes: { ...PASTE, typingReady: "signal", multilinePasteSticks: true },
-  pi: PASTE,
+  // pi 1.5.0 drops or puts back a submit until its TUI has initialized.
+  pi: { ...PASTE, awaitsInitMarker: true },
   "prime-agent": NO_PASTE,
   kimi: PASTE,
   muse: PASTE,

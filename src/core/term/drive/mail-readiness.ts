@@ -98,7 +98,7 @@ export const mailFirstReady = (input: MailReadinessInput): boolean => {
   if (!input.bracketedPaste || !input.idleConfirmed) return false;
   // pi 1.5.0 is up on screen before it can take a submit: wait for the TUI's
   // own initialization marker, never for the box alone.
-  if (harnessRecordFor(input.harness?.trim().toLowerCase())?.harness === "pi" && !isPiReady(input)) {
+  if (ptyProfile(input.harness)?.awaitsInitMarker === true && !isPiReady(input)) {
     return false;
   }
   if (ptyProfile(input.harness)?.typingReady === "composer") {

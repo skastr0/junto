@@ -73,6 +73,7 @@ describe("harness records", () => {
     expect(HARNESS_IDS.filter((h) => pty(h).typingReady === "signal")).toEqual(["hermes"]);
     expect(HARNESS_IDS.filter((h) => pty(h).multilinePasteSticks)).toEqual(["hermes"]);
     expect(HARNESS_IDS.filter((h) => pty(h).clipboardImageGuard)).toEqual(["grok"]);
+    expect(HARNESS_IDS.filter((h) => pty(h).awaitsInitMarker)).toEqual(["pi"]);
     expect(HARNESS_IDS.filter((h) => pty(h).postSpawnSettleMs !== undefined)).toEqual(["grok"]);
     expect(pty("grok").postSpawnSettleMs).toBe(GROK_MIN_POST_SPAWN_MS);
   });
