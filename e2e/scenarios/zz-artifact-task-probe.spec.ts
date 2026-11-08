@@ -22,7 +22,7 @@
  *   scripts/run-e2e.sh e2e/scenarios/zz-artifact-task-probe.spec.ts
  */
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect, ManagedRuntime } from "effect";
@@ -92,6 +92,100 @@ const trace = async (app: ElectronApplication, path: string, during: () => Promi
   const raw = JSON.parse(await readFile(path, "utf8")) as { traceEvents?: Ev[] } | Ev[];
   return Array.isArray(raw) ? raw : (raw.traceEvents ?? []);
 };
+
+const mainEvents = (events: Ev[]): Ev[] => {
+  const threads = new Map<string, string>();
+  const procs = new Map<number, string>();
+  for (const e of events) {
+    if (e.ph === "M" && e.name === "thread_name") threads.set(`${e.pid}:${e.tid}`, String(e.args?.["name"]));
+    if (e.ph === "M" && e.name === "process_name") procs.set(e.pid!, String(e.args?.["name"]));
+  }
+  return events.filter((e) => e.ph === "X" && typeof e.dur === "number" && threads.get(`${e.pid}:${e.tid}`) === "CrRendererMain" && /renderer/i.test(procs.get(e.pid!) ?? "renderer"));
+};
+
+/** Renderer-main time per trace event name, for the open-cost span. */
+const traceNames = (events: Ev[]): ReadonlyArray<{ name: string; ms: number }> => {
+  const by = new Map<string, number>();
+  for (const e of mainEvents(events)) by.set(e.name ?? "?", (by.get(e.name ?? "?") ?? 0) + (e.dur ?? 0) / 1000);
+  return [...by.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25).map(([name, ms]) => ({ name, ms: Math.round(ms * 10) / 10 }));
+};
+
+type ProfNode = { id: number; hitCount?: number; children?: number[]; callFrame: { functionName: string; url: string; lineNumber: number } };
+type CpuProfile = { nodes: ProfNode[]; samples?: number[]; timeDeltas?: number[] };
+
+/** Self and inclusive ms per frame, top rows, from a CDP CPU profile. */
+const profileTop = (profile: CpuProfile) => {
+  const selfUs = new Map<number, number>();
+  (profile.samples ?? []).forEach((id, i) => selfUs.set(id, (selfUs.get(id) ?? 0) + (profile.timeDeltas?.[i] ?? 0)));
+  const byId = new Map(profile.nodes.map((n) => [n.id, n]));
+  const inclUs = new Map<number, number>();
+  const incl = (id: number): number => {
+    const got = inclUs.get(id);
+    if (got !== undefined) return got;
+    const n = byId.get(id);
+    if (!n) return 0;
+    const total = (selfUs.get(id) ?? 0) + (n.children ?? []).reduce((a, c) => a + incl(c), 0);
+    inclUs.set(id, total);
+    return total;
+  };
+  const key = (n: ProfNode): string => `${n.callFrame.functionName || "(anon)"} @ ${n.callFrame.url}:${n.callFrame.lineNumber + 1}`;
+  const selfAgg = new Map<string, { us: number; name: string; url: string }>();
+  const inclAgg = new Map<string, { us: number; name: string; url: string }>();
+  let totalUs = 0;
+  for (const n of profile.nodes) {
+    const us = selfUs.get(n.id) ?? 0;
+    totalUs += us;
+    const k = key(n);
+    const s = selfAgg.get(k) ?? { us: 0, name: n.callFrame.functionName || "(anon)", url: n.callFrame.url };
+    s.us += us;
+    selfAgg.set(k, s);
+    const t = inclAgg.get(k) ?? { us: 0, name: s.name, url: n.callFrame.url };
+    t.us += incl(n.id);
+    inclAgg.set(k, t);
+  }
+  const rows = (m: Map<string, { us: number; name: string; url: string }>) =>
+    [...m.values()].sort((a, b) => b.us - a.us).slice(0, 30).map((s) => ({ name: s.name, url: s.url, ms: Math.round(s.us / 100) / 10 }));
+  return { totalMs: Math.round(totalUs / 1000), self: rows(selfAgg), inclusive: rows(inclAgg) };
+};
+
+/**
+ * Main-side IPC meter (write-read-cost.spec.ts's installMeter, plus per-call
+ * ms): the window API crosses contextBridge frozen, so the meter wraps
+ * ipcMain._invokeHandlers where every invoke lands.
+ */
+const installMeter = (app: ElectronApplication): Promise<number> =>
+  app.evaluate(({ ipcMain }) => {
+    type Tally = { calls: number; bytes: number; ms: number };
+    const g = globalThis as unknown as { __readMeter: Record<string, Tally> };
+    g.__readMeter = {};
+    const handlers = (ipcMain as unknown as { _invokeHandlers?: Map<string, (...args: unknown[]) => unknown> })._invokeHandlers;
+    if (handlers === undefined) throw new Error("ipcMain._invokeHandlers is gone: this Electron keeps its invoke table elsewhere");
+    const sizeOf = (value: unknown): number => {
+      try {
+        return JSON.stringify(value)?.length ?? 0;
+      } catch {
+        return 0;
+      }
+    };
+    for (const [channel, handler] of handlers) {
+      handlers.set(channel, async (...args: unknown[]) => {
+        const t0 = performance.now();
+        const out = await handler(...args);
+        const entry = (g.__readMeter[channel] ??= { calls: 0, bytes: 0, ms: 0 });
+        entry.calls += 1;
+        entry.bytes += sizeOf(out);
+        entry.ms += performance.now() - t0;
+        return out;
+      });
+    }
+    return handlers.size;
+  });
+
+const resetMeter = (app: ElectronApplication): Promise<void> =>
+  app.evaluate(() => void ((globalThis as unknown as { __readMeter: object }).__readMeter = {}));
+
+const readMeter = (app: ElectronApplication): Promise<Record<string, { calls: number; bytes: number; ms: number }>> =>
+  app.evaluate(() => ({ ...(globalThis as unknown as { __readMeter: Record<string, { calls: number; bytes: number; ms: number }> }).__readMeter }));
 
 // ── the seeded world ────────────────────────────────────────────────────────
 
@@ -275,8 +369,10 @@ test("artifact/task probe: factory-shaped work data, opens and write busy", asyn
     const { app, page } = junto;
 
     // Boot arm: the reads every mounted card fires land while the canvas
-    // settles. Trace through the wait plus a settle beat.
+    // settles. Trace through the wait plus a settle beat. open-cost needs
+    // the same settled canvas, so it implies the settle too.
     const bootTrace = want("boot");
+    const settle = want("boot") || want("open-cost");
     const events = bootTrace
       ? await trace(app, join(process.cwd(), "test-results/zz-arttask-boot.json"), async () => {
           await expect(page.locator(".react-flow__node-group")).toHaveCount(fixture.stats.regions, { timeout: 120_000 });
@@ -284,8 +380,10 @@ test("artifact/task probe: factory-shaped work data, opens and write busy", asyn
         })
       : undefined;
     if (!bootTrace) {
-      await expect(page.locator(".react-flow__node-group")).toHaveCount(fixture.stats.regions, { timeout: 120_000 });
-      await page.waitForTimeout(3_000);
+      if (settle) {
+        await expect(page.locator(".react-flow__node-group")).toHaveCount(fixture.stats.regions, { timeout: 120_000 });
+        await page.waitForTimeout(3_000);
+      }
     }
     if (events) {
       const row = { phase: "boot", ...read(events, 3) };
@@ -521,6 +619,51 @@ test("artifact/task probe: factory-shaped work data, opens and write busy", asyn
         console.log(`ARTPROBE ${JSON.stringify(row)}`);
       }
     }
+    // ── open-cost: name what ONE surface open pays ──────────────────────────
+    // Heaviest node of each kind (most rows = biggest first read). Around a
+    // single dblclick -> list-visible -> painted-frame span: main-side IPC
+    // meter (calls/bytes/ms per channel), CDP CPU profile (self+inclusive),
+    // and renderer-main trace names (style/layout/paint share). Run on a
+    // JUNTO_PERF_BUILD=1 out/ so profile urls resolve to source files.
+    if (want("open-cost")) {
+      const metered = await installMeter(app);
+      expect(metered, "invoke channels metered").toBeGreaterThan(10);
+      const cdp = await page.context().newCDPSession(page);
+      // Warmup: the profiler's first start blocks 100-300 ms on the first JS
+      // after it; pay that once here, outside every measured span.
+      await cdp.send("Profiler.enable");
+      await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+      await cdp.send("Profiler.start");
+      await page.evaluate(() => 0);
+      await page.waitForTimeout(500);
+      await cdp.send("Profiler.stop");
+      // A surface left open by the rep loop would cover the canvas.
+      if ((await page.locator(".focus-surface").count()) > 0) {
+        await page.evaluate(() => document.querySelector<HTMLButtonElement>("[data-layer-backdrop]")?.click());
+        await expect(page.locator(".focus-surface")).toHaveCount(0, { timeout: 5_000 });
+      }
+      for (const [kind, nodeId] of [["art", ART_NODES[1]!], ["task", TASK_NODES[0]!]] as const) {
+        const listName = kind === "art" ? "Artifacts" : "Tasks";
+        await centerOn(nodeId);
+        await page.evaluate(() => document.querySelector(".react-flow__pane")?.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })));
+        await resetMeter(app);
+        await cdp.send("Profiler.start");
+        const t0 = await page.evaluate(() => performance.now());
+        const events = await trace(app, join(process.cwd(), `test-results/zz-arttask-cost-${kind}.json`), async () => {
+          await page.locator(`.react-flow__node[data-id="${nodeId}"]`).dblclick();
+          await expect(page.getByRole("list", { name: listName })).toBeVisible({ timeout: 20_000 });
+          await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
+        });
+        const spanMs = Math.round((await page.evaluate(() => performance.now())) - t0);
+        const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
+        const channels = await readMeter(app);
+        const prof = profileTop(profile);
+        const detail = { kind, node: nodeId, spanMs, channels, trace: traceNames(events), profile: prof };
+        writeFileSync(join(process.cwd(), `test-results/zz-arttask-cost-${kind}-detail.json`), JSON.stringify(detail, null, 2));
+        console.log(`ARTCOST ${JSON.stringify(detail)}`);
+      }
+    }
+
     const ipc = await page.evaluate(() => (window as { __artIpc?: Record<string, number> }).__artIpc ?? {});
     console.log(`ARTPROBE-IPC ${JSON.stringify(ipc)}`);
     console.log(`ARTPROBE-ALL ${JSON.stringify(rows)}`);
