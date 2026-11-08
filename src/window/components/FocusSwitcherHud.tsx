@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { use$ } from "@legendapp/state/react";
 import { asNodeId, type Seat } from "@shared/model";
@@ -23,17 +23,30 @@ import { Kbd } from "./ui";
 
 const optionId = (nodeId: string): string => `focus-switcher-${nodeId}`;
 
+// The strip's choices, shared by every card so a selection move re-renders
+// only the cards whose `selected` flipped: the entries, nodes and trails are
+// frozen for the session, and these never change identity.
+const selectEntry = (index: number): void => {
+  selectFocusSwitcherIndex(index);
+};
+const commitEntry = (index: number): void => {
+  selectFocusSwitcherIndex(index);
+  commitFocusSwitcher();
+};
+
 /**
  * An agent's card: the seat's own ring and portrait, its name, the line its
  * seat is saying, and where it sits. Read aloud as agent, state, region: the
  * name comes from those three lines, not from a label, which the tooltip
- * layer would show over the card.
+ * layer would show over the card. Memoized: stepping the strip with Cmd+` on
+ * a factory board must not repaint every card's ring.
  */
-function SwitcherCard({
+const SwitcherCard = memo(function SwitcherCard({
   entry,
   node,
   trail,
   selected,
+  index,
   onSelect,
   onCommit,
 }: {
@@ -41,8 +54,9 @@ function SwitcherCard({
   readonly node: Seat;
   readonly trail: ReadonlyArray<RegionStep> | undefined;
   readonly selected: boolean;
-  readonly onSelect: () => void;
-  readonly onCommit: () => void;
+  readonly index: number;
+  readonly onSelect: (index: number) => void;
+  readonly onCommit: (index: number) => void;
 }) {
   const glance = useSeatGlanceOf(node);
   const saying = seatSaying({
@@ -71,8 +85,8 @@ function SwitcherCard({
         .filter(Boolean)
         .join(" ")}
       // Only a pointer that really moved: a card scrolled under a resting pointer is not a choice.
-      onPointerMove={onSelect}
-      onClick={onCommit}
+      onPointerMove={() => onSelect(index)}
+      onClick={() => onCommit(index)}
     >
       {entry.hotbarSlot !== null ? (
         <span className="focus-switcher__slot">{entry.hotbarSlot}</span>
@@ -97,7 +111,7 @@ function SwitcherCard({
       ) : null}
     </div>
   );
-}
+});
 
 /**
  * The switcher's shell, an operator modal: the shared dim and frame, above
@@ -163,13 +177,9 @@ function SwitcherShell({ session }: { readonly session: FocusSwitcherSession }) 
                 node={node}
                 trail={trails.get(entry.nodeId)}
                 selected={index === session.selectedIndex}
-                onSelect={() => {
-                  selectFocusSwitcherIndex(index);
-                }}
-                onCommit={() => {
-                  selectFocusSwitcherIndex(index);
-                  commitFocusSwitcher();
-                }}
+                index={index}
+                onSelect={selectEntry}
+                onCommit={commitEntry}
               />
             );
           })}
