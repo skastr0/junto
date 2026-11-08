@@ -498,7 +498,7 @@
   border-radius: 8px;
   background: color-mix(in oklab, var(--color-ground) 88%, transparent);
   box-shadow: 0 8px 24px var(--color-shadow-2);
-  overflow: hidden;
+  /* No rounded clip over the minimap's pings: see .rts-minimap-wrap. */
 }
 
 /* Minimap fills the right column; tools overlay inside it. */
@@ -561,8 +561,8 @@
   background: color-mix(in oklab, var(--color-ground) 94%, transparent);
 }
 
-/* Docked add-menu portals to document.body (fixed) — absolute popovers are
-   clipped by .rts-right { overflow: hidden }. Placement lives in CanvasFieldTools. */
+/* Docked add-menu portals to document.body (fixed), so no panel clip can cut
+   it. Placement lives in CanvasFieldTools. */
 
 @keyframes junto-toast-enter {
   from {
@@ -583,9 +583,16 @@
   border: 0;
   border-radius: 8px;
   background: color-mix(in oklab, var(--color-ground) 90%, transparent);
-  overflow: hidden;
   z-index: 0;
 }
+/* The pings turn every display frame, and a rounded clip over moving layers
+   made Chromium draw the whole frame itself each time (a "rounded corner"
+   render pass) instead of handing the layers to the system compositor. So
+   neither this wrap, nor .rts-right, nor the map clips with a radius: the
+   map clips to a plain rectangle, and only its static drawing, the SVG, is
+   cut to the rounded corner. Idle probe on the Mac, operator's board: GPU
+   time 24 to 45 ms/s down to 0, GPU process main thread 79 to 122 down to
+   23 to 42 ms/s, render passes 2 to 0, every ping and ring still turning. */
 
 /* MiniMap is itself an RF Panel — pin it to our wrap, not the full stage. */
 .rts-minimap-wrap .react-flow__minimap,
@@ -602,6 +609,9 @@
   padding: 0 !important;
   background: transparent !important;
   border: 0 !important;
+  border-radius: 0 !important;
+  overflow: hidden !important;
+  box-shadow: none !important; /* was hidden by the wrap's clip */
   z-index: 1 !important;
   transform: none !important;
 }
@@ -610,6 +620,7 @@
   width: 100% !important;
   height: 100% !important;
   display: block !important;
+  clip-path: inset(0 round 8px);
 }
 
 .rts-minimap-wrap .react-flow__controls {
