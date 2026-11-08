@@ -37,11 +37,19 @@ describe("process metrics rows", () => {
   it("name utility processes by service and sort by CPU", () => {
     expect(processKind(metric("Utility", 1, 1, "Junto Core"))).toBe("Utility:Junto Core");
     expect(processKind(metric("GPU", 1, 1))).toBe("GPU");
-    const row = processMetricsRow([metric("Browser", 1.04, 555_000), metric("GPU", 39.96, 216_000), metric("Tab", 31.4, 1_172_480)], heap(1024));
+    const row = processMetricsRow([metric("Browser", 1.04, 555_000), metric("GPU", 39.96, 216_000), metric("Tab", 31.4, 1_172_480)], heap(1024), 1);
     expect(row.procs.map((proc) => proc.kind)).toEqual(["GPU", "Tab", "Browser"]);
     expect(row.procs[0]).toMatchObject({ cpu: 40, mb: 210.9, peakMb: 421.9, wakeups: 120, cpuTotalS: 42 });
     expect(row.main).toMatchObject({ heapUsedMb: 1024, heapLimitMb: 4096, heapUsedPct: 25 });
     expect(row.totals.cpu).toBe(72.4);
+  });
+
+  it("read CPU as one core = 100%, undoing Electron's division by the core count", () => {
+    // Electron 43.8.4 on 10 cores: one busy core reads 9.9.
+    const row = processMetricsRow([metric("GPU", 3.3, 100_000), metric("Tab", 9.9, 100_000)], heap(1024), 10);
+    expect(row.procs.map((proc) => proc.cpu)).toEqual([99, 33]);
+    expect(row.totals.cpu).toBe(132);
+    expect(processMetricsRow([metric("GPU", 3.3, 100_000)], heap(1024), 0).procs[0]!.cpu).toBe(3.3);
   });
 
   it("warn once per heap line crossed upward, and re-arm below it", () => {
@@ -66,6 +74,7 @@ describe("process metrics rows", () => {
       const stop = startProcessMetricsLog({
         appMetrics: () => [metric("GPU", 10, 100_000)],
         mainHeap: () => heap(used),
+        cores: 1,
         write: (level, message) => rows.push([level, message]),
         intervalMs: 1000,
       });

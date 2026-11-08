@@ -4,6 +4,7 @@
  * SIGUSR2 trigger (perf-trace.ts). Electron-facing on purpose; the logic it
  * wires is plain and tested on its own.
  */
+import { cpus } from "node:os";
 import { getHeapStatistics } from "node:v8";
 import { app, contentTracing } from "electron";
 import { mainLog } from "./main-log";
@@ -22,6 +23,7 @@ const write = (level: "info" | "warn", message: string): void => {
 export const startPerfObservation = (juntoHome: string): PerfObservation => {
   const stopMetrics = startProcessMetricsLog({
     appMetrics: () => app.getAppMetrics(),
+    cores: cpus().length,
     mainHeap: () => {
       const usage = process.memoryUsage();
       const heap = getHeapStatistics();

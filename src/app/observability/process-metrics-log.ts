@@ -13,6 +13,11 @@
  * any hot path. Electron reports `percentCPUUsage` since the previous call,
  * so a row covers the minute before it.
  *
+ * CPU UNIT. A row's `cpu` is one core = 100%, as `ps` and `top` read it.
+ * Electron divides `percentCPUUsage` by the logical core count (Electron
+ * 43.8.4, measured: one busy core reads 9.9 with 10 cores), so the row
+ * multiplies it back.
+ *
  * WARNINGS. A `warn` row the first time main heap use crosses 50% and 75% of
  * the heap limit, re-armed once it falls back below that line.
  */
@@ -77,12 +82,18 @@ export const processKind = (metric: ProcessMetricInput): string => {
   return metric.type === "Utility" && service !== undefined && service.length > 0 ? `Utility:${service}` : metric.type;
 };
 
-export const processMetricsRow = (metrics: ReadonlyArray<ProcessMetricInput>, heap: MainHeapInput): ProcessMetricsRow => {
+/** `cores` is the logical core count Electron divided `percentCPUUsage` by. */
+export const processMetricsRow = (
+  metrics: ReadonlyArray<ProcessMetricInput>,
+  heap: MainHeapInput,
+  cores: number,
+): ProcessMetricsRow => {
+  const perCore = Math.max(1, cores);
   const procs = metrics
     .map((metric) => ({
       kind: processKind(metric),
       pid: metric.pid,
-      cpu: round1(metric.cpu.percentCPUUsage),
+      cpu: round1(metric.cpu.percentCPUUsage * perCore),
       ...(metric.cpu.cumulativeCPUUsage === undefined ? {} : { cpuTotalS: round1(metric.cpu.cumulativeCPUUsage) }),
       ...(metric.cpu.idleWakeupsPerSecond === undefined ? {} : { wakeups: Math.round(metric.cpu.idleWakeupsPerSecond) }),
       mb: mbOfKb(metric.memory.workingSetSize),
@@ -129,6 +140,8 @@ export const heapLinesCrossed = (
 export type ProcessMetricsLogDeps = {
   readonly appMetrics: () => ReadonlyArray<ProcessMetricInput>;
   readonly mainHeap: () => MainHeapInput;
+  /** Logical cores, `os.cpus().length`: what Electron divides CPU by. */
+  readonly cores: number;
   readonly write: (level: "info" | "warn", message: string) => void;
   readonly intervalMs?: number;
 };
@@ -140,7 +153,7 @@ export const startProcessMetricsLog = (deps: ProcessMetricsLogDeps): (() => void
   const sample = (): void => {
     try {
       const heap = deps.mainHeap();
-      const row = processMetricsRow(deps.appMetrics(), heap);
+      const row = processMetricsRow(deps.appMetrics(), heap, deps.cores);
       deps.write("info", `[metrics] ${JSON.stringify(row)}`);
       const lines = heapLinesCrossed(heap.heapLimit > 0 ? heap.heapUsed / heap.heapLimit : 0, armed);
       armed = lines.armed;
