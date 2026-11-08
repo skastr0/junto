@@ -748,6 +748,12 @@ export function TerminalSurface({
   const apiRef = useRef<JuntoTerminalApi | undefined>(undefined);
   /** Last geometry the spawn-host child acked. View paint does not wait on this. */
   const lastAcked = useRef({ ...UNKNOWN_TERMINAL_GEOMETRY });
+  /**
+   * The geometry log already said what this burst of forced passes did. A
+   * settle ladder is five rungs of the same measurement; the first one is the
+   * story, the rest were noise that also measured a box per rung.
+   */
+  const forcedLogged = useRef(false);
   const desiredGeom = useRef({ ...UNKNOWN_TERMINAL_GEOMETRY });
   /** Failed/false child notifies for the current desired size. Reset on ack or new geom. */
   const ptyNotifyFailCount = useRef(0);
@@ -850,8 +856,18 @@ export function TerminalSurface({
       { cols: term.cols, rows: term.rows },
       { cols, rows },
     );
-    if (geomChanged || opts?.forcePaint) {
+    // One row per settle rung, five rungs a burst, was 14 rows and 14 screen
+    // box measurements for one open, each row a console.warn the observability
+    // ring ships over IPC: 6,590 of them reached app.jsonl in one operator day.
+    // Say only what is new: the grid that changed, and the first forced pass of
+    // a burst (so a stale paint after unpark still shows in the log).
+    if (geomChanged) forcedLogged.current = false;
+    const worthSaying =
+      geomChanged || (opts?.forcePaint === true && !forcedLogged.current);
+    if (worthSaying) {
+      if (opts?.forcePaint === true) forcedLogged.current = true;
       const { cellW, cellH } = readCellSize(term, fallback);
+      // Only a written row pays for the painted screen's box.
       const screen = host.querySelector<HTMLElement>(".xterm-screen");
       const screenW = screen ? Math.round(screen.getBoundingClientRect().width) : -1;
       logTermGeom("resize", {
