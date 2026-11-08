@@ -974,6 +974,84 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
     expect(result.state).toBe("idle");
   });
 
+  // pi 1.5.0, live seat, 2026-11-08. The turn status moved into the editor's
+  // top border, so `Working...` is gone and the idle rule's footer match
+  // (`95.8%`) won every mid-turn frame: six consecutive live samples read
+  // state working only because OSC 7501 outranked the grid, while the rule
+  // pack alone answered idle. These lines are the live tail verbatim.
+  const PI15_CWD = "~/Projects/junto (main)";
+  const PI15_FOOTER = "↑34k ↓7.5k R444k CH99.5% $0.011 3.4%/1.0M (auto)     (opencode-go) deepseek-v4.1-flash • high";
+  const pi15Working = (border: string) =>
+    snap({
+      lines: [
+        " The new mail 01M6X03ERRDJE",
+        "",
+        border,
+        "",
+        "─".repeat(130),
+        PI15_CWD,
+        PI15_FOOTER,
+      ],
+      title: "π - junto - junto",
+    });
+
+  it("pi 1.5.0: the labelled working border is working, not footer idle", () => {
+    const result = evaluate(pi15Working("── ⠧ Working " + "─".repeat(120)), {
+      harness: "pi",
+    });
+    expect(result.state).toBe("working");
+    expect(result.ruleId).toBe("working_border_status");
+  });
+
+  it("pi 1.5.0: every spinner frame reads the same", () => {
+    for (const glyph of ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]) {
+      const result = evaluate(pi15Working(`── ${glyph} Working ` + "─".repeat(120)), {
+        harness: "pi",
+      });
+      expect(result.state, glyph).toBe("working");
+    }
+  });
+
+  it("pi 1.5.0: the same screen with the turn over is idle", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          " The new mail 01M6X03ERRDJE",
+          " useful history above the editor",
+          "",
+          "─".repeat(130),
+          "",
+          "─".repeat(130),
+          PI15_CWD,
+          PI15_FOOTER,
+        ],
+        title: "π - junto - junto",
+      }),
+      { harness: "pi" },
+    );
+    expect(result.state).toBe("idle");
+    expect(result.ruleId).toBe("editor_prompt_idle");
+  });
+
+  it("pi 1.5.0: a queued notice mid-turn does not read idle", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          " Steering: mail from operator, id 01M6X0729CNPZG7SVR4H85MPRT",
+          " ↳ Option+Up to edit all queued messages",
+          "── ⠸ Working " + "─".repeat(120),
+          "",
+          "─".repeat(130),
+          PI15_CWD,
+          PI15_FOOTER,
+        ],
+        title: "π - junto - junto",
+      }),
+      { harness: "pi" },
+    );
+    expect(result.state).toBe("working");
+  });
+
   it("cursor: approval form is attention", () => {
     const result = evaluate(
       snap({

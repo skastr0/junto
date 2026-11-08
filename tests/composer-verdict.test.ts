@@ -160,6 +160,53 @@ describe("pi", () => {
       "draft",
     );
   });
+
+  // pi 1.5.0, live seat, 2026-11-08: the turn status is the editor's TOP
+  // border (`── ⠧ Working ───`), so while a turn runs there is only ONE bare
+  // rule on screen. Read by bare rules alone the interior fell through to the
+  // cwd and footer lines below the box and every working seat read "draft".
+  const PI15_FOOTER = "↑34k ↓7.5k R444k CH99.5% $0.011 3.4%/1.0M (auto)";
+  const PI15_CWD = "~/Projects/junto (main)";
+
+  it("pi 1.5.0 working: the labelled top border still frames a blank interior", () => {
+    expect(
+      v([
+        " The new mail 01M6X03ERRDJE",
+        "",
+        "── ⠧ Working " + "─".repeat(120),
+        "",
+        HR,
+        PI15_CWD,
+        PI15_FOOTER,
+      ]),
+    ).toBe("empty");
+  });
+
+  it("pi 1.5.0 working with a queued notice: the queue line is not the interior", () => {
+    expect(
+      v([
+        " Steering: mail from operator, id 01M6X0729CNPZG7SVR4H85MPRT",
+        " ↳ Option+Up to edit all queued messages",
+        "── ⠸ Working " + "─".repeat(120),
+        "",
+        HR,
+        PI15_CWD,
+        PI15_FOOTER,
+      ]),
+    ).toBe("empty");
+  });
+
+  it("pi 1.5.0 working with the operator typing: draft", () => {
+    expect(
+      v([
+        "── ⠹ Working " + "─".repeat(120),
+        "please try collaborating with pty-pi-2",
+        HR,
+        PI15_CWD,
+        PI15_FOOTER,
+      ]),
+    ).toBe("draft");
+  });
 });
 
 describe("devin", () => {

@@ -1079,16 +1079,21 @@ export const HERMES_TEMPLATE: ManagedTerminalTemplate = {
  * --tools/--exclude-tools allowlists;
  * no per-command permission mode (--approve gates project-local trust only).
  *
- * Re-probed 0.85.1 (2026-09-11): every template-owned spawn flag still
- * exists on `pi --help` and official usage.md. Changelog 0.84.0–0.85.1
- * is additive TUI, theme, and observer surface (`--tui-mode`, `--use-theme`,
- * `/thinking`, `ui_prompt_start` / `ui_prompt_end`); none rename or remove
- * `--model`, `--thinking`, `--session-id`, or `--session`.
+ * Re-probed 1.5.0 (2026-11-08, two live seats on this machine): every
+ * template-owned spawn flag is still on `pi --help` (`--model`, `--thinking`
+ * with the same seven levels, `--session-id`, `--session`); `--tui-mode
+ * fullscreen` is the default and it still paints the scrolling grid the rules
+ * read (footer with model and context percent, no alt screen). Two TUI facts
+ * changed under the rules, both grounded in the pack: the turn status is
+ * painted inside the editor's top border (`── ⠧ Working ───`) instead of a
+ * `Working...` line, and a typed notice queues above the footer (`↳ Option+Up
+ * to edit all queued messages`) until the next tool boundary. The trust
+ * selector still starts `Trust project folder?`.
  */
 export const PI_TEMPLATE: ManagedTerminalTemplate = {
   harness: "pi",
   displayName: "Pi",
-  probedVersion: "0.85.1",
+  probedVersion: "1.5.0",
   argvSpec: {
     binary: "pi",
     prefix: [],

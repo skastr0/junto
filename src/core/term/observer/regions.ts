@@ -5,11 +5,27 @@
  */
 
 const HORIZONTAL_RULE = /^─{3,}/u;
+/** A border with a short label inside it: border chars, whitespace, label, closing border. */
+const LABELLED_BORDER = /^─{2,}\s+\S.*─{2,}$/u;
 
 export const isHorizontalRule = (line: string): boolean => {
   const t = line.trimEnd();
   if (t.length === 0) return false;
   return HORIZONTAL_RULE.test(t);
+};
+
+/**
+ * A line that frames a box: a bare ─── rule, or a rule whose short centred
+ * label sits inside the border (`── ⠧ Working ───`). pi 1.5.0 paints its
+ * turn status into the editor's TOP border, so a box whose owner is busy
+ * keeps only one bare rule; reading the interior needs the labelled form
+ * counted as a border. Bare rules alone still frame every box that states
+ * its status outside the border.
+ */
+export const isBorderLine = (line: string): boolean => {
+  const t = line.trimEnd();
+  if (t.length === 0) return false;
+  return isHorizontalRule(t) || LABELLED_BORDER.test(t);
 };
 
 /** Last n non-empty lines (from the nth-from-last non-blank through end). */
@@ -49,13 +65,14 @@ export const afterLastHorizontalRule = (
 
 /**
  * The rows of the prompt box body, as [from, to): between the 2nd-from-last
- * and last ─── rules. Falls back to the rows after the last rule when fewer
- * than two rules exist, and to every row when there is none.
+ * and last box borders (see isBorderLine: a bare rule, or a labelled one that
+ * carries its owner's status). Falls back to the rows after the last border
+ * when fewer than two exist, and to every row when there is none.
  */
 export const promptBoxRows = (lines: readonly string[]): readonly [number, number] => {
   const ruleIdx: number[] = [];
   for (let i = 0; i < lines.length; i++) {
-    if (isHorizontalRule(lines[i]!)) ruleIdx.push(i);
+    if (isBorderLine(lines[i]!)) ruleIdx.push(i);
   }
   if (ruleIdx.length === 0) return [0, lines.length];
   if (ruleIdx.length === 1) return [ruleIdx[0]! + 1, lines.length];

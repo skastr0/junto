@@ -1,23 +1,36 @@
 /**
  * Pi seat rules — grid-primary. The OSC 0 title is static ("π - <name> - <cwd>",
  * no spinner) and OSC 9;4 progress is off by default, so the grid carries the
- * pack: working = status line above the editor ("Working..." family
- * literal), attention = project-trust selector + inline confirm dialogs,
- * idle = static title with no status line. No alt screen, so the grid includes
- * scrollback — working/attention rules scope to the bottom status area so
- * stale lines cannot pin a state forever. OSC 133 A/B/C zones frame every
- * message (prompt markers) but the region vocabulary has no osc133 slice and
- * pi's bordered editor is not a ─── rule box, so prompt_box_body is not
- * expressible here.
+ * pack: working = status line above the editor ("Working" family literal),
+ * attention = project-trust selector + inline confirm dialogs, idle = static
+ * title with no status line. No alt screen, so the grid includes scrollback —
+ * working/attention rules scope to the bottom status area so stale lines
+ * cannot pin a state forever. OSC 133 A/B/C zones frame every message
+ * (prompt markers) but the region vocabulary has no osc133 slice, and the
+ * editor's box is read through prompt_box_body as the region named below.
  * Patterns from the 2026-08 agent-CLI sweep of pi
- * (rewritten; not vendored).
+ * (rewritten; not vendored), re-grounded on pi 1.5.0 on 2026-11-08:
+ *
+ * - 1.1.0 painted `Working...` as its own status line.
+ * - 1.5.0 paints the status INSIDE the editor's top border, spinner first:
+ *   `── ⠧ Working ─────`, and the border keeps its label for the whole turn.
+ *   So the working rule is a labelled-border line, not a bare literal, and
+ *   the idle rule must refuse that labelled line (a footer alone read as idle
+ *   mid-turn for six consecutive live samples).
+ * - 1.5.0 also paints a queue line above the footer while mail waits:
+ *   `↳ Option+Up to edit all queued messages`. A typed notice is queued there
+ *   mid-turn and handed to the model at the next tool boundary, so a queued
+ *   line is never idle proof: the labelled working border holds the same turn.
  */
 
 import type { SeatRulePack } from "../types";
 
+/** The editor's top border while a turn runs: `── ⠧ Working ───...`. */
+const PI_WORKING_BORDER = "^\\s*─{2,}\\s+.*\\bWorking\\b";
+
 export const piRules: SeatRulePack = {
   harness: "pi",
-  version: "2026.08.07.2",
+  version: "2026.11.08.1",
   rules: [
     // Startup project-trust selector: "Trust project folder?" + Trust options
     // + "↑↓ navigate - save - cancel" hints (trust-selector chrome).
@@ -54,7 +67,7 @@ export const piRules: SeatRulePack = {
       },
     },
     // working literal, scoped to the status area above the editor
-    // (bottom of screen). Covers "Working... (esc to interrupt)".
+    // (bottom of screen). Covers 1.1.0's "Working... (esc to interrupt)".
     {
       id: "working_literal",
       state: "working",
@@ -63,6 +76,18 @@ export const piRules: SeatRulePack = {
       regionN: 6,
       visibleWorking: true,
       matchers: { contains: ["Working..."] },
+    },
+    // 1.5.0's status line is the editor's top border with a spinner and label:
+    // `── ⠧ Working ───...`. Highest working priority: the border is unique to
+    // a live turn, while a scrollback literal is only a word.
+    {
+      id: "working_border_status",
+      state: "working",
+      priority: 205,
+      region: "bottom_non_empty_lines",
+      regionN: 6,
+      visibleWorking: true,
+      matchers: { lineRegex: [PI_WORKING_BORDER] },
     },
     {
       id: "compacting_status",
@@ -133,6 +158,7 @@ export const piRules: SeatRulePack = {
         // Refuse if a live working status is still in the same strip.
         not: [
           { contains: ["Working..."] },
+          { lineRegex: [PI_WORKING_BORDER] },
           { contains: ["Compacting context..."] },
           { contains: ["Summarizing branch..."] },
           { lineRegex: ["^\\s*[Rr]etrying\\s*\\("] },
@@ -142,8 +168,12 @@ export const piRules: SeatRulePack = {
   ],
   // Composer probes — grounded in P1 corpus pi/startup-idle (blank editor
   // interior between the last two ─── rules) and pi/type-echo (typed text in
-  // that interior). The editor borders render as full-width rules in the
-  // grid, so prompt_box_body IS the editor interior on current pi builds.
+  // that interior), and re-grounded on pi 1.5.0 (2026-11-08). The editor
+  // borders render as full-width rules in the grid, so prompt_box_body IS the
+  // editor interior — but only once a labelled status border counts as a
+  // border: with the turn running the interior is `── ⠧ Working ───` /
+  // blank / `────`, and reading it by bare rules alone fell through to the
+  // cwd and footer lines below the box, so a working seat read as "draft".
   // Draft first: any visible content in the interior refuses typing; a blank
   // interior on a pre-editor screen is harmless because the paste gate also
   // requires the seat idle, which needs the editor footer on screen.
