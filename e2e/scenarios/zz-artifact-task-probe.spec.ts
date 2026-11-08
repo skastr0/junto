@@ -1,8 +1,10 @@
 /**
  * Artifact/task probe (measurement only, never a gate): what the window
- * pays for the operator's factory-shaped work data — 515 artifacts with
- * ~4.7 MB of inline bodies (largest ~208 KB) on 4 Artifacts nodes, and 744
- * tasks with ~985 KB of bodies on 3 task boards — seeded straight into
+ * pays for the operator's factory-shaped work data — 515 artifacts on the
+ * operator's 29 Artifacts nodes with the anonymous per-document shape
+ * (477 documents, ~4.6 MB, max 208 KB; e2e/scenarios/
+ * zz-artifact-shape.factory.json) plus 38 links, and 744 tasks with ~985 KB
+ * of bodies on 3 task boards — seeded straight into
  * junto.db through afterSeed (artifact_heads/versions, task_heads,
  * task_numbers), then:
  *
@@ -33,11 +35,11 @@ import { expect, launchJunto, test } from "../harness/launch";
 import type { Sandbox } from "../harness/sandbox";
 
 const CANVAS = "factory";
-const ART_NODES = ["probe-art-1", "probe-art-2", "probe-art-3", "probe-art-4"] as const;
+const ART_NODES = Array.from({ length: 29 }, (_, i) => `probe-art-${i}`);
 const TASK_NODES = ["probe-task-1", "probe-task-2", "probe-task-3"] as const;
 const ART_COUNT = 515;
+const LINK_COUNT = ART_COUNT - 477;
 const TASK_COUNT = 744;
-const BODY_TARGET_BYTES = 4_700_000;
 const TASK_BODY_TARGET_BYTES = 985_000;
 
 const REPS = Number(process.env["PROBE_REPS"] ?? 2);
@@ -134,59 +136,43 @@ interface SeedPlan {
   readonly taskRows: ReadonlyArray<TaskSeedRow>;
 }
 
-const buildSeedPlan = (): SeedPlan => {
-  // Artifact bodies: documents carry the bytes; the last 35 are links (tiny
-  // bodies) for type shape. Index 0 is the ~208 KB document: newest
-  // updated_at, first row of its node's list.
-  const docCount = ART_COUNT - 35;
-  const tail = [208_000, 160_000, 120_000, 80_000, 50_000, 30_000, 30_000, 20_000, 20_000, 20_000, 15_000, 15_000, 15_000, 15_000, 10_000];
-  const tailBudget = tail.reduce((a, b) => a + b, 0);
-  const linkBudget = 35 * 220;
-  const smallTarget = (BODY_TARGET_BYTES - tailBudget - linkBudget - docCount * 60) / docCount;
+const buildSeedPlan = (docs: ReadonlyArray<readonly [number, number]>): SeedPlan => {
+  // The operator's anonymous shape: [artifacts-node index, document bytes],
+  // 477 documents over 29 nodes (~4.6 MB, max 208 KB). 38 links make up the
+  // rest of the 515.
   const artifactRows: ArtifactSeedRow[] = [];
   const BASE = 1_760_000_000_000;
   let inlineTotal = 0;
-  for (let i = 0; i < ART_COUNT; i += 1) {
-    const id = ulid();
-    const node = ART_NODES[i % ART_NODES.length]!;
-    const isLink = i >= docCount;
-    const size = i < tail.length ? tail[i]! : Math.max(2_000, Math.round(smallTarget * (0.85 + ((i * 37) % 30) / 100)));
-    const body = isLink
-      ? { type: "link", target: { kind: "url", url: `https://example.com/release-${i}` } }
-      : { type: "document", markdown: prose(i + 1, Math.max(500, size - 60)) };
+  const push = (node: string, type: string, title: string, body: unknown, updatedAt: number): void => {
     const inline = canonicalJson(body);
     const bytes = Buffer.from(inline, "utf8");
     inlineTotal += bytes.byteLength;
     artifactRows.push({
-      id,
+      id: ulid(),
       node,
-      type: isLink ? "link" : "document",
-      title: isLink ? `link-${String(i).padStart(3, "0")}` : `Doc-${String(i).padStart(3, "0")}`,
+      type,
+      title,
       bodyJson: inline,
       refJson: JSON.stringify({
         sha256: createHash("sha256").update(bytes).digest("hex"),
         byteLength: bytes.byteLength,
         mediaType: "application/json",
       }),
-      updatedAt: BASE - i * 1_000,
+      updatedAt,
       inlineBytes: bytes.byteLength,
     });
+  };
+  docs.forEach(([nodeIndex, bytes], i) => {
+    // The shape's byte count is the document's length; ~60 bytes of JSON
+    // wrapper and newline escaping ride on top. Tiny docs keep a 20-char
+    // floor so they still read as documents.
+    const markdown = prose(i + 1, Math.max(20, bytes - 60));
+    push(ART_NODES[nodeIndex]!, "document", `Doc-${String(i).padStart(3, "0")}`, { type: "document", markdown }, BASE - i * 1_000);
+  });
+  for (let i = 0; i < LINK_COUNT; i += 1) {
+    push(ART_NODES[i % ART_NODES.length]!, "link", `link-${String(i).padStart(3, "0")}`, { type: "link", target: { kind: "url", url: `https://example.com/release-${i}` } }, BASE - (docs.length + i) * 1_000);
   }
-  // Top up (or trim) the big document so total inline bytes land on target.
-  const drift = BODY_TARGET_BYTES - inlineTotal;
-  const big = artifactRows[0]!;
-  if (drift !== 0) {
-    const parsed = JSON.parse(big.bodyJson) as { markdown: string };
-    const next = drift > 0
-      ? parsed.markdown + prose(9_999, drift)
-      : parsed.markdown.slice(0, Math.max(500, parsed.markdown.length + drift));
-    const body = { type: "document", markdown: next };
-    const inline = canonicalJson(body);
-    const bytes = Buffer.from(inline, "utf8");
-    inlineTotal += bytes.byteLength - big.inlineBytes;
-    artifactRows[0] = { ...big, bodyJson: inline, inlineBytes: bytes.byteLength, refJson: JSON.stringify({ sha256: createHash("sha256").update(bytes).digest("hex"), byteLength: bytes.byteLength, mediaType: "application/json" }) };
-  }
-  console.log(`ARTPROBE-SEED artifacts=${ART_COUNT} inlineBytes=${inlineTotal}`);
+  console.log(`ARTPROBE-SEED artifacts=${artifactRows.length} docs=${docs.length} inlineBytes=${inlineTotal}`);
 
   const taskRows: TaskSeedRow[] = [];
   const taskBodies: string[] = [];
@@ -265,13 +251,16 @@ test("artifact/task probe: factory-shaped work data, opens and write busy", asyn
   const seatIds = (parsed.model.nodes as ReadonlyArray<{ kind: string; id?: string }>)
     .filter((n) => n.kind === "agent" && n.id)
     .map((n) => n.id!);
-  const plan = buildSeedPlan();
+  const shape = JSON.parse(await readFile(join(process.cwd(), "e2e/scenarios/zz-artifact-shape.factory.json"), "utf8")) as { docs: ReadonlyArray<readonly [number, number]> };
+  expect(shape.docs, "operator shape: 477 documents").toHaveLength(477);
+  const plan = buildSeedPlan(shape.docs);
   const heads = taskHeadsOf(plan, seatIds);
 
-  // The work surfaces, parked in empty ground to the east of the board.
+  // The work surfaces, parked in empty ground to the east of the board:
+  // 29 Artifacts nodes in a 7-column grid, then the 3 task boards under them.
   const extraNodes = [
-    ...ART_NODES.map((id, i) => ({ kind: "artifacts", id, label: `Artifacts ${i + 1}`, x: 13_000 + i * 340, y: -3_200, width: 280, height: 160, z: 900 + i })),
-    ...TASK_NODES.map((id, i) => ({ kind: "task", id, name: `Board ${i + 1}`, x: 13_000 + i * 360, y: -2_900, width: 320, height: 220, z: 910 + i })),
+    ...ART_NODES.map((id, i) => ({ kind: "artifacts", id, label: `Artifacts ${i + 1}`, x: 13_000 + (i % 7) * 360, y: -3_600 + Math.floor(i / 7) * 260, width: 280, height: 160, z: 900 + i })),
+    ...TASK_NODES.map((id, i) => ({ kind: "task", id, name: `Board ${i + 1}`, x: 13_000 + i * 360, y: -1_600, width: 320, height: 220, z: 940 + i })),
   ];
   const fixture: NestedCanvasFixture = {
     ...parsed,
@@ -403,13 +392,27 @@ test("artifact/task probe: factory-shaped work data, opens and write busy", asyn
     };
 
     // Per node: prime with one row, then timed picks on different rows (a
-    // re-pick of the selected row does not remount the detail).
-    const artGroups = [
-      { node: ART_NODES[0]!, prime: "Doc-404", picks: ["Doc-000", "Doc-100", "Doc-400"] },
-      { node: ART_NODES[1]!, prime: "Doc-405", picks: ["Doc-001", "Doc-101", "Doc-401"] },
-      { node: ART_NODES[2]!, prime: "Doc-406", picks: ["Doc-002", "Doc-250", "Doc-402"] },
-      { node: ART_NODES[3]!, prime: "Doc-407", picks: ["Doc-003", "Doc-251", "Doc-403"] },
-    ];
+    // re-pick of the selected row does not remount the detail). Nodes span
+    // the operator's skew — 110 docs down to 4 — and each group's picks run
+    // largest / middle / smallest so the body-size spread is exercised on
+    // every node.
+    const docsByNode = new Map<string, ArtifactSeedRow[]>();
+    for (const row of plan.artifactRows) {
+      if (row.type !== "document") continue;
+      const list = docsByNode.get(row.node) ?? [];
+      list.push(row);
+      docsByNode.set(row.node, list);
+    }
+    const artGroups = [1, 6, 0, 3, 8, 16, 9, 10].flatMap((i) => {
+      const node = ART_NODES[i]!;
+      const rows = (docsByNode.get(node) ?? []).slice().sort((a, b) => b.inlineBytes - a.inlineBytes);
+      if (rows.length < 4) return [];
+      return [{
+        node,
+        prime: rows[1]!.title,
+        picks: [rows[0]!, rows[Math.floor(rows.length / 2)]!, rows[rows.length - 1]!].map((r) => r.title),
+      }];
+    });
     const taskGroups = [
       { node: TASK_NODES[0]!, prime: "Task-252", picks: ["Task-000", "Task-003", "Task-249"] },
       { node: TASK_NODES[1]!, prime: "Task-253", picks: ["Task-001", "Task-250", "Task-499"] },
