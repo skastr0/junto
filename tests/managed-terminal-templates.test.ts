@@ -803,7 +803,7 @@ describe("resolveManagedLaunch argv", () => {
     expect(off.argv).not.toContain("--yolo");
   });
   it("pi: model, thinking effort, session pin, positional prompt", () => {
-    expect(PI_TEMPLATE.probedVersion).toBe("0.85.1");
+    expect(PI_TEMPLATE.probedVersion).toBe("1.5.0");
     expect(PI_TEMPLATE.efforts).toEqual([
       "off",
       "minimal",
