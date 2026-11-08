@@ -194,6 +194,7 @@ const readProbe = (page: Page) =>
         over33: gaps.filter((g) => g > 33.4).length,
       },
       events,
+      raw: w.__hk.ev.slice(0, 400),
       modalOpen: performance
         .getEntriesByType("measure")
         .filter((m) => m.name === "operator-modal-open")
