@@ -77,11 +77,11 @@ const isOpaqueSurface = (el: HTMLElement): boolean => {
   return true;
 };
 
-const surfaceOnTop = (surface: HTMLElement, mark: HTMLElement): boolean => {
+/** Whether `surface` is what the pointer hits at the centre of `box`, the mark's box as the observer read it. */
+const surfaceOnTop = (surface: HTMLElement, mark: HTMLElement, box: Box): boolean => {
   // The hit test passes over a mark that takes no pointer: never count one as covered.
   if (getComputedStyle(mark).pointerEvents === "none") return false;
-  const r = mark.getBoundingClientRect();
-  const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  const hit = document.elementFromPoint((box.left + box.right) / 2, (box.top + box.bottom) / 2);
   return hit !== null && surface.contains(hit);
 };
 
@@ -112,35 +112,53 @@ const uncoverAll = (s: Surface): void => {
   for (const mark of [...s.covered]) setCovered(s, mark, false);
 };
 
+/**
+ * Reads come before writes, here and in each reading. Uncovering or covering
+ * a mark writes to it (its parts show or hide, its phase is set), and a
+ * style, box or hit-test read after a write makes the browser restyle and lay
+ * out the whole page first: interleaved, that was one forced layout per mark,
+ * the most of any reader in a seat open (12 of its 41 layout reads, about
+ * 20 ms each on the factory board; performance-profiling's attribution).
+ */
 const read = (s: Surface): void => {
   s.io?.disconnect();
   s.io = undefined;
+  const live = s.el.isConnected && typeof IntersectionObserver === "function" && isOpaqueSurface(s.el);
+  let radius = 0;
+  let box: Box | undefined;
+  let viewport: Size | undefined;
+  if (live) {
+    const style = getComputedStyle(s.el);
+    radius = Math.max(
+      ...[style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomLeftRadius, style.borderBottomRightRadius].map(
+        (v) => Number.parseFloat(v) || 0,
+      ),
+    );
+    box = s.el.getBoundingClientRect();
+    viewport = { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight };
+  }
+  // Every reading first uncovers every mark, in the same task.
   uncoverAll(s);
-  if (!s.el.isConnected || typeof IntersectionObserver !== "function" || !isOpaqueSurface(s.el)) return;
-  const style = getComputedStyle(s.el);
-  const radius = Math.max(
-    ...[style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomLeftRadius, style.borderBottomRightRadius].map(
-      (v) => Number.parseFloat(v) || 0,
-    ),
-  );
-  const root = document.documentElement;
+  if (!live || box === undefined || viewport === undefined) return;
   const io = new IntersectionObserver(
     (entries) => {
+      const readings: Array<readonly [HTMLElement, boolean]> = [];
       for (const entry of entries) {
         const mark = entry.target as HTMLElement;
         if (!marks.has(mark)) continue;
         const withinBox = boxWithin(entry.boundingClientRect, entry.rootBounds, SLACK);
         const inside = entry.intersectionRatio >= COVER_RATIO && withinBox;
-        setCovered(s, mark, coversMark({
+        readings.push([mark, coversMark({
           intersectionRatio: entry.intersectionRatio,
           withinBox,
           ownedBySurface: s.el.contains(mark),
-          surfaceOnTop: inside && surfaceOnTop(s.el, mark),
-        }));
+          surfaceOnTop: inside && surfaceOnTop(s.el, mark, entry.boundingClientRect),
+        })]);
       }
+      for (const [mark, covered] of readings) setCovered(s, mark, covered);
     },
     {
-      rootMargin: surfaceRootMargin(s.el.getBoundingClientRect(), { width: root.clientWidth, height: root.clientHeight }, radius + SLACK),
+      rootMargin: surfaceRootMargin(box, viewport, radius + SLACK),
       threshold: [COVER_RATIO, 1],
     },
   );

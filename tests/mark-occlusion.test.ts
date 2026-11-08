@@ -154,6 +154,24 @@ describe("covered rings", () => {
     expect(isCovered(over)).toBe(false);
   });
 
+  it("hit-tests every mark in a reading before it covers any, at the centre the observer read", () => {
+    const ms = [mark(), mark(), mark()];
+    surface();
+    // A cover change writes to its mark; a hit test after one would lay the page out again.
+    const log: string[] = [];
+    const points: Array<readonly [number, number]> = [];
+    document.elementFromPoint = (x: number, y: number) => {
+      log.push("hit test");
+      points.push([x, y]);
+      return panel;
+    };
+    onCoverChange(() => log.push("cover"));
+    live().callback(ms.map((target) => ({ target, isIntersecting: true, intersectionRatio: 1, boundingClientRect: markBox(), rootBounds: ROOT })));
+    expect(log).toEqual(["hit test", "hit test", "hit test", "cover", "cover", "cover"]);
+    expect(points[0]).toEqual([225, 225]);
+    expect(ms.every((m) => isCovered(m))).toBe(true);
+  });
+
   it("closing the panel uncovers its marks in the same task", () => {
     const m = mark();
     const s = surface();
