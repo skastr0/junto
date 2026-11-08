@@ -8,14 +8,13 @@
  * Archived items are left out: an archived task or artifact is not
  * something to point a seat at.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import type { NodeId } from "@shared/physics/schema";
 import type { ArtifactHead } from "@shared/resource-ipc";
 import type { TaskView } from "@shared/task-model";
-import { artifactsSource } from "./artifacts-source";
+import { useCanvasArtifacts } from "./canvas-artifacts";
 import type { MentionItem, MentionItems } from "./mention-sources";
 import { useCanvasTasks } from "./tasks-source";
-import { useCanvas } from "./use-model";
 
 const NONE: ReadonlyArray<never> = [];
 
@@ -53,41 +52,8 @@ export const mentionItemsOf = (tasks: ReadonlyArray<TaskView>, artifacts: Readon
   };
 };
 
-/** The artifacts of every Artifacts node on the canvas, re-read on any artifact change there. */
-export const useCanvasArtifacts = (canvasName: string): ReadonlyArray<ArtifactHead> => {
-  const canvas = useCanvas(canvasName);
-  const nodeIds = useMemo(
-    () => [...canvas.nodes.values()].filter((node) => node.kind === "artifacts").map((node) => node.id),
-    [canvas],
-  );
-  const key = `${canvasName}\u0000${nodeIds.join(",")}`;
-  const nodesRef = useRef(nodeIds);
-  nodesRef.current = nodeIds;
-  const [held, setHeld] = useState<{ readonly key: string; readonly heads: ReadonlyArray<ArtifactHead> }>({ key, heads: NONE });
-  useEffect(() => {
-    let live = true;
-    // Only the latest read lands: an older one resolving late never overwrites it.
-    let generation = 0;
-    const refresh = (): void => {
-      const read = ++generation;
-      void Promise.all(nodesRef.current.map((nodeId) => artifactsSource().list(canvasName, nodeId))).then(
-        (lists) => {
-          if (live && read === generation) setHeld({ key, heads: lists.flat() });
-        },
-        () => undefined,
-      );
-    };
-    refresh();
-    const unsubscribe = artifactsSource().onChanged((changed) => {
-      if (changed.canvasName === canvasName) refresh();
-    });
-    return () => {
-      live = false;
-      unsubscribe();
-    };
-  }, [canvasName, key]);
-  return held.key === key ? held.heads : NONE;
-};
+/** The artifacts of every Artifacts node on the canvas, read once for every caller (canvas-artifacts.ts). */
+export { useCanvasArtifacts };
 
 /** What `#` may offer on this canvas, for `useResourcesInReach`. */
 export const useMentionItems = (canvasName: string): MentionItems => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Search, X } from "lucide-react";
 import type { NodeId } from "@shared/physics/schema";
@@ -6,7 +6,7 @@ import type { ItemId } from "@shared/resource-command";
 import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
 import { keyIs, keyCaps } from "../../lib/key-match";
 import { isMac } from "../../lib/platform";
-import { useCanvasArtifacts } from "../../lib/capture-artifacts";
+import { useCanvasArtifactHeads } from "../../lib/canvas-artifacts";
 import { nodeViewStore } from "../../lib/node-view-state";
 import { registerCanvasDraftCommit } from "../../lib/canvas-editor-flush";
 import { useCaptureInbox } from "../../lib/capture-inbox";
@@ -16,7 +16,6 @@ import { focusCanvasNode } from "../../lib/command-bar";
 import {
   comboboxFieldAria,
   listboxAria,
-  optionAria,
   optionId,
   type ListboxAriaState,
 } from "../../lib/listbox-aria";
@@ -58,9 +57,60 @@ const capsOf = (caps: readonly string[] | undefined): string | undefined =>
 
 const rowLabel = (row: CaptureRow): string => (row.title === "" ? "Untitled" : row.title);
 
+/**
+ * One row of the list. Memoized on what it draws, so the list re-renders a
+ * row only when its words, its kind or its highlight change.
+ */
+const CaptureListRow = memo(
+  function CaptureListRow({
+    row,
+    id,
+    selected,
+    onRow,
+  }: {
+    readonly row: CaptureRow;
+    readonly id: string;
+    readonly selected: boolean;
+    readonly onRow: (kind: "point" | "open", row: CaptureRow) => void;
+  }) {
+    return (
+      <div
+        id={id}
+        role="option"
+        aria-selected={selected}
+        className="quick-capture__row"
+        onPointerMove={() => onRow("point", row)}
+        onClick={() => onRow("open", row)}
+      >
+        <ResourceGlyphMark kind="artifact" artifactType={row.type} size={14} />
+        <span className="quick-capture__row-main">
+          <span className="quick-capture__row-title">{rowLabel(row)}</span>
+          {row.detail === "" ? null : (
+            <>
+              {/* A reader hears the title, then the labels, not run together. */}
+              <span className="sr-only">, </span>
+              <span className="quick-capture__row-detail">{row.detail}</span>
+            </>
+          )}
+        </span>
+      </div>
+    );
+  },
+  (a, b) =>
+    a.id === b.id &&
+    a.selected === b.selected &&
+    a.onRow === b.onRow &&
+    a.row.title === b.row.title &&
+    a.row.detail === b.row.detail &&
+    a.row.type === b.row.type &&
+    a.row.artifactId === b.row.artifactId &&
+    a.row.nodeId === b.row.nodeId,
+);
+
 export function QuickCapture() {
   const canvasName = use$(state$.canvasName);
-  const heads = useCanvasArtifacts(canvasName);
+  // Kept between opens: the rows draw on the first frame and re-read behind it.
+  const { heads, confirmed } = useCanvasArtifactHeads(canvasName);
   const inbox = useCaptureInbox(canvasName);
   // The desk the operator left: what was open, the query, the focused row and
   // the place in the writing, read once as the surface opens.
@@ -201,11 +251,12 @@ export function QuickCapture() {
   // one, so a query never makes a live capture look gone.
   const deskRows = useMemo(() => captureRowsOf(heads, inbox as NodeId | undefined, ""), [heads, inbox]);
   useEffect(() => {
-    if (edit.kind !== "reopened" || deskRows.length === 0) return;
+    // A kept list from an earlier open may predate the capture; only a confirmed one can say it is gone.
+    if (edit.kind !== "reopened" || !confirmed || deskRows.length === 0) return;
     if (deskRows.some((row) => row.artifactId === edit.artifactId)) return;
     setEdit({ kind: "new", key: 0 });
     keepDesk({ open: { kind: "new" }, focused: null }, true);
-  }, [edit, deskRows, keepDesk]);
+  }, [edit, confirmed, deskRows, keepDesk]);
 
   // The place the desk saved comes back once the writing's engine has lines:
   // asked before that, the editor holds it until the body is in.
@@ -235,6 +286,19 @@ export function QuickCapture() {
       }),
     [keepPlace],
   );
+
+  // One callback for every row, reading this render's state: a pointer moving
+  // down the list re-renders the two rows whose highlight changed, not all of them.
+  const rowEvent = useRef<(kind: "point" | "open", row: CaptureRow) => void>(() => undefined);
+  rowEvent.current = (kind, picked) => {
+    setActive(picked.artifactId);
+    if (kind === "point") return;
+    // The row as this render has it: a memoized row may hold an older head.
+    const row = rows.find((candidate) => candidate.artifactId === picked.artifactId) ?? picked;
+    setEdit({ kind: "artifact", row });
+    keepDesk({ open: { kind: "artifact", nodeId: row.nodeId, artifactId: row.artifactId }, focused: row.artifactId }, true);
+  };
+  const onRow = useCallback((kind: "point" | "open", row: CaptureRow) => rowEvent.current(kind, row), []);
 
   const focusRow = (id: string | undefined): void => {
     setActive(id);
@@ -410,29 +474,13 @@ export function QuickCapture() {
                     </p>
                   )}
                   {group.rows.map((row) => (
-                    <div
+                    <CaptureListRow
                       key={row.artifactId}
-                      {...optionAria(aria, row.artifactId)}
-                      className="quick-capture__row"
-                      onPointerMove={() => setActive(row.artifactId)}
-                      onClick={() => {
-                        setActive(row.artifactId);
-                        setEdit({ kind: "artifact", row });
-                        keepDesk({ open: { kind: "artifact", nodeId: row.nodeId, artifactId: row.artifactId }, focused: row.artifactId }, true);
-                      }}
-                    >
-                      <ResourceGlyphMark kind="artifact" artifactType={row.type} size={14} />
-                      <span className="quick-capture__row-main">
-                        <span className="quick-capture__row-title">{rowLabel(row)}</span>
-                        {row.detail === "" ? null : (
-                          <>
-                            {/* A reader hears the title, then the labels, not run together. */}
-                            <span className="sr-only">, </span>
-                            <span className="quick-capture__row-detail">{row.detail}</span>
-                          </>
-                        )}
-                      </span>
-                    </div>
+                      row={row}
+                      id={optionId(baseId, row.artifactId)}
+                      selected={row.artifactId === activeRow?.artifactId}
+                      onRow={onRow}
+                    />
                   ))}
                 </div>
               ))
