@@ -252,7 +252,7 @@ const eventSigOf = (event: AgentSeatStateEvent | undefined): string => {
  * inputs threadHealthView weighs. Read inside a use$ selector so every store
  * read is tracked; equal signatures mean an identical feed.
  */
-const feedSeatSig = (canvas: Canvas): string => {
+export const feedSeatSig = (canvas: Canvas): string => {
   const events = agentSeat$.byBindingId.get();
   const assessments = seatAwareness$.byBindingId.get();
   const digests = seatAwareness$.windowDigestByBindingId.get();
@@ -276,7 +276,7 @@ const feedSeatSig = (canvas: Canvas): string => {
  * not agent seats, which is all liveWantsInput reads. Agent reports do not
  * touch it, so a seat storm leaves the needs projection asleep.
  */
-const feedWantsSig = (canvas: Canvas): string => {
+export const feedWantsSig = (canvas: Canvas): string => {
   const events = agentSeat$.byBindingId.get();
   const binds = agentSeat$.bindingIdByNodeId.get();
   const parts: string[] = [];
