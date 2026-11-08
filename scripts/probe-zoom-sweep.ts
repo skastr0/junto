@@ -779,6 +779,7 @@ try {
   }
 
   if (restTrace) {
+    await installVariant();
     const trace: any[] = [];
     browser!.on("Tracing.dataCollected", (params: { value: any[] }) => { trace.push(...params.value); });
     const done = new Promise<void>((ok) => browser!.on("Tracing.tracingComplete", () => ok()));
@@ -1030,10 +1031,9 @@ try {
   const surfaceSnapshot = () => page!.evaluate<any>(`window.juntoSurfaceCommits?.() ?? null`);
 
   /** Install the page-side observers (tier flips, DOM churn, mark remounts) and the rAF frame loop. */
-  const installVariant = () =>
-    variant === "product"
-      ? Promise.resolve()
-      : page!.evaluate(`(() => {
+  async function installVariant(): Promise<void> {
+    if (variant === "product") return;
+    await page!.evaluate(`(() => {
           const variant = ${JSON.stringify(variant)};
           if (variant === "no-rest-scale") {
             const setProperty = CSSStyleDeclaration.prototype.setProperty;
@@ -1173,6 +1173,7 @@ try {
           }
           return true;
         })()`);
+  }
 
   const arm = () => page!.evaluate(`(() => {
     const probe = (window.__zoomProbe = {
