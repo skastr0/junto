@@ -109,11 +109,30 @@ export type OperatorFeedInput = {
 
 export const OPEN_FIELD: FeedRegion = { regionId: null, label: "open field", path: [] };
 
+/**
+ * Each canvas's regions by node, worked out once per canvas. A Canvas is never
+ * edited in place (an edit makes a new one), so what it answered stays true.
+ * Every feed build asked for every seat's region, a pass over the whole board
+ * for each seat: 49 of the feed's 149 ms over 30 s on the operator's board
+ * (0.11.10 trace), with the window's canvas now the same object until it
+ * changes (model-store heldCanvasOf).
+ */
+const regionsByCanvas = new WeakMap<Canvas, Map<string, FeedRegion>>();
+
 /** Region and seats read directly from the kind model. */
 export const feedRegionForCanvas = (canvas: Canvas, nodeId: string): FeedRegion => {
+  let known = regionsByCanvas.get(canvas);
+  if (known === undefined) {
+    known = new Map();
+    regionsByCanvas.set(canvas, known);
+  }
+  const held = known.get(nodeId);
+  if (held !== undefined) return held;
   const stack = modelRegionStack(canvas, asNodeId(nodeId));
   const inner = stack[stack.length - 1];
-  return inner ? { regionId: inner.id, label: regionName(inner), path: stack.map(regionName), ...(inner.color ? { color: inner.color } : {}) } : OPEN_FIELD;
+  const region: FeedRegion = inner ? { regionId: inner.id, label: regionName(inner), path: stack.map(regionName), ...(inner.color ? { color: inner.color } : {}) } : OPEN_FIELD;
+  known.set(nodeId, region);
+  return region;
 };
 
 /**

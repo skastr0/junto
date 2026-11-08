@@ -74,6 +74,19 @@ describe("feed regions", () => {
     expect(feedRegionForCanvas(canvas, "c").regionId).toBeNull();
   });
 
+  it("works a canvas's regions out once, and a new canvas afresh", () => {
+    // The answer a canvas gave is held: the same object, no second pass over the board.
+    expect(feedRegionForCanvas(canvas, "b")).toBe(feedRegionForCanvas(canvas, "b"));
+    // A canvas is never edited in place: a renamed region comes as a new canvas, and reads anew.
+    const renamed = canvasOf([
+      region("outer", { x: 0, y: 0, width: 1000, height: 1000 }, { label: "Build" }),
+      region("inner", { x: 500, y: 500, width: 400, height: 400 }, { label: "Docs, v2", color: "5" }),
+      agent("a", 10, 10), agent("b", 600, 600), agent("c", 2000, 2000),
+    ]);
+    expect(feedRegionForCanvas(renamed, "b").label).toBe("Docs, v2");
+    expect(feedRegionForCanvas(canvas, "b").label).toBe("Docs");
+  });
+
   it("resolves only agent seats with identity and harness", () => {
     const resolved = seats();
     expect(resolved.map((entry) => entry.seat)).toEqual([
