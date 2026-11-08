@@ -376,7 +376,6 @@ test("artifact/task probe: factory-shaped work data, opens and write busy", asyn
 
     let openSurface: { kind: "art" | "task"; node: string } | null = null;
     const openNodeSurface = async (kind: "art" | "task", nodeId: string): Promise<number> => {
-      await centerOn(nodeId);
       if (openSurface?.kind === kind && openSurface.node === nodeId) return -1;
       if (openSurface !== null) {
         // Escape can be eaten inside the surface (the document editor keeps
@@ -385,6 +384,10 @@ test("artifact/task probe: factory-shaped work data, opens and write busy", asyn
         await expect(page.locator(".focus-surface")).toHaveCount(0, { timeout: 5_000 });
         openSurface = null;
       }
+      // The last node stays selected: its floating toolbar can sit over the
+      // next node's click point. A pane click clears the selection.
+      await page.evaluate(() => document.querySelector(".react-flow__pane")?.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })));
+      await centerOn(nodeId);
       const t0 = await page.evaluate(() => performance.now());
       await page.locator(`.react-flow__node[data-id="${nodeId}"]`).dblclick();
       const listName = kind === "art" ? "Artifacts" : "Tasks";
