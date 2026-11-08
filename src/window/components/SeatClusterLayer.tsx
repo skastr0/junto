@@ -58,13 +58,26 @@ const EMPTY: Seen = { clusters: [], rings: new Map() };
 
 let hidden: ReadonlySet<string> = new Set();
 
+const sameIds = (a: ReadonlySet<string>, b: ReadonlySet<string>): boolean => {
+  if (a.size !== b.size) return false;
+  for (const id of a) if (!b.has(id)) return false;
+  return true;
+};
+
 /**
  * Hide the gathered seats. A seat that leaves a cluster shows its parts
  * again, restarted, so it rejoins the shared clock in the same task.
+ *
+ * The same seats gathered leave the sheet as it is. A rewrite is a style rule
+ * change, and Blink restyles every seat and ring part on the board for it:
+ * written on each seat's ring change, that was most of the window's time at
+ * far zoom with seats reporting (mini, factory board, 10 reports a second:
+ * 2.3 s of style in 8 s, 5,300 rule-change restyles in 6 s).
  */
-const writeHidden = (ids: ReadonlyArray<string>): void => {
+export const writeHidden = (ids: ReadonlyArray<string>): void => {
   if (typeof document === "undefined") return;
   const next = new Set(ids);
+  if (sameIds(next, hidden) && (next.size === 0) === (document.getElementById(STYLE_ID) === null)) return;
   const parted = [...hidden].filter((id) => !next.has(id));
   hidden = next;
   let el = document.getElementById(STYLE_ID);
@@ -88,6 +101,12 @@ const writeHidden = (ids: ReadonlyArray<string>): void => {
     if (node) resyncMarks(node);
   }
 };
+
+/** Everything a badge draws or acts on, as one string: equal strings draw the same badges. */
+export const clustersKey = (clusters: ReadonlyArray<SeatCluster>, rings: ReadonlyMap<string, string>): string =>
+  clusters
+    .map((cluster) => `${cluster.key}@${String(cluster.x)},${String(cluster.y)}/${String(cluster.partsAt)}:${cluster.members.map((id) => `${id}=${rings.get(id) ?? "rest"}`).join(",")}`)
+    .join("|");
 
 const CLUSTER_MARK = {
   work: { mode: "wave", tone: "cyan", label: "working" },
@@ -199,6 +218,10 @@ export function SeatClusterLayer() {
     let rings: ReadonlyMap<string, string> = new Map();
     let held = -1;
     let frame = 0;
+    let drawn = "";
+    // The board itself changed (a seat added, moved or renamed): the badges
+    // redraw, since a name in a badge's list is not in its key.
+    let boardChanged = true;
     const regroup = (force: boolean): void => {
       const { transform, width, height } = store.getState();
       const next = linksHeldFor(index, transform[2], { width, height });
@@ -206,6 +229,13 @@ export function SeatClusterLayer() {
       held = next;
       const clusters = clustersOf(index, held);
       writeHidden(clusters.flatMap((cluster) => cluster.members));
+      // Otherwise the badges redraw only when one would draw differently: a
+      // ring change on a seat no badge holds, or one that keeps its badge's
+      // state, is not one.
+      const key = clustersKey(clusters, rings);
+      if (key === drawn && !boardChanged) return;
+      drawn = key;
+      boardChanged = false;
       setSeen({ clusters, rings });
     };
     const rebuild = (): void => {
@@ -228,6 +258,7 @@ export function SeatClusterLayer() {
     const unsubscribe = store.subscribe((state) => {
       if (state.nodes !== nodes) {
         nodes = state.nodes;
+        boardChanged = true;
         schedule();
       }
       if (state.transform[2] !== zoom || state.width * state.height !== area) {
