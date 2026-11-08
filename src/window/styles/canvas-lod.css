@@ -95,6 +95,31 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
   --mark-u: calc(52px * var(--seat-s));
   margin: calc(26px * (1 - var(--seat-s)));
 }
+/* What the ring holds, the seat's portrait or a kind's icon, is drawn at a
+   fixed 34px (SEAT_PORTRAIT_PX), so it grows with the ring the same way:
+   zoom, in layout, never a transform. Without it the ring grew and its
+   portrait stayed a dot in the middle (the operator's board, 0.11.10). */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat > .junto-mark > .junto-mark__seat > * {
+  zoom: var(--seat-s);
+}
+/* From far off a seat is a small target, so it is hit over all the room it
+   has: the disc its ring may grow to without meeting a neighbour or a card
+   (--ring-cap, seat-ring-room.ts, counting the halo's footprint), and never
+   less than the ring as drawn. Two seats' discs never overlap, so a click
+   near a seat always lands on that seat. Unpainted, and under the ring so
+   the signal button keeps its click. */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat::after {
+  --seat-hit: calc(52px * 1.16 * max(var(--seat-s), var(--ring-cap, 1)));
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: -1;
+  width: var(--seat-hit);
+  height: var(--seat-hit);
+  margin: calc(var(--seat-hit) / -2) 0 0 calc(var(--seat-hit) / -2);
+  border-radius: 50%;
+}
 /* The scale is published once the camera rests (CanvasTierGate), so a ring
    changes size after a zoom gesture, not on each frame of it. The change is
    eased on the compositor the ring already turns on, as a FLIP: the new size
