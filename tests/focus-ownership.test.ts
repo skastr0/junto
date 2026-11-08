@@ -9,6 +9,7 @@ type OwnerOptions = {
   readonly connected?: boolean;
   readonly visible?: boolean;
   readonly inert?: boolean;
+  readonly hidden?: boolean;
   readonly contains?: (target: Element) => boolean;
 };
 
@@ -16,12 +17,16 @@ const focusOwner = ({
   connected = true,
   visible = true,
   inert = false,
+  hidden = false,
   contains = () => false,
 }: OwnerOptions = {}): HTMLElement =>
   ({
     isConnected: connected,
+    // The gate asks for both at once ("[inert], [data-modal-hidden]").
     closest: (selector: string) =>
-      selector === "[inert]" && inert ? ({} as Element) : null,
+      (selector.includes("[inert]") && inert) || (selector.includes("[data-modal-hidden]") && hidden)
+        ? ({} as Element)
+        : null,
     getClientRects: () => ({ length: visible ? 1 : 0 }),
     contains,
   }) as unknown as HTMLElement;
@@ -48,6 +53,10 @@ describe("async focus ownership", () => {
     expect(canClaimFocusAfterAsyncWork(focusOwner({ inert: true }), null)).toBe(
       false,
     );
+  });
+
+  it("refuses claims from a modal-hidden owner", () => {
+    expect(canClaimFocusAfterAsyncWork(focusOwner({ hidden: true }), null)).toBe(false);
   });
 
   it("refuses claims from hidden owners", () => {

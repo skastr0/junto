@@ -192,7 +192,7 @@ const isRendered = (el: FocusNode): boolean => {
 
 const isAvailable = (target: FocusNode, cause: FocusClaimCause): boolean => {
   if (target.isConnected !== true) return false;
-  if (closestOf(target, "[inert]")) return false;
+  if (closestOf(target, "[inert], [data-modal-hidden]")) return false;
   // Parked terminals keep their DOM but have no boxes. Async work must not
   // resurrect them under the operator's keyboard.
   if (cause === "async" && !isRendered(target)) return false;
@@ -481,7 +481,7 @@ export const shouldClaimFocusOnSurfaceOpen = (
   activeElement: Element | null = activeElementNow(),
 ): boolean => {
   if (!owner?.isConnected) return false;
-  if (owner.closest("[inert]")) return false;
+  if (owner.closest("[inert], [data-modal-hidden]")) return false;
   if (!isRendered(owner)) return false;
   if (activeElement === null) return true;
   if (isPageRoot(activeElement)) return true;

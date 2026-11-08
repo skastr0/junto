@@ -323,21 +323,38 @@ const ensureListening = (): void => {
   window.addEventListener("keydown", onOutsideEscape);
 };
 
+
 // What floats above a modal and stays live with it: popovers, menus and
 // tooltips portal to the body as its siblings.
 const FLOATING_SELECTOR =
   "[data-layer='popover'], [data-layer='operator-popover'], [data-popover-layer]:not([data-layer]), [data-canvas-menu-surface], [role='tooltip'], [role='menu'], [role='listbox'], script, style, link";
 
-const INERT_MARK = "data-modal-inert";
+const HIDDEN_MARK = "data-modal-hidden";
 
 /**
- * Everything under the front modal is inert: not focusable, not clickable,
- * and not read by a screen reader. Under a modal that takes the whole
- * window, that is the app and every other modal. Under a docked surface,
- * which shares the window with live chrome, it is the canvas it covers, so
- * Tab can never land on something that cannot be seen.
+ * Everything under the front modal is hidden from the operator: not read by a
+ * screen reader, not a Tab stop, not a pointer target. Under a modal that
+ * takes the whole window that is the app and every other modal. Under a docked
+ * surface, which shares the window with live chrome, that is the canvas it
+ * covers.
+ *
+ * This used to be the `inert` attribute, and inertness rides in inherited
+ * computed style: setting it restyled the whole covered subtree, 16,489
+ * elements under a docked surface and 18,080 under cmd+K, 102 ms on open and
+ * 99 ms on close, again on the way out (mini, factory board, measured with
+ * inert switched off: 145 -> 41 ms of recalc on open, 114 -> 19 on close).
+ * `aria-hidden` costs none of that: no stylesheet under src/window keys on it
+ * (tests/modal-hidden.test.ts holds that), so the attribute is not
+ * style-relevant and the toggle invalidates nothing.
+ *
+ * What inert gave besides silence, two things give instead: the dim, which
+ * already takes every pointer over a covered subtree (measured with
+ * elementFromPoint: the hit is always the dim), and the focusin guard below,
+ * which steps focus over a hidden subtree when Tab goes for it.
  */
-const syncInert = (): void => {
+let hiddenRetry: ReturnType<typeof setTimeout> | null = null;
+
+const syncHidden = (force = false): void => {
   if (typeof document === "undefined") return;
   const want = new Set<Element>();
   const top = topOf(stack);
@@ -356,16 +373,30 @@ const syncInert = (): void => {
       }
     }
   }
-  for (const marked of Array.from(document.querySelectorAll(`[${INERT_MARK}]`))) {
+  for (const marked of Array.from(document.querySelectorAll(`[${HIDDEN_MARK}]`))) {
     if (want.has(marked)) continue;
-    marked.removeAttribute("inert");
-    marked.removeAttribute(INERT_MARK);
+    marked.removeAttribute("aria-hidden");
+    marked.removeAttribute(HIDDEN_MARK);
   }
+  let retry = false;
   for (const element of want) {
-    // Never take over an inert someone else set.
-    if (element.hasAttribute(INERT_MARK) || element.hasAttribute("inert")) continue;
-    element.setAttribute("inert", "");
-    element.setAttribute(INERT_MARK, "");
+    if (element.hasAttribute(HIDDEN_MARK)) continue;
+    // Chrome refuses aria-hidden on a subtree that holds the focus and says so
+    // in the console. At open the seat that was double-clicked can still hold
+    // it for the instant before the surface's claim lands: leave that one for
+    // the next task rather than fight the engine.
+    if (!force && element.contains(document.activeElement)) {
+      retry = true;
+      continue;
+    }
+    element.setAttribute("aria-hidden", "true");
+    element.setAttribute(HIDDEN_MARK, "");
+  }
+  if (retry && hiddenRetry === null) {
+    hiddenRetry = setTimeout(() => {
+      hiddenRetry = null;
+      syncHidden(true);
+    }, 0);
   }
 };
 
@@ -376,13 +407,13 @@ export const pushModal = (
   ensureListening();
   const stacked: Stacked = { ...entry, seq: nextSeq++ };
   stack.push(stacked);
-  syncInert();
+  syncHidden();
   announceStack();
   return {
     leave: () => {
       const index = stack.indexOf(stacked);
       if (index >= 0) stack.splice(index, 1);
-      syncInert();
+      syncHidden();
       announceStack();
     },
     isTop: () => topOf(stack) === stacked,
@@ -392,7 +423,7 @@ export const pushModal = (
 /** Test seam: forget every open modal. */
 export const resetModalStack = (): void => {
   stack.length = 0;
-  syncInert();
+  syncHidden();
   announceStack();
 };
 
@@ -497,7 +528,7 @@ export const useModalLayer = ({
         } else if (trap && event.key === "Tab" && !event.defaultPrevented && container) {
           // Never something hidden from the operator: the keyboard must not stand on it.
           const stops = focusStopsIn(container).filter(
-            (stop) => closestComposed(stop, "[inert], [aria-hidden='true']") === null,
+            (stop) => closestComposed(stop, `[${HIDDEN_MARK}], [inert], [aria-hidden='true']`) === null,
           );
           // The deep element, not the shadow host the browser names: a row
           // inside the tree has to be found in the stop list by identity.
