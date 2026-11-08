@@ -172,33 +172,58 @@ const useAutomationNames = (
   return names;
 };
 
+/**
+ * One result for every reader of the same inputs. The needs-you button, the
+ * desktop notifications and the open feed each built the same feed from the
+ * same stores on every seat change: three passes over every seat and the
+ * execution graph where one does (0.11.10 trace, the feed open under cmd+K:
+ * 532 ms in 30 s, 384 of them the feed's own copy). Inputs compare by
+ * identity, as useMemo's do, and every input a result reads is in its list.
+ */
+const sharedResult = <T,>(): ((inputs: ReadonlyArray<unknown>, compute: () => T) => T) => {
+  let last: { readonly inputs: ReadonlyArray<unknown>; readonly value: T } | undefined;
+  return (inputs, compute) => {
+    if (last !== undefined && last.inputs.length === inputs.length && last.inputs.every((input, index) => Object.is(input, inputs[index]))) {
+      return last.value;
+    }
+    const value = compute();
+    last = { inputs, value };
+    return value;
+  };
+};
+const sharedNeeds = sharedResult<ReadonlyArray<FeedCanvasNeed>>();
+const sharedFeed = sharedResult<OperatorFeed>();
+
 /** The open canvas's needs that no seat declared, read from the live stores. */
 const useCanvasNeeds = (): ReadonlyArray<FeedCanvasNeed> => {
   const canvasName = use$(state$.canvasName);
   const canvas = useCanvas(canvasName);
   const byNode = use$(canvasTasks$.byNode);
-  const itemsOf = useMemo(() => (nodeId: string) => byNode[nodeId] ?? NO_TASKS, [byNode]);
   const heldBy = use$(seatTasks$.bySeat);
   const actorRefs = use$(state$.actorRefs);
   const execution = use$(kernel$.execution);
   const executionRev = use$(kernel$.executionRev);
   const seatRev = use$(agentSeat$.rev);
-  return useMemo(() => {
-    const context = executionGraphContextFromActorRefs(
-      canvasName,
-      actorRefs,
-      heldBy,
-    );
-    return feedCanvasModelNeeds({
-      canvasName,
-      canvas,
-      itemsOf,
-      graph: executionGraphForImpact(canvas, execution, context),
-      wantsInput: liveWantsInput(canvas.nodes.values()),
-    });
-    // Kernel execution and seat state mutate in place; their revs carry the change.
+  return useMemo(
+    () =>
+      // Kernel execution and seat state mutate in place; their revs carry the change.
+      sharedNeeds([canvas, canvasName, actorRefs, execution, executionRev, seatRev, byNode, heldBy], () => {
+        const context = executionGraphContextFromActorRefs(
+          canvasName,
+          actorRefs,
+          heldBy,
+        );
+        return feedCanvasModelNeeds({
+          canvasName,
+          canvas,
+          itemsOf: (nodeId: string) => byNode[nodeId] ?? NO_TASKS,
+          graph: executionGraphForImpact(canvas, execution, context),
+          wantsInput: liveWantsInput(canvas.nodes.values()),
+        });
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvas, canvasName, actorRefs, execution, executionRev, seatRev, itemsOf, heldBy]);
+    [canvas, canvasName, actorRefs, execution, executionRev, seatRev, byNode, heldBy],
+  );
 };
 
 /** The live feed for the open canvas. */
@@ -236,9 +261,18 @@ export const useOperatorFeed = (): OperatorFeed => {
     return [...ids].sort();
   }, [signals]);
   const automationNames = useAutomationNames(canvasName, signallingNodes);
+  const namesKey = useMemo(
+    () => [...automationNames].map(([nodeId, names]) => `${nodeId}=${[...names].map(([id, name]) => `${id}:${name}`).join(",")}`).join("|"),
+    [automationNames],
+  );
   return useMemo(
-    () => withPhoneReach(operatorFeedFor(canvasName, canvas, signals, now, needs, waits, automationNames), { paired, remoteLogin }),
-    // Seat and awareness stores mutate in place; their revs carry the change.
+    () =>
+      // Signals, waits and automation names are keyed by what they say: each
+      // reader holds its own copy of the same list. Seat and awareness stores
+      // mutate in place; their revs carry the change.
+      sharedFeed([canvasName, canvas, signalsKey, needs, seatRev, awarenessRev, now, paired, remoteLogin, waitsKey, namesKey], () =>
+        withPhoneReach(operatorFeedFor(canvasName, canvas, signals, now, needs, waits, automationNames), { paired, remoteLogin }),
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [canvasName, canvas, signals, needs, seatRev, awarenessRev, now, paired, remoteLogin, waits, automationNames],
   );
