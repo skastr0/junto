@@ -151,6 +151,8 @@ const inspectMark = flag("inspect-mark");
 const animProbe = flag("anim-probe");
 /** Trace one camera rest and report the slow frame's time per thread and phase. */
 const restTrace = flag("rest-trace");
+/** Seat state reports per second for the seat-event arm (0 = off). */
+const seatEvents = Number(arg("seat-events", "0"));
 /** Where to write one screenshot per phase end (the zoom reached, for ring sharpness). */
 const shotsDir = arg("shots", "");
 /** Zooms to settle at and capture after the sweep, for a sharpness comparison. */
@@ -1525,6 +1527,70 @@ try {
       })(),
     };
   };
+
+  if (seatEvents > 0) {
+    // The seat-event arm: report seat states at a fixed rate and watch what the
+    // board pays for the ring parts each flip creates or restarts.
+    const secondsSeats = Number(arg("seconds", "8"));
+    const seats = [...seatBindings.entries()].map(([id, bindingId]) => ({ id, bindingId }));
+    if (seats.length === 0) seats.push(...seatIds.map((id) => ({ id, bindingId: `local:${id}` })));
+    const armed = await arm() as { marks: number; viewportNodes: number };
+    const metricsBefore = await metrics();
+    const cpuBefore = await processCpu();
+    const loadBefore = loadavg()[0]!;
+    const started = performance.now();
+    let flips = 0;
+    const tick = 1000 / seatEvents;
+    for (let step = 0; performance.now() - started < secondsSeats * 1000; step += 1) {
+      const seat = seats[step % seats.length]!;
+      const working = step % 2 === 0;
+      await main!.evaluate(`(() => {
+        const at = Date.now();
+        for (const window of __probe.BrowserWindow.getAllWindows())
+          window.webContents.send("junto:agent-seat-state-changed", {
+            bindingId: ${JSON.stringify(seat.bindingId)}, epoch: "seat-events", state: ${JSON.stringify(working ? "working" : "idle")},
+            reason: ${JSON.stringify(working ? "rule:osc_title_working" : "rule:empty_prompt_idle")}, confidence: "high", at,
+          });
+        return true;
+      })()`);
+      flips += 1;
+      const wait = started + flips * tick - performance.now();
+      if (wait > 0) await sleep(wait);
+    }
+    const elapsed = (performance.now() - started) / 1000;
+    const metricsAfter = await metrics();
+    const cpuAfter = await processCpu();
+    const probed = await readProbe();
+    const perSecond = (key: string) =>
+      metricsAfter[key] !== undefined && metricsBefore[key] !== undefined
+        ? round1(((metricsAfter[key]! - metricsBefore[key]!) / elapsed) * 1000)
+        : null;
+    const deltas = probed.deltas.slice(1).sort((a, b) => a - b);
+    const at = (q: number) => round1(deltas[Math.min(deltas.length - 1, Math.floor(deltas.length * q))]!);
+    const interval = 1000 / environment.displayHz;
+    console.log(JSON.stringify({
+      label,
+      seatEvents,
+      seconds: round1(elapsed),
+      flips,
+      marks: armed.marks,
+      rendererBusyMsPerSecond: perSecond("TaskDuration"),
+      styleMsPerSecond: perSecond("RecalcStyleDuration"),
+      layoutMsPerSecond: perSecond("LayoutDuration"),
+      scriptMsPerSecond: perSecond("ScriptDuration"),
+      domAdded: probed.added,
+      domRemoved: probed.removed,
+      markRemounts: probed.markRemounts,
+      frameMs: deltas.length === 0 ? null : {
+        p50: at(0.5), p95: at(0.95), p99: at(0.99), max: round1(deltas.at(-1)!),
+        droppedAtDisplayRate: deltas.reduce((sum, d) => (d > interval * 1.5 ? sum + Math.round(d / interval) - 1 : sum), 0),
+      },
+      cpuPercent: Object.fromEntries(Object.keys(cpuAfter).map((type) => [type, round1(((cpuAfter[type]! - (cpuBefore[type] ?? 0)) / elapsed) * 100)])),
+      loadAverage1m: { before: Math.round(loadBefore * 100) / 100, after: Math.round(loadavg()[0]! * 100) / 100 },
+    }, null, 2));
+    await teardown();
+    process.exit(0);
+  }
 
   const zoom = await measureZoom();
 
