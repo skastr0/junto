@@ -1,0 +1,467 @@
+import { Cause, Effect, Exit, Option, Schema } from "effect";
+import { SeatStateMachine } from "../src/core/term/agent-state";
+import { SeatReadResult } from "../src/shared/seat-control";
+import { describe, expect, it } from "vitest";
+import type { Canvas, Node, Wire } from "../src/shared/model";
+import { canvasOf, seat, wire } from "./support/model-nodes";
+import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
+import type {
+  ObserverGridSnapshot,
+  ObserverGridWindow,
+} from "../src/core/term/observer";
+import { makeSeatObservation } from "../src/core/work/seat-observation";
+
+// Independent adversarial seam tests for the seat wait/observe contract
+// (historical crew contract, deleted by operator ruling 2026-09-16). The service's own rules: authority is re-derived
+// from a fresh live document before an event is accepted and before every
+// return; subscriptions register before the current value is checked.
+
+const agentNode = (id: string, bindingId: string, host?: string): Node =>
+  seat(id, { bindingId: bindingId as never, width: 100, height: 80, ...(host !== undefined ? { host: host as never } : {}) });
+
+const messagesEdge: Wire = wire("e-msg", "caller", "peer", "messages");
+
+const docWith = (nodes: ReadonlyArray<Node>, edges: ReadonlyArray<Wire>): Canvas => canvasOf(nodes, edges);
+
+type Harness = {
+  readonly service: ReturnType<typeof makeSeatObservation>;
+  readonly setDoc: (doc: Canvas) => void;
+  readonly emitCanvas: (name: string) => void;
+  readonly emitSeat: (event: AgentSeatStateEvent) => void;
+  readonly emitGrid: (snapshot: ObserverGridSnapshot) => void;
+  readonly emitWork: (canvasName?: string, nodeId?: string) => void;
+  readonly gridSubscribed: () => boolean;
+  readonly seatSubscribed: () => boolean;
+};
+
+const makeHarness = (input: {
+  doc: Canvas;
+  seatEvents?: ReadonlyArray<AgentSeatStateEvent>;
+  sessionEpoch?: string;
+  window?: ObserverGridWindow;
+  workListenersFire?: boolean;
+}): Harness => {
+  let doc = input.doc;
+  let seatEvents = [...(input.seatEvents ?? [])];
+  const canvasListeners = new Set<(name: string) => void>();
+  const seatListeners = new Set<(e: AgentSeatStateEvent) => void>();
+  const gridListeners = new Set<(s: ObserverGridSnapshot) => void>();
+  const workListeners = new Set<
+    (canvasName: string | undefined, nodeId: string | undefined) => void
+  >();
+  let gridSubscribed = false;
+  let seatSubscribed = false;
+
+  const service = makeSeatObservation({
+    readTopology: () => Effect.succeed(doc),
+    subscribeCanvasChanges: (listener) => {
+      canvasListeners.add(listener);
+      return () => canvasListeners.delete(listener);
+    },
+    seatStates: {
+      current: () => seatEvents,
+      subscribe: (listener) => {
+        seatSubscribed = true;
+        seatListeners.add(listener);
+        return () => seatListeners.delete(listener);
+      },
+    },
+    subscribeWorkChanges: (listener) => {
+      workListeners.add(listener);
+      return () => workListeners.delete(listener);
+    },
+    sessionOf: () =>
+      input.sessionEpoch === undefined
+        ? undefined
+        : { epoch: input.sessionEpoch, status: "running" },
+    readGrid: async () => input.window,
+    subscribeGrid: (listener) => {
+      gridSubscribed = true;
+      gridListeners.add(listener);
+      return () => gridListeners.delete(listener);
+    },
+  });
+
+  return {
+    service,
+    setDoc: (next) => {
+      doc = next;
+    },
+    emitCanvas: (name) => {
+      for (const l of canvasListeners) l(name);
+    },
+    emitSeat: (event) => {
+      seatEvents = [...seatEvents.filter((e) => e.bindingId !== event.bindingId), event];
+      for (const l of seatListeners) l(event);
+    },
+    emitGrid: (snapshot) => {
+      for (const l of gridListeners) l(snapshot);
+    },
+    emitWork: (canvasName, nodeId) => {
+      for (const l of workListeners) l(canvasName, nodeId);
+    },
+    gridSubscribed: () => gridSubscribed,
+    seatSubscribed: () => seatSubscribed,
+  };
+};
+
+const failureOf = (
+  exit: Exit.Exit<unknown, { type?: string; details?: { reason?: string } }>,
+): { type?: string; details?: { reason?: string } } | undefined =>
+  Exit.isFailure(exit)
+    ? Option.getOrUndefined(Cause.findErrorOption(exit.cause))
+    : undefined;
+
+const settle = async (ms = 40): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+const gridWindow = (over: Partial<ObserverGridWindow> = {}): ObserverGridWindow => ({
+  bindingId: "bind-peer",
+  epoch: "e1",
+  cols: 80,
+  rows: 24,
+  seq: 1n,
+  lines: ["line one"],
+  totalLines: 1,
+  truncated: false,
+  ...over,
+});
+
+const seatEvent = (
+  over: Partial<AgentSeatStateEvent> = {},
+): AgentSeatStateEvent => ({
+  bindingId: "bind-peer",
+  epoch: "e1",
+  state: "idle",
+  reason: "settled",
+  confidence: "high",
+  at: 1,
+  ...over,
+});
+
+describe("crew seat observation — adversarial authority and ordering", () => {
+  // Contract: authority is re-derived before EVERY return. A settled window
+  // must not reach the caller when the edge died before the return — even
+  // when the canvas-change event has not dispatched to this wait yet.
+  it(
+    "seat.read --follow re-derives authority before returning settled text",
+    async () => {
+      const authorized = docWith(
+        [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
+        [messagesEdge],
+      );
+      const revoked = docWith(
+        [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
+        [],
+      );
+      const harness = makeHarness({
+        doc: authorized,
+        sessionEpoch: "e1",
+        window: gridWindow({ seq: 1n }),
+      });
+      const pending = Effect.runPromiseExit(
+        harness.service.readSeat(
+          { target: "peer", follow: true, maxSeconds: 5 },
+          { canvasName: "c", nodeId: "caller" },
+        ),
+      );
+      await settle(60);
+      expect(harness.gridSubscribed()).toBe(true);
+      // The edge is gone; the canvas-change event has not dispatched yet —
+      // the return path must not trust the subscription to have seen it.
+      harness.setDoc(revoked);
+      harness.emitGrid({
+        bindingId: "bind-peer",
+        epoch: "e1",
+        cols: 80,
+        rows: 24,
+        seq: 2n,
+        lines: ["post-revocation screen"],
+        text: "post-revocation screen",
+        signals: { title: "", osc9: "", modes: {} as never },
+      });
+      const exit = await pending;
+      // Correct behavior is a ScopeError (re-derived authority), not screen
+      // text returned under a dead grant.
+      expect(Exit.isFailure(exit)).toBe(true);
+    },
+  );
+
+  it("seat.wait ends with ScopeError when the edge is revoked mid-wait", async () => {
+    const authorized = docWith(
+      [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
+      [messagesEdge],
+    );
+    const revoked = docWith(
+      [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
+      [],
+    );
+    const harness = makeHarness({ doc: authorized, sessionEpoch: "e1" });
+    const pending = Effect.runPromiseExit(
+      harness.service.waitSeat(
+        { target: "peer", until: "idle", timeoutMs: 5_000 },
+        { canvasName: "c", nodeId: "caller" },
+      ),
+    );
+    await settle(60);
+    expect(harness.seatSubscribed()).toBe(true);
+    harness.setDoc(revoked);
+    harness.emitCanvas("c");
+    const exit = await pending;
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const error = failureOf(exit);
+      expect(error?.type).toBe("ScopeError");
+    }
+  });
+
+  // The narrow window between the wait's first authority read and its canvas
+  // subscription registration: a grant revoked inside it produces no change
+  // event this wait can observe, and no seat event ever arrives to trigger a
+  // revalidation. Only a post-subscribe reread catches it — without one the
+  // wait sits under a dead grant until timeout instead of failing closed.
+  it("seat.wait fails closed when the grant dies between auth read and subscribe", async () => {
+    const authorized = docWith(
+      [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
+      [messagesEdge],
+    );
+    const revoked = docWith(
+      [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
+      [],
+    );
+    let reads = 0;
+    let subscribed = false;
+    const service = makeSeatObservation({
+    readTopology: () => {
+        reads += 1;
+        return Effect.succeed(reads === 1 ? authorized : revoked);
+      },
+      subscribeCanvasChanges: () => {
+        subscribed = true;
+        return () => {};
+      },
+      seatStates: { current: () => [], subscribe: () => () => {} },
+      subscribeWorkChanges: () => () => {},
+      sessionOf: () => ({ epoch: "e1", status: "running" }),
+      readGrid: async () => undefined,
+      subscribeGrid: () => () => {},
+    });
+    const exit = await Effect.runPromiseExit(
+      service.waitSeat(
+        { target: "peer", until: "idle", timeoutMs: 400 },
+        { canvasName: "c", nodeId: "caller" },
+      ),
+    );
+    expect(subscribed).toBe(true);
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const error = failureOf(exit);
+      expect(error?.type).toBe("ScopeError");
+    }
+  });
+
+  it("seat.wait ignores a seat event from a dead generation", async () => {
+    const harness = makeHarness({
+      doc: docWith(
+        [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
+        [messagesEdge],
+      ),
+      sessionEpoch: "e2",
+      seatEvents: [seatEvent({ epoch: "e1", state: "idle" })],
+    });
+    const exit = await Effect.runPromiseExit(
+      harness.service.waitSeat(
+        { target: "peer", until: "idle", timeoutMs: 90 },
+        { canvasName: "c", nodeId: "caller" },
+      ),
+    );
+    // The stale-epoch idle event must not satisfy the wait: Timeout is the
+    // honest outcome here.
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const error = failureOf(exit);
+      expect(error?.type).toBe("Timeout");
+    }
+  });
+
+  it("seat.wait fails closed when the edge dies between event and answer", async () => {
+    const authorized = docWith(
+      [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
+      [messagesEdge],
+    );
+    const revoked = docWith(
+      [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
+      [],
+    );
+    let reads = 0;
+    const workListeners = new Set<
+      (canvasName: string | undefined, nodeId: string | undefined) => void
+    >();
+    const service = makeSeatObservation({
+      // First read resolves targets; by the post-event revalidation the
+      // edge is gone — the answer must be ScopeError, not the stale match.
+    readTopology: () => {
+        reads += 1;
+        return Effect.succeed(reads === 1 ? authorized : revoked);
+      },
+      subscribeCanvasChanges: () => () => {},
+      seatStates: {
+        current: () => [],
+        subscribe: (listener) => {
+          // Deliver the matching event synchronously at registration.
+          listener(seatEvent({ epoch: "e1", state: "idle" }));
+          return () => {};
+        },
+      },
+      subscribeWorkChanges: (listener) => {
+        workListeners.add(listener);
+        return () => workListeners.delete(listener);
+      },
+      sessionOf: () => ({ epoch: "e1", status: "running" }),
+      readGrid: async () => undefined,
+      subscribeGrid: () => () => {},
+    });
+    const exit = await Effect.runPromiseExit(
+      service.waitSeat(
+        { target: "peer", until: "idle", timeoutMs: 5_000 },
+        { canvasName: "c", nodeId: "caller" },
+      ),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const error = failureOf(exit);
+      expect(error?.type).toBe("ScopeError");
+    }
+  });
+
+  // A seat moved to another machine mid-wait stops being observable here: the
+  // same admission runs on every revalidation, so the wait must fail closed
+  // rather than keep waiting on a grid this process no longer owns.
+  it("seat.wait fails closed when the seat moves to another machine mid-wait", async () => {
+    const local = docWith(
+      [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
+      [messagesEdge],
+    );
+    const remote = docWith(
+      [
+        agentNode("caller", "bind-caller"),
+        agentNode("peer", "bind-peer", "station-b"),
+      ],
+      [messagesEdge],
+    );
+    const harness = makeHarness({ doc: local, sessionEpoch: "e1" });
+    const pending = Effect.runPromiseExit(
+      harness.service.waitSeat(
+        { target: "peer", until: "idle", timeoutMs: 5_000 },
+        { canvasName: "c", nodeId: "caller" },
+      ),
+    );
+    await settle(60);
+    expect(harness.seatSubscribed()).toBe(true);
+    harness.setDoc(remote);
+    harness.emitCanvas("c");
+    const exit = await pending;
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const error = failureOf(exit);
+      expect(error?.type).toBe("ScopeError");
+      expect(error?.details?.reason).toBe("other_machine");
+    }
+  });
+
+  it("seat.wait returns the observed state for a live-generation match", async () => {
+    const harness = makeHarness({
+      doc: docWith(
+        [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
+        [messagesEdge],
+      ),
+      sessionEpoch: "e1",
+      seatEvents: [seatEvent({ epoch: "e1", state: "idle" })],
+    });
+    const exit = await Effect.runPromiseExit(
+      harness.service.waitSeat(
+        { target: "peer", until: "idle", timeoutMs: 1_000 },
+        { canvasName: "c", nodeId: "caller" },
+      ),
+    );
+    expect(Exit.isSuccess(exit)).toBe(true);
+    if (Exit.isSuccess(exit)) {
+      expect(exit.value.state).toBe("idle");
+      expect(exit.value.epoch).toBe("e1");
+      expect(exit.value.generation).toBe("e1");
+    }
+  });
+
+  it("seat.read reports a replaced generation instead of concatenating", async () => {
+    const harness = makeHarness({
+      doc: docWith(
+        [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
+        [messagesEdge],
+      ),
+      sessionEpoch: "e2",
+      window: gridWindow({ epoch: "e2", seq: 4n, lines: ["new stream"] }),
+    });
+    const exit = await Effect.runPromiseExit(
+      harness.service.readSeat(
+        { target: "peer", since: 9, sinceGeneration: "e1" },
+        { canvasName: "c", nodeId: "caller" },
+      ),
+    );
+    expect(Exit.isSuccess(exit)).toBe(true);
+    if (Exit.isSuccess(exit)) {
+      expect(exit.value.replaced).toBe(true);
+      expect(exit.value.epoch).toBe("e2");
+      expect(exit.value.stopped).toBe("not-following");
+    }
+  });
+
+  it("seat.read shows the seat's status with its reason, and the snapshot and need behind it", async () => {
+    const resetsAt = new Date(2026, 9, 16, 15, 0).getTime();
+    const machine = new SeatStateMachine({ now: () => new Date(2026, 9, 16, 9, 0).getTime() });
+    machine.bind("bind-peer", { harness: "codex", epoch: "e1" });
+    const event = machine.force("bind-peer", "attention", "rule:usage_limit", "high", {
+      signal: { _tag: "UsageLimitHit", scope: "weekly", resetsAt, message: "weekly limit" },
+      source: "screen",
+      fidelity: "screen",
+    });
+    const harness = makeHarness({
+      doc: docWith(
+        [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
+        [messagesEdge],
+      ),
+      sessionEpoch: "e1",
+      seatEvents: [event],
+      window: gridWindow({ epoch: "e1" }),
+    });
+    const exit = await Effect.runPromiseExit(
+      harness.service.readSeat({ target: "peer" }, { canvasName: "c", nodeId: "caller" }),
+    );
+    expect(Exit.isSuccess(exit)).toBe(true);
+    if (!Exit.isSuccess(exit)) return;
+    expect(exit.value.state).toBe("attention");
+    expect(exit.value.status?.summary).toMatch(/^Blocked UsageLimit weekly, resets (Oct 16 )?15:00$/u);
+    expect(exit.value.status?.snapshot.status).toEqual({
+      _tag: "Blocked",
+      reason: { _tag: "UsageLimit", scope: "weekly", resetsAt },
+    });
+    expect(exit.value.status?.need).toMatchObject({ cause: "usage_limit", level: "stopped", actor: "operator" });
+    // The result crosses the wire as its schema says.
+    expect(Schema.decodeUnknownSync(SeatReadResult)(JSON.parse(JSON.stringify(Schema.encodeSync(SeatReadResult)(exit.value))))).toEqual(exit.value);
+  });
+
+  it("seat.read carries no status for a seat event from before it", async () => {
+    const harness = makeHarness({
+      doc: docWith(
+        [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
+        [messagesEdge],
+      ),
+      sessionEpoch: "e1",
+      seatEvents: [seatEvent()],
+      window: gridWindow({ epoch: "e1" }),
+    });
+    const exit = await Effect.runPromiseExit(
+      harness.service.readSeat({ target: "peer" }, { canvasName: "c", nodeId: "caller" }),
+    );
+    expect(Exit.isSuccess(exit) && exit.value.status).toBe(undefined);
+  });
+});

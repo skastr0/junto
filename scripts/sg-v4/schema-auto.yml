@@ -1,0 +1,38 @@
+# From https://github.com/Effect-TS/effect/blob/main/migration/schema.md
+# Migration type: rename / auto
+id: schema-decodeUnknownEither
+language: TypeScript
+rule:
+  pattern: Schema.decodeUnknownEither
+fix: Schema.decodeUnknownExit
+---
+id: schema-decodeEither
+language: TypeScript
+rule:
+  pattern: Schema.decodeEither
+fix: Schema.decodeExit
+---
+id: schema-encodeUnknownEither
+language: TypeScript
+rule:
+  pattern: Schema.encodeUnknownEither
+fix: Schema.encodeUnknownExit
+---
+id: schema-encodeEither
+language: TypeScript
+rule:
+  pattern: Schema.encodeEither
+fix: Schema.encodeExit
+---
+id: schema-TaggedError
+language: TypeScript
+rule:
+  pattern: Schema.TaggedError
+fix: Schema.TaggedErrorClass
+---
+id: schema-decodeUnknown-bare
+language: TypeScript
+rule:
+  pattern: Schema.decodeUnknown($S)
+fix: Schema.decodeUnknownEffect($S)
+# careful: may false-positive decodeUnknownEither already renamed - order matters; run after Either renames if any left

@@ -1,0 +1,397 @@
+/**
+ * An automation's move, end to end between two real machines (0.11/05 S2):
+ * the automation ruler with the real model moves the canvas count, the copy
+ * cut at that count says where the automation runs, the editing machine keeps
+ * it in placement history, and a row the automation's machine wrote is
+ * admitted or refused by which side of the move its stated count is on.
+ */
+import { randomUUID } from "node:crypto";
+import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/sql";
+import { afterEach, expect, it } from "vitest";
+import { AutomationRunnerLive, AutomationRunnerService } from "../src/core/automation/live";
+import { noBoatWakeLayer } from "./support/no-boat";
+import { AutomationRepository, makeAutomationRepositoryLive } from "../src/core/automation/repository";
+import { submitAutomationCommand } from "../src/core/automation/ruler";
+import { makeContentServiceLive } from "../src/core/content/service";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
+import { PausePlaneLive } from "../src/core/pause-plane-live";
+import { FactoryPauseRepositoryLive } from "../src/core/pause/repository";
+import { ReferencesRepositoryLive } from "../src/core/references/repository";
+import { SeatGuidanceRepositoryLive } from "../src/core/seat-guidance/repository";
+import { AgentSignalRepositoryLive } from "../src/core/signals/repository";
+import { makeSettingsLive } from "../src/core/settings/service";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { CrewRepositoryLive } from "../src/core/work/crew-repository";
+import type { RowsChannelContext } from "../src/core/work/exchange/channel";
+import { rowsChannel, rowsWire } from "./support/rows-channel";
+import { makeLiveRowExchange } from "../src/core/work/exchange/live";
+import type { RowExchange } from "../src/core/work/exchange/session";
+import { WorkRepository, WorkRepositoryLive } from "../src/core/work/repository";
+import { makeResourceSubmitLayer } from "../src/core/work/resource-submit";
+import { RulingRecorderLive } from "../src/core/work/ruling-recorder";
+import { TaskRepository, TaskRepositoryLive } from "../src/core/work/task-repository";
+import { ArtifactRepositoryLive } from "../src/core/work/artifact-repository";
+import { ResourceRuler, ResourceRulerLive } from "../src/core/work/resource-ruler";
+import { ModelService } from "../src/core/model/service";
+import { WorkLive, WorkService } from "../src/core/work/service";
+import { AutomationId, type AutomationDefinition, type AutomationOp } from "../src/shared/automation";
+import type { AutomationEnv } from "../src/shared/automation-domain";
+import { InstallationId } from "../src/shared/installation-id";
+import { AutomationNodeId, automationActorRef } from "../src/shared/mail-author";
+import { Command } from "../src/shared/model";
+import { asNodeId } from "../src/shared/physics/schema";
+import type { ResourceCommand } from "../src/shared/resource-command";
+import { OpId } from "../src/shared/work-ids";
+import { automations, seat, taskBoard } from "./support/model-nodes";
+import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
+
+const id = Schema.decodeUnknownSync(InstallationId);
+const MACBOOK = id("macbook-installation");
+const MINI = id("mini-installation");
+const at = "2026-10-28T12:00:00.000Z";
+const NIGHTLY = Schema.decodeUnknownSync(AutomationId)("01M62AAAAAAAAAAAAAAAAAAAAA");
+const command = Schema.decodeUnknownSync(Command);
+const ROUTINES = Schema.decodeUnknownSync(AutomationNodeId)("routines");
+
+const makeRuntime = (root: string, name: string, installation: InstallationId) => {
+  const stores = Layer.provideMerge(
+    Layer.mergeAll(WorkLive, makeAutomationRepositoryLive(), RulingRecorderLive),
+    Layer.provideMerge(
+      ModelStoresLive,
+      Layer.provideMerge(
+        Layer.mergeAll(
+          WorkRepositoryLive,
+          CrewRepositoryLive,
+          makeSettingsLive(),
+          makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
+          SeatGuidanceRepositoryLive,
+          AgentSignalRepositoryLive,
+          ReferencesRepositoryLive,
+          Layer.provideMerge(PausePlaneLive, FactoryPauseRepositoryLive),
+          makeMachineRepositoryLive({ defaultName: () => name, makeInstallationId: () => installation }),
+        ),
+        Layer.mergeAll(makeStateEngineLive(join(root, "junto.db")), makeInstallOpsLive(join(root, "install-ops.db"))),
+      ),
+    ),
+  );
+  // The runner over the task ruler and the submit path that queues a write off the editing machine,
+  // and the ruler of queued commands, as the editing machine runs it.
+  const rulers = Layer.provideMerge(Layer.mergeAll(TaskRepositoryLive, ArtifactRepositoryLive, makeResourceSubmitLayer(() => true)), stores);
+  return ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(Layer.provideMerge(Layer.mergeAll(AutomationRunnerLive, ResourceRulerLive), noBoatWakeLayer), rulers), testLog.log.loggerLayer));
+};
+
+type Machine = {
+  readonly name: string;
+  readonly self: InstallationId;
+  readonly root: string;
+  readonly runtime: ReturnType<typeof makeRuntime>;
+  readonly exchange: RowExchange;
+  readonly channel: ReturnType<typeof rowsChannel>;
+};
+
+const queue: Array<{ readonly from: Machine; readonly to: Machine; readonly payload: unknown }> = [];
+const booted: Machine[] = [];
+
+afterEach(async () => {
+  for (const machine of booted.splice(0)) {
+    for (const link of machine.exchange.status()) machine.exchange.closed(link.peer);
+    await machine.runtime.dispose();
+    await rm(machine.root, { recursive: true, force: true });
+  }
+  queue.length = 0;
+});
+
+const boot = async (name: string, self: InstallationId, pin: readonly [string, InstallationId]): Promise<Machine> => {
+  const root = join(tmpdir(), `junto-automation-move-${name}-${randomUUID()}`);
+  const runtime = makeRuntime(root, name, self);
+  const exchange = await runtime.runPromise(
+    Effect.gen(function* () {
+      const machines = yield* MachineRepository;
+      yield* machines.configureName(name);
+      yield* machines.pinPeer({ machineName: pin[0], installationId: pin[1] });
+      return yield* makeLiveRowExchange({ mailArrived: () => {} });
+    }),
+  );
+  const machine: Machine = { name, self, root, runtime, exchange, channel: rowsChannel(exchange) };
+  booted.push(machine);
+  return machine;
+};
+
+const contextOf = (from: Machine, to: Machine): RowsChannelContext => ({
+  peer: { installationId: to.self },
+  sessionId: `${from.name}-${to.name}`,
+  sendEvent: (_channel, payload) =>
+    Effect.sync(() => {
+      queue.push({ from, to, payload: rowsWire(payload) });
+    }),
+});
+
+const quiet = async (): Promise<void> => {
+  for (const machine of booted) await machine.runtime.runPromise(machine.exchange.quiet);
+};
+
+/** Deliver frames until none is left; a refused frame is kept as the error it was refused with. */
+const settle = async (): Promise<unknown> => {
+  let refusal: unknown;
+  for (await quiet(); queue.length > 0; await quiet()) {
+    const next = queue.shift()!;
+    if (!next.to.exchange.linked(next.from.self)) continue;
+    const frame = next.to.channel.decodeEvent(next.payload);
+    await next.to.runtime
+      .runPromise(next.to.channel.handleEvent(contextOf(next.to, next.from), frame))
+      .catch((error: unknown) => {
+        refusal = error;
+      });
+  }
+  return refusal;
+};
+
+const link = async (left: Machine, right: Machine): Promise<unknown> => {
+  await left.runtime.runPromise(left.channel.opened(contextOf(left, right)));
+  await right.runtime.runPromise(right.channel.opened(contextOf(right, left)));
+  return settle();
+};
+
+const countOn = async (on: Machine): Promise<number> =>
+  on.runtime.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const rows = yield* sql.unsafe<{ seq: number }>("SELECT seq FROM canvases WHERE canvas_name = 'factory'");
+      return rows[0]!.seq;
+    }),
+  );
+
+const definition: AutomationDefinition = {
+  name: "Nightly",
+  trigger: { kind: "schedule", cron: "0 2 * * *", timezone: "UTC" },
+  then: [{ kind: "mail", to: { kind: "seat", nodeId: asNodeId("lead") }, text: "Done?" }],
+  limits: { minIntervalMs: 60_000, maxPerHour: 12 },
+};
+const env: AutomationEnv = { targetsOf: () => new Set([asNodeId("lead")]), isOverseer: () => false };
+
+/** The operator's automation command, ruled on the macbook with the real model. */
+const rule = (macbook: Machine, op: AutomationOp, opId: string, ruledEnv: AutomationEnv = env) =>
+  macbook.runtime.runPromise(
+    submitAutomationCommand(
+      MACBOOK,
+      {
+        opId: OpId.make(opId),
+        canvasName: "factory",
+        actor: { kind: "operator" },
+        target: { kind: "automation", nodeId: ROUTINES, ...(op.kind === "create" ? {} : { itemId: NIGHTLY }) },
+        basis: null,
+        after: [],
+        op,
+      } as unknown as ResourceCommand<AutomationOp>,
+      { inReach: () => true },
+      ruledEnv,
+    ),
+  );
+
+/** Mail from the automation, written on the mini at the count it holds. */
+const writeOnMini = (mini: Machine, messageId: string, count: number) =>
+  mini.runtime.runPromise(
+    Effect.flatMap(WorkRepository, (repository) =>
+      repository.appendMessage({
+        sink: { canvasName: "factory", nodeId: "lead" },
+        basis: { kind: "canvas", canvasName: "factory", seq: count },
+        message: { messageId, role: "agent", parts: [{ kind: "text", text: "from nightly" }] },
+        sentBy: automationActorRef("factory", ROUTINES, NIGHTLY),
+        destination: { kind: "mailbox" },
+        originAt: at,
+        receivedAt: at,
+      }),
+    ),
+  );
+
+/** Written on the mini and pushed to the macbook: the refusal, if the macbook refused it. */
+const mailFromMini = async (mini: Machine, messageId: string, count: number): Promise<unknown> => {
+  await writeOnMini(mini, messageId, count);
+  await mini.runtime.runPromise(mini.exchange.committed("factory"));
+  return settle();
+};
+
+const inbox = async (on: Machine): Promise<string[]> =>
+  (await on.runtime.runPromise(Effect.flatMap(WorkRepository, (repository) => repository.mailbox("factory", "lead")))).map(
+    (message) => message.messageId,
+  );
+
+it("moves the count with the real model, sends the move in the copy, and judges the automation's mail by the side of the move it states", async () => {
+  const macbook = await boot("macbook", MACBOOK, ["mini", MINI]);
+  const mini = await boot("mini", MINI, ["macbook", MACBOOK]);
+  const lead = seat("lead", { x: 0, y: 0, width: 200, height: 100, host: "macbook" as never, agentKey: "macbook:claude", bindingId: "binding-lead" as never });
+  await macbook.runtime.runPromise(seedCanvas("factory", [lead, automations("routines", { x: 400, y: 0 })]));
+  // An automation alone gets the mini a copy; a seat placed there later keeps it getting copies after the move.
+  const peer = seat("peer", { x: 0, y: 300, width: 200, height: 100, host: "mini" as never, agentKey: "mini:claude", bindingId: "binding-peer" as never });
+
+  // Placed on the mini: the ruling moves the count.
+  const seeded = await countOn(macbook);
+  expect((await rule(macbook, { kind: "create", automationId: NIGHTLY, enabled: true, machine: "mini" as never, definition }, "01M62ABBBBBBBBBBBBBBBBBBB1")).kind).toBe("applied");
+  const placed = await countOn(macbook);
+  expect(placed).toBe(seeded + 1);
+
+  // The mini, with only the automation and no seat, gets the copy at that count.
+  expect(await link(macbook, mini)).toBeUndefined();
+  expect(await countOn(mini)).toBe(placed);
+  expect(await mailFromMini(mini, "nightly-on-mini", placed)).toBeUndefined();
+  expect(await inbox(macbook)).toContain("nightly-on-mini");
+
+  await macbook.runtime.runPromise(
+    Effect.flatMap(ModelService, (model) => model.command(command({ _tag: "Add", canvas: "factory", nodes: [peer], wires: [] }), "operator")),
+  );
+  const seated = await countOn(macbook);
+  await macbook.runtime.runPromise(macbook.exchange.committed("factory"));
+  expect(await settle()).toBeUndefined();
+  expect(await countOn(mini)).toBe(seated);
+
+  // Written on the mini before it hears of the move, delivered after it.
+  await writeOnMini(mini, "nightly-before-the-move", seated);
+
+  // Moved to the macbook: the count moves again, and placement history closes the mini's row there.
+  expect((await rule(macbook, { kind: "set-machine", machine: "macbook" as never }, "01M62ABBBBBBBBBBBBBBBBBBB2")).kind).toBe("applied");
+  const moved = await countOn(macbook);
+  expect(moved).toBe(seated + 1);
+  await macbook.runtime.runPromise(macbook.exchange.committed("factory"));
+  expect(await settle()).toBeUndefined();
+  expect(await countOn(mini)).toBe(moved);
+  const history = await macbook.runtime.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      return yield* sql.unsafe("SELECT machine, from_seq, until_seq FROM automation_placements WHERE automation_id = ? ORDER BY from_seq", [NIGHTLY]);
+    }),
+  );
+  expect(history).toEqual([
+    { machine: MINI, from_seq: placed, until_seq: moved },
+    { machine: MACBOOK, from_seq: moved, until_seq: null },
+  ]);
+
+  // Mail the mini wrote stating the count before the move is still its own.
+  await mini.runtime.runPromise(mini.exchange.committed("factory"));
+  expect(await settle()).toBeUndefined();
+  expect(await inbox(macbook)).toContain("nightly-before-the-move");
+  // Stating the count of the move, the mini wrote for an automation no longer there: refused.
+  // The mini holds the copy at that count, so it is refused for where the automation was, not for the count.
+  expect(String(await mailFromMini(mini, "nightly-after-the-move", moved))).toContain("a row was not written where its author lives");
+  expect(await inbox(macbook)).not.toContain("nightly-after-the-move");
+});
+
+it("keeps a machine whose only automation moved away holding the canvas until it has taken the move, then lets it go", async () => {
+  const macbook = await boot("macbook", MACBOOK, ["mini", MINI]);
+  const mini = await boot("mini", MINI, ["macbook", MACBOOK]);
+  const lead = seat("lead", { x: 0, y: 0, width: 200, height: 100, host: "macbook" as never, agentKey: "macbook:claude", bindingId: "binding-lead" as never });
+  await macbook.runtime.runPromise(seedCanvas("factory", [lead, automations("routines", { x: 400, y: 0 })]));
+  expect((await rule(macbook, { kind: "create", automationId: NIGHTLY, enabled: true, machine: "mini" as never, definition }, "01M62ACCCCCCCCCCCCCCCCCCC1")).kind).toBe("applied");
+  const placed = await countOn(macbook);
+  expect(await link(macbook, mini)).toBeUndefined();
+  expect(await countOn(mini)).toBe(placed);
+
+  // Written on the mini before it hears of the move.
+  await writeOnMini(mini, "nightly-before-it-heard", placed);
+
+  // The automation moves off the mini, which then holds nothing on the canvas.
+  expect((await rule(macbook, { kind: "set-machine", machine: "macbook" as never }, "01M62ACCCCCCCCCCCCCCCCCCC2")).kind).toBe("applied");
+  const moved = await countOn(macbook);
+  await macbook.runtime.runPromise(macbook.exchange.committed("factory"));
+  expect(await settle()).toBeUndefined();
+
+  // It is departing, so it still holds the canvas and takes the move: its runner reads the automation as the macbook's.
+  const minis = async () => (await mini.runtime.runPromise(Effect.flatMap(AutomationRepository, (repository) => repository.loadState("factory")))).get(NIGHTLY);
+  expect((await minis())?.automation.machine).toBe("macbook");
+  expect((await mini.runtime.runPromise(mini.exchange.placement("factory")))?.automationOf?.(ROUTINES, NIGHTLY)).toBe(MACBOOK);
+  // No copy at the move's count was cut for it.
+  expect(await countOn(mini)).toBe(placed);
+  // What it wrote before it heard still arrives: it is departing, so it still holds the canvas.
+  await mini.runtime.runPromise(mini.exchange.committed("factory"));
+  expect(await settle()).toBeUndefined();
+  expect(await inbox(macbook)).toContain("nightly-before-it-heard");
+  const holds = async () => (await macbook.runtime.runPromise(macbook.exchange.placement("factory")))!.holds(MINI);
+  expect(await holds()).toBe(true);
+
+  // When it next says how far it is caught up, it lacks nothing: the macbook records it told and lets it go.
+  macbook.exchange.closed(MINI);
+  mini.exchange.closed(MACBOOK);
+  expect(await link(macbook, mini)).toBeUndefined();
+  expect(await holds()).toBe(false);
+  const history = await macbook.runtime.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      return yield* sql.unsafe("SELECT machine, from_seq, until_seq FROM automation_placements WHERE automation_id = ? ORDER BY from_seq", [NIGHTLY]);
+    }),
+  );
+  expect(history).toEqual([
+    { machine: MINI, from_seq: placed, until_seq: moved },
+    { machine: MACBOOK, from_seq: moved, until_seq: null },
+  ]);
+  // Let go, it holds the canvas no longer: a row it still writes is refused, and nothing is written.
+  expect(String(await mailFromMini(mini, "nightly-after-it-was-let-go", placed))).toContain("may not pass on this writer's rows");
+  expect(await inbox(macbook)).not.toContain("nightly-after-it-was-let-go");
+});
+
+it("fires on the machine that holds only a copy: its mail reaches a seat on the editing machine and its task is queued there", async () => {
+  const macbook = await boot("macbook", MACBOOK, ["mini", MINI]);
+  const mini = await boot("mini", MINI, ["macbook", MACBOOK]);
+  const lead = seat("lead", { x: 0, y: 0, width: 200, height: 100, host: "macbook" as never, agentKey: "macbook:claude", bindingId: "binding-lead" as never });
+  const peer = seat("peer", { x: 0, y: 300, width: 200, height: 100, host: "mini" as never, agentKey: "mini:claude", bindingId: "binding-peer" as never });
+  await macbook.runtime.runPromise(seedCanvas("factory", [lead, peer, automations("routines", { x: 400, y: 0 }), taskBoard("board", { x: 800, y: 0 })]));
+  const every: AutomationDefinition = {
+    ...definition,
+    then: [
+      { kind: "mail", to: { kind: "seat", nodeId: asNodeId("lead") }, text: "To the macbook's seat" },
+      { kind: "mail", to: { kind: "seat", nodeId: asNodeId("peer") }, text: "To the mini's seat" },
+      { kind: "create-task", node: asNodeId("board"), title: "Filed from the mini" },
+    ],
+  };
+  const reach: AutomationEnv = { targetsOf: () => new Set(["lead", "peer", "board"].map(asNodeId)), isOverseer: () => false };
+  expect((await rule(macbook, { kind: "create", automationId: NIGHTLY, enabled: true, machine: "mini" as never, definition: every }, "01M62ADDDDDDDDDDDDDDDDDDD1", reach)).kind).toBe("applied");
+  expect(await link(macbook, mini)).toBeUndefined();
+
+  const firing = await mini.runtime.runPromise(Effect.flatMap(AutomationRunnerService, (runner) => runner.onRun("factory", NIGHTLY)));
+  expect(firing?.outcome).toEqual({
+    kind: "fired",
+    actions: [
+      { index: 0, ruling: "applied" },
+      { index: 1, ruling: "applied" },
+      { index: 2, ruling: "queued" },
+    ],
+  });
+  await mini.runtime.runPromise(mini.exchange.committed("factory"));
+  expect(await settle()).toBeUndefined();
+  expect((await inbox(macbook)).length).toBe(1);
+  // The macbook rules the queued create as it rules any queued command.
+  await macbook.runtime.runPromise(Effect.flatMap(ResourceRuler, (ruler) => ruler.sweep("factory")));
+  const filed = await macbook.runtime.runPromise(
+    Effect.flatMap(TaskRepository, (tasks) => tasks.list("factory", { nodeIds: [asNodeId("board")], limit: 10 })),
+  );
+  expect(filed.tasks.map((task) => task.title)).toEqual(["Filed from the mini"]);
+});
+
+it("refuses a system notice to a seat of another machine on a machine that holds only a copy: nothing is written, and the link stays open", async () => {
+  const macbook = await boot("macbook", MACBOOK, ["mini", MINI]);
+  const mini = await boot("mini", MINI, ["macbook", MACBOOK]);
+  const lead = seat("lead", { x: 0, y: 0, width: 200, height: 100, host: "macbook" as never, agentKey: "macbook:claude", bindingId: "binding-lead" as never });
+  const peer = seat("peer", { x: 0, y: 300, width: 200, height: 100, host: "mini" as never, agentKey: "mini:claude", bindingId: "binding-peer" as never });
+  await macbook.runtime.runPromise(seedCanvas("factory", [lead, peer]));
+  expect(await link(macbook, mini)).toBeUndefined();
+
+  // A system notice is the operator's mail, which only the machine that edits the canvas writes (rule 4).
+  const told = await mini.runtime.runPromise(
+    Effect.flatMap(WorkService, (work) =>
+      work.workSystemMailboxNotify("factory", "lead", { messageId: "system-to-lead", role: "agent", parts: [{ kind: "text", text: "Queued" }] } as never)),
+  );
+  expect(told).toMatchObject({ ok: false, code: "wrong_home" });
+  const held = await mini.runtime.runPromise(Effect.flatMap(WorkRepository, (repository) => repository.mailbox("factory", "lead")));
+  expect(held.map((message) => message.messageId)).not.toContain("system-to-lead");
+  await mini.runtime.runPromise(mini.exchange.committed("factory"));
+  expect(await settle()).toBeUndefined();
+  expect(macbook.exchange.linked(MINI)).toBe(true);
+  expect(mini.exchange.linked(MACBOOK)).toBe(true);
+  expect(await inbox(macbook)).not.toContain("system-to-lead");
+});

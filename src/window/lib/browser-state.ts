@@ -1,0 +1,172 @@
+import { observable } from "@legendapp/state";
+import type { BrowserSessionInfo, JuntoBrowserApi } from "@shared/ipc";
+import { parseNodeRef } from "@shared/node-ref";
+import { getJuntoApi } from "./junto-api";
+
+// Runtime-only browser meta cache. Canonical junto:// refs are the durable
+// identity; nodeId is display metadata and must never become a session key.
+export const browser$ = observable({
+  /** canonical junto:// ref -> last known session info. */
+  sessionByRef: {} as Record<string, BrowserSessionInfo>,
+});
+
+// getJuntoApi() narrows its return type to JuntoApi proper; every browser
+// method lives on the sibling JuntoBrowserApi slice that global.d.ts merges
+// onto window.junto at runtime. Cast per-call — Partial<> so a
+// not-yet-landed method degrades to
+// undefined rather than a type error.
+type BrowserApi = ReturnType<typeof getJuntoApi> & Partial<JuntoBrowserApi>;
+
+export const isCanonicalBrowserRef = (ref: string): boolean => parseNodeRef(ref).ok;
+
+// Session ids are document-generation handles, one per tab of a page. Recent
+// replaced handles stay in a bounded FIFO so stale async responses cannot roll
+// a ref backward; async responses are also guarded by the handle observed when
+// their request began. A push is never stale: main pushes only the page's
+// shown tab, in order, so a pushed handle the ref retired is a tab shown again.
+const MAX_RETIRED_SESSION_IDS_PER_REF = 32;
+const retiredSessionIdsByRef = new Map<string, ReadonlyArray<string>>();
+
+export const isUsableBrowserSession = (
+  session: BrowserSessionInfo | null | undefined,
+): session is BrowserSessionInfo =>
+  Boolean(
+    session &&
+      typeof session.ref === "string" &&
+      isCanonicalBrowserRef(session.ref) &&
+      typeof session.sessionId === "string" &&
+      session.sessionId.trim().length > 0,
+  );
+
+export const browserSessionIdForRef = (ref: string): string | undefined => {
+  const session = browser$.sessionByRef[ref].peek();
+  return isUsableBrowserSession(session) && session.ref === ref ? session.sessionId : undefined;
+};
+
+const retireBrowserSessionId = (ref: string, sessionId: string): void => {
+  const retired = retiredSessionIdsByRef.get(ref) ?? [];
+  const next = [...retired.filter((candidate) => candidate !== sessionId), sessionId];
+  retiredSessionIdsByRef.set(ref, next.slice(-MAX_RETIRED_SESSION_IDS_PER_REF));
+};
+
+/** Cache only sessions carrying both canonical identity and an opaque handle. */
+export const cacheBrowserSession = (session: BrowserSessionInfo | null | undefined): boolean => {
+  if (!isUsableBrowserSession(session)) return false;
+  const currentSessionId = browserSessionIdForRef(session.ref);
+  if (session.state === "destroyed" && currentSessionId !== session.sessionId) {
+    // A destroyed notification may update the already-current handle but never
+    // establish or replace one: a late destroy for a cleared or replaced
+    // session must not resurrect a phantom runtime.
+    return false;
+  }
+  if (currentSessionId === session.sessionId) {
+    // Destroyed is terminal, mirroring the shared reducer: a late nonterminal
+    // push for the same handle cannot revive it.
+    if (
+      session.state !== "destroyed" &&
+      browser$.sessionByRef[session.ref].peek()?.state === "destroyed"
+    ) {
+      return false;
+    }
+    browser$.sessionByRef[session.ref].set(session);
+    return true;
+  }
+  if (retiredSessionIdsByRef.get(session.ref)?.includes(session.sessionId)) return false;
+  if (currentSessionId) retireBrowserSessionId(session.ref, currentSessionId);
+  browser$.sessionByRef[session.ref].set(session);
+  return true;
+};
+
+/**
+ * Cache a session main pushed: the page's shown tab. A tab shown again (the
+ * operator went back to it, or closed the tab in front of it) brings back a
+ * handle the ref retired when another tab showed. A destroyed push stays
+ * bound by `cacheBrowserSession`: it never establishes or replaces a handle.
+ */
+export const cachePushedBrowserSession = (session: BrowserSessionInfo | null | undefined): boolean => {
+  if (isUsableBrowserSession(session) && session.state !== "destroyed") {
+    const retired = retiredSessionIdsByRef.get(session.ref);
+    if (retired?.includes(session.sessionId)) {
+      retiredSessionIdsByRef.set(session.ref, retired.filter((candidate) => candidate !== session.sessionId));
+    }
+  }
+  return cacheBrowserSession(session);
+};
+
+/**
+ * Cache an async response only if the ref has not advanced since the request
+ * began. A response matching the already-current handle is still a safe state
+ * refresh; any other response after an intervening generation is stale.
+ */
+export const cacheBrowserSessionIfUnchanged = (
+  session: BrowserSessionInfo | null | undefined,
+  observedSessionId: string | undefined,
+): boolean => {
+  if (!isUsableBrowserSession(session)) return false;
+  const currentSessionId = browserSessionIdForRef(session.ref);
+  if (currentSessionId !== observedSessionId && currentSessionId !== session.sessionId) {
+    return false;
+  }
+  return cacheBrowserSession(session);
+};
+
+export const clearBrowserSessionIfUnchanged = (
+  ref: string,
+  observedSessionId: string | undefined,
+): boolean => {
+  const currentSessionId = browserSessionIdForRef(ref);
+  if (currentSessionId !== observedSessionId) return false;
+  if (currentSessionId) retireBrowserSessionId(ref, currentSessionId);
+  browser$.sessionByRef[ref].delete();
+  // An authoritative absence ends this ref's local lineage. Pending async
+  // reads remain protected by observedSessionId even after the bounded FIFO is
+  // released, so removed refs do not accumulate renderer memory.
+  retiredSessionIdsByRef.delete(ref);
+  return true;
+};
+
+/** One-shot hydration for a card that mounts after the session already opened. */
+export const refreshBrowserSession = async (ref: string): Promise<void> => {
+  if (!isCanonicalBrowserRef(ref)) return;
+  const api = getJuntoApi() as BrowserApi | undefined;
+  if (!api?.browserSessionList) return;
+  const observedSessionId = browserSessionIdForRef(ref);
+  try {
+    const result = await api.browserSessionList();
+    if (!result.ok || !result.data) return;
+    const session = result.data.find(
+      (candidate) => isUsableBrowserSession(candidate) && candidate.ref === ref,
+    );
+    if (session) {
+      cacheBrowserSessionIfUnchanged(session, observedSessionId);
+    } else {
+      // list() is authoritative: never retain a handle that no longer exists.
+      clearBrowserSessionIfUnchanged(ref, observedSessionId);
+    }
+  } catch {
+    // Best-effort — the push subscription is the source of truth going forward.
+  }
+};
+
+// Singleton fan-out: window.junto.onBrowserSessionChanged -> sessionByRef,
+// subscribing once for the window. Safe to call
+// from every PageCard mount; only the first call actually subscribes. Absent
+// the bridge method (IPC not landed yet) degrades to a no-op unsubscribe.
+let activeUnsubscribe: (() => void) | undefined;
+
+export const subscribeBrowserSessionEvents = (): (() => void) => {
+  if (activeUnsubscribe) return activeUnsubscribe;
+  const api = getJuntoApi() as BrowserApi | undefined;
+  if (!api?.onBrowserSessionChanged) return () => undefined;
+  const unsubscribe = api.onBrowserSessionChanged((session) => {
+    cachePushedBrowserSession(session);
+  });
+  activeUnsubscribe = () => {
+    unsubscribe();
+    activeUnsubscribe = undefined;
+  };
+  return activeUnsubscribe;
+};
+
+// Surface open/close lives in dock-state.ts and the workbench owns the
+// attach placeholder; this module keeps only push-fed session state.

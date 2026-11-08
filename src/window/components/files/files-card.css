@@ -1,0 +1,23 @@
+/*
+ * A Files node's card while Finder files are dragged over it: the drop edge
+ * of the Files modal (files-drop.css), a dashed cyan line round the card, the
+ * text cyan in bright where the mark cyan is too light on the warm ground.
+ */
+.files-card {
+  position: relative;
+  --files-drop-edge: var(--color-cyan);
+}
+
+html[data-theme="bright"] .files-card {
+  --files-drop-edge: var(--color-cyan-fg);
+}
+
+.files-card[data-drop]::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  pointer-events: none;
+  border-radius: var(--radius-md);
+  outline: 1px dashed var(--files-drop-edge);
+  background: color-mix(in oklab, var(--color-cyan) 8%, transparent);
+}

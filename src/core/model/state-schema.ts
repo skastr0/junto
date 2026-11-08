@@ -1,0 +1,215 @@
+/** Domain storage. Geometry belongs to each kind; Work contents stay in Work. */
+const geometry = `
+  canvas_name TEXT NOT NULL REFERENCES canvases(canvas_name) ON UPDATE CASCADE,
+  id TEXT NOT NULL CHECK (length(id) BETWEEN 1 AND 256),
+  x REAL NOT NULL,
+  y REAL NOT NULL,
+  width REAL NOT NULL CHECK (width > 0),
+  height REAL NOT NULL CHECK (height > 0),
+  z_index INTEGER NOT NULL,
+  color TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL`;
+
+const launch = `
+  launch_kind TEXT CHECK (launch_kind IN ('shell', 'command', 'harness')),
+  launch_cwd TEXT,
+  launch_argv_json TEXT CHECK (launch_argv_json IS NULL OR json_valid(launch_argv_json)),
+  launch_env_json TEXT CHECK (launch_env_json IS NULL OR json_valid(launch_env_json)),
+  launch_extra_args_json TEXT CHECK (launch_extra_args_json IS NULL OR json_valid(launch_extra_args_json))`;
+
+const table = (name: string, fields: string): string => `
+  CREATE TABLE IF NOT EXISTS ${name} (
+    ${geometry},
+    ${fields},
+    PRIMARY KEY (canvas_name, id)
+  ) STRICT, WITHOUT ROWID;
+  CREATE INDEX IF NOT EXISTS ${name}_canvas_order ON ${name}(canvas_name, z_index, id);
+`;
+
+/**
+ * The one machine that may change a canvas, by installation id. Every other
+ * machine holds a copy and changes nothing. Added by state migration 17 -> 18.
+ */
+export const CANVAS_EDITOR_COLUMN_SQL = `editor_installation_id TEXT
+      CHECK (editor_installation_id IS NULL OR length(editor_installation_id) BETWEEN 1 AND 128)`;
+
+/** Closed kind-to-table map. Table identifiers never come from a caller. */
+export const KIND_TABLES = {
+  agent: "seats",
+  peer: "peers",
+  region: "regions",
+  terminal: "terminals",
+  page: "pages",
+  task: "task_boards",
+  artifacts: "artifact_boards",
+  automations: "automation_boards",
+  note: "notes",
+  label: "labels",
+  file: "file_cards",
+  link: "link_cards",
+  git: "git_repositories",
+  files: "file_trees",
+  stub: "stubs",
+} as const;
+
+/**
+ * Seats that live on other machines, held only in a copy of a canvas: who and
+ * where, and nothing to start one from. Added by state migration 16 -> 17.
+ */
+export const PEERS_STATE_SCHEMA_SQL = table(
+  "peers",
+  `
+    label TEXT NOT NULL,
+    host TEXT NOT NULL,
+    seat_id TEXT NOT NULL
+      CHECK (
+        length(seat_id) = 69
+        AND substr(seat_id, 1, 5) = 'seat_'
+        AND substr(seat_id, 6) NOT GLOB '*[^a-f0-9]*'
+      )`,
+);
+
+/**
+ * Files, links, repositories and pages of other machines, held only in a copy
+ * of a canvas: what each is and where it sits, a label only when the operator
+ * wrote one, and for a page the machine it lives on. No path or address.
+ * Added by state migration 29 -> 30; frozen as that step wrote it.
+ */
+export const STUBS_V30_STATE_SCHEMA_SQL = table(
+  "stubs",
+  `
+    stub_of TEXT NOT NULL CHECK (stub_of IN ('file', 'link', 'git', 'page')),
+    label TEXT,
+    host TEXT,
+    CHECK ((stub_of = 'page') = (host IS NOT NULL)),
+    CHECK (stub_of <> 'page' OR label IS NULL)`,
+);
+
+/**
+ * Stubs as state migration 62 -> 63 rebuilds them: a Files node of another
+ * machine is a stub too, named only by its label, never its host, root,
+ * folder name or file count. Frozen as that step wrote it.
+ */
+export const STUBS_V63_STATE_SCHEMA_SQL = table(
+  "stubs",
+  `
+    stub_of TEXT NOT NULL CHECK (stub_of IN ('file', 'link', 'git', 'page', 'files')),
+    label TEXT,
+    host TEXT,
+    CHECK ((stub_of = 'page') = (host IS NOT NULL)),
+    CHECK (stub_of <> 'page' OR label IS NULL)`,
+);
+
+/** Stubs at the head. */
+export const STUBS_STATE_SCHEMA_SQL = STUBS_V63_STATE_SCHEMA_SQL;
+
+/** Automations nodes (0.10/07). Added by state migration 27 -> 28. */
+export const AUTOMATION_BOARDS_STATE_SCHEMA_SQL = table("automation_boards", "label TEXT");
+
+/**
+ * Files nodes (0.11): the machine the folder lives on and its absolute path
+ * there, which never leaves that machine. Added by state migration 50 -> 51.
+ */
+export const FILE_TREES_STATE_SCHEMA_SQL = table(
+  "file_trees",
+  `
+    label TEXT,
+    host TEXT NOT NULL,
+    root TEXT NOT NULL`,
+);
+
+export const MODEL_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS canvases (
+    canvas_name TEXT PRIMARY KEY CHECK (length(canvas_name) BETWEEN 1 AND 64),
+    canvas_id TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    seq INTEGER NOT NULL DEFAULT 0 CHECK (seq >= 0),
+    ${CANVAS_EDITOR_COLUMN_SQL}
+  ) STRICT, WITHOUT ROWID;
+
+  ${table(
+    "seats",
+    `
+    agent_key TEXT NOT NULL,
+    label TEXT NOT NULL,
+    host TEXT NOT NULL DEFAULT 'local',
+    binding_id TEXT NOT NULL,
+    harness TEXT NOT NULL,
+    overseer INTEGER NOT NULL CHECK (overseer IN (0, 1)),
+    ${launch}`,
+  )}
+  CREATE UNIQUE INDEX IF NOT EXISTS seats_canvas_binding ON seats(canvas_name, binding_id);
+
+  ${table(
+    "terminals",
+    `
+    label TEXT,
+    host TEXT NOT NULL DEFAULT 'local',
+    binding_id TEXT NOT NULL,
+    ${launch}`,
+  )}
+  CREATE UNIQUE INDEX IF NOT EXISTS terminals_canvas_binding ON terminals(canvas_name, binding_id);
+
+  ${table(
+    "regions",
+    `
+    label TEXT,
+    hold INTEGER NOT NULL CHECK (hold IN (0, 1)),
+    instruction TEXT,
+    page_url TEXT,
+    page_profile TEXT,
+    paths_json TEXT CHECK (paths_json IS NULL OR json_valid(paths_json)),
+    rules_json TEXT CHECK (rules_json IS NULL OR json_valid(rules_json)),
+    rulings_json TEXT CHECK (rulings_json IS NULL OR json_valid(rulings_json)),
+    environment_json TEXT CHECK (environment_json IS NULL OR json_valid(environment_json)),
+    background TEXT,
+    background_style TEXT CHECK (background_style IN ('cover', 'ratio', 'repeat'))`,
+  )}
+
+  ${table(
+    "pages",
+    `
+    url TEXT NOT NULL,
+    profile TEXT NOT NULL,
+    on_remove TEXT NOT NULL CHECK (on_remove IN ('detach', 'kill-session')),
+    label TEXT`,
+  )}
+
+  ${table(
+    "task_boards",
+    `
+    name TEXT,
+    contract_json TEXT CHECK (contract_json IS NULL OR json_valid(contract_json))`,
+  )}
+  ${table("artifact_boards", "label TEXT")}
+  ${AUTOMATION_BOARDS_STATE_SCHEMA_SQL}
+  ${table("notes", "text TEXT NOT NULL")}
+  ${table("labels", "text TEXT NOT NULL")}
+  ${table("file_cards", "path TEXT NOT NULL, subpath TEXT, label TEXT")}
+  ${table("link_cards", "url TEXT NOT NULL, label TEXT")}
+  ${table("git_repositories", "label TEXT, cwd TEXT NOT NULL")}
+
+  CREATE TABLE IF NOT EXISTS wires (
+    canvas_name TEXT NOT NULL REFERENCES canvases(canvas_name) ON UPDATE CASCADE,
+    id TEXT NOT NULL CHECK (length(id) BETWEEN 1 AND 256),
+    from_id TEXT NOT NULL,
+    to_id TEXT NOT NULL,
+    verb TEXT NOT NULL CHECK (verb IN ('messages', 'navigates', 'flows', 'derives')),
+    from_side TEXT CHECK (from_side IN ('top', 'right', 'bottom', 'left')),
+    to_side TEXT CHECK (to_side IN ('top', 'right', 'bottom', 'left')),
+    mask_json TEXT CHECK (mask_json IS NULL OR json_valid(mask_json)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (canvas_name, id)
+  ) STRICT, WITHOUT ROWID;
+  CREATE INDEX IF NOT EXISTS wires_from ON wires(canvas_name, from_id, id);
+  CREATE INDEX IF NOT EXISTS wires_to ON wires(canvas_name, to_id, id);
+
+  ${PEERS_STATE_SCHEMA_SQL}
+
+  ${STUBS_STATE_SCHEMA_SQL}
+
+  ${FILE_TREES_STATE_SCHEMA_SQL}
+`;

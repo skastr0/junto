@@ -1,0 +1,353 @@
+import { afterEach, describe, expect, it } from "vitest";
+import { filterCommandBarNodes } from "../src/window/lib/command-bar";
+import { Palette } from "../src/shared/wire/urgency";
+import { regionPath, regionPaths } from "../src/window/lib/region-path";
+import { asNodeId, type Node } from "../src/shared/model";
+import { canvasOf, note, region as regionNode, seat } from "./support/model-nodes";
+
+const text = (id: string, body: string): Node => note(id, body);
+
+describe("command bar node ranking", () => {
+  it("keeps paint order when the query is empty", () => {
+    const nodes = [text("a", "Alpha"), text("b", "Beta"), text("c", "Gamma")];
+    const result = filterCommandBarNodes(nodes, "", []);
+    expect(result.map((match) => match.node.id)).toEqual(["a", "b", "c"]);
+    expect(result.map((match) => match.score)).toEqual([0, 0, 0]);
+  });
+
+  it("ranks title-prefix above title-substring above body matches", () => {
+    const nodes = [
+      text("body", "Alpha\nmentions cascade deep inside"),
+      text("inside", "Cascade"),
+      text("prefix", "Cascade Ridge"),
+      text("nomatch", "Unrelated"),
+    ];
+    const result = filterCommandBarNodes(nodes, "cascade", []);
+    expect(result.map((match) => match.node.id)).toEqual([
+      "inside", // title equals/substring match
+      "prefix", // title starts with (but "Cascade Ridge".toLowerCase() = "cascade ridge")
+      "body", // body-only match
+    ]);
+  });
+
+  it("prefers title-prefix over title-substring", () => {
+    const nodes = [
+      text("sub", "Deep cascade notes"),
+      text("pre", "Cascade overview"),
+    ];
+    const result = filterCommandBarNodes(nodes, "cascade", []);
+    expect(result[0]?.node.id).toBe("pre");
+    expect(result[1]?.node.id).toBe("sub");
+  });
+
+  it("breaks ties by hotbar recency, then paint order", () => {
+    const nodes = [text("a", "Alpha task"), text("b", "Beta task"), text("c", "Gamma task")];
+    const result = filterCommandBarNodes(nodes, "task", ["c", "b"]);
+    expect(result.map((match) => match.node.id)).toEqual(["c", "b", "a"]);
+  });
+
+  it("drops non-matching nodes", () => {
+    const nodes = [text("a", "Alpha"), text("b", "Beta")];
+    const result = filterCommandBarNodes(nodes, "alpha", []);
+    expect(result.map((match) => match.node.id)).toEqual(["a"]);
+  });
+
+  it("matches agent keys through native search", () => {
+    const nodes = [
+      seat("named", { label: "Quiet note", agentKey: "worker-9" }),
+      text("plain", "Quiet note"),
+    ];
+    expect(filterCommandBarNodes(nodes, "worker-9", []).map((m) => m.node.id)).toEqual(["named"]);
+  });
+});
+
+describe("command bar agent bias", () => {
+  const agent = (id: string, label: string): Node => seat(id, { label });
+  const region = (id: string, label: string): Node => regionNode(id, { x: 0, y: 0, width: 400, height: 300 }, { label });
+  const link = (id: string): Node => ({ id: asNodeId(id), kind: "link", url: `https://example.com/${id}`, x: 0, y: 0, width: 200, height: 80, z: 0 });
+
+  // Document order deliberately buries the agents under other kinds.
+  const nodes = [
+    link("l"),
+    text("n", "Deploy plan"),
+    region("r", "Deploy"),
+    agent("resting", "deploy-resting"),
+    agent("offline", "deploy-offline"),
+    agent("working", "deploy-working"),
+    agent("blocked", "deploy-blocked"),
+    agent("waiting", "deploy-waiting"),
+  ];
+  const standing = (group: (typeof Palette.groups)[number], since = 0) => ({ group, since });
+  const standings = new Map([
+    ["blocked", standing(Palette.group.blocked)],
+    ["waiting", standing(Palette.group.waiting)],
+    ["working", standing(Palette.group.working)],
+    ["resting", standing(Palette.group.resting)],
+    ["offline", standing(Palette.group.offline)],
+  ]);
+  const ids = (query: string, recent: ReadonlyArray<string> = []) =>
+    filterCommandBarNodes(nodes, query, recent, standings).map((match) => match.node.id);
+
+  it("empty query: agents first by rank, then regions, notes, and other kinds", () => {
+    expect(ids("")).toEqual(["blocked", "waiting", "working", "resting", "offline", "r", "n", "l"]);
+  });
+
+  it("one linear order over a mixed fixture: working above review, review above done", () => {
+    const crew = ["offline", "resting", "done", "review", "working", "waiting", "blocked"].map((id) => agent(id, id));
+    // Every Palette group, by its name: the fixture's seat ids are the group names.
+    const ranked = new Map(Palette.groups.map((group) => [group as string, standing(group)] as const));
+    expect(filterCommandBarNodes(crew, "", [], ranked).map((match) => match.node.id)).toEqual([
+      "blocked",
+      "waiting",
+      "working",
+      "review",
+      "done",
+      "resting",
+      "offline",
+    ]);
+  });
+
+  it("inside a rank the most recent change comes first, then name; hotbar recency and z do not count", () => {
+    const crew = [agent("a", "alpha"), agent("b", "beta"), agent("c", "gamma"), agent("d", "delta")];
+    const ranked = new Map([
+      ["a", standing(Palette.group.review, 100)],
+      ["b", standing(Palette.group.review, 300)],
+      ["c", standing(Palette.group.review, 200)],
+      ["d", standing(Palette.group.review, 200)],
+    ]);
+    const order = (recent: ReadonlyArray<string>) =>
+      filterCommandBarNodes(crew, "", recent, ranked).map((match) => match.node.id);
+    // b (300), then c and d tied at 200 by name (delta before gamma), then a (100).
+    expect(order([])).toEqual(["b", "d", "c", "a"]);
+    expect(order(["a", "c"])).toEqual(["b", "d", "c", "a"]);
+  });
+
+  it("a seat that changes state re-ranks the same list", () => {
+    const crew = [agent("a", "alpha"), agent("b", "beta")];
+    const before = new Map([["a", standing(Palette.group.working, 10)], ["b", standing(Palette.group.resting, 5)]]);
+    expect(filterCommandBarNodes(crew, "", [], before).map((match) => match.node.id)).toEqual(["a", "b"]);
+    const after = new Map([["a", standing(Palette.group.resting, 20)], ["b", standing(Palette.group.blocked, 20)]]);
+    expect(filterCommandBarNodes(crew, "", [], after).map((match) => match.node.id)).toEqual(["b", "a"]);
+  });
+
+  it("an agent with no reading ranks as resting", () => {
+    const partial = new Map([["waiting", standing(Palette.group.waiting)], ["offline", standing(Palette.group.offline)]]);
+    const result = filterCommandBarNodes(nodes, "", [], partial).map((match) => match.node.id);
+    expect(result.slice(0, 5)).toEqual(["waiting", "blocked", "resting", "working", "offline"]);
+  });
+
+  it("with a query, agents rank above other kinds at equal match quality", () => {
+    // Every title starts with "deploy": one tier, agents first by urgency.
+    expect(ids("deploy")).toEqual(["blocked", "waiting", "working", "resting", "offline", "n", "r"]);
+  });
+
+  it("a better match still beats an agent", () => {
+    const mixed = [agent("seat", "yak-seat"), region("r", "Yakjev"), text("n", "Notes on the yak")];
+    const result = filterCommandBarNodes(mixed, "yakjev", [], new Map([["seat", { group: Palette.group.blocked, since: 0 }]]));
+    expect(result.map((match) => match.node.id)).toEqual(["r"]);
+    const prefix = filterCommandBarNodes(mixed, "yak", [], new Map([["seat", { group: Palette.group.blocked, since: 0 }]]));
+    // All three are title prefixes except the note (substring): agent, region, note.
+    expect(prefix.map((match) => match.node.id)).toEqual(["seat", "r", "n"]);
+    const titled = [region("r", "Research"), seat("seat", { label: "reviewer", agentKey: "local:research" })];
+    // The region's title matches; the agent only matches by its key.
+    expect(filterCommandBarNodes(titled, "research", []).map((match) => match.node.id)).toEqual(["r", "seat"]);
+  });
+});
+
+describe("command bar region paths", () => {
+  const box = (id: string, label: string | undefined, x: number, y: number, size: number): Node =>
+    regionNode(id, { x, y, width: size, height: size }, label === undefined ? {} : { label });
+  const at = (id: string, body: string, x: number, y: number): Node => note(id, body, { x, y, width: 10, height: 10 });
+  const nodes = [
+    box("outer", "Junto", 0, 0, 1000),
+    box("mid", "PTY", 100, 100, 500),
+    box("inner", "mail", 200, 200, 100),
+    box("blank", " ", 150, 150, 300),
+    at("deep", "relay", 220, 220),
+    at("shallow", "lead", 900, 900),
+    at("root", "loner", 5000, 5000),
+  ];
+  const modelOf = (held: ReadonlyArray<Node>) => canvasOf(held);
+  const paths = regionPaths(modelOf(nodes));
+
+  it("reads outermost to innermost and names an unnamed region by its placeholder", () => {
+    expect(paths.get("deep")).toBe("Junto / PTY / unnamed region / mail");
+    expect(paths.get("shallow")).toBe("Junto");
+    expect(paths.get("inner")).toBe("Junto / PTY / unnamed region");
+  });
+
+  it("one node's path is the same string the map holds", () => {
+    const canvas = modelOf(nodes);
+    expect(regionPath(canvas, "deep")).toBe(paths.get("deep"));
+    expect(regionPath(canvas, "root")).toBeUndefined();
+  });
+
+  it("a node inside only an unnamed region still shows it", () => {
+    const lone = regionPaths(modelOf([box("blank", undefined, 0, 0, 100), at("n", "note", 10, 10)]));
+    expect(lone.get("n")).toBe("unnamed region");
+  });
+
+  it("a labelled region never reads as the placeholder", () => {
+    const labels = ["PTY", "  padded  ", "0", "x", "Unnamed", "région été"];
+    const regions = labels.map((label, i) => box(`g${String(i)}`, label, i, i, 1000 - i * 2));
+    const labelled = regionPaths(modelOf([...regions, at("n", "note", 400, 400)]));
+    expect(labelled.get("n")).toBe(labels.map((label) => label.trim()).join(" / "));
+  });
+
+  it("gives no entry to a node outside every region", () => {
+    expect(paths.has("root")).toBe(false);
+    expect(paths.has("outer")).toBe(false);
+  });
+
+  it("a region name finds the nodes inside it, below direct matches", () => {
+    const ids = filterCommandBarNodes(nodes, "pty", [], new Map(), paths).map((match) => match.node.id);
+    expect(ids).toEqual(["mid", "inner", "blank", "deep"]);
+    expect(filterCommandBarNodes(nodes, "pty", []).map((match) => match.node.id)).toEqual(["mid"]);
+  });
+});
+
+import { Play, type LucideIcon } from "lucide-react";
+import type { DigestResult } from "../src/shared/ipc";
+import {
+  commandBarActionQuery,
+  commandBarMode,
+  filterCommandBarActions,
+  openCanvasDigest,
+  type CommandBarAction,
+} from "../src/window/lib/command-bar-actions";
+import { state$ } from "../src/window/lib/state";
+
+const action = (id: string, label: string, detail = ""): CommandBarAction => ({
+  id,
+  label,
+  detail,
+  icon: Play as LucideIcon,
+  run: () => undefined,
+});
+
+describe("command bar actions mode", () => {
+  it("treats a > prefix as actions mode and tab as the fallback toggle", () => {
+    expect(commandBarMode(">fit", "nodes")).toBe("actions");
+    expect(commandBarMode(">", "nodes")).toBe("actions");
+    expect(commandBarMode("fit", "nodes")).toBe("nodes");
+    expect(commandBarMode("fit", "actions")).toBe("actions");
+    expect(commandBarMode("", "nodes")).toBe("nodes");
+  });
+
+  it("strips the > prefix for the action search term", () => {
+    expect(commandBarActionQuery(">fit")).toBe("fit");
+    expect(commandBarActionQuery(">  fit view ")).toBe("fit view");
+    expect(commandBarActionQuery("fit")).toBe("fit");
+    expect(commandBarActionQuery("")).toBe("");
+  });
+
+  it("returns the full catalog for an empty query", () => {
+    const catalog = [action("a", "Fit view"), action("b", "Clear selection")];
+    expect(filterCommandBarActions(catalog, "")).toEqual(catalog);
+    expect(filterCommandBarActions(catalog, ">")).toEqual(catalog);
+  });
+
+  it("matches labels and details", () => {
+    const catalog = [
+      action("a", "Fit view", "Frame all nodes"),
+      action("b", "Open settings"),
+      action("c", "Edge filter / show blocks"),
+    ];
+    expect(filterCommandBarActions(catalog, "fit").map((a) => a.id)).toEqual(["a"]);
+    expect(filterCommandBarActions(catalog, "frame").map((a) => a.id)).toEqual(["a"]);
+    expect(filterCommandBarActions(catalog, ">filter").map((a) => a.id)).toEqual(["c"]);
+    expect(filterCommandBarActions(catalog, "nope")).toEqual([]);
+  });
+});
+
+type DigestApi = { canvasDigest: (name: string) => Promise<DigestResult | undefined> };
+
+const digestWindow = (): { junto?: DigestApi } => {
+  const g = globalThis as { window?: { junto?: DigestApi } };
+  if (g.window === undefined) g.window = {};
+  return g.window;
+};
+
+describe("openCanvasDigest", () => {
+  const prior = digestWindow().junto;
+
+  afterEach(() => {
+    digestWindow().junto = prior;
+    state$.canvasName.set("");
+    state$.digest.set(null);
+    state$.digestOpen.set(false);
+    state$.error.set("");
+  });
+
+  it("opens the panel when the read succeeds", async () => {
+    state$.canvasName.set("ops");
+    digestWindow().junto = {
+      canvasDigest: async () => ({ digest: "board" }),
+    };
+    await openCanvasDigest("ops");
+    expect(state$.digestOpen.peek()).toBe(true);
+    expect(state$.digest.peek()).toEqual({ digest: "board" });
+    expect(state$.error.peek()).toBe("");
+  });
+
+  it("surfaces read failure on state.error and does not open", async () => {
+    state$.canvasName.set("ops");
+    digestWindow().junto = {
+      canvasDigest: async () => {
+        throw new Error("digest read failed");
+      },
+    };
+    await openCanvasDigest("ops");
+    expect(state$.digestOpen.peek()).toBe(false);
+    expect(state$.digest.peek()).toBeNull();
+    expect(state$.error.peek()).toBe("digest read failed");
+  });
+
+  it("treats a missing result as failure", async () => {
+    state$.canvasName.set("ops");
+    digestWindow().junto = undefined;
+    await openCanvasDigest("ops");
+    expect(state$.digestOpen.peek()).toBe(false);
+    expect(state$.error.peek()).toBe("Canvas digest is unavailable.");
+  });
+
+  it("ignores a late result after the canvas changed", async () => {
+    state$.canvasName.set("ops");
+    let release: (value: DigestResult) => void = () => undefined;
+    const pending = new Promise<DigestResult>((resolve) => {
+      release = resolve;
+    });
+    digestWindow().junto = { canvasDigest: async () => pending };
+    const done = openCanvasDigest("ops");
+    state$.canvasName.set("other");
+    release({ digest: "stale" });
+    await done;
+    expect(state$.digestOpen.peek()).toBe(false);
+    expect(state$.digest.peek()).toBeNull();
+    expect(state$.error.peek()).toBe("");
+  });
+
+  it("ignores a late failure after the canvas changed", async () => {
+    state$.canvasName.set("ops");
+    let rejectPending: (error: Error) => void = () => undefined;
+    const pending = new Promise<DigestResult>((_resolve, reject) => {
+      rejectPending = reject;
+    });
+    digestWindow().junto = { canvasDigest: async () => pending };
+    const done = openCanvasDigest("ops");
+    state$.canvasName.set("other");
+    rejectPending(new Error("digest read failed"));
+    await done;
+    expect(state$.digestOpen.peek()).toBe(false);
+    expect(state$.error.peek()).toBe("");
+  });
+});
+
+describe("command bar fuzzy title match", () => {
+  it("finds a name by its letters in order, whatever the punctuation", () => {
+    const nodes = [text("a", "product-lead"), text("b", "pty-lead"), text("c", "product-feed")];
+    expect(filterCommandBarNodes(nodes, "productlead", []).map((m) => m.node.id)).toEqual(["a"]);
+    expect(filterCommandBarNodes(nodes, "prdld", []).map((m) => m.node.id)).toEqual(["a"]);
+    expect(filterCommandBarNodes(nodes, "lead", []).map((m) => m.node.id)).toEqual(["a", "b"]);
+  });
+});

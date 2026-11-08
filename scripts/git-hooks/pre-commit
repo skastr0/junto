@@ -1,0 +1,46 @@
+#!/bin/sh
+# Refuse a commit built from the shared checkout's own index.
+#
+# Many seats write this checkout at once, so its .git/index holds whatever
+# anyone last staged or left stale. A bare `git commit`, `git commit -a` or
+# `git commit <path>` commits from that index and can take other seats' files
+# out of HEAD (7ff0f339e, ebecae662). Commits here go through a private
+# index instead: docs/machines.md, "Committing in the shared checkout".
+#
+# Git hands this hook the index it is committing as GIT_INDEX_FILE:
+# .git/index, .git/index.lock or .git/next-index-*.lock for the shared one,
+# the temp path for a private one. The private-index method itself uses
+# `git commit-tree`, which runs no hooks. Linked worktrees have their own
+# index and are not checked. Enabled per checkout with
+#   git config core.hooksPath scripts/git-hooks
+
+git_dir=$(git rev-parse --absolute-git-dir) || exit 1
+git_dir=$(cd "$git_dir" && pwd -P) || exit 1
+common_dir=$(cd "$(git rev-parse --git-common-dir)" && pwd -P) || exit 1
+
+# A linked worktree: its index is its own.
+[ "$git_dir" = "$common_dir" ] || exit 0
+
+if [ -n "${GIT_INDEX_FILE:-}" ]; then
+  index_dir=$(cd "$(dirname "$GIT_INDEX_FILE")" 2>/dev/null && pwd -P)
+  # A private index lives outside .git.
+  [ -n "$index_dir" ] && [ "$index_dir" != "$git_dir" ] && exit 0
+fi
+
+cat >&2 <<'EOF'
+junto: refused, this commit is built from the shared checkout's index.
+
+Other seats stage and leave files in .git/index, so a bare `git commit`,
+`git commit -a` or `git commit <path>` here can take their work out of HEAD.
+Commit through a private index instead, as one shell command. From
+docs/machines.md, "Committing in the shared checkout":
+
+EOF
+# Printed from the doc, so the hook and the doc never drift apart.
+awk '
+  /^### Committing in the shared checkout/ { in_section = 1; next }
+  in_section && /^```/ { if (in_block) exit; in_block = 1; next }
+  in_block { print "  " $0; next }
+  in_section && /^#/ { exit }
+' "$(git rev-parse --show-toplevel)/docs/machines.md" >&2
+exit 1

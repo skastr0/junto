@@ -1,0 +1,461 @@
+import { useRtsNodes, useRtsValue, useRtsWire } from "../../lib/rts-selection";
+import { asWireId, type Wire, type Node, type Page, type TaskBoard } from "@shared/model";
+import { useEffect, useState, type ReactNode } from "react";
+import { use$ } from "@legendapp/state/react";
+import {
+  BookmarkPlus,
+  Globe,
+  Link2,
+  ListChecks,
+  Mic,
+  Package,
+  UserRoundPen,
+  Plus,
+  ScrollText,
+  Server,
+  Terminal,
+  Timer,
+  Trash2,
+} from "lucide-react";
+import type { TasksIncoming } from "@shared/work-model";
+import {
+  BROWSER_ENABLED,
+  productNodeKindEnabled,
+} from "@shared/features";
+import { verbsForPair, type Verb } from "@shared/physics";
+import { titleOf } from "@shared/model/title";
+import { modelStore } from "../../lib/use-model";
+import { verbSentence as formatWireSentence } from "../../lib/verb-sentence";
+import { HUE } from "../../lib/theme";
+import { state$ } from "../../lib/state";
+import { openWorkDetail } from "../../lib/work-detail-open";
+import { terminalBindingOf } from "@shared/terminal";
+import { openDockBrowser, openTaskCreateSurface } from "../../lib/dock-state";
+import { openTerminal } from "../../lib/terminal-actions";
+import { openAgentEditor } from "../../lib/agent-editor-state";
+import { isProfileSeat } from "../../lib/agent-profiles";
+import { openSaveProfile } from "../../lib/profiles-state";
+import { deleteEdges } from "../../lib/edge-mutations";
+import { hostOf } from "../../lib/presentation";
+import { browser$ } from "../../lib/browser-state";
+import { formatNodeRef } from "@shared/node-ref";
+import {
+  PageBindingControl,
+  PageUrlControl,
+} from "../InspectorFields";
+import { formatWait, normalizeBoardSettings } from "../rules";
+import { reverbed } from "../../lib/model-edits";
+import { commitCommands, setBoardSettings } from "../../lib/mutations";
+import { Button } from "../ui";
+import { AgentReseatControl } from "./AgentReseatControl";
+import { OverseerToggleKey } from "./OverseerToggle";
+import { canStartOverseerLive, openOverseerLive } from "../../lib/overseer-live-state";
+import "./rts-controls.css";
+import "../node-palette/node-palette-mode-deck.css";
+
+const ICON = 12;
+
+/** Same 26px square key as the command card (shared .rts-key chrome). */
+export function KindKey({
+  label,
+  title,
+  active,
+  danger,
+  disabled,
+  style,
+  testId,
+  data,
+  onClick,
+  children,
+}: {
+  readonly label: string;
+  readonly title?: string;
+  readonly active?: boolean;
+  readonly danger?: boolean;
+  readonly disabled?: boolean;
+  readonly style?: React.CSSProperties;
+  readonly testId?: string;
+  readonly data?: Readonly<Record<string, string>>;
+  readonly onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  readonly children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className={`rts-key${active ? " is-active" : ""}${danger ? " is-danger" : ""}`}
+      aria-label={label}
+      aria-pressed={active}
+      title={title ?? label}
+      disabled={disabled}
+      style={style}
+      data-testid={testId}
+      {...data}
+      onClick={onClick}
+    >
+      <span className="rts-key__icon">{children}</span>
+    </button>
+  );
+}
+
+// --- the relation surface ----------------------------------------------------
+//
+// An edge says one thing: which relationship this is. So it needs no dialog,
+// no form, and no second authoring surface — the bottom bar reads the verb,
+// names the two ends, offers the pair's other verb when there is one, and
+// deletes. Everything else about the wire is compiled from that verb.
+
+type EdgeVerbView = {
+  readonly verb: Verb | undefined;
+  /** The pair's other verb, present only when the pair admits two. */
+  readonly sibling: Verb | undefined;
+  readonly fromLabel: string;
+  readonly toLabel: string;
+  readonly sentence: string;
+};
+
+/** Selected relationship labels follow native endpoints, never the whole graph. */
+const edgeVerbView = (canvasName: string, edge: Wire): EdgeVerbView => {
+  const fromNode = modelStore.node$(canvasName, edge.from).get();
+  const toNode = modelStore.node$(canvasName, edge.to).get();
+  const fromLabel = fromNode ? titleOf(fromNode) : edge.from;
+  const toLabel = toNode ? titleOf(toNode) : edge.to;
+  const verb = edge.verb;
+  const sibling = verb === undefined
+    ? undefined
+    : verbsForPair(fromNode?.kind, toNode?.kind)
+      .find(candidate => candidate !== verb);
+  return {
+    verb, sibling, fromLabel, toLabel,
+    sentence: verb === undefined
+      ? `${fromLabel} → ${toLabel}`
+      : formatWireSentence(verb, fromLabel, toLabel),
+  };
+};
+
+/**
+ * Swap this edge to the pair's other verb. Both are legal for the pair by
+ * construction — the control only ever appears when the pair holds two — so
+ * the write is the whole decision and there is nothing left to validate.
+ */
+const swapEdgeVerb = (edgeId: string, verb: Verb): void => {
+  commitCommands((canvas) => reverbed(canvas, asWireId(edgeId), verb));
+};
+
+/**
+ * Left command card for a selected relation: the two ends, the verb
+ * sentence, and delete.
+ */
+export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
+  const canvasName = use$(state$.canvasName);
+  const edge = useRtsWire(canvasName, edgeId);
+  const view = useRtsValue(() => edge ? edgeVerbView(canvasName, edge) : null);
+  if (!edge || !view) return null;
+  // The sentence is the card: a wire carries no stoppage of its own.
+  const line = view.sentence;
+  return (
+    <div className="rts-panel rts-panel--cmd">
+      <div className="rts-panel__body rts-cmd-shell">
+        <div className="rts-cmd-main">
+          <div className="rts-cmd-head">
+            <div className="rts-cmd__title">
+              {view.fromLabel} → {view.toLabel}
+            </div>
+            <div className="rts-cmd__live" title={line}>
+              {line}
+            </div>
+          </div>
+        </div>
+        <div className="rts-cmd-keys rts-cmd-keys--col" role="toolbar" aria-label="Relation actions">
+          <KindKey label="Delete relation" danger onClick={() => deleteEdges([edgeId])}>
+            <Trash2 size={ICON} />
+          </KindKey>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- middle panel: kind strip ------------------------------------------------
+
+function PageKindKeys({ node }: { readonly node: Page }) {
+  const [pop, setPop] = useState<"url" | "binding" | null>(null);
+  const canvasName = use$(state$.canvasName);
+  const pageRef = (() => {
+    try {
+      return formatNodeRef({ canvasName, nodeId: node.id });
+    } catch {
+      return undefined;
+    }
+  })();
+  const session = use$(browser$.sessionByRef[pageRef ?? ""]);
+  const browser = { profile: node.profile };
+  const url = node.url;
+
+  useEffect(() => {
+    setPop(null);
+  }, [node.id]);
+
+  const open = () => {
+    if (!pageRef || !browser) return;
+    void openDockBrowser(pageRef, {
+      nodeId: node.id,
+      browser,
+      url,
+      title: session?.title ?? hostOf(url),
+    });
+  };
+
+  return (
+    <>
+      <KindKey label="Open page" title="Open page" onClick={open}>
+        <Globe size={ICON} />
+      </KindKey>
+      <KindKey
+        label={pop === "url" ? "Close url" : "Page url"}
+        title="Page URL"
+        active={pop === "url"}
+        onClick={() => setPop((current) => (current === "url" ? null : "url"))}
+      >
+        <Link2 size={ICON} />
+      </KindKey>
+      <KindKey
+        label={pop === "binding" ? "Close binding" : "Browser binding"}
+        title="Host and profile"
+        active={pop === "binding"}
+        onClick={() => setPop((current) => (current === "binding" ? null : "binding"))}
+      >
+        <Server size={ICON} />
+      </KindKey>
+      {pop === "url" ? (
+        <div className="rts-kind-pop rts-kind-pop--editor">
+          <PageUrlControl nodeId={node.id} />
+        </div>
+      ) : null}
+      {pop === "binding" ? (
+        <div className="rts-kind-pop rts-kind-pop--editor">
+          <PageBindingControl nodeId={node.id} />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function TaskKindKeys({ node }: { readonly node: TaskBoard }) {
+  const [pop, setPop] = useState<"wait" | null>(null);
+  const contract = node.contract;
+  const waitMs = contract?.incoming?.waitMs;
+
+  const writeIncoming = (
+    patch: Partial<TasksIncoming>,
+  ) => {
+    setBoardSettings(
+      node.id,
+      normalizeBoardSettings({
+        ...contract,
+        incoming: { ...contract?.incoming, ...patch },
+      }),
+    );
+  };
+
+  useEffect(() => {
+    setPop(null);
+  }, [node.id]);
+
+  return (
+    <>
+      <KindKey
+        label="Open task board"
+        title="Open the task board"
+        onClick={() => openWorkDetail(node.id)}
+      >
+        <ListChecks size={ICON} />
+      </KindKey>
+      <KindKey
+        label="Add task"
+        title="Enqueue a task"
+        onClick={() => openTaskCreateSurface(node.id)}
+      >
+        <Plus size={ICON} />
+      </KindKey>
+      <KindKey
+        label="Wait before starting"
+        title={`Wait: ${formatWait(waitMs) || "none"}`}
+        active={pop === "wait" || waitMs !== undefined}
+        style={pop === "wait" || waitMs !== undefined ? { color: HUE.amber } : undefined}
+        onClick={() => setPop((current) => (current === "wait" ? null : "wait"))}
+      >
+        <Timer size={ICON} />
+      </KindKey>
+      {pop === "wait" ? (
+        <div className="rts-kind-pop rts-kind-pop--quick" aria-label="Wait quick set">
+          <span className="rts-kind-pop__title">Wait before starting</span>
+          <div className="rts-kind-pop__choices">
+            {([
+              [undefined, "None"],
+              [15 * 60_000, "15m"],
+              [60 * 60_000, "1h"],
+              [12 * 60 * 60_000, "12h"],
+              [24 * 60 * 60_000, "1d"],
+            ] as const).map(([value, label]) => (
+              <Button
+                key={label}
+                size="xs"
+                variant={waitMs === value ? "primary" : "chrome"}
+                aria-pressed={waitMs === value}
+                onClick={() => {
+                  writeIncoming({ waitMs: value });
+                  setPop(null);
+                }}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+          <span className="rts-kind-pop__hint">
+            Current: {formatWait(waitMs) || "none"}. Tasks wait this long before any agent can
+            start them. Set a custom time in Board settings.
+          </span>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** Kind-specific action keys (agent/terminal/task/…). */
+export function KindActions({ nodeId }: { readonly nodeId: string }) {
+  const canvasName = use$(state$.canvasName);
+  const node = useRtsNodes(canvasName, [nodeId])[0];
+  if (!node) return null;
+  const kind = node.kind;
+  // A feature-gated kind turned off in this build keeps its historical card
+  // but loses every kind action, so no pop or surface can reopen it.
+  if (kind !== undefined && !productNodeKindEnabled(kind)) return null;
+  switch (kind) {
+    case "agent": {
+      // Managed terminal is the product surface; ACP chat stays hard-hidden.
+      const terminalBound = terminalBindingOf(node)?.kind === "native";
+      const customize = (
+        <KindKey
+          label="Customize character"
+          title="Customize character (look, mood, name)"
+          testId="rts-customize-agent"
+          onClick={() => openAgentEditor(node.id)}
+        >
+          <UserRoundPen size={ICON} />
+        </KindKey>
+      );
+      // The same seat actions as its right-click menu: guidance, then profile.
+      const guidance = (
+        <KindKey
+          label="Soul and instructions"
+          title="Soul and instructions (who it is, how it works)"
+          testId="rts-seat-guidance"
+          onClick={() => openAgentEditor(node.id, { section: "soul" })}
+        >
+          <ScrollText size={ICON} />
+        </KindKey>
+      );
+      const saveProfile = isProfileSeat(node) ? (
+        <KindKey
+          label="Save as profile"
+          title="Save as profile (reuse anywhere)"
+          testId="rts-save-profile"
+          onClick={() => openSaveProfile(node.id)}
+        >
+          <BookmarkPlus size={ICON} />
+        </KindKey>
+      ) : null;
+      if (terminalBound) {
+        return (
+          <>
+            <KindKey
+              label="Open terminal"
+              title="Open agent terminal (double-click node or re-tap slot)"
+              onClick={() => void openTerminal(state$.canvasName.peek(), node.id)}
+            >
+              <Terminal size={ICON} />
+            </KindKey>
+            <AgentReseatControl nodeId={node.id} />
+            <OverseerToggleKey nodeId={node.id} />
+            {canStartOverseerLive(node) && <KindKey
+              label="Start live conversation"
+              title="Talk with this Overseer"
+              testId="rts-overseer-live"
+              onClick={() => openOverseerLive({ canvasName: state$.canvasName.peek(), nodeId: node.id, title: titleOf(node) })}
+            ><Mic size={ICON} /></KindKey>}
+            {customize}
+            {guidance}
+            {saveProfile}
+          </>
+        );
+      }
+      return (
+        <>
+          <OverseerToggleKey nodeId={node.id} />
+          {customize}
+          {guidance}
+          {saveProfile}
+        </>
+      );
+    }
+    case "terminal":
+      return (
+        <KindKey
+          label="Open terminal"
+          title="Open terminal"
+          onClick={() => void openTerminal(state$.canvasName.peek(), node.id)}
+        >
+          <Terminal size={ICON} />
+        </KindKey>
+      );
+    case "page":
+      return BROWSER_ENABLED ? <PageKindKeys node={node} /> : null;
+    case "task":
+      return <TaskKindKeys node={node} />;
+    case "artifacts":
+      return (
+        <KindKey
+          label="Open artifacts"
+          title="Open artifacts"
+          onClick={() => openWorkDetail(node.id)}
+        >
+          <Package size={ICON} />
+        </KindKey>
+      );
+    default:
+      // Unknown / geography kinds: silence is semantic.
+      return null;
+  }
+}
+
+/**
+ * Middle-bar relation surface: the verb, the sentence it makes of the two
+ * ends, and — only when the pair admits a second verb — the swap to it.
+ */
+export function EdgePairStrip({ edge }: { readonly edge: Wire }) {
+  const canvasName = use$(state$.canvasName);
+  const view = useRtsValue(() => edgeVerbView(canvasName, edge));
+  const sibling = view.sibling;
+
+  return (
+    <div className="rts-kind-cluster">
+      <span className="rts-kind-kind-label">{view.verb ?? "link"}</span>
+      <div className="rts-kind-strip" role="toolbar" aria-label="Relation">
+        <span className="rts-kind-strip__meta" title={view.sentence}>
+          {view.sentence}
+        </span>
+        {sibling ? (
+          <Button
+            size="xs"
+            variant="chrome"
+            title={formatWireSentence(sibling, view.fromLabel, view.toLabel)}
+            aria-label={`Change to ${sibling}`}
+            onClick={() => swapEdgeVerb(edge.id, sibling)}
+          >
+            {sibling}
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,405 @@
+import { countRender } from "../../lib/performance/surface-commits";
+import { useEffect, useRef, useState } from "react";
+import { use$ } from "@legendapp/state/react";
+import { NodeResizer, NodeToolbar, Position, useReactFlow, useStoreApi } from "@xyflow/react";
+import type { NodeProps } from "@xyflow/react";
+import { AlertTriangle, FolderOpen, KeyRound, Lock, Trash2 } from "lucide-react";
+import type { FlowNode } from "../../lib/convert";
+import { MAX_REGION_DEPTH, UNNAMED_REGION } from "@shared/graph";
+import { REGION_NAME_MAX } from "@shared/region-bounds";
+import { deleteNode, renameGroup } from "../../lib/mutations";
+import { claimFocus } from "../../lib/focus-ownership";
+import { resizeNode, syncPositions } from "../../lib/geometry";
+import { heldBy } from "../../lib/model-edits";
+import { state$ } from "../../lib/state";
+import { accentColor, borderColor, HUE, INK, withAlpha } from "../../lib/theme";
+import { regionLabelDrag$ } from "../../lib/region-label-drag";
+import { regionUrgency$ } from "../../lib/region-urgency";
+import { modelStore, useNodeFieldOf } from "../../lib/use-model";
+import {
+  isMultiSelectGesture,
+  stopNodeGestureUnlessMultiSelect,
+  useShiftMultiSelectDominance,
+} from "../../lib/multi-select-gesture";
+import { RegionPathsModal } from "../RegionPathsModal";
+import { RegionEnvironmentModal } from "../region-environment/RegionEnvironmentModal";
+import { IconButton, ToolbarPill } from "../ui";
+
+/**
+ * Floating pill for a selected region: folder paths, environment and delete. No
+ * connection focus — a region holds no edges, so its cone is always empty.
+ */
+function RegionToolbar({
+  nodeId,
+  selected,
+  onPaths,
+  hasPaths,
+  onEnvironment,
+  hasEnvironment,
+}: {
+  readonly nodeId: string;
+  readonly selected: boolean;
+  readonly onPaths: () => void;
+  readonly hasPaths: boolean;
+  readonly onEnvironment: () => void;
+  readonly hasEnvironment: boolean;
+}) {
+  // pointerdown stopPropagation keeps RF from starting a drag; action on click
+  // so Enter/Space on focused IconButton still fires (pointerdown-only is keyboard-dead).
+  // Shift multi-select always wins — do not eat the gesture / run the action.
+  const stopDrag = (event: React.PointerEvent | React.MouseEvent): boolean =>
+    stopNodeGestureUnlessMultiSelect(event);
+  // Multi-select: RTS bar owns bulk — suppress floating region pills.
+  const multiSelect = use$(() => state$.selectedNodeIds.get().length > 1);
+  if (!selected || multiSelect) return null;
+  return <NodeToolbar isVisible position={Position.Top} offset={8}>
+    <ToolbarPill>
+      <IconButton
+        className="nodrag nopan"
+        aria-label={hasPaths ? "Region folder paths (set)" : "Region folder paths"}
+        title={hasPaths ? "Folder paths set" : "Folder paths"}
+        onPointerDown={stopDrag}
+        onClick={(event) => { if (stopDrag(event)) return; onPaths(); }}
+      >
+        <FolderOpen size={14} />
+      </IconButton>
+      <IconButton
+        className="nodrag nopan"
+        aria-label={hasEnvironment ? "Region environment (set)" : "Region environment"}
+        title={hasEnvironment ? "Environment and secrets (set)" : "Environment and secrets"}
+        onPointerDown={stopDrag}
+        onClick={(event) => { if (stopDrag(event)) return; onEnvironment(); }}
+      >
+        <KeyRound size={14} />
+      </IconButton>
+      <IconButton
+        className="nodrag nopan"
+        aria-label="Delete region"
+        tone="danger"
+        title="Delete region"
+        onPointerDown={stopDrag}
+        onClick={(event) => { if (stopDrag(event)) return; deleteNode(nodeId); }}
+      >
+        <Trash2 size={14} />
+      </IconButton>
+    </ToolbarPill>
+  </NodeToolbar>;
+}
+
+function RegionLabel({
+  label,
+  editing,
+  draft,
+  inputRef,
+  onDraft,
+  onCommit,
+  onCancel,
+  onEdit,
+  accent,
+}: {
+  readonly label: string;
+  readonly editing: boolean;
+  readonly draft: string;
+  readonly inputRef: React.RefObject<HTMLInputElement | null>;
+  readonly onDraft: (value: string) => void;
+  readonly onCommit: () => void;
+  readonly onCancel: () => void;
+  readonly onEdit: () => void;
+  /** Optional plate accent — tints the label when the region has a color. */
+  readonly accent?: string;
+}) {
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        data-focus-owner="canvas-draft"
+        aria-label="Edit region label"
+        maxLength={REGION_NAME_MAX}
+        className="junto-group__label-input nodrag rounded-md bg-inset px-1.5 py-0.5 outline-none"
+        style={{ color: INK, border: `1px solid ${withAlpha(HUE.amber, 0.4)}` }}
+        value={draft}
+        onChange={(event) => onDraft(event.target.value)}
+        onBlur={onCommit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") onCommit();
+          if (event.key === "Escape") onCancel();
+        }}
+      />
+    );
+  }
+  return (
+    <span
+      className="junto-group__label cursor-text rounded-md px-1.5 py-0.5"
+      style={accent ? { color: accent } : undefined}
+      onDoubleClick={(event) => {
+        if (event.shiftKey) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onEdit();
+      }}
+    >
+      {label || UNNAMED_REGION}
+    </span>
+  );
+}
+
+export function GroupNode({ id, data, selected }: NodeProps<FlowNode>) {
+  countRender("region-card", id);
+  // The region is read from the node store one field at a time, so a move or
+  // a resize of the region does not re-render its chrome.
+  const canvasName = use$(state$.canvasName);
+  const label = useNodeFieldOf(canvasName, id, "region", (region) => region.label ?? "") ?? "";
+  const color = useNodeFieldOf(canvasName, id, "region", (region) => region.color);
+  const hold = useNodeFieldOf(canvasName, id, "region", (region) => region.hold) === true;
+  const hasEnvironment = useNodeFieldOf(canvasName, id, "region", (region) => region.environment !== undefined) === true;
+  const hasPaths = useNodeFieldOf(canvasName, id, "region", (region) =>
+    Object.values(region.defaults?.paths ?? {}).some((path) => path.trim().length > 0),
+  ) === true;
+  const stroke = borderColor(color, selected);
+  const tint = accentColor(color);
+  const [editing, setEditing] = useState(false);
+  const [pathsOpen, setPathsOpen] = useState(false);
+  const [environmentOpen, setEnvironmentOpen] = useState(false);
+  const isEditTarget = use$(() => state$.editNodeId.get() === id);
+  const isPathsTarget = use$(() => state$.regionPathsNodeId.get() === id);
+  const [draft, setDraft] = useState(label);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Authoring-time-only warning (never a data rejection). Depth arrives with
+  // the projection (convert.ts), so a resize (NodeResizer.onResizeEnd ->
+  // resizeNode) repaints it without this card watching the whole document.
+  const nestingDepth = data.regionDepth ?? 0;
+  const nestedTooDeep = nestingDepth > MAX_REGION_DEPTH;
+  // Zoomed-out watermark (see region-glance.ts). Every named region prints its
+  // name in the clear ground of its own body (the slot convert.ts measured,
+  // region-name-slot.ts), so nested names and their parents' never overlap.
+  // A nested region inks a step closer in than an outermost one. Opacity is
+  // inherited from the ReactFlow root, so this costs no render on zoom.
+  // An unnamed region has nothing to say at a distance — print nothing rather
+  // than a placeholder the operator cannot navigate by.
+  const nestedGlance = nestingDepth >= 1;
+  const glanceable = label.trim().length > 0;
+  const slot = data.nameSlot;
+  // A seat that is blocked, needs the operator or has work for review tints
+  // and frames the region holding it, and more quietly every region around
+  // that (region-urgency.ts, canvas-lod-regions.css).
+  const urgency = use$(() => regionUrgency$[id].get());
+
+  // Seed and claim once per edit session. A label that changes under the
+  // operator (live reload) must not reset the draft or re-select it.
+  const labelRef = useRef(label);
+  labelRef.current = label;
+  useEffect(() => {
+    if (!editing) return;
+    setDraft(labelRef.current);
+    claimFocus(inputRef.current, "open", { select: true });
+  }, [editing]);
+
+  useEffect(() => {
+    if (!isEditTarget) return;
+    setEditing(true);
+    state$.editNodeId.set("");
+  }, [isEditTarget, id]);
+
+  // Create-time (and any openRegionPaths trigger): open host folder paths modal.
+  useEffect(() => {
+    if (!isPathsTarget) return;
+    setPathsOpen(true);
+    state$.regionPathsNodeId.set("");
+  }, [isPathsTarget, id]);
+
+  const commit = () => {
+    setEditing(false);
+    if (draft !== label) renameGroup(id, draft);
+  };
+
+  // Selection chrome stays amber; unselected border + tint follow the node's
+  // `color`. Region plate images are retired — color wash only.
+  //
+  // The whole wrapper is pointer-transparent (see convert.ts) so rubber-band
+  // can start in the empty interior and reach the pane. The label strip is the
+  // only movable chrome: it implements its own drag (React Flow never sees
+  // wrapper events for this node) and click-select, and keeps the
+  // shift-multi-select capture handlers for additive toggling.
+  const multiSelectCapture = useShiftMultiSelectDominance(id);
+  const rf = useReactFlow();
+  const rfStore = useStoreApi();
+  const regionDragRef = useRef<{
+    readonly startFlow: { readonly x: number; readonly y: number };
+    readonly startPos: { readonly x: number; readonly y: number };
+    readonly members: ReadonlyMap<string, { readonly x: number; readonly y: number }>;
+  } | null>(null);
+
+  const beginRegionDrag = (event: React.PointerEvent): void => {
+    if (event.button !== 0 || isMultiSelectGesture(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const flowNode = rf.getNode(id);
+    if (flowNode === undefined) return;
+    const startFlow = rf.screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    });
+    const startPos = { ...flowNode.position };
+    const members = new Map<string, { readonly x: number; readonly y: number }>();
+    // What rides along, worked out once as the drag starts and never stored:
+    // nothing for a region that does not hold its contents.
+    for (const memberId of heldBy(modelStore.canvasOf(canvasName), id)) {
+      const member = rf.getNode(memberId);
+      if (member !== undefined) members.set(memberId, { ...member.position });
+    }
+    regionDragRef.current = { startFlow, startPos, members };
+    regionLabelDrag$.set(true);
+    const onMove = (event: PointerEvent): void => {
+      const drag = regionDragRef.current;
+      if (drag === null) return;
+      const now = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      const dx = now.x - drag.startFlow.x;
+      const dy = now.y - drag.startFlow.y;
+      rf.updateNode(id, {
+        position: { x: drag.startPos.x + dx, y: drag.startPos.y + dy },
+      });
+      for (const [memberId, position] of drag.members) {
+        rf.updateNode(memberId, {
+          position: { x: position.x + dx, y: position.y + dy },
+        });
+      }
+    };
+    const onUp = (): void => {
+      regionDragRef.current = null;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      // Persist positions into the document, mirroring RF's onNodeDragStop.
+      const positions = new Map<string, { readonly x: number; readonly y: number }>();
+      for (const flow of rf.getNodes()) {
+        positions.set(flow.id, flow.position);
+      }
+      syncPositions(positions);
+      regionLabelDrag$.set(false);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  };
+
+  // Non-Shift chrome click is exclusive: RF's addSelectedNodes replaces the
+  // selection whenever multiSelectionActive is false, so a leftover card
+  // selection never leaves the operator in a mixed set. Shift is handled
+  // upstream (isMultiSelectGesture + useShiftMultiSelectDominance).
+  const selectRegionOnClick = (event: React.MouseEvent): void => {
+    if (isMultiSelectGesture(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    rfStore.getState().addSelectedNodes([id]);
+  };
+  const [frameHover, setFrameHover] = useState(false);
+  // Window-frame grab: the perimeter and the title bar are the only chrome that
+  // selects/moves an unselected region. The interior stays pane (marquee,
+  // pane-click deselect, right-click add). Once selected the strips step aside
+  // so NodeResizer owns the edges — one gesture per pixel, never two.
+  const frameGrab = {
+    onPointerDown: beginRegionDrag,
+    onClick: selectRegionOnClick,
+    onPointerDownCapture: multiSelectCapture.onPointerDownCapture,
+    onClickCapture: multiSelectCapture.onClickCapture,
+  } as const;
+  const plateBorder = selected
+    ? withAlpha(HUE.amber, 0.6)
+    : frameHover
+      ? withAlpha(HUE.amber, 0.42)
+      : stroke;
+  // The fill is two custom properties: the near tier's gradient and a flat
+  // wash the zoomed-out tiers switch to (canvas-lod-regions.css), so a tier
+  // change is a style switch, not a render.
+  return <div
+    className="junto-group relative h-full w-full rounded-[14px]"
+    data-region-depth={Math.min(nestingDepth, 3)}
+    data-region-urgency={urgency?.urgency}
+    data-region-reach={urgency?.reach}
+    data-region-colored={color ? "" : undefined}
+    style={{
+      border: `1px solid ${plateBorder}`,
+      pointerEvents: "none",
+      "--region-fill": color
+        ? `linear-gradient(135deg, ${withAlpha(tint, 0.08)}, color-mix(in oklab, var(--color-ground) 25%, transparent))`
+        : "linear-gradient(135deg, color-mix(in oklab, var(--color-raise) 22%, transparent), color-mix(in oklab, var(--color-ground) 12%, transparent))",
+      "--region-flat": color
+        ? withAlpha(tint, 0.07)
+        : "color-mix(in oklab, var(--color-raise) 16%, transparent)",
+      // The region's own colour for the zoomed-out tiers' fill, frame and
+      // name; an uncoloured region wears the ink.
+      "--region-tint": color ? tint : "var(--color-ink)",
+      ...(color ? { "--region-name": withAlpha(tint, 0.22) } : {}),
+      boxShadow: selected ? `0 0 0 1px ${withAlpha(HUE.amber, 0.18)}` : "none",
+    } as React.CSSProperties}
+  >
+    {glanceable ? (
+      <div
+        className={`junto-region-glance${nestedGlance ? " junto-region-glance--nested" : ""}`}
+        data-testid={`region-glance-${id}`}
+        aria-hidden
+        style={{
+          ...(slot
+            ? { left: slot.x, top: slot.y, width: slot.width, height: slot.height, right: "auto", bottom: "auto" }
+            : {}),
+          "--glance-size": `${String(slot?.fontSize ?? 0)}px`,
+        } as React.CSSProperties}
+      >
+        <span className="junto-region-glance__text" style={{ fontSize: `${String(slot?.fontSize ?? 0)}px` }}>
+          {label}
+        </span>
+      </div>
+    ) : null}
+    <div style={{ pointerEvents: "auto" }}>
+      <NodeResizer isVisible={selected} minWidth={320} minHeight={180} color={HUE.amber} handleClassName="junto-resize-handle" lineClassName="junto-resize-line" onResizeEnd={(_event, params) => resizeNode(id, params)} />
+    </div>
+    <div style={{ pointerEvents: "auto" }}>
+      <RegionToolbar
+        nodeId={id}
+        selected={selected}
+        onPaths={() => setPathsOpen(true)}
+        hasPaths={hasPaths}
+        onEnvironment={() => setEnvironmentOpen(true)}
+        hasEnvironment={hasEnvironment}
+      />
+    </div>
+    {selected ? null : (
+      <div className="junto-region-frame" aria-hidden>
+        {(["left", "right", "bottom"] as const).map((side) => (
+          <div
+            key={side}
+            className={`junto-region-frame__strip junto-region-frame__strip--${side}`}
+            data-testid={`region-frame-${side}`}
+            title="Drag region"
+            onPointerEnter={() => setFrameHover(true)}
+            onPointerLeave={() => setFrameHover(false)}
+            {...frameGrab}
+          />
+        ))}
+      </div>
+    )}
+    <div
+      className="region-drag-handle junto-region-titlebar"
+      data-testid="region-titlebar"
+      title="Drag region"
+      onPointerEnter={() => setFrameHover(true)}
+      onPointerLeave={() => setFrameHover(false)}
+      {...frameGrab}
+    >
+      <RegionLabel label={label} editing={editing} draft={draft} inputRef={inputRef} onDraft={setDraft} onCommit={commit} onCancel={() => setEditing(false)} onEdit={() => setEditing(true)} accent={color ? tint : undefined} />
+      {/* The title bar names the region. Only a state that changes what a
+          drag does earns a mark here; briefing and paths show on the kind strip. */}
+      {hold ? <Lock aria-label="Region holds its contents" size={10} style={{ opacity: 0.5, color: INK, flexShrink: 0 }} /> : null}
+      {nestedTooDeep ? (
+        <span
+          title={`Nested ${nestingDepth} regions deep, past ${MAX_REGION_DEPTH} — still works, but consider flattening`}
+          style={{ display: "inline-flex", flexShrink: 0 }}
+        >
+          <AlertTriangle aria-label="Region nesting is very deep" size={10} style={{ opacity: 0.8, color: HUE.amber }} />
+        </span>
+      ) : null}
+    </div>
+    {pathsOpen ? <div style={{ pointerEvents: "auto" }}><RegionPathsModal nodeId={id} onClose={() => setPathsOpen(false)} /></div> : null}
+    {environmentOpen ? <div style={{ pointerEvents: "auto" }}><RegionEnvironmentModal nodeId={id} onClose={() => setEnvironmentOpen(false)} /></div> : null}
+  </div>;
+}

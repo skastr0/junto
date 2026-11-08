@@ -1,0 +1,129 @@
+import { Schema } from "effect";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  INTERFACE_SCALES,
+  Settings,
+  SettingsPatch,
+  applySettingsPatch,
+  defaultSettings,
+  interfaceScaleOf,
+} from "../src/shared/settings";
+import { decodeStoredSettings, preferencesFromSettings } from "../src/core/settings/state-schema";
+import {
+  applyInterfaceScale,
+  currentInterfaceScale,
+  followInterfaceScale,
+  refitInterfaceScale,
+  setInterfaceScale,
+  shownInterfaceScale,
+} from "../src/app/interface-scale";
+
+const decodePatch = Schema.decodeUnknownSync(SettingsPatch, { onExcessProperty: "error" });
+const decodeSettings = Schema.decodeUnknownSync(Settings, { onExcessProperty: "error" });
+
+const target = () => {
+  const factors: number[] = [];
+  let destroyed = false;
+  return {
+    factors,
+    destroy: () => {
+      destroyed = true;
+    },
+    isDestroyed: () => destroyed,
+    setZoomFactor: (factor: number) => {
+      factors.push(factor);
+    },
+  };
+};
+
+describe("interface size setting", () => {
+  it("is 100 percent until the operator chooses, and rows written before it decode", () => {
+    const settings = defaultSettings();
+    expect(settings.appearance.interfaceScale).toBeUndefined();
+    expect(interfaceScaleOf(settings)).toBe(100);
+    expect(interfaceScaleOf(decodeStoredSettings(1, preferencesFromSettings(settings), settings.machine))).toBe(100);
+  });
+
+  it("takes each offered size through a patch and keeps it through the stored row", () => {
+    for (const scale of INTERFACE_SCALES) {
+      const next = applySettingsPatch(defaultSettings(), decodePatch({ appearance: { interfaceScale: scale } }));
+      expect(interfaceScaleOf(decodeSettings(next))).toBe(scale);
+      expect(interfaceScaleOf(decodeStoredSettings(1, preferencesFromSettings(next), next.machine))).toBe(scale);
+    }
+  });
+
+  it("refuses a size that is not offered", () => {
+    expect(() => decodePatch({ appearance: { interfaceScale: 300 } })).toThrow();
+    expect(() => decodePatch({ appearance: { interfaceScale: 1.5 } })).toThrow();
+  });
+
+  it("leaves the size alone when a patch changes something else", () => {
+    const large = applySettingsPatch(defaultSettings(), { appearance: { interfaceScale: 150 } });
+    expect(interfaceScaleOf(applySettingsPatch(large, { appearance: { theme: "bright" } }))).toBe(150);
+  });
+});
+
+describe("interface size in main", () => {
+  afterEach(() => setInterfaceScale(100));
+
+  it("applies the size in force to a window that starts following, and every change after", () => {
+    setInterfaceScale(125);
+    const window = target();
+    const stop = followInterfaceScale(window);
+    expect(window.factors).toEqual([1.25]);
+    setInterfaceScale(200);
+    expect(window.factors).toEqual([1.25, 2]);
+    // The same size again is not a change: no second resize.
+    setInterfaceScale(200);
+    expect(window.factors).toEqual([1.25, 2]);
+    stop();
+    setInterfaceScale(90);
+    expect(window.factors).toEqual([1.25, 2]);
+    expect(currentInterfaceScale()).toBe(90);
+  });
+
+  it("re-applies on demand after a load, and never touches a destroyed window", () => {
+    const window = target();
+    followInterfaceScale(window);
+    setInterfaceScale(150);
+    applyInterfaceScale(window);
+    expect(window.factors).toEqual([1, 1.5, 1.5]);
+    window.destroy();
+    setInterfaceScale(175);
+    expect(window.factors).toEqual([1, 1.5, 1.5]);
+  });
+});
+
+describe("interface size in a narrow window", () => {
+  afterEach(() => setInterfaceScale(100));
+
+  it("shows the chosen size when the window can hold it, else the largest listed size that fits", () => {
+    expect(shownInterfaceScale(200, 1280)).toBe(200);
+    expect(shownInterfaceScale(200, 960)).toBe(150);
+    expect(shownInterfaceScale(175, 960)).toBe(150);
+    expect(shownInterfaceScale(150, 960)).toBe(150);
+    expect(shownInterfaceScale(200, 700)).toBe(100);
+    // Standard and smaller are never held back, and a target with no width is left as chosen.
+    expect(shownInterfaceScale(90, 300)).toBe(90);
+    expect(shownInterfaceScale(200, undefined)).toBe(200);
+  });
+
+  it("fits again when the window changes width, and only when the size it shows changes", () => {
+    let width = 1280;
+    const factors: number[] = [];
+    const window = { isDestroyed: () => false, setZoomFactor: (factor: number) => void factors.push(factor), contentWidth: () => width };
+    const stop = followInterfaceScale(window);
+    setInterfaceScale(200);
+    expect(factors).toEqual([1, 2]);
+    width = 960;
+    refitInterfaceScale(window);
+    expect(factors).toEqual([1, 2, 1.5]);
+    width = 1000;
+    refitInterfaceScale(window);
+    expect(factors).toEqual([1, 2, 1.5]);
+    width = 1280;
+    refitInterfaceScale(window);
+    expect(factors).toEqual([1, 2, 1.5, 2]);
+    stop();
+  });
+});

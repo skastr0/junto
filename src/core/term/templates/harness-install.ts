@@ -1,0 +1,431 @@
+/**
+ * Local harness CLI install probe for the agent palette.
+ *
+ * Fail-soft: an unavailable install never throws or mutates PATH. A missing
+ * binary means the harness is hidden from authoring — spawn would only show
+ * "not installed" after a broken process start.
+ */
+
+import { execFile, spawnSync } from "node:child_process";
+import { accessSync, constants, statSync } from "node:fs";
+import { access, readdir } from "node:fs/promises";
+import { homedir, userInfo } from "node:os";
+import { delimiter, dirname, isAbsolute, join } from "node:path";
+import { promisify } from "node:util";
+import {
+  allTemplates,
+  templateFor,
+  type HarnessId,
+  type ManagedTerminalTemplate,
+  type MailTransportSpec,
+  type IsolationSpec,
+} from "@shared/managed-terminal-templates";
+import { managedHarnessEnabled } from "@shared/managed-terminal-templates";
+import { isOverseerHarness } from "@shared/harness-records";
+import { harnessRuntimeRecordFor } from "../harness-record";
+import { parseHelpFlags } from "@shared/launch-extra-args";
+import type { ManagedTerminalFlagsResult } from "@shared/ipc";
+import { configuredToolDirectories } from "../../shell-environment";
+import { shellEnvironment } from "../../shell-environment";
+import { juntoCliPathPrefixes } from "./seat-env";
+import { e2eHarnessRefusal } from "@shared/e2e-sandbox";
+
+/**
+ * In an E2E run a harness outside the sandbox is not installed, unless the
+ * spec opts in by name: the launch would refuse it (local-host.ts), so the
+ * probe says what the operator's machine with no such CLI says. Outside E2E
+ * every candidate is admitted.
+ */
+export const e2eSandboxAdmits = (harness: string, file: string): boolean =>
+  e2eHarnessRefusal({ env: process.env, harness, file, realHome: userInfo().homedir }) === undefined;
+
+const execFileAsync = promisify(execFile);
+
+export type HarnessInstallProbe = {
+  readonly harness: HarnessId;
+  readonly displayName: string;
+  readonly binary: string;
+  /** True when an executable for the harness binary resolves. */
+  readonly installed: boolean;
+  /** The executable discovery found; absent when not installed. */
+  readonly executable?: string;
+  readonly mailTransport: MailTransportSpec;
+  readonly isolation: IsolationSpec;
+};
+
+const isExecutableFile = (path: string): boolean => {
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+export type HarnessExecutableResolution = {
+  readonly pathEnv?: string;
+  readonly home?: string;
+  readonly pathSep?: string;
+  readonly extraDirs?: ReadonlyArray<string>;
+  /**
+   * Search `pathEnv` alone: a region that sets PATH chose where its harness
+   * comes from, so no operator tool directory or known install dir is added.
+   */
+  readonly pathOnly?: boolean;
+};
+
+/**
+ * Home-relative install dirs detection and launch both search, including
+ * `~/.kimi-code/bin`. System dirs such as `/usr/bin` come from PATH itself.
+ */
+export const knownHarnessInstallDirs = (home: string): ReadonlyArray<string> => [
+  join(home, ".local", "bin"),
+  join(home, ".kimi-code", "bin"),
+  join(home, ".bun", "bin"),
+  join(home, ".local", "share", "mise", "shims"),
+];
+
+/**
+ * Directories detection and launch both search: the resolved seat PATH (the
+ * operator's shell PATH, merged upstream by resolvedSpawnEnv), operator tool
+ * directories, then known home install dirs.
+ */
+const mergeHarnessSearchPath = (options: HarnessExecutableResolution): string => {
+  const home = options.home ?? homedir();
+  const sep = options.pathSep ?? delimiter;
+  const segments: string[] = [];
+  const push = (value: string | undefined) => {
+    if (!value) return;
+    for (const part of value.split(sep)) {
+      const dir = part.trim();
+      if (dir) segments.push(dir);
+    }
+  };
+  push(options.pathEnv ?? process.env.PATH ?? process.env.Path ?? "");
+  for (const dir of options.extraDirs ?? configuredToolDirectories()) {
+    const trimmed = dir.trim();
+    if (trimmed) segments.push(trimmed);
+  }
+  for (const dir of knownHarnessInstallDirs(home)) segments.push(dir);
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const dir of segments) {
+    if (seen.has(dir)) continue;
+    seen.add(dir);
+    merged.push(dir);
+  }
+  return merged.join(sep);
+};
+
+export const harnessSearchPath = (
+  options: HarnessExecutableResolution = {},
+): string => options.pathOnly === true
+  ? options.pathEnv ?? ""
+  : mergeHarnessSearchPath(options);
+
+// A `*/shims` entry is a version-manager trampoline, not a binary: it passes
+// X_OK while exiting "No version is set for shim" until its manager's
+// activation env is present. Only shim candidates pay this liveness probe — a
+// real binary resolves on X_OK alone.
+const SHIM_ROOT = /[/\\]shims$/u;
+const SHIM_LIVENESS_TIMEOUT_MS = 1_500;
+// spawnSync blocks the main thread, so palette polls and back-to-back seat
+// launches must not re-probe the same shim every call.
+const SHIM_LIVENESS_CACHE_MS = 60_000;
+const shimLivenessCache = new Map<string, { live: boolean; at: number }>();
+// A shim's liveness depends on the activation env the shell gave; a new
+// environment answers afresh.
+shellEnvironment.onChange(() => shimLivenessCache.clear());
+
+const shimRunsLive = (candidate: string, pathEnv: string): boolean => {
+  const cached = shimLivenessCache.get(candidate);
+  if (cached !== undefined && Date.now() - cached.at < SHIM_LIVENESS_CACHE_MS) {
+    return cached.live;
+  }
+  let live = false;
+  try {
+    const result = spawnSync(candidate, ["--version"], {
+      env: { ...process.env, PATH: pathEnv },
+      stdio: "ignore",
+      timeout: SHIM_LIVENESS_TIMEOUT_MS,
+    });
+    live = result.status === 0;
+  } catch {
+    live = false;
+  }
+  shimLivenessCache.set(candidate, { live, at: Date.now() });
+  return live;
+};
+
+const HELP_PROBE_TIMEOUT_MS = 3_000;
+// One `--help` read per installed binary: keyed by path and mtime so an
+// upgraded harness is probed again and nothing else ever re-runs it.
+const helpTextCache = new Map<string, string>();
+
+const helpTextOf = (
+  executable: string,
+  pathEnv: string | undefined,
+  // Subcommand the seat actually launches (`hermes chat`), whose options are
+  // not the root command's.
+  subcommand: readonly string[] = [],
+): string => {
+  let stamp = "unknown";
+  try {
+    stamp = String(statSync(executable).mtimeMs);
+  } catch {
+    // An unreadable binary still gets one probe per process.
+  }
+  const key = `${executable}\0${stamp}\0${subcommand.join(" ")}`;
+  const cached = helpTextCache.get(key);
+  if (cached !== undefined) return cached;
+  let text = "";
+  try {
+    const result = spawnSync(executable, [...subcommand, "--help"], {
+      env: { ...process.env, ...(pathEnv === undefined ? {} : { PATH: pathEnv }) },
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: HELP_PROBE_TIMEOUT_MS,
+    });
+    if (result.status === 0) text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  } catch {
+    text = "";
+  }
+  helpTextCache.set(key, text);
+  return text;
+};
+
+/**
+ * The template's `hostProbedFlags` this installed binary actually accepts,
+ * in template order. Fail-soft: a probe that errors or times out yields no
+ * flags, so the seat launches exactly as it did before the flag existed.
+ *
+ * `subcommand` reads that command's own `--help`, for a capability the root
+ * command never lists (`codex sandbox --allow-unix-socket`).
+ */
+export const supportedHostProbedFlags = (
+  executable: string,
+  flags: readonly string[],
+  pathEnv?: string,
+  subcommand: readonly string[] = [],
+): readonly string[] => {
+  if (flags.length === 0) return [];
+  const help = helpTextOf(executable, pathEnv, subcommand);
+  if (help === "") return [];
+  return flags.filter((flag) => {
+    const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[\\s,])${escaped}([\\s,=]|$)`, "m").test(help);
+  });
+};
+
+/**
+ * The options this installed harness lists for the command a seat launches,
+ * for the operator's launch-parameter editor. Fail-soft: an uninstalled
+ * harness, or one whose `--help` errors or times out, yields an empty list
+ * and the editor falls back to free-form arguments. Amp's public plugin list
+ * supplies project-local mode keys; it is asynchronous and never cached.
+ */
+export const harnessLaunchFlags = async (
+  harness: HarnessId,
+  cwd?: string,
+): Promise<ManagedTerminalFlagsResult> => {
+  if (!managedHarnessEnabled(harness)) return { installed: false, flags: [] };
+  const template = templateFor(harness);
+  const spec = template.argvSpec;
+  const executable = resolveHarnessExecutable(spec.binary);
+  if (!executable || !e2eSandboxAdmits(harness, executable)) return { installed: false, flags: [] };
+  const subcommand = spec.prefix.filter((token) => !token.startsWith("-"));
+  const searchPath = harnessSearchPath();
+  let help = helpTextOf(executable, searchPath, subcommand);
+  if (help === "" && subcommand.length > 0) {
+    help = helpTextOf(executable, searchPath);
+  }
+  let modes: readonly string[] | undefined;
+  const modeList = harnessRuntimeRecordFor(harness)?.modeList;
+  if (modeList !== undefined) {
+    modes = template.modes ?? [];
+    try {
+      const { stdout } = await execFileAsync(executable, [...modeList.args], {
+        ...(cwd?.trim() ? { cwd: cwd.trim() } : {}),
+        env: { ...process.env, PATH: searchPath },
+        timeout: HELP_PROBE_TIMEOUT_MS,
+        maxBuffer: 1024 * 1024,
+      });
+      const builtins = new Set(modes.map((mode) => mode.toLowerCase()));
+      modes = [...modes, ...modeList.parse(stdout).filter((mode) => !builtins.has(mode.toLowerCase()))];
+    } catch {
+      // Plugin failure does not hide the built-in modes or the CLI's help.
+    }
+  }
+  return {
+    installed: true,
+    flags: parseHelpFlags(help).filter(
+      (flag) => flag.flag !== "--help" && flag.flag !== "--version",
+    ),
+    ...(modes ? { modes } : {}),
+  };
+};
+
+/** Test seam: forget every cached `--help` read. */
+export const resetHostProbedFlagCacheForTests = (): void => {
+  helpTextCache.clear();
+};
+
+/**
+ * Resolve `binary` to an absolute executable using the same search path
+ * detection and launch share. Absolute paths are checked as-is. Candidates
+ * living in a version-manager `shims` dir must additionally answer
+ * `--version`, so a dead shim loses to a real binary later in the path.
+ */
+export const resolveHarnessExecutable = (
+  binary: string,
+  options: HarnessExecutableResolution = {},
+): string | undefined => {
+  const name = binary.trim();
+  if (!name) return undefined;
+  const sep = options.pathSep ?? delimiter;
+  const searchPath = harnessSearchPath(options);
+  // An absolute path into a shims dir is still a trampoline — a dead one
+  // must not win on X_OK alone.
+  if (isAbsolute(name)) {
+    if (!isExecutableFile(name)) return undefined;
+    if (SHIM_ROOT.test(dirname(name)) && !shimRunsLive(name, searchPath)) {
+      return undefined;
+    }
+    return name;
+  }
+
+  for (const dir of searchPath.split(sep)) {
+    if (!dir) continue;
+    const candidate = join(dir, name);
+    if (!isExecutableFile(candidate)) continue;
+    if (SHIM_ROOT.test(dir) && !shimRunsLive(candidate, searchPath)) continue;
+    return candidate;
+  }
+  return undefined;
+};
+
+/**
+ * Resolve whether `binary` is an executable on the shared search path.
+ */
+export const harnessBinaryInstalled = (
+  harness: HarnessId,
+  binary: string,
+  options?: HarnessExecutableResolution,
+): boolean => {
+  const executable = resolveHarnessExecutable(binary, isOverseerHarness(harness) ? {
+    ...options, extraDirs: [...juntoCliPathPrefixes(), ...(options?.extraDirs ?? configuredToolDirectories())],
+  } : options);
+  return executable !== undefined && e2eSandboxAdmits(harness, executable);
+};
+
+const probeOne = (template: ManagedTerminalTemplate, installed: boolean): HarnessInstallProbe => {
+  const binary = template.argvSpec.binary;
+  return {
+    harness: template.harness,
+    displayName: template.displayName,
+    binary,
+    installed,
+    mailTransport: template.mailTransport,
+    isolation: template.isolation,
+  };
+};
+
+// Discovery is advisory, never admission or launch authority. Cache both
+// positive and negative results; the next request after a minute notices new
+// installs, removals, chmods and version-manager aliases. Changed environment
+// or configured tool dirs invalidate immediately. One pending scan also serves
+// a simultaneous doctor/capabilities/palette burst.
+const INSTALL_DISCOVERY_CACHE_MS = 60_000;
+let installDiscovery: {
+  key: string;
+  at?: number;
+  pending: Promise<readonly HarnessInstallProbe[]>;
+} | undefined;
+
+const shimRunsLiveAsync = async (candidate: string, pathEnv: string): Promise<boolean> => {
+  const cached = shimLivenessCache.get(candidate);
+  if (cached !== undefined && Date.now() - cached.at < SHIM_LIVENESS_CACHE_MS) return cached.live;
+  let live = false;
+  try {
+    await execFileAsync(candidate, ["--version"], {
+      env: { ...process.env, PATH: pathEnv },
+      timeout: SHIM_LIVENESS_TIMEOUT_MS,
+    });
+    live = true;
+  } catch {
+    live = false;
+  }
+  shimLivenessCache.set(candidate, { live, at: Date.now() });
+  return live;
+};
+
+const discoverManagedHarnessInstalls = async (
+  templates: readonly ManagedTerminalTemplate[],
+  options: HarnessExecutableResolution,
+  cliDirs: ReadonlyArray<string>,
+): Promise<readonly HarnessInstallProbe[]> => {
+  const sep = options.pathSep ?? delimiter;
+  const searchPath = mergeHarnessSearchPath(options);
+  const overseerPath = mergeHarnessSearchPath({ ...options, extraDirs: [...cliDirs, ...(options.extraDirs ?? [])] });
+  const dirs = [...new Set([...searchPath.split(sep), ...overseerPath.split(sep)])];
+  // Read each candidate directory once for all harnesses. Only names actually
+  // present pay an executable check, and a shim still has to run successfully.
+  const entries = new Map(await Promise.all(dirs.map(async (dir) => {
+    try { return [dir, new Set(await readdir(dir))] as const; }
+    catch { return [dir, new Set<string>()] as const; }
+  })));
+  return Promise.all(templates.map(async (template) => {
+    const pathEnv = isOverseerHarness(template.harness) ? overseerPath : searchPath;
+    for (const dir of pathEnv.split(sep)) {
+      if (!entries.get(dir)?.has(template.argvSpec.binary)) continue;
+      const candidate = join(dir, template.argvSpec.binary);
+      try { await access(candidate, constants.X_OK); }
+      catch { continue; }
+      if (SHIM_ROOT.test(dir) && !await shimRunsLiveAsync(candidate, pathEnv)) continue;
+      if (!e2eSandboxAdmits(template.harness, candidate)) continue;
+      return { ...probeOne(template, true), executable: candidate };
+    }
+    return probeOne(template, false);
+  }));
+};
+
+/** Feature-enabled harnesses, discovered asynchronously and remembered for one minute. */
+export const probeManagedHarnessInstalls = (
+  options: HarnessExecutableResolution & { readonly refresh?: boolean } = {},
+): Promise<readonly HarnessInstallProbe[]> => {
+  const resolved = {
+    home: options.home ?? homedir(),
+    pathEnv: options.pathEnv ?? process.env.PATH ?? process.env.Path ?? "",
+    pathSep: options.pathSep ?? delimiter,
+    extraDirs: [...(options.extraDirs ?? configuredToolDirectories())],
+  };
+  const templates = allTemplates();
+  // Presence is checked asynchronously in the shared directory inventory.
+  const cliDirs = [join(process.cwd(), "dist"), ...(typeof process.resourcesPath === "string"
+    ? [join(process.resourcesPath, "bin")] : [])];
+  const key = JSON.stringify([resolved, cliDirs, process.cwd(), templates.map((template) => template.harness)]);
+  // A refresh still joins a scan already in flight; it only skips a settled one.
+  if (installDiscovery?.key === key && (installDiscovery.at === undefined
+    || (options.refresh !== true && Date.now() - installDiscovery.at < INSTALL_DISCOVERY_CACHE_MS))) {
+    return installDiscovery.pending;
+  }
+  const pending = discoverManagedHarnessInstalls(templates, resolved, cliDirs);
+  const entry: NonNullable<typeof installDiscovery> = { key, pending };
+  installDiscovery = entry;
+  pending.then(() => { entry.at = Date.now(); }, () => {
+    if (installDiscovery === entry) installDiscovery = undefined;
+  });
+  return pending;
+};
+
+export const resetManagedHarnessInstallCacheForTests = (): void => {
+  installDiscovery = undefined;
+  shimLivenessCache.clear();
+};
+
+/** Single harness probe (enabled + installed). Disabled harness → not installed. */
+export const isManagedHarnessInstalled = (harness: HarnessId): boolean => {
+  if (!managedHarnessEnabled(harness)) return false;
+  const template = templateFor(harness);
+  return harnessBinaryInstalled(harness, template.argvSpec.binary);
+};

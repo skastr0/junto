@@ -1,0 +1,39 @@
+/* The tour's stage, seats, wires and regions (tour-demo.tsx): the pieces the
+   kit draws on the website too, so they live beside the demo, not the tour's
+   frame. */
+
+/* The stage: a patch of canvas, dotted like the real one. */
+.tour-stage {
+  display: flex;
+  justify-content: center;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 18px;
+  /* The dotted ground is the stage's edge; the tour's own frame is the only border. */
+  border-radius: var(--radius-xl);
+  background:
+    radial-gradient(circle, var(--color-overlay-3) 1px, transparent 1.2px) 0 0 / 16px 16px,
+    var(--color-ground);
+}
+.tour-stage__field { position: relative; flex: none; }
+.tour-seat { position: absolute; }
+.tour-seat__caption {
+  margin-top: 4px;
+  padding-left: 60px;
+  color: var(--color-faint);
+  font-size: var(--text-body);
+}
+.tour-wire { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+/* The pulse lies over its own wire, in stage order, not on the canvas's track layer. */
+.junto-wire-pulse.tour-wire-pulse { z-index: auto; }
+/* Demos never take the pointer: they show, they do not act. */
+.tour-stage__field > * { pointer-events: none; }
+
+/* A region as the canvas draws it: the frame and its title bar. */
+.tour-region {
+  position: absolute;
+  inset: 8px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-xl);
+  background: linear-gradient(135deg, color-mix(in oklab, var(--color-raise) 22%, transparent), color-mix(in oklab, var(--color-ground) 12%, transparent));
+}

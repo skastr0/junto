@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Junto hostile containment fixture</title>
+  </head>
+  <body>
+    <script id="junto-containment-report" type="application/json"></script>
+    <script>
+      void (async () => {
+        const params = new URL(location.href).searchParams;
+        const marker = params.get("marker") || "";
+        const nonce = params.get("nonce") || "";
+        const mode = params.get("mode") || "read";
+        const downloadUrl = params.get("download") || "";
+        const privateSentinelUrl = params.get("privateSentinel") || "";
+        const customProtocolUrl = params.get("customProtocol") || "junto-probe://denied";
+        const writes = [];
+
+        const delay = (milliseconds) =>
+          new Promise((resolve) => setTimeout(resolve, milliseconds));
+        const bounded = (promise, fallback, milliseconds = 2_000) =>
+          Promise.race([promise, delay(milliseconds).then(() => fallback)]);
+
+        const attempt = (name, operation) => {
+          try {
+            operation();
+            writes.push({ name, succeeded: true });
+          } catch (error) {
+            writes.push({
+              name,
+              succeeded: false,
+              error: error instanceof Error ? error.name : typeof error,
+            });
+          }
+        };
+
+        attempt("require", () => {
+          const fs = globalThis.require("node:fs");
+          fs.writeFileSync(marker, "require escaped the sandbox");
+        });
+        attempt("process.getBuiltinModule", () => {
+          const fs = globalThis.process.getBuiltinModule("node:fs");
+          fs.writeFileSync(marker, "process escaped the sandbox");
+        });
+
+        if (mode === "seed") {
+          document.cookie = `junto_probe=${encodeURIComponent(nonce)}; Path=/; SameSite=Lax`;
+          localStorage.setItem("junto-probe", nonce);
+        }
+
+        const cookie = document.cookie
+          .split(";")
+          .map((part) => part.trim())
+          .find((part) => part.startsWith("junto_probe="));
+
+        const popup = window.open(`${location.origin}/popup`, "junto-hostile-popup");
+        const popupReturnedNull = popup === null;
+        if (popup !== null) popup.close();
+
+        const permissionState = await bounded(
+          navigator.permissions
+            .query({ name: "geolocation" })
+            .then((status) => status.state, () => "error"),
+          "timeout",
+        );
+        const geolocation = await bounded(
+          new Promise((resolve) => {
+            navigator.geolocation.getCurrentPosition(
+              () => resolve("granted"),
+              (error) => resolve(error.code === 1 ? "denied" : `error-${error.code}`),
+              { timeout: 1_000 },
+            );
+          }),
+          "timeout",
+        );
+        const notificationPermission =
+          typeof Notification === "undefined"
+            ? "unsupported"
+            : await bounded(Notification.requestPermission(), "timeout");
+
+        const privateSentinel = privateSentinelUrl
+          ? await bounded(
+              fetch(privateSentinelUrl, { mode: "no-cors", cache: "no-store" }).then(
+                () => "resolved",
+                () => "blocked",
+              ),
+              "timeout",
+            )
+          : "missing";
+
+        if (downloadUrl) {
+          const downloadFrame = document.createElement("iframe");
+          downloadFrame.hidden = true;
+          downloadFrame.src = downloadUrl;
+          document.body.append(downloadFrame);
+        }
+
+        const customProtocolFrame = document.createElement("iframe");
+        customProtocolFrame.hidden = true;
+        customProtocolFrame.src = customProtocolUrl;
+        document.body.append(customProtocolFrame);
+        await delay(350);
+
+        const report = {
+          globals: {
+            require: typeof globalThis.require,
+            process: typeof globalThis.process,
+            Buffer: typeof globalThis.Buffer,
+            module: typeof globalThis.module,
+            junto: typeof globalThis.junto,
+            chassis: typeof globalThis.chassis,
+          },
+          writeAttempts: writes,
+          cookieValue: cookie ? decodeURIComponent(cookie.slice("junto_probe=".length)) : null,
+          storageValue: localStorage.getItem("junto-probe"),
+          popupReturnedNull,
+          permissionState,
+          geolocation,
+          notificationPermission,
+          privateSentinel,
+          downloadTriggered: Boolean(downloadUrl),
+          customProtocolAttempted: customProtocolUrl,
+          locationAfterAttacks: location.href,
+        };
+        globalThis.__juntoContainmentProbe = report;
+        const reportNode = document.getElementById("junto-containment-report");
+        reportNode.textContent = JSON.stringify(report);
+
+        const poisonedEval = () => {
+          throw new Error("main-world eval was invoked");
+        };
+        const poisonedStringify = () => {
+          throw new Error("main-world JSON.stringify was invoked");
+        };
+        class PoisonedTextEncoder {
+          constructor() {
+            throw new Error("main-world TextEncoder was invoked");
+          }
+        }
+        globalThis.eval = poisonedEval;
+        JSON.stringify = poisonedStringify;
+        globalThis.TextEncoder = PoisonedTextEncoder;
+        reportNode.dataset.mainWorldPoisoned = String(
+          globalThis.eval === poisonedEval &&
+            JSON.stringify === poisonedStringify &&
+            globalThis.TextEncoder === PoisonedTextEncoder,
+        );
+      })();
+    </script>
+  </body>
+</html>

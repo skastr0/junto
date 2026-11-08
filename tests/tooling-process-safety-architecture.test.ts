@@ -1,0 +1,342 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, extname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+import ts from "typescript-api";
+import { describe, expect, it } from "vitest";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const scanRoots = [join(root, "scripts"), join(root, "e2e")];
+
+const sourceFiles = (directory: string): ReadonlyArray<string> =>
+  readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return sourceFiles(path);
+    const extension = extname(path);
+    return [".ts", ".tsx", ".js", ".mjs", ".sh", ".py"].includes(extension)
+      ? [path]
+      : [];
+  });
+
+const unwrap = (node: ts.Expression): ts.Expression =>
+  ts.isParenthesizedExpression(node) || ts.isAsExpression(node) ||
+    ts.isTypeAssertionExpression(node) || ts.isNonNullExpression(node)
+    ? unwrap(node.expression)
+    : node;
+
+const accessedName = (node: ts.Node): string | undefined => {
+  if (ts.isPropertyAccessExpression(node)) return node.name.text;
+  if (
+    ts.isElementAccessExpression(node) && node.argumentExpression &&
+    (ts.isStringLiteral(node.argumentExpression) ||
+      ts.isNoSubstitutionTemplateLiteral(node.argumentExpression))
+  ) return node.argumentExpression.text;
+  return undefined;
+};
+
+const processAliases = (source: ts.SourceFile): ReadonlySet<string> => {
+  const aliases = new Set(["process"]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const visit = (node: ts.Node): void => {
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+        const value = unwrap(node.initializer);
+        const globalProcess =
+          (ts.isIdentifier(value) && aliases.has(value.text)) ||
+          (ts.isPropertyAccessExpression(value) &&
+            value.expression.getText(source) === "globalThis" && value.name.text === "process");
+        if (globalProcess && !aliases.has(node.name.text)) {
+          aliases.add(node.name.text);
+          changed = true;
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  return aliases;
+};
+
+const isProcessExpression = (
+  node: ts.Expression,
+  source: ts.SourceFile,
+  aliases: ReadonlySet<string>,
+): boolean => {
+  const value = unwrap(node);
+  return (ts.isIdentifier(value) && aliases.has(value.text)) ||
+    (ts.isPropertyAccessExpression(value) &&
+      value.expression.getText(source) === "globalThis" && value.name.text === "process");
+};
+
+const isCanonicalProcessExpression = (node: ts.Expression, source: ts.SourceFile): boolean => {
+  const value = unwrap(node);
+  return (ts.isIdentifier(value) && value.text === "process") ||
+    (ts.isPropertyAccessExpression(value) &&
+      value.expression.getText(source) === "globalThis" && value.name.text === "process");
+};
+
+type ProcessKillAccess = { readonly text: string; readonly mode: "probe" | "forbidden" };
+
+const processKillAccesses = (source: ts.SourceFile): ReadonlyArray<ProcessKillAccess> => {
+  const aliases = processAliases(source);
+  const accesses: ProcessKillAccess[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
+      accessedName(node) === "kill" && isProcessExpression(node.expression, source, aliases)
+    ) {
+      const direct = ts.isPropertyAccessExpression(node) &&
+        isCanonicalProcessExpression(node.expression, source) &&
+        ts.isCallExpression(node.parent) && node.parent.expression === node;
+      const signal = direct ? node.parent.arguments[1] : undefined;
+      accesses.push({
+        text: node.getText(source),
+        mode: direct && signal !== undefined && ts.isNumericLiteral(signal) && signal.text === "0"
+          ? "probe"
+          : "forbidden",
+      });
+    }
+    if (
+      ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name) &&
+      node.initializer && isProcessExpression(node.initializer, source, aliases) &&
+      node.name.elements.some(
+        (element) => (element.propertyName ?? element.name).getText(source) === "kill",
+      )
+    ) accesses.push({ text: node.getText(source), mode: "forbidden" });
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return accesses;
+};
+
+const parsedTooling = scanRoots.flatMap(sourceFiles).flatMap((path) => {
+  const extension = extname(path);
+  if (![".ts", ".tsx", ".js", ".mjs"].includes(extension)) return [];
+  const text = readFileSync(path, "utf8");
+  const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true,
+    path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  return [{ file: relative(root, path), source }];
+});
+
+const containsCall = (source: ts.SourceFile, predicate: (call: ts.CallExpression) => boolean): boolean => {
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && predicate(node)) found = true;
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
+};
+
+const shutdownRequest = (source: ts.SourceFile): boolean => {
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (ts.isPropertyAssignment(node) && node.name.getText(source).replaceAll(/["']/gu, "") === "method" &&
+      ts.isStringLiteral(node.initializer) && node.initializer.text === "server.shutdown") found = true;
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
+};
+
+const expectIndexInOrder = (text: string, parts: ReadonlyArray<string>): void => {
+  let cursor = -1;
+  for (const part of parts) {
+    const at = text.indexOf(part, cursor + 1);
+    if (at <= cursor) throw new Error(`${part} is not after the previous step in the choke point`);
+    cursor = at;
+  }
+};
+
+const barePidTerminationText = (path: string, text: string): ReadonlyArray<string> => {
+  if (path.endsWith(".py")) {
+    return text.split("\n").some((line) =>
+      /\b(?:os|signal)\.kill\s*\(/u.test(line.replace(/#.*/u, "")),
+    ) ? [relative(root, path)] : [];
+  }
+  if (!path.endsWith(".sh")) return [];
+  return text.split("\n").flatMap((line, index) => {
+    const code = line.replace(/#.*/u, "").trim();
+    return /(?:^|[;&|]\s*)kill(?:\s+-[A-Za-z0-9]+)*\s+[^\s]/u.test(code)
+      ? [`${relative(root, path)}:${index + 1}`]
+      : [];
+  });
+};
+
+const barePidTermination = (path: string): ReadonlyArray<string> =>
+  barePidTerminationText(path, readFileSync(path, "utf8"));
+
+/**
+ * The one approved crash choke point (operator approval, 2026-10-30;
+ * docs/architecture-machine-safety.md, "Tooling and e2e proofs"). It signals
+ * only after proving the target is a live descendant of the launched app, and
+ * it is the only file in scripts or e2e allowed a terminating signal.
+ */
+const APPROVED_CRASH = "e2e/harness/crash-core.ts";
+const APPROVED_CRASH_REASON =
+  "the e2e crash proof: the pid comes from the core's own log line and must be a live descendant of the app the harness launched";
+
+/**
+ * The one approved trace ask (operator decision, 2026-11-07; the boot-setter
+ * seams artifact, "The safety rule the lane hit"). The performance script asks
+ * a running app for a Chromium trace with USR2, and nothing else in the file
+ * signals. USR2 quits a build that never installed the handler, so the file
+ * refuses unless the app wrote a [metrics] row in the last three minutes, which
+ * only a build with the handler does.
+ */
+const APPROVED_TRACE = "scripts/perf-pass-scenario.sh";
+const APPROVED_TRACE_REASON =
+  "the performance pass: USR2 asks a build that has proven its trace handler; older builds quit on the signal";
+
+describe("tooling process-safety architecture", () => {
+  it("allows only direct process.kill existence probes in scripts and e2e", () => {
+    const violations = parsedTooling.flatMap(({ file, source }) =>
+      processKillAccesses(source)
+        .filter((access) => access.mode === "forbidden" && file !== APPROVED_CRASH)
+        .map((access) => `${file}:${access.text}`),
+    ).sort();
+    expect(violations).toEqual([]);
+  });
+
+  it("allows exactly one terminating kill, in the crash choke point, and guards it", () => {
+    const approved = parsedTooling.find(({ file }) => file === APPROVED_CRASH);
+    expect(approved, `${APPROVED_CRASH} is the approved crash choke point (${APPROVED_CRASH_REASON})`).toBeDefined();
+    const forbidden = processKillAccesses(approved!.source).filter((access) => access.mode === "forbidden");
+    expect(forbidden.map((access) => access.text)).toEqual(["process.kill"]);
+    const text = readFileSync(join(root, APPROVED_CRASH), "utf8");
+    // The guard is the reason the exception exists: the pid line, the liveness
+    // probe, the descent walk to the launched app, and a typed refusal.
+    expect(text).toContain("CORE_PID_LINE");
+    expect(text).toContain("isDescendantOf(");
+    expect(text).toContain("Schema.TaggedError<CoreCrashRefused>()");
+    expectIndexInOrder(text, ["corePidsIn(", "isLive(", "isDescendantOf(", 'process.kill(corePid, "SIGKILL")']);
+  });
+
+  it("still forbids a kill anywhere else in e2e or scripts", () => {
+    const elsewhere = ts.createSourceFile(
+      "e2e/scenarios/some-other-proof.spec.ts",
+      'const pid = 1234;\nprocess.kill(pid, "SIGKILL");\n',
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    expect(processKillAccesses(elsewhere).map((access) => access.mode)).toEqual(["forbidden"]);
+    const probe = ts.createSourceFile(
+      "e2e/scenarios/some-other-proof.spec.ts",
+      "process.kill(pid, 0);\n",
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    expect(processKillAccesses(probe).map((access) => access.mode)).toEqual(["probe"]);
+  });
+
+  it("has no shell or Python bare-PID termination commands", () => {
+    const violations = scanRoots.flatMap(sourceFiles)
+      .filter((path) => relative(root, path) !== APPROVED_TRACE)
+      .flatMap(barePidTermination)
+      .sort();
+    expect(violations).toEqual([]);
+  });
+
+  it("allows the performance script one guarded trace signal, and it sends only USR2", () => {
+    const path = join(root, APPROVED_TRACE);
+    const text = readFileSync(path, "utf8");
+    // The exception is the scanner's one line; a second signal would fail this.
+    expect(barePidTerminationText(path, text), `${APPROVED_TRACE} is the approved trace ask (${APPROVED_TRACE_REASON})`)
+      .toHaveLength(1);
+    const asks = text.split("\n").flatMap((line, index) => {
+      const code = line.replace(/#.*/u, "").trim();
+      return /(?:^|[;&|]\s*)kill(?:\s+-[A-Za-z0-9]+)*\s+[^\s]/u.test(code)
+        ? [{ line: index + 1, signal: /kill\s+-([A-Za-z0-9]+)/u.exec(code)?.[1] ?? "TERM" }]
+        : [];
+    });
+    // Only USR2, never a terminating signal.
+    expect(asks.map(({ signal }) => signal)).toEqual(["USR2"]);
+    // Nothing else in the file signals.
+    expect(text).not.toMatch(/\b(?:pkill|killall)\b/u);
+    // The metrics row proves the handler before the signal can reach the app.
+    expectIndexInOrder(text, [
+      'if [[ -z "$LAST_METRICS" || "$LAST_METRICS" < "$SINCE" ]]',
+      'kill -USR2 "$PID"',
+    ]);
+  });
+
+  it("launches and drains packaged smoke only through an isolated central process plane", () => {
+    const smokeSource = readFileSync(
+      join(root, "scripts", "packaged-runtime-smoke.ts"),
+      "utf8",
+    );
+    const source = ts.createSourceFile(
+      "packaged-runtime-smoke.ts",
+      smokeSource,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    expect(containsCall(source, (call) => call.expression.getText(source) === "createAppProcessPlane"))
+      .toBe(true);
+    for (const method of [
+      "spawnGroup",
+      "terminate",
+      "forceTerminate",
+      "beginShutdown",
+      "drainOnQuit",
+    ]) {
+      expect(containsCall(source, (call) => accessedName(call.expression) === method))
+        .toBe(true);
+    }
+    for (const forbidden of [
+      "spawnDetachedProcessGroup",
+      "signalOwned",
+      "releaseOwned",
+      "admitChildProcess",
+    ]) {
+      expect(containsCall(source, (call) => call.expression.getText(source) === forbidden))
+        .toBe(false);
+    }
+    expect(smokeSource).not.toMatch(
+      /\b(?:spawnDetachedProcessGroup|signalOwned|releaseOwned|admitChildProcess|OwnedProcess)\b|from\s+["'][^"']*process-signal["']/u,
+    );
+    expect(containsCall(source, (call) => accessedName(call.expression) === "spawn")).toBe(false);
+    expect(containsCall(source, (call) => accessedName(call.expression) === "kill")).toBe(false);
+    expect(containsCall(source, (call) => call.expression.getText(source) === "writeSync"))
+      .toBe(true);
+    expect(containsCall(source, (call) =>
+      call.expression.getText(source) === "process.exit" &&
+      call.arguments.length === 1 && call.arguments[0]?.getText(source) === "1"
+    )).toBe(true);
+  });
+
+
+  it("rejects process.kill aliases, destructuring, element access, call, and apply", () => {
+    const source = ts.createSourceFile(
+      "synthetic.ts",
+      [
+        "const runtime = process;",
+        "runtime.kill(123, 0);",
+        'process["kill"](123, 0);',
+        "process.kill.call(process, 123, 0);",
+        "process.kill.apply(process, [123, 0]);",
+        "const end = process.kill;",
+        "const { kill } = process;",
+      ].join("\n"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    expect(processKillAccesses(source)).toEqual([
+      { text: "runtime.kill", mode: "forbidden" },
+      { text: 'process["kill"]', mode: "forbidden" },
+      { text: "process.kill", mode: "forbidden" },
+      { text: "process.kill", mode: "forbidden" },
+      { text: "process.kill", mode: "forbidden" },
+      { text: "{ kill } = process", mode: "forbidden" },
+    ]);
+  });
+
+  it("rejects real shell and Python PID termination while ignoring comments", () => {
+    expect(barePidTerminationText(join(root, "scripts", "synthetic.sh"), "# kill $pid\nkill \"$pid\""))
+      .toEqual(["scripts/synthetic.sh:2"]);
+    expect(barePidTerminationText(join(root, "scripts", "synthetic.py"), "# os.kill(pid, 9)\nos.kill(pid, 9)"))
+      .toEqual(["scripts/synthetic.py"]);
+  });
+});

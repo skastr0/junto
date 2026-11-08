@@ -1,0 +1,281 @@
+/**
+ * First-run introduction.
+ *
+ * Pins when the tour appears (once, only after the durable settings row
+ * hydrates, and again only on request), that finishing it writes the seen flag
+ * through the settings path, that the play slide says a new workspace starts
+ * paused and where the switch is, and that the permission slide says plainly
+ * why macOS may name Junto.
+ */
+import { renderToStaticMarkup } from "react-dom/server";
+import type { ReactNode } from "react";
+import { Layer, ManagedRuntime, Result } from "effect";
+import { ShellEnvironmentWindow } from "../src/contract/window/shell-environment";
+import { WindowRuntimeContext, type WindowRuntime } from "../src/window/rpc/runtime";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_QUICK_REPLIES, SETTINGS_VERSION, defaultSettings, type Settings, type SettingsPatch } from "@shared/settings";
+
+vi.mock("../src/window/components/FocusSurface", () => ({
+  FocusSurface: ({ label, children }: { readonly label: string; readonly children: ReactNode }) => (
+    <div role="dialog" aria-label={label}>{children}</div>
+  ),
+}));
+
+import {
+  FirstRunIntro,
+  FirstRunIntroSurface,
+  tourChapters,
+} from "../src/window/components/onboarding/FirstRunIntro";
+import { finishIntro, introVisible, openIntro } from "../src/window/lib/first-run-intro";
+import { SEAT_AWARENESS_COMPILED } from "../src/shared/features";
+import { state$ } from "../src/window/lib/state";
+import { applyAndValidatePatch } from "../src/core/settings/patch";
+import { decodeStoredSettings, preferencesFromSettings } from "../src/core/settings/state-schema";
+
+const text = (html: string): string =>
+  html.replace(/<[^>]+>/gu, " ").replace(/&amp;/gu, "&").replace(/&#x27;|&#39;/gu, "'").replace(/\s+/gu, " ").trim();
+
+const withSeen = (seen: boolean | undefined): Settings => {
+  const base = defaultSettings();
+  const { onboardingSeen: _drop, ...advanced } = base.advanced;
+  return { ...base, advanced: seen === undefined ? advanced : { ...advanced, onboardingSeen: seen } };
+};
+
+const resetIntroState = (): void => {
+  state$.settings.set(defaultSettings());
+  state$.settingsReady.set(false);
+  state$.introOpen.set(false);
+  state$.introDismissed.set(false);
+};
+
+beforeEach(resetIntroState);
+afterEach(() => {
+  resetIntroState();
+  vi.unstubAllGlobals();
+});
+
+describe("when the introduction shows", () => {
+  it("waits for the durable settings row, then shows once while unseen", () => {
+    expect(introVisible({ settingsReady: false, seen: undefined, requested: false, dismissed: false })).toBe(false);
+    expect(introVisible({ settingsReady: true, seen: undefined, requested: false, dismissed: false })).toBe(true);
+    expect(introVisible({ settingsReady: true, seen: false, requested: false, dismissed: false })).toBe(true);
+    expect(introVisible({ settingsReady: true, seen: true, requested: false, dismissed: false })).toBe(false);
+  });
+
+  it("never reopens on its own in a session where it was finished", () => {
+    expect(introVisible({ settingsReady: true, seen: undefined, requested: false, dismissed: true })).toBe(false);
+  });
+
+  it("reopens on request even after it was seen", () => {
+    expect(introVisible({ settingsReady: true, seen: true, requested: true, dismissed: true })).toBe(true);
+  });
+
+  it("renders nothing before settings hydrate, and the tour once they say unseen", () => {
+    state$.settings.set(withSeen(undefined));
+    expect(renderToStaticMarkup(<FirstRunIntro />)).toBe("");
+    state$.settingsReady.set(true);
+    expect(renderToStaticMarkup(<FirstRunIntro />)).toContain('aria-label="Welcome to Junto"');
+    state$.settings.set(withSeen(true));
+    expect(renderToStaticMarkup(<FirstRunIntro />)).toBe("");
+    openIntro();
+    expect(renderToStaticMarkup(<FirstRunIntro />)).toContain('aria-label="Welcome to Junto"');
+  });
+});
+
+describe("finishing the introduction", () => {
+  it("closes at once and writes the seen flag through settings", async () => {
+    const patches: SettingsPatch[] = [];
+    vi.stubGlobal("window", {
+      junto: {
+        settingsPatch: async (patch: SettingsPatch) => {
+          patches.push(patch);
+          return { ok: true, settings: withSeen(true) };
+        },
+      },
+    });
+    state$.settingsReady.set(true);
+    openIntro();
+    const done = finishIntro();
+    expect(state$.introOpen.peek()).toBe(false);
+    expect(state$.introDismissed.peek()).toBe(true);
+    await done;
+    expect(patches).toEqual([{ advanced: { onboardingSeen: true } }]);
+    expect(state$.settings.peek().advanced.onboardingSeen).toBe(true);
+  });
+
+  it("does not rewrite the flag when a replay finishes", async () => {
+    const settingsPatch = vi.fn();
+    vi.stubGlobal("window", { junto: { settingsPatch } });
+    state$.settings.set(withSeen(true));
+    openIntro();
+    await finishIntro();
+    expect(settingsPatch).not.toHaveBeenCalled();
+    expect(state$.introOpen.peek()).toBe(false);
+  });
+});
+
+describe("the seen flag in the settings row", () => {
+  it("decodes a row written before the introduction existed as unseen", () => {
+    const stored = preferencesFromSettings(withSeen(undefined));
+    const settings = decodeStoredSettings(SETTINGS_VERSION, JSON.parse(JSON.stringify(stored)), defaultSettings().machine);
+    expect(settings.advanced.onboardingSeen).toBeUndefined();
+  });
+
+  it("round-trips through a settings patch and the stored row", () => {
+    const patched = applyAndValidatePatch(withSeen(undefined), { advanced: { onboardingSeen: true } });
+    expect(Result.isSuccess(patched)).toBe(true);
+    const next = Result.getOrThrow(patched);
+    expect(next.advanced.onboardingSeen).toBe(true);
+    const stored = JSON.parse(JSON.stringify(preferencesFromSettings(next)));
+    expect(decodeStoredSettings(SETTINGS_VERSION, stored, next.machine).advanced.onboardingSeen).toBe(true);
+  });
+});
+
+/** Render the tour open at a chapter, by id. */
+/**
+ * The window's runtime the tour's chapters read: the shell chapter's client of
+ * its group. A static render runs no effect, so nothing is ever asked of it.
+ */
+const tourRuntime = ManagedRuntime.make(Layer.succeed(ShellEnvironmentWindow, {} as never)) as unknown as WindowRuntime;
+const inWindow = (node: ReactNode): ReactNode => (
+  <WindowRuntimeContext.Provider value={tourRuntime}>{node}</WindowRuntimeContext.Provider>
+);
+
+const chapterAt = (id: string, mac = true): string => {
+  const index = tourChapters(mac).findIndex((c) => c.id === id);
+  expect(index).toBeGreaterThanOrEqual(0);
+  return renderToStaticMarkup(inWindow(<FirstRunIntroSurface onDone={() => {}} mac={mac} initialStep={index} />));
+};
+
+describe("what the tour says", () => {
+  it("opens on the seats, ends on the shell after permissions, and offers a way out on every chapter", () => {
+    const chapters = tourChapters(true);
+    expect(chapters[0]!.id).toBe("seats");
+    expect(chapters.at(-2)!.id).toBe("permissions");
+    expect(chapters.at(-1)!.id).toBe("shell");
+    for (let step = 0; step < chapters.length; step += 1) {
+      const html = renderToStaticMarkup(inWindow(<FirstRunIntroSurface onDone={() => {}} mac initialStep={step} />));
+      expect(html).toContain('data-testid="first-run-intro-skip"');
+      expect(html).toContain(`${step + 1} of ${chapters.length}: ${chapters[step]!.title}`);
+    }
+  });
+
+  it("introduces seats with live seats, their characters, and how to start one", () => {
+    const html = chapterAt("seats");
+    const copy = text(html);
+    expect(copy).toContain("Junto is a canvas for running coding agents side by side");
+    expect(copy).toContain("project folder");
+    expect(copy).toContain("Add item");
+    // The demo is the canvas's own seat and the real customize editor.
+    expect(html).toContain('data-testid="agent-seat"');
+    expect(html).toContain('class="agent-editor"');
+  });
+
+  it("shows every ring state live, done until read, and the AI reading only when built in", () => {
+    const html = chapterAt("states");
+    const copy = text(html);
+    for (const state of ["working", "needs input", "waiting on you", "blocked", "resting", "ready for review", "not running"]) {
+      expect(copy).toContain(state);
+    }
+    expect(copy).toContain("until you open the seat and read the answer");
+    expect(html.match(/data-testid="agent-seat"/g)?.length ?? 0).toBeGreaterThanOrEqual(8);
+    // The AI reading shows exactly when the build carries it, marked experimental.
+    expect(copy.includes("Experimental")).toBe(SEAT_AWARENESS_COMPILED);
+  });
+
+  it("shows seats talking over a real wire, with notes and the multi-prompt composer", () => {
+    const html = chapterAt("talk");
+    const copy = text(html);
+    expect(copy).toContain("Draw a wire between two seats");
+    expect(copy).toContain("Messages flow while the canvas is playing");
+    expect(html).toContain('class="junto-edge"');
+    expect(html).toContain("Message all selected agents");
+    expect(copy).toContain("send to all");
+  });
+
+  it("shows signals on seats and the real feed cards with quick replies", () => {
+    const html = chapterAt("feed");
+    const copy = text(html);
+    for (const word of ["waiting on you", "blocked", "ready for review", "Needs you", "quick reply"]) {
+      expect(copy).toContain(word);
+    }
+    expect(html).toContain('data-testid="operator-feed-card"');
+    expect(html).toContain("⌘I");
+  });
+
+  it("shows saved profiles and a squad placed whole into a region", () => {
+    const copy = text(chapterAt("squads"));
+    for (const word of ["profile", "squad", "save as profile", "save as squad", "the wires between them"]) {
+      expect(copy).toContain(word);
+    }
+  });
+
+  it("shows a region, the grid of terminals and the real numbered slots", () => {
+    const html = chapterAt("organize");
+    const copy = text(html);
+    expect(copy).toContain("region");
+    expect(copy).toContain("grid");
+    expect(html).toContain('data-testid="hotbar-slot-1"');
+    expect(html).toContain('class="junto-group__label"');
+    expect(copy).toContain("⌘1");
+  });
+
+  it("offers only the quick-reply keys that send something", () => {
+    const html = chapterAt("feed");
+    const chips = [...html.matchAll(/<kbd[^>]*>([^<]*)<\/kbd>/g)].map((match) => match[1]);
+    expect(chips).toContain(String(DEFAULT_QUICK_REPLIES.length));
+    expect(chips).not.toContain("9");
+    expect(text(html)).toContain(`There are ${String(DEFAULT_QUICK_REPLIES.length)} to start`);
+  });
+
+  it("types chords as the platform does: Ctrl off macOS, ⌘ on it", () => {
+    const keysOf = (mac: boolean): string => text(chapterAt("feed", mac));
+    expect(keysOf(true)).toContain("⌘I");
+    expect(keysOf(false)).toContain("Ctrl+I");
+    expect(keysOf(false)).not.toContain("⌘I");
+  });
+
+  it("says a new workspace starts paused, what play does, and where the switch is", () => {
+    const copy = text(chapterAt("play"));
+    expect(copy).toContain("A new workspace starts paused");
+    expect(copy).toContain("it opens playing every time");
+    expect(copy).toContain("the play button at the top right of the window");
+    expect(copy).toContain("The first time, Junto asks you to confirm");
+    expect(copy).toContain("Play canvas");
+  });
+
+  it("tells a Mac user plainly that macOS may name Junto, and that they choose", () => {
+    const html = chapterAt("permissions");
+    const copy = text(html);
+    expect(copy).toContain("run with your permissions");
+    expect(copy).toContain("the prompt names Junto because Junto started the agent");
+    expect(copy).toContain("Allow or deny each one");
+    expect(copy).toContain("Privacy & Security");
+    expect(html).not.toContain('data-testid="first-run-intro-done"');
+  });
+
+  it("ends on the shell Junto read, with Reload, and opens the canvas from there", () => {
+    const html = chapterAt("shell");
+    const copy = text(html);
+    expect(copy).toContain("Your agents get your shell");
+    expect(copy).toContain("Reload shell environment");
+    expect(copy).toContain("Seats already running keep the environment they started with");
+    expect(html).toContain('data-testid="shell-environment-step"');
+    expect(html).toContain('data-testid="first-run-intro-done"');
+  });
+
+  it("keeps macOS prompts out of the tour on other platforms", () => {
+    const copy = text(chapterAt("permissions", false));
+    expect(copy).toContain("run with your permissions");
+    expect(copy).not.toContain("macOS");
+  });
+
+  it("obeys the copy law", () => {
+    for (const mac of [true, false]) {
+      for (let step = 0; step < tourChapters(mac).length; step += 1) {
+        const html = renderToStaticMarkup(inWindow(<FirstRunIntroSurface onDone={() => {}} mac={mac} initialStep={step} />));
+        expect(html).not.toContain("·");
+      }
+    }
+  });
+});

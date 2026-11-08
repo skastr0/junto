@@ -1,0 +1,26 @@
+{
+  "$comment": "S0 fitness gate for bare Effect.runPromise in the Node programs (app, core, node, terminal, contract, and the CLI's machine-local entry). permanent = true host/post-dispose adapters only. debt = known product debt (ratchet: count may only shrink; never promote kernel/work claim paths to permanent).",
+  "permanent": [
+    {
+      "path": "src/cli/machine-local.ts",
+      "maxCount": 1,
+      "reason": "host program edge: the machine bundle's Node entry (core/machine-local.cjs) runs one command per process and exits; there is no AppRuntime in that host"
+    },
+    {
+      "path": "src/app/core-process/children.ts",
+      "maxCount": 2,
+      "reason": "host process edge: main's core and terminal children are acquired and released as one Effect scope, and index.ts holds no runtime to run it on"
+    },
+    {
+      "path": "src/node/stop-scope.ts",
+      "maxCount": 1,
+      "reason": "host/post-dispose edge: the stop scope is created and closed where no warm runtime exists — main's shell builds no core runtime, and the core's stop disposes its own runtime as one of the steps, so the close runs on the default runtime after that runtime is gone"
+    },
+    {
+      "path": "src/app/observability/tracing.ts",
+      "maxCount": 1,
+      "reason": "host edge: Electron's protocol handler takes the window's OTLP export as a Promise, and main's proxy forwards it outside the app runtime, as the window's servers run outside it"
+    }
+  ],
+  "debt": []
+}

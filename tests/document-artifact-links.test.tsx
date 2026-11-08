@@ -1,0 +1,276 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import { EditorSelection, EditorState } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
+import { ARTIFACT_GONE_LINE, artifactLink, MISSING_ARTIFACT_WORDS } from "../src/shared/artifact-link";
+import type { MentionOf } from "../src/shared/mention";
+import type { NodeKind } from "../src/shared/model/kinds";
+import { asNodeId } from "../src/shared/physics/schema";
+import type { ArtifactHead } from "../src/shared/resource-ipc";
+import type { ItemId } from "../src/shared/work-ids";
+import type { LinkableArtifact } from "../src/window/lib/artifact-link-draft";
+import { artifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/window/lib/artifacts-source";
+import { mentionPicker, pickerQueryAt, type PickerLinks } from "../src/window/components/artifacts/mention-picker";
+
+vi.mock("../src/window/lib/mention-open", async (load) => ({
+  ...(await load<typeof import("../src/window/lib/mention-open")>()),
+  openMention: () => undefined,
+}));
+const { DocumentMentionChip } = await import("../src/window/components/artifacts/DocumentMentionChip");
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+Range.prototype.getBoundingClientRect = () => new DOMRect();
+
+const NODE = asNodeId("artifacts-home");
+const OTHER = asNodeId("artifacts-other");
+const ref = (nodeId: typeof NODE, id: string): MentionOf<"artifact"> => ({ kind: "artifact", nodeId, artifactId: id as ItemId });
+const PLAN: LinkableArtifact = { ref: ref(NODE, "01M5ZC0000000000000000000B"), title: "Launch plan", type: "document" };
+const BUDGET: LinkableArtifact = { ref: ref(OTHER, "01M5ZC0000000000000000000C"), title: "Launch budget", type: "sheet", place: "Finance" };
+const NEW = ref(NODE, "01M5ZC0000000000000000000D");
+
+describe("where a [[ link can be typed", () => {
+  const stateAt = (doc: string, caret = doc.length) =>
+    EditorState.create({ doc, selection: EditorSelection.cursor(caret), extensions: [markdown({ base: markdownLanguage })] });
+
+  it("[[ and the title typed so far, spaces included", () => {
+    expect(pickerQueryAt(stateAt("See [[Launch pl"))).toEqual({ trigger: "[[", from: 4, to: 15, query: "Launch pl" });
+    expect(pickerQueryAt(stateAt("[["))).toEqual({ trigger: "[[", from: 0, to: 2, query: "" });
+  });
+
+  it("never in code, nor once the brackets close", () => {
+    expect(pickerQueryAt(stateAt("run `[[x` now", 8))).toBeNull();
+    expect(pickerQueryAt(stateAt("[[Launch]] "))).toBeNull();
+  });
+});
+
+describe("the [[ list in a live document", () => {
+  let host: HTMLDivElement;
+  let view: EditorView;
+  let links: PickerLinks | undefined;
+  let created: string[];
+  let finish: (made: MentionOf<"artifact"> | null) => void;
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.append(host);
+    created = [];
+    links = {
+      artifacts: [PLAN, BUDGET],
+      create: (title) => {
+        created.push(title);
+        return new Promise((resolve) => (finish = resolve));
+      },
+    };
+    view = new EditorView({
+      parent: host,
+      state: EditorState.create({
+        extensions: [markdown({ base: markdownLanguage }), mentionPicker(() => ({ canvasName: "factory", candidates: [], links }))],
+      }),
+    });
+    view.contentDOM.focus();
+  });
+
+  afterEach(async () => {
+    await act(async () => view.destroy());
+    host.remove();
+  });
+
+  const type = async (text: string) => {
+    await act(async () => {
+      const at = view.state.selection.main.head;
+      view.dispatch({ changes: { from: at, insert: text }, selection: { anchor: at + text.length }, userEvent: "input.type" });
+    });
+  };
+  const press = async (key: string) => {
+    const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+    await act(async () => view.contentDOM.dispatchEvent(event));
+    return event;
+  };
+  const picker = () => host.querySelector<HTMLElement>("[data-testid=document-mention-picker]");
+  const rows = () => [...host.querySelectorAll<HTMLElement>("[role=option]")].map((option) => option.textContent);
+  const live = () => host.querySelector<HTMLElement>("[data-testid=document-mention-announcer]")?.textContent;
+
+  it("offers the artifacts in reach by title, another node's with its place, and names the list", async () => {
+    await type("See [[");
+    expect(picker()?.hidden).toBe(false);
+    expect(host.querySelector("[role=listbox]")?.getAttribute("aria-label")).toBe("Artifacts to link");
+    expect(rows()).toEqual(["Launch planDocument", "Launch budgetFinanceSheet"]);
+    expect(view.contentDOM.getAttribute("aria-activedescendant")).toBe(host.querySelector("[aria-selected=true]")?.id);
+    await type("launch b");
+    expect(rows()).toEqual(["Launch budgetFinanceSheet", "Create document launch bNew"]);
+    expect(live()).toBe("2 matches");
+  });
+
+  it("Enter writes the [[Title]] link by id, and says so", async () => {
+    await type("See [[plan");
+    expect(rows()).toEqual(["Launch planDocument", "Create document planNew"]);
+    await press("Enter");
+    expect(view.state.doc.toString()).toBe(`See ${artifactLink(PLAN.ref, "Launch plan", "factory")} `);
+    expect(picker()).toBeNull();
+    expect(live()).toBe("Linked Launch plan");
+  });
+
+  it("a title that matches nothing creates the document on its press, then links it where [[ was", async () => {
+    await type("See [[Q3 review");
+    expect(rows()).toEqual(["Create document Q3 reviewNew"]);
+    expect(host.querySelector("[data-testid=link-create-option] .mention-combobox__kind")?.getAttribute("aria-hidden")).toBe("true");
+    await press("Enter");
+    expect(created).toEqual(["Q3 review"]);
+    // Nothing is linked until the document exists; the list closes meanwhile and typing goes on.
+    expect(view.state.doc.toString()).toBe("See [[Q3 review");
+    expect(picker()).toBeNull();
+    expect(live()).toBe("Creating Q3 review");
+    await act(async () => view.dispatch({ changes: { from: 0, insert: "> " } }));
+    await act(async () => finish(NEW));
+    expect(view.state.doc.toString()).toBe(`> See ${artifactLink(NEW, "Q3 review", "factory")} `);
+    expect(live()).toBe("Created and linked Q3 review");
+  });
+
+  it("a create that fails leaves the text as typed, and says so", async () => {
+    await type("[[Q3");
+    await press("Enter");
+    await act(async () => finish(null));
+    expect(view.state.doc.toString()).toBe("[[Q3");
+    expect(live()).toBe("Q3 could not be created");
+  });
+
+  it("without a create, no create row; without links, [[ is only brackets", async () => {
+    links = { artifacts: [PLAN] };
+    await type("[[nothing");
+    expect(rows()).toEqual([]);
+    expect(host.querySelector("[data-testid=mention-empty]")?.textContent).toBe("No matches");
+    links = undefined;
+    await type(" [[");
+    expect(picker()?.hidden ?? true).toBe(true);
+    expect(view.contentDOM.hasAttribute("aria-controls")).toBe(false);
+  });
+});
+
+describe("a [[ link drawn in a document", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+  const original = artifactsSource();
+  const kinds: Record<string, NodeKind> = { [NODE]: "artifacts" };
+  const href = `junto://canvas/factory?node=${NODE}&item=${PLAN.ref.artifactId}`;
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    setArtifactsSource({
+      ...original,
+      list: async () => [{ artifact: { artifactId: PLAN.ref.artifactId, title: "Launch plan, final", type: "document", archived: false } } as unknown as ArtifactHead],
+      onChanged: () => () => undefined,
+    } as unknown as ArtifactsSource);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+    setArtifactsSource(original);
+  });
+
+  it("says the artifact's title now, not the one it was written with, without brackets", async () => {
+    await act(async () => root.render(<DocumentMentionChip href={href} label="\[\[Launch plan\]\]" nodeKindOf={(id) => kinds[id]} />));
+    const chip = host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!;
+    expect(chip.dataset.kind).toBe("artifact");
+    expect(chip.querySelector(".resource-chip__label")?.textContent).toBe("Launch plan, final");
+    expect(chip.textContent).toContain(", Document");
+  });
+
+  it("a # mention of the same artifact says its title now too: one state for every link", async () => {
+    await act(async () => root.render(<DocumentMentionChip href={href} label="#Launch plan" nodeKindOf={(id) => kinds[id]} />));
+    expect(host.querySelector(".resource-chip__label")?.textContent).toBe("Launch plan, final");
+  });
+
+  const listing = (heads: ReadonlyArray<object>) =>
+    setArtifactsSource({ ...original, list: async () => heads as ReadonlyArray<ArtifactHead>, onChanged: () => () => undefined } as unknown as ArtifactsSource);
+
+  it("an archived artifact still opens, drawn dimmed and named archived, its title kept", async () => {
+    listing([{ artifact: { artifactId: PLAN.ref.artifactId, title: "Launch plan", type: "document", archived: true } }]);
+    await act(async () => root.render(<DocumentMentionChip href={href} label="\[\[Launch plan\]\]" nodeKindOf={(id) => kinds[id]} />));
+    const chip = host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!;
+    expect(chip.tagName).toBe("BUTTON");
+    expect(chip.dataset.archived).toBe("true");
+    expect(chip.querySelector(".resource-chip__label")?.textContent).toBe("Launch plan");
+    expect(chip.textContent).toContain(", Document, archived");
+  });
+
+  it("an artifact its node does not hold claims no title; inert alone, and its press says it is gone where the host can say", async () => {
+    listing([]);
+    await act(async () => root.render(<DocumentMentionChip href={href} label="\[\[Ghost doc\]\]" nodeKindOf={(id) => kinds[id]} />));
+    let chip = host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!;
+    expect(chip.tagName).toBe("SPAN");
+    expect(chip.dataset.missing).toBe("true");
+    expect(chip.querySelector(".resource-chip__label")?.textContent).toBe(MISSING_ARTIFACT_WORDS);
+    expect(chip.textContent).not.toContain("Ghost doc");
+    const said: string[] = [];
+    await act(async () =>
+      root.render(<DocumentMentionChip href={href} label="\[\[Ghost doc\]\]" nodeKindOf={(id) => kinds[id]} onGone={() => said.push("gone")} />),
+    );
+    chip = host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!;
+    expect(chip.tagName).toBe("BUTTON");
+    expect(chip.title).toBe(ARTIFACT_GONE_LINE);
+    await act(async () => chip.click());
+    expect(said).toEqual(["gone"]);
+  });
+
+  // A link names the node it was written on; a moved artifact is found by id where it is now (0.11.1, 10).
+  const movedTo = (now: string) =>
+    setArtifactsSource({
+      ...original,
+      list: async (_canvas: string, nodeId: string) =>
+        nodeId === now ? [{ artifact: { artifactId: PLAN.ref.artifactId, title: "Launch plan, moved", type: "document", archived: false } }] : [],
+      moves: async () => [{ from: NODE, to: now, by: { kind: "operator" }, at: 1 }],
+      onChanged: () => () => undefined,
+    } as unknown as ArtifactsSource);
+
+  it("a link written before its artifact moved says its title now and opens, read where it is", async () => {
+    movedTo("artifacts-release");
+    const moved: Record<string, NodeKind> = { ...kinds, "artifacts-release": "artifacts" };
+    await act(async () => root.render(<DocumentMentionChip href={href} label="\[\[Launch plan\]\]" nodeKindOf={(id) => moved[id]} />));
+    const chip = host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!;
+    expect(chip.tagName).toBe("BUTTON");
+    expect(chip.dataset.missing).toBeUndefined();
+    expect(chip.querySelector(".resource-chip__label")?.textContent).toBe("Launch plan, moved");
+  });
+
+  it("follows a move even once the node it was written on is gone, and is missing where it moved to a node that is gone", async () => {
+    movedTo("artifacts-release");
+    await act(async () =>
+      root.render(<DocumentMentionChip href={href} label="\[\[Launch plan\]\]" nodeKindOf={(id) => (id === "artifacts-release" ? "artifacts" : undefined)} />),
+    );
+    expect(host.querySelector(".resource-chip__label")?.textContent).toBe("Launch plan, moved");
+    await act(async () => root.render(<DocumentMentionChip href={href} label="\[\[Launch plan\]\]" nodeKindOf={(id) => kinds[id]} />));
+    expect(host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!.dataset.missing).toBe("true");
+  });
+
+  it("finds a moved artifact on the node that holds it, though its moves' clocks disagree on their order", async () => {
+    setArtifactsSource({
+      ...original,
+      list: async (_canvas: string, nodeId: string) =>
+        nodeId === "artifacts-b" ? [{ artifact: { artifactId: PLAN.ref.artifactId, title: "Launch plan, at B", type: "document", archived: false } }] : [],
+      // It went home to C, then C to B; C's ruler stamped its move later than B's.
+      moves: async () => [
+        { from: "artifacts-c", to: "artifacts-b", by: { kind: "operator" }, at: 1 },
+        { from: NODE, to: "artifacts-c", by: { kind: "operator" }, at: 2 },
+      ],
+      onChanged: () => () => undefined,
+    } as unknown as ArtifactsSource);
+    const kinds3: Record<string, NodeKind> = { ...kinds, "artifacts-b": "artifacts", "artifacts-c": "artifacts" };
+    await act(async () => root.render(<DocumentMentionChip href={href} label="\[\[Launch plan\]\]" nodeKindOf={(id) => kinds3[id]} />));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(host.querySelector(".resource-chip__label")?.textContent).toBe("Launch plan, at B");
+  });
+
+  it("an artifact that is gone keeps its written title, unavailable", async () => {
+    await act(async () => root.render(<DocumentMentionChip href={href} label="\[\[Launch plan\]\]" nodeKindOf={() => undefined} />));
+    const chip = host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!;
+    expect(chip.dataset.missing).toBe("true");
+    expect(chip.textContent).toContain("Launch plan");
+    expect(chip.textContent).not.toContain("[[");
+  });
+});

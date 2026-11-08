@@ -1,0 +1,75 @@
+/* Reach preview: while the operator drags, every card whose reach the drop
+   would change carries data-reach-preview (lib/reach-preview.ts), and the
+   card under the pointer carries the words in data-reach-summary. Motion law:
+   the ring breathes with transform and opacity only, on the compositor. */
+
+.react-flow__node[data-reach-preview="gains"] { --reach-hue: var(--color-green); }
+.react-flow__node[data-reach-preview="loses"] { --reach-hue: var(--color-orange); }
+.react-flow__node[data-reach-preview="both"] { --reach-hue: var(--color-yellow); }
+.react-flow__node[data-reach-preview="held"] { --reach-hue: var(--color-cyan); }
+
+.react-flow__node[data-reach-preview]::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 0 0 2px var(--reach-hue),
+    0 0 18px color-mix(in oklab, var(--reach-hue) 40%, transparent);
+  pointer-events: none;
+  will-change: transform, opacity;
+  animation: junto-reach-breathe 1.44s ease-in-out infinite;
+}
+/* Leaving reach is drawn dashed, so it reads without the hue. */
+.react-flow__node[data-reach-preview="loses"]::before {
+  box-shadow: none;
+  outline: 2px dashed var(--reach-hue);
+  outline-offset: 0;
+}
+
+/* Every card sits at z 32 (flow-nodes.ts CARD_Z), so the later card would
+   cover the words; the card that carries them rises one step. */
+.react-flow__node[data-reach-summary] { z-index: 33 !important; }
+
+.react-flow__node[data-reach-summary]::after {
+  content: attr(data-reach-summary);
+  position: absolute;
+  /* Beside the card: above it sits the selection toolbar, below it the hover card. */
+  left: calc(100% + 14px);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-raise-2);
+  box-shadow: 0 0 0 1px var(--color-stroke-hi);
+  color: var(--color-ink);
+  font: var(--text-label) / var(--leading-compact) var(--font-mono);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node[data-reach-preview]::before {
+  inset: -18px;
+  box-shadow: 0 0 0 8px var(--reach-hue);
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node[data-reach-preview="loses"]::before {
+  box-shadow: none;
+  outline-width: 8px;
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node[data-reach-summary]::after {
+  left: calc(100% + 40px);
+  padding: 10px 24px;
+  font-size: calc(var(--text-label) * 3);
+}
+
+@keyframes junto-reach-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(1.015); }
+}
+html[data-surface-motion="paused"] .react-flow__node[data-reach-preview]::before { animation: none; }
+/* A card hidden at overview (canvas-lod-regions.css) draws no ring, so it
+   breathes none (operator signal 01M63W6RQY1YT2Q65MCM0N3YQ8); a clustered
+   seat's is stopped in SeatClusterLayer. */
+html[data-canvas-tier="overview"] .react-flow__viewport .react-flow__node:not(.react-flow__node-group):not(.junto-flow-agent):not(:has(.kind-seat))[data-reach-preview]::before { animation: none; }
+/* A marked card wholly off screen (lib/reach-preview.ts watches it). */
+.react-flow__node[data-reach-preview][data-unseen]::before { animation: none; }

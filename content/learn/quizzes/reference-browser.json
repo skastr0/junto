@@ -1,0 +1,100 @@
+{
+  "id": "reference-browser",
+  "title": "Browser commands",
+  "questions": [
+    {
+      "id": "navigates",
+      "concepts": [
+        "browser",
+        "lines"
+      ],
+      "reader": "both",
+      "prompt": "Which line lets a seat drive a page?",
+      "choices": [
+        {
+          "id": "messages",
+          "text": "messages",
+          "why": "messages joins two seats."
+        },
+        {
+          "id": "navigates",
+          "text": "navigates",
+          "correct": true,
+          "why": "navigates from a seat to a page grants browser.automate."
+        },
+        {
+          "id": "flows",
+          "text": "flows",
+          "why": "flows joins two task boards."
+        },
+        {
+          "id": "none",
+          "text": "None: any seat can",
+          "why": "No line, no browser."
+        }
+      ],
+      "receipts": [
+        "src/shared/physics/verbs.ts:64@951f99eac",
+        "src/shared/physics/verbs.ts:143-144@951f99eac"
+      ]
+    },
+    {
+      "id": "pages",
+      "concepts": [
+        "browser"
+      ],
+      "reader": "agent",
+      "prompt": "Which command lists the pages a seat may drive?",
+      "choices": [
+        {
+          "id": "sessions",
+          "text": "junto browser sessions",
+          "why": "sessions lists the seat's live page sessions."
+        },
+        {
+          "id": "pages",
+          "text": "junto browser pages",
+          "correct": true,
+          "why": "pages lists the page nodes the seat's navigates lines grant."
+        },
+        {
+          "id": "profiles",
+          "text": "junto browser profiles",
+          "why": "profiles lists browser profiles."
+        }
+      ],
+      "receipts": [
+        "src/cli/commands/browser-contract.ts:61@951f99eac"
+      ]
+    },
+    {
+      "id": "shot",
+      "concepts": [
+        "browser"
+      ],
+      "reader": "agent",
+      "prompt": "What does junto browser shot return?",
+      "choices": [
+        {
+          "id": "bytes",
+          "text": "The image bytes",
+          "why": "It returns a path, not bytes."
+        },
+        {
+          "id": "path",
+          "text": "The path of a PNG Junto owns",
+          "correct": true,
+          "why": "It captures a screenshot to a PNG Junto owns and returns its path."
+        },
+        {
+          "id": "url",
+          "text": "A public URL",
+          "why": "Nothing is published."
+        }
+      ],
+      "receipts": [
+        "src/cli/commands/browser-contract.ts:91@951f99eac"
+      ]
+    }
+  ]
+}

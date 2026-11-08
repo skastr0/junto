@@ -1,0 +1,478 @@
+/* The Tasks node (04): sidebar list, main task pane. Layout is TwoPane's. */
+
+.tasks-new {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-stroke);
+}
+
+.tasks-new__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.tasks-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+}
+
+.tasks-filter__search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-dim);
+}
+
+.tasks-filter__states {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tasks-filter__state {
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-dim);
+  font-size: var(--text-label);
+  line-height: var(--leading-compact);
+}
+
+.tasks-filter__state:hover {
+  background: var(--color-overlay-2);
+  color: var(--color-ink);
+}
+
+.tasks-filter__state[aria-checked="true"] {
+  border-color: var(--color-stroke-hi);
+  background: var(--color-overlay-3);
+  color: var(--color-ink);
+}
+
+.tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 4px 8px;
+}
+
+.tasks-list__none {
+  margin: 0;
+  padding: 8px;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+}
+
+/* Main pane */
+
+.task-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 20px;
+}
+
+.task-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.task-head__number {
+  color: var(--color-dim);
+  font-size: var(--text-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.task-head__title {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-ink);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+}
+
+.task-head__title:hover {
+  border-color: var(--color-stroke);
+}
+
+.task-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+}
+
+.task-facts__none {
+  color: var(--color-faint);
+}
+
+.task-error {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in oklab, var(--color-crimson) 30%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--color-crimson) 8%, transparent);
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}
+
+.task-queued {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px dashed var(--color-stroke-hi);
+  border-radius: var(--radius-lg);
+  color: var(--color-ink);
+  font-size: var(--text-body);
+}
+
+.task-queued > span {
+  color: var(--color-faint);
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.task-queued ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-notice {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in oklab, var(--color-amber) 30%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--color-amber) 8%, transparent);
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}
+
+/* The body is a live markdown field; it grows with its text, the pane scrolls. Its text lines up with the pane's,
+   and the inset it carries keeps the focus ring off the words. */
+.task-body {
+  min-width: 0;
+  margin: 0 -8px;
+}
+
+.task-body .live-markdown .cm-editor {
+  font-size: var(--text-body);
+}
+
+.task-body .live-markdown .cm-content {
+  padding: 6px 8px;
+}
+
+.task-deps {
+  display: grid;
+  gap: 6px;
+}
+
+.task-deps__head {
+  color: var(--color-faint);
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.task-deps__none {
+  margin: 0;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+}
+
+.task-deps__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-deps__list li,
+.task-deps__add {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Layers */
+
+.task-layers {
+  display: grid;
+  gap: 6px;
+  padding: 11px 12px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  background: var(--color-raise);
+}
+
+.task-layers__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-faint);
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.task-layers__list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-layers__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+}
+
+.task-layers__row strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.task-layers__age {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Board settings in the main pane */
+
+.tasks-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 20px;
+}
+
+.tasks-settings__head {
+  color: var(--color-faint);
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+/* Default approvals for new tasks on a node */
+
+.stamp-default {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+}
+
+.stamp-default output {
+  min-width: 1.5ch;
+  color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* A task's comment thread */
+
+.task-thread {
+  display: grid;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  background: var(--color-raise);
+}
+
+.task-thread__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-faint);
+}
+
+.task-thread__posts {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-thread__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+}
+
+.task-thread__meta strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.task-thread__meta span {
+  color: var(--color-faint);
+  font-size: var(--text-label);
+}
+
+.task-thread__text {
+  margin: 2px 0 0;
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A chip is taller than a line of text: its margin box keeps the rhythm of lines that hold one. */
+.task-thread__text .resource-chip {
+  margin-block: -2px;
+}
+
+.task-thread__empty {
+  margin: 0;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+}
+
+.task-thread__foot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.task-thread__failure {
+  flex: 1;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in oklab, var(--color-crimson) 30%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--color-crimson) 8%, transparent);
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}
+
+/* What a finish left: handoff, cited artifacts, commits, claims */
+
+.task-evidence {
+  display: grid;
+  gap: 6px;
+  padding: 11px 12px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  background: var(--color-raise);
+}
+
+.task-evidence__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-faint);
+}
+
+.task-evidence__handoff,
+.task-evidence__line {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.task-evidence__line code {
+  margin-left: 6px;
+  color: var(--color-dim);
+  font-family: var(--font-mono);
+}
+
+.task-evidence__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.task-evidence__list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-ink);
+  font-size: var(--text-body);
+}
+
+.task-layers__evidence {
+  flex-basis: 100%;
+}
+
+.task-layers__evidence:empty {
+  display: none;
+}
+
+/* The one on-card instrument: add a task, a ghost at rest inside the chip's pill. */
+
+.tasks-enqueue {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  /* The plus is a mark: its hue comes in as --mark, as a ResourceChip glyph does. */
+  color: var(--mark);
+  cursor: pointer;
+}
+
+/* A 24px hit area without growing the look. */
+.tasks-enqueue::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+}
+
+.tasks-enqueue:hover {
+  background: var(--color-overlay-2);
+  color: var(--color-ink);
+}
+
+/* The keyboard ring, in screen pixels, as every node's (docs/node-card-language.md). */
+.tasks-enqueue:focus-visible {
+  opacity: 1;
+  outline: calc(2px * var(--node-s, 1)) solid var(--color-cyan);
+  outline-offset: calc(3px * var(--node-s, 1));
+}

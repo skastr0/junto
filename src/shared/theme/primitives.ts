@@ -1,0 +1,173 @@
+import type { Oklch } from "./oklch";
+
+// Primitive ramps, per mode. Primitives are never consumed by components —
+// semantic.ts assigns them meaning. Dark values are the exact OKLCH
+// equivalents of the palette the app ships today (round-trip verified
+// lossless at 5 decimals). Bright values are the daylight edition: warm
+// paper, never pure white; ink, never pure black; chroma stays toward amber,
+// the brand hue.
+//
+// Hue roles ship up to three variants:
+//   base — display: dots, canvas accents, edge paint (saturation allowed)
+//   hi   — lit/hover companion
+//   fg   — text/icons on resting surfaces (contrast-gated)
+
+export interface NeutralRamp {
+  ground: Oklch;
+  raise: Oklch;
+  "raise-2": Oklch;
+  inset: Oklch;
+  well: Oklch;
+  ink: Oklch;
+  "ink-2": Oklch;
+  dim: Oklch;
+  faint: Oklch;
+  umbra: Oklch;
+}
+
+export interface HueRamp {
+  amber: Oklch;
+  "amber-hi": Oklch;
+  "amber-fg": Oklch;
+  cyan: Oklch;
+  "cyan-fg": Oklch;
+  crimson: Oklch;
+  "crimson-fg": Oklch;
+  violet: Oklch;
+  "violet-fg": Oklch;
+  steel: Oklch;
+  "steel-fg": Oklch;
+  indigo: Oklch;
+  gold: Oklch;
+  orange: Oklch;
+  green: Oklch;
+  "green-fg": Oklch;
+  yellow: Oklch;
+  lime: Oklch;
+  blue: Oklch;
+  pink: Oklch;
+  teal: Oklch;
+}
+
+export const NEUTRALS: Record<"dark" | "bright", NeutralRamp> = {
+  dark: {
+    ground: { l: 0.15039, c: 0.00272, h: 67.55 }, // #0c0b0a — never pure black
+    raise: { l: 0.18883, c: 0.00925, h: 75.06 }, // #16130f
+    "raise-2": { l: 0.18379, c: 0.00518, h: 67.5 }, // #141210
+    inset: { l: 0.17963, c: 0.00389, h: 48.5 }, // #131110
+    well: { l: 0.1353, c: 0.00322, h: 69.58 }, // #090807
+    ink: { l: 0.92716, c: 0.01775, h: 81.33 }, // #ede6da
+    "ink-2": { l: 0.80991, c: 0.02376, h: 84.59 }, // #c8c0b0
+    // Brightened for legibility (operator decision): both now clear 4.5 to 1
+    // on ground, raise and the cards text sits on. They were #8a8378 and
+    // #68604a, at 5.24 and 3.15 on ground. theme-build.ts holds the floor.
+    dim: { l: 0.7, c: 0.0183, h: 79.3 }, // #a59d92
+    faint: { l: 0.62, c: 0.03, h: 90.43 }, // #8d8672
+    umbra: { l: 0, c: 0, h: 0 }, // shadow source
+  },
+  bright: {
+    ground: { l: 0.945, c: 0.012, h: 85 }, // warm paper — never pure white
+    raise: { l: 0.975, c: 0.008, h: 85 }, // panels lift toward light
+    "raise-2": { l: 0.966, c: 0.009, h: 85 },
+    inset: { l: 0.936, c: 0.011, h: 85 },
+    well: { l: 0.908, c: 0.013, h: 85 }, // deepest inset
+    ink: { l: 0.3, c: 0.014, h: 65 }, // warm near-black ink
+    "ink-2": { l: 0.4, c: 0.014, h: 65 },
+    dim: { l: 0.46, c: 0.013, h: 65 },
+    faint: { l: 0.49, c: 0.015, h: 70 }, // placeholder legibility floor
+    umbra: { l: 0.3, c: 0.02, h: 60 }, // warm shadow source, never pure black
+  },
+};
+
+export const HUES: Record<"dark" | "bright", HueRamp> = {
+  dark: {
+    amber: { l: 0.7649, c: 0.13988, h: 72.95 }, // #e8a33d — home hue
+    "amber-hi": { l: 0.89239, c: 0.06852, h: 85.73 }, // #f0d9a8
+    "amber-fg": { l: 0.7649, c: 0.13988, h: 72.95 }, // base reads fine on dark
+    cyan: { l: 0.76048, c: 0.11721, h: 206.31 }, // #39c6d6
+    "cyan-fg": { l: 0.76048, c: 0.11721, h: 206.31 },
+    crimson: { l: 0.62557, c: 0.19334, h: 23.03 }, // #e5484d — blockers only
+    // #f78481: the mark is 3.4 on a 9 percent tint, too dim for a chip's 8px
+    // word; the text form is lighter on dark, as it is darker on paper.
+    "crimson-fg": { l: 0.74, c: 0.14, h: 23 },
+    violet: { l: 0.64851, c: 0.16258, h: 287.53 }, // #8b7beb
+    "violet-fg": { l: 0.8, c: 0.1, h: 288 }, // the mark is 2.5 on a chip's tint
+    steel: { l: 0.70421, c: 0.02949, h: 236.38 }, // #8fa3b0
+    "steel-fg": { l: 0.8, c: 0.02, h: 236 }, // the mark is 2.9 on a chip's tint
+    indigo: { l: 0.63143, c: 0.17645, h: 275.45 }, // #6e7bf2
+    gold: { l: 0.75664, c: 0.11885, h: 83.55 }, // #d4a94f
+    orange: { l: 0.69551, c: 0.1692, h: 44.1 }, // #f07438
+    green: { l: 0.71797, c: 0.10827, h: 161.16 }, // #5fb98e
+    "green-fg": { l: 0.8, c: 0.09, h: 161 }, // the mark is 3.8 on a chip's tint
+    // Colour choices for regions and cards only (shared/canvas-colors.ts):
+    // a clear yellow beside the mustard gold, and the gaps a region palette
+    // needs between green, cyan and violet.
+    yellow: { l: 0.87, c: 0.165, h: 98 }, // #f1d438
+    lime: { l: 0.8, c: 0.17, h: 128 }, // #9ed24d
+    blue: { l: 0.68, c: 0.135, h: 250 }, // #509de8
+    pink: { l: 0.72, c: 0.15, h: 350 }, // #e97ab2
+    // The one label colour no region palette had: between green and cyan.
+    teal: { l: 0.74, c: 0.1, h: 183 },
+  },
+  bright: {
+    // Display variants stay in the same families; fg variants darken to the
+    // functional inks of the daylight edition (rust, slate blue, deep red).
+    amber: { l: 0.63, c: 0.18, h: 72 },
+    // Emphasis on paper is darker, not lighter: 5.0 on the primary button's hover fill, 6.5 on the ground.
+    "amber-hi": { l: 0.45, c: 0.11, h: 62 },
+    "amber-fg": { l: 0.48, c: 0.11, h: 60 }, // burnished rust; 4.6 on a chip wash on well
+    cyan: { l: 0.60, c: 0.09, h: 220 },
+    "cyan-fg": { l: 0.47, c: 0.075, h: 225 }, // slate blue, 4.7 on a chip wash on well
+    crimson: { l: 0.56, c: 0.19, h: 25 },
+    "crimson-fg": { l: 0.48, c: 0.17, h: 25 }, // deep red
+    violet: { l: 0.52, c: 0.13, h: 295 },
+    "violet-fg": { l: 0.48, c: 0.13, h: 295 }, // 4.6 on a chip wash on well
+    steel: { l: 0.52, c: 0.03, h: 230 }, // 4.5 on ground: quiet status lines are words
+    "steel-fg": { l: 0.47, c: 0.03, h: 230 }, // 4.7 on a chip wash on well
+    indigo: { l: 0.5, c: 0.12, h: 275 },
+    gold: { l: 0.55, c: 0.11, h: 80 },
+    orange: { l: 0.54, c: 0.15, h: 45 },
+    green: { l: 0.51, c: 0.1, h: 160 }, // teal-leaning
+    "green-fg": { l: 0.46, c: 0.1, h: 160 }, // 4.6 on a chip wash on well
+    // Yellow cannot darken far on paper before it turns mustard; it keeps
+    // its lightness and the frame carries it.
+    yellow: { l: 0.75, c: 0.155, h: 96 },
+    lime: { l: 0.63, c: 0.16, h: 130 },
+    blue: { l: 0.52, c: 0.13, h: 252 },
+    pink: { l: 0.56, c: 0.16, h: 352 },
+    teal: { l: 0.52, c: 0.09, h: 188 },
+  },
+};
+
+/**
+ * The words on a label chip (0.11, 03, C3), one per label colour. The chip's
+ * fill and stroke are the colour's hue at a low and a middle alpha; the word
+ * is this tint, toward ink on both: light on dark, deep on paper, so it clears
+ * 4.5 to 1 on the chip over every surface (scripts/theme-build.ts holds it).
+ */
+export const LABEL_COLOURS = ["red", "orange", "yellow", "green", "teal", "blue", "purple", "pink"] as const;
+export type LabelColour = (typeof LABEL_COLOURS)[number];
+
+export const LABEL_FG: Record<"dark" | "bright", Record<LabelColour, Oklch>> = {
+  dark: {
+    red: { l: 0.84, c: 0.09, h: 24 },
+    orange: { l: 0.85, c: 0.09, h: 52 },
+    yellow: { l: 0.9, c: 0.09, h: 98 },
+    green: { l: 0.86, c: 0.09, h: 160 },
+    teal: { l: 0.86, c: 0.08, h: 185 },
+    blue: { l: 0.85, c: 0.08, h: 250 },
+    purple: { l: 0.85, c: 0.09, h: 292 },
+    pink: { l: 0.86, c: 0.08, h: 352 },
+  },
+  bright: {
+    red: { l: 0.42, c: 0.15, h: 25 },
+    orange: { l: 0.43, c: 0.12, h: 50 },
+    yellow: { l: 0.42, c: 0.09, h: 90 },
+    green: { l: 0.4, c: 0.09, h: 160 },
+    teal: { l: 0.4, c: 0.07, h: 188 },
+    blue: { l: 0.42, c: 0.12, h: 252 },
+    purple: { l: 0.42, c: 0.13, h: 295 },
+    pink: { l: 0.43, c: 0.13, h: 352 },
+  },
+};
+

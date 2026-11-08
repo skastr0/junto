@@ -1,0 +1,448 @@
+{
+  "op": "capabilities",
+  "payload": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "not": {
+        "type": "null"
+      }
+    },
+    "definitions": {}
+  },
+  "success": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title"
+          ],
+          "additionalProperties": false
+        },
+        "harnesses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "harness": {
+                "type": "string",
+                "enum": [
+                  "claude",
+                  "codex",
+                  "grok",
+                  "hermes",
+                  "pi",
+                  "prime-agent",
+                  "kimi",
+                  "muse",
+                  "devin",
+                  "cursor",
+                  "agy",
+                  "amp",
+                  "fx",
+                  "omp",
+                  "junto-overseer"
+                ]
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "binary": {
+                "type": "string"
+              },
+              "installed": {
+                "type": "boolean"
+              },
+              "executable": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "mailTransport": {
+                "type": "object",
+                "properties": {
+                  "nativeChannel": {
+                    "type": "boolean"
+                  },
+                  "typedNotice": {
+                    "type": "string",
+                    "enum": [
+                      "working",
+                      "unavailable-setup"
+                    ]
+                  },
+                  "typedNoticeQualified": {
+                    "type": "boolean"
+                  },
+                  "pullOnly": {
+                    "type": "boolean",
+                    "enum": [
+                      true
+                    ]
+                  }
+                },
+                "required": [
+                  "nativeChannel",
+                  "typedNotice",
+                  "typedNoticeQualified",
+                  "pullOnly"
+                ],
+                "additionalProperties": false
+              },
+              "isolation": {
+                "type": "object",
+                "properties": {
+                  "homePins": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "envKey": {
+                          "type": "string"
+                        },
+                        "homeRelative": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "envKey",
+                        "homeRelative"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "credentialEnv": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "credentialFiles": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "operatorRelative": {
+                          "type": "string"
+                        },
+                        "isolatedRelative": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "operatorRelative",
+                        "isolatedRelative"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "captureHome": {
+                    "type": "string",
+                    "enum": [
+                      "isolated",
+                      "unsupported"
+                    ]
+                  },
+                  "limitation": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "keychainLogin": {
+                    "anyOf": [
+                      {
+                        "type": "boolean",
+                        "enum": [
+                          true
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "homePins",
+                  "credentialEnv",
+                  "credentialFiles",
+                  "captureHome"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "harness",
+              "displayName",
+              "binary",
+              "installed",
+              "mailTransport",
+              "isolation"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "actor",
+            "sink",
+            "geography"
+          ]
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "command": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "input": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "command",
+              "description"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "overseer": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "affectedByPause": {
+              "type": "boolean",
+              "enum": [
+                false
+              ]
+            }
+          },
+          "required": [
+            "enabled",
+            "affectedByPause"
+          ],
+          "additionalProperties": false
+        },
+        "protocol_version": {
+          "type": "string"
+        },
+        "connected": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "title": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "regions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "actor",
+                  "sink",
+                  "geography"
+                ]
+              },
+              "grants": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "msg.list",
+                    "msg.send",
+                    "msg.prompt",
+                    "seat.wait",
+                    "terminal.read",
+                    "browser.automate"
+                  ]
+                }
+              },
+              "summary": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "name",
+              "regions",
+              "role",
+              "grants",
+              "summary"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "co_members": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "title": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "regions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "shared_region": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "name",
+              "regions",
+              "shared_region"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "paused": {
+          "type": "boolean"
+        },
+        "next_step": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "node",
+        "harnesses",
+        "role",
+        "tools",
+        "overseer",
+        "protocol_version",
+        "connected",
+        "co_members",
+        "paused"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

@@ -1,0 +1,399 @@
+import { Result, Schema } from "effect";
+import {
+  BROWSER_CLI_REQUEST_TIMEOUT_MS,
+  BROWSER_CONTROL_HEADERS_TIMEOUT_MS,
+  BROWSER_CONTROL_MAX_HEADER_BYTES,
+  BROWSER_CONTROL_MAX_REQUEST_BODY_BYTES,
+  BROWSER_CONTROL_MAX_RESPONSE_BYTES,
+  BROWSER_CONTROL_REQUEST_BODY_TIMEOUT_MS,
+  BROWSER_MAX_ERROR_BYTES,
+  BROWSER_MAX_EVAL_CODE_BYTES,
+  BROWSER_MAX_EVAL_RESULT_DEPTH,
+  BROWSER_MAX_EVAL_RESULT_NODES,
+  BROWSER_MAX_EVAL_RESULT_BYTES,
+  BROWSER_MAX_REF_BYTES,
+  BROWSER_MAX_SESSION_ID_BYTES,
+  BROWSER_MAX_URL_BYTES,
+  clampUtf8Bytes,
+  isUtf8WithinLimit,
+  isValidBrowserSessionId,
+  utf8ByteLength,
+} from "./browser-limits";
+import { BrowserTabId } from "./browser-tab";
+
+// Browser control-plane protocol: the wire contract between the Electron-hosted
+// HTTP server (main/junto/browser/control.ts) and the agent CLI
+// (`junto browser`, src/cli/commands/browser.ts). Pure module — no Node imports — so both ends and
+// tests share one source of truth. Transport is a local Unix domain socket only
+// and every request carries a bearer token; this file only knows shapes,
+// admission bounds, and paths-as-strings.
+
+// ---------------------------------------------------------------------------
+// Paths (functions of the home dir so the module stays platform-pure)
+
+export const controlDir = (home: string): string => `${home}/.junto/browser`;
+export const controlSocketPath = (home: string): string => `${controlDir(home)}/control.sock`;
+export const controlTokenPath = (home: string): string => `${controlDir(home)}/control.token`;
+export const controlShotsDir = (home: string): string => `${controlDir(home)}/shots`;
+
+export const CONTROL_MAX_HEADER_BYTES = BROWSER_CONTROL_MAX_HEADER_BYTES;
+export const CONTROL_HEADERS_TIMEOUT_MS = BROWSER_CONTROL_HEADERS_TIMEOUT_MS;
+export const CONTROL_REQUEST_TIMEOUT_MS = BROWSER_CONTROL_REQUEST_BODY_TIMEOUT_MS;
+export const CONTROL_MAX_BODY_BYTES = BROWSER_CONTROL_MAX_REQUEST_BODY_BYTES;
+
+// ---------------------------------------------------------------------------
+// Error envelope — Effect Schema TaggedError style: every failure is a struct
+// discriminated by `_tag`, JSON-serializable across the socket. `runtime_down`
+// is minted client-side only (the socket does not answer); the server never
+// emits it.
+
+export const ControlErrorTag = Schema.Literals([
+  "unauthorized", // missing/wrong token
+  "bad_request", // malformed body / unknown route
+  "invalid", // domain-invalid input (bad profile id, profile switch on warm session)
+  "not_found", // no such session / node
+  "forbidden", // url scheme not allowed
+  "timeout", // operation exceeded its deadline
+  "cancelled", // operation was aborted by its caller
+  "resource_exhausted", // bounded browser capacity is currently full
+  "unsupported_capability", // resolved page host cannot run browser work here
+  "unsupported_result", // result is not losslessly representable as JSON
+  "result_too_large", // result or response exceeds its byte budget
+  "failed", // operation attempted and failed (load error, eval throw, io)
+  "operator_holds", // the operator took the page over; a seat waits for release
+  "runtime_down", // app not running — socket absent or refusing (CLI-side)
+]);
+export type ControlErrorTag = typeof ControlErrorTag.Type;
+
+const ControlErrorMessage = Schema.String.pipe(
+  Schema.check(Schema.makeFilter((value) => isUtf8WithinLimit(value, BROWSER_MAX_ERROR_BYTES),
+  { message: `control error exceeds ${BROWSER_MAX_ERROR_BYTES} UTF-8 bytes` },)),
+);
+
+export const ControlError = Schema.Struct({
+  _tag: ControlErrorTag,
+  message: ControlErrorMessage,
+});
+export type ControlError = typeof ControlError.Type;
+
+export const controlError = (_tag: ControlErrorTag, message: string): ControlError => ({
+  _tag,
+  message: clampUtf8Bytes(message, BROWSER_MAX_ERROR_BYTES),
+});
+
+// ok/error envelope. `data` stays schema-less here (per-endpoint schemas below
+// type it); the envelope itself is the invariant every response satisfies.
+export interface ControlOk<T> {
+  readonly ok: true;
+  readonly data: T;
+}
+export interface ControlErr {
+  readonly ok: false;
+  readonly error: ControlError;
+}
+export type ControlEnvelope<T> = ControlOk<T> | ControlErr;
+
+export const controlOk = <T>(data: T): ControlOk<T> => ({ ok: true, data });
+export const controlErr = (_tag: ControlErrorTag, message: string): ControlErr => ({
+  ok: false,
+  error: controlError(_tag, message),
+});
+
+type JsonInspection =
+  | { readonly ok: true; readonly encoded: string; readonly bytes: number }
+  | { readonly ok: false; readonly error: ControlError };
+
+const unsupportedJson = (): ControlError =>
+  controlError("unsupported_result", "result is not a finite plain JSON tree");
+
+const inspectPlainJsonTree = (root: unknown): ControlError | undefined => {
+  const active = new WeakSet<object>();
+  const stack: Array<{ readonly value: unknown; readonly depth: number; readonly exit: boolean }> = [
+    { value: root, depth: 0, exit: false },
+  ];
+  let nodes = 0;
+  try {
+    while (stack.length > 0) {
+      const frame = stack.pop();
+      if (frame === undefined) break;
+      const value = frame.value;
+      if (!frame.exit) {
+        nodes += 1;
+        if (nodes > BROWSER_MAX_EVAL_RESULT_NODES || frame.depth > BROWSER_MAX_EVAL_RESULT_DEPTH) {
+          return controlError(
+            "result_too_large",
+            `result exceeds the ${BROWSER_MAX_EVAL_RESULT_NODES}-node or ${BROWSER_MAX_EVAL_RESULT_DEPTH}-depth limit`,
+          );
+        }
+      }
+      if (typeof value !== "object" || value === null) {
+        if (
+          value === undefined ||
+          typeof value === "bigint" ||
+          typeof value === "function" ||
+          typeof value === "symbol" ||
+          (typeof value === "number" && !Number.isFinite(value))
+        ) {
+          return unsupportedJson();
+        }
+        continue;
+      }
+      if (frame.exit) {
+        active.delete(value);
+        continue;
+      }
+      if (active.has(value)) return unsupportedJson();
+      active.add(value);
+      stack.push({ value, depth: frame.depth, exit: true });
+
+      const prototype = Object.getPrototypeOf(value);
+      const descriptors = Object.getOwnPropertyDescriptors(value);
+      const keys = Reflect.ownKeys(descriptors);
+      if (keys.some((key) => typeof key === "symbol")) return unsupportedJson();
+
+      if (Array.isArray(value)) {
+        if (prototype !== Array.prototype || value.length > BROWSER_MAX_EVAL_RESULT_NODES) {
+          return unsupportedJson();
+        }
+        const allowed = new Set<string>(["length"]);
+        for (let index = 0; index < value.length; index += 1) allowed.add(String(index));
+        if (keys.some((key) => typeof key !== "string" || !allowed.has(key))) {
+          return unsupportedJson();
+        }
+        for (let index = value.length - 1; index >= 0; index -= 1) {
+          const descriptor = descriptors[String(index)];
+          if (descriptor === undefined || !("value" in descriptor)) return unsupportedJson();
+          stack.push({ value: descriptor.value, depth: frame.depth + 1, exit: false });
+        }
+        continue;
+      }
+
+      if (prototype !== Object.prototype && prototype !== null) return unsupportedJson();
+      for (let index = keys.length - 1; index >= 0; index -= 1) {
+        const key = keys[index];
+        if (typeof key !== "string") return unsupportedJson();
+        const descriptor = descriptors[key];
+        if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) {
+          return unsupportedJson();
+        }
+        stack.push({ value: descriptor.value, depth: frame.depth + 1, exit: false });
+      }
+    }
+    return undefined;
+  } catch {
+    return unsupportedJson();
+  }
+};
+
+/** Strictly inspect a value before placing it on the control wire. */
+export const inspectControlJson = (
+  value: unknown,
+  maxBytes: number,
+): JsonInspection => {
+  const treeError = inspectPlainJsonTree(value);
+  if (treeError !== undefined) return { ok: false, error: treeError };
+  try {
+    const encoded = JSON.stringify(value);
+    if (encoded === undefined) {
+      return {
+        ok: false,
+        error: controlError("unsupported_result", "result is not supported by the JSON control wire"),
+      };
+    }
+    const bytes = utf8ByteLength(encoded);
+    return bytes <= maxBytes
+      ? { ok: true, encoded, bytes }
+      : {
+          ok: false,
+          error: controlError("result_too_large", `result exceeds ${maxBytes} UTF-8 bytes`),
+        };
+  } catch {
+    return {
+      ok: false,
+      error: controlError("unsupported_result", "result is not supported by the JSON control wire"),
+    };
+  }
+};
+
+export const inspectEvalResult = (value: unknown): JsonInspection =>
+  inspectControlJson(value, BROWSER_MAX_EVAL_RESULT_BYTES);
+
+/** Serialize every response through one bounded, failure-safe wire encoder. */
+export const encodeControlEnvelope = (envelope: ControlEnvelope<unknown>): string => {
+  const inspected = inspectControlJson(envelope, BROWSER_CONTROL_MAX_RESPONSE_BYTES);
+  if (inspected.ok) return inspected.encoded;
+  const fallback = JSON.stringify({ ok: false, error: inspected.error } satisfies ControlErr);
+  return utf8ByteLength(fallback) <= BROWSER_CONTROL_MAX_RESPONSE_BYTES
+    ? fallback
+    : '{"ok":false,"error":{"_tag":"failed","message":"control response encoding failed"}}';
+};
+
+const EnvelopeWire = Schema.Union([Schema.Struct({ ok: Schema.Literal(true), data: Schema.Unknown }),
+Schema.Struct({ ok: Schema.Literal(false), error: ControlError }),]);
+
+/** Decode an untrusted wire payload into an envelope (data left unknown). */
+export const decodeControlEnvelope = (
+  input: unknown,
+): Result.Result<ControlEnvelope<unknown>, ControlError> => {
+  const decoded = Schema.decodeUnknownResult(EnvelopeWire)(input);
+  return Result.isFailure(decoded)
+    ? Result.fail(controlError("bad_request", "malformed control envelope"))
+    : Result.succeed(decoded.success as ControlEnvelope<unknown>);
+};
+
+// ---------------------------------------------------------------------------
+// Requests
+
+const boundedString = (label: string, maxBytes: number) =>
+  Schema.String.pipe(
+    Schema.check(Schema.makeFilter((value) => isUtf8WithinLimit(value, maxBytes),
+    { message: `${label} exceeds ${maxBytes} UTF-8 bytes` },)),
+  );
+
+const SessionId = Schema.String.pipe(
+  Schema.check(Schema.makeFilter(isValidBrowserSessionId,
+  { message: "sessionId must be nonempty bounded ASCII" },)),
+);
+
+// `tab` names one tab of the page; without it the command acts on the active tab.
+const TabField = Schema.optionalKey(BrowserTabId);
+
+export const OpenRequest = Schema.Struct({
+  ref: boundedString("ref", BROWSER_MAX_REF_BYTES),
+  tab: TabField,
+});
+export type OpenRequest = typeof OpenRequest.Type;
+
+export const GotoRequest = Schema.Struct({
+  sessionId: SessionId,
+  url: boundedString("url", BROWSER_MAX_URL_BYTES),
+  tab: TabField,
+});
+export type GotoRequest = typeof GotoRequest.Type;
+
+export const EvalRequest = Schema.Struct({
+  sessionId: SessionId,
+  code: boundedString("code", BROWSER_MAX_EVAL_CODE_BYTES),
+  tab: TabField,
+});
+export type EvalRequest = typeof EvalRequest.Type;
+
+export const ScreenshotRequest = Schema.Struct({
+  sessionId: SessionId,
+  tab: TabField,
+});
+export type ScreenshotRequest = typeof ScreenshotRequest.Type;
+
+// Finite in discovery too: a plain Number would advertise "Infinity", "-Infinity" and "NaN".
+const BoxEdge = Schema.Finite.annotate({ message: "a box is finite numbers" });
+
+/** The most of a box comment's text a seat may send; the comment writer bounds it again. */
+export const BROWSER_MAX_COMMENT_TEXT_BYTES = 64 * 1024;
+
+/**
+ * A seat's comment on a box of the page (B7): the box in page CSS pixels
+ * and the text. Main takes the shot itself; a seat never sends bytes.
+ */
+export const CommentRequest = Schema.Struct({
+  sessionId: SessionId,
+  tab: TabField,
+  // Exactly the four edges: a box carries no bytes or anything else.
+  rect: Schema.Struct({ x: BoxEdge, y: BoxEdge, w: BoxEdge, h: BoxEdge }),
+  text: boundedString("text", BROWSER_MAX_COMMENT_TEXT_BYTES).pipe(
+    Schema.check(Schema.makeFilter((value) => value.trim() !== "", { message: "a comment's text must be non-empty" })),
+  ),
+});
+export type CommentRequest = typeof CommentRequest.Type;
+
+export const CloseRequest = Schema.Struct({
+  sessionId: SessionId,
+});
+export type CloseRequest = typeof CloseRequest.Type;
+
+export const StopRequest = Schema.Struct({
+  sessionId: SessionId,
+});
+export type StopRequest = typeof StopRequest.Type;
+
+// ---------------------------------------------------------------------------
+// Responses (data half of the envelope)
+
+export const DoctorData = Schema.Struct({
+  status: Schema.Literal("ok"),
+});
+export type DoctorData = typeof DoctorData.Type;
+
+export const ProfileRow = Schema.Struct({
+  id: Schema.String,
+  label: Schema.optionalKey(Schema.String),
+  default: Schema.optionalKey(Schema.Boolean),
+});
+export type ProfileRow = typeof ProfileRow.Type;
+
+export const SessionData = Schema.Struct({
+  sessionId: Schema.String,
+  ref: Schema.String,
+  nodeId: Schema.String,
+  url: Schema.String,
+  profile: Schema.String,
+  state: Schema.String,
+  attached: Schema.Boolean,
+  title: Schema.optionalKey(Schema.String),
+  lastError: Schema.optionalKey(Schema.String),
+});
+export type SessionData = typeof SessionData.Type;
+
+export const EvalData = Schema.Struct({
+  // Strict finite JSON decoded from the isolated-world eval envelope.
+  result: Schema.Unknown,
+});
+export type EvalData = typeof EvalData.Type;
+
+export const ScreenshotData = Schema.Struct({
+  path: Schema.String,
+  bytes: Schema.Number,
+});
+export type ScreenshotData = typeof ScreenshotData.Type;
+
+/** A page node found in an authorial canvas document (link node with entity.kind "page"). */
+export const PageNodeRow = Schema.Struct({
+  ref: Schema.String,
+  sessionId: Schema.NullOr(Schema.String),
+  canvas: Schema.String,
+  nodeId: Schema.String,
+  url: Schema.String,
+  profile: Schema.optionalKey(Schema.String),
+});
+export type PageNodeRow = typeof PageNodeRow.Type;
+
+// ---------------------------------------------------------------------------
+// Routes — single table both ends dispatch on.
+
+export const CONTROL_ROUTES = {
+  doctor: { method: "GET", path: "/doctor" },
+  profiles: { method: "GET", path: "/profiles" },
+  sessions: { method: "GET", path: "/sessions" },
+  pages: { method: "GET", path: "/pages" },
+  open: { method: "POST", path: "/open" },
+  goto: { method: "POST", path: "/goto" },
+  eval: { method: "POST", path: "/eval" },
+  screenshot: { method: "POST", path: "/screenshot" },
+  comment: { method: "POST", path: "/comment" },
+  close: { method: "POST", path: "/close" },
+  stop: { method: "POST", path: "/stop" },
+} as const;
+export type ControlRouteName = keyof typeof CONTROL_ROUTES;
+
+export const CONTROL_TOKEN_HEADER = "x-junto-token";
+export const CONTROL_REQUEST_ID_HEADER = "x-junto-request-id";
+/** Seat generation credential (`JUNTO_WORK_TOKEN`); identity for protected routes. */
+export const CONTROL_SEAT_CREDENTIAL_HEADER = "x-junto-seat-credential";
+
+/** Child-only environment inputs. Values never enter argv or query strings. */
+export const CONTROL_HOME_ENV = "JUNTO_BROWSER_HOME";
+
+/** UUID or 32-byte hex ids are accepted; both remain header-bounded. */
+export const isValidControlRequestId = (value: string): boolean =>
+  /^(?:[0-9a-f]{32}|[0-9a-f]{64}|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/.test(
+    value,
+  );

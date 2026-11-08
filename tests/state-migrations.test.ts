@@ -1,0 +1,595 @@
+import { DatabaseSync } from "node:sqlite";
+import { describe, expect, it } from "vitest";
+import {
+  STATE_SCHEMA_CONSOLIDATE_SAFETY,
+  STATE_SCHEMA_MIGRATION_SAFETY,
+  STATE_SCHEMA_MIGRATION_PLAN,
+  migrateStateSchema,
+  validateStateSchemaMigrationPlan,
+  type StateSchemaMigrationPlan,
+} from "../src/core/state/migrations";
+import {
+  STATE_SCHEMA_IDENTITY_SQL,
+  STATE_SCHEMA_SQL,
+} from "../src/core/state/schema";
+import {
+  expectedStateSchemaIdentity,
+  verifyAndStampStateSchema,
+} from "../src/core/state/schema-identity";
+
+const VERSION_ONE_SQL = `
+  ${STATE_SCHEMA_IDENTITY_SQL}
+  CREATE TABLE migration_items (
+    id TEXT PRIMARY KEY,
+    payload TEXT NOT NULL
+  ) STRICT;
+`;
+
+const VERSION_TWO_SQL = `
+  ${STATE_SCHEMA_IDENTITY_SQL}
+  CREATE TABLE migration_items (
+    id TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT 'migrated'
+  ) STRICT;
+`;
+
+const openDatabase = (): DatabaseSync => {
+  const database = new DatabaseSync(":memory:", {
+    open: true,
+    readOnly: false,
+    allowExtension: false,
+    enableForeignKeyConstraints: true,
+  });
+  database.exec("PRAGMA foreign_keys = ON");
+  return database;
+};
+
+const seedVersionOne = (
+  database: DatabaseSync,
+  version = 1,
+): void => {
+  database.exec(VERSION_ONE_SQL);
+  database
+    .prepare(
+      "INSERT INTO migration_items(id, payload) VALUES (?, ?)",
+    )
+    .run("preserved", "before");
+  verifyAndStampStateSchema(database, VERSION_ONE_SQL);
+  database.exec(`PRAGMA user_version = ${version}`);
+};
+
+const migrationPlan = (
+  migrate: StateSchemaMigrationPlan["migrations"][number]["migrate"],
+): StateSchemaMigrationPlan => {
+  const versionOne = expectedStateSchemaIdentity(VERSION_ONE_SQL);
+  return {
+    baselineVersion: 1,
+    baselineIdentity: versionOne,
+    currentVersion: 2,
+    currentSchemaSql: VERSION_TWO_SQL,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        name: "add-migration-note",
+        safety: STATE_SCHEMA_MIGRATION_SAFETY,
+        fromIdentity: versionOne,
+        migrate,
+      },
+    ],
+  };
+};
+
+const databaseWitness = (database: DatabaseSync) => ({
+  version: database.prepare("PRAGMA user_version").get(),
+  schema: database
+    .prepare(
+      `
+        SELECT type, name, sql
+        FROM sqlite_schema
+        WHERE name NOT GLOB 'sqlite_*'
+        ORDER BY type, name
+      `,
+    )
+    .all(),
+  identity: database
+    .prepare(
+      `
+        SELECT actual_schema_sha256, verified_at
+        FROM state_schema_identity
+        WHERE singleton = 1
+      `,
+    )
+    .get(),
+  rows: database
+    .prepare("SELECT * FROM migration_items ORDER BY id")
+    .all(),
+});
+
+describe("State schema migrations", () => {
+  it("opens nothing older than version 13", () => {
+    expect(STATE_SCHEMA_MIGRATION_PLAN.baselineVersion).toBe(13);
+    expect(STATE_SCHEMA_MIGRATION_PLAN.migrations[0]?.fromVersion).toBe(13);
+    const database = openDatabase();
+    seedVersionOne(database, 12);
+    expect(() => migrateStateSchema(database, STATE_SCHEMA_MIGRATION_PLAN)).toThrow(
+      "state schema version 12 predates the supported baseline 13",
+    );
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 12 });
+  });
+
+  it("rejects a branching or incomplete forward migration registry", () => {
+    const identity = expectedStateSchemaIdentity(STATE_SCHEMA_SQL);
+    expect(() =>
+      validateStateSchemaMigrationPlan({
+        baselineVersion: 1,
+        baselineIdentity: identity,
+        currentVersion: 3,
+        currentSchemaSql: STATE_SCHEMA_SQL,
+        migrations: [
+          {
+            fromVersion: 1,
+            toVersion: 2,
+            name: "one-to-two",
+            safety: STATE_SCHEMA_MIGRATION_SAFETY,
+            fromIdentity: identity,
+            migrate: () => undefined,
+          },
+        ],
+      })
+    ).toThrow("missing state schema migration 2 -> 3");
+    expect(() =>
+      validateStateSchemaMigrationPlan({
+        baselineVersion: 1,
+        baselineIdentity: identity,
+        currentVersion: 2,
+        currentSchemaSql: STATE_SCHEMA_SQL,
+        migrations: [
+          {
+            fromVersion: 1,
+            toVersion: 2,
+            name: "first",
+            safety: STATE_SCHEMA_MIGRATION_SAFETY,
+            fromIdentity: identity,
+            migrate: () => undefined,
+          },
+          {
+            fromVersion: 1,
+            toVersion: 2,
+            name: "branch",
+            safety: STATE_SCHEMA_MIGRATION_SAFETY,
+            fromIdentity: identity,
+            migrate: () => undefined,
+          },
+        ],
+      })
+    ).toThrow("duplicate state schema migration from version 1");
+  });
+
+  it("migrates forward in place and preserves existing rows", () => {
+    const database = openDatabase();
+    try {
+      seedVersionOne(database);
+      const result = migrateStateSchema(
+        database,
+        migrationPlan((connection) => {
+          connection.exec(`
+            ALTER TABLE migration_items
+            ADD COLUMN note TEXT NOT NULL DEFAULT 'migrated';
+            UPDATE migration_items
+            SET note = 'copied:' || payload
+          `);
+        }),
+      );
+
+      expect(result).toMatchObject({
+        previousVersion: 1,
+        schemaVersion: 2,
+        initialized: false,
+      });
+      expect(database.prepare("PRAGMA user_version").get()).toEqual({
+        user_version: 2,
+      });
+      expect(
+        database
+          .prepare(
+            "SELECT id, payload, note FROM migration_items",
+          )
+          .all(),
+      ).toEqual([
+        {
+          id: "preserved",
+          payload: "before",
+          note: "copied:before",
+        },
+      ]);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("adopts only the frozen unversioned baseline before migrating", () => {
+    const database = openDatabase();
+    try {
+      seedVersionOne(database, 0);
+      const result = migrateStateSchema(
+        database,
+        migrationPlan((connection) => {
+          connection.exec(`
+            ALTER TABLE migration_items
+            ADD COLUMN note TEXT NOT NULL DEFAULT 'migrated'
+          `);
+        }),
+      );
+      expect(result.previousVersion).toBe(0);
+      expect(database.prepare("PRAGMA user_version").get()).toEqual({
+        user_version: 2,
+      });
+      expect(
+        database
+          .prepare(
+            "SELECT payload, note FROM migration_items WHERE id = 'preserved'",
+          )
+          .get(),
+      ).toEqual({ payload: "before", note: "migrated" });
+    } finally {
+      database.close();
+    }
+  });
+
+  it("rejects an unversioned database with a forged baseline witness", () => {
+    const database = openDatabase();
+    try {
+      seedVersionOne(database, 0);
+      database
+        .prepare(
+          `
+            UPDATE state_schema_identity
+            SET actual_schema_sha256 = ?
+            WHERE singleton = 1
+          `,
+        )
+        .run("f".repeat(64));
+      const before = databaseWitness(database);
+      expect(() =>
+        migrateStateSchema(
+          database,
+          migrationPlan((connection) => {
+            connection.exec(`
+              ALTER TABLE migration_items
+              ADD COLUMN note TEXT NOT NULL DEFAULT 'migrated'
+            `);
+          }),
+        )
+      ).toThrow(
+        /state schema changed after its recorded identity was stamped|not a recognized Junto schema/,
+      );
+      expect(databaseWitness(database)).toEqual(before);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("admits migration when only the retired source column differs", () => {
+    const database = openDatabase();
+    try {
+      seedVersionOne(database, 1);
+      database
+        .prepare(
+          `
+            UPDATE state_schema_identity
+            SET source_schema_sha256 = ?
+            WHERE singleton = 1
+          `,
+        )
+        .run("f".repeat(64));
+      const result = migrateStateSchema(
+        database,
+        migrationPlan((connection) => {
+          connection.exec(`
+            ALTER TABLE migration_items
+            ADD COLUMN note TEXT NOT NULL DEFAULT 'migrated'
+          `);
+        }),
+      );
+      expect(result.schemaVersion).toBe(2);
+      expect(result.previousVersion).toBe(1);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("rolls back DDL, data, identity, and version when a migration throws", () => {
+    const database = openDatabase();
+    try {
+      seedVersionOne(database);
+      const before = databaseWitness(database);
+      expect(() =>
+        migrateStateSchema(
+          database,
+          migrationPlan((connection) => {
+            connection.exec(`
+              ALTER TABLE migration_items
+              ADD COLUMN note TEXT NOT NULL DEFAULT 'migrated';
+              UPDATE migration_items
+              SET note = 'transient'
+              WHERE id = 'preserved';
+            `);
+            throw new Error("synthetic migration failure");
+          }),
+        )
+      ).toThrow("synthetic migration failure");
+      expect(databaseWitness(database)).toEqual(before);
+    } finally {
+      database.close();
+    }
+  });
+
+  it.each(["COMMIT", "ROLLBACK"])(
+    "denies migration-owned %s so the startup transaction remains atomic",
+    (transactionSql) => {
+      const database = openDatabase();
+      try {
+        seedVersionOne(database);
+        const before = databaseWitness(database);
+        expect(() =>
+          migrateStateSchema(
+            database,
+            migrationPlan((connection) => {
+              connection.exec(`
+                ALTER TABLE migration_items
+                ADD COLUMN note TEXT NOT NULL DEFAULT 'migrated';
+                INSERT INTO migration_items(id, payload, note)
+                VALUES ('transient', 'during', 'migration');
+                ${transactionSql};
+              `);
+            }),
+          )
+        ).toThrow();
+        expect(databaseWitness(database)).toEqual(before);
+      } finally {
+        database.close();
+      }
+    },
+  );
+
+  it.each([
+    ["row deletion", "DELETE FROM migration_items"],
+    [
+      "existing row insertion",
+      "INSERT INTO migration_items(id, payload) VALUES ('second', 'new')",
+    ],
+    [
+      "existing column rewrite",
+      "UPDATE migration_items SET payload = 'lost'",
+    ],
+    ["table removal", "DROP TABLE migration_items"],
+    [
+      "table rename",
+      "ALTER TABLE migration_items RENAME TO retired_items",
+    ],
+    [
+      "column removal",
+      "ALTER TABLE migration_items DROP COLUMN payload",
+    ],
+    [
+      "row replacement",
+      "INSERT OR REPLACE INTO migration_items(id, payload) VALUES ('preserved', 'lost')",
+    ],
+    ["version rewriting", "PRAGMA user_version = 99"],
+  ])(
+    "rejects destructive startup migration operation: %s",
+    (_label, sql) => {
+      const database = openDatabase();
+      try {
+        seedVersionOne(database);
+        const before = databaseWitness(database);
+        expect(() =>
+          migrateStateSchema(
+            database,
+            migrationPlan((connection) => connection.exec(sql)),
+          )
+        ).toThrow();
+        expect(databaseWitness(database)).toEqual(before);
+      } finally {
+        database.close();
+      }
+    },
+  );
+
+  it("rolls back a completed step when the final schema is not exact", () => {
+    const database = openDatabase();
+    try {
+      seedVersionOne(database);
+      const before = databaseWitness(database);
+      expect(() =>
+        migrateStateSchema(
+          database,
+          migrationPlan((connection) => {
+            connection.exec(`
+              ALTER TABLE migration_items
+              ADD COLUMN unexpected TEXT
+            `);
+          }),
+        )
+      ).toThrow("state schema identity mismatch");
+      expect(databaseWitness(database)).toEqual(before);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("rolls back a migration that leaves foreign-key violations", () => {
+    const database = openDatabase();
+    try {
+      seedVersionOne(database);
+      const before = databaseWitness(database);
+      const versionOne = expectedStateSchemaIdentity(VERSION_ONE_SQL);
+      const versionTwoWithChild = `
+        ${VERSION_TWO_SQL}
+        CREATE TABLE migration_children (
+          id TEXT PRIMARY KEY,
+          item_id TEXT NOT NULL
+            REFERENCES migration_items(id) ON DELETE RESTRICT
+        ) STRICT;
+      `;
+      expect(() =>
+        migrateStateSchema(database, {
+          baselineVersion: 1,
+          baselineIdentity: versionOne,
+          currentVersion: 2,
+          currentSchemaSql: versionTwoWithChild,
+          migrations: [
+            {
+              fromVersion: 1,
+              toVersion: 2,
+              name: "add-invalid-child",
+              safety: STATE_SCHEMA_MIGRATION_SAFETY,
+              fromIdentity: versionOne,
+              migrate: (connection) => {
+                connection.exec(`
+                  ALTER TABLE migration_items
+                  ADD COLUMN note TEXT NOT NULL DEFAULT 'migrated';
+                  CREATE TABLE migration_children (
+                    id TEXT PRIMARY KEY,
+                    item_id TEXT NOT NULL
+                      REFERENCES migration_items(id) ON DELETE RESTRICT
+                  ) STRICT;
+                  PRAGMA defer_foreign_keys = ON;
+                  INSERT INTO migration_children(id, item_id)
+                  VALUES ('invalid', 'missing');
+                `);
+              },
+            },
+          ],
+        })
+      ).toThrow("foreign-key violation");
+      expect(databaseWitness(database)).toEqual(before);
+    } finally {
+      database.close();
+    }
+  });
+
+  describe("a step that renames a table", () => {
+    const BEFORE_SQL = `
+      ${STATE_SCHEMA_IDENTITY_SQL}
+      CREATE TABLE old_owners (id TEXT PRIMARY KEY) STRICT;
+      CREATE TABLE owned (
+        id TEXT PRIMARY KEY,
+        owner TEXT NOT NULL,
+        FOREIGN KEY (owner) REFERENCES old_owners(id) ON DELETE RESTRICT
+      ) STRICT;
+      CREATE TABLE doomed (id TEXT PRIMARY KEY) STRICT;
+    `;
+    const AFTER_SQL = `
+      ${STATE_SCHEMA_IDENTITY_SQL}
+      CREATE TABLE owners (id TEXT PRIMARY KEY) STRICT;
+      CREATE TABLE owned (
+        id TEXT PRIMARY KEY,
+        owner TEXT NOT NULL,
+        FOREIGN KEY (owner) REFERENCES owners(id) ON DELETE RESTRICT
+      ) STRICT;
+    `;
+    const seeded = (): DatabaseSync => {
+      const database = openDatabase();
+      database.exec(BEFORE_SQL);
+      database.exec("INSERT INTO old_owners VALUES ('a'); INSERT INTO owned VALUES ('row', 'a');");
+      verifyAndStampStateSchema(database, BEFORE_SQL);
+      database.exec("PRAGMA user_version = 1");
+      return database;
+    };
+    const renamePlan = (
+      step: Partial<StateSchemaMigrationPlan["migrations"][number]>,
+      migrate: StateSchemaMigrationPlan["migrations"][number]["migrate"],
+    ): StateSchemaMigrationPlan => {
+      const from = expectedStateSchemaIdentity(BEFORE_SQL);
+      return {
+        baselineVersion: 1,
+        baselineIdentity: from,
+        currentVersion: 2,
+        currentSchemaSql: AFTER_SQL,
+        migrations: [
+          {
+            fromVersion: 1,
+            toVersion: 2,
+            name: "rename-owners",
+            safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+            fromIdentity: from,
+            removesTables: ["doomed"],
+            renamesTables: { old_owners: "owners" },
+            ...step,
+            migrate,
+          },
+        ],
+      };
+    };
+    const rename = "ALTER TABLE old_owners RENAME TO owners; DROP TABLE doomed;";
+    const schema = (database: DatabaseSync) =>
+      database.prepare("SELECT name, sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name").all();
+
+    it("keeps the rows, and every reference follows the new name", () => {
+      const database = seeded();
+      try {
+        migrateStateSchema(database, renamePlan({}, (connection) => connection.exec(rename)));
+        expect(database.prepare("SELECT id FROM owners").all()).toEqual([{ id: "a" }]);
+        expect(database.prepare("SELECT id, owner FROM owned").all()).toEqual([{ id: "row", owner: "a" }]);
+        expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+        expect(() => database.exec("INSERT INTO owned VALUES ('stray', 'nobody')")).toThrow(/FOREIGN KEY/u);
+        expect(() => database.exec("DELETE FROM owners WHERE id = 'a'")).toThrow(/FOREIGN KEY/u);
+      } finally {
+        database.close();
+      }
+    });
+
+    it.each([
+      ["a rename it did not declare", {}, "ALTER TABLE owned RENAME TO possessed;", /may not rename/u],
+      ["a declared table renamed to another name", {}, "ALTER TABLE old_owners RENAME TO masters;", /may not rename/u],
+      ["a column rename", {}, "ALTER TABLE old_owners RENAME COLUMN id TO key;", /may not rename/u],
+      ["dropping the table under its new name", {}, `${rename} DROP TABLE owners;`, /not authorized/u],
+      ["emptying the table under its new name", {}, `${rename} DELETE FROM owners;`, /not authorized/u],
+    ] as const)("refuses %s and leaves the database as it was", (_label, step, sql, reason) => {
+      const database = seeded();
+      try {
+        const before = schema(database);
+        expect(() => migrateStateSchema(database, renamePlan(step, (connection) => connection.exec(sql)))).toThrow(reason);
+        expect(schema(database)).toEqual(before);
+        expect(database.prepare("SELECT id FROM old_owners").all()).toEqual([{ id: "a" }]);
+        expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 1 });
+      } finally {
+        database.close();
+      }
+    });
+
+    it("is only for a consolidating step", () => {
+      const database = seeded();
+      try {
+        expect(() =>
+          migrateStateSchema(
+            database,
+            renamePlan({ safety: STATE_SCHEMA_MIGRATION_SAFETY, removesTables: undefined }, (connection) => connection.exec(rename)),
+          ),
+        ).toThrow(/invalid state schema migration/u);
+      } finally {
+        database.close();
+      }
+    });
+  });
+
+  it("rejects a database from a newer release without mutation", () => {
+    const database = openDatabase();
+    try {
+      seedVersionOne(database, 3);
+      const before = databaseWitness(database);
+      expect(() =>
+        migrateStateSchema(
+          database,
+          migrationPlan(() => undefined),
+        )
+      ).toThrow("newer than supported version 2");
+      expect(databaseWitness(database)).toEqual(before);
+    } finally {
+      database.close();
+    }
+  });
+});

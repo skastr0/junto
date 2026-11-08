@@ -1,0 +1,139 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Effect, Schema } from "effect";
+import { expect, it } from "vitest";
+import { Node, asCanvasName, asNodeId, type Canvas } from "../src/shared/model";
+import { ActorSeatId } from "../src/shared/actor-seat";
+import { defaultSettings } from "../src/shared/settings";
+import { seatNodeId, taskNodeId, type TaskId, type TaskView } from "../src/shared/task-model";
+
+import type { TerminalSessionSummary } from "../src/shared/terminal";
+import { canvasReceiptBasis } from "../src/core/work/delivery-receipts";
+import { makeCheckoutWatchComposition, type CheckoutWatchCompositionOptions } from "../src/core/work/checkout-watch-composition";
+import { THIS_MACHINE } from "./support/machines";
+
+const seatId = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"a".repeat(64)}`);
+const seat = Schema.decodeUnknownSync(Node)({ kind: "agent", id: "seat", label: "Worker", x: 0, y: 0, width: 200, height: 100, z: 0, agentKey: "local:codex", host: THIS_MACHINE, bindingId: "binding", harness: "codex", overseer: false });
+const board = Schema.decodeUnknownSync(Node)({ kind: "task", id: "queue", x: 0, y: 0, width: 200, height: 100, z: 1 });
+
+const fixture = async () => {
+  const root = await mkdtemp(join(tmpdir(), "junto-checkout-model-"));
+  let canvas: Canvas = { name: asCanvasName("factory"), seq: 1, nodes: new Map([seat, board].map((node) => [node.id, node])), wires: new Map() };
+  let task: TaskView = {
+    taskId: "task" as TaskId,
+    title: "Task",
+    current: { state: "working", node: taskNodeId(asNodeId("queue")), assignee: seatNodeId(asNodeId("seat")), epoch: 1, stampPolicy: { required: 0 }, reviewers: [], stamps: [] },
+    layers: [],
+    dependsOn: [],
+    createdAt: 1,
+    updatedAt: 1,
+    stateSince: 1,
+  };
+  const others: TaskView[] = [];
+  let head = "a".repeat(40);
+  const receipts: Array<Parameters<CheckoutWatchCompositionOptions["workRepository"]["publishCheckoutReceipts"]>[0]> = [];
+  const records: unknown[] = [];
+  const session: TerminalSessionSummary = { bindingId: "binding", epoch: "generation", hostId: THIS_MACHINE, status: "running", pid: 123, canvasName: "factory", nodeId: "seat", harness: "codex", agentKey: "local:codex", cwd: root, detached: false, createdAt: 1 };
+  const settings = defaultSettings();
+  const options: CheckoutWatchCompositionOptions = {
+    model: { listCanvases: () => Effect.succeed([canvas.name]), canvas: () => Effect.succeed(canvas) },
+    actorRefs: { read: () => Effect.succeed([{ canvasName: "factory", nodeId: "seat", seatId }]) },
+    settings: { get: Effect.succeed({ ...settings, machine: { ...settings.machine, name: THIS_MACHINE } }) },
+    host: { get: () => session },
+    crew: { recordCheckoutObservation: (input) => Effect.sync(() => { records.push(input); return true; }) },
+    tasks: { list: () => Effect.succeed({ tasks: [task, ...others], more: false }) },
+    workRepository: {
+      publishCheckoutReceipts: (input) => Effect.sync(() => { receipts.push(input); return []; }),
+    },
+    messageDelivery: { notifyAppended: () => undefined },
+    basisFor: canvasReceiptBasis,
+    run: Effect.runPromise,
+    write: Effect.runPromise,
+    probe: { head: async () => ({ branch: "main", head }), newCommits: async () => [head] },
+  };
+  return { root, options, receipts, records, advance: () => { head = "b".repeat(40); }, resequence: () => { canvas = { ...canvas, seq: canvas.seq + 1 }; }, complete: () => { task = { ...task, current: { ...task.current, state: "done" } }; }, takeAnother: () => { others.push({ ...task, taskId: "later" as TaskId, title: "Later", createdAt: 2 }); } };
+};
+
+it("checkout receipts use exact task rows and the canvas sequence at commit", async () => {
+  const f = await fixture();
+  const watch = makeCheckoutWatchComposition({ ...f.options, write: (effect) => { f.resequence(); return Effect.runPromise(effect); } });
+  try {
+    await Effect.runPromise(watch.scanOnce());
+    expect(f.records).toEqual([]);
+    f.advance();
+    const result = await Effect.runPromise(watch.scanOnce());
+    expect(result[0]?.receipt.failed).toBe(0);
+    expect(f.receipts).toHaveLength(1);
+    expect(f.receipts[0]).toMatchObject({ basis: { kind: "canvas", canvasName: "factory", seq: 2 }, nodeId: "queue", taskId: "task", author: { fromSeat: seatId, senderNodeId: "seat", senderGeneration: "generation", senderHarness: "codex" }, shas: ["b".repeat(40)] });
+    expect(f.records).toHaveLength(1);
+  } finally { watch.stop(); await rm(f.root, { recursive: true, force: true }); }
+});
+
+it("a claim completed while waiting for the authoring gate cannot emit checkout mail", async () => {
+  const f = await fixture();
+  const watch = makeCheckoutWatchComposition({ ...f.options, write: (effect) => { f.complete(); return Effect.runPromise(effect); } });
+  try {
+    await Effect.runPromise(watch.scanOnce());
+    f.advance();
+    const result = await Effect.runPromise(watch.scanOnce());
+    expect(f.receipts).toEqual([]);
+    expect(f.records).toEqual([]);
+    expect(result[0]?.receipt.failed).toBe(1);
+  } finally { watch.stop(); await rm(f.root, { recursive: true, force: true }); }
+});
+
+it("a seat that takes a newer task while a receipt waits still delivers it on the older open task", async () => {
+  const f = await fixture();
+  const watch = makeCheckoutWatchComposition({ ...f.options, write: (effect) => { f.takeAnother(); return Effect.runPromise(effect); } });
+  try {
+    await Effect.runPromise(watch.scanOnce());
+    f.advance();
+    const result = await Effect.runPromise(watch.scanOnce());
+    expect(result[0]?.receipt.failed).toBe(0);
+    expect(f.receipts).toHaveLength(1);
+    expect(f.receipts[0]).toMatchObject({ taskId: "task", shas: ["b".repeat(40)] });
+  } finally { watch.stop(); await rm(f.root, { recursive: true, force: true }); }
+});
+
+it("a canvas change during claim inventory rejects the pass instead of replacing its baseline", async () => {
+  const f = await fixture();
+  const watch = makeCheckoutWatchComposition({ ...f.options, tasks: { list: (canvasName, query) => { f.resequence(); return f.options.tasks.list(canvasName, query); } } });
+  try {
+    await expect(Effect.runPromise(watch.scanOnce())).rejects.toMatchObject({ reason: "checkout-intent-changed" });
+    expect(f.receipts).toEqual([]);
+    expect(f.records).toEqual([]);
+  } finally { watch.stop(); await rm(f.root, { recursive: true, force: true }); }
+});
+
+it("the machine name is read once a canvas is authored, and every pass before", async () => {
+  const f = await fixture();
+  const settings = defaultSettings();
+  let reads = 0;
+  const watch = makeCheckoutWatchComposition({
+    ...f.options,
+    settings: { get: Effect.sync(() => { reads++; return { ...settings, machine: { ...settings.machine, name: THIS_MACHINE } }; }) },
+  });
+  try {
+    await Effect.runPromise(watch.scanOnce());
+    f.advance();
+    const result = await Effect.runPromise(watch.scanOnce());
+    expect(result[0]?.receipt.checkouts).toBe(1);
+    expect(f.records).toHaveLength(1);
+    expect(reads).toBe(1);
+  } finally { watch.stop(); await rm(f.root, { recursive: true, force: true }); }
+  // Before any canvas is authored the name may still be configured: it is read again.
+  const g = await fixture();
+  let early = 0;
+  const unauthored = { name: "factory" as Canvas["name"], seq: 0, nodes: new Map(), wires: new Map() } as Canvas;
+  const before = makeCheckoutWatchComposition({
+    ...g.options,
+    model: { listCanvases: () => Effect.succeed([unauthored.name]), canvas: () => Effect.succeed(unauthored) },
+    settings: { get: Effect.sync(() => { early++; return settings; }) },
+  });
+  try {
+    await Effect.runPromise(before.scanOnce());
+    await Effect.runPromise(before.scanOnce());
+    expect(early).toBeGreaterThan(1);
+  } finally { before.stop(); await rm(g.root, { recursive: true, force: true }); }
+});

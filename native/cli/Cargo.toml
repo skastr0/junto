@@ -1,0 +1,36 @@
+[package]
+name = "junto-cli"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.98.1"
+license = "LicenseRef-Junto"
+publish = false
+description = "The native junto CLI: what an agent's terminal calls, over the runtime's socket"
+
+[[bin]]
+name = "junto"
+path = "src/main.rs"
+
+# Few dependencies: blocking std sockets and threads, no async runtime unless
+# the byte pipes (N4) prove they need one. serde carries every request and
+# answer as a type; clap parses the command line into one; ulid mints write ids.
+[dependencies]
+clap = { version = "4.5", default-features = false, features = ["std", "derive", "error-context"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
+ulid = "1"
+# The attach path (N3): content digests, byte pieces, and link URLs as WHATWG parses them.
+base64 = "0.22"
+sha2 = "0.10"
+url = "2"
+# Times as Date.parse reads and toISOString writes them.
+jiff = "0.2"
+# The byte pipes (N4) and browser: open flags and statvfs without unsafe, and an HTTP/1.1 response head.
+httparse = "1"
+rustix = { version = "1", features = ["fs"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

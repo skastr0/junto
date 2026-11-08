@@ -1,0 +1,850 @@
+import {
+  access,
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  Context,
+  Effect,
+  Exit,
+  Layer,
+  Result,
+  ManagedRuntime,
+  Scope,
+} from "effect";
+import { RpcTest } from "effect/rpc";
+import { SqlClient } from "effect/sql";
+import {
+  afterEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import {
+  listProfileDirs,
+  makeBrowserProfileService,
+  makeBrowserProfileServiceOn,
+  type BrowserProfilePendingWipe,
+  type BrowserProfileWipeLifecycle,
+  type BrowserProfileWipeOutcome,
+} from "../src/node/browser/profiles";
+import { BrowserProfileGate } from "../src/app/browser/profile-gate";
+import { BrowserStoreCore, BrowserStoreRpcs } from "../src/contract/core/browser-store";
+import { BrowserStoreHandlers } from "../src/core/ops/browser";
+import {
+  BROWSER_MAX_VISIBLE_SURFACES_HARD,
+  BROWSER_MAX_WARM_SESSIONS_HARD,
+} from "../src/shared/browser-limits";
+import {
+  makeStateEngineLive,
+} from "../src/core/state/engine";
+import { StateEngine, StateTransactionOperation } from "../src/core/state/service";
+
+// Main's runtime reads Electron's app at load; main's store adapter needs none of it here.
+vi.mock("../src/app/runtime", () => ({ AppRuntime: ManagedRuntime.make(Layer.empty) }));
+
+const { coreBrowserProfileStore } = await import("../src/app/core-process/main-side/browser");
+
+const FIXED_TIME = "2026-07-17T12:00:00.000Z";
+const MODE_MASK = 0o777;
+
+const run = <A, E>(
+  effect: Effect.Effect<A, E>,
+): Promise<A> => Effect.runPromise(effect);
+
+const runEither = <A, E>(
+  effect: Effect.Effect<A, E>,
+) => Effect.runPromise(Effect.result(effect));
+
+const wipePaths = (
+  root: string,
+  profileId: string,
+) => ({
+  userDataPath: join(root, "electron-user-data"),
+  sessionDataPath: join(
+    root,
+    "electron-user-data",
+    "Session Data",
+  ),
+  storagePath: join(
+    root,
+    "electron-user-data",
+    "Session Data",
+    "Partitions",
+    profileId,
+  ),
+});
+
+describe("browser profile registry", () => {
+  let root = "";
+  let registryRoot = "";
+  let runtime:
+    | ManagedRuntime.ManagedRuntime<StateEngine | SqlClient.SqlClient, unknown>
+    | undefined;
+  let sql: SqlClient.SqlClient;
+
+  afterEach(async () => {
+    await runtime?.dispose();
+    runtime = undefined;
+    if (root) {
+      await rm(root, { recursive: true, force: true });
+    }
+    root = "";
+    registryRoot = "";
+  });
+
+  const freshState = async () => {
+    root = await mkdtemp(
+      join(tmpdir(), "junto-browser-sqlite-"),
+    );
+    registryRoot = join(root, "browser");
+    runtime = ManagedRuntime.make(
+      makeStateEngineLive(join(root, "junto.db")),
+    );
+    sql = await runtime.runPromise(SqlClient.SqlClient);
+    return sql;
+  };
+
+  const service = async (
+    wipeLifecycle?: BrowserProfileWipeLifecycle,
+    profileGate?: BrowserProfileGate,
+  ) => {
+    const stateService = await freshState();
+    return makeBrowserProfileService(
+      stateService,
+      registryRoot,
+      {
+        ...(wipeLifecycle ? { wipeLifecycle } : {}),
+        ...(profileGate ? { profileGate } : {}),
+        now: () => new Date(FIXED_TIME),
+      },
+    );
+  };
+
+  const lifecycle = (
+    executeLive: (
+      pending: BrowserProfilePendingWipe,
+    ) => Promise<BrowserProfileWipeOutcome> =
+      async () => ({ status: "complete" }),
+    recoverCold: (
+      pending: BrowserProfilePendingWipe,
+    ) => Promise<void> =
+      async () => undefined,
+  ): BrowserProfileWipeLifecycle => ({
+    prepare: async ({ profileId }) =>
+      wipePaths(root, profileId),
+    executeLive,
+    recoverCold,
+  });
+
+  const pendingRow = () =>
+    run(sql`
+          SELECT
+            wipe_id AS wipeId,
+            profile_id AS profileId,
+            partition,
+            requested_at AS requestedAt,
+            stage,
+            storage_path AS storagePath,
+            user_data_path AS userDataPath,
+            session_data_path AS sessionDataPath
+          FROM browser_profile_pending_wipe
+          WHERE singleton = 1
+        `.pipe(Effect.map((rows) => rows[0])));
+
+  it("seeds SQLite and owner-only physical profile directories", async () => {
+    const registry = await service();
+    const config = await run(registry.initialize);
+
+    expect(config.defaultProfile).toBe("personal");
+    expect(
+      config.profiles.map((profile) => profile.id),
+    ).toEqual(["personal", "work"]);
+    expect(
+      await run(sql<{ readonly id: string }>`
+            SELECT id
+            FROM browser_profiles
+            ORDER BY sort_order
+          `.pipe(Effect.map((rows) => rows.map((row) => row.id)))),
+    ).toEqual(["personal", "work"]);
+    for (const path of [
+      registryRoot,
+      join(registryRoot, "profiles"),
+      join(registryRoot, "profiles", "personal"),
+      join(registryRoot, "profiles", "work"),
+    ]) {
+      expect((await lstat(path)).mode & MODE_MASK).toBe(
+        0o700,
+      );
+    }
+    expect(
+      await readdir(registryRoot),
+    ).not.toContain("config.json");
+    expect(
+      (await listProfileDirs(registryRoot)).sort(),
+    ).toEqual(["personal", "work"]);
+  });
+
+  it("keeps SQLite as the only authority across an engine restart", async () => {
+    const registry = await service();
+    await run(registry.initialize);
+    await run(registry.createProfile("lab", "Lab"));
+
+    await runtime?.dispose();
+    runtime = ManagedRuntime.make(
+      makeStateEngineLive(join(root, "junto.db")),
+    );
+    sql = await runtime.runPromise(SqlClient.SqlClient);
+    const restarted = makeBrowserProfileService(
+      sql,
+      registryRoot,
+    );
+
+    expect(
+      (await run(restarted.listProfiles)).map(
+        (profile) => profile.id,
+      ),
+    ).toEqual(["personal", "work", "lab"]);
+  });
+
+  it("does not read an adjacent legacy config file", async () => {
+    const stateService = await freshState();
+    await mkdir(registryRoot, { recursive: true });
+    await writeFile(
+      join(registryRoot, "config.json"),
+      JSON.stringify({
+        profiles: [{ id: "forged" }],
+      }),
+    );
+
+    const config = await run(
+      makeBrowserProfileService(
+        stateService,
+        registryRoot,
+      ).initialize,
+    );
+
+    expect(
+      config.profiles.map((profile) => profile.id),
+    ).toEqual(["personal", "work"]);
+  });
+
+  it("repairs owner directory modes and rejects a profile symlink", async () => {
+    const registry = await service();
+    await run(registry.initialize);
+    for (const path of [
+      registryRoot,
+      join(registryRoot, "profiles"),
+      join(registryRoot, "profiles", "personal"),
+      join(registryRoot, "profiles", "work"),
+    ]) {
+      await chmod(path, 0o755);
+    }
+
+    await run(registry.readState);
+    for (const path of [
+      registryRoot,
+      join(registryRoot, "profiles"),
+      join(registryRoot, "profiles", "personal"),
+      join(registryRoot, "profiles", "work"),
+    ]) {
+      expect((await lstat(path)).mode & MODE_MASK).toBe(
+        0o700,
+      );
+    }
+
+    const external = join(root, "external-profile");
+    await mkdir(external);
+    await writeFile(
+      join(external, "sentinel"),
+      "preserve",
+    );
+    await rm(join(registryRoot, "profiles", "work"), {
+      recursive: true,
+    });
+    await symlink(
+      external,
+      join(registryRoot, "profiles", "work"),
+    );
+
+    const result = await runEither(registry.readState);
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.code).toBe("corrupt");
+    }
+    expect(
+      await readFile(
+        join(external, "sentinel"),
+        "utf8",
+      ),
+    ).toBe("preserve");
+  });
+
+  it("rejects semantically corrupt rows without rewriting them", async () => {
+    const registry = await service();
+    await run(registry.initialize);
+    await run(sql.withTransaction(sql`
+          UPDATE browser_profiles
+          SET created_at = 'yesterday'
+          WHERE id = 'work'
+        `));
+
+    const result = await runEither(registry.readState);
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.code).toBe("corrupt");
+    }
+    expect(
+      await run(sql<{ readonly created_at: string }>`
+            SELECT created_at
+            FROM browser_profiles
+            WHERE id = 'work'
+          `.pipe(Effect.map((rows) => rows[0]?.created_at))),
+    ).toBe("yesterday");
+  });
+
+  it("serializes concurrent creates without lost rows", async () => {
+    const registry = await service();
+    await run(registry.initialize);
+    const ids = Array.from(
+      { length: 20 },
+      (_, index) => `lab-${index}`,
+    );
+
+    const results = await Promise.allSettled(
+      ids.map((id) => run(registry.createProfile(id))),
+    );
+
+    expect(
+      results.every((result) => result.status === "fulfilled"),
+    ).toBe(true);
+    const persisted = (
+      await run(registry.listProfiles)
+    ).map((profile) => profile.id);
+    expect(persisted.slice(0, 2)).toEqual([
+      "personal",
+      "work",
+    ]);
+    expect(persisted.slice(2).sort()).toEqual(
+      [...ids].sort(),
+    );
+  });
+
+  it("runs the same registry through the core's browser store group, with each refusal's code kept", async () => {
+    await freshState();
+    // Main's client of the group, answered by the core's handlers on this database.
+    const scope = await run(Scope.make());
+    try {
+      const core = await run(
+        RpcTest.makeClient(BrowserStoreRpcs).pipe(
+          Effect.map((client) => Context.make(BrowserStoreCore, client)),
+          Effect.provide(BrowserStoreHandlers),
+          Effect.provideService(SqlClient.SqlClient, sql),
+          Scope.provide(scope),
+        ),
+      );
+      const registry = makeBrowserProfileServiceOn(coreBrowserProfileStore(core), registryRoot, {
+        wipeLifecycle: lifecycle(),
+        now: () => new Date(FIXED_TIME),
+      });
+      expect((await run(registry.initialize)).profiles.map((profile) => profile.id)).toEqual(["personal", "work"]);
+      await run(registry.createProfile("lab"));
+      const twice = await runEither(registry.createProfile("lab"));
+      expect(Result.isFailure(twice) && twice.failure).toMatchObject({ _tag: "BrowserProfileError", code: "invalid", message: "profile already exists" });
+      await run(registry.touchProfile("lab"));
+      expect(await run(registry.wipeProfile("lab"))).toEqual({ status: "complete" });
+      expect((await run(registry.listProfiles)).map((profile) => profile.id)).toEqual(["personal", "work"]);
+      // The rows are the core's: a SQL service on the same database reads them.
+      expect((await run(makeBrowserProfileService(sql, registryRoot).listProfiles)).map((profile) => profile.id)).toEqual(["personal", "work"]);
+    } finally {
+      await run(Scope.close(scope, Exit.void));
+    }
+  });
+
+  it("allows exactly one concurrent duplicate create", async () => {
+    const registry = await service();
+    await run(registry.initialize);
+
+    const results = await Promise.all([
+      runEither(registry.createProfile("lab")),
+      runEither(registry.createProfile("lab")),
+    ]);
+
+    expect(results.filter(Result.isSuccess)).toHaveLength(1);
+    expect(results.filter(Result.isFailure)).toHaveLength(1);
+  });
+
+  it("does not create a physical profile for a rejected database write", async () => {
+    const registry = await service();
+    await run(registry.initialize);
+    await run(sql.withTransaction(Effect.gen(function* () {
+      for (let index = 2; index < 64; index += 1) {
+        yield* sql`
+            INSERT INTO browser_profiles(
+              id,
+              label,
+              created_at,
+              last_used_at,
+              sort_order
+            )
+            VALUES (${"capacity-" + index}, NULL, ${FIXED_TIME}, NULL, ${index})
+          `;
+      }
+    })));
+
+    const result = await runEither(
+      registry.createProfile("overflow"),
+    );
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.code).toBe("forbidden");
+    }
+    await expect(
+      access(
+        join(
+          registryRoot,
+          "profiles",
+          "overflow",
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("publishes a recreated profile to its gate only after commit", async () => {
+    const sql = await freshState();
+    const gate = new BrowserProfileGate();
+    let createCommitted = false;
+    const withTransaction = sql.withTransaction;
+    vi.spyOn(sql, "withTransaction").mockImplementation((body) =>
+      withTransaction(body).pipe(Effect.tap(() => Effect.gen(function* () {
+        if ((yield* StateTransactionOperation) === "browser-profiles.create") {
+          createCommitted = true;
+        }
+      }))),
+    );
+    const registry = makeBrowserProfileService(
+      sql,
+      registryRoot,
+      {
+        wipeLifecycle: lifecycle(),
+        profileGate: gate,
+        now: () => new Date(FIXED_TIME),
+      },
+    );
+    await run(registry.initialize);
+    const block = gate.begin("personal");
+    if (!block.ok) throw new Error("gate did not block");
+    expect(gate.commitDeleted(block.data)).toBe(true);
+    await run(registry.wipeProfile("personal"));
+
+    let durableAtAdmission = false;
+    const markCreated = gate.markCreated.bind(gate);
+    const markCreatedSpy = vi
+      .spyOn(gate, "markCreated")
+      .mockImplementation((profile) => {
+        durableAtAdmission = createCommitted;
+        return markCreated(profile);
+      });
+
+    await run(
+      registry.createProfile("personal", "Personal"),
+    );
+
+    expect(markCreatedSpy).toHaveBeenCalledOnce();
+    expect(durableAtAdmission).toBe(true);
+    expect(gate.disposition("personal")).toBe("open");
+  });
+
+  it("keeps a committed profile when admission fails closed", async () => {
+    const gate = new BrowserProfileGate();
+    expect(gate.begin("lab")).toMatchObject({ ok: true });
+    const registry = await service(undefined, gate);
+    await run(registry.initialize);
+
+    const result = await runEither(
+      registry.createProfile("lab", "Lab"),
+    );
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        code: "pending_wipe",
+        message: "browser profile admission unavailable",
+      });
+    }
+    expect(
+      (await run(registry.listProfiles)).map(
+        (profile) => profile.id,
+      ),
+    ).toContain("lab");
+  });
+
+  it("commits exact wipe intent before external deletion", async () => {
+    let observed:
+      | Record<string, unknown>
+      | undefined;
+    const registry = await service(
+      lifecycle(async () => {
+        observed = await pendingRow();
+        return { status: "complete" };
+      }),
+    );
+    await run(registry.initialize);
+    await run(sql.withTransaction(sql`
+          INSERT INTO browser_profile_canvas_defaults(
+            canvas_name,
+            profile_id
+          )
+          VALUES ('portfolio', 'personal'),
+                 ('workbench', 'work')
+        `));
+
+    const receipt = await run(
+      registry.wipeProfile("personal"),
+    );
+
+    expect(receipt).toEqual({ status: "complete" });
+    expect(Object.isFrozen(receipt)).toBe(true);
+    expect(observed).toMatchObject({
+      profileId: "personal",
+      partition: "persist:junto-profile-personal",
+      stage: "live_clear_pending",
+      ...wipePaths(root, "personal"),
+    });
+    expect(observed?.wipeId).toEqual(
+      expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      ),
+    );
+    const final = await run(registry.readState);
+    expect(final.defaultProfile).toBe("work");
+    expect(final.canvasDefaults).toEqual({
+      workbench: "work",
+    });
+    expect(
+      final.profiles.map((profile) => profile.id),
+    ).toEqual(["work"]);
+    expect(await pendingRow()).toBeUndefined();
+  });
+
+  it("retains failed intent, filters its target, and cold-recovers", async () => {
+    const failing = await service(
+      lifecycle(async () => {
+        throw new Error("private path");
+      }),
+    );
+    await run(failing.initialize);
+    await run(sql.withTransaction(sql`
+          INSERT INTO browser_profile_canvas_defaults(
+            canvas_name,
+            profile_id
+          )
+          VALUES ('portfolio', 'personal'),
+                 ('workbench', 'work')
+        `));
+
+    const wipe = await runEither(
+      failing.wipeProfile("personal"),
+    );
+    expect(Result.isFailure(wipe)).toBe(true);
+    expect(
+      (await run(failing.listProfiles)).map(
+        (profile) => profile.id,
+      ),
+    ).toEqual(["work"]);
+    expect(
+      await run(
+        failing.resolveDefaultProfile("portfolio"),
+      ),
+    ).toBe("work");
+    await run(failing.touchProfile("work"));
+    expect(await pendingRow()).toMatchObject({
+      profileId: "personal",
+      stage: "live_clear_pending",
+    });
+
+    let liveCalls = 0;
+    let coldPending:
+      | BrowserProfilePendingWipe
+      | undefined;
+    const recovered = makeBrowserProfileService(
+      await runtime!.runPromise(SqlClient.SqlClient),
+      registryRoot,
+      {
+        wipeLifecycle: lifecycle(
+          async () => {
+            liveCalls += 1;
+            return { status: "complete" };
+          },
+          async (pending) => {
+            coldPending = pending;
+          },
+        ),
+      },
+    );
+    await run(recovered.recoverPendingWipe);
+    expect(liveCalls).toBe(0);
+    expect(coldPending).toMatchObject({
+      profileId: "personal",
+      stage: "live_clear_pending",
+    });
+    expect(await pendingRow()).toBeUndefined();
+    expect(
+      (await run(recovered.listProfiles)).map(
+        (profile) => profile.id,
+      ),
+    ).toEqual(["work"]);
+  });
+
+  it("persists restart recovery and never re-enters live deletion", async () => {
+    const registry = await service(
+      lifecycle(async () => ({
+        status: "restart_delete_pending",
+      })),
+    );
+    await run(registry.initialize);
+
+    expect(
+      await run(registry.wipeProfile("personal")),
+    ).toEqual({ status: "restart_required" });
+    expect(await pendingRow()).toMatchObject({
+      profileId: "personal",
+      stage: "restart_delete_pending",
+    });
+
+    let liveCalls = 0;
+    let recoveredStage = "";
+    const recovered = makeBrowserProfileService(
+      await runtime!.runPromise(SqlClient.SqlClient),
+      registryRoot,
+      {
+        wipeLifecycle: lifecycle(
+          async () => {
+            liveCalls += 1;
+            return { status: "complete" };
+          },
+          async (pending) => {
+            recoveredStage = pending.stage;
+          },
+        ),
+      },
+    );
+    await run(recovered.recoverPendingWipe);
+
+    expect(liveCalls).toBe(0);
+    expect(recoveredStage).toBe(
+      "restart_delete_pending",
+    );
+    expect(await pendingRow()).toBeUndefined();
+  });
+
+  it("rejects corrupt persisted wipe paths without invoking recovery", async () => {
+    const failing = await service(
+      lifecycle(async () => {
+        throw new Error("stay pending");
+      }),
+    );
+    await run(failing.initialize);
+    await runEither(failing.wipeProfile("personal"));
+    await run(sql.withTransaction(sql`
+          UPDATE browser_profile_pending_wipe
+          SET session_data_path = ${join(root, "outside-session")}
+          WHERE singleton = 1
+        `));
+    let recovered = false;
+    const serviceAfterRestart = makeBrowserProfileService(
+      await runtime!.runPromise(SqlClient.SqlClient),
+      registryRoot,
+      {
+        wipeLifecycle: lifecycle(
+          undefined,
+          async () => {
+            recovered = true;
+          },
+        ),
+      },
+    );
+
+    const result = await runEither(
+      serviceAfterRestart.recoverPendingWipe,
+    );
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.code).toBe("corrupt");
+    }
+    expect(recovered).toBe(false);
+  });
+
+  it("refuses unavailable or last-profile wipes before preparation", async () => {
+    const registry = await service();
+    await run(registry.initialize);
+    const unavailable = await runEither(
+      registry.wipeProfile("work"),
+    );
+    expect(Result.isFailure(unavailable)).toBe(true);
+    expect(await pendingRow()).toBeUndefined();
+
+    await run(sql.withTransaction(Effect.gen(function* () {
+      yield* sql`
+          UPDATE browser_profile_settings
+          SET default_profile = 'personal'
+          WHERE singleton = 1
+        `;
+      yield* sql`DELETE FROM browser_profiles WHERE id = 'work'`;
+    })));
+    let prepared = false;
+    const oneProfile = makeBrowserProfileService(
+      await runtime!.runPromise(SqlClient.SqlClient),
+      registryRoot,
+      {
+        wipeLifecycle: {
+          prepare: async ({ profileId }) => {
+            prepared = true;
+            return wipePaths(root, profileId);
+          },
+          executeLive: async () => ({
+            status: "complete",
+          }),
+          recoverCold: async () => undefined,
+        },
+      },
+    );
+
+    const last = await runEither(
+      oneProfile.wipeProfile("personal"),
+    );
+    expect(Result.isFailure(last)).toBe(true);
+    if (Result.isFailure(last)) {
+      expect(last.failure.code).toBe("forbidden");
+    }
+    expect(prepared).toBe(false);
+  });
+
+  it("never recursively deletes unexpected physical bookkeeping", async () => {
+    const registry = await service(lifecycle());
+    await run(registry.initialize);
+    const sentinel = join(
+      registryRoot,
+      "profiles",
+      "personal",
+      "sentinel",
+    );
+    await writeFile(sentinel, "preserve", {
+      mode: 0o600,
+    });
+
+    const result = await runEither(
+      registry.wipeProfile("personal"),
+    );
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.code).toBe("corrupt");
+    }
+    expect(await readFile(sentinel, "utf8")).toBe(
+      "preserve",
+    );
+    expect(await pendingRow()).toMatchObject({
+      profileId: "personal",
+    });
+  });
+
+  it.each([
+    [
+      "storage outside session data",
+      (base: ReturnType<typeof wipePaths>) => ({
+        ...base,
+        storagePath: join(root, "outside"),
+      }),
+    ],
+    [
+      "session data outside user data",
+      (base: ReturnType<typeof wipePaths>) => ({
+        ...base,
+        sessionDataPath: join(root, "session"),
+      }),
+    ],
+    [
+      "storage equal to user data",
+      (base: ReturnType<typeof wipePaths>) => ({
+        ...base,
+        storagePath: base.userDataPath,
+      }),
+    ],
+    [
+      "storage equal to session data",
+      (base: ReturnType<typeof wipePaths>) => ({
+        ...base,
+        storagePath: base.sessionDataPath,
+      }),
+    ],
+  ])(
+    "rejects %s before committing a pending wipe",
+    async (_name, change) => {
+      const registry = await service({
+        prepare: async ({ profileId }) =>
+          change(wipePaths(root, profileId)),
+        executeLive: async () => ({
+          status: "complete",
+        }),
+        recoverCold: async () => undefined,
+      });
+      await run(registry.initialize);
+
+      const result = await runEither(
+        registry.wipeProfile("personal"),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe("forbidden");
+      }
+      expect(await pendingRow()).toBeUndefined();
+    },
+  );
+
+  it("reports bounded health without exposing paths", async () => {
+    const registry = await service();
+    const check = await run(registry.doctor);
+
+    expect(check).toMatchObject({
+      id: "browser-profiles",
+      status: "ok",
+    });
+    expect(check.detail).toContain("registry v1");
+    expect(check.detail).not.toContain(root);
+  });
+
+  it("accepts exact hard-limit maxima from canonical state", async () => {
+    const registry = await service();
+    await run(registry.initialize);
+    await run(sql.withTransaction(sql`
+          UPDATE browser_profile_settings
+          SET
+            max_warm_sessions = ${BROWSER_MAX_WARM_SESSIONS_HARD},
+            max_visible_surfaces = ${BROWSER_MAX_VISIBLE_SURFACES_HARD}
+          WHERE singleton = 1
+        `));
+
+    const state = await run(registry.readState);
+    expect(state.maxWarmSessions).toBe(
+      BROWSER_MAX_WARM_SESSIONS_HARD,
+    );
+    expect(state.maxVisibleSurfaces).toBe(
+      BROWSER_MAX_VISIBLE_SURFACES_HARD,
+    );
+  });
+});

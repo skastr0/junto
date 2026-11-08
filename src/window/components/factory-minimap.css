@@ -1,0 +1,62 @@
+/* Minimap seats (FactoryMinimap.tsx): agents are dots rimmed in the ground
+   so they stand off the region tints; a seat that is blocked, needs the
+   operator or has work for review is rimmed in that state's colour.
+
+   Pings: blocked and needs-you seats send a ring outward, smoothly, on the
+   seat rings' 2.88 s cycle: blocked twice per cycle, needs-you once. While
+   motion is paused (hidden window, reduced motion) the ping is not drawn;
+   the rim still says it.
+
+   The pings are HTML spans in a layer over the map, never SVG children:
+   Chromium composites transform and opacity on an element, not on an SVG
+   child, which it restyles and re-lays out on the main thread every frame.
+   The layer carries the viewBox's placement as its transform
+   (FactoryMinimap.tsx), so a ping is sized in flow units like its dot. */
+
+.junto-minimap-seat {
+  stroke: color-mix(in oklab, var(--color-ground) 55%, transparent);
+  cursor: pointer;
+}
+.junto-minimap-seat[data-urgency="blocked"] { stroke: var(--color-crimson); }
+.junto-minimap-seat[data-urgency="needs-you"] { stroke: var(--color-amber); }
+.junto-minimap-seat[data-urgency="review"] { stroke: var(--color-cyan); }
+
+.junto-minimap-pings {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+.junto-minimap-ping {
+  position: absolute;
+  box-sizing: border-box;
+  border-style: solid;
+  border-radius: 50%;
+  opacity: 0;
+  transform-origin: center;
+}
+.junto-minimap-ping[data-urgency="blocked"] { border-color: var(--color-crimson); }
+.junto-minimap-ping[data-urgency="needs-you"] { border-color: var(--color-amber); }
+
+@keyframes juntoMinimapPingBlocked {
+  from { opacity: 0.75; transform: scale(1); }
+  to { opacity: 0; transform: scale(2.3); }
+}
+@keyframes juntoMinimapPingNeedsYou {
+  from { opacity: 0.6; transform: scale(1); }
+  to { opacity: 0; transform: scale(2.2); }
+}
+.junto-minimap-ping[data-urgency="blocked"] {
+  animation: juntoMinimapPingBlocked 1.44s linear infinite;
+}
+.junto-minimap-ping[data-urgency="needs-you"] {
+  animation: juntoMinimapPingNeedsYou 2.88s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+}
+html[data-surface-motion="paused"] .junto-minimap-ping { animation: none; }
+/* No part of the map in the window (scrolled out of the bottom bar in a
+   narrow window): no one sees a ping, so none runs (lib/unseen.ts, operator
+   signal 01M63W6RQY1YT2Q65MCM0N3YQ8). The rim still says it. */
+.react-flow__minimap[data-unseen] .junto-minimap-ping { animation: none; }

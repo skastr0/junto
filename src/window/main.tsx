@@ -1,0 +1,256 @@
+import { lazy, Profiler, StrictMode, Suspense, useEffect } from "react";
+import { Effect } from "effect";
+import { createRoot as createStandardRoot } from "react-dom/client";
+import "@xyflow/react/dist/style.css";
+import { App } from "./App";
+import { RendererErrorBoundary } from "./components/RendererErrorBoundary";
+import { canvasPerformance } from "./lib/performance/canvas-performance";
+import { PERF_ENABLED } from "./lib/performance/perf-flag";
+import {
+  startCanvasPerformanceHarness,
+  type ReactProfilerBuild,
+} from "./lib/performance/perf-harness";
+import { startThemeMode } from "./lib/theme-mode";
+import { installIpcAutomationsSource } from "./lib/automations-ipc-source";
+import { installIpcBrowserChrome } from "./lib/browser-chrome-ipc";
+import { installFileDraftsUnloadGuard, settleFileDrafts } from "./lib/files-drafts-settle";
+import { LiveSeatViewSource } from "./components/LiveSeatViewSource";
+import { pageLink } from "./rpc/link";
+import { makeWindowRuntime, WindowRuntimeContext } from "./rpc/runtime";
+import { windowTracing } from "./rpc/tracing";
+import "./styles.css";
+import { refuseAnimationIterationListeners } from "./lib/animation-iteration";
+
+// Before any React root or portal exists: no listener for animationiteration,
+// so a looping CSS animation never wakes the main thread (animation-iteration.ts).
+refuseAnimationIterationListeners();
+
+// Dev-only render highlighter (https://github.com/aidenybai/react-scan).
+// Import before createRoot so the scanner can instrument React.
+// Off by default (heavy on React Flow canvases) — opt in per machine with:
+//   localStorage.setItem("junto:react-scan", "on")
+if (import.meta.env.DEV && localStorage.getItem("junto:react-scan") === "on") {
+  void import("react-scan").then(({ scan }) => {
+    scan({ enabled: true, showToolbar: true, animationSpeed: "fast" });
+  });
+}
+
+const root = document.getElementById("root");
+
+if (!root) {
+  throw new Error("Missing root element");
+}
+
+// Main owns platform-sensitive authority. This marker only selects renderer
+// geometry and copy; it never grants an OS capability.
+document.documentElement.dataset.juntoPlatform = window.junto?.platform ?? "unknown";
+
+// The Automations node reads and writes through main once main serves it.
+installIpcAutomationsSource(window.junto);
+// The page chrome reads and drives pages through main, where the browser is in the build.
+installIpcBrowserChrome(window.junto);
+// A reload with unsaved Files drafts asks first; main asks the same before a quit or a close.
+installFileDraftsUnloadGuard();
+window.junto?.onFilesDraftsSettle(settleFileDrafts);
+
+// The window's one runtime, on its link to main (src/contract/window/link.ts).
+// Built now, so the window follows where its update stands from boot.
+const windowRuntime = makeWindowRuntime(pageLink(window.junto, window), windowTracing(window.junto?.tracing === true, window.location.origin));
+windowRuntime.runSync(Effect.void);
+
+// Dev gallery for the activity mark (`#/gallery/marks`); split off the boot chunk.
+const MARK_GALLERY = "#/gallery/marks";
+const ActivityMarkGallery = lazy(() =>
+  import("./components/gallery/ActivityMarkGallery").then((m) => ({ default: m.ActivityMarkGallery })),
+);
+
+// Dev gallery for code and diffs (`#/gallery/code`).
+const CODE_GALLERY = "#/gallery/code";
+const CodeViewGallery = lazy(() =>
+  import("./components/gallery/CodeViewGallery").then((m) => ({ default: m.CodeViewGallery })),
+);
+
+// Dev gallery for the Tasks controls (`#/gallery/tasks`).
+const TASKS_GALLERY = "#/gallery/tasks";
+const TaskControlsGallery = lazy(() =>
+  import("./components/gallery/TaskControlsGallery").then((m) => ({ default: m.TaskControlsGallery })),
+);
+
+// Dev gallery for the Tasks node (`#/gallery/tasks-node`).
+const TASKS_NODE_GALLERY = "#/gallery/tasks-node";
+const TasksNodeGallery = lazy(() =>
+  import("./components/gallery/TasksNodeGallery").then((m) => ({ default: m.TasksNodeGallery })),
+);
+
+// Dev gallery for the page chrome (`#/gallery/browser-chrome`).
+const BROWSER_CHROME_GALLERY = "#/gallery/browser-chrome";
+const BrowserChromeGallery = lazy(() =>
+  import("./components/gallery/BrowserChromeGallery").then((m) => ({ default: m.BrowserChromeGallery })),
+);
+
+// Dev gallery for the preview cards (`#/gallery/previews`).
+const PREVIEWS_GALLERY = "#/gallery/previews";
+const PreviewCardGallery = lazy(() =>
+  import("./components/gallery/PreviewCardGallery").then((m) => ({ default: m.PreviewCardGallery })),
+);
+
+// Dev gallery for the file viewers (`#/gallery/files`).
+const FILES_GALLERY = "#/gallery/files";
+const FileViewGallery = lazy(() =>
+  import("./components/gallery/FileViewGallery").then((m) => ({ default: m.FileViewGallery })),
+);
+
+// Dev gallery for the kind seats (`#/gallery/kinds`).
+const KINDS_GALLERY = "#/gallery/kinds";
+const KindSeatGallery = lazy(() =>
+  import("./components/gallery/KindSeatGallery").then((m) => ({ default: m.KindSeatGallery })),
+);
+
+function AppRoot() {
+  const api = window.junto;
+
+  useEffect(() => {
+    // A mounted product shell satisfies main's renderer-readiness challenge.
+    api?.rendererSurfaceReady();
+    startThemeMode();
+  }, [api]);
+
+  if (window.location.hash.startsWith(MARK_GALLERY)) {
+    return (
+      <Suspense fallback={null}>
+        <ActivityMarkGallery />
+      </Suspense>
+    );
+  }
+
+  if (window.location.hash.startsWith(PREVIEWS_GALLERY)) {
+    return (
+      <Suspense fallback={null}>
+        <PreviewCardGallery />
+      </Suspense>
+    );
+  }
+
+  if (window.location.hash.startsWith(FILES_GALLERY)) {
+    return (
+      <Suspense fallback={null}>
+        <FileViewGallery />
+      </Suspense>
+    );
+  }
+
+  if (window.location.hash.startsWith(KINDS_GALLERY)) {
+    return (
+      <Suspense fallback={null}>
+        <KindSeatGallery />
+      </Suspense>
+    );
+  }
+
+  if (window.location.hash.startsWith(CODE_GALLERY)) {
+    return (
+      <Suspense fallback={null}>
+        <CodeViewGallery />
+      </Suspense>
+    );
+  }
+
+  if (window.location.hash.startsWith(BROWSER_CHROME_GALLERY)) {
+    return (
+      <Suspense fallback={null}>
+        <BrowserChromeGallery />
+      </Suspense>
+    );
+  }
+
+  if (window.location.hash.startsWith(TASKS_NODE_GALLERY)) {
+    return (
+      <Suspense fallback={null}>
+        <TasksNodeGallery />
+      </Suspense>
+    );
+  }
+
+  if (window.location.hash.startsWith(TASKS_GALLERY)) {
+    return (
+      <Suspense fallback={null}>
+        <TaskControlsGallery />
+      </Suspense>
+    );
+  }
+
+  if (!api) {
+    return (
+      <main className="mx-auto my-8 max-w-md rounded-[5px] border border-stroke bg-raise px-6 py-5 text-center text-ink">
+        <section role="alert">
+          Electron preload bridge is not available.
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <RendererErrorBoundary title="This window hit a render error">
+      <App />
+    </RendererErrorBoundary>
+  );
+}
+
+type CreateRoot = typeof createStandardRoot;
+
+/**
+ * React's production build compiles `Profiler.onRender` out — the callback is
+ * not merely skipped, the call site does not exist in
+ * react-dom-client.production.js. A packaged build therefore reports zero
+ * React commits forever unless the tree is mounted by react-dom's profiling
+ * build, which is the same production reconciler plus the profiler timers.
+ *
+ * Loaded only when JUNTO_PERF is on, so it code-splits away from the boot
+ * chunk and the shipped default path is byte-for-byte the standard client.
+ */
+const loadProfilingCreateRoot = async (): Promise<CreateRoot | undefined> => {
+  try {
+    const module = (await import("react-dom/profiling")) as unknown as {
+      readonly createRoot?: CreateRoot;
+      readonly default?: { readonly createRoot?: CreateRoot };
+    };
+    return module.createRoot ?? module.default?.createRoot;
+  } catch {
+    return undefined;
+  }
+};
+
+const mount = (createRoot: CreateRoot, reactBuild: ReactProfilerBuild): void => {
+  startCanvasPerformanceHarness({ reactBuild });
+  const tree = (
+    <StrictMode>
+      <WindowRuntimeContext.Provider value={windowRuntime}>
+        <LiveSeatViewSource>
+          <AppRoot />
+        </LiveSeatViewSource>
+      </WindowRuntimeContext.Provider>
+    </StrictMode>
+  );
+  createRoot(root).render(
+    PERF_ENABLED ? (
+      <Profiler
+        id="root"
+        onRender={(_id, _phase, actualDuration) => {
+          canvasPerformance.recordReactCommit("root", actualDuration);
+        }}
+      >
+        {tree}
+      </Profiler>
+    ) : (
+      tree
+    ),
+  );
+};
+
+if (PERF_ENABLED) {
+  void loadProfilingCreateRoot().then((profilingCreateRoot) => {
+    mount(profilingCreateRoot ?? createStandardRoot, profilingCreateRoot ? "profiling" : "standard");
+  });
+} else {
+  mount(createStandardRoot, "standard");
+}

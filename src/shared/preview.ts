@@ -1,0 +1,399 @@
+/**
+ * Previews of the local files an agent names in its own text (a signal's
+ * detail today). Two halves share this module:
+ *
+ * - detection, pure: which local paths a piece of markdown names, in the
+ *   order written, each with the words the agent put beside it;
+ * - the read contract: what the renderer may ask main for, and what comes
+ *   back. Main runs the same detection on the stored text and serves only
+ *   the paths it finds there, so the renderer cannot ask for an arbitrary
+ *   file (see `src/app/preview/read.ts`).
+ */
+
+export type PreviewKind = "image" | "video" | "text" | "file" | "compare" | "commit" | "link";
+
+/** One local file named in a piece of agent text. */
+export type PreviewRef = {
+  /** The path exactly as written: the key main checks a read against. */
+  readonly path: string;
+  /** Last path segment. */
+  readonly name: string;
+  /** Read off the extension; main decides from the bytes. */
+  readonly kind: PreviewKind;
+  /** The agent's own words beside the path ("Before"). Never made up. */
+  readonly caption?: string;
+  /**
+   * Set when this is one of the source's attachments, by its place in the
+   * list. `path` is then only a key (`attachment:<index>`), never a location.
+   */
+  readonly attachment?: number;
+  /** A commit attachment's full id. The folder is the sending seat's, found by the app. */
+  readonly commit?: string;
+  /** A link attachment's address, shown whole before anything is fetched. */
+  readonly url?: string;
+  /**
+   * Read out of running prose (a bare path with spaces), so it may be no
+   * path at all: when nothing is there, say nothing about it.
+   */
+  readonly loose?: true;
+};
+
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
+const TEXT_EXTENSIONS = new Set(["txt", "md", "markdown", "json", "diff", "patch", "log"]);
+
+/** Lower-case extension of a path's last segment, without the dot. */
+export const previewExtension = (path: string): string => {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+};
+
+export const previewKindOf = (path: string): PreviewKind => {
+  const extension = previewExtension(path);
+  if (IMAGE_EXTENSIONS.has(extension)) return "image";
+  if (TEXT_EXTENSIONS.has(extension)) return "text";
+  return "file";
+};
+
+/**
+ * How a text file is drawn, read off its name: a unified diff, markdown,
+ * plain text (txt, log, or no extension), or code highlighted by its name.
+ */
+export const previewTextFace = (name: string): "diff" | "markdown" | "plain" | "code" => {
+  const extension = previewExtension(`/${name}`);
+  if (extension === "diff" || extension === "patch") return "diff";
+  if (extension === "md" || extension === "markdown") return "markdown";
+  if (extension === "" || extension === "txt" || extension === "log") return "plain";
+  return "code";
+};
+
+export const previewName = (path: string): string => {
+  const trimmed = path.replace(/\/+$/u, "");
+  return trimmed.slice(trimmed.lastIndexOf("/") + 1);
+};
+
+/**
+ * A local path: absolute, home-relative or a file URL, with a file extension
+ * on its last segment. The extension keeps prose ("and/or", "/usr/bin") out.
+ */
+const LOCAL_PATH = /^(?:file:\/\/|~)?\/(?:[^/\u0000-\u001f]+\/)*[^/\u0000-\u001f]*\.[A-Za-z0-9]{1,8}$/u;
+
+export const isLocalPreviewPath = (value: string): boolean => LOCAL_PATH.test(value);
+
+// One pass, in the order written. Alternatives, most specific first:
+// 1. a markdown image or link target: ![alt](target) / [label](target)
+// 2. a code span whose whole content is a path (may hold spaces)
+// 3. a bare image path with spaces in it (a macOS screenshot name): tried
+//    only when the run up to the first space is not a file by itself, never
+//    across the start of another path, and it must end in an image extension
+// 4. a bare path: starts at a word boundary, runs to whitespace or a bracket
+const BARE_START = String.raw`(?<![\w/.:~\-\x60\\])`;
+const PATH_TOKEN = new RegExp(
+  [
+    String.raw`(!?)\[([^\]\n]*)\]\(\s*<?((?:file:\/\/|~)?\/[^)\n>]+?)>?(?:\s+"[^"\n]*")?\s*\)`,
+    String.raw`\x60((?:file:\/\/|~)?\/[^\x60\n]+)\x60`,
+    BARE_START +
+      String.raw`(?!\S*\.[A-Za-z0-9]{1,8}(?:[\s.,;:!?)\]]|$))` +
+      String.raw`((?:file:\/\/|~)?\/(?:(?! [~\/]| file:)[^\n\x60"'<>()\[\]])*?\.(?:png|PNG|jpe?g|JPE?G|gif|GIF|webp|WEBP|svg|SVG))(?![\w.\-])`,
+    BARE_START + String.raw`((?:file:\/\/|~)?\/[^\s\x60"'<>()\[\]]+)`,
+  ].join("|"),
+  "gu",
+);
+
+/** List markers, quote marks and emphasis around a caption are not its words. */
+const cleanCaption = (raw: string): string | undefined => {
+  const text = raw
+    .replace(/^[\s>]*(?:[-*+]|\d+[.)])?\s*/u, "")
+    .replace(/^(?:and|,|;)\s+/iu, "")
+    .replace(/[*_\x60]/gu, "")
+    .replace(/[\s:=,;(—–-]+$/u, "")
+    .trim();
+  return text.length > 0 ? text : undefined;
+};
+
+/**
+ * The local files a piece of markdown names, in the order written. A path
+ * named twice is listed once, where it first appears.
+ */
+export const previewRefsIn = (markdown: string): ReadonlyArray<PreviewRef> => {
+  const refs: PreviewRef[] = [];
+  const seen = new Set<string>();
+  for (const line of markdown.split("\n")) {
+    let captionFrom = 0;
+    for (const match of line.matchAll(PATH_TOKEN)) {
+      const [whole, , label, target, spanned, spaced, bare] = match;
+      const index = match.index;
+      let path = (target ?? spanned ?? spaced ?? bare ?? "").trim();
+      // Sentence punctuation after a bare path is not part of it.
+      if (bare !== undefined) path = path.replace(/[.,;:!?]+$/u, "");
+      const before = line.slice(captionFrom, index);
+      captionFrom = index + whole.length;
+      if (!isLocalPreviewPath(path) || seen.has(path)) continue;
+      seen.add(path);
+      const caption = cleanCaption(label !== undefined && label.trim() ? label : before);
+      const name = previewName(path);
+      refs.push({
+        path,
+        name,
+        kind: previewKindOf(path),
+        // A caption that only repeats the file name says nothing new.
+        ...(caption !== undefined && caption !== name && caption !== path ? { caption } : {}),
+        ...(spaced !== undefined ? { loose: true as const } : {}),
+      });
+    }
+  }
+  return refs;
+};
+
+/** The two images an agent labels before and after, by caption or else by file name. */
+export const previewBeforeAfter = (
+  refs: ReadonlyArray<PreviewRef>,
+): readonly [PreviewRef, PreviewRef] | undefined => {
+  const images = refs.filter((ref) => ref.kind === "image");
+  const labelled = (word: RegExp): PreviewRef | undefined =>
+    images.find((ref) => word.test(ref.caption ?? "")) ??
+    images.find((ref) => word.test(ref.name));
+  const before = labelled(/\bbefore\b/iu);
+  const after = labelled(/\bafter\b/iu);
+  return before && after && before !== after ? [before, after] : undefined;
+};
+
+/**
+ * The pair an A B view opens on: the labelled before and after, else the
+ * first two images. Undefined with fewer than two images.
+ */
+export const previewComparePair = (
+  refs: ReadonlyArray<PreviewRef>,
+): readonly [PreviewRef, PreviewRef] | undefined => {
+  const [first, second] = refs.filter((ref) => ref.kind === "image");
+  if (!first || !second) return undefined;
+  return previewBeforeAfter(refs) ?? [first, second];
+};
+
+/**
+ * Markdown as a card shows it beside its previews. A markdown image never
+ * loads by itself: one that names a local file becomes its words and the
+ * path (the preview strip shows the picture), and a remote one becomes a
+ * link the operator may choose to open.
+ */
+export const previewMarkdownText = (markdown: string): string =>
+  markdown.replace(
+    /!\[([^\]\n]*)\]\(\s*<?([^)\n>\s][^)\n>]*?)>?(?:\s+"[^"\n]*")?\s*\)/gu,
+    (whole, alt: string, target: string) => {
+      const label = alt.trim();
+      if (isLocalPreviewPath(target)) return label ? `${label}: \x60${target}\x60` : `\x60${target}\x60`;
+      if (/^https?:\/\//iu.test(target)) return `[${label || target}](${target})`;
+      return whole;
+    },
+  );
+
+/** The link a claimed path becomes in a card's text: its place in `previewRefsIn`. */
+export const PREVIEW_LINK_PREFIX = "#preview-";
+
+/** The ref index a preview link points at, or undefined for any other href. */
+export const previewLinkIndex = (href: string | null | undefined): number | undefined => {
+  if (!href?.startsWith(PREVIEW_LINK_PREFIX)) return undefined;
+  const index = Number(href.slice(PREVIEW_LINK_PREFIX.length));
+  return Number.isInteger(index) && index >= 0 ? index : undefined;
+};
+
+const escapeLinkText = (text: string): string => text.replace(/[\\\[\]*_\x60]/gu, "\\$&");
+
+/**
+ * Markdown as a card shows it once its previews are known: every path in
+ * `claimed` reads as its file name, a link to that preview (the full path is
+ * the link's title), with the agent's words around it untouched. Everything
+ * else is `previewMarkdownText`: a path nobody claimed stays as written.
+ */
+export const previewLinkedMarkdown = (markdown: string, claimed: ReadonlySet<string>): string => {
+  if (claimed.size === 0) return previewMarkdownText(markdown);
+  const index = new Map(previewRefsIn(markdown).map((ref, at) => [ref.path, at] as const));
+  const linked = markdown
+    .split("\n")
+    .map((line) =>
+      line.replace(PATH_TOKEN, (whole: string, bang?: string, label?: string, target?: string, spanned?: string, spaced?: string, bare?: string) => {
+        let path = (target ?? spanned ?? spaced ?? bare ?? "").trim();
+        let tail = "";
+        if (bare !== undefined) {
+          const trimmed = path.replace(/[.,;:!?]+$/u, "");
+          tail = path.slice(trimmed.length);
+          path = trimmed;
+        }
+        const at = index.get(path);
+        if (at === undefined || !claimed.has(path)) return whole;
+        const name = previewName(path);
+        const words = label?.trim();
+        const title = path.includes('"') ? "" : ` "${path}"`;
+        const link = (text: string): string => `[${escapeLinkText(text)}](${PREVIEW_LINK_PREFIX}${at}${title})`;
+        // An image's alt is the agent's caption beside the file; a link's label is its own text.
+        if (bang) return words && words !== name ? `${words}: ${link(name)}` : link(name);
+        if (target !== undefined) return link(words || name);
+        return `${link(name)}${tail}`;
+      }),
+    )
+    .join("\n");
+  return previewMarkdownText(linked);
+};
+
+/** What a link is called on its tile: the last piece of its path, or its host. */
+export const previewLinkName = (url: string): string => {
+  try {
+    const parsed = new URL(url);
+    const last = decodeURIComponent(parsed.pathname.split("/").filter(Boolean).pop() ?? "");
+    return last || parsed.host;
+  } catch {
+    return url;
+  }
+};
+
+/** A signal's attachments as preview refs, in the order the agent gave them. */
+export const previewRefsOfAttachments = (
+  attachments: ReadonlyArray<
+    | { readonly ref: { readonly displayName?: string; readonly mediaType: string }; readonly caption?: string }
+    | { readonly kind: "compare"; readonly name?: string; readonly caption?: string }
+    | { readonly kind: "commit"; readonly sha: string; readonly caption?: string }
+    | { readonly kind: "link"; readonly url: string; readonly caption?: string }
+    | { readonly kind: "task"; readonly caption?: string }
+    | { readonly kind: "artifact"; readonly caption?: string }
+  >,
+): ReadonlyArray<PreviewRef> =>
+  attachments.flatMap((attachment, index): ReadonlyArray<PreviewRef> => {
+    // A task or an artifact is a chip on the card, never a preview; the others keep their place in the list.
+    if ("kind" in attachment && (attachment.kind === "task" || attachment.kind === "artifact")) return [];
+    const base = {
+      path: `attachment:${index}`,
+      attachment: index,
+      ...(attachment.caption ? { caption: attachment.caption } : {}),
+    };
+    if (!("kind" in attachment)) {
+      const { mediaType } = attachment.ref;
+      return [{
+        ...base,
+        name: attachment.ref.displayName ?? "file",
+        kind: mediaType.startsWith("image/") ? "image" : mediaType.startsWith("video/") ? "video" : "text",
+      }];
+    }
+    if (attachment.kind === "compare") return [{ ...base, name: attachment.name ?? "changes", kind: "compare" }];
+    if (attachment.kind === "commit") {
+      return [{ ...base, name: attachment.sha.slice(0, 7), kind: "commit", commit: attachment.sha }];
+    }
+    return [{ ...base, name: previewLinkName(attachment.url), kind: "link", url: attachment.url }];
+  });
+
+/** What main is asked for to preview a ref. */
+export const previewTargetOf = (ref: PreviewRef): PreviewTarget =>
+  ref.attachment === undefined ? { kind: "path", path: ref.path } : { kind: "attachment", index: ref.attachment };
+
+// --- the read contract -------------------------------------------------------
+
+/**
+ * A file's size never decides whether it is shown: an image or a text file
+ * of any size opens whole. Only the small variant is cut down: an image to
+ * PREVIEW_THUMB_EDGE, a text file to its first PREVIEW_TEXT_EXCERPT_BYTES.
+ */
+export const PREVIEW_TEXT_EXCERPT_BYTES = 64 * 1024;
+/** Longest edge of a thumbnail, in device pixels. */
+export const PREVIEW_THUMB_EDGE = 480;
+
+/** Where the text that names the path lives. Main reads it from its own store. */
+export type PreviewSource = { readonly kind: "signal"; readonly signalId: string };
+
+/** A page box comment, or a reply in its thread, whose shot is read. Main reads the row from its own store. */
+export type PreviewShotSource = { readonly kind: "comment"; readonly canvasName: string; readonly nodeId: string; readonly messageId: string };
+
+/**
+ * What to preview: a path exactly as `previewRefsIn` returned it for the
+ * source's text, or one of the source's own attachments by its place in the
+ * list. An attachment needs no path: its bytes are in the app's store.
+ */
+export type PreviewTarget =
+  | { readonly kind: "path"; readonly path: string }
+  | { readonly kind: "attachment"; readonly index: number }
+  /** A page box comment's shot. */
+  | { readonly kind: "shot" };
+
+export type PreviewRequest = {
+  readonly source: PreviewSource | PreviewShotSource;
+  readonly target: PreviewTarget;
+  /** `thumb`: an image scaled down in main, a text file's start. `full`: the file as it is. */
+  readonly variant: "thumb" | "full";
+};
+
+export type PreviewTextFormat = "markdown" | "json" | "diff" | "text";
+
+export type PreviewResult =
+  | {
+      readonly ok: true;
+      readonly kind: "image";
+      readonly name: string;
+      readonly byteLength: number;
+      readonly mediaType: string;
+      /** The image itself: the renderer never gets a file path to load. */
+      readonly dataUrl: string;
+    }
+  | {
+      /** A video the app holds: played from the app's own store, never from a path. */
+      readonly ok: true;
+      readonly kind: "video";
+      readonly name: string;
+      readonly byteLength: number;
+      readonly mediaType: string;
+      /** The app's own address for the bytes; main streams them, with seeking. */
+      readonly url: string;
+    }
+  | {
+      readonly ok: true;
+      readonly kind: "text";
+      readonly name: string;
+      readonly byteLength: number;
+      readonly format: PreviewTextFormat;
+      readonly text: string;
+      /** The file is longer than what was read: only ever true of the small variant. */
+      readonly truncated: boolean;
+    }
+  | {
+      /** Two texts to read as a change. */
+      readonly ok: true;
+      readonly kind: "compare";
+      /** A file name or an extension: what the texts are highlighted as. */
+      readonly name: string;
+      readonly byteLength: number;
+      readonly before: string;
+      readonly after: string;
+    }
+  | {
+      /** A commit in the sending seat's folder: its id only; the commit is read where it is drawn. */
+      readonly ok: true;
+      readonly kind: "commit";
+      readonly name: string;
+      readonly sha: string;
+    }
+  | {
+      /** A video at an address the agent named. Nothing was fetched to say this. */
+      readonly ok: true;
+      readonly kind: "link";
+      readonly name: string;
+      readonly url: string;
+    }
+  | {
+      /** A file that exists and is not previewed: its name, type and size only. */
+      readonly ok: true;
+      readonly kind: "file";
+      readonly name: string;
+      readonly byteLength: number;
+      readonly extension: string;
+    }
+  | {
+      readonly ok: false;
+      /**
+       * `not-named`: the source's text does not name this path.
+       * `missing`: nothing readable at the path, or not a regular file.
+       * `removed`: the operator purged a page box comment's shot.
+       */
+      readonly reason: "not-named" | "missing" | "removed";
+    };
+
+export type PreviewRevealResult = { readonly ok: boolean };
+
+/** The app's own address for a remote video the operator asked to play. */
+export type PreviewPlayResult = { readonly ok: true; readonly url: string } | { readonly ok: false };

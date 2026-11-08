@@ -1,0 +1,169 @@
+import { isOverseerHarness } from "@shared/harness-records";
+import { isThisMachine } from "@shared/machine-identity";
+import { Effect } from "effect";
+import { SqlClient } from "effect/sql";
+import { asNodeId, type Canvas, type Seat } from "@shared/model";
+import type { TaskView } from "@shared/task-model";
+import { ModelActorRefs } from "../../model/actor-refs";
+import { ModelService } from "../../model/service";
+import { SettingsService } from "../../settings/service";
+import { StateEngine } from "../../state/service";
+import { withSqlRead } from "../../state/sql-read";
+import { MachineRepository } from "../../machines/repository";
+import { WorkRevisions, WorkRepository } from "../../work/repository";
+import { TaskRepository } from "../../work/task-repository";
+import { getSeatCredentialRegistry } from "../../work/seat-credentials";
+import { admitOverseer } from "../admission";
+import type { OverseerHostIdentity } from "./execution";
+import { buildLiveContext, type LiveCanvasRead } from "./context";
+import { makeLiveRepository } from "./repository";
+import { createLiveSessionService } from "./service";
+
+type Services = ModelService | ModelActorRefs | SettingsService | StateEngine | SqlClient.SqlClient | MachineRepository | WorkRevisions | WorkRepository | TaskRepository;
+export type LiveRun = <A, E>(effect: Effect.Effect<A, E, Services>) => Promise<A>;
+
+/** The most tasks a canvas's live read takes; the context shows a few per node. */
+const LIVE_TASKS_READ = 1_000;
+
+/** A canvas revision as the live journal keeps it: the sequence, as text. */
+export const revisionOf = (canvas: Canvas): string => String(canvas.seq);
+
+/** The revision of one canvas: its sequence, as the model holds it now. */
+export const canvasRevisionOf = (model: ModelService["Service"]) => (canvasName: string) =>
+  model.listCanvases().pipe(Effect.flatMap((names) =>
+    names.some((name) => name === canvasName)
+      ? Effect.map(model.canvas(canvasName), revisionOf)
+      : Effect.succeed(undefined)));
+
+/**
+ * One canvas as the live context reads it: the model's structure, and beside
+ * it the tasks the context summarises.
+ */
+export const readLiveCanvas = Effect.fn("Live.modelCanvas")(function* (canvasName: string) {
+  const sql = yield* SqlClient.SqlClient;
+  return yield* withSqlRead(sql, Effect.gen(function* () {
+    const model = yield* ModelService;
+    const taskStore = yield* TaskRepository;
+    const revisions = yield* WorkRevisions;
+    const canvas = yield* model.canvas(canvasName);
+    const taskNodes = [...canvas.nodes.values()].filter((node) => node.kind === "task").map((node) => node.id);
+    const tasks = new Map<string, TaskView[]>();
+    if (taskNodes.length > 0) {
+      const listed = yield* taskStore.list(canvasName, { nodeIds: taskNodes, limit: LIVE_TASKS_READ });
+      for (const task of listed.tasks) tasks.set(task.current.node, [...(tasks.get(task.current.node) ?? []), task]);
+    }
+    return {
+      name: canvas.name,
+      canvas,
+      tasks,
+      revision: revisionOf(canvas),
+      workRevision: yield* revisions.revision(canvasName),
+    } satisfies LiveCanvasRead;
+  }));
+});
+
+/** The voice overseer in a seat, or nothing when the seat is not one. */
+const voiceSeatOf = (node: unknown): Seat | undefined => {
+  const seat = node as Seat | undefined;
+  return seat?.kind === "agent" && seat.overseer && isOverseerHarness(seat.harness) ? seat : undefined;
+};
+
+/** Joins Live to the already running app owners; no process or database is opened here. */
+export const composeOverseerLive = async (run: LiveRun) => {
+  const { sql, settings, model, work, workRevisions } = await run(Effect.gen(function* () {
+    return { sql: yield* SqlClient.SqlClient, settings: yield* SettingsService, model: yield* ModelService,
+      work: yield* WorkRepository, workRevisions: yield* WorkRevisions };
+  }));
+  const credentials = getSeatCredentialRegistry();
+  const revisions = new Map<string, string>();
+  const resolveOccupant = async (canvasName: string, nodeId: string): Promise<OverseerHostIdentity | undefined> => {
+    try {
+      const authority = await run(admitOverseer({ canvasName, nodeId }));
+      if (!isThisMachine(authority.hostId, authority.configuration.name)) return undefined;
+      const node = voiceSeatOf((await run(model.canvas(canvasName))).nodes.get(asNodeId(nodeId)));
+      if (node === undefined) return undefined;
+      const matches = credentials.liveGenerations().filter(({ principal }) =>
+        (principal.bindingId === authority.bindingId || principal.agentKey === node.agentKey) &&
+        (principal.canvasName === undefined || principal.canvasName === canvasName) &&
+        (principal.nodeId === undefined || principal.nodeId === nodeId));
+      if (matches.length !== 1) return undefined;
+      return { canvasName, nodeId, bindingId: authority.bindingId, generationId: matches[0]!.generationId };
+    } catch { return undefined; }
+  };
+  const service = createLiveSessionService({
+    repository: makeLiveRepository(sql),
+    canvasRevision: canvasRevisionOf(model),
+    workRevisions,
+    run,
+    settingsService: settings,
+    resolveOccupant,
+    contextProvider: async (attention) => {
+      const read = await run(readLiveCanvas(attention.canvasName));
+      revisions.set(read.name, read.revision);
+      return buildLiveContext(read, attention);
+    },
+    targetRevision: (name) => revisions.get(name),
+    subscribeAuthorityChanges: (listener, seat) => {
+      // The seat as it last was. A change that takes the grant, removes the
+      // seat, or leaves another agent, session or host in it ends authority.
+      let seen: Seat | undefined;
+      void run(model.canvas(seat.canvasName)).then((canvas) => {
+        seen ??= voiceSeatOf(canvas.nodes.get(asNodeId(seat.nodeId)));
+      }).catch(() => undefined);
+      const unsubscribeNodes = model.subscribeChanges((event) => {
+        if (event.canvas !== seat.canvasName) return;
+        if (event.removedNodes.some((id) => id === seat.nodeId)) return listener(undefined);
+        const changed = event.nodes.find((node) => node.id === seat.nodeId);
+        if (changed === undefined) return;
+        const next = voiceSeatOf(changed);
+        const previous = seen;
+        seen = next;
+        if (next === undefined || previous === undefined ||
+          next.bindingId !== previous.bindingId || next.agentKey !== previous.agentKey ||
+          next.host !== previous.host) listener(undefined);
+      });
+      const unsubscribeCanvases = model.subscribeCanvasesChanges((event) => {
+        if (event._tag === "Removed" && event.canvas === seat.canvasName) listener(undefined);
+      });
+      const unsubscribeCanvas = () => { unsubscribeNodes(); unsubscribeCanvases(); };
+      const unsubscribeGeneration = credentials.subscribe((event) => {
+        // A revoked or suspended generation ends authority. Latch it
+        // synchronously, even if a later generation occupies the same seat
+        // before an asynchronous re-admission runs.
+        if (event.type === "revoked" && event.principal.canvasName === seat.canvasName &&
+          event.principal.nodeId === seat.nodeId) listener(undefined);
+      });
+      return () => { unsubscribeCanvas(); unsubscribeGeneration(); };
+    },
+  });
+  let refresh: ReturnType<typeof setTimeout> | undefined;
+  const refreshSoon = (): void => {
+    if (refresh !== undefined) return;
+    refresh = setTimeout(() => {
+      refresh = undefined;
+      void service.refreshContext().catch(() => undefined);
+    }, 250);
+  };
+  const unsubscribes = [
+    model.subscribeChanges((event, current) => {
+      revisions.set(event.canvas, revisionOf(current));
+      refreshSoon();
+    }),
+    model.subscribeCanvasesChanges((event) => {
+      if (event._tag === "Removed") revisions.set(event.canvas, "deleted");
+      refreshSoon();
+    }),
+    // Work moves without the canvas changing; the context shows both.
+    work.subscribeChanges(() => refreshSoon()),
+  ];
+  const unsubscribe = (): void => { for (const stop of unsubscribes) stop(); };
+  try { await service.liveSnapshot(); } catch (error) { unsubscribe(); await service.dispose(); throw error; }
+  return {
+    ...service,
+    dispose: async (): Promise<void> => {
+      unsubscribe();
+      clearTimeout(refresh);
+      await service.dispose();
+    },
+  };
+};

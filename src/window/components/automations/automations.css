@@ -1,0 +1,430 @@
+/* The Automations node: TwoPane holds the layout; this is the main pane's form and history. */
+
+.automations-node {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.automations-node__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+}
+
+.automations-node__main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+}
+
+/* The code surface fills the pane: the editor is the work, the rest hangs off it. */
+.automations-node__main--code {
+  flex: 1;
+  min-height: 0;
+}
+
+.automations-node__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.automation-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.automation-editor__title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.automation-editor__title > :first-child {
+  flex: 1;
+  font-size: var(--text-body-lg);
+}
+
+.automation-editor__enabled {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+}
+
+.automation-editor__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--color-stroke);
+  padding-top: 12px;
+}
+
+.automation-editor__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.automation-editor__section-title {
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--color-ink-2);
+}
+
+.automation-editor__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.automation-editor__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 6px;
+}
+
+.automation-editor__item > .automation-editor__problem {
+  grid-column: 1 / -1;
+}
+
+.automation-editor__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.automation-editor__row > * {
+  min-width: 140px;
+  flex: 1 1 140px;
+}
+
+/* A watch read as a sentence: words sit on the fields' line, and a picker takes the room left. */
+.automation-editor__sentence {
+  align-items: center;
+  gap: 6px;
+}
+
+/* Fields size to their words: Select is full width by default, which stacks the sentence. */
+.automation-editor__sentence > * {
+  width: auto;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.automation-editor__sentence > :has(textarea) {
+  min-width: 160px;
+  flex: 1 1 160px;
+}
+
+/* The label note stays mounted for screen readers; empty, it takes no room in the section. */
+.automation-editor__label-note:empty {
+  margin-block-start: -8px;
+}
+
+.automation-editor__word {
+  font-size: var(--text-body);
+  color: var(--color-dim);
+  white-space: nowrap;
+}
+
+.automation-editor__tools {
+  display: flex;
+  gap: 2px;
+}
+
+.automation-editor__note {
+  margin: 0;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+}
+
+.automation-editor__problem {
+  margin: 0;
+  font-size: var(--text-label);
+  color: var(--color-crimson-fg);
+}
+
+.automation-editor__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--color-stroke);
+  padding-top: 12px;
+}
+
+.automation-editor__foot > .automation-editor__problem {
+  flex: 1;
+}
+
+/* A refusal's next step, on its own line under what was refused. */
+.automation-editor__step {
+  display: block;
+}
+
+/* The problems status stays mounted for screen readers; empty, it takes no room. */
+.automation-editor__foot > .automation-editor__problem:empty {
+  flex: 0;
+  margin-inline-start: -8px;
+}
+
+.automation-history {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  background: var(--color-raise-2);
+}
+
+.automation-history > .automation-editor__note {
+  padding: 10px 12px;
+}
+
+.automation-history__list {
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+}
+
+.automation-history__row {
+  padding: 4px 12px;
+  font-size: var(--text-label);
+  color: var(--color-ink-2);
+}
+
+.automation-history__line {
+  display: flex;
+  gap: 12px;
+}
+
+/* A code step's own line sits under its firing, in the words' column. */
+.automation-history__step {
+  margin: 1px 0 0 calc(9rem + 12px);
+  font-family: var(--font-mono);
+  color: var(--color-dim);
+}
+
+/* A signal's answer in words, on its own lines under the step: two of them until Show all. */
+.automation-history__answer {
+  display: -webkit-box;
+  margin: 2px 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-family: var(--font-body);
+  color: var(--color-ink-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.automation-history__answer[data-whole] {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+
+.automation-history__row[data-outcome="skipped"] {
+  color: var(--color-dim);
+}
+
+.automation-history__time {
+  flex: none;
+  width: 9rem;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-faint);
+}
+
+/* ── An action's text (plan 0.11/05) ──────────────────────────────────────── */
+
+/* Prose takes the whole line under the action's kind and targets. */
+.automation-editor__row > .automation-editor__text {
+  flex: 1 1 100%;
+  min-width: 100%;
+}
+
+.automation-editor__text {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.automation-editor__text > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Insert value sits beside the text, never inside it: a quiet chip, not a field. */
+.automation-editor__insert {
+  flex: 0 0 auto;
+}
+
+.automation-editor__insert-trigger {
+  min-height: 28px;
+  gap: 4px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-sm);
+  background: var(--color-inset);
+  padding: 0 8px;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+  white-space: nowrap;
+}
+
+.automation-editor__insert-trigger:hover:not(:disabled) {
+  border-color: var(--color-dim);
+  color: var(--color-ink);
+}
+
+.automation-editor__insert-menu {
+  min-width: 260px;
+}
+
+/* ── Answered back (plan 0.11/09) ─────────────────────────────────────────── */
+
+/* Under a signal step: what runs when it is answered, and the control that makes one. */
+.automation-editor__answered {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* What When answered does beyond its name, on its own line under the control. */
+.automation-editor__answered > .automation-editor__note {
+  flex: 1 1 100%;
+}
+
+/* ── A code step (plan 0.11/05, Code steps) ───────────────────────────────── */
+
+.automation-code {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.automation-code__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.automation-code__title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.automation-code__title > span {
+  overflow: hidden;
+  font-size: var(--text-body-lg);
+  color: var(--color-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automation-code__facts {
+  margin-inline-start: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  color: var(--color-dim);
+  white-space: nowrap;
+}
+
+.automation-code__editor {
+  flex: 1;
+  min-height: 260px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  background: var(--color-inset);
+  overflow: hidden;
+}
+
+.automation-code__result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 1px solid var(--color-stroke);
+  padding-top: 8px;
+}
+
+.automation-code__words {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  color: var(--color-ink-2);
+}
+
+.automation-code__values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+}
+
+.automation-code__value {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.automation-code__value > dt {
+  color: var(--color-dim);
+}
+
+.automation-code__value > dd {
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automation-code__tail {
+  margin: 0;
+  max-height: 128px;
+  overflow: auto;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  color: var(--color-crimson-fg);
+  white-space: pre-wrap;
+}
+
+.automation-code__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--color-stroke);
+  padding-top: 10px;
+}
+
+.automation-code__foot > .automation-editor__problem {
+  flex: 1;
+}
+
+/* The firing a surface opened on (the feed's card): marked, not shouting. */
+.automation-history__row[data-focused] {
+  border-radius: var(--radius-sm);
+  background: var(--color-overlay-2);
+}

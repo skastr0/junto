@@ -1,0 +1,388 @@
+# Architecture north star: canvas physics
+
+**The canvas is a workspace, not an ACL spreadsheet.**
+
+> **Governing trust model:** read
+> [`security-doctrine.md`](security-doctrine.md) first. Canvas physics enforces
+> operator intent throughout Junto-owned tooling. It is not a claim that
+> Junto confines a malicious process already running as the operator. If this
+> document admits a stricter interpretation, the security doctrine wins.
+
+Authority, work phase, and operator attention are three distinct planes. A
+seat reaches the resource nodes around it by where it sits, and edges are
+object capabilities for everything else. Roles are derived from entity kind.
+Occupancy is live state of a seat, never authored as a permanent grant.
+
+This document is the north star for agent authz, work control, region geography,
+and any surface that lets a process act on host-adjacent resources through
+Junto.
+
+Companion: machine safety ([`architecture-machine-safety.md`](architecture-machine-safety.md))
+seals *how* host power is held. Canvas physics seals *who may wield a seat*
+that reaches that power.
+
+---
+
+## Three planes
+
+| Plane | Question it answers | Lives in | Mutated by |
+|-------|---------------------|----------|------------|
+| **Capability** | What may this principal reach? | Region reach for resource nodes; drawn edges + ports for seats and pages; the seat generation credential; overseer grant is a separate human seat toggle, not an edge | Human move/resize of nodes and regions; human draw/delete; admit/release of bound process; human grant/revoke of the seat's `overseer` flag |
+| **Phase** | Is work blocked or free to proceed? | Derived edge phase (`blocks` \| `relates`) from the connected sink's claimed item state + live worker/trust state | Recomputed; never authorial input |
+| **Attention / occupancy** | Is the seat empty, busy, or needing a human? | Live runtime state on seats | Process lifecycle, task status, operator focus |
+
+Laws of plane separation:
+
+1. **Capability does not imply phase.** Reaching a sink does not mean work is
+   unblocked.
+2. **Phase does not imply attention.** Resolved stoppage does not mean the
+   operator is looking.
+3. **Attention does not mint capability.** Focusing a node never grants edges.
+4. **Cross-plane leakage is a bug.** Do not encode occupancy in document
+   grants, or ACL lists in phase labels.
+
+```text
+human places a seat and a resource ──► reach (capability, recomputed)
+human draws edge, picks verb ──► capability (ocap exists)
+connected sink's claimed state ──► phase (blocks | relates)  // no depends / no edge cascade
+bound process + live work ──► occupancy (empty…gone)
+operator trust / focus ──► attention (org vs personal)
+```
+
+---
+
+## Laws
+
+### 1. Reach for resources, edges for the rest
+
+**Reach.** A seat may use every resource node (a Tasks node, an Artifacts node)
+in its own region, in every region inside it and in every region around it,
+never in a sibling or a cousin region (`src/shared/region-reach.ts`). Reach
+needs no edge and grants every item operation the node offers. It is worked
+out from the rectangles on every admission and never stored: moving a seat, a
+resource or a region changes reach on the next call. A node's positions are
+the innermost regions that wholly contain it; regions that only partly overlap
+are unrelated, and a node outside every region sits at the root, on one line
+with everything. Adding, moving, renaming or deleting the **node** stays canvas
+authoring, for the operator and overseers.
+
+**Edges.** An edge is a capability from `fromNode` toward `toNode`, for the
+three things reach does not cover: seat to seat mail (`messages`), seat to
+page automation (`navigates`), and task to task flow (`flows`). No ambient
+graph walk, and no edge to a resource node grants anything.
+
+| Action | Effect |
+|--------|--------|
+| Human **places** a seat or a resource, or **moves** a region | Reach follows on the next admission |
+| Human **draws** edge, picks a **verb** | Mint ocap; verb selects the relationship (`src/shared/physics/verbs.ts`) |
+| Compiled **ports** | Derived from the verb (access filter) — never authored separately |
+| Human **deletes** edge | Revoke ocap immediately |
+| Reach or edge to a sink with no claimed blocking item | Capability to *relate*; never invents stoppage |
+
+The verbs that granted access to a resource, put a seat in a claiming pool,
+woke a board or wired a scheduler are deleted in 0.10
+([plan 01](plans/0.10/01-region-binding.md)).
+
+Wielding ordinary work requires the seat generation credential main minted
+into that occupant (`JUNTO_WORK_TOKEN`). For ordinary agents reach or the
+document edge is necessary but not sufficient; the seat must hold a live
+credential on that installation. A human-toggled overseer still requires that credential and a
+live grant. It does not require connecting edges for closed `overseer`
+operations. `overseer.live` is admitted the same way: the caller is the seat
+its credential names, and a descendant holding that credential is the seat.
+Pause and play do not revoke that grant. Ordinary ops stay scoped by reach
+and edges. Browser-protected ops are refused in this build.
+
+### 2. Roles are derived from kind — never authorial
+
+| Role | Typical kinds | Function |
+|------|---------------|------------------|
+| **Actor** | `agent` only | Junto-spawned template terminal; occupies one host-local seat and wields outbound edges with its generation credential |
+| **Sink** | `task`, `artifacts`, `page` | Receives ops; a seat reaches a resource sink by region, a page by edge |
+| **Automation** | `automations` | Fires its own triggers and acts on seats and resources in its own region and the regions below it; takes no edge, holds no seat ([plan 07](plans/0.10/07-automations.md)) |
+| **Region** | `region` | Geography + optional briefing text |
+| **Geography / furniture** | raw `terminal`, notes, labels, unknown/open-vocab kinds (incl. retired `project` strings) | Spatial or operator surface; no actor seat, inbox, work claim, or ocap wield |
+
+**Forbidden:** any authorial role field as the source of truth.
+Kind → role is derived in code. A node of the wrong kind is replaced by one of
+the right kind, not stamped with a role overlay.
+
+`worker` is reserved for a future native-agent surface and must not appear as a
+current entity kind. ACP, terminal transport, SSH, and a provider harness are
+transports or facilities, never additional actor kinds.
+
+### 2a. Blockability is a role property — never a per-kind list
+
+"Blocked" is defined at the **physics-role level**, derived, never a
+hand-maintained per-node/per-kind allowlist:
+
+| Role | Can be blocked? |
+|------|-----------------|
+| **Actor** | **Yes**: an actor is blocked when it is the assignee of a task in `input-required` (`blocksAssignee`, `src/shared/task-model.ts`). |
+| **Sink** | No — sinks are inventory, never in a "blocked" state. |
+| **Automation** | No. |
+| Region / Furniture | No. |
+
+A per-kind exclusion table (the old `isBlockableNode` shape) is the anti-pattern
+the actor/sink/automation split exists to kill: node rules **must** live at the
+physics/role level or the product becomes impossible to balance. Blockability is
+`role === "actor"`, full stop.
+
+**Blocking is actor-state, not a queue cascade.** A block is *not* generated by
+an open task queue. `submitted` / `working` tasks never paint a block: that is
+work moving. Stoppage is assigned attention only: a task in `input-required`
+generates **blocks** on its assignee alone, on any task node of the canvas,
+and a task in review does not block its assignee
+(`src/shared/execution-graph.ts`). An unassigned attention item is inventory
+for a human; it stops nobody. Assignment addresses the junto node id (names
+are display labels, roles are routing tags). There are no manual blocker
+flags: a seat raises its own hand with `junto blocked` / `junto escalate`.
+There is **no** `depends` phase, and nothing cascades along a wire.
+
+**Multi-hop stoppage is an automation, not an edge flag.** There is no
+cascade property on a wire. To carry stoppage beyond the assignee, an
+automation watches the task or the seat's raised hand and mails or assigns
+whoever must know ([plan 07](plans/0.10/07-automations.md)). Stoppage
+evaluation marks only the assignee; further hops are automation, not phase
+cascade.
+
+**Retired (do not reintroduce):** well-known `project` kind; stop modes
+`glyphs` / `wip`; `depends` phase; edge cascade flags (`relayState`); dual
+product keys `criteria` / `notify` / `effect` (scrub may map them once on
+decode — not authoring); a relay field on a node body; the cron, relay, watcher
+and timer schedulers and their wire verbs (replaced by Automations); automatic dependency cascade
+between packet-sinks or actors; the whole authored `ports` / `stops` / `wake` /
+`slot` / `when` / `does` / `flow` field set itself — an edge now authors a
+single `verb`, and every one of those is compiled from it (`src/shared/physics/verbs.ts`).
+
+### 3. Ports vs derived stoppage
+
+Two planes on the same edge geometry; different jobs. An edge authors exactly
+one fact, its **verb**; its ports and the task-path hop (`flow`) are
+**compiled** from the verb plus the two endpoint kinds (`compileVerb`,
+`src/shared/physics/verbs.ts`). A resource node's ports come from reach, not
+from any edge. There is **no authorable Hold / stops field**
+on the product sheet — nor an authorable ports/wake/when/does/slot field at
+all; every one of those is derived, never written.
+
+| | **Ports (compiled)** | **Stoppage (derived)** |
+|---|-----------|-----------|
+| Plane | Capability (access) | Phase (attention) |
+| Question | May this actor invoke this op on this sink? | Does assigned work still need this seat? |
+| Absence | No verb, or a verb the pair cannot hold → no ports, no access (fail closed on protected ops) | Soft **relates** — never generates blocks |
+| Rule | `compileVerb(verb, source, target).ports` | Assignee of a task in `input-required` → blocks that seat only |
+| Authoring | Draw the edge, pick the verb (bottom-bar sentence, or the pair's default on a plain connect) | **None** — relationship + work state; lexicon word "stops" is speech only |
+
+Ports never substitute for the seat generation credential. Open queues never block.
+
+### 4. Seats vs occupants
+
+- **Seat** — stable `agent` node where one host-local process may bind. Survives
+  occupant restarts; authored by humans and compiled to one installation.
+  Overseer is a human toggle on that seat (its `overseer` flag), not a second
+  actor kind. Copied nodes do not inherit the grant. The occupant cannot
+  retire its own seat.
+- **Occupant** — live Junto-spawned agent process and its registered
+  descendants in that seat. Ephemeral; its generation credential admits it.
+
+Occupancy spectrum (live, derived — not stored as permanent document truth):
+
+| State | Meaning |
+|-------|---------|
+| `empty` | Seat exists; no bound process |
+| `idle` | Bound; no active work item |
+| `working` | Bound; active task / session in flight |
+| `attention` | Needs operator input (permission, review, focus) |
+| `activity_blocked` | Bound but phase plane says blocked (derived stoppage on this seat) |
+| `stalled` | Expected progress missing (timeout / heartbeat gap) |
+| `gone` | Former occupant exited; seat vacant until rebind |
+
+Seat without occupant ⇒ no wield. Ordinary occupant without reach or edge ⇒
+`ScopeError`. Both required for ordinary work. An overseer occupant without
+edges may still run closed `overseer` ops after live grant admission.
+
+### 4a. Machines and claims
+
+A seat's machine is where it runs, not a capability tier
+([`machines.md`](machines.md)). An actor process or terminal process runs
+only on its own machine. Automations run on the machine that edits the canvas.
+A browser page names no machine: it is
+on the machine that edits its canvas, and the browser never leaves it.
+
+- claim is task start (`submitted → working`);
+- one actor has at most one pending claim attempt or active task;
+- browser page control stays on the machine that edits the canvas: only a
+  seat on that machine automates a page. Browser admission judges the machine
+  (edge-grant); physics judges the edge and the port.
+
+Reach, edges and ports authorize each operation. Sharing a machine, or being
+able to get to one, authorizes nothing. A resource write travels to the machine
+that edits the canvas, so reach is not refused for being on another machine;
+every edge-bound port but mail is.
+
+### 4b. Tasks rules, claims, checks, and visits
+
+A Tasks node opens as a board. Its contract has **Incoming** and **Outgoing**
+settings plus instructions and rules. Enclosing region rules stack from outer
+to inner; board rules follow; task rules are addressed to one board on the
+task's path. The stack is concatenated without override or deduplication.
+
+- Claiming a task is still the atomic `submitted → working` start above.
+- A completion claim answers one rule. The service validates presence and
+  references, not truth.
+- A waiver exists only when a selected fork makes a task rule's board
+  unreachable. Any defect cancels all waivers.
+- Checks run in the claiming seat's environment. Outgoing checks for the
+  current board and incoming checks for the selected next board must pass for
+  the exact command and epoch before the task can be sent on.
+- Visits are the append-only path record. A visit exits `sent-on`, `completed`,
+  or `sent-back`, with its next board and handoff note where applicable.
+- Sending back records a defect and increments the epoch. Claims at or after
+  the target board stop counting; claims before it remain valid.
+
+The complete vocabulary and validation boundary live in
+[`tasks-domain.md`](tasks-domain.md).
+
+### 5. Trust (org) vs attention (operator)
+
+| Signal | Owner | Scope | Does it grant edges? |
+|--------|-------|-------|----------------------|
+| **Trust** | Org policy | Who may run as which profile, which hosts exist | No — only who can occupy seats that already have edges |
+| **Attention** | Operator | Where the human is looking / what needs them | No — only prioritizes UI |
+
+Trust admits *people and hosts* into the workspace. Attention routes *human
+scarce time*. Neither rewrites the ocap graph.
+
+### 6. Impact cones
+
+An action’s **impact cone** is the set of seats and sinks reachable under
+current capabilities and whose phase or occupancy will change.
+
+- Cone root = principal seat (process-bound actor).
+- Cone reach = the resource nodes on the seat's line of regions.
+- Cone edges = outbound ocaps (attenuated by ports).
+- Cone depth for phase = direct generating edges + blocked seats they mark
+  (no multi-hop cascade).
+- Cone never includes a sibling or cousin region's resources.
+
+Region `instruction` is optional operator briefing text on geography.
+It is returned on work-control `onboard` for agents inside the region; it is
+not auto-injected. Agents receive turns via task claim, work messages,
+automation mail, and the managed-terminal seat UI.
+
+### 7. Fail closed (authz)
+
+| Situation | Behavior |
+|-----------|----------|
+| Resource node outside the seat's reach | `ScopeError` with reason `out_of_reach`, saying what reach is |
+| No edge from actor to a seat or page | `ScopeError` naming the missing edge |
+| Edge exists, port denies op | Refuse op (no ambient escalate) |
+| Edge + port ok, credential missing or not live | Refuse |
+| Client claims `nodeRef` | Ignored. Ordinary work identity is the generation credential main injected, not a caller-chosen node id |
+| Region membership alone | Not a grant to a seat or a page. For a resource node, the region line is reach (01) |
+| Soft relates edge | Reach/relate only; no invented block phase |
+
+---
+
+## PR test
+
+> Can an ordinary agent (or a bad test) obtain a **work-control host
+> capability** without **reach** (resource nodes) or a **connected edge**
+> (seats, pages), a matching **port**, and a live **generation credential**?
+> If yes, the change is not done.
+
+Host capability here means any ordinary work-control or browser-protected op
+that can mutate tasks, messages, artifacts, or page control — not
+merely reading a digest. Closed `overseer` ops are a separate
+human-granted administrative plane: they still require the seat credential
+and a live grant, never region reach, never the operator socket, and never a
+minted edge. `overseer.live` asks for nothing more than that credential.
+
+Pair with machine safety’s PR test for the sealed kill/path plane: canvas
+physics decides *whether* the seat may act; machine safety decides *whether*
+the act can touch the OS.
+
+---
+
+## Explicit non-goals
+
+| Non-goal | Why |
+|----------|-----|
+| **ACL matrix** (principal × resource × verb tables) | Ocaps + edges scale with the drawn canvas; matrices diverge from it |
+| **Region as a security domain** | Region is geography, not a security domain. Reach scopes what a seat uses by default; it isolates nobody, and mail crosses it |
+| **Authorial role field** | Role is derived from kind; mirrors stay derived |
+| **Client-supplied identity** | No `JUNTO_NODE_REF`. Ordinary work identity is the generation credential main injected at spawn |
+| **Encoding occupancy in the authorial document as authority** | Occupancy is live; restart re-baselines seats |
+| **Stops as access control** | Derived stoppage filters phase only, never access |
+| **Attention as authz** | Operator focus never mints edges |
+
+---
+
+## Mapping to today’s surfaces
+
+| Surface | Canvas physics reading |
+|---------|-------------------------|
+| Seat and resource positions | Reach, from the rectangles (`region-reach.ts`) |
+| Human draws edge, picks verb | Mint ocap |
+| `verb` on a wire | Sole authored fact; compiles ports and the task-path hop |
+| Work control socket + generation credential | Occupant admission. The credential names the generation. It is not a shared file |
+| `authz` / `ScopeError` | Capability plane enforcement |
+| Derived `blocks` / `relates` | Phase plane (stoppage vs soft relate; no depends) |
+| Region `instruction` | Onboard briefing text |
+| Automations node | Region-bound triggers; acts by reach, mints no edge |
+| Digest / render | Read-only views; no capability mint |
+
+Vocabulary note: historical private-source bindings fail strict document decode;
+they are not degraded through a compatibility rewrite. Unknown
+`entity.kind` strings remain inert furniture and mint no grants.
+
+---
+
+## Related code
+
+| Area | Module |
+|------|--------|
+| Wire + verb | `src/shared/model/wire.ts` (`Wire`) |
+| Verb table + compile | `src/shared/physics/verbs.ts` (`VERB_TABLE`, `compileVerb`) |
+| Execution graph (phase from task state) | `src/shared/execution-graph.ts` |
+| Derived graph / phase | `src/shared/graph.ts` |
+| Region reach | `src/shared/region-reach.ts`; admission in `src/shared/physics/admit.ts` |
+| Work control authz | `src/core/work/authz.ts` |
+| Control socket + ScopeError | `src/core/work/control.ts` |
+| Seat generation credential | `src/core/work/seat-credentials.ts` |
+| Automations | `src/shared/automation.ts`, `src/core/automation/` |
+| Machine safety (host seal) | `docs/architecture-machine-safety.md` |
+
+---
+
+## Product promise
+
+Junto is a **premium workspace**. The canvas is legible:
+
+- what an agent can do is **where you placed it and what you drew**
+- what is stuck is **what claimed work + live data say**
+- what needs you is **occupancy and attention**, not a hidden ACL
+- host power still sits behind machine-safety seals
+
+When in doubt for ordinary agents: **place the seat, draw the edge, bind the
+process — or the op does not exist.** An overseer is a human-toggled
+exception on that same seat, not a second actor kind and not a drawn edge.
+
+---
+
+## The negative case — what this model refuses
+
+Consolidated 2026-07-26.
+Each row was real code once; none of it is representable now.
+
+| refused | why it was wrong |
+|---|---|
+| a second actor kind | three kinds carried `role: "actor"`, and ~12 call sites re-decided which was which. `ActorKind` is now one literal. |
+| an actor whose kind depends on a live process | managed-ness was recomputed per open from `harness \|\| launch.kind`. A node is what it was authored as. |
+| an actor that silently becomes a shell | an unresolvable launch fell back to a login shell, so a dead agent looked like a working terminal. It is an error state; the shell is a different variant. |
+| a decoder that rewrites the document | `sanitizeActorSurfacePorts` deleted an actor's entity to satisfy a cross-kind rule. A stored row is decoded, never corrected. |
+| geography with a seat, ports, an inbox, or a work claim | a geography kind once held message offers while hidden behind a flag. Re-kind, never hide. **Display is exempt** — a geography node may show agent state. |
+| a second admission path | route tokens for a caller that has no local seat. Ordinary work has one identity: the generation credential minted for that occupant. No shared token file. |
+| a port gated by a tier number | `PORT_TIER_FLOOR` crossed a 1–4 scale with each port. Placement is data; admission is role-pair law × kind offers × authorial mask. |
+| a principal that resolves to nothing | three principal kinds × three optional ids, one of which matched no node. One shape, at least one anchor, canvas-pinned when it has no agent key. |
+| ACP as a kind | ACP is a **transport**. It was wired into physics — an ACP child PID bound as an actor seat — which is what made it look like a kind. The chat surface and transport are deleted (plan 09); ACP may later carry the `worker` node. |

@@ -1,0 +1,141 @@
+/**
+ * Grid region extractors for harness state rules.
+ * Region concepts: viewport-sized tail,
+ * horizontal-rule slices, prompt-box body between ─── rules.
+ */
+
+const HORIZONTAL_RULE = /^─{3,}/u;
+/** A border with a short label inside it: border chars, whitespace, label, closing border. */
+const LABELLED_BORDER = /^─{2,}\s+\S.*─{2,}$/u;
+
+export const isHorizontalRule = (line: string): boolean => {
+  const t = line.trimEnd();
+  if (t.length === 0) return false;
+  return HORIZONTAL_RULE.test(t);
+};
+
+/**
+ * A line that frames a box: a bare ─── rule, or a rule whose short centred
+ * label sits inside the border (`── ⠧ Working ───`). pi 1.5.0 paints its
+ * turn status into the editor's TOP border, so a box whose owner is busy
+ * keeps only one bare rule; reading the interior needs the labelled form
+ * counted as a border. Bare rules alone still frame every box that states
+ * its status outside the border.
+ */
+export const isBorderLine = (line: string): boolean => {
+  const t = line.trimEnd();
+  if (t.length === 0) return false;
+  return isHorizontalRule(t) || LABELLED_BORDER.test(t);
+};
+
+/** Last n non-empty lines (from the nth-from-last non-blank through end). */
+export const bottomNonEmptyLines = (
+  lines: readonly string[],
+  n: number,
+): readonly string[] => {
+  if (n <= 0 || lines.length === 0) return [];
+  const nonEmptyIdx: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i]!.trim().length > 0) nonEmptyIdx.push(i);
+  }
+  if (nonEmptyIdx.length === 0) return [];
+  const startIdx = nonEmptyIdx[Math.max(0, nonEmptyIdx.length - n)]!;
+  return lines.slice(startIdx);
+};
+
+export const footerLine = (lines: readonly string[]): string => {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const t = lines[i]!.trimEnd();
+    if (t.length > 0) return t;
+  }
+  return "";
+};
+
+/** Text after the last horizontal-rule line (exclusive of the rule). */
+export const afterLastHorizontalRule = (
+  lines: readonly string[],
+): readonly string[] => {
+  let last = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (isHorizontalRule(lines[i]!)) last = i;
+  }
+  if (last < 0) return lines;
+  return lines.slice(last + 1);
+};
+
+/**
+ * The rows of the prompt box body, as [from, to): between the 2nd-from-last
+ * and last box borders (see isBorderLine: a bare rule, or a labelled one that
+ * carries its owner's status). Falls back to the rows after the last border
+ * when fewer than two exist, and to every row when there is none.
+ */
+export const promptBoxRows = (lines: readonly string[]): readonly [number, number] => {
+  const ruleIdx: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (isBorderLine(lines[i]!)) ruleIdx.push(i);
+  }
+  if (ruleIdx.length === 0) return [0, lines.length];
+  if (ruleIdx.length === 1) return [ruleIdx[0]! + 1, lines.length];
+  const top = ruleIdx[ruleIdx.length - 2]!;
+  const bottom = ruleIdx[ruleIdx.length - 1]!;
+  return [top + 1, Math.max(top + 1, bottom)];
+};
+
+/** Between the 2nd-from-last and last ─── rules (prompt box body); see promptBoxRows. */
+export const promptBoxBody = (lines: readonly string[]): readonly string[] => {
+  const [from, to] = promptBoxRows(lines);
+  return lines.slice(from, to);
+};
+
+export const abovePromptBox = (lines: readonly string[]): readonly string[] => {
+  const ruleIdx: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (isHorizontalRule(lines[i]!)) ruleIdx.push(i);
+  }
+  if (ruleIdx.length < 2) {
+    // Single rule: everything above it.
+    if (ruleIdx.length === 1) return lines.slice(0, ruleIdx[0]!);
+    return lines;
+  }
+  const top = ruleIdx[ruleIdx.length - 2]!;
+  return lines.slice(0, top);
+};
+
+/**
+ * Cursor's composer has no rule box. The live row is the last `\u2192` line,
+ * and a wrapped continuation sits under it. Lines above that arrow are
+ * scrollback, including an older placeholder.
+ */
+export const fromLastArrow = (lines: readonly string[]): readonly string[] => {
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (/^\s*\u2192/u.test(lines[i]!)) return lines.slice(i);
+  }
+  return [];
+};
+
+export const extractRegion = (
+  lines: readonly string[],
+  region: string,
+  n = 5,
+): readonly string[] => {
+  switch (region) {
+    case "whole_recent":
+      return lines;
+    case "bottom_non_empty_lines":
+      return bottomNonEmptyLines(lines, n);
+    case "footer_line": {
+      const f = footerLine(lines);
+      return f ? [f] : [];
+    }
+    case "after_last_horizontal_rule":
+      return afterLastHorizontalRule(lines);
+    case "prompt_box_body":
+      return promptBoxBody(lines);
+    case "above_prompt_box":
+      return abovePromptBox(lines);
+    case "from_last_arrow":
+      return fromLastArrow(lines);
+    default:
+      return lines;
+  }
+};

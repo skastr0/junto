@@ -1,0 +1,440 @@
+/* The tour (FirstRunIntro.tsx). A near-full-window workspace plate: a
+   chapter rail with Pip on the left, and on the right a live stage above a
+   few sentences and a "try it" line. Every colour is a theme token, so dark
+   and bright both hold; the demos are the canvas's own components. */
+
+.focus-surface__panel.first-run-intro {
+  background: var(--color-raise);
+}
+
+.first-run-intro__frame {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+/* Rail: Pip, then the chapters in order. */
+.first-run-intro__rail {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 14px 18px 18px;
+  border-right: 1px solid var(--color-stroke);
+  background: var(--color-inset);
+}
+.first-run-intro__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px;
+}
+.first-run-intro__brand > span { display: grid; gap: 2px; }
+.first-run-intro__wordmark {
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-display);
+  font-weight: 600;
+  letter-spacing: var(--tracking-soft);
+}
+.first-run-intro__guide { color: var(--color-dim); font-size: var(--text-body); }
+.first-run-intro__chapters {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.first-run-intro__chapter {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--color-dim);
+  font: inherit;
+  font-size: var(--text-body-lg);
+  text-align: left;
+  cursor: pointer;
+  transition: background 150ms ease-out, color 150ms ease-out;
+}
+.first-run-intro__chapter:hover { background: var(--color-overlay-2); color: var(--color-ink); }
+.first-run-intro__chapter.is-seen { color: var(--color-ink-2); }
+.first-run-intro__chapter.is-active {
+  background: color-mix(in oklab, var(--color-main) 12%, transparent);
+  color: var(--color-ink);
+}
+.first-run-intro__chapter:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 1px; }
+.first-run-intro__chapter-n {
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  font-variant-numeric: tabular-nums;
+}
+.first-run-intro__chapter.is-active .first-run-intro__chapter-n { color: var(--color-amber-fg); }
+
+/* Main column: head, the chapter, the foot. */
+.first-run-intro__main {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+}
+.first-run-intro__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px 0 32px;
+}
+.first-run-intro__count {
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.first-run-intro__slide {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 32px 8px;
+  animation: first-run-intro-slide 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes first-run-intro-slide {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.first-run-intro__art { display: flex; justify-content: center; }
+
+.first-run-intro__words {
+  display: grid;
+  grid-template-columns: minmax(0, 62ch) minmax(220px, 300px);
+  justify-content: space-between;
+  gap: 32px;
+}
+.first-run-intro__title {
+  margin: 0 0 12px;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-hero);
+  font-weight: 600;
+  letter-spacing: var(--tracking-flat);
+  line-height: var(--leading-compact);
+  text-wrap: balance;
+}
+.first-run-intro__body {
+  color: var(--color-ink-2);
+  font-size: var(--text-title);
+  line-height: var(--leading-open);
+  text-wrap: pretty;
+}
+.first-run-intro__body p { margin: 0; }
+.first-run-intro__body p + p { margin-top: 10px; }
+.first-run-intro__body strong { color: var(--color-ink); font-weight: 600; }
+
+.first-run-intro__try {
+  align-self: start;
+  padding-top: 6px;
+}
+.first-run-intro__try-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--color-amber-fg);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+}
+.first-run-intro__try ul { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.first-run-intro__try li {
+  display: grid;
+  gap: 4px;
+  color: var(--color-ink-2);
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
+}
+.first-run-intro__try strong { color: var(--color-ink); font-weight: 600; }
+.first-run-intro__keys { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+
+/* Two panes side by side: a stage and a real surface. */
+.tour-pair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 20px;
+}
+.tour-editor {
+  width: 480px;
+  max-width: 100%;
+  max-height: 440px;
+  overflow: hidden;
+  padding: 16px 18px 0;
+  /* The editor runs longer than the stage; it fades out rather than cut.
+     No box of its own: the editor's plate is its frame. */
+  mask-image: linear-gradient(to bottom, black 82%, transparent);
+}
+
+/* Slide 4: a quiet stand-in for the macOS consent sheet. */
+.intro-art--prompt {
+  display: flex;
+  justify-content: center;
+  padding: 22px 12px;
+  border-radius: var(--radius-xl);
+  background: var(--color-inset);
+}
+.intro-prompt {
+  width: min(300px, 100%);
+  padding: 16px 16px 12px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-xl);
+  background: var(--color-raise-2);
+  box-shadow: 0 10px 28px var(--color-shadow-1);
+  text-align: center;
+}
+.intro-prompt__title {
+  margin: 0 0 14px;
+  color: var(--color-ink);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+  line-height: var(--leading-body);
+}
+.intro-prompt__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.intro-prompt__button {
+  padding: 5px 0;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  background: var(--color-overlay-2);
+  color: var(--color-ink);
+  font-size: var(--text-body);
+}
+.intro-prompt__button--default {
+  border-color: color-mix(in oklab, var(--color-cyan) 55%, transparent);
+  background: color-mix(in oklab, var(--color-cyan) 22%, transparent);
+}
+
+/* Shell chapter: what Junto read, live. A quiet inset panel like the
+   permission prompt art; directories in mono, never a value. */
+.intro-art--shell {
+  display: grid;
+  gap: 12px;
+  width: min(520px, 100%);
+  margin: 0 auto;
+  padding: 18px 20px 14px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-xl);
+  background: var(--color-inset);
+  color: var(--color-ink-2);
+  font-size: var(--text-body-lg);
+}
+.intro-shell__head { display: flex; align-items: center; gap: 8px; }
+.intro-shell__headline { color: var(--color-ink); font-size: var(--text-title); font-weight: 600; }
+.intro-shell__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+}
+.intro-shell__group { display: grid; gap: 4px; }
+.intro-shell__label {
+  color: var(--color-faint);
+  font-size: var(--text-body);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+.intro-shell__paths {
+  display: grid;
+  gap: 2px;
+  max-height: 132px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  color: var(--color-ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  overflow-wrap: anywhere;
+}
+.intro-shell__harnesses { margin: 0; color: var(--color-ink-2); }
+.intro-shell__failure { display: grid; gap: 4px; }
+.intro-shell__failure p { margin: 0; color: var(--color-ink); line-height: var(--leading-body); }
+.intro-shell__escape { display: grid; gap: 6px; }
+.intro-shell__escape p { margin: 0; line-height: var(--leading-body); }
+.intro-shell__escape code,
+.intro-shell__escape pre { font-family: var(--font-mono); font-size: var(--text-body); }
+.intro-shell__escape pre {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--color-overlay-1);
+  color: var(--color-ink-2);
+  white-space: pre;
+  overflow-x: auto;
+}
+.intro-shell__faint { color: var(--color-dim); }
+.intro-shell__foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* The change line wraps; the button never does. */
+.intro-shell__foot > button { flex: none; white-space: nowrap; }
+
+/* The top bar's real pause switch, lifted onto the stage. */
+.tour-switch { display: flex; justify-content: center; }
+
+.first-run-intro__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px 16px 32px;
+  border-top: 1px solid var(--color-stroke);
+}
+.first-run-intro__progress {
+  flex: 1;
+  max-width: 240px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--color-overlay-4);
+}
+.first-run-intro__progress > span {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-sm);
+  background: var(--color-amber);
+  transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.first-run-intro__nav { display: flex; gap: 8px; }
+
+@media (max-width: 900px) {
+  .first-run-intro__frame { grid-template-columns: minmax(0, 1fr); }
+  .first-run-intro__rail { display: none; }
+  .first-run-intro__words { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* The surface motion gate pauses animations while the window is hidden; a
+   paused entrance would hold the text half faded, so skip it instead. */
+html[data-surface-motion="paused"] .first-run-intro__slide { animation: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .first-run-intro__slide { animation: none; }
+  .first-run-intro__progress > span,
+  .first-run-intro__chapter { transition: none; }
+}
+
+/* A chapter with a main stage and a smaller one beneath it. */
+.tour-column { display: grid; justify-items: center; gap: 14px; max-width: 100%; }
+.tour-aside { display: grid; justify-items: center; gap: 6px; max-width: 100%; }
+.tour-aside__tag {
+  padding: 1px 7px;
+  border: 1px solid color-mix(in oklab, var(--color-violet) 45%, transparent);
+  border-radius: var(--radius-pill);
+  color: var(--color-violet);
+  font-size: var(--text-body);
+}
+
+/* The multi-prompt composer, shown as it opens under a selection. */
+.tour-composer { width: min(520px, 100%); }
+
+/* The feed as it opens: its real cards, under a quiet heading. */
+.tour-feed {
+  display: grid;
+  gap: 8px;
+  width: min(440px, 100%);
+  align-content: start;
+}
+.tour-feed__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+  color: var(--color-ink);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+}
+
+/* Grid focus: terminals side by side under their rings. */
+.tour-grid {
+  display: grid;
+  gap: 8px;
+  width: min(460px, 100%);
+  opacity: .55;
+  transition: opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.tour-grid.is-open { opacity: 1; }
+.tour-grid__head { display: flex; justify-content: space-between; color: var(--color-ink); font-size: var(--text-body-lg); font-weight: 600; }
+.tour-grid__count { color: var(--color-dim); font-weight: 400; }
+.tour-grid__cells { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.tour-grid__cell { overflow: hidden; border: 1px solid var(--color-stroke); border-radius: var(--radius-lg); background: var(--color-inset); }
+.tour-grid__cell-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--color-stroke);
+  background: var(--color-raise-2);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+.tour-grid__term {
+  margin: 0;
+  padding: 6px 8px 10px;
+  color: var(--color-ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  line-height: var(--leading-open);
+  white-space: pre;
+}
+
+/* The bottom bar's numbered slots, the real chips. */
+.tour-hotbar { display: flex; gap: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-grid { transition: none; }
+}
+
+/* Profiles and squads as the add menu lists them. */
+.tour-picker {
+  display: grid;
+  gap: 4px;
+  width: 280px;
+  align-content: start;
+  padding: 10px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-xl);
+  background: var(--color-raise-2);
+}
+.tour-picker__label { padding: 6px 6px 2px; color: var(--color-dim); font-size: var(--text-body); }
+.tour-picker__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  transition: background 180ms ease-out, border-color 180ms ease-out;
+}
+.tour-picker__row.is-picked {
+  border-color: color-mix(in oklab, var(--color-main) 45%, transparent);
+  background: color-mix(in oklab, var(--color-main) 10%, transparent);
+}
+.tour-picker__row .squad-portraits { flex: none; }
+.tour-picker__text { display: grid; gap: 1px; min-width: 0; }
+.tour-picker__name { color: var(--color-ink); font-family: var(--font-mono); font-size: var(--text-body-lg); font-weight: 600; }
+.tour-picker__line { overflow: hidden; color: var(--color-dim); font-size: var(--text-body); text-overflow: ellipsis; white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-picker__row { transition: none; }
+}

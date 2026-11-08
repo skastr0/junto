@@ -1,0 +1,112 @@
+{
+  "label": "baseline-e58cdc3bd",
+  "sourceCommit": "e58cdc3bdc6935d4d5095e229910d9940dd7460f",
+  "appRoot": "/Users/guilhermecastro/Projects/junto-wt-build",
+  "command": "bun scripts/probe-ring-cost.ts --app-root /Users/guilhermecastro/Projects/junto-wt-build --label baseline-e58cdc3bd --seats 24 --seconds 6 --port 9341",
+  "when": "2026-10-17T19:41:46.120Z",
+  "environment": {
+    "accessibility": false,
+    "electron": "43.5.0",
+    "chrome": "150.0.7871.250",
+    "displays": 1,
+    "darkOs": true,
+    "rendererAccessibilityForcedOff": false,
+    "seats": 24,
+    "preflightProblems": []
+  },
+  "valid": false,
+  "scenarios": [
+    {
+      "name": "idle",
+      "valid": true,
+      "problems": [],
+      "seconds": 6,
+      "rendererBusyMsPerSecond": 346,
+      "scriptMsPerSecond": 104,
+      "layoutMsPerSecond": 3.5,
+      "styleMsPerSecond": 42.1,
+      "rafFrames": 874,
+      "rafDropped": 231,
+      "framesPresented": null,
+      "framesDropped": null,
+      "cpuPercent": {
+        "browser": 6,
+        "renderer": 50.6,
+        "GPU": 83,
+        "network.mojom.NetworkService": 0,
+        "tracing.mojom.TracingService": 0.1
+      },
+      "ringsVisible": {
+        "moving": 30,
+        "marks": 31
+      },
+      "accessibilityOn": true,
+      "loadAverage1m": {
+        "before": 6.87,
+        "after": 7.29
+      }
+    },
+    {
+      "name": "pan",
+      "valid": true,
+      "problems": [],
+      "seconds": 6,
+      "rendererBusyMsPerSecond": 436.1,
+      "scriptMsPerSecond": 117.4,
+      "layoutMsPerSecond": 9.9,
+      "styleMsPerSecond": 42.8,
+      "rafFrames": 858,
+      "rafDropped": 277,
+      "framesPresented": null,
+      "framesDropped": null,
+      "cpuPercent": {
+        "browser": 9.2,
+        "renderer": 61.6,
+        "GPU": 87.2,
+        "network.mojom.NetworkService": 0,
+        "tracing.mojom.TracingService": 0.1
+      },
+      "ringsVisible": {
+        "moving": 30,
+        "marks": 31
+      },
+      "accessibilityOn": true,
+      "loadAverage1m": {
+        "before": 7.29,
+        "after": 7.27
+      }
+    },
+    {
+      "name": "stream",
+      "valid": false,
+      "problems": [
+        "1 dialog(s) cover the canvas (first-run tour?)"
+      ],
+      "seconds": 6,
+      "rendererBusyMsPerSecond": 476.7,
+      "scriptMsPerSecond": 222.9,
+      "layoutMsPerSecond": 0.4,
+      "styleMsPerSecond": 4.9,
+      "rafFrames": 634,
+      "rafDropped": 386,
+      "framesPresented": null,
+      "framesDropped": null,
+      "cpuPercent": {
+        "browser": 94.5,
+        "renderer": 78,
+        "GPU": 61.4,
+        "network.mojom.NetworkService": 0,
+        "tracing.mojom.TracingService": 0.1
+      },
+      "ringsVisible": {
+        "moving": 30,
+        "marks": 32
+      },
+      "accessibilityOn": true,
+      "loadAverage1m": {
+        "before": 7.27,
+        "after": 6.84
+      }
+    }
+  ]
+}

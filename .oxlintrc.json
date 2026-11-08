@@ -1,0 +1,161 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "jsPlugins": [
+    "./lint/junto-plugin.ts"
+  ],
+  "categories": {
+    "correctness": "off"
+  },
+  "ignorePatterns": [
+    "node_modules/**",
+    "out/**",
+    "dist/**",
+    "infra/**",
+    ".amp/**",
+    "native/**"
+  ],
+  "rules": {
+    "junto/program-imports": [
+      "error",
+      {
+        "aliases": {
+          "@shared/*": "src/shared/*",
+          "@window/*": "src/window/*",
+          "@junto/overlay": "src/overlay-oss/index.ts",
+          "@junto/overlay/*": "src/overlay-oss/*"
+        },
+        "programs": [
+          {
+            "name": "shared",
+            "paths": [
+              "src/shared/"
+            ],
+            "mayImport": [
+              "overlay"
+            ],
+            "forbidModules": [
+              "electron"
+            ]
+          },
+          {
+            "name": "overlay",
+            "paths": [
+              "src/overlay-oss/"
+            ],
+            "mayImport": [
+              "shared"
+            ],
+            "forbidModules": [
+              "electron"
+            ]
+          },
+          {
+            "name": "contract",
+            "paths": [
+              "src/contract/"
+            ],
+            "mayImport": [
+              "shared"
+            ],
+            "forbidModules": [
+              "electron"
+            ]
+          },
+          {
+            "name": "node",
+            "paths": [
+              "src/node/"
+            ],
+            "mayImport": [
+              "shared",
+              "overlay",
+              "contract"
+            ],
+            "forbidModules": [
+              "electron"
+            ]
+          },
+          {
+            "name": "window",
+            "paths": [
+              "src/window/"
+            ],
+            "mayImport": [
+              "shared",
+              "overlay",
+              "contract"
+            ],
+            "forbidModules": [
+              "electron"
+            ]
+          },
+          {
+            "name": "preload",
+            "paths": [
+              "src/window/preload/"
+            ],
+            "mayImport": [
+              "shared"
+            ]
+          },
+          {
+            "name": "app",
+            "paths": [
+              "src/app/"
+            ],
+            "mayImport": [
+              "shared",
+              "overlay",
+              "contract",
+              "node"
+            ]
+          },
+          {
+            "name": "core",
+            "paths": [
+              "src/core/"
+            ],
+            "mayImport": [
+              "shared",
+              "overlay",
+              "contract",
+              "node"
+            ],
+            "forbidModules": [
+              "electron"
+            ]
+          },
+          {
+            "name": "terminal",
+            "paths": [
+              "src/terminal/"
+            ],
+            "mayImport": [
+              "shared",
+              "contract",
+              "node"
+            ],
+            "forbidModules": [
+              "electron"
+            ]
+          },
+          {
+            "name": "cli",
+            "paths": [
+              "src/cli/"
+            ],
+            "mayImport": [
+              "shared",
+              "overlay",
+              "contract",
+              "node"
+            ],
+            "forbidModules": [
+              "electron"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,261 @@
+/**
+ * The two offboard modes over the real work-control socket. Plain offboard
+ * saves notes and announces a rest; `--continue` also saves a note for the
+ * next session and announces a continue. Onboard hands that note back as a
+ * handoff exactly once, and only to the session right after the one that
+ * continued. Every store, home, and socket lives under a temp root.
+ */
+import { existsSync, mkdirSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { createConnection } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Effect, Layer, ManagedRuntime } from "effect";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { encodeWorkFrame } from "../src/shared/work-control";
+import { publishSeatCredential } from "./helpers/seat-credential";
+import { ModelService } from "../src/core/model/service";
+import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
+import { seat } from "./support/model-nodes";
+import { asCanvasName, asNodeId } from "../src/shared/model";
+import { startWorkControlServer, type WorkControlServer } from "../src/core/work/control";
+import { WorkLive } from "../src/core/work/service";
+import { CrewRepositoryLive } from "../src/core/work/crew-repository";
+import { makeContentServiceLive } from "../src/core/content/service";
+import { WorkRepositoryLive } from "../src/core/work/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
+import { SettingsLive, SettingsService } from "../src/core/settings/service";
+import { PausePlaneAllPlaying } from "../src/core/pause-plane";
+import { createMainAuthoringGate } from "../src/node/main-authoring-gate";
+import {
+  makeSeatSessionRepositoryLive,
+  SeatSessionRepository,
+} from "../src/core/seat-sessions/repository";
+import { subscribeSeatOffboard, type SeatOffboardEvent } from "../src/core/seat-sessions/service";
+import {
+  CONTINUATION_FRAMING,
+  describeTranscriptMissing,
+  SEAT_SESSION_CONTINUATION_MAX_CHARS,
+} from "../src/shared/seat-sessions";
+
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
+
+const CANVAS = "offboard-modes";
+
+const makeRuntime = (root: string) => {
+  const repositoriesLive = Layer.provideMerge(
+    Layer.mergeAll(
+      WorkRepositoryLive,
+      CrewRepositoryLive,
+      makeSeatSessionRepositoryLive(),
+      makeMachineRepositoryLive({ defaultName: () => "workbench" }),
+      SettingsLive,
+      makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
+    ),
+    Layer.mergeAll(
+      makeStateEngineLive(join(root, "state", "junto.db")),
+      makeInstallOpsLive(join(root, "state", "install-ops.db")),
+    ),
+  );
+  const canvasesLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
+  const workLive = Layer.provideMerge(WorkLive, canvasesLive);
+  return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneAllPlaying, testLog.log.loggerLayer));
+};
+
+const claude = (id: string, x: number, sessionId?: string) =>
+  seat(id, {
+    x,
+    host: "workbench",
+    width: 120,
+    height: 48,
+    bindingId: `bind-${id}` as never,
+    launch: { kind: "harness", argv: ["claude"] },
+  });
+
+let root: string;
+let runtime: ReturnType<typeof makeRuntime>;
+let server: WorkControlServer;
+let seatCredential = "";
+
+beforeEach(async () => {
+  root = await mkdtemp(join(tmpdir(), "junto-offboard-modes-"));
+  const workHome = join(root, "work");
+  mkdirSync(workHome, { recursive: true });
+  process.env.JUNTO_WORK_HOME = workHome;
+  runtime = makeRuntime(root);
+  const settings = await runtime.runPromise(SettingsService);
+  await runtime.runPromise(
+    settings.setMachinePreferences({ supervisedPreferred: true }),
+  );
+  await runtime.runPromise(Effect.flatMap(MachineRepository, machine => machine.configureName("workbench")));
+  await writeSession("s1");
+  server = await startWorkControlServer({
+    version: "test",
+    workHome,
+    home: root,
+    run: (effect) => runtime.runPromise(effect),
+    authoringGate: createMainAuthoringGate(),
+  });
+  seatCredential = publishSeatCredential(server.credentials, { agentKey: "local:agent" });
+});
+
+afterEach(async () => {
+  await server.close();
+  await runtime.dispose();
+  await rm(root, { recursive: true, force: true });
+  delete process.env.JUNTO_WORK_HOME;
+});
+
+const writeSession = async (sessionId: string | undefined) => {
+  const held = await runtime.runPromise(Effect.flatMap(ModelService, model => model.listCanvases()));
+  if (!held.some(name => name === CANVAS)) {
+    await runtime.runPromise(seedCanvas(CANVAS, [claude("agent", 0), claude("other", 200)]));
+  }
+  await runtime.runPromise(Effect.flatMap(SeatSessionRepository, r => sessionId
+    ? r.record({ seatId: "agent", bindingId: "bind-agent", sessionId, harness: "claude" }).pipe(Effect.asVoid)
+    : r.end("agent", "offboard", undefined, "bind-agent").pipe(Effect.asVoid)));
+
+};
+
+const call = (body: unknown): Promise<any> =>
+  new Promise((resolve, reject) => {
+    const socket = createConnection({ path: server.socketPath });
+    let buffer = "";
+    socket.on("connect", () => socket.write(encodeWorkFrame(body)));
+    socket.on("data", (chunk) => {
+      buffer += chunk.toString("utf8");
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) return;
+      socket.destroy();
+      resolve(JSON.parse(buffer.slice(0, newline)));
+    });
+    socket.on("error", reject);
+  });
+
+const token = () => seatCredential;
+const op = (name: string, args: unknown) => call({ token: token(), op: name, args });
+
+const NOTES = "# Parser shipped\n\n- why: nightly sync fails without it";
+const CONTINUATION = "Pick up the 429 retry in src/import/feed.ts: backoff is written, the test is not.";
+
+const occurrences = (haystack: string, needle: string): number => haystack.split(needle).length - 1;
+
+/** What rotation does to the history: the session ends as offboard, the next starts. */
+const rotateTo = async (next: string) => {
+  await runtime.runPromise(Effect.flatMap(SeatSessionRepository, (r) => r.end("agent", "offboard")));
+  await writeSession(next);
+};
+
+const withEvents = async (body: (events: SeatOffboardEvent[]) => Promise<void>) => {
+  const events: SeatOffboardEvent[] = [];
+  const unsubscribe = subscribeSeatOffboard((event) => events.push(event));
+  try {
+    await body(events);
+  } finally {
+    unsubscribe();
+  }
+};
+
+describe("junto offboard modes", () => {
+  it("plain offboard saves the notes and announces a rest, with no continuation", () =>
+    withEvents(async (events) => {
+      const result = await op("offboard", { notes: NOTES });
+      expect(result.ok).toBe(true);
+      expect(result.data).toMatchObject({ session_id: "s1", mode: "rest", disposition: "applied" });
+      expect(result.data).not.toHaveProperty("continuation_path");
+      expect(result.data.next_step).toContain("it rests until its next wake");
+      expect(result.data.next_step).toContain("starts a fresh session");
+      expect(result.data.next_step).toContain("its junto commands are refused");
+      expect(events).toEqual([expect.objectContaining({ seatId: "agent", sessionId: "s1", mode: "rest" })]);
+      expect(existsSync(join(root, "seats", "agent", "sessions", "s1.next.md"))).toBe(false);
+    }));
+
+  it("--continue saves the notes and the continuation and announces a continue", () =>
+    withEvents(async (events) => {
+      const result = await op("offboard", { notes: NOTES, continuation: CONTINUATION });
+      expect(result.ok).toBe(true);
+      expect(result.data).toMatchObject({ session_id: "s1", mode: "continue" });
+      expect(result.data).not.toHaveProperty("continuation_path");
+      const saved = await runtime.runPromise(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.notesOf("agent", ["s1"])));
+      expect(saved.get("s1")).toEqual({ notes: NOTES, continuation: CONTINUATION });
+      expect(result.data.next_step).toContain("fresh session");
+      expect(events).toEqual([expect.objectContaining({ mode: "continue" })]);
+    }));
+
+  it("a later plain offboard withdraws the continuation", async () => {
+    await op("offboard", { notes: NOTES, continuation: CONTINUATION });
+    const plain = await op("offboard", { notes: NOTES });
+    expect(plain.data.mode).toBe("rest");
+    expect(existsSync(join(root, "seats", "agent", "sessions", "s1.next.md"))).toBe(false);
+  });
+
+  it("keeps notes validation and checks the continuation", async () => {
+    expect(await op("offboard", { notes: " ", continuation: CONTINUATION })).toMatchObject({
+      ok: false,
+      error: { type: "InputError", details: { path: "args.notes" } },
+    });
+    expect(await op("offboard", { notes: NOTES, continuation: " \n " })).toMatchObject({
+      ok: false,
+      error: { type: "InputError", details: { path: "args.continuation" } },
+    });
+    const long = "x".repeat(SEAT_SESSION_CONTINUATION_MAX_CHARS + 1);
+    expect(await op("offboard", { notes: NOTES, continuation: long })).toMatchObject({
+      ok: false,
+      error: { type: "InputError", details: { path: "args.continuation" } },
+    });
+  });
+});
+
+describe("junto onboard handoff", () => {
+  it("hands the continuation to the next session once, and to no later one", async () => {
+    await op("offboard", { notes: NOTES, continuation: CONTINUATION });
+
+    // The session that continued sees no handoff of its own.
+    const self = await op("onboard", {});
+    expect(self.data).not.toHaveProperty("handoff");
+
+    await rotateTo("s2");
+    const next = await op("onboard", {});
+    expect(next.data.handoff).toEqual({
+      note: CONTINUATION_FRAMING,
+      from_session: "s1",
+      left_at: expect.any(String),
+      continuation: CONTINUATION,
+      gist: "Parser shipped",
+      notes: NOTES,
+      transcript_path: null,
+      transcript_missing: describeTranscriptMissing("claude", "none"),
+    });
+    // Once: the note appears in the handoff only, and ends the payload.
+    expect(occurrences(JSON.stringify(next.data), "Pick up the 429 retry")).toBe(1);
+    expect(Object.keys(next.data).at(-1)).toBe("handoff");
+    // The notes stay history, beside it.
+    expect(next.data.sessions.last).toMatchObject({ session_id: "s1", gist: "Parser shipped" });
+
+    // Re-orienting after a compaction still finds it.
+    expect((await op("onboard", {})).data.handoff.continuation).toBe(CONTINUATION);
+
+    await rotateTo("s3");
+    const later = await op("onboard", {});
+    expect(later.data).not.toHaveProperty("handoff");
+    expect(occurrences(JSON.stringify(later.data), "Pick up the 429 retry")).toBe(0);
+  });
+
+  it("a session that rested hands nothing over", async () => {
+    await op("offboard", { notes: NOTES });
+    await rotateTo("s2");
+    const next = await op("onboard", {});
+    expect(next.data).not.toHaveProperty("handoff");
+    expect(next.data.sessions.last).toMatchObject({ session_id: "s1", notes: NOTES });
+  });
+
+  it("a session replaced for any other reason hands nothing over", async () => {
+    await op("offboard", { notes: NOTES, continuation: CONTINUATION });
+    await writeSession("s2");
+    expect((await op("onboard", {})).data).not.toHaveProperty("handoff");
+  });
+});

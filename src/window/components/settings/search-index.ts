@@ -1,0 +1,158 @@
+/**
+ * Settings search: every setting by its name, what it says about itself, and
+ * the page it lives on. Pages whose settings come from a table (shortcuts,
+ * experimental features, sound families) read that table; the rest are listed
+ * here, and tests/settings-search-index.test.ts holds each listed name to the
+ * page that draws it.
+ */
+import { experimentalFeatureSpec } from "@shared/feature-catalog";
+import { experimentalFeatureKeys } from "@shared/features";
+import { KEY_TABLE } from "@shared/key-table";
+import { SOUND_CATEGORIES } from "@shared/settings";
+import { CATEGORY_LABEL } from "../../lib/sound/cues";
+
+export type SettingEntry = {
+  /** The page's key in the section list. */
+  readonly section: string;
+  /** The setting's name as its row shows it; also the row's anchor. */
+  readonly name: string;
+  readonly description: string;
+  /** Words people look for it by that its name and description do not say. */
+  readonly words?: string;
+};
+
+const entry = (section: string, name: string, description: string, words?: string): SettingEntry => ({
+  section,
+  name,
+  description,
+  ...(words === undefined ? {} : { words }),
+});
+
+/** Settings whose names are written on their page. */
+export const LISTED_SETTINGS: ReadonlyArray<SettingEntry> = [
+  entry("appearance", "Theme", "Auto, dark or bright"),
+  entry("appearance", "Interface size", "Text, buttons and spacing, larger or smaller"),
+  entry("appearance", "Agent terminals", "Change colours with the theme, or keep their own", "colours terminal"),
+
+  entry("terminal", "Font family", "The fonts terminals use, in order"),
+  entry("terminal", "Font size", "Text size in pixels"),
+  entry("terminal", "Line height", "Space between lines, as a multiple of the font size", "accessibility"),
+  entry("terminal", "Letter spacing", "Extra space between characters in pixels", "accessibility"),
+  entry(
+    "terminal",
+    "Minimum contrast",
+    "Text too faint against its background is adjusted until it reaches this contrast",
+    "accessibility",
+  ),
+  entry("terminal", "Cursor style", "The cursor's shape: block, bar or underline"),
+  entry("terminal", "Cursor blink", "Off keeps the cursor steady", "accessibility"),
+  entry("terminal", "Scroll sensitivity", "Lines moved by one notch of the mouse wheel"),
+  entry("terminal", "Scrollback", "Lines of earlier output you can scroll back to in each terminal"),
+  entry("terminal", "Copy selection automatically", "Selecting text in a terminal copies it at once"),
+  entry("terminal", "Bell", "What happens when a program in a terminal rings the bell", "accessibility"),
+  entry(
+    "terminal",
+    "Screen reader mode",
+    "Lets a screen reader read terminal output",
+    "accessibility VoiceOver blind",
+  ),
+
+  entry("briefing", "App briefing", "The text every agent reads when it starts", "AGENTS.md CLAUDE.md instructions import"),
+  entry("references", "New reference", "Named text an agent reads when it needs it", "knowledge notes import"),
+
+  entry("inbox", "Inbox", "The Artifacts node your Cmd+T captures land in, on this canvas", "capture quick capture second brain notes"),
+
+  entry("feed", "Quick replies", "One-click answers offered when an agent is waiting on you"),
+  entry("feed", "Quiet notes", "Answers that close a signal without waking the seat, sent with Shift+1 to 9", "acknowledge silent"),
+
+  entry("notifications", "Send notifications", "Whether Junto reaches you while it is in the background"),
+  entry("notifications", "Blocked", "An agent cannot go on without you"),
+  entry("notifications", "Needs you", "A question, a decision, or a prompt"),
+  entry("notifications", "Stopped", "An agent ended with an error"),
+  entry("notifications", "Finished", "Done and not looked at yet"),
+  entry("notifications", "Badge", "Agents waiting on you, on the Junto icon"),
+  entry("notifications", "Bounce when blocked", "The icon bounces once when an agent is blocked"),
+
+  entry("offboard", "Cache window", "How long a seat can stay still before its cache expires", "idle offboard session harness machine"),
+  entry("offboard", "Off", "Junto never acts on the cache window. Seats always continue", "cache mode"),
+  entry("offboard", "Manual", "A seat past its window shows it, and you start it fresh yourself", "cache mode"),
+  entry("offboard", "Auto", "A seat off screen past its window starts fresh. A seat open in front of you asks first", "cache mode"),
+  entry("offboard", "Hybrid", "A seat open in front of you is never started fresh or asked; it shows the warning", "cache mode"),
+
+  entry("companion", "Pair a phone", "Answer agents and send them mail from your phone"),
+  entry("companion", "Paired phones", "Phones that can reach this Mac"),
+
+  entry("machine", "Name", "What other machines call this one", "machine name"),
+  entry("machine", "Prefer supervised runtime", "A preference. It does not install the supervisor"),
+
+  entry("updates", "Check for updates", "The Junto version you run, and newer ones", "version install"),
+
+  entry("audio", "All sounds", "The level and switch for every sound together"),
+
+  entry("browser", "Max warm sessions", "Browser pages kept ready, up to 32"),
+
+  entry("harnesses", "Offer in palette", "Whether this agent can be picked when you add one"),
+  entry(
+    "harnesses",
+    "All machines",
+    "The model, effort, permission mode and extra arguments a new seat starts with, on every machine or on one",
+    "default model effort permission mode extra arguments machine override",
+  ),
+  entry("harnesses", "Harness default", "A value left unset is not passed; the harness's own config decides"),
+
+  entry("advanced", "Introduction", "The short tour from first launch"),
+  entry("advanced", "Logs explorer", "show the developer logs panel in the top bar"),
+  entry("advanced", "Agent tool directories", "Extra folders to look in for agent CLIs"),
+  entry("advanced", "Start Junto at login", "Open Junto when you log in to your Mac"),
+  entry("advanced", "App version", "The Junto version you run"),
+  entry("advanced", "Platform", "OS and architecture"),
+  entry("advanced", "Backup", "Export a copy of Junto's data"),
+];
+
+/** Every setting on the pages this build shows. */
+export const settingsIndex = (sections: ReadonlyArray<string>): ReadonlyArray<SettingEntry> => {
+  const shown = new Set(sections);
+  return [
+    ...LISTED_SETTINGS,
+    ...KEY_TABLE.map((def) => entry("keyboard", def.name, def.does)),
+    ...SOUND_CATEGORIES.map((category) =>
+      entry("audio", CATEGORY_LABEL[category].title, CATEGORY_LABEL[category].hint),
+    ),
+    ...experimentalFeatureKeys().flatMap((key) => {
+      const spec = experimentalFeatureSpec(key);
+      return spec ? [entry("experimental", spec.title, spec.description)] : [];
+    }),
+  ].filter((item) => shown.has(item.section));
+};
+
+export type SettingHit = SettingEntry & { readonly sectionLabel: string };
+
+/**
+ * Settings matching every word typed, in the setting's name, its description,
+ * its page's name or its search words. Names that start with the text come first, then names
+ * that hold it, then the rest, each in page order.
+ */
+export const searchSettings = (
+  entries: ReadonlyArray<SettingEntry>,
+  sectionLabels: Readonly<Record<string, string>>,
+  query: string,
+): ReadonlyArray<SettingHit> => {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+  const whole = words.join(" ");
+  const rank = (item: SettingEntry): number => {
+    const name = item.name.toLowerCase();
+    if (name.startsWith(whole)) return 0;
+    if (name.includes(whole)) return 1;
+    return 2;
+  };
+  return entries
+    .map((item) => ({ ...item, sectionLabel: sectionLabels[item.section] ?? item.section }))
+    .filter((item) => {
+      const text = `${item.name} ${item.description} ${item.sectionLabel} ${item.words ?? ""}`.toLowerCase();
+      return words.every((word) => text.includes(word));
+    })
+    .map((item, order) => ({ item, order, rank: rank(item) }))
+    .sort((a, b) => a.rank - b.rank || a.order - b.order)
+    .map(({ item }) => item);
+};

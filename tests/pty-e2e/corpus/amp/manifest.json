@@ -1,0 +1,478 @@
+{
+  "harness": "amp",
+  "displayName": "Amp",
+  "source": "P1-real-capture",
+  "harnessVersion": "0.0.1789401648-g1df9a1 (released 2026-09-14T16:00:48.000Z, 10m ago)",
+  "capturedAt": "2026-09-14T16:11:01.543Z",
+  "pty": {
+    "cols": 120,
+    "rows": 32,
+    "term": "xterm-256color"
+  },
+  "sanitized": true,
+  "recordingContext": {
+    "scope": "session initialization through scenario end",
+    "selfContained": true,
+    "note": "Every fixture retains the actual PTY stream from its own session start, including earlier scenario output when the session is shared. No synthetic terminal prefix or time-tail truncation is used.",
+    "thread": "one explicitly created private capture thread, separate from existing operator sessions",
+    "captureCommand": "PTY_CAPTURE_OPERATOR_HOME=1 PTY_CAPTURE_AMP_THREAD_ID=T-<SESSION> node tests/pty-e2e/pty-capture.ts amp --core-only"
+  },
+  "scrub": [
+    "<HOME>",
+    "<USER>",
+    "<HOST>",
+    "<CWD>",
+    "<CAPTURE>",
+    "<SESSION>",
+    "<EMAIL>",
+    "<TOKEN>"
+  ],
+  "scenarios": [
+    {
+      "harness": "amp",
+      "scenario": "startup-idle",
+      "status": "complete",
+      "observed": {
+        "title": "",
+        "osc9": "",
+        "glyphs": [
+          "·",
+          "∼",
+          "≈",
+          "≋",
+          "─",
+          "◷"
+        ],
+        "modes": {
+          "set": [
+            1002,
+            1003,
+            1004,
+            1006,
+            2004,
+            1049,
+            2048,
+            2026
+          ],
+          "reset": [
+            1049,
+            25,
+            2026
+          ],
+          "kittyPush": false,
+          "kittyPop": false
+        },
+        "promptGlyph": null,
+        "bytes": 200050,
+        "lines": 8,
+        "stableQuietMs": 55,
+        "idleEvidence": "visible-composer"
+      },
+      "expectedScreen": {
+        "title": "",
+        "osc9": "",
+        "promptGlyph": null,
+        "description": "complete untitled empty composer after Loading Thread and Catching Up settle; all original terminal initialization is retained"
+      }
+    },
+    {
+      "harness": "amp",
+      "scenario": "type-echo",
+      "status": "complete",
+      "observed": {
+        "title": "Greeting - amp - <CWD>",
+        "osc9": "",
+        "glyphs": [
+          "∼",
+          "≈",
+          "≋",
+          "─",
+          "┃",
+          "⠒",
+          "⠝",
+          "⠤",
+          "⠪",
+          "⠭",
+          "⡢",
+          "⢃",
+          "⢌",
+          "⢮",
+          "⢯",
+          "⢸",
+          "⣀",
+          "⣒",
+          "⣙",
+          "⣶",
+          "⣿"
+        ],
+        "modes": {
+          "set": [
+            1002,
+            1003,
+            1004,
+            1006,
+            2004,
+            1049,
+            2048,
+            2026
+          ],
+          "reset": [
+            1049,
+            25,
+            2026
+          ],
+          "kittyPush": false,
+          "kittyPop": false
+        },
+        "promptGlyph": null,
+        "lines": 9,
+        "idleReturned": true,
+        "exited": false
+      },
+      "expectedScreen": {
+        "title": "Greeting - amp - <CWD>",
+        "osc9": "",
+        "promptGlyph": null,
+        "description": "typed 'hello' echoed in composer, CR submits, output returns quiet",
+        "echoText": "hello"
+      }
+    },
+    {
+      "harness": "amp",
+      "scenario": "paste-chip",
+      "status": "complete",
+      "observed": {
+        "chipText40ms": null,
+        "chipAfterCr40ms": false,
+        "submitted40ms": false,
+        "chipTextSlow": null,
+        "submittedSlow": false,
+        "clearedByCtrlC": false,
+        "ctrlCSent": false,
+        "osc9s": [],
+        "lines": 9,
+        "pasteLines": 40,
+        "settleMs": 40
+      },
+      "expectedScreen": {
+        "title": "⣤ Coding workspace - amp - <CWD>",
+        "osc9": "",
+        "promptGlyph": "╭",
+        "description": "40-line literal paste and later queued steering; Sending precedes the spinning title; no paste chip or Ctrl+C observed",
+        "pasteText": "PASTE_LINE_00\nPASTE_LINE_01\nPASTE_LINE_02\nPASTE_LINE_03\nPASTE_LINE_04\nPASTE_LINE_05\nPASTE_LINE_06\nPASTE_LINE_07\nPASTE_LINE_08\nPASTE_LINE_09\nPASTE_LINE_10\nPASTE_LINE_11\nPASTE_LINE_12\nPASTE_LINE_13\nPASTE_LINE_14\nPASTE_LINE_15\nPASTE_LINE_16\nPASTE_LINE_17\nPASTE_LINE_18\nPASTE_LINE_19\nPASTE_LINE_20\nPASTE_LINE_21\nPASTE_LINE_22\nPASTE_LINE_23\nPASTE_LINE_24\nPASTE_LINE_25\nPASTE_LINE_26\nPASTE_LINE_27\nPASTE_LINE_28\nPASTE_LINE_29\nPASTE_LINE_30\nPASTE_LINE_31\nPASTE_LINE_32\nPASTE_LINE_33\nPASTE_LINE_34\nPASTE_LINE_35\nPASTE_LINE_36\nPASTE_LINE_37\nPASTE_LINE_38\nPASTE_LINE_39",
+        "payloadVisible": true,
+        "chipObserved": false
+      }
+    },
+    {
+      "harness": "amp",
+      "scenario": "working-turn",
+      "status": "complete",
+      "observed": {
+        "workingSeen": true,
+        "interrupted": false,
+        "osc9s": [],
+        "titles": [
+          "⢽ Coding workspace - amp - <CWD>",
+          "⠭ Coding workspace - amp - <CWD>",
+          "⣹ Coding workspace - amp - <CWD>",
+          "⠰ Coding workspace - amp - <CWD>",
+          "⡸ Coding workspace - amp - <CWD>",
+          "⣿ Coding workspace - amp - <CWD>"
+        ],
+        "glyphs": [
+          "…",
+          "∼",
+          "≈",
+          "≋",
+          "⠭",
+          "⠰",
+          "⡸",
+          "⢼",
+          "⢽",
+          "⣒",
+          "⣲",
+          "⣹",
+          "⣿"
+        ],
+        "lines": 10,
+        "exited": false,
+        "idleReturned": false,
+        "promptDisposition": "queued steering during an ongoing turn; a distinct new turn acknowledgement is not established"
+      },
+      "expectedScreen": {
+        "title": "⣿ Coding workspace - amp - <CWD>",
+        "osc9": "",
+        "promptGlyph": null,
+        "description": "the numbered-line prompt remains queued as steering while the ongoing turn is Streaming; no interrupt or idle return is recorded",
+        "prompt": "forty numbered JUNTO CAPTURE lines"
+      }
+    },
+    {
+      "harness": "amp",
+      "scenario": "retry-overloaded",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: overloaded } creating the thread, never recovering",
+        "wiring": "AMP_URL points at the stub, which answers amp's internal API; the model runs server side, so only thread creation is scripted; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/api/thread-actors 503",
+          "/api/thread-actors 503",
+          "/api/thread-actors 503",
+          "/api/thread-actors 503",
+          "/api/thread-actors 503",
+          "/api/thread-actors 503",
+          "/api/thread-actors 503",
+          "/api/thread-actors 503",
+          "/api/thread-actors 503"
+        ],
+        "renderedLines": [
+          "                                ......",
+          "                          ••••••••••••:::::.",
+          "                       ••••••●••••••••••:::··:.",
+          "                     ••••●••●•••••••••••••::···:.",
+          "                   •●•●••●••●●●••••••••••••::····:.",
+          "                  ●••●●●●●●●••●●●•••••••••:::··.···.",
+          "                 ••●●●●●●●●●●•●●●●••••••••:::··...··.     Welcome to Amp",
+          "                •••●•●●●●●●●●●●●●●••••••••:::··...···     ctrl+o for commands · ? for shortcuts",
+          "                ●●•••••••••••●●●●●●•••••••::::·....··.",
+          "               .••••••••••••••●●●●••••••::::····....··",
+          "               .••••••●••••••••••••:::······........··",
+          "                ::•:••••••••••••••::···.............·.",
+          "                :·::••••••:::::::::···.............··",
+          "                 :·:::•::::::::::····.............··.",
+          "                  ·.··:::::::······..............··.",
+          "                   .....········.................·",
+          "                     ............................",
+          "                       ........................",
+          "                          ..................",
+          "                                  ..",
+          " ┃ say hi",
+          "╰ ∼ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "╰ ≈ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "╰ ≋ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "                                                                                                                   ╭──╮",
+          "                                                                                                                   │  │",
+          "╰ ◌ Reconnecting in 2s ─────────────────────────────────────────────────────────── <CWD> ─╯",
+          "                                                                           ╭──────────────────────────────────────────╮",
+          "                                                                           │ ✕ Connection failed: Failed to create th │",
+          "                                            ╭─────────────────────────────────────────────────────────────────────────╮",
+          "                                            │ ✕ Connection failed: Failed to create thread-actors thread: 503 {\"error │",
+          "                    ╭─────────────────────────────────────────────────────────────────────────────────────────────────╮",
+          "                    │ ✕ Connection failed: Failed to create thread-actors thread: 503 {\"error\":\"service-unavailable\"} │",
+          "╰ ◌ Reconnecting in 10 ─────────────────────────────────────────────────────────── <CWD> ─╯"
+        ],
+        "cliVersion": "0.0.1792209635-g24a9fe (released 2026-10-17T04:00:35.000Z, 1h ago)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "amp",
+      "scenario": "retry-rate",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: rate } creating the thread, never recovering",
+        "wiring": "AMP_URL points at the stub, which answers amp's internal API; the model runs server side, so only thread creation is scripted; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/api/thread-actors 429",
+          "/api/thread-actors 429",
+          "/api/thread-actors 429",
+          "/api/thread-actors 429",
+          "/api/thread-actors 429",
+          "/api/thread-actors 429",
+          "/api/thread-actors 429",
+          "/api/thread-actors 429",
+          "/api/thread-actors 429"
+        ],
+        "renderedLines": [
+          "                              ..•:••:..",
+          "                         .••●••●•••••••::::·",
+          "                      .•••●●•●●••●●●••••::::···",
+          "                    ••••••●●●●●●●●●●●●●•••::····:",
+          "                   ••●••●•●●●••●●●●●●●●●•••::····:.",
+          "                 .•●●●●●●●●●●●••••••••••••••::·..···",
+          "                 ●•●●●●●●●●●●●●•••••••••••••::·...···     Welcome to Amp",
+          "                ●••●•●•••●●•●●●•••••••••••••::··...··.    ctrl+o for commands · ? for shortcuts",
+          "               .••••••••••●●●●●••••••••••••:::··...···",
+          "               •••••••••••●●●●●●•••••••::::······...··",
+          "               •:•••••••••••●●●●•••:::···...........··",
+          "               .:•••••••••••••●●••:::···............··",
+          "                ·:•••::::::••••••::::··............··.",
+          "                ..::•:::::::::::::·····...........··.",
+          "                 ..·::::·············.............··",
+          "                   ...··:::········..............·.",
+          "                    ............................·",
+          "                         ...................",
+          "                               ........",
+          " ┃ say hi",
+          "╰ ∼ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "╰ ≈ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "╰ ≋ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "                                                                                               ╭──────────────────────╮",
+          "                                                                                               │ ✕ Connection failed: │",
+          "╰ ◌ Reconnecting in 2s ─────────────────────────────────────────────────────────── <CWD> ─╯",
+          "                                                          ╭───────────────────────────────────────────────────────────╮",
+          "                                                          │ ✕ Connection failed: Failed to create thread-actors threa │",
+          "                           ╭──────────────────────────────────────────────────────────────────────────────────────────╮",
+          "                           │ ✕ Connection failed: Failed to create thread-actors thread: 429 {\"error\":\"rate-limited\"} │",
+          "╰ ◌ Reconnecting in 10 ─────────────────────────────────────────────────────────── <CWD> ─╯"
+        ],
+        "cliVersion": "0.0.1792209635-g24a9fe (released 2026-10-17T04:00:35.000Z, 1h ago)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "amp",
+      "scenario": "usage-limit",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: credits }",
+        "wiring": "AMP_URL points at the stub, which answers amp's internal API; the model runs server side, so only thread creation is scripted; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/api/thread-actors 402",
+          "/api/thread-actors 402"
+        ],
+        "renderedLines": [
+          "                           ••••••••••••:::.",
+          "                       •••••••••••••••::::··:·",
+          "                     •••••••••●•••••••••:::····:.",
+          "                   ••••••••••••●•••••••••:::·····•",
+          "                  •••••●••••••••●●•••••••:::··..··:",
+          "                 ●••●●●●●●●●●●●••●●••••••:::··...··:      Welcome to Amp",
+          "                .•••●●●●●●●●●•••●●●●•••••:::··....···     ctrl+o for commands · ? for shortcuts",
+          "                ••••●•••●●•••••••●●●•••••:::··.....··",
+          "                ••••••••••••••••••••••••::::···.....·.",
+          "                •••••••••••••••••••:::·······.......·.",
+          "                ••:••:•••••••::::::···..............·",
+          "                .::::::••••::::::····..............··",
+          "                 ·:··::::::::::····...............··",
+          "                  ·······:::·····................··",
+          "                   .·...........................·:",
+          "                     ..........................·",
+          "                       .......................",
+          "                          .................",
+          "                                                                                                                   ╭──╮",
+          "                                                                                                                   │  │",
+          " ┃ say hi",
+          "╰ insuffting    ────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "                                                                          ╭───────────────────────────────────────────╮",
+          "                                                                          │ ✕ Connection failed: insufficient-credits │",
+          "╰ insufficient-credits ─────────────────────────────────────────────────────────── <CWD> ─╯"
+        ],
+        "cliVersion": "0.0.1792209635-g24a9fe (released 2026-10-17T04:00:35.000Z, 1h ago)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "amp",
+      "scenario": "error-auth",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: auth }",
+        "wiring": "AMP_URL points at the stub, which answers amp's internal API; the model runs server side, so only thread creation is scripted; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/api/thread-actors 401",
+          "/api/thread-actors 401",
+          "/api/thread-actors 401",
+          "/api/thread-actors 401",
+          "/api/thread-actors 401",
+          "/api/thread-actors 401",
+          "/api/thread-actors 401",
+          "/api/thread-actors 401",
+          "/api/thread-actors 401"
+        ],
+        "renderedLines": [
+          "                                                                                                                   ╭──╮",
+          "                                                                                                                   │  │",
+          " ┃ say hi",
+          "╰ ◌ Reconnecting in 2s ─────────────────────────────────────────────────────────── <CWD> ─╯",
+          "                                                               ╭──────────────────────────────────────────────────────╮",
+          "                                                               │ ✕ Connection failed: Failed to create thread-actors  │",
+          "                           ╭──────────────────────────────────────────────────────────────────────────────────────────╮",
+          "                           │ ✕ Connection failed: Failed to create thread-actors thread: 401 {\"error\":\"unauthorized\"} │",
+          "╰ ∼ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "╰ ◌ Reconnecting in 10 ─────────────────────────────────────────────────────────── <CWD> ─╯"
+        ],
+        "cliVersion": "0.0.1792209635-g24a9fe (released 2026-10-17T04:00:35.000Z, 1h ago)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "amp",
+      "scenario": "error-server",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: provider } after retries run out",
+        "wiring": "AMP_URL points at the stub, which answers amp's internal API; the model runs server side, so only thread creation is scripted; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/api/thread-actors 500",
+          "/api/thread-actors 500",
+          "/api/thread-actors 500",
+          "/api/thread-actors 500",
+          "/api/thread-actors 500",
+          "/api/thread-actors 500",
+          "/api/thread-actors 500",
+          "/api/thread-actors 500",
+          "/api/thread-actors 500"
+        ],
+        "renderedLines": [
+          " ┃ say hi",
+          "╰ ∼ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "╰ ≈ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "╰ ≋ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "                                                                                                 ╭────────────────────╮",
+          "                                                                                                 │ ✕ Connection faile │",
+          "╰ ◌ Reconnecting in 2s ─────────────────────────────────────────────────────────── <CWD> ─╯",
+          "                                                         ╭────────────────────────────────────────────────────────────╮",
+          "                                                         │ ✕ Connection failed: Failed to create thread-actors thread │",
+          "                         ╭────────────────────────────────────────────────────────────────────────────────────────────╮",
+          "                         │ ✕ Connection failed: Failed to create thread-actors thread: 500 {\"error\":\"internal-error\"} │",
+          "╰ ◌ Reconnecting in 10 ─────────────────────────────────────────────────────────── <CWD> ─╯"
+        ],
+        "cliVersion": "0.0.1792209635-g24a9fe (released 2026-10-17T04:00:35.000Z, 1h ago)"
+      },
+      "expectedScreen": {}
+    }
+  ],
+  "sanitization": {
+    "method": "decoded-jsonl-scan",
+    "fixtures": 9,
+    "decodedBytes": 2594581,
+    "checks": [
+      "home-path",
+      "username",
+      "hostname",
+      "email",
+      "token"
+    ]
+  },
+  "harnessVersionEvidence": {
+    "source": "CLI version probe after recording",
+    "visibleVersion": null,
+    "executableModifiedAt": "2026-09-14T16:08:38.645618+00:00",
+    "firstFixtureTimestamp": "2026-09-14T16:10:27.255000+00:00",
+    "executableSha256": "b6a4f067aa647c55bc2ca92940d85cf97f077a00fec6119cc96c5184aac6a92d",
+    "note": "The version is not painted in the TUI. The final CLI executable modification precedes this recording, and the version probe followed recording. Earlier captures in this lane used a different installed version; no update command was run."
+  },
+  "providerContext": {
+    "provider": null,
+    "visibleModel": null,
+    "visibleMode": "low",
+    "authentication": "existing operator-home credentials; a real greeting response is recorded, but the authentication mechanism and provider are not painted",
+    "turnEvidence": "hello returns to a settled empty composer; subsequent paste and numbered-line prompts include queued steering while a turn remains active"
+  },
+  "redactions": [
+    "escape-split capture working-directory fragments -> <CWD>"
+  ],
+  "signalCaptureEvidence": {
+    "tool": "tests/pty-e2e/signal-capture.ts",
+    "capturedAt": "2026-10-17T05:22:20.294Z",
+    "harnessVersion": "0.0.1792209635-g24a9fe (released 2026-10-17T04:00:35.000Z, 1h ago)",
+    "provider": "scripted local stub; the binary and its rendering are real, the provider replies are not"
+  }
+}

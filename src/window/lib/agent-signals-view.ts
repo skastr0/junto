@@ -1,0 +1,121 @@
+import { use$ } from "@legendapp/state/react";
+import { useContext, useMemo } from "react";
+import type { AgentSignalAnswerOptions } from "@shared/ipc";
+import { type AgentSignal, type AgentSignalKind } from "@shared/agent-signals";
+import { compareUrgency, levelOfSignal } from "@shared/wire/urgency";
+import {
+  agentSignals$,
+  dismissAgentSignal,
+  respondToAgentSignal,
+  type SignalActionResult,
+} from "./agent-signals-state";
+import { WindowRuntimeContext } from "../rpc/runtime";
+import { handInSignalWork, putSignalSecret, type WorkReply } from "./signal-work";
+import { FEED_KIND_LABEL } from "@shared/operator-feed";
+
+/**
+ * How the seat sidebar reads and answers agent signals. The sidebar talks to
+ * this one adapter; the signal store and IPC plug in behind it.
+ */
+
+/** Sidebar section key the reveal hook targets. */
+export const SIGNALS_SECTION = "signals";
+
+/** Same hues as the canvas badge: blocked crimson, escalate amber, feedback cyan. */
+export const SIGNAL_KIND_TONE: Readonly<Record<AgentSignalKind, "crimson" | "amber" | "cyan" | "steel">> = {
+  blocked: "crimson",
+  escalate: "amber",
+  feedback: "cyan",
+  work: "amber",
+  notice: "steel",
+};
+
+/** The feed's own words for each kind: one name per state everywhere. */
+export const SIGNAL_KIND_LABEL: Readonly<Record<AgentSignalKind, string>> = FEED_KIND_LABEL;
+
+/** Open first, most urgent first, newest first; then closed, newest closure first. */
+export const orderSignals = (signals: ReadonlyArray<AgentSignal>): ReadonlyArray<AgentSignal> =>
+  [...signals].sort((a, b) => {
+    const aOpen = a.state === "open";
+    const bOpen = b.state === "open";
+    if (aOpen !== bOpen) return aOpen ? -1 : 1;
+    if (aOpen) {
+      const byUrgency = compareUrgency(levelOfSignal(a.kind), levelOfSignal(b.kind));
+      if (byUrgency !== 0) return byUrgency;
+      return b.createdAt - a.createdAt;
+    }
+    return (b.closedAt ?? b.createdAt) - (a.closedAt ?? a.createdAt);
+  });
+
+export type SeatSignalSummary = {
+  readonly signals: ReadonlyArray<AgentSignal>;
+  readonly openCount: number;
+  /** Worst open kind, for the section count tone. */
+  readonly worstOpen: AgentSignalKind | undefined;
+};
+
+export const summarizeSeatSignals = (
+  signals: ReadonlyArray<AgentSignal>,
+  canvasName: string,
+  nodeId: string,
+): SeatSignalSummary => {
+  const mine = orderSignals(
+    signals.filter((signal) => signal.canvasName === canvasName && signal.nodeId === nodeId),
+  );
+  const open = mine.filter((signal) => signal.state === "open");
+  return { signals: mine, openCount: open.length, worstOpen: open[0]?.kind };
+};
+
+/** A closed signal's one-line outcome for the row. */
+export const signalOutcomeLabel = (signal: AgentSignal): string | undefined => {
+  if (signal.state === "answered") return "answered";
+  if (signal.state === "dismissed") return "dismissed";
+  if (signal.state === "withdrawn") return "withdrawn by agent";
+  return undefined;
+};
+
+// --- data source ---------------------------------------------------------
+// The renderer signal store (agent-signals-state.ts): a live mirror of main's
+// durable rows for the open canvas, answered and dismissed through the core's
+// signals group on the window's link.
+
+export type { SignalActionResult };
+
+type SignalSource = {
+  readonly respond: (
+    signalId: string,
+    text: string,
+    options?: AgentSignalAnswerOptions,
+  ) => Promise<SignalActionResult>;
+  readonly dismiss: (signalId: string) => Promise<SignalActionResult>;
+};
+
+/** Signals for one seat, ordered for the sidebar, plus its actions. */
+export const useSeatSignals = (
+  canvasName: string,
+  nodeId: string,
+): SeatSignalSummary & Pick<SignalSource, "respond" | "dismiss"> => {
+  const all = use$(() => Object.values(agentSignals$.get()));
+  const { respond, dismiss } = useSignalActions();
+  return { ...summarizeSeatSignals(all, canvasName, nodeId), respond, dismiss };
+};
+
+/** The operator's signal actions: an answer, a dismissal, a hand-in and a secret value. */
+export type SignalActions = Pick<SignalSource, "respond" | "dismiss"> & {
+  readonly handIn: (signalId: string, reply: WorkReply) => Promise<SignalActionResult>;
+  readonly putSecret: (signalId: string, value: string) => Promise<SignalActionResult>;
+};
+
+/** The signal actions, each one call to the core's signals group on this window's link. */
+export const useSignalActions = (): SignalActions => {
+  const runtime = useContext(WindowRuntimeContext);
+  return useMemo<SignalActions>(
+    () => ({
+      respond: (signalId, text, options) => respondToAgentSignal(runtime, signalId, text, options),
+      dismiss: (signalId) => dismissAgentSignal(runtime, signalId),
+      handIn: (signalId, reply) => handInSignalWork(runtime, signalId, reply),
+      putSecret: (signalId, value) => putSignalSecret(runtime, signalId, value),
+    }),
+    [runtime],
+  );
+};

@@ -1,0 +1,186 @@
+/* TwoPane: sidebar list, main pane, optional rail. */
+
+.two-pane {
+  container-type: inline-size;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  grid-template-columns: clamp(220px, 24cqw, 280px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  background: var(--color-ground);
+}
+
+.two-pane[data-rail="true"] {
+  grid-template-columns: clamp(220px, 22cqw, 280px) minmax(0, 1fr) clamp(260px, 26cqw, 320px);
+}
+
+.two-pane__sidebar,
+.two-pane__main,
+.two-pane__rail {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.two-pane__sidebar {
+  border-right: 1px solid var(--color-stroke);
+  background: var(--color-raise-2);
+}
+
+.two-pane__rail {
+  border-left: 1px solid var(--color-stroke);
+  background: var(--color-raise-2);
+}
+
+/* Narrow: the rail drops under the main pane. */
+@container (max-width: 56rem) {
+  .two-pane[data-rail="true"] {
+    grid-template-columns: clamp(200px, 30cqw, 260px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(120px, 36%);
+  }
+
+  .two-pane[data-rail="true"] .two-pane__sidebar {
+    grid-row: 1 / span 2;
+  }
+
+  .two-pane[data-rail="true"] .two-pane__rail {
+    border-left: 0;
+    border-top: 1px solid var(--color-stroke);
+  }
+}
+
+/* Narrow sidebar: a list of titles, the main pane takes the room. Before the
+   collapsed rules so the strip still wins. */
+.two-pane[data-sidebar-width="narrow"] {
+  grid-template-columns: clamp(176px, 15cqw, 208px) minmax(0, 1fr);
+}
+
+.two-pane[data-sidebar-width="narrow"][data-rail="true"] {
+  grid-template-columns: clamp(176px, 14cqw, 208px) minmax(0, 1fr) clamp(260px, 26cqw, 320px);
+}
+
+@container (max-width: 56rem) {
+  .two-pane[data-sidebar-width="narrow"][data-rail="true"] {
+    grid-template-columns: clamp(160px, 22cqw, 192px) minmax(0, 1fr);
+  }
+}
+
+/* The narrow sidebar's header keeps its eyebrow on one line beside the
+   controls. */
+.two-pane[data-sidebar-width="narrow"] .two-pane__sidebar .pane-header {
+  gap: 4px;
+  padding: 0 4px 0 8px;
+}
+
+.two-pane[data-sidebar-width="narrow"] .two-pane__sidebar .pane-header > :first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Collapsed rail: a 40px edge on the right at every width, so it is never
+   dropped below the main pane. After the narrow-sidebar rules, before the
+   collapsed-sidebar ones. */
+.two-pane[data-rail="collapsed"] {
+  grid-template-columns: clamp(220px, 24cqw, 280px) minmax(0, 1fr) 40px;
+}
+
+.two-pane[data-sidebar-width="narrow"][data-rail="collapsed"] {
+  grid-template-columns: clamp(176px, 15cqw, 208px) minmax(0, 1fr) 40px;
+}
+
+.two-pane__sidebar-body {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.two-pane__sidebar-body[hidden] {
+  display: none;
+}
+
+/* Collapsed: a strip that holds the controls and nothing else. Last in the
+   sheet's grid rules so it wins over the rail's column sizes. */
+.two-pane[data-sidebar="collapsed"] {
+  grid-template-columns: 40px minmax(0, 1fr);
+}
+
+.two-pane[data-sidebar="collapsed"][data-rail="true"] {
+  grid-template-columns: 40px minmax(0, 1fr) clamp(260px, 26cqw, 320px);
+}
+
+@container (max-width: 56rem) {
+  .two-pane[data-sidebar="collapsed"][data-rail="true"] {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+}
+
+.two-pane[data-sidebar="collapsed"][data-rail="collapsed"] {
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
+}
+
+.two-pane__strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 0;
+}
+
+.pane-header {
+  display: flex;
+  height: 36px;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--color-stroke);
+}
+
+.pane-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pane-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 32px 24px;
+  text-align: center;
+}
+
+.pane-empty__glyph {
+  color: var(--color-faint);
+  margin-bottom: 4px;
+}
+
+.pane-empty__title {
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
+}
+
+.pane-empty__hint {
+  margin: 0;
+  max-width: 36ch;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}
+
+.pane-empty__action {
+  margin-top: 8px;
+}

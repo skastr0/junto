@@ -1,0 +1,189 @@
+/**
+ * Authoring: acts go out as commands and come back by undo, one at a time,
+ * and a refusal from main leaves nothing remembered that is not true.
+ */
+import { describe, expect, it } from "vitest";
+import { asCanvasName, type Command, type Node } from "../src/shared/model";
+import { canvasFromOpened, type Canvas } from "../src/shared/model/canvas";
+import { createAuthoring } from "../src/window/lib/model-authoring";
+import { moved, recolored, retexted } from "../src/window/lib/model-edits";
+import { canvasAfter } from "../src/window/lib/model-undo";
+
+const name = asCanvasName("factory");
+const note = (id: string, over: Record<string, unknown> = {}): Node =>
+  ({ kind: "note", id, x: 10, y: 20, width: 220, height: 84, z: 0, text: "hello", ...over }) as unknown as Node;
+
+/**
+ * A store with a main behind it: what is shown is shown at once, main takes
+ * commands one at a time and can be told to refuse, and a refusal puts what
+ * is shown back to what main holds.
+ */
+const fakeStore = (nodes: Node[]) => {
+  let main: Canvas = canvasFromOpened({ canvas: name, seq: 0, nodes, wires: [] });
+  let shown: Canvas = main;
+  const sent: Command[] = [];
+  let refuse: ((command: Command) => boolean) | undefined;
+  let gate: Promise<void> = Promise.resolve();
+  return {
+    sent,
+    at: (id: string) => shown.nodes.get(id as Node["id"]),
+    refuseWhen: (when: ((command: Command) => boolean) | undefined) => {
+      refuse = when;
+    },
+    holdUntil: (until: Promise<void>) => {
+      gate = until;
+    },
+    store: {
+      canvasOf: () => shown,
+      show: (command: Command) => {
+        shown = canvasAfter(shown, command);
+        return true;
+      },
+      deliver: async (command: Command) => {
+        await gate;
+        if (refuse?.(command)) {
+          shown = main;
+          throw new Error("refused");
+        }
+        sent.push(command);
+        main = canvasAfter(main, command);
+      },
+    },
+  };
+};
+
+describe("authoring", () => {
+  it("sends an act, and undo and redo walk it back and forward", async () => {
+    const fake = fakeStore([note("plan")]);
+    const authoring = createAuthoring(fake.store);
+    await authoring.act(name, retexted(fake.store.canvasOf(), "plan", "one"));
+    await authoring.act(name, moved(fake.store.canvasOf(), new Map([["plan", { x: 300, y: 300 }]])));
+    expect(fake.at("plan")).toMatchObject({ text: "one", x: 300 });
+    expect(authoring.canUndo(name)).toBe(true);
+
+    expect(await authoring.undo(name)).toBe(true);
+    expect(fake.at("plan")).toMatchObject({ text: "one", x: 10 });
+    expect(await authoring.undo(name)).toBe(true);
+    expect(fake.at("plan")).toMatchObject({ text: "hello", x: 10 });
+    expect(await authoring.undo(name)).toBe(false);
+    expect(authoring.canRedo(name)).toBe(true);
+
+    expect(await authoring.redo(name)).toBe(true);
+    expect(await authoring.redo(name)).toBe(true);
+    expect(fake.at("plan")).toMatchObject({ text: "one", x: 300 });
+    expect(await authoring.redo(name)).toBe(false);
+  });
+
+  it("sends nothing and remembers nothing for an act of no commands", async () => {
+    const fake = fakeStore([note("plan")]);
+    const authoring = createAuthoring(fake.store);
+    await authoring.act(name, retexted(fake.store.canvasOf(), "plan", "hello"));
+    expect(fake.sent).toEqual([]);
+    expect(authoring.canUndo(name)).toBe(false);
+  });
+
+  it("does not remember an act main refuses", async () => {
+    const fake = fakeStore([note("plan")]);
+    const authoring = createAuthoring(fake.store);
+    fake.refuseWhen(() => true);
+    await expect(authoring.act(name, retexted(fake.store.canvasOf(), "plan", "one"))).rejects.toThrow("refused");
+    expect(authoring.canUndo(name)).toBe(false);
+  });
+
+  it("forgets a canvas's undo when a step back is refused", async () => {
+    const fake = fakeStore([note("plan")]);
+    const authoring = createAuthoring(fake.store);
+    await authoring.act(name, retexted(fake.store.canvasOf(), "plan", "one"));
+    await authoring.act(name, retexted(fake.store.canvasOf(), "plan", "two"));
+    fake.refuseWhen(() => true);
+    await expect(authoring.undo(name)).rejects.toThrow("refused");
+    expect(authoring.canUndo(name)).toBe(false);
+    expect(authoring.canRedo(name)).toBe(false);
+  });
+
+  it("runs acts one at a time, each worked out against the canvas the one before left", async () => {
+    const fake = fakeStore([note("a"), note("b", { color: "3" })]);
+    const authoring = createAuthoring(fake.store);
+    let open: () => void = () => undefined;
+    fake.holdUntil(new Promise<void>((resolve) => {
+      open = resolve;
+    }));
+    const first = authoring.act(name, recolored(fake.store.canvasOf(), ["a", "b"], "5"));
+    const undone = authoring.undo(name);
+    open();
+    await first;
+    expect(await undone).toBe(true);
+    expect(fake.at("a")?.color).toBeUndefined();
+    expect(fake.at("b")?.color).toBe("3");
+  });
+
+  it("shows an edit when it is made, even while the one before is still on its way", async () => {
+    const fake = fakeStore([note("plan")]);
+    const authoring = createAuthoring(fake.store);
+    let open: () => void = () => undefined;
+    fake.holdUntil(new Promise<void>((resolve) => {
+      open = resolve;
+    }));
+    const first = authoring.act(name, retexted(fake.store.canvasOf(), "plan", "one"));
+    const second = authoring.act(name, moved(fake.store.canvasOf(), new Map([["plan", { x: 300, y: 300 }]])));
+    // Neither has reached main, and both already show.
+    expect(fake.sent).toEqual([]);
+    expect(fake.at("plan")).toMatchObject({ text: "one", x: 300 });
+    open();
+    await Promise.all([first, second]);
+    expect(fake.sent.map((command) => command._tag)).toEqual(["Edit", "Move"]);
+    // Each is taken back to what it was made from.
+    expect(await authoring.undo(name)).toBe(true);
+    expect(fake.at("plan")).toMatchObject({ text: "one", x: 10 });
+    expect(await authoring.undo(name)).toBe(true);
+    expect(fake.at("plan")).toMatchObject({ text: "hello", x: 10 });
+  });
+
+  it("says when it is busy, and when everything sent has landed", async () => {
+    const fake = fakeStore([note("plan")]);
+    const authoring = createAuthoring(fake.store);
+    let open: () => void = () => undefined;
+    fake.holdUntil(new Promise<void>((resolve) => {
+      open = resolve;
+    }));
+    expect(authoring.busy()).toBe(false);
+    const first = authoring.act(name, retexted(fake.store.canvasOf(), "plan", "one"));
+    expect(authoring.busy()).toBe(true);
+    let landed = false;
+    const idle = authoring.idle().then(() => {
+      landed = true;
+    });
+    await Promise.resolve();
+    expect(landed).toBe(false);
+    open();
+    await first;
+    await idle;
+    expect(landed).toBe(true);
+    expect(authoring.busy()).toBe(false);
+    await authoring.idle();
+  });
+
+  it("does not remember an act that is not the operator's to take back", async () => {
+    const fake = fakeStore([note("plan")]);
+    const authoring = createAuthoring(fake.store);
+    await authoring.act(name, retexted(fake.store.canvasOf(), "plan", "one"), { remember: false });
+    expect(fake.at("plan")).toMatchObject({ text: "one" });
+    expect(authoring.canUndo(name)).toBe(false);
+  });
+
+  it("keeps each canvas's undo apart and says when it changes", async () => {
+    const fake = fakeStore([note("plan")]);
+    const authoring = createAuthoring(fake.store);
+    const heard: string[] = [];
+    const stop = authoring.onChange((canvas) => heard.push(canvas));
+    await authoring.act(name, retexted(fake.store.canvasOf(), "plan", "one"));
+    expect(heard).toEqual(["factory"]);
+    expect(authoring.canUndo("elsewhere")).toBe(false);
+    authoring.forget(name);
+    expect(authoring.canUndo(name)).toBe(false);
+    expect(heard).toEqual(["factory", "factory"]);
+    stop();
+    await authoring.act(name, retexted(fake.store.canvasOf(), "plan", "two"));
+    expect(heard).toHaveLength(2);
+  });
+});

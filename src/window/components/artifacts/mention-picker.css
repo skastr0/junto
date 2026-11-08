@@ -1,0 +1,17 @@
+/*
+ * The document's mention list: the house mention list's rows (mention-combobox.css)
+ * in a box CodeMirror places under the trigger. The editor's own scope wins over
+ * CodeMirror's base tooltip look.
+ */
+.cm-editor .cm-tooltip.mention-picker {
+  width: min(320px, calc(100vw - 32px));
+  overflow: hidden;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  background: var(--color-inset);
+  box-shadow: 0 10px 24px var(--color-shadow-2);
+}
+
+.cm-editor .cm-tooltip.mention-picker[hidden] {
+  display: none;
+}

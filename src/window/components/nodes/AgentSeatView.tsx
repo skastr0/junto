@@ -1,0 +1,173 @@
+import type { ReactNode } from "react";
+import type { AgentSignal } from "@shared/agent-signals";
+import type { SeatOnboardingStatus } from "@shared/seat-onboarding-status";
+import type { ThreadHealthTone, ThreadHealthValue } from "@shared/thread-health";
+import type { ActivitySpec, ActivityTone } from "../../lib/activity";
+import { seatSaying } from "../../lib/seat-line";
+import { seatPortraitMood } from "../../lib/portrait-mood";
+import { ActivityMarkFromSpec } from "../ActivityMark";
+import { AgentPortrait, PortraitBadge } from "../AgentPortrait";
+
+// The seat as drawn, from props alone: no store, no IPC. The canvas feeds it
+// through `AgentSeat`; the tour, the gallery and the kit feed it scripted.
+
+/** Portrait inside the 52px seat ring: fits the ring's hole with a hairline gap. */
+export const SEAT_PORTRAIT_PX = 34;
+
+// Words take a hue's text form where it has one: the mark form, made for
+// rings and dots, is near 3 to 1 on the bright ground.
+const TONE_TEXT: Readonly<Record<ActivityTone, string>> = {
+  amber: "text-amber-fg",
+  cyan: "text-cyan-fg",
+  green: "text-green",
+  crimson: "text-crimson-fg",
+  steel: "text-steel",
+};
+
+/** A seat's name, as every seat prints it: on the canvas and in the agent modal's rail. */
+export function SeatName({ name, color }: { readonly name: string; readonly color: string }) {
+  return (
+    <div className="truncate font-mono text-[13px] font-semibold leading-snug" style={{ color }} title={name}>
+      {name}
+    </div>
+  );
+}
+
+export type SeatHealth = {
+  readonly health?: ThreadHealthTone;
+  readonly value?: ThreadHealthValue;
+  readonly healthStale?: boolean;
+  readonly label?: string;
+  readonly line?: string;
+};
+
+export type SeatSignal = {
+  readonly worst?: AgentSignal;
+  readonly openCount: number;
+};
+
+/**
+ * An agent seat on the canvas: the portrait held by its living ring, the
+ * name, and one line beneath it. The ring is the seat's only status
+ * instrument (control state, thread health, declared signal); the line says
+ * the loudest of them in words: the seat's own signal first, then a spawn
+ * failure, then proven attention (needs input, blocked), then the AI's
+ * reading (marked as such; it outranks "done", which may really be
+ * waiting), then the control state. The order is seatRollup's. A still
+ * seat whose next turn picks up where it was says its state against its
+ * cache window instead of the bare state (`cacheStatus`, SeatCacheStatus).
+ * Pure: `AgentSeat` feeds it from the live stores, the gallery from fixtures.
+ */
+export function AgentSeatView({
+  identity,
+  activity,
+  title,
+  harness,
+  context,
+  health,
+  signal,
+  onboarding,
+  onSignalOpen,
+  overseer = false,
+  compact = false,
+  cacheStatus,
+  children,
+}: {
+  /** Seat identity (node id) for the portrait. */
+  readonly identity: string;
+  readonly activity: ActivitySpec;
+  /** The name, or its rename input. */
+  readonly title: ReactNode;
+  /** Managed harness id for the portrait badge. */
+  readonly harness?: string;
+  /** Spawn failure copy; outranks the health and state line. */
+  readonly context?: string;
+  readonly health: SeatHealth;
+  readonly signal: SeatSignal;
+  /** Whether the agent ran `junto onboard` in this session; absent until known. */
+  readonly onboarding?: SeatOnboardingStatus;
+  readonly onSignalOpen?: () => void;
+  /** An overseer seat: a crest on the ring, no second border or tab. */
+  readonly overseer?: boolean;
+  /** The ring and portrait alone, name and line left out (a narrow strip of seats). */
+  readonly compact?: boolean;
+  /**
+   * The still seat's line against its cache window, while main tells it:
+   * given the state words, draws the line in their place.
+   */
+  readonly cacheStatus?: (words: string) => ReactNode;
+  /** Extra rows under the line (claimed task). */
+  readonly children?: ReactNode;
+}) {
+  const open = signal.worst;
+  // One order for every seat surface (seatSaying reads seat-rollup.ts): the
+  // minimap, the cmd+K row, and this line can never disagree.
+  const saying = seatSaying({ activity, signal: open, failure: context, health });
+  let line: ReactNode;
+  if (saying.kind === "signal") {
+    line = (
+      <>
+        <span className={`${TONE_TEXT[saying.tone]} font-semibold`}>{saying.word}</span>{" "}
+        <span className="text-dim" title={saying.text}>
+          {saying.text}
+        </span>
+      </>
+    );
+  } else if (saying.kind === "failure") {
+    line = <span className="text-amber-fg">{saying.text}</span>;
+  } else if (saying.kind === "reading") {
+    // An AI reading, never the agent's own claim: a quiet prefix, dim ink.
+    line = (
+      <>
+        <span className="mr-1 align-[1px] font-display text-[9px] tracking-[0.12em] text-faint">AI</span>
+        <span className={saying.stale ? "text-faint" : "text-dim"}>{saying.text}</span>
+      </>
+    );
+  } else if (cacheStatus && !saying.tone) {
+    line = cacheStatus(saying.text);
+  } else {
+    line = <span className={saying.tone ? TONE_TEXT[saying.tone] : "text-dim"}>{saying.text}</span>;
+  }
+
+  return (
+    <div
+      className="junto-seat flex h-full w-full items-center gap-2"
+      data-testid="agent-seat"
+      // Not said on the seat: the seat details hold it. The fact stays on the element.
+      data-onboarding={onboarding}
+    >
+      <ActivityMarkFromSpec
+        spec={activity}
+        size="seat"
+        health={health.health}
+        healthValue={health.value}
+        healthStale={health.healthStale}
+        healthLabel={health.label}
+        signal={open?.kind}
+        signalCount={signal.openCount}
+        onSignalOpen={open ? onSignalOpen : undefined}
+        crest={overseer}
+        over={harness !== undefined ? <PortraitBadge size={SEAT_PORTRAIT_PX} frame="round" harness={harness} /> : undefined}
+      >
+        <AgentPortrait
+          identity={identity}
+          size={SEAT_PORTRAIT_PX}
+          frame="round"
+          outline={false}
+          mood={seatPortraitMood(activity, health, open?.kind)}
+        />
+      </ActivityMarkFromSpec>
+      {compact ? null : (
+      <div className="junto-seat__text min-w-0 flex-1">
+        {title}
+        <div className="junto-seat__line max-h-[1lh] overflow-hidden text-[10.5px] leading-snug">
+          <span className="block truncate" data-testid="agent-seat-line">
+            {line}
+          </span>
+        </div>
+        {children}
+      </div>
+      )}
+    </div>
+  );
+}

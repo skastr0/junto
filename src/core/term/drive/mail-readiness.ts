@@ -1,0 +1,138 @@
+/**
+ * Mail readiness: when a seat's terminal can take a pasted message.
+ *
+ * A seat whose process is running is not yet a seat that reads input. Mail
+ * written before the harness TUI enabled bracketed paste (DECSET 2004) lands
+ * as literal `^[[200~…^[[201~` text and its CR is eaten by startup, so the
+ * operator has to press Enter by hand. Mail therefore waits for the first
+ * ready moment of each process generation: the TUI has asked for bracketed
+ * paste and the seat has settled idle. After that moment mail is typed
+ * whatever the seat is doing, as the delivery law says, as long as the
+ * terminal still takes a paste.
+ *
+ * A harness not known to use bracketed paste is ready on confirmed idle
+ * chrome instead, and the drive types its text without paste markers.
+ */
+
+import type { AgentSeatState } from "../../../shared/agent-seat-state";
+import { HARNESS_RECORDS, harnessRecordFor } from "../../../shared/harness-records";
+import { HARNESS_IDS } from "../../../shared/managed-terminal-templates";
+
+/** Harnesses whose PTY profile says the TUI enables bracketed paste at startup. */
+export const BRACKETED_PASTE_HARNESSES: ReadonlySet<string> = new Set(
+  HARNESS_IDS.filter((harness) => HARNESS_RECORDS[harness].pty.bracketedPaste),
+);
+
+/** Amp paints its composer while it still connects; text typed there is lost. */
+const AMP_STARTUP_FOOTER =
+  /^\s*╰\s*(?:[∼≈≋~]\s*)?(?:loading thread|connecting|reconnecting|catching up)\b/iu;
+
+/**
+ * pi 1.5.0 paints its whole editor box and a footer before it takes input.
+ * Two live shapes, both measured on this machine (2026-11-08):
+ *
+ * - Keys before its UI starts are dropped silently (a submit at 0.2 s did
+ *   nothing), which is where `offboard --continue`'s handoff line was typed.
+ * - A submit after the editor exists but while it is still provisioning its
+ *   managed tools puts the text back and paints
+ *   `Startup is still in progress` (`handleStartupSubmit` in pi's bundle),
+ *   leaving the line unsubmitted until something else presses Enter.
+ *
+ * The TUI's own OSC title is set during initialization (0.6-1.1 s after
+ * spawn, before the submit handler is installed), and the editor's footer
+ * (`0.0%/1.0M`) is painted with it, so the two together are the positive
+ * readiness pi offers. The startup status line always refuses.
+ */
+const PI_STARTUP_STATUS = /Startup is still in progress/iu;
+const PI_TITLE = /^(?:π|pi)\s*-/u;
+const PI_EDITOR_FOOTER = /\d+(?:\.\d+)?%\s*\/\s*[0-9.]+\s*[kKmM]\b/u;
+
+const isPiReady = (input: MailReadinessInput): boolean => {
+  if (input.seatState === "working" || input.seatState === "attention") return false;
+  const tail = (input.lines ?? []).filter((line: string) => line.trim()).slice(-12);
+  if (tail.some((line: string) => PI_STARTUP_STATUS.test(line))) return false;
+  if (!PI_TITLE.test((input.title ?? "").trim())) return false;
+  return tail.some((line: string) => PI_EDITOR_FOOTER.test(line));
+};
+
+export type MailReadinessInput = {
+  /** The seat's process generation is running. */
+  readonly running: boolean;
+  /** That generation's identity (terminal epoch). */
+  readonly generation?: string;
+  readonly harness?: string;
+  readonly seatState?: AgentSeatState;
+  /** The TUI has enabled bracketed paste (observer mode flag). */
+  readonly bracketedPaste: boolean;
+  /** High-confidence or visible idle chrome (the drive's idle gate). */
+  readonly idleConfirmed: boolean;
+  /** Last screen lines, for harnesses that paint before they connect. */
+  readonly lines?: ReadonlyArray<string>;
+  /** The terminal's OSC 0 title: a harness that sets it has finished initializing. */
+  readonly title?: string;
+};
+
+const ptyProfile = (harness: string | undefined) =>
+  harnessRecordFor(harness?.trim().toLowerCase())?.pty;
+
+const usesBracketedPaste = (harness: string | undefined): boolean =>
+  ptyProfile(harness)?.bracketedPaste === true;
+
+/** The terminal takes a paste right now: the mode is on, or never used. */
+export const mailPasteable = (input: MailReadinessInput): boolean =>
+  input.running && (input.bracketedPaste || !usesBracketedPaste(input.harness));
+
+/**
+ * The first ready moment of a generation: TUI up and settled idle.
+ *
+ * Settled means confirmed idle for every harness. Claude 2.1.284 turns
+ * bracketed paste on and reads as fallback idle ~370ms after spawn, before
+ * its composer exists; mail typed then was submitted into nothing and the
+ * cold-woken seat sat at an empty prompt (real-harness-resume spec).
+ */
+export const mailFirstReady = (input: MailReadinessInput): boolean => {
+  if (!input.running || input.seatState !== "idle") return false;
+  if (!usesBracketedPaste(input.harness)) {
+    return input.bracketedPaste || input.idleConfirmed;
+  }
+  if (!input.bracketedPaste || !input.idleConfirmed) return false;
+  // pi 1.5.0 is up on screen before it can take a submit: wait for the TUI's
+  // own initialization marker, never for the box alone.
+  if (ptyProfile(input.harness)?.awaitsInitMarker === true && !isPiReady(input)) {
+    return false;
+  }
+  if (ptyProfile(input.harness)?.typingReady === "composer") {
+    const tail = (input.lines ?? []).filter((line) => line.trim()).slice(-8);
+    if (tail.some((line) => AMP_STARTUP_FOOTER.test(line))) return false;
+  }
+  return true;
+};
+
+/**
+ * Per-binding latch of the first ready moment, held for one generation.
+ * Process-local; a respawned seat has a new generation and waits for its
+ * own TUI.
+ */
+export class MailReadinessLatch {
+  /** bindingId → the generation that has been ready. */
+  private readonly ready = new Map<string, string | undefined>();
+
+  /** Record what the seat shows now; true when mail may be typed now. */
+  observe(bindingId: string, input: MailReadinessInput): boolean {
+    if (!input.running) {
+      this.ready.delete(bindingId);
+      return false;
+    }
+    const latched =
+      this.ready.has(bindingId) && this.ready.get(bindingId) === input.generation;
+    if (!latched) {
+      if (!mailFirstReady(input)) return false;
+      this.ready.set(bindingId, input.generation);
+    }
+    return mailPasteable(input);
+  }
+
+  clear(): void {
+    this.ready.clear();
+  }
+}

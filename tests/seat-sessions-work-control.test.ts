@@ -1,0 +1,602 @@
+/**
+ * `junto offboard` and onboard's past sessions over the real work-control
+ * socket: the process-bound seat writes notes for its own current session
+ * only, and the next onboard hands back past sessions, newest first, with the
+ * latest notes inline, the paths to the rest, and the past-sessions framing.
+ * Every store, home, and socket lives under a temp root.
+ */
+import { mkdirSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { createConnection } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Effect, Layer, ManagedRuntime } from "effect";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { encodeWorkFrame } from "../src/shared/work-control";
+import { publishSeatCredential } from "./helpers/seat-credential";
+import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
+import { seat } from "./support/model-nodes";
+import { ModelService } from "../src/core/model/service";
+import { asCanvasName, asNodeId } from "../src/shared/model";
+import {
+  respondThen,
+  setSeatSessionLookup,
+  startWorkControlServer,
+  type WorkControlServer,
+} from "../src/core/work/control";
+import { closingFence } from "../src/core/term/closing-fence";
+import { WorkLive } from "../src/core/work/service";
+import { CrewRepositoryLive } from "../src/core/work/crew-repository";
+import { makeContentServiceLive } from "../src/core/content/service";
+import { WorkRepositoryLive } from "../src/core/work/repository";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
+import { SettingsLive, SettingsService } from "../src/core/settings/service";
+import { PausePlaneAllPlaying } from "../src/core/pause-plane";
+import { createMainAuthoringGate } from "../src/node/main-authoring-gate";
+import {
+  makeSeatSessionRepositoryLive,
+  SeatSessionRepository,
+} from "../src/core/seat-sessions/repository";
+import { subscribeSeatOffboard, type SeatOffboardEvent } from "../src/core/seat-sessions/service";
+import { __setSessionExistenceHomeForTest } from "../src/core/term/session-existence";
+import {
+  CONTINUATION_FRAMING,
+  describeTranscriptMissing,
+  PAST_SESSIONS_FRAMING,
+  PREVIOUS_WITHOUT_NOTES_FRAMING,
+} from "../src/shared/seat-sessions";
+
+import { makeTestLog } from "./support/test-log";
+
+const testLog = makeTestLog();
+
+const CANVAS = "sessions";
+
+const makeRuntime = (root: string) => {
+  const repositoriesLive = Layer.provideMerge(
+    Layer.mergeAll(
+      WorkRepositoryLive,
+      CrewRepositoryLive,
+      makeSeatSessionRepositoryLive(),
+      makeMachineRepositoryLive({ defaultName: () => "workbench" }),
+      SettingsLive,
+      makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
+    ),
+    Layer.mergeAll(
+      makeStateEngineLive(join(root, "state", "junto.db")),
+      makeInstallOpsLive(join(root, "state", "install-ops.db")),
+    ),
+  );
+  const canvasesLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
+  const workLive = Layer.provideMerge(WorkLive, canvasesLive);
+  return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneAllPlaying, testLog.log.loggerLayer));
+};
+
+const claude = (id: string, x: number, sessionId?: string) =>
+  seat(id, {
+    x,
+    host: "workbench",
+    width: 120,
+    height: 48,
+    bindingId: `bind-${id}` as never,
+    launch: { kind: "harness", argv: ["claude"] },
+  });
+
+let root: string;
+let runtime: ReturnType<typeof makeRuntime>;
+let server: WorkControlServer;
+let seatCredential = "";
+
+beforeEach(async () => {
+  root = await mkdtemp(join(tmpdir(), "junto-seat-sessions-ctl-"));
+  const workHome = join(root, "work");
+  mkdirSync(workHome, { recursive: true });
+  process.env.JUNTO_WORK_HOME = workHome;
+  runtime = makeRuntime(root);
+  const settings = await runtime.runPromise(SettingsService);
+  await runtime.runPromise(
+    settings.setMachinePreferences({ supervisedPreferred: true }),
+  );
+  await runtime.runPromise(Effect.flatMap(MachineRepository, machine => machine.configureName("workbench")));
+  await writeSession("s1");
+  server = await startWorkControlServer({
+    version: "test",
+    workHome,
+    home: root,
+    run: (effect) => runtime.runPromise(effect),
+    authoringGate: createMainAuthoringGate(),
+  });
+  seatCredential = publishSeatCredential(server.credentials, { agentKey: "local:agent" });
+});
+
+afterEach(async () => {
+  await server.close();
+  await runtime.dispose();
+  await rm(root, { recursive: true, force: true });
+  delete process.env.JUNTO_WORK_HOME;
+});
+
+const notesOf = async (sessionId: string) =>
+  (await runtime.runPromise(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.notesOf("agent", [sessionId])))).get(sessionId);
+
+const writeSession = async (sessionId: string | undefined) => {
+  const held = await runtime.runPromise(Effect.flatMap(ModelService, model => model.listCanvases()));
+  if (!held.some(name => name === CANVAS)) {
+    await runtime.runPromise(seedCanvas(CANVAS, [claude("agent", 0), claude("other", 200)]));
+  }
+  await runtime.runPromise(Effect.flatMap(SeatSessionRepository, r => sessionId
+    ? r.record({ seatId: "agent", bindingId: "bind-agent", sessionId, harness: "claude" }).pipe(Effect.asVoid)
+    : r.end("agent", "offboard", undefined, "bind-agent").pipe(Effect.asVoid)));
+
+};
+
+const call = (body: unknown): Promise<any> =>
+  new Promise((resolve, reject) => {
+    const socket = createConnection({ path: server.socketPath });
+    let buffer = "";
+    socket.on("connect", () => socket.write(encodeWorkFrame(body)));
+    socket.on("data", (chunk) => {
+      buffer += chunk.toString("utf8");
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) return;
+      socket.destroy();
+      resolve(JSON.parse(buffer.slice(0, newline)));
+    });
+    socket.on("error", reject);
+  });
+
+const token = () => seatCredential;
+const op = (name: string, args: unknown) => call({ token: token(), op: name, args });
+
+describe("junto offboard", () => {
+  it("writes notes for the caller's own current session and announces it", async () => {
+    const events: SeatOffboardEvent[] = [];
+    const unsubscribe = subscribeSeatOffboard((event) => events.push(event));
+    try {
+      const notes = "# Parser shipped\n\n- next: retry on 429\n- why: nightly sync fails without it";
+      const result = await op("offboard", { notes });
+      expect(result.ok).toBe(true);
+      expect(result.data).toMatchObject({ session_id: "s1", gist: "Parser shipped", disposition: "applied" });
+      expect(result.data).not.toHaveProperty("notes_path");
+      expect((await notesOf("s1"))?.notes).toBe(notes);
+      expect(events).toEqual([expect.objectContaining({ seatId: "agent", canvasName: CANVAS, sessionId: "s1" })]);
+
+      // Only the caller's own seat: the other seat's history is untouched.
+      const other = await runtime.runPromise(Effect.flatMap(SeatSessionRepository, (r) => r.list("other")));
+      expect(other).toEqual([]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("seals the seat before it answers, and announces the close only after the answer is written", async () => {
+    closingFence.clearForTest();
+    const sealedAtAnnounce: boolean[] = [];
+    const unsubscribe = subscribeSeatOffboard(() => sealedAtAnnounce.push(closingFence.sealed("bind-agent")));
+    try {
+      expect(closingFence.sealed("bind-agent")).toBe(false);
+      const result = await op("offboard", { notes: "# Done\n\n- nothing left" });
+      expect(result.ok).toBe(true);
+      // By the time the caller has its answer, nothing can be typed into the session.
+      expect(closingFence.sealed("bind-agent")).toBe(true);
+      for (let i = 0; i < 20 && sealedAtAnnounce.length === 0; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      expect(sealedAtAnnounce).toEqual([true]);
+      // The reply no longer tells the agent to finish its turn: there is no turn left.
+      expect(result.data.next_step).toContain("your seat has moved on");
+      expect(result.data.next_step).toContain("its junto commands are refused");
+      expect(result.data.next_step).not.toMatch(/idle|finish this turn/);
+    } finally {
+      unsubscribe();
+      closingFence.clearForTest();
+    }
+  });
+
+  it("a refused offboard seals nothing and announces nothing", async () => {
+    closingFence.clearForTest();
+    const events: SeatOffboardEvent[] = [];
+    const unsubscribe = subscribeSeatOffboard((event) => events.push(event));
+    try {
+      const result = await op("offboard", { notes: "   " });
+      expect(result.ok).toBe(false);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(closingFence.sealed("bind-agent")).toBe(false);
+      expect(events).toEqual([]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("the answer is written before what follows it, and what follows always runs, once", () => {
+    const order: string[] = [];
+    const envelope = { ok: true, command: "offboard", data: {} } as never;
+    respondThen(
+      {
+        destroyed: false,
+        write: ((_frame: unknown, flushed?: () => void) => {
+          order.push("written");
+          flushed?.();
+          flushed?.();
+          return true;
+        }) as never,
+      },
+      envelope,
+      () => order.push("then"),
+    );
+    expect(order).toEqual(["written", "then"]);
+
+    // The caller is already gone: the close must still happen.
+    const gone: string[] = [];
+    respondThen({ destroyed: true, write: (() => true) as never }, envelope, () => gone.push("then"));
+    expect(gone).toEqual(["then"]);
+
+    const failed: string[] = [];
+    respondThen(
+      {
+        destroyed: false,
+        write: (() => {
+          throw new Error("EPIPE");
+        }) as never,
+      },
+      envelope,
+      () => failed.push("then"),
+    );
+    expect(failed).toEqual(["then"]);
+  });
+
+  it("refuses notes that say nothing, unknown fields, and a seat whose session id is not known", async () => {
+    const empty = await op("offboard", { notes: "  \n " });
+    expect(empty).toMatchObject({ ok: false, error: { type: "InputError" } });
+    // Identity comes from the process, never from the payload.
+    const claimed = await op("offboard", { notes: "x", seatId: "other" });
+    expect(claimed).toMatchObject({ ok: false, error: { type: "InputError" } });
+
+    await writeSession(undefined);
+    const unknown = await op("offboard", { notes: "Notes" });
+    expect(unknown).toMatchObject({ ok: false, error: { type: "InvalidTransition" } });
+    expect(unknown.error.details.retryable).toBe(true);
+  });
+});
+
+describe("junto offboard on a seat whose session id is not known yet", () => {
+  afterEach(() => setSeatSessionLookup(undefined));
+
+  it("looks once, on the spot, and offboards the session it finds", async () => {
+    await writeSession(undefined);
+    const asked: string[] = [];
+    setSeatSessionLookup(async (bindingId) => {
+      asked.push(bindingId);
+      return "found-now";
+    });
+    const result = await op("offboard", { notes: "# Early stop\n\n- first turn of a fresh session" });
+    expect(result.ok).toBe(true);
+    expect(result.data).toMatchObject({ session_id: "found-now", gist: "Early stop" });
+    expect(asked).toEqual(["bind-agent"]);
+    expect((await notesOf("found-now"))?.notes).toContain("first turn of a fresh session");
+  });
+
+  it("still refuses, in the same words, when the look finds nothing or fails", async () => {
+    await writeSession(undefined);
+    setSeatSessionLookup(async () => undefined);
+    const nothing = await op("offboard", { notes: "Notes" });
+    expect(nothing).toMatchObject({
+      ok: false,
+      error: { type: "InvalidTransition", message: "Junto does not know this session's id yet" },
+    });
+    setSeatSessionLookup(async () => {
+      throw new Error("store unreadable");
+    });
+    const failed = await op("offboard", { notes: "Notes" });
+    expect(failed).toMatchObject({ ok: false, error: { type: "InvalidTransition" } });
+    expect(failed.error.details.retryable).toBe(true);
+  });
+
+  it("the seat is sealed from the moment the offboard arrives, not from when its notes are saved", async () => {
+    closingFence.clearForTest();
+    await writeSession(undefined);
+    // The lookup runs inside the offboard, before any note is written: what
+    // the fence says there is what a delivery already in flight would meet.
+    const sealedWhileHandling: boolean[] = [];
+    setSeatSessionLookup(async () => {
+      sealedWhileHandling.push(closingFence.sealed("bind-agent"));
+      return "found-now";
+    });
+    const result = await op("offboard", { notes: "# Done\n\n- nothing left" });
+    expect(result.ok).toBe(true);
+    expect(sealedWhileHandling).toEqual([true]);
+    expect(closingFence.sealed("bind-agent")).toBe(true);
+  });
+
+  it("an offboard that is refused lifts that seal: the session goes on and can be typed into", async () => {
+    closingFence.clearForTest();
+    await writeSession(undefined);
+    const sealedWhileHandling: boolean[] = [];
+    setSeatSessionLookup(async () => {
+      sealedWhileHandling.push(closingFence.sealed("bind-agent"));
+      return undefined;
+    });
+    const refused = await op("offboard", { notes: "Notes" });
+    expect(refused.ok).toBe(false);
+    expect(sealedWhileHandling).toEqual([true]);
+    expect(closingFence.sealed("bind-agent")).toBe(false);
+  });
+
+  it("does not look when the id is already known", async () => {
+    const asked: string[] = [];
+    setSeatSessionLookup(async (bindingId) => {
+      asked.push(bindingId);
+      return "another";
+    });
+    const result = await op("offboard", { notes: "# Known\n\n- fine" });
+    expect(result.data).toMatchObject({ session_id: "s1" });
+    expect(asked).toEqual([]);
+  });
+});
+
+describe("junto onboard past sessions", () => {
+  it("shows the last session with its notes and counts the earlier ones, framed as history", async () => {
+    await op("offboard", { notes: "First session: set up the repo" });
+    await writeSession("s2");
+    await op("offboard", { notes: "Second session: wired the parser" });
+    await writeSession("s3");
+
+    const onboard = await op("onboard", {});
+    expect(onboard.ok).toBe(true);
+    const sessions = onboard.data.sessions;
+    expect(sessions.note).toBe(PAST_SESSIONS_FRAMING);
+    expect(sessions.current).toMatchObject({ session_id: "s3", offboarded: false });
+    expect(sessions.current).not.toHaveProperty("notes_path");
+    expect(sessions).not.toHaveProperty("past");
+    expect(sessions.last).toMatchObject({
+      session_id: "s2",
+      gist: "Second session: wired the parser",
+      notes: "Second session: wired the parser",
+    });
+    expect(sessions.last).not.toHaveProperty("closed");
+    expect(sessions.earlier).toBe(1);
+    // The earlier session's notes are not carried.
+    expect(JSON.stringify(onboard.data)).not.toContain("First session: set up the repo");
+
+    // Onboard takes no input now.
+    const asked = await op("onboard", { past_notes: 1 });
+    expect(asked).toMatchObject({ ok: false, error: { type: "InputError" } });
+  });
+
+  it("a last session that left no notes says who closed it instead of an empty gist", async () => {
+    await writeSession("s2");
+    const replaced = (await op("onboard", {})).data.sessions.last;
+    expect(replaced).toMatchObject({ session_id: "s1", ended_because: "replaced", closed: "ended without notes" });
+    expect(replaced).not.toHaveProperty("gist");
+    expect(replaced).not.toHaveProperty("notes");
+  });
+});
+
+/** What the closer does once a session has offboarded: end it as an offboard. */
+const endAsOffboard = (sessionId: string) =>
+  runtime.runPromise(Effect.flatMap(SeatSessionRepository, (r) => r.end("agent", "offboard", sessionId)));
+
+const noteTranscript = (sessionId: string, path: string) =>
+  runtime.runPromise(Effect.flatMap(SeatSessionRepository, (r) => r.noteTranscript("agent", sessionId, path)));
+
+describe("junto onboard after an offboard that continues", () => {
+  const NOTES = "# Parser half done\n\n- shipped: tokenizer\n- left: the 429 retry in sync.ts";
+  const CONTINUATION = "Finish the 429 retry in sync.ts, then run the nightly sync once.";
+
+  const handOver = async () => {
+    const offboarded = await op("offboard", { notes: NOTES, continuation: CONTINUATION });
+    expect(offboarded.ok).toBe(true);
+    await noteTranscript("s1", "/harness/sessions/s1.jsonl");
+    await endAsOffboard("s1");
+    await writeSession("s2");
+  };
+
+  it("hands the next session everything in one place, last", async () => {
+    await handOver();
+    const onboard = await op("onboard", {});
+    expect(onboard.ok).toBe(true);
+    // Onboard reads most stable first, so the note the last session left ends it.
+    expect(Object.keys(onboard.data).at(-1)).toBe("handoff");
+    const { handoff } = onboard.data;
+    expect(handoff.note).toBe(CONTINUATION_FRAMING);
+    // What to do next comes before what happened.
+    expect(Object.keys(handoff).indexOf("continuation")).toBeLessThan(Object.keys(handoff).indexOf("notes"));
+    expect(handoff).toMatchObject({
+      from_session: "s1",
+      continuation: CONTINUATION,
+      gist: "Parser half done",
+      notes: NOTES,
+      transcript_path: "/harness/sessions/s1.jsonl",
+    });
+    expect(typeof handoff.left_at).toBe("string");
+    expect(onboard.data.sessions.current).toMatchObject({ session_id: "s2" });
+    expect(onboard.data).not.toHaveProperty("previous_session_without_notes");
+  });
+
+  it("does not print the same notes twice", async () => {
+    await handOver();
+    const onboard = await op("onboard", {});
+    const previous = onboard.data.sessions.last;
+    expect(previous).toMatchObject({
+      session_id: "s1",
+      ended_because: "offboard",
+      gist: "Parser half done",
+      notes_in: "handoff",
+    });
+    expect(previous).not.toHaveProperty("notes");
+    expect(JSON.stringify(onboard.data).split("the 429 retry in sync.ts, then run").length - 1).toBe(1);
+    expect(JSON.stringify(onboard.data).split("shipped: tokenizer").length - 1).toBe(1);
+  });
+
+  it("only the very next session gets the handoff", async () => {
+    await handOver();
+    await writeSession("s3");
+    const onboard = await op("onboard", {});
+    expect(onboard.data).not.toHaveProperty("handoff");
+    // s1 is history now: counted, its notes not carried.
+    expect(onboard.data.sessions.last).toMatchObject({ session_id: "s2" });
+    expect(onboard.data.sessions.earlier).toBe(1);
+    expect(JSON.stringify(onboard.data)).not.toContain("shipped: tokenizer");
+  });
+
+  it("an offboard that rests leaves notes as history and no handoff", async () => {
+    await op("offboard", { notes: NOTES });
+    await endAsOffboard("s1");
+    await writeSession("s2");
+    const onboard = await op("onboard", {});
+    expect(onboard.data).not.toHaveProperty("handoff");
+    expect(onboard.data).not.toHaveProperty("previous_session_without_notes");
+    expect(onboard.data.sessions.last).toMatchObject({ session_id: "s1", notes: NOTES });
+  });
+});
+
+describe("junto onboard after a session that ended without notes", () => {
+  it("says so last, with the previous session's id and transcript as the reference", async () => {
+    // Junto ended the session itself: no agent turn, so no notes were written.
+    await noteTranscript("s1", "/harness/sessions/s1.jsonl");
+    await endAsOffboard("s1");
+    await writeSession("s2");
+
+    const onboard = await op("onboard", {});
+    expect(onboard.ok).toBe(true);
+    expect(Object.keys(onboard.data).at(-1)).toBe("previous_session_without_notes");
+    expect(onboard.data).not.toHaveProperty("handoff");
+    const told = onboard.data.previous_session_without_notes;
+    expect(told.note).toBe(PREVIOUS_WITHOUT_NOTES_FRAMING);
+    expect(told).toMatchObject({
+      session_id: "s1",
+      ended_because: "offboard",
+      transcript_path: "/harness/sessions/s1.jsonl",
+    });
+    expect(typeof told.ended_at).toBe("string");
+    // History to read if needed, never a task: the framing says both.
+    expect(PREVIOUS_WITHOUT_NOTES_FRAMING).toMatch(/without (leaving )?notes/);
+    expect(PREVIOUS_WITHOUT_NOTES_FRAMING).toMatch(/history/i);
+    expect(PREVIOUS_WITHOUT_NOTES_FRAMING).toMatch(/if you need/i);
+  });
+
+  it.each(["operator", "overseer", "automatic"] as const)(
+    "says who ended it when Junto recorded that: %s",
+    async (by) => {
+      await endAsOffboard("s1");
+      await runtime.runPromise(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.markEnded("agent", "s1", by)));
+      await writeSession("s2");
+      const told = (await op("onboard", {})).data.previous_session_without_notes;
+      expect(told).toMatchObject({ session_id: "s1", ended_because: "offboard", ended_by: by });
+      const closed = { operator: "ended by the operator, no notes", overseer: "ended by an overseer, no notes", automatic: "closed by Junto, no notes" }[by];
+      expect((await op("onboard", {})).data.sessions.last).toMatchObject({ session_id: "s1", closed });
+    },
+  );
+
+  it("names nobody when nothing was recorded", async () => {
+    await endAsOffboard("s1");
+    await writeSession("s2");
+    const unmarked = (await op("onboard", {})).data.previous_session_without_notes;
+    expect(unmarked).toMatchObject({ session_id: "s1" });
+    expect(unmarked).not.toHaveProperty("ended_by");
+  });
+
+  it("says so when no transcript is known, and names none", async () => {
+    // A home with no harness sessions in it: claude never wrote s1.
+    __setSessionExistenceHomeForTest(join(root, "home"));
+    try {
+      await endAsOffboard("s1");
+      await writeSession("s2");
+      const data = (await op("onboard", {})).data;
+      const told = data.previous_session_without_notes;
+      expect(told).toMatchObject({ session_id: "s1", transcript_path: null });
+      expect(told.transcript_missing).toBe(describeTranscriptMissing("claude", "none"));
+      expect(data.sessions.last).toMatchObject({ session_id: "s1", transcript_path: null, transcript_missing: told.transcript_missing });
+    } finally {
+      __setSessionExistenceHomeForTest(undefined);
+    }
+  });
+
+  it("covers a session that was replaced without notes for any other reason", async () => {
+    await writeSession("s2");
+    const told = (await op("onboard", {})).data.previous_session_without_notes;
+    expect(told).toMatchObject({ session_id: "s1", ended_because: "replaced" });
+  });
+
+  it("is about the session just before this one only, and a first session is told nothing", async () => {
+    const first = await op("onboard", {});
+    expect(first.data).not.toHaveProperty("previous_session_without_notes");
+
+    // s1 ended without notes; s2 left notes; s3 follows s2.
+    await endAsOffboard("s1");
+    await writeSession("s2");
+    await op("offboard", { notes: "Second session: wired the parser" });
+    await endAsOffboard("s2");
+    await writeSession("s3");
+    const third = await op("onboard", {});
+    expect(third.data).not.toHaveProperty("previous_session_without_notes");
+  });
+});
+
+describe("junto onboard when the previous session's process was detached to finish its turn", () => {
+  const drain = (how?: "settled" | "cap" | "crashed" | "quit") =>
+    runtime.runPromise(
+      Effect.flatMap(SeatSessionRepository, (r) =>
+        Effect.gen(function* () {
+          yield* r.beginDrain("agent", "s1", 1_800_000_000_000);
+          if (how) yield* r.endDrain("agent", "s1", how, 1_800_000_060_000);
+        }),
+      ),
+    );
+
+  const handOver = async (how?: "settled" | "cap" | "crashed" | "quit") => {
+    await op("offboard", { notes: "# Half done", continuation: "Finish the retry." });
+    await endAsOffboard("s1");
+    await drain(how);
+    await writeSession("s2");
+    return (await op("onboard", {})).data;
+  };
+
+  it("says the predecessor is still winding down, and that its transcript may still grow", async () => {
+    const data = await handOver();
+    expect(data.handoff.wind_down).toBe("Offboarded, winding down");
+    expect(data.handoff.transcript_caution).toMatch(/still/i);
+    expect(data.handoff.transcript_caution).toMatch(/transcript/i);
+    expect(data.sessions.last.wind_down).toBe("Offboarded, winding down");
+  });
+
+  it.each([
+    ["cap", "Offboarded, stopped at the 10 minute limit before its last turn finished"],
+    ["crashed", "Offboarded, then its process crashed"],
+    // Junto quitting stops the process wherever it is.
+    ["quit", "Offboarded, ended when Junto quit"],
+  ] as const)("warns that the transcript may end mid-turn when it ended as %s", async (how, line) => {
+    const data = await handOver(how);
+    expect(data.handoff.wind_down).toBe(line);
+    expect(data.handoff.transcript_caution).toMatch(/mid-turn|before/i);
+  });
+
+  it.each([
+    ["settled", "Offboarded, finished its last turn"],
+  ] as const)("states how it ended and adds no warning when it ended as %s", async (how, line) => {
+    const data = await handOver(how);
+    expect(data.handoff.wind_down).toBe(line);
+    expect(data.handoff).not.toHaveProperty("transcript_caution");
+  });
+
+  it("says nothing about winding down for a session that was never detached", async () => {
+    await op("offboard", { notes: "# Half done", continuation: "Finish the retry." });
+    await endAsOffboard("s1");
+    await writeSession("s2");
+    const data = (await op("onboard", {})).data;
+    expect(data.handoff).not.toHaveProperty("wind_down");
+    expect(data.handoff).not.toHaveProperty("transcript_caution");
+    expect(data.sessions.last).not.toHaveProperty("wind_down");
+  });
+
+  it("tells a session whose predecessor left no notes the same thing", async () => {
+    await endAsOffboard("s1");
+    await drain("cap");
+    await writeSession("s2");
+    const told = (await op("onboard", {})).data.previous_session_without_notes;
+    expect(told.wind_down).toBe("Offboarded, stopped at the 10 minute limit before its last turn finished");
+    expect(told.transcript_caution).toMatch(/mid-turn|before/i);
+  });
+});

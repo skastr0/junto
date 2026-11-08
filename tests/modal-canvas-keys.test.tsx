@@ -1,0 +1,104 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CANVAS_DELETE_KEY_CODE, canvasKeyboardTaken } from "../src/window/lib/canvas-keys";
+import { dispatchKey, keySituation } from "../src/window/lib/key-dispatcher";
+import { pushModal, resetModalStack, topModal, useAnyModalOpen } from "../src/window/lib/modal-stack";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const openModal = () =>
+  pushModal({
+    layer: "working",
+    container: () => null,
+    trap: false,
+    onEscape: () => false,
+    onClose: () => undefined,
+  });
+
+const press = (over: Partial<KeyboardEvent> & { key: string }) =>
+  ({
+    metaKey: false,
+    ctrlKey: false,
+    altKey: false,
+    shiftKey: false,
+    repeat: false,
+    isComposing: false,
+    target: document.body,
+    preventDefault: vi.fn(),
+    stopPropagation: vi.fn(),
+    ...over,
+  }) as unknown as KeyboardEvent;
+
+const Probe = () => <span data-modal={useAnyModalOpen() ? "open" : "closed"} />;
+
+describe("canvas keys stand down under a modal", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+    resetModalStack();
+  });
+
+  it("keeps React Flow's delete chord bound whatever is in front, and refuses the delete there", () => {
+    // One array, never swapped: a new one re-registers xyflow's listener, and
+    // null unbinds it, which leaves xyflow's pressed-key set holding the keys
+    // of the modal that opened. That swallowed the first delete after it closed.
+    expect(CANVAS_DELETE_KEY_CODE).toEqual(["Backspace", "Delete"]);
+    expect(canvasKeyboardTaken(false, false)).toBe(false);
+    expect(canvasKeyboardTaken(true, false)).toBe(true);
+    expect(canvasKeyboardTaken(false, true)).toBe(true);
+    expect(canvasKeyboardTaken(true, true)).toBe(true);
+  });
+
+  it("refuses while a modal is on the stack, live", () => {
+    const leave = openModal().leave;
+    try {
+      expect(canvasKeyboardTaken(false, topModal() !== undefined)).toBe(true);
+    } finally {
+      leave();
+    }
+    expect(canvasKeyboardTaken(false, topModal() !== undefined)).toBe(false);
+  });
+
+  it("follows the stack live, so the canvas re-renders when a modal opens or closes", () => {
+    act(() => root.render(<Probe />));
+    const shown = () => host.querySelector("[data-modal]")?.getAttribute("data-modal");
+    expect(shown()).toBe("closed");
+
+    let leave: (() => void) | undefined;
+    act(() => {
+      leave = openModal().leave;
+    });
+    expect(shown()).toBe("open");
+
+    act(() => leave?.());
+    expect(shown()).toBe("closed");
+  });
+
+  it("keeps the canvas's own shortcuts from running while a modal is up", () => {
+    const recall = vi.fn();
+    const save = vi.fn();
+    const leave = openModal().leave;
+    try {
+      const situation = keySituation(document.body);
+      expect(dispatchKey(press({ key: "2" }), { "groups.recall": recall }, situation)).toBeNull();
+      expect(recall).not.toHaveBeenCalled();
+      // A shortcut the modal's layer allows still runs: the stack is not a blanket stop.
+      const saveKey = situation.mac ? { metaKey: true } : { ctrlKey: true };
+      expect(dispatchKey(press({ key: "s", ...saveKey }), { "files.save": save }, situation)).toBe("files.save");
+      expect(save).toHaveBeenCalledTimes(1);
+    } finally {
+      leave();
+    }
+  });
+});

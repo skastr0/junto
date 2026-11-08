@@ -1,0 +1,283 @@
+/* RTS two-bar controls — component-scoped (never styles.css).
+   Kind strip (middle bar), relation cards, and region-chip pause dots.
+   Shares the .rts-key chrome from RtsBottomBar.css. */
+
+/* Middle panel variant that lets pops escape above (mirrors .rts-panel--cmd).
+   Double class beats the base .rts-panel overflow regardless of import order. */
+.rts-panel.rts-panel--mid {
+  position: relative;
+  overflow: visible;
+}
+
+.rts-panel.rts-panel--mid .rts-panel__body {
+  overflow: hidden;
+}
+
+/* Middle body: kind surface fills the panel. */
+.rts-mid-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  height: 100%;
+  min-height: 0;
+  justify-content: stretch;
+}
+
+/* Kind surface — identity glance + action strip + fields key. */
+.rts-kind-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  height: 100%;
+  justify-content: flex-start;
+}
+
+/* Multi-prompt fills the mid panel; composer overlay owns chrome. */
+.rts-kind-surface--multi-prompt {
+  gap: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/*
+ * Region + simple kinds: kind label + keys top-left (no second title block).
+ */
+.rts-kind-surface--region,
+.rts-kind-surface--simple {
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.rts-kind-surface--region .rts-kind-strip,
+.rts-kind-surface--simple .rts-kind-strip {
+  gap: 6px;
+}
+
+.rts-kind-kind-label {
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--color-steel) 85%, transparent);
+  line-height: 1;
+  flex-shrink: 0;
+  padding-left: 2px;
+}
+
+.rts-kind-id {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.rts-kind-id--compact {
+  gap: 4px;
+}
+
+.rts-kind-id__avatar {
+  display: block;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 999px;
+  border: 1px solid var(--color-overlay-4);
+  background: var(--color-overlay-1);
+}
+
+.rts-kind-id__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.rts-kind-id__avatar--mark {
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+}
+
+.rts-kind-id__text {
+  min-width: 0;
+  flex: 1;
+}
+
+.rts-kind-id__name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.15;
+}
+
+.rts-kind-id__live {
+  margin-top: 1px;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: color-mix(in oklab, var(--color-steel) 95%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+/* Focus form for dense node/edge editors (not a sidebar). */
+.rts-kind-form-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: min(72vh, 640px);
+  overflow: hidden;
+  border: 1px solid var(--color-overlay-4);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--color-ground) 96%, transparent);
+  box-shadow: 0 16px 48px var(--color-shadow-1);
+}
+
+/* Fit panels size to content — body must not flex-fill empty height. */
+.rts-kind-form-panel[data-height="fit"] {
+  max-height: min(86vh, 720px);
+}
+
+.rts-kind-form-panel[data-height="fit"] .rts-kind-form-body {
+  flex: 0 1 auto;
+}
+
+.rts-kind-form-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 14px 16px;
+}
+
+/*
+ * Kind cluster: label on its own row, then icon row (region + every kind).
+ * Never inline "TERMINAL [icon] [icon]".
+ */
+.rts-kind-cluster {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rts-kind-strip {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.rts-kind-strip__label {
+  display: none; /* use .rts-kind-kind-label above the strip */
+}
+
+.rts-kind-strip__meta {
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--color-dim) 90%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Pop above the middle panel (add-task, criteria editor). Containing block is
+   .rts-panel--mid, so the body's overflow:hidden never clips it. */
+.rts-kind-pop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 40;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--color-stroke);
+  background: color-mix(in oklab, var(--color-ground) 96%, transparent);
+  box-shadow: 0 12px 32px var(--color-shadow-1);
+}
+
+.rts-kind-pop--editor {
+  max-height: 220px;
+  overflow: auto;
+}
+
+.rts-kind-pop--quick {
+  display: grid;
+  gap: 7px;
+  width: max-content;
+  right: auto;
+  min-width: 196px;
+}
+
+.rts-kind-pop__title {
+  color: var(--color-ink);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.rts-kind-pop__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.rts-kind-pop__hint {
+  max-width: 260px;
+  color: var(--color-dim);
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.rts-kind-pop__field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--color-steel) 90%, transparent);
+}
+
+.rts-kind-pop__field input {
+  width: 100%;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--color-overlay-4);
+  background: var(--color-shadow-2);
+  color: var(--color-ink);
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.rts-kind-pop__error {
+  margin-top: 4px;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--color-accent) 85%, transparent);
+}
+
+/* The criteria editor reuses inspector chrome inside the pop. */
+.rts-kind-pop--editor .inspector-section {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+

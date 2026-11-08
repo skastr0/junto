@@ -1,0 +1,85 @@
+import { use$ } from "@legendapp/state/react";
+import type { CSSProperties, ReactNode } from "react";
+import { machineStage, type MachineFigureState, type MachineForm } from "@shared/machine-figure";
+import type { ThemeMode } from "@shared/theme";
+import { portraitOverrides$ } from "../../lib/portrait-overrides-state";
+import { themeMode$ } from "../../lib/theme-mode";
+import { MachineFigure, type MachineFigureMachine } from "./MachineFigure";
+import "./machines.css";
+
+// The stage: one machine given room. It stands at the large size on its own
+// tile and halo, the ground a seat portrait sits on, with the seats placed
+// there on its roof as themselves. What is said about it goes beside it.
+
+const STAGE_FIGURE = 290;
+
+/** What each form is called, the small line over the name. */
+export const MACHINE_FORM_WORD: Readonly<Record<MachineForm, string>> = {
+  macbook: "MacBook",
+  "mac-mini": "Mac mini",
+  "mac-studio": "Mac Studio",
+  "linux-box": "Linux box",
+  server: "Server",
+};
+
+/** The form, and the short name too when the operator labelled it otherwise. */
+export const machineStageEyebrow = (machine: MachineFigureMachine): string =>
+  machine.label === machine.name
+    ? MACHINE_FORM_WORD[machine.form]
+    : `${MACHINE_FORM_WORD[machine.form]}, ${machine.name}`;
+
+export interface MachineStageProps {
+  readonly machine: MachineFigureMachine;
+  readonly state: MachineFigureState;
+  /** Node ids of the seats placed on the machine; they stand on its roof. */
+  readonly seatIds?: ReadonlyArray<string>;
+  readonly theme?: ThemeMode;
+  /** The label, the state lines and the actions. The stage says the form above them. */
+  readonly children: ReactNode;
+}
+
+export function MachineStage({ machine, state, seatIds = [], theme, children }: MachineStageProps) {
+  const overrides = use$(portraitOverrides$);
+  const live = use$(themeMode$);
+  const mode = theme ?? live;
+  const ground = machineStage(machine.name, mode, machine.hue);
+  const crew = seatIds.map((seed) => ({ seed, config: overrides[seed] }));
+  return (
+    <div className="machine-stage" style={{ "--machine-tile": ground.tile, "--machine-halo": ground.halo } as CSSProperties}>
+      <div className="machine-stage__figure">
+        <MachineFigure machine={machine} state={state} size={STAGE_FIGURE} theme={mode} crew={crew} />
+      </div>
+      <div className="machine-stage__words">
+        <div className="machine-stage__eyebrow" data-testid="machine-form">{machineStageEyebrow(machine)}</div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The steps of a send as one strip. Confirmed and uncertain phases name
+ * their state; upcoming steps read plainly without a prefix.
+ */
+export function MachineSteps<Phase extends string>({
+  lines,
+  words,
+  ...rest
+}: {
+  readonly lines: ReadonlyArray<{ readonly step: string; readonly label: string; readonly phase: Phase }>;
+  /** What each phase is called. */
+  readonly words: Readonly<Record<Phase, string>>;
+  readonly "data-testid"?: string;
+}) {
+  return (
+    <ol className="machine-steps" aria-label="Steps" {...rest}>
+      {lines.map(({ step, label, phase }) => (
+        <li key={step} data-step={step} data-done={phase === "done"} data-step-phase={phase}>
+          <i aria-hidden="true" />
+          {words[phase] ? <small>{words[phase]}: </small> : null}
+          {label}
+        </li>
+      ))}
+    </ol>
+  );
+}

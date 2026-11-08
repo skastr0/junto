@@ -1,0 +1,80 @@
+/* Message composer: one field to one agent seat or a selection of them. */
+.seat-message {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.seat-message__head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.seat-message__title {
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.seat-message__reach {
+  color: var(--color-amber);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+.seat-message__field {
+  width: 100%;
+  min-height: 52px;
+  max-height: 180px;
+  resize: vertical;
+  padding: 6px 8px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 5px;
+  background: var(--color-inset);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  outline: none;
+  transition: border-color 120ms ease-out, box-shadow 120ms ease-out;
+}
+.seat-message__field::placeholder { color: var(--color-faint); }
+.seat-message__field:focus {
+  border-color: color-mix(in srgb, var(--color-cyan) 60%, transparent);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+.seat-message__foot {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.seat-message__status {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding-top: 3px;
+  color: var(--color-faint);
+  font-size: 10.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.seat-message__status[data-tone="sending"] { color: var(--color-dim); }
+.seat-message__status[data-tone="sent"] { color: var(--color-green); }
+.seat-message__status[data-tone="queued"] { color: var(--color-amber); }
+.seat-message__status[data-tone="failed"] { color: var(--color-crimson); }
+
+/* In the selection menu the composer replaces the rows in place, on the
+   menu's own surface (not its class: that one restyles every button). */
+.seat-message-menu {
+  width: 320px;
+  padding: 10px;
+  border: 1px solid var(--color-stroke-hi);
+  border-radius: 7px;
+  background: var(--color-raise);
+  box-shadow: 0 14px 34px var(--color-shadow-1);
+  color: var(--color-dim);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seat-message__field { transition: none; }
+}

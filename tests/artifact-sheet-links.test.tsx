@@ -1,0 +1,216 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { SheetPatch } from "../src/shared/artifact";
+import { ARTIFACT_GONE_LINE, artifactLink } from "../src/shared/artifact-link";
+import type { MentionOf } from "../src/shared/mention";
+import type { SheetGrid } from "../src/shared/model/sheet";
+import { asNodeId } from "../src/shared/physics/schema";
+import type { ItemId } from "../src/shared/work-ids";
+import type { LinkableArtifact } from "../src/window/lib/artifact-link-draft";
+
+const { opened, heads, mac } = vi.hoisted(() => {
+  globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
+  Element.prototype.scrollIntoView = function scrollIntoView() {};
+  return { mac: { value: true }, opened: [] as unknown[], heads: new Map<string, ReadonlyArray<{ artifact: { artifactId: string; title: string; archived: boolean; type: string } }>>() };
+});
+
+// The link chord is the key table's: Cmd+Enter on macOS, Ctrl+Enter elsewhere.
+vi.mock("../src/window/lib/platform", async (actual) => ({
+  ...(await actual<typeof import("../src/window/lib/platform")>()),
+  isMac: () => mac.value,
+}));
+vi.mock("../src/window/lib/mention-open", () => ({ openMention: (ref: unknown) => opened.push(ref) }));
+vi.mock("../src/window/lib/artifacts-source", () => ({
+  artifactsSource: () => ({
+    list: async (_canvas: string, nodeId: string) => await (heads.get(nodeId) ?? []),
+    onChanged: () => () => {},
+  }),
+}));
+
+const { ArtifactSheetEditor } = await import("../src/window/components/artifacts/ArtifactSheetEditor");
+
+const shelf = asNodeId("artifacts-shelf");
+const ref = (artifactId: string): MentionOf<"artifact"> => ({ kind: "artifact", nodeId: shelf, artifactId: artifactId as ItemId });
+const plan: LinkableArtifact = { ref: ref("01M5ZBT64KHP4JGH67RV1YCS6B"), title: "Launch plan", type: "document" };
+const planLink = artifactLink(plan.ref, "Launch plan", "factory");
+
+const cellLinks = {
+  canvasName: "factory",
+  links: { artifacts: [plan] },
+  nodeKindOf: (nodeId: string) => (nodeId === shelf ? ("artifacts" as const) : undefined),
+};
+
+const grid: SheetGrid = {
+  columns: [{ id: "c1", name: "Name" }, { id: "c2", name: "Notes" }],
+  rows: [
+    { id: "r1", cells: { c1: "ant", c2: `see ${planLink} first` } },
+    { id: "r2", cells: {} },
+  ],
+};
+
+let root: Root;
+let host: HTMLDivElement;
+let onPatch: ReturnType<typeof vi.fn<(patches: ReadonlyArray<SheetPatch>) => Promise<string | null>>>;
+
+const cell = (a1: string) => host.querySelector<HTMLInputElement>(`[data-cell="${a1}"]`);
+const field = () => host.querySelector<HTMLTextAreaElement>('[data-testid="artifact-sheet-cell-edit"]');
+const words = (a1: string) => cell(a1)!.closest("td")!.querySelector(".junto-artifact-sheet__words");
+const key = (on: HTMLElement, init: KeyboardEventInit) =>
+  act(() => {
+    on.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
+  });
+const type = (text: string) => {
+  const element = field()!;
+  const next = `${element.value}${text}`;
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(element, next);
+    element.setSelectionRange(next.length, next.length);
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+};
+const render = async (props: { readonly readOnly?: boolean } = {}) => {
+  await act(async () => root.render(<ArtifactSheetEditor grid={grid} onPatch={onPatch} cellLinks={cellLinks} {...props} />));
+  await act(async () => {});
+};
+
+beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  opened.length = 0;
+  heads.clear();
+  heads.set(shelf, [{ artifact: { artifactId: plan.ref.artifactId, title: "Launch plan", archived: false, type: "document" } }]);
+  host = document.createElement("div");
+  host.setAttribute("data-focus-surface", "");
+  document.body.append(host);
+  root = createRoot(host);
+  onPatch = vi.fn(async () => null);
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  host.remove();
+  vi.unstubAllGlobals();
+});
+
+it("a link in a cell reads as its words, the artifact's title as it is now, never its address", async () => {
+  heads.set(shelf, [{ artifact: { artifactId: plan.ref.artifactId, title: "Launch plan v2", archived: false, type: "document" } }]);
+  await render();
+  expect(cell("B1")!.value).toBe("see Launch plan v2 first");
+  expect(cell("B1")!.dataset.links).toBe("true");
+  expect(words("B1")!.querySelector(".junto-artifact-sheet__link")!.textContent).toBe("Launch plan v2");
+  // A plain cell draws nothing over itself.
+  expect(cell("A1")!.dataset.links).toBeUndefined();
+  expect(words("A1")).toBeNull();
+});
+
+it("a link to an artifact gone claims no title", async () => {
+  heads.set(shelf, []);
+  await render();
+  expect(cell("B1")!.value).toBe("see Missing artifact first");
+});
+
+it("a link into a node that is no Artifacts node now is missing without a read", async () => {
+  await act(async () =>
+    root.render(<ArtifactSheetEditor grid={grid} onPatch={onPatch} cellLinks={{ ...cellLinks, nodeKindOf: () => undefined }} />),
+  );
+  await act(async () => {});
+  expect(cell("B1")!.value).toBe("see Missing artifact first");
+});
+
+it("a link to an archived artifact says so after its title, and still opens", async () => {
+  heads.set(shelf, [{ artifact: { artifactId: plan.ref.artifactId, title: "Launch plan v2", archived: true, type: "document" } }]);
+  await render();
+  expect(cell("B1")!.value).toBe("see Launch plan v2, archived first");
+  const link = words("B1")!.querySelector(".junto-artifact-sheet__link")!;
+  expect(link.getAttribute("data-state")).toBe("archived");
+  expect(link.textContent).toBe("Launch plan v2");
+  await act(async () => cell("B1")!.focus());
+  key(cell("B1")!, { key: "Enter", metaKey: true });
+  expect(opened).toEqual([plan.ref]);
+});
+
+it("a link to an artifact its node does not hold reads missing, and Cmd+Enter says why rather than opening", async () => {
+  heads.set(shelf, [{ artifact: { artifactId: "01M5ZBT64KHP4JGH67RV1YCS6C", title: "Other", archived: false, type: "document" } }]);
+  await render();
+  expect(cell("B1")!.value).toBe("see Missing artifact first");
+  expect(words("B1")!.querySelector(".junto-artifact-sheet__link")!.getAttribute("data-state")).toBe("missing");
+  await act(async () => cell("B1")!.focus());
+  key(cell("B1")!, { key: "Enter", metaKey: true });
+  expect(opened).toEqual([]);
+  expect(host.querySelector(".junto-artifact-sheet__refusal")!.textContent).toBe(ARTIFACT_GONE_LINE);
+});
+
+it("a link whose node cannot be read draws as written, with no state", async () => {
+  heads.set(shelf, Promise.reject(new Error("no node")) as never);
+  await render();
+  expect(cell("B1")!.value).toBe("see Launch plan first");
+  expect(words("B1")!.querySelector(".junto-artifact-sheet__link")!.hasAttribute("data-state")).toBe(false);
+});
+
+it("[[ in a cell's edit offers the artifacts in reach, and a pick writes the link by id", async () => {
+  await render();
+  await act(async () => cell("A2")!.focus());
+  key(cell("A2")!, { key: "Enter" });
+  expect(field()).not.toBeNull();
+  expect(document.activeElement).toBe(field());
+  type("[[Lau");
+  const options = [...host.querySelectorAll('[role="option"]')].map((option) => option.textContent);
+  expect(options[0]).toContain("Launch plan");
+  key(field()!, { key: "Enter" });
+  // The pick placed the link; the field is still the edit.
+  expect(field()).not.toBeNull();
+  expect(field()!.value).toBe("[[Launch plan]] ");
+  key(field()!, { key: "Enter" });
+  await act(async () => {});
+  // The space the pick put after the link, last in the cell, does not land.
+  expect(onPatch.mock.calls.at(-1)![0]).toEqual([{ op: "cell", rowId: "r2", columnId: "c1", value: planLink }]);
+  // Enter moved down a row; the grid has none, so the cell keeps the keyboard.
+  expect(field()).toBeNull();
+  expect(document.activeElement).toBe(cell("A2"));
+});
+
+it("Escape in a link edit puts the cell back and the cell keeps the keyboard", async () => {
+  await render();
+  await act(async () => cell("B1")!.focus());
+  key(cell("B1")!, { key: "Enter" });
+  type(" more");
+  key(field()!, { key: "Escape" });
+  expect(field()).toBeNull();
+  expect(document.activeElement).toBe(cell("B1"));
+  expect(cell("B1")!.value).toBe("see Launch plan first");
+});
+
+it("Cmd+Enter on a cell opens its first link", async () => {
+  await render();
+  await act(async () => cell("B1")!.focus());
+  key(cell("B1")!, { key: "Enter", metaKey: true });
+  expect(opened).toEqual([plan.ref]);
+  expect(field()).toBeNull();
+  key(cell("A1")!, { key: "Enter", metaKey: true });
+  expect(opened).toHaveLength(1);
+});
+
+it("Ctrl+Enter opens a cell's link off macOS, and does nothing on macOS", async () => {
+  await render();
+  await act(async () => cell("B1")!.focus());
+  key(cell("B1")!, { key: "Enter", ctrlKey: true });
+  expect(opened).toEqual([]);
+  mac.value = false;
+  try {
+    key(cell("B1")!, { key: "Enter", metaKey: true });
+    expect(opened).toEqual([]);
+    key(cell("B1")!, { key: "Enter", ctrlKey: true });
+    expect(opened).toEqual([plan.ref]);
+  } finally {
+    mac.value = true;
+  }
+});
+
+it("read only draws links and edits nothing", async () => {
+  await render({ readOnly: true });
+  expect(cell("B1")!.value).toBe("see Launch plan first");
+  await act(async () => cell("B1")!.focus());
+  key(cell("B1")!, { key: "Enter" });
+  expect(field()).toBeNull();
+});

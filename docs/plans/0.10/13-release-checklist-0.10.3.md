@@ -1,0 +1,134 @@
+# 13 Release checklist, 0.10.3
+
+Owner: product-releases. Status: draft 2026-10-27, waiting for product-lead's
+go with the cut hash. Same lane as 0.10.2 (`12-release-checklist-0.10.2.md`).
+Heavy runs ask product-lead for a slot and wait for the one-minute load to be
+under 40 (`sysctl -n vm.loadavg`). Nothing here bumps or builds before the go.
+
+## Contents
+
+157 commits since the 0.10.2 bump (`8e17f666a`). Headlines: artifacts rebuild
+(live markdown document, mention chips and embeds, comments rail, narrow
+sidebar, one-row header, keys, accessibility), the pad (own engine kept,
+toolbar and stencils, connectors, preview cards, pan and pinch, lighter
+rendering), task body on live markdown, the one-open-task limit removed,
+derives between task boards, one list navigation, and the flow track fixes.
+Notes are in `CHANGELOG.md` under `## Unreleased`; word them again against the
+cut hash.
+
+## 1. State step 50 (the part that differs from 0.10.2)
+
+`fd6da2a96` migrates the database from v49 to v50: `wires` is rebuilt with
+`derives` in its verb CHECK, every wire copied as it was, and `task_heads`
+gains `derived_from`, null on every task already held, with an index. It is a
+consolidate step, approved by the operator (signal 01M5YCJ31C5PDE42NEY1B94WHP).
+The notes open with it: 0.10.2 refuses a v50 database as newer than supported,
+and going back means opening the backup taken at the upgrade.
+
+Run on a copy of `~/.junto/state/junto.db`, never the live file.
+(`~/.junto/junto.db` is an empty 0-byte file; the live database is the one
+under `state/`.)
+
+- [x] Head is v50 (`CURRENT_STATE_SCHEMA_VERSION` in
+      `src/core/state/migrations.ts`) and `bun run schema:identity`
+      matches `STATE_SCHEMA_V50_IDENTITY` (47696d80...).
+      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): schema-identity prints clean (v50 = 47696d80...);
+      canvas-lead spot-checked migrations.ts:650 is 50 and :645 is the v50 identity.
+- [x] Open the copy with the cut build's engine; it migrates v49 to v50.
+      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): a readonly .backup of live (v49, identity
+      f3e72b3b, quick_check ok), opened with the b7f33e184 engine, migrates to v50, sha 47696d80.
+- [x] `PRAGMA quick_check` is `ok` and `PRAGMA foreign_key_check` is empty.
+      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): both clean.
+- [x] Counts unchanged against the live copy: wires, nodes, seats, regions and
+      tasks, and every wire keeps its verb.
+      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): canvases 1, nodes 306, seats 180, regions 94,
+      wires 651, task_heads 451; all 101 tables equal in row count. Wires: 0 missing,
+      0 added, 0 different (649 messages, 2 flows). task_heads: v49 columns
+      unchanged, derived_from NULL on all 451, task_heads_by_origin exists.
+- [x] A backup of the pre-upgrade file exists and opens on 0.10.2 at v49.
+      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): junto-backup-82f1d4e4 written before the v50
+      stamp; v49, quick_check ok, opens on the 0.10.2 engine with 306 nodes and 651 wires.
+- [x] A second open runs no step and makes no backup.
+      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): a second open stays at v50 with one backup; every
+      table row-identical except the re-stamped verified_at.
+- [x] The migrated copy loads the canvas in the built app.
+      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead
+      via product-lead): engine load of the live copy passes on both opens, 306
+      nodes and 651 wires. 7b: the packaged b7f33e184 app launched on a fresh v49
+      home made by the 0.10.2 engine; first launch migrated to v50 (identity
+      47696d80, quick_check ok, foreign keys empty, both flows wires kept,
+      derived_from NULL); the pre-upgrade backup is v49 (identity f3e72b3b) with
+      both wires; launches 2 to 4 ran no step and made no new backup; canvas-lead
+      checked the launch-4 capture (step50-gate-app-canvas.png).
+
+These ran at b7f33e184, not the cut hash; the step's files
+(`migrate-derives-verb.ts`, `migrations.ts`) are the ones to diff at the cut.
+
+
+## 2. Before the cut
+
+- [ ] Product-lead names the cut hash; the bump lands directly on it. If main
+      moved past it, say so before building.
+- [ ] Notes re-read against the cut: every bullet true of the code at the hash.
+      Open ones to confirm: the pad keys (Space to pan, Cmd+Shift+Z), the
+      document keys (Cmd+B, Cmd+E, Cmd+Shift+M), and what the CLI prints for a
+      derived task. A CLI from 0.10.2 against the new app is untested; if it is
+      not checked before the cut, say so in the notes the way 0.10.1 did.
+- [ ] Dependencies: CodeMirror 6 and `@axe-core/playwright` added;
+      Excalidraw and its fonts are gone (`grep -ci excalidraw package.json
+      bun.lock` is 0, confirmed 2026-10-27).
+- [ ] `git status` clean of other seats' paths. Today's tree carries other
+      seats' uncommitted files (`pad-toolbar.spec.ts`, `pad-toolbar.css`,
+      `zz-feed-task-body-capture.spec.ts`, `artifacts/new.norm`,
+      `measure-runs.ndjson`); none goes in the cut.
+- [ ] `bun run lint:design-tokens`, `lint:product-name`, `lint:no-middot`,
+      `lint:layers` pass at the cut hash.
+- [ ] Motion law holds: `tests/motion-law.test.ts`. The derives arrowheads
+      breathe on opacity alone and the flows chevrons slide on transform.
+
+## 3. Pre-staged
+
+Same as 0.10.2: Developer ID identity 4452968868, `asc` notarization
+credentials, Orb builder `vellum-v015-build-clean`, `cut-build.sh` in my
+scratchpad (it must keep the step that deletes the `node_modules` link back
+into the shared tree; without it the unit lane fails 165 tests on a second
+React). Recheck each is still there at the go, and that the disk has room
+(34 GiB free at 98% full on 2026-10-22).
+
+## 4. The cut (on product-lead's word only)
+
+1. `bun scripts/bump-version.ts --dry-run` shows 0.10.2 to 0.10.3.
+2. `bun scripts/bump-version.ts`, rename `## Unreleased` in `CHANGELOG.md` to
+   `## 0.10.3 — <date>` with a new empty `## Unreleased` above it.
+3. `git commit -m "chore(release): bump 0.10.3" -- package.json CHANGELOG.md`.
+4. Clean export of that commit and `app:build:ship` (unit lanes, sign, verify,
+   notarize), started at once, load under 40.
+5. Publish only on product-lead's word: from `~/Projects/junto-landing`,
+   `bun scripts/release/publish-mac-release.ts --repo-root <export> --dry-run`,
+   then the same without `--dry-run`.
+6. Feed check with redirects followed: `curl -sSL
+   https://releases.juntoagents.com/mac/arm64/latest-mac.yml` says 0.10.3 with
+   zip and dmg; the zip from the feed hashes to the stapled sha256.
+7. Delete the export, keep the notarization receipt, mail product-lead the
+   hash, artifact names and sizes, sha256 and submission id.
+
+## 5. After
+
+- [ ] Real-app look at the shipped build (product-verify): a live document with
+      a mention chip and a preview card, the pad toolbar and a connector, a
+      task board derive wire between two boards, and a database that migrated
+      from v49. Frames to the needs-you feed.
+- [ ] Website download page is not touched by this lane.
+
+## Result
+
+0.10.3 shipped from bump commit 6051eddef (on 82dd749ff, a test-only commit
+past cut hash b817db2d3), on product-lead's word after the step 50 gate. Shared
+unit lane 706 of 707 files, isolated 434 of 437 (3 skipped), ship lane ok. The
+first build run failed one isolated test, `stubs-migration.test.ts` (remote-v13
+case), on its 5 second timeout under a 15-minute load of 55; it passes 3 of 3
+alone in about a second, and the rerun on the same export was green. Notarization
+submission e4a6327a-1832-4384-bfca-c6ad5b1a8072 accepted, published 2026-10-27,
+machine build fa758533...; the feed serves 0.10.3 and its zip hashes to the
+stapled sha256 3157d415...7898. Unverified at publish: what the CLI prints for
+a derived task, and a 0.10.2 CLI against the new app.

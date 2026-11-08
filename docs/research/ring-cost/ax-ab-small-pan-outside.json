@@ -1,0 +1,1594 @@
+{
+  "command": "bun scripts/probe-ring-cost.ts --compare after=/Users/guilhermecastro/Projects/junto-wt-after,canvas=/private/tmp/claude-501/-Users-guilhermecastro-Projects-junto/09638193-589d-4950-9214-e4e499458ceb/scratchpad/pan --repeats 3",
+  "when": "2026-10-17T21:00:48.580Z",
+  "order": [
+    "after#1",
+    "canvas#1",
+    "after#2",
+    "canvas#2",
+    "after#3",
+    "canvas#3"
+  ],
+  "summary": [
+    {
+      "build": "after",
+      "sourceCommit": "2deba933eb64321cca99039b96d507ddb4f616c7",
+      "scenarios": [
+        {
+          "scenario": "pan-outside",
+          "runs": 3,
+          "validRuns": 3,
+          "median": {
+            "rendererBusyMsPerSecond": 208.5,
+            "scriptMsPerSecond": 26.1,
+            "layoutMsPerSecond": 3.6,
+            "styleMsPerSecond": 24.2,
+            "rafDropped": 44,
+            "rafFrames": 721,
+            "bytesWritten": null,
+            "frame_p50": 8.3,
+            "frame_p95": 9.1,
+            "frame_p99": 9.3,
+            "frame_max": 9.4,
+            "frame_over8_3": 297,
+            "frame_over16_7": 0,
+            "frame_droppedAtDisplayRate": 0,
+            "loafMaxMs": 0,
+            "gpuCpuPercent": 36.4,
+            "rendererCpuPercent": 31.2,
+            "browserCpuPercent": 2.6,
+            "movingRings": 35
+          },
+          "values": {
+            "rendererBusyMsPerSecond": [
+              204.5,
+              216.1,
+              208.5
+            ],
+            "scriptMsPerSecond": [
+              26.1,
+              27.3,
+              25.4
+            ],
+            "layoutMsPerSecond": [
+              3.5,
+              3.6,
+              3.6
+            ],
+            "styleMsPerSecond": [
+              23.4,
+              24.7,
+              24.2
+            ],
+            "rafDropped": [
+              44,
+              42,
+              68
+            ],
+            "rafFrames": [
+              722,
+              721,
+              721
+            ],
+            "bytesWritten": [
+              null,
+              null,
+              null
+            ],
+            "gpu": [
+              35.8,
+              38.2,
+              36.4
+            ]
+          },
+          "problems": []
+        },
+        {
+          "scenario": "pan-hover",
+          "runs": 0,
+          "validRuns": 0,
+          "median": {
+            "rendererBusyMsPerSecond": null,
+            "scriptMsPerSecond": null,
+            "layoutMsPerSecond": null,
+            "styleMsPerSecond": null,
+            "rafDropped": null,
+            "rafFrames": null,
+            "bytesWritten": null,
+            "frame_p50": null,
+            "frame_p95": null,
+            "frame_p99": null,
+            "frame_max": null,
+            "frame_over8_3": null,
+            "frame_over16_7": null,
+            "frame_droppedAtDisplayRate": null,
+            "loafMaxMs": null,
+            "gpuCpuPercent": null,
+            "rendererCpuPercent": null,
+            "browserCpuPercent": null,
+            "movingRings": null
+          },
+          "values": {
+            "rendererBusyMsPerSecond": [],
+            "scriptMsPerSecond": [],
+            "layoutMsPerSecond": [],
+            "styleMsPerSecond": [],
+            "rafDropped": [],
+            "rafFrames": [],
+            "bytesWritten": [],
+            "gpu": []
+          },
+          "problems": []
+        }
+      ]
+    },
+    {
+      "build": "canvas",
+      "sourceCommit": "6d1fd0a8c47cc5af9530ce508e2ebdad6bfc93a0",
+      "scenarios": [
+        {
+          "scenario": "pan-outside",
+          "runs": 3,
+          "validRuns": 2,
+          "median": {
+            "rendererBusyMsPerSecond": 204.7,
+            "scriptMsPerSecond": 25.6,
+            "layoutMsPerSecond": 3.5,
+            "styleMsPerSecond": 23.3,
+            "rafDropped": 39.5,
+            "rafFrames": 722,
+            "bytesWritten": null,
+            "frame_p50": 8.3,
+            "frame_p95": 9.1,
+            "frame_p99": 9.3,
+            "frame_max": 9.4,
+            "frame_over8_3": 294,
+            "frame_over16_7": 0,
+            "frame_droppedAtDisplayRate": 0,
+            "loafMaxMs": 0,
+            "gpuCpuPercent": 35.8,
+            "rendererCpuPercent": 30.7,
+            "browserCpuPercent": 2.6,
+            "movingRings": 35
+          },
+          "values": {
+            "rendererBusyMsPerSecond": [
+              204.5,
+              167.4,
+              204.9
+            ],
+            "scriptMsPerSecond": [
+              25.1,
+              26,
+              26.1
+            ],
+            "layoutMsPerSecond": [
+              3.4,
+              2.4,
+              3.5
+            ],
+            "styleMsPerSecond": [
+              23.1,
+              16.9,
+              23.4
+            ],
+            "rafDropped": [
+              46,
+              34,
+              33
+            ],
+            "rafFrames": [
+              723,
+              720,
+              721
+            ],
+            "bytesWritten": [
+              null,
+              null,
+              null
+            ],
+            "gpu": [
+              35.6,
+              26.8,
+              35.9
+            ]
+          },
+          "problems": [
+            "#2: only 20 moving rings on screen (need 30)"
+          ]
+        },
+        {
+          "scenario": "pan-hover",
+          "runs": 0,
+          "validRuns": 0,
+          "median": {
+            "rendererBusyMsPerSecond": null,
+            "scriptMsPerSecond": null,
+            "layoutMsPerSecond": null,
+            "styleMsPerSecond": null,
+            "rafDropped": null,
+            "rafFrames": null,
+            "bytesWritten": null,
+            "frame_p50": null,
+            "frame_p95": null,
+            "frame_p99": null,
+            "frame_max": null,
+            "frame_over8_3": null,
+            "frame_over16_7": null,
+            "frame_droppedAtDisplayRate": null,
+            "loafMaxMs": null,
+            "gpuCpuPercent": null,
+            "rendererCpuPercent": null,
+            "browserCpuPercent": null,
+            "movingRings": null
+          },
+          "values": {
+            "rendererBusyMsPerSecond": [],
+            "scriptMsPerSecond": [],
+            "layoutMsPerSecond": [],
+            "styleMsPerSecond": [],
+            "rafDropped": [],
+            "rafFrames": [],
+            "bytesWritten": [],
+            "gpu": []
+          },
+          "problems": []
+        }
+      ]
+    }
+  ],
+  "runs": [
+    {
+      "label": "after-1",
+      "sourceCommit": "2deba933eb64321cca99039b96d507ddb4f616c7",
+      "appRoot": "/Users/guilhermecastro/Projects/junto-wt-after",
+      "command": "bun scripts/probe-ring-cost.ts --app-root /Users/guilhermecastro/Projects/junto-wt-after --label after-1 --seconds 6 --port 9341 --fixture small --scenarios pan-outside,pan-hover",
+      "when": "2026-10-17T20:59:32.682Z",
+      "environment": {
+        "accessibility": true,
+        "electron": "43.5.0",
+        "chrome": "150.0.7871.250",
+        "displays": 1,
+        "darkOs": true,
+        "displayHz": 120.00000762939453,
+        "rendererAccessibilityForcedOff": false,
+        "streamLinesPerTick": 20,
+        "streamTickMs": 16,
+        "preflightProblems": []
+      },
+      "fixture": {
+        "name": "small",
+        "seats": 29,
+        "looseSeats": 5,
+        "regions": 11,
+        "maxNestingDepth": 4,
+        "regionTable": [
+          {
+            "id": "big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "big-a",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "big-a-1",
+            "parent": "big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "big-a-1-a",
+            "parent": "big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "big-b",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "big-b-1",
+            "parent": "big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "mid-a",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "mid-b",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          }
+        ]
+      },
+      "animations": {
+        "total": 33,
+        "onMarkParts": 33,
+        "states": {
+          "running": 33
+        },
+        "properties": [
+          "transform"
+        ],
+        "nonCompositorProperties": [],
+        "trace": {
+          "source": "Tracing categories devtools.timeline,blink.animations: 'Animation' events from the moment the seats turn working",
+          "events": 404,
+          "compositeFailed": 36,
+          "compositeFailedValues": [
+            8224,
+            0
+          ],
+          "unsupportedProperties": [
+            "border-top-color",
+            "border-bottom-color",
+            "border-left-color",
+            "border-right-color"
+          ],
+          "sample": [
+            {
+              "displayName": "border-top-color",
+              "id": "2",
+              "name": "",
+              "nodeId": 267,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            },
+            {
+              "displayName": "background-color",
+              "id": "3",
+              "name": "",
+              "nodeId": 267,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            },
+            {
+              "displayName": "border-bottom-color",
+              "id": "4",
+              "name": "",
+              "nodeId": 267,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            }
+          ]
+        },
+        "note": "ring animations use compositor properties only"
+      },
+      "valid": true,
+      "scenarios": [
+        {
+          "name": "pan-outside",
+          "valid": true,
+          "problems": [],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 204.5,
+          "scriptMsPerSecond": 26.1,
+          "layoutMsPerSecond": 3.5,
+          "styleMsPerSecond": 23.4,
+          "rafFrames": 722,
+          "rafDropped": 44,
+          "frameMs": {
+            "source": "page requestAnimationFrame deltas (main-thread frames); compositor-presented frames were not available",
+            "displayHz": 120.00000762939453,
+            "p50": 8.3,
+            "p95": 9.1,
+            "p99": 9.3,
+            "max": 9.3,
+            "over8_3": 307,
+            "over16_7": 0,
+            "droppedAtDisplayRate": 0
+          },
+          "longAnimationFrames": {
+            "count": 0,
+            "maxMs": 0,
+            "totalMs": 0
+          },
+          "pointer": "outside",
+          "wheel": {
+            "mode": "untrusted",
+            "events": 376,
+            "eventsPerSecond": 62.5,
+            "tracePath": null
+          },
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 2.5,
+            "renderer": 29.7,
+            "GPU": 35.8,
+            "network.mojom.NetworkService": 0,
+            "tracing.mojom.TracingService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 36
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(86.9767px, 27.3023px) scale(0.651163)",
+            "translate(-2620.22px, -1326.3px) scale(0.651163)",
+            "translate(86.9767px, 27.3023px) scale(0.651163)"
+          ],
+          "loadAverage1m": {
+            "before": 10.73,
+            "after": 9.95
+          }
+        }
+      ]
+    },
+    {
+      "label": "canvas-1",
+      "sourceCommit": "6d1fd0a8c47cc5af9530ce508e2ebdad6bfc93a0",
+      "appRoot": "/private/tmp/claude-501/-Users-guilhermecastro-Projects-junto/09638193-589d-4950-9214-e4e499458ceb/scratchpad/pan",
+      "command": "bun scripts/probe-ring-cost.ts --app-root /private/tmp/claude-501/-Users-guilhermecastro-Projects-junto/09638193-589d-4950-9214-e4e499458ceb/scratchpad/pan --label canvas-1 --seconds 6 --port 9341 --fixture small --scenarios pan-outside,pan-hover",
+      "when": "2026-10-17T20:59:46.858Z",
+      "environment": {
+        "accessibility": true,
+        "electron": "43.5.0",
+        "chrome": "150.0.7871.250",
+        "displays": 1,
+        "darkOs": true,
+        "displayHz": 120.00000762939453,
+        "rendererAccessibilityForcedOff": false,
+        "streamLinesPerTick": 20,
+        "streamTickMs": 16,
+        "preflightProblems": []
+      },
+      "fixture": {
+        "name": "small",
+        "seats": 29,
+        "looseSeats": 5,
+        "regions": 11,
+        "maxNestingDepth": 4,
+        "regionTable": [
+          {
+            "id": "big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "big-a",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "big-a-1",
+            "parent": "big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "big-a-1-a",
+            "parent": "big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "big-b",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "big-b-1",
+            "parent": "big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "mid-a",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "mid-b",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          }
+        ]
+      },
+      "animations": {
+        "total": 33,
+        "onMarkParts": 33,
+        "states": {
+          "running": 33
+        },
+        "properties": [
+          "transform"
+        ],
+        "nonCompositorProperties": [],
+        "trace": {
+          "source": "Tracing categories devtools.timeline,blink.animations: 'Animation' events from the moment the seats turn working",
+          "events": 377,
+          "compositeFailed": 0,
+          "compositeFailedValues": [
+            0
+          ],
+          "unsupportedProperties": [],
+          "sample": [
+            {
+              "displayName": "border-top-color",
+              "id": "2",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            },
+            {
+              "displayName": "background-color",
+              "id": "3",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            },
+            {
+              "displayName": "border-bottom-color",
+              "id": "4",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            }
+          ]
+        },
+        "note": "ring animations use compositor properties only"
+      },
+      "valid": true,
+      "scenarios": [
+        {
+          "name": "pan-outside",
+          "valid": true,
+          "problems": [],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 204.5,
+          "scriptMsPerSecond": 25.1,
+          "layoutMsPerSecond": 3.4,
+          "styleMsPerSecond": 23.1,
+          "rafFrames": 723,
+          "rafDropped": 46,
+          "frameMs": {
+            "source": "page requestAnimationFrame deltas (main-thread frames); compositor-presented frames were not available",
+            "displayHz": 120.00000762939453,
+            "p50": 8.3,
+            "p95": 9.1,
+            "p99": 9.3,
+            "max": 9.4,
+            "over8_3": 295,
+            "over16_7": 0,
+            "droppedAtDisplayRate": 0
+          },
+          "longAnimationFrames": {
+            "count": 0,
+            "maxMs": 0,
+            "totalMs": 0
+          },
+          "pointer": "outside",
+          "wheel": {
+            "mode": "untrusted",
+            "events": 376,
+            "eventsPerSecond": 62.5,
+            "tracePath": null
+          },
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 2.6,
+            "renderer": 30.7,
+            "GPU": 35.6,
+            "network.mojom.NetworkService": 0,
+            "tracing.mojom.TracingService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 36
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(86.9767px, 27.3023px) scale(0.651163)",
+            "translate(-2620.22px, -1326.3px) scale(0.651163)",
+            "translate(86.9767px, 27.3023px) scale(0.651163)"
+          ],
+          "loadAverage1m": {
+            "before": 9.75,
+            "after": 10.81
+          }
+        }
+      ]
+    },
+    {
+      "label": "after-2",
+      "sourceCommit": "2deba933eb64321cca99039b96d507ddb4f616c7",
+      "appRoot": "/Users/guilhermecastro/Projects/junto-wt-after",
+      "command": "bun scripts/probe-ring-cost.ts --app-root /Users/guilhermecastro/Projects/junto-wt-after --label after-2 --seconds 6 --port 9341 --fixture small --scenarios pan-outside,pan-hover",
+      "when": "2026-10-17T21:00:00.827Z",
+      "environment": {
+        "accessibility": true,
+        "electron": "43.5.0",
+        "chrome": "150.0.7871.250",
+        "displays": 1,
+        "darkOs": true,
+        "displayHz": 120.00000762939453,
+        "rendererAccessibilityForcedOff": false,
+        "streamLinesPerTick": 20,
+        "streamTickMs": 16,
+        "preflightProblems": []
+      },
+      "fixture": {
+        "name": "small",
+        "seats": 29,
+        "looseSeats": 5,
+        "regions": 11,
+        "maxNestingDepth": 4,
+        "regionTable": [
+          {
+            "id": "big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "big-a",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "big-a-1",
+            "parent": "big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "big-a-1-a",
+            "parent": "big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "big-b",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "big-b-1",
+            "parent": "big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "mid-a",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "mid-b",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          }
+        ]
+      },
+      "animations": {
+        "total": 33,
+        "onMarkParts": 33,
+        "states": {
+          "running": 33
+        },
+        "properties": [
+          "transform"
+        ],
+        "nonCompositorProperties": [],
+        "trace": {
+          "source": "Tracing categories devtools.timeline,blink.animations: 'Animation' events from the moment the seats turn working",
+          "events": 318,
+          "compositeFailed": 0,
+          "compositeFailedValues": [
+            0
+          ],
+          "unsupportedProperties": [],
+          "sample": [
+            {
+              "displayName": "border-top-color",
+              "id": "2",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            },
+            {
+              "displayName": "background-color",
+              "id": "3",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            },
+            {
+              "displayName": "border-bottom-color",
+              "id": "4",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            }
+          ]
+        },
+        "note": "ring animations use compositor properties only"
+      },
+      "valid": true,
+      "scenarios": [
+        {
+          "name": "pan-outside",
+          "valid": true,
+          "problems": [],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 216.1,
+          "scriptMsPerSecond": 27.3,
+          "layoutMsPerSecond": 3.6,
+          "styleMsPerSecond": 24.7,
+          "rafFrames": 721,
+          "rafDropped": 42,
+          "frameMs": {
+            "source": "page requestAnimationFrame deltas (main-thread frames); compositor-presented frames were not available",
+            "displayHz": 120.00000762939453,
+            "p50": 8.3,
+            "p95": 9.1,
+            "p99": 9.3,
+            "max": 9.4,
+            "over8_3": 287,
+            "over16_7": 0,
+            "droppedAtDisplayRate": 0
+          },
+          "longAnimationFrames": {
+            "count": 0,
+            "maxMs": 0,
+            "totalMs": 0
+          },
+          "pointer": "outside",
+          "wheel": {
+            "mode": "untrusted",
+            "events": 375,
+            "eventsPerSecond": 62.5,
+            "tracePath": null
+          },
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 2.8,
+            "renderer": 32.2,
+            "GPU": 38.2,
+            "network.mojom.NetworkService": 0,
+            "tracing.mojom.TracingService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 36
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(72.5767px, -41.0977px) scale(0.651163)",
+            "translate(-2634.62px, -1394.7px) scale(0.651163)",
+            "translate(58.1767px, -48.2977px) scale(0.651163)"
+          ],
+          "loadAverage1m": {
+            "before": 11.63,
+            "after": 12.15
+          }
+        }
+      ]
+    },
+    {
+      "label": "canvas-2",
+      "sourceCommit": "6d1fd0a8c47cc5af9530ce508e2ebdad6bfc93a0",
+      "appRoot": "/private/tmp/claude-501/-Users-guilhermecastro-Projects-junto/09638193-589d-4950-9214-e4e499458ceb/scratchpad/pan",
+      "command": "bun scripts/probe-ring-cost.ts --app-root /private/tmp/claude-501/-Users-guilhermecastro-Projects-junto/09638193-589d-4950-9214-e4e499458ceb/scratchpad/pan --label canvas-2 --seconds 6 --port 9341 --fixture small --scenarios pan-outside,pan-hover",
+      "when": "2026-10-17T21:00:15.034Z",
+      "environment": {
+        "accessibility": true,
+        "electron": "43.5.0",
+        "chrome": "150.0.7871.250",
+        "displays": 1,
+        "darkOs": true,
+        "displayHz": 120.00000762939453,
+        "rendererAccessibilityForcedOff": false,
+        "streamLinesPerTick": 20,
+        "streamTickMs": 16,
+        "preflightProblems": []
+      },
+      "fixture": {
+        "name": "small",
+        "seats": 29,
+        "looseSeats": 5,
+        "regions": 11,
+        "maxNestingDepth": 4,
+        "regionTable": [
+          {
+            "id": "big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "big-a",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "big-a-1",
+            "parent": "big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "big-a-1-a",
+            "parent": "big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "big-b",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "big-b-1",
+            "parent": "big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "mid-a",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "mid-b",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          }
+        ]
+      },
+      "animations": {
+        "total": 13,
+        "onMarkParts": 13,
+        "states": {
+          "running": 13
+        },
+        "properties": [
+          "transform"
+        ],
+        "nonCompositorProperties": [],
+        "trace": {
+          "source": "Tracing categories devtools.timeline,blink.animations: 'Animation' events from the moment the seats turn working",
+          "events": 258,
+          "compositeFailed": 0,
+          "compositeFailedValues": [
+            0
+          ],
+          "unsupportedProperties": [],
+          "sample": [
+            {
+              "displayName": "border-top-color",
+              "id": "2",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            },
+            {
+              "displayName": "background-color",
+              "id": "3",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            },
+            {
+              "displayName": "border-bottom-color",
+              "id": "4",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            }
+          ]
+        },
+        "note": "ring animations use compositor properties only"
+      },
+      "valid": false,
+      "scenarios": [
+        {
+          "name": "pan-outside",
+          "valid": false,
+          "problems": [
+            "only 20 moving rings on screen (need 30)"
+          ],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 167.4,
+          "scriptMsPerSecond": 26,
+          "layoutMsPerSecond": 2.4,
+          "styleMsPerSecond": 16.9,
+          "rafFrames": 720,
+          "rafDropped": 34,
+          "frameMs": {
+            "source": "page requestAnimationFrame deltas (main-thread frames); compositor-presented frames were not available",
+            "displayHz": 120.00000762939453,
+            "p50": 8.3,
+            "p95": 9,
+            "p99": 9.3,
+            "max": 9.4,
+            "over8_3": 282,
+            "over16_7": 0,
+            "droppedAtDisplayRate": 0
+          },
+          "longAnimationFrames": {
+            "count": 0,
+            "maxMs": 0,
+            "totalMs": 0
+          },
+          "pointer": "outside",
+          "wheel": {
+            "mode": "untrusted",
+            "events": 375,
+            "eventsPerSecond": 62.5,
+            "tracePath": null
+          },
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 2.5,
+            "renderer": 24.9,
+            "GPU": 26.8,
+            "network.mojom.NetworkService": 0,
+            "tracing.mojom.TracingService": 0
+          },
+          "ringsVisible": {
+            "moving": 20,
+            "marks": 20
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(70.1767px, -389.098px) scale(0.651163)",
+            "translate(-2637.02px, -1742.7px) scale(0.651163)",
+            "translate(55.7767px, -396.298px) scale(0.651163)"
+          ],
+          "loadAverage1m": {
+            "before": 11.5,
+            "after": 10.98
+          }
+        }
+      ]
+    },
+    {
+      "label": "after-3",
+      "sourceCommit": "2deba933eb64321cca99039b96d507ddb4f616c7",
+      "appRoot": "/Users/guilhermecastro/Projects/junto-wt-after",
+      "command": "bun scripts/probe-ring-cost.ts --app-root /Users/guilhermecastro/Projects/junto-wt-after --label after-3 --seconds 6 --port 9341 --fixture small --scenarios pan-outside,pan-hover",
+      "when": "2026-10-17T21:00:28.956Z",
+      "environment": {
+        "accessibility": true,
+        "electron": "43.5.0",
+        "chrome": "150.0.7871.250",
+        "displays": 1,
+        "darkOs": true,
+        "displayHz": 120.00000762939453,
+        "rendererAccessibilityForcedOff": false,
+        "streamLinesPerTick": 20,
+        "streamTickMs": 16,
+        "preflightProblems": []
+      },
+      "fixture": {
+        "name": "small",
+        "seats": 29,
+        "looseSeats": 5,
+        "regions": 11,
+        "maxNestingDepth": 4,
+        "regionTable": [
+          {
+            "id": "big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "big-a",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "big-a-1",
+            "parent": "big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "big-a-1-a",
+            "parent": "big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "big-b",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "big-b-1",
+            "parent": "big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "mid-a",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "mid-b",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          }
+        ]
+      },
+      "animations": {
+        "total": 33,
+        "onMarkParts": 33,
+        "states": {
+          "running": 33
+        },
+        "properties": [
+          "transform"
+        ],
+        "nonCompositorProperties": [],
+        "trace": {
+          "source": "Tracing categories devtools.timeline,blink.animations: 'Animation' events from the moment the seats turn working",
+          "events": 437,
+          "compositeFailed": 36,
+          "compositeFailedValues": [
+            8224,
+            0
+          ],
+          "unsupportedProperties": [
+            "border-top-color",
+            "border-bottom-color",
+            "border-left-color",
+            "border-right-color"
+          ],
+          "sample": [
+            {
+              "displayName": "border-top-color",
+              "id": "2",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            },
+            {
+              "displayName": "background-color",
+              "id": "3",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            },
+            {
+              "displayName": "border-bottom-color",
+              "id": "4",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            }
+          ]
+        },
+        "note": "ring animations use compositor properties only"
+      },
+      "valid": true,
+      "scenarios": [
+        {
+          "name": "pan-outside",
+          "valid": true,
+          "problems": [],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 208.5,
+          "scriptMsPerSecond": 25.4,
+          "layoutMsPerSecond": 3.6,
+          "styleMsPerSecond": 24.2,
+          "rafFrames": 721,
+          "rafDropped": 68,
+          "frameMs": {
+            "source": "page requestAnimationFrame deltas (main-thread frames); compositor-presented frames were not available",
+            "displayHz": 120.00000762939453,
+            "p50": 8.3,
+            "p95": 9.2,
+            "p99": 9.3,
+            "max": 9.4,
+            "over8_3": 297,
+            "over16_7": 0,
+            "droppedAtDisplayRate": 0
+          },
+          "longAnimationFrames": {
+            "count": 0,
+            "maxMs": 0,
+            "totalMs": 0
+          },
+          "pointer": "outside",
+          "wheel": {
+            "mode": "untrusted",
+            "events": 375,
+            "eventsPerSecond": 62.5,
+            "tracePath": null
+          },
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 2.6,
+            "renderer": 31.2,
+            "GPU": 36.4,
+            "network.mojom.NetworkService": 0,
+            "tracing.mojom.TracingService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 36
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(86.9767px, 27.3023px) scale(0.651163)",
+            "translate(-2620.22px, -1326.3px) scale(0.651163)",
+            "translate(72.5767px, 20.1023px) scale(0.651163)"
+          ],
+          "loadAverage1m": {
+            "before": 10.76,
+            "after": 10.3
+          }
+        }
+      ]
+    },
+    {
+      "label": "canvas-3",
+      "sourceCommit": "6d1fd0a8c47cc5af9530ce508e2ebdad6bfc93a0",
+      "appRoot": "/private/tmp/claude-501/-Users-guilhermecastro-Projects-junto/09638193-589d-4950-9214-e4e499458ceb/scratchpad/pan",
+      "command": "bun scripts/probe-ring-cost.ts --app-root /private/tmp/claude-501/-Users-guilhermecastro-Projects-junto/09638193-589d-4950-9214-e4e499458ceb/scratchpad/pan --label canvas-3 --seconds 6 --port 9341 --fixture small --scenarios pan-outside,pan-hover",
+      "when": "2026-10-17T21:00:45.441Z",
+      "environment": {
+        "accessibility": true,
+        "electron": "43.5.0",
+        "chrome": "150.0.7871.250",
+        "displays": 1,
+        "darkOs": true,
+        "displayHz": 120.00000762939453,
+        "rendererAccessibilityForcedOff": false,
+        "streamLinesPerTick": 20,
+        "streamTickMs": 16,
+        "preflightProblems": []
+      },
+      "fixture": {
+        "name": "small",
+        "seats": 29,
+        "looseSeats": 5,
+        "regions": 11,
+        "maxNestingDepth": 4,
+        "regionTable": [
+          {
+            "id": "big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "big-a",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "big-a-1",
+            "parent": "big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "big-a-1-a",
+            "parent": "big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "big-b",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "big-b-1",
+            "parent": "big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "mid-a",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "mid-b",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          }
+        ]
+      },
+      "animations": {
+        "total": 33,
+        "onMarkParts": 33,
+        "states": {
+          "running": 33
+        },
+        "properties": [
+          "transform"
+        ],
+        "nonCompositorProperties": [],
+        "trace": {
+          "source": "Tracing categories devtools.timeline,blink.animations: 'Animation' events from the moment the seats turn working",
+          "events": 373,
+          "compositeFailed": 0,
+          "compositeFailedValues": [
+            0
+          ],
+          "unsupportedProperties": [],
+          "sample": [
+            {
+              "displayName": "border-top-color",
+              "id": "2",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            },
+            {
+              "displayName": "background-color",
+              "id": "3",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            },
+            {
+              "displayName": "border-bottom-color",
+              "id": "4",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            }
+          ]
+        },
+        "note": "ring animations use compositor properties only"
+      },
+      "valid": true,
+      "scenarios": [
+        {
+          "name": "pan-outside",
+          "valid": true,
+          "problems": [],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 204.9,
+          "scriptMsPerSecond": 26.1,
+          "layoutMsPerSecond": 3.5,
+          "styleMsPerSecond": 23.4,
+          "rafFrames": 721,
+          "rafDropped": 33,
+          "frameMs": {
+            "source": "page requestAnimationFrame deltas (main-thread frames); compositor-presented frames were not available",
+            "displayHz": 120.00000762939453,
+            "p50": 8.3,
+            "p95": 9,
+            "p99": 9.3,
+            "max": 9.3,
+            "over8_3": 293,
+            "over16_7": 0,
+            "droppedAtDisplayRate": 0
+          },
+          "longAnimationFrames": {
+            "count": 0,
+            "maxMs": 0,
+            "totalMs": 0
+          },
+          "pointer": "outside",
+          "wheel": {
+            "mode": "untrusted",
+            "events": 375,
+            "eventsPerSecond": 62.5,
+            "tracePath": null
+          },
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 2.5,
+            "renderer": 30.6,
+            "GPU": 35.9,
+            "network.mojom.NetworkService": 0,
+            "tracing.mojom.TracingService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 36
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(86.9767px, 27.3023px) scale(0.651163)",
+            "translate(-2620.22px, -1326.3px) scale(0.651163)",
+            "translate(72.5767px, 20.1023px) scale(0.651163)"
+          ],
+          "loadAverage1m": {
+            "before": 10.19,
+            "after": 9.77
+          }
+        }
+      ]
+    }
+  ]
+}

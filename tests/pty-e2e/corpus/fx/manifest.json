@@ -1,0 +1,290 @@
+{
+  "harness": "fx",
+  "displayName": "fx",
+  "source": "stub-provider",
+  "pty": {
+    "cols": 120,
+    "rows": 32,
+    "term": "xterm-256color"
+  },
+  "sanitized": true,
+  "scrub": [
+    "<HOME>",
+    "<USER>",
+    "<HOST>",
+    "<CWD>",
+    "<CAPTURE>",
+    "<SESSION>",
+    "<EMAIL>",
+    "<TOKEN>"
+  ],
+  "scenarios": [
+    {
+      "harness": "fx",
+      "scenario": "retry-overloaded",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: overloaded }, then a completed turn",
+        "wiring": "a stub provider in the isolated ~/.fx/settings.json (openai-chat-completions); auto_upgrade off",
+        "stubServed": [
+          "/v1/chat/completions 503",
+          "/v1/chat/completions 503",
+          "/v1/chat/completions 503",
+          "/v1/chat/completions ok"
+        ],
+        "renderedLines": [
+          "┃ say hi",
+          "• Thinking (0s) (↑2 ↓0)",
+          "  Thinking (0s) (↑2 ↓0)",
+          "⚠ Provider unavailable · HTTP 503 · server_error: The server is overloaded. Please try again later. · retrying request",
+          "  in 1s",
+          "  Hello from the capture stub.",
+          "  7s (↑2 ↓8)"
+        ],
+        "cliVersion": "0.0.14"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "fx",
+      "scenario": "retry-rate",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: rate }, then a completed turn",
+        "wiring": "a stub provider in the isolated ~/.fx/settings.json (openai-chat-completions); auto_upgrade off",
+        "stubServed": [
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions ok"
+        ],
+        "renderedLines": [
+          "┃ say hi",
+          "• Thinking (0s) (↑2 ↓0)",
+          "  Thinking (0s) (↑2 ↓0)",
+          "⚠ Rate limited · HTTP 429 · rate_limit_exceeded: Rate limit reached for requests per minute. Please try again in 2s. ·",
+          "  retrying request in 2s",
+          "  Hello from the capture stub.",
+          "  10s (↑2 ↓8)"
+        ],
+        "cliVersion": "0.0.14"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "fx",
+      "scenario": "retry-network",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: network }, then a completed turn",
+        "wiring": "a stub provider in the isolated ~/.fx/settings.json (openai-chat-completions); auto_upgrade off",
+        "stubServed": [
+          "/v1/chat/completions drop",
+          "/v1/chat/completions drop",
+          "/v1/chat/completions drop"
+        ],
+        "renderedLines": [
+          "┃ say hi",
+          "• Thinking (0s) (↑2 ↓0)",
+          "  Thinking (0s) (↑2 ↓0)",
+          "⚠ Network interrupted · connection closed · retrying request in 1s",
+          "⚠ Network interrupted · connection closed · retrying request",
+          "⚠ Network interrupted · connection closed · kept failing at the same point · stopped"
+        ],
+        "cliVersion": "0.0.14"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "fx",
+      "scenario": "usage-limit",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: 5h, resetsAt }",
+        "wiring": "a stub provider in the isolated ~/.fx/settings.json (openai-chat-completions); auto_upgrade off",
+        "stubServed": [
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429"
+        ],
+        "renderedLines": [
+          "┃ say hi",
+          "⚠ Rate limited · HTTP 429 · usage_limit_reached: The usage limit has been reached · retrying request in 1s",
+          "⚠ Rate limited · HTTP 429 · usage_limit_reached: The usage limit has been reached · retrying request"
+        ],
+        "cliVersion": "0.0.14"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "fx",
+      "scenario": "usage-limit-weekly",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: weekly, resetsAt }",
+        "wiring": "a stub provider in the isolated ~/.fx/settings.json (openai-chat-completions); auto_upgrade off",
+        "stubServed": [
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429"
+        ],
+        "renderedLines": [
+          "┃ say hi",
+          "⚠ Rate limited · HTTP 429 · usage_limit_reached: The usage limit has been reached · retrying request in 1s",
+          "⚠ Rate limited · HTTP 429 · usage_limit_reached: The usage limit has been reached · retrying request"
+        ],
+        "cliVersion": "0.0.14"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "fx",
+      "scenario": "error-auth",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: auth }",
+        "wiring": "a stub provider in the isolated ~/.fx/settings.json (openai-chat-completions); auto_upgrade off",
+        "stubServed": [
+          "/v1/chat/completions 401"
+        ],
+        "renderedLines": [
+          "┃ say hi",
+          "⚠ configured provider authentication failed · HTTP 401 · Check the configured provider auth environment variable."
+        ],
+        "cliVersion": "0.0.14"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "fx",
+      "scenario": "error-server",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: provider } after retries run out",
+        "wiring": "a stub provider in the isolated ~/.fx/settings.json (openai-chat-completions); auto_upgrade off",
+        "stubServed": [
+          "/v1/chat/completions 500",
+          "/v1/chat/completions 500",
+          "/v1/chat/completions 500",
+          "/v1/chat/completions 500",
+          "/v1/chat/completions 500",
+          "/v1/chat/completions 500",
+          "/v1/chat/completions 500",
+          "/v1/chat/completions 500"
+        ],
+        "renderedLines": [
+          "┃ say hi",
+          "• Thinking (0s) (↑2 ↓0)",
+          "  Thinking (0s) (↑2 ↓0)",
+          "⚠ Provider unavailable · HTTP 500 · server_error: Internal server error · retrying request in 1s",
+          "⚠ Provider unavailable · HTTP 500 · server_error: Internal server error · retrying request"
+        ],
+        "cliVersion": "0.0.14"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "fx",
+      "scenario": "error-context",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: contextOverflow }",
+        "wiring": "a stub provider in the isolated ~/.fx/settings.json (openai-chat-completions); auto_upgrade off",
+        "stubServed": [
+          "/v1/chat/completions 400"
+        ],
+        "renderedLines": [
+          "┃ say hi",
+          "⚠ API request failed · HTTP 400 · context_length_exceeded: Your input exceeds the context window of this model. Please",
+          "  adjust your input and try again."
+        ],
+        "cliVersion": "0.0.14"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "fx",
+      "scenario": "compaction-auto",
+      "status": "skip",
+      "reason": "the screen never showed /compact/i",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: auto }, CompactionEnded { ok }, then a completed turn",
+        "wiring": "a stub provider in the isolated ~/.fx/settings.json (openai-chat-completions); auto_upgrade off",
+        "stubServed": [
+          "/v1/chat/completions ok",
+          "/v1/chat/completions ok"
+        ],
+        "renderedLines": [
+          "  Line 1575 of a long capture answer, padding the conversation.",
+          "  0s (↑2 ↓8)",
+          "┃ say hi again",
+          "• Thinking (0s) (↑4 ↓0)",
+          "  Thinking (0s) (↑4 ↓0)",
+          "• Generating (4s) (↑4 ↓17)",
+          "  Summary: the user greeted the assistant and the assistant replied."
+        ],
+        "cliVersion": "0.0.14"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "fx",
+      "scenario": "compaction-manual",
+      "status": "skip",
+      "reason": "the screen never showed /compact/i",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: manual }, CompactionEnded { ok }",
+        "wiring": "a stub provider in the isolated ~/.fx/settings.json (openai-chat-completions); auto_upgrade off",
+        "stubServed": [
+          "/v1/chat/completions ok",
+          "/v1/chat/completions ok"
+        ],
+        "renderedLines": [
+          "  Line 1575 of a long capture answer, padding the conversation.",
+          "  0s (↑2 ↓8)",
+          "• Generating (0s) (↑2 ↓25k)"
+        ],
+        "cliVersion": "0.0.14"
+      },
+      "expectedScreen": {}
+    }
+  ],
+  "signalCaptureEvidence": {
+    "tool": "tests/pty-e2e/signal-capture.ts",
+    "capturedAt": "2026-10-17T04:12:46.633Z",
+    "harnessVersion": "0.0.14",
+    "provider": "scripted local stub; the binary and its rendering are real, the provider replies are not"
+  },
+  "sanitization": {
+    "method": "decoded-jsonl-scan",
+    "fixtures": 8,
+    "decodedBytes": 27838,
+    "checks": [
+      "home-path",
+      "username",
+      "hostname",
+      "email",
+      "token"
+    ]
+  }
+}

@@ -1,0 +1,203 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const read = (relative: string): string =>
+  readFileSync(join(root, relative), "utf8");
+
+/** Frozen `OVERSEER_OPERATION_NAMES` from the shared contract worker. */
+const FROZEN_OPERATIONS = [
+  "status",
+  "canvas.list",
+  "canvas.read",
+  "canvas.create",
+  "canvas.batch",
+  "canvas.delete",
+  "canvas.digest",
+  "canvas.render",
+  "canvas.screenshot",
+  "node.list",
+  "node.get",
+  "node.create",
+  "node.configure",
+  "node.move",
+  "node.resize",
+  "node.recolor",
+  "node.delete",
+  "wire.list",
+  "wire.get",
+  "wire.verbs",
+  "wire.connect",
+  "wire.configure",
+  "wire.disconnect",
+  "msg.list",
+  "msg.send",
+  "msg.read",
+  "msg.reply",
+  "msg.react",
+  "content.ingest",
+  "agent.list",
+  "agent.get",
+  "agent.reseat",
+  "agent.start",
+  "agent.wake",
+  "agent.prompt",
+  "agent.output",
+  "agent.interrupt",
+  "agent.stop",
+  "terminal.list",
+  "terminal.get",
+  "terminal.start",
+  "terminal.input",
+  "terminal.output",
+  "terminal.resize",
+  "terminal.interrupt",
+  "terminal.stop",
+  "page.list",
+  "page.get",
+  "page.open",
+  "page.goto",
+  "page.eval",
+  "page.screenshot",
+  "page.close",
+  "page.stop",
+  "scheduler.fire",
+  "scheduler.status",
+  "scheduler.configure",
+  "git.status",
+  "git.log",
+  "git.show",
+  "env.show",
+  "env.source-add",
+  "env.source-edit",
+  "env.source-remove",
+  "env.source-reorder",
+  "env.seal",
+  "env.folders",
+  "env.doctor",
+  "secret.put",
+  "secret.delete",
+  "secret.list",
+  "agent.offboard",
+  "agent.offboard-status",
+  "agent.offboard-rules",
+  "agent.offboard-configure",
+  "references.list",
+  "references.read",
+  "references.write",
+  "references.delete",
+  "briefing.read",
+  "briefing.write",
+] as const;
+
+const FROZEN_READ_ONLY = [
+  "status",
+  "canvas.list",
+  "canvas.read",
+  "canvas.digest",
+  "canvas.render",
+  "node.list",
+  "node.get",
+  "wire.list",
+  "wire.get",
+  "wire.verbs",
+  "agent.list",
+  "agent.get",
+  "agent.output",
+  "terminal.list",
+  "terminal.get",
+  "terminal.output",
+  "page.list",
+  "page.get",
+  "scheduler.status",
+  "git.status",
+  "git.log",
+  "git.show",
+  "env.show",
+  "env.doctor",
+  "secret.list",
+  "agent.offboard-status",
+  "agent.offboard-rules",
+  "references.list",
+  "references.read",
+  "briefing.read",
+] as const;
+
+const quotedOps = (matrix: string): ReadonlyArray<string> =>
+  [...matrix.matchAll(/^\| `([^`]+)` \| (read|mutation) \|/gmu)].map(
+    (match) => match[1],
+  );
+
+const collapsed = (input: string): string => input.replace(/\s+/gu, " ");
+
+describe("overseer coverage matrix", () => {
+  it("inventories every frozen wire operation without a completion claim", () => {
+    const matrix = read("docs/overseer-coverage-matrix.md");
+    expect(collapsed(matrix)).toContain("does not claim every operation has an end-to-end test");
+    expect(quotedOps(matrix)).toEqual([...FROZEN_OPERATIONS]);
+    expect(FROZEN_OPERATIONS).toHaveLength(81);
+    expect(collapsed(matrix)).toContain("`page.eval` is a mutation");
+    expect(matrix).toContain("GrantOverseer");
+    expect(matrix).toContain("tests/overseer-admission.test.ts");
+    expect(matrix).toContain("| catalog |");
+    expect(matrix).toContain("| exercised |");
+    expect(matrix).not.toContain("inventory; handler pending peer");
+  });
+
+  it("marks the frozen read-only set and treats page.eval as mutation", () => {
+    const matrix = read("docs/overseer-coverage-matrix.md");
+    for (const operation of FROZEN_READ_ONLY) {
+      expect(matrix).toContain(`| \`${operation}\` | read |`);
+    }
+    expect(matrix).toContain("| `page.eval` | mutation |");
+    expect(matrix).toContain("| `canvas.screenshot` | mutation |");
+    expect(matrix).toContain("| `msg.list` | mutation |");
+  });
+
+  it("maps key risks to owning suites without a full-pass claim", () => {
+    const matrix = read("docs/overseer-coverage-matrix.md");
+    for (const risk of [
+      "Stale UI save/undo restoring revoked authority",
+      "No-edge ordinary vs overseer distinction",
+      "Toggle copied aliases",
+      "Self-retirement via canvas delete/kind/binding",
+      "Source impersonation",
+      "Uncertain completion, no automatic replay",
+      "Viewport invariance",
+      "Secret value echoed back",
+    ]) {
+      expect(matrix).toContain(risk);
+    }
+    expect(matrix).toContain("tests/overseer-canvas-commands.test.ts");
+    expect(collapsed(matrix)).toContain("Full repository suite is not claimed green");
+  });
+});
+
+describe("overseer doctrine alignment", () => {
+  it("narrows canvas authorship to overseers and keeps ordinary edge scope", () => {
+    const agents = collapsed(read("AGENTS.md"));
+    const physics = collapsed(read("docs/architecture-canvas-physics.md"));
+
+    expect(agents).toContain("Ordinary agents never write the canvas.");
+    expect(agents).not.toContain("**Agents never write the canvas.**");
+    expect(agents).toContain("Only humans grant or revoke");
+    expect(agents).toContain("Pause and play have no bearing");
+    expect(agents).toContain(
+      "cannot delete its own seat or move the operator viewport",
+    );
+    expect(agents).toContain(
+      "The machine that edits the canvas validates the live grant",
+    );
+    expect(agents).toContain(
+      "does not receive the operator socket or credentials",
+    );
+
+    expect(physics).toContain(
+      "overseer grant is a separate human seat toggle, not an edge",
+    );
+    expect(physics).toContain("Can an ordinary agent");
+    expect(physics).toContain("never the operator socket");
+  });
+});

@@ -1,0 +1,169 @@
+/* The RTS prompt composer: one draft sent to every selected agent. */
+.prompt-composer {
+  flex: 0 0 auto;
+  margin: 0 14px 12px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  background: var(--color-inset);
+  padding: 9px;
+}
+.prompt-composer:focus-within {
+  border-color: color-mix(in oklab, var(--color-main) 48%, transparent);
+}
+.prompt-composer__input {
+  display: block;
+  width: 100%;
+  min-height: 38px;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}
+.prompt-composer__input::placeholder {
+  color: var(--color-dim);
+}
+.prompt-composer__footer,
+.prompt-composer__tools,
+.prompt-composer__submit {
+  display: flex;
+  align-items: center;
+}
+.prompt-composer__footer {
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.prompt-composer__tools {
+  gap: 6px;
+  min-width: 0;
+}
+.prompt-composer__submit {
+  flex: 0 0 auto;
+  gap: 8px;
+}
+.prompt-composer__hint {
+  color: var(--color-faint);
+  font-size: var(--text-micro);
+  white-space: nowrap;
+}
+.prompt-composer__send {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid color-mix(in oklab, var(--color-main) 50%, transparent);
+  border-radius: var(--radius-md);
+  background: var(--color-amber);
+  color: var(--color-ground);
+}
+.prompt-composer__send:hover:not(:disabled) {
+  background: var(--color-amber-hi);
+}
+.prompt-composer__send:disabled {
+  cursor: not-allowed;
+  opacity: 0.32;
+}
+.prompt-composer__send:focus-visible {
+  outline: 1px solid color-mix(in oklab, var(--color-main) 70%, transparent);
+  outline-offset: 1px;
+}
+.prompt-composer__status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-dim);
+  font-size: var(--text-caption);
+  letter-spacing: var(--tracking-soft);
+}
+
+/* Compact RTS kind-strip host — same chrome, tighter margins. */
+.prompt-composer--rts {
+  margin: 0;
+  padding: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+.prompt-composer--rts .prompt-composer__input {
+  min-height: 32px;
+  font-size: var(--text-body);
+}
+
+/*
+ * Overlay chrome for multi-prompt (and any short host):
+ * eyebrow + status + send float over the textarea so the mid panel
+ * overflow:hidden never swallows the CTA.
+ */
+.prompt-composer--overlay {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+.prompt-composer__eyebrow {
+  display: none;
+}
+.prompt-composer--overlay .prompt-composer__eyebrow {
+  display: block;
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  right: 10px;
+  z-index: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  color: color-mix(in oklab, var(--color-steel) 90%, transparent);
+  font-size: var(--text-caption);
+  font-weight: 650;
+  letter-spacing: var(--tracking-label);
+  line-height: var(--leading-compact);
+  text-transform: uppercase;
+}
+.prompt-composer--overlay .prompt-composer__input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  height: 100%;
+  max-height: none;
+  box-sizing: border-box;
+  padding: 22px 10px 36px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  resize: none;
+}
+.prompt-composer--overlay .prompt-composer__footer {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  left: 6px;
+  z-index: 2;
+  gap: 6px;
+  pointer-events: none;
+  background: linear-gradient(
+    to top,
+    color-mix(in oklab, var(--color-inset) 96%, transparent) 40%,
+    color-mix(in oklab, var(--color-inset) 0%, transparent)
+  );
+  padding-top: 10px;
+}
+.prompt-composer--overlay .prompt-composer__tools,
+.prompt-composer--overlay .prompt-composer__submit,
+.prompt-composer--overlay .prompt-composer__send,
+.prompt-composer--overlay .prompt-composer__status {
+  pointer-events: auto;
+}
+.prompt-composer--overlay .prompt-composer__status {
+  max-width: min(52vw, 220px);
+  white-space: normal;
+  line-height: var(--leading-compact);
+}

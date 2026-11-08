@@ -1,0 +1,237 @@
+import { describe, expect, it } from "vitest";
+import {
+  MainAuthoringRefused,
+  classifyMainAuthoringWorkOperation,
+  createMainAuthoringGate,
+  mainAuthoringLabelForWorkOperation,
+} from "../src/node/main-authoring-gate";
+import type { WorkOpName } from "../src/shared/work-control";
+
+const deferred = <A>() => {
+  let resolve!: (value: A) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<A>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+};
+
+describe("main authoring gate", () => {
+  it("retains the exact admitted promise until it settles", async () => {
+    const gate = createMainAuthoringGate();
+    const pending = deferred<string>();
+    const admitted = gate.run("ipc.model.command", () => pending.promise);
+
+    expect(admitted).toBe(pending.promise);
+    expect(gate.snapshot()).toMatchObject({
+      phase: "open",
+      activeLabels: ["ipc.model.command"],
+    });
+
+    pending.resolve("durable");
+    await expect(admitted).resolves.toBe("durable");
+    expect(gate.snapshot().activeLabels).toEqual([]);
+  });
+
+  it("keeps the renderer flush admitted while ordinary authoring closes", async () => {
+    const gate = createMainAuthoringGate();
+    gate.beginFinalFlush();
+    expect(gate.snapshot().phase).toBe("final-flush");
+
+    await expect(gate.run("ipc.model.command", async () => "draft")).resolves.toBe("draft");
+
+    let invoked = false;
+    await expect(
+      gate.run("ipc.work.message-append", async () => {
+        invoked = true;
+        return undefined;
+      }),
+    ).rejects.toMatchObject({
+      _tag: "MainAuthoringRefused",
+      code: "main_authoring_closed",
+      phase: "final-flush",
+      label: "ipc.work.message-append",
+    });
+    expect(invoked).toBe(false);
+  });
+
+  it("refuses every authorial label once closed", async () => {
+    const gate = createMainAuthoringGate();
+    gate.close();
+
+    for (const label of [
+      "ipc.model.command",
+      "kernel.flag-mirror",
+      "control.work.msg-send",
+    ] as const) {
+      await expect(gate.run(label, async () => undefined)).rejects.toBeInstanceOf(
+        MainAuthoringRefused,
+      );
+    }
+    expect(gate.snapshot().phase).toBe("closed");
+  });
+
+  it("treats both close transitions as idempotent so a second quit attempt works", async () => {
+    const gate = createMainAuthoringGate();
+    gate.beginFinalFlush();
+    gate.beginFinalFlush();
+    expect(gate.snapshot().phase).toBe("final-flush");
+    await expect(gate.run("ipc.model.command", async () => "retry")).resolves.toBe("retry");
+
+    gate.close();
+    gate.close();
+    expect(gate.snapshot().phase).toBe("closed");
+    // A closed gate never falls back to the wider final-flush admission.
+    gate.beginFinalFlush();
+    expect(gate.snapshot().phase).toBe("closed");
+  });
+
+  it("drains in-flight work and reports it honestly", async () => {
+    const gate = createMainAuthoringGate();
+    const write = deferred<void>();
+    const stamp = deferred<void>();
+    void gate.run("ipc.model.command", () => write.promise);
+    const rejected = gate.run("delivery.message-stamp", () => stamp.promise);
+    void rejected.catch(() => undefined);
+
+    gate.beginFinalFlush();
+    write.resolve();
+    stamp.reject(new Error("disk full"));
+
+    // A rejected operation is settled work, not retained work.
+    await expect(gate.drain(1_000)).resolves.toEqual({
+      settled: 2,
+      remaining: [],
+      timedOut: false,
+    });
+  });
+
+  it("honors the drain deadline instead of waiting forever", async () => {
+    const gate = createMainAuthoringGate();
+    const stuck = deferred<void>();
+    void gate.run("ipc.canvas.portfolio", () => stuck.promise);
+    gate.beginFinalFlush();
+
+    const report = await gate.drain(20);
+    expect(report).toEqual({
+      settled: 0,
+      remaining: ["ipc.canvas.portfolio"],
+      timedOut: true,
+    });
+
+    stuck.resolve();
+    await expect(gate.drain(1_000)).resolves.toEqual({
+      settled: 1,
+      remaining: [],
+      timedOut: false,
+    });
+  });
+
+  it("sees work admitted by a task that re-enters the gate synchronously", async () => {
+    const gate = createMainAuthoringGate();
+    const pending = deferred<string>();
+    const admitted = gate.run("ipc.model.command", () => {
+      // A factory may drive quit preparation before it returns its promise.
+      expect(gate.snapshot().activeLabels).toEqual(["ipc.model.command"]);
+      gate.beginFinalFlush();
+      return pending.promise;
+    });
+
+    const drain = gate.drain(1_000);
+    pending.resolve("late");
+    await expect(admitted).resolves.toBe("late");
+    await expect(drain).resolves.toEqual({
+      settled: 1,
+      remaining: [],
+      timedOut: false,
+    });
+  });
+});
+
+describe("work-control main authoring classification", () => {
+  it("classifies every wire operation explicitly", () => {
+    const expected = {
+      ping: "read",
+      doctor: "read",
+      capabilities: "read",
+      onboard: "read",
+      since: "read",
+      offboard: "authorial",
+      preamble: "read",
+      overseer: "authorial",
+      "overseer.live": "read",
+      "task.list": "read",
+      "task.wait": "read",
+      "task.show": "read",
+      "task.create": "authorial",
+      "task.edit": "authorial",
+      "task.assign": "authorial",
+      "task.unassign": "authorial",
+      "task.start": "authorial",
+      "task.pause": "authorial",
+      "task.resume": "authorial",
+      "task.finish": "authorial",
+      "task.cancel": "authorial",
+      "task.archive": "authorial",
+      "task.depend": "authorial",
+      "task.undepend": "authorial",
+      "task.reviewer-add": "authorial",
+      "task.reviewer-remove": "authorial",
+      "task.stamp-policy": "authorial",
+      "task.stamp": "authorial",
+      "task.comment": "authorial",
+      "task.rules": "read",
+      "task.check": "authorial",
+      rulings: "read",
+      "msg.list": "authorial",
+      "msg.send": "authorial",
+      "msg.prompt": "authorial",
+      "msg.sent": "read",
+      "seat.wait": "read",
+      "seat.read": "read",
+      "msg.read": "authorial",
+      "msg.reply": "authorial",
+      "msg.react": "authorial",
+      "signal.raise": "authorial",
+      "signal.clear": "authorial",
+      "signal.list": "read",
+      "op.show": "read",
+      "op.list": "read",
+      "env.report": "read",
+      "logs.read": "read",
+      "references.list": "read",
+      "references.read": "read",
+      "content.stage": "authorial",
+      "automation.list": "read",
+      "automation.show": "read",
+      "automation.history": "read",
+      "artifact.list": "read",
+      "artifact.show": "read",
+      "artifact.history": "read",
+      "artifact.create": "authorial",
+      "artifact.edit": "authorial",
+      "artifact.label": "authorial",
+      "artifact.colour": "authorial",
+      "artifact.comment": "authorial",
+      "artifact.archive": "authorial",
+      "artifact.restore": "authorial",
+    } as const satisfies Record<
+      WorkOpName,
+      ReturnType<typeof classifyMainAuthoringWorkOperation>
+    >;
+
+    for (const [operation, classification] of Object.entries(expected)) {
+      expect(classifyMainAuthoringWorkOperation(operation as WorkOpName)).toBe(classification);
+    }
+    expect(mainAuthoringLabelForWorkOperation("ping")).toBeUndefined();
+    expect(mainAuthoringLabelForWorkOperation("msg.list")).toBe("control.work.msg-send");
+    expect(mainAuthoringLabelForWorkOperation("msg.send")).toBe("control.work.msg-send");
+    expect(mainAuthoringLabelForWorkOperation("msg.read")).toBe("control.work.msg-send");
+    expect(mainAuthoringLabelForWorkOperation("signal.raise")).toBe("control.work.signal");
+    expect(mainAuthoringLabelForWorkOperation("signal.clear")).toBe("control.work.signal");
+    expect(mainAuthoringLabelForWorkOperation("content.stage")).toBe("control.work.signal");
+    expect(mainAuthoringLabelForWorkOperation("offboard")).toBe("control.work.offboard");
+    expect(mainAuthoringLabelForWorkOperation("signal.list")).toBeUndefined();
+  });
+});

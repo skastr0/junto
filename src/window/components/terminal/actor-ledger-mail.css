@@ -1,0 +1,31 @@
+.actor-ledger__mail-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.actor-ledger__mail-subject {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  font-weight: 500;
+}
+
+.actor-ledger__mail-refs {
+  margin: 0;
+  padding: 0 8px 8px;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}
+
+.actor-ledger__mail-refs {
+  color: var(--color-cyan-fg);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-label);
+}

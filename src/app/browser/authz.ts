@@ -1,0 +1,194 @@
+import { canvasToCapabilityView } from "@shared/physics/view";
+import { asNodeId as modelNodeId, type Canvas, type Node } from "@shared/model";
+import { formatNodeRef, type NodeRefKey } from "@shared/node-ref";
+import {
+  admitPure,
+  asNodeId,
+  isWellKnownKind,
+  resolveSpec,
+  roleOf,
+  type ActorKindName,
+} from "@shared/physics";
+import { Result } from "effect";
+
+// Edges are the browser capability system for process-bound callers.
+// Kernel-enforced per call via canvas physics:
+//   CONNECTED actor → page port browser.automate
+//   Region co-membership alone never grants browser access
+//   Everything else: invisible / ScopeError naming the missing edge
+//
+// Capability leases remain a transitional transport; human-drawn edges are
+// the product authority for agents that already run on the canvas. Eligibility
+// is the factory role and nothing else — no plane below this one keeps a kind
+// ACL, so a kind that stops being an actor stops being a browser caller with
+// no edit here.
+
+export type BrowserAuthzDenial =
+  | "caller_missing"
+  | "caller_wrong_kind"
+  | "not_connected"
+  | "page_missing";
+
+export interface BrowserCallerPrincipal {
+  readonly canvasName: string;
+  readonly nodeId: string;
+  /** The physics actor kinds — a caller is admitted by role, never by an ACL. */
+  readonly kind: ActorKindName;
+  /** Stable sessions owner id for process-bound grants. */
+  readonly auditOwnerId: string;
+  /** Hermes agent key when kind is agent (entity.name). */
+  readonly agentKey?: string;
+  /** Native terminal binding id when kind is terminal. */
+  readonly bindingId?: string;
+}
+
+export const nodeKind = (node: Node | undefined): string | undefined =>
+  node?.kind;
+
+export const findNode = (doc: Canvas, nodeId: string): Node | undefined =>
+  doc.nodes.get(modelNodeId(nodeId));
+
+/** Undirected: any edge between a and b counts as connected. */
+export const areConnected = (doc: Canvas, a: string, b: string): boolean => {
+  if (a === b) return true;
+  return [...doc.wires.values()].some(
+    (e) =>
+      (e.from === a && e.to === b) || (e.from === b && e.to === a),
+  );
+};
+
+/**
+ * Actor seat eligibility via physics roleOf/resolveSpec — not a hard-coded
+ * BROWSER_CALLER_KINDS ACL table. Geography (regions, notes) is not an
+ * actor, so it is refused here with no edit to this file.
+ */
+export const isBrowserCallerNode = (node: Node | undefined): boolean => {
+  if (!node) return false;
+  const spec = resolveSpec({ kind: nodeKind(node), isGroup: node.kind === "region" });
+  return roleOf(spec) === "actor";
+};
+
+/** Type-narrow to the physics actor kinds. No hand-picked subset. */
+export const isBrowserCallerKind = (kind: string | undefined): kind is ActorKindName => {
+  if (kind === undefined || !isWellKnownKind(kind)) return false;
+  // Resolve as a non-group entity of that kind.
+  return roleOf(resolveSpec({ kind, isGroup: false })) === "actor";
+};
+
+export const isPageNode = (node: Node | undefined): boolean =>
+  node?.kind === "page";
+
+/**
+ * Resolve a canvas actor against the browser port. Graph physics decides, and
+ * it is the only decision: the process-bind boundary adds liveness, never a
+ * narrower kind set. Region membership alone is never enough.
+ */
+export const resolveBrowserCaller = (
+  doc: Canvas,
+  canvasName: string,
+  nodeId: string,
+):
+  | { readonly ok: true; readonly principal: BrowserCallerPrincipal }
+  | { readonly ok: false; readonly denial: BrowserAuthzDenial } => {
+  const node = findNode(doc, nodeId);
+  if (!node) return { ok: false, denial: "caller_missing" };
+  if (!isBrowserCallerNode(node)) return { ok: false, denial: "caller_wrong_kind" };
+
+  const kind = nodeKind(node);
+  if (!isBrowserCallerKind(kind)) return { ok: false, denial: "caller_wrong_kind" };
+
+  // One actor kind, and it carries both: the agent seat *is* a managed terminal,
+  // so name and binding come off the same node rather than one per kind.
+  const agentKey = node.kind === "agent" ? node.agentKey : undefined;
+  const bindingId = node.kind === "agent" || node.kind === "terminal" ? node.bindingId : undefined;
+
+  return {
+    ok: true,
+    principal: {
+      canvasName,
+      nodeId,
+      kind,
+      auditOwnerId: `edge:${canvasName}/${nodeId}`,
+      ...(agentKey !== undefined ? { agentKey } : {}),
+      ...(bindingId !== undefined ? { bindingId } : {}),
+    },
+  };
+};
+
+/**
+ * Admit caller → page for browser.automate via canvas physics.
+ * Requires undirected edge + actor role + page offers the port.
+ * Region co-membership alone returns false (not_connected / invisible).
+ */
+export const admitBrowserPage = (
+  doc: Canvas,
+  callerId: string,
+  pageNodeId: string,
+): boolean => {
+  // This judges the edge and the port, not the machine: a page names no
+  // machine, so with the caller's machine as the editing one the page is
+  // always beside it. Browser admission judges the machine in edge-grant
+  // (admitsCallerOnThisMachine, editsCanvas).
+  const caller = findNode(doc, callerId);
+  if (caller?.kind !== "agent") return false;
+  const view = canvasToCapabilityView(doc, { editingMachine: caller.host });
+  const result = admitPure(
+    view,
+    asNodeId(callerId),
+    asNodeId(pageNodeId),
+    "browser.automate",
+  );
+  return Result.isSuccess(result);
+};
+
+/** Page node ids the caller may automate (edge + physics port admit). */
+export const connectedPageNodeIds = (
+  doc: Canvas,
+  callerId: string,
+): ReadonlyArray<string> => {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const edge of doc.wires.values()) {
+    const other =
+      edge.from === callerId
+        ? edge.to
+        : edge.to === callerId
+          ? edge.from
+          : undefined;
+    if (other === undefined || seen.has(other)) continue;
+    const node = findNode(doc, other);
+    if (!isPageNode(node)) continue;
+    if (!admitBrowserPage(doc, callerId, other)) continue;
+    seen.add(other);
+    out.push(other);
+  }
+  return out.sort((a, b) => a.localeCompare(b));
+};
+
+/** Canonical page refs the caller may act on via edge authority. */
+export const connectedPageRefs = (
+  doc: Canvas,
+  canvasName: string,
+  callerId: string,
+): ReadonlyArray<NodeRefKey> => {
+  const refs: NodeRefKey[] = [];
+  for (const nodeId of connectedPageNodeIds(doc, callerId)) {
+    try {
+      refs.push(formatNodeRef({ canvasName, nodeId }));
+    } catch {
+      // Skip malformed ids rather than fail the whole listing.
+    }
+  }
+  return refs;
+};
+
+/** True when the caller is admitted to browser.automate on the page node. */
+export const callerMayAccessPage = (
+  doc: Canvas,
+  callerId: string,
+  pageNodeId: string,
+): boolean => {
+  if (!isPageNode(findNode(doc, pageNodeId))) return false;
+  return admitBrowserPage(doc, callerId, pageNodeId);
+};
+

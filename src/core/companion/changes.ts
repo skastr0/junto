@@ -1,0 +1,136 @@
+/**
+ * The companion's change clock. Every source that can change what a phone
+ * shows (canvas documents, seat state, signals, Jev readings, preambles, mail
+ * delivery, pause, the desktop's report) bumps it; `junto companion-stdio`
+ * long-polls it and refetches only what its phone follows.
+ *
+ * Signals ride along as payload: each upsert is kept in a bounded ring so a
+ * poll can say exactly which signals changed since its cursor, whoever
+ * changed them. The cursor carries this process's boot id, so a cursor from
+ * before an app restart reads as a reset, never as "nothing changed".
+ */
+
+import { randomBytes } from "node:crypto";
+import type { AgentSignal } from "@shared/agent-signals";
+import type { CompanionArtifactChanged } from "@shared/companion-protocol";
+
+const SIGNAL_RING = 256;
+/** Artifact changes kept for a poll: a burst of edits is a burst of frames, so the bound is generous. */
+const ARTIFACT_RING = 512;
+/** Bursts (a canvas write touches several planes) coalesce into one wake. */
+const COALESCE_MS = 120;
+
+export type CompanionChanges = {
+  /**
+   * Something a phone reads changed. `"mail"` when it can change a thread or
+   * a mailbox (mail, delivery, reads, the work rows and canvases they name),
+   * so a poll can skip re-reading every followed seat's threads and mail when
+   * only seat state, awareness or pause moved.
+   */
+  readonly bump: (scope?: "mail") => void;
+  /**
+   * Quit: release every waiting long poll now and answer later ones at once,
+   * so operator control shutdown never waits on a phone's idle poll.
+   */
+  readonly close: () => void;
+  readonly noteSignal: (signal: AgentSignal) => void;
+  /** An artifact change, for the connection that subscribed to its canvas. */
+  readonly noteArtifact: (change: CompanionArtifactChanged) => void;
+  readonly wait: (
+    cursor: string | undefined,
+    waitMs: number,
+  ) => Promise<{
+    readonly cursor: string;
+    readonly changed: boolean;
+    readonly signals: ReadonlyArray<AgentSignal>;
+    readonly artifacts: ReadonlyArray<CompanionArtifactChanged>;
+    /** A mail-scoped bump landed since the cursor. */
+    readonly mail: boolean;
+    readonly reset: boolean;
+  }>;
+};
+
+export const makeCompanionChanges = (): CompanionChanges => {
+  const boot = randomBytes(6).toString("hex");
+  let seq = 0;
+  let mailSeq = 0;
+  const ring: Array<{ readonly seq: number; readonly signal: AgentSignal }> = [];
+  const artifacts: Array<{ readonly seq: number; readonly change: CompanionArtifactChanged }> = [];
+  let waiters: Array<() => void> = [];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let closed = false;
+
+  const wake = (): void => {
+    if (timer !== undefined) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      const current = waiters;
+      waiters = [];
+      for (const resolve of current) resolve();
+    }, COALESCE_MS);
+  };
+  const bump = (scope?: "mail"): void => {
+    seq += 1;
+    if (scope === "mail") mailSeq = seq;
+    wake();
+  };
+  const cursorOf = (value: number): string => `${boot}:${value}`;
+  const parse = (cursor: string | undefined): number | undefined => {
+    const match = /^([0-9a-f]+):(\d+)$/u.exec(cursor ?? "");
+    return match && match[1] === boot ? Number(match[2]) : undefined;
+  };
+
+  return {
+    bump,
+    close: () => {
+      closed = true;
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+      const current = waiters;
+      waiters = [];
+      for (const resolve of current) resolve();
+    },
+    noteSignal: (signal) => {
+      seq += 1;
+      ring.push({ seq, signal });
+      if (ring.length > SIGNAL_RING) ring.splice(0, ring.length - SIGNAL_RING);
+      wake();
+    },
+    noteArtifact: (change) => {
+      seq += 1;
+      artifacts.push({ seq, change });
+      if (artifacts.length > ARTIFACT_RING) artifacts.splice(0, artifacts.length - ARTIFACT_RING);
+      wake();
+    },
+    wait: async (cursor, waitMs) => {
+      const since = parse(cursor);
+      // Unknown, foreign or too old for the ring: start over from now.
+      const oldest = ring[0]?.seq ?? seq;
+      if (since === undefined || since > seq || (since < oldest - 1 && ring.length === SIGNAL_RING)) {
+        return { cursor: cursorOf(seq), changed: false, signals: [], artifacts: [], mail: false, reset: cursor !== undefined };
+      }
+      if (since === seq && !closed) {
+        await new Promise<void>((resolve) => {
+          const done = (): void => {
+            clearTimeout(timeout);
+            resolve();
+          };
+          const timeout = setTimeout(() => {
+            waiters = waiters.filter((waiter) => waiter !== done);
+            resolve();
+          }, waitMs);
+          waiters.push(done);
+        });
+      }
+      const now = seq;
+      return {
+        cursor: cursorOf(now),
+        changed: now !== since,
+        signals: ring.filter((entry) => entry.seq > since && entry.seq <= now).map((entry) => entry.signal),
+        artifacts: artifacts.filter((entry) => entry.seq > since && entry.seq <= now).map((entry) => entry.change),
+        mail: mailSeq > since,
+        reset: false,
+      };
+    },
+  };
+};

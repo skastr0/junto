@@ -1,0 +1,471 @@
+/**
+ * The ring language: how every activity mark is drawn. A seat's ring sits
+ * around its portrait; a standalone mark is the same ring around a small hub.
+ * Pure canvas-2D painters in a 20-unit box centered on (10, 10). The atlas
+ * (activity-atlas.ts) bakes rest poses and, per moving ring, the still parts
+ * of RING_PAINT that the compositor turns and fades at the display's rate,
+ * timed by RING_MOTION (src/shared/rings.ts, where the rings are named).
+ *
+ *   work      an arc circles the ring, clockwise
+ *   reverse   circling runs backwards (stuck)
+ *   snake     the ring itself zigzags as a wave travels round it (thrashing, looping)
+ *   call      a steady ring that keeps sending rings outward (needs your input)
+ *   wait      two beads orbit a lit ring, slowly (waiting on you, declared)
+ *   halt      a heavy ring on a steady double heartbeat (blocked, failed)
+ *   done      the ring sweeps closed once, then a faint glint laps it (unread)
+ *   fracture  a broken ring grinds slowly round (trouble, at rest)
+ *   dot, live the ring breathes (a settled fact, a warm session)
+ *   rest, off still: acknowledged idle and stopped are the only silent rings
+ *
+ * The ring stays inside radius ~7.8 so a portrait fits within it and the
+ * outer band (to 10) is free for the expanding call ring, the waiting glow,
+ * the good-health halo and the signal flag.
+ */
+
+import { LAND_FRAMES, type LoopRing, type RingHalo, type StillRing } from "@shared/rings";
+
+type Ctx = CanvasRenderingContext2D;
+
+export type RingPalette = {
+  /** Atlas pixels of bloom per unit of requested blur; 0 in daylight. */
+  readonly glow: number;
+  readonly dark: boolean;
+};
+
+const C = 10;
+const TAU = Math.PI * 2;
+/** Ring radius and weight, in units of the 20-unit box. */
+export const RING_R = 7.2;
+const RING_W = 1.1;
+/** A portrait inside the ring may reach this radius without touching it. */
+export const RING_HOLE_R = RING_R - RING_W / 2 - 0.25;
+
+const clamp01 = (n: number): number => Math.max(0, Math.min(1, n));
+const ease = (t: number): number => 1 - (1 - clamp01(t)) ** 3;
+
+/** Two beats over frames 0..10, then a rest: a heartbeat, not a blink. */
+const heartbeat = (frame: number): number => {
+  if (frame < 3) return frame / 3;
+  if (frame < 6) return 1 - (frame - 3) / 3;
+  if (frame < 8) return ((frame - 6) / 2) * 0.55;
+  if (frame < 11) return 0.55 * (1 - (frame - 8) / 3);
+  return 0;
+};
+
+const glowOn = (ctx: Ctx, p: RingPalette, color: string, blur: number): void => {
+  if (p.glow <= 0) return;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = blur * p.glow;
+};
+
+const circle = (ctx: Ctx, r: number, width: number, a0 = 0, a1 = TAU): void => {
+  ctx.lineWidth = width;
+  ctx.beginPath();
+  ctx.arc(C, C, Math.max(0.01, r), a0, a1);
+  ctx.stroke();
+};
+
+const track = (ctx: Ctx, p: RingPalette, color: string): void => {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = p.dark ? 0.2 : 0.24;
+  circle(ctx, RING_R, RING_W);
+  ctx.restore();
+};
+
+/**
+ * A lit arc whose head is at `head` radians and whose tail trails `span`
+ * behind it (sign sets direction), thinning and fading toward the tail.
+ */
+const comet = (ctx: Ctx, p: RingPalette, color: string, head: number, span: number): void => {
+  const steps = 18;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineCap = "round";
+  for (let s = 0; s < steps; s += 1) {
+    const t0 = s / steps;
+    const t1 = (s + 1) / steps;
+    ctx.globalAlpha = (1 - t0) ** 1.4;
+    const a = head - span * t0;
+    const b = head - span * t1;
+    circle(ctx, RING_R, RING_W * (1.25 - 0.55 * t0), Math.min(a, b), Math.max(a, b) + 0.002);
+  }
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 1;
+  glowOn(ctx, p, color, 5);
+  ctx.beginPath();
+  ctx.arc(C + Math.cos(head) * RING_R, C + Math.sin(head) * RING_R, RING_W * 0.95, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+};
+
+const TOP = -Math.PI / 2;
+
+/** Work: one lap per 16 frames (1.44 s), clockwise. */
+const work = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
+  track(ctx, p, color);
+  comet(ctx, p, color, TOP + (frame / 16) * TAU, Math.PI * 0.75);
+};
+
+const dashedTrack = (ctx: Ctx, p: RingPalette, color: string): void => {
+  ctx.save();
+  ctx.setLineDash([0.7, 1.1]);
+  track(ctx, p, color);
+  ctx.restore();
+};
+
+/** Stuck: the lap runs backwards, slower, as if against the grain. */
+const reverse = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
+  dashedTrack(ctx, p, color);
+  comet(ctx, p, color, TOP - (frame / 32) * TAU, -Math.PI * 0.55);
+};
+
+/** Thrashing or looping: the ring itself zigzags, the wave travelling round. */
+const snake = (ctx: Ctx, p: RingPalette, color: string, frame: number): void =>
+  snakeAt(ctx, p, color, (frame / 32) * TAU * 2);
+
+const snakeAt = (ctx: Ctx, p: RingPalette, color: string, phase: number): void => {
+  const lobes = 7;
+  const amp = 0.55;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = RING_W;
+  ctx.lineJoin = "round";
+  glowOn(ctx, p, color, 3);
+  ctx.beginPath();
+  const n = 140;
+  for (let i = 0; i <= n; i += 1) {
+    const th = (i / n) * TAU;
+    // A travelling bulge makes the zigzag read as moving, not vibrating.
+    const bulge = 0.6 + 0.4 * Math.cos(th - phase / 2);
+    const r = RING_R + amp * bulge * Math.sin(lobes * th - phase * 2);
+    const x = C + Math.cos(th) * r;
+    const y = C + Math.sin(th) * r;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+};
+
+/** Wants the operator: a steady lit ring that keeps sending a ring outward. */
+const call = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
+  const t = (frame % 16) / 13;
+  if (t < 1) callWave(ctx, color, t);
+  callRing(ctx, p, color, Math.max(0, 1 - t * 3));
+};
+
+/** The ring sent outward, `t` of the way out (0..1). */
+const callWave = (ctx: Ctx, color: string, t: number): void => {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.9 * (1 - t) ** 1.2;
+  circle(ctx, RING_R + 0.3 + ease(t) * 2.3, RING_W * (1 - 0.6 * t));
+  ctx.restore();
+};
+
+/** The steady lit ring, thickened by `bump` (0..1) as a wave leaves it. */
+const callRing = (ctx: Ctx, p: RingPalette, color: string, bump: number): void => {
+  ctx.save();
+  ctx.strokeStyle = color;
+  glowOn(ctx, p, color, 5);
+  circle(ctx, RING_R, RING_W * (1.05 + 0.2 * bump));
+  ctx.restore();
+};
+
+/**
+ * Waiting on you: a lit ring with two beads orbiting it, slowly, opposite
+ * each other. Patient where work hurries: half a lap per cycle, no tail.
+ */
+const wait = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
+  waitRing(ctx, color);
+  waitBeads(ctx, p, color, TOP + (frame / 32) * Math.PI);
+};
+
+const waitRing = (ctx: Ctx, color: string): void => {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.55;
+  circle(ctx, RING_R, RING_W * 0.95);
+  ctx.restore();
+};
+
+const waitBeads = (ctx: Ctx, p: RingPalette, color: string, head: number): void => {
+  for (const a of [head, head + Math.PI]) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineCap = "round";
+    ctx.globalAlpha = 0.95;
+    glowOn(ctx, p, color, 4);
+    circle(ctx, RING_R, RING_W * 1.5, a - 0.34, a + 0.34);
+    ctx.restore();
+  }
+};
+
+/** Blocked or failed: a heavy ring cut into four, on a steady double beat. */
+const halt = (ctx: Ctx, p: RingPalette, color: string, frame: number): void =>
+  haltAt(ctx, p, color, heartbeat(frame % 16));
+
+/** The four heavy quarters at a beat strength (0 at rest, 1 at the peak). */
+const haltAt = (ctx: Ctx, p: RingPalette, color: string, beat: number): void => {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineCap = "butt";
+  glowOn(ctx, p, color, 3 + 6 * beat);
+  const gap = 0.3;
+  for (let q = 0; q < 4; q += 1) {
+    const a0 = (q * Math.PI) / 2 + Math.PI / 4 + gap / 2;
+    circle(ctx, RING_R, RING_W * (1.6 + 0.35 * beat), a0, a0 + Math.PI / 2 - gap);
+  }
+  ctx.restore();
+};
+
+/**
+ * Done: the ring sweeps closed from the top, then thickens into a resting
+ * seal with a soft wash outside it. Frame LAND_FRAMES is where it stays.
+ */
+export const paintDone = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
+  const sealed = frame >= LAND_FRAMES;
+  const sweep = sealed ? 1 : ease(frame / 5);
+  const settle = sealed ? 1 : clamp01((frame - 5) / 2);
+  track(ctx, p, color);
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  if (settle > 0) {
+    ctx.globalAlpha = 0.16 * settle;
+    circle(ctx, RING_R + 1.1, 1.3);
+    ctx.globalAlpha = 1;
+  }
+  glowOn(ctx, p, color, 3 + 2 * settle);
+  ctx.lineCap = "round";
+  if (sweep >= 1) circle(ctx, RING_R, RING_W * (1 + 0.45 * settle));
+  else if (sweep > 0) circle(ctx, RING_R, RING_W * 1.2, TOP, TOP + sweep * TAU);
+  ctx.restore();
+};
+
+/**
+ * Done, not yet read: the sealed ring, with a faint glint lapping it once a
+ * cycle, fading in and out so frame 0 is the plain seal. The quietest motion.
+ */
+const glint = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
+  paintDone(ctx, p, color, LAND_FRAMES);
+  const t = frame / 32;
+  glintArc(ctx, p, color, TOP + t * TAU, Math.sin(Math.PI * t) ** 2);
+};
+
+/** The glint alone, its head at `head`, at brightness `light` (0..1). */
+const glintArc = (ctx: Ctx, p: RingPalette, color: string, head: number, light: number): void => {
+  if (light <= 0.01) return;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineCap = "round";
+  glowOn(ctx, p, color, 3 * light);
+  const steps = 8;
+  for (let s = 0; s < steps; s += 1) {
+    const u = s / steps;
+    ctx.globalAlpha = 0.85 * light * (1 - u) ** 1.5;
+    const a = head - 0.9 * u;
+    circle(ctx, RING_R, RING_W * 1.75, a - 0.9 / steps, a + 0.002);
+  }
+  ctx.restore();
+};
+
+/** Trouble at rest: the ring broken at every quarter, grinding a quarter turn. */
+const fracture = (ctx: Ctx, _p: RingPalette, color: string, frame: number): void => {
+  const t = frame / 32;
+  fractureAt(ctx, color, t * (Math.PI / 2), 0.45 + 0.2 * Math.sin(TAU * t));
+};
+
+const fractureAt = (ctx: Ctx, color: string, turn: number, gap: number): void => {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.95;
+  ctx.lineCap = "round";
+  for (let q = 0; q < 4; q += 1) {
+    const a0 = (q * Math.PI) / 2 + Math.PI / 4 + gap / 2 + turn;
+    circle(ctx, RING_R, RING_W, a0, a0 + Math.PI / 2 - gap);
+  }
+  ctx.restore();
+};
+
+/** A settled fact (dot) or a warm session (live): the ring breathes. */
+const breathe = (ctx: Ctx, p: RingPalette, ring: "dot" | "live", color: string, frame: number): void =>
+  breatheAt(ctx, p, ring, color, 0.5 - 0.5 * Math.cos((TAU * frame) / 32));
+
+/** The ring at breath `b` (0 out, 1 in). */
+const breatheAt = (ctx: Ctx, p: RingPalette, ring: "dot" | "live", color: string, b: number): void => {
+  ctx.save();
+  ctx.strokeStyle = color;
+  if (ring === "dot") {
+    glowOn(ctx, p, color, 2 + 2 * b);
+    ctx.globalAlpha = 0.8 + 0.2 * b;
+    circle(ctx, RING_R, RING_W * (1 + 0.15 * b));
+  } else {
+    ctx.globalAlpha = 0.55 + 0.35 * b;
+    circle(ctx, RING_R, RING_W * 0.85);
+    ctx.globalAlpha = 0.18 * b;
+    circle(ctx, RING_R + 1.3, 1);
+  }
+  ctx.restore();
+};
+
+export const paintLoop = (ctx: Ctx, p: RingPalette, ring: LoopRing, color: string, frame: number): void => {
+  if (ring === "work") work(ctx, p, color, frame);
+  else if (ring === "reverse") reverse(ctx, p, color, frame);
+  else if (ring === "snake") snake(ctx, p, color, frame);
+  else if (ring === "call") call(ctx, p, color, frame);
+  else if (ring === "wait") wait(ctx, p, color, frame);
+  else if (ring === "glint") glint(ctx, p, color, frame);
+  else if (ring === "fracture") fracture(ctx, p, color, frame);
+  else if (ring === "dot" || ring === "live") breathe(ctx, p, ring, color, frame);
+  else halt(ctx, p, color, frame);
+};
+
+// --- motion on the compositor -------------------------------------------------
+
+/** One still part of a moving ring, painted once into the atlas. */
+export type RingPart = (ctx: Ctx, p: RingPalette, color: string) => void;
+
+/**
+ * What each moving ring paints: a still `base` under a part that turns
+ * (`spin`) or a part that pulses (`pulse`). Which parts a ring has, and how
+ * fast each runs, are RING_MOTION's (src/shared/rings.ts).
+ */
+export type RingPaint = {
+  readonly base?: RingPart;
+  readonly spin?: RingPart;
+  readonly pulse?: RingPart;
+};
+
+export const RING_PAINT: Readonly<Record<LoopRing, RingPaint>> = {
+  work: { base: track, spin: (c, p, col) => comet(c, p, col, TOP, Math.PI * 0.75) },
+  reverse: { base: dashedTrack, spin: (c, p, col) => comet(c, p, col, TOP, -Math.PI * 0.55) },
+  snake: { spin: (c, p, col) => snakeAt(c, p, col, 0) },
+  call: { base: (c, p, col) => callRing(c, p, col, 0), pulse: (c, _p, col) => callWave(c, col, 0) },
+  wait: { base: (c, _p, col) => waitRing(c, col), spin: (c, p, col) => waitBeads(c, p, col, TOP) },
+  halt: { base: (c, p, col) => haltAt(c, p, col, 0), pulse: (c, p, col) => haltAt(c, p, col, 1) },
+  glint: { base: (c, p, col) => paintDone(c, p, col, LAND_FRAMES), spin: (c, p, col) => glintArc(c, p, col, TOP, 1) },
+  fracture: { spin: (c, _p, col) => fractureAt(c, col, 0, 0.45) },
+  dot: { base: (c, p, col) => breatheAt(c, p, "dot", col, 0), pulse: (c, p, col) => breatheAt(c, p, "dot", col, 1) },
+  live: { base: (c, p, col) => breatheAt(c, p, "live", col, 0), pulse: (c, p, col) => breatheAt(c, p, "live", col, 1) },
+};
+
+/** Frame a frozen loop shows (reduced motion, offscreen, paused). */
+export const LOOP_REST_FRAME: Readonly<Record<LoopRing, number>> = {
+  work: 3,
+  reverse: 6,
+  snake: 0,
+  call: 3,
+  wait: 4,
+  halt: 12,
+  glint: 0,
+  fracture: 0,
+  dot: 0,
+  live: 16,
+};
+
+export const paintStill = (ctx: Ctx, p: RingPalette, ring: StillRing, color: string): void => {
+  ctx.save();
+  ctx.strokeStyle = color;
+  if (ring === "rest") {
+    ctx.globalAlpha = p.dark ? 0.42 : 0.5;
+    circle(ctx, RING_R, RING_W * 0.8);
+  } else {
+    ctx.globalAlpha = 0.55;
+    ctx.lineCap = "round";
+    ctx.setLineDash([0.05, 1.45]);
+    circle(ctx, RING_R, RING_W);
+  }
+  ctx.restore();
+};
+
+// --- outer band: glow, halo, flag --------------------------------------------
+
+
+/** Waiting on the operator: a soft light around the ring; the ring moves. */
+export const paintGlow = (ctx: Ctx, p: RingPalette, color: string, fade: number): void => {
+  ctx.save();
+  ctx.strokeStyle = color;
+  for (const [r, w, a] of [
+    [RING_R + 1.2, 1.4, 0.34],
+    [RING_R + 2.2, 1.2, 0.16],
+  ] as const) {
+    ctx.globalAlpha = a * fade * (p.dark ? 1 : 0.85);
+    circle(ctx, r, w);
+  }
+  ctx.restore();
+};
+
+const spark = (ctx: Ctx, cx: number, cy: number, r: number): void => {
+  const w = r * 0.26;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - r);
+  ctx.quadraticCurveTo(cx + w, cy - w, cx + r, cy);
+  ctx.quadraticCurveTo(cx + w, cy + w, cx, cy + r);
+  ctx.quadraticCurveTo(cx - w, cy + w, cx - r, cy);
+  ctx.quadraticCurveTo(cx - w, cy - w, cx, cy - r);
+  ctx.fill();
+};
+
+/** Going well: a fine second ring outside; exceeding adds a spark. */
+export const paintHalo = (ctx: Ctx, p: RingPalette, halo: RingHalo, color: string, fade: number): void => {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.75 * fade;
+  circle(ctx, RING_R + 1.9, 0.55);
+  if (halo === "exceeding") {
+    const a = Math.PI * 1.25;
+    const x = C + Math.cos(a) * (RING_R + 1.9);
+    const y = C + Math.sin(a) * (RING_R + 1.9);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.beginPath();
+    ctx.arc(x, y, 1.9, 0, TAU);
+    ctx.fill();
+    ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = fade;
+    glowOn(ctx, p, color, 3);
+    spark(ctx, x, y, 1.7);
+  }
+  ctx.restore();
+};
+
+const FLAG_ANGLE = -Math.PI / 4;
+const FLAG_R = 1.9;
+const FLAG_AT = [
+  C + Math.cos(FLAG_ANGLE) * (RING_R + 0.9),
+  C + Math.sin(FLAG_ANGLE) * (RING_R + 0.9),
+] as const;
+
+/** The seat's own declared signal: a pip on the ring at 45 degrees. */
+export const paintFlag = (ctx: Ctx, p: RingPalette, color: string, blocked: boolean): void => {
+  const [fx, fy] = FLAG_AT;
+  ctx.save();
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.beginPath();
+  ctx.arc(fx, fy, FLAG_R + 0.9, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+  ctx.save();
+  ctx.fillStyle = color;
+  glowOn(ctx, p, color, 4);
+  ctx.beginPath();
+  ctx.arc(fx, fy, FLAG_R, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+  // A declared blocked carries a bar so it never reads as a plain dot.
+  if (blocked) {
+    ctx.save();
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.lineWidth = 0.7;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(fx - 0.85, fy);
+    ctx.lineTo(fx + 0.85, fy);
+    ctx.stroke();
+    ctx.restore();
+  }
+};

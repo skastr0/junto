@@ -1,0 +1,305 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { THIS_MACHINE } from "./support/machines";
+import { Effect, Layer, ManagedRuntime } from "effect";
+import { decodeNode } from "../src/shared/model";
+import { holdModelCanvas as holdCanvas } from "./support/hold-canvas";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+vi.mock("../src/window/lib/theme-mode", async () => {
+  const { observable } = await import("@legendapp/state");
+  return { themeMode$: observable<"dark" | "bright">("dark") };
+});
+
+const renames: Array<readonly [string, string]> = [];
+vi.mock("../src/window/lib/mutations", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/window/lib/mutations")>()),
+  renameTerminalNode: (id: string, name: string) => renames.push([id, name]),
+}));
+
+const { AgentEditorHost, CustomizeAgentButton } = await import("../src/window/components/agent-editor/AgentEditor");
+const { AGENT_EDITOR_SECTIONS } = await import("../src/window/components/agent-editor/sections");
+const { agentEditor$, closeAgentEditor, openAgentEditor } = await import("../src/window/lib/agent-editor-state");
+const { state$ } = await import("../src/window/lib/state");
+const { portraitOverrides$ } = await import("../src/window/lib/portrait-overrides-state");
+const { normalizePortraitOverride } = await import("../src/shared/portrait-overrides");
+const { ContentWindow } = await import("../src/contract/window/content");
+const { WindowRuntimeContext } = await import("../src/window/rpc/runtime");
+const { installCosmeticPacks } = await import("../src/shared/cosmetics/catalog");
+const { decodeCosmeticPacks } = await import("../src/shared/cosmetics/load");
+
+const seat = Effect.runSync(decodeNode({
+  kind: "agent", id: "seat-1", label: "planner", x: 0, y: 0, width: 240, height: 96, z: 0,
+  agentKey: `${THIS_MACHINE}:planner`, host: THIS_MACHINE, overseer: false,
+  bindingId: "bind-local-planner", harness: "claude", launch: { kind: "harness", argv: ["claude"] },
+}));
+
+let host: HTMLDivElement;
+// The editor and its edits use the same model seat.
+let release: () => void = () => undefined;
+let root: Root;
+const patches: unknown[] = [];
+const commands: unknown[] = [];
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  patches.length = 0;
+  commands.length = 0;
+  renames.length = 0;
+  portraitOverrides$.set({});
+  state$.canvasName.set("agent-editor-test");
+  release = holdCanvas("agent-editor-test", [seat]);
+  (window as unknown as { junto: unknown }).junto = {
+    // Main, as far as a saved edit goes: it takes the command and counts on.
+    modelCommand: async (command: unknown) => {
+      commands.push(command);
+      return { seq: commands.length };
+    },
+  };
+  // The content group's store: normalizes and echoes the stored override.
+  const content = ManagedRuntime.make(
+    Layer.succeed(ContentWindow, {
+      ContentPortraitOverrideSet: ({ seatId, override }: { seatId: string; override: unknown }) =>
+        Effect.sync(() => {
+          patches.push({ seatId, override });
+          return { ok: true, seatId, override: override === null ? null : normalizePortraitOverride(override) };
+        }),
+    } as never),
+  );
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  act(() =>
+    root.render(
+      <WindowRuntimeContext.Provider value={content as never}>
+        <CustomizeAgentButton identity="seat-1" name="planner" hint>
+          <span>ring</span>
+        </CustomizeAgentButton>
+        <AgentEditorHost />
+      </WindowRuntimeContext.Provider>,
+    ),
+  );
+});
+
+afterEach(() => {
+  act(() => closeAgentEditor());
+  act(() => root.unmount());
+  host.remove();
+  release();
+  vi.useRealTimers();
+});
+
+const editor = (): HTMLElement => {
+  const found = document.querySelector('[data-testid="agent-editor"]');
+  if (!(found instanceof HTMLElement)) throw new Error("editor is not open");
+  return found;
+};
+
+const open = (section?: string): HTMLElement => {
+  if (section) act(() => openAgentEditor("seat-1", { section }));
+  else act(() => (host.querySelector('[data-testid="customize-agent-button"]') as HTMLButtonElement).click());
+  return editor();
+};
+
+const tab = (label: string): void =>
+  act(() => ([...editor().querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((each) => each.textContent === label))!.click());
+
+const button = (text: string): HTMLButtonElement =>
+  [...editor().querySelectorAll("button")].find((candidate) => candidate.textContent === text) as HTMLButtonElement;
+
+const settle = async (): Promise<void> => {
+  await act(async () => {
+    vi.advanceTimersByTime(300);
+    await Promise.resolve();
+  });
+};
+
+const type = (input: HTMLInputElement, value: string): void =>
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+
+// Every option is a live thumbnail; under a loaded machine a full editor
+// render takes a few seconds in jsdom.
+describe("customize agent editor", { timeout: 30_000 }, () => {
+  it("opens from the portrait on Look, with Mood and Name beside it", () => {
+    const button = host.querySelector('[data-testid="customize-agent-button"]')!;
+    expect(button.getAttribute("aria-label")).toBe("Customize planner");
+    expect(button.querySelector(".customize-agent-button__tag")?.textContent).toBe("Customize");
+    const opened = open();
+    expect(opened.getAttribute("aria-label")).toBe("Customize planner");
+    expect([...opened.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual([
+      "look",
+      "mood",
+      "name",
+      "soul",
+      "instructions",
+      "launch",
+      "start params",
+      "sessions",
+    ]);
+    expect(opened.querySelector('[role="tabpanel"]')?.getAttribute("data-section")).toBe("look");
+    for (const label of ["color", "body", "ears and toppers", "hats and props", "eyes", "brows", "mouth", "pattern", "accent"]) {
+      expect(opened.querySelector(`[role="radiogroup"][aria-label="${label}"]`)).not.toBeNull();
+    }
+    expect(opened.querySelectorAll('[role="radio"][aria-checked="true"]').length).toBe(9);
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("saves a picked look for the seat and resets it", async () => {
+    const opened = open();
+    act(() => (opened.querySelector('[aria-label="body Toast"]') as HTMLButtonElement).click());
+    await settle();
+    expect(portraitOverrides$.peek()["seat-1"]).toEqual({ shape: "toast" });
+    expect(opened.querySelector('[aria-label="body Toast"]')?.getAttribute("aria-checked")).toBe("true");
+
+    act(() => button("Reset look").click());
+    await settle();
+    expect(patches.at(-1)).toEqual({ seatId: "seat-1", override: null });
+    expect(portraitOverrides$.peek()["seat-1"]).toBeUndefined();
+  });
+
+  it("sets temperament on Mood, which Randomize on Look keeps", async () => {
+    open();
+    tab("mood");
+    expect(editor().querySelectorAll(".agent-editor__moods figure")).toHaveLength(6);
+    type(editor().querySelector('input[type="range"]') as HTMLInputElement, "-0.8");
+    await settle();
+    expect(portraitOverrides$.peek()["seat-1"]?.temperament).toBe(-0.8);
+    expect(editor().textContent).toContain("moody");
+
+    tab("look");
+    act(() => button("Randomize look").click());
+    await settle();
+    const saved = portraitOverrides$.peek()["seat-1"];
+    expect(saved?.shape).toBeDefined();
+    expect(saved?.temperament).toBe(-0.8);
+  });
+
+  it("renames the seat from Name on Enter, and drops the typing on Escape", async () => {
+    const opened = open("name");
+    expect(opened.querySelector('[role="tabpanel"]')?.getAttribute("data-section")).toBe("name");
+    const input = opened.querySelector('[data-testid="agent-editor-name"]') as HTMLInputElement;
+    expect(input.value).toBe("planner");
+    type(input, "  lead planner ");
+    act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(renames).toEqual([["seat-1", "lead planner"]]);
+
+    type(input, "scrapped");
+    await act(async () => {
+      input.focus();
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(agentEditor$.peek()).toBeNull();
+    expect(renames).toHaveLength(1);
+  });
+
+  it("keeps a typed name when the editor closes around it, never an empty one", () => {
+    const input = open("name").querySelector('[data-testid="agent-editor-name"]') as HTMLInputElement;
+    type(input, "   ");
+    act(() => input.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
+    expect(input.value).toBe("planner");
+    expect(renames).toEqual([]);
+    type(input, "scout");
+    act(() => closeAgentEditor());
+    expect(renames).toEqual([["seat-1", "scout"]]);
+  });
+
+  it("closes when the seat leaves the canvas", () => {
+    open();
+    act(() => release());
+    expect(document.querySelector('[data-testid="agent-editor"]')).toBeNull();
+  });
+
+  it("edits the seat's start parameters and saves them onto the same seat", async () => {
+    (window as unknown as { junto: Record<string, unknown> }).junto.managedTerminalFlags = async () => ({
+      installed: true,
+      flags: [
+        { flag: "--verbose", aliases: [], description: "Print more" },
+        { flag: "--model", aliases: ["-m"], value: "<model>", description: "Model to use" },
+      ],
+    });
+    const opened = open("params");
+    await settle();
+    expect(opened.querySelector('[role="tabpanel"]')?.getAttribute("data-section")).toBe("params");
+    const preview = (): string =>
+      opened.querySelector('[data-testid="seat-start-params-preview"]')?.textContent ?? "";
+    expect(preview()).toBe("claude");
+
+    // The harness's own options are listed; one Junto already sets is not addable.
+    const options = [...opened.querySelectorAll<HTMLButtonElement>(".customize-params__flag-add")];
+    expect(options.map((option) => option.disabled)).toEqual([false, true]);
+    act(() => options[0]!.click());
+    type(opened.querySelector<HTMLInputElement>('input[aria-label="Model"]')!, "opus");
+    expect(preview()).toBe("claude --model opus --verbose");
+
+    // A flag Junto owns is reported, not launched.
+    type(opened.querySelector<HTMLInputElement>('input[aria-label="Extra arguments"]')!, "--verbose --session-id x");
+    expect(opened.querySelector(".customize-params__rejected")?.textContent).toContain("--session-id");
+    expect(preview()).toBe("claude --model opus --verbose");
+
+    await act(async () => {
+      button("Save").click();
+      await Promise.resolve();
+    });
+    await settle();
+    // One command to main: the same seat, on its new launch.
+    // Only the launch is edited, so the binding and the session stay as they were.
+    expect(commands).toEqual([
+      {
+        _tag: "Edit",
+        canvas: "agent-editor-test",
+        id: "seat-1",
+        change: {
+          kind: "agent",
+          launch: {
+            kind: "harness",
+            argv: ["claude", "--model", "opus", "--verbose"],
+            extraArgs: ["--verbose"],
+          },
+        },
+      },
+    ]);
+  });
+
+  it("lists sections in a stable order with unique ids", () => {
+    const ids = AGENT_EDITOR_SECTIONS.map((section) => section.id);
+    expect(ids.slice(0, 3)).toEqual(["look", "mood", "name"]);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("groups bundled pack items under their pack and saves the pack key", async () => {
+    installCosmeticPacks(
+      decodeCosmeticPacks([
+        {
+          format: 1,
+          id: "test-pack",
+          name: "Test pack",
+          tier: "premium",
+          accessories: [
+            {
+              id: "top-hat",
+              name: "Top hat",
+              hat: true,
+              parts: [{ layer: "hat", anchor: { x: "center", y: "top" }, shapes: [{ kind: "circle", cx: 0, cy: -6, r: 6, paint: "inked", color: "ink" }] }],
+            },
+          ],
+        },
+      ]),
+    );
+    try {
+      const props = open().querySelector('[role="radiogroup"][aria-label="hats and props"]');
+      expect(props?.querySelector('[data-pack="premium"] .agent-editor__pack-head')?.textContent).toContain("Test pack");
+      act(() => (props?.querySelector('[aria-label="hats and props Top hat"]') as HTMLButtonElement).click());
+      await settle();
+      expect(portraitOverrides$.peek()["seat-1"]).toEqual({ accessory: "test-pack:top-hat" });
+    } finally {
+      installCosmeticPacks([]);
+    }
+  });
+});

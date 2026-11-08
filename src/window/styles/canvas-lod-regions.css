@@ -1,0 +1,160 @@
+/* Level of detail for regions, wires and the overview tier.
+
+   The camera's tier (lib/canvas-tier.ts) is stamped on <html> as
+   data-canvas-tier; seats and cards shed detail in canvas-lod.css. Regions
+   are the largest paint on the board and nest: every level stacked another
+   translucent gradient, border and label over the same pixels. Each step
+   back paints less of that:
+
+   - near: everything.
+   - mid: one flat wash per region instead of a gradient; wire labels and
+     pulses go (unreadable, and motion stops below near).
+   - far: every region, nested ones included, is a wash and a frame in its
+     own colour (an uncoloured region wears the ink), so nesting reads as
+     deepening colour. Title bars keep their grab target but print nothing
+     (12px names are under 4px here); every named region prints its name in
+     large capitals in the clear ground of its body instead
+     (region-name-slot.ts), in its colour at under a third of its strength,
+     as ground.
+     Wires step back to 40%.
+   - overview: regions, seats and kind seats. Cards and wires are not
+     painted; every agent stays, as at far, gathered into counted clusters
+     where crowded (SeatClusterLayer), and a kind seat stays as its ring.
+     Regions three levels in go.
+
+   Flows tracks are the exception at every tier: a task-to-task dependency
+   is drawn in full, never faded and never hidden. They live in the viewport
+   portal, which no rule here reaches (flow-track.css).
+
+   At every tier a region holding a seat that is blocked, needs the
+   operator or has work for review says so: its colour leans toward the
+   state's, and it wears an inner frame and glow in it. The region the seat
+   sits in speaks plainly; the regions around it only frame it thinly.
+
+   Hidden things use visibility, never display, so React Flow's measured
+   sizes and wire anchors do not move when the tier flips. GroupNode writes
+   --region-fill, --region-flat, --region-tint, data-region-depth (capped at
+   3) and data-region-urgency / data-region-reach (region-urgency.ts). */
+
+/* --- mid and below: flat washes, no wire labels or pulses ------------ */
+
+html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group {
+  background: var(--region-flat);
+}
+html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport :is(.junto-edge-label, .junto-wire-pulse, path.junto-wire-pulse-hold) {
+  visibility: hidden;
+}
+
+/* --- mid and below: a frame that still reads ------------------------- */
+
+/* The 1px border is under half a pixel once the camera pulls back. Frames
+   are drawn in canvas units: 3 units reads as 1 to 2px across mid, 6 units
+   as 1.2 to 2px across far, 10 units as 1.5 to 2px at the overview. */
+html[data-canvas-tier="mid"] .react-flow__viewport .junto-group {
+  outline: 3px solid color-mix(in oklab, var(--region-hue) 40%, transparent);
+  outline-offset: -3px;
+}
+
+/* --- far and below: colour, frames and names ------------------------- */
+
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group {
+  background: color-mix(in oklab, var(--region-hue) 8%, transparent);
+  outline: 6px solid color-mix(in oklab, var(--region-hue) 62%, transparent);
+  outline-offset: -6px;
+}
+/* Nested washes are lighter, so five levels deepen the colour without
+   burying it. */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group[data-region-colored]:not([data-region-depth="0"]) {
+  background: color-mix(in oklab, var(--region-hue) 5%, transparent);
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group:not([data-region-colored]) {
+  background: color-mix(in oklab, var(--region-hue) 4%, transparent);
+  outline-color: color-mix(in oklab, var(--region-hue) 34%, transparent);
+}
+html[data-canvas-tier="overview"] .react-flow__viewport .junto-group {
+  outline-width: 10px;
+  outline-offset: -10px;
+}
+html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node.selected .junto-group {
+  outline-color: color-mix(in oklab, var(--color-amber) 80%, transparent);
+}
+/* The name is ground, not figure: large enough to find a region by, but in
+   the region's colour at under a third of its strength, so the seats on it
+   stay the loudest thing on screen. */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-region-glance__text {
+  color: color-mix(in oklab, color-mix(in oklab, var(--region-hue) 70%, var(--color-ink)) 30%, transparent);
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group:not([data-region-colored]) .junto-region-glance__text {
+  color: color-mix(in oklab, var(--color-ink) 22%, transparent);
+}
+/* Wires step back behind the seats: they still say who talks to whom, but a
+   routed board of them otherwise reads as a grid laid over the regions. */
+html[data-canvas-tier="far"] .react-flow__viewport .react-flow__edge-path {
+  stroke-opacity: 0.4;
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-region-titlebar {
+  border-color: transparent;
+  background: transparent;
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-region-titlebar > * {
+  visibility: hidden;
+}
+
+/* --- overview: regions and seats --------------------------------------- */
+
+/* React Flow writes an inline visibility on every node once it is measured,
+   so only an important rule outranks it. Agents stay: the operator works
+   them from here (canvas-lod.css, SeatClusterLayer). Kind seats stay too,
+   their ring alone, as a seat is drawn. */
+html[data-canvas-tier="overview"] .react-flow__viewport :is(.react-flow__node:not(.react-flow__node-group):not(.junto-flow-agent):not(:has(.kind-seat)), .react-flow__edges, .react-flow__edgelabel-renderer) {
+  visibility: hidden !important;
+}
+/* A flows track is drawn here too (FlowTrack), so its wire stays: the path
+   is unpainted (factory-grammar.css), and the loupe picks it as at every
+   other tier. */
+html[data-canvas-tier="overview"] .react-flow__viewport .react-flow__edge:has(> path.junto-edge--track) {
+  visibility: visible !important;
+}
+html[data-canvas-tier="overview"] .react-flow__viewport .junto-group[data-region-depth="3"] {
+  visibility: hidden;
+}
+
+/* --- urgency: blocked, needs you, review (all tiers) -------------------- */
+
+.junto-group[data-region-urgency="blocked"] { --urgency: var(--color-crimson); }
+.junto-group[data-region-urgency="needs-you"] { --urgency: var(--color-amber); }
+.junto-group[data-region-urgency="review"] { --urgency: var(--color-cyan); }
+/* The region's own colour leans toward the state's where it is drawn from
+   --region-hue (the zoomed-out wash, frame and name below). */
+.junto-group { --region-hue: var(--region-tint); }
+.junto-group[data-region-urgency] { --region-hue: color-mix(in oklab, var(--region-tint) 72%, var(--urgency)); }
+.junto-group[data-region-urgency][data-region-reach="held"] { --region-hue: color-mix(in oklab, var(--region-tint) 90%, var(--urgency)); }
+
+.junto-group[data-region-urgency]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+/* Subtle by intent: the seat's own ring is the alarm, the region only leans.
+   Up close the frame is a hairline and a faint inner glow; zoomed out it is
+   drawn in canvas units so it still reads (6 units is 1 to 2px far). */
+.junto-group[data-region-urgency][data-region-reach="direct"]::after {
+  background: color-mix(in oklab, var(--urgency) 3%, transparent);
+  box-shadow:
+    inset 0 0 0 1.5px color-mix(in oklab, var(--urgency) 50%, transparent),
+    inset 0 0 28px color-mix(in oklab, var(--urgency) 9%, transparent);
+}
+.junto-group[data-region-urgency][data-region-reach="held"]::after {
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--urgency) 28%, transparent);
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group[data-region-urgency][data-region-reach="direct"]::after {
+  background: color-mix(in oklab, var(--urgency) 4%, transparent);
+  box-shadow:
+    inset 0 0 0 6px color-mix(in oklab, var(--urgency) 52%, transparent),
+    inset 0 0 110px color-mix(in oklab, var(--urgency) 11%, transparent);
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group[data-region-urgency][data-region-reach="held"]::after {
+  box-shadow: inset 0 0 0 4px color-mix(in oklab, var(--urgency) 30%, transparent);
+}

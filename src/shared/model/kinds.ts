@@ -1,0 +1,297 @@
+import { Schema } from "effect";
+import { HarnessId } from "../managed-terminal-templates";
+import { TasksContract } from "../work-model";
+import { ActorSeatId } from "../actor-seat";
+import { HostId, placement } from "./base";
+import { Region } from "./region";
+
+// Every kind of thing that can sit on a canvas, each with exactly the fields
+// it has. The `kind` word is the one the rest of the app already uses for it.
+//
+// Nothing here is live work. Mail, tasks and artifacts are rows of their
+// own, read by the id of the thing they belong to, and never ride along on
+// it.
+
+const NonEmpty = Schema.String.pipe(Schema.check(Schema.isMinLength(1)));
+
+/** A variable name a process environment accepts. */
+const EnvName = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/)),
+);
+
+/** Text that names something: no line breaks. */
+export const OneLine = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^[^\r\n]*$/)),
+  Schema.check(Schema.isMaxLength(256)),
+);
+
+// ── Seats and terminals ─────────────────────────────────────────────────────
+
+export const LaunchKind = Schema.Literals(["shell", "command", "harness"]);
+export type LaunchKind = typeof LaunchKind.Type;
+
+/** How a seat or terminal is started. Inert until a deliberate start. */
+export const Launch = Schema.Struct({
+  kind: LaunchKind,
+  argv: Schema.optionalKey(Schema.Array(Schema.String)),
+  cwd: Schema.optionalKey(Schema.String),
+  env: Schema.optionalKey(Schema.Record(EnvName, Schema.String)),
+  /**
+   * Operator-authored harness arguments beyond the picker dials. Already part
+   * of `argv`; kept as well so every replanned spawn and resume appends the
+   * same tokens.
+   */
+  extraArgs: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+export type Launch = typeof Launch.Type;
+
+/** Stable identity of a terminal session across restarts. Not a process id. */
+export const BindingId = NonEmpty.pipe(Schema.brand("BindingId"));
+export type BindingId = typeof BindingId.Type;
+
+/**
+ * A seat: an agent with a harness, a terminal session and a mailbox. The one
+ * kind that acts.
+ */
+export const Seat = Schema.Struct({
+  kind: Schema.Literal("agent"),
+  ...placement,
+  /**
+   * Which agent this seat runs, as `<host>:<profile or harness>`, fixed at
+   * creation. It is not the seat's identity: many seats run `local:claude`.
+   * A seat is identified by its id, and its session by `bindingId`.
+   */
+  agentKey: NonEmpty,
+  /** What the operator sees and may rename. One line. */
+  label: OneLine,
+  host: HostId,
+  /** Operator-granted administrative authority over the canvas. */
+  overseer: Schema.Boolean,
+  bindingId: BindingId,
+  harness: HarnessId,
+  launch: Schema.optionalKey(Launch),
+});
+export type Seat = typeof Seat.Type;
+
+/**
+ * A seat that lives on another machine, as a machine holding a copy of the
+ * canvas sees it: who it is and where it sits. It can be addressed, by mail
+ * and by a wire. It has nothing to be started from, and the machine that
+ * edits the canvas never holds one: it holds every seat in full.
+ */
+export const Peer = Schema.Struct({
+  kind: Schema.Literal("peer"),
+  ...placement,
+  label: OneLine,
+  host: HostId,
+  seatId: ActorSeatId,
+});
+export type Peer = typeof Peer.Type;
+
+/** A plain terminal the operator opened. It has no harness and no mailbox. */
+export const Terminal = Schema.Struct({
+  kind: Schema.Literal("terminal"),
+  ...placement,
+  label: Schema.optionalKey(OneLine),
+  host: HostId,
+  bindingId: BindingId,
+  launch: Schema.optionalKey(Launch),
+});
+export type Terminal = typeof Terminal.Type;
+
+// ── Surfaces agents work against ────────────────────────────────────────────
+
+export const PageOnRemove = Schema.Literals(["detach", "kill-session"]);
+export type PageOnRemove = typeof PageOnRemove.Type;
+
+/** An in-app browser page. Cookies live with the profile, never here. */
+export const Page = Schema.Struct({
+  kind: Schema.Literal("page"),
+  ...placement,
+  url: Schema.String,
+  profile: NonEmpty,
+  onRemove: PageOnRemove,
+  /** What the operator named it. Without one, a page is called by its host. */
+  label: Schema.optionalKey(OneLine),
+});
+export type Page = typeof Page.Type;
+
+/** A task board. The tasks themselves are work rows keyed by this id. */
+export const TaskBoard = Schema.Struct({
+  kind: Schema.Literal("task"),
+  ...placement,
+  name: Schema.optionalKey(OneLine),
+  /** What agents read and must satisfy when they take a task here. */
+  contract: Schema.optionalKey(TasksContract),
+});
+export type TaskBoard = typeof TaskBoard.Type;
+
+export const Artifacts = Schema.Struct({
+  kind: Schema.Literal("artifacts"),
+  ...placement,
+  label: Schema.optionalKey(OneLine),
+});
+export type Artifacts = typeof Artifacts.Type;
+
+/**
+ * An Automations node. Its automations are rows keyed by this id
+ * (automation.ts): only the operator and overseers write them; seats in reach
+ * read them. No edges.
+ */
+export const Automations = Schema.Struct({
+  kind: Schema.Literal("automations"),
+  ...placement,
+  label: Schema.optionalKey(OneLine),
+});
+export type Automations = typeof Automations.Type;
+
+// ── Things that only sit there ──────────────────────────────────────────────
+
+export const Note = Schema.Struct({
+  kind: Schema.Literal("note"),
+  ...placement,
+  text: Schema.String,
+});
+export type Note = typeof Note.Type;
+
+/** Bare text on the map, with no card around it. */
+export const Label = Schema.Struct({
+  kind: Schema.Literal("label"),
+  ...placement,
+  text: Schema.String,
+});
+export type Label = typeof Label.Type;
+
+/** A file shown on the canvas, by path. */
+export const FileCard = Schema.Struct({
+  kind: Schema.Literal("file"),
+  ...placement,
+  path: NonEmpty,
+  subpath: Schema.optionalKey(Schema.String),
+  /** What the operator named it. Without one, a file is called by its name. */
+  label: Schema.optionalKey(OneLine),
+});
+export type FileCard = typeof FileCard.Type;
+
+/** A plain web link. An in-app browser is a `Page`, not this. */
+export const LinkCard = Schema.Struct({
+  kind: Schema.Literal("link"),
+  ...placement,
+  url: Schema.String,
+  /** What the operator named it. Without one, a link is called by its host. */
+  label: Schema.optionalKey(OneLine),
+});
+export type LinkCard = typeof LinkCard.Type;
+
+/** A commit browser over one repository. Branch and diff are read live. */
+export const GitCard = Schema.Struct({
+  kind: Schema.Literal("git"),
+  ...placement,
+  label: Schema.optionalKey(OneLine),
+  cwd: NonEmpty,
+});
+export type GitCard = typeof GitCard.Type;
+
+/**
+ * A Files node (0.11): one folder on one machine, opened as a file tree with
+ * a light editor. The node owns its folder: `root` is stamped at creation from
+ * the region's path for `host` and never read from the region again. Host-local:
+ * the root names a place on `host` only and never leaves it. No edges.
+ */
+export const Files = Schema.Struct({
+  kind: Schema.Literal("files"),
+  ...placement,
+  label: Schema.optionalKey(OneLine),
+  host: HostId,
+  /** An absolute path on `host`. */
+  root: NonEmpty,
+});
+export type Files = typeof Files.Type;
+
+/** The kinds a stub stands for. */
+export const StubOf = Schema.Literals(["file", "link", "git", "page", "files"]);
+export type StubOf = typeof StubOf.Type;
+
+/**
+ * A node of another machine's canvas whose own fields are body, as a machine
+ * holding a copy sees it: what it is and where it sits, and a label only when
+ * the operator wrote one. No part of a path or an address names it. A page
+ * names the machine it lives on, the editing machine, has no label and has
+ * nothing to drive. Like a peer, nothing authors one: it arrives with a copy.
+ */
+export const Stub = Schema.Struct({
+  kind: Schema.Literal("stub"),
+  ...placement,
+  of: StubOf,
+  label: Schema.optionalKey(OneLine),
+  host: Schema.optionalKey(HostId),
+}).check(
+  Schema.makeFilter(
+    (stub) => (stub.of === "page") === (stub.host !== undefined) || "a page stub names its machine, and only a page stub",
+  ),
+  Schema.makeFilter((stub) => stub.of !== "page" || stub.label === undefined || "a page stub has no label"),
+);
+export type Stub = typeof Stub.Type;
+
+// ── The closed set ──────────────────────────────────────────────────────────
+
+/**
+ * Everything that can be on a canvas. Closed on purpose: a new kind is a new
+ * member here with its own fields and its own table, never a string and a bag.
+ */
+export const Node = Schema.Union([
+  Seat,
+  Peer,
+  Terminal,
+  Page,
+  TaskBoard,
+  Artifacts,
+  Automations,
+  Note,
+  Label,
+  FileCard,
+  LinkCard,
+  GitCard,
+  Files,
+  Stub,
+  Region,
+]);
+export type Node = typeof Node.Type;
+
+export type NodeKind = Node["kind"];
+
+export const NODE_KINDS = [
+  "agent",
+  "peer",
+  "terminal",
+  "page",
+  "task",
+  "artifacts",
+  "automations",
+  "note",
+  "label",
+  "file",
+  "link",
+  "git",
+  "files",
+  "stub",
+  "region",
+] as const satisfies ReadonlyArray<NodeKind>;
+
+/** The member of `Node` with a given kind word. */
+export type NodeOf<K extends NodeKind> = Extract<Node, { readonly kind: K }>;
+
+export const isKind =
+  <K extends NodeKind>(kind: K) =>
+  (node: Node): node is NodeOf<K> =>
+    node.kind === kind;
+
+export const isSeat = isKind("agent");
+export const isRegion = isKind("region");
+
+/**
+ * Read a node from outside the process. An unknown field is an error, not
+ * something to carry: that is what keeps a kind from growing a bag.
+ */
+export const decodeNode = (input: unknown) =>
+  Schema.decodeUnknownEffect(Node)(input, { onExcessProperty: "error" });

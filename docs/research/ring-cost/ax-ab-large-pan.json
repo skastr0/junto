@@ -1,0 +1,2470 @@
+{
+  "command": "bun scripts/probe-ring-cost.ts --compare after=/Users/guilhermecastro/Projects/junto-wt-after,canvas=/private/tmp/claude-501/-Users-guilhermecastro-Projects-junto/09638193-589d-4950-9214-e4e499458ceb/scratchpad/pan --repeats 2",
+  "when": "2026-10-17T21:03:17.211Z",
+  "order": [
+    "after#1",
+    "canvas#1",
+    "after#2",
+    "canvas#2"
+  ],
+  "summary": [
+    {
+      "build": "after",
+      "sourceCommit": "2deba933eb64321cca99039b96d507ddb4f616c7",
+      "scenarios": [
+        {
+          "scenario": "pan-outside",
+          "runs": 2,
+          "validRuns": 2,
+          "median": {
+            "rendererBusyMsPerSecond": 475.5,
+            "scriptMsPerSecond": 46.4,
+            "layoutMsPerSecond": 6.3,
+            "styleMsPerSecond": 34.9,
+            "rafDropped": 132,
+            "rafFrames": 672,
+            "bytesWritten": null,
+            "frame_p50": 8.3,
+            "frame_p95": 16.6,
+            "frame_p99": 16.9,
+            "frame_max": 21.4,
+            "frame_over8_3": 301,
+            "frame_over16_7": 16,
+            "frame_droppedAtDisplayRate": 50.5,
+            "loafMaxMs": 0,
+            "gpuCpuPercent": 47.6,
+            "rendererCpuPercent": 63.9,
+            "browserCpuPercent": 2.7,
+            "movingRings": 107
+          },
+          "values": {
+            "rendererBusyMsPerSecond": [
+              481.8,
+              469.2
+            ],
+            "scriptMsPerSecond": [
+              46,
+              46.7
+            ],
+            "layoutMsPerSecond": [
+              6.2,
+              6.4
+            ],
+            "styleMsPerSecond": [
+              35.2,
+              34.5
+            ],
+            "rafDropped": [
+              130,
+              134
+            ],
+            "rafFrames": [
+              670,
+              674
+            ],
+            "bytesWritten": [
+              null,
+              null
+            ],
+            "gpu": [
+              49,
+              46.2
+            ]
+          },
+          "problems": []
+        },
+        {
+          "scenario": "pan-hover",
+          "runs": 2,
+          "validRuns": 2,
+          "median": {
+            "rendererBusyMsPerSecond": 782.5,
+            "scriptMsPerSecond": 36.7,
+            "layoutMsPerSecond": 5.4,
+            "styleMsPerSecond": 59.3,
+            "rafDropped": 286.5,
+            "rafFrames": 586,
+            "bytesWritten": null,
+            "frame_p50": 8.4,
+            "frame_p95": 16.8,
+            "frame_p99": 17.4,
+            "frame_max": 25,
+            "frame_over8_3": 313,
+            "frame_over16_7": 58,
+            "frame_droppedAtDisplayRate": 138,
+            "loafMaxMs": 0,
+            "gpuCpuPercent": 60.2,
+            "rendererCpuPercent": 99.2,
+            "browserCpuPercent": 2.8,
+            "movingRings": 107
+          },
+          "values": {
+            "rendererBusyMsPerSecond": [
+              758.7,
+              806.2
+            ],
+            "scriptMsPerSecond": [
+              36.6,
+              36.7
+            ],
+            "layoutMsPerSecond": [
+              5.1,
+              5.6
+            ],
+            "styleMsPerSecond": [
+              57.6,
+              61
+            ],
+            "rafDropped": [
+              262,
+              311
+            ],
+            "rafFrames": [
+              601,
+              571
+            ],
+            "bytesWritten": [
+              null,
+              null
+            ],
+            "gpu": [
+              58.5,
+              61.9
+            ]
+          },
+          "problems": []
+        }
+      ]
+    },
+    {
+      "build": "canvas",
+      "sourceCommit": "6d1fd0a8c47cc5af9530ce508e2ebdad6bfc93a0",
+      "scenarios": [
+        {
+          "scenario": "pan-outside",
+          "runs": 2,
+          "validRuns": 2,
+          "median": {
+            "rendererBusyMsPerSecond": 466.4,
+            "scriptMsPerSecond": 47,
+            "layoutMsPerSecond": 6.6,
+            "styleMsPerSecond": 35.2,
+            "rafDropped": 137,
+            "rafFrames": 664.5,
+            "bytesWritten": null,
+            "frame_p50": 8.3,
+            "frame_p95": 16.7,
+            "frame_p99": 24.8,
+            "frame_max": 29.6,
+            "frame_over8_3": 293.5,
+            "frame_over16_7": 23.5,
+            "frame_droppedAtDisplayRate": 57,
+            "loafMaxMs": 0,
+            "gpuCpuPercent": 46.9,
+            "rendererCpuPercent": 62.8,
+            "browserCpuPercent": 2.8,
+            "movingRings": 107
+          },
+          "values": {
+            "rendererBusyMsPerSecond": [
+              472.8,
+              460
+            ],
+            "scriptMsPerSecond": [
+              47.7,
+              46.3
+            ],
+            "layoutMsPerSecond": [
+              6.6,
+              6.6
+            ],
+            "styleMsPerSecond": [
+              35.6,
+              34.7
+            ],
+            "rafDropped": [
+              147,
+              127
+            ],
+            "rafFrames": [
+              660,
+              669
+            ],
+            "bytesWritten": [
+              null,
+              null
+            ],
+            "gpu": [
+              47.6,
+              46.1
+            ]
+          },
+          "problems": []
+        },
+        {
+          "scenario": "pan-hover",
+          "runs": 2,
+          "validRuns": 2,
+          "median": {
+            "rendererBusyMsPerSecond": 769.2,
+            "scriptMsPerSecond": 35.5,
+            "layoutMsPerSecond": 5.2,
+            "styleMsPerSecond": 61,
+            "rafDropped": 319.5,
+            "rafFrames": 567.5,
+            "bytesWritten": null,
+            "frame_p50": 8.4,
+            "frame_p95": 16.8,
+            "frame_p99": 17.5,
+            "frame_max": 183.4,
+            "frame_over8_3": 305,
+            "frame_over16_7": 57.5,
+            "frame_droppedAtDisplayRate": 156.5,
+            "loafMaxMs": 168,
+            "gpuCpuPercent": 60.6,
+            "rendererCpuPercent": 97.9,
+            "browserCpuPercent": 3,
+            "movingRings": 107
+          },
+          "values": {
+            "rendererBusyMsPerSecond": [
+              742.6,
+              795.8
+            ],
+            "scriptMsPerSecond": [
+              34.5,
+              36.5
+            ],
+            "layoutMsPerSecond": [
+              4.6,
+              5.7
+            ],
+            "styleMsPerSecond": [
+              61,
+              61
+            ],
+            "rafDropped": [
+              338,
+              301
+            ],
+            "rafFrames": [
+              556,
+              579
+            ],
+            "bytesWritten": [
+              null,
+              null
+            ],
+            "gpu": [
+              59.4,
+              61.7
+            ]
+          },
+          "problems": []
+        }
+      ]
+    }
+  ],
+  "runs": [
+    {
+      "label": "after-1",
+      "sourceCommit": "2deba933eb64321cca99039b96d507ddb4f616c7",
+      "appRoot": "/Users/guilhermecastro/Projects/junto-wt-after",
+      "command": "bun scripts/probe-ring-cost.ts --app-root /Users/guilhermecastro/Projects/junto-wt-after --label after-1 --seconds 6 --port 9341 --fixture large --scenarios pan-outside,pan-hover",
+      "when": "2026-10-17T21:02:08.545Z",
+      "environment": {
+        "accessibility": true,
+        "electron": "43.5.0",
+        "chrome": "150.0.7871.250",
+        "displays": 1,
+        "darkOs": true,
+        "displayHz": 120.00000762939453,
+        "rendererAccessibilityForcedOff": false,
+        "streamLinesPerTick": 20,
+        "streamTickMs": 16,
+        "preflightProblems": []
+      },
+      "fixture": {
+        "name": "large",
+        "seats": 101,
+        "looseSeats": 5,
+        "regions": 44,
+        "maxNestingDepth": 4,
+        "regionTable": [
+          {
+            "id": "u00-big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "u00-big-a",
+            "parent": "u00-big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "u00-big-a-1",
+            "parent": "u00-big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "u00-big-a-1-a",
+            "parent": "u00-big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "u00-big-b",
+            "parent": "u00-big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "u00-big-b-1",
+            "parent": "u00-big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "u00-mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "u00-mid-a",
+            "parent": "u00-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "u00-mid-b",
+            "parent": "u00-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "u00-small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "u00-small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          },
+          {
+            "id": "u01-big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "u01-big-a",
+            "parent": "u01-big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "u01-big-a-1",
+            "parent": "u01-big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "u01-big-a-1-a",
+            "parent": "u01-big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "u01-big-b",
+            "parent": "u01-big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "u01-big-b-1",
+            "parent": "u01-big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "u01-mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "u01-mid-a",
+            "parent": "u01-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "u01-mid-b",
+            "parent": "u01-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "u01-small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "u01-small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          },
+          {
+            "id": "u10-big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "u10-big-a",
+            "parent": "u10-big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "u10-big-a-1",
+            "parent": "u10-big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "u10-big-a-1-a",
+            "parent": "u10-big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "u10-big-b",
+            "parent": "u10-big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "u10-big-b-1",
+            "parent": "u10-big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "u10-mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "u10-mid-a",
+            "parent": "u10-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "u10-mid-b",
+            "parent": "u10-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "u10-small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "u10-small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          },
+          {
+            "id": "u11-big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "u11-big-a",
+            "parent": "u11-big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "u11-big-a-1",
+            "parent": "u11-big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "u11-big-a-1-a",
+            "parent": "u11-big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "u11-big-b",
+            "parent": "u11-big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "u11-big-b-1",
+            "parent": "u11-big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "u11-mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "u11-mid-a",
+            "parent": "u11-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "u11-mid-b",
+            "parent": "u11-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "u11-small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "u11-small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          }
+        ]
+      },
+      "animations": {
+        "total": 105,
+        "onMarkParts": 105,
+        "states": {
+          "running": 105
+        },
+        "properties": [
+          "transform"
+        ],
+        "nonCompositorProperties": [],
+        "trace": {
+          "source": "Tracing categories devtools.timeline,blink.animations: 'Animation' events from the moment the seats turn working",
+          "events": 1099,
+          "compositeFailed": 36,
+          "compositeFailedValues": [
+            0,
+            8224
+          ],
+          "unsupportedProperties": [
+            "border-right-color",
+            "border-top-color",
+            "border-left-color",
+            "border-bottom-color"
+          ],
+          "sample": [
+            {
+              "displayName": "agent-portrait-face-in",
+              "id": "2",
+              "name": "",
+              "nodeId": 4935,
+              "nodeName": "IMG class='agent-portrait__face agent-portrait__face--enter'",
+              "state": "running"
+            },
+            {
+              "displayName": "border-top-color",
+              "id": "3",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            },
+            {
+              "displayName": "background-color",
+              "id": "4",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            }
+          ]
+        },
+        "note": "ring animations use compositor properties only"
+      },
+      "valid": true,
+      "scenarios": [
+        {
+          "name": "pan-outside",
+          "valid": true,
+          "problems": [],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 481.8,
+          "scriptMsPerSecond": 46,
+          "layoutMsPerSecond": 6.2,
+          "styleMsPerSecond": 35.2,
+          "rafFrames": 670,
+          "rafDropped": 130,
+          "frameMs": {
+            "source": "page requestAnimationFrame deltas (main-thread frames); compositor-presented frames were not available",
+            "displayHz": 120.00000762939453,
+            "p50": 8.3,
+            "p95": 16.6,
+            "p99": 17,
+            "max": 25.1,
+            "over8_3": 295,
+            "over16_7": 17,
+            "droppedAtDisplayRate": 53
+          },
+          "longAnimationFrames": {
+            "count": 0,
+            "maxMs": 0,
+            "totalMs": 0
+          },
+          "pointer": "outside",
+          "wheel": {
+            "mode": "untrusted",
+            "events": 374,
+            "eventsPerSecond": 62.1,
+            "tracePath": null
+          },
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 2.7,
+            "renderer": 64.7,
+            "GPU": 49,
+            "network.mojom.NetworkService": 0,
+            "tracing.mojom.TracingService": 0
+          },
+          "ringsVisible": {
+            "moving": 107,
+            "marks": 108
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(94.6364px, 83.9091px) scale(0.318182)",
+            "translate(-2612.56px, -1269.69px) scale(0.318182)",
+            "translate(65.8364px, 69.5091px) scale(0.318182)"
+          ],
+          "loadAverage1m": {
+            "before": 11.03,
+            "after": 10.46
+          }
+        },
+        {
+          "name": "pan-hover",
+          "valid": true,
+          "problems": [],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 758.7,
+          "scriptMsPerSecond": 36.6,
+          "layoutMsPerSecond": 5.1,
+          "styleMsPerSecond": 57.6,
+          "rafFrames": 601,
+          "rafDropped": 262,
+          "frameMs": {
+            "source": "page requestAnimationFrame deltas (main-thread frames); compositor-presented frames were not available",
+            "displayHz": 120.00000762939453,
+            "p50": 8.4,
+            "p95": 16.8,
+            "p99": 17.3,
+            "max": 25,
+            "over8_3": 313,
+            "over16_7": 52,
+            "droppedAtDisplayRate": 123
+          },
+          "longAnimationFrames": {
+            "count": 0,
+            "maxMs": 0,
+            "totalMs": 0
+          },
+          "pointer": "over",
+          "wheel": {
+            "mode": "trusted",
+            "events": 260,
+            "eventsPerSecond": 43.1,
+            "tracePath": null
+          },
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 2.9,
+            "renderer": 96.3,
+            "GPU": 58.5,
+            "network.mojom.NetworkService": 0,
+            "tracing.mojom.TracingService": 0
+          },
+          "ringsVisible": {
+            "moving": 107,
+            "marks": 108
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(65.8364px, 69.5091px) scale(0.318182)",
+            "translate(-931.664px, -429.241px) scale(0.318182)",
+            "translate(20.8364px, 47.0091px) scale(0.318182)"
+          ],
+          "loadAverage1m": {
+            "before": 10.46,
+            "after": 9.95
+          }
+        }
+      ]
+    },
+    {
+      "label": "canvas-1",
+      "sourceCommit": "6d1fd0a8c47cc5af9530ce508e2ebdad6bfc93a0",
+      "appRoot": "/private/tmp/claude-501/-Users-guilhermecastro-Projects-junto/09638193-589d-4950-9214-e4e499458ceb/scratchpad/pan",
+      "command": "bun scripts/probe-ring-cost.ts --app-root /private/tmp/claude-501/-Users-guilhermecastro-Projects-junto/09638193-589d-4950-9214-e4e499458ceb/scratchpad/pan --label canvas-1 --seconds 6 --port 9341 --fixture large --scenarios pan-outside,pan-hover",
+      "when": "2026-10-17T21:02:29.456Z",
+      "environment": {
+        "accessibility": true,
+        "electron": "43.5.0",
+        "chrome": "150.0.7871.250",
+        "displays": 1,
+        "darkOs": true,
+        "displayHz": 120.00000762939453,
+        "rendererAccessibilityForcedOff": false,
+        "streamLinesPerTick": 20,
+        "streamTickMs": 16,
+        "preflightProblems": []
+      },
+      "fixture": {
+        "name": "large",
+        "seats": 101,
+        "looseSeats": 5,
+        "regions": 44,
+        "maxNestingDepth": 4,
+        "regionTable": [
+          {
+            "id": "u00-big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "u00-big-a",
+            "parent": "u00-big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "u00-big-a-1",
+            "parent": "u00-big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "u00-big-a-1-a",
+            "parent": "u00-big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "u00-big-b",
+            "parent": "u00-big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "u00-big-b-1",
+            "parent": "u00-big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "u00-mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "u00-mid-a",
+            "parent": "u00-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "u00-mid-b",
+            "parent": "u00-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "u00-small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "u00-small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          },
+          {
+            "id": "u01-big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "u01-big-a",
+            "parent": "u01-big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "u01-big-a-1",
+            "parent": "u01-big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "u01-big-a-1-a",
+            "parent": "u01-big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "u01-big-b",
+            "parent": "u01-big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "u01-big-b-1",
+            "parent": "u01-big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "u01-mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "u01-mid-a",
+            "parent": "u01-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "u01-mid-b",
+            "parent": "u01-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "u01-small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "u01-small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          },
+          {
+            "id": "u10-big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "u10-big-a",
+            "parent": "u10-big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "u10-big-a-1",
+            "parent": "u10-big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "u10-big-a-1-a",
+            "parent": "u10-big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "u10-big-b",
+            "parent": "u10-big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "u10-big-b-1",
+            "parent": "u10-big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "u10-mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "u10-mid-a",
+            "parent": "u10-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "u10-mid-b",
+            "parent": "u10-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "u10-small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "u10-small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          },
+          {
+            "id": "u11-big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "u11-big-a",
+            "parent": "u11-big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "u11-big-a-1",
+            "parent": "u11-big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "u11-big-a-1-a",
+            "parent": "u11-big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "u11-big-b",
+            "parent": "u11-big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "u11-big-b-1",
+            "parent": "u11-big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "u11-mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "u11-mid-a",
+            "parent": "u11-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "u11-mid-b",
+            "parent": "u11-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "u11-small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "u11-small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          }
+        ]
+      },
+      "animations": {
+        "total": 105,
+        "onMarkParts": 105,
+        "states": {
+          "running": 105
+        },
+        "properties": [
+          "transform"
+        ],
+        "nonCompositorProperties": [],
+        "trace": {
+          "source": "Tracing categories devtools.timeline,blink.animations: 'Animation' events from the moment the seats turn working",
+          "events": 1099,
+          "compositeFailed": 36,
+          "compositeFailedValues": [
+            0,
+            8224
+          ],
+          "unsupportedProperties": [
+            "border-left-color",
+            "border-top-color",
+            "border-bottom-color",
+            "border-right-color"
+          ],
+          "sample": [
+            {
+              "displayName": "border-top-color",
+              "id": "2",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            },
+            {
+              "displayName": "background-color",
+              "id": "3",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            },
+            {
+              "displayName": "border-bottom-color",
+              "id": "4",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            }
+          ]
+        },
+        "note": "ring animations use compositor properties only"
+      },
+      "valid": true,
+      "scenarios": [
+        {
+          "name": "pan-outside",
+          "valid": true,
+          "problems": [],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 472.8,
+          "scriptMsPerSecond": 47.7,
+          "layoutMsPerSecond": 6.6,
+          "styleMsPerSecond": 35.6,
+          "rafFrames": 660,
+          "rafDropped": 147,
+          "frameMs": {
+            "source": "page requestAnimationFrame deltas (main-thread frames); compositor-presented frames were not available",
+            "displayHz": 120.00000762939453,
+            "p50": 8.3,
+            "p95": 16.7,
+            "p99": 24.7,
+            "max": 33.3,
+            "over8_3": 298,
+            "over16_7": 25,
+            "droppedAtDisplayRate": 64
+          },
+          "longAnimationFrames": {
+            "count": 0,
+            "maxMs": 0,
+            "totalMs": 0
+          },
+          "pointer": "outside",
+          "wheel": {
+            "mode": "untrusted",
+            "events": 373,
+            "eventsPerSecond": 61.9,
+            "tracePath": null
+          },
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 2.8,
+            "renderer": 63.7,
+            "GPU": 47.6,
+            "network.mojom.NetworkService": 0,
+            "tracing.mojom.TracingService": 0
+          },
+          "ringsVisible": {
+            "moving": 107,
+            "marks": 108
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(94.6364px, 83.9091px) scale(0.318182)",
+            "translate(-2612.56px, -1269.69px) scale(0.318182)",
+            "translate(51.4364px, 62.3091px) scale(0.318182)"
+          ],
+          "loadAverage1m": {
+            "before": 10.03,
+            "after": 10.59
+          }
+        },
+        {
+          "name": "pan-hover",
+          "valid": true,
+          "problems": [],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 742.6,
+          "scriptMsPerSecond": 34.5,
+          "layoutMsPerSecond": 4.6,
+          "styleMsPerSecond": 61,
+          "rafFrames": 556,
+          "rafDropped": 338,
+          "frameMs": {
+            "source": "page requestAnimationFrame deltas (main-thread frames); compositor-presented frames were not available",
+            "displayHz": 120.00000762939453,
+            "p50": 8.4,
+            "p95": 16.8,
+            "p99": 17.4,
+            "max": 341.7,
+            "over8_3": 295,
+            "over16_7": 56,
+            "droppedAtDisplayRate": 168
+          },
+          "longAnimationFrames": {
+            "count": 1,
+            "maxMs": 336,
+            "totalMs": 336
+          },
+          "pointer": "over",
+          "wheel": {
+            "mode": "trusted",
+            "events": 234,
+            "eventsPerSecond": 38.8,
+            "tracePath": null
+          },
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 2.7,
+            "renderer": 94.9,
+            "GPU": 59.4,
+            "network.mojom.NetworkService": 0,
+            "tracing.mojom.TracingService": 0
+          },
+          "ringsVisible": {
+            "moving": 107,
+            "marks": 108
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(51.4364px, 62.3091px) scale(0.318182)",
+            "translate(-811.064px, -368.941px) scale(0.318182)",
+            "translate(81.4364px, 77.3091px) scale(0.318182)"
+          ],
+          "loadAverage1m": {
+            "before": 10.59,
+            "after": 10.14
+          }
+        }
+      ]
+    },
+    {
+      "label": "after-2",
+      "sourceCommit": "2deba933eb64321cca99039b96d507ddb4f616c7",
+      "appRoot": "/Users/guilhermecastro/Projects/junto-wt-after",
+      "command": "bun scripts/probe-ring-cost.ts --app-root /Users/guilhermecastro/Projects/junto-wt-after --label after-2 --seconds 6 --port 9341 --fixture large --scenarios pan-outside,pan-hover",
+      "when": "2026-10-17T21:02:50.483Z",
+      "environment": {
+        "accessibility": true,
+        "electron": "43.5.0",
+        "chrome": "150.0.7871.250",
+        "displays": 1,
+        "darkOs": true,
+        "displayHz": 120.00000762939453,
+        "rendererAccessibilityForcedOff": false,
+        "streamLinesPerTick": 20,
+        "streamTickMs": 16,
+        "preflightProblems": []
+      },
+      "fixture": {
+        "name": "large",
+        "seats": 101,
+        "looseSeats": 5,
+        "regions": 44,
+        "maxNestingDepth": 4,
+        "regionTable": [
+          {
+            "id": "u00-big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "u00-big-a",
+            "parent": "u00-big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "u00-big-a-1",
+            "parent": "u00-big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "u00-big-a-1-a",
+            "parent": "u00-big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "u00-big-b",
+            "parent": "u00-big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "u00-big-b-1",
+            "parent": "u00-big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "u00-mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "u00-mid-a",
+            "parent": "u00-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "u00-mid-b",
+            "parent": "u00-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "u00-small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "u00-small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          },
+          {
+            "id": "u01-big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "u01-big-a",
+            "parent": "u01-big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "u01-big-a-1",
+            "parent": "u01-big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "u01-big-a-1-a",
+            "parent": "u01-big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "u01-big-b",
+            "parent": "u01-big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "u01-big-b-1",
+            "parent": "u01-big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "u01-mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "u01-mid-a",
+            "parent": "u01-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "u01-mid-b",
+            "parent": "u01-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "u01-small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "u01-small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          },
+          {
+            "id": "u10-big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "u10-big-a",
+            "parent": "u10-big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "u10-big-a-1",
+            "parent": "u10-big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "u10-big-a-1-a",
+            "parent": "u10-big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "u10-big-b",
+            "parent": "u10-big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "u10-big-b-1",
+            "parent": "u10-big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "u10-mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "u10-mid-a",
+            "parent": "u10-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "u10-mid-b",
+            "parent": "u10-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "u10-small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "u10-small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          },
+          {
+            "id": "u11-big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "u11-big-a",
+            "parent": "u11-big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "u11-big-a-1",
+            "parent": "u11-big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "u11-big-a-1-a",
+            "parent": "u11-big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "u11-big-b",
+            "parent": "u11-big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "u11-big-b-1",
+            "parent": "u11-big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "u11-mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "u11-mid-a",
+            "parent": "u11-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "u11-mid-b",
+            "parent": "u11-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "u11-small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "u11-small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          }
+        ]
+      },
+      "animations": {
+        "total": 105,
+        "onMarkParts": 105,
+        "states": {
+          "running": 105
+        },
+        "properties": [
+          "transform"
+        ],
+        "nonCompositorProperties": [],
+        "trace": {
+          "source": "Tracing categories devtools.timeline,blink.animations: 'Animation' events from the moment the seats turn working",
+          "events": 1099,
+          "compositeFailed": 36,
+          "compositeFailedValues": [
+            0,
+            8224
+          ],
+          "unsupportedProperties": [
+            "border-bottom-color",
+            "border-top-color",
+            "border-right-color",
+            "border-left-color"
+          ],
+          "sample": [
+            {
+              "displayName": "agent-portrait-face-in",
+              "id": "2",
+              "name": "",
+              "nodeId": 4935,
+              "nodeName": "IMG class='agent-portrait__face agent-portrait__face--enter'",
+              "state": "running"
+            },
+            {
+              "displayName": "border-top-color",
+              "id": "3",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            },
+            {
+              "displayName": "background-color",
+              "id": "4",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            }
+          ]
+        },
+        "note": "ring animations use compositor properties only"
+      },
+      "valid": true,
+      "scenarios": [
+        {
+          "name": "pan-outside",
+          "valid": true,
+          "problems": [],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 469.2,
+          "scriptMsPerSecond": 46.7,
+          "layoutMsPerSecond": 6.4,
+          "styleMsPerSecond": 34.5,
+          "rafFrames": 674,
+          "rafDropped": 134,
+          "frameMs": {
+            "source": "page requestAnimationFrame deltas (main-thread frames); compositor-presented frames were not available",
+            "displayHz": 120.00000762939453,
+            "p50": 8.3,
+            "p95": 16.6,
+            "p99": 16.7,
+            "max": 17.7,
+            "over8_3": 307,
+            "over16_7": 15,
+            "droppedAtDisplayRate": 48
+          },
+          "longAnimationFrames": {
+            "count": 0,
+            "maxMs": 0,
+            "totalMs": 0
+          },
+          "pointer": "outside",
+          "wheel": {
+            "mode": "untrusted",
+            "events": 375,
+            "eventsPerSecond": 62.4,
+            "tracePath": null
+          },
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 2.7,
+            "renderer": 63,
+            "GPU": 46.2,
+            "network.mojom.NetworkService": 0,
+            "tracing.mojom.TracingService": 0
+          },
+          "ringsVisible": {
+            "moving": 107,
+            "marks": 108
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(94.6364px, 83.9091px) scale(0.318182)",
+            "translate(-2612.56px, -1269.69px) scale(0.318182)",
+            "translate(80.2364px, 76.7091px) scale(0.318182)"
+          ],
+          "loadAverage1m": {
+            "before": 8.97,
+            "after": 8.57
+          }
+        },
+        {
+          "name": "pan-hover",
+          "valid": true,
+          "problems": [],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 806.2,
+          "scriptMsPerSecond": 36.7,
+          "layoutMsPerSecond": 5.6,
+          "styleMsPerSecond": 61,
+          "rafFrames": 571,
+          "rafDropped": 311,
+          "frameMs": {
+            "source": "page requestAnimationFrame deltas (main-thread frames); compositor-presented frames were not available",
+            "displayHz": 120.00000762939453,
+            "p50": 8.4,
+            "p95": 16.8,
+            "p99": 17.4,
+            "max": 25,
+            "over8_3": 313,
+            "over16_7": 64,
+            "droppedAtDisplayRate": 153
+          },
+          "longAnimationFrames": {
+            "count": 0,
+            "maxMs": 0,
+            "totalMs": 0
+          },
+          "pointer": "over",
+          "wheel": {
+            "mode": "trusted",
+            "events": 235,
+            "eventsPerSecond": 39,
+            "tracePath": null
+          },
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 2.8,
+            "renderer": 102,
+            "GPU": 61.9,
+            "network.mojom.NetworkService": 0,
+            "tracing.mojom.TracingService": 0
+          },
+          "ringsVisible": {
+            "moving": 107,
+            "marks": 108
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(80.2364px, 76.7091px) scale(0.318182)",
+            "translate(-797.264px, -362.041px) scale(0.318182)",
+            "translate(87.7364px, 80.4591px) scale(0.318182)"
+          ],
+          "loadAverage1m": {
+            "before": 8.57,
+            "after": 9.73
+          }
+        }
+      ]
+    },
+    {
+      "label": "canvas-2",
+      "sourceCommit": "6d1fd0a8c47cc5af9530ce508e2ebdad6bfc93a0",
+      "appRoot": "/private/tmp/claude-501/-Users-guilhermecastro-Projects-junto/09638193-589d-4950-9214-e4e499458ceb/scratchpad/pan",
+      "command": "bun scripts/probe-ring-cost.ts --app-root /private/tmp/claude-501/-Users-guilhermecastro-Projects-junto/09638193-589d-4950-9214-e4e499458ceb/scratchpad/pan --label canvas-2 --seconds 6 --port 9341 --fixture large --scenarios pan-outside,pan-hover",
+      "when": "2026-10-17T21:03:14.029Z",
+      "environment": {
+        "accessibility": true,
+        "electron": "43.5.0",
+        "chrome": "150.0.7871.250",
+        "displays": 1,
+        "darkOs": true,
+        "displayHz": 120.00000762939453,
+        "rendererAccessibilityForcedOff": false,
+        "streamLinesPerTick": 20,
+        "streamTickMs": 16,
+        "preflightProblems": []
+      },
+      "fixture": {
+        "name": "large",
+        "seats": 101,
+        "looseSeats": 5,
+        "regions": 44,
+        "maxNestingDepth": 4,
+        "regionTable": [
+          {
+            "id": "u00-big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "u00-big-a",
+            "parent": "u00-big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "u00-big-a-1",
+            "parent": "u00-big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "u00-big-a-1-a",
+            "parent": "u00-big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "u00-big-b",
+            "parent": "u00-big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "u00-big-b-1",
+            "parent": "u00-big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "u00-mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "u00-mid-a",
+            "parent": "u00-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "u00-mid-b",
+            "parent": "u00-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "u00-small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "u00-small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          },
+          {
+            "id": "u01-big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "u01-big-a",
+            "parent": "u01-big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "u01-big-a-1",
+            "parent": "u01-big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "u01-big-a-1-a",
+            "parent": "u01-big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "u01-big-b",
+            "parent": "u01-big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "u01-big-b-1",
+            "parent": "u01-big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "u01-mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "u01-mid-a",
+            "parent": "u01-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "u01-mid-b",
+            "parent": "u01-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "u01-small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "u01-small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          },
+          {
+            "id": "u10-big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "u10-big-a",
+            "parent": "u10-big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "u10-big-a-1",
+            "parent": "u10-big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "u10-big-a-1-a",
+            "parent": "u10-big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "u10-big-b",
+            "parent": "u10-big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "u10-big-b-1",
+            "parent": "u10-big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "u10-mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "u10-mid-a",
+            "parent": "u10-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "u10-mid-b",
+            "parent": "u10-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "u10-small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "u10-small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          },
+          {
+            "id": "u11-big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "u11-big-a",
+            "parent": "u11-big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "u11-big-a-1",
+            "parent": "u11-big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "u11-big-a-1-a",
+            "parent": "u11-big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "u11-big-b",
+            "parent": "u11-big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "u11-big-b-1",
+            "parent": "u11-big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "u11-mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "u11-mid-a",
+            "parent": "u11-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "u11-mid-b",
+            "parent": "u11-mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "u11-small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "u11-small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          }
+        ]
+      },
+      "animations": {
+        "total": 105,
+        "onMarkParts": 105,
+        "states": {
+          "running": 105
+        },
+        "properties": [
+          "transform"
+        ],
+        "nonCompositorProperties": [],
+        "trace": {
+          "source": "Tracing categories devtools.timeline,blink.animations: 'Animation' events from the moment the seats turn working",
+          "events": 932,
+          "compositeFailed": 36,
+          "compositeFailedValues": [
+            0,
+            8224
+          ],
+          "unsupportedProperties": [
+            "border-top-color",
+            "border-bottom-color",
+            "border-left-color",
+            "border-right-color"
+          ],
+          "sample": [
+            {
+              "displayName": "agent-portrait-face-in",
+              "id": "2",
+              "name": "",
+              "nodeId": 4935,
+              "nodeName": "IMG class='agent-portrait__face agent-portrait__face--enter'",
+              "state": "running"
+            },
+            {
+              "displayName": "border-top-color",
+              "id": "3",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            },
+            {
+              "displayName": "background-color",
+              "id": "4",
+              "name": "",
+              "nodeId": 48,
+              "nodeName": "BUTTON class='group-chip'",
+              "state": "running"
+            }
+          ]
+        },
+        "note": "ring animations use compositor properties only"
+      },
+      "valid": true,
+      "scenarios": [
+        {
+          "name": "pan-outside",
+          "valid": true,
+          "problems": [],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 460,
+          "scriptMsPerSecond": 46.3,
+          "layoutMsPerSecond": 6.6,
+          "styleMsPerSecond": 34.7,
+          "rafFrames": 669,
+          "rafDropped": 127,
+          "frameMs": {
+            "source": "page requestAnimationFrame deltas (main-thread frames); compositor-presented frames were not available",
+            "displayHz": 120.00000762939453,
+            "p50": 8.3,
+            "p95": 16.6,
+            "p99": 24.9,
+            "max": 25.8,
+            "over8_3": 289,
+            "over16_7": 22,
+            "droppedAtDisplayRate": 50
+          },
+          "longAnimationFrames": {
+            "count": 0,
+            "maxMs": 0,
+            "totalMs": 0
+          },
+          "pointer": "outside",
+          "wheel": {
+            "mode": "untrusted",
+            "events": 375,
+            "eventsPerSecond": 62.5,
+            "tracePath": null
+          },
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 2.7,
+            "renderer": 61.9,
+            "GPU": 46.1,
+            "network.mojom.NetworkService": 0,
+            "tracing.mojom.TracingService": 0
+          },
+          "ringsVisible": {
+            "moving": 107,
+            "marks": 108
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(94.6364px, 83.9091px) scale(0.318182)",
+            "translate(-2612.56px, -1269.69px) scale(0.318182)",
+            "translate(80.2364px, 76.7091px) scale(0.318182)"
+          ],
+          "loadAverage1m": {
+            "before": 10.55,
+            "after": 9.79
+          }
+        },
+        {
+          "name": "pan-hover",
+          "valid": true,
+          "problems": [],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 795.8,
+          "scriptMsPerSecond": 36.5,
+          "layoutMsPerSecond": 5.7,
+          "styleMsPerSecond": 61,
+          "rafFrames": 579,
+          "rafDropped": 301,
+          "frameMs": {
+            "source": "page requestAnimationFrame deltas (main-thread frames); compositor-presented frames were not available",
+            "displayHz": 120.00000762939453,
+            "p50": 8.4,
+            "p95": 16.7,
+            "p99": 17.6,
+            "max": 25.1,
+            "over8_3": 315,
+            "over16_7": 59,
+            "droppedAtDisplayRate": 145
+          },
+          "longAnimationFrames": {
+            "count": 0,
+            "maxMs": 0,
+            "totalMs": 0
+          },
+          "pointer": "over",
+          "wheel": {
+            "mode": "trusted",
+            "events": 239,
+            "eventsPerSecond": 39.6,
+            "tracePath": null
+          },
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 3.3,
+            "renderer": 100.8,
+            "GPU": 61.7,
+            "network.mojom.NetworkService": 0,
+            "tracing.mojom.TracingService": 0
+          },
+          "ringsVisible": {
+            "moving": 107,
+            "marks": 108
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(80.2364px, 76.7091px) scale(0.318182)",
+            "translate(-827.264px, -377.041px) scale(0.318182)",
+            "translate(57.7364px, 65.4591px) scale(0.318182)"
+          ],
+          "loadAverage1m": {
+            "before": 9.79,
+            "after": 9.32
+          }
+        }
+      ]
+    }
+  ]
+}

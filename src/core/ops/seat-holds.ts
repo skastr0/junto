@@ -1,0 +1,36 @@
+/**
+ * The core's handlers of the operator's holds (src/contract/core/seat-holds.ts).
+ *
+ * The window says which terminals it shows and when the operator typed into
+ * one; everything that asks lives here, where the seats and their views run:
+ * the cache cut leaves a held seat's session alone
+ * (seat-sessions/operator-offboard-live.ts), a key warms its clock, and a
+ * peer's Hold frame carries the same facts to the machine that runs the seat
+ * (term/seat-views.ts, term/seat-attach.ts).
+ *
+ * Main kept this map before, so nothing it reported reached the cut: a seat the
+ * operator was watching, or typing into, could be offboarded under their hands
+ * (0.11.7). Main now sends the two reports on (`operator-holds-ipc.ts`) and
+ * keeps no map of its own.
+ */
+import { Effect } from "effect";
+import { SeatHoldsRpcs } from "../../contract/core/seat-holds";
+import { liveOperatorHolds } from "../term/operator-holds";
+
+export const SeatHoldsHandlers = SeatHoldsRpcs.toLayer({
+  SeatHoldsSurfaces: ({ windowId, bindingIds }) =>
+    Effect.sync(() => {
+      liveOperatorHolds.surfaces(windowId, bindingIds);
+      // The window's report, in the core's own log: a core that starts again is
+      // sent it again (junto/ipc.ts), and the log is where that shows.
+      console.info(`[seats] window ${String(windowId)} shows ${bindingIds.length === 0 ? "nothing" : bindingIds.join(" ")}`);
+    }),
+  SeatHoldsTyped: ({ windowId, bindingId }) =>
+    Effect.sync(() => {
+      liveOperatorHolds.typed(windowId, bindingId);
+    }),
+  SeatHoldsDropWindow: ({ windowId }) =>
+    Effect.sync(() => {
+      liveOperatorHolds.dropWindow(windowId);
+    }),
+});

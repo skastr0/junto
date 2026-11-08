@@ -1,0 +1,828 @@
+/**
+ * The fold equals the ruler (docs/plans/0.11/06-fleet-state.md, "F1 and F2"):
+ * fleet state's authority judges a batch, rolls it back and applies the
+ * rulings at commit through `foldRuling`, and every replica already reaches
+ * its tables through that fold today. So for any sequence of commands, three
+ * stores must hold the same resource tables:
+ *
+ * - direct: the ruler writes its projection, as the editing machine does now;
+ * - judged: the ruler runs inside a transaction that is rolled back, and its
+ *   recorded rulings are then written and folded, as the authority will;
+ * - replica: another machine folds the rulings the direct store recorded.
+ *
+ * A difference is a bug today as well, because replicas depend on it.
+ */
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { Arbitrary, Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Reactivity } from "effect/reactivity";
+import { SqlClient } from "effect/sql";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ContentService, makeContentServiceLive } from "../src/core/content/service";
+import { AutomationRepository, makeAutomationRepositoryLive } from "../src/core/automation/repository";
+import { submitAutomationCommand } from "../src/core/automation/ruler";
+import { makeMachineRepositoryLive } from "../src/core/machines/repository";
+import { PausePlaneLive } from "../src/core/pause-plane-live";
+import { FactoryPauseRepositoryLive } from "../src/core/pause/repository";
+import { ReferencesRepositoryLive } from "../src/core/references/repository";
+import { SeatGuidanceRepositoryLive } from "../src/core/seat-guidance/repository";
+import { makeSettingsLive } from "../src/core/settings/service";
+import { AgentSignalRepositoryLive } from "../src/core/signals/repository";
+import { CrewRepositoryLive } from "../src/core/work/crew-repository";
+import type { AutomationDefinition, AutomationOp } from "../src/shared/automation";
+import { makeInstallOpsLive } from "../src/core/install-ops/engine";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { ArtifactRepository, ArtifactRepositoryLive } from "../src/core/work/artifact-repository";
+import { WorkRepository, WorkRepositoryLive } from "../src/core/work/repository";
+import { REVIEW_VERDICTS_SCHEMA_SQL } from "../src/core/state/migrate-review-stamps";
+import { makeSqliteClient } from "../src/core/state/sqlite-client";
+import { RESOURCE_RULINGS_STATE_SCHEMA_SQL } from "../src/core/work/resource-rulings-schema";
+import { writeRuling } from "../src/core/work/resource-rulings";
+import { foldRuling } from "../src/core/work/ruling-projection";
+import { RulingRecorder } from "../src/core/work/ruling-recorder";
+import { TaskRepository, TaskRepositoryLive, type TaskCanvasEnv } from "../src/core/work/task-repository";
+import { TASKS_STATE_SCHEMA_SQL } from "../src/core/work/task-state-schema";
+import { rulingRowOf, type RulingAppliedResult } from "../src/shared/command-row";
+import type { RecordRulingInput } from "../src/core/work/repository";
+import type { ArtifactOp, ArtifactVersion } from "../src/shared/artifact";
+import { artifacts, automations, seat } from "./support/model-nodes";
+import { ModelStoresLive, seedCanvasRows } from "./support/seed-canvas";
+import { ModelDependents } from "../src/core/model/dependents";
+import { ModelService } from "../src/core/model/service";
+import { StructureCapture } from "../src/core/model/structure-capture";
+import { asCanvasName, type Changed, type Node } from "../src/shared/model";
+import type { InstallationId } from "../src/shared/installation-id";
+import { asNodeId } from "../src/shared/physics/schema";
+import type { OpId, ResourceActor, ResourceCommand, RulingContext } from "../src/shared/resource-command";
+import { seatNodeId, taskNodeId, type TaskCommand, type TaskId } from "../src/shared/task-model";
+
+const CANVAS = "factory";
+const WRITER = "mini" as InstallationId;
+const START = Date.parse("2026-10-28T12:00:00.000Z");
+// CI replays the pinned seed; a nightly sweeps wider with JUNTO_FOLD_SEED and JUNTO_FOLD_RUNS (a multiple of each count).
+const SEED = Number(process.env.JUNTO_FOLD_SEED ?? 20261028);
+const RUNS = Number(process.env.JUNTO_FOLD_RUNS ?? 1);
+/** A property's runs and time budget, scaled together for a nightly sweep. */
+const runs = (numRuns: number, budgetMs: number) => ({ runs: numRuns * RUNS, budgetMs: budgetMs * RUNS });
+
+/** A whole number from `min` to `max`, both included. */
+const integer = (min: number, max: number) => Arbitrary.schema(Schema.Int.check(Schema.isBetween({ minimum: min, maximum: max })));
+const boolean = Arbitrary.schema(Schema.Boolean);
+
+/** One of the values given. */
+const constantFrom = <const A extends ReadonlyArray<unknown>>(...values: A): Arbitrary.Arbitrary<A[number]> =>
+  Arbitrary.map(integer(0, values.length - 1), (index) => values[index] as A[number]);
+
+type Choice<A> = Arbitrary.Arbitrary<A> | { readonly weight: number; readonly arbitrary: Arbitrary.Arbitrary<A> };
+
+/** One of the arbitraries given, each as likely as its weight (one, when it has none). */
+const oneOf = <A>(...choices: ReadonlyArray<Choice<A>>): Arbitrary.Arbitrary<A> => {
+  // A draw is a slot, and each choice holds as many slots as its weight.
+  const slots = choices.flatMap((choice) => {
+    const { weight, arbitrary } = "weight" in choice ? choice : { weight: 1, arbitrary: choice };
+    return Array.from({ length: weight }, () => arbitrary);
+  });
+  return Arbitrary.flatMap(integer(0, slots.length - 1), (slot) => slots[slot] as Arbitrary.Arbitrary<A>);
+};
+
+/** The value, or `undefined` one time in six. */
+const optional = <A>(arbitrary: Arbitrary.Arbitrary<A>): Arbitrary.Arbitrary<A | undefined> =>
+  oneOf<A | undefined>({ weight: 1, arbitrary: Arbitrary.Constant(undefined) }, { weight: 5, arbitrary });
+
+/** Any of the items, kept in their order. */
+const subarray = <A>(items: ReadonlyArray<A>): Arbitrary.Arbitrary<Array<A>> =>
+  Arbitrary.map(Arbitrary.all(items.map(() => boolean)), (kept) => items.filter((_, index) => kept[index]));
+
+/**
+ * Checks a property under the pinned seed, after each example, and fails the test with the shrunk counterexample
+ * when it does not hold. A property stops itself, as a failure, before its test times out: the case in flight
+ * finishes, and the next one does not start past the budget. A test that times out leaves its property running,
+ * and the stray one moves the shared fake clock under the next test's setup.
+ */
+const holds = async <A>(
+  arbitrary: Arbitrary.Arbitrary<A>,
+  property: (value: A) => Promise<void>,
+  { runs, size, budgetMs, examples = [] }: { readonly runs: number; readonly size: number; readonly budgetMs: number; readonly examples?: ReadonlyArray<A> },
+) => {
+  for (const example of examples) await property(example);
+  const deadline = performance.now() + budgetMs;
+  const result = await Effect.runPromise(
+    Arbitrary.checkEffect(
+      arbitrary,
+      (value) =>
+        Effect.gen(function* () {
+          if (performance.now() > deadline) return yield* Effect.die(new Error(`the property ran past its budget of ${budgetMs} ms`));
+          // A failed assertion is the property failing, so it shrinks and is reported with its input.
+          yield* Effect.tryPromise({ try: () => property(value), catch: (error) => (error instanceof Error ? error.message : String(error)) });
+          return true;
+        }),
+      { runs, size, seed: SEED },
+    ),
+  );
+  const failure = Arbitrary.formatCheckFailure(result);
+  if (failure !== undefined) throw new Error(failure);
+};
+
+/** Room past a property's budget for the case in flight when it stops. */
+const timeoutFor = (budgetMs: number) => budgetMs * RUNS + 60_000;
+const TASK_BUDGET_MS = 60_000;
+// Each engine case builds three stores, each with its own database, migrations and runtime. The 25 artifact cases
+// took 147 s alone on a 4-CPU VM and ran past 120 s in a loaded isolated lane, so the budget is about four times
+// the time alone: headroom for load, not more cases.
+const ENGINE_BUDGET_MS = 600_000;
+
+/** One store: its own database, the ruler's runtime, and every ruling the ruler handed its recorder. */
+type Store = {
+  readonly database: DatabaseSync;
+  readonly sql: SqlClient.SqlClient;
+  readonly runtime: ManagedRuntime.ManagedRuntime<TaskRepository | SqlClient.SqlClient, unknown>;
+  readonly recorded: Array<RecordRulingInput>;
+};
+
+const stores: Array<Store> = [];
+
+/** Every store is set up at START, whatever time the last case left: setup stamps are not state the fold makes. */
+const pinSetupClock = () => vi.setSystemTime(START);
+
+const makeStore = async (installation: string): Promise<Store> => {
+  pinSetupClock();
+  const database = new DatabaseSync(":memory:");
+  database.exec("PRAGMA foreign_keys = ON");
+  database.exec(TASKS_STATE_SCHEMA_SQL);
+  database.exec(RESOURCE_RULINGS_STATE_SCHEMA_SQL);
+  database.exec("CREATE TABLE installation (singleton INTEGER PRIMARY KEY, installation_id TEXT NOT NULL)");
+  database.exec(`INSERT INTO installation VALUES (1, '${installation}')`);
+  database.exec("CREATE TABLE work_canvas_revisions (canvas_name TEXT PRIMARY KEY, revision INTEGER NOT NULL) STRICT");
+  database.exec(REVIEW_VERDICTS_SCHEMA_SQL);
+  const recorded: Array<RecordRulingInput> = [];
+  const client = Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer));
+  // The ruling's row as the recorder writes it; its exchange fact needs the whole work store and folds nothing.
+  const recorder = Layer.effect(
+    RulingRecorder,
+    Effect.map(SqlClient.SqlClient, (sql) =>
+      RulingRecorder.of({
+        record: (input) =>
+          writeRuling(sql, { canvas: input.canvasName, writer: input.writer, command: input.command, record: input.record }).pipe(
+            Effect.tap(() => Effect.sync(() => recorded.push(input))),
+            Effect.asVoid,
+            Effect.orDie,
+          ),
+      })),
+  );
+  const runtime = ManagedRuntime.make(Layer.provideMerge(TaskRepositoryLive.pipe(Layer.provide(recorder)), client));
+  const sql = await runtime.runPromise(SqlClient.SqlClient);
+  const store = { database, sql, runtime, recorded };
+  stores.push(store);
+  return store;
+};
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+});
+
+afterEach(async () => {
+  vi.useRealTimers();
+  for (const store of stores.splice(0)) {
+    await store.runtime.dispose();
+    store.database.close();
+  }
+});
+
+/** Every table's rows, in an order that does not depend on how they were written. */
+const tablesOf = (store: Store, leaveOut: ReadonlySet<string> = new Set()): Record<string, ReadonlyArray<string>> => {
+  const names = store.database
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+    .all()
+    .map((row) => String(row.name))
+    .filter((name) => !leaveOut.has(name));
+  return Object.fromEntries(
+    names.map((name) => [name, store.database.prepare(`SELECT * FROM "${name}"`).all().map((row) => JSON.stringify(row)).sort()]),
+  );
+};
+
+/** The applied ruling's row, as every machine receives it. */
+const appliedRow = (input: RecordRulingInput): RulingAppliedResult | undefined => {
+  const row = rulingRowOf(input.writer, input.command, input.kind, input.ruling as never);
+  return row.operation === "ruling.applied" ? row : undefined;
+};
+
+class Judged {
+  readonly _tag = "Judged";
+}
+
+/** Judge in a transaction that rolls back, then write the ruling and fold it at commit: the authority's path. */
+const judgeThenFold = <A, E>(store: Store, submit: Effect.Effect<A, E, TaskRepository>, at: number) =>
+  store.runtime.runPromise(
+    Effect.gen(function* () {
+      const before = store.recorded.length;
+      yield* store.sql.withTransaction(Effect.flatMap(submit, () => Effect.fail(new Judged()))).pipe(
+        Effect.catchIf((error): error is Judged => error instanceof Judged, () => Effect.void),
+      );
+      const rulings = store.recorded.splice(before);
+      yield* store.sql.withTransaction(
+        Effect.forEach(rulings, (input) =>
+          Effect.gen(function* () {
+            // The facts first, then the ruling row, as the ruler writes them: the row stands on the count they moved.
+            const applied = appliedRow(input);
+            if (applied !== undefined) yield* foldRuling(store.sql, input.canvasName, applied, at);
+            yield* writeRuling(store.sql, { canvas: input.canvasName, writer: input.writer, command: input.command, record: input.record });
+          }),
+        ),
+      );
+      store.recorded.push(...rulings);
+    }),
+  );
+
+/** Fold what the direct store ruled, as a replica takes it. */
+const foldOnReplica = (store: Store, rulings: ReadonlyArray<{ readonly input: RecordRulingInput; readonly at: number }>) =>
+  store.runtime.runPromise(
+    Effect.forEach(rulings, ({ input, at }) => {
+      const applied = appliedRow(input);
+      return applied === undefined ? Effect.void : store.sql.withTransaction(foldRuling(store.sql, input.canvasName, applied, at));
+    }),
+  );
+
+// ---------------------------------------------------------------------------
+// Tasks
+
+const build = taskNodeId(asNodeId("tasks-build"));
+const qa = taskNodeId(asNodeId("tasks-qa"));
+const ada = seatNodeId(asNodeId("seat-ada"));
+const bob = seatNodeId(asNodeId("seat-bob"));
+const TASK_IDS = ["01M62AT0000000000000000001", "01M62AT0000000000000000002", "01M62AT0000000000000000003"] as unknown as ReadonlyArray<TaskId>;
+const actors: ReadonlyArray<ResourceActor> = [
+  { kind: "operator" },
+  { kind: "seat", seatId: `seat_${"a".repeat(64)}` as never, nodeId: ada },
+  { kind: "seat", seatId: `seat_${"b".repeat(64)}` as never, nodeId: bob },
+];
+const everywhere: RulingContext = { inReach: () => true };
+const taskEnv: TaskCanvasEnv = {
+  downstream: () => [qa],
+  stampDefaultOf: () => ({ required: 0 }),
+  rulesUnmet: () => undefined,
+  checksUnmet: () => undefined,
+  derivesTo: () => [],
+  seatReaches: () => true,
+};
+
+const taskId = constantFrom(...TASK_IDS);
+const taskOp: Arbitrary.Arbitrary<{ readonly op: TaskCommand; readonly task: TaskId }> = oneOf(
+  Arbitrary.map(
+    Arbitrary.all({ task: taskId, title: constantFrom("Ship", "Fix", "Plan"), body: optional(constantFrom("why", "how")) }),
+    ({ task, title, body }) => ({ task, op: { kind: "create", taskId: task, title, ...(body === undefined ? {} : { body }) } as TaskCommand }),
+  ),
+  Arbitrary.map(Arbitrary.all({ task: taskId, title: constantFrom("Ship it", "Fix it") }), ({ task, title }) => ({ task, op: { kind: "edit", title } as TaskCommand })),
+  Arbitrary.map(Arbitrary.all({ task: taskId, seat: constantFrom(ada, bob) }), ({ task, seat }) => ({ task, op: { kind: "assign", seat } as TaskCommand })),
+  Arbitrary.map(
+    Arbitrary.all({ task: taskId, kind: constantFrom("unassign", "start", "pause", "resume", "cancel", "archive") }),
+    ({ task, kind }) => ({ task, op: { kind } as TaskCommand }),
+  ),
+  Arbitrary.map(
+    Arbitrary.all({ task: taskId, next: optional(Arbitrary.Constant(qa)), handoff: optional(Arbitrary.Constant("over to qa")) }),
+    ({ task, next, handoff }) => ({
+      task,
+      op: { kind: "finish", ...(next === undefined ? {} : { next }), ...(handoff === undefined ? {} : { handoff }) } as TaskCommand,
+    }),
+  ),
+  Arbitrary.map(Arbitrary.all({ task: taskId, on: taskId, kind: constantFrom("depend", "undepend") }), ({ task, on, kind }) => ({ task, op: { kind, on } as TaskCommand })),
+  Arbitrary.map(Arbitrary.all({ task: taskId, required: integer(0, 2) }), ({ task, required }) => ({ task, op: { kind: "stamp-policy", required } as TaskCommand })),
+);
+/** Each task lives on one node, so a command names it where it is. */
+const nodeOf = (task: TaskId) => (task === TASK_IDS[2] ? qa : build);
+const randomStep = Arbitrary.map(
+  Arbitrary.all({ actor: constantFrom(...actors), op: taskOp }),
+  (step): TaskStep => ({ ...step, node: nodeOf(step.op.task) }),
+);
+/** A task's working life, by its assignee: create, assign, start, maybe pause and resume, finish. */
+const lifeOf = Arbitrary.map(Arbitrary.all({ task: taskId, seat: constantFrom(1, 2), paused: boolean }), ({ task, seat, paused }): TaskStep[] => {
+  const assignee = actors[seat]!;
+  const at = (op: TaskCommand, actor: ResourceActor = assignee): TaskStep => ({ actor, op: { op, task }, node: nodeOf(task) });
+  return [
+    at({ kind: "create", taskId: task, title: "Life" } as TaskCommand, actors[0]),
+    at({ kind: "assign", seat: (assignee as Extract<ResourceActor, { kind: "seat" }>).nodeId } as TaskCommand, actors[0]),
+    at({ kind: "start" } as TaskCommand),
+    ...(paused ? [at({ kind: "pause" } as TaskCommand), at({ kind: "resume" } as TaskCommand)] : []),
+    at({ kind: "finish", handoff: "done" } as TaskCommand),
+  ];
+});
+const taskSteps = Arbitrary.map(
+  Arbitrary.array(oneOf(Arbitrary.map(randomStep, (step) => [step]), lifeOf), { minLength: 1, maxLength: 12 }),
+  (runs) => runs.flat(),
+);
+
+/**
+ * Seed 10, run 4x, shrunk: the second finish waits in review for its stamp, naming qa next, and cancel kept
+ * that next node, so the ruler's write broke task_heads' CHECK (next only while in review).
+ */
+const canceledInReview: ReadonlyArray<TaskStep> = (() => {
+  const [operator, assignee] = [actors[0]!, actors[1]!];
+  const life = TASK_IDS[2]!;
+  const at = (actor: ResourceActor, op: TaskCommand, task: TaskId = life): TaskStep => ({ actor, op: { op, task }, node: nodeOf(task) });
+  const pass = [
+    at(operator, { kind: "create", taskId: life, title: "Life" } as TaskCommand),
+    at(operator, { kind: "assign", seat: ada } as TaskCommand),
+    at(assignee, { kind: "start" } as TaskCommand),
+    at(assignee, { kind: "finish", handoff: "done" } as TaskCommand),
+  ];
+  return [
+    ...pass,
+    at(operator, { kind: "stamp-policy", required: 1 } as TaskCommand),
+    ...pass,
+    at(operator, { kind: "cancel" } as TaskCommand),
+    at(operator, { kind: "unassign" } as TaskCommand, TASK_IDS[0]!),
+  ];
+})();
+
+/** Every op the coverage check names, applied once, so no seed's draw leaves one out. */
+const everyOp: ReadonlyArray<TaskStep> = (() => {
+  const [operator, assignee] = [actors[0]!, actors[1]!];
+  const [first, second] = [TASK_IDS[0]!, TASK_IDS[1]!];
+  const at = (actor: ResourceActor, op: TaskCommand, task: TaskId): TaskStep => ({ actor, op: { op, task }, node: nodeOf(task) });
+  return [
+    at(operator, { kind: "create", taskId: first, title: "First" } as TaskCommand, first),
+    at(operator, { kind: "create", taskId: second, title: "Second" } as TaskCommand, second),
+    at(operator, { kind: "depend", on: first } as TaskCommand, second),
+    at(operator, { kind: "edit", title: "Ship it" } as TaskCommand, first),
+    at(operator, { kind: "assign", seat: ada } as TaskCommand, first),
+    at(assignee, { kind: "start" } as TaskCommand, first),
+    at(assignee, { kind: "pause" } as TaskCommand, first),
+    at(assignee, { kind: "resume" } as TaskCommand, first),
+    at(assignee, { kind: "finish", handoff: "done" } as TaskCommand, first),
+  ];
+})();
+
+type TaskStep = { readonly actor: ResourceActor; readonly op: { readonly op: TaskCommand; readonly task: TaskId }; readonly node: typeof build };
+
+const taskCommand = (index: number, step: TaskStep) =>
+  ({
+    opId: `01M62AT${String(index).padStart(19, "0")}` as OpId,
+    canvasName: CANVAS,
+    actor: step.actor,
+    target: { kind: "task", nodeId: step.node, ...(step.op.op.kind === "create" ? {} : { itemId: step.op.task }) },
+    basis: null,
+    after: [],
+    op: step.op.op,
+  }) as ResourceCommand<TaskCommand>;
+
+describe("the fold equals the ruler", () => {
+  it("for tasks: directly, judged then folded, and on a replica", async () => {
+    // Which op kinds were applied across every run: the property is not vacuous.
+    const applied = new Set<string>();
+    await holds(
+      taskSteps,
+      async (steps) => {
+        const direct = await makeStore(WRITER);
+        const judged = await makeStore(WRITER);
+        const replica = await makeStore("replica");
+        const ruled: Array<{ input: RecordRulingInput; at: number }> = [];
+        for (const [index, step] of steps.entries()) {
+          const at = START + index * 1000;
+          vi.setSystemTime(at);
+          const command = taskCommand(index, step);
+          const submit = Effect.flatMap(TaskRepository, (repo) => repo.submit(WRITER, command, everywhere, taskEnv));
+          const before = direct.recorded.length;
+          await direct.runtime.runPromise(submit);
+          for (const input of direct.recorded.slice(before)) {
+            ruled.push({ input, at });
+            if (input.ruling.kind === "applied") applied.add(command.op.kind);
+          }
+          await judgeThenFold(judged, submit, at);
+        }
+        await foldOnReplica(replica, ruled);
+        const held = tablesOf(direct);
+        expect(tablesOf(judged)).toEqual(held);
+        // A replica holds no ruling rows of its own here: the exchange keeps those as facts.
+        const resources = new Set(["resource_rulings", "installation"]);
+        expect(tablesOf(replica, resources)).toEqual(tablesOf(direct, resources));
+        for (const store of stores.splice(0)) {
+          await store.runtime.dispose();
+          store.database.close();
+        }
+      },
+      { ...runs(60, TASK_BUDGET_MS), size: 12, examples: [[...canceledInReview], [...everyOp]] },
+    );
+    expect([...applied].sort()).toEqual(expect.arrayContaining(["assign", "create", "depend", "edit", "finish", "pause", "resume", "start"]));
+  }, timeoutFor(TASK_BUDGET_MS));
+});
+
+// ---------------------------------------------------------------------------
+// Artifacts: their fold reads the work log and the content store, so each store is a whole state engine.
+
+type EngineStore = {
+  readonly root: string;
+  readonly runtime: ManagedRuntime.ManagedRuntime<ArtifactRepository | WorkRepository | ContentService | SqlClient.SqlClient | RulingRecorder, unknown>;
+  readonly recorded: Array<RecordRulingInput>;
+};
+const engines: Array<EngineStore> = [];
+const ARTS = asNodeId("arts");
+
+/**
+ * The canvas as each machine comes to hold it: the writer's machine creates
+ * and edits it, and a replica takes the writer's copy, as the exchange gives it.
+ */
+const holdCanvas = (installation: string, nodes: ReadonlyArray<Node>) =>
+  installation === WRITER
+    ? Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* seedCanvasRows({ seq: 1, canvases: new Map([[CANVAS, { nodes }]]) });
+      yield* sql`UPDATE canvases SET editor_installation_id = ${WRITER} WHERE canvas_name = ${CANVAS}`;
+    })
+    : Effect.flatMap(ModelService, (model) =>
+      model.installCopy({ canvas: asCanvasName(CANVAS), canvasId: `test-${CANVAS}`, seq: 1, editor: WRITER, nodes: nodes.map((node, z) => ({ ...node, z })), wires: [] }),
+    ).pipe(Effect.asVoid, Effect.provide(ModelService.layer), Effect.provide(ModelDependents.empty));
+
+const makeEngineStore = async (installation: string): Promise<EngineStore> => {
+  pinSetupClock();
+  const root = await mkdtemp(join(tmpdir(), `junto-fold-${installation}-`));
+  const recorded: Array<RecordRulingInput> = [];
+  // The ruling's row and its fact, as the real recorder writes them; notices are left out on every store alike.
+  const recorder = Layer.effect(
+    RulingRecorder,
+    Effect.map(WorkRepository, (work) =>
+      RulingRecorder.of({
+        record: (input) => work.recordRuling(input).pipe(Effect.tap(() => Effect.sync(() => recorded.push(input))), Effect.asVoid, Effect.orDie),
+      })),
+  );
+  const content = makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true });
+  const runtime = ManagedRuntime.make(
+    Layer.provideMerge(ArtifactRepositoryLive, Layer.provideMerge(recorder, Layer.provideMerge(WorkRepositoryLive, content))).pipe(
+      Layer.provideMerge(Layer.mergeAll(makeStateEngineLive(join(root, "junto.db")), makeInstallOpsLive(join(root, "install-ops.db")))),
+    ),
+  );
+  await runtime.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql.withTransaction(
+        Effect.gen(function* () {
+          for (const machine of new Set([WRITER, installation])) {
+            yield* sql`INSERT INTO known_installations(installation_id, registered_at) VALUES (${machine}, ${new Date(START).toISOString()})`;
+          }
+          yield* sql`INSERT INTO installation(singleton, installation_id, created_at) VALUES (1, ${installation}, ${new Date(START).toISOString()})`;
+          // The writer's machine edits the canvas on every store: a replica is a machine that does not.
+          yield* holdCanvas(installation, [artifacts("arts")]);
+        }),
+      );
+    }),
+  );
+  const store = { root, runtime, recorded };
+  engines.push(store);
+  return store;
+};
+
+const closeEngines = async () => {
+  for (const store of engines.splice(0)) {
+    await store.runtime.dispose();
+    await rm(store.root, { recursive: true, force: true });
+  }
+};
+
+/** Every resource table of an engine store, leaving out the log and what only a ruler keeps. */
+const engineTablesOf = (store: EngineStore, leaveOut: ReadonlySet<string>) =>
+  store.runtime.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const names = (yield* sql.unsafe<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"))
+        .map((row) => row.name)
+        .filter((name) => !leaveOut.has(name) && ![...leaveOut].some((prefix) => prefix.endsWith("*") && name.startsWith(prefix.slice(0, -1))));
+      const tables: Record<string, ReadonlyArray<string>> = {};
+      for (const name of names) {
+        const rows = yield* sql.unsafe<Record<string, unknown>>(`SELECT * FROM "${name}"`);
+        // A content ref's id is drawn fresh at each put: an identity, not state.
+        if (rows.length > 0) tables[name] = rows.map(({ ref_id: _refId, ...row }) => JSON.stringify(row)).sort();
+      }
+      return tables;
+    }),
+  );
+
+/**
+ * What a replica holds where the ruler holds a body too large to ride inline
+ * (v29): the version pending, with no bytes until a read fetches them by ref,
+ * and the edit that made it unrecorded.
+ * Every other row is the ruler's.
+ */
+const byRefPending = (tables: Record<string, ReadonlyArray<string>>): Record<string, ReadonlyArray<string>> => {
+  const byRef = new Set<string>();
+  const versions = (tables.artifact_versions ?? []).map((text) => {
+    const row = JSON.parse(text) as { inline_body_json: string | null; body_ref_json: string; edit_json: string | null };
+    if (row.inline_body_json === null || !row.inline_body_json.includes(LARGE)) return text;
+    byRef.add((JSON.parse(row.body_ref_json) as { sha256: string }).sha256);
+    const edit_json = row.edit_json === null ? null : JSON.stringify({ unrecorded: true });
+    return JSON.stringify({ ...row, edit_json, inline_body_json: null });
+  });
+  const out: Record<string, ReadonlyArray<string>> = {};
+  for (const [name, rows] of Object.entries(tables)) {
+    const kept = name === "artifact_versions"
+      ? [...versions].sort()
+      : name.startsWith("content_")
+        ? rows.filter((text) => !byRef.has((JSON.parse(text) as { sha256: string }).sha256))
+        : rows;
+    if (kept.length > 0) out[name] = kept;
+  }
+  return out;
+};
+
+// A create names its artifact by its own op id: these are the first three steps', so later steps can name them.
+const ARTIFACT_IDS = ["01M62AA0000000000000000000", "01M62AA0000000000000000001", "01M62AA0000000000000000002"] as const;
+const artifactId = constantFrom(...ARTIFACT_IDS);
+// One body past the inline bound (48 KiB): its fact carries only the ref.
+const LARGE = "x".repeat(50 * 1024);
+const markdown = constantFrom("v", "plan", "the plan, longer", "# Heading\n\nbody", LARGE);
+type ArtifactStep = { readonly op: ArtifactOp; readonly item: string | undefined };
+const artifactOp: Arbitrary.Arbitrary<ArtifactStep> = oneOf<ArtifactStep>(
+  // Weighted toward create, so the other ops find an artifact to act on.
+  { weight: 3, arbitrary: Arbitrary.map(Arbitrary.all({ item: artifactId, title: constantFrom("Plan", "Notes"), body: markdown }), ({ item, title, body }) => ({
+    item,
+    op: { op: "create", title, body: { type: "document", markdown: body } } as ArtifactOp,
+  })) },
+  Arbitrary.map(Arbitrary.all({ item: artifactId, base: integer(1, 2), body: markdown }), ({ item, base, body }) => ({
+    item,
+    op: { op: "edit", edit: { kind: "replace", baseVersion: base as ArtifactVersion, body: { type: "document", markdown: body } } } as ArtifactOp,
+  })),
+  Arbitrary.map(Arbitrary.all({ item: artifactId, title: constantFrom("Plan 2", "Notes 2") }), ({ item, title }) => ({ item, op: { op: "retitle", title } as ArtifactOp })),
+  Arbitrary.map(Arbitrary.all({ item: artifactId, labels: subarray(["draft", "final"]) }), ({ item, labels }) => ({ item, op: { op: "labels", labels } as ArtifactOp })),
+  Arbitrary.map(Arbitrary.all({ item: artifactId, kind: constantFrom("archive", "restore") }), ({ item, kind }) => ({ item, op: { op: kind } as ArtifactOp })),
+  // A move (0.11.1, 10): away from ARTS, or onto it, where it already is, which is refused.
+  Arbitrary.map(Arbitrary.all({ item: artifactId, to: constantFrom(asNodeId("arts-2"), ARTS) }), ({ item, to }) => ({ item, op: { op: "move", to } as ArtifactOp })),
+  Arbitrary.map(Arbitrary.all({ label: constantFrom("draft", "final"), colour: constantFrom(null, "red", "blue") }), ({ label, colour }) => ({
+    item: undefined,
+    op: { op: "labelColour", label, colour } as unknown as ArtifactOp,
+  })),
+);
+
+const artifactCommand = (index: number, step: { readonly actor: ResourceActor; readonly op: { readonly op: ArtifactOp; readonly item: string | undefined } }) =>
+  ({
+    opId: `01M62AA${String(index).padStart(19, "0")}` as OpId,
+    canvasName: CANVAS,
+    actor: step.actor,
+    target: { kind: "artifact", nodeId: ARTS, ...(step.op.item === undefined ? {} : { itemId: step.op.item }) },
+    basis: null,
+    after: [],
+    op: step.op.op,
+  }) as unknown as ResourceCommand<ArtifactOp>;
+
+const submitArtifact = (command: ResourceCommand<ArtifactOp>) =>
+  Effect.flatMap(ArtifactRepository, (repo) =>
+    command.target.itemId === undefined ? repo.submitNode(WRITER, command, everywhere) : repo.submit(WRITER, command, everywhere));
+
+describe("the fold equals the ruler, for artifacts", () => {
+  afterEach(closeEngines);
+
+  it("directly, judged then folded, and on a replica", async () => {
+    const applied = new Set<string>();
+    await holds(
+      Arbitrary.array(Arbitrary.all({ actor: constantFrom(...actors), op: artifactOp }), { minLength: 1, maxLength: 16 }),
+      async (steps) => {
+        const direct = await makeEngineStore(WRITER);
+        const judged = await makeEngineStore(WRITER);
+        const replica = await makeEngineStore("replica");
+        const ruled: Array<{ input: RecordRulingInput; at: number }> = [];
+        for (const [index, step] of steps.entries()) {
+          const at = START + index * 1000;
+          vi.setSystemTime(at);
+          const command = artifactCommand(index, step);
+          const before = direct.recorded.length;
+          await direct.runtime.runPromise(submitArtifact(command));
+          for (const input of direct.recorded.slice(before)) {
+            ruled.push({ input, at });
+            if (input.ruling.kind === "applied") applied.add(step.op.op.op);
+          }
+          // The authority's path: judge, roll back, then record and fold at commit.
+          await judged.runtime.runPromise(
+            Effect.gen(function* () {
+              const sql = yield* SqlClient.SqlClient;
+              const work = yield* WorkRepository;
+              const mark = judged.recorded.length;
+              yield* sql.withTransaction(Effect.flatMap(submitArtifact(command), () => Effect.fail(new Judged()))).pipe(
+                Effect.catchIf((error): error is Judged => error instanceof Judged, () => Effect.void),
+              );
+              const rulings = judged.recorded.splice(mark);
+              yield* sql.withTransaction(
+                Effect.forEach(rulings, (input) =>
+                  Effect.gen(function* () {
+                    const row = appliedRow(input);
+                    if (row !== undefined) yield* foldRuling(sql, input.canvasName, row, at, { bodies: input.bodies, command: input.command as ResourceCommand<ArtifactOp> });
+                    yield* work.recordRuling(input);
+                  }),
+                ),
+              );
+              judged.recorded.push(...rulings);
+            }),
+          );
+        }
+        await replica.runtime.runPromise(
+          Effect.gen(function* () {
+            const sql = yield* SqlClient.SqlClient;
+            for (const { input, at } of ruled) {
+              const row = appliedRow(input);
+              // Each ruling folds as it arrives, so the content store stamps it then.
+              yield* Effect.sync(() => vi.setSystemTime(at));
+              if (row !== undefined) yield* sql.withTransaction(foldRuling(sql, input.canvasName, row, at));
+            }
+          }),
+        );
+        const sameEverywhere = new Set(["installation", "known_installations"]);
+        expect(await engineTablesOf(judged, sameEverywhere)).toEqual(await engineTablesOf(direct, sameEverywhere));
+        // A replica holds the rulings as exchange rows, not as its own log.
+        const resourcesOnly = new Set([...sameEverywhere, "resource_rulings", "work_*"]);
+        expect(await engineTablesOf(replica, resourcesOnly)).toEqual(byRefPending(await engineTablesOf(direct, resourcesOnly)));
+        await closeEngines();
+      },
+      { ...runs(25, ENGINE_BUDGET_MS), size: 16 },
+    );
+    expect([...applied].sort()).toEqual(expect.arrayContaining(["create", "edit", "labelColour", "labels", "move", "retitle"]));
+  }, timeoutFor(ENGINE_BUDGET_MS));
+});
+
+// ---------------------------------------------------------------------------
+// Automations: placing or moving one moves the canvas count through the model, so each store holds the real model.
+
+type AutomationStore = {
+  readonly root: string;
+  readonly runtime: ManagedRuntime.ManagedRuntime<SqlClient.SqlClient | WorkRepository | AutomationRepository | RulingRecorder | ModelService, unknown>;
+  readonly recorded: Array<RecordRulingInput>;
+};
+const automationStores: Array<AutomationStore> = [];
+const ROUTINES = asNodeId("routines");
+
+const makeAutomationStore = async (installation: string): Promise<AutomationStore> => {
+  pinSetupClock();
+  const root = await mkdtemp(join(tmpdir(), `junto-fold-auto-${installation}-`));
+  const recorded: Array<RecordRulingInput> = [];
+  const recorder = Layer.effect(
+    RulingRecorder,
+    Effect.map(WorkRepository, (work) =>
+      RulingRecorder.of({
+        record: (input) => work.recordRuling(input).pipe(Effect.tap(() => Effect.sync(() => recorded.push(input))), Effect.asVoid, Effect.orDie),
+      })),
+  );
+  const runtime = ManagedRuntime.make(
+    Layer.provideMerge(
+      Layer.mergeAll(makeAutomationRepositoryLive(), recorder),
+      Layer.provideMerge(
+        ModelStoresLive,
+        Layer.provideMerge(
+          Layer.mergeAll(
+            WorkRepositoryLive,
+            CrewRepositoryLive,
+            makeSettingsLive(),
+            makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
+            SeatGuidanceRepositoryLive,
+            AgentSignalRepositoryLive,
+            ReferencesRepositoryLive,
+            Layer.provideMerge(PausePlaneLive, FactoryPauseRepositoryLive),
+            makeMachineRepositoryLive({ defaultName: () => installation, makeInstallationId: () => installation as InstallationId }),
+          ),
+          Layer.mergeAll(makeStateEngineLive(join(root, "junto.db")), makeInstallOpsLive(join(root, "install-ops.db"))),
+        ),
+      ),
+    ),
+  );
+  await runtime.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql.withTransaction(
+        Effect.gen(function* () {
+          for (const machine of new Set([WRITER, installation])) {
+            yield* sql`INSERT OR IGNORE INTO known_installations(installation_id, registered_at) VALUES (${machine}, ${new Date(START).toISOString()})`;
+          }
+          yield* sql`INSERT OR IGNORE INTO installation(singleton, installation_id, created_at) VALUES (1, ${installation}, ${new Date(START).toISOString()})`;
+          yield* holdCanvas(installation, [automations("routines"), seat("lead")]);
+        }),
+      );
+    }),
+  );
+  const store = { root, runtime, recorded };
+  automationStores.push(store);
+  return store;
+};
+
+const closeAutomationStores = async () => {
+  for (const store of automationStores.splice(0)) {
+    await store.runtime.dispose();
+    await rm(store.root, { recursive: true, force: true });
+  }
+};
+
+const AUTOMATION_IDS = ["01M62AV0000000000000000001", "01M62AV0000000000000000002"] as const;
+const automationDefinition = (text: string): AutomationDefinition => ({
+  name: "Nightly",
+  trigger: { kind: "schedule", cron: "0 2 * * *", timezone: "UTC" },
+  then: [{ kind: "mail", to: { kind: "seat", nodeId: asNodeId("lead") }, text }],
+  limits: { minIntervalMs: 60_000, maxPerHour: 12 },
+});
+const machineName = constantFrom(undefined, "mini", "studio");
+const automationId = constantFrom(...AUTOMATION_IDS);
+const automationOp: Arbitrary.Arbitrary<{ readonly op: AutomationOp; readonly item: string }> = oneOf(
+  { weight: 3, arbitrary: Arbitrary.map(
+    Arbitrary.all({ item: automationId, enabled: boolean, machine: machineName, text: constantFrom("Done?", "Status?") }),
+    ({ item, enabled, machine, text }) => ({
+      item,
+      op: { kind: "create", automationId: item, enabled, ...(machine === undefined ? {} : { machine }), definition: automationDefinition(text) } as unknown as AutomationOp,
+    }),
+  ) },
+  Arbitrary.map(Arbitrary.all({ item: automationId, base: integer(1, 2), text: constantFrom("Done?", "Report") }), ({ item, base, text }) => ({
+    item,
+    op: { kind: "edit", baseVersion: base, definition: automationDefinition(text) } as unknown as AutomationOp,
+  })),
+  Arbitrary.map(Arbitrary.all({ item: automationId, enabled: boolean }), ({ item, enabled }) => ({ item, op: { kind: "set-enabled", enabled } as AutomationOp })),
+  Arbitrary.map(Arbitrary.all({ item: automationId, machine: constantFrom("mini", "studio") }), ({ item, machine }) => ({
+    item,
+    op: { kind: "set-machine", machine } as unknown as AutomationOp,
+  })),
+  Arbitrary.map(Arbitrary.all({ item: automationId, kind: constantFrom("archive", "run") }), ({ item, kind }) => ({ item, op: { kind } as AutomationOp })),
+);
+
+const automationEnv = { targetsOf: () => new Set([asNodeId("lead")]), isOverseer: () => false };
+const submitAutomation = (index: number, step: { readonly op: AutomationOp; readonly item: string }) =>
+  submitAutomationCommand(
+    WRITER,
+    {
+      opId: `01M62AV${String(index).padStart(19, "0")}`,
+      canvasName: CANVAS,
+      actor: { kind: "operator" },
+      target: { kind: "automation", nodeId: ROUTINES, ...(step.op.kind === "create" ? {} : { itemId: step.item }) },
+      basis: null,
+      after: [],
+      op: step.op,
+    } as unknown as ResourceCommand<AutomationOp>,
+    everywhere,
+    automationEnv as never,
+  );
+
+describe("the fold equals the ruler, for automations", () => {
+  afterEach(closeAutomationStores);
+
+  it("directly, judged then folded, and on a replica", async () => {
+    const applied = new Set<string>();
+    await holds(
+      Arbitrary.array(automationOp, { minLength: 1, maxLength: 12 }),
+      async (steps) => {
+        const direct = await makeAutomationStore(WRITER);
+        const judged = await makeAutomationStore(WRITER);
+        const replica = await makeAutomationStore("replica");
+        const ruled: Array<{ input: RecordRulingInput; at: number }> = [];
+        for (const [index, step] of steps.entries()) {
+          const at = START + index * 1000;
+          vi.setSystemTime(at);
+          const before = direct.recorded.length;
+          await direct.runtime.runPromise(submitAutomation(index, step));
+          for (const input of direct.recorded.slice(before)) {
+            ruled.push({ input, at });
+            if (input.ruling.kind === "applied") applied.add(step.op.kind);
+          }
+          await judged.runtime.runPromise(
+            Effect.gen(function* () {
+              const sql = yield* SqlClient.SqlClient;
+              const work = yield* WorkRepository;
+              const model = yield* ModelService;
+              const mark = judged.recorded.length;
+              // The count a placement moves is a structure entry of its own, made before its ruling's row (06 F4).
+              const changes: Array<{ readonly after: number; readonly change: Changed }> = [];
+              yield* sql.withTransaction(Effect.flatMap(submitAutomation(index, step), () => Effect.fail(new Judged()))).pipe(
+                Effect.provideService(StructureCapture, (change) => changes.push({ after: judged.recorded.length - mark, change })),
+                Effect.catchIf((error): error is Judged => error instanceof Judged, () => Effect.void),
+              );
+              const rulings = judged.recorded.splice(mark);
+              const foldChanges = (after: number) =>
+                Effect.forEach(changes.filter((change) => change.after === after), ({ change }) => model.fold(change), { discard: true });
+              yield* sql.withTransaction(
+                Effect.gen(function* () {
+                  for (const [at_, input] of rulings.entries()) {
+                    yield* foldChanges(at_);
+                    // The facts first, then the ruling row.
+                    const row = appliedRow(input);
+                    if (row !== undefined) yield* foldRuling(sql, input.canvasName, row, at, { command: input.command as ResourceCommand<AutomationOp> });
+                    yield* work.recordRuling(input);
+                  }
+                  yield* foldChanges(rulings.length);
+                }),
+              );
+              judged.recorded.push(...rulings);
+            }),
+          );
+        }
+        await replica.runtime.runPromise(
+          Effect.gen(function* () {
+            const sql = yield* SqlClient.SqlClient;
+            for (const { input, at } of ruled) {
+              const row = appliedRow(input);
+              yield* Effect.sync(() => vi.setSystemTime(at));
+              if (row !== undefined) yield* sql.withTransaction(foldRuling(sql, input.canvasName, row, at));
+            }
+          }),
+        );
+        const tablesOfStore = (store: AutomationStore, leaveOut: ReadonlySet<string>) => engineTablesOf(store as unknown as EngineStore, leaveOut);
+        const sameEverywhere = new Set(["installation", "known_installations", "machine_configuration"]);
+        expect(await tablesOfStore(judged, sameEverywhere)).toEqual(await tablesOfStore(direct, sameEverywhere));
+        // A replica holds the rulings as exchange rows, and takes the canvas count from the copy, never the fold.
+        const resourcesOnly = new Set([...sameEverywhere, "resource_rulings", "work_*", "canvases"]);
+        expect(await tablesOfStore(replica, resourcesOnly)).toEqual(await tablesOfStore(direct, resourcesOnly));
+        await closeAutomationStores();
+      },
+      { ...runs(25, ENGINE_BUDGET_MS), size: 12 },
+    );
+    expect([...applied].sort()).toEqual(expect.arrayContaining(["archive", "create", "edit", "set-enabled", "set-machine"]));
+  }, timeoutFor(ENGINE_BUDGET_MS));
+});

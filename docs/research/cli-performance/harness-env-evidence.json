@@ -1,0 +1,77 @@
+{
+  "captured_at": "2026-10-07T04:02:51.705Z",
+  "platform": "darwin",
+  "arch": "arm64",
+  "codex_version": "codex-cli 0.160.1",
+  "codex_wrapper_sha256": "61b0194f3bb6534439c8d26a3ed57d0805f84b884588b761795323eeb92fcf70",
+  "codex_thread_start_schema_sha256": "80a40a7fac15b4bf70efb7f893fb353acc0a0d30c68f54aee4f01923deca85de",
+  "codex_thread_start_has_top_level_env": false,
+  "live_codex_tool_environment": {
+    "JUNTO_WORK_HOME": true,
+    "JUNTO_WORK_SOCKET": true,
+    "JUNTO_WORK_TOKEN": false,
+    "JUNTO_CLI": true,
+    "JUNTO_SEAT": true,
+    "CODEX_THREAD_ID": true
+  },
+  "probes": [
+    {
+      "variant": "default",
+      "success": true,
+      "token_present": true,
+      "synthetic_marker_matches": true,
+      "socket_present": true
+    },
+    {
+      "variant": "automatic-secret-exclusions",
+      "success": true,
+      "token_present": false,
+      "synthetic_marker_matches": false,
+      "socket_present": true
+    },
+    {
+      "variant": "inherit-none",
+      "success": true,
+      "token_present": false,
+      "synthetic_marker_matches": false,
+      "socket_present": false
+    },
+    {
+      "variant": "inherit-core",
+      "success": true,
+      "token_present": false,
+      "synthetic_marker_matches": false,
+      "socket_present": false
+    },
+    {
+      "variant": "exclude-junto",
+      "success": true,
+      "token_present": false,
+      "synthetic_marker_matches": false,
+      "socket_present": false
+    },
+    {
+      "variant": "allow-junto",
+      "success": true,
+      "token_present": true,
+      "synthetic_marker_matches": true,
+      "socket_present": true
+    },
+    {
+      "package": "prime-agent",
+      "version": "0.9.4",
+      "backend_sha256": "d68e309115c63b1b17b6a124f6bb5a491cc0294b9082e9eb3908fd37ea13dda9",
+      "success": true,
+      "token_present": true,
+      "synthetic_marker_matches": true
+    },
+    {
+      "package": "@earendil-works/pi-coding-agent",
+      "version": "1.0.1",
+      "backend_sha256": "f32e87a42f66276b2eafaaf0848babf52523d37ab0fd448439586376747f03c4",
+      "success": true,
+      "token_present": true,
+      "synthetic_marker_matches": true
+    }
+  ]
+}

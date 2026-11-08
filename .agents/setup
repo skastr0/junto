@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+install_system_packages() {
+  local missing=()
+  local package
+  for package in xvfb xauth; do
+    if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -Fqx 'install ok installed'; then
+      missing+=("$package")
+    fi
+  done
+
+  if [[ "${#missing[@]}" -eq 0 ]]; then
+    printf '[setup] Headless Linux E2E fallback already installed\n'
+    return
+  fi
+
+  printf '[setup] Installing headless Linux E2E fallback: %s\n' "${missing[*]}"
+  sudo apt-get update
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+}
+
+locate_orb_setup() {
+  local candidate
+  for candidate in \
+    "${repo_root}/../repos/orb-setup" \
+    "${repo_root}/../repos/skastr0/orb-setup" \
+    "${repo_root}/../orb-setup"; do
+    if [[ -x "${candidate}/bin/setup.sh" ]]; then
+      printf '%s' "$(cd "$candidate" && pwd)"
+      return 0
+    fi
+  done
+  return 1
+}
+
+if [[ -n "${AMP_DIRECT_DESKTOP:-}" ]]; then
+  printf '[setup] Amp Desktop supported; native X11/Wayland is preferred when active\n'
+fi
+install_system_packages
+
+orb_setup="$(locate_orb_setup)" || {
+  printf '[setup] error: orb-setup checkout not found next to this repository\n' >&2
+  exit 1
+}
+printf '[setup] Using shared runtime at %s\n' "$orb_setup"
+bash "${orb_setup}/bin/setup.sh"
+export PATH="${HOME}/.local/bin:${HOME}/.bun/bin:${PATH}"
+
+bun_package_manager="$(node -p 'require("./package.json").packageManager')"
+if [[ "$bun_package_manager" != bun@?* ]]; then
+  printf '[setup] error: package.json must declare packageManager as bun@<version>\n' >&2
+  exit 1
+fi
+bun_version="${bun_package_manager#bun@}"
+
+if ! command -v bun >/dev/null 2>&1 || [[ "$(bun --version)" != "$bun_version" ]]; then
+  printf '[setup] Installing Bun %s\n' "$bun_version"
+  export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
+  curl -fsSL https://bun.sh/install | bash -s -- "bun-v${bun_version}"
+
+  mkdir -p "$HOME/.local/bin"
+  ln -sfn "$BUN_INSTALL/bin/bun" "$HOME/.local/bin/bun"
+fi
+installed_bun_version="$(bun --version)"
+if [[ "$installed_bun_version" != "$bun_version" ]]; then
+  printf '[setup] error: expected Bun %s, found %s\n' "$bun_version" "$installed_bun_version" >&2
+  exit 1
+fi
+printf '[setup] Using Bun %s\n' "$installed_bun_version"
+mkdir -p "$HOME/.local/bin"
+ln -sfn "$(command -v bun)" "$HOME/.local/bin/bunx"
+
+printf '[setup] Installing Junto dependencies\n'
+bun install --frozen-lockfile
+
+# The 15th harness, junto-overseer, is this repository's own CLI.
+printf '[setup] Building the standalone junto CLI\n'
+JUNTO_LIVE_OVERSEER=1 bun run cli:build
+
+printf '[setup] Complete\n'

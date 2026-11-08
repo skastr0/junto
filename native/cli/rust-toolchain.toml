@@ -1,0 +1,12 @@
+# The native junto CLI's toolchain (0.12 native CLI, N1). A bump is one commit
+# with a stated reason, as Bun's pin was (62423fb2f).
+[toolchain]
+channel = "1.98.1"
+profile = "minimal"
+components = ["clippy", "rustfmt"]
+targets = [
+  "aarch64-apple-darwin",
+  "x86_64-apple-darwin",
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+]

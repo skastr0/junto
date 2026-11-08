@@ -1,0 +1,102 @@
+import { Argument, Command, Flag } from "effect/cli";
+import { Option, Schema } from "effect";
+import { ReferencesList, ReferencesRead } from "../../contract/work/skill";
+import type {
+  CommandCapability,
+  CommandExample,
+  CommandSchemaContract,
+} from "../core/discovery";
+import { DEFAULT_TIMEOUT_MS } from "../core/constants";
+import { executeJsonCommand } from "../core/output";
+import { callWorkRpc } from "../core/socket";
+
+/**
+ * `junto references list` and `junto references read <name>`: the operator's
+ * references in this seat's scope, the app's and those of every region that
+ * contains the seat. `junto onboard` names them; nothing sends them. The name
+ * is a plain argument, not JSON. The seat is the calling process.
+ */
+const timeoutOption = Flag.Int("timeout").pipe(
+  Flag.optional,
+  Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
+);
+
+const LIST_DESCRIPTION =
+  "The references this seat can read: name, description, where each comes from, size and when it changed. Never a body.";
+const READ_DESCRIPTION =
+  "Read one reference by name. When a region and the app both have the name, the innermost region's is returned. The body is as written; beside it, mentions lists each junto:// link it makes, once, in order: {label, ref, kind (seat, task, artifact, page, node or missing), id, title?, reachable}.";
+
+const referencesListCommand = Command.make("list", { timeout: timeoutOption }, ({ timeout }) =>
+  executeJsonCommand("references list", callWorkRpc(ReferencesList, {}, Option.getOrUndefined(timeout))),
+).pipe(Command.withDescription(LIST_DESCRIPTION));
+
+const referencesReadCommand = Command.make(
+  "read",
+  {
+    name: Argument.String("name").pipe(
+      Argument.withDescription("Reference name, as junto references list prints it"),
+    ),
+    timeout: timeoutOption,
+  },
+  ({ name, timeout }) => executeJsonCommand("references read", callWorkRpc(ReferencesRead, { name }, Option.getOrUndefined(timeout))),
+).pipe(Command.withDescription(READ_DESCRIPTION));
+
+export const referencesCommand = Command.make("references").pipe(
+  Command.withDescription("The operator's references this seat can read"),
+  Command.withSubcommands([referencesListCommand, referencesReadCommand]),
+);
+
+export const referencesSchemas: ReadonlyArray<CommandSchemaContract> = [
+  {
+    command_id: "references.list",
+    command: "references list",
+    schema_id: "references.list.input/v1",
+    description: `${LIST_DESCRIPTION} Takes no input.`,
+    schema: Schema.Struct({}),
+  },
+  {
+    command_id: "references.read",
+    command: "references read",
+    schema_id: "references.read.input/v1",
+    description: `${READ_DESCRIPTION} The name is typed as a plain argument: junto references read <name>.`,
+    schema: Schema.Struct({ name: Schema.String }),
+  },
+];
+
+export const referencesExamples: ReadonlyArray<CommandExample> = [
+  {
+    command_id: "references.list",
+    command: "references list",
+    name: "list the references this seat can read",
+    description: "Onboard names them too. Run this for sizes and for anything written since you onboarded.",
+    input: {},
+    args: ["references", "list"],
+  },
+  {
+    command_id: "references.read",
+    command: "references read",
+    name: "read one reference",
+    description: "Read a reference when the work in front of you calls for it, not before.",
+    input: { name: "style" },
+    args: ["references", "read", "style"],
+  },
+];
+
+export const referencesCapabilities: ReadonlyArray<CommandCapability> = [
+  {
+    command_id: "references.list",
+    command: "references list",
+    category: "discovery",
+    description: LIST_DESCRIPTION,
+    schemas: [referencesSchemas[0]!],
+    examples: [referencesExamples[0]!],
+  },
+  {
+    command_id: "references.read",
+    command: "references read",
+    category: "discovery",
+    description: READ_DESCRIPTION,
+    schemas: [referencesSchemas[1]!],
+    examples: [referencesExamples[1]!],
+  },
+];

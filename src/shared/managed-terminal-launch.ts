@@ -1,0 +1,514 @@
+/**
+ * Resolve a managed-terminal template + picker choices into a TerminalLaunch
+ * for LocalSessionHost. Pure argv/env construction — no process spawn, no
+ * harness config writes. Prime Agent's per-binding daemon socket is main-runtime
+ * daemon state and is deliberately absent from this authorial resolver.
+ *
+ * Nothing here carries Junto instructions. A seat opens to the harness's own
+ * empty composer; the agent learns about Junto by running `junto onboard`.
+ * The only prompt a launch can carry is one the operator supplied.
+ */
+import { type HarnessParamKey, type HarnessParamSpec, paramSpec } from "./harness-domain";
+import { harnessParamsOf } from "./harness-records";
+import type { Launch } from "./model/kinds";
+import { sanitizeExtraArgs, splitSessionOwnedArgs } from "./launch-extra-args";
+import {
+  type HarnessId,
+  type ManagedTerminalTemplate,
+  SPAWN_ENV_SCRUB,
+  SPAWN_ENV_SCRUB_PREFIXES,
+  isHarnessId,
+  templateFor,
+} from "./managed-terminal-templates";
+
+/** The launch a seat or terminal stores, as the model holds it. */
+export type TerminalLaunch = Launch;
+
+/**
+ * Pure authorial spawn intent. The selected process host finalizes this into a
+ * launch only after consulting its own harness-session filesystem.
+ */
+export type ManagedSpawnIntent = {
+  readonly documentLaunch?: TerminalLaunch;
+  readonly sessionId?: string;
+  /** Request only. The selected spawn host decides whether proof exists. */
+  readonly resumeRequested: boolean;
+  readonly profile?: string;
+  /** Hermes provider — re-passed with the model on every cold wake. */
+  readonly provider?: string;
+  readonly model?: string;
+  readonly effort?: string;
+  /** Named agent mode (Amp `-m`), compiled the same way as model/effort. */
+  readonly mode?: string;
+  readonly permissionMode?: string;
+  readonly cwd?: string;
+};
+
+// ── Picker input ───────────────────────────────────────────────────────────
+
+/**
+ * Progressive-specificity picker choices. Any level may be omitted — defaults
+ * below that level apply (click Codex → spawn with defaults).
+ */
+export type ManagedLaunchChoices = {
+  readonly model?: string;
+  readonly effort?: string;
+  /** Named agent mode for `argvSpec.modeFlag` (Amp low|medium|high|ultra). */
+  readonly mode?: string;
+  /** Hermes profile name. */
+  readonly profile?: string;
+  /**
+   * Provider for `argvSpec.providerFlag` (Hermes `--provider`). Travels with
+   * the model: a resume that re-passes one without the other reverts the model
+   * silently, so both are recovered and re-emitted together.
+   */
+  readonly provider?: string;
+  /**
+   * Operator-supplied initial prompt. Never filled by Junto: a launch carries
+   * a prompt only when the operator wrote one.
+   */
+  readonly prompt?: string;
+  /** Pin session id (Claude/Grok). Ignored on capture-only harnesses. */
+  readonly sessionId?: string;
+  /** Resume an existing session (re-passes model/effort/permission flags). */
+  readonly resumeId?: string;
+  readonly permissionMode?: string;
+  /**
+   * Operator-authored arguments appended after every template-owned flag.
+   * Sanitized against the template's reserved flags at build time.
+   */
+  readonly extraArgs?: readonly string[];
+  /** Working directory. Grok requires a git work tree. */
+  readonly cwd?: string;
+  /**
+   * Extra env (seat/socket/token/PATH prefix). Merged after scrub; exact and
+   * prefix-reserved harness markers cannot be reintroduced here.
+   */
+  readonly env?: Readonly<Record<string, string>>;
+};
+
+// ── Env scrub ──────────────────────────────────────────────────────────────
+
+const shouldScrubSpawnEnvKey = (key: string): boolean =>
+  (SPAWN_ENV_SCRUB as readonly string[]).includes(key) ||
+  SPAWN_ENV_SCRUB_PREFIXES.some((prefix) => key.startsWith(prefix));
+
+/**
+ * Strip ambient nested-session and internal-role markers before a managed
+ * spawn. In particular, every PRIME_AGENT_INTERNAL_* key is reserved to the
+ * stock Prime Agent runtime; no current or future internal role may cross the
+ * Junto launch boundary.
+ */
+export const scrubSpawnEnv = (
+  env: Readonly<Record<string, string | undefined>>,
+): Record<string, string> => {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) continue;
+    if (shouldScrubSpawnEnvKey(key)) continue;
+    out[key] = value;
+  }
+  return out;
+};
+
+/**
+ * Merge ambient + host inject, scrub nested-session traps, then re-apply
+ * deliberate inject (inject still cannot reintroduce exact or prefix keys).
+ */
+export const buildSpawnEnv = (
+  ambient: Readonly<Record<string, string | undefined>>,
+  inject: Readonly<Record<string, string>> | undefined,
+): Record<string, string> => {
+  const scrubbed = scrubSpawnEnv(ambient);
+  if (!inject) return scrubbed;
+  const cleanedInject = scrubSpawnEnv(inject);
+  return { ...scrubbed, ...cleanedInject };
+};
+
+// ── Argv construction ──────────────────────────────────────────────────────
+
+/**
+ * Spawn dials a harness reads from the environment rather than argv (fx).
+ *
+ * Emitted last, over the ambient value, so a seat launched from inside another
+ * session runs on the dials the operator picked for IT. A dial the picker left
+ * unset is omitted entirely — the harness's own default is a real answer, and
+ * inventing one here would be Junto choosing a model, or a permission
+ * mode that spends money, on the operator's behalf.
+ */
+const envDials = (
+  template: ManagedTerminalTemplate,
+  choices: ManagedLaunchChoices,
+): Record<string, string> => {
+  const dials: Record<string, string> = {};
+  for (const param of harnessParamsOf(template).params) {
+    if (param.emit.via !== "env" || param.key === "extraArgs") continue;
+    const value = choices[param.key]?.trim();
+    if (value) dials[param.emit.key] = value;
+  }
+  return dials;
+};
+
+/**
+ * Id-less "continue last session" flags. Not a Junto feature.
+ * `-c` is in this set only as a *resume* flag (Claude/Kimi/Devin continue).
+ * Codex still uses `-c` for config keys — that is not resume.
+ */
+const IDLESS_SESSION_CONTINUE_FLAGS: ReadonlySet<string> = new Set([
+  "--continue",
+  "-c",
+]);
+
+/**
+ * Flags that resume "whatever ran last" instead of a named session.
+ *
+ * fx adds `--resume-last` to this family, and `--resume` with no id (handled
+ * positionally below) means the same thing.
+ *
+ * NOT `-r`: it is fx's saved-session picker but the NAMED resume flag for
+ * hermes, prime-agent, devin, grok and pi, and this guard sees argv without
+ * knowing whose it is. Junto never emits a bare `-r` — argv carries a
+ * resume flag only with an id attached — so banning it here would only break
+ * the harnesses that use it properly.
+ */
+export const isIdlessSessionContinueFlag = (token: string): boolean =>
+  token === "--continue" || token === "--resume-last";
+
+/** Non-empty session id that is not another flag. */
+export const namedHarnessSessionId = (
+  value: string | undefined,
+): string | undefined => {
+  const id = value?.trim();
+  if (!id || id.startsWith("-")) return undefined;
+  return id;
+};
+
+/** Drop `--continue` so a hand-authored argv cannot mean "resume latest". */
+export const stripIdlessSessionContinue = (
+  argv: readonly string[],
+): string[] => {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i]!;
+    if (isIdlessSessionContinueFlag(token)) continue;
+    // `--resume last` and a trailing bare `--resume` both mean "the latest
+    // workspace session" (fx). Only `--resume <id>` survives.
+    if (token === "--resume") {
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith("-") || next === "last") {
+        if (next === "last") i += 1;
+        continue;
+      }
+    }
+    out.push(token);
+  }
+  return out;
+};
+
+const pushFlag = (
+  argv: string[],
+  flag: string | undefined,
+  value: string | undefined,
+): void => {
+  if (!flag || value === undefined || value === "") return;
+  // Boolean-ish flags (Hermes --yolo): emit bare flag when value is "true"/"1"/flag name.
+  if (
+    value === "true" ||
+    value === "1" ||
+    value === flag ||
+    value === flag.replace(/^--?/, "")
+  ) {
+    argv.push(flag);
+    return;
+  }
+  argv.push(flag, value);
+};
+
+/**
+ * Merge one `key=value` option into a model's bracket group, the way Cursor
+ * help still writes it: `claude-opus-4-8[context=1m,effort=high]`.
+ *
+ * A model that already names the key keeps its position and takes the new
+ * value; a model with other options gains one entry; a bare model gains the
+ * whole group. Exported because this is a harness syntax fact worth testing on
+ * its own. Cursor 2026.09.10-fd3934a rejects `effort=` brackets on catalog
+ * ids — spawn uses `withModelEffortSlug` instead. Non-effort brackets such as
+ * `composer-2.5[fast=false]` still go through this helper when a caller
+ * asks for them.
+ */
+export const withModelBracketOption = (
+  model: string,
+  key: string,
+  value: string,
+): string => {
+  const trimmed = model.trim();
+  const entry = `${key}=${value}`;
+  const open = trimmed.indexOf("[");
+  if (open < 0 || !trimmed.endsWith("]")) return `${trimmed}[${entry}]`;
+  const base = trimmed.slice(0, open);
+  const inner = trimmed.slice(open + 1, -1);
+  const parts = inner
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  const at = parts.findIndex((part) => part.split("=")[0]?.trim() === key);
+  if (at >= 0) parts[at] = entry;
+  else parts.push(entry);
+  return `${base}[${parts.join(",")}]`;
+};
+
+/**
+ * Catalog suffixes `agent models` enumerates on 2026.09.10-fd3934a.
+ * Longest-first so `xhigh` / `extra-high` are not eaten as `high`.
+ * `-fast` is a variant after the effort token, not an effort itself.
+ */
+const MODEL_EFFORT_SUFFIX_RE =
+  /-(extra-high|xhigh|medium|minimal|high|low|none|max)(-fast)?$/;
+
+/**
+ * Attach a picker effort to a Cursor catalog id as a hyphenated slug
+ * (`claude-opus-4-8` + `high` → `claude-opus-4-8-high`).
+ *
+ * Live 2026.09.10-fd3934a rejects `[effort=…]` on catalog ids
+ * (`Cannot use this model`) and also rejects a hyphenated slug that then
+ * grows an effort bracket. Existing non-effort brackets stay on the model
+ * (`composer-2.5[fast=false]`). A trailing effort token (and optional
+ * `-fast`) is replaced rather than stacked.
+ */
+export const withModelEffortSlug = (model: string, effort: string): string => {
+  const trimmed = model.trim();
+  const slug = effort.trim();
+  if (!slug) return trimmed;
+
+  const open = trimmed.indexOf("[");
+  const hasBrackets = open >= 0 && trimmed.endsWith("]");
+  const rawBase = hasBrackets ? trimmed.slice(0, open) : trimmed;
+  let brackets = hasBrackets ? trimmed.slice(open) : "";
+  if (brackets) {
+    const inner = brackets.slice(1, -1);
+    const parts = inner
+      .split(",")
+      .map((part) => part.trim())
+      .filter((part) => {
+        if (part.length === 0) return false;
+        return part.split("=")[0]?.trim() !== "effort";
+      });
+    brackets = parts.length > 0 ? `[${parts.join(",")}]` : "";
+  }
+
+  const match = rawBase.match(MODEL_EFFORT_SUFFIX_RE);
+  const nextBase = match
+    ? `${rawBase.slice(0, match.index)}-${slug}${match[2] ?? ""}`
+    : rawBase.endsWith(`-${slug}`) || rawBase === slug
+      ? rawBase
+      : `${rawBase}-${slug}`;
+  return `${nextBase}${brackets}`;
+};
+
+/**
+ * `-c` overrides that open the harness's own sandbox to Junto's work control
+ * socket and nothing else, or none when the template declares no allowance.
+ *
+ * `profileName` is the caller's per-spawn name: Codex deep-merges `-c` keys
+ * into a `[permissions.<name>]` table an operator config already defines, so
+ * a fixed name could be widened by that config. The allowlist is ONE inline
+ * TOML table (a path holds dots, and a dotted `-c` key would split it) and
+ * names the socket file, not its directory: a sibling socket in the same
+ * directory still fails with EPERM. The seat's network stays off otherwise
+ * (Codex 0.166.0 measured: the socket connects, every other socket and TCP
+ * do not).
+ */
+export const sandboxSocketAllowArgs = (
+  template: ManagedTerminalTemplate,
+  socketPath: string,
+  profileName: string,
+): readonly string[] => {
+  const allow = template.argvSpec.sandboxSocketAllow;
+  const socket = socketPath.trim();
+  const profile = profileName.trim();
+  if (allow === undefined || socket.length === 0 || profile.length === 0) return [];
+  return [
+    "-c",
+    "features.network_proxy=true",
+    "-c",
+    `default_permissions=${JSON.stringify(profile)}`,
+    "-c",
+    `permissions.${profile}.extends=${JSON.stringify(allow.parent)}`,
+    "-c",
+    `permissions.${profile}.network.enabled=true`,
+    "-c",
+    `permissions.${profile}.network.unix_sockets={${JSON.stringify(socket)}="allow"}`,
+  ];
+};
+
+/** Template dials in argv order. How each one is spelled comes from the harness's params. */
+const DIAL_ORDER: readonly Exclude<HarnessParamKey, "extraArgs">[] = [
+  "profile",
+  "provider",
+  "model",
+  "mode",
+  "effort",
+  "permissionMode",
+];
+
+/**
+ * Emit one dial. A switch takes its flag alone for its one value (also spelled
+ * `true`, `1` or the flag itself); any other value omits it. A per-value
+ * param emits that value's own tokens, and an empty list is a real mode
+ * (Cursor allowlist). A value that brings companion tokens gets them on the
+ * same argv, so a saved mode cannot produce a spawn that dies at parse
+ * (Devin: `--permission-mode autonomous requires --sandbox`).
+ */
+const emitDial = (argv: string[], param: HarnessParamSpec, value: string): void => {
+  const emit = param.emit;
+  switch (emit.via) {
+    case "flag":
+      for (const token of param.companions?.[value] ?? []) {
+        if (!argv.includes(token)) argv.push(token);
+      }
+      pushFlag(argv, emit.flag, value);
+      return;
+    case "switch":
+      if ([emit.value, "true", "1", emit.flag, "--yolo"].includes(value)) argv.push(emit.flag);
+      return;
+    case "configKey":
+      // Codex: -c model_reasoning_effort="low"
+      argv.push("-c", `${emit.key}=${JSON.stringify(value)}`);
+      return;
+    case "perValue":
+      argv.push(...(emit.argv[value] ?? []));
+      return;
+    case "env":
+    case "modelSlug":
+    case "args":
+      return;
+  }
+};
+
+const buildArgv = (
+  template: ManagedTerminalTemplate,
+  choices: ManagedLaunchChoices,
+): string[] => {
+  const { argvSpec: spec } = template;
+  const argv: string[] = [spec.binary];
+  const resumeId = namedHarnessSessionId(choices.resumeId);
+  const resumeFlag = spec.resumeFlag?.trim();
+  const namedResumeFlag =
+    resumeFlag && !IDLESS_SESSION_CONTINUE_FLAGS.has(resumeFlag)
+      ? resumeFlag
+      : undefined;
+
+  // Most subcommand resumes re-pass the dials. Amp is different: its thread
+  // owns mode and features. Named id only, never an id-less/latest resume.
+  // The tokens are template data: `codex resume <id>`, `amp threads continue <id>`.
+  if (resumeId && spec.resumeMode === "subcommand") {
+    argv.push(...spec.prefix);
+    argv.push(...(spec.resumeSubcommand ?? ["resume"]), resumeId);
+  } else {
+    argv.push(...spec.prefix);
+    if (resumeId && spec.resumeMode === "flag" && namedResumeFlag) {
+      argv.push(namedResumeFlag, resumeId);
+    }
+  }
+
+  // Only a dial the operator chose in Junto is emitted. Unset means the
+  // harness's own config decides; a param's `defaultValue` names that default
+  // for display and is never passed. A dial the session owns (Amp's thread
+  // keeps its mode) is not re-passed on a resume.
+  const params = harnessParamsOf(template);
+  const modelSlugEffort =
+    paramSpec(params, "effort")?.emit.via === "modelSlug" ? choices.effort : undefined;
+  for (const key of DIAL_ORDER) {
+    const param = paramSpec(params, key);
+    const chosen = choices[key];
+    if (param === undefined || chosen === undefined) continue;
+    if (resumeId && param.resume === "frozenWithSession") continue;
+    // Cursor carries effort inside the model value as a hyphenated catalog
+    // slug (`claude-opus-4-8-high`), not `[effort=…]` — that form is rejected
+    // on 2026.09.10-fd3934a. With no model the effort has nothing to attach
+    // to and is dropped rather than invented onto a model nobody chose.
+    const value = key === "model" && modelSlugEffort ? withModelEffortSlug(chosen, modelSlugEffort) : chosen;
+    emitDial(argv, param, value);
+  }
+
+  if (choices.sessionId && spec.sessionIdFlag) {
+    pushFlag(argv, spec.sessionIdFlag, choices.sessionId);
+  }
+
+  // The operator's own arguments: after everything the template owns, before
+  // the prompt (a positional prompt must stay the last token).
+  const extraArgs = sanitizeExtraArgs(template.harness, choices.extraArgs).args;
+  const sessionOwned = resumeId ? paramSpec(params, "extraArgs")?.sessionOwnedFlags : undefined;
+  argv.push(...(sessionOwned ? splitSessionOwnedArgs(extraArgs, sessionOwned).client : extraArgs));
+
+  // Prompt last (positional, with optional separator), as -q for Hermes TUI
+  // auto-submit, as -i for Antigravity auto-submit, or not at all when the
+  // harness has no argv prompt slot (kimi, amp, fx).
+  if (choices.prompt) {
+    if (spec.promptMode === "flag-q") {
+      argv.push("-q", choices.prompt);
+    } else if (spec.promptMode === "flag-i") {
+      argv.push("-i", choices.prompt);
+    } else if (spec.promptMode === "positional") {
+      if (spec.promptSeparator) argv.push(spec.promptSeparator);
+      argv.push(choices.prompt);
+    }
+  }
+
+  return stripIdlessSessionContinue(argv);
+};
+
+// ── Public resolve ─────────────────────────────────────────────────────────
+
+export const resolveTemplate = (
+  harnessOrTemplate: HarnessId | ManagedTerminalTemplate,
+): ManagedTerminalTemplate => {
+  if (typeof harnessOrTemplate === "string") {
+    if (!isHarnessId(harnessOrTemplate)) {
+      throw new Error(`unknown managed harness: ${harnessOrTemplate}`);
+    }
+    return templateFor(harnessOrTemplate);
+  }
+  return harnessOrTemplate;
+};
+
+/**
+ * Turn template + picker choices into a TerminalLaunch compatible with
+ * LocalSessionHost (`kind: "harness"`).
+ */
+export const resolveManagedLaunch = (
+  harnessOrTemplate: HarnessId | ManagedTerminalTemplate,
+  choices: ManagedLaunchChoices = {},
+  ambientEnv: Readonly<Record<string, string | undefined>> = process.env,
+): TerminalLaunch => resolveManagedLaunchPlan(harnessOrTemplate, choices, ambientEnv).launch;
+
+/** A resolved launch. It holds argv, cwd and env, and nothing to type. */
+export type ManagedLaunchPlan = {
+  readonly launch: TerminalLaunch;
+};
+
+export const resolveManagedLaunchPlan = (
+  harnessOrTemplate: HarnessId | ManagedTerminalTemplate,
+  choices: ManagedLaunchChoices = {},
+  ambientEnv: Readonly<Record<string, string | undefined>> = process.env,
+): ManagedLaunchPlan => {
+  const template = resolveTemplate(harnessOrTemplate);
+  const argv = buildArgv(template, choices);
+  // Dials go on AFTER the scrub, and deliberately so. The scrub exists to kill
+  // the value a nested seat would INHERIT (an fx seat launched from inside an
+  // fx session); the value the picker chose for this seat is the opposite of
+  // that — it is the answer the scrub is clearing the way for.
+  const env = {
+    ...buildSpawnEnv(ambientEnv, choices.env),
+    ...envDials(template, choices),
+  };
+
+  const launch: TerminalLaunch = {
+    kind: "harness",
+    argv,
+    ...(choices.cwd ? { cwd: choices.cwd } : {}),
+    ...(Object.keys(env).length > 0 ? { env } : {}),
+  };
+
+  return { launch };
+};

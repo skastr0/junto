@@ -1,0 +1,313 @@
+/**
+ * View state (0.11, 04, V1): the tables, the sparse snapshot, one write per
+ * row, and the rows a node or canvas delete takes with it. Proven on the real
+ * state engine and the production DDL.
+ */
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Effect, Layer, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/sql";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { ViewStateWrite } from "../src/shared/view-state";
+import { artifactLabelOf, type ArtifactLabel } from "../src/shared/artifact-labels";
+import { makeStateEngineLive } from "../src/core/state/engine";
+import { ViewStateRepository, ViewStateRepositoryLive } from "../src/core/view-state/repository";
+
+let dir: string;
+let runtime: ReturnType<typeof machineAt>;
+const canvas = "main";
+
+const machineAt = (root: string) =>
+  ManagedRuntime.make(Layer.provideMerge(ViewStateRepositoryLive, makeStateEngineLive(join(root, "junto.db"))));
+
+const label = (raw: string): ArtifactLabel => {
+  const folded = artifactLabelOf(raw);
+  if (folded === undefined) throw new Error(`refused: ${raw}`);
+  return folded;
+};
+
+const run = <A, E>(effect: Effect.Effect<A, E, ViewStateRepository | SqlClient.SqlClient>) =>
+  runtime.runPromise(effect as never) as Promise<A>;
+const write = (change: ViewStateWrite) => run(Effect.flatMap(ViewStateRepository, (store) => store.write(change)));
+const snapshot = () => run(Effect.flatMap(ViewStateRepository, (store) => store.snapshot()));
+const removeNodes = (ids: ReadonlyArray<string>) =>
+  run(Effect.flatMap(ViewStateRepository, (store) => store.removeNodes(canvas, ids)));
+
+beforeEach(async () => {
+  dir = await mkdtemp(join(tmpdir(), "junto-view-state-"));
+  runtime = machineAt(dir);
+  await run(
+    Effect.flatMap(SqlClient.SqlClient, (sql) =>
+      Effect.gen(function* () {
+        yield* sql`INSERT INTO canvases (canvas_name, canvas_id, created_at, updated_at)
+          VALUES (${canvas}, 'canvas-1', 'now', 'now')`;
+        // Every node a view row may name: the store keeps a node-scoped row
+        // only while its node is one of the canvas's.
+        for (const id of ["artifacts-1", "tasks-1", "a", "b", "c"]) {
+          yield* sql`INSERT INTO artifact_boards
+            (canvas_name, id, x, y, width, height, z_index, color, created_at, updated_at, label)
+            VALUES (${canvas}, ${id}, 0, 0, 10, 10, 0, NULL, 'now', 'now', 'Shelf')`;
+        }
+      }),
+    ),
+  );
+});
+
+afterEach(async () => {
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+describe("the view-state store", () => {
+  it("reads an untouched machine as empty, and writes nothing for a node the canvas does not hold", async () => {
+    expect(await snapshot()).toEqual({
+      commandGroups: {},
+      nodes: {},
+      focusSizes: {},
+      sections: {},
+      captureInboxes: {},
+      captureDrafts: {},
+      captureDesks: {},
+    });
+    expect(await write({ area: "sidebar", canvasName: canvas, nodeId: "ghost", collapsed: true })).toBe(false);
+    expect((await snapshot()).nodes[canvas]).toBeUndefined();
+  });
+
+  it("keeps the desk and the draft in the one row without either clearing the other", async () => {
+    const desk = {
+      open: { kind: "artifact" as const, nodeId: "artifacts-1", artifactId: "artifact-7" },
+      query: "pricing",
+      focused: "artifact-7",
+      caret: 42,
+      scrollWriting: 180,
+      scrollList: 24,
+    };
+    expect(await write({ area: "capture-desk", canvasName: canvas, value: desk })).toBe(true);
+    expect(
+      await write({
+        area: "capture-draft",
+        canvasName: canvas,
+        value: { of: "artifact-7", node: "artifacts-1", text: "words", base: 1, at: 5 },
+      }),
+    ).toBe(true);
+    const both = await snapshot();
+    expect(both.captureDesks?.[canvas]).toEqual(desk);
+    expect(both.captureDrafts?.[canvas]?.text).toBe("words");
+    // Clearing the draft leaves where the operator was; the desk is the other owner's half.
+    expect(await write({ area: "capture-draft", canvasName: canvas, value: null })).toBe(true);
+    const after = await snapshot();
+    expect(after.captureDrafts?.[canvas]).toBeUndefined();
+    expect(after.captureDesks?.[canvas]).toEqual(desk);
+  });
+
+  it("keeps nine slots, a group's members in order, and the groups past nine", async () => {
+    await write({ area: "command-slot", canvasName: canvas, slot: 0, value: { kind: "fixed", nodeId: "agent-a" } });
+    await write({ area: "command-slot", canvasName: canvas, slot: 2, value: { kind: "group", nodeIds: ["agent-a", "agent-b"] } });
+    await write({ area: "command-extras", canvasName: canvas, value: [["agent-a", "agent-b"], ["agent-c"]] });
+
+    let read = await snapshot();
+    const board = read.commandGroups[canvas]!;
+    expect(board.slots).toHaveLength(9);
+    expect(board.slots[0]).toEqual({ kind: "fixed", nodeId: "agent-a" });
+    expect(board.slots[1]).toEqual({ kind: "empty" });
+    expect(board.slots[2]).toEqual({ kind: "group", nodeIds: ["agent-a", "agent-b"] });
+    expect(board.extras).toEqual([["agent-a", "agent-b"], ["agent-c"]]);
+
+    await write({ area: "command-slot", canvasName: canvas, slot: 0, value: { kind: "empty" } });
+    await write({ area: "command-extras", canvasName: canvas, value: [] });
+    read = await snapshot();
+    expect(read.commandGroups[canvas]!.slots[0]).toEqual({ kind: "empty" });
+    expect(read.commandGroups[canvas]!.extras).toEqual([]);
+  });
+
+  it("keeps each node's rows sparse and deletes a row returned to its default", async () => {
+    const node = "artifacts-1";
+    await write({
+      area: "artifacts-filter",
+      canvasName: canvas,
+      nodeId: node,
+      value: { type: "document", archived: true, labels: [label("b"), label("a")] },
+    });
+    await write({ area: "tasks-filter", canvasName: canvas, nodeId: node, value: "open" });
+    await write({ area: "open-item", canvasName: canvas, nodeId: node, value: { kind: "artifact", id: "artifact-1" } });
+    await write({ area: "expanded-folders", canvasName: canvas, nodeId: node, value: ["src", "docs"] });
+    await write({ area: "sidebar", canvasName: canvas, nodeId: node, collapsed: true });
+
+    let held = (await snapshot()).nodes[canvas]![node]!;
+    expect(held.artifactsFilter).toEqual({ type: "document", archived: true, labels: [label("b"), label("a")] });
+    expect(held.tasksFilter).toBe("open");
+    expect(held.openItem).toEqual({ kind: "artifact", id: "artifact-1" });
+    expect(held.expandedFolders).toEqual(["src", "docs"]);
+    expect(held.sidebarCollapsed).toBe(true);
+
+    await write({
+      area: "artifacts-filter",
+      canvasName: canvas,
+      nodeId: node,
+      value: { type: "all", archived: false, labels: [] },
+    });
+    await write({ area: "tasks-filter", canvasName: canvas, nodeId: node, value: "all" });
+    await write({ area: "open-item", canvasName: canvas, nodeId: node, value: null });
+    await write({ area: "expanded-folders", canvasName: canvas, nodeId: node, value: [] });
+    await write({ area: "sidebar", canvasName: canvas, nodeId: node, collapsed: false });
+
+    held = (await snapshot()).nodes[canvas]?.[node] ?? {};
+    expect(held).toEqual({});
+  });
+
+  it("holds one open item per node, of the kind last written", async () => {
+    const node = "tasks-1";
+    await write({ area: "open-item", canvasName: canvas, nodeId: node, value: { kind: "task", id: "task-1" } });
+    await write({ area: "open-item", canvasName: canvas, nodeId: node, value: { kind: "automation", id: "auto-1" } });
+    expect((await snapshot()).nodes[canvas]![node]!.openItem).toEqual({ kind: "automation", id: "auto-1" });
+    await write({ area: "open-item", canvasName: canvas, nodeId: node, value: { kind: "file", path: "src/index.ts" } });
+    expect((await snapshot()).nodes[canvas]![node]!.openItem).toEqual({ kind: "file", path: "src/index.ts" });
+  });
+
+  it("keeps a surface size and a section's flag machine-wide, last write wins", async () => {
+    await write({ area: "focus-size", surface: "Tasks", value: { width: 800, height: 600 } });
+    await write({ area: "focus-size", surface: "Tasks", value: { width: 900, height: 700 } });
+    await write({ area: "section", section: "artifact-comments", open: true });
+    await write({ area: "section", section: "seat-rail", open: false });
+
+    const read = await snapshot();
+    expect(read.focusSizes).toEqual({ Tasks: { width: 900, height: 700 } });
+    expect(read.sections).toEqual({ "artifact-comments": true, "seat-rail": false });
+
+    await write({ area: "focus-size", surface: "Tasks", value: null });
+    expect((await snapshot()).focusSizes).toEqual({});
+  });
+});
+
+describe("quick capture's Inbox (11 Q4)", () => {
+  it("keeps one Artifacts node per canvas, last write wins, and null forgets it", async () => {
+    expect(await write({ area: "capture-inbox", canvasName: canvas, inbox: "a" })).toBe(true);
+    expect((await snapshot()).captureInboxes).toEqual({ [canvas]: "a" });
+    expect(await write({ area: "capture-inbox", canvasName: canvas, inbox: "b" })).toBe(true);
+    expect((await snapshot()).captureInboxes).toEqual({ [canvas]: "b" });
+    expect(await write({ area: "capture-inbox", canvasName: canvas, inbox: null })).toBe(true);
+    expect((await snapshot()).captureInboxes).toEqual({});
+  });
+
+  it("keeps no row for a node the canvas does not hold as an Artifacts node", async () => {
+    expect(await write({ area: "capture-inbox", canvasName: canvas, inbox: "ghost" })).toBe(false);
+    expect((await snapshot()).captureInboxes).toEqual({});
+  });
+
+  it("goes with its node, and leaves another node's Inbox alone", async () => {
+    await write({ area: "capture-inbox", canvasName: canvas, inbox: "a" });
+    await removeNodes(["b"]);
+    expect((await snapshot()).captureInboxes).toEqual({ [canvas]: "a" });
+    await removeNodes(["a"]);
+    expect((await snapshot()).captureInboxes).toEqual({});
+  });
+
+  it("goes with its canvas", async () => {
+    await write({ area: "capture-inbox", canvasName: canvas, inbox: "a" });
+    await run(
+      Effect.flatMap(SqlClient.SqlClient, (sql) =>
+        Effect.gen(function* () {
+          yield* sql`DELETE FROM artifact_boards WHERE canvas_name = ${canvas}`;
+          yield* sql`DELETE FROM canvases WHERE canvas_name = ${canvas}`;
+        }),
+      ),
+    );
+    expect((await snapshot()).captureInboxes).toEqual({});
+  });
+});
+
+describe("quick capture's draft (0.12, the Cmd+T desk)", () => {
+  const draft = { of: "artifact-1", node: "a", text: "Pricing call, Thursday\nPartner tier stays", base: 3, at: 1_793_320_000_000 };
+
+  it("keeps the words as last written, and null clears them", async () => {
+    expect(await write({ area: "capture-draft", canvasName: canvas, value: { ...draft, text: "Pricing" } })).toBe(true);
+    expect(await write({ area: "capture-draft", canvasName: canvas, value: draft })).toBe(true);
+    expect((await snapshot()).captureDrafts).toEqual({ [canvas]: draft });
+    expect(await write({ area: "capture-draft", canvasName: canvas, value: null })).toBe(true);
+    expect((await snapshot()).captureDrafts).toEqual({});
+  });
+
+  it("keeps words that belong to no artifact yet", async () => {
+    const unmade = { of: null, node: null, text: "Written before the Inbox", base: null, at: 1 };
+    expect(await write({ area: "capture-draft", canvasName: canvas, value: unmade })).toBe(true);
+    expect((await snapshot()).captureDrafts).toEqual({ [canvas]: unmade });
+  });
+
+  it("outlives the node its artifact was on, and touches none of the shell's columns", async () => {
+    await run(
+      Effect.flatMap(SqlClient.SqlClient, (sql) =>
+        sql`INSERT INTO view_capture_desks (canvas_name, open_kind, query, caret) VALUES (${canvas}, 'new', 'pricing', 7)`,
+      ),
+    );
+    await write({ area: "capture-draft", canvasName: canvas, value: draft });
+    await removeNodes(["a"]);
+    expect((await snapshot()).captureDrafts).toEqual({ [canvas]: draft });
+    await write({ area: "capture-draft", canvasName: canvas, value: null });
+    const shell = await run(
+      Effect.flatMap(SqlClient.SqlClient, (sql) => sql`SELECT open_kind, query, caret FROM view_capture_desks WHERE canvas_name = ${canvas}`),
+    );
+    expect(shell).toEqual([{ open_kind: "new", query: "pricing", caret: 7 }]);
+  });
+});
+
+describe("a node or canvas delete takes its view rows", () => {
+  beforeEach(async () => {
+    await write({ area: "command-slot", canvasName: canvas, slot: 0, value: { kind: "fixed", nodeId: "a" } });
+    await write({ area: "command-slot", canvasName: canvas, slot: 1, value: { kind: "fixed", nodeId: "b" } });
+    await write({ area: "command-slot", canvasName: canvas, slot: 2, value: { kind: "group", nodeIds: ["a", "b"] } });
+    await write({ area: "command-slot", canvasName: canvas, slot: 3, value: { kind: "group", nodeIds: ["a", "c"] } });
+    await write({ area: "command-extras", canvasName: canvas, value: [["a", "b"], ["c"]] });
+    for (const node of ["a", "b", "c"]) {
+      await write({
+        area: "artifacts-filter",
+        canvasName: canvas,
+        nodeId: node,
+        value: { type: "document", archived: false, labels: [] },
+      });
+      await write({ area: "sidebar", canvasName: canvas, nodeId: node, collapsed: true });
+    }
+    await write({ area: "focus-size", surface: "Tasks", value: { width: 1, height: 2 } });
+    await write({ area: "section", section: "artifact-comments", open: true });
+  });
+
+  it("removes a node's rows and leaves it out of every group", async () => {
+    await removeNodes(["a"]);
+    const read = await snapshot();
+    const board = read.commandGroups[canvas]!;
+    expect(board.slots[0]).toEqual({ kind: "empty" });
+    expect(board.slots[1]).toEqual({ kind: "fixed", nodeId: "b" });
+    expect(board.slots[2]).toEqual({ kind: "group", nodeIds: ["b"] });
+    expect(board.slots[3]).toEqual({ kind: "group", nodeIds: ["c"] });
+    expect(board.extras).toEqual([["b"], ["c"]]);
+    expect(read.nodes[canvas]?.a).toBeUndefined();
+    expect(read.nodes[canvas]?.b).toBeDefined();
+
+    await removeNodes(["b", "c"]);
+    const after = await snapshot();
+    // The last held row went, so the canvas has no board at all.
+    expect(after.commandGroups[canvas]).toBeUndefined();
+    expect(after.nodes[canvas]).toBeUndefined();
+    // Machine-wide rows are not a node's.
+    expect(after.focusSizes).toEqual({ Tasks: { width: 1, height: 2 } });
+    expect(after.sections).toEqual({ "artifact-comments": true });
+  });
+
+  it("cascades a canvas delete from the canvases table", async () => {
+    await run(
+      Effect.flatMap(SqlClient.SqlClient, (sql) =>
+        Effect.gen(function* () {
+          // The model removes its kind rows before the canvas; the FK here
+          // has no ON DELETE action, so the test does the same.
+          yield* sql`DELETE FROM artifact_boards WHERE canvas_name = ${canvas}`;
+          yield* sql`DELETE FROM canvases WHERE canvas_name = ${canvas}`;
+        }),
+      ),
+    );
+    const read = await snapshot();
+    expect(read.commandGroups).toEqual({});
+    expect(read.nodes).toEqual({});
+    expect(read.focusSizes).toEqual({ Tasks: { width: 1, height: 2 } });
+    expect(read.sections).toEqual({ "artifact-comments": true });
+  });
+});

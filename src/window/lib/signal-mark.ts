@@ -1,0 +1,136 @@
+/**
+ * Shared signal taxonomy for the RTS chrome (region chips + minimap).
+ *
+ * Two layers, always:
+ *   1. Identity — node accent / kind hue (who this is)
+ *   2. Signal   — severity-driven accent + symbol (what needs attention)
+ *
+ * Severity ladder is owned by @shared/region-rollup. This module only maps
+ * that ladder (and its reason strings) into a renderable mark. It does not
+ * re-derive membership or severity.
+ *
+ * Tones for blocked/attention/working/idle must match SEVERITY_TONE in
+ * activity.ts so card spinners, chips, and minimap never disagree.
+ */
+
+import type { Node } from "@shared/model";
+import type { MemberSeverity, MemberStatus } from "@shared/region-rollup";
+import type { ActivityMode, ActivityTone } from "./activity";
+import { ACTIVITY_TONE_HEX, SEVERITY_TONE } from "./activity";
+import { accentColor, HUE, withAlpha } from "./theme";
+import type { Brand } from "effect";
+
+/** The rollup tier names, plain: this module paints by name and ranks nothing. */
+export type SignalKind = Brand.Brand.Unbranded<MemberSeverity>;
+
+export interface SignalMark {
+  readonly kind: SignalKind;
+  readonly tone: ActivityTone | "violet";
+  readonly hue: string;
+  /** Single-character status mark — chips/minimap read, never prose. */
+  readonly symbol: string;
+  readonly label: string;
+  readonly mode: ActivityMode;
+}
+
+const MARK: Readonly<Record<SignalKind, SignalMark>> = {
+  blocked: {
+    kind: "blocked",
+    tone: SEVERITY_TONE.blocked,
+    hue: ACTIVITY_TONE_HEX[SEVERITY_TONE.blocked],
+    symbol: "⊗",
+    label: "blocked",
+    mode: "wave",
+  },
+  attention: {
+    kind: "attention",
+    tone: SEVERITY_TONE.attention,
+    hue: ACTIVITY_TONE_HEX[SEVERITY_TONE.attention],
+    symbol: "⚠",
+    label: "attention",
+    mode: "wave",
+  },
+  // Escalated: attention's amber, one step quieter (a pulse, not a wave):
+  // the seat asked for the operator, nothing is stopped on screen.
+  escalated: {
+    kind: "escalated",
+    tone: SEVERITY_TONE.attention,
+    hue: ACTIVITY_TONE_HEX[SEVERITY_TONE.attention],
+    symbol: "↑",
+    label: "waiting on you",
+    mode: "pulse",
+  },
+  working: {
+    kind: "working",
+    tone: SEVERITY_TONE.working,
+    hue: ACTIVITY_TONE_HEX[SEVERITY_TONE.working],
+    symbol: "◉",
+    label: "working",
+    mode: "wave",
+  },
+  ready: {
+    kind: "ready",
+    tone: "green",
+    hue: ACTIVITY_TONE_HEX.green,
+    // Filled check — finished work waiting to be read, never a warning.
+    symbol: "✓",
+    label: "ready",
+    mode: "pulse",
+  },
+  idle: {
+    kind: "idle",
+    tone: SEVERITY_TONE.idle,
+    hue: ACTIVITY_TONE_HEX[SEVERITY_TONE.idle],
+    // Empty circle — not a middot. Middot reads as list punctuation next to
+    // labels ("- IDLE", "- terminal") and collides with - separators.
+    symbol: "○",
+    label: "idle",
+    mode: "static",
+  },
+};
+
+export const signalMark = (severity: MemberSeverity | undefined): SignalMark =>
+  MARK[(severity ?? "idle") as SignalKind];
+
+/** Prefer a more specific label from rollup reasons when present. */
+export const signalMarkForMember = (member: Pick<MemberStatus, "severity" | "reasons">): SignalMark => {
+  const base = signalMark(member.severity);
+  const reason = member.reasons[0];
+  if (!reason) return base;
+  // Map machine reasons to short aria/tooltips without inventing severity.
+  if (reason === "permission:pending") return { ...base, label: "awaiting permission", symbol: "?" };
+  if (reason === "session:live") return { ...base, label: "session live" };
+  if (reason === "activity:ready" || reason === "need:turn_unseen" || reason === "need:turn_failed") {
+    return { ...base, label: "ready to read" };
+  }
+  if (reason === "need:permission") return { ...base, label: "awaiting permission", symbol: "?" };
+  if (reason.startsWith("flag:")) return { ...base, label: reason.slice("flag:".length) };
+  if (reason.startsWith("task:")) return { ...base, label: reason.slice("task:".length) };
+  if (reason.startsWith("seed:")) return { ...base, label: "seed block" };
+  return base;
+};
+
+const KIND_HUE: Readonly<Record<string, string>> = {
+  project: HUE.amber,
+  agent: HUE.orange,
+  orbit: HUE.indigo,
+  plugin: HUE.violet,
+  station: HUE.cyan,
+  skill: HUE.gold,
+  page: HUE.cyan,
+  node: HUE.steel,
+};
+
+/** Identity colour for a node: its own accent first, then its kind. */
+export const identityHueOf = (
+  node: { readonly kind: string; readonly color?: string } | undefined,
+): string => {
+  if (!node) return HUE.steel;
+  if (node.color) return accentColor(node.color);
+  if (KIND_HUE[node.kind]) return KIND_HUE[node.kind]!;
+  if (node.kind === "region") return withAlpha(HUE.steel, 0.45);
+  return HUE.amber;
+};
+
+export const activityToneHex = (tone: ActivityTone | "violet"): string =>
+  tone === "violet" ? HUE.violet : ACTIVITY_TONE_HEX[tone];

@@ -1,0 +1,319 @@
+/**
+ * Codex seat rules — OSC title is the primary state feed (Action Required, spinner).
+ * Startup trust/hooks modals have no title → grid rules. Rank: OSC → grid.
+ */
+
+import { codexMultilineComposerEvidence } from "../../observer/interaction";
+import type { SeatRulePack } from "../types";
+
+/** Braille / spinner glyphs Codex puts in the OSC title while working. */
+const CODEX_TITLE_SPINNER =
+  "(?:^| )[\\u2800-\\u28FF⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏](?: |$)";
+
+export const codexRules: SeatRulePack = {
+  harness: "codex",
+  version: "2026.08.28.1",
+  rules: [
+    {
+      id: "osc_title_attention",
+      state: "attention",
+      priority: 1100,
+      region: "osc_title",
+      visibleAttention: true,
+      matchers: { contains: ["action required"] },
+    },
+    // A retry or a compaction is still a turn in progress, but the status
+    // line says which: above the title spinner so the signal is not lost to
+    // it. Bottom lines only, so a finished one in the scrollback never pins.
+    // Captures: tests/pty-e2e/corpus/codex/retry-*, compaction-manual.
+    {
+      id: "reconnecting_retry",
+      state: "working",
+      signal: { _tag: "Retrying", cause: "unknown" },
+      priority: 1062,
+      region: "bottom_non_empty_lines",
+      regionN: 5,
+      visibleWorking: true,
+      matchers: {
+        regex: [
+          "(?:^|\\n)[•◦]\\s+Reconnecting\\.{3}\\s+(?<attempt>\\d+)/(?<max>\\d+)\\s+\\([^)\\n]*esc to interrupt\\)(?:\\n\\s*└\\s*(?<cause>[^\\n]+))?",
+        ],
+      },
+    },
+    {
+      id: "compacting_context",
+      state: "working",
+      signal: { _tag: "CompactionStarted", trigger: "unknown" },
+      priority: 1061,
+      region: "bottom_non_empty_lines",
+      regionN: 5,
+      visibleWorking: true,
+      matchers: {
+        lineRegex: ["^[•◦]\\s+Compacting context \\([^)]*esc to interrupt\\)"],
+      },
+    },
+    {
+      id: "osc_title_working",
+      state: "working",
+      priority: 1050,
+      region: "osc_title",
+      visibleWorking: true,
+      matchers: { regex: [CODEX_TITLE_SPINNER] },
+    },
+    {
+      id: "transcript_viewer",
+      state: "unknown",
+      priority: 1000,
+      region: "whole_recent",
+      skipStateUpdate: true,
+      matchers: {
+        contains: ["↑/↓ to scroll", "pgup/pgdn to", "home/end to jump", "q to quit"],
+        any: [
+          { contains: ["esc to edit prev"] },
+          { contains: ["esc/← to edit prev"] },
+        ],
+      },
+    },
+    // A usage limit ends on a model picker ("Switch to <model> for lower
+    // credit usage?", enter select, esc back). The picker's arrow reads as a
+    // draft in the box, so without these the seat reads idle and mail is
+    // typed into the picker. Capture: corpus/codex/usage-limit*.
+    {
+      id: "usage_limit_picker",
+      state: "attention",
+      signal: { _tag: "UsageLimitHit", scope: "unknown" },
+      priority: 710,
+      region: "bottom_non_empty_lines",
+      regionN: 10,
+      visibleAttention: true,
+      matchers: {
+        contains: ["hit your usage limit"],
+        lineRegex: ["^\\s*enter select \\u00B7 esc back\\s*$"],
+        // Captures the reset when the message gives one: "try again at
+        // 6:25 AM." or "try again at Oct 21st, 2026 6:25 AM.", wrapped
+        // anywhere. Optional, so a message without one is still a limit.
+        regex: ["^(?:[\\s\\S]*try\\s+again\\s+at\\s+(?<resetsAt>[^.]+?)\\.(?:\\s|$))?"],
+      },
+    },
+    // A turn that ended on 401 Unauthorized: the seat cannot take mail until
+    // its credentials are fixed. Only while the error sits just above the box.
+    // Capture: corpus/codex/error-auth.
+    {
+      id: "unauthorized_error",
+      state: "attention",
+      signal: { _tag: "ErrorRaised", kind: "auth" },
+      priority: 705,
+      region: "bottom_non_empty_lines",
+      regionN: 5,
+      visibleAttention: true,
+      matchers: {
+        lineRegex: ["^\\u25A0\\s+(?<message>(?:unexpected status )?40[13] Unauthorized\\b.*?)\\s*$"],
+      },
+    },
+    {
+      id: "live_picker",
+      state: "attention",
+      signal: { _tag: "DialogShown", kind: "picker" },
+      priority: 700,
+      region: "bottom_non_empty_lines",
+      regionN: 3,
+      visibleAttention: true,
+      matchers: {
+        lineRegex: ["^\\s*enter select \\u00B7 esc back\\s*$"],
+      },
+    },
+    {
+      id: "live_strong_attention",
+      state: "attention",
+      priority: 900,
+      region: "whole_recent",
+      visibleAttention: true,
+      matchers: {
+        any: [
+          { contains: ["press enter to confirm or esc to cancel"] },
+          { contains: ["enter to submit answer"] },
+          { contains: ["enter to submit all"] },
+          { contains: ["allow command?"] },
+          // Startup modals (no OSC title): directory trust + hooks review.
+          { contains: ["do you trust the files in this folder"] },
+          { contains: ["trust this directory"] },
+          // Codex directory-trust modal (pre-TUI, blocking).
+          // Provenance corrected 2026-09-17: none of these literals is in the
+          // committed codex/startup-idle capture (a scan of its decoded bytes
+          // finds no trust or hooks strings), so the earlier "captured verbatim
+          // (P1 startup-idle fixture)" claim was false and
+          // codex.trust_or_approval is recorded unobserved by the evaluation
+          // harness. The matcher stays because it is fail-closed attention and
+          // costs nothing when absent; ground it with a real capture before
+          // treating it as evidence.
+          { contains: ["do you trust the contents of this directory"] },
+          { contains: ["working with untrusted contents"] },
+          { contains: ["review the hooks that will run"] },
+          { contains: ["hooks will run for this project"] },
+        ],
+      },
+    },
+    {
+      id: "weak_attention",
+      state: "attention",
+      priority: 600,
+      region: "bottom_non_empty_lines",
+      regionN: 8,
+      visibleAttention: true,
+      // Bottom-scoped: a stale approval modal in the scrollback tail (a
+      // previous turn's "Would you like to run…" form) must not pin
+      // attention over the live idle composer (GAP-OBS-5b). The live
+      // approval form always paints in the bottom strip.
+      matchers: {
+        any: [
+          { contains: ["[y/n]"] },
+          { contains: ["yes (y)"] },
+          {
+            contains: ["do you want to"],
+            any: [{ contains: ["yes"] }, { contains: ["❯"] }],
+          },
+          {
+            contains: ["would you like to"],
+            any: [{ contains: ["yes"] }, { contains: ["❯"] }],
+          },
+        ],
+      },
+    },
+    {
+      id: "screen_working_fallback",
+      state: "working",
+      priority: 500,
+      region: "bottom_non_empty_lines",
+      regionN: 3,
+      visibleWorking: true,
+      matchers: {
+        lineRegex: [
+          "^[•◦]\\s+Working \\([^)]*esc to interrupt\\)(?: - .*)?$",
+        ],
+        not: [{ contains: ["■ conversation interrupted"] }],
+      },
+    },
+    // Prompt-box idle chrome, grounded in a live capture of codex v0.149.1
+    // (2026-08-28): current builds set NO OSC title at idle, so the composer
+    // line is the visible idle proof. Below screen_working_fallback (500) so
+    // a live "Working (esc to interrupt)" status still wins while the
+    // composer persists under it.
+    {
+      id: "empty_prompt_idle",
+      state: "idle",
+      priority: 400,
+      region: "bottom_non_empty_lines",
+      regionN: 4,
+      visibleIdle: true,
+      matchers: {
+        any: [
+          { lineRegex: ["^\\s*\u203a\\s*$"] },
+          { lineRegex: ["^\\s*\u203a Implement \\{feature\\}\\s*$"] },
+          { lineRegex: ["^\\s*\u203a Ask Codex to do anything\\s*$"] },
+        ],
+        not: [
+          { contains: ["[y/n]"] },
+          { contains: ["yes (y)"] },
+          { contains: ["press enter to confirm"] },
+        ],
+      },
+    },
+    {
+      id: "composer_draft_idle",
+      state: "idle",
+      priority: 390,
+      region: "bottom_non_empty_lines",
+      regionN: 4,
+      visibleIdle: true,
+      matchers: {
+        lineRegex: ["^\\s*\u203a\\s+\\S"],
+        not: [
+          { contains: ["[y/n]"] },
+          { contains: ["yes (y)"] },
+          { contains: ["press enter to confirm"] },
+        ],
+      },
+    },
+    {
+      id: "osc_title_idle",
+      state: "idle",
+      priority: 100,
+      region: "osc_title",
+      visibleIdle: true,
+      // Any non-empty title that is not spinner / Action Required.
+      matchers: {
+        regex: ["\\S"],
+        not: [
+          { regex: [CODEX_TITLE_SPINNER] },
+          { contains: ["action required"] },
+        ],
+      },
+    },
+  ],
+  // Composer probes — grounded in P1 corpus codex/startup-idle (placeholder
+  // `› Implement {feature}`) and codex/type-echo (draft `› hello`). Codex
+  // paints no ─── rule box, so the probes scope to the bottom strip. Empties
+  // are EXACT literals ordered first: a rotated placeholder this pack does
+  // not know reads as draft and holds delivery loudly (battery check 3 goes
+  // red) instead of pasting into unknown chrome.
+  // Errors a turn ended on ("\u25A0 " lines), beside whatever state the
+  // screen reads. Captures: tests/pty-e2e/corpus/codex/error-server,
+  // error-context.
+  facts: [
+    {
+      id: "high_demand_error",
+      region: "bottom_non_empty_lines",
+      regionN: 8,
+      signal: { _tag: "ErrorRaised", kind: "provider" },
+      matchers: { lineRegex: ["^\\u25A0\\s+(?<message>.*experiencing high demand.*?)\\s*$"] },
+    },
+    // A compaction that finished: "\u2022 Context compacted \u00B7 0s". An
+    // automatic one shows only this line. Capture: corpus/codex/compaction-auto.
+    {
+      id: "context_compacted",
+      region: "bottom_non_empty_lines",
+      regionN: 8,
+      signal: { _tag: "CompactionEnded", ok: true },
+      matchers: { lineRegex: ["^[\u2022\u25E6]\\s+Context compacted\\b"] },
+    },
+    {
+      id: "context_length_exceeded",
+      region: "bottom_non_empty_lines",
+      regionN: 8,
+      signal: { _tag: "ErrorRaised", kind: "contextOverflow" },
+      matchers: { lineRegex: ["^\\u25A0\\s+(?<message>.*context_length_exceeded.*?)\\s*$"] },
+    },
+  ],
+  // Native Codex expands a multiline paste beyond its bottom-four probes;
+  // the pending-evidence layout proof reads it.
+  composerDraft: (lines) => codexMultilineComposerEvidence(lines) !== undefined,
+  composer: [
+    {
+      id: "bare_prompt_empty",
+      verdict: "empty",
+      region: "bottom_non_empty_lines",
+      regionN: 4,
+      matchers: { lineRegex: ["^\\s*\u203a\\s*$"] },
+    },
+    {
+      id: "placeholder_hint_empty",
+      verdict: "empty",
+      region: "bottom_non_empty_lines",
+      regionN: 4,
+      matchers: {
+        any: [
+          // v0.147 (P1 corpus) and v0.149 (live capture 2026-08-28).
+          { lineRegex: ["^\\s*\u203a Implement \\{feature\\}\\s*$"] },
+          { lineRegex: ["^\\s*\u203a Ask Codex to do anything\\s*$"] },
+        ],
+      },
+    },
+    {
+      id: "composer_content_draft",
+      verdict: "draft",
+      region: "bottom_non_empty_lines",
+      regionN: 4,
+      matchers: { lineRegex: ["^\\s*\u203a\\s+\\S"] },
+    },
+  ],
+};

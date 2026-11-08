@@ -1,0 +1,112 @@
+{
+  "version": 1,
+  "profiles": {
+    "none": {},
+    "jit": {
+      "com.apple.security.cs.allow-jit": true,
+      "com.apple.security.device.audio-input": true
+    }
+  },
+  "machO": [
+    {
+      "path": "Contents/MacOS/Junto",
+      "identifier": "com.skastr0.junto",
+      "profile": "jit"
+    },
+    {
+      "path": "Contents/Resources/bin/junto",
+      "identifier": "junto",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Resources/app.asar.unpacked/node_modules/node-pty/build/Release/pty.node",
+      "identifier": "pty",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Resources/app.asar.unpacked/node_modules/node-pty/build/Release/spawn-helper",
+      "identifier": "spawn-helper",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-arm64/pty.node",
+      "identifier": "pty",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper",
+      "identifier": "spawn-helper",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework",
+      "identifier": "com.github.Electron.framework",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libEGL.dylib",
+      "identifier": "libEGL",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libvk_swiftshader.dylib",
+      "identifier": "libvk_swiftshader",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libGLESv2.dylib",
+      "identifier": "libGLESv2",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libffmpeg.dylib",
+      "identifier": "libffmpeg",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Electron Framework.framework/Versions/A/Helpers/chrome_crashpad_handler",
+      "identifier": "chrome_crashpad_handler",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/ReactiveObjC.framework/Versions/A/ReactiveObjC",
+      "identifier": "com.electron.reactive",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Squirrel.framework/Versions/A/Resources/ShipIt",
+      "identifier": "ShipIt",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Squirrel.framework/Versions/A/Squirrel",
+      "identifier": "com.github.Squirrel",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Mantle.framework/Versions/A/Mantle",
+      "identifier": "com.electron.mantle",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Junto Helper (Renderer).app/Contents/MacOS/Junto Helper (Renderer)",
+      "identifier": "com.skastr0.junto.helper.Renderer",
+      "profile": "jit"
+    },
+    {
+      "path": "Contents/Frameworks/Junto Helper (GPU).app/Contents/MacOS/Junto Helper (GPU)",
+      "identifier": "com.skastr0.junto.helper.GPU",
+      "profile": "jit"
+    },
+    {
+      "path": "Contents/Frameworks/Junto Helper (Plugin).app/Contents/MacOS/Junto Helper (Plugin)",
+      "identifier": "com.skastr0.junto.helper.Plugin",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper",
+      "identifier": "com.skastr0.junto.helper",
+      "profile": "jit"
+    }
+  ]
+}

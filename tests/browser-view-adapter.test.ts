@@ -1,0 +1,1210 @@
+import { tmpdir } from "node:os";
+import { createContext, runInContext, type Context } from "node:vm";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  BROWSER_MAX_EVAL_CODE_BYTES,
+  BROWSER_MAX_EVAL_RESULT_BYTES,
+  BROWSER_MAX_EVAL_RESULT_DEPTH,
+  BROWSER_MAX_EVAL_RESULT_NODES,
+  utf8ByteLength,
+} from "../src/shared/browser-limits";
+
+const electron = vi.hoisted(() => {
+  type Listener = (...args: ReadonlyArray<unknown>) => void;
+  let nextPolicyError: Error | undefined;
+
+  class FakeSession {
+    readonly listeners = new Map<string, Listener[]>();
+    readonly webRequest = { onBeforeRequest: vi.fn() };
+    readonly setPermissionCheckHandler = vi.fn();
+    readonly setPermissionRequestHandler = vi.fn();
+    readonly setDevicePermissionHandler = vi.fn();
+    readonly setDisplayMediaRequestHandler = vi.fn();
+    readonly setDownloadPath = vi.fn();
+    readonly clearStorageData = vi.fn(async (_options: unknown) => undefined);
+    readonly serviceWorkers = (() => {
+      const listeners = new Set<Listener>();
+      return {
+        listeners,
+        on: (_event: string, listener: Listener) => { listeners.add(listener); },
+        off: (_event: string, listener: Listener) => { listeners.delete(listener); },
+        emit: (scope: string) => { for (const listener of listeners) listener({}, { scope }); },
+      };
+    })();
+    resolveHost(): Promise<{ endpoints: ReadonlyArray<{ address: string }> }> {
+      return Promise.resolve({ endpoints: [{ address: "93.184.216.34" }] });
+    }
+    setProxy(): Promise<void> {
+      return Promise.resolve();
+    }
+    forceReloadProxyConfig(): Promise<void> {
+      return Promise.resolve();
+    }
+    closeAllConnections(): Promise<void> {
+      return Promise.resolve();
+    }
+    on(event: string, listener: Listener): this {
+      const listeners = this.listeners.get(event) ?? [];
+      listeners.push(listener);
+      this.listeners.set(event, listeners);
+      return this;
+    }
+    off(event: string, listener: Listener): this {
+      this.listeners.set(
+        event,
+        (this.listeners.get(event) ?? []).filter((candidate) => candidate !== listener),
+      );
+      return this;
+    }
+  }
+
+  class FakeWebContents {
+    readonly listeners = new Map<string, Listener[]>();
+    currentUrl = "";
+    title = "";
+    loadError: (Error & { readonly code?: number }) | undefined;
+    readonly isolatedCalls: Array<{
+      readonly worldId: number;
+      readonly scripts: ReadonlyArray<{ readonly code: string }>;
+      readonly userGesture: boolean | undefined;
+    }> = [];
+    mainWorldEvalCalls = 0;
+    closeCalls = 0;
+    closeError: Error | undefined;
+    stopCalls = 0;
+    reloadCalls = 0;
+    readonly captureRects: unknown[] = [];
+    readonly historySteps: string[] = [];
+    readonly navigationHistory = {
+      back: false,
+      forward: false,
+      canGoBack: () => this.navigationHistory.back,
+      canGoForward: () => this.navigationHistory.forward,
+      goBack: () => this.historySteps.push("back"),
+      goForward: () => this.historySteps.push("forward"),
+      entries: [] as string[],
+      active: 0,
+      getActiveIndex: () => this.navigationHistory.active,
+      getEntryAtIndex: (index: number) => {
+        const url = this.navigationHistory.entries[index];
+        return url === undefined ? undefined : { url, title: "" };
+      },
+    };
+    destroyed = false;
+    backgroundThrottling = true;
+    readonly setBackgroundThrottlingCalls: boolean[] = [];
+
+    constructor(readonly session: FakeSession) {}
+
+    on(event: string, listener: Listener): this {
+      const listeners = this.listeners.get(event) ?? [];
+      listeners.push(listener);
+      this.listeners.set(event, listeners);
+      return this;
+    }
+
+    once(event: string, listener: Listener): this {
+      const onceListener: Listener = (...args) => {
+        this.off(event, onceListener);
+        listener(...args);
+      };
+      return this.on(event, onceListener);
+    }
+
+    off(event: string, listener: Listener): this {
+      this.listeners.set(
+        event,
+        (this.listeners.get(event) ?? []).filter((candidate) => candidate !== listener),
+      );
+      return this;
+    }
+
+    emit(event: string, ...args: ReadonlyArray<unknown>): void {
+      for (const listener of this.listeners.get(event) ?? []) listener(...args);
+    }
+
+    readonly loaded: string[] = [];
+    loadURL(url: string): Promise<void> {
+      this.loaded.push(url);
+      return this.loadError === undefined
+        ? Promise.resolve()
+        : Promise.reject(this.loadError);
+    }
+
+    getURL(): string {
+      return this.currentUrl;
+    }
+
+    getTitle(): string {
+      return this.title;
+    }
+
+    setWindowOpenHandler(): void {
+      const error = nextPolicyError;
+      nextPolicyError = undefined;
+      if (error !== undefined) throw error;
+    }
+    setWebRTCIPHandlingPolicy(): void {}
+
+    close(): void {
+      this.closeCalls += 1;
+      const error = this.closeError;
+      this.closeError = undefined;
+      if (error !== undefined) throw error;
+    }
+    stop(): void {
+      this.stopCalls += 1;
+    }
+    reload(): void {
+      this.reloadCalls += 1;
+    }
+    isDestroyed(): boolean {
+      return this.destroyed;
+    }
+    /** What a main-world script answers: the box overlay's drawing, in tests that draw. */
+    static answer: Promise<unknown> = Promise.resolve(null);
+    focusCalls = 0;
+    focus(): void {
+      this.focusCalls += 1;
+    }
+    executeJavaScript(): Promise<unknown> {
+      this.mainWorldEvalCalls += 1;
+      return FakeWebContents.answer;
+    }
+    executeJavaScriptInIsolatedWorld(
+      worldId: number,
+      scripts: ReadonlyArray<{ readonly code: string }>,
+      userGesture?: boolean,
+    ): Promise<unknown> {
+      this.isolatedCalls.push({ worldId, scripts, userGesture });
+      return Promise.resolve({ __juntoEval: 1, status: "ok", json: "null" });
+    }
+    zoom = 1;
+    getZoomFactor(): number {
+      return this.zoom;
+    }
+    capturePage(rect?: unknown): Promise<{ toPNG(): Uint8Array }> {
+      this.captureRects.push(rect);
+      return Promise.resolve({ toPNG: () => new Uint8Array([1]) });
+    }
+    setBackgroundThrottling(allowed: boolean): void {
+      this.setBackgroundThrottlingCalls.push(allowed);
+      this.backgroundThrottling = allowed;
+    }
+  }
+
+  class FakeWebContentsView {
+    readonly webContents: FakeWebContents;
+    readonly setBoundsCalls: Array<{
+      readonly x: number;
+      readonly y: number;
+      readonly width: number;
+      readonly height: number;
+    }> = [];
+    readonly setVisibleCalls: boolean[] = [];
+    constructor(session: FakeSession) {
+      this.webContents = new FakeWebContents(session);
+    }
+    setBounds(bounds: {
+      readonly x: number;
+      readonly y: number;
+      readonly width: number;
+      readonly height: number;
+    }): void {
+      this.setBoundsCalls.push(bounds);
+    }
+    setVisible(visible: boolean): void {
+      this.setVisibleCalls.push(visible);
+    }
+    getBounds() {
+      return this.setBoundsCalls.at(-1) ?? { x: 0, y: 0, width: 0, height: 0 };
+    }
+    backgroundColor: string | undefined;
+    setBackgroundColor(color: string): void {
+      this.backgroundColor = color;
+    }
+  }
+
+  return {
+    views: [] as FakeWebContentsView[],
+    options: [] as unknown[],
+    sessions: new Map<string, FakeSession>(),
+    FakeSession,
+    FakeWebContents,
+    FakeWebContentsView,
+    failNextPolicyInstall: (error: Error) => {
+      nextPolicyError = error;
+    },
+  };
+});
+
+vi.mock("../src/app/browser/partition-network", () => ({
+  ensureManagedBrowserPartitionNetwork: async () => ({
+    partition: "persist:test",
+    session: {},
+    proxy: {
+      host: "127.0.0.1",
+      port: 1,
+      credentials: { username: "u", password: "p", realm: "r" },
+      proxyRules: "127.0.0.1:1",
+      proxyBypassRules: "<-loopback>",
+      close: async () => undefined,
+    },
+    close: async () => undefined,
+  }),
+  releaseManagedBrowserPartitionNetwork: async () => undefined,
+}));
+
+vi.mock("electron", () => ({
+  app: { getPath: () => tmpdir() },
+  BrowserWindow: { getAllWindows: () => [] },
+  session: {
+    fromPartition: (partition: string) => {
+      const existing = electron.sessions.get(partition);
+      if (existing !== undefined) return existing;
+      const created = new electron.FakeSession();
+      electron.sessions.set(partition, created);
+      return created;
+    },
+  },
+  WebContentsView: class extends electron.FakeWebContentsView {
+    constructor(options: { readonly webPreferences?: { readonly session?: unknown } }) {
+      super(options.webPreferences?.session as never);
+      electron.views.push(this);
+      electron.options.push(options);
+    }
+  },
+}));
+
+import {
+  BROWSER_AUTOMATION_WORLD_ID,
+  buildBoundedEvalScript,
+  electronViewAdapter,
+  makeElectronBrowserViewAttachmentTarget,
+} from "../src/app/browser/view-adapter";
+import type { BrowserViewEvents } from "../src/app/browser/sessions";
+
+const navigation = (
+  url: string,
+  overrides: Partial<{ isSameDocument: boolean; isMainFrame: boolean }> = {},
+) => ({
+  url,
+  isSameDocument: false,
+  isMainFrame: true,
+  frame: null,
+  ...overrides,
+});
+
+const runBoundedEval = async (context: Context, source: string): Promise<unknown> =>
+  Promise.resolve(runInContext(buildBoundedEvalScript(source), context));
+
+describe("electron browser view generation seam", () => {
+  beforeEach(() => {
+    electron.views.length = 0;
+    electron.options.length = 0;
+    electron.sessions.clear();
+  });
+
+  const setup = async () => {
+    const starts: Array<Parameters<BrowserViewEvents["onNavigationStart"]>[0]> = [];
+    const urls: Array<readonly [string, string]> = [];
+    const completed: Array<readonly [string, string | undefined]> = [];
+    const failed: Array<readonly [string, string]> = [];
+    const titles: Array<readonly [string, string]> = [];
+    const ambiguous: string[] = [];
+    const unexpectedTerminations: number[] = [];
+    const operatorInputs: number[] = [];
+    const commits: number[] = [];
+    const workers: string[] = [];
+    const blocks: string[] = [];
+    const guard = { admits: (_url: string, _byPage?: boolean): boolean => true };
+    const byPage: boolean[] = [];
+    let pageGeneration = 1;
+    const handle = await electronViewAdapter(
+      "persist:test",
+      {
+        onNavigationStart: (event) => {
+          starts.push(event);
+          return event.expectedSessionId ?? `page-${pageGeneration++}`;
+        },
+        onNavigationAmbiguous: (sessionId) => ambiguous.push(sessionId),
+        onNavigationUrl: (sessionId, url) => urls.push([sessionId, url]),
+        onLoadOk: (sessionId, title) => completed.push([sessionId, title]),
+        onLoadFail: (sessionId, message) => failed.push([sessionId, message]),
+        onTitle: (sessionId, title) => titles.push([sessionId, title]),
+        admitsTopLevel: (url, initiatedByPage) => {
+          byPage.push(initiatedByPage);
+          return guard.admits(url, initiatedByPage);
+        },
+        onOperatorInput: () => operatorInputs.push(1),
+        onDocumentCommitted: () => commits.push(1),
+        onServiceWorkerRegistered: (scope) => workers.push(scope),
+        onNavigationBlocked: (reason) => blocks.push(reason),
+        onUnexpectedTermination: () => unexpectedTerminations.push(1),
+      },
+    );
+    const webContents = electron.views.at(-1)?.webContents;
+    if (webContents === undefined) throw new Error("view was not created");
+    return {
+      handle,
+      webContents,
+      starts,
+      urls,
+      completed,
+      failed,
+      titles,
+      ambiguous,
+      unexpectedTerminations,
+      operatorInputs,
+      guard,
+      byPage,
+      commits,
+      workers,
+      blocks,
+    };
+  };
+
+  it("parents views only through the injected host and rebinds without double parents", async () => {
+    const target = makeElectronBrowserViewAttachmentTarget();
+    const firstChildren: unknown[] = [];
+    const secondChildren: unknown[] = [];
+    const host = (children: unknown[]) => ({
+      destroyed: false,
+      isDestroyed() { return this.destroyed; },
+      destroy() { this.destroyed = true; },
+      contentView: {
+        addChildView(view: unknown) { children.push(view); },
+        removeChildView(view: unknown) {
+          const index = children.indexOf(view);
+          if (index >= 0) children.splice(index, 1);
+        },
+      },
+    });
+    const first = host(firstChildren);
+    const second = host(secondChildren);
+    const handle = await target.adapter("persist:test", {
+      onNavigationStart: () => "session",
+      onNavigationAmbiguous: () => undefined,
+      onNavigationUrl: () => undefined,
+      onLoadOk: () => undefined,
+      onLoadFail: () => undefined,
+      onTitle: () => undefined,
+      admitsTopLevel: () => true,
+      onOperatorInput: () => undefined,
+      onDocumentCommitted: () => undefined,
+      onServiceWorkerRegistered: () => undefined,
+      onNavigationBlocked: () => undefined,
+      onUnexpectedTermination: () => undefined,
+    });
+
+    target.rebind(first as never);
+    handle.attach({ x: 1, y: 2, width: 3, height: 4 });
+    target.detach();
+    target.rebind(second as never);
+
+    expect(firstChildren).toEqual([]);
+    expect(secondChildren).toHaveLength(1);
+    handle.detach();
+    expect(secondChildren).toEqual([]);
+  });
+
+  it("draws a box on an overlay laid over the shown page, and takes it away after", async () => {
+    const target = makeElectronBrowserViewAttachmentTarget();
+    const children: unknown[] = [];
+    const host = {
+      destroyed: false,
+      isDestroyed() { return this.destroyed; },
+      destroy() { this.destroyed = true; },
+      contentView: {
+        addChildView(view: unknown) { children.push(view); },
+        removeChildView(view: unknown) {
+          const index = children.indexOf(view);
+          if (index >= 0) children.splice(index, 1);
+        },
+      },
+    };
+    const handle = await target.adapter("persist:test", {
+      onNavigationStart: () => "session",
+      onNavigationAmbiguous: () => undefined,
+      onNavigationUrl: () => undefined,
+      onLoadOk: () => undefined,
+      onLoadFail: () => undefined,
+      onTitle: () => undefined,
+      admitsTopLevel: () => true,
+      onOperatorInput: () => undefined,
+      onDocumentCommitted: () => undefined,
+      onServiceWorkerRegistered: () => undefined,
+      onNavigationBlocked: () => undefined,
+      onUnexpectedTermination: () => undefined,
+    });
+    const page = electron.views.at(-1)!;
+    // Not shown: no overlay, no box.
+    expect(await handle.drawBox?.()).toBeUndefined();
+    target.rebind(host as never);
+    handle.attach({ x: 5, y: 6, width: 300, height: 200 });
+    page.webContents.zoom = 2;
+    electron.FakeWebContents.answer = Promise.resolve({ x: 20, y: 40, w: 60, h: 80 });
+    expect(await handle.drawBox?.()).toEqual({ x: 10, y: 20, w: 30, h: 40 });
+    const overlay = electron.views.at(-1)!;
+    expect(overlay).not.toBe(page);
+    expect(electron.options.at(-1)).toMatchObject({
+      webPreferences: { partition: "junto-box-overlay", sandbox: true, nodeIntegration: false, contextIsolation: true },
+    });
+    expect(overlay.backgroundColor).toBe("#00000000");
+    expect(overlay.setBoundsCalls[0]).toEqual({ x: 5, y: 6, width: 300, height: 200 });
+    expect(overlay.webContents.loaded[0]).toMatch(/^data:text\/html/u);
+    expect(overlay.webContents.focusCalls).toBe(1);
+    expect(children).toEqual([page]);
+    expect(overlay.webContents.closeCalls).toBe(1);
+
+    // Hiding the page ends drawing with no box.
+    let answer!: (value: unknown) => void;
+    electron.FakeWebContents.answer = new Promise((resolve) => {
+      answer = resolve;
+    });
+    const drawing = handle.drawBox?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(children).toHaveLength(2);
+    handle.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    expect(await drawing).toBeUndefined();
+    expect(children).toEqual([]);
+    answer({ x: 0, y: 0, w: 50, h: 50 });
+    electron.FakeWebContents.answer = Promise.resolve(null);
+  });
+
+  it("parks a zero-size view off the host and throttles the page", async () => {
+    const target = makeElectronBrowserViewAttachmentTarget();
+    const children: unknown[] = [];
+    const host = {
+      destroyed: false,
+      isDestroyed() { return this.destroyed; },
+      destroy() { this.destroyed = true; },
+      contentView: {
+        addChildView(view: unknown) { children.push(view); },
+        removeChildView(view: unknown) {
+          const index = children.indexOf(view);
+          if (index >= 0) children.splice(index, 1);
+        },
+      },
+    };
+    const handle = await target.adapter("persist:test", {
+      onNavigationStart: () => "session",
+      onNavigationAmbiguous: () => undefined,
+      onNavigationUrl: () => undefined,
+      onLoadOk: () => undefined,
+      onLoadFail: () => undefined,
+      onTitle: () => undefined,
+      admitsTopLevel: () => true,
+      onOperatorInput: () => undefined,
+      onDocumentCommitted: () => undefined,
+      onServiceWorkerRegistered: () => undefined,
+      onNavigationBlocked: () => undefined,
+      onUnexpectedTermination: () => undefined,
+    });
+    const view = electron.views.at(-1);
+    if (view === undefined) throw new Error("view was not created");
+    target.rebind(host as never);
+
+    handle.attach({ x: 10, y: 20, width: 300, height: 200 });
+    expect(children).toHaveLength(1);
+    expect(view.setBoundsCalls.at(-1)).toEqual({ x: 10, y: 20, width: 300, height: 200 });
+
+    handle.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+
+    expect(children).toEqual([]);
+    expect(view.webContents.setBackgroundThrottlingCalls).toEqual([true]);
+    expect(view.setVisibleCalls.at(-1)).toBe(false);
+    expect(view.setBoundsCalls.at(-1)).toEqual({ x: 10, y: 20, width: 300, height: 200 });
+    expect(view.webContents.closeCalls).toBe(0);
+    expect(view.webContents.getURL()).toBe("");
+  });
+
+  it("restores a parked view when bounds become positive", async () => {
+    const target = makeElectronBrowserViewAttachmentTarget();
+    const children: unknown[] = [];
+    const host = {
+      destroyed: false,
+      isDestroyed() { return this.destroyed; },
+      destroy() { this.destroyed = true; },
+      contentView: {
+        addChildView(view: unknown) { children.push(view); },
+        removeChildView(view: unknown) {
+          const index = children.indexOf(view);
+          if (index >= 0) children.splice(index, 1);
+        },
+      },
+    };
+    const handle = await target.adapter("persist:test", {
+      onNavigationStart: () => "session",
+      onNavigationAmbiguous: () => undefined,
+      onNavigationUrl: () => undefined,
+      onLoadOk: () => undefined,
+      onLoadFail: () => undefined,
+      onTitle: () => undefined,
+      admitsTopLevel: () => true,
+      onOperatorInput: () => undefined,
+      onDocumentCommitted: () => undefined,
+      onServiceWorkerRegistered: () => undefined,
+      onNavigationBlocked: () => undefined,
+      onUnexpectedTermination: () => undefined,
+    });
+    const view = electron.views.at(-1);
+    if (view === undefined) throw new Error("view was not created");
+    target.rebind(host as never);
+
+    handle.attach({ x: 4, y: 8, width: 100, height: 80 });
+    handle.loadUrl("https://example.com/", "session");
+    view.webContents.currentUrl = "https://example.com/";
+    handle.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    target.rebind(host as never);
+    expect(children).toEqual([]);
+
+    handle.setBounds({ x: 12, y: 16, width: 640, height: 480 });
+
+    expect(children).toHaveLength(1);
+    expect(view.setBoundsCalls.at(-1)).toEqual({ x: 12, y: 16, width: 640, height: 480 });
+    expect(view.setVisibleCalls.at(-1)).toBe(true);
+    expect(view.webContents.closeCalls).toBe(0);
+    expect(view.webContents.getURL()).toBe("https://example.com/");
+  });
+
+  it("never attaches a view opened with zero bounds", async () => {
+    const target = makeElectronBrowserViewAttachmentTarget();
+    const children: unknown[] = [];
+    const host = {
+      destroyed: false,
+      isDestroyed() { return this.destroyed; },
+      destroy() { this.destroyed = true; },
+      contentView: {
+        addChildView(view: unknown) { children.push(view); },
+        removeChildView(view: unknown) {
+          const index = children.indexOf(view);
+          if (index >= 0) children.splice(index, 1);
+        },
+      },
+    };
+    const handle = await target.adapter("persist:test", {
+      onNavigationStart: () => "session",
+      onNavigationAmbiguous: () => undefined,
+      onNavigationUrl: () => undefined,
+      onLoadOk: () => undefined,
+      onLoadFail: () => undefined,
+      onTitle: () => undefined,
+      admitsTopLevel: () => true,
+      onOperatorInput: () => undefined,
+      onDocumentCommitted: () => undefined,
+      onServiceWorkerRegistered: () => undefined,
+      onNavigationBlocked: () => undefined,
+      onUnexpectedTermination: () => undefined,
+    });
+    const view = electron.views.at(-1);
+    if (view === undefined) throw new Error("view was not created");
+    target.rebind(host as never);
+
+    handle.attach({ x: 0, y: 0, width: 0.4, height: 200 });
+
+    expect(children).toEqual([]);
+    expect(view.webContents.setBackgroundThrottlingCalls).toEqual([true]);
+    expect(view.setBoundsCalls).toEqual([]);
+  });
+
+  it("fails closed when background throttling is unavailable", async () => {
+    const target = makeElectronBrowserViewAttachmentTarget();
+    const children: unknown[] = [];
+    const host = {
+      destroyed: false,
+      isDestroyed() { return this.destroyed; },
+      destroy() { this.destroyed = true; },
+      contentView: {
+        addChildView(view: unknown) { children.push(view); },
+        removeChildView(view: unknown) {
+          const index = children.indexOf(view);
+          if (index >= 0) children.splice(index, 1);
+        },
+      },
+    };
+    const handle = await target.adapter("persist:test", {
+      onNavigationStart: () => "session",
+      onNavigationAmbiguous: () => undefined,
+      onNavigationUrl: () => undefined,
+      onLoadOk: () => undefined,
+      onLoadFail: () => undefined,
+      onTitle: () => undefined,
+      admitsTopLevel: () => true,
+      onOperatorInput: () => undefined,
+      onDocumentCommitted: () => undefined,
+      onServiceWorkerRegistered: () => undefined,
+      onNavigationBlocked: () => undefined,
+      onUnexpectedTermination: () => undefined,
+    });
+    const view = electron.views.at(-1);
+    if (view === undefined) throw new Error("view was not created");
+    Object.defineProperty(view.webContents, "setBackgroundThrottling", {
+      value: undefined,
+    });
+    target.rebind(host as never);
+
+    expect(() => handle.attach({ x: 0, y: 0, width: 0, height: 0 })).not.toThrow();
+    expect(children).toEqual([]);
+    expect(view.webContents.closeCalls).toBe(0);
+  });
+
+  it("coalesces renderer-loss signals and suppresses intentional destruction", async () => {
+    const crashed = await setup();
+    crashed.webContents.emit("render-process-gone", {}, { reason: "crashed", exitCode: 1 });
+    crashed.webContents.destroyed = true;
+    crashed.webContents.emit("destroyed");
+    expect(crashed.unexpectedTerminations).toEqual([1]);
+
+    const intentional = await setup();
+    intentional.handle.destroy();
+    intentional.handle.destroy();
+    intentional.webContents.destroyed = true;
+    intentional.webContents.emit("destroyed");
+    expect(intentional.webContents.closeCalls).toBe(1);
+    expect(intentional.unexpectedTerminations).toEqual([]);
+  });
+
+  it("exposes a synchronous load-stop seam before runtime destruction", async () => {
+    const { handle, webContents } = await setup();
+
+    handle.stopLoading?.();
+    handle.destroy();
+
+    expect(webContents.stopCalls).toBe(1);
+    expect(webContents.closeCalls).toBe(1);
+  });
+
+  it("allows a retained teardown tombstone to retry a refused close", async () => {
+    const { handle, webContents } = await setup();
+    webContents.closeError = new Error("transient close refusal");
+
+    expect(() => handle.destroy()).toThrow("transient close refusal");
+    handle.destroy();
+
+    expect(webContents.closeCalls).toBe(2);
+  });
+
+  it("returns a teardown-capable handle when policy installation fails", async () => {
+    electron.failNextPolicyInstall(new Error("policy install failed"));
+    const { handle, webContents } = await setup();
+
+    expect(() => handle.loadUrl("https://example.com", "session-1"))
+      .toThrow("policy install failed");
+    const destroyed = handle.whenDestroyed?.();
+    if (destroyed === undefined) throw new Error("destruction acknowledgement unavailable");
+    handle.destroy();
+    expect(webContents.closeCalls).toBe(1);
+
+    webContents.destroyed = true;
+    webContents.emit("destroyed");
+    await expect(destroyed).resolves.toBeUndefined();
+  });
+
+  it("normalizes a programmatic URL before matching its expected generation", async () => {
+    const { handle, webContents, starts, completed } = await setup();
+    handle.loadUrl("https://example.com", "session-1");
+    webContents.emit("did-start-navigation", navigation("https://example.com/"));
+    webContents.currentUrl = "https://example.com/";
+    webContents.emit("did-navigate", {}, "https://example.com/", 200, "OK");
+    webContents.emit("did-finish-load");
+    expect(starts).toEqual([
+      {
+        url: "https://example.com/",
+        isSameDocument: false,
+        expectedSessionId: "session-1",
+      },
+    ]);
+    expect(completed).toEqual([["session-1", undefined]]);
+  });
+
+  it("keeps redirects on the same generation and completes at the final URL", async () => {
+    const { handle, webContents, starts, urls, completed } = await setup();
+    handle.loadUrl("https://example.com/start", "session-1");
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    webContents.emit(
+      "did-redirect-navigation",
+      navigation("https://example.com/final"),
+    );
+    webContents.currentUrl = "https://example.com/final";
+    webContents.emit("did-navigate", {}, "https://example.com/final", 200, "OK");
+    webContents.emit("did-finish-load");
+    expect(starts).toHaveLength(1);
+    expect(urls).toContainEqual(["session-1", "https://example.com/final"]);
+    expect(completed).toEqual([["session-1", undefined]]);
+  });
+
+  it("terminates an active generation when policy blocks its redirect", async () => {
+    const { handle, webContents, failed, blocks } = await setup();
+    handle.loadUrl("https://example.com/start", "session-1");
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    const redirect = {
+      ...navigation("http://127.0.0.1/private"),
+      preventDefault: vi.fn(),
+    };
+    webContents.emit("will-redirect", redirect);
+
+    expect(redirect.preventDefault).toHaveBeenCalledOnce();
+    expect(failed).toEqual([
+      ["session-1", "navigation blocked by browser policy (non_public_ip)"],
+    ]);
+    expect(blocks).toEqual(["non_public_ip"]);
+  });
+
+  it("says a block of a navigation the page started, which has no generation to fail", async () => {
+    const { webContents, failed, blocks } = await setup();
+    const link = {
+      ...navigation("file:///etc/passwd"),
+      initiator: {},
+      preventDefault: vi.fn(),
+    };
+    webContents.emit("will-frame-navigate", link);
+    expect(link.preventDefault).toHaveBeenCalledOnce();
+    expect(blocks).toEqual(["scheme"]);
+    expect(failed).toEqual([]);
+  });
+
+  it("follows a public cross-origin step: a shared view is never pinned to one origin", async () => {
+    const { handle, webContents, starts } = await setup();
+    handle.loadUrl("https://example.com/start", "session-1");
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    const crossOrigin = {
+      ...navigation("https://public.example.net/next"),
+      preventDefault: vi.fn(),
+    };
+    webContents.emit("will-redirect", crossOrigin);
+    expect(crossOrigin.preventDefault).not.toHaveBeenCalled();
+    webContents.emit("did-start-navigation", navigation("https://public.example.net/back"));
+    expect(webContents.stopCalls).toBe(0);
+    expect(starts.map((start) => start.url)).toContain("https://public.example.net/back");
+  });
+
+  it("refuses a top-level start or redirect the holders' grants do not reach", async () => {
+    const { handle, webContents, starts, guard, byPage } = await setup();
+    guard.admits = (url) => new URL(url).origin === "https://example.com";
+    handle.loadUrl("https://example.com/start", "session-1");
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    const redirect = { ...navigation("https://elsewhere.example.net/"), preventDefault: vi.fn() };
+    webContents.emit("will-redirect", redirect);
+    expect(redirect.preventDefault).toHaveBeenCalled();
+    // A history step never passes will-frame-navigate: did-start stops it,
+    // once its own start has returned (a stop inside it aborts main).
+    webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/back"));
+    expect(webContents.stopCalls).toBe(0);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(webContents.stopCalls).toBe(1);
+    expect(starts.map((start) => start.url)).not.toContain("https://elsewhere.example.net/back");
+    // Electron's initiator never decides it: with no start main recorded
+    // for the operator, every start is the page's, null, missing or named.
+    byPage.length = 0;
+    webContents.emit("did-start-navigation", { ...navigation("https://example.com/again"), initiator: null });
+    webContents.emit("did-start-navigation", navigation("https://example.com/browser-started"));
+    webContents.emit("did-start-navigation", { ...navigation("https://example.com/page-started"), initiator: {} });
+    expect(byPage).toEqual([true, true, true]);
+    // A same-document step is not a new top-level document.
+    webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/#x", { isSameDocument: true }));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(webContents.stopCalls).toBe(1);
+  });
+
+  it("refuses a deleted frame's start (no initiator) in a touched origin", async () => {
+    const { handle, webContents, byPage, guard } = await setup();
+    guard.admits = (url, fromPage) => !fromPage || new URL(url).origin === "https://example.com";
+    handle.loadUrl("https://example.com/start", "session-1");
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    byPage.length = 0;
+    webContents.emit("did-start-navigation", { ...navigation("https://elsewhere.example.net/"), initiator: null });
+    expect(byPage).toEqual([true]);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(webContents.stopCalls).toBe(1);
+  });
+
+  it("admits the operator's own goto and history step in a touched origin through the start main recorded", async () => {
+    const { handle, webContents, byPage, guard, starts } = await setup();
+    guard.admits = (url, fromPage) => !fromPage || new URL(url).origin === "https://example.com";
+    handle.loadUrl("https://elsewhere.example.net/", "session-2", true);
+    webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/"));
+    webContents.navigationHistory.back = true;
+    webContents.navigationHistory.entries = ["https://example.com/start", "https://elsewhere.example.net/"];
+    webContents.navigationHistory.active = 1;
+    handle.traverse!("back", true);
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    // Each record is used once: the next start to the same place is the page's.
+    webContents.emit("did-start-navigation", { ...navigation("https://elsewhere.example.net/"), initiator: null });
+    expect(byPage).toEqual([false, false, true]);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(webContents.stopCalls).toBe(0 + 1);
+    expect(starts.map((start) => start.url)).toEqual(["https://elsewhere.example.net/", "https://example.com/start"]);
+    // A seat's goto records nothing.
+    byPage.length = 0;
+    handle.loadUrl("https://elsewhere.example.net/next", "session-3");
+    webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/next"));
+    expect(byPage).toEqual([true]);
+  });
+
+  it("refuses a page start to another url inside the five seconds after the operator's back", async () => {
+    const { handle, webContents, byPage, guard } = await setup();
+    guard.admits = (url, fromPage) => !fromPage || new URL(url).origin === "https://example.com";
+    webContents.navigationHistory.entries = ["https://example.com/start", "https://example.com/here"];
+    webContents.navigationHistory.active = 1;
+    handle.traverse!("back", true);
+    webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/"));
+    expect(byPage).toEqual([true]);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(webContents.stopCalls).toBe(1);
+    // The step itself still goes, as the operator's.
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    expect(byPage).toEqual([true, false]);
+    // A step whose entry cannot be read records nothing: it is the page's.
+    byPage.length = 0;
+    webContents.navigationHistory.entries = [];
+    handle.traverse!("forward", true);
+    webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/"));
+    expect(byPage).toEqual([true]);
+  });
+
+  it("rolls back a commit of a url refused 65 starts earlier", async () => {
+    const { handle, webContents, guard, blocks } = await setup();
+    handle.loadUrl("https://example.com/start", "session-1", true);
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    webContents.emit("did-navigate", {}, "https://example.com/start");
+    guard.admits = (url) => new URL(url).origin === "https://example.com";
+    for (let index = 0; index < 65; index += 1) {
+      webContents.emit("did-start-navigation", navigation(`https://elsewhere-${index}.example.net/`));
+    }
+    webContents.emit("did-navigate", {}, "https://elsewhere-0.example.net/");
+    expect(blocks).toEqual(["origin_mismatch"]);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(webContents.loaded.at(-1)).toBe("https://example.com/start");
+  });
+
+  it("asks will-frame-navigate as the page's, and a redirect as whoever began the navigation", async () => {
+    const { handle, webContents, byPage } = await setup();
+    const frame = { ...navigation("https://example.com/a"), initiator: null, preventDefault: vi.fn() };
+    webContents.emit("will-frame-navigate", frame);
+    handle.loadUrl("https://example.com/b", "session-1", true);
+    webContents.emit("did-start-navigation", navigation("https://example.com/b"));
+    webContents.emit("will-redirect", { ...navigation("https://example.com/c"), preventDefault: vi.fn() });
+    webContents.emit("did-start-navigation", navigation("https://example.com/d"));
+    webContents.emit("will-redirect", { ...navigation("https://example.com/e"), preventDefault: vi.fn() });
+    expect(byPage).toEqual([true, false, false, true, true]);
+  });
+
+  it("rolls back a refused start that commits anyway, and says so on the page", async () => {
+    const { handle, webContents, guard, blocks } = await setup();
+    handle.loadUrl("https://example.com/start", "session-1", true);
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    webContents.emit("did-navigate", {}, "https://example.com/start");
+    guard.admits = (url) => new URL(url).origin === "https://example.com";
+    webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/"));
+    // The stop has not landed yet and the refused document commits.
+    webContents.emit("did-navigate", {}, "https://elsewhere.example.net/");
+    expect(blocks).toEqual(["origin_mismatch"]);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(webContents.loaded.at(-1)).toBe("https://example.com/start");
+    // The way back is main's own start, so the guard lets it through.
+    const asked: boolean[] = [];
+    guard.admits = (_url, fromPage) => {
+      asked.push(fromPage ?? true);
+      return true;
+    };
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    expect(asked).toEqual([false]);
+  });
+
+  it("hears its profile's service worker registrations while it lives, and clears one origin's", async () => {
+    const { handle, webContents, workers } = await setup();
+    const partition = electron.sessions.get("persist:test")!;
+    partition.serviceWorkers.emit("https://example.com/");
+    expect(workers).toEqual(["https://example.com/"]);
+    await handle.clearServiceWorkers?.("https://example.com");
+    expect(partition.clearStorageData).toHaveBeenCalledWith({ origin: "https://example.com", storages: ["serviceworkers"] });
+    webContents.emit("destroyed");
+    partition.serviceWorkers.emit("https://example.com/again");
+    expect(workers).toHaveLength(1);
+  });
+
+  it("says a new main-frame document committed only when one does", async () => {
+    const { handle, webContents, commits } = await setup();
+    handle.loadUrl("https://example.com/start", "session-1");
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    expect(commits).toHaveLength(0);
+    webContents.emit("did-navigate-in-page", {}, "https://example.com/start#x", true);
+    expect(commits).toHaveLength(0);
+    webContents.emit("did-navigate", {}, "https://example.com/start", 200, "OK");
+    expect(commits).toHaveLength(1);
+  });
+
+  it("reports the operator's key, click or tap, never a pointer passing over", async () => {
+    const { webContents, operatorInputs } = await setup();
+    webContents.emit("input-event", {}, { type: "mouseMove" });
+    webContents.emit("input-event", {}, { type: "mouseWheel" });
+    webContents.emit("input-event", {}, { type: "keyUp" });
+    expect(operatorInputs).toHaveLength(0);
+    webContents.emit("input-event", {}, { type: "mouseDown" });
+    webContents.emit("input-event", {}, { type: "rawKeyDown" });
+    expect(operatorInputs).toHaveLength(2);
+  });
+
+  it("fails closed when main-frame navigations overlap without a correlation id", async () => {
+    const { webContents, completed, failed, ambiguous } = await setup();
+    webContents.emit("did-start-navigation", navigation("https://first.example.com/"));
+    webContents.emit("did-start-navigation", navigation("https://second.example.com/"));
+    webContents.emit(
+      "did-fail-load",
+      {},
+      -2,
+      "failed",
+      "https://first.example.com/",
+      true,
+      1,
+      1,
+    );
+    webContents.currentUrl = "https://second.example.com/";
+    webContents.emit("did-navigate", {}, "https://second.example.com/", 200, "OK");
+    webContents.emit("did-finish-load");
+    expect(ambiguous).toEqual(["page-2"]);
+    expect(failed).toEqual([]);
+    expect(completed).toEqual([]);
+  });
+
+  it("reports same-document URL changes under the current generation", async () => {
+    const { handle, webContents, urls } = await setup();
+    handle.loadUrl("https://example.com/", "session-1");
+    webContents.emit("did-start-navigation", navigation("https://example.com/"));
+    webContents.emit(
+      "did-navigate-in-page",
+      {},
+      "https://example.com/#section",
+      true,
+      1,
+      1,
+    );
+    expect(urls).toContainEqual(["session-1", "https://example.com/#section"]);
+  });
+
+  it("turns a rejected programmatic load into a terminal session failure", async () => {
+    const { handle, webContents, failed } = await setup();
+    webContents.loadError = new Error("network unavailable");
+
+    handle.loadUrl("https://example.com/", "session-1");
+
+    await vi.waitFor(() => {
+      expect(failed).toEqual([["session-1", "network unavailable"]]);
+    });
+  });
+
+  it("absorbs Electron's aborted-load rejection without failing the session", async () => {
+    const { handle, webContents, failed } = await setup();
+    webContents.loadError = Object.assign(new Error("ERR_ABORTED"), { code: -3 });
+
+    handle.loadUrl("https://example.com/", "session-1");
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(failed).toEqual([]);
+  });
+
+  it("executes automation only in the fixed non-main isolated world", async () => {
+    const { handle, webContents } = await setup();
+
+    await handle.executeJavaScript?.("document.title");
+
+    expect(BROWSER_AUTOMATION_WORLD_ID).not.toBe(0);
+    expect(BROWSER_AUTOMATION_WORLD_ID).not.toBe(999);
+    expect(webContents.mainWorldEvalCalls).toBe(0);
+    expect(webContents.isolatedCalls).toHaveLength(1);
+    expect(webContents.isolatedCalls[0]).toMatchObject({
+      worldId: BROWSER_AUTOMATION_WORLD_ID,
+      userGesture: false,
+      scripts: [{ code: expect.stringContaining("document.title") }],
+    });
+  });
+
+  it("steps the view's own history and reads where it can go", async () => {
+    const { handle, webContents } = await setup();
+    expect(handle.history?.()).toEqual({ canGoBack: false, canGoForward: false });
+    webContents.navigationHistory.back = true;
+    expect(handle.history?.()).toEqual({ canGoBack: true, canGoForward: false });
+    handle.traverse?.("back");
+    handle.traverse?.("forward");
+    handle.traverse?.("reload");
+    expect(webContents.historySteps).toEqual(["back", "forward"]);
+    expect(webContents.reloadCalls).toBe(1);
+
+    webContents.destroyed = true;
+    handle.traverse?.("reload");
+    expect(webContents.reloadCalls).toBe(1);
+    expect(handle.history?.()).toEqual({ canGoBack: false, canGoForward: false });
+  });
+
+  it("reports a renamed page under its current generation, and nothing before one", async () => {
+    const { webContents, titles } = await setup();
+    webContents.emit("page-title-updated", {}, "too early", true);
+    expect(titles).toEqual([]);
+    webContents.emit("did-start-navigation", navigation("https://example.com/"));
+    webContents.emit("page-title-updated", {}, "Inbox (3)", true);
+    expect(titles).toEqual([["page-1", "Inbox (3)"]]);
+  });
+
+  it("captures a box in CSS pixels and reads the viewport in the automation world", async () => {
+    const { handle, webContents } = await setup();
+    await handle.capturePagePng?.();
+    await handle.capturePagePng?.({ x: 10, y: 20, w: 30, h: 40 });
+    expect(webContents.captureRects).toEqual([undefined, { x: 10, y: 20, width: 30, height: 40 }]);
+    // A zoomed page's CSS pixels are more of the view's.
+    webContents.zoom = 1.5;
+    await handle.capturePagePng?.({ x: 10, y: 20, w: 30, h: 41 });
+    expect(webContents.captureRects.at(-1)).toEqual({ x: 15, y: 30, width: 45, height: 62 });
+
+    await handle.readViewport?.();
+    expect(webContents.mainWorldEvalCalls).toBe(0);
+    expect(webContents.isolatedCalls.at(-1)).toMatchObject({
+      worldId: BROWSER_AUTOMATION_WORLD_ID,
+      userGesture: false,
+      scripts: [{ code: expect.stringContaining("devicePixelRatio") }],
+    });
+  });
+
+  it("constructs every browser view with explicit hostile-web preferences", async () => {
+    await setup();
+    expect(electron.options[0]).toEqual({
+      webPreferences: {
+        session: electron.views[0]?.webContents.session,
+        sandbox: true,
+        nodeIntegration: false,
+        nodeIntegrationInSubFrames: false,
+        nodeIntegrationInWorker: false,
+        contextIsolation: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+        webviewTag: false,
+        experimentalFeatures: false,
+        navigateOnDragDrop: false,
+        safeDialogs: true,
+      },
+    });
+  });
+
+  it("acknowledges physical teardown only after Electron emits destroyed", async () => {
+    const { handle, webContents } = await setup();
+    const destroyed = handle.whenDestroyed?.();
+    if (destroyed === undefined) throw new Error("destruction acknowledgement unavailable");
+    let acknowledged = false;
+    void destroyed.then(() => {
+      acknowledged = true;
+    });
+
+    handle.destroy();
+    await Promise.resolve();
+    expect(webContents.closeCalls).toBe(1);
+    expect(acknowledged).toBe(false);
+
+    webContents.emit("destroyed");
+    await expect(destroyed).resolves.toBeUndefined();
+    expect(acknowledged).toBe(true);
+  });
+
+  it("bounds direct adapter eval source at exact N/N+1 before Electron", async () => {
+    const { handle, webContents } = await setup();
+
+    await handle.executeJavaScript?.("x".repeat(BROWSER_MAX_EVAL_CODE_BYTES));
+    expect(webContents.isolatedCalls).toHaveLength(1);
+
+    expect(() => handle.executeJavaScript?.("x".repeat(BROWSER_MAX_EVAL_CODE_BYTES + 1)))
+      .toThrow("eval source exceeds the hard limit");
+    expect(webContents.isolatedCalls).toHaveLength(1);
+  });
+});
+
+describe("isolated-world bounded eval serializer", () => {
+  const freshContext = (): Context => createContext({
+    TextEncoder,
+    document: { title: "isolated title" },
+  });
+
+  it("preserves indirect-eval completion values and awaits promises", async () => {
+    const result = await runBoundedEval(
+      freshContext(),
+      "Promise.resolve({ title: document.title, values: [1, true, null] })",
+    );
+
+    expect(result).toEqual({
+      __juntoEval: 1,
+      status: "ok",
+      json: '{"title":"isolated title","values":[1,true,null]}',
+    });
+  });
+
+  it("accepts exactly the byte cap and rejects N+1 before returning to Electron", async () => {
+    const atLimit = await runBoundedEval(
+      freshContext(),
+      `"a".repeat(${BROWSER_MAX_EVAL_RESULT_BYTES - 2})`,
+    );
+    expect(atLimit).toMatchObject({ __juntoEval: 1, status: "ok" });
+    if (
+      typeof atLimit !== "object" ||
+      atLimit === null ||
+      !("json" in atLimit) ||
+      typeof atLimit.json !== "string"
+    ) {
+      throw new Error("bounded eval did not return JSON");
+    }
+    expect(utf8ByteLength(atLimit.json)).toBe(BROWSER_MAX_EVAL_RESULT_BYTES);
+
+    expect(await runBoundedEval(
+      freshContext(),
+      `"a".repeat(${BROWSER_MAX_EVAL_RESULT_BYTES - 1})`,
+    )).toMatchObject({ __juntoEval: 1, status: "result_too_large" });
+  });
+
+  it("accepts exactly the depth cap and rejects N+1", async () => {
+    const nested = (depth: number): string =>
+      `(() => { let value = 0; for (let i = 0; i < ${depth}; i += 1) value = [value]; return value; })()`;
+
+    expect(await runBoundedEval(freshContext(), nested(BROWSER_MAX_EVAL_RESULT_DEPTH)))
+      .toMatchObject({ status: "ok" });
+    expect(await runBoundedEval(freshContext(), nested(BROWSER_MAX_EVAL_RESULT_DEPTH + 1)))
+      .toMatchObject({ status: "result_too_large" });
+  });
+
+  it("accepts exactly the node cap and rejects N+1", async () => {
+    expect(await runBoundedEval(
+      freshContext(),
+      `Array.from({ length: ${BROWSER_MAX_EVAL_RESULT_NODES - 1} }, (_, index) => index)`,
+    )).toMatchObject({ status: "ok" });
+    expect(await runBoundedEval(
+      freshContext(),
+      `Array.from({ length: ${BROWSER_MAX_EVAL_RESULT_NODES} }, (_, index) => index)`,
+    )).toMatchObject({ status: "result_too_large" });
+  });
+
+  it.each([
+    ["undefined", "undefined"],
+    ["function", "() => 1"],
+    ["symbol", "Symbol('x')"],
+    ["bigint", "1n"],
+    ["non-finite number", "Number.POSITIVE_INFINITY"],
+    ["cycle", "(() => { const value = {}; value.self = value; return value; })()"],
+    ["accessor", "Object.defineProperty({}, 'x', { enumerable: true, get: () => 1 })"],
+    ["non-plain object", "new Date()"],
+    ["throwing proxy", "new Proxy({}, { ownKeys: () => { throw new Error('trap'); } })"],
+  ])("rejects unsupported %s results", async (_label, source) => {
+    expect(await runBoundedEval(freshContext(), source))
+      .toMatchObject({ __juntoEval: 1, status: "unsupported_result" });
+  });
+
+  it("keeps serializer intrinsics pristine across hostile prior automation", async () => {
+    const context = freshContext();
+    expect(await runBoundedEval(
+      context,
+      "JSON.stringify = () => 'poison'; TextEncoder = class {}; eval = () => 'poison'; 'first'",
+    )).toEqual({ __juntoEval: 1, status: "ok", json: '"first"' });
+
+    expect(await runBoundedEval(context, "({ title: document.title })"))
+      .toEqual({
+        __juntoEval: 1,
+        status: "ok",
+        json: '{"title":"isolated title"}',
+      });
+  });
+});

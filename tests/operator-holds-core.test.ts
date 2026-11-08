@@ -1,0 +1,196 @@
+/**
+ * The operator's holds reach the core (0.11.7).
+ *
+ * The window says which terminals it shows, and when the operator typed into
+ * one. Everything that asks is in the core, where the seats and their views
+ * run: the cache cut that ends an idle seat's session (seat-sessions/
+ * operator-offboard-live.ts), the clock a key warms, and the Hold frame a
+ * peer's view carries to the seat's own machine. Main kept the map, so its
+ * reports never reached the cut and a seat the operator was watching could be
+ * offboarded under their hands.
+ *
+ * This drives the real boundary: main's ipcMain handler, the holds group it
+ * calls (src/contract/core/seat-holds.ts), and the holds the core reads. One process cannot hold two maps, so the
+ * split is also pinned in the source: main keeps none.
+ */
+import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
+import { Effect, Layer, ManagedRuntime } from "effect";
+import { RpcTest } from "effect/rpc";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
+import { IPC_CHANNELS } from "../src/shared/ipc";
+import { SeatHoldsCore, SeatHoldsRpcs } from "../src/contract/core/seat-holds";
+import { SeatHoldsHandlers } from "../src/core/ops/seat-holds";
+import { liveOperatorHolds, operatorHolds, subscribeOperatorTyped } from "../src/core/term/operator-holds";
+import { registerOperatorHoldsIpc } from "../src/app/term/operator-holds-ipc";
+import { MachineRepository } from "../src/core/machines/repository";
+import { ModelService } from "../src/core/model/service";
+import { seatLaunchOf, seatOffboardFactsOf } from "../src/core/seat-sessions/operator-offboard";
+import { startOperatorOffboard } from "../src/core/seat-sessions/operator-offboard-live";
+import { SeatSessionRepository } from "../src/core/seat-sessions/repository";
+import { SettingsService } from "../src/core/settings/service";
+import { defaultOffboardRules } from "../src/shared/seat-offboard";
+
+vi.mock("../src/app/runtime", () => ({ AppRuntime: ManagedRuntime.make(Layer.empty) }));
+
+const { coreOperatorHolds } = await import("../src/app/core-process/main-side/seat-holds");
+
+const source = (relative: string): string =>
+  readFileSync(new URL(`../${relative}`, import.meta.url), "utf8");
+
+let nextWindowId = 9_400;
+const runtimes: Array<ManagedRuntime.ManagedRuntime<SeatHoldsCore, never>> = [];
+
+afterEach(async () => {
+  for (const runtime of runtimes.splice(0)) await runtime.dispose();
+});
+
+const wired = async () => {
+  // The core's side of the group, in this process: main's client reaches its handlers.
+  const runtime = ManagedRuntime.make(
+    Layer.effect(SeatHoldsCore, RpcTest.makeClient(SeatHoldsRpcs)).pipe(Layer.provide(SeatHoldsHandlers)),
+  );
+  runtimes.push(runtime);
+  const core = await runtime.context();
+  const handlers = new Map<string, (event: IpcMainInvokeEvent, arg: unknown) => unknown>();
+  const holds = registerOperatorHoldsIpc(
+    { handle: (channel: string, listener: (event: IpcMainInvokeEvent, arg: unknown) => unknown) => { handlers.set(channel, listener); } } as unknown as Pick<IpcMain, "handle">,
+    coreOperatorHolds(core),
+  );
+  const windowId = nextWindowId++;
+  const sender = Object.assign(new EventEmitter(), { id: windowId }) as unknown as WebContents & EventEmitter;
+  const event = { sender } as IpcMainInvokeEvent;
+  const send = async (channel: string, arg: unknown): Promise<void> => {
+    await handlers.get(channel)?.(event, arg);
+  };
+  return {
+    windowId,
+    replay: holds.replay,
+    show: (ids: unknown) => send(IPC_CHANNELS.seatSurfacesOpen, ids),
+    type: (id: unknown) => send(IPC_CHANNELS.seatOperatorTyped, id),
+    sender,
+  };
+};
+
+describe("the operator's holds in the core", () => {
+  it("holds the seats a window shows, at the cut that asks", async () => {
+    const { show } = await wired();
+    await show(["hold-shown-a", "hold-shown-b"]);
+    const now = Date.now();
+    expect(operatorHolds("hold-shown-a", now)).toBe(true);
+    expect(operatorHolds("hold-shown-b", now)).toBe(true);
+    // A later list replaces the window's earlier one: a seat it stops showing is let go.
+    await show(["hold-shown-a"]);
+    expect(operatorHolds("hold-shown-b", Date.now())).toBe(false);
+    expect(operatorHolds("hold-shown-a", Date.now())).toBe(true);
+  });
+
+  it("warms the clock of a seat the operator types into", async () => {
+    const { type } = await wired();
+    const warmed: string[] = [];
+    const off = subscribeOperatorTyped((bindingId) => warmed.push(bindingId));
+    try {
+      await type("hold-typed");
+      expect(warmed).toEqual(["hold-typed"]);
+      expect(operatorHolds("hold-typed", Date.now())).toBe(true);
+    } finally {
+      off();
+    }
+  });
+
+  it("drops every hold a window had when it reloads or closes", async () => {
+    const first = await wired();
+    await first.show(["hold-reloaded"]);
+    await first.type("hold-reloaded-typed");
+    first.sender.emit("did-start-navigation", {}, "app://junto", false, true);
+    expect(operatorHolds("hold-reloaded", Date.now())).toBe(false);
+    expect(operatorHolds("hold-reloaded-typed", Date.now())).toBe(false);
+
+    const second = await wired();
+    await second.show(["hold-closed"]);
+    second.sender.emit("destroyed");
+    expect(operatorHolds("hold-closed", Date.now())).toBe(false);
+  });
+
+  it("sends the window's seats again to a core that starts with none", async () => {
+    const { show, replay, windowId } = await wired();
+    await show(["hold-restart-a", "hold-restart-b"]);
+    expect(operatorHolds("hold-restart-a", Date.now())).toBe(true);
+    // A new core has no holds: every window starts empty there.
+    liveOperatorHolds.dropWindow(windowId);
+    expect(operatorHolds("hold-restart-a", Date.now())).toBe(false);
+    // `core.ready` runs this again; the window still has the seat open.
+    await replay();
+    expect(operatorHolds("hold-restart-a", Date.now())).toBe(true);
+    expect(operatorHolds("hold-restart-b", Date.now())).toBe(true);
+  });
+
+  it("refuses a report that is not binding ids", async () => {
+    const { show, type } = await wired();
+    await show("hold-not-a-list");
+    await show([42, "", "hold-valid"]);
+    await type(42);
+    await type("");
+    expect(operatorHolds("hold-valid", Date.now())).toBe(true);
+    expect(operatorHolds("", Date.now())).toBe(false);
+  });
+
+  it("keeps no map in main: the reports go to the core, which keeps them", () => {
+    const ipc = source("src/app/ipc.ts");
+    expect(ipc).toContain("coreOperatorHolds(boot.core)");
+    expect(ipc).not.toContain('from "./term/operator-holds"');
+    // Main's half imports the shape of a report, never the map or its module.
+    const port = source("src/app/core-process/main-side/seat-holds.ts");
+    expect(port).toContain("import type { OperatorHoldReports }");
+    expect(port).not.toContain("liveOperatorHolds");
+    // The map stays in the core, where its readers are, and registers no IPC.
+    expect(source("src/core/ops/seat-holds.ts")).toContain("liveOperatorHolds");
+    expect(source("src/core/term/operator-holds.ts")).not.toContain("IpcMain");
+  });
+});
+
+describe("a card's launch read in the core", () => {
+  it("answers from the cache window as it is now, not as the last minute pass left it", async () => {
+    const MACHINE = "launch-rules-mac";
+    const seat = { kind: "agent", id: "scout", bindingId: "local:launch-rules-scout", harness: "claude", host: MACHINE, label: "Scout" };
+    // At rest for two minutes: under either window it is not cold yet, so the read says when it will be.
+    const stillSince = Date.now() - 2 * 60_000;
+    let windowMinutes = 60;
+    const services = Layer.mergeAll(
+      Layer.succeed(SettingsService, {
+        get: Effect.sync(() => ({ offboard: { ...defaultOffboardRules(), cacheMode: "auto", cacheWindowMinutes: windowMinutes } })),
+      } as never),
+      Layer.succeed(ModelService, {
+        listCanvases: () => Effect.succeed(["launch-rules"]),
+        canvas: () => Effect.succeed({ nodes: new Map([[seat.id, seat]]) }),
+      } as never),
+      Layer.succeed(SeatSessionRepository, {
+        openSessions: () => Effect.succeed([{ seatId: seat.id, bindingId: seat.bindingId, sessionId: "launch-rules-session" }]),
+        offboardClock: () => Effect.succeed({
+          savedAt: stillSince,
+          seats: { [seat.bindingId]: { idleSince: stillSince, workMs: 31 * 60_000, sessionId: "launch-rules-session" } },
+        }),
+        saveOffboardClockChanges: () => Effect.void,
+      } as never),
+      Layer.succeed(MachineRepository, { machineName: Effect.succeed(MACHINE) } as never),
+    );
+    const stop = await startOperatorOffboard({
+      run: (effect) => Effect.runPromise(Effect.provide(effect, services) as Effect.Effect<never>),
+      closer: { isClosing: () => false } as never,
+      sendPrompt: () => Promise.resolve({ ok: true }),
+      suspended: () => true,
+    });
+    try {
+      const address = { canvasName: "launch-rules", seatId: seat.id };
+      // An earlier read took the rules as they were then: a 60 minute window.
+      await seatOffboardFactsOf(address);
+      expect((await seatLaunchOf(address, "resume")).nextTurn).toEqual({ fresh: false, freshAt: stillSince + 60 * 60_000 });
+      // The operator shortens the window: the card's next read goes cold at the new one.
+      windowMinutes = 5;
+      expect((await seatLaunchOf(address, "resume")).nextTurn).toEqual({ fresh: false, freshAt: stillSince + 5 * 60_000 });
+    } finally {
+      stop();
+    }
+  });
+});

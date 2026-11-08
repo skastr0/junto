@@ -1,0 +1,256 @@
+import { describe, expect, it } from "vitest";
+import {
+  armedNowLabel,
+  askMenuDetail,
+  askOffboardLine,
+  nowMenuRow,
+  offboardIdleLine,
+  offboardLineTone,
+  offboardNowBlock,
+  offboardNowLine,
+  offboardPreferred,
+  offboardSessionLine,
+  parseOffboardMinutes,
+  planOffboardRulesChange,
+  seedHarnessOverride,
+} from "../src/window/lib/seat-offboard";
+import { defaultOffboardRules } from "../src/shared/seat-offboard";
+import type {
+  OffboardRefusalCode,
+  SeatOffboardRunRow,
+  SeatOffboardStatus,
+} from "../src/shared/seat-offboard";
+
+const closed = (seatId = "s"): SeatOffboardRunRow => ({ seatId, ok: true, action: "now", outcome: "closed", pastWindow: true });
+const asked = (seatId = "s"): SeatOffboardRunRow => ({ seatId, ok: true, action: "ask", outcome: "asked", pastWindow: false });
+const refused = (code: OffboardRefusalCode, reason = "This seat is working. Offboard now only closes a seat that is idle, not running or resting."): SeatOffboardRunRow => ({
+  seatId: "s",
+  ok: false,
+  code,
+  reason,
+});
+
+const status = (over: Partial<SeatOffboardStatus> = {}): SeatOffboardStatus => ({
+  seatId: "s",
+  now: { allowed: true },
+  idleMinutes: 12,
+  pastWindow: false,
+  preferred: "ask",
+  ...over,
+});
+const working: SeatOffboardStatus["now"] = {
+  allowed: false,
+  code: "working",
+  reason: "This seat is working. Offboard now only closes a seat that is idle, not running or resting.",
+};
+
+describe("the line after offboard now", () => {
+  it("counts what closed and why the rest did not", () => {
+    expect(offboardNowLine([...Array.from({ length: 8 }, () => closed()), refused("working"), refused("working")])).toBe(
+      "8 closed, 2 are working",
+    );
+  });
+  it("speaks in the singular", () => {
+    expect(offboardNowLine([closed(), refused("working")])).toBe("1 closed, 1 is working");
+  });
+  it("gives one seat main's own sentence", () => {
+    expect(offboardNowLine([refused("working")])).toBe(
+      "Not closed. This seat is working. Offboard now only closes a seat that is idle, not running or resting.",
+    );
+    expect(offboardNowLine([closed()])).toBe("Session closed. The seat is resting.");
+  });
+  it("has words for each way a seat is not closable, and one count for the rest", () => {
+    expect(
+      offboardNowLine([
+        closed(),
+        refused("attention"),
+        refused("closing"),
+        refused("not-local"),
+        refused("not-a-seat"),
+        refused("failed"),
+        refused("undelivered"),
+      ]),
+    ).toBe(
+      "1 closed, 1 is waiting on you, 1 is already closing, 1 runs on another installation, 1 is not an agent, 2 could not be closed",
+    );
+  });
+  it("says so when nothing was closed, and when there was nothing to close", () => {
+    expect(offboardNowLine([refused("working"), refused("working")])).toBe("None closed: 2 are working");
+    expect(offboardNowLine([])).toBe("No agent to close.");
+  });
+});
+
+describe("the line after asking to offboard", () => {
+  it("names the mode and counts", () => {
+    expect(askOffboardLine("continue", [asked()])).toBe("Asked to offboard and continue.");
+    expect(askOffboardLine("rest", [asked()])).toBe("Asked to offboard and rest.");
+    expect(askOffboardLine("continue", [asked(), asked(), asked()])).toBe("Asked 3 agents to offboard and continue");
+  });
+  it("says how many could not be asked, and one seat's reason in full", () => {
+    expect(askOffboardLine("continue", [asked(), asked(), refused("undelivered")])).toBe(
+      "Asked 2 agents to offboard and continue, 1 could not be asked",
+    );
+    expect(askOffboardLine("continue", [asked(), refused("not-local"), refused("not-local")])).toBe(
+      "Asked 1 agent to offboard and continue, 2 run on another installation",
+    );
+    expect(askOffboardLine("rest", [refused("not-local", "This seat runs on another installation.")])).toBe(
+      "Not asked. This seat runs on another installation.",
+    );
+    expect(askOffboardLine("rest", [refused("undelivered"), refused("undelivered")])).toBe("None asked: 2 could not be asked");
+  });
+});
+
+describe("the colour of a result line", () => {
+  it("is done, partial or refused", () => {
+    expect(offboardLineTone([closed(), closed()])).toBe("done");
+    expect(offboardLineTone([closed(), refused("working")])).toBe("partial");
+    expect(offboardLineTone([refused("working")])).toBe("refused");
+    expect(offboardLineTone([])).toBe("refused");
+  });
+});
+
+describe("what the operator reads before pressing", () => {
+  it("one seat: how long it has sat still, and never a word about caches", () => {
+    expect(offboardIdleLine([status({ idleMinutes: 12 })])).toBe("Idle 12m.");
+    expect(offboardIdleLine([status({ idleMinutes: 72, pastWindow: true })])).toBe("Idle 1h 12m.");
+    expect(offboardIdleLine([status({ idleMinutes: 120, pastWindow: true })])).toBe("Idle 2h.");
+  });
+  it("one seat that is moving, or not known yet, gets no idle line", () => {
+    expect(offboardIdleLine([status({ idleMinutes: null })])).toBe("");
+    expect(offboardIdleLine([])).toBe("");
+  });
+  it("a selection gets no idle line", () => {
+    const past = status({ pastWindow: true, preferred: "now" });
+    expect(offboardIdleLine([status(), status()])).toBe("");
+    expect(offboardIdleLine([past, status(), past])).toBe("");
+  });
+  it("marks a preferred action for one seat only", () => {
+    expect(offboardPreferred([status({ preferred: "now" })])).toBe("now");
+    expect(offboardPreferred([status({ preferred: "ask" })])).toBe("ask");
+    expect(offboardPreferred([status({ preferred: "now" }), status({ preferred: "now" })])).toBeUndefined();
+    expect(offboardPreferred([])).toBeUndefined();
+  });
+});
+
+describe("offboard now before the press", () => {
+  it("is open when the seat may be closed, or while nothing is known yet", () => {
+    expect(offboardNowBlock([status()])).toBeUndefined();
+    expect(offboardNowBlock([])).toBeUndefined();
+  });
+  it("one seat: closed with main's reason", () => {
+    expect(offboardNowBlock([status({ now: working })])).toBe(working.reason);
+  });
+  it("a selection: open while any seat can be closed", () => {
+    expect(offboardNowBlock([status({ now: working }), status()])).toBeUndefined();
+    expect(offboardNowBlock([status({ now: working }), status({ now: working })])).toBe(
+      "None of these agents can be closed right now.",
+    );
+  });
+});
+
+describe("a change to the cache window, before it is saved", () => {
+  it("passes any window in range, for the machine or one harness", () => {
+    expect(planOffboardRulesChange(defaultOffboardRules(), { cacheWindowMinutes: 5 })).toEqual({
+      ok: true,
+      patch: { cacheWindowMinutes: 5 },
+    });
+    expect(planOffboardRulesChange(defaultOffboardRules(), { cacheWindowMinutes: 600 }).ok).toBe(true);
+    expect(planOffboardRulesChange(defaultOffboardRules(), { harness: { pi: { cacheWindowMinutes: 5 } } }).ok).toBe(true);
+  });
+  it("seeds a harness's own window with the one it runs on today", () => {
+    const seeded = seedHarnessOverride({ cacheWindowMinutes: 45 }, "codex");
+    expect(seeded).toEqual({ harness: { codex: { cacheWindowMinutes: 45 } } });
+    expect(planOffboardRulesChange(defaultOffboardRules(), seeded).ok).toBe(true);
+  });
+});
+
+describe("a minutes field", () => {
+  it("takes whole minutes from 1 to 7 days, and nothing else", () => {
+    expect(parseOffboardMinutes("40")).toBe(40);
+    expect(parseOffboardMinutes(" 1 ")).toBe(1);
+    expect(parseOffboardMinutes("10080")).toBe(10080);
+    for (const raw of ["", "0", "10081", "2.5", "-3", "1e2", "forty"]) expect(parseOffboardMinutes(raw)).toBeUndefined();
+  });
+});
+
+describe("what a seat's current session has done", () => {
+  it("says the work time and the estimated size", () => {
+    expect(offboardSessionLine([status({ workMinutes: 42, sessionTokens: 180_400, worthCutting: true })])).toBe(
+      "This session: 42m of work, about 180k tokens.",
+    );
+    expect(offboardSessionLine([status({ workMinutes: 95, sessionTokens: 1_240_000, worthCutting: true })])).toBe(
+      "This session: 1h 35m of work, about 1.2M tokens.",
+    );
+    expect(offboardSessionLine([status({ workMinutes: 120, sessionTokens: 2_000_000, worthCutting: true })])).toBe(
+      "This session: 2h of work, about 2M tokens.",
+    );
+  });
+  it("leaves the size out when the transcript cannot be found", () => {
+    expect(offboardSessionLine([status({ workMinutes: 42, worthCutting: true })])).toBe("This session: 42m of work.");
+  });
+  it("says when the session is too small for the automatic rules", () => {
+    expect(offboardSessionLine([status({ workMinutes: 3, sessionTokens: 850, worthCutting: false })])).toBe(
+      "This session: 3m of work, about 850 tokens. Too small for the automatic rules to act on.",
+    );
+  });
+  it("is silent for a selection, and when main reports neither measure", () => {
+    const one = status({ workMinutes: 42, worthCutting: true });
+    expect(offboardSessionLine([one, one])).toBe("");
+    expect(offboardSessionLine([status()])).toBe("");
+    expect(offboardSessionLine([])).toBe("");
+  });
+});
+
+describe("the offboard rows of the canvas menu", () => {
+  const blocked = (code: OffboardRefusalCode): SeatOffboardStatus["now"] => ({ allowed: false, code, reason: "x" });
+
+  it("ask to offboard: the count, and that the agents continue", () => {
+    expect(askMenuDetail(1)).toBe("continue in a fresh session");
+    expect(askMenuDetail(2)).toBe("2 agents, continue");
+  });
+
+  it("offboard now: how many can close, before anything is known just the count", () => {
+    expect(nowMenuRow(3, [])).toEqual({ detail: "3 agents", disabled: false, closable: 3 });
+    expect(nowMenuRow(5, [status(), status(), status({ now: working }), status({ now: working }), status({ now: working })])).toEqual({
+      detail: "2 of 5 can close now",
+      disabled: false,
+      closable: 2,
+    });
+    expect(nowMenuRow(2, [status(), status()])).toEqual({ detail: "both can close now", disabled: false, closable: 2 });
+    expect(nowMenuRow(3, [status(), status(), status()])).toEqual({ detail: "all 3 can close now", disabled: false, closable: 3 });
+  });
+
+  it("offboard now: greyed with its reason when none can close", () => {
+    expect(nowMenuRow(2, [status({ now: working }), status({ now: working })])).toEqual({
+      detail: "none can close now: 2 are working",
+      disabled: true,
+      closable: 0,
+    });
+    expect(nowMenuRow(3, [status({ now: working }), status({ now: blocked("attention") }), status({ now: blocked("failed") })])).toEqual({
+      detail: "none can close now: 1 is working, 1 is waiting on you, 1 cannot be closed",
+      disabled: true,
+      closable: 0,
+    });
+  });
+
+  it("offboard now for one agent: what it does, or why not", () => {
+    expect(nowMenuRow(1, [status()])).toEqual({ detail: "no notes, the seat rests", disabled: false, closable: 1 });
+    expect(nowMenuRow(1, [])).toEqual({ detail: "no notes, the seat rests", disabled: false, closable: 1 });
+    expect(nowMenuRow(1, [status({ now: working })])).toEqual({ detail: "this agent is working", disabled: true, closable: 0 });
+    expect(nowMenuRow(1, [status({ now: blocked("attention") })])).toEqual({
+      detail: "this agent is waiting on you",
+      disabled: true,
+      closable: 0,
+    });
+    expect(nowMenuRow(1, [status({ now: { allowed: false, code: "failed", reason: "Junto is still starting. Try again in a moment." } })])).toEqual({
+      detail: "Junto is still starting. Try again in a moment.",
+      disabled: true,
+      closable: 0,
+    });
+  });
+
+  it("the armed row names what the second press closes", () => {
+    expect(armedNowLabel(1)).toBe("close this session?");
+    expect(armedNowLabel(4)).toBe("close 4 sessions?");
+  });
+});

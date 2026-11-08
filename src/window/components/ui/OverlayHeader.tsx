@@ -1,0 +1,67 @@
+import type { HTMLAttributes, ReactNode } from "react";
+import { Eyebrow } from "./Eyebrow";
+import { FocusMaximizeButton, useFocusWindow } from "./FocusWindow";
+
+/**
+ * Overlay header — the one chrome header for every work-surface panel
+ * (terminal, browser, detail readers). Structure:
+ *   [leading] eyebrow (context hints) / title / status line -- [middle] -- actions
+ * `leading` is an identity mark (agent portrait) set left of the text block.
+ * `middle` is the room between the identity and the actions, for one or two
+ * live readouts about the subject; `dense` is the one-line header, with half
+ * the padding, for a surface that gives its height to its content.
+ * Inside a focus modal that can grow, the header also carries the maximize
+ * toggle, first among its actions so Close stays at the corner.
+ * Replaces the cloned browser-modal-header blocks and
+ * gives surfaces like the native terminal the same face.
+ */
+export function OverlayHeader({
+  leading,
+  eyebrow,
+  title,
+  status,
+  middle,
+  actions,
+  dense = false,
+  className,
+  ...rest
+}: {
+  readonly leading?: ReactNode;
+  readonly eyebrow?: ReactNode;
+  readonly title: ReactNode;
+  readonly status?: ReactNode;
+  readonly middle?: ReactNode;
+  readonly actions?: ReactNode;
+  readonly dense?: boolean;
+  readonly className?: string;
+} & Omit<HTMLAttributes<HTMLElement>, "title">) {
+  const growable = useFocusWindow() !== null;
+  return (
+    <header
+      className={[
+        "flex shrink-0 items-center justify-between gap-3 border-b border-stroke bg-raise-2 px-3.5",
+        dense ? "py-1.5" : "py-2.5",
+        className ?? "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      {...rest}
+    >
+      {leading ? <div className="flex shrink-0 items-center">{leading}</div> : null}
+      {/* With a middle area the identity keeps the room it needs, up to
+          three quarters of the header: the middle gives way first. */}
+      <div className={middle ? "max-w-[75%] min-w-0 shrink-0" : "min-w-0 flex-1"}>
+        {eyebrow ? <Eyebrow tone="steel">{eyebrow}</Eyebrow> : null}
+        <div className="truncate font-mono text-title font-semibold text-ink">{title}</div>
+        {status ? <div className="mt-0.5 truncate text-body text-dim">{status}</div> : null}
+      </div>
+      {middle ? <div className="flex min-w-0 flex-1 items-center gap-4">{middle}</div> : null}
+      {actions || growable ? (
+        <div className="flex shrink-0 items-center gap-1.5">
+          <FocusMaximizeButton />
+          {actions}
+        </div>
+      ) : null}
+    </header>
+  );
+}

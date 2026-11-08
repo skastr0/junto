@@ -1,0 +1,704 @@
+.work-ledger-surface,
+.work-ledger-create {
+  background: var(--color-ground);
+}
+
+.work-ledger-search {
+  display: grid;
+  width: min(240px, 22vw);
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  color: var(--color-steel);
+}
+
+.work-ledger-search input {
+  height: 28px;
+}
+
+.work-ledger-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--color-stroke);
+  background: color-mix(in oklab, var(--color-accent) 8%, transparent);
+  color: var(--color-crimson);
+  font-size: var(--text-label);
+}
+
+.work-ledger-error button {
+  margin-left: auto;
+  border: 0;
+  padding: 3px;
+  background: transparent;
+  color: var(--color-ink-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.work-ledger-workspace {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0;
+  overflow: hidden;
+}
+
+/* Artifacts library: compact rail (~20%) + side detail. */
+.work-ledger-workspace--artifacts {
+  align-items: stretch;
+}
+
+.work-ledger-list {
+  min-width: 0;
+  flex: 1 1 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px 12px 28px;
+  background:
+    radial-gradient(circle at 35% -20%, color-mix(in oklab, var(--color-main) 4%, transparent), transparent 42%),
+    var(--color-ground);
+  scrollbar-color: var(--color-stroke) transparent;
+  scrollbar-width: thin;
+}
+
+.work-ledger-list--artifacts-rail {
+  flex: 0 0 clamp(180px, 20%, 260px);
+  width: clamp(180px, 20%, 260px);
+  max-width: 28%;
+  border-right: 1px solid var(--color-stroke);
+  background: var(--color-raise);
+  padding: 8px 8px 20px;
+}
+
+.work-ledger-row__select {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: var(--radius-md);
+  padding: 5px 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Row text column: min-width 0 so long titles ellipsize instead of
+ * sliding under the trailing kind chip (grid item automatic minimum). */
+.work-ledger-row__select > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.work-ledger-row__select:hover {
+  background: var(--color-overlay-1);
+}
+
+.work-ledger-detail__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.work-ledger-row__expand {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  color: var(--color-faint);
+  opacity: 0.65;
+  cursor: pointer;
+}
+
+.work-ledger-row__expand:hover {
+  color: var(--color-violet);
+  background: color-mix(in oklab, var(--color-violet) 10%, transparent);
+  opacity: 1;
+}
+
+.work-ledger-list > section {
+  padding: 4px 0 14px;
+  border-bottom: 1px solid var(--color-stroke);
+}
+
+.work-ledger-list > section + section {
+  padding-top: 15px;
+}
+
+.work-ledger-list > section > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 9px;
+}
+
+.work-ledger-list h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+.work-ledger-list > section > header > span {
+  color: var(--color-dim);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.work-ledger-list [role="list"] {
+  display: grid;
+  gap: 6px;
+}
+
+/* Artifacts rail drops the base section divider/padding — declared after the
+ * base rules so the cascade actually applies it. */
+.work-ledger-list--artifacts-rail > section {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.work-ledger-row {
+  display: grid;
+  width: 100%;
+  min-height: 62px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  padding: 9px 11px;
+  background: var(--color-raise);
+  color: var(--color-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 150ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.work-ledger-row:hover {
+  border-color: var(--color-stroke-hi);
+  background: var(--color-raise);
+}
+
+.work-ledger-row[aria-current="true"] {
+  border-color: var(--color-cyan);
+  background: color-mix(in oklab, var(--color-second) 4%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-second) 12%, transparent);
+}
+
+.work-ledger-row > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.work-ledger-row strong {
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Ledger list titles wrap to two lines, then clamp — full text lives in the
+   detail pane. The descendant selector outranks `.work-ledger-row strong`
+   (0,1,1), whose nowrap + ellipsis would otherwise cascade-defeat the clamp. */
+
+.work-ledger-row small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-dim);
+  font-size: var(--text-caption);
+  line-height: var(--leading-body);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.work-ledger-row__icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid color-mix(in oklab, var(--color-violet) 26%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--color-violet) 7%, transparent);
+  color: var(--color-violet);
+}
+
+/* Artifact library rows — compact modifier must come after the base
+ * .work-ledger-row rules above, or the cascade keeps the tall three-column
+ * base layout (the shelf rail needs its own two-column shape). */
+.work-ledger-row--artifact-compact {
+  display: grid;
+  min-height: 48px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px;
+  padding: 4px;
+  cursor: default;
+}
+
+.work-ledger-row--artifact-compact strong {
+  font-size: var(--text-label);
+}
+
+.work-ledger-row--artifact-compact.is-archived {
+  opacity: 0.72;
+}
+
+.work-ledger-row--artifact-compact .work-ledger-row__icon {
+  width: 24px;
+  height: 24px;
+}
+
+.work-ledger-list__empty {
+  display: grid;
+  min-height: 80px;
+  place-items: center;
+  border: 1px dashed var(--color-overlay-4);
+  border-radius: var(--radius-lg);
+  color: var(--color-faint);
+  font-size: var(--text-caption);
+}
+
+.work-ledger-detail {
+  display: flex;
+  width: clamp(350px, 32vw, 460px);
+  min-width: 350px;
+  min-height: 0;
+  flex: none;
+  flex-direction: column;
+  border-left: 1px solid var(--color-stroke);
+  background: var(--color-ground);
+  animation: work-ledger-detail-enter 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Artifact library panes fill the workspace after the rail — declared after
+ * the base rule so the clamp width / flex: none lose the cascade. */
+.work-ledger-detail--artifact {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+}
+
+.work-ledger-detail--empty {
+  display: grid;
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  place-items: center;
+  color: var(--color-faint);
+  font-size: var(--text-label);
+  background: var(--color-ground);
+}
+
+@keyframes work-ledger-detail-enter {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+
+.work-ledger-detail > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 17px 16px 11px;
+}
+
+.work-ledger-detail > header > div {
+  min-width: 0;
+}
+
+.work-ledger-detail > header h2 {
+  margin: 9px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--color-ink);
+  font-size: var(--text-title);
+  font-weight: 600;
+  line-height: var(--leading-dense);
+  text-wrap: pretty;
+}
+
+/* Residual auth-required rows cannot be answered here — say why, inline. */
+
+.work-ledger-empty {
+  color: var(--color-faint) !important;
+  font-style: italic;
+}
+
+/* Footer toolbar strip (request detail). The artifact header also uses
+ * `.work-ledger-detail__actions` for its icon cluster — the header intent
+ * rule above must keep applying there, so scope the footer decoration. */
+.work-ledger-detail > footer.work-ledger-detail__actions {
+  justify-content: flex-end;
+  gap: 7px;
+  padding: 11px 16px;
+  border-top: 1px solid var(--color-stroke);
+  background: var(--color-raise-2);
+}
+
+.work-ledger-parts {
+  display: grid;
+  gap: 8px;
+}
+
+.work-ledger-part {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  background: var(--color-inset);
+}
+
+.work-ledger-part--text,
+.work-ledger-part--data {
+  max-height: 300px;
+  overflow: auto;
+  padding: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--color-ink-2);
+  font: inherit;
+  font-size: var(--text-caption);
+  line-height: var(--leading-open);
+  scrollbar-width: thin;
+}
+
+.work-ledger-part--markdown {
+  padding: 12px 14px;
+}
+
+.work-ledger-part--data {
+  color: var(--color-cyan);
+}
+
+.work-ledger-part--link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  color: var(--color-cyan);
+  font-size: var(--text-caption);
+  text-decoration: none;
+}
+
+.work-ledger-part--link span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-ledger-part--image {
+  display: grid;
+  gap: 7px;
+  padding: 7px;
+  color: var(--color-cyan);
+  font-size: var(--text-caption);
+  text-decoration: none;
+}
+
+.work-ledger-part--image img {
+  width: 100%;
+  max-height: 320px;
+  border-radius: var(--radius-sm);
+  object-fit: contain;
+}
+
+.work-ledger-part--image > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.work-ledger-part--image > button {
+  justify-self: end;
+}
+
+.work-ledger-part--raw {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 10px;
+  color: var(--color-violet);
+}
+
+.work-ledger-part--raw > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.work-ledger-part--raw strong {
+  color: var(--color-ink-2);
+  font-size: var(--text-caption);
+  overflow-wrap: anywhere;
+}
+
+.work-ledger-part--raw span {
+  color: var(--color-dim);
+  font-size: var(--text-micro);
+  overflow-wrap: anywhere;
+}
+
+.work-ledger-part--raw-text {
+  overflow: hidden;
+  background: var(--color-inset);
+}
+
+.work-ledger-part__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-overlay-4);
+  color: var(--color-violet);
+}
+
+.work-ledger-part__bar .work-ledger-part__type {
+  color: var(--color-ink-2);
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+
+.work-ledger-part__bar .work-ledger-part__bytes {
+  margin-left: auto;
+  color: var(--color-dim);
+  font-size: var(--text-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.work-ledger-part__body {
+  max-height: 300px;
+  overflow: auto;
+  margin: 0;
+  padding: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--color-ink-2);
+  font: inherit;
+  font-size: var(--text-caption);
+  line-height: var(--leading-open);
+  scrollbar-width: thin;
+}
+
+.work-ledger-part__body--markdown {
+  white-space: normal;
+}
+
+.work-ledger-metadata {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.work-ledger-metadata > div {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.35fr) minmax(0, 1fr);
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-overlay-3);
+}
+
+.work-ledger-metadata dt {
+  color: var(--color-dim);
+  font-size: var(--text-micro);
+}
+
+.work-ledger-metadata dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-ink-2);
+  font-size: var(--text-caption);
+}
+
+.work-ledger-create > form {
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+}
+
+.work-ledger-create > form > label {
+  display: grid;
+  gap: 7px;
+}
+
+.work-ledger-create > form > label > span {
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+.work-ledger-create textarea {
+  min-height: 170px;
+}
+
+.work-ledger-create footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.work-ledger-surface :is(button, input, textarea, a):focus-visible,
+.work-ledger-create :is(button, input, textarea):focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .work-ledger-search {
+    width: min(180px, 26vw);
+  }
+
+  /* Requests overlay as a right pane on narrow windows (no rail to shrink).
+   * Artifact library panes already fill the workspace inline and have no
+   * back-to-rail control, so they must not become a covering pane. */
+  .work-ledger-detail:not(.work-ledger-detail--artifact):not(.work-ledger-detail--empty) {
+    position: absolute;
+    z-index: 2;
+    inset: 0 0 0 auto;
+    width: min(460px, 90vw);
+    box-shadow: -8px 0 8px var(--color-shadow-1);
+  }
+}
+
+@media (max-width: 680px) {
+  .work-ledger-search {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .work-ledger-row {
+    transition: none;
+  }
+
+  .work-ledger-detail {
+    animation: none;
+  }
+}
+
+/* Artifact row — expand affordance (opens document FocusSurface) */
+.work-ledger-row--artifact .work-ledger-row__expand {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-faint);
+  opacity: 0.55;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+.work-ledger-row--artifact:hover .work-ledger-row__expand,
+.work-ledger-row--artifact[aria-current="true"] .work-ledger-row__expand {
+  color: var(--color-violet, var(--color-violet));
+  opacity: 1;
+}
+
+/* Focused artifact reader — document measure, full scroll (not 460px rail) */
+.artifact-focus.focus-surface__panel--document,
+.focus-surface__panel.artifact-focus {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.artifact-focus__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  flex: none;
+  padding: 10px 18px 12px;
+  border-bottom: 1px solid var(--color-stroke);
+  color: var(--color-dim);
+  font-size: var(--text-label);
+  line-height: var(--leading-body);
+}
+
+.artifact-focus__meta-id {
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* ContentRef parts already paint their own card — avoid double border/padding. */
+.work-ledger-part--content {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  overflow: visible;
+}
+
+.work-ledger-part--content .content-media {
+  width: 100%;
+}
+
+.artifact-focus__parts .work-ledger-part--content .content-media__body {
+  max-height: min(70vh, 640px);
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-open);
+}
+
+.artifact-focus__scroll {
+  min-height: 0;
+  flex: 1 1 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 18px 28px;
+  scrollbar-color: var(--color-stroke) transparent;
+  scrollbar-width: thin;
+}
+
+.artifact-focus__scroll > section {
+  display: grid;
+  gap: 10px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--color-stroke);
+}
+
+.artifact-focus__scroll > section:last-child {
+  border-bottom: none;
+}
+
+.artifact-focus__scroll h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+}
+
+/* Readable body: drop the compact rail max-height + 9px type */
+.artifact-focus__parts .work-ledger-part--text,
+.artifact-focus__parts .work-ledger-part--data,
+.artifact-focus__parts .work-ledger-part__body {
+  max-height: none;
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-open);
+}
+
+.artifact-focus__parts .work-ledger-part--image img {
+  max-height: min(70vh, 720px);
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+}

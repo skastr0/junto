@@ -1,0 +1,41 @@
+/* Where a resource is mentioned: a quiet list under its details. */
+
+.mentioned-in {
+  display: grid;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  background: var(--color-raise);
+}
+
+.mentioned-in__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-faint);
+}
+
+.mentioned-in__list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mentioned-in__row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.mentioned-in__meta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

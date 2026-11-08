@@ -1,0 +1,124 @@
+/**
+ * PROTO-8 — a paused seat reports paused:true and a next_step through the
+ * real work control socket, so an agent can tell a pause from a broken grant.
+ *
+ * Wiring and fakes are documented in tests/pty-e2e/proto-harness.ts.
+ */
+import { mkdirSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createConnection } from "node:net";
+import { encodeWorkFrame } from "../../../src/shared/work-control";
+import { ProtoHarness } from "../proto-harness";
+import { startWorkControlServer, type WorkControlServer } from "../../../src/core/work/control";
+import { createMainAuthoringGate } from "../../../src/node/main-authoring-gate";
+import { publishSeatCredential } from "../../helpers/seat-credential";
+import { seat, wire } from "../../support/model-nodes";
+
+const call = (socketPath: string, body: unknown): Promise<{
+  readonly ok: boolean;
+  readonly data?: Record<string, unknown>;
+  readonly error?: { readonly type: string; readonly details?: { readonly next_step?: string } };
+}> =>
+  new Promise((resolve, reject) => {
+    const socket = createConnection({ path: socketPath });
+    let buf = Buffer.alloc(0);
+    const timer = setTimeout(() => {
+      socket.destroy();
+      reject(new Error("timeout"));
+    }, 5_000);
+    socket.on("connect", () => {
+      socket.write(encodeWorkFrame(body));
+    });
+    socket.on("data", (chunk: Buffer | string) => {
+      const part = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      buf = Buffer.concat([buf, part]);
+      const nl = buf.indexOf(0x0a);
+      if (nl < 0) return;
+      clearTimeout(timer);
+      const line = buf.subarray(0, nl).toString("utf8");
+      socket.destroy();
+      resolve(JSON.parse(line));
+    });
+    socket.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+
+describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
+  let harness: ProtoHarness;
+  let server: WorkControlServer;
+  let seatCredential = "";
+  const roots: string[] = [];
+
+  beforeAll(async () => {
+    const root = await mkdtemp(join(tmpdir(), "junto-proto8-"));
+    roots.push(root);
+    const workHome = join(root, "work");
+    mkdirSync(workHome, { recursive: true });
+    process.env.JUNTO_WORK_HOME = workHome;
+    harness = new ProtoHarness({ root });
+    await harness.start();
+    await harness.nameThisMachine();
+    await harness.seed("work-cli", [seat("agent"), seat("peer")], [wire("e1", "agent", "peer", "messages")]);
+    server = await startWorkControlServer({
+      version: "test",
+      workHome,
+      home: root,
+      run: (effect) => harness.runtime.runPromise(effect as never),
+      authoringGate: createMainAuthoringGate(),
+    });
+    seatCredential = publishSeatCredential(server.credentials, { agentKey: "local:agent" });
+  });
+
+  afterAll(async () => {
+    if (server) await server.close();
+    if (harness) await harness.dispose();
+    for (const root of roots) {
+      try {
+        await rm(root, { recursive: true, force: true });
+      } catch {
+        // best-effort cleanup
+      }
+    }
+  });
+
+  it("capabilities for a born-paused canvas lacks paused (expected paused:true + next_step)", async () => {
+    // The canvas was never played — the factory pause law says it is paused.
+    const state = harness.pause.stateFor("work-cli");
+    expect(state.playing).toBe(false);
+    const res = await call(server.socketPath, {
+      token: seatCredential,
+      op: "capabilities",
+    });
+    expect(res.ok).toBe(true);
+    // PRODUCT LAW: a paused seat must surface paused:true + next_step so the
+    // agent can distinguish pause from a broken grant. ACTUAL today: absent.
+    expect(res.data?.paused).toBe(true);
+    expect(res.data?.next_step).toEqual(expect.stringContaining("play the canvas"));
+  });
+
+  it("onboard for a paused seat lacks paused (expected paused:true + next_step)", async () => {
+    const res = await call(server.socketPath, {
+      token: seatCredential,
+      op: "onboard",
+    });
+    expect(res.ok).toBe(true);
+    expect(res.data?.paused).toBe(true);
+    expect(res.data?.next_step).toEqual(expect.stringContaining("play the canvas"));
+  });
+
+  it("gate sanity: a paused seat still refuses mutating ops with a Paused error (works today)", async () => {
+    const res = await call(server.socketPath, {
+      token: seatCredential,
+      op: "msg.send",
+      args: { target: "peer", text: "sanity gate" },
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error?.type).toBe("Paused");
+    expect(res.error?.details?.next_step).toContain("play the canvas");
+  });
+});

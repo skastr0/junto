@@ -1,0 +1,158 @@
+import { ulid } from "ulid";
+import { UNNAMED_MACHINE } from "@shared/canvas-copy";
+import {
+  ARTIFACTS_ENABLED,
+  filesOn,
+  TASKS_ENABLED,
+  type ExperimentalOptIns,
+} from "@shared/features";
+import { asNodeId, type NodeOf } from "@shared/model";
+import type { Region } from "@shared/model/region";
+import { newBinding, requireHostId, seatParts, type SeatChoices } from "@shared/model/seat-parts";
+import { AGENT_NODE_SIZE, NOTE_NODE_SIZE } from "./node-geometry";
+
+// Each kind of thing the operator can put on a canvas, as it is when new: its
+// id, its size, and the values it starts with. Nothing here adds it; `added`
+// in model-edits.ts turns nodes into the command. A new node stacks at the `z`
+// its caller gives, which is `topZ(canvas)` for anything dropped on top. What
+// a region gives to what is made inside it (a working directory, a page's
+// starting address) is read by shared/region-defaults.ts, from the canvas.
+
+/** Where a new node goes and how it stacks. */
+export type Spot = { readonly x: number; readonly y: number; readonly z: number };
+
+type Size = { readonly width: number; readonly height: number };
+type Launch = NonNullable<NodeOf<"agent">["launch"]>;
+
+const placed = (prefix: string, spot: Spot, size: Size) => ({
+  id: asNodeId(`${prefix}-${ulid()}`),
+  x: Math.round(spot.x),
+  y: Math.round(spot.y),
+  width: Math.round(size.width),
+  height: Math.round(size.height),
+  z: spot.z,
+});
+
+/** A kind this build has off cannot be made, though one already there still shows. */
+const requireFeature = (enabled: boolean, label: string): void => {
+  if (!enabled) throw new Error(`${label} is disabled in this build`);
+};
+
+const SINK_SIZE = { width: 240, height: 120 } as const;
+
+// ── Things that only sit there ──────────────────────────────────────────────
+
+export const newNote = (spot: Spot): NodeOf<"note"> => ({
+  kind: "note",
+  ...placed("node", spot, NOTE_NODE_SIZE),
+  text: "new note",
+});
+
+/** Bare text on the map: no card, no connectors. */
+export const newLabel = (spot: Spot): NodeOf<"label"> => ({
+  kind: "label",
+  ...placed("label", spot, { width: 160, height: 40 }),
+  text: "Label",
+});
+
+/** An image card. `url` is the content store's address of the image. */
+export const newImage = (spot: Spot, url: string, size?: Size): NodeOf<"file"> => ({
+  kind: "file",
+  ...placed("image", spot, size ?? { width: 280, height: 200 }),
+  path: url,
+});
+
+export const newRegion = (spot: Spot, size?: Size): Region => ({
+  kind: "region",
+  ...placed("region", spot, size ?? { width: 560, height: 320 }),
+  label: "new region",
+  hold: false,
+});
+
+/** A commit browser over the repository at `cwd`. */
+export const newGit = (spot: Spot, cwd: string, label?: string): NodeOf<"git"> => ({
+  kind: "git",
+  ...placed("git", spot, AGENT_NODE_SIZE),
+  ...(label?.trim() ? { label: label.trim() } : {}),
+  cwd,
+});
+
+/** A folder as a Files node holds it: absolute on its machine, never "~" or relative. */
+export const isAbsoluteFolder = (path: string): boolean => path.trim().startsWith("/");
+
+/**
+ * A Files node: the folder `root` on the machine `host`, which is the editing
+ * machine's real name. It has no label when new: a label is only what the
+ * operator writes, and it crosses to other machines where the root may not.
+ * Experimental: made only while the operator has the files feature on.
+ */
+export const newFiles = (
+  spot: Spot,
+  options: { readonly host: string; readonly root: string },
+  optIns: ExperimentalOptIns,
+): NodeOf<"files"> => {
+  requireFeature(filesOn(optIns), "files node");
+  const host = requireHostId(options.host);
+  if (host === UNNAMED_MACHINE) throw new Error("a files node names this machine, not the unnamed one");
+  const root = options.root.trim();
+  if (!isAbsoluteFolder(root)) throw new Error("a files node needs an absolute folder");
+  return { kind: "files", ...placed("files", spot, AGENT_NODE_SIZE), host, root };
+};
+
+// ── Seats and terminals ─────────────────────────────────────────────────────
+
+/** A seat: an agent with a harness, a terminal session and a mailbox. Never an overseer when new. */
+export const newSeat = (spot: Spot, choices: SeatChoices): NodeOf<"agent"> => ({
+  kind: "agent",
+  ...placed("agent", spot, AGENT_NODE_SIZE),
+  ...seatParts(choices),
+  overseer: false,
+});
+
+/** A plain terminal on the machine named `host`. Its session starts when it is opened. */
+export const newTerminal = (
+  spot: Spot,
+  options: { readonly host: string; readonly launch?: Launch; readonly label?: string },
+): NodeOf<"terminal"> => ({
+  kind: "terminal",
+  ...placed("terminal", spot, AGENT_NODE_SIZE),
+  ...(options.label?.trim() ? { label: options.label.trim() } : {}),
+  host: requireHostId(options.host),
+  bindingId: newBinding(),
+  ...(options.launch ? { launch: options.launch } : {}),
+});
+
+// ── Surfaces agents work against ────────────────────────────────────────────
+
+/** An in-app browser page, on the machine that edits the canvas. The profile is a name; cookies stay with the browser. */
+export const newPage = (
+  spot: Spot,
+  url: string,
+  options: {
+    readonly profile?: string;
+    readonly onRemove?: NodeOf<"page">["onRemove"];
+  } = {},
+): NodeOf<"page"> => ({
+  kind: "page",
+  ...placed("page", spot, { width: 260, height: 110 }),
+  url,
+  profile: options.profile?.trim() || "personal",
+  onRemove: options.onRemove ?? "kill-session",
+});
+
+export const newTaskBoard = (spot: Spot): NodeOf<"task"> => {
+  requireFeature(TASKS_ENABLED, "tasks sink");
+  return { kind: "task", ...placed("task", spot, SINK_SIZE) };
+};
+
+export const newArtifacts = (spot: Spot): NodeOf<"artifacts"> => {
+  requireFeature(ARTIFACTS_ENABLED, "artifacts sink");
+  return { kind: "artifacts", ...placed("artifacts", spot, SINK_SIZE) };
+};
+
+/** An Automations node: its automations act on what sits at or below it. */
+export const newAutomations = (spot: Spot): NodeOf<"automations"> => ({
+  kind: "automations",
+  ...placed("automations", spot, SINK_SIZE),
+});
+

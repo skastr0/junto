@@ -1,0 +1,110 @@
+{
+  "label": "after-2deba933e-run2",
+  "sourceCommit": "2deba933eb64321cca99039b96d507ddb4f616c7",
+  "appRoot": "/Users/guilhermecastro/Projects/junto-wt-after",
+  "command": "bun scripts/probe-ring-cost.ts --app-root /Users/guilhermecastro/Projects/junto-wt-after --label after-2deba933e-run2 --seats 24 --seconds 6 --port 9341",
+  "when": "2026-10-17T19:48:46.682Z",
+  "environment": {
+    "accessibility": true,
+    "electron": "43.5.0",
+    "chrome": "150.0.7871.250",
+    "displays": 1,
+    "darkOs": true,
+    "rendererAccessibilityForcedOff": false,
+    "seats": 24,
+    "preflightProblems": []
+  },
+  "valid": true,
+  "scenarios": [
+    {
+      "name": "idle",
+      "valid": true,
+      "problems": [],
+      "seconds": 6,
+      "rendererBusyMsPerSecond": 219.7,
+      "scriptMsPerSecond": 17.1,
+      "layoutMsPerSecond": 1.5,
+      "styleMsPerSecond": 42.5,
+      "rafFrames": 906,
+      "rafDropped": 47,
+      "framesPresented": null,
+      "framesDropped": null,
+      "cpuPercent": {
+        "browser": 3.2,
+        "renderer": 34.7,
+        "GPU": 37.5,
+        "network.mojom.NetworkService": 0,
+        "tracing.mojom.TracingService": 0.1
+      },
+      "ringsVisible": {
+        "moving": 30,
+        "marks": 31
+      },
+      "accessibilityOn": true,
+      "loadAverage1m": {
+        "before": 8.23,
+        "after": 8.44
+      }
+    },
+    {
+      "name": "pan",
+      "valid": true,
+      "problems": [],
+      "seconds": 6,
+      "rendererBusyMsPerSecond": 442.2,
+      "scriptMsPerSecond": 46.4,
+      "layoutMsPerSecond": 15.5,
+      "styleMsPerSecond": 77.9,
+      "rafFrames": 973,
+      "rafDropped": 41,
+      "framesPresented": null,
+      "framesDropped": null,
+      "cpuPercent": {
+        "browser": 7.8,
+        "renderer": 64.4,
+        "GPU": 49.4,
+        "network.mojom.NetworkService": 0,
+        "tracing.mojom.TracingService": 0.1
+      },
+      "ringsVisible": {
+        "moving": 30,
+        "marks": 31
+      },
+      "accessibilityOn": true,
+      "loadAverage1m": {
+        "before": 8.44,
+        "after": 9.21
+      }
+    },
+    {
+      "name": "stream",
+      "valid": true,
+      "problems": [],
+      "seconds": 6,
+      "rendererBusyMsPerSecond": 726.6,
+      "scriptMsPerSecond": 181.4,
+      "layoutMsPerSecond": 0.5,
+      "styleMsPerSecond": 34.3,
+      "rafFrames": 876,
+      "rafDropped": 85,
+      "framesPresented": null,
+      "framesDropped": null,
+      "cpuPercent": {
+        "browser": 93.7,
+        "renderer": 109.5,
+        "GPU": 40.7,
+        "network.mojom.NetworkService": 0,
+        "tracing.mojom.TracingService": 0.1
+      },
+      "ringsVisible": {
+        "moving": 30,
+        "marks": 32
+      },
+      "accessibilityOn": true,
+      "loadAverage1m": {
+        "before": 9.21,
+        "after": 8.97
+      }
+    }
+  ]
+}

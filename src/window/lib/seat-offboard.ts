@@ -1,0 +1,295 @@
+import {
+  OFFBOARD_MINUTES_MAX,
+  OFFBOARD_MINUTES_MIN,
+  OFFBOARD_REFUSAL_REASON,
+  applyOffboardRulesPatch,
+  offboardRulesFor,
+  offboardRulesProblem,
+  summarizeOffboardRun,
+  type OffboardRules,
+  type OffboardRulesPatch,
+  type OffboardRefusalCode,
+  type SeatOffboardAction,
+  type SeatOffboardRunRow,
+  type SeatOffboardStatus,
+} from "@shared/seat-offboard";
+import type { OffboardMode } from "@shared/seat-sessions";
+import { Effect } from "effect";
+import { useContext, useMemo } from "react";
+import type {
+  SeatOffboardRunInput as RunInputSchema,
+  SeatOffboardRunResult as RunResultSchema,
+  SeatOffboardStatus as StatusSchema,
+} from "../../contract/core/seat-cache-due";
+import { SeatCacheDueWindow } from "../../contract/window/seat-cache-due";
+import { WindowRuntimeContext, type WindowRuntime } from "../rpc/runtime";
+import { agentCountLabel } from "./multi-selection";
+
+/**
+ * Offboard from the canvas: the calls and the words behind the two operator
+ * actions, for one seat or a whole selection.
+ *
+ *   ask  the agent is mailed the offboard prompt and writes its own notes
+ *   now  Junto ends the session itself: no agent turn, no notes
+ *
+ * Main decides everything: whether a seat may be closed now, how long it has
+ * been motionless, and which action the cache window prefers. This file asks
+ * and puts the answers into the operator's words.
+ */
+
+// --- calls ---------------------------------------------------------------------
+
+/** The core's offboard run and status, as its seat-cache-due group types them. */
+export type SeatOffboardRunInput = typeof RunInputSchema.Type;
+export type SeatOffboardRunResult = typeof RunResultSchema.Type;
+
+export type SeatOffboardOps = {
+  readonly run: (input: SeatOffboardRunInput) => Promise<SeatOffboardRunResult>;
+  readonly status: (
+    canvasName: string,
+    seatIds: ReadonlyArray<string>,
+  ) => Promise<ReadonlyArray<typeof StatusSchema.Type>>;
+};
+
+const UNREACHABLE = "Junto could not reach its offboard service.";
+
+const refuseAll = (seatIds: ReadonlyArray<string>): SeatOffboardRunResult =>
+  summarizeOffboardRun(seatIds.map((seatId) => ({ seatId, ok: false, code: "failed", reason: UNREACHABLE })));
+
+/**
+ * The app's own calls, on the window's link to the core's group. Neither
+ * ever throws: a lost call is a refused row per seat, or no status. A page
+ * without a runtime (a gallery, a test's stand-in) is refused the same way.
+ */
+export const seatOffboardOpsOf = (runtime: WindowRuntime | undefined): SeatOffboardOps => ({
+  run: async (input) => {
+    if (runtime === undefined) return refuseAll(input.seatIds);
+    return runtime
+      .runPromise(Effect.flatMap(SeatCacheDueWindow, (due) => due.SeatCacheDueOffboardRun({ input })))
+      .catch(() => refuseAll(input.seatIds));
+  },
+  status: async (canvasName, seatIds) => {
+    if (runtime === undefined) return [];
+    return runtime
+      .runPromise(Effect.flatMap(SeatCacheDueWindow, (due) => due.SeatCacheDueOffboardStatus({ canvasName, seatIds })))
+      .catch(() => []);
+  },
+});
+
+/** The offboard calls of the window this component renders in. */
+export const useSeatOffboardOps = (): SeatOffboardOps => {
+  const runtime = useContext(WindowRuntimeContext);
+  return useMemo(() => seatOffboardOpsOf(runtime), [runtime]);
+};
+
+// --- words ---------------------------------------------------------------------
+
+/** How a refusal reads in a count: "2 are working". */
+const REFUSAL_PHRASE: Readonly<Partial<Record<OffboardRefusalCode, (count: number) => string>>> = {
+  working: (count) => `${count} ${count === 1 ? "is" : "are"} working`,
+  attention: (count) => `${count} ${count === 1 ? "is" : "are"} waiting on you`,
+  closing: (count) => `${count} ${count === 1 ? "is" : "are"} already closing`,
+  "not-local": (count) => `${count} ${count === 1 ? "runs" : "run"} on another installation`,
+  "not-a-seat": (count) => `${count} ${count === 1 ? "is not an agent" : "are not agents"}`,
+};
+
+/** Refusals by reason, in first-seen order; codes with no phrase share `rest`. */
+const refusalCounts = (rows: ReadonlyArray<SeatOffboardRunRow>, rest: (count: number) => string): string[] => {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    if (row.ok) continue;
+    const key = REFUSAL_PHRASE[row.code] !== undefined ? row.code : "";
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts].map(([key, count]) =>
+    key === "" ? rest(count) : REFUSAL_PHRASE[key as OffboardRefusalCode]!(count),
+  );
+};
+
+/** After Offboard now: "8 closed, 2 are working". */
+export const offboardNowLine = (rows: ReadonlyArray<SeatOffboardRunRow>): string => {
+  if (rows.length === 0) return "No agent to close.";
+  if (rows.length === 1) {
+    const only = rows[0]!;
+    return only.ok ? "Session closed. The seat is resting." : `Not closed. ${only.reason}`;
+  }
+  const closed = rows.filter((row) => row.ok).length;
+  const reasons = refusalCounts(rows, (count) => `${count} could not be closed`);
+  if (closed === 0) return `None closed: ${reasons.join(", ")}`;
+  return [`${closed} closed`, ...reasons].join(", ");
+};
+
+const MODE_WORDS: Readonly<Record<OffboardMode, string>> = {
+  continue: "offboard and continue",
+  rest: "offboard and rest",
+};
+
+/** After Ask to offboard: "Asked 3 agents to offboard and continue. 1 could not be asked." */
+export const askOffboardLine = (mode: OffboardMode, rows: ReadonlyArray<SeatOffboardRunRow>): string => {
+  if (rows.length === 0) return "No agent to ask.";
+  if (rows.length === 1) {
+    const only = rows[0]!;
+    return only.ok ? `Asked to ${MODE_WORDS[mode]}.` : `Not asked. ${only.reason}`;
+  }
+  const asked = rows.filter((row) => row.ok).length;
+  const reasons = refusalCounts(rows, (count) => `${count} could not be asked`);
+  if (asked === 0) return `None asked: ${reasons.join(", ")}`;
+  return [`Asked ${agentCountLabel(asked)} to ${MODE_WORDS[mode]}`, ...reasons].join(", ");
+};
+
+/** Whether a result line is good news, mixed, or bad: the line's colour. */
+export const offboardLineTone = (rows: ReadonlyArray<SeatOffboardRunRow>): "done" | "partial" | "refused" => {
+  const ok = rows.filter((row) => row.ok).length;
+  if (ok === rows.length && rows.length > 0) return "done";
+  return ok === 0 ? "refused" : "partial";
+};
+
+const minutesWords = (minutes: number): string => {
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
+};
+
+/**
+ * What the operator reads above the buttons: how long one seat has sat
+ * still. A selection gets no such line. Never a word about caches: that is
+ * Junto's to manage, not the operator's. Empty when there is nothing to say.
+ */
+export const offboardIdleLine = (statuses: ReadonlyArray<SeatOffboardStatus>): string => {
+  if (statuses.length !== 1) return "";
+  const only = statuses[0]!;
+  return only.idleMinutes === null ? "" : `Idle ${minutesWords(only.idleMinutes)}.`;
+};
+
+/** "180k", "1.2M", "850": a token estimate at the precision it has. */
+export const tokensWords = (tokens: number): string => {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/u, "")}M`;
+  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k`;
+  return String(tokens);
+};
+
+/**
+ * What one seat's current session has done: time spent working, and its
+ * context in tokens as its harness recorded it (unknown when it has not).
+ * When that is not yet enough for the automatic rules to
+ * act on it, the line says so: the buttons still work. A selection gets no
+ * such line.
+ */
+export const offboardSessionLine = (statuses: ReadonlyArray<SeatOffboardStatus>): string => {
+  if (statuses.length !== 1) return "";
+  const only = statuses[0]!;
+  const parts: string[] = [];
+  if (only.workMinutes !== undefined) parts.push(`${minutesWords(only.workMinutes)} of work`);
+  if (only.sessionTokens !== undefined) parts.push(`about ${tokensWords(only.sessionTokens)} tokens`);
+  if (parts.length === 0) return "";
+  const line = `This session: ${parts.join(", ")}.`;
+  return only.worthCutting === false ? `${line} Too small for the automatic rules to act on.` : line;
+};
+
+/** The action to mark as preferred: one seat's own; a selection has none. */
+export const offboardPreferred = (statuses: ReadonlyArray<SeatOffboardStatus>): SeatOffboardAction | undefined =>
+  statuses.length === 1 ? statuses[0]!.preferred : undefined;
+
+/**
+ * Why Offboard now cannot be pressed, or undefined when it can. One seat:
+ * its own reason. A selection stays pressable while any seat can be closed;
+ * the result line then says which were not.
+ */
+export const offboardNowBlock = (statuses: ReadonlyArray<SeatOffboardStatus>): string | undefined => {
+  if (statuses.length === 0) return undefined;
+  if (statuses.some((status) => status.now.allowed)) return undefined;
+  if (statuses.length === 1) {
+    const now = statuses[0]!.now;
+    return now.allowed ? undefined : now.reason;
+  }
+  return "None of these agents can be closed right now.";
+};
+
+// --- the canvas menu's rows ----------------------------------------------------
+// The right-click menus say each action in a label and one grey line. These
+// are the grey lines.
+
+/** Under "ask to offboard". */
+export const askMenuDetail = (count: number): string =>
+  count === 1 ? "continue in a fresh session" : `${agentCountLabel(count)}, continue`;
+
+/** What the second press of an armed "offboard now" closes. */
+export const armedNowLabel = (closable: number): string =>
+  closable === 1 ? "close this session?" : `close ${closable} sessions?`;
+
+/** One agent's reason in a few words; main's own sentence when there is no short form. */
+const ONE_BLOCK: Readonly<Partial<Record<OffboardRefusalCode, string>>> = {
+  working: "this agent is working",
+  attention: "this agent is waiting on you",
+  closing: "this agent is already closing",
+};
+
+/**
+ * The "offboard now" row: its grey line, whether it can be pressed, and how
+ * many sessions a press would close. Before main has answered it shows the
+ * count and stays pressable; main refuses at the press what cannot close.
+ */
+export const nowMenuRow = (
+  count: number,
+  statuses: ReadonlyArray<SeatOffboardStatus>,
+): { readonly detail: string; readonly disabled: boolean; readonly closable: number } => {
+  if (count === 1) {
+    const now = statuses[0]?.now;
+    if (now === undefined || now.allowed) return { detail: "no notes, the seat rests", disabled: false, closable: 1 };
+    return { detail: ONE_BLOCK[now.code] ?? now.reason, disabled: true, closable: 0 };
+  }
+  if (statuses.length === 0) return { detail: agentCountLabel(count), disabled: false, closable: count };
+  const closable = statuses.filter((entry) => entry.now.allowed).length;
+  if (closable === 0) {
+    const counts = new Map<string, number>();
+    for (const entry of statuses) {
+      if (entry.now.allowed) continue;
+      const key = REFUSAL_PHRASE[entry.now.code] !== undefined ? entry.now.code : "";
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const reasons = [...counts].map(([key, n]) =>
+      key === "" ? `${n} cannot be closed` : REFUSAL_PHRASE[key as OffboardRefusalCode]!(n),
+    );
+    return { detail: `none can close now: ${reasons.join(", ")}`, disabled: true, closable: 0 };
+  }
+  const detail =
+    closable < statuses.length
+      ? `${closable} of ${statuses.length} can close now`
+      : closable === 2
+        ? "both can close now"
+        : `all ${closable} can close now`;
+  return { detail, disabled: false, closable };
+};
+
+// --- the automatic rules -------------------------------------------------------
+
+/**
+ * A change to the offboard rules, judged before it is sent: the patch to
+ * save, or why the rules it would leave cannot be saved (main refuses the
+ * same patch with the same sentence).
+ */
+export const planOffboardRulesChange = (
+  rules: OffboardRules,
+  patch: OffboardRulesPatch,
+): { readonly ok: true; readonly patch: OffboardRulesPatch } | { readonly ok: false; readonly problem: string } => {
+  const problem = offboardRulesProblem(applyOffboardRulesPatch(rules, patch));
+  return problem === undefined ? { ok: true, patch } : { ok: false, problem };
+};
+
+/**
+ * A new override for one harness, seeded with the window that harness runs
+ * on today, so the row never shows a blank and later changes to the
+ * machine's window do not move it.
+ */
+export const seedHarnessOverride = (rules: OffboardRules, harness: string): OffboardRulesPatch => ({
+  harness: { [harness]: { cacheWindowMinutes: offboardRulesFor(rules, harness).cacheWindowMinutes } },
+});
+
+/** A typed minutes value, or undefined when it is not a whole number in range. */
+export const parseOffboardMinutes = (raw: string): number | undefined => {
+  const text = raw.trim();
+  if (!/^\d+$/u.test(text)) return undefined;
+  const minutes = Number(text);
+  return minutes >= OFFBOARD_MINUTES_MIN && minutes <= OFFBOARD_MINUTES_MAX ? minutes : undefined;
+};

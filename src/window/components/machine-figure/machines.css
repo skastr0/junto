@@ -1,0 +1,249 @@
+/* The look of the Machines window: the shelf, where every machine stands as a
+   solid with its name and one line of state, and the stage, where the chosen
+   one is given room. Colour comes from theme tokens and from the machine's
+   own tile; nothing here moves at rest. */
+
+/* Two columns of one width; a long name ellipsizes instead of widening its
+   column. The empty card is a cell of the same grid, beside this machine. */
+.machine-shelf {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 8px;
+  padding: 12px;
+}
+
+.machine-shelf__list {
+  display: contents;
+}
+
+.machine-shelf__place {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xl);
+  padding: 6px 10px 10px;
+  text-align: left;
+}
+
+.machine-shelf__place > .machine-figure {
+  align-self: center;
+}
+
+.machine-shelf__place:hover {
+  background: var(--color-overlay-1);
+}
+
+.machine-shelf__place[aria-selected="true"] {
+  border-color: color-mix(in oklab, var(--color-amber) 50%, transparent);
+  background: color-mix(in oklab, var(--color-amber) 10%, transparent);
+}
+
+.machine-shelf__name {
+  max-width: 100%;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.machine-shelf__state {
+  margin-top: 2px;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+  line-height: var(--leading-dense);
+}
+
+/* The line turns amber when the machine needs the operator. */
+.machine-shelf__place[data-needs-you="true"] .machine-shelf__state {
+  color: var(--color-amber-fg);
+}
+
+.machine-shelf__empty {
+  display: grid;
+  min-width: 0;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-xl);
+  padding: 12px;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  text-align: center;
+}
+
+.machine-shelf__empty::before {
+  content: "+";
+  color: var(--color-faint);
+  font-family: var(--font-display);
+  font-size: var(--text-hero);
+  line-height: 1;
+}
+
+.machine-stage {
+  position: relative;
+  display: flex;
+  /* A narrow window puts the words under the figure, never beside it at a
+     width where the name cannot be read. */
+  flex-wrap: wrap;
+  flex: none;
+  align-items: center;
+  min-height: 330px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--color-stroke);
+  background: var(--machine-tile);
+}
+
+.machine-stage__figure {
+  position: relative;
+  isolation: isolate;
+  flex: none;
+  /* Room above and below for the halo, which is wider than the figure. */
+  margin: 10px 0 10px 70px;
+}
+
+/* The halo is centred on the figure and fits inside the band at its least
+   height, so it is never cut off. */
+.machine-stage__figure::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 50%;
+  left: 50%;
+  width: 310px;
+  height: 310px;
+  border-radius: 50%;
+  background: var(--machine-halo);
+  transform: translate(-50%, -50%);
+}
+
+.machine-stage__words {
+  position: relative;
+  min-width: 0;
+  flex: 1 1 300px;
+  padding: 24px 32px 24px 36px;
+}
+
+.machine-stage__eyebrow {
+  color: var(--color-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+}
+
+.machine-stage__label {
+  margin: 6px 0 10px;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-hero);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  line-height: 1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.machine-stage__headline {
+  color: var(--color-ink);
+  font-size: var(--text-title);
+}
+
+.machine-stage__advice {
+  max-width: 44ch;
+  margin-top: 6px;
+  color: var(--color-dim);
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
+}
+
+.machine-stage__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.machine-steps {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  border-bottom: 1px solid var(--color-stroke);
+  padding: 16px 28px;
+  color: var(--color-faint);
+  font-size: var(--text-body-lg);
+}
+
+.machine-steps i {
+  display: block;
+  height: 8px;
+  margin-bottom: 8px;
+  border: 1.5px solid var(--color-dim);
+  border-radius: var(--radius-sm);
+}
+
+.machine-steps small {
+  color: var(--color-dim);
+  font-size: inherit;
+}
+
+.machine-steps [data-step-phase="done"],
+.machine-steps [data-step-phase="now"],
+.machine-steps [data-step-phase="downloading"],
+.machine-steps [data-step-phase="copying"],
+.machine-steps [data-step-phase="stalled"] {
+  color: var(--color-ink);
+}
+
+.machine-steps [data-step="copy"] {
+  grid-column: 1 / -1;
+}
+
+.machine-steps [data-step="copy"] i {
+  display: none;
+}
+
+.machine-steps [data-step-phase="stalled"] small {
+  color: var(--color-amber-fg);
+}
+
+.machine-steps [data-step-phase="done"] i {
+  border-color: var(--color-amber);
+  background: var(--color-amber);
+}
+
+.machine-steps [data-step-phase="now"] i {
+  background: linear-gradient(90deg, var(--color-amber) 40%, transparent 40%);
+}
+
+/* Nobody confirmed it: it may have happened, so it is neither full nor empty. */
+.machine-steps [data-step-phase="unconfirmed"] i {
+  background: color-mix(in oklab, var(--color-amber) 32%, transparent);
+}
+
+.machine-steps [data-step-phase="not-reached"] i {
+  border-color: var(--color-faint);
+}
+
+.machine-facts {
+  padding: 14px 28px 24px;
+}
+
+.machine-facts > div {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 12px;
+  border-bottom: 1px solid var(--color-overlay-3);
+  padding: 7px 0;
+}

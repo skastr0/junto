@@ -1,0 +1,453 @@
+// @vitest-environment jsdom
+/**
+ * Drops on the Files modal (0.11, F5). A Finder drag copies into the folder
+ * under the pointer (a folder row, a file row's folder, else the root), with
+ * that folder marked and named while the drag is over it; a copy never
+ * overwrites, and a taken name that landed as " 2" is said. A tree drag moves,
+ * one move per item, and an item the service refuses goes back in the tree.
+ *
+ * The rows are built the way @pierre/trees draws them inside its shadow root
+ * (data-type="item", data-item-path, data-item-type, data-item-parent-path;
+ * node_modules/@pierre/trees/dist/render/rowAttributes.js), so the composed
+ * path a drop reads is the real shape.
+ */
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  filePathOfTree,
+  finderDropTargetOf,
+  importNotice,
+  movesForDrop,
+  parentOf,
+} from "../src/window/lib/files-drop";
+import type { FilePath, FilesError, FilesResult } from "../src/shared/files";
+import type { NodeId } from "../src/shared/physics/schema";
+import {
+  FILES_DROP_NOTICE_MS,
+  useFilesDrop,
+  type FilesDrop,
+  type FilesDropModel,
+  type FilesDropPort,
+  type FilesMoved,
+} from "../src/window/components/files/useFilesDrop";
+import { FilesDropHighlight } from "../src/window/components/files/FilesDropHighlight";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const describeErr = (error: FilesError): string => (error === "denied" ? "Not allowed." : `Refused ${error}.`);
+const NODE = { canvas: "factory", node: "files-1" as NodeId };
+
+/** A tree host whose shadow root holds rows as the library draws them. */
+const treeHost = (rows: ReadonlyArray<{ path: string; type: "folder" | "file"; parent?: string; segments?: string[] }>) => {
+  const host = document.createElement("div");
+  const shadow = host.attachShadow({ mode: "open" });
+  const byPath = new Map<string, HTMLElement>();
+  for (const row of rows) {
+    const button = document.createElement("button");
+    button.setAttribute("data-type", "item");
+    button.setAttribute("data-item-path", row.path);
+    button.setAttribute("data-item-type", row.type);
+    if (row.parent !== undefined) button.setAttribute("data-item-parent-path", row.parent);
+    const label = document.createElement("span");
+    label.textContent = row.path;
+    button.append(label);
+    for (const segment of row.segments ?? []) {
+      const part = document.createElement("span");
+      part.setAttribute("data-item-flattened-subitem", segment);
+      part.textContent = segment;
+      button.append(part);
+      byPath.set(segment, part);
+    }
+    shadow.append(button);
+    byPath.set(row.path, label);
+  }
+  return { host, at: (path: string) => byPath.get(path)! };
+};
+
+const composedFrom = (element: Element): EventTarget[] => {
+  const seen: EventTarget[] = [];
+  const event = new Event("probe", { bubbles: true, composed: true });
+  element.addEventListener("probe", () => seen.push(...event.composedPath()), { once: true });
+  element.dispatchEvent(event);
+  return seen;
+};
+
+describe("where a Finder drop lands", () => {
+  const { host, at } = treeHost([
+    { path: "src/", type: "folder" },
+    { path: "src/index.ts", type: "file", parent: "src/" },
+    { path: "README.md", type: "file" },
+    { path: "a/b/", type: "folder", segments: ["a/", "a/b/"] },
+  ]);
+  document.body.append(host);
+
+  it("takes a folder row as the folder, without the tree's slash", () => {
+    expect(finderDropTargetOf(composedFrom(at("src/"))).dir).toBe("src");
+  });
+
+  it("hands a file row's drop to its folder, and a top-level file's to the root", () => {
+    expect(finderDropTargetOf(composedFrom(at("src/index.ts"))).dir).toBe("src");
+    const top = finderDropTargetOf(composedFrom(at("README.md")));
+    expect(top.dir).toBe("");
+    expect(top.row).toBeNull();
+  });
+
+  it("takes the segment under the pointer in a flattened folder row", () => {
+    expect(finderDropTargetOf(composedFrom(at("a/"))).dir).toBe("a");
+    expect(finderDropTargetOf(composedFrom(at("a/b/"))).dir).toBe("a/b");
+  });
+
+  it("sends a drop outside every row to the root", () => {
+    expect(finderDropTargetOf(composedFrom(host))).toEqual({ dir: "", row: null });
+  });
+});
+
+describe("a tree drop's renames", () => {
+  it("moves each item into the folder under its own name, and skips one already there", () => {
+    expect(
+      movesForDrop(["README.md", "src/index.ts", "lib/"], { kind: "directory", directoryPath: "src/" }),
+    ).toEqual([
+      { from: "README.md", intoDir: "src", treeFrom: "README.md", treeTo: "src/README.md" },
+      { from: "lib", intoDir: "src", treeFrom: "lib/", treeTo: "src/lib/" },
+    ]);
+  });
+
+  it("moves to the root by name", () => {
+    expect(movesForDrop(["src/deep/x.ts"], { kind: "root", directoryPath: null })).toEqual([
+      { from: "src/deep/x.ts", intoDir: "", treeFrom: "src/deep/x.ts", treeTo: "x.ts" },
+    ]);
+  });
+
+  it("reads paths the service's way", () => {
+    expect(filePathOfTree("a/b/")).toBe("a/b");
+    expect(parentOf("a/b/c.ts")).toBe("a/b");
+    expect(parentOf("c.ts")).toBe("");
+  });
+});
+
+describe("what a copy says", () => {
+  it("names one file, and the new name when its own was taken", () => {
+    expect(importNotice(["/Users/me/notes.md"], ["src/notes.md"], "src")).toBe("Copied notes.md into src.");
+    expect(importNotice(["/Users/me/notes.md"], ["src/notes 2.md"], "src")).toBe(
+      "Copied notes.md into src as notes 2.md.",
+    );
+  });
+
+  it("counts what landed when it is not one per source, rather than pair the wrong names", () => {
+    expect(importNotice(["/x/site"], ["site/a.md", "site/b.md"], "docs")).toBe("Copied 2 items into docs.");
+    expect(importNotice(["/x/a.md", "/x/b.md"], ["a 2.md"], "docs")).toBe("Copied a 2.md into docs.");
+  });
+
+  it("counts many, naming a single rename", () => {
+    expect(importNotice(["/x/a.md", "/x/b.md"], ["a.md", "b.md"], "site")).toBe("Copied 2 files into site.");
+    expect(importNotice(["/x/a.md", "/x/b.md"], ["a.md", "b 2.md"], "site")).toBe(
+      "Copied 2 files into site, b.md as b 2.md.",
+    );
+    expect(importNotice(["/x/a.md", "/x/b.md", "/x/c.md"], ["a 2.md", "b 2.md", "c.md"], "site")).toBe(
+      "Copied 3 files into site, 2 under new names since theirs were taken.",
+    );
+  });
+});
+
+describe("the modal's drops", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let drop: FilesDrop;
+  let surfaceEl: HTMLElement;
+
+  const ok = <A,>(value: A): FilesResult<A> => ({ ok: true, value });
+
+  const fakePort = () => {
+    const imports: Array<{ dir: string; sources: ReadonlyArray<string> }> = [];
+    const moves: Array<{ from: string; intoDir: string }> = [];
+    const refs: unknown[] = [];
+    let refuseMove: string | undefined;
+    let landed: ((dir: string, sources: ReadonlyArray<string>) => string[]) | undefined;
+    const port: FilesDropPort = {
+      pathForDroppedFile: (file) => (file.name.startsWith("web-") ? "" : `/Users/me/Desktop/${file.name}`),
+      import: async (ref, dir, sources) => {
+        refs.push(ref);
+        imports.push({ dir, sources });
+        const paths =
+          landed?.(dir, sources) ??
+          sources.map((source) => `${dir.length > 0 ? `${dir}/` : ""}${source.slice(source.lastIndexOf("/") + 1)}`);
+        return ok(paths.map((path) => ({ path: path as FilePath, dir: false })));
+      },
+      move: async (ref, from, intoDir) => {
+        refs.push(ref);
+        moves.push({ from, intoDir });
+        return from === refuseMove ? { ok: false, error: "denied" } : ok(`${intoDir}/${from}` as FilePath);
+      },
+    };
+    return {
+      port,
+      imports,
+      moves,
+      refs,
+      refuse: (from: string) => {
+        refuseMove = from;
+      },
+      landAs: (fn: (dir: string, sources: ReadonlyArray<string>) => string[]) => {
+        landed = fn;
+      },
+    };
+  };
+
+  const tree = treeHost([
+    { path: "src/", type: "folder" },
+    { path: "src/index.ts", type: "file", parent: "src/" },
+  ]);
+
+  const mount = (port: FilesDropPort, onTreeDragEnd?: (moved: ReadonlyArray<FilesMoved>) => void) => {
+    function Modal() {
+      drop = useFilesDrop({ port, node: NODE, describe: describeErr, rootLabel: "junto", ...(onTreeDragEnd ? { onTreeDragEnd } : {}) });
+      return (
+        <section {...drop.surface} ref={(el) => void (el && (surfaceEl = el))}>
+          <div ref={(el) => void (el && !el.contains(tree.host) && el.append(tree.host))} />
+          <FilesDropHighlight drop={drop} />
+        </section>
+      );
+    }
+    act(() => root.render(<Modal />));
+  };
+
+  /** A native drag event as Chromium sends it from Finder. */
+  const drag = (type: string, on: Element, files: ReadonlyArray<File> = [], relatedTarget: EventTarget | null = null) => {
+    const event = new Event(type, { bubbles: true, cancelable: true, composed: true });
+    Object.defineProperty(event, "dataTransfer", {
+      value: { types: ["Files"], files, dropEffect: "none" },
+    });
+    Object.defineProperty(event, "relatedTarget", { value: relatedTarget });
+    act(() => {
+      on.dispatchEvent(event);
+    });
+    return event;
+  };
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.useRealTimers();
+  });
+
+  it("marks the folder row and names it while a Finder drag is over it, then copies there", async () => {
+    const main = fakePort();
+    mount(main.port);
+    const over = drag("dragover", tree.at("src/"));
+    expect(over.defaultPrevented).toBe(true);
+    expect(surfaceEl.getAttribute("data-drop")).toBe("folder");
+    expect(container.querySelector(".files-drop__row")).not.toBeNull();
+    expect(container.querySelector(".files-drop__root")).toBeNull();
+    expect(container.querySelector(".files-drop__caption")?.textContent).toBe("Copy into src");
+
+    drag("drop", tree.at("src/"), [new File(["x"], "notes.md")]);
+    await act(async () => {});
+    expect(main.imports).toEqual([{ dir: "src", sources: ["/Users/me/Desktop/notes.md"] }]);
+    expect(main.refs).toEqual([NODE]);
+    expect(surfaceEl.getAttribute("data-drop")).toBeNull();
+    expect(container.querySelector("[role=status]")?.textContent).toContain("Copied notes.md into src.");
+  });
+
+  it("marks the whole surface for a drop outside the rows, which copies into the root", async () => {
+    const main = fakePort();
+    main.landAs((_dir, sources) => sources.map((_, index) => (index === 0 ? "a 2.md" : "b.md")));
+    mount(main.port);
+    drag("dragenter", surfaceEl);
+    expect(surfaceEl.getAttribute("data-drop")).toBe("root");
+    expect(container.querySelector(".files-drop__root")).not.toBeNull();
+    expect(container.querySelector(".files-drop__row")).toBeNull();
+    expect(container.querySelector(".files-drop__caption")?.textContent).toBe("Copy into junto");
+
+    drag("drop", surfaceEl, [new File(["a"], "a.md"), new File(["b"], "b.md")]);
+    await act(async () => {});
+    expect(main.imports[0]?.dir).toBe("");
+    expect(container.querySelector("[role=status]")?.textContent).toContain(
+      "Copied 2 files into junto, a.md as a 2.md.",
+    );
+  });
+
+  it("keeps the mark while the drag crosses children, and clears it when the last one is left", () => {
+    mount(fakePort().port);
+    // Into the surface, then onto a row: an enter on the row comes before the leave of what it left.
+    drag("dragenter", surfaceEl);
+    drag("dragenter", tree.at("src/"));
+    drag("dragover", tree.at("src/"));
+    // Chromium may send dragleave with no relatedTarget; the mark must not depend on it.
+    drag("dragleave", surfaceEl, [], null);
+    expect(surfaceEl.getAttribute("data-drop")).toBe("folder");
+    // Out of the row and the surface (or Escape on the drag): the last leave.
+    drag("dragleave", tree.at("src/"), [], null);
+    expect(surfaceEl.getAttribute("data-drop")).toBeNull();
+  });
+
+  it("refuses a drag that holds no Finder file, and copies nothing", async () => {
+    const main = fakePort();
+    mount(main.port);
+    drag("drop", surfaceEl, [new File(["x"], "web-image.png")]);
+    await act(async () => {});
+    expect(main.imports).toEqual([]);
+    expect(container.querySelector("[role=alert]")?.textContent).toContain("Only files from Finder");
+  });
+
+  it("leaves a tree drag to the tree", () => {
+    mount(fakePort().port);
+    const event = new Event("dragover", { bubbles: true, cancelable: true, composed: true });
+    Object.defineProperty(event, "dataTransfer", { value: { types: ["text/plain"], files: [] } });
+    act(() => {
+      tree.at("src/").dispatchEvent(event);
+    });
+    expect(event.defaultPrevented).toBe(false);
+    expect(surfaceEl.getAttribute("data-drop")).toBeNull();
+  });
+
+  it("lets the notice go after a while", async () => {
+    vi.useFakeTimers();
+    mount(fakePort().port);
+    drag("drop", surfaceEl, [new File(["x"], "notes.md")]);
+    await act(async () => {});
+    expect(container.querySelector("[role=status]")).not.toBeNull();
+    act(() => vi.advanceTimersByTime(FILES_DROP_NOTICE_MS));
+    expect(container.querySelector("[role=status]")).toBeNull();
+  });
+
+  it("moves each dragged row on disk, and puts back the ones the service refuses", async () => {
+    const main = fakePort();
+    main.refuse("lib");
+    mount(main.port);
+    const model: FilesDropModel & { calls: Array<[string, string]> } = {
+      calls: [],
+      move(from, to) {
+        this.calls.push([from, to]);
+      },
+    };
+    drop.bindModel(model);
+    await act(async () => {
+      drop.treeDragAndDrop.onDropComplete?.({
+        draggedPaths: ["README.md", "lib/", "x.ts"],
+        operation: "batch",
+        target: { kind: "directory", directoryPath: "src/", flattenedSegmentPath: null, hoveredPath: "src/" },
+      });
+    });
+    expect(main.moves).toEqual([
+      { from: "README.md", intoDir: "src" },
+      { from: "lib", intoDir: "src" },
+    ]);
+    expect(model.calls).toEqual([
+      ["src/lib/", "lib/"],
+      ["src/x.ts", "x.ts"],
+    ]);
+    expect(container.querySelector("[role=alert]")?.textContent).toContain("Could not move lib. Not allowed.");
+  });
+
+  it("knows a tree drag from its dragstart, before the tree selects the row, until it ends", async () => {
+    mount(fakePort().port);
+    const treeDrag = (type: string) => {
+      const event = new Event(type, { bubbles: true, cancelable: true, composed: true });
+      Object.defineProperty(event, "dataTransfer", { value: { types: [], files: [] } });
+      let seen: boolean | undefined;
+      // The row's own handler runs at the target, after the surface's capture.
+      tree.at("src/index.ts").addEventListener(type, () => (seen = drop.isTreeDragging()), { once: true });
+      act(() => {
+        tree.at("src/index.ts").dispatchEvent(event);
+      });
+      return seen;
+    };
+    expect(drop.isTreeDragging()).toBe(false);
+    expect(treeDrag("dragstart")).toBe(true);
+    treeDrag("dragend");
+    expect(drop.isTreeDragging()).toBe(false);
+
+    treeDrag("dragstart");
+    await act(async () => {
+      drop.treeDragAndDrop.onDropComplete?.({
+        draggedPaths: ["src/index.ts"],
+        operation: "move",
+        target: { kind: "root", directoryPath: null, flattenedSegmentPath: null, hoveredPath: null },
+      });
+    });
+    expect(drop.isTreeDragging()).toBe(false);
+  });
+
+  it("ends a dropped tree drag once the service has answered, with the moves it applied and not the refused ones", async () => {
+    const main = fakePort();
+    main.refuse("lib");
+    const ended = vi.fn<(moved: ReadonlyArray<FilesMoved>) => void>();
+    mount(main.port, ended);
+    const treeDrag = (type: string) => {
+      const event = new Event(type, { bubbles: true, cancelable: true, composed: true });
+      Object.defineProperty(event, "dataTransfer", { value: { types: [], files: [] } });
+      act(() => {
+        tree.at("src/index.ts").dispatchEvent(event);
+      });
+    };
+    treeDrag("dragstart");
+    await act(async () => {
+      drop.treeDragAndDrop.onDropComplete?.({
+        draggedPaths: ["README.md", "lib/", "x.ts"],
+        operation: "batch",
+        target: { kind: "directory", directoryPath: "src/", flattenedSegmentPath: null, hoveredPath: "src/" },
+      });
+    });
+    expect(ended.mock.calls).toEqual([[[{ from: "README.md", to: "src/README.md" }]]]);
+    treeDrag("dragend");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(ended).toHaveBeenCalledTimes(1);
+  });
+
+  it("says a tree drag ended once, after the tree's own handlers, whether the drop or the dragend comes first", async () => {
+    vi.useFakeTimers();
+    try {
+      const ended = vi.fn();
+      mount(fakePort().port, ended);
+      const treeDrag = (type: string) => {
+        const event = new Event(type, { bubbles: true, cancelable: true, composed: true });
+        Object.defineProperty(event, "dataTransfer", { value: { types: [], files: [] } });
+        act(() => {
+          tree.at("src/index.ts").dispatchEvent(event);
+        });
+      };
+      treeDrag("dragstart");
+      treeDrag("dragend");
+      expect(ended).not.toHaveBeenCalled();
+      act(() => void vi.runAllTimers());
+      expect(ended.mock.calls).toEqual([[[]]]);
+
+      treeDrag("dragstart");
+      act(() => drop.treeDragAndDrop.onDropError?.("destination-collision", {} as never));
+      treeDrag("dragend");
+      act(() => void vi.runAllTimers());
+      expect(ended).toHaveBeenCalledTimes(2);
+
+      treeDrag("dragend");
+      act(() => void vi.runAllTimers());
+      expect(ended).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a Finder drag is not a tree drag", () => {
+    mount(fakePort().port);
+    drag("dragstart", surfaceEl);
+    expect(drop.isTreeDragging()).toBe(false);
+  });
+
+  it("says why when the tree refuses a move onto a taken name", () => {
+    mount(fakePort().port);
+    act(() =>
+      drop.treeDragAndDrop.onDropError?.("collision", {
+        draggedPaths: ["a.ts"],
+        target: { kind: "root", directoryPath: null, flattenedSegmentPath: null, hoveredPath: null },
+      }),
+    );
+    expect(container.querySelector("[role=alert]")?.textContent).toContain("Nothing moved.");
+  });
+});

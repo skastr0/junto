@@ -1,0 +1,107 @@
+{
+  "id": "reference-signals",
+  "title": "Signal commands",
+  "questions": [
+    {
+      "id": "blocked",
+      "concepts": [
+        "signals"
+      ],
+      "reader": "agent",
+      "prompt": "Which signal means the seat stops and waits for the operator's answer?",
+      "choices": [
+        {
+          "id": "escalate",
+          "text": "escalate",
+          "why": "escalate asks for attention while the seat keeps working."
+        },
+        {
+          "id": "blocked",
+          "text": "blocked",
+          "correct": true,
+          "why": "blocked says the work is entirely blocked: stop and wait for the answer."
+        },
+        {
+          "id": "feedback",
+          "text": "feedback",
+          "why": "feedback says work is ready to review; the seat is not blocked."
+        },
+        {
+          "id": "preamble",
+          "text": "preamble",
+          "why": "A preamble is a thought bubble, not a signal."
+        }
+      ],
+      "receipts": [
+        "src/cli/commands/signals.ts:151@951f99eac",
+        "src/cli/commands/signals.ts:156@951f99eac"
+      ]
+    },
+    {
+      "id": "suggest",
+      "concepts": [
+        "signals",
+        "quick-replies"
+      ],
+      "reader": "agent",
+      "prompt": "How many one-click replies can a signal suggest with --suggest?",
+      "choices": [
+        {
+          "id": "one",
+          "text": "One",
+          "why": "Up to two are allowed."
+        },
+        {
+          "id": "two",
+          "text": "Two",
+          "correct": true,
+          "why": "At most two suggestions, shown ahead of the operator's quick replies."
+        },
+        {
+          "id": "five",
+          "text": "Five",
+          "why": "The limit is two."
+        },
+        {
+          "id": "any",
+          "text": "Any number",
+          "why": "The limit is two."
+        }
+      ],
+      "receipts": [
+        "src/cli/commands/signals.ts:47@951f99eac"
+      ]
+    },
+    {
+      "id": "no-line",
+      "concepts": [
+        "signals",
+        "lines"
+      ],
+      "reader": "agent",
+      "prompt": "Does a seat need a line to raise a signal?",
+      "choices": [
+        {
+          "id": "messages",
+          "text": "Yes, a messages line to the operator",
+          "why": "Lines join seats to seats; signals go to the operator with no line."
+        },
+        {
+          "id": "no",
+          "text": "No: any seat raises its own signals",
+          "correct": true,
+          "why": "Signals are seat-local: no edge and no port, and they stay open even on a paused canvas."
+        },
+        {
+          "id": "blocked-only",
+          "text": "Only for blocked",
+          "why": "Every signal kind is raised the same way."
+        }
+      ],
+      "receipts": [
+        "src/shared/physics/work-ports.ts:9-16@951f99eac",
+        "src/main/junto/work/control.ts:199-200@951f99eac"
+      ]
+    }
+  ]
+}

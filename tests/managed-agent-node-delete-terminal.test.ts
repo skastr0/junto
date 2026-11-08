@@ -1,0 +1,252 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { THIS_MACHINE } from "./support/machines";
+import type { Node, NodeOf } from "../src/shared/model";
+import { quiesceAndFlushCanvasEdits } from "../src/window/lib/canvas-editor-flush";
+import {
+  canvasMutationsQuiesced,
+  deleteNode,
+  deleteNodes,
+} from "../src/window/lib/mutations";
+import { seat } from "./support/model-nodes";
+import { held, openCanvas } from "./support/open-canvas";
+import { state$ } from "../src/window/lib/state";
+
+const confirmDelete = vi.fn(() => true);
+type TerminalDeleteResource = { readonly bindingId: string; readonly hostId?: string };
+const cleanTerminalDelete = (resources: ReadonlyArray<TerminalDeleteResource>) => ({
+  ok: true as const,
+  leaseId: "terminal-delete-lease",
+  closeResults: resources.map((resource) => ({
+    bindingId: resource.bindingId,
+    hostId: resource.hostId ?? THIS_MACHINE,
+    clean: true as const,
+  })),
+});
+const terminalBeginNodeDelete = vi.fn(
+  async (resources: ReadonlyArray<TerminalDeleteResource>) =>
+    cleanTerminalDelete(resources),
+);
+const terminalFinishNodeDelete = vi.fn(
+  async () => ({ ok: true as const }),
+);
+const modelCommand = vi.fn(async () => ({ seq: 1 }));
+const runtimeWindow = {
+  junto: {
+    modelCommand,
+    terminalBeginNodeDelete,
+    terminalFinishNodeDelete,
+  },
+  setTimeout: globalThis.setTimeout.bind(globalThis),
+  clearTimeout: globalThis.clearTimeout.bind(globalThis),
+  confirm: confirmDelete,
+};
+(globalThis as unknown as { window: typeof runtimeWindow }).window = runtimeWindow;
+
+const managedAgent = ({
+  id,
+  bindingId,
+  agentKey = `${THIS_MACHINE}:shared`,
+  hostId,
+}: {
+  readonly id: string;
+  readonly bindingId: string;
+  readonly agentKey?: string;
+  readonly hostId?: string;
+}): NodeOf<"agent"> =>
+  seat(id, {
+    agentKey,
+    bindingId: bindingId as NodeOf<"agent">["bindingId"],
+    width: 220,
+    height: 84,
+    ...(hostId === undefined ? {} : { host: hostId }),
+  });
+
+const open = (...nodes: ReadonlyArray<Node>): void => {
+  openCanvas("managed-agent-delete", nodes);
+};
+
+/** The nodes the open canvas holds. */
+const nodesHeld = (): ReadonlyArray<Node> => [...held().nodes.values()];
+
+describe.sequential("managed agent node terminal teardown", () => {
+  beforeEach(() => {
+    state$.error.set("");
+    confirmDelete.mockReset();
+    confirmDelete.mockReturnValue(true);
+    terminalBeginNodeDelete.mockReset();
+    terminalBeginNodeDelete.mockImplementation(async (resources) =>
+      cleanTerminalDelete(resources)
+    );
+    terminalFinishNodeDelete.mockReset();
+    terminalFinishNodeDelete.mockResolvedValue({ ok: true });
+    modelCommand.mockReset();
+    modelCommand.mockResolvedValue({ seq: 1 });
+  });
+
+  it("awaits the exact terminal stop after confirmation and before document commit", async () => {
+    const node = managedAgent({
+      id: "seat-a",
+      bindingId: "binding-a",
+      hostId: "studio",
+    });
+    open(node);
+    let finishTerminalDelete!: () => void;
+    terminalBeginNodeDelete.mockImplementationOnce(
+      (resources) => new Promise((resolve) => {
+        finishTerminalDelete = () => resolve(cleanTerminalDelete(resources));
+      }),
+    );
+
+    deleteNode("seat-a");
+
+    await vi.waitFor(() => {
+      expect(terminalBeginNodeDelete).toHaveBeenCalledWith([
+        { bindingId: "binding-a", hostId: "studio" },
+      ]);
+    });
+    expect(nodesHeld()).toEqual([node]);
+    expect(confirmDelete.mock.invocationCallOrder[0]).toBeLessThan(
+      terminalBeginNodeDelete.mock.invocationCallOrder[0]!,
+    );
+
+    finishTerminalDelete();
+    await vi.waitFor(() => expect(nodesHeld()).toEqual([]));
+    expect(terminalFinishNodeDelete).toHaveBeenCalledWith(
+      "terminal-delete-lease",
+      "committed",
+    );
+  });
+
+  it("fails closed when privileged terminal teardown rejects", async () => {
+    const node = managedAgent({ id: "seat-a", bindingId: "binding-a" });
+    open(node);
+    terminalBeginNodeDelete.mockRejectedValueOnce(
+      new Error("terminal IPC rejected"),
+    );
+
+    deleteNode("seat-a");
+
+    await vi.waitFor(() => expect(state$.error.peek()).toBe(
+      "Junto could not stop the managed terminal cleanly; the agent node was not deleted.",
+    ));
+    expect(nodesHeld()).toEqual([node]);
+  });
+
+  it("keys teardown by binding, not a shared agent key", async () => {
+    const seatA = managedAgent({
+      id: "seat-a",
+      bindingId: "binding-a",
+      agentKey: `${THIS_MACHINE}:duplicate`,
+      hostId: "station-a",
+    });
+    const seatB = managedAgent({
+      id: "seat-b",
+      bindingId: "binding-b",
+      agentKey: `${THIS_MACHINE}:duplicate`,
+      hostId: "station-b",
+    });
+    open(seatA, seatB);
+
+    deleteNode("seat-a");
+
+    await vi.waitFor(() => {
+      expect(nodesHeld().map((node) => node.id)).toEqual(["seat-b"]);
+    });
+    expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(1);
+    expect(terminalBeginNodeDelete).toHaveBeenCalledWith([
+      { bindingId: "binding-a", hostId: "station-a" },
+    ]);
+  });
+
+  it("deduplicates duplicate references to the same exact binding", async () => {
+    const seatA = managedAgent({
+      id: "seat-a",
+      bindingId: "binding-shared",
+      agentKey: `${THIS_MACHINE}:a`,
+      hostId: "studio",
+    });
+    const seatAlias = managedAgent({
+      id: "seat-alias",
+      bindingId: "binding-shared",
+      agentKey: `${THIS_MACHINE}:alias`,
+      hostId: "studio",
+    });
+    open(seatA, seatAlias);
+
+    deleteNodes(["seat-a", "seat-alias"]);
+
+    await vi.waitFor(() => expect(nodesHeld()).toEqual([]));
+    expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(1);
+    expect(terminalBeginNodeDelete).toHaveBeenCalledWith([
+      { bindingId: "binding-shared", hostId: "studio" },
+    ]);
+  });
+
+  it("accepts an exact clean receipt for a never-opened managed terminal", async () => {
+    const node = managedAgent({ id: "never-opened", bindingId: "binding-cold" });
+    open(node);
+
+    deleteNode("never-opened");
+
+    await vi.waitFor(() => expect(nodesHeld()).toEqual([]));
+    expect(terminalBeginNodeDelete).toHaveBeenCalledWith([
+      { bindingId: "binding-cold", hostId: THIS_MACHINE },
+    ]);
+    expect(state$.error.peek()).toBe("");
+  });
+
+  it("refuses a late commit when the canvas epoch changes during terminal stop", async () => {
+    const node = managedAgent({ id: "seat-a", bindingId: "binding-a" });
+    open(node);
+    let finishTerminalDelete!: () => void;
+    terminalBeginNodeDelete.mockImplementationOnce(
+      (resources) => new Promise((resolve) => {
+        finishTerminalDelete = () => resolve(cleanTerminalDelete(resources));
+      }),
+    );
+
+    deleteNode("seat-a");
+    await vi.waitFor(() => expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(1));
+    const replacement = managedAgent({
+      id: "replacement",
+      bindingId: "replacement-binding",
+      agentKey: `${THIS_MACHINE}:replacement`,
+    });
+    open(replacement);
+    finishTerminalDelete();
+
+    await vi.waitFor(() => expect(state$.error.peek()).toBe(
+      "Canvas changed before deletion completed; no nodes were deleted.",
+    ));
+    expect(nodesHeld()).toEqual([replacement]);
+  });
+
+  // Quiescence is a monotonic process latch, so this proof must remain last.
+  it("drains an admitted stop but rejects its commit after quiescence", async () => {
+    const node = managedAgent({ id: "seat-a", bindingId: "binding-a" });
+    open(node);
+    let finishTerminalDelete!: () => void;
+    terminalBeginNodeDelete.mockImplementationOnce(
+      (resources) => new Promise((resolve) => {
+        finishTerminalDelete = () => resolve(cleanTerminalDelete(resources));
+      }),
+    );
+
+    deleteNode("seat-a");
+    await vi.waitFor(() => expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(1));
+
+    let acknowledged = false;
+    const quiescence = quiesceAndFlushCanvasEdits().then(() => {
+      acknowledged = true;
+    });
+    expect(canvasMutationsQuiesced()).toBe(true);
+    await Promise.resolve();
+    expect(acknowledged).toBe(false);
+
+    finishTerminalDelete();
+    await quiescence;
+
+    expect(nodesHeld()).toEqual([node]);
+    expect(modelCommand).not.toHaveBeenCalled();
+  });
+});

@@ -1,0 +1,120 @@
+/* The pad's selection strip: status, fill, stroke and text of the selected
+   shape, or an edge's label. It floats at the top of the stage while
+   something is selected, so the drawing never moves, and wraps on a narrow
+   pane instead of scrolling. */
+.pad-selbar {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 3;
+  display: flex;
+  max-width: calc(100% - 16px);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  background: var(--color-raise-2);
+  box-shadow: 0 10px 24px var(--color-shadow-2);
+  padding: 4px 8px;
+}
+
+.pad-selbar__kind {
+  margin-right: 4px;
+  color: var(--color-dim);
+  font-size: var(--text-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.pad-selbar__group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pad-selbar__label {
+  margin-right: 4px;
+  color: var(--color-faint);
+  font-size: var(--text-label);
+}
+
+.pad-selbar__sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--color-stroke);
+}
+
+.pad-selbar__text {
+  gap: 4px;
+  padding: 0 8px;
+  font-size: var(--text-body);
+}
+
+.pad-swatch {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-dim);
+  cursor: pointer;
+}
+
+.pad-swatch:hover {
+  background: var(--color-overlay-2);
+  color: var(--color-ink);
+}
+
+.pad-swatch:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 1px;
+}
+
+.pad-swatch[aria-pressed="true"] {
+  border-color: var(--color-amber);
+  color: var(--color-amber-fg);
+}
+
+.pad-swatch__dot {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--swatch);
+  border-radius: var(--radius-pill);
+  background: var(--swatch);
+}
+
+.pad-swatch__dot[data-hollow="true"] {
+  border-color: var(--color-steel);
+  background: transparent;
+}
+
+/* A fill swatch is translucent: draw it on a square with its stroke at
+   full strength, so the five read apart on both grounds. */
+.pad-swatch__dot[data-field="fill"] {
+  border-color: var(--swatch-edge);
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px var(--color-stroke);
+}
+
+.pad-swatch__dot[data-field="stroke"] {
+  background: transparent;
+}
+
+/* The toolbar fits any artifact pane: the key hint repeats the tools'
+   titles, so it goes first, then the groups wrap onto a second row. */
+.pad-toolbar {
+  flex-wrap: wrap;
+  row-gap: 4px;
+  container: pad-toolbar / inline-size;
+}
+
+/* Two classes: pad-editor.css loads later and sets the hint's display. */
+@container pad-toolbar (max-width: 1000px) {
+  .pad-toolbar .pad-toolbar__hint {
+    display: none;
+  }
+}

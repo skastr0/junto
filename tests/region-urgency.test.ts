@@ -1,0 +1,110 @@
+import { describe, expect, it } from "vitest";
+import {
+  nodeUrgency$,
+  publishNodeUrgency,
+  regionUrgencies,
+  seatUrgency$,
+  seatUrgencyOfRing,
+  worseUrgency,
+  type Urgency,
+} from "../src/window/lib/region-urgency";
+import { RegionUrgency } from "../src/shared/wire/urgency";
+
+const { blocked, review } = RegionUrgency.group;
+const needsYou = RegionUrgency.group["needs-you"];
+
+describe("seatUrgencyOfRing", () => {
+  it("reads what the ring draws: halt and a declared blocker are blocked", () => {
+    expect(seatUrgencyOfRing({ glyph: "halt" })).toBe("blocked");
+    expect(seatUrgencyOfRing({ glyph: "work", signal: "blocked" })).toBe("blocked");
+  });
+
+  it("needs you for a dialog, a request, or a fresh waiting reading", () => {
+    expect(seatUrgencyOfRing({ glyph: "call" })).toBe("needs-you");
+    expect(seatUrgencyOfRing({ glyph: "work", signal: "escalate" })).toBe("needs-you");
+    expect(seatUrgencyOfRing({ glyph: "rest", health: "waiting" })).toBe("needs-you");
+    expect(seatUrgencyOfRing({ glyph: "rest", health: "waiting", healthStale: true })).toBeUndefined();
+  });
+
+  it("is review for a declared review request, and quiet otherwise", () => {
+    expect(seatUrgencyOfRing({ glyph: "done", signal: "feedback" })).toBe("review");
+    expect(seatUrgencyOfRing({ glyph: "work" })).toBeUndefined();
+    expect(seatUrgencyOfRing({ glyph: "done", health: "trouble" })).toBeUndefined();
+  });
+
+  it("ranks blocked over needs you over review", () => {
+    expect(worseUrgency(review, needsYou)).toBe(needsYou);
+    expect(worseUrgency(blocked, needsYou)).toBe(blocked);
+    expect(worseUrgency(undefined, review)).toBe(review);
+  });
+});
+
+describe("regionUrgencies", () => {
+  // outer > mid > inner; side sits beside mid in outer.
+  const parent: Record<string, string> = { mid: "outer", inner: "mid", side: "outer" };
+  const home: Record<string, string> = { a: "inner", b: "side", c: "" };
+  const run = (seats: { id: string; urgency: Urgency }[]) =>
+    regionUrgencies(seats, (id) => home[id], (id) => parent[id]);
+
+  it("marks the seat's region direct and every region around it held", () => {
+    const out = run([{ id: "a", urgency: blocked }]);
+    expect(out.get("inner")).toEqual({ urgency: "blocked", reach: "direct" });
+    expect(out.get("mid")).toEqual({ urgency: "blocked", reach: "held" });
+    expect(out.get("outer")).toEqual({ urgency: "blocked", reach: "held" });
+    expect(out.has("side")).toBe(false);
+  });
+
+  it("lets a region's own seats speak for it, and holds the worst below only when it has none", () => {
+    const out = regionUrgencies(
+      [
+        { id: "a", urgency: blocked },
+        { id: "b", urgency: review },
+        { id: "d", urgency: review },
+      ],
+      (id) => ({ a: "inner", b: "side", d: "mid" })[id],
+      (id) => parent[id],
+    );
+    expect(out.get("side")).toEqual({ urgency: "review", reach: "direct" });
+    expect(out.get("mid")).toEqual({ urgency: "review", reach: "direct" });
+    expect(out.get("outer")).toEqual({ urgency: "blocked", reach: "held" });
+  });
+
+  it("ignores seats in no region", () => {
+    expect(run([{ id: "c", urgency: needsYou }]).size).toBe(0);
+  });
+});
+
+describe("publishNodeUrgency", () => {
+  it("keeps a card's state in its own feed, apart from the seats'", () => {
+    publishNodeUrgency("tasks", needsYou);
+    expect(nodeUrgency$.tasks.peek()).toBe("needs-you");
+    expect(seatUrgency$.tasks.peek()).toBeUndefined();
+    publishNodeUrgency("tasks", undefined);
+    expect("tasks" in nodeUrgency$.peek()).toBe(false);
+  });
+
+  it("writes only on change", () => {
+    let writes = 0;
+    const off = nodeUrgency$.onChange(() => {
+      writes += 1;
+    });
+    publishNodeUrgency("auto", blocked);
+    publishNodeUrgency("auto", blocked);
+    publishNodeUrgency("auto", undefined);
+    publishNodeUrgency("auto", undefined);
+    off();
+    expect(writes).toBe(2);
+  });
+
+  it("lets a card lean its region with a seat, the worst one showing", () => {
+    const out = regionUrgencies(
+      [
+        { id: "seat", urgency: needsYou },
+        { id: "card", urgency: blocked },
+      ],
+      (id) => ({ seat: "inner", card: "inner" })[id],
+      () => undefined,
+    );
+    expect(out.get("inner")).toEqual({ urgency: "blocked", reach: "direct" });
+  });
+});

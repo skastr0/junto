@@ -1,0 +1,182 @@
+{
+  "op": "seat.wait",
+  "payload": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "any": {
+          "type": "boolean"
+        },
+        "until": {
+          "type": "string",
+          "enum": [
+            "idle",
+            "attention",
+            "working",
+            "gone",
+            "replied"
+          ]
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 600000
+        },
+        "after": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        }
+      },
+      "required": [
+        "until"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  },
+  "success": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "idle",
+            "working",
+            "attention",
+            "unknown",
+            "gone"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "high",
+            "low"
+          ]
+        },
+        "generation": {
+          "type": "string"
+        },
+        "epoch": {
+          "type": "string"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "Infinity",
+                "-Infinity",
+                "NaN"
+              ]
+            }
+          ]
+        },
+        "reply": {
+          "type": "object",
+          "properties": {
+            "messageId": {
+              "type": "string"
+            },
+            "threadId": {
+              "type": "string"
+            },
+            "direction": {
+              "type": "string",
+              "enum": [
+                "sent",
+                "received"
+              ]
+            },
+            "kind": {
+              "type": "string"
+            },
+            "sentAt": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            },
+            "deliveredAt": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            },
+            "readAt": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            },
+            "gist": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "messageId",
+            "threadId",
+            "direction",
+            "kind",
+            "gist"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "target",
+        "state",
+        "reason",
+        "confidence",
+        "generation",
+        "epoch",
+        "at"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}
