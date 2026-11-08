@@ -135,9 +135,17 @@ describe("aggregateLocalRows + buildLocalQuota — derived local tier", () => {
 
 describe("resolveGoApiKey — credential resolution", () => {
   it("prefers OPENCODE_API_KEY and strips wrapping quotes", () => {
-    expect(resolveGoApiKey({ OPENCODE_API_KEY: '  "oc_key_quoted_value_x"  ' })).toBe("oc_key_quoted_value_x");
-    expect(resolveGoApiKey({ OPENCODE_API_KEY: "oc_plain_value_123456" })).toBe("oc_plain_value_123456");
-    expect(resolveGoApiKey({ OPENCODE_API_KEY: "" })).toBeUndefined();
+    // An empty opencode home, never the machine's: an empty variable falls back
+    // to auth.json, and on a machine signed in to opencode the real key would
+    // be read and printed in this test's failure message.
+    const emptyHome = fs.mkdtempSync(path.join(os.tmpdir(), "junto-opencode-home-"));
+    try {
+      expect(resolveGoApiKey({ OPENCODE_API_KEY: '  "oc_key_quoted_value_x"  ' }, emptyHome)).toBe("oc_key_quoted_value_x");
+      expect(resolveGoApiKey({ OPENCODE_API_KEY: "oc_plain_value_123456" }, emptyHome)).toBe("oc_plain_value_123456");
+      expect(resolveGoApiKey({ OPENCODE_API_KEY: "" }, emptyHome)).toBeUndefined();
+    } finally {
+      fs.rmSync(emptyHome, { recursive: true, force: true });
+    }
   });
 
   it("reads the opencode CLI auth.json entry when env is absent", async () => {
