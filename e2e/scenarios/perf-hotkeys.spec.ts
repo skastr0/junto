@@ -66,7 +66,16 @@ layout.nodes.forEach((item, i) => {
   }
 });
 
-const agentIds = boardNodes.filter((n) => n.kind === "agent").map((n) => n.id);
+const allAgentIds = boardNodes.filter((n) => n.kind === "agent").map((n) => n.id);
+// PERF_HALF_SEATS=1 keeps every second seat, for layer-count A/B arms.
+const agentIds =
+  process.env.PERF_HALF_SEATS === "1"
+    ? allAgentIds.filter((_, i) => i % 2 === 0)
+    : allAgentIds;
+const keptNodeIds = new Set([
+  ...boardNodes.filter((n) => n.kind !== "agent").map((n) => n.id),
+  ...agentIds,
+]);
 
 // Real-kind nodes the surface chords act on, parked past the board's edge.
 const edgeX = Math.max(...boardNodes.map((n) => n.x + n.width)) + 200;
@@ -79,6 +88,7 @@ const boardWires: ModelWire[] = layout.wires.flatMap(([from, to], i) => {
   const b = boardNodes[to]!;
   const pair = `${a.id}>${b.id}`;
   if (a.id === b.id || a.kind !== "agent" || b.kind !== "agent" || pairs.has(pair)) return [];
+  if (!keptNodeIds.has(a.id) || !keptNodeIds.has(b.id)) return [];
   pairs.add(pair);
   return [modelWire(`ly-wire-${String(i).padStart(3, "0")}`, a.id, b.id, "messages", boardNodes)];
 });
@@ -98,7 +108,11 @@ const extraWires: ModelWire[] = [
 ].filter((wire): wire is ModelWire => wire !== null);
 
 const fixture = modelFixture(
-  [...boardNodes.filter((n) => n.kind === "region"), ...boardNodes.filter((n) => n.kind !== "region"), ...extraNodes],
+  [
+    ...boardNodes.filter((n) => n.kind === "region" && keptNodeIds.has(n.id)),
+    ...boardNodes.filter((n) => n.kind !== "region" && keptNodeIds.has(n.id)),
+    ...extraNodes,
+  ],
   [...boardWires, ...extraWires],
 );
 
@@ -737,6 +751,106 @@ test("hotkey performance probe", async () => {
       await page.locator(".focus-switcher").screenshot({ path: join(dir, "hud-sweep.png") });
       await page.keyboard.up("Meta");
       await sleep(400);
+      return;
+    }
+
+    // Layer census + paint cost per board state, all from the timeline
+    // trace: cc layer counts ride PushLayerPropertiesTo args, raster work
+    // rides RasterTask, and every style/layout invalidation names its
+    // element — grouped here by node and reason. One 3 s trace at rest,
+    // one with the staged seat streaming. PERF_HOTKEYS_BOARD=1,
+    // PERF_HALF_SEATS=1 halves the seats.
+    if (process.env.PERF_HOTKEYS_BOARD === "1") {
+      const cdp = await page.context().newCDPSession(page);
+      type AnyRec = Record<string, any>;
+
+      const tracePass = async (ms: number): Promise<AnyRec[]> => {
+        const chunks: AnyRec[] = [];
+        const onData = (e: AnyRec) => chunks.push(...((e.value as AnyRec[]) ?? []));
+        cdp.on("Tracing.dataCollected", onData);
+        const done = new Promise<void>((resolve) => cdp.once("Tracing.tracingComplete", () => resolve()));
+        await cdp.send("Tracing.start", {
+          categories: "toplevel,devtools.timeline,disabled-by-default-devtools.timeline.invalidationTracking,blink,cc",
+          transferMode: "ReportEvents",
+        });
+        await page.evaluate(() => 0);
+        await sleep(ms);
+        await cdp.send("Tracing.end");
+        await done;
+        cdp.off("Tracing.dataCollected", onData);
+        return chunks;
+      };
+
+      const summarize = (events: AnyRec[]): AnyRec => {
+        const named = (name: string) => events.filter((e) => e.name === name && typeof e.dur === "number");
+        const durs = (name: string) => named(name).map((e) => e.dur / 1000).sort((a, b) => a - b);
+        const q = (a: number[], p: number) => (a.length ? a[Math.min(a.length - 1, Math.floor(a.length * p))] : 0);
+        const pac = durs("PaintArtifactCompositor::Update");
+        const bmf = durs("ProxyMain::BeginMainFrame");
+        const layerCounts = events
+          .filter((e) => e.name === "TreeSynchronizer::PushLayerPropertiesTo.Active")
+          .map((e) => (e.args as AnyRec)?.layer_count)
+          .filter((n): n is number => typeof n === "number");
+        const totalLayers = events
+          .filter((e) => e.name === "LayerTreeImpl::InvalidateRegionForImages")
+          .map((e) => (e.args as AnyRec)?.total_layer_count)
+          .filter((n): n is number => typeof n === "number");
+        const rasterLayers = new Set(
+          events.filter((e) => e.name === "RasterTask").map((e) => ((e.args as AnyRec)?.tileData as AnyRec)?.layerId),
+        );
+        const invalidations = new Map<string, number>();
+        for (const e of events) {
+          if (!String(e.name).includes("InvalidationTracking")) continue;
+          const a = ((e.args as AnyRec)?.data ?? e.args ?? {}) as AnyRec;
+          const list = (a.invalidationList as AnyRec[] | undefined) ?? [a];
+          for (const it of list) {
+            const nn = String(it.nodeName ?? "?");
+            const cls = Array.isArray(it.classes) ? it.classes.join(" ") : String(it.classes ?? it.className ?? "");
+            const key = `${nn} ${cls} | ${it.reason ?? "?"}`.trim();
+            invalidations.set(key, (invalidations.get(key) ?? 0) + 1);
+          }
+        }
+        return {
+          pac: { n: pac.length, p50: q(pac, 0.5), p95: q(pac, 0.95), max: pac[pac.length - 1] ?? 0, total: pac.reduce((x, y) => x + y, 0) },
+          bmf: { n: bmf.length, p50: q(bmf, 0.5), p95: q(bmf, 0.95), max: bmf[bmf.length - 1] ?? 0 },
+          paintOps: durs("Paint").length,
+          rasterTasks: events.filter((e) => e.name === "RasterTask").length,
+          rasterLayers: rasterLayers.size,
+          layerCountPushed: { n: layerCounts.length, max: Math.max(0, ...layerCounts), last: layerCounts[layerCounts.length - 1] ?? 0 },
+          totalLayerCount: totalLayers[0] ?? 0,
+          invalidationsTop: [...invalidations.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25),
+        };
+      };
+
+      // Rest: close whatever the staging chord opened, then census + trace.
+      await page.keyboard.press("Escape");
+      await sleep(900);
+      const restTrace = await tracePass(3_000);
+      const rest = summarize(restTrace);
+
+      // Streaming: reopen the staged seat's surface and let the fake crew play.
+      await page.keyboard.press("Meta+K");
+      await visible(page, "[data-testid='command-bar-input']");
+      await page.keyboard.type(staged, { delay: 20 });
+      await sleep(700);
+      await page.keyboard.press("Meta+Enter");
+      await sleep(2_000);
+      const streamTrace = await tracePass(3_000);
+      const streaming = summarize(streamTrace);
+
+      mkdirSync(dirname(OUT), { recursive: true });
+      writeFileSync(
+        OUT,
+        JSON.stringify(
+          {
+            board: { agents: agentIds.length, half: process.env.PERF_HALF_SEATS === "1" },
+            rest,
+            streaming,
+          },
+          null,
+          2,
+        ),
+      );
       return;
     }
 
