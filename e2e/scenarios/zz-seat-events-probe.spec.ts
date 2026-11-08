@@ -159,19 +159,32 @@ test("seat-event probe: what live seats reporting cost the window", async () => 
       });
       const LIMIT: SeatSignal = { _tag: "UsageLimitHit", scope: "weekly", message: "probe limit" };
       const TURN: SeatSignal = { _tag: "TurnStarted" };
-      const cardIds = async (): Promise<Set<string>> =>
-        new Set(await page.locator('[data-testid="operator-feed-card"]').evaluateAll((els) =>
+      const rowSets = async (): Promise<{ attention: Set<string>; stopped: Set<string>; all: Set<string> }> => {
+        const all = new Set(await page.locator('[data-testid="operator-feed-card"]').evaluateAll((els) =>
           els.map((el) => el.getAttribute("data-item-id") ?? ""),
         ));
+        return {
+          all,
+          attention: new Set([...all].filter((id) => id.startsWith("attention:"))),
+          stopped: new Set([...all].filter((id) => id.startsWith("stopped:"))),
+        };
+      };
       const assertRows = async (step: number): Promise<void> => {
-        const ids = await cardIds();
-        const wantAttention = new Set([...attention].map((b) => `attention:${nodeOf.get(b)}`));
-        const wantStopped = new Set([...stopped].map((b) => `stopped:${nodeOf.get(b)}`));
-        const gotAttention = new Set([...ids].filter((id) => id.startsWith("attention:")));
-        const gotStopped = new Set([...ids].filter((id) => id.startsWith("stopped:")));
-        const missing = [...wantAttention, ...wantStopped].filter((id) => !ids.has(id));
-        const extra = [...gotAttention, ...gotStopped].filter((id) => !wantAttention.has(id) && !wantStopped.has(id));
-        console.log(`FEEDCHECK step=${step} cards=${ids.size} attention=${gotAttention.size}/${wantAttention.size} stopped=${gotStopped.size}/${wantStopped.size} missing=${missing.length} extra=${extra.length}`);
+        // The feed re-renders a beat behind the wire; poll to convergence so
+        // a slow frame is not read as a dropped row, then hold the verdict.
+        let last = { attention: new Set<string>(), stopped: new Set<string>(), all: new Set<string>() };
+        let missing: string[] = [];
+        let extra: string[] = [];
+        for (let attempt = 0; attempt < 25; attempt++) {
+          last = await rowSets();
+          const wantAttention = new Set([...attention].map((b) => `attention:${nodeOf.get(b)}`));
+          const wantStopped = new Set([...stopped].map((b) => `stopped:${nodeOf.get(b)}`));
+          missing = [...wantAttention, ...wantStopped].filter((id) => !last.all.has(id));
+          extra = [...last.attention, ...last.stopped].filter((id) => !wantAttention.has(id) && !wantStopped.has(id));
+          if (missing.length === 0 && extra.length === 0) break;
+          await page.waitForTimeout(100);
+        }
+        console.log(`FEEDCHECK step=${step} cards=${last.all.size} attention=${last.attention.size} stopped=${last.stopped.size} missing=${missing.length} extra=${extra.length}`);
         expect(missing, `feed missed rows at step ${step}: ${missing.join(",")}`).toEqual([]);
         expect(extra, `feed grew rows nobody asked for at step ${step}: ${extra.join(",")}`).toEqual([]);
       };
@@ -189,7 +202,9 @@ test("seat-event probe: what live seats reporting cost the window", async () => 
           stopped.delete(b);
           await send(app, [machine.force(b, "attention", "probe:ask", "high")]);
         } else if (mode === 1) {
-          attention.delete(b);
+          // A hard stop projects the seat to attention as well: the feed
+          // carries both its ask row and its stopped row until recovery.
+          attention.add(b);
           stopped.add(b);
           await send(app, [machine.force(b, "working", "probe:limit", "high", fact(LIMIT))]);
         } else if (mode === 2) {
