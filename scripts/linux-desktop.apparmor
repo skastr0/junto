@@ -1,6 +1,0 @@
-abi <abi/4.0>,
-include <tunables/global>
-
-profile junto @{HOME}/.local/opt/junto-alpha/*/junto flags=(unconfined) {
-  userns,
-}
