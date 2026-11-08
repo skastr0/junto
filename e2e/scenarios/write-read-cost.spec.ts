@@ -1,8 +1,9 @@
 /**
  * Write read cost, a gate: what the window reads after one artifact write
  * must not grow with the board. The same edits run on a board of SMALL and
- * of LARGE Artifacts nodes, every card mounted, with Quick capture closed
- * and then open, and every call the window makes to main is metered at
+ * of LARGE Artifacts nodes, every card mounted, with Quick capture closed,
+ * then open, then open with an Inbox chosen (its editor mounted, with the
+ * `[[` links in reach it reads), and every call the window makes to main is metered at
  * Electron's invoke table: how many, and the JSON bytes they return. If a write re-reads
  * every node (the shape behind 4c919860d, 656ed5ff7, 6006c5ea5 and about a
  * dozen fixes before them), the large board reads LARGE/SMALL times as much,
@@ -176,7 +177,7 @@ const edit = async (page: Page, docs: ReadonlyArray<Doc>, versions: Map<string, 
   }
 };
 
-type Run = { readonly closed: Meter; readonly capture: Meter };
+type Run = { readonly closed: Meter; readonly capture: Meter; readonly inbox: Meter };
 
 const measure = async (count: number): Promise<Run> => {
   const docs = docsOf(count);
@@ -202,7 +203,16 @@ const measure = async (count: number): Promise<Run> => {
     await resetMeter(app);
     await edit(page, docs, versions);
     const capture = await readMeter(app, WRITE_CHANNEL);
-    return { closed, capture };
+
+    // An Inbox chosen: the pane turns into the capture editor, which reads the links in reach of it.
+    const inboxPick = page.locator('.capture-inbox-picker__row[data-node-id="shelf-0"]');
+    await inboxPick.click();
+    await expect(inboxPick).toHaveCount(0, { timeout: 10_000 });
+    await page.waitForTimeout(1_500);
+    await resetMeter(app);
+    await edit(page, docs, versions);
+    const inbox = await readMeter(app, WRITE_CHANNEL);
+    return { closed, capture, inbox };
   } finally {
     await junto.close();
   }
@@ -221,11 +231,12 @@ test("one artifact write reads the same on a board of 16 Artifacts nodes as on 4
   test.setTimeout(600_000);
   const small = await measure(SMALL);
   const large = await measure(LARGE);
-  for (const phase of ["closed", "capture"] as const) {
+  for (const phase of ["closed", "capture", "inbox"] as const) {
     const s = small[phase];
     const l = large[phase];
     console.log(`WRITE-READ-COST ${phase} ${JSON.stringify({ small: s, large: l })}`);
-    const why = `Quick capture ${phase === "closed" ? "closed" : "open"}, ${WRITES} writes, ${SMALL} vs ${LARGE} nodes; grew most: ${growth(s, l)}`;
+    const state = { closed: "closed", capture: "open", inbox: "open with an Inbox chosen" }[phase];
+    const why = `Quick capture ${state}, ${WRITES} writes, ${SMALL} vs ${LARGE} nodes; grew most: ${growth(s, l)}`;
     expect([s.writes, l.writes], `the meter must see every write it is to cost (${why})`).toEqual([WRITES, WRITES]);
     expect(s.calls, `the small board read nothing after ${WRITES} writes: the meter saw no reads (${why})`).toBeGreaterThan(0);
     expect(l.bytes, `bytes read grow with the board (${why})`).toBeLessThanOrEqual(Math.max(s.bytes, 1) * GROWTH);
