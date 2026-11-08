@@ -124,6 +124,34 @@ const XTERM_PAD_Y = 12; // 6 + 6
 const RESIZE_DEBOUNCE_MS = 48;
 /** After open/attach, wait for focus-shell enter + stored size apply. */
 const SETTLE_FITS_MS = [0, 50, 160, 320, 600] as const;
+
+/**
+ * One settle ladder: re-measure the pane on every rung, so a focus shell still
+ * entering, a stored size still applying, or a cell metric landing late all
+ * end at the right grid.
+ *
+ * Only the first and the last rung force a whole-grid repaint. A forced
+ * repaint is a full WebGL redraw with three GPU round-trips (getError,
+ * checkFramebufferStatus, a command-buffer wait), and five of them per rung
+ * set was most of what opening a seat held the main thread with: on the
+ * factory board an open logged 19-21 geometry rows, 11 of them forced, and
+ * 220 ms of GPU waits. A rung whose measured cols×rows changed repaints
+ * anyway (a real resize paints), so the middle rungs keep their measurement
+ * and lose nothing the operator can see; the last rung paints the settled
+ * grid, which is what covers a cell metric that changed without changing the
+ * grid.
+ */
+const settleLadder = (
+  timers: ReturnType<typeof setTimeout>[],
+  push: (options?: { readonly forcePaint?: boolean }) => void,
+): void => {
+  for (const timer of timers.splice(0)) clearTimeout(timer);
+  const last = SETTLE_FITS_MS.length - 1;
+  SETTLE_FITS_MS.forEach((ms, index) => {
+    const forcePaint = index === 0 || index === last;
+    timers.push(setTimeout(() => push(forcePaint ? { forcePaint: true } : undefined), ms));
+  });
+};
 /**
  * A view hidden for less than this keeps its stream, so a switch to another
  * terminal and back costs no catch-up. Hidden longer, it parks.
@@ -1211,9 +1239,7 @@ export function TerminalSurface({
       }, RESIZE_DEBOUNCE_MS);
     };
     const hardFitBurst = (): void => {
-      for (const ms of SETTLE_FITS_MS) {
-        settleTimers.push(setTimeout(() => pushResize({ forcePaint: true }), ms));
-      }
+      settleLadder(settleTimers, (options) => pushResize(options));
     };
 
     requestAnimationFrame(() => {
@@ -1945,13 +1971,11 @@ export function TerminalSurface({
                 });
               }
             });
-            for (const ms of SETTLE_FITS_MS) {
-              settleTimers.push(
-                setTimeout(() => {
-                  if (alive) pushResize({ forcePaint: true });
-                }, ms),
-              );
-            }
+            // The attach's own ladder replaces whatever the mount scheduled, so
+            // one open settles once instead of stacking two rung sets.
+            settleLadder(settleTimers, (options) => {
+              if (alive) pushResize(options);
+            });
           };
           if (serializedScreen) {
             // Serialized xterm VT state restores cells, SGR/color, cursor,
