@@ -806,6 +806,15 @@ try {
     await page!.evaluate(`(() => {
       const flow = document.querySelector(".react-flow");
       window.__lastScale = flow?.style.getPropertyValue("--far-seat-scale") ?? "";
+      window.__rootChanges = [];
+      for (const el of [document.documentElement, document.body]) {
+        new MutationObserver((records) => { for (const record of records) window.__rootChanges.push((el === document.documentElement ? "html:" : "body:") + String(record.attributeName)); })
+          .observe(el, { attributes: true });
+      }
+      const head = document.head;
+      window.__sheetChanges = 0;
+      new MutationObserver((records) => { for (const record of records) window.__sheetChanges += record.addedNodes.length + record.removedNodes.length; })
+        .observe(head, { childList: true, subtree: true, characterData: true });
       new MutationObserver(() => {
         const now = flow?.style.getPropertyValue("--far-seat-scale") ?? "";
         if (now === window.__lastScale) return;
@@ -816,6 +825,8 @@ try {
     for (let step = 0; step < 6; step += 1) { await zoomOnce(-1); await sleep(30); }
     await sleep(1_000);
     const marks = await page!.evaluate<string[]>(`performance.getEntriesByType("mark").map((entry) => entry.name)`).catch(() => []);
+    const rootChanges = await page!.evaluate<string[]>(`[...new Set(window.__rootChanges ?? [])]`).catch(() => []);
+    const sheetChanges = await page!.evaluate<number>(`window.__sheetChanges ?? 0`).catch(() => 0);
     await browser!.send("Tracing.end");
     await done;
     // Thread names and per-thread busy time.
@@ -825,8 +836,6 @@ try {
     }
     const perThread = new Map<string, { name: string; us: number; events: number }>();
     const rasterTasks: any[] = [];
-    const frames: Array<{ begin: number; end: number; mainUs: number }> = [];
-    const open = new Map<string, number>();
     for (const event of trace) {
       const key = `${String(event.pid)}:${String(event.tid)}`;
       if (event.name === "RasterTask") rasterTasks.push(event);
@@ -844,14 +853,40 @@ try {
     const mainThread = [...threadName].find(([, name]) => name === "CrRendererMain")?.[0] ?? "";
     // Only frames after the zoom-start marker: the trace's own start can fake a
     // long task, and the hitch we are naming is the rest after the gesture.
-    const marker = trace.find((event) => (event.name === "TimeStamp" || event.name === "ClockSyncMarker" || event.name === "clock_sync") && /seat-scale-publish|zoom-start/u.test(String(event.args?.data?.message ?? event.args?.syncId ?? "")));
+    // blink.user_timing names the mark after itself (performance.mark tracing).
+    const marker = trace.find((event) => event.name === "seat-scale-publish");
     const markerTs = marker?.ts ?? Number.NEGATIVE_INFINITY;
-    const allLong = trace
-      .filter((event) => event.name === "ProxyMain::BeginMainFrame" && event.ph === "X" && typeof event.dur === "number" && event.dur > 25_000)
-      .map((event) => ({ atMs: marker === undefined ? null : Math.round((event.ts - marker.ts) / 1000), ms: Math.round(event.dur / 100) / 10 }))
-      .slice(0, 12);
+    // Every frame from the publish mark to 300 ms after it, with its split.
+    const threads = (pid: number, tid: number) => `${String(pid)}:${String(tid)}`;
+    const gpuThreads = new Set([...threadName].filter(([, name]) => name === "CrGpuMain" || name === "VizCompositorThread").map(([key]) => key));
+    const compositorThreads = new Set([...threadName].filter(([, name]) => name === "Compositor").map(([key]) => key));
+    const frames = marker === undefined ? [] : trace
+      .filter((event) => event.name === "ProxyMain::BeginMainFrame" && event.ph === "X" && typeof event.dur === "number" && event.ts >= marker.ts && event.ts <= marker.ts + 300_000)
+      .map((frame) => {
+        const from = frame.ts;
+        const to = frame.ts + frame.dur;
+        const inWindow = (other: any) => other.ph === "X" && typeof other.dur === "number" && other.ts >= from && other.ts < to;
+        const mainKey = threads(frame.pid, frame.tid);
+        const sum = (pattern: RegExp) => Math.round(trace.filter((other) => inWindow(other) && threads(other.pid, other.tid) === mainKey && pattern.test(other.name)).reduce((total, other) => total + other.dur, 0) / 100) / 10;
+        const elsewhere = (keys: Set<string>) => Math.round(trace.filter((other) => inWindow(other) && keys.has(threads(other.pid, other.tid))).reduce((total, other) => total + other.dur, 0) / 100) / 10;
+        const raster = trace.filter((other) => other.name === "RasterTask" && typeof other.ts === "number" && other.ts >= from && other.ts < to + 16_000).length;
+        const hasProfile = trace.some((other) => other.ph === "X" && other.ts >= from && other.ts < to && /^Profile/u.test(other.name));
+        return {
+          atMs: Math.round((frame.ts - marker.ts) / 1000),
+          ms: Math.round(frame.dur / 100) / 10,
+          styleAndLayoutMs: sum(/RunStyleAndLayoutLifecyclePhases|UpdateStyleAndLayout/u),
+          recalcMs: sum(/^UpdateLayoutTree$/u),
+          paintMs: sum(/RunPaintLifecyclePhase|^Paint$|PrePaint/u),
+          layerizeMs: sum(/PaintArtifactCompositor::Update/u),
+          compositorMs: elsewhere(compositorThreads),
+          vizGpuMs: elsewhere(gpuThreads),
+          rasterTasks: raster,
+          hasProfile,
+        };
+      });
+    const allLong = frames;
     const longFrames = trace
-      .filter((event) => event.name === "ProxyMain::BeginMainFrame" && event.ph === "X" && typeof event.dur === "number" && event.ts > markerTs && event.dur > 25_000)
+      .filter((event) => event.name === "ProxyMain::BeginMainFrame" && event.ph === "X" && typeof event.dur === "number" && event.ts >= markerTs && event.dur > 25_000)
       .map((event) => {
         const from = event.ts;
         const to = event.ts + event.dur;
@@ -903,6 +938,8 @@ try {
       longFrames,
       markerFound: marker !== undefined,
       marks,
+      rootChanges,
+      sheetChanges,
       allLong,
       slowArgs,
       invalidations: {
