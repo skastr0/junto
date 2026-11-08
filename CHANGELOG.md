@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.11.10 — 2026-11-08
+
+No database change: 0.11.10 opens the same version 73 as 0.11.9.
+
+- A resting canvas no longer costs the GPU. At the overview, the idle GPU load
+  falls from 306 to 0 ms per second and the main thread draws 0 frames per
+  second instead of 31. A far ring is sized by its unit, chrome over the canvas
+  no longer redraws a backdrop blur every frame, the minimap's pings have no
+  rounded clip over them, and a looping CSS animation never wakes the main
+  thread. Every animation anyone can see still runs at full rate.
+- A performance trace now lands in `~/.junto/traces`, where the menu says it
+  does.
+- Pi 1.5.0 seats read right again: the turn status and the editor box are read
+  as the pi terminal paints them.
+
 ## 0.11.9 — 2026-11-07
 
 No database change: 0.11.9 opens the same version 73 as 0.11.8.
