@@ -131,8 +131,14 @@ const OVERSCAN = 8;
 // and unmount a boundary card on every step. The radius covers the widest
 // strip (920px ≈ 7 cards) plus overscan and margin; the drift bound keeps
 // the whole post-scroll viewport inside it through the slide.
-const SELECT_RADIUS = 24;
+const SELECT_RADIUS = 32;
 const SELECT_DRIFT = 8;
+// Past this the window jumps at once: a wrap or a pointer leap has no
+// travel to pre-mount along, and one bounded commit beats a late card.
+const JUMP_DIST = 12;
+// Cards the window centre gains per idle tick while catching up, so a
+// slide's mounts land in commits far under a frame, never in the keydown's.
+const SLIDE_CHUNK = 8;
 
 /**
  * The switcher's shell, an operator modal: the shared dim and frame, above
@@ -156,7 +162,8 @@ function SwitcherShell({ session }: { readonly session: FocusSwitcherSession }) 
   // painted (the scroll lands in a layout effect), so it needs no cards.
   const [selCenter, setSelCenter] = useState(session.selectedIndex);
   const scrolledTo = useRef(-1);
-  if (Math.abs(session.selectedIndex - selCenter) > SELECT_DRIFT) {
+  const drift = session.selectedIndex - selCenter;
+  if (Math.abs(drift) > JUMP_DIST) {
     setSelCenter(session.selectedIndex);
   }
 
@@ -174,6 +181,21 @@ function SwitcherShell({ session }: { readonly session: FocusSwitcherSession }) 
   useEffect(() => {
     claimFocus(listRef.current, "open", { preventScroll: true });
   }, []);
+
+  // Catch the window centre up to a drifting selection in idle chunks, so
+  // the mounts a slide needs never land inside the keydown's own commit.
+  useEffect(() => {
+    const d = session.selectedIndex - selCenter;
+    if (Math.abs(d) <= SELECT_DRIFT) return;
+    const move = Math.sign(d) * Math.min(Math.abs(d) - SELECT_DRIFT, SLIDE_CHUNK);
+    const tick = (): void => setSelCenter((c) => c + move);
+    if (typeof requestIdleCallback === "function") {
+      const id = requestIdleCallback(tick);
+      return () => cancelIdleCallback(id);
+    }
+    const id = setTimeout(tick, 0);
+    return () => clearTimeout(id);
+  }, [session.selectedIndex, selCenter]);
 
   // Measure before the first paint, then follow the strip's own box.
   useLayoutEffect(() => {
