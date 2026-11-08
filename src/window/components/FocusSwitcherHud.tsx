@@ -126,6 +126,13 @@ const CARD_WIDTH = 124;
 // Cards mounted past each edge of the viewport, so a scroll or a selection
 // step finds its card already drawn well before it can be seen arriving.
 const OVERSCAN = 8;
+// The selection's window is sticky: it recentres only after the selection
+// has drifted most of a viewport away, so a held-Cmd sweep does not mount
+// and unmount a boundary card on every step. The radius covers the widest
+// strip (920px ≈ 7 cards) plus overscan and margin; the drift bound keeps
+// the whole post-scroll viewport inside it through the slide.
+const SELECT_RADIUS = 24;
+const SELECT_DRIFT = 8;
 
 /**
  * The switcher's shell, an operator modal: the shared dim and frame, above
@@ -143,6 +150,15 @@ function SwitcherShell({ session }: { readonly session: FocusSwitcherSession }) 
   // scroll extent, the scrollbar and every card's place are exactly what they
   // were when all of them mounted — only the cards near the eye cost anything.
   const [view, setView] = useState({ left: 0, width: 0 });
+  // The mounted range's centre on the selection, and the index the scroll
+  // effect last served: while they disagree a scroll is still owed, and the
+  // window is the selection's alone — the pre-scroll position is never
+  // painted (the scroll lands in a layout effect), so it needs no cards.
+  const [selCenter, setSelCenter] = useState(session.selectedIndex);
+  const scrolledTo = useRef(-1);
+  if (Math.abs(session.selectedIndex - selCenter) > SELECT_DRIFT) {
+    setSelCenter(session.selectedIndex);
+  }
 
   const layer = useModalLayer({
     layer: "operator",
@@ -182,9 +198,11 @@ function SwitcherShell({ session }: { readonly session: FocusSwitcherSession }) 
   // would put it — the strip is the only thing that scrolls (body overflow is
   // hidden, the frame is not a scroller, and neither has padding or
   // scroll-padding) — but a card's place is its index times the pitch, so
-  // this is arithmetic, not a layout read.
-  useEffect(() => {
+  // this is arithmetic, not a layout read. A layout effect, so the scroll is
+  // in place before the frame that shows the new selection is painted.
+  useLayoutEffect(() => {
     const strip = listRef.current;
+    scrolledTo.current = session.selectedIndex;
     if (!strip) return;
     const left = session.selectedIndex * CARD_PITCH;
     const right = left + CARD_WIDTH;
@@ -195,14 +213,24 @@ function SwitcherShell({ session }: { readonly session: FocusSwitcherSession }) 
   }, [session.selectedIndex]);
 
   const total = session.entries.length;
-  const firstVisible = Math.max(0, Math.floor(view.left / CARD_PITCH) - OVERSCAN);
-  const lastVisible = Math.min(total, Math.ceil((view.left + view.width) / CARD_PITCH) + OVERSCAN);
-  // The selection's own neighbourhood is a whole viewport plus margin, so a
-  // jump (the wrap, or opening at the far end) lands on cards already mounted:
-  // the scrollIntoView below can never reveal a spacer where a card belongs.
-  const selectPad = Math.ceil(view.width / CARD_PITCH) + OVERSCAN;
-  const windowStart = Math.min(firstVisible, Math.max(0, session.selectedIndex - selectPad));
-  const windowEnd = Math.max(lastVisible, Math.min(total, session.selectedIndex + selectPad + 1));
+  // The strip's live box, not the last reported one: a scroll the layout
+  // effect just made is already in scrollLeft, so the window never unions a
+  // stale edge back in. The state above stays as the re-render trigger for
+  // hand scrolls and resizes; these reads hit clean layout.
+  const liveLeft = listRef.current?.scrollLeft ?? view.left;
+  const liveWidth = listRef.current?.clientWidth || view.width;
+  const firstVisible = Math.max(0, Math.floor(liveLeft / CARD_PITCH) - OVERSCAN);
+  const lastVisible = Math.min(total, Math.ceil((liveLeft + liveWidth) / CARD_PITCH) + OVERSCAN);
+  const selWindowStart = Math.max(0, selCenter - SELECT_RADIUS);
+  const selWindowEnd = Math.min(total, selCenter + SELECT_RADIUS + 1);
+  // While a scroll to the selection is still owed the window is the
+  // selection's alone: the frame that paints next is already the scrolled
+  // one, and its viewport sits inside the selection's window. Once the
+  // scroll has landed the viewport's own overscan joins back in, so a
+  // hand-scrolled strip keeps its cards too.
+  const scrollOwed = session.selectedIndex !== scrolledTo.current;
+  const windowStart = scrollOwed ? selWindowStart : Math.min(firstVisible, selWindowStart);
+  const windowEnd = scrollOwed ? selWindowEnd : Math.max(lastVisible, selWindowEnd);
 
   return createPortal(
     <div className="focus-switcher" data-layer="operator" data-testid="focus-switcher" onKeyDown={layer.onKeyDown}>
