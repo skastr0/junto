@@ -24,7 +24,7 @@ import { currentSelectionIds, selectionIsGroup, swapHotbarSlots } from "../../li
 import { hotbarNodeSeverity, liveActivitySeverity } from "../../lib/hotbar-signal";
 import { slotMemberIds, type HotbarSlot } from "../../lib/hotbar-slots";
 import { kernel$ } from "../../lib/kernel-view";
-import { decodeRollups, encodeRollups, seatRollupsForCanvas } from "../../lib/minimap-seat-colors";
+import { decodeRollups, encodeRollups, rollupScope, seatRollupsForCanvas } from "../../lib/minimap-seat-colors";
 import { seatAwareness$ } from "../../lib/seat-awareness";
 import { digitHue } from "../../lib/seat-projections";
 import { seatRollup, worseRollup, type SeatRollup } from "../../lib/seat-rollup";
@@ -63,12 +63,16 @@ function useBarTones(nodeIds: ReadonlyArray<string>): ReadonlyMap<string, SeatRo
     const canvas = modelStore.canvasOf(canvasName);
 
     const blocked = new Set(execution?.blocked ?? []);
+    // Only the bar's nodes and the seats in its regions: the rest of the board
+    // cannot change a tone it draws.
+    const scope = rollupScope(canvas, nodeIds);
     // A seat's control state is its live facts, not only its region's rollup.
     const control: Record<string, string> = { ...regionSeverity };
     for (const seat of nodesOf(canvas, "agent")) {
+      if (!scope.seats.has(seat.id)) continue;
       control[seat.id] = digitHue(seatFactsOf(seat, { graphBlocked: blocked.has(seat.id) }));
     }
-    const seats = seatRollupsForCanvas(canvas, { now, severityByNodeId: control, signalsByNodeId: signals });
+    const seats = seatRollupsForCanvas(canvas, { now, severityByNodeId: control, signalsByNodeId: signals, only: scope });
     const out = new Map<string, SeatRollup>();
     for (const id of nodeIds) {
       const node = canvas.nodes.get(asNodeId(id));

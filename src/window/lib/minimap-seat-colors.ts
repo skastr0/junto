@@ -66,6 +66,36 @@ export const minimapNodeColors = (
   };
 };
 
+/** The part of a canvas a reader wants rolled up: some nodes, and the seats in its regions. */
+export type RollupScope = {
+  /** The seats to read: the wanted ones and every member of a wanted region. */
+  readonly seats: ReadonlySet<string>;
+  readonly regions: ReadonlyArray<NodeOf<"region">>;
+  readonly membersOf: ReadonlyMap<string, ReadonlyArray<Node>>;
+};
+
+/**
+ * The scope for a reader that shows only `nodeIds`, as the command-group bar
+ * does: its tones are those of the whole-canvas rollup, worked out from a
+ * handful of seats and regions where the whole board was read on every seat
+ * report (about 2 ms a report on the factory board, 0.11.10 trace).
+ */
+export const rollupScope = (canvas: Placed, nodeIds: Iterable<string>): RollupScope => {
+  const wanted = new Set(nodeIds);
+  const seats = new Set<string>();
+  const regions: Array<NodeOf<"region">> = [];
+  const membersOf = new Map<string, ReadonlyArray<Node>>();
+  for (const region of nodesOf(canvas, "region")) {
+    if (!wanted.has(region.id)) continue;
+    const members = regionMembers(canvas, region);
+    regions.push(region);
+    membersOf.set(region.id, members);
+    for (const member of members) seats.add(member.id);
+  }
+  for (const id of wanted) seats.add(id);
+  return { seats, regions, membersOf };
+};
+
 /**
  * Every agent seat's rollup at `now`, from the three stores' current values,
  * plus each region that holds at least one: the worse of the region's own
@@ -80,11 +110,18 @@ export const seatRollupsForCanvas = (
     readonly signalsByNodeId: Readonly<Record<string, SeatSignalRollup | undefined>>;
     /** The session a seat's thread health is read from; its own by default. */
     readonly bindingOf?: (seat: NodeOf<"agent">) => string | undefined;
+    /**
+     * Only these nodes are wanted (rollupScope): the seats among them and in
+     * the regions among them are read, and nothing else is. Every node is, unset.
+     */
+    readonly only?: RollupScope;
   },
 ): ReadonlyMap<string, SeatRollup> => {
   const bindingOf = input.bindingOf ?? ((seat: NodeOf<"agent">) => seat.bindingId);
+  const scope = input.only;
   const out = new Map<string, SeatRollup>();
   for (const node of nodesOf(canvas, "agent")) {
+    if (scope !== undefined && !scope.seats.has(node.id)) continue;
     const signal: AgentSignalKind | undefined = input.signalsByNodeId[node.id]?.kind;
     const view = threadHealthView(bindingOf(node), input.now);
     const health =
@@ -100,9 +137,9 @@ export const seatRollupsForCanvas = (
   }
   if (out.size === 0) return out;
   const regions = new Map<string, SeatRollup>();
-  for (const region of nodesOf(canvas, "region")) {
+  for (const region of scope?.regions ?? nodesOf(canvas, "region")) {
     let worst: SeatRollup | undefined;
-    for (const member of regionMembers(canvas, region)) worst = worseRollup(worst, out.get(member.id));
+    for (const member of scope?.membersOf.get(region.id) ?? regionMembers(canvas, region)) worst = worseRollup(worst, out.get(member.id));
     if (worst === undefined) continue;
     const own = seatRollup({ control: input.severityByNodeId[region.id] as MemberSeverity | undefined });
     regions.set(region.id, worseRollup(own, worst)!);

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ThreadHealthValue } from "../src/shared/thread-health";
 import { THREAD_HEALTH_TONE, THREAD_HEALTH_VALUES } from "../src/shared/thread-health";
 import { controlFromActivity, seatRollup, worseRollup } from "../src/window/lib/seat-rollup";
-import { decodeRollups, encodeRollups, minimapNodeColors, seatRollupsForCanvas } from "../src/window/lib/minimap-seat-colors";
+import { decodeRollups, encodeRollups, minimapNodeColors, rollupScope, seatRollupsForCanvas } from "../src/window/lib/minimap-seat-colors";
 import { canvasOf, region as regionNode, seat as seatNode, note as noteNode } from "./support/model-nodes";
 import { applySeatAwarenessEvent, resetSeatAwareness } from "../src/window/lib/seat-awareness";
 import { HUE, GREEN } from "../src/window/lib/theme";
@@ -190,5 +190,30 @@ describe("seatRollupsForCanvas", () => {
     const colors = minimapNodeColors(regionNode("zone", { x: -50, y: -50, width: 600, height: 400 }), S.working, tinted.get("zone"), "#101010");
     expect(colors.stroke).toBe(HUE.amber);
     expect(colors.fill).not.toBe(HUE.amber);
+  });
+
+  it("gives a scoped reader the whole-canvas tones of the nodes it wants, from them alone", () => {
+    const now = Date.now();
+    const region = (id: string, x: number) => regionNode(id, { x, y: -50, width: 600, height: 400 }, { label: id });
+    const board = canvasOf([
+      seat("in-a", "b-in-a"), seatNode("in-b", { x: 300, width: 200, height: 80, bindingId: "b-in-b" as never }),
+      seatNode("far", { x: 9_000, width: 200, height: 80, bindingId: "b-far" as never }),
+      seatNode("alone", { x: 20_000, width: 200, height: 80, bindingId: "b-alone" as never }),
+      region("zone", -50), region("other", 8_900),
+    ]);
+    const input = {
+      now,
+      severityByNodeId: { "in-a": "working", "in-b": "attention", far: "working", alone: "working", zone: "working" },
+      signalsByNodeId: {},
+    };
+    const whole = seatRollupsForCanvas(board, input);
+    const wanted = ["zone", "alone"];
+    const scoped = seatRollupsForCanvas(board, { ...input, only: rollupScope(board, wanted) });
+    for (const id of wanted) expect(scoped.get(id)).toEqual(whole.get(id));
+    expect(scoped.get("zone")).toBeDefined();
+    // Nothing outside the scope was read: the other region and its seat are absent.
+    expect(scoped.has("other")).toBe(false);
+    expect(scoped.has("far")).toBe(false);
+    expect(rollupScope(board, wanted).seats).toEqual(new Set(["in-a", "in-b", "zone", "alone"]));
   });
 });
