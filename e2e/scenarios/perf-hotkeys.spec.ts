@@ -314,6 +314,21 @@ const SCENARIOS: ReadonlyArray<Scenario> = [
     },
   },
   {
+    // Control: an unbound key on the canvas (F2 only acts inside a sheet).
+    // Whatever this costs is the dispatch + frame floor every hotkey pays
+    // before its own work.
+    id: "bare-f2",
+    open: async (page) => {
+      for (let i = 0; i < 40; i += 1) {
+        await page.keyboard.press("F2");
+        await sleep(45);
+      }
+    },
+    up: async (page) => sleep(300),
+    close: async () => sleep(50),
+    down: async (page) => sleep(300),
+  },
+  {
     id: "cmd+`-cancel",
     open: async (page) => {
       await page.keyboard.down("Meta");
@@ -548,6 +563,68 @@ test("hotkey performance probe", async () => {
     // Put the keyboard back on the canvas chrome for the unstageable chords.
     await page.locator(".react-flow__pane").first().click({ position: { x: 8, y: 8 } }).catch(() => undefined);
     await sleep(400);
+
+    // CPU-profile one switcher sweep: JS self-time per function. Native
+    // style/layout/paint does not sample, so what is missing here is the
+    // browser's share of the step.
+    if (process.env.PERF_HOTKEYS_PROFILE === "sweep") {
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Profiler.enable");
+      await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+      await cdp.send("Profiler.start");
+      await resetProbe(page);
+      await page.keyboard.down("Meta");
+      for (let i = 0; i < 40; i += 1) {
+        await page.keyboard.press("Backquote");
+        await sleep(45);
+      }
+      await sleep(300);
+      await page.keyboard.up("Meta");
+      await sleep(400);
+      const { profile } = (await cdp.send("Profiler.stop")) as {
+        profile: {
+          nodes: Array<{
+            id: number;
+            hitCount?: number;
+            callFrame: { functionName: string; url: string; lineNumber: number };
+            children?: number[];
+          }>;
+          samples?: number[];
+          timeDeltas?: number[];
+        };
+      };
+      const self = new Map<string, { hits: number; name: string; url: string; line: number }>();
+      for (const node of profile.nodes) {
+        const hits = node.hitCount ?? 0;
+        if (hits === 0) continue;
+        const cf = node.callFrame;
+        const key = `${cf.functionName || "(anon)"} @ ${cf.url.split("/").pop()}:${cf.lineNumber + 1}`;
+        const cur = self.get(key) ?? { hits: 0, name: cf.functionName || "(anon)", url: cf.url, line: cf.lineNumber + 1 };
+        cur.hits += hits;
+        self.set(key, cur);
+      }
+      const totalHits = [...self.values()].reduce((a, b) => a + b.hits, 0);
+      const top = [...self.values()]
+        .sort((a, b) => b.hits - a.hits)
+        .slice(0, 60)
+        .map((s) => ({ ...s, pct: Math.round((s.hits / Math.max(1, totalHits)) * 1000) / 10 }));
+      mkdirSync(dirname(OUT), { recursive: true });
+      writeFileSync(
+        OUT,
+        JSON.stringify(
+          {
+            profile: "sweep",
+            samples: profile.samples?.length ?? 0,
+            totalHits,
+            probe: await readProbe(page),
+            top,
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
 
     const runScenario = async (scenario: Scenario): Promise<unknown[]> => {
       const reps: unknown[] = [];
