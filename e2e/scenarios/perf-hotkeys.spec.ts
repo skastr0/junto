@@ -294,6 +294,26 @@ const SCENARIOS: ReadonlyArray<Scenario> = [
     },
   },
   {
+    id: "cmd+`-sweep",
+    // Fast end to end: forty steps inside one Cmd hold, then release commits.
+    // The strip's window must slide with the selection without a card ever
+    // arriving late.
+    open: async (page) => {
+      await page.keyboard.down("Meta");
+      for (let i = 0; i < 40; i += 1) {
+        await page.keyboard.press("Backquote");
+        await sleep(45);
+      }
+      await sleep(150);
+      await page.keyboard.up("Meta");
+    },
+    up: (page) => visible(page, "[data-testid='focus-switcher'], .native-terminal-surface, [data-focus-surface]").catch(() => sleep(500)),
+    close: chord("Meta+W"),
+    down: async (page) => {
+      await sleep(400);
+    },
+  },
+  {
     id: "cmd+`-cancel",
     open: async (page) => {
       await page.keyboard.down("Meta");
