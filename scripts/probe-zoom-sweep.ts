@@ -190,7 +190,7 @@ if (appRoot === "") {
   console.error("usage: bun scripts/probe-zoom-sweep.ts --app-root DIR [--label L] [--seconds S] [--port P] [--fixture NAME] [--out FILE]\n       bun scripts/probe-zoom-sweep.ts --compare before=DIR,after=DIR [--repeats 3]");
   process.exit(64);
 }
-if (!["product", "no-rest-scale", "no-tier-css", "coarse-rest", "integer-rest", "static-visibility", "no-ease", "ease-visible", "waapi-ease", "no-waapi", "waapi-first", "seat-local-scale"].includes(variant)) {
+if (!["product", "no-rest-scale", "no-tier-css", "coarse-rest", "integer-rest", "static-visibility", "no-ease", "ease-visible", "waapi-ease", "no-waapi", "waapi-first", "seat-local-scale", "no-rest-writes", "no-cluster-sheet"].includes(variant)) {
   console.error("zoom sweep: --variant is product, no-rest-scale, no-tier-css, coarse-rest, integer-rest, static-visibility, no-ease or ease-visible");
   process.exit(64);
 }
@@ -797,13 +797,25 @@ try {
     await sleep(900);
     const before = await page!.evaluate<string>(`document.querySelector(".react-flow__viewport")?.style.transform ?? ""`);
     await browser!.send("Tracing.start", {
-      traceConfig: { includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline.frame", "blink", "cc", "viz", "gpu", "disabled-by-default-cc.debug.scheduler", "benchmark", "toplevel"] },
+      traceConfig: { includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline.frame", "disabled-by-default-devtools.timeline.invalidationTracking", "blink", "blink.user_timing", "cc", "viz", "gpu", "disabled-by-default-cc.debug.scheduler", "benchmark", "toplevel"] },
       transferMode: "ReportEvents",
     } as never);
     await page!.evaluate(`(() => 0)()`).catch(() => undefined);
     await sleep(500);
+    // Mark the frame the size publish lands in: the rest we are naming.
+    await page!.evaluate(`(() => {
+      const flow = document.querySelector(".react-flow");
+      window.__lastScale = flow?.style.getPropertyValue("--far-seat-scale") ?? "";
+      new MutationObserver(() => {
+        const now = flow?.style.getPropertyValue("--far-seat-scale") ?? "";
+        if (now === window.__lastScale) return;
+        window.__lastScale = now;
+        performance.mark("seat-scale-publish");
+      }).observe(flow, { attributes: true, attributeFilter: ["style"] });
+    })()`).catch(() => undefined);
     for (let step = 0; step < 6; step += 1) { await zoomOnce(-1); await sleep(30); }
     await sleep(1_000);
+    const marks = await page!.evaluate<string[]>(`performance.getEntriesByType("mark").map((entry) => entry.name)`).catch(() => []);
     await browser!.send("Tracing.end");
     await done;
     // Thread names and per-thread busy time.
@@ -830,8 +842,16 @@ try {
     // The slow frames: each long BeginMainFrame slice on the renderer main,
     // with what ran inside it and what the other threads did in its window.
     const mainThread = [...threadName].find(([, name]) => name === "CrRendererMain")?.[0] ?? "";
-    const longFrames = trace
+    // Only frames after the zoom-start marker: the trace's own start can fake a
+    // long task, and the hitch we are naming is the rest after the gesture.
+    const marker = trace.find((event) => (event.name === "TimeStamp" || event.name === "ClockSyncMarker" || event.name === "clock_sync") && /seat-scale-publish|zoom-start/u.test(String(event.args?.data?.message ?? event.args?.syncId ?? "")));
+    const markerTs = marker?.ts ?? Number.NEGATIVE_INFINITY;
+    const allLong = trace
       .filter((event) => event.name === "ProxyMain::BeginMainFrame" && event.ph === "X" && typeof event.dur === "number" && event.dur > 25_000)
+      .map((event) => ({ atMs: marker === undefined ? null : Math.round((event.ts - marker.ts) / 1000), ms: Math.round(event.dur / 100) / 10 }))
+      .slice(0, 12);
+    const longFrames = trace
+      .filter((event) => event.name === "ProxyMain::BeginMainFrame" && event.ph === "X" && typeof event.dur === "number" && event.ts > markerTs && event.dur > 25_000)
       .map((event) => {
         const from = event.ts;
         const to = event.ts + event.dur;
@@ -849,12 +869,49 @@ try {
       })
       .sort((a, b) => b.durationMs - a.durationMs)
       .slice(0, 5);
+    // What invalidated style inside the slow frame: reason, node and selector.
+    const slow = trace
+      .filter((event) => event.name === "ProxyMain::BeginMainFrame" && event.ph === "X" && typeof event.dur === "number")
+      .sort((a, b) => b.dur - a.dur)[0];
+    const invalidations: any[] = [];
+    if (slow !== undefined) {
+      const from = slow.ts;
+      const to = slow.ts + slow.dur;
+      for (const event of trace) {
+        if (event.name !== "StyleRecalcInvalidationTracking" && event.name !== "StyleInvalidatorInvalidationTracking") continue;
+        if (typeof event.ts !== "number" || event.ts < from || event.ts >= to) continue;
+        invalidations.push({ reason: String(event.args?.data?.reason ?? "?"), node: String(event.args?.data?.nodeName ?? "").slice(0, 46), extra: String(event.args?.data?.extraData ?? "").slice(0, 60), kind: event.name });
+      }
+    }
+    const slowArgs = (() => {
+      if (slow === undefined) return null;
+      const from = slow.ts;
+      const to = slow.ts + slow.dur;
+      const recalc = trace.find((event) => event.name === "UpdateLayoutTree" && typeof event.ts === "number" && event.ts >= from && event.ts < to);
+      return { updateArgs: recalc?.args ?? null, recalcDurUs: recalc?.dur ?? null };
+    })();
+    const tally = (key: (row: any) => string) => {
+      const counts = new Map<string, number>();
+      for (const row of invalidations) counts.set(key(row), (counts.get(key(row)) ?? 0) + 1);
+      return [...counts].sort((a, b) => b[1] - a[1]).slice(0, 12);
+    };
     const rasterByName = new Map<string, number>();
     for (const task of rasterTasks) rasterByName.set(String(task.args?.data?.source ?? "?"), (rasterByName.get(String(task.args?.data?.source ?? "?")) ?? 0) + 1);
     console.log(JSON.stringify({
       before,
       threads: summary,
       longFrames,
+      markerFound: marker !== undefined,
+      marks,
+      allLong,
+      slowArgs,
+      invalidations: {
+        slowFrameMs: slow === undefined ? null : Math.round(slow.dur / 100) / 10,
+        total: invalidations.length,
+        byReason: tally((row) => row.reason),
+        byNode: tally((row) => `${row.node} :: ${row.extra}`),
+        byKind: tally((row) => row.kind),
+      },
       raster: { tasks: rasterTasks.length, bySource: [...rasterByName].slice(0, 6) },
       topNames: [...(() => {
         const byName = new Map<string, number>();
@@ -949,6 +1006,30 @@ try {
                 if (this.getPropertyValue(name) === stepped) return;
                 return setProperty.call(this, name, stepped, priority);
               }
+              return setProperty.call(this, name, value, priority);
+            };
+          }
+          if (variant === "no-cluster-sheet") {
+            // Diagnostic: the cluster sheet's text is never rewritten, so no
+            // stylesheet mutation forces a full-document style recalc.
+            const descriptor = Object.getOwnPropertyDescriptor(Node.prototype, "textContent");
+            if (descriptor?.set) {
+              Object.defineProperty(Node.prototype, "textContent", {
+                ...descriptor,
+                set(value) {
+                  if (this.nodeType === 1 && this.id === "junto-seat-clusters") return;
+                  return descriptor.set.call(this, value);
+                },
+              });
+            }
+          }
+          if (variant === "no-rest-writes") {
+            // Diagnostic: every inherited property the rest publishes is
+            // dropped (ring scales, node scale, region glance), so whatever
+            // whole-document recalc they cause is gone.
+            const setProperty = CSSStyleDeclaration.prototype.setProperty;
+            CSSStyleDeclaration.prototype.setProperty = function (name, value, priority) {
+              if (/^--(node-s|far-seat-scale|seat-floor-scale|junto-region-glance|junto-region-glance-sub)(-was)?$/.test(name)) return;
               return setProperty.call(this, name, value, priority);
             };
           }
