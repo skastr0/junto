@@ -24,7 +24,7 @@ import { seatAwareness$ } from "./seat-awareness";
 import { seatRollup, worseRollup, type SeatRollup, type SeatRollupTone } from "./seat-rollup";
 import { state$ } from "./state";
 import { modelStore } from "./use-model";
-import { threadHealthMark, threadHealthView, useHealthClock } from "./thread-health";
+import { healthClockNow, threadHealthMark, threadHealthView, useHealthClockRunning } from "./thread-health";
 import { withAlpha } from "./theme";
 
 /** A faded Jev reading, as the ring draws it. */
@@ -145,9 +145,11 @@ export const decodeRollups = (key: string): ReadonlyMap<string, SeatRollup> => {
  * re-render the caller.
  */
 export const useSeatRollups = (): ReadonlyMap<string, SeatRollup> => {
-  const now = useHealthClock();
+  useHealthClockRunning();
   const key = use$(() => {
     seatAwareness$.rev.get();
+    // The clock is followed in here, so a tick that changes no tone renders nothing.
+    const now = healthClockNow();
     const canvasName = state$.canvasName.get();
     // Follow the canvas's nodes: a rollup reads which seats there are and
     // which regions hold them.

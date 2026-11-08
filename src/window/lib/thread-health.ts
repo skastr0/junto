@@ -19,7 +19,7 @@
  * coarse window digest, compared, never derived here).
  */
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import type { AgentSignalKind } from "@shared/agent-signals";
@@ -202,7 +202,15 @@ const healthClock$ = observable(Date.now());
 let clockReaders = 0;
 let clockTimer: ReturnType<typeof setInterval> | undefined;
 
-export const useHealthClock = (): number => {
+/**
+ * Keeps the shared clock running while the caller is mounted, without
+ * re-rendering the caller on each tick. A reader that derives something from
+ * the time reads healthClockNow() inside its own use$ selector and answers a
+ * string, so it re-renders only when what it draws changes. Every seat card,
+ * the minimap and the command bar re-rendering on every tick was a 55 ms
+ * main-thread task every 15 s on the operator's board (0.11.10).
+ */
+export const useHealthClockRunning = (): void => {
   useEffect(() => {
     clockReaders += 1;
     if (clockTimer === undefined) {
@@ -217,6 +225,14 @@ export const useHealthClock = (): number => {
       }
     };
   }, []);
+};
+
+/** The shared clock, followed: call inside a use$ selector, with useHealthClockRunning mounted. */
+export const healthClockNow = (): number => healthClock$.get();
+
+/** The shared clock as a value: the caller re-renders on every tick. */
+export const useHealthClock = (): number => {
+  useHealthClockRunning();
   return use$(healthClock$);
 };
 
@@ -229,14 +245,36 @@ export const useThreadHealth = (bindingId: string | undefined): ThreadHealthView
   return threadHealthView(bindingId, now);
 };
 
-/** Props for the card's activity mark rim, with the non-contradiction rule applied. */
+const healthMarkAt = (bindingId: string | undefined, signal: AgentSignalKind | undefined, now: number): ThreadHealthMark => {
+  const view = threadHealthView(bindingId, now);
+  if (view === undefined) return NO_MARK;
+  return threadHealthMark(view.reading, { now, freshness: view.freshness, signal });
+};
+
+/** Every field a mark draws, as one string: equal strings draw the same mark. */
+export const threadHealthMarkKey = (mark: ThreadHealthMark): string =>
+  mark === NO_MARK
+    ? ""
+    : [mark.health ?? "-", mark.value ?? "-", mark.healthStale ? "stale" : "fresh", mark.label ?? "", mark.line ?? ""].join("\n");
+
+/**
+ * Props for the card's activity mark rim, with the non-contradiction rule
+ * applied. The card re-renders when its mark changes, not on every clock tick:
+ * a current reading never changes with the clock, and a stale one only when
+ * its "last observed" age moves on.
+ */
 export const useThreadHealthMark = (
   bindingId: string | undefined,
   signal: AgentSignalKind | undefined,
 ): ThreadHealthMark => {
-  use$(seatAwareness$.rev);
-  const now = useHealthClock();
-  const view = threadHealthView(bindingId, now);
-  if (view === undefined) return NO_MARK;
-  return threadHealthMark(view.reading, { now, freshness: view.freshness, signal });
+  useHealthClockRunning();
+  const mark = useRef<ThreadHealthMark>(NO_MARK);
+  use$(() => {
+    seatAwareness$.rev.get();
+    const next = healthMarkAt(bindingId, signal, healthClockNow());
+    const key = threadHealthMarkKey(next);
+    if (key !== threadHealthMarkKey(mark.current)) mark.current = next;
+    return key;
+  });
+  return mark.current;
 };

@@ -29,7 +29,7 @@ import { seatAwareness$ } from "../../lib/seat-awareness";
 import { digitHue } from "../../lib/seat-projections";
 import { seatRollup, worseRollup, type SeatRollup } from "../../lib/seat-rollup";
 import { state$ } from "../../lib/state";
-import { useHealthClock } from "../../lib/thread-health";
+import { healthClockNow, useHealthClockRunning } from "../../lib/thread-health";
 import { modelStore } from "../../lib/use-model";
 import { CommandGroupChip } from "./CommandGroupChip";
 import "./command-group-bar.css";
@@ -46,9 +46,11 @@ import "./command-group-bar.css";
  */
 function useBarTones(nodeIds: ReadonlyArray<string>): ReadonlyMap<string, SeatRollup> {
   const canvasName = use$(state$.canvasName);
-  const now = useHealthClock();
+  useHealthClockRunning();
   const encoded = use$(() => {
-    // The stores a tone is read from. Each is followed here and nowhere else.
+    // The stores a tone is read from. Each is followed here and nowhere else,
+    // the clock too, so a tick that changes no tone redraws nothing.
+    const now = healthClockNow();
     seatAwareness$.rev.get();
     agentSeat$.rev.get();
     kernel$.executionRev.get();
