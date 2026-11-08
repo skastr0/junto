@@ -184,3 +184,40 @@ describe("the palette picker on another machine", () => {
     anchor.remove();
   });
 });
+
+describe("the picker's Tab walk out of the cascade", () => {
+  it("steps over a subtree the front modal marks hidden, not only an inert one", async () => {
+    // A stop counts by having a box (isTabStop); jsdom has no layout.
+    const rects = HTMLElement.prototype.getClientRects;
+    const cover = document.createElement("div");
+    cover.setAttribute("data-modal-hidden", "");
+    const covered = document.createElement("button");
+    covered.textContent = "Under the modal";
+    cover.append(covered);
+    const next = document.createElement("button");
+    next.textContent = "Next";
+    document.body.append(cover, next);
+    try {
+      HTMLElement.prototype.getClientRects = () =>
+        [new DOMRect()] as unknown as DOMRectList;
+      // The perf change replaced inert with aria-hidden plus this mark, so a
+      // covered picker keeps its DOM and only the mark says it takes no keys.
+      setHarnessMachineSource({ ...pendingHarnessMachineSource, inventory: async () => Result.succeed(miniInventory) });
+      await render("mac-mini");
+      const row = host.querySelector<HTMLButtonElement>(".agent-harness-pick__item")!;
+      await act(async () => {
+        row.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      });
+      const cascade = document.querySelector<HTMLElement>(".agent-cascade");
+      expect(cascade).not.toBeNull();
+      await act(async () => {
+        cascade!.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+      });
+      expect(document.activeElement).toBe(next);
+    } finally {
+      HTMLElement.prototype.getClientRects = rects;
+      cover.remove();
+      next.remove();
+    }
+  });
+});
