@@ -626,6 +626,67 @@ test("hotkey performance probe", async () => {
       return;
     }
 
+    // CPU-profile only the Cmd release: the switcher close plus whatever
+    // seat surface the commit opens, with the hold itself unprofiled.
+    if (process.env.PERF_HOTKEYS_PROFILE === "keyup") {
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Profiler.enable");
+      await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
+      await resetProbe(page);
+      await page.keyboard.down("Meta");
+      for (let i = 0; i < 40; i += 1) {
+        await page.keyboard.press("Backquote");
+        await sleep(45);
+      }
+      await sleep(300);
+      await cdp.send("Profiler.start");
+      await page.keyboard.up("Meta");
+      await sleep(600);
+      const { profile } = (await cdp.send("Profiler.stop")) as {
+        profile: {
+          nodes: Array<{
+            id: number;
+            hitCount?: number;
+            callFrame: { functionName: string; url: string; lineNumber: number };
+            children?: number[];
+          }>;
+          samples?: number[];
+          timeDeltas?: number[];
+        };
+      };
+      const self = new Map<string, { hits: number; name: string; url: string; line: number }>();
+      for (const node of profile.nodes) {
+        const hits = node.hitCount ?? 0;
+        if (hits === 0) continue;
+        const cf = node.callFrame;
+        const key = `${cf.functionName || "(anon)"} @ ${cf.url.split("/").pop()}:${cf.lineNumber + 1}`;
+        const cur = self.get(key) ?? { hits: 0, name: cf.functionName || "(anon)", url: cf.url, line: cf.lineNumber + 1 };
+        cur.hits += hits;
+        self.set(key, cur);
+      }
+      const totalHits = [...self.values()].reduce((a, b) => a + b.hits, 0);
+      const top = [...self.values()]
+        .sort((a, b) => b.hits - a.hits)
+        .slice(0, 60)
+        .map((s) => ({ ...s, pct: Math.round((s.hits / Math.max(1, totalHits)) * 1000) / 10 }));
+      mkdirSync(dirname(OUT), { recursive: true });
+      writeFileSync(
+        OUT,
+        JSON.stringify(
+          {
+            profile: "keyup",
+            samples: profile.samples?.length ?? 0,
+            totalHits,
+            probe: await readProbe(page),
+            top,
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+
     // Timeline trace of one sweep: names the native share per step —
     // UpdateLayoutTree elementCount, Layout dirty count, Paint,
     // PaintArtifactCompositor, and invalidation reasons. Starts well before
@@ -639,6 +700,9 @@ test("hotkey performance probe", async () => {
         categories: "toplevel,devtools.timeline,disabled-by-default-devtools.timeline.invalidationTracking,blink,cc",
         transferMode: "ReportEvents",
       });
+      // The renderer profiler's start blocks 100-300 ms on the first JS it
+      // sees; poke it now so that fake task lands in the lead-in, not a step.
+      await page.evaluate(() => 0);
       await sleep(1_200);
       await page.keyboard.down("Meta");
       for (let i = 0; i < 40; i += 1) {
@@ -653,6 +717,26 @@ test("hotkey performance probe", async () => {
       await sleep(300);
       mkdirSync(dirname(OUT), { recursive: true });
       writeFileSync(OUT, JSON.stringify({ trace: "sweep", events: chunks }, null, 1));
+      return;
+    }
+
+    // HUD screenshots for pixel-diffing a paint-behavior change: the strip
+    // at rest after open, then mid-sweep. PERF_HOTKEYS_SHOT=<dir>.
+    if (process.env.PERF_HOTKEYS_SHOT) {
+      const dir = process.env.PERF_HOTKEYS_SHOT;
+      mkdirSync(dir, { recursive: true });
+      await page.keyboard.down("Meta");
+      await page.keyboard.press("Backquote");
+      await sleep(600);
+      await page.locator(".focus-switcher").screenshot({ path: join(dir, "hud-rest.png") });
+      for (let i = 0; i < 15; i += 1) {
+        await page.keyboard.press("Backquote");
+        await sleep(45);
+      }
+      await sleep(300);
+      await page.locator(".focus-switcher").screenshot({ path: join(dir, "hud-sweep.png") });
+      await page.keyboard.up("Meta");
+      await sleep(400);
       return;
     }
 
