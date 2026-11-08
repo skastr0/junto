@@ -125,52 +125,150 @@ export const farSeatScale = (zoom: number): number => scaleFor(FAR_RING_SCREEN_P
 /** The scale that draws a seat ring OVERVIEW_RING_FLOOR_PX across at this zoom. */
 export const seatFloorScale = (zoom: number): number => scaleFor(OVERVIEW_RING_FLOOR_PX, zoom, 1);
 
+/** The text a scale is written as; the ease must use the value the page reads back. */
+const scaleText = (value: number): string => value.toFixed(1);
+const writtenScale = (value: number): number => Number(scaleText(value));
+
 const writeScale = (host: HTMLElement, name: string, value: number): boolean => {
-  const text = value.toFixed(1);
+  const text = scaleText(value);
   if (host.style.getPropertyValue(name) === text) return false;
   host.style.setProperty(name, text);
   return true;
 };
 
-/**
- * The far seat scale and the overview floor a ring's size eases from
- * (canvas-lod.css). A far ring is sized by layout (its --mark-u), not by a
- * scale transform: a scale over the turning parts made Chromium draw every
- * ring offscreen on every frame ("2D scale transform with composited
- * descendants", 16 render passes a frame on the operator's board at the
- * overview). So the size change after a zoom is a FLIP: the new size lands in
- * layout at once, and the ring eases from the old size to it as a transform
- * animation on the compositor, which ends at no transform at all.
- */
-export const FAR_SEAT_SCALE_WAS_VAR = "--far-seat-scale-was";
-export const SEAT_FLOOR_SCALE_WAS_VAR = "--seat-floor-scale-was";
-/**
- * Attribute on the ReactFlow root that restarts the ease: "a" and "b" ease
- * from the size written in the two properties above, after a rest; "in-a"
- * and "in-b" ease from the near size, as a ring enters far or overview. Each
- * pair alternates so the same ease twice in a row restarts.
- */
-export const SEAT_EASE_ATTR = "data-seat-ease";
+/** The two scales a ring's size is drawn from at far and overview (canvas-lod.css --seat-s). */
+export type SeatScales = { readonly far: number; readonly floor: number };
 
-const flipEase = (host: HTMLElement, pair: readonly [string, string]): void => {
-  host.setAttribute(SEAT_EASE_ATTR, host.getAttribute(SEAT_EASE_ATTR) === pair[0] ? pair[1] : pair[0]);
+/** How long the ring's size eases after a camera rest. Same 160 ms the CSS keyframe ran. */
+export const SEAT_EASE_MS = 160;
+/** The ease's curve, unchanged from the CSS keyframe. */
+export const SEAT_EASE_CURVE = "cubic-bezier(.33, 1, .68, 1)";
+/** The animation's id, so a second rest in the same second replaces the first instead of stacking. */
+export const SEAT_EASE_ID = "junto-seat-ease";
+
+/** The size a ring draws at, for a tier and the room around it (canvas-lod.css --seat-s). */
+const seatScale = (tier: CanvasTier, scales: SeatScales, cap: number): number =>
+  tier === "overview"
+    ? Math.max(scales.floor, Math.min(scales.far, cap))
+    : Math.max(1, Math.min(scales.far, cap));
+
+/**
+ * The ratio a ring eases from: the size it drew at before this publish over
+ * the size it draws now. Capped rings (no room to grow) come out at 1 and do
+ * not move, exactly as the CSS min()/max() gave.
+ */
+export const seatEaseRatio = (tier: CanvasTier, from: SeatScales, to: SeatScales, cap: number): number => {
+  const before = seatScale(tier, from, cap);
+  const after = seatScale(tier, to, cap);
+  if (!(before > 0) || !(after > 0)) return 1;
+  return before / after;
 };
 
-const easeSeatScale = (host: HTMLElement, farWas: string, floorWas: string): void => {
-  host.style.setProperty(FAR_SEAT_SCALE_WAS_VAR, farWas);
-  host.style.setProperty(SEAT_FLOOR_SCALE_WAS_VAR, floorWas);
-  flipEase(host, ["a", "b"]);
+const motionPaused = (): boolean =>
+  typeof document !== "undefined" && document.documentElement.getAttribute("data-surface-motion") === "paused";
+
+/**
+ * Start the ring's size ease on every seat mark in the camera's plane, in the
+ * same task as the size publish: the new size is already in layout, so the
+ * first frame draws at the old size and eases to no transform at all.
+ *
+ * A far ring is sized by layout (its --mark-u), not by a scale transform: a
+ * continuous scale over the turning parts made Chromium draw every ring
+ * offscreen on every frame ("2D scale transform with composited descendants",
+ * 16 render passes a frame on the operator's board at the overview). The ease
+ * is a FLIP, 160 ms long, which is a different thing.
+ *
+ * Transform only, run by the compositor through the Web Animations API. The
+ * CSS keyframe this replaces read --seat-s in its from/to, so Blink treated
+ * it as a main-thread animation and restyled every mark it started on: 2304
+ * Animation invalidations and half the zoom's style recalc (canvas-tier.budget
+ * probe, 2026-11-08). A numeric ratio composites and restyles nothing.
+ *
+ * Every seat mark is eased, not just the looping ones: a resting or stopped
+ * ring on screen changes size after a rest too, and Chromium drops an
+ * offscreen animation that has nothing to show.
+ */
+const runningEases = new WeakMap<HTMLElement, { cancel: () => void }>();
+
+/** The camera, as React Flow holds it: the translate, the zoom and the window size. */
+export type CameraWindow = {
+  readonly x: number;
+  readonly y: number;
+  readonly zoom: number;
+  readonly width: number;
+  readonly height: number;
 };
+
+/**
+ * Whether a seat's ring can be on screen, from the node's own translate and
+ * the camera window: no layout read, so the ease never flushes the board it
+ * is about to animate. A seat is 240x96 units and its ring reaches half its
+ * drawn size past the centre; a generous margin keeps a ring entering the
+ * window in the ease rather than snapping.
+ */
+const SEAT_UNITS = 240;
+const SEAT_HEIGHT_UNITS = 96;
+const RING_UNITS = 52;
+const SCREEN_MARGIN_UNITS = 160;
+
+const onScreen = (node: HTMLElement, camera: CameraWindow, ringUnits: number): boolean => {
+  const match = /translate\(([-0-9.]+)px,\s*([-0-9.]+)px\)/u.exec(node.style.transform);
+  if (match === null) return true;
+  if (!(camera.zoom > 0) || !(camera.width > 0) || !(camera.height > 0)) return true;
+  const reach = ringUnits / 2 + SCREEN_MARGIN_UNITS;
+  const left = -camera.x / camera.zoom - reach;
+  const top = -camera.y / camera.zoom - reach;
+  const right = (-camera.x + camera.width) / camera.zoom + reach;
+  const bottom = (-camera.y + camera.height) / camera.zoom + reach;
+  const x = Number(match[1]);
+  const y = Number(match[2]);
+  return x + SEAT_UNITS >= left && x <= right && y + SEAT_HEIGHT_UNITS >= top && y <= bottom;
+};
+
+const easeSeatRings = (host: HTMLElement, tier: CanvasTier, from: SeatScales, to: SeatScales, camera?: CameraWindow): void => {
+  if (motionPaused()) return;
+  const started: Array<[HTMLElement, number]> = [];
+  // Geometry, not data-mark-visible: a resting or stopped ring on screen
+  // changes size after a rest too. A ring outside the camera window is
+  // skipped, since an animation nobody can see is main-thread work.
+  for (const mark of host.querySelectorAll<HTMLElement>(".react-flow__viewport .junto-seat > .junto-mark")) {
+    const node = mark.closest<HTMLElement>(".react-flow__node");
+    if (node !== null && camera !== undefined && !onScreen(node, camera, RING_UNITS * Math.max(to.far, to.floor))) continue;
+    const cap = Number(node?.style.getPropertyValue("--ring-cap")) || 1.75;
+    const ratio = seatEaseRatio(tier, from, to, cap);
+    if (!Number.isFinite(ratio) || Math.abs(ratio - 1) < 0.002) continue;
+    started.push([mark, ratio]);
+  }
+  // Started in this task, after the size write: the first frame renders the
+  // new size under an animation at t=0, which is the old size.
+  for (const [mark, ratio] of started) {
+    runningEases.get(mark)?.cancel();
+    runningEases.set(mark, mark.animate([{ transform: `scale(${String(ratio)})` }, { transform: "none" }], {
+      id: SEAT_EASE_ID,
+      duration: SEAT_EASE_MS,
+      easing: SEAT_EASE_CURVE,
+    }));
+  }
+};
+
+const readScale = (host: HTMLElement, name: string): number => Number.parseFloat(host.style.getPropertyValue(name));
 
 /**
  * A ring entering far or overview grows from its near size, as the transform
  * transition did when the tier rule first applied. Mid-gesture, so it writes
- * no inherited property: the attribute alone restarts it.
+ * nothing: the ease alone starts it, from the size published at the last rest.
  */
-export const easeSeatScaleOnTierEntry = (host: HTMLElement | null, was: CanvasTier, next: CanvasTier): void => {
+export const easeSeatScaleOnTierEntry = (
+  host: HTMLElement | null,
+  was: CanvasTier,
+  next: CanvasTier,
+  camera?: CameraWindow,
+): void => {
   const enlarged = (tier: CanvasTier): boolean => tier === "far" || tier === "overview";
   if (host === null || enlarged(was) || !enlarged(next)) return;
-  flipEase(host, ["in-a", "in-b"]);
+  const published = { far: readScale(host, FAR_SEAT_SCALE_VAR), floor: readScale(host, SEAT_FLOOR_SCALE_VAR) };
+  if (!(published.far > 0) || !(published.floor > 0)) return;
+  easeSeatRings(host, next, { far: 1, floor: 1 }, published, camera);
 };
 
 /** Custom property on the ReactFlow root: the inverse zoom, for sizes held in screen pixels (spine discs, focus rings). */
@@ -185,14 +283,24 @@ export const nodeScale = (zoom: number): number => {
   return Math.min(NODE_SCALE_MAX, Math.max(1, Math.ceil((1 / zoom) * 10) / 10));
 };
 
-/** Write the far seat scale, the overview floor and the node scale on `host` (the ReactFlow root) when they change. */
-export const publishFarSeatScale = (host: HTMLElement | null, zoom: number): void => {
+/**
+ * Write the far seat scale, the overview floor and the node scale on `host`
+ * (the ReactFlow root) when they change, and start the ring's size ease in
+ * the same task, so the first frame after a rest draws at the old size.
+ */
+export const publishFarSeatScale = (
+  host: HTMLElement | null,
+  zoom: number,
+  tier: CanvasTier = canvasTier$.peek(),
+  camera?: CameraWindow,
+): void => {
   if (host === null) return;
   writeScale(host, NODE_SCALE_VAR, nodeScale(zoom));
   // The first write lands without an ease, as a ring's first style did.
-  const farWas = host.style.getPropertyValue(FAR_SEAT_SCALE_VAR);
-  const floorWas = host.style.getPropertyValue(SEAT_FLOOR_SCALE_VAR);
-  const far = writeScale(host, FAR_SEAT_SCALE_VAR, farSeatScale(zoom));
-  const floor = writeScale(host, SEAT_FLOOR_SCALE_VAR, seatFloorScale(zoom));
-  if ((far || floor) && farWas !== "" && floorWas !== "") easeSeatScale(host, farWas, floorWas);
+  const from = { far: readScale(host, FAR_SEAT_SCALE_VAR), floor: readScale(host, SEAT_FLOOR_SCALE_VAR) };
+  // The values as written, so the ease starts where the layout actually is.
+  const to = { far: writtenScale(farSeatScale(zoom)), floor: writtenScale(seatFloorScale(zoom)) };
+  const far = writeScale(host, FAR_SEAT_SCALE_VAR, to.far);
+  const floor = writeScale(host, SEAT_FLOOR_SCALE_VAR, to.floor);
+  if ((far || floor) && from.far > 0 && from.floor > 0) easeSeatRings(host, tier, from, to, camera);
 };

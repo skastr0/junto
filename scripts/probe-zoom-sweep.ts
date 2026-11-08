@@ -182,7 +182,7 @@ if (appRoot === "") {
   console.error("usage: bun scripts/probe-zoom-sweep.ts --app-root DIR [--label L] [--seconds S] [--port P] [--fixture NAME] [--out FILE]\n       bun scripts/probe-zoom-sweep.ts --compare before=DIR,after=DIR [--repeats 3]");
   process.exit(64);
 }
-if (!["product", "no-rest-scale", "no-tier-css", "coarse-rest", "integer-rest", "static-visibility", "no-ease", "ease-visible", "waapi-ease"].includes(variant)) {
+if (!["product", "no-rest-scale", "no-tier-css", "coarse-rest", "integer-rest", "static-visibility", "no-ease", "ease-visible", "waapi-ease", "no-waapi", "waapi-first"].includes(variant)) {
   console.error("zoom sweep: --variant is product, no-rest-scale, no-tier-css, coarse-rest, integer-rest, static-visibility, no-ease or ease-visible");
   process.exit(64);
 }
@@ -730,6 +730,17 @@ try {
               }
               return setProperty.call(this, name, value, priority);
             };
+          }
+          if (variant === "no-waapi" || variant === "waapi-first") {
+            // Diagnostic: the product's WAAPI ease (no-op, or only its first
+            // seat mark), to see what each started animation costs.
+            const animate = Element.prototype.animate;
+            Element.prototype.animate = function (keyframes, options) {
+              if (variant === "no-waapi" || window.__waapiFirstDone === true) return { id: "", cancel() {}, finished: Promise.resolve() };
+              window.__waapiFirstDone = true;
+              return animate.call(this, keyframes, options);
+            };
+            new MutationObserver(() => { window.__waapiFirstDone = false; }).observe(document.querySelector(".react-flow") ?? document.body, { attributes: true, attributeFilter: ["style"] });
           }
           if (variant === "no-ease") {
             // Diagnostic: the camera rest still publishes the new ring size,

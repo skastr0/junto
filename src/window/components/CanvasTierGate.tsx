@@ -7,6 +7,7 @@ import {
   clearCanvasTier,
   easeSeatScaleOnTierEntry,
   publishCanvasTier,
+  type CameraWindow,
   publishFarSeatScale,
 } from "../lib/canvas-tier";
 
@@ -36,9 +37,17 @@ import {
 export function CanvasTierGate() {
   const store = useStoreApi();
   useEffect(() => {
+    /** The camera window, for the ring ease's on-screen test (no layout read). */
+    const cameraOf = (state: ReturnType<typeof store.getState>): CameraWindow => ({
+      x: state.transform[0],
+      y: state.transform[1],
+      zoom: state.transform[2],
+      width: state.width,
+      height: state.height,
+    });
     let zoom = store.getState().transform[2];
     publishCanvasTier(zoom);
-    publishFarSeatScale(store.getState().domNode, zoom);
+    publishFarSeatScale(store.getState().domNode, zoom, canvasTier$.peek(), cameraOf(store.getState()));
     let [x, y] = store.getState().transform;
     let settle: ReturnType<typeof setTimeout> | undefined;
     const unsubscribe = store.subscribe((state) => {
@@ -51,14 +60,14 @@ export function CanvasTierGate() {
         clearTimeout(settle);
         settle = setTimeout(() => {
           const rested = store.getState();
-          publishFarSeatScale(rested.domNode, rested.transform[2]);
+          publishFarSeatScale(rested.domNode, rested.transform[2], canvasTier$.peek(), cameraOf(rested));
           cameraSettled$.set(cameraSettled$.peek() + 1);
         }, CAMERA_SETTLE_MS);
       }
       if (state.transform[2] === zoom) return;
       zoom = state.transform[2];
       const was = canvasTier$.peek();
-      easeSeatScaleOnTierEntry(state.domNode, was, publishCanvasTier(zoom));
+      easeSeatScaleOnTierEntry(state.domNode, was, publishCanvasTier(zoom), cameraOf(state));
     });
     return () => {
       unsubscribe();

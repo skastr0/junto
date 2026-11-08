@@ -122,35 +122,14 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
 }
 /* The scale is published once the camera rests (CanvasTierGate), so a ring
    changes size after a zoom gesture, not on each frame of it. The change is
-   eased on the compositor the ring already turns on, as a FLIP: the new size
-   lands in layout, and the ring runs from its old size to it in 160ms
-   (CAMERA_SETTLE_MS) as a transform animation that ends at no transform, so
-   a ring at rest holds no scale. A ring's motion is never slowed or stilled,
-   only its size eased into place. canvas-tier.ts writes the size it eases
-   from and flips data-seat-ease to restart the ease. With motion paused
-   (reduced motion) the size lands at once. */
-html[data-canvas-tier="far"] .react-flow__viewport .junto-seat {
-  --seat-s-was: max(1, min(var(--far-seat-scale-was, 1.75), var(--ring-cap, 1.75)));
-}
-html[data-canvas-tier="overview"] .react-flow__viewport .junto-seat {
-  --seat-s-was: max(var(--seat-floor-scale-was, 1), min(var(--far-seat-scale-was, 1.75), var(--ring-cap, 1.75)));
-}
-html:not([data-surface-motion="paused"]):is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow[data-seat-ease="a"] .react-flow__viewport .junto-seat > .junto-mark {
-  animation: junto-seat-ease-a 160ms cubic-bezier(.33, 1, .68, 1);
-}
-html:not([data-surface-motion="paused"]):is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow[data-seat-ease="b"] .react-flow__viewport .junto-seat > .junto-mark {
-  animation: junto-seat-ease-b 160ms cubic-bezier(.33, 1, .68, 1);
-}
-html:not([data-surface-motion="paused"]):is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow[data-seat-ease="in-a"] .react-flow__viewport .junto-seat > .junto-mark {
-  animation: junto-seat-ease-in-a 160ms cubic-bezier(.33, 1, .68, 1);
-}
-html:not([data-surface-motion="paused"]):is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow[data-seat-ease="in-b"] .react-flow__viewport .junto-seat > .junto-mark {
-  animation: junto-seat-ease-in-b 160ms cubic-bezier(.33, 1, .68, 1);
-}
-@keyframes junto-seat-ease-a { from { transform: scale(calc(var(--seat-s-was) / var(--seat-s))); } }
-@keyframes junto-seat-ease-b { from { transform: scale(calc(var(--seat-s-was) / var(--seat-s))); } }
-@keyframes junto-seat-ease-in-a { from { transform: scale(calc(1 / var(--seat-s))); } }
-@keyframes junto-seat-ease-in-b { from { transform: scale(calc(1 / var(--seat-s))); } }
+   eased as a FLIP: the new size lands in layout, and the ring runs from its
+   old size to it in 160ms as a transform animation that ends at no transform,
+   so a ring at rest holds no scale. canvas-tier.ts starts that ease per seat
+   through the Web Animations API, with a numeric ratio: a CSS keyframe reading
+   --seat-s in its from/to made Blink restyle every mark it started on, which
+   was half of a zoom's main-thread style work. A ring's motion is never
+   slowed or stilled, only its size eased into place, and with motion paused
+   the size lands at once. */
 /* The scaled mark is already its own compositor layer, holding the ring and
    its turning parts, so the card's own layer (styles.css, a card with a
    turning ring) would only double it: far and overview drop it. The rings

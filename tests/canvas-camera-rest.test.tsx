@@ -16,12 +16,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-type CameraState = { transform: [number, number, number]; domNode: HTMLElement | null };
+type CameraState = { transform: [number, number, number]; domNode: HTMLElement | null; width: number; height: number };
 type CameraListener = (state: CameraState) => void;
 
 const camera = vi.hoisted(() => {
   const listeners = new Set<CameraListener>();
-  const state: CameraState = { transform: [0, 0, 1], domNode: null };
+  const state: CameraState = { transform: [0, 0, 1], domNode: null, width: 1200, height: 800 };
   return {
     state,
     getState: (): CameraState => state,
@@ -50,15 +50,16 @@ import { RegionGlanceGate } from "../src/window/components/RegionGlanceGate";
 import {
   CAMERA_SETTLE_MS,
   FAR_SEAT_SCALE_VAR,
-  FAR_SEAT_SCALE_WAS_VAR,
   NODE_SCALE_VAR,
-  SEAT_EASE_ATTR,
+  SEAT_EASE_CURVE,
+  SEAT_EASE_ID,
+  SEAT_EASE_MS,
   SEAT_FLOOR_SCALE_VAR,
-  SEAT_FLOOR_SCALE_WAS_VAR,
   cameraSettled$,
   clearCanvasTier,
   farSeatScale,
   nodeScale,
+  seatEaseRatio,
   seatFloorScale,
 } from "../src/window/lib/canvas-tier";
 import { GLANCE_SUB_VAR, GLANCE_VAR, regionGlanceOpacity, subregionGlanceOpacity } from "../src/window/lib/region-glance";
@@ -69,6 +70,32 @@ let host: HTMLDivElement;
 let surface: HTMLDivElement;
 let root: Root;
 
+/** Every ease started by the gate: the Web Animations call, as it was made. */
+type EaseCall = {
+  readonly el: Element;
+  readonly keyframes: unknown;
+  readonly options: { readonly id?: string; readonly duration?: number; readonly easing?: string };
+};
+const eases: EaseCall[] = [];
+
+/** One seat mark in the camera's plane, with the room cap its node carries. */
+const addMark = (cap = 1.75): HTMLElement => {
+  const viewport = document.createElement("div");
+  viewport.className = "react-flow__viewport";
+  const node = document.createElement("div");
+  node.className = "react-flow__node";
+  node.style.setProperty("--ring-cap", String(cap));
+  const seat = document.createElement("div");
+  seat.className = "junto-seat";
+  const mark = document.createElement("span");
+  mark.className = "junto-mark";
+  seat.append(mark);
+  node.append(seat);
+  viewport.append(node);
+  surface.append(viewport);
+  return mark;
+};
+
 const value = (name: string): string => surface.style.getPropertyValue(name);
 const text = (property: number): string => property.toFixed(1);
 /** The glance writes "0" for none inked and two decimals otherwise (region-glance.ts). */
@@ -76,6 +103,13 @@ const opacity = (property: number): string => (property === 0 ? "0" : property.t
 
 beforeEach(async () => {
   vi.useFakeTimers();
+  eases.length = 0;
+  document.documentElement.removeAttribute("data-surface-motion");
+  // jsdom has no Web Animations; record the calls instead.
+  (Element.prototype as unknown as { animate: unknown }).animate = function (this: Element, keyframes: unknown, options: EaseCall["options"]) {
+    eases.push({ el: this, keyframes, options: options ?? {} });
+    return { id: options?.id ?? "", cancel: () => undefined, finished: Promise.resolve() };
+  };
   host = document.createElement("div");
   surface = document.createElement("div");
   document.body.append(host, surface);
@@ -93,6 +127,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  delete (Element.prototype as unknown as { animate?: unknown }).animate;
+  document.documentElement.removeAttribute("data-surface-motion");
   await act(async () => {
     root.unmount();
   });
@@ -142,26 +178,59 @@ describe("level-of-detail properties wait for the camera to rest", () => {
       `${NODE_SCALE_VAR}=${text(nodeScale(0.2))}`,
       `${FAR_SEAT_SCALE_VAR}=${text(farSeatScale(0.2))}`,
       `${SEAT_FLOOR_SCALE_VAR}=${text(seatFloorScale(0.2))}`,
-      `${FAR_SEAT_SCALE_WAS_VAR}=${text(farSeatScale(1))}`,
-      `${SEAT_FLOOR_SCALE_WAS_VAR}=${text(seatFloorScale(1))}`,
       `${GLANCE_VAR}=${opacity(regionGlanceOpacity(0.2))}`,
       `${GLANCE_SUB_VAR}=${opacity(subregionGlanceOpacity(0.2))}`,
     ]);
   });
 
-  it("restarts the ring's ease: from the near size as it enters far, from the old size at rest", async () => {
-    expect(surface.getAttribute(SEAT_EASE_ATTR)).toBeNull();
+  it("starts the ring's size ease in the publish task, from the size it drew at", async () => {
+    addMark(2);
     await gesture([0.2]);
-    expect(surface.getAttribute(SEAT_EASE_ATTR)).toBe("in-a");
+    // Entering far: the ease runs from the near size to the published scale.
+    const near = { far: 1, floor: 1 };
+    // As written: a scale is stored to one decimal, and the ease reads that.
+    const written = (value: number): number => Number(value.toFixed(1));
+    const published = { far: written(farSeatScale(1)), floor: written(seatFloorScale(1)) };
+    expect(eases).toHaveLength(1);
+    expect(eases[0]!.options).toEqual({ id: SEAT_EASE_ID, duration: SEAT_EASE_MS, easing: SEAT_EASE_CURVE });
+    expect(eases[0]!.keyframes).toEqual([
+      { transform: `scale(${String(seatEaseRatio("far", near, published, 2))})` },
+      { transform: "none" },
+    ]);
+    // At rest the new size is published and the ring eases from the old one.
     await rest();
-    expect(surface.getAttribute(SEAT_EASE_ATTR)).toBe("a");
+    expect(eases).toHaveLength(2);
+    expect(eases[1]!.el).toBe(eases[0]!.el);
+    const rested = { far: written(farSeatScale(0.2)), floor: written(seatFloorScale(0.2)) };
+    expect(eases[1]!.keyframes).toEqual([
+      { transform: `scale(${String(seatEaseRatio("far", published, rested, 2))})` },
+      { transform: "none" },
+    ]);
+    expect(eases[1]!.options).toEqual({ id: SEAT_EASE_ID, duration: SEAT_EASE_MS, easing: SEAT_EASE_CURVE });
+  });
+
+  it("eases a resting seat's ring, leaves a capped ring still, and skips paused motion", async () => {
+    // Not data-mark-visible: a resting ring on screen changes size too.
+    addMark(2);
+    await gesture([0.2]);
+    await rest();
+    expect(eases).toHaveLength(2);
+
+    eases.length = 0;
+    document.documentElement.setAttribute("data-surface-motion", "paused");
     await gesture([0.15]);
     await rest();
-    expect(surface.getAttribute(SEAT_EASE_ATTR)).toBe("b");
-    // Back to near and in again: the entry ease restarts.
+    expect(eases).toHaveLength(0);
+    document.documentElement.removeAttribute("data-surface-motion");
+
+    // A ring with no room to grow keeps its size: ratio 1, no animation.
+    surface.replaceChildren();
+    addMark(1);
+    eases.length = 0;
     await gesture([0.9]);
     await gesture([0.2]);
-    expect(surface.getAttribute(SEAT_EASE_ATTR)).toBe("in-a");
+    await rest();
+    expect(eases).toHaveLength(0);
   });
 
   it("moves the tier with the camera, so the detail under the hand stays true", async () => {
@@ -199,18 +268,14 @@ describe("level-of-detail properties wait for the camera to rest", () => {
 });
 
 describe("ring size easing", () => {
-  const styles = readFileSync(join(__dirname, "..", "src/window/styles/canvas-lod.css"), "utf8");
+  const styles = readFileSync(join(__dirname, "..", "src/window/styles", "canvas-lod.css"), "utf8");
 
-  it("eases the far ring scale on the compositor, and jumps when motion is paused", () => {
-    // Every ease runs only while motion is live, as a transform animation.
-    for (const ease of ["a", "b", "in-a", "in-b"]) {
-      expect(styles).toMatch(
-        new RegExp(
-          String.raw`html:not\(\[data-surface-motion="paused"\]\)[^{]*\.react-flow\[data-seat-ease="${ease}"\][^{]*\.junto-seat > \.junto-mark \{[^}]*animation: junto-seat-ease-${ease} \d+ms`,
-        ),
-      );
-      expect(styles).toMatch(new RegExp(String.raw`@keyframes junto-seat-ease-${ease} \{ from \{ transform: scale\(`));
-    }
+  it("no longer eases with a CSS keyframe that restyles every mark", () => {
+    // The keyframe read --seat-s in its from/to, so Blink treated it as a
+    // main-thread animation and restyled every mark it started on (2304
+    // Animation invalidations in a zoom sweep). The ease is a WAAPI transform
+    // animation now, asserted by the gate tests above.
+    expect(styles).not.toMatch(/junto-seat-ease/);
   });
 
   it("sizes a far ring by its unit, never by a scale transform at rest", () => {
