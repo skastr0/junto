@@ -36,6 +36,7 @@ Pinch or ctrl+wheel zooms, wheel or drag pans. Flags:
 | `--overlay=1`, `--pump=1` | page chrome over the canvas; an empty frame loop on the page | off |
 | `--drive=1` | replay `gesture.cjs`, print a summary, exit | off |
 | `--out`, `--tracefile` | where the summary and a Chromium trace go | none |
+| `--shots=<prefix>` | with `--drive=1`, pictures far out, at the script's end and close in | none |
 | `--show=0` | hidden window, for a smoke run only (use `--mode=main`: a hidden view draws no frames) | shown |
 
 Chromium switches pass straight through, such as `--force-device-scale-factor=2`

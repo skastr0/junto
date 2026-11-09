@@ -28,6 +28,7 @@ const opts = {
   overlay: flag("overlay", "0") !== "0",
   pump: flag("pump", "0") !== "0",
   soft: flag("soft", "0") !== "0",
+  shots: flag("shots", ""),
   size: flag("size", "1320x900").split("x").map(Number),
   hz: Number(flag("hz", "120")),
   board: path.resolve(flag("board", path.join(__dirname, "../../e2e/scenarios/zz-idle-probe.factory.json"))),
@@ -176,6 +177,14 @@ app.whenReady().then(async () => {
   const sample = () => {
     samples.push({ t: epoch(), procs: app.getAppMetrics().map((p) => ({ type: p.type, pid: p.pid, cpuS: p.cpu.cumulativeCPUUsage ?? 0, mb: p.memory.workingSetSize / 1024 })) });
   };
+  // --shots=<prefix>: pictures of the canvas far out, at the script's end, and close in.
+  const shot = async (name) => {
+    if (!opts.shots) return;
+    const image = await target.capturePage();
+    fs.writeFileSync(`${opts.shots}-${name}.png`, image.resize({ width: Math.round(image.getSize().width / 2) }).toPNG());
+  };
+  const wheel = (dx, dy, ctrl) => target.debugger.sendCommand("Input.dispatchMouseEvent", { type: "mouseWheel", x: at.x, y: at.y, deltaX: dx, deltaY: dy, modifiers: ctrl ? 2 : 0 }).catch(() => {});
+  await shot("far");
   if (opts.tracefile) await contentTracing.startRecording({ included_categories: TRACE_CATEGORIES });
   const start = epoch();
   sample();
@@ -185,9 +194,7 @@ app.whenReady().then(async () => {
       const t = epoch() - start;
       while (next < script.steps.length && script.steps[next].at <= t) {
         const step = script.steps[next++];
-        target.debugger
-          .sendCommand("Input.dispatchMouseEvent", { type: "mouseWheel", x: at.x, y: at.y, deltaX: step.dx, deltaY: step.dy, modifiers: step.ctrl ? 2 : 0 })
-          .catch(() => {});
+        wheel(step.dx, step.dy, step.ctrl);
       }
       if (t >= script.end) resolve();
       else setTimeout(tick, 2);
@@ -197,6 +204,16 @@ app.whenReady().then(async () => {
   sample();
   if (opts.tracefile) await contentTracing.stopRecording(opts.tracefile);
   const log = await wc.executeJavaScript("window.__collect()");
+  if (opts.shots) {
+    await sleep(300);
+    await shot("mid");
+    for (let i = 0; i < 40; i++) {
+      wheel(0, -1.5, true);
+      await sleep(8);
+    }
+    await sleep(500);
+    await shot("near");
+  }
   const options = { arm: "gpu", mode: opts.mode, scale: opts.scale, load: opts.load, rate: opts.rate, overlay: opts.overlay, pump: opts.pump, soft: opts.soft, hz: opts.hz, size: opts.size, shown: opts.show, separateProcess: pids.canvas !== -1 };
   const summary = summarize({ log, script, start, samples, pids, options });
   if (opts.out) fs.writeFileSync(opts.out, JSON.stringify(summary, null, 2));

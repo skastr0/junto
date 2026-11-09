@@ -52,8 +52,12 @@ wins = [(a, b) for a, b in wins if b - a > 300_000]
 active = sum(b - a for a, b in wins) / 1e6
 
 
+def window(ts):
+    return next((i for i, (a, b) in enumerate(wins) if a <= ts <= b), -1)
+
+
 def inwin(ts):
-    return any(a <= ts <= b for a, b in wins)
+    return window(ts) >= 0
 
 
 def spread(values):
@@ -95,7 +99,8 @@ for main in mains:
     during = [e for e in mx if inwin(e["ts"])]
     frames = [e for e in during if e["name"] == "ProxyMain::BeginMainFrame"]
     commits = sorted(e["ts"] for e in during if e["name"] == "ProxyMain::BeginMainFrame::commit")
-    gaps = [(y - x) / 1e3 for x, y in zip(commits, commits[1:]) if y - x < 400_000]
+    # A gap counts only inside one gesture: the pause between two gestures is not a stall.
+    gaps = [(y - x) / 1e3 for x, y in zip(commits, commits[1:]) if window(x) == window(y)]
     tasks = [e["dur"] / 1e3 for e in during if e["name"] == "RunTask"]
     print(f"\n== renderer pid {main[0]} main thread during gestures")
     print(f"  main frames started {len(frames) / active:.1f}/s, committed {len(commits) / active:.1f}/s")
