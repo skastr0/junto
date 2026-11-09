@@ -1096,8 +1096,9 @@ needed, so it costs nothing while idle. The trust rules are in
 ## Test machines
 
 The Mac mini: `ssh mac-mini`, macOS on Apple Silicon, with the Claude Code,
-Codex, Grok, Pi and Amp CLIs installed. It has no Junto on it. Install under
-the home directory only.
+Codex, Grok, Pi and Amp CLIs installed. It runs Junto as a machine under
+`~/.junto`, and that one is the operator's: a test install takes its own
+folder. Install under the home directory only.
 
 Linux: sandboxes on Boat, which the operator opened to us for testing. They
 are native machines, so they replace the emulated one for anything that
