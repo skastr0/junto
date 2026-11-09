@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>GPU canvas lab</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #0d0e11;
+        color: #c9ccd3;
+      }
+      #hud {
+        position: fixed;
+        left: 0;
+        right: 0;
+        top: 0;
+        height: 26px;
+        box-sizing: border-box;
+        padding: 6px 12px;
+        background: #14161b;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        white-space: nowrap;
+        overflow: hidden;
+        font: 11px "SF Mono", Menlo, monospace;
+      }
+      /* The canvas sits below the bar and nothing overlaps it: page content
+         over a frame from another site makes Chromium ask this page where
+         each input should go, and then input waits for this page. */
+      #stage {
+        position: fixed;
+        left: 0;
+        right: 0;
+        top: 26px;
+        bottom: 0;
+      }
+      #stage canvas,
+      #stage iframe {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        display: block;
+        touch-action: none;
+      }
+      #overlay {
+        position: fixed;
+        right: 16px;
+        top: 60px;
+        width: 180px;
+        height: 60px;
+        border-radius: 8px;
+        background: rgba(30, 33, 40, 0.8);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <div id="hud">starting</div>
+    <script type="module" src="./host.js"></script>
+  </body>
+</html>
