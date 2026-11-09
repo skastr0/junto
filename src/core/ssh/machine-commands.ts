@@ -95,7 +95,8 @@ const input = JSON.parse(process.argv[2]);
 input.bundle = root;
 fs.writeFileSync(process.argv[3], JSON.stringify(input), {mode: 384});
 ' "$stage/package" "$2" "$stage/input.json"
-"$stage/package/bin/node" "$stage/package/core/machine-local.cjs" install-local "@$stage/input.json"
+# The installer takes its kernel lease through the bundle's native junto (install-lock.ts).
+JUNTO_NATIVE_CLI="$stage/package/bin/junto" "$stage/package/bin/node" "$stage/package/core/machine-local.cjs" install-local "@$stage/input.json"
 `;
 
 /** Copy is an isolated SSH stream, with arguments quoted by the SSH compiler. */
