@@ -2,7 +2,7 @@
 // that replays one gesture script through Chromium's real input path and
 // writes what every frame cost. See README.md.
 
-const { app, BrowserWindow, protocol, net, contentTracing } = require("electron");
+const { app, BrowserWindow, MessageChannelMain, WebContentsView, protocol, net, contentTracing } = require("electron");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -17,7 +17,7 @@ const flag = (name, fallback) => {
   return hit ? hit.slice(name.length + 3) : fallback;
 };
 const opts = {
-  mode: flag("mode", "frame"),
+  mode: flag("mode", "view"),
   scale: Number(flag("scale", "1")),
   load: flag("load", "none"),
   rate: Number(flag("rate", "30")),
@@ -27,6 +27,7 @@ const opts = {
   show: flag("show", "1") !== "0",
   overlay: flag("overlay", "0") !== "0",
   pump: flag("pump", "0") !== "0",
+  soft: flag("soft", "0") !== "0",
   size: flag("size", "1320x900").split("x").map(Number),
   hz: Number(flag("hz", "120")),
   board: path.resolve(flag("board", path.join(__dirname, "../../e2e/scenarios/zz-idle-probe.factory.json"))),
@@ -114,17 +115,42 @@ app.whenReady().then(async () => {
     width: opts.size[0],
     height: opts.size[1],
     useContentSize: true,
+    enableLargerThanScreen: true,
     show: false,
     backgroundColor: "#0d0e11",
     title: "GPU canvas lab",
-    webPreferences: { backgroundThrottling: false },
+    webPreferences: { backgroundThrottling: false, preload: path.join(__dirname, "preload.cjs") },
   });
   const wc = win.webContents;
   wc.on("console-message", (event) => {
     if (event.level !== "info" || opts.drive) console.log(`[page] ${event.message}`);
   });
+  win.setContentSize(opts.size[0], opts.size[1]);
   if (opts.show) win.show();
-  await win.loadURL(`lab://app/index.html?mode=${opts.mode}&scale=${opts.scale}&load=${opts.load}&rate=${opts.rate}&overlay=${opts.overlay ? 1 : 0}&pump=${opts.pump ? 1 : 0}`);
+  const page = `lab://app/index.html?mode=${opts.mode}&scale=${opts.scale}&load=${opts.load}&rate=${opts.rate}&overlay=${opts.overlay ? 1 : 0}&pump=${opts.pump ? 1 : 0}&soft=${opts.soft ? 1 : 0}`;
+  // View mode: the canvas is a second view in the same window, with its own
+  // process and its own input target, joined to the page by a MessagePort.
+  let canvas = null;
+  if (opts.mode === "view") {
+    const view = new WebContentsView({ webPreferences: { backgroundThrottling: false, preload: path.join(__dirname, "preload.cjs") } });
+    win.contentView.addChildView(view);
+    const place = () => {
+      const [w, h] = win.getContentSize();
+      view.setBounds({ x: 0, y: BAR, width: w, height: h - BAR });
+    };
+    place();
+    win.on("resize", place);
+    canvas = view.webContents;
+    canvas.on("console-message", (event) => {
+      if (event.level !== "info" || opts.drive) console.log(`[canvas] ${event.message}`);
+    });
+    await Promise.all([win.loadURL(page), canvas.loadURL(`lab://canvas/frame.html?scale=${opts.scale}&port=1&soft=${opts.soft ? 1 : 0}`)]);
+    const { port1, port2 } = new MessageChannelMain();
+    wc.postMessage("lab-port", null, [port1]);
+    canvas.postMessage("lab-port", null, [port2]);
+  } else {
+    await win.loadURL(page);
+  }
   if (!opts.drive) return;
 
   let ready = false;
@@ -139,10 +165,12 @@ app.whenReady().then(async () => {
   }
   await sleep(1500);
   const frames = wc.mainFrame.framesInSubtree;
-  const pids = { host: wc.mainFrame.osProcessId, canvas: frames.length > 1 ? frames[1].osProcessId : -1 };
+  const pids = { host: wc.mainFrame.osProcessId, canvas: canvas ? canvas.getOSProcessId() : frames.length > 1 ? frames[1].osProcessId : -1 };
   if (pids.canvas === pids.host) pids.canvas = -1;
-  wc.debugger.attach("1.3");
+  const target = canvas ?? wc;
+  target.debugger.attach("1.3");
   const [width, height] = win.getContentSize();
+  const at = { x: width / 2, y: canvas ? (height - BAR) / 2 : BAR + (height - BAR) / 2 };
   const script = build(opts.hz);
   const samples = [];
   const sample = () => {
@@ -157,8 +185,8 @@ app.whenReady().then(async () => {
       const t = epoch() - start;
       while (next < script.steps.length && script.steps[next].at <= t) {
         const step = script.steps[next++];
-        wc.debugger
-          .sendCommand("Input.dispatchMouseEvent", { type: "mouseWheel", x: width / 2, y: BAR + (height - BAR) / 2, deltaX: step.dx, deltaY: step.dy, modifiers: step.ctrl ? 2 : 0 })
+        target.debugger
+          .sendCommand("Input.dispatchMouseEvent", { type: "mouseWheel", x: at.x, y: at.y, deltaX: step.dx, deltaY: step.dy, modifiers: step.ctrl ? 2 : 0 })
           .catch(() => {});
       }
       if (t >= script.end) resolve();
@@ -169,7 +197,7 @@ app.whenReady().then(async () => {
   sample();
   if (opts.tracefile) await contentTracing.stopRecording(opts.tracefile);
   const log = await wc.executeJavaScript("window.__collect()");
-  const options = { arm: "gpu", mode: opts.mode, scale: opts.scale, load: opts.load, rate: opts.rate, overlay: opts.overlay, pump: opts.pump, hz: opts.hz, size: opts.size, shown: opts.show, separateProcess: pids.canvas !== -1 };
+  const options = { arm: "gpu", mode: opts.mode, scale: opts.scale, load: opts.load, rate: opts.rate, overlay: opts.overlay, pump: opts.pump, soft: opts.soft, hz: opts.hz, size: opts.size, shown: opts.show, separateProcess: pids.canvas !== -1 };
   const summary = summarize({ log, script, start, samples, pids, options });
   if (opts.out) fs.writeFileSync(opts.out, JSON.stringify(summary, null, 2));
   console.log(JSON.stringify(summary));

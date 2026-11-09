@@ -23,6 +23,7 @@ export function serveEngine(post) {
       dpr: m.dpr,
       board,
       atlas,
+      soft: m.soft === true,
       onStats: (stats) => post({ type: "stats", ...stats }),
       onError: fail,
     });

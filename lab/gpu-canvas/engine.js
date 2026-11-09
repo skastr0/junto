@@ -210,9 +210,10 @@ const median = (list) => {
   return sorted[sorted.length >> 1];
 };
 
-export async function createEngine({ canvas, width, height, dpr, board, atlas, onStats, onError }) {
+export async function createEngine({ canvas, width, height, dpr, board, atlas, soft, onStats, onError }) {
   if (!navigator.gpu) throw new Error("WebGPU is not available here");
-  const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
+  // soft: ask for the software adapter, what a machine with no GPU would get.
+  const adapter = await navigator.gpu.requestAdapter(soft ? { forceFallbackAdapter: true } : { powerPreference: "high-performance" });
   if (!adapter) throw new Error("no WebGPU adapter");
   const timed = adapter.features.has("timestamp-query");
   const device = await adapter.requestDevice({ requiredFeatures: timed ? ["timestamp-query"] : [] });
@@ -355,6 +356,10 @@ export async function createEngine({ canvas, width, height, dpr, board, atlas, o
   const fZoom = new Float32Array(LOG_CAP);
   const fMoved = new Uint8Array(LOG_CAP);
   const fReports = new Uint16Array(LOG_CAP);
+  // Input log: when each wheel or drag reached the engine, and when it was made.
+  const iAt = new Float64Array(LOG_CAP);
+  const iStamp = new Float64Array(LOG_CAP);
+  let arrivals = 0;
   let frames = 0;
   let statAt = performance.now();
   let statFrom = 0;
@@ -473,6 +478,7 @@ export async function createEngine({ canvas, width, height, dpr, board, atlas, o
     glyphs: board.glyphCount,
     gpuTimer: timed,
     adapter: adapter.info ? `${adapter.info.vendor} ${adapter.info.architecture} ${adapter.info.device}`.trim() : "",
+    software: adapter.info?.isFallbackAdapter ?? adapter.isFallbackAdapter ?? null,
     format,
     pixels: [canvas.width, canvas.height],
     bufferBytes: board.rectBuf.byteLength + board.markBuf.byteLength + board.wireBuf.byteLength + board.glyphBuf.byteLength,
@@ -482,6 +488,10 @@ export async function createEngine({ canvas, width, height, dpr, board, atlas, o
     info,
     input: (m) => {
       inputs.push(m);
+      if (arrivals < LOG_CAP) {
+        iAt[arrivals] = performance.timeOrigin + performance.now();
+        iStamp[arrivals++] = m.t;
+      }
     },
     pointer: (m) => {
       hover = board.seatAt(cam.x + m.x / cam.z, cam.y + m.y / cam.z);
@@ -507,6 +517,7 @@ export async function createEngine({ canvas, width, height, dpr, board, atlas, o
         zoom: Array.from(fZoom.subarray(0, n)),
         moved: Array.from(fMoved.subarray(0, n)),
         reports: Array.from(fReports.subarray(0, n)),
+        wheel: { at: Array.from(iAt.subarray(0, arrivals)), stamp: Array.from(iStamp.subarray(0, arrivals)) },
       };
     },
   };

@@ -69,6 +69,25 @@ function summarize({ log, script, start, samples, pids, options }) {
     }
   }
 
+  // Input delivery: how often a wheel event reached the canvas during the
+  // gestures, and how long each took to get there from the moment it was made.
+  let inputDelivery = null;
+  if (log.wheel?.at.length) {
+    const delays = [];
+    const gaps = [];
+    for (const w of windows) {
+      let last = null;
+      for (let i = 0; i < log.wheel.at.length; i++) {
+        const at = log.wheel.at[i];
+        if (at < w.from || at > w.to) continue;
+        delays.push(at - log.wheel.stamp[i]);
+        if (last !== null) gaps.push(at - last);
+        last = at;
+      }
+    }
+    inputDelivery = { sent: script.steps.length, deliveredPerSecond: round(delays.length / all.seconds), delayMs: spread(delays), gapMs: spread(gaps) };
+  }
+
   return {
     options,
     board: log.info ?? null,
@@ -94,6 +113,7 @@ function summarize({ log, script, start, samples, pids, options }) {
     scriptMsPerFrame: spread(log.cpu ?? []),
     gpuMsPerFrame: spread((log.gpu ?? []).filter((v) => v >= 0)),
     inputToFrameStartMs: spread((log.lat ?? []).filter((v) => v >= 0)),
+    inputDelivery,
     reportsApplied: (log.reports ?? []).reduce((a, b) => a + b, 0),
     processes,
   };

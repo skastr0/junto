@@ -1,9 +1,10 @@
 // The host page stands in for the app's window: it owns the chrome (the HUD),
 // feeds seat reports to the canvas, and can burn its own main thread the way
-// a working fleet does today. The canvas runs in one of three places:
+// a working fleet does today. The canvas runs in one of four places:
 //   main    this page's main thread
 //   worker  a worker drawing to an OffscreenCanvas; input still arrives here
 //   frame   a frame from another site, so its own process; input goes there
+//   view    a second view in the window: its own process and its own input target
 
 import { bindInput } from "./input.js";
 
@@ -14,6 +15,7 @@ const load = query.get("load") ?? "none";
 const rate = Number(query.get("rate") ?? 30);
 const overlay = query.get("overlay") === "1";
 const pump = query.get("pump") === "1";
+const soft = query.get("soft") === "1";
 const stage = document.getElementById("stage");
 const hud = document.getElementById("hud");
 
@@ -92,9 +94,21 @@ function startLoad() {
 const size = () => ({ width: stage.clientWidth, height: stage.clientHeight, dpr: devicePixelRatio });
 
 async function start() {
-  if (mode === "frame") {
+  if (mode === "view") {
+    // The canvas is another view in this window; its port arrives from the
+    // main process. Messages wait until it does.
+    const waiting = [];
+    send = (message) => waiting.push(message);
+    addEventListener("message", (event) => {
+      if (event.data !== "lab-port" || !event.ports[0]) return;
+      const port = event.ports[0];
+      port.onmessage = (e) => onEngine(e.data);
+      send = (message) => port.postMessage(message);
+      for (const message of waiting) send(message);
+    });
+  } else if (mode === "frame") {
     const frame = document.createElement("iframe");
-    frame.src = `lab://canvas/frame.html?scale=${scale}`;
+    frame.src = `lab://canvas/frame.html?scale=${scale}&soft=${soft ? 1 : 0}`;
     stage.append(frame);
     addEventListener("message", (event) => {
       if (event.source === frame.contentWindow) onEngine(event.data);
@@ -109,12 +123,12 @@ async function start() {
       worker.onerror = (event) => onEngine({ type: "error", message: event.message });
       send = (message, transfer) => worker.postMessage(message, transfer ?? []);
       const offscreen = canvas.transferControlToOffscreen();
-      send({ type: "init", canvas: offscreen, scale, ...size() }, [offscreen]);
+      send({ type: "init", canvas: offscreen, scale, soft, ...size() }, [offscreen]);
     } else {
       const { serveEngine } = await import("./port.js");
       const handle = serveEngine(onEngine);
       send = handle;
-      send({ type: "init", canvas, scale, ...size() });
+      send({ type: "init", canvas, scale, soft, ...size() });
     }
     bindInput(canvas, (message) => send(message));
     addEventListener("resize", () => send({ type: "resize", ...size() }));
