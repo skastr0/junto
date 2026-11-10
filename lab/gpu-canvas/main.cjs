@@ -127,7 +127,8 @@ app.whenReady().then(async () => {
     if (event.level !== "info" || opts.drive) console.log(`[page] ${event.message}`);
   });
   win.setContentSize(opts.size[0], opts.size[1]);
-  if (opts.show) win.show();
+  // A driven run shows its window without taking the keyboard from whoever is at the machine.
+  if (opts.show) opts.drive ? win.showInactive() : win.show();
   const page = `lab://app/index.html?mode=${opts.mode}&scale=${opts.scale}&load=${opts.load}&rate=${opts.rate}&overlay=${opts.overlay ? 1 : 0}&pump=${opts.pump ? 1 : 0}&soft=${opts.soft ? 1 : 0}`;
   // View mode: the canvas is a second view in the same window, with its own
   // process and its own input target, joined to the page by a MessagePort.

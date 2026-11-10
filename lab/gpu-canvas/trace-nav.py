@@ -145,3 +145,66 @@ if gpu:
     print("\n== GPU process main thread during gestures (self time)")
     for name, v in gpu.most_common(10):
         print(f"  {v / 1e3 / active:8.2f} ms/s {gpu_n[name] / active:7.1f}/s  {name[:70]}")
+
+# What reached the screen. Chromium keeps one record for every frame a process
+# tried to show (PipelineReporter): shown or dropped, and when it was shown. A
+# record with a commit carried a main thread update, the only way either
+# canvas moves its camera. A display refresh that passes between two of those
+# with no new picture is a dropped frame.
+KINDS = ["zoom in", "zoom out"] * 4 + ["zoom in"] + ["small zoom in", "small zoom out"] * 3 + ["pan"] * 6
+ticks = sorted(e["ts"] for e in events if e.get("name") == "ExternalBeginFrameSourceMac::OnDisplayLinkCallback" and "ts" in e and inwin(e["ts"]))
+tick_gaps = sorted(y - x for x, y in zip(ticks, ticks[1:]) if window(x) == window(y))
+interval = tick_gaps[len(tick_gaps) // 2] if tick_gaps else 16_667
+# The ids are reused, so a record is the stretch from one begin to its end.
+stages = sorted((e for e in events if e.get("ph") in ("b", "e") and e.get("name") in ("PipelineReporter", "Commit")), key=lambda e: e["ts"])
+running = {}
+shown = collections.defaultdict(list)
+lost = collections.Counter()
+for e in stages:
+    key = (e["pid"], e.get("id2", {}).get("local", e.get("id")))
+    if e["name"] == "Commit":
+        if key in running:
+            running[key]["main"] = True
+    elif e["ph"] == "b":
+        running[key] = {"state": e.get("args", {}).get("frame_reporter", {}).get("state"), "main": False}
+    elif key in running:
+        r = running.pop(key)
+        if not r["main"] or not inwin(e["ts"]):
+            continue
+        if r["state"] == "STATE_PRESENTED_ALL":
+            shown[e["pid"]].append(e["ts"])
+        elif r["state"] == "STATE_DROPPED":
+            lost[e["pid"]] += 1
+for pid, times in sorted(shown.items(), key=lambda kv: -len(kv[1])):
+    if len(times) / active < 2:
+        continue
+    times.sort()
+    print(f"\n== frames on screen from pid {pid} ({pname.get(pid, '?')}), one display refresh is {interval / 1e3:.2f} ms ({1e6 / interval:.0f} Hz)")
+    by_kind = collections.defaultdict(lambda: [0, 0, 0, 0.0])
+    rows = []
+    for i, (a, b) in enumerate(wins):
+        ts = [t for t in times if a <= t <= b]
+        gaps = [y - x for x, y in zip(ts, ts[1:])]
+        if len(ts) > 1:
+            refreshes = round((ts[-1] - ts[0]) / interval) + 1
+            dropped = sum(max(0, round(g / interval) - 1) for g in gaps)
+        else:
+            refreshes = round((b - a) / interval)
+            dropped = refreshes - len(ts)
+        longest = max(gaps) / 1e3 if gaps else (b - a) / 1e3
+        kind = KINDS[i] if len(wins) == len(KINDS) else f"gesture {i + 1}"
+        rows.append((kind, refreshes, len(ts), dropped, longest))
+        k = by_kind[kind]
+        k[0] += refreshes
+        k[1] += len(ts)
+        k[2] += dropped
+        k[3] = max(k[3], longest)
+    for kind, refreshes, new, dropped, longest in rows:
+        print(f"  {kind:14s} {refreshes:4d} refreshes  {new:4d} new pictures  {dropped:4d} dropped  longest wait {longest:6.1f} ms")
+    print("  -- by kind")
+    for kind, (refreshes, new, dropped, longest) in by_kind.items():
+        print(f"  {kind:14s} {refreshes:4d} refreshes  {new:4d} new pictures  {dropped:4d} dropped ({100 * dropped / max(refreshes, 1):.1f}%)  longest wait {longest:6.1f} ms")
+    total = [sum(r[j] for r in rows) for j in (1, 2, 3)]
+    print(f"  all gestures   {total[0]:4d} refreshes  {total[1]:4d} new pictures  {total[2]:4d} dropped ({100 * total[2] / max(total[0], 1):.1f}%)  longest wait {max(r[4] for r in rows):6.1f} ms;  updates Chromium itself counted as dropped: {lost[pid]}")
+    all_gaps = [(y - x) / 1e3 for x, y in zip(times, times[1:]) if window(x) == window(y)]
+    print(f"  wait between new pictures: {spread(all_gaps)}")

@@ -56,7 +56,17 @@ does, and both are summarised by `summarize.cjs`:
     # today's canvas, on a dev build
     scripts/run-e2e.sh e2e/scenarios/zz-zoom-smooth.spec.ts
 
-The number to compare is `duringGestures.movesPerSecond`: frames that showed
-the canvas somewhere new, per second of gesture. `inputDelivery` says how
+The number to compare is dropped frames: display refreshes during a gesture
+that showed no new picture. It comes from a trace (`--tracefile`, or the
+probe's own), read by `trace-nav.py`, which counts Chromium's per-frame
+records gesture by gesture and also says where the time went.
+`duringGestures.movesPerSecond` in the summary is the canvas's own count of
+frames it drew somewhere new; a frame drawn is not a frame shown, so it can
+read smooth while the display repeats pictures. `inputDelivery` says how
 often a wheel event reached the canvas and how old it was when it did.
-`trace-nav.py` reads either arm's Chromium trace and says where the time went.
+`trace-pace.py` follows one frame from the display's tick to the screen,
+stage by stage, and shows when in the refresh it was handed to macOS.
+
+The canvas takes the wheel itself (`input.js`). With a passive listener the
+same engine repeated a picture in 7% of refreshes at 120 Hz and 22% at 60 Hz;
+taking the wheel leaves about 1%.
