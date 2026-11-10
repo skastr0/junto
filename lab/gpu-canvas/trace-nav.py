@@ -153,6 +153,8 @@ if gpu:
 # with no new picture is a dropped frame.
 KINDS = ["zoom in", "zoom out"] * 4 + ["zoom in"] + ["small zoom in", "small zoom out"] * 3 + ["pan"] * 6
 ticks = sorted(e["ts"] for e in events if e.get("name") == "ExternalBeginFrameSourceMac::OnDisplayLinkCallback" and "ts" in e and inwin(e["ts"]))
+# Each window has a display compositor of its own and each gets the tick.
+ticks = [t for i, t in enumerate(ticks) if i == 0 or t - ticks[i - 1] > 2000]
 tick_gaps = sorted(y - x for x, y in zip(ticks, ticks[1:]) if window(x) == window(y))
 interval = tick_gaps[len(tick_gaps) // 2] if tick_gaps else 16_667
 # The ids are reused, so a record is the stretch from one begin to its end.

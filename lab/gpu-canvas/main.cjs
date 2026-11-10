@@ -132,9 +132,25 @@ app.whenReady().then(async () => {
   const page = `lab://app/index.html?mode=${opts.mode}&scale=${opts.scale}&load=${opts.load}&rate=${opts.rate}&overlay=${opts.overlay ? 1 : 0}&pump=${opts.pump ? 1 : 0}&soft=${opts.soft ? 1 : 0}`;
   // View mode: the canvas is a second view in the same window, with its own
   // process and its own input target, joined to the page by a MessagePort.
+  // Window mode: the canvas is a child window laid over the page's stage. On
+  // top of what a view has, it has its own display compositor: a view shares
+  // the window's, which holds every frame until each page in the window has
+  // answered, so a busy page can push a canvas frame to the next refresh.
   let canvas = null;
+  const prefs = { backgroundThrottling: false, preload: path.join(__dirname, "preload.cjs") };
+  const canvasUrl = `lab://canvas/frame.html?scale=${opts.scale}&port=1&soft=${opts.soft ? 1 : 0}`;
+  const join = async (shown) => {
+    canvas.on("console-message", (event) => {
+      if (event.level !== "info" || opts.drive) console.log(`[canvas] ${event.message}`);
+    });
+    await Promise.all([win.loadURL(page), canvas.loadURL(canvasUrl)]);
+    shown?.();
+    const { port1, port2 } = new MessageChannelMain();
+    wc.postMessage("lab-port", null, [port1]);
+    canvas.postMessage("lab-port", null, [port2]);
+  };
   if (opts.mode === "view") {
-    const view = new WebContentsView({ webPreferences: { backgroundThrottling: false, preload: path.join(__dirname, "preload.cjs") } });
+    const view = new WebContentsView({ webPreferences: prefs });
     win.contentView.addChildView(view);
     const place = () => {
       const [w, h] = win.getContentSize();
@@ -143,17 +159,40 @@ app.whenReady().then(async () => {
     place();
     win.on("resize", place);
     canvas = view.webContents;
-    canvas.on("console-message", (event) => {
-      if (event.level !== "info" || opts.drive) console.log(`[canvas] ${event.message}`);
+    await join();
+  } else if (opts.mode === "window") {
+    const child = new BrowserWindow({ parent: win, frame: false, hasShadow: false, resizable: false, movable: false, enableLargerThanScreen: true, show: false, backgroundColor: "#0d0e11", webPreferences: prefs });
+    const place = () => {
+      const b = win.getContentBounds();
+      child.setBounds({ x: b.x, y: b.y + BAR, width: b.width, height: b.height - BAR });
+    };
+    place();
+    win.on("resize", place);
+    win.on("move", place);
+    canvas = child.webContents;
+    await join(() => {
+      if (opts.show) opts.drive ? child.showInactive() : child.show();
     });
-    await Promise.all([win.loadURL(page), canvas.loadURL(`lab://canvas/frame.html?scale=${opts.scale}&port=1&soft=${opts.soft ? 1 : 0}`)]);
-    const { port1, port2 } = new MessageChannelMain();
-    wc.postMessage("lab-port", null, [port1]);
-    canvas.postMessage("lab-port", null, [port2]);
   } else {
     await win.loadURL(page);
   }
-  if (!opts.drive) return;
+  if (!opts.drive) {
+    // By hand: --tracefile records until the window closes, for trace-nav.py.
+    if (opts.tracefile) {
+      await contentTracing.startRecording({ included_categories: TRACE_CATEGORIES });
+      let closing = false;
+      win.on("close", (event) => {
+        if (closing) return;
+        closing = true;
+        event.preventDefault();
+        contentTracing.stopRecording(opts.tracefile).then(() => {
+          console.log(`trace written to ${opts.tracefile}`);
+          app.exit(0);
+        });
+      });
+    }
+    return;
+  }
 
   let ready = false;
   for (let i = 0; i < 300 && !ready; i++) {

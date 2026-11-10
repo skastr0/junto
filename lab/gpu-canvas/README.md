@@ -27,7 +27,7 @@ Pinch or ctrl+wheel zooms, wheel or drag pans. Flags:
 
 | flag | values | default |
 | --- | --- | --- |
-| `--mode` | `view` (a second view in the window: its own process and its own input), `frame` (a frame from another site: its own process, input still routed through the page), `worker` (a worker; input arrives on the page), `main` (the page's main thread) | `view` |
+| `--mode` | `view` (a second view in the window: its own process and its own input), `window` (a child window over the page: as a view, and its own display compositor too), `frame` (a frame from another site: its own process, input still routed through the page), `worker` (a worker; input arrives on the page), `main` (the page's main thread) | `view` |
 | `--scale` | copies of the board | `1` |
 | `--rate` | seat reports per second | `30` |
 | `--load` | `none`, `fleet` (page main thread 47% busy, a 280 ms task every 4 s), `storm` (80%, 440 ms) | `none` |
@@ -35,7 +35,7 @@ Pinch or ctrl+wheel zooms, wheel or drag pans. Flags:
 | `--soft=1` | ask for the software adapter, what a machine with no GPU gets | off |
 | `--overlay=1`, `--pump=1` | page chrome over the canvas; an empty frame loop on the page | off |
 | `--drive=1` | replay `gesture.cjs`, print a summary, exit | off |
-| `--out`, `--tracefile` | where the summary and a Chromium trace go | none |
+| `--out`, `--tracefile` | where the summary and a Chromium trace go; without `--drive=1`, `--tracefile` records your own hand until the window closes | none |
 | `--shots=<prefix>` | with `--drive=1`, pictures far out, at the script's end and close in | none |
 | `--show=0` | hidden window, for a smoke run only (use `--mode=main`: a hidden view draws no frames) | shown |
 
@@ -68,5 +68,11 @@ often a wheel event reached the canvas and how old it was when it did.
 stage by stage, and shows when in the refresh it was handed to macOS.
 
 The canvas takes the wheel itself (`input.js`). With a passive listener the
-same engine repeated a picture in 7% of refreshes at 120 Hz and 22% at 60 Hz;
-taking the wheel leaves about 1%.
+same engine repeated a picture in 7% of refreshes at 120 Hz and 22% at 60 Hz.
+Taking the wheel is not enough by itself: four runs at 120 Hz dropped 0.7% to
+13.6%, because Chromium hands each frame to macOS right at the cut-off for
+the refresh. With
+`--enable-features=VSyncAlignedPresentation,VSyncAlignedPresentationForScrolling`
+or `--enable-features=CADisplayLinkInGpu`, eleven runs dropped 0 to 3 frames of
+about 1,700 each, at 17 to 33 ms from the display's tick to the screen against
+12 to 20. Two or three runs per arrangement; the work stopped there.

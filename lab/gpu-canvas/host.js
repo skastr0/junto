@@ -94,9 +94,9 @@ function startLoad() {
 const size = () => ({ width: stage.clientWidth, height: stage.clientHeight, dpr: devicePixelRatio });
 
 async function start() {
-  if (mode === "view") {
-    // The canvas is another view in this window; its port arrives from the
-    // main process. Messages wait until it does.
+  if (mode === "view" || mode === "window") {
+    // The canvas is another view in this window, or a window of its own over
+    // it; its port arrives from the main process. Messages wait until it does.
     const waiting = [];
     send = (message) => waiting.push(message);
     addEventListener("message", (event) => {

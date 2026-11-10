@@ -55,6 +55,8 @@ shown = {pid: sorted((r for r in rs if "Commit" in r["st"] and r["state"] == "ST
 pid = int(sys.argv[2]) if len(sys.argv) > 2 else max(shown, key=lambda p: len(shown[p]))
 main = shown[pid]
 ticks = sorted(e["ts"] for e in ev if e.get("name") == "ExternalBeginFrameSourceMac::OnDisplayLinkCallback" and "ts" in e)
+# Each window has a display compositor of its own and each gets the tick.
+ticks = [t for i, t in enumerate(ticks) if i == 0 or t - ticks[i - 1] > 2000]
 tick_gaps = sorted(y - x for x, y in zip(ticks, ticks[1:]))
 interval = tick_gaps[len(tick_gaps) // 2] if tick_gaps else 16_667
 
