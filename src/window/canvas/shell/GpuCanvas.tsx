@@ -31,6 +31,7 @@ import { clearMinimapSource, setMinimapSource } from "./minimap-source";
 import { startSceneBridge } from "./scene-bridge";
 import { installCanvasTestHook } from "./test-hook";
 import { attachCanvasDelete, attachCanvasInput, mountHands } from "./hands";
+import { canvasHands } from "./pointer-host";
 import { CanvasMenus } from "./CanvasMenus";
 import { clearCanvasTier, publishCanvasTier } from "../../lib/canvas-tier";
 import { viewportForBounds } from "./camera-targets";
@@ -96,6 +97,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
       device: keeper,
       scheduler: browserScheduler,
       clock: () => performance.now(),
+      hands: canvasHands(),
       ...(handed === undefined ? {} : { camera: handed }),
     });
     mounted = engine;
