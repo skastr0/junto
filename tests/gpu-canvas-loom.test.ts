@@ -109,8 +109,9 @@ describe("the loom planner", () => {
       const fact = facts.get(id)!;
       expect(fact.cable).toBe(true);
       expect(fact.points!.length).toBeGreaterThanOrEqual(2);
-      expect(fact.points![0]).toEqual(fact.source);
-      expect(fact.points![fact.points!.length - 1]).toEqual(fact.target);
+      // A cable member ends on the handle: the hub's right edge plus the handle's 6.5 out, the spoke's left edge less 1.5.
+      expect(fact.points![0]).toEqual({ x: 266.5, y: 248 });
+      expect(fact.points![fact.points!.length - 1]!.x).toBe(698.5);
     }
   });
 

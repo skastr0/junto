@@ -35,6 +35,7 @@ import {
   type LoomWire,
 } from "../../lib/loom-geometry";
 import { modelStore } from "../../lib/use-model";
+import { handleEnd } from "../paint/wires/route";
 
 /** What the planner reads of a card: its board rectangle, and whether it is a region. */
 export type LoomCard = {
@@ -124,19 +125,33 @@ export const createLoomPlanner = (): LoomPlanner => {
   const routes = new Map<string, LoomRoute>();
   const held = new Map<string, WireRouteFact>();
 
-  const factsFor = (inputs: ReadonlyArray<LoomEdgeInput>): Map<string, WireRouteFact> => {
+  const factsFor = (
+    inputs: ReadonlyArray<LoomEdgeInput>,
+    geometry: ReadonlyArray<LoomNode>,
+  ): Map<string, WireRouteFact> => {
     const facts = new Map<string, WireRouteFact>();
+    const rects = new Map(geometry.map((node) => [node.nodeId, node] as const));
     for (const input of inputs) {
       const strand = strands.get(input.id);
       const route = routes.get(input.id);
-      const points = strand
-        ? stitchStrand(strand, {
-            sourceX: input.sourceAnchor.x,
-            sourceY: input.sourceAnchor.y,
-            targetX: input.targetAnchor.x,
-            targetY: input.targetAnchor.y,
-          }).points
-        : route?.points;
+      // A cable member is stitched to where the wire meets its handle (the
+      // handle box's outer edge), as the old canvas stitches it to the live
+      // handle; a planned route is drawn as planned.
+      const ends = strand
+        ? {
+            source: handleEnd(rects.get(input.sourceNodeId)!, input.sourceSide, "source"),
+            target: handleEnd(rects.get(input.targetNodeId)!, input.targetSide, "target"),
+          }
+        : undefined;
+      const points =
+        strand && ends
+          ? stitchStrand(strand, {
+              sourceX: ends.source.x,
+              sourceY: ends.source.y,
+              targetX: ends.target.x,
+              targetY: ends.target.y,
+            }).points
+          : route?.points;
       facts.set(input.id, {
         id: input.id,
         sourceSide: input.sourceSide,
@@ -220,7 +235,7 @@ export const createLoomPlanner = (): LoomPlanner => {
     }
     routed = { geometry, obstacles, specs: specsById };
     planned = { geometry, specsKey };
-    return diff(factsFor(inputs));
+    return diff(factsFor(inputs, geometry));
   };
 
   const reset = (): void => {
