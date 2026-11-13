@@ -13,17 +13,15 @@
   position: absolute;
   inset: -6px;
   border-radius: var(--radius-lg);
-  box-shadow:
-    0 0 0 2px var(--reach-hue),
-    0 0 18px color-mix(in oklab, var(--reach-hue) 40%, transparent);
+  box-shadow: var(--shadow-reach);
   pointer-events: none;
   will-change: transform, opacity;
-  animation: junto-reach-breathe 1.44s ease-in-out infinite;
+  animation: junto-reach-breathe var(--duration-reach) var(--ease-in-out) infinite;
 }
 /* Leaving reach is drawn dashed, so it reads without the hue. */
 .react-flow__node[data-reach-preview="loses"]::before {
   box-shadow: none;
-  outline: 2px dashed var(--reach-hue);
+  outline: var(--border-heavy) dashed var(--reach-hue);
   outline-offset: 0;
 }
 
@@ -50,11 +48,11 @@
 
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node[data-reach-preview]::before {
   inset: -18px;
-  box-shadow: 0 0 0 8px var(--reach-hue);
+  box-shadow: var(--shadow-reach-far);
 }
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node[data-reach-preview="loses"]::before {
   box-shadow: none;
-  outline-width: 8px;
+  outline-width: var(--border-reach-far);
 }
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node[data-reach-summary]::after {
   left: calc(100% + 40px);

@@ -14,11 +14,11 @@
   height: var(--junto-region-titlebar);
   padding: 0 8px;
   border-radius: 13px 13px 0 0;
-  border-bottom: 1px solid transparent;
+  border-bottom: var(--border-hairline) solid transparent;
   background: transparent;
   pointer-events: auto;
   cursor: grab;
-  transition: background .16s ease, border-color .16s ease;
+  transition: background var(--duration-quick) var(--ease-standard), border-color var(--duration-quick) var(--ease-standard);
 }
 .junto-region-titlebar:hover {
   background: color-mix(in oklab, var(--color-amber) 6%, transparent);

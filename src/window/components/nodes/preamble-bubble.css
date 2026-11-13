@@ -58,10 +58,10 @@
   flex-direction: column;
   gap: 3px;
   padding: 6px 6px 6px 9px;
-  border: 1px solid color-mix(in oklab, var(--pre-hue) var(--pre-mix), var(--color-stroke));
+  border: var(--border-hairline) solid color-mix(in oklab, var(--pre-hue) var(--pre-mix), var(--color-stroke));
   border-radius: 10px;
   background: color-mix(in oklab, var(--pre-hue) var(--pre-wash), var(--color-raise));
-  box-shadow: 0 6px 18px var(--color-shadow-2);
+  box-shadow: var(--shadow-bubble);
   color: var(--color-ink);
   pointer-events: auto;
 }
@@ -110,7 +110,7 @@
   min-width: 0;
   align-items: flex-start;
   gap: 6px;
-  animation: junto-preamble-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: junto-preamble-in var(--duration-enter) var(--ease-enter) both;
 }
 
 .junto-preamble__glyph {
@@ -152,7 +152,7 @@
   color: var(--color-faint);
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.15s ease-out, color 0.15s ease-out;
+  transition: opacity var(--duration-fade) var(--ease-out), color var(--duration-fade) var(--ease-out);
 }
 .junto-preamble__card:hover .junto-preamble__close,
 .junto-preamble__close:focus-visible {

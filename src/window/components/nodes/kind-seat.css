@@ -146,7 +146,7 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .kind-band {
 .react-flow__node.selected .junto-node:has(.kind-seat):not([data-bare]) {
   border-color: color-mix(in oklab, var(--kind-hue) 60%, transparent) !important;
   background: color-mix(in oklab, var(--kind-hue) 10%, var(--color-raise)) !important;
-  box-shadow: 0 8px 22px var(--color-shadow-2) !important;
+  box-shadow: var(--shadow-seat) !important;
 }
 
 /* The ring is the one blocked signal: a blocked kind seat draws no second crimson ring round its pill. */

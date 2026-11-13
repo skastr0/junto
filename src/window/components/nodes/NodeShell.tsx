@@ -450,12 +450,12 @@ export function NodeShell({
       ? `0 0 0 1px ${withAlpha(accent, 0.35)}`
       : "none"
     : selected
-      ? `0 0 0 1px ${withAlpha(shellBlocked ? HUE.crimson : accent, 0.25)}, 0 12px 30px var(--color-shadow-2)`
+      ? `0 0 0 1px ${withAlpha(shellBlocked ? HUE.crimson : accent, 0.25)}, var(--shadow-card-lift)`
       : shellBlocked
-        ? `0 0 0 1px ${withAlpha(HUE.crimson, 0.18)}, 0 10px 28px var(--color-shadow-2)`
+        ? `0 0 0 1px ${withAlpha(HUE.crimson, 0.18)}, var(--shadow-card)`
         : liveSeatAttention
-          ? `0 0 0 1px ${withAlpha(HUE.amber, 0.14)}, 0 10px 28px var(--color-shadow-2)`
-          : "0 10px 28px var(--color-shadow-2)";
+          ? `0 0 0 1px ${withAlpha(HUE.amber, 0.14)}, var(--shadow-card)`
+          : "var(--shadow-card)";
   // Shift+click multi-select dominates all node chrome (labels, open, edit).
   const multiSelectCapture = useShiftMultiSelectDominance(id);
   // Pulse wash for derived seat stoppage.
@@ -482,7 +482,7 @@ export function NodeShell({
         look === "spine"
           ? undefined
           : {
-              border: `1px solid ${bare ? border : selected ? withAlpha(shellBlocked ? HUE.crimson : accent, 0.75) : border}`,
+              border: `var(--border-hairline) solid ${bare ? border : selected ? withAlpha(shellBlocked ? HUE.crimson : accent, 0.75) : border}`,
               background,
               boxShadow: shadow,
             }

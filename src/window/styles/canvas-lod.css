@@ -206,11 +206,11 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
     0 0 0 calc(var(--seat-s) * 4px) color-mix(in oklab, var(--color-crimson) 30%, transparent);
 }
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node:hover .junto-seat::before {
-  outline: calc(var(--seat-s) * 2px) solid color-mix(in oklab, var(--color-ink) 45%, transparent);
+  outline: calc(var(--seat-s) * var(--border-heavy)) solid color-mix(in oklab, var(--color-ink) 45%, transparent);
   outline-offset: calc(var(--seat-s) * 5px);
 }
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node.selected .junto-seat::before {
-  outline: calc(var(--seat-s) * 3px) solid color-mix(in oklab, var(--color-main) 85%, transparent);
+  outline: calc(var(--seat-s) * var(--border-seat-selected)) solid color-mix(in oklab, var(--color-main) 85%, transparent);
   outline-offset: calc(var(--seat-s) * 5px);
 }
 
@@ -250,7 +250,7 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
 
 /* A selected card still reads from far away. */
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node.selected .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], :has(.kind-seat))):not([data-look="spine"]) {
-  outline: 4px solid color-mix(in oklab, var(--color-main) 70%, transparent);
+  outline: var(--border-card-selected) solid color-mix(in oklab, var(--color-main) 70%, transparent);
   outline-offset: 2px;
 }
 
@@ -287,7 +287,7 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
    (CanvasTierGate): ease the step like the seat's own ring, on the
    compositor, and land at once when motion is paused. */
 html:not([data-surface-motion="paused"]) .junto-seat-cluster__body {
-  transition: transform 160ms cubic-bezier(.33, 1, .68, 1);
+  transition: transform var(--duration-quick) var(--ease-settle);
 }
 /* The button is the front ring's disc (a 52-unit seat ring is 40 across);
    the turning ring is the seat's own mark, centred over it. */
@@ -303,11 +303,7 @@ html:not([data-surface-motion="paused"]) .junto-seat-cluster__body {
   border-radius: 50%;
   background: var(--color-raise);
   /* The stack: two rings offset behind the front one. */
-  box-shadow:
-    5px -5px 0 -2px var(--color-raise),
-    5px -5px 0 0 var(--cluster-rim),
-    10px -10px 0 -4px var(--color-raise),
-    10px -10px 0 -2px color-mix(in oklab, var(--cluster-rim) 60%, transparent);
+  box-shadow: var(--shadow-cluster);
   cursor: zoom-in;
 }
 .junto-seat-cluster[data-cluster-state="work"] .junto-seat-cluster__stack {
@@ -348,10 +344,10 @@ html:not([data-surface-motion="paused"]) .junto-seat-cluster__body {
   max-height: 260px;
   padding: 4px;
   overflow-y: auto;
-  border: 1px solid var(--color-stroke);
+  border: var(--border-hairline) solid var(--color-stroke);
   border-radius: 8px;
   background: var(--color-raise);
-  box-shadow: 0 8px 22px var(--color-shadow-2);
+  box-shadow: var(--shadow-seat);
   transform: translateX(-50%);
 }
 .junto-seat-cluster__body:hover .junto-seat-cluster__list,

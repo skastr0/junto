@@ -1,4 +1,13 @@
-import { contrastRatio, hexToOklch, oklchToHex, themeRuntime, type ThemeMode } from "@shared/theme";
+import {
+  contrastRatio,
+  hexToOklch,
+  mixOklab,
+  oklabToOklch,
+  oklchToHex,
+  oklchToOklab,
+  themeRuntime,
+  type ThemeMode,
+} from "@shared/theme";
 
 /**
  * How much of a region's own colour goes into the words that name it (a feed
@@ -16,19 +25,14 @@ const RUNTIME: Readonly<Record<ThemeMode, Record<string, string>>> = {
   bright: themeRuntime("bright"),
 };
 
-const toOklab = (hex: string): readonly [number, number, number] => {
-  const { l, c, h } = hexToOklch(hex);
-  return [l, c * Math.cos((h * Math.PI) / 180), c * Math.sin((h * Math.PI) / 180)];
-};
-
-const fromOklab = ([l, a, b]: readonly [number, number, number]): string =>
-  oklchToHex({ l, c: Math.hypot(a, b), h: ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360 });
-
-/** `color-mix(in oklab, region share%, ink)`. */
+/** `color-mix(in oklab, region share%, ink)` — the shared mix, not a copy. */
 const wordColor = (region: string, ink: string, share: number): string => {
-  const [r, i] = [toOklab(region), toOklab(ink)];
-  const p = share / 100;
-  return fromOklab([r[0] * p + i[0] * (1 - p), r[1] * p + i[1] * (1 - p), r[2] * p + i[2] * (1 - p)]);
+  const mixed = mixOklab(
+    oklchToOklab(hexToOklch(region)),
+    oklchToOklab(hexToOklch(ink)),
+    share,
+  );
+  return oklchToHex(oklabToOklch(mixed));
 };
 
 /** A colour at alpha laid over a solid, as the browser composites it. */

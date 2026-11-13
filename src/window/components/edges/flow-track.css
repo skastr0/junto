@@ -38,10 +38,10 @@
   height: 100%;
 }
 .junto-flow-track[data-verb="flows"] .junto-flow-track__run[data-track-visible] > .junto-flow-track__mover {
-  animation: junto-flow-track 450ms linear var(--flow-track-t0, 0ms) infinite;
+  animation: junto-flow-track var(--duration-flow) var(--ease-linear) var(--flow-track-t0, 0ms) infinite;
 }
 .junto-flow-track[data-verb="derives"] .junto-flow-track__run[data-track-visible] {
-  animation: junto-derive-track 1600ms ease-in-out var(--flow-track-breath-t0, 0ms) infinite;
+  animation: junto-derive-track var(--duration-breathe) var(--ease-in-out) var(--flow-track-breath-t0, 0ms) infinite;
 }
 .junto-flow-track__marks {
   position: absolute;

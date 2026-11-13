@@ -55,7 +55,7 @@
   align-items: center;
   gap: 7px;
   padding: 0 11px 0 9px;
-  border: 1px solid var(--color-stroke);
+  border: var(--border-hairline) solid var(--color-stroke);
   border-radius: var(--radius-pill);
   background: var(--color-overlay-3);
   color: var(--color-ink);
@@ -83,7 +83,7 @@
 }
 
 .react-flow__node:focus-visible .spine-chip {
-  outline: calc(2px * var(--node-s, 1)) solid var(--color-cyan);
+  outline: calc(var(--border-heavy) * var(--node-s, 1)) solid var(--color-cyan);
   outline-offset: calc(3px * var(--node-s, 1));
 }
 
@@ -147,7 +147,7 @@
   align-items: center;
   gap: 5px;
   padding: 0 8px 0 7px;
-  border: 1.5px solid currentcolor;
+  border: var(--border-bold) solid currentcolor;
   border-radius: var(--radius-pill);
   font-size: var(--text-label);
   font-weight: 700;
@@ -185,7 +185,7 @@
 
 .spine-shape[data-shape="arc"],
 .spine-shape[data-shape="ring"] {
-  border: 1.5px solid;
+  border: var(--border-bold) solid;
   border-radius: var(--radius-pill);
   background: transparent;
 }
@@ -226,7 +226,7 @@
   gap: 7px;
   margin: 6px 0 0 15px;
   padding: 3px 0 2px;
-  border-left: 1.5px solid var(--color-stroke-hi);
+  border-left: var(--border-bold) solid var(--color-stroke-hi);
   list-style: none;
 }
 
@@ -252,7 +252,7 @@
   top: 50%;
   left: 0;
   width: 11px;
-  border-top: 1.5px solid var(--color-stroke-hi);
+  border-top: var(--border-bold) solid var(--color-stroke-hi);
   content: "";
 }
 
@@ -319,7 +319,7 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-chip {
   height: min(100cqw, max(28px, calc(26px * var(--node-s, 1))));
   justify-content: center;
   padding: 0;
-  border: calc(1.5px * var(--node-s, 1)) solid color-mix(in oklab, var(--color-ink) 55%, transparent);
+  border: calc(var(--border-bold) * var(--node-s, 1)) solid color-mix(in oklab, var(--color-ink) 55%, transparent);
   box-shadow: none;
 }
 
@@ -337,21 +337,21 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-chip .sp
 }
 
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[data-tone="crimson"] .spine-chip {
-  border: calc(2px * var(--node-s, 1)) solid var(--color-crimson);
+  border: calc(var(--border-heavy) * var(--node-s, 1)) solid var(--color-crimson);
 }
 
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[data-tone="amber"] .spine-chip {
-  border: calc(2px * var(--node-s, 1)) solid var(--color-amber);
+  border: calc(var(--border-heavy) * var(--node-s, 1)) solid var(--color-amber);
 }
 
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__node.selected .spine-chip {
-  outline: calc(2px * var(--node-s, 1)) solid var(--color-main);
+  outline: calc(var(--border-heavy) * var(--node-s, 1)) solid var(--color-main);
   outline-offset: calc(2px * var(--node-s, 1));
 }
 
 /* Focus beats selection at far too: the keyboard must see where it is. */
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__node:focus-visible .spine-chip {
-  outline: calc(2px * var(--node-s, 1)) solid var(--color-cyan);
+  outline: calc(var(--border-heavy) * var(--node-s, 1)) solid var(--color-cyan);
   outline-offset: calc(3px * var(--node-s, 1));
 }
 
@@ -362,7 +362,7 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-pip {
   display: block;
   width: calc(11px * var(--node-s, 1));
   height: calc(11px * var(--node-s, 1));
-  outline: calc(1.5px * var(--node-s, 1)) solid var(--color-ground);
+  outline: calc(var(--border-bold) * var(--node-s, 1)) solid var(--color-ground);
 }
 
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-pip[data-shape="triangle"] {
@@ -373,8 +373,8 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-pip[data
 
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[data-tone="crimson"] .spine-pip { background: var(--color-crimson); }
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[data-tone="amber"] .spine-pip { background: var(--color-amber); }
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[data-tone="cyan"] .spine-pip { border-color: var(--color-cyan); border-width: calc(2px * var(--node-s, 1)); }
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[data-tone="faint"] .spine-pip { border-color: var(--color-faint); border-width: calc(2px * var(--node-s, 1)); }
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[data-tone="cyan"] .spine-pip { border-color: var(--color-cyan); border-width: calc(var(--border-heavy) * var(--node-s, 1)); }
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[data-tone="faint"] .spine-pip { border-color: var(--color-faint); border-width: calc(var(--border-heavy) * var(--node-s, 1)); }
 
 /* Peer and stub: where a node lives elsewhere. */
 
@@ -384,7 +384,7 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[dat
   height: 20px;
   margin-left: -4px;
   place-items: center;
-  border: 1px dashed var(--color-dim);
+  border: var(--border-hairline) dashed var(--color-dim);
   border-radius: var(--radius-pill);
   color: var(--color-ink-2);
   font-family: var(--font-mono);
@@ -402,7 +402,7 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[dat
 
 .junto-node[data-look="spine"][data-node-kind="text"] .junto-node__body {
   padding: 8px 12px;
-  border: 1px solid color-mix(in oklab, var(--color-amber) 30%, transparent);
+  border: var(--border-hairline) solid color-mix(in oklab, var(--color-amber) 30%, transparent);
   border-radius: var(--radius-md);
   background: color-mix(in oklab, var(--color-amber) 8%, transparent);
 }
@@ -429,7 +429,7 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[dat
 }
 
 .react-flow__node:focus-visible .junto-node[data-look="spine"]:is([data-node-kind="text"], [data-node-kind="label"]) {
-  outline: calc(2px * var(--node-s, 1)) solid var(--color-cyan);
+  outline: calc(var(--border-heavy) * var(--node-s, 1)) solid var(--color-cyan);
   outline-offset: calc(3px * var(--node-s, 1));
   border-radius: var(--radius-sm);
 }

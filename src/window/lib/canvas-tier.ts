@@ -19,6 +19,7 @@
 // boundary never flaps.
 
 import { observable } from "@legendapp/state";
+import { DURATION, easingCss } from "@shared/theme";
 
 export type CanvasTier = "near" | "mid" | "far" | "overview";
 
@@ -207,9 +208,9 @@ const writeSeatScales = (
 };
 
 /** How long the ring's size eases after a camera rest. Same 160 ms the CSS keyframe ran. */
-export const SEAT_EASE_MS = 160;
+export const SEAT_EASE_MS = DURATION.quick;
 /** The ease's curve, unchanged from the CSS keyframe. */
-export const SEAT_EASE_CURVE = "cubic-bezier(.33, 1, .68, 1)";
+export const SEAT_EASE_CURVE = easingCss("settle");
 /** The animation's id, so a second rest in the same second replaces the first instead of stacking. */
 export const SEAT_EASE_ID = "junto-seat-ease";
 

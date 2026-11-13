@@ -1053,7 +1053,7 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.junto-resize-handle { width: 10px !important; height: 10px !important; border: 1px solid var(--color-amber) !important; border-radius: 2px !important; background: var(--color-inset) !important; box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-main) 8%, transparent); }
+.junto-resize-handle { width: 10px !important; height: 10px !important; border: 1px solid var(--color-amber) !important; border-radius: 2px !important; background: var(--color-inset) !important; box-shadow: var(--shadow-resize); }
 .junto-resize-line { border-color: color-mix(in oklab, var(--color-main) 50%, transparent) !important; }
 
 .junto-dot--pulse { opacity: 1; }
@@ -1152,7 +1152,7 @@ html[data-surface-motion="paused"] *::after {
 .react-flow.connection-focus-mode .react-flow__node {
   opacity: 0.22;
   filter: saturate(0.35);
-  transition: opacity 0.18s ease, filter 0.18s ease;
+  transition: opacity var(--duration-state) var(--ease-standard), filter var(--duration-state) var(--ease-standard);
 }
 .react-flow.impact-mode .react-flow__node.impact-lead,
 .react-flow.connection-focus-mode .react-flow__node.impact-lead {
@@ -1165,26 +1165,16 @@ html[data-surface-motion="paused"] *::after {
   filter: none;
 }
 .react-flow.impact-mode .react-flow__node.impact-root .junto-node {
-  box-shadow:
-    0 0 0 1px color-mix(in oklab, var(--color-accent) 45%, transparent),
-    0 0 18px color-mix(in oklab, var(--color-accent) 22%, transparent),
-    0 12px 30px var(--color-shadow-2);
+  box-shadow: var(--shadow-focus-impact-root);
 }
 .react-flow.connection-focus-mode .react-flow__node.impact-root .junto-node {
-  box-shadow:
-    0 0 0 1px color-mix(in oklab, var(--color-second) 48%, transparent),
-    0 0 18px color-mix(in oklab, var(--color-second) 22%, transparent),
-    0 12px 30px var(--color-shadow-2);
+  box-shadow: var(--shadow-focus-connection-root);
 }
 .react-flow.impact-mode .react-flow__node.impact-in:not(.impact-root) .junto-node {
-  box-shadow:
-    0 0 0 1px color-mix(in oklab, var(--color-accent) 22%, transparent),
-    0 10px 28px var(--color-shadow-2);
+  box-shadow: var(--shadow-focus-impact-member);
 }
 .react-flow.connection-focus-mode .react-flow__node.impact-in:not(.impact-root) .junto-node {
-  box-shadow:
-    0 0 0 1px color-mix(in oklab, var(--color-second) 26%, transparent),
-    0 10px 28px var(--color-shadow-2);
+  box-shadow: var(--shadow-focus-connection-member);
 }
 /* Inline edge opacity loses without !important; default-dim outsiders only. */
 .react-flow.impact-mode .react-flow__edge:not(.impact-edge-in),
@@ -1608,13 +1598,13 @@ html[data-surface-motion="paused"] *::after {
   border-radius: 4px;
   padding: 2px 6px;
   background: color-mix(in oklab, var(--color-ground) 80%, transparent);
-  border: 1px solid var(--color-overlay-4);
+  border: var(--border-hairline) solid var(--color-overlay-4);
   color: var(--color-dim);
   font-size: 9px;
   line-height: 1.4;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  transition: color 0.15s ease, border-color 0.15s ease;
+  transition: color var(--duration-fade) var(--ease-standard), border-color var(--duration-fade) var(--ease-standard);
 }
 
 .junto-edge-label:hover {
@@ -1627,9 +1617,7 @@ html[data-surface-motion="paused"] *::after {
    on .junto-blocker itself. Ring is a static ::after (no compositor timeline). */
 .junto-blocker {
   position: relative;
-  box-shadow:
-    0 0 0 2px color-mix(in oklab, var(--color-accent) 22%, transparent),
-    0 0 12px 0 color-mix(in oklab, var(--color-accent) 12%, transparent);
+  box-shadow: var(--shadow-blocker);
 }
 .junto-blocker::after {
   content: "";
@@ -1637,7 +1625,7 @@ html[data-surface-motion="paused"] *::after {
   inset: -5px;
   border-radius: inherit;
   pointer-events: none;
-  border: 2px solid color-mix(in oklab, var(--color-accent) 55%, transparent);
+  border: var(--border-heavy) solid color-mix(in oklab, var(--color-accent) 55%, transparent);
   opacity: 0.55;
   transform: scale(1);
 }
@@ -1665,10 +1653,7 @@ html[data-surface-motion="paused"] *::after {
 .junto-node[data-attention="fire"],
 .junto-node[data-seat-attention="true"] {
   position: relative;
-  box-shadow:
-    0 0 0 2px color-mix(in oklab, var(--color-main) 55%, transparent),
-    0 0 18px 2px color-mix(in oklab, var(--color-main) 18%, transparent),
-    0 10px 28px var(--color-shadow-2);
+  box-shadow: var(--shadow-attention);
 }
 .junto-node[data-attention="fire"]::after,
 .junto-node[data-seat-attention="true"]::after {
@@ -1677,7 +1662,7 @@ html[data-surface-motion="paused"] *::after {
   inset: -6px;
   border-radius: inherit;
   pointer-events: none;
-  border: 2px solid color-mix(in oklab, var(--color-main) 70%, transparent);
+  border: var(--border-heavy) solid color-mix(in oklab, var(--color-main) 70%, transparent);
   opacity: 0.55;
   transform: scale(1);
 }
@@ -1704,30 +1689,30 @@ html[data-surface-motion="paused"] .junto-node[data-seat-attention="true"]::afte
    wrong" states stay distinct by ring offset / rim offset only.
    `gone` is muted, not crimson — I20 forbids implying revoke/compromise. */
 .junto-node[data-occupancy="idle"] {
-  outline: 1px solid color-mix(in oklab, var(--color-steel) 22%, transparent);
+  outline: var(--border-hairline) solid color-mix(in oklab, var(--color-steel) 22%, transparent);
   outline-offset: 2px;
 }
 /* Working belongs to the shared upper-right ActivityMark, never the shell. */
 /* attention = needs input (occupant); ring set off the edge. */
 .junto-node[data-occupancy="attention"] {
-  outline: 2px solid color-mix(in oklab, var(--color-main) 75%, transparent);
+  outline: var(--border-heavy) solid color-mix(in oklab, var(--color-main) 75%, transparent);
   outline-offset: 4px;
 }
 /* activity_blocked = line stopped (packet); rim sits at the edge — never
    the same offset as attention's ring, so the two never read as one badge. */
 .junto-node[data-occupancy="activity_blocked"] {
-  outline: 2.5px solid color-mix(in oklab, var(--color-accent) 75%, transparent);
+  outline: var(--border-blocked-ring) solid color-mix(in oklab, var(--color-accent) 75%, transparent);
   outline-offset: 0;
 }
 /* stalled = quiet steel ring only (corner clock meter removed). */
 .junto-node[data-occupancy="stalled"] {
-  outline: 1.5px solid color-mix(in oklab, var(--color-steel) 40%, transparent);
+  outline: var(--border-bold) solid color-mix(in oklab, var(--color-steel) 40%, transparent);
   outline-offset: 3px;
 }
 /* gone = host unreachable, last intent stands (I20) — muted outline only,
    never crimson (that would read as revoked/compromised). */
 .junto-node[data-occupancy="gone"] {
-  outline: 1px solid color-mix(in oklab, var(--color-steel) 22%, transparent);
+  outline: var(--border-hairline) solid color-mix(in oklab, var(--color-steel) 22%, transparent);
   outline-offset: 2px;
   opacity: 0.78;
 }
@@ -1770,7 +1755,7 @@ html[data-surface-motion="paused"] .junto-node[data-seat-attention="true"]::afte
   transition: border-color 0.18s ease, background 0.18s ease;
 }
 .junto-picker-select:hover { border-color: color-mix(in oklab, var(--color-main) 32%, transparent); }
-.junto-picker-select:focus { border-color: color-mix(in oklab, var(--color-main) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-main) 8%, transparent); }
+.junto-picker-select:focus { border-color: color-mix(in oklab, var(--color-main) 55%, transparent); box-shadow: var(--shadow-resize); }
 .junto-picker-select option { background: var(--color-raise); color: var(--color-ink); }
 
 /* A row (signal/session/dispatch) that opens the detail modal. The

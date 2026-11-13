@@ -27,7 +27,7 @@
   position: absolute;
   top: 0;
   height: 100%;
-  animation: wire-pulse-forward 900ms cubic-bezier(.45, 0, .55, 1) forwards;
+  animation: wire-pulse-forward var(--duration-pulse) var(--ease-pulse) forwards;
 }
 .junto-wire-pulse[data-direction="reverse"] .junto-wire-pulse__mover {
   animation-name: wire-pulse-reverse;
@@ -68,7 +68,7 @@ path.junto-wire-pulse-hold {
     display: inline;
     stroke-width: 2.4;
     stroke-linecap: round;
-    animation: wire-pulse-hold 700ms steps(1, end) forwards;
+    animation: wire-pulse-hold var(--duration-pulse-hold) steps(1, end) forwards;
   }
 }
 @keyframes wire-pulse-hold {

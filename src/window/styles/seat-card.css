@@ -1,7 +1,7 @@
 /* The seat card's motion and its ring's compositor layer, cut from styles.css
    unchanged so the website kit can ship them without the whole app sheet. */
 /* Cards drag from anywhere; keep motion quiet and physical. */
-.junto-node { transition: border-color .18s ease, box-shadow .18s ease, transform .16s ease; }
+.junto-node { transition: border-color var(--duration-state) var(--ease-standard), box-shadow var(--duration-state) var(--ease-standard), transform var(--duration-quick) var(--ease-standard); }
 .react-flow__node:hover .junto-node { transform: translateY(-1px); }
 .react-flow__node:hover .junto-node--bare { transform: none; }
 .react-flow__node.dragging .junto-node { transform: none; }

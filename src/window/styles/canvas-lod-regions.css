@@ -51,7 +51,7 @@ html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="o
    are drawn in canvas units: 3 units reads as 1 to 2px across mid, 6 units
    as 1.2 to 2px across far, 10 units as 1.5 to 2px at the overview. */
 html[data-canvas-tier="mid"] .react-flow__viewport .junto-group {
-  outline: 3px solid color-mix(in oklab, var(--region-hue) 40%, transparent);
+  outline: var(--border-region-mid) solid color-mix(in oklab, var(--region-hue) 40%, transparent);
   outline-offset: -3px;
 }
 
@@ -59,7 +59,7 @@ html[data-canvas-tier="mid"] .react-flow__viewport .junto-group {
 
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group {
   background: color-mix(in oklab, var(--region-hue) 8%, transparent);
-  outline: 6px solid color-mix(in oklab, var(--region-hue) 62%, transparent);
+  outline: var(--border-region-far) solid color-mix(in oklab, var(--region-hue) 62%, transparent);
   outline-offset: -6px;
 }
 /* Nested washes are lighter, so five levels deepen the colour without
@@ -72,7 +72,7 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
   outline-color: color-mix(in oklab, var(--region-hue) 34%, transparent);
 }
 html[data-canvas-tier="overview"] .react-flow__viewport .junto-group {
-  outline-width: 10px;
+  outline-width: var(--border-region-overview);
   outline-offset: -10px;
 }
 html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node.selected .junto-group {
@@ -142,19 +142,15 @@ html[data-canvas-tier="overview"] .react-flow__viewport .junto-group[data-region
    drawn in canvas units so it still reads (6 units is 1 to 2px far). */
 .junto-group[data-region-urgency][data-region-reach="direct"]::after {
   background: color-mix(in oklab, var(--urgency) 3%, transparent);
-  box-shadow:
-    inset 0 0 0 1.5px color-mix(in oklab, var(--urgency) 50%, transparent),
-    inset 0 0 28px color-mix(in oklab, var(--urgency) 9%, transparent);
+  box-shadow: var(--shadow-region-urgency);
 }
 .junto-group[data-region-urgency][data-region-reach="held"]::after {
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--urgency) 28%, transparent);
+  box-shadow: var(--shadow-region-urgency-held);
 }
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group[data-region-urgency][data-region-reach="direct"]::after {
   background: color-mix(in oklab, var(--urgency) 4%, transparent);
-  box-shadow:
-    inset 0 0 0 6px color-mix(in oklab, var(--urgency) 52%, transparent),
-    inset 0 0 110px color-mix(in oklab, var(--urgency) 11%, transparent);
+  box-shadow: var(--shadow-region-urgency-far);
 }
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group[data-region-urgency][data-region-reach="held"]::after {
-  box-shadow: inset 0 0 0 4px color-mix(in oklab, var(--urgency) 30%, transparent);
+  box-shadow: var(--shadow-region-urgency-held-far);
 }

@@ -26,7 +26,7 @@
 .react-flow__node.selected .junto-node[data-node-kind="agent"]:not([data-bare]) {
   border-color: color-mix(in oklab, var(--color-main) 55%, transparent) !important;
   background: color-mix(in oklab, var(--color-raise) 94%, transparent) !important;
-  box-shadow: 0 8px 22px var(--color-shadow-2) !important;
+  box-shadow: var(--shadow-seat) !important;
 }
 .junto-node[data-node-kind="agent"][data-occupancy] { outline: none; }
 /* Nor does a blocked seat wear the old crimson frame: its ring is crimson. */
@@ -114,7 +114,7 @@
   opacity: 1;
   z-index: 20;
   cursor: crosshair;
-  transition: background 120ms ease-out, border-color 120ms ease-out;
+  transition: background var(--duration-zone) var(--ease-out), border-color var(--duration-zone) var(--ease-out);
 }
 .junto-handle.junto-verb-zone.connectingto,
 .junto-handle.junto-verb-zone.connectingto.valid,
@@ -172,37 +172,28 @@
    identity across the theme switch even though lightness re-anchors to the
    ground. */
 :root {
-  /* Ink: the flows track. */
-  --wire-verb-flows: oklch(0.9 0.01 250);
+  /* Ink: the flows track. The values are theme tokens (wire-* in
+     src/shared/theme/semantic.ts); bright re-anchors them on paper through
+     the theme's data-theme overrides, so no daylight block lives here. */
+  --wire-verb-flows: var(--color-wire-flows);
   /* Derives: the flows ink. Its still, breathing arrowheads tell it from
      the sliding flows chevrons, so it needs no hue of its own. */
-  --wire-verb-derives: var(--wire-verb-flows);
+  --wire-verb-derives: var(--color-wire-derives);
 
   /* Cold: teal through violet, several near-grey. */
-  --wire-verb-navigates: oklch(0.5 0.02 190);
-  --wire-verb-messages: oklch(0.68 0.065 240);
+  --wire-verb-navigates: var(--color-wire-navigates);
+  --wire-verb-messages: var(--color-wire-messages);
 
   /* No verb compiled: draw it, quietly, in neutral ink. */
-  --wire-verb-unset: oklch(0.48 0.008 250);
-}
-/* Daylight edition. Every verb keeps its hue family; lightness re-anchors to
-   paper, where weight comes from darkness instead of light, so the ranks
-   within a band are solved fresh rather than mirrored. */
-html[data-theme="bright"] {
-  --wire-verb-flows: oklch(0.3 0.01 250);
-
-  --wire-verb-navigates: oklch(0.44 0.025 192);
-  --wire-verb-messages: oklch(0.53 0.07 236);
-
-  --wire-verb-unset: oklch(0.62 0.008 250);
+  --wire-verb-unset: var(--color-wire-unset);
 }
 path.junto-edge {
   stroke-linecap: round;
   stroke-linejoin: round;
   transition:
-    stroke 420ms cubic-bezier(.22,.61,.36,1),
-    filter 160ms ease-out,
-    opacity 240ms ease-out;
+    stroke var(--duration-wire-stroke) var(--ease-wire),
+    filter var(--duration-wire-filter) var(--ease-out),
+    opacity var(--duration-wire-opacity) var(--ease-out);
 }
 
 /* Rest — a wire is ground.
@@ -269,7 +260,7 @@ path.junto-edge {
    a Tab across the canvas was invisible. Cyan, as on the fleet map: amber is
    selection, crimson is blocked. Keyboard focus only, never a click. */
 .react-flow .react-flow__node:is(.react-flow__node-text, .react-flow__node-file, .react-flow__node-link, .react-flow__node-group):focus-visible {
-  outline: 1px solid var(--color-cyan);
+  outline: var(--border-hairline) solid var(--color-cyan);
   outline-offset: 3px;
   border-radius: var(--radius-lg);
 }
