@@ -197,3 +197,43 @@ describe("the tier", () => {
     r.keeper.dispose();
   });
 });
+
+describe("the hands in the engine", () => {
+  const pointer = (phase: "down" | "move" | "up", x: number, y: number) =>
+    ({ kind: "pointer", phase, pointerId: 1, at: { x, y }, button: 0, buttons: phase === "up" ? 0 : 1, clicks: 1, modifiers: { shift: false, alt: false, ctrl: false, meta: false } }) as const;
+
+  it("turns a three-inch drag into one Move with the rounded position", async () => {
+    const r = await rig();
+    load(r, [seatFact("a", 100)]);
+    const intents: Array<import("../src/window/canvas/contract").Intent> = [];
+    r.engine.onIntent((intent) => intents.push(intent));
+    expect(r.engine.rectOf("a")).toEqual({ x: 100, y: 0, width: 216, height: 56 });
+    expect(r.engine.pick({ x: 110, y: 10 })).toMatchObject({ nodeId: "a" });
+    r.engine.input(pointer("down", 110, 10));
+    r.engine.input(pointer("move", 120, 20));
+    r.engine.input(pointer("move", 140, 40));
+    r.engine.input(pointer("up", 140, 40));
+    const moves = intents.filter((intent) => intent.kind === "move");
+    expect(moves).toEqual([{ kind: "move", positions: [{ id: "a", x: 130, y: 30 }] }]);
+    // The drop clears the live offset and the card is back on its row.
+    expect(r.engine.rectOf("a")?.x).toBe(100);
+    r.engine.dispose();
+    r.keeper.dispose();
+  });
+
+  it("turns a resize into one Move with the final size", async () => {
+    const r = await rig();
+    const board = factOf(note("n", "drag me", { x: 400, y: 100, width: 220, height: 84 }));
+    load(r, [board]);
+    r.engine.apply([{ kind: "selection", fact: { nodeIds: ["n"] } }]);
+    const intents: Array<import("../src/window/canvas/contract").Intent> = [];
+    r.engine.onIntent((intent) => intents.push(intent));
+    r.engine.input(pointer("down", 620, 184));
+    r.engine.input(pointer("move", 650, 214));
+    r.engine.input(pointer("up", 650, 214));
+    const resized = intents.filter((intent) => intent.kind === "resize");
+    expect(resized).toEqual([{ kind: "resize", id: "n", rect: { x: 400, y: 100, width: 250, height: 114 } }]);
+    r.engine.dispose();
+    r.keeper.dispose();
+  });
+});

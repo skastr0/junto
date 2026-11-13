@@ -32,6 +32,7 @@ import type {
   NodeId,
   Point,
   Rect,
+  ConnectionPreview,
   SceneOp,
   TextRun,
   WireId,
@@ -57,6 +58,7 @@ import { defaultPainter } from "./paint-default";
 import { createScene, type CardPainter } from "./scene";
 import { createRenderer, type AtlasBinding } from "./renderer";
 import { pickAt, type PickWorld } from "./pick";
+import { POINTER_IDLE, stepPointer, type PointerEffect, type PointerState, type PointerWorld } from "./pointer";
 
 export type { Camera, CanvasInput, FrameScheduler, SceneOp };
 
@@ -103,6 +105,16 @@ export interface EngineHost {
   readonly atlas?: AtlasBinding;
   /** Text measurement for the painter; the shell hands the browser's. */
   readonly measure?: (run: TextRun) => number;
+  /**
+   * The wire grammar and region hold the pointer machine asks about. The
+   * shell supplies them from the model's own writers; without them a drag
+   * moves cards and a connection needs the shell's verb list.
+   */
+  readonly hands?: {
+    readonly canConnect: (source: NodeId, target: NodeId) => boolean;
+    readonly verbsFor: (source: NodeId, target: NodeId) => ReadonlyArray<string>;
+    readonly riders: (regionId: NodeId) => ReadonlyArray<NodeId>;
+  };
 }
 
 /** The seam's frame facts; now the contract's. */
@@ -155,7 +167,9 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   let animation: { readonly from: Camera; readonly to: Camera; readonly start: number; readonly duration: number } | undefined;
   const keys = new Map<string, number>();
   let keyBoost = false;
-  let panning: { readonly pointerId: number; last: Point } | undefined;
+  let pointerState: PointerState = POINTER_IDLE;
+  let autoPan: Point | null = null;
+  let preview: ConnectionPreview | null = null;
 
   const frameListeners = new Set<(facts: FrameFacts) => void>();
   const intentListeners = new Set<(intent: Intent) => void>();
@@ -170,6 +184,90 @@ export const createEngine = (host: EngineHost): SeamEngine => {
 
   const wallNow = (): number => wallClock();
 
+  const sideOf = (handle: string): ConnectionPreview["fromSide"] => {
+    if (handle.endsWith("top")) return "top";
+    if (handle.endsWith("right")) return "right";
+    if (handle.endsWith("bottom")) return "bottom";
+    return "left";
+  };
+
+  const pointerWorld: PointerWorld = {
+    pick: (screen) => pickAt({ index: scene.index, card: scene.cardOf, wire: scene.wire, selection: scene.selection(), scale: camera.zoom, tier, wireMode: scene.wireMode, rectOf: scene.rectOf }, toBoard(camera, screen)),
+    screenToBoard: (screen) => toBoard(camera, screen),
+    viewport: () => size,
+    rectOf: scene.rectOf,
+    kindOf: (id) => scene.cardOf(id)?.row.kind,
+    query: scene.query,
+    selection: () => scene.selection().nodeIds,
+    canConnect: (source, target) => host.hands?.canConnect(source, target) ?? source !== target,
+    verbsFor: (source, target) => host.hands?.verbsFor(source, target) ?? [],
+    riders: (regionId) => host.hands?.riders(regionId) ?? [],
+  };
+
+  const applyEffect = (effect: PointerEffect): void => {
+    switch (effect.kind) {
+      case "offset":
+        for (const id of effect.ids) {
+          if (effect.by === null) {
+            scene.restoreCard(id);
+            continue;
+          }
+          const fact = scene.cardOf(id);
+          if (fact !== undefined) scene.moveCard(id, { x: fact.row.x + effect.by.x, y: fact.row.y + effect.by.y });
+        }
+        scene.setDragging(effect.by === null ? null : effect.ids);
+        dirty = true;
+        return;
+      case "resizing":
+        if (effect.rect === null) scene.restoreCard(effect.id);
+        else scene.resizeCard(effect.id, effect.rect);
+        dirty = true;
+        return;
+      case "marquee":
+        // The marquee is drawn by the shell's overlay (track G); the engine
+        // keeps the rectangle for the pick and the frame facts of a later cut.
+        dirty = true;
+        return;
+      case "connecting": {
+        const next = effect.preview;
+        preview = next === null
+          ? null
+          : { from: next.start, fromSide: sideOf(next.fromHandle), to: next.pointer };
+        host.wires?.apply([{ kind: "preview", preview }]);
+        dirty = true;
+        return;
+      }
+      case "autoPan":
+        autoPan = effect.perFrame;
+        dirty = true;
+        return;
+      case "pan":
+        setCamera({ x: camera.x + effect.by.x, y: camera.y + effect.by.y, zoom: camera.zoom }, clock());
+        return;
+      case "cluster": {
+        const rects = effect.memberIds
+          .map((id) => scene.rectOf(id))
+          .filter((rect): rect is Rect => rect !== undefined);
+        if (rects.length === 0) return;
+        moveCamera({ kind: "fit", rects, padding: 0.35, maxZoom: 1 }, { durationMs: 260 });
+        return;
+      }
+      default:
+        return;
+    }
+  };
+
+  const stepHand = (event: CanvasInput | { readonly kind: "tick" }): void => {
+    const step = stepPointer(pointerState, event, pointerWorld);
+    pointerState = step.state;
+    for (const intent of step.intents) {
+      if (intent.kind === "hover") scene.setHover(intent.hit?.nodeId ?? null);
+      emit(intent);
+    }
+    for (const effect of step.effects) applyEffect(effect);
+    if (step.intents.length > 0 || step.effects.length > 0) invalidate();
+  };
+
   const emit = (intent: Intent): void => {
     for (const listener of [...intentListeners]) listener(intent);
   };
@@ -177,7 +275,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   const schedule = (): void => {
     if (disposed || !visible || pending !== undefined) return;
     if (keeper.state().kind !== "ready") return;
-    const busy = dirty || animation !== undefined || keys.size > 0 || !settled || scene.hasMotion() || (host.wires?.busy(wallNow()) ?? false);
+    const busy = dirty || animation !== undefined || keys.size > 0 || !settled || autoPan !== null || scene.hasMotion() || (host.wires?.busy(wallNow()) ?? false);
     if (!busy) return;
     pending = scheduler.request(frame);
   };
@@ -241,6 +339,10 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     if (!settled && start - settleAt >= CAMERA_SETTLE_MS) {
       settled = true;
       dirty = true;
+    }
+    if (autoPan !== null) {
+      setCamera({ x: camera.x + autoPan.x, y: camera.y + autoPan.y, zoom: camera.zoom }, start);
+      stepHand({ kind: "tick" });
     }
     const nextTier = tierForZoom(camera.zoom, tier);
     if (nextTier !== tier) {
@@ -317,7 +419,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     dirty = false;
 
     const moving = scene.hasMotion() || (host.wires?.busy(wallNow()) ?? false);
-    if (moving || animation !== undefined || keys.size > 0 || !settled) schedule();
+    if (moving || animation !== undefined || keys.size > 0 || !settled || autoPan !== null) schedule();
   };
 
   const unsubscribe = keeper.subscribe((state: DeviceState) => {
@@ -402,6 +504,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
         return;
       case "visibility":
         visible = event.visible;
+        stepHand(event);
         if (!visible && pending !== undefined) {
           scheduler.cancel(pending);
           pending = undefined;
@@ -437,35 +540,10 @@ export const createEngine = (host: EngineHost): SeamEngine => {
         schedule();
         return;
       }
-      case "pointer": {
-        if (event.phase === "down" && (event.button === 1 || (event.buttons & 4) !== 0)) {
-          cancelAnimation();
-          panning = { pointerId: event.pointerId, last: event.at };
-          return;
-        }
-        if (panning !== undefined && panning.pointerId === event.pointerId) {
-          if (event.phase === "move") {
-            const dx = event.at.x - panning.last.x;
-            const dy = event.at.y - panning.last.y;
-            panning = { pointerId: event.pointerId, last: event.at };
-            if (dx !== 0 || dy !== 0) setCamera({ x: camera.x + dx, y: camera.y + dy, zoom: camera.zoom }, clock());
-            return;
-          }
-          if (event.phase === "up" || event.phase === "cancel" || event.phase === "leave") {
-            panning = undefined;
-            return;
-          }
-        }
-        if (event.phase === "move" && event.buttons === 0) {
-          const hit = pick(event.at);
-          const id = hit?.nodeId ?? null;
-          if (scene.setHover(id)) {
-            emit({ kind: "hover", hit: id === null ? null : hit });
-            invalidate();
-          }
-        }
+      case "pointer":
+        if (event.phase === "down" || event.phase === "move") cancelAnimation();
+        stepHand(event);
         return;
-      }
     }
   };
 
@@ -520,6 +598,8 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       if (pending !== undefined) scheduler.cancel(pending);
       pending = undefined;
       animation = undefined;
+      autoPan = null;
+      pointerState = POINTER_IDLE;
       keys.clear();
       unsubscribe();
       frameListeners.clear();

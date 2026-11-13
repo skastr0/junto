@@ -559,6 +559,30 @@ export const createScene = (options: {
     markOrder();
   };
 
+  /** Put a card back on its feed row (a gesture let go before the writer's fact arrives). */
+  const restoreCard = (id: NodeId): void => {
+    const card = byId.get(id);
+    if (card === undefined) return;
+    moveCard(id, rectOfFact(card.fact));
+  };
+
+  /** A live resize keeps the card's records and moves its owner rectangle. */
+  const resizeCard = (id: NodeId, rect: Rect): void => {
+    const card = byId.get(id);
+    if (card === undefined) return;
+    card.rect = rect;
+    writeOwner(card);
+    grid.set(card.slot, insetBy(card.rect, 28));
+    markOrder();
+  };
+
+  /** Cards whose rectangles meet a board rectangle, in paint order (the pointer machine's query). */
+  const query = (rect: Rect): NodeId[] => {
+    const found: number[] = [];
+    grid.query(rect, found);
+    return orderCards(found).map((card) => card.id);
+  };
+
   const rectOf = (id: NodeId): Rect | undefined => byId.get(id)?.rect;
   const cardOf = (id: NodeId): CardFact | undefined => byId.get(id)?.fact;
 
@@ -658,6 +682,9 @@ export const createScene = (options: {
     setHover,
     setDragging,
     moveCard,
+    restoreCard,
+    resizeCard,
+    query,
     rectOf,
     cardOf,
     prepare,
