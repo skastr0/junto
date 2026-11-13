@@ -10,7 +10,7 @@ import type { CardFact, FrameFacts, SeatLive } from "../src/window/canvas/contra
 import { createDeviceKeeper } from "../src/window/canvas/engine/device";
 import { createEngine } from "../src/window/canvas/engine/engine";
 import { tierForZoom as oldTierForZoom, type CanvasTier as OldTier } from "../src/window/lib/canvas-tier";
-import { fakeContext, fakeGpu, fakeScheduler, settle } from "./gpu-canvas-fakes";
+import { fakeContext, fakeGpu, fakeScheduler, settle, type FakeDevice } from "./gpu-canvas-fakes";
 import { note, seat } from "./support/model-nodes";
 
 const factOf = (row: CardFact["row"], over: Partial<CardFact["derived"]> = {}): CardFact => ({
@@ -38,6 +38,7 @@ type Rig = {
   readonly keeper: ReturnType<typeof createDeviceKeeper>;
   readonly frames: ReturnType<typeof fakeScheduler>;
   readonly facts: FrameFacts[];
+  readonly device: FakeDevice;
   readonly advance: (ms: number) => void;
 };
 
@@ -66,6 +67,7 @@ const rig = async (): Promise<Rig> => {
     keeper,
     frames,
     facts,
+    device: gpu.devices[0]!,
     advance: (ms) => {
       now += ms;
     },
@@ -208,6 +210,28 @@ describe("the tier", () => {
       const expected = oldTierForZoom(zoom, previous);
       expect({ zoom, tier: facts.tier }).toEqual({ zoom, tier: expected });
       previous = expected;
+    }
+    r.engine.dispose();
+    r.keeper.dispose();
+  });
+});
+
+describe("every upload fits its buffer", () => {
+  it("writes no range past a GPU buffer, even after growth", async () => {
+    const r = await rig();
+    const cards: CardFact[] = [];
+    for (let index = 0; index < 900; index += 1) {
+      cards.push(factOf(note(`n${index}`, `note ${index}`, { x: index * 30, y: index * 10, width: 220, height: 84 })));
+    }
+    load(r, cards);
+    for (let frame = 0; frame < 3; frame += 1) {
+      r.engine.moveCamera({ kind: "camera", camera: { x: -frame * 90, y: 0, zoom: 1 } });
+      r.frames.tick();
+    }
+    // The fake records bytes; a write past a buffer is the error Chromium raises.
+    for (const write of r.device.writes()) {
+      const size = (write.buffer as unknown as { readonly size: number }).size;
+      expect(write.offset + write.size, `buffer ${String(size)} offset ${String(write.offset)} + ${String(write.size)}`).toBeLessThanOrEqual(size);
     }
     r.engine.dispose();
     r.keeper.dispose();

@@ -209,13 +209,13 @@ fn styleColour(base: u32, at: u32) -> vec4f {
   // A shadow quad draws the style's shadow layers, each a blurred ring or drop.
   if (q.kind == 1u) {
     if (shadowId < 0) { return vec4f(0.0); }
-    let meta = shadowMeta[u32(shadowId)];
-    let count = min(meta.x, 32u);
+    let spec = shadowMeta[u32(shadowId)];
+    let count = min(spec.x, 32u);
     var outColour = vec3f(0.0);
     var outAlpha = 0.0;
     for (var i = 0u; i < count; i = i + 1u) {
-      let layer = shadowLayers[meta.y + i * 2u];
-      let tint = shadowLayers[meta.y + i * 2u + 1u];
+      let layer = shadowLayers[spec.y + i * 2u];
+      let tint = shadowLayers[spec.y + i * 2u + 1u];
       let p = abs(in.local * in.half - vec2f(layer.x, layer.y));
       let halfSize = in.half + vec2f(layer.w);
       let r = max(0.0, min(q.radii.x + layer.w, min(halfSize.x, halfSize.y)));
@@ -382,12 +382,13 @@ export const createRenderer = () => {
     state.device.queue.writeBuffer(state.styles, 0, scene.styleBuffer, 0, Math.min(scene.styleBuffer.length, floats));
     note(state, "styles", 0, Math.min(scene.styleBuffer.byteLength, floats * 4));
     const shadows = scene.shadowSnapshot();
-    const metaBytes = Math.min(shadows.meta.byteLength, SHADOW_META_CAPACITY * SHADOW_SPEC_WORDS * 4);
-    state.device.queue.writeBuffer(state.shadowMeta, 0, shadows.meta, 0, Math.max(4, metaBytes));
-    note(state, "shadows", 0, metaBytes);
-    const layerBytes = Math.min(shadows.layers.byteLength, SHADOW_LAYER_CAPACITY * SHADOW_LAYER_FLOATS * 4);
-    state.device.queue.writeBuffer(state.shadowLayers, 0, shadows.layers, 0, Math.max(4, layerBytes));
-    note(state, "shadows", 0, layerBytes);
+    // writeBuffer's size is in elements of the typed array, not bytes.
+    const metaElements = Math.min(shadows.meta.length, SHADOW_META_CAPACITY * SHADOW_SPEC_WORDS);
+    if (metaElements > 0) state.device.queue.writeBuffer(state.shadowMeta, 0, shadows.meta, 0, metaElements);
+    note(state, "shadows", 0, metaElements * 4);
+    const layerElements = Math.min(shadows.layers.length, SHADOW_LAYER_CAPACITY * SHADOW_LAYER_FLOATS);
+    if (layerElements > 0) state.device.queue.writeBuffer(state.shadowLayers, 0, shadows.layers, 0, layerElements);
+    note(state, "shadows", 0, layerElements * 4);
     state.styleRevision = scene.styleRevision;
   };
 
@@ -552,9 +553,9 @@ export const createRenderer = () => {
       }
     }
     if (prepared.orderChanged) {
-      const bytes = scene.orderCount * 4;
-      if (bytes > 0) state.device.queue.writeBuffer(state.order, 0, scene.orderBuffer, 0, bytes);
-      note(state, "order", 0, bytes);
+      // The buffer is a Uint32Array: writeBuffer's size is in elements.
+      if (scene.orderCount > 0) state.device.queue.writeBuffer(state.order, 0, scene.orderBuffer, 0, scene.orderCount);
+      note(state, "order", 0, scene.orderCount * 4);
     }
     if (state.styleRevision !== scene.styleRevision) uploadStyles(state, scene);
   };

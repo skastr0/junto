@@ -57,10 +57,12 @@ const fakeDevice = (): FakeDevice => {
       submit: () => {
         submits += 1;
       },
-      writeBuffer: (buffer: GPUBuffer, offset: number, data: ArrayBufferView | ArrayBuffer, dataOffset?: number, size?: number) => {
-        const bytes = data instanceof ArrayBuffer ? data.byteLength : data.byteLength;
-        const length = size ?? bytes - (dataOffset ?? 0) * (data instanceof ArrayBuffer ? 1 : (data as unknown as { BYTES_PER_ELEMENT?: number }).BYTES_PER_ELEMENT ?? 1);
-        writes.push({ buffer, offset, size: Math.max(0, length) });
+      writeBuffer: (buffer: GPUBuffer, offset: number, data: ArrayBufferView | ArrayBuffer, dataOffset = 0, size?: number) => {
+        // WebGPU: dataOffset and size are in elements of the typed array (bytes
+        // for an ArrayBuffer); the recorded range is bytes, as the spec checks.
+        const element = data instanceof ArrayBuffer ? 1 : (data as unknown as { BYTES_PER_ELEMENT?: number }).BYTES_PER_ELEMENT ?? 1;
+        const elements = size ?? data.byteLength / element - dataOffset;
+        writes.push({ buffer, offset, size: Math.max(0, elements * element) });
       },
       writeTexture: () => undefined,
       copyExternalImageToTexture: () => undefined,

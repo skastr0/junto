@@ -74,8 +74,20 @@ export interface DrawSurface {
  * between the bands; the engine gives it the device, the pass and the frame's
  * request to keep drawing while a pulse or track runs.
  */
+/** What the wire layer needs each drawn frame, before its upload. */
+export type WireFrameFacts = {
+  readonly camera: Camera;
+  readonly width: number;
+  readonly height: number;
+  readonly pixelRatio: number;
+  readonly tier: CanvasTier;
+  readonly wall: number;
+};
+
 export interface WireLayer {
   readonly apply: (ops: ReadonlyArray<SceneOp>) => void;
+  /** The frame's camera, viewport, tier and wall clock, before `upload`. */
+  readonly frame?: (facts: WireFrameFacts) => void;
   readonly upload: (device: GPUDevice) => void;
   readonly encodeRest: (pass: GPURenderPassEncoder) => void;
   readonly encodeTracks: (pass: GPURenderPassEncoder) => void;
@@ -381,6 +393,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       nodeScale: nodeScale(camera.zoom),
     });
     renderer.upload(scene, prepared);
+    host.wires?.frame?.({ camera, width: size.width, height: size.height, pixelRatio: size.pixelRatio, tier, wall });
     host.wires?.upload(device);
 
     // 6: draw. Wires rest, then cards, then tracks, then lifted quads.
