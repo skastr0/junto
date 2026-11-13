@@ -456,7 +456,7 @@ export type TextRun = {
 export type QuadKind = "shape" | "shadow" | "sprite" | "text";
 
 /** Which paint band the quad draws in (section 6). Quads of one card keep `z` order inside it. */
-export type PaintBand = "cards" | "lifted";
+export type PaintBand = "regions" | "cards" | "lifted";
 
 export type Quad = {
   /** Stable within its card across repaints, so a style change is a transition on one slot. */
@@ -500,6 +500,8 @@ export type CardView = {
   readonly dragging: boolean;
   readonly reach?: ReachMark;
   readonly focus?: { readonly kind: "impact" | "connection"; readonly role: "root" | "member" | "lead" | "outsider" };
+  /** The part under the pointer, where it matters to paint (a region's title bar or frame strips). */
+  readonly hoveredPart?: Part["kind"];
   /** The theme the generated art (portraits, icons, bands) is made for. */
   readonly mode: ThemeMode;
 };
