@@ -160,6 +160,22 @@ describe("a seat report", () => {
     r.keeper.dispose();
   });
 
+  it("rewrites the style table on a theme switch and no record", async () => {
+    const r = await rig();
+    load(r, [seatFact("a")]);
+    r.engine.apply([{ kind: "seat", id: "a", live: live("rest") }]);
+    r.frames.tick();
+    r.engine.apply([{ kind: "theme", mode: "bright" }]);
+    r.frames.tick();
+    const records = r.engine.stats().lastUploadRanges.filter((range) => range.buffer !== "uniform");
+    expect(records.some((range) => range.buffer === "quads")).toBe(false);
+    expect(records.some((range) => range.buffer === "owners")).toBe(false);
+    expect(records.some((range) => range.buffer === "order")).toBe(false);
+    expect(records.some((range) => range.buffer === "styles")).toBe(true);
+    r.engine.dispose();
+    r.keeper.dispose();
+  });
+
   it("moves a card with one owner entry and no record", async () => {
     const r = await rig();
     load(r, [seatFact("a")]);

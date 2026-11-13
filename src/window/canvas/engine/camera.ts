@@ -179,7 +179,9 @@ export const interpolateCamera = (
     uy = uy0 + u * dy;
     w = (w0 * coshr0) / cosh(RHO * s + r0);
   }
-  const k = Math.max(CAMERA_MIN_ZOOM, Math.min(CAMERA_MAX_ZOOM, Math.max(viewport.width, viewport.height) / w));
+  // d3's transition does not clamp the intermediate zoom; the target was
+  // already clamped when the move was resolved.
+  const k = Math.max(viewport.width, viewport.height) / w;
   return { x: p.x - ux * k, y: p.y - uy * k, zoom: k };
 };
 

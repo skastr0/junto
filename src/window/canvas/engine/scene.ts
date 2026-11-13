@@ -44,8 +44,6 @@ import {
   createQuadBuffer,
   MOTION,
   MOTION_FLAG,
-  packColor,
-  packDash,
   QUAD_FLOATS,
   QUAD_KIND,
   SCALE_RULE,
@@ -54,7 +52,7 @@ import {
   type PackedQuad,
   type QuadBuffer,
 } from "./quad";
-import { resolveStyle } from "./color";
+import { createStyleTable, type ShadowSpec } from "./styles";
 import { CARD_CELL, RectGrid } from "./grid";
 
 export type CardPainter = (
@@ -194,6 +192,9 @@ export const createScene = (options: {
 }) => {
   let mode: ThemeMode = options.mode ?? "dark";
   let theme: GpuTheme = themeGpu(mode);
+  let styles = createStyleTable(theme);
+  let styleRevision = 0;
+  let knownStyles = 0;
   const painter = options.painter;
   const env: PaintEnv = { measure: options.measure ?? approximateMeasure };
 
@@ -299,31 +300,35 @@ export const createScene = (options: {
   };
 
   const packQuad = (quad: Quad): PackedQuad => {
-    const style = resolveStyle(quad.style, theme);
-    const ink = quad.kind === "text" ? style.ink : style.from;
+    const style = styles.intern(quad.style);
+    if (styles.size !== knownStyles) {
+      knownStyles = styles.size;
+      styleRevision += 1;
+    }
     const radius = typeof quad.radii === "number"
       ? ([quad.radii, quad.radii, quad.radii, quad.radii] as const)
       : quad.radii ?? ([0, 0, 0, 0] as const);
-    const dash = quad.style?.stroke?.dash;
     return {
       rect: quad.rect,
       radii: radius,
-      fill: packColor(ink),
-      fillTo: packColor(style.to),
-      stroke: packColor(style.stroke),
-      strokeWidth: style.strokeWidth,
-      opacity: style.opacity,
+      // Colours live in the style table (B); a record names its style and
+      // nothing else, so a theme switch rewrites no record.
+      fill: 0,
+      fillTo: 0,
+      stroke: 0,
+      strokeWidth: 0,
+      opacity: 1,
       shape: quad.shape === undefined ? SHAPE.rect : SHAPE_OF[quad.shape],
       kind: KIND_OF[quad.kind],
       tiers: quad.tiers,
       ...packScale(quad.scale),
       ...packMotion(quad.motion),
       source: 0xffffffff,
-      gradientAngle: style.angle,
-      style: 0xffffffff,
+      gradientAngle: 0,
+      style,
       previousStyle: 0xffffffff,
       changeAt: wallNow,
-      dash: dash === undefined ? 0 : packDash(dash[0], dash[1]),
+      dash: 0,
     };
   };
 
@@ -505,9 +510,12 @@ export const createScene = (options: {
         return;
       }
       case "theme": {
+        // A theme switch rewrites the style table's colour channels in place;
+        // records keep their style ids, so no record changes.
         mode = op.mode;
         theme = themeGpu(mode);
-        for (const card of byId.values()) repaint(card);
+        styles.setTheme(theme);
+        styleRevision += 1;
         return;
       }
       case "wireMode":
@@ -703,6 +711,31 @@ export const createScene = (options: {
     },
     get theme(): GpuTheme {
       return theme;
+    },
+    get styleBuffer(): Float32Array {
+      return styles.buffer;
+    },
+    get styleCount(): number {
+      return styles.size;
+    },
+    get styleRevision(): number {
+      return styleRevision;
+    },
+    shadowSnapshot: (): { readonly meta: Uint32Array; readonly layers: Float32Array } => {
+      const meta = new Uint32Array(styles.shadows.length * 4);
+      const layers: number[] = [];
+      styles.shadows.forEach((spec: ShadowSpec, index) => {
+        meta[index * 4] = spec.layers.length;
+        meta[index * 4 + 1] = layers.length / 8;
+        for (const layer of spec.layers) {
+          const named = layer.color === undefined ? undefined : theme.colors[layer.color];
+          const colour = named ?? spec.tint ?? { r: 0, g: 0, b: 0, a: 0 };
+          const alpha = layer.alpha === undefined ? colour.a : colour.a * layer.alpha;
+          layers.push(layer.dx, layer.dy, layer.blur, layer.spread);
+          layers.push(colour.r, colour.g, colour.b, alpha);
+        }
+      });
+      return { meta, layers: new Float32Array(layers) };
     },
     get quadBuffer(): QuadBuffer {
       return quads;
