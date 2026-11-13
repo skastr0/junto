@@ -6,7 +6,7 @@
  */
 import type { Page } from "@playwright/test";
 import { camera, canvasReady, card } from "../harness/canvas";
-import { expect, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 import { commandModel, modelFixture, modelNote } from "../harness/model";
 
 const fixture = modelFixture([
@@ -24,8 +24,12 @@ const installBoard = async (page: Page): Promise<string> => {
   return canvas;
 };
 
-test("click, double click, drag and wheel on the minimap move the GPU camera", async ({ junto }) => {
+test("click, double click, drag and wheel on the minimap move the GPU camera", async () => {
+  const junto = await launchJunto({ seedExperimentalFeatures: ["gpuCanvas"] });
+  try {
   const { page } = junto;
+  // The GPU canvas, not the old one: its hook answers and the DOM canvas is gone.
+  await expect.poll(() => page.evaluate(() => Boolean(window.__juntoCanvas)), { timeout: 30_000 }).toBe(true);
   await canvasReady(page, { timeout: 30_000 });
   await installBoard(page);
   await card(page, "first").visible({ timeout: 30_000 });
@@ -70,4 +74,7 @@ test("click, double click, drag and wheel on the minimap move the GPU camera", a
   await page.mouse.move(at(0.5, 0.5).x, at(0.5, 0.5).y);
   await page.mouse.wheel(0, -240);
   await expect.poll(async () => (await camera(page)).zoom, { timeout: 5_000 }).not.toBeCloseTo(wheelBefore, 3);
+  } finally {
+    await junto.close();
+  }
 });
