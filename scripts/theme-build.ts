@@ -7,9 +7,13 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  BORDER,
   contrastRatio,
   DARK_RUNTIME,
+  DURATION,
+  EASING,
   semanticTokens,
+  SHADOW,
   TOKEN_NAMES,
   tokenCss,
   themeRuntime,
@@ -22,7 +26,9 @@ import {
   RADIUS,
   TEXT_SIZES,
   TRACKING,
+  type ShadowLayer,
 } from "../src/shared/theme";
+import { CARD } from "../src/shared/theme/metrics";
 import { SEMANTIC_BRIGHT_OVERRIDES } from "../src/shared/theme/semantic";
 
 const OUT = resolve(__dirname, "../src/window/styles/theme.generated.css");
@@ -68,6 +74,34 @@ if (failed) {
   process.exit(1);
 }
 
+// The chrome tokens (src/shared/theme/chrome.ts) emit as plain :root custom
+// properties, not @theme keys: --shadow-* would otherwise register Tailwind
+// shadow utilities, and none of these are utility candidates — components
+// read them as var(--shadow-*) like the --wire-verb-* names beside them.
+const pct = (alpha: number): string => `${Math.round(alpha * 1000) / 10}%`;
+
+// One box-shadow layer as CSS: `inset dx dy blur spread <colour>`, where a
+// token or element colour at partial alpha is the
+// color-mix(in oklab, X N%, transparent) idiom the sheets already write.
+const layerCss = (layer: ShadowLayer): string => {
+  const at = (expr: string): string =>
+    layer.alpha !== undefined && layer.alpha < 1
+      ? `color-mix(in oklab, ${expr} ${pct(layer.alpha)}, transparent)`
+      : expr;
+  const color =
+    layer.color !== undefined
+      ? at(`var(--color-${layer.color})`)
+      : layer.cssColor !== undefined
+        ? at(layer.cssColor)
+        : (() => {
+            throw new Error("theme-build: a shadow layer needs color or cssColor");
+          })();
+  return `${layer.inset ? "inset " : ""}${layer.dx}px ${layer.dy}px ${layer.blur}px ${layer.spread}px ${color}`;
+};
+
+const shadowCss = (layers: readonly ShadowLayer[]): string =>
+  layers.map(layerCss).join(",\n    ");
+
 const dark = semanticTokens("dark");
 
 const lines: string[] = [
@@ -111,6 +145,34 @@ for (const [name, value] of Object.entries(RADIUS)) {
   lines.push(`  --radius-${name}: ${value};`);
 }
 lines.push(
+  "}",
+  "",
+  "/* Non-colour paint tokens (src/shared/theme/chrome.ts): shadow geometry,",
+  "   border widths, motion durations and easings. Mode-independent, so one",
+  "   block serves both themes; a layer's colour names a --color-* token or",
+  "   an element-scoped var the painter sets. */",
+  ":root {",
+);
+for (const [name, layers] of Object.entries(SHADOW)) {
+  lines.push(`  --shadow-${name}: ${shadowCss(layers)};`);
+}
+for (const [name, px] of Object.entries(BORDER)) {
+  lines.push(`  --border-${name}: ${px}px;`);
+}
+for (const [name, ms] of Object.entries(DURATION)) {
+  lines.push(`  --duration-${name}: ${ms}ms;`);
+}
+for (const [name, [x1, y1, x2, y2]] of Object.entries(EASING)) {
+  lines.push(`  --ease-${name}: cubic-bezier(${x1}, ${y1}, ${x2}, ${y2});`);
+}
+lines.push(
+  "",
+  "  /* card measurements (src/shared/theme/metrics.ts): the literals the",
+  "     card stylesheets and paint/card-spec.ts share, so the DOM and the",
+  "     GPU canvas read one value. */",
+  `  --card-name-size: ${CARD.nameSize}px;`,
+  `  --card-line-size: ${CARD.lineSize}px;`,
+  `  --card-seat-radii: ${CARD.seatRadii.join("px ")}px;`,
   "}",
   "",
   'html[data-theme="bright"] {',

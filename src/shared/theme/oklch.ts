@@ -9,6 +9,18 @@ export interface Oklch {
   h: number;
 }
 
+/** OKLab cartesian components — what `color-mix(in oklab, ...)` interpolates. */
+export interface Oklab {
+  l: number;
+  a: number;
+  b: number;
+}
+
+/** OKLab plus alpha: the colour CSS color-mix works on. */
+export interface OklabColor extends Oklab {
+  alpha: number;
+}
+
 const srgbToLinear = (v: number): number =>
   v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
 
@@ -22,6 +34,27 @@ const hexToSrgb = (hex: string): [number, number, number] => {
     number,
     number,
   ];
+};
+
+/** Encoded sRGB channels (0 to 1, as a canvas buffer holds them) to OKLab
+ *  plus alpha — the inverse of oklchToSrgb, for mixing projected colours
+ *  the way color-mix does. */
+export const srgbToOklab = (
+  r: number,
+  g: number,
+  b: number,
+  alpha = 1,
+): OklabColor => {
+  const [lr, lg, lb] = [r, g, b].map(srgbToLinear);
+  const l_ = Math.cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
+  const m_ = Math.cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
+  const s_ = Math.cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);
+  return {
+    l: 0.2104542553 * l_ + 0.793617785 * m_ - 0.0040720468 * s_,
+    a: 1.9779984951 * l_ - 2.428592205 * m_ + 0.4505937099 * s_,
+    b: 0.0259040371 * l_ + 0.7827717662 * m_ - 0.808675766 * s_,
+    alpha,
+  };
 };
 
 export function hexToOklch(hex: string): Oklch {
@@ -69,6 +102,53 @@ export function oklchToHex(color: Oklch): string {
       .padStart(2, "0");
   return `#${to(r)}${to(g)}${to(b2)}`;
 }
+
+/** OKLCH to sRGB components, transfer-encoded and clamped to [0, 1]: the
+ *  values a canvas buffer composites, the same encoded values CSS paints.
+ *  Every token sits inside sRGB (tests/theme-gamut.test.ts), so nothing a
+ *  projection emits needs gamut handling of its own. */
+export const oklchToSrgb = (oklch: Oklch): [number, number, number] => {
+  const [r, g, b] = oklchToLinearSrgb(oklch);
+  const enc = (v: number): number =>
+    Math.min(1, Math.max(0, linearToSrgb(v)));
+  return [enc(r), enc(g), enc(b)];
+};
+
+/** OKLCH to OKLab cartesian plus alpha (default opaque). */
+export const oklchToOklab = ({ l, c, h }: Oklch, alpha = 1): OklabColor => {
+  const rad = (h * Math.PI) / 180;
+  return { l, a: c * Math.cos(rad), b: c * Math.sin(rad), alpha };
+};
+
+/** OKLab cartesian back to OKLCH polar; alpha, when present, is dropped. */
+export const oklabToOklch = ({ l, a, b }: Oklab | OklabColor): Oklch => ({
+  l,
+  c: Math.hypot(a, b),
+  h: ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360,
+});
+
+/** `color-mix(in oklab, top topPct%, bottom)`. CSS interpolates the
+ *  premultiplied components in the mixing space and un-premultiplies by the
+ *  result's alpha (css-color-4 section 12). With both colours opaque that is
+ *  a plain lerp; a colour mixed with `transparent` keeps its colour and
+ *  takes the percentage as its alpha, exactly. */
+export const mixOklab = (
+  top: OklabColor,
+  bottom: OklabColor,
+  topPct = 50,
+): OklabColor => {
+  const w = Math.min(100, Math.max(0, topPct)) / 100;
+  const alpha = w * top.alpha + (1 - w) * bottom.alpha;
+  if (alpha <= 0) return { l: 0, a: 0, b: 0, alpha: 0 };
+  const channel = (t: number, b: number): number =>
+    (w * t * top.alpha + (1 - w) * b * bottom.alpha) / alpha;
+  return {
+    l: channel(top.l, bottom.l),
+    a: channel(top.a, bottom.a),
+    b: channel(top.b, bottom.b),
+    alpha,
+  };
+};
 
 export const formatOklch = ({ l, c, h }: Oklch): string =>
   `oklch(${l.toFixed(5)} ${c.toFixed(5)} ${h.toFixed(2)})`;

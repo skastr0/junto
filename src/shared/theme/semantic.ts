@@ -122,6 +122,15 @@ export const SEMANTIC_DARK: Record<string, TokenValue> = {
   accent: alias("crimson"),
   "accent-fg": alias("crimson-fg"),
 
+  // wire verbs — the hues a wire's verb paints. factory-grammar.css keeps
+  // --wire-verb-* as the CSS-facing names; derives draws the flows ink (its
+  // still arrowheads tell it apart), so it aliases rather than carrying a hue.
+  "wire-flows": solid({ l: 0.9, c: 0.01, h: 250 }),
+  "wire-derives": alias("wire-flows"),
+  "wire-navigates": solid({ l: 0.5, c: 0.02, h: 190 }),
+  "wire-messages": solid({ l: 0.68, c: 0.065, h: 240 }),
+  "wire-unset": solid({ l: 0.48, c: 0.008, h: 250 }),
+
   // label colours (0.11, 03, C3): mark, fill, stroke and word per colour
   ...labelTokens("dark"),
 };
@@ -180,6 +189,12 @@ export const SEMANTIC_BRIGHT_OVERRIDES: Record<string, TokenValue> = {
   blue: solid(brightHues.blue),
   pink: solid(brightHues.pink),
   teal: solid(brightHues.teal),
+  // Wire verbs keep their hue families; lightness re-anchors to paper —
+  // factory-grammar.css's daylight edition, moved here verbatim.
+  "wire-flows": solid({ l: 0.3, c: 0.01, h: 250 }),
+  "wire-navigates": solid({ l: 0.44, c: 0.025, h: 192 }),
+  "wire-messages": solid({ l: 0.53, c: 0.07, h: 236 }),
+  "wire-unset": solid({ l: 0.62, c: 0.008, h: 250 }),
   // Only the word differs; the mark, fill and stroke follow the mode's hues.
   ...Object.fromEntries(Object.entries(labelTokens("bright")).filter(([name]) => name.endsWith("-fg"))),
 };
@@ -187,6 +202,24 @@ export const SEMANTIC_BRIGHT_OVERRIDES: Record<string, TokenValue> = {
 export type ThemeMode = "dark" | "bright";
 
 export const THEME_MODES: readonly ThemeMode[] = ["dark", "bright"];
+
+/** Resolve a token to its solid OKLCH, following aliases. Mixes have no
+ *  single solid resolution — use `tokenCss` / `tokenRuntime` / `themeGpu`. */
+export const resolveSolid = (
+  tokens: Record<string, TokenValue>,
+  name: string,
+): Oklch => {
+  let current = tokens[name];
+  if (!current) throw new Error(`unknown theme token: ${name}`);
+  while (current.kind === "alias") {
+    const next = tokens[current.token];
+    if (!next) throw new Error(`unknown theme token: ${current.token}`);
+    current = next;
+  }
+  if (current.kind !== "solid")
+    throw new Error(`token ${name} is a mix, not a solid`);
+  return current.value;
+};
 
 export const semanticTokens = (mode: ThemeMode): Record<string, TokenValue> =>
   mode === "dark"

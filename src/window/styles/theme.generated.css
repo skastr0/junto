@@ -54,6 +54,11 @@
   --color-second-fg: var(--color-cyan-fg);
   --color-accent: var(--color-crimson);
   --color-accent-fg: var(--color-crimson-fg);
+  --color-wire-flows: oklch(0.90000 0.01000 250.00);
+  --color-wire-derives: var(--color-wire-flows);
+  --color-wire-navigates: oklch(0.50000 0.02000 190.00);
+  --color-wire-messages: oklch(0.68000 0.06500 240.00);
+  --color-wire-unset: oklch(0.48000 0.00800 250.00);
   --color-label-red: var(--color-crimson);
   --color-label-red-fill: color-mix(in oklab, var(--color-label-red) 18%, transparent);
   --color-label-red-stroke: color-mix(in oklab, var(--color-label-red) 60%, transparent);
@@ -119,6 +124,87 @@
   --radius-pill: 999px;
 }
 
+/* Non-colour paint tokens (src/shared/theme/chrome.ts): shadow geometry,
+   border widths, motion durations and easings. Mode-independent, so one
+   block serves both themes; a layer's colour names a --color-* token or
+   an element-scoped var the painter sets. */
+:root {
+  --shadow-card: 0px 10px 28px 0px var(--color-shadow-2);
+  --shadow-card-lift: 0px 12px 30px 0px var(--color-shadow-2);
+  --shadow-seat: 0px 8px 22px 0px var(--color-shadow-2);
+  --shadow-bubble: 0px 6px 18px 0px var(--color-shadow-2);
+  --shadow-blocker: 0px 0px 0px 2px color-mix(in oklab, var(--color-accent) 22%, transparent),
+    0px 0px 12px 0px color-mix(in oklab, var(--color-accent) 12%, transparent);
+  --shadow-attention: 0px 0px 0px 2px color-mix(in oklab, var(--color-main) 55%, transparent),
+    0px 0px 18px 2px color-mix(in oklab, var(--color-main) 18%, transparent),
+    0px 10px 28px 0px var(--color-shadow-2);
+  --shadow-focus-impact-root: 0px 0px 0px 1px color-mix(in oklab, var(--color-accent) 45%, transparent),
+    0px 0px 18px 0px color-mix(in oklab, var(--color-accent) 22%, transparent),
+    0px 12px 30px 0px var(--color-shadow-2);
+  --shadow-focus-connection-root: 0px 0px 0px 1px color-mix(in oklab, var(--color-second) 48%, transparent),
+    0px 0px 18px 0px color-mix(in oklab, var(--color-second) 22%, transparent),
+    0px 12px 30px 0px var(--color-shadow-2);
+  --shadow-focus-impact-member: 0px 0px 0px 1px color-mix(in oklab, var(--color-accent) 22%, transparent),
+    0px 10px 28px 0px var(--color-shadow-2);
+  --shadow-focus-connection-member: 0px 0px 0px 1px color-mix(in oklab, var(--color-second) 26%, transparent),
+    0px 10px 28px 0px var(--color-shadow-2);
+  --shadow-resize: 0px 0px 0px 3px color-mix(in oklab, var(--color-main) 8%, transparent);
+  --shadow-cluster: 5px -5px 0px -2px var(--color-raise),
+    5px -5px 0px 0px var(--cluster-rim),
+    10px -10px 0px -4px var(--color-raise),
+    10px -10px 0px -2px color-mix(in oklab, var(--cluster-rim) 60%, transparent);
+  --shadow-reach: 0px 0px 0px 2px var(--reach-hue),
+    0px 0px 18px 0px color-mix(in oklab, var(--reach-hue) 40%, transparent);
+  --shadow-reach-far: 0px 0px 0px 8px var(--reach-hue);
+  --shadow-region-urgency: inset 0px 0px 0px 1.5px color-mix(in oklab, var(--urgency) 50%, transparent),
+    inset 0px 0px 28px 0px color-mix(in oklab, var(--urgency) 9%, transparent);
+  --shadow-region-urgency-held: inset 0px 0px 0px 1px color-mix(in oklab, var(--urgency) 28%, transparent);
+  --shadow-region-urgency-far: inset 0px 0px 0px 6px color-mix(in oklab, var(--urgency) 52%, transparent),
+    inset 0px 0px 110px 0px color-mix(in oklab, var(--urgency) 11%, transparent);
+  --shadow-region-urgency-held-far: inset 0px 0px 0px 4px color-mix(in oklab, var(--urgency) 30%, transparent);
+  --shadow-verb-zone: inset 0px 0px 0px 1px color-mix(in oklab, var(--zone-hue) 45%, transparent);
+  --border-hairline: 1px;
+  --border-bold: 1.5px;
+  --border-heavy: 2px;
+  --border-blocked-ring: 2.5px;
+  --border-seat-selected: 3px;
+  --border-card-selected: 4px;
+  --border-region-mid: 3px;
+  --border-region-far: 6px;
+  --border-region-overview: 10px;
+  --border-reach-far: 8px;
+  --border-wire: 1.2px;
+  --border-wire-track: 1.8px;
+  --duration-state: 180ms;
+  --duration-quick: 160ms;
+  --duration-fade: 150ms;
+  --duration-zone: 120ms;
+  --duration-wire-stroke: 420ms;
+  --duration-wire-filter: 160ms;
+  --duration-wire-opacity: 240ms;
+  --duration-flow: 450ms;
+  --duration-breathe: 1600ms;
+  --duration-pulse: 900ms;
+  --duration-pulse-hold: 700ms;
+  --duration-reach: 1440ms;
+  --duration-enter: 200ms;
+  --ease-standard: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-out: cubic-bezier(0, 0, 0.58, 1);
+  --ease-in-out: cubic-bezier(0.42, 0, 0.58, 1);
+  --ease-linear: cubic-bezier(0, 0, 1, 1);
+  --ease-wire: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-pulse: cubic-bezier(0.45, 0, 0.55, 1);
+  --ease-settle: cubic-bezier(0.33, 1, 0.68, 1);
+  --ease-enter: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* card measurements (src/shared/theme/metrics.ts): the literals the
+     card stylesheets and paint/card-spec.ts share, so the DOM and the
+     GPU canvas read one value. */
+  --card-name-size: 13px;
+  --card-line-size: 10.5px;
+  --card-seat-radii: 28px 14px 14px 28px;
+}
+
 html[data-theme="bright"] {
   color-scheme: light;
   --color-ground: oklch(0.94500 0.01200 85.00);
@@ -164,6 +250,10 @@ html[data-theme="bright"] {
   --color-blue: oklch(0.52000 0.13000 252.00);
   --color-pink: oklch(0.56000 0.16000 352.00);
   --color-teal: oklch(0.52000 0.09000 188.00);
+  --color-wire-flows: oklch(0.30000 0.01000 250.00);
+  --color-wire-navigates: oklch(0.44000 0.02500 192.00);
+  --color-wire-messages: oklch(0.53000 0.07000 236.00);
+  --color-wire-unset: oklch(0.62000 0.00800 250.00);
   --color-label-red-fg: oklch(0.42000 0.15000 25.00);
   --color-label-orange-fg: oklch(0.43083 0.11700 48.18);
   --color-label-yellow-fg: oklch(0.42049 0.08593 89.06);

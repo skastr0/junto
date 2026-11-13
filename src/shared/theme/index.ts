@@ -1,5 +1,6 @@
 import { formatOklch, hexAtAlpha, oklchToHex } from "./oklch";
 import {
+  resolveSolid,
   SEMANTIC_BRIGHT_OVERRIDES,
   SEMANTIC_DARK,
   semanticTokens,
@@ -13,7 +14,10 @@ import {
 //   - TS runtime mirror   -> src/window/lib/theme.ts (re-exports this)
 //   - SVG export palette  -> src/shared/svg.ts (imports this)
 //   - main-process colors -> src/app (imports this)
-// Edit values in primitives.ts / semantic.ts / type.ts / shape.ts, then run `bun run theme:build`.
+//   - GPU canvas          -> themeGpu(mode) (gpu.ts), with the chrome tokens
+//     of chrome.ts emitted beside the colours
+// Edit values in primitives.ts / semantic.ts / type.ts / shape.ts / chrome.ts,
+// then run `bun run theme:build`.
 //
 // A second theme, when Themes land: one more value map over the same token
 // names, emitted as html[data-theme="<name>"], the way bright rides today.
@@ -28,15 +32,45 @@ import {
 //   4. Every literal a component still hardcodes ignores a theme. The count
 //      per rule and file is scripts/design-token-baseline.json, held down by
 //      `bun run lint:design-tokens`.
-//   5. Shadow, motion duration and border width have no tokens yet.
 // Not in the way: inline colors resolve through css vars (renderer
-// lib/theme.ts), and canvas, xterm and 3D read themeRuntime(mode).
+// lib/theme.ts), canvas, xterm and 3D read themeRuntime(mode), and the GPU
+// canvas reads themeGpu(mode) — shadow, border-width and motion tokens are
+// mode-independent chrome.ts values both projections share.
 
 export { THEME_MODES, type ThemeMode, type TokenValue };
-export { contrastRatio, hexToOklch, oklchToHex, type Oklch } from "./oklch";
-export { SEMANTIC_DARK, SEMANTIC_BRIGHT_OVERRIDES, semanticTokens };
+export {
+  contrastRatio,
+  hexToOklch,
+  mixOklab,
+  oklabToOklch,
+  oklchToHex,
+  oklchToOklab,
+  oklchToSrgb,
+  srgbToOklab,
+  type Oklab,
+  type OklabColor,
+  type Oklch,
+} from "./oklch";
+export {
+  resolveSolid,
+  SEMANTIC_DARK,
+  SEMANTIC_BRIGHT_OVERRIDES,
+  semanticTokens,
+};
 export { LEADING, LEGACY_TEXT_SIZES, READING_TEXT_SIZES, TEXT_SIZES, TRACKING } from "./type";
+export { CARD } from "./metrics";
 export { RADIUS } from "./shape";
+export {
+  BORDER,
+  DURATION,
+  EASING,
+  easingCss,
+  GLOW,
+  SHADOW,
+  type GlowLayer,
+  type ShadowLayer,
+} from "./chrome";
+export { themeGpu, type GpuColor, type GpuTheme } from "./gpu";
 
 export const FONT_MONO =
   '"SF Mono", SFMono-Regular, Menlo, Consolas, monospace';
@@ -46,24 +80,6 @@ export const FONT_DISPLAY =
  *  the system face. Mono stays for instruments, code and metadata. */
 export const FONT_BODY =
   '-apple-system, "SF Pro Text", system-ui, "Segoe UI", sans-serif';
-
-/** Resolve a token to its solid OKLCH, following aliases. Mixes have no
- *  single solid resolution — use `tokenCss` / `tokenRuntime` instead. */
-const resolveSolid = (
-  tokens: Record<string, TokenValue>,
-  name: string,
-): { l: number; c: number; h: number } => {
-  let current = tokens[name];
-  if (!current) throw new Error(`unknown theme token: ${name}`);
-  while (current.kind === "alias") {
-    const next = tokens[current.token];
-    if (!next) throw new Error(`unknown theme token: ${current.token}`);
-    current = next;
-  }
-  if (current.kind !== "solid")
-    throw new Error(`token ${name} is a mix, not a solid`);
-  return current.value;
-};
 
 /** CSS projection: oklch() for solids, var() for aliases, color-mix() for
  *  mixes. Mixes resolve against the active mode's tokens, so a single
