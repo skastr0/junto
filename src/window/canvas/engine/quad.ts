@@ -12,11 +12,11 @@
  *
  *   0  rect x,y,w,h            f32x4   relative to the card's top-left
  *   16 radii tl,tr,br,bl       f32x4   board units
- *   32 fill rgba               unorm8x4
- *   36 fillTo rgba             unorm8x4  (alpha 0: flat fill)
- *   40 stroke rgba             unorm8x4
- *   44 strokeWidth             f32     board units
- *   48 opacity                 f32
+ *   32 fill rgba               unorm8x4  reserved (colour is in the style)
+ *   36 fillTo rgba             unorm8x4  reserved
+ *   40 stroke rgba             unorm8x4  reserved
+ *   44 strokeWidth             f32       reserved
+ *   48 opacity                 f32       reserved
  *   52 shape                   u32     0 rect, 1 disc, 2 triangle
  *   56 kind                    u32     0 shape, 1 shadow, 2 sprite, 3 text
  *   60 owner                   u32     card slot, into the owner buffer
@@ -31,15 +31,16 @@
  *   96 gradientAngle           f32     degrees, CSS convention
  *   100 anchorX                f32     card units, for seat/node scale rules
  *   104 anchorY               f32
- *   108 style                  u32     style table id, 0xffffffff inline
- *   112 previousStyle          u32
+ *   108 style                  u32     style table id (styles.ts)
+ *   112 previousStyle          u32     reserved for the style transition
  *   116 changeAt               f32     wall-clock ms of the style change
- *   120 dash                   u16x2   dash, gap in board units (0,0 solid)
+ *   120 dash                   u16x2   reserved
  *   124 reserved               u32
  *
- * The style table is track B's; until its table lands the painter's colours
- * are resolved into the record (fill/stroke/fillTo), and the style fields are
- * reserved. Nothing outside this module reads or writes the layout.
+ * Colour lives in the style table (engine/styles.ts): the record names its
+ * style by id and the fill, fillTo and stroke words below are reserved (zero),
+ * so a theme switch rewrites no record. Nothing outside this module reads or
+ * writes the layout.
  */
 
 import type { GpuColor } from "@shared/theme";

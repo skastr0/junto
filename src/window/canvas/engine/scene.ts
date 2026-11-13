@@ -551,6 +551,7 @@ export const createScene = (options: {
 
   const setDragging = (ids: ReadonlyArray<NodeId> | null): void => {
     const next = new Set(ids ?? []);
+    if (next.size === dragging.size && [...next].every((id) => dragging.has(id))) return;
     const changed = new Set<NodeId>([...dragging, ...next]);
     dragging = next;
     repaintIds([...changed]);
@@ -595,6 +596,7 @@ export const createScene = (options: {
   const cardOf = (id: NodeId): CardFact | undefined => byId.get(id)?.fact;
 
   const visibleSlots: number[] = [];
+  const visibleCards: CardSlot[] = [];
   const previousOrder: number[] = [];
 
   const orderCards = (found: ReadonlyArray<number>): CardSlot[] => {
@@ -613,7 +615,17 @@ export const createScene = (options: {
   const prepare = (view: Rect, tier: CanvasTier): Prepared => {
     visibleSlots.length = 0;
     grid.query(insetBy(view, 140), visibleSlots);
-    const cards = orderCards(visibleSlots);
+    // Fill the reusable visible list, in paint order, without a per-frame array.
+    visibleCards.length = 0;
+    for (const slot of visibleSlots) {
+      const card = slots[slot];
+      if (card !== undefined) visibleCards.push(card);
+    }
+    visibleCards.sort((a, b) => {
+      if (a.fact.derived.z !== b.fact.derived.z) return a.fact.derived.z - b.fact.derived.z;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+    const cards = visibleCards;
     let needed = 0;
     for (const card of cards) needed += card.ordered.length;
     ensureOrderCapacity(needed);
