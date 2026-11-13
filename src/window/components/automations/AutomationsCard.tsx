@@ -10,14 +10,12 @@ import { use$ } from "@legendapp/state/react";
 import { asNodeId } from "@shared/physics/schema";
 import { titleOf } from "@shared/model/title";
 import type { LastOutcome } from "@shared/automation";
-import { RegionUrgency } from "@shared/wire/urgency";
 import { automationsCardFacts } from "../../lib/automations-card";
 import { useAutomationList } from "../../lib/automations-source";
 import { useAutomationTargets } from "../../lib/mention-sources";
 import { renamed } from "../../lib/model-edits";
 import { commitCommands } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
-import { useNodeUrgency } from "../../lib/use-node-urgency";
 import { useNodeValue } from "../../lib/use-model";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { KindCard } from "../nodes/SpineCard";
@@ -46,9 +44,6 @@ export function AutomationsCard({
     () => automationsCardFacts(automations, lastOutcomes ?? NO_OUTCOMES, nameOf),
     [automations, lastOutcomes, nameOf],
   );
-  // Failed counts as blocked for the region frame; it clears when the card goes.
-  useNodeUrgency(nodeId, facts.status === "failed" ? RegionUrgency.group.blocked : undefined);
-
   return (
     <div data-testid="automations-card">
       <KindCard

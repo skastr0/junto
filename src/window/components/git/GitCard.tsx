@@ -80,6 +80,7 @@ export function GitCard({
         kind="git"
         name={label}
         status={error && !status ? "off" : undefined}
+        selfPublish
         nameEditor={
           renaming && onRenameDone ? (
             <FirstLineRenameInput initial={label} ariaLabel="Rename git" onCommit={commitRename} onDone={onRenameDone} />

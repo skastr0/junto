@@ -1,21 +1,14 @@
-import { useEffect } from "react";
 import { use$ } from "@legendapp/state/react";
 
 import { TASKS_ENABLED } from "@shared/features";
 import { agentSeat$ } from "../../lib/agent-seat-state";
 import { useSeatSignalRollup } from "../../lib/agent-signals-state";
-import { getJuntoApi } from "../../lib/junto-api";
 import { machineLabel, onThisMachine, useSeatMachineLine } from "../../lib/machines";
 import { editText } from "../../lib/mutations";
 import { cardMark, notifyItem, seatFactsForNode } from "../../lib/seat-projections";
 import { useSeatCacheWindow, useSeatFreshNext } from "../../lib/seat-next-launch";
 import { SEAT_FRESH_NEXT_LINE } from "@shared/seat-next-launch";
 import { state$ } from "../../lib/state";
-import { onTerminalEvent } from "../../lib/terminal-events";
-import {
-  sessionChromeUnchanged,
-  shouldRefreshSessionFromTerminalEvent,
-} from "../../lib/terminal-session-refresh";
 import { terminal$ } from "../../lib/terminal-state";
 import { accentColor, INK } from "../../lib/theme";
 import { useNodeFieldOf } from "../../lib/use-model";
@@ -54,30 +47,8 @@ export function SeatCard({
   const seatEvent = use$(agentSeat$.byBindingId[bindingId ?? NO_BINDING]);
   const needsLook = use$(agentSeat$.needsLookByBindingId[bindingId ?? NO_BINDING]);
   const session = use$(terminal$.sessionByBindingId[bindingId ?? NO_BINDING]);
-  // Hydrate session cache so pre-ownership failures (cli-missing) paint on the card.
-  useEffect(() => {
-    if (!bindingId) return;
-    const refresh = () =>
-      getJuntoApi()
-        ?.terminalGet?.(bindingId, hostId)
-        .then((next) => {
-          const prev = terminal$.sessionByBindingId[bindingId].peek();
-          if (sessionChromeUnchanged(prev, next)) return;
-          terminal$.sessionByBindingId[bindingId].set(next);
-        })
-        .catch(() => undefined);
-    void refresh();
-    // Routed by binding: the card hears its own terminal and no other. The
-    // session/exit cut below is a separate predicate and stays.
-    const off = onTerminalEvent(
-      (raw) => {
-        if (!shouldRefreshSessionFromTerminalEvent(raw)) return;
-        void refresh();
-      },
-      { bindingId },
-    );
-    return off;
-  }, [bindingId, hostId]);
+  // Session hydration is the canvas feed's (canvas/feed/sessions.ts): the
+  // store above already holds what terminalGet and the terminal events say.
   const machineLine = useSeatMachineLine(hostId, harness);
   // A seat on another machine is answered once the link to it is up.
   const reachable = use$(() => (hostId === undefined ? undefined : state$.machineFacts[hostId].reachable.get()));

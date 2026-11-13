@@ -6,7 +6,6 @@ import {
   type ReactNode,
 } from "react";
 import { use$ } from "@legendapp/state/react";
-import { batch, observe } from "@legendapp/state";
 import { CountedSurface } from "../../lib/performance/surface-commits";
 import {
   CircleDot,
@@ -26,7 +25,7 @@ import {
 import type { Region } from "@shared/model";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { seatTasks$ } from "../../lib/seat-tasks";
-import { compareSeverity, type MemberSeverity, type RegionRollup } from "@shared/region-rollup";
+import type { RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
 import { REGION_NAME_MAX } from "@shared/region-bounds";
 import { selectNode, state$ } from "../../lib/state";
@@ -563,25 +562,8 @@ export const RtsBottomBar = memo(function RtsBottomBar({ minimap, tools }: { rea
   const selectedNodeId = use$(state$.selectedNodeId);
   const selectedRegion = useRegionRollups(rollups => rollups.find(row => row.regionId === selectedNodeId) ?? null);
   useAlertSignals(readRegionAlertSignals);
-  useEffect(() => observe(() => {
-    // Counts and severity feed the map. Follow them outside React so crossing
-    // a region does not commit commands whose displayed facts did not change.
-    const rollups = readRegionRollups();
-    const severities: Record<string, MemberSeverity> = {};
-    const counts: Record<string, RegionRollup["counts"]> = {};
-    for (const rollup of [...rollups].sort((a, b) => a.regionId.localeCompare(b.regionId))) {
-      for (const member of [...rollup.members].sort((a, b) => a.nodeId.localeCompare(b.nodeId))) {
-        const previous = severities[member.nodeId];
-        if (!previous || compareSeverity(member.severity, previous) < 0) severities[member.nodeId] = member.severity;
-      }
-      severities[rollup.regionId] = rollup.severity;
-      counts[rollup.regionId] = rollup.counts;
-    }
-    batch(() => {
-      if (JSON.stringify(state$.regionSeverityByNodeId.peek()) !== JSON.stringify(severities)) state$.regionSeverityByNodeId.set(severities);
-      if (JSON.stringify(state$.regionCountsByNodeId.peek()) !== JSON.stringify(counts)) state$.regionCountsByNodeId.set(counts);
-    });
-  }), []);
+  // Region severity/counts are the canvas feed's now (canvas/feed/regions.ts);
+  // the minimap reads the same state$ keys it always did.
 
   return (
     <div className="rts-shell" role="region" aria-label="RTS bottom bar">

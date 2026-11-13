@@ -19,6 +19,7 @@ vi.hoisted(() => {
 
 import { RtsBottomBar } from "../src/window/components/rts/RtsBottomBar";
 import { state$ } from "../src/window/lib/state";
+import { retainRegionChrome } from "../src/window/canvas/feed/regions";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -35,6 +36,7 @@ describe("RTS bottom bar follows displayed facts", () => {
   let root: Root;
   let errors: ReturnType<typeof vi.spyOn>;
   let canvasContext: ReturnType<typeof vi.spyOn>;
+  let releaseChrome: (() => void) | undefined;
 
   beforeEach(() => {
     host = document.createElement("div");
@@ -42,6 +44,8 @@ describe("RTS bottom bar follows displayed facts", () => {
     root = createRoot(host);
     errors = vi.spyOn(console, "error").mockImplementation(() => {});
     canvasContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    // Region severity/counts are the canvas feed's now (canvas/feed/regions.ts).
+    releaseChrome = retainRegionChrome(canvasName);
   });
 
   afterEach(() => {
@@ -49,6 +53,8 @@ describe("RTS bottom bar follows displayed facts", () => {
     host.remove();
     errors.mockRestore();
     canvasContext.mockRestore();
+    releaseChrome?.();
+    releaseChrome = undefined;
     seed();
     state$.canvasName.set("");
     state$.selectedNodeId.set("");

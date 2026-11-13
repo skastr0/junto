@@ -4,10 +4,7 @@ import { openOperatorModal } from "../../lib/operator-modal";
 import { useSeatOffboardFailure } from "../../lib/seat-offboard-state";
 import { useSeatOnboardingOf } from "../../lib/seat-onboarding";
 import { useThreadHealthMark } from "../../lib/thread-health";
-import { useEffect } from "react";
 import type { ActivitySpec } from "../../lib/activity";
-import { resolveActivityGlyph } from "../../lib/activity";
-import { publishSeatUrgency, seatUrgencyOfRing } from "../../lib/region-urgency";
 import { SeatCacheStatus } from "./SeatCacheStatus";
 import type { SeatCacheFace } from "./seat-cache-status";
 import { AgentSeatView } from "./AgentSeatView";
@@ -42,17 +39,6 @@ export function AgentSeat({
   // An offboard whose session never closed is said here, on the seat, where
   // the operator is looking; a spawn failure, when there is one, comes first.
   const offboardFailure = useSeatOffboardFailure(id);
-  // What the ring says, for the regions and the minimap (region-urgency.ts).
-  const urgency = seatUrgencyOfRing({
-    glyph: resolveActivityGlyph(rest.activity.mode, rest.activity.tone, rest.activity.glyph),
-    signal: rollup?.kind,
-    health: health.health,
-    healthStale: health.healthStale,
-  });
-  useEffect(() => {
-    publishSeatUrgency(id, urgency);
-  }, [id, urgency]);
-  useEffect(() => () => publishSeatUrgency(id, undefined), [id]);
   return (
     <AgentSeatView
       identity={id}

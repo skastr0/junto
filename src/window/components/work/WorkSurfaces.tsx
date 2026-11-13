@@ -18,9 +18,7 @@ import { useCanvas, useNodeFieldOf, useNodeValue } from "../../lib/use-model";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { TasksNode } from "../tasks/TasksNode";
 import { tasksCardBody } from "../tasks/tasks-pane-model";
-import { useNodeUrgency } from "../../lib/use-node-urgency";
 import { markColor } from "../../lib/resource-visuals";
-import { RegionUrgency } from "@shared/wire/urgency";
 import { KindCard, type SpineStatus } from "../nodes/SpineCard";
 import { seatChoicesInReach } from "../tasks/tasks-canvas";
 import { installIpcTasksSource, useNodeTasks } from "../../lib/tasks-source";
@@ -113,11 +111,6 @@ export function TasksCard({
   const views = useNodeTasks(canvas, taskNodeId(asNodeId(nodeId)));
   const name = useNodeValue(canvas, nodeId, (node) => taskBoardTitle(node?.kind === "task" ? node : undefined, nodeId).name);
   const body = tasksCardBody(views);
-  // The region frame leans to a blocked or needs-you card at overview.
-  useNodeUrgency(
-    nodeId,
-    body.status === "blocked" ? RegionUrgency.group.blocked : body.status === "needs-you" ? RegionUrgency.group["needs-you"] : undefined,
-  );
   const status: SpineStatus | undefined = body.status;
   return (
     <div data-testid="tasks-card">

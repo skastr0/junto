@@ -2,13 +2,11 @@ import { useEffect, useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { NodeOf } from "@shared/model";
 import { formatNodeRef } from "@shared/node-ref";
-import { RegionUrgency } from "@shared/wire/urgency";
 import { refreshBrowserSession, subscribeBrowserSessionEvents, browser$ } from "../../lib/browser-state";
 import { dock$ } from "../../lib/dock-state";
 import { pageDriving$, refreshPageDriving, subscribePageDriving } from "../../lib/page-driving";
 import { hostOf } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
-import { useNodeUrgency } from "../../lib/use-node-urgency";
 import { KindCard } from "../nodes/SpineCard";
 
 /**
@@ -35,8 +33,6 @@ export function PageCard({ node }: { readonly node: NodeOf<"page"> }) {
   // Operator action failures outrank a session's own last error: the
   // operator can act on the first, the second is context.
   const err = opError?.message ?? (session?.state === "failed" ? session.lastError : undefined);
-  // A failed page leans its region frame to it at overview (Failed counts as blocked).
-  useNodeUrgency(node.id, err !== undefined ? RegionUrgency.group.blocked : undefined);
 
   useEffect(() => {
     subscribeBrowserSessionEvents();

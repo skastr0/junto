@@ -108,6 +108,8 @@ export type SpineCardProps = {
   readonly portrait?: ReactNode;
   /** What a screen reader calls the node in place of its kind word: "seat on studio". */
   readonly spokenKind?: string;
+  /** The card's status is its own async read, not canvas state: it publishes it. */
+  readonly selfPublish?: boolean;
   /** Stands in for the name while it is being renamed (a FirstLineRenameInput). */
   readonly nameEditor?: ReactNode;
 };
@@ -125,25 +127,32 @@ export function SpineStatusTag({ status }: { readonly status: SpineStatus }) {
 /**
  * The status a node shows (its own, else blocked when the graph holds it),
  * published so the node's spoken name says it too (Canvas flowNodeLabel).
+ * The canvas feed publishes status for every kind whose status is canvas
+ * state; `selfPublish` is for the two whose "off" is a per-card read (files,
+ * git) — their cards still say it themselves.
  */
-const usePublishedStatus = (reported: SpineStatus | undefined, spokenKind: string | undefined): SpineStatus | undefined => {
+const usePublishedStatus = (
+  reported: SpineStatus | undefined,
+  spokenKind: string | undefined,
+  selfPublish: boolean,
+): SpineStatus | undefined => {
   const status = shownStatus(reported, useContext(NodeBlockedContext));
   const nodeId = useContext(NodeIdContext);
   useEffect(() => {
-    if (nodeId === "") return;
+    if (!selfPublish || nodeId === "") return;
     publishNodeStatus(nodeId, status);
-  }, [nodeId, status]);
+  }, [nodeId, status, selfPublish]);
   useEffect(() => {
-    if (nodeId === "") return;
+    if (!selfPublish || nodeId === "") return;
     publishNodeSpokenKind(nodeId, spokenKind);
-  }, [nodeId, spokenKind]);
+  }, [nodeId, spokenKind, selfPublish]);
   useEffect(
     () => () => {
-      if (nodeId === "") return;
+      if (!selfPublish || nodeId === "") return;
       publishNodeStatus(nodeId, undefined);
       publishNodeSpokenKind(nodeId, undefined);
     },
-    [nodeId],
+    [nodeId, selfPublish],
   );
   return status;
 };
@@ -166,13 +175,15 @@ export type KindCardProps = {
   readonly trailing?: ReactNode;
   /** What a screen reader calls the node in place of its kind word. */
   readonly spokenKind?: string;
+  /** The card's status is its own async read (files count, git IPC), not canvas state: it publishes it. */
+  readonly selfPublish?: boolean;
   /** Rows under the line, inside the seat (a terminal's task strip). */
   readonly children?: ReactNode;
 };
 
 /** A kind's node body: KindSeat, with the node's status published. Rows live in the detail view. */
-export function KindCard({ kind, name, nameEditor, status: reported, done = false, line, lineTitle, ledger, trailing, spokenKind, children }: KindCardProps) {
-  const status = usePublishedStatus(reported, spokenKind);
+export function KindCard({ kind, name, nameEditor, status: reported, done = false, line, lineTitle, ledger, trailing, spokenKind, selfPublish = false, children }: KindCardProps) {
+  const status = usePublishedStatus(reported, spokenKind, selfPublish);
   return (
     <KindSeat
       kind={kind}
@@ -189,10 +200,10 @@ export function KindCard({ kind, name, nameEditor, status: reported, done = fals
 }
 
 /** Peer and stub: the Spines card. */
-export function SpineCard({ glyph, hue, name, count, status: reported, trailing, body, dashed = false, portrait, nameEditor, spokenKind }: SpineCardProps) {
+export function SpineCard({ glyph, hue, name, count, status: reported, trailing, body, dashed = false, portrait, nameEditor, spokenKind, selfPublish = false }: SpineCardProps) {
   const rows = body?.kind === "spine" ? body.rows.slice(0, SPINE_ROWS_MAX) : [];
   const more = body?.kind === "spine" ? (body.more ?? 0) + Math.max(0, body.rows.length - SPINE_ROWS_MAX) : 0;
-  const status = usePublishedStatus(reported, spokenKind);
+  const status = usePublishedStatus(reported, spokenKind, selfPublish);
   const look = status === undefined ? undefined : spineStatusLook(status);
   return (
     <div className="spine-card" data-status={status} data-tone={look?.tone}>

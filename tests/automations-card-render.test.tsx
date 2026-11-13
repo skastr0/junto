@@ -15,6 +15,10 @@ import { kindStateOf } from "../src/window/components/nodes/KindSeat";
 import { makeLocalAutomationsSource, setAutomationsSource } from "../src/window/lib/automations-source";
 import { nodeUrgency$ } from "../src/window/lib/region-urgency";
 import { state$ } from "../src/window/lib/state";
+import { asCanvasName } from "@shared/model";
+import { modelStore } from "../src/window/lib/use-model";
+import { retainNodeChrome } from "../src/window/canvas/feed/nodes";
+import { automations } from "./support/model-nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -70,7 +74,7 @@ describe("Automations card", () => {
     expect(seatState()).toBe(kindStateOf(undefined));
   });
 
-  it("Failed when the last firing had an action refused: the ring says blocked, the region leans to it, and it clears", async () => {
+  it("Failed when the last firing had an action refused: the ring says blocked, the region leans to it, with no card mounted", async () => {
     await source.apply(canvas, node, first, { kind: "create", automationId: first, enabled: true, definition: definition("Morning standup") });
     source.record(canvas, {
       firingId: ItemId.make("01JFFFFFFFFFFFFFFFFFFFFFF1"),
@@ -79,12 +83,24 @@ describe("Automations card", () => {
       cause: { kind: "run" },
       outcome: { kind: "fired", actions: [{ index: 0, ruling: "refused", reason: "not_in_reach" }] },
     });
-    await render();
-    expect(seatState()).toBe(kindStateOf("failed"));
-    expect(nodeUrgency$[node].peek()).toBe("blocked");
-    await act(async () => root.unmount());
-    expect(nodeUrgency$[node].peek()).toBeUndefined();
-    root = createRoot(host);
+    // Node urgency is the canvas feed's now (canvas/feed/nodes.ts): the node
+    // has to be on the model and the feed retained, as RegionUrgencyGate does.
+    const releaseModel = modelStore.adopt({ canvas: asCanvasName(canvas), seq: 0, nodes: [automations(node)], wires: [] });
+    const releaseFeed = retainNodeChrome(canvas);
+    try {
+      await render();
+      expect(seatState()).toBe(kindStateOf("failed"));
+      expect(nodeUrgency$[node].peek()).toBe("blocked");
+      await act(async () => root.unmount());
+      // No card mounted: the feed still holds the urgency for the region.
+      expect(nodeUrgency$[node].peek()).toBe("blocked");
+      releaseFeed();
+      expect(nodeUrgency$[node].peek()).toBeUndefined();
+    } finally {
+      releaseFeed();
+      releaseModel();
+      root = createRoot(host);
+    }
   });
 
   it("renaming keeps the card, with the field in place of the name", async () => {

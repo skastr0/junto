@@ -1,26 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { use$ } from "@legendapp/state/react";
 import { TASKS_ENABLED } from "@shared/features";
-import type { TerminalSessionSummary } from "@shared/terminal";
 import { agentSeat$, subscribeAgentSeatState } from "../../lib/agent-seat-state";
 import { subscribeSeatAwareness } from "../../lib/seat-awareness";
 import { seatCardStatus } from "../../lib/seat-card-status";
 import { terminal$ } from "../../lib/terminal-state";
-import { onTerminalEvent } from "../../lib/terminal-events";
-import { registerTerminalSessionPoll } from "../../lib/terminal-session-poll";
-import {
-  sessionChromeUnchanged,
-  shouldRefreshSessionFromTerminalEvent,
-} from "../../lib/terminal-session-refresh";
-import { getJuntoApi } from "../../lib/junto-api";
 import { isOnMachine, machineLabelIn, useMachines, useThisMachineName } from "../../lib/machines";
 import { renameTerminalNode } from "../../lib/mutations";
 import { useNodeFieldOf } from "../../lib/use-model";
 import { SeatTaskStrip } from "../nodes/SeatTaskStrip";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { KindCard, type SpineStatus } from "../nodes/SpineCard";
-import { useNodeUrgency } from "../../lib/use-node-urgency";
-import { RegionUrgency } from "@shared/wire/urgency";
 
 /**
  * Terminal node body: identity and status only, a Spines leaf
@@ -59,7 +49,11 @@ export function TerminalCard({
   const native = bindingId !== undefined && hostId !== undefined ? { bindingId, hostId } : undefined;
   const thisMachine = useThisMachineName();
   const machines = useMachines();
-  const [session, setSession] = useState<TerminalSessionSummary>();
+  // The feed hydrates and follows the session (canvas/feed/sessions.ts);
+  // the card reads the one store, never a second copy.
+  const session = use$(
+    terminal$.sessionByBindingId[native?.bindingId ?? "__junto-terminal-no-session__"],
+  );
   const seatEvent = use$(
     agentSeat$.byBindingId[
       native?.bindingId ?? "__junto-terminal-no-binding__"
@@ -71,65 +65,13 @@ export function TerminalCard({
     ],
   );
 
-  const applySession = (next: TerminalSessionSummary | undefined) => {
-    if (!native) return;
-    const prev = terminal$.sessionByBindingId[native.bindingId].peek();
-    if (sessionChromeUnchanged(prev, next)) {
-      setSession((current) => current ?? next);
-      return;
-    }
-    setSession(next);
-    terminal$.sessionByBindingId[native.bindingId].set(next);
-    if (next?.nodeId) {
-      agentSeat$.bindingIdByNodeId[next.nodeId].set(native.bindingId);
-    }
-  };
-
-  const refresh = () =>
-    native &&
-    getJuntoApi()
-      ?.terminalGet?.(native.bindingId, native.hostId)
-      .then(applySession)
-      .catch(() => undefined);
-
   const running =
     session?.status === "running" || session?.status === "starting";
 
   useEffect(() => {
     subscribeAgentSeatState();
     subscribeSeatAwareness();
-    void refresh();
-    // Routed by binding, so this card is no longer woken by every other
-    // terminal's PTY output. shouldRefreshSessionFromTerminalEvent is a
-    // separate cut: only session/exit change card chrome.
-    const bindingId = native?.bindingId;
-    const off = bindingId
-      ? onTerminalEvent(
-          (raw) => {
-            if (!shouldRefreshSessionFromTerminalEvent(raw)) return;
-            void refresh();
-          },
-          { bindingId },
-        )
-      : () => undefined;
-    // Poll only while running — lease-scoped events don't reach cards without
-    // an open surface. The poll is a backstop; `off` above is the primary
-    // signal. Registration, not a per-card interval: one shared timer batch
-    // reads every registered card's host with terminalList, so a 48-terminal
-    // canvas costs one IPC round trip per tick instead of 48.
-    if (!running || !bindingId) {
-      return off;
-    }
-    const offPoll = registerTerminalSessionPoll(
-      bindingId,
-      native?.hostId,
-      applySession,
-    );
-    return () => {
-      off();
-      offPoll();
-    };
-  }, [native?.bindingId, native?.hostId, running]);
+  }, []);
 
   const status = seatCardStatus({
     face: bindingId === undefined ? undefined : { id, name, bindingId, launch },
@@ -145,14 +87,6 @@ export function TerminalCard({
       : status?.seatState === "working" || running
         ? "working"
         : undefined;
-  useNodeUrgency(
-    id,
-    spineStatus === "blocked"
-      ? RegionUrgency.group.blocked
-      : spineStatus === "needs-you"
-        ? RegionUrgency.group["needs-you"]
-        : undefined,
-  );
   if (status === undefined)
     return <div className="text-body text-dim">unbound terminal</div>;
 

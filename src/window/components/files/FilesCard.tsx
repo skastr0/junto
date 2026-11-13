@@ -154,6 +154,7 @@ export function FilesCard({
         kind="files"
         name={name}
         status={notice?.failed || offline !== undefined ? "off" : undefined}
+        selfPublish
         nameEditor={
           renaming && onRenameDone ? (
             <FirstLineRenameInput
