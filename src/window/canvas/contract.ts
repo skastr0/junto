@@ -135,6 +135,8 @@ export type KindLive = {
   readonly tasks?: SeatTasksFact;
   /** The line is the "page unbound" or "unbound terminal" fallback. */
   readonly unbound?: boolean;
+  /** Epoch ms the state last changed: a `done` ring lands once from here. Absent: long ago. */
+  readonly stateSince?: number;
 };
 
 /** One row of a spine card (peer, stub). */
@@ -504,6 +506,8 @@ export type CardView = {
   readonly hoveredPart?: Part["kind"];
   /** The theme the generated art (portraits, icons, bands) is made for. */
   readonly mode: ThemeMode;
+  /** Region name fades from `region-glance.ts` (0 to 1): regions and sub-regions. Regions only. */
+  readonly glance?: { readonly region: number; readonly sub: number };
 };
 
 /** The environment paint is handed: text measurement, from the engine's text atlas (section 8). */
