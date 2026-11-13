@@ -29,6 +29,8 @@ import {
   makeMachineRepositoryLive,
 } from "../../src/core/machines/repository";
 import { THIS_MACHINE } from "../../tests/support/machines";
+import type { FeatureKey } from "../../src/shared/feature-catalog";
+import { SettingsService } from "../../src/core/settings/service";
 export interface Sandbox {
   readonly root: string;
   readonly userDataDir: string;
@@ -146,6 +148,36 @@ export const writeFixtureModel = async (
       }));
     }));
   } finally { await runtime.dispose(); }
+};
+
+/**
+ * Experimental feature opt-ins, written through SettingsService.patch into
+ * the sandbox's `settings_preferences` row before boot — the same durable
+ * seam the Settings panel writes (`settings.advanced.experimental`). Any
+ * FeatureKey is accepted; a key this build does not compile in as
+ * experimental simply never reads its entry.
+ */
+export const writeFixtureExperimentalFeatures = async (
+  sandbox: Sandbox,
+  features: ReadonlyArray<FeatureKey>,
+): Promise<void> => {
+  const state = makeStateEngineLive(
+    join(sandbox.homeDir, ".junto", "state", "junto.db"),
+  );
+  const runtime = ManagedRuntime.make(Layer.provideMerge(SettingsLive, state));
+  try {
+    await runtime.runPromise(
+      Effect.flatMap(SettingsService, (settings) =>
+        settings.patch({
+          advanced: {
+            experimental: Object.fromEntries(features.map((key) => [key, true])),
+          },
+        }),
+      ),
+    );
+  } finally {
+    await runtime.dispose();
+  }
 };
 
 /**

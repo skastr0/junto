@@ -26,6 +26,7 @@ import { dirname, join } from "node:path";
 import { test as base, type Page } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import type { AgentSignal } from "../../src/shared/agent-signals";
+import type { FeatureKey } from "../../src/shared/feature-catalog";
 import type { HarnessId } from "../../src/shared/managed-terminal-templates";
 import type { UsageState } from "../../src/shared/usage";
 import {
@@ -39,6 +40,7 @@ import {
   destroySandbox,
   removeFixtureCanvases,
   writeFixtureAgentSignals,
+  writeFixtureExperimentalFeatures,
   writeFixtureModel,
   writeFixtureRetiredCommercialState,
   writeFixtureUsageState,
@@ -120,6 +122,14 @@ export interface LaunchOptions {
    * before boot — the same durable seam UsageCache paints at startup.
    */
   readonly seedUsage?: UsageState;
+  /**
+   * Experimental feature opt-ins seeded into the sandbox's settings row
+   * (`settings.advanced.experimental`) before boot — the durable seam the
+   * Settings panel writes, so a spec can run under either canvas once
+   * `gpuCanvas` exists. Any FeatureKey from src/shared/feature-catalog.ts;
+   * omit for the default (everything experimental off).
+   */
+  readonly seedExperimentalFeatures?: ReadonlyArray<FeatureKey>;
   /**
    * Plant no-op harness CLIs under the sandbox home so the install probe
    * lists them. PATH puts this bin ahead of e2e/fakes/bin.
@@ -487,6 +497,9 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
     }
     if (options.seedUsage !== undefined) {
       await writeFixtureUsageState(sandbox, options.seedUsage);
+    }
+    if (options.seedExperimentalFeatures !== undefined) {
+      await writeFixtureExperimentalFeatures(sandbox, options.seedExperimentalFeatures);
     }
     if (options.seedHarnessInstalls !== undefined) {
       await seedInstalledHarnesses(sandbox, options.seedHarnessInstalls);
