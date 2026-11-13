@@ -22,6 +22,8 @@ import type { Node as ModelNode } from "@shared/model/kinds";
 import type { Wire as ModelWire } from "@shared/model/wire";
 import type { RingState } from "@shared/wire/rings";
 import type { ThemeMode } from "@shared/theme";
+import type { PortraitConfig } from "@shared/agent-portrait";
+import type { PortraitExpression } from "@shared/portrait-expression";
 
 // ---------------------------------------------------------------------------
 // Geometry. Board units unless a name says screen. One function converts
@@ -130,7 +132,7 @@ export type KindLive = {
   /** Task card: show the enqueue instrument. */
   readonly enqueue?: boolean;
   /** Terminal card: the claimed task strip. */
-  readonly tasks?: { readonly open: number; readonly done: number };
+  readonly tasks?: SeatTasksFact;
   /** The line is the "page unbound" or "unbound terminal" fallback. */
   readonly unbound?: boolean;
 };
@@ -152,6 +154,9 @@ export type SpineLive = {
   readonly more?: number;
 };
 
+/** The task strip a seat or terminal carries (`SeatTaskStrip`). */
+export type SeatTasksFact = { readonly state: string; readonly label: string; readonly title: string; readonly more: number };
+
 /** A seat's live state: what its ring, line and marks show right now. */
 export type SeatLive = {
   readonly ring: RingState;
@@ -166,10 +171,25 @@ export type SeatLive = {
   readonly overseer: boolean;
   /** Harness id for the badge, when the seat is a managed agent. */
   readonly harness?: string;
-  /** Open and done task counts for the task strip. */
-  readonly tasks?: { readonly open: number; readonly done: number };
+  /** The task the seat holds, for its strip: lead task's state, number and title, and how many more. */
+  readonly tasks?: SeatTasksFact;
   /** The preamble bubble, while one is shown. */
-  readonly preamble?: { readonly speaker: string; readonly now: string; readonly before?: string; readonly hue: string; readonly dx: number };
+  readonly preamble?: {
+    /** The speaker's word (AI, Junto, you); absent for the agent's own voice. */
+    readonly speaker?: string;
+    readonly now: string;
+    readonly before?: string;
+    /** A hue token name: second, amber, crimson, cyan, green, indigo, violet, steel. */
+    readonly hue: string;
+    /** The frame is firmer for a signal or failed mail (mix 55 and wash 9, else 30 and 4). */
+    readonly strong?: boolean;
+    /** The bubble slides sideways by this many board units to stay on screen. */
+    readonly dx: number;
+    /** A glyph name for the action, drawn at the line's start. */
+    readonly glyph?: string;
+    /** Epoch ms the current line arrived: it rises 3 board units and fades in over 200 ms. */
+    readonly since: number;
+  };
   /** `seatSaying`'s parts: how the line is drawn (signal word, failure, AI reading, plain). */
   readonly saying?: {
     readonly kind: "signal" | "failure" | "reading" | "cache" | "plain";
@@ -180,7 +200,7 @@ export type SeatLive = {
   /** Epoch ms the ring's form last changed: `done` lands once from here. */
   readonly ringSince: number;
   /** Portrait inputs (`portraitDataUri`): seed, mood face, config. */
-  readonly portrait?: { readonly seed: string; readonly face?: string; readonly config?: string };
+  readonly portrait?: { readonly seed: string; readonly expression?: PortraitExpression; readonly config?: PortraitConfig };
   /** The seat is a vacant place, not an occupied one. */
   readonly occupancy?: "empty" | "gone";
   /** The agent's node colour (a palette digit or a hex), for the name. */
@@ -358,7 +378,13 @@ export type Radii = number | readonly [tl: number, tr: number, br: number, bl: n
  */
 export type ScaleRule =
   | { readonly kind: "board" }
+  /** 1 at near and mid. Strokes and shadows scale with the quad. */
   | { readonly kind: "seat"; readonly cap: number; readonly anchor: Point }
+  /**
+   * The far name tag: its offset from `anchor` scales by the seat scale, and
+   * the tag itself by `farSeat * 1.4` about its top centre (canvas-lod.css).
+   */
+  | { readonly kind: "seatTag"; readonly cap: number; readonly anchor: Point }
   | { readonly kind: "node"; readonly anchor: Point };
 
 /**
@@ -377,11 +403,14 @@ export type ScaleRule =
  *   glint     opacity 0, .9 at 30%, 0 at 60%
  *   shake     translateX 0, -1, 1 (board units at 52 per ring)
  *   reach     opacity 1 to .55 and scale 1 to 1.015, ease in-out
+ *   rise      once from `since`: translateY 3 to 0 and opacity 0 to 1 in 200 ms
  */
 export type QuadMotion =
   | { readonly kind: "turn"; readonly periodMs: number; readonly ccw?: boolean; readonly fade?: boolean }
   | { readonly kind: "send" | "beat" | "breathe" | "bandFade" | "blink" | "ripple" | "glint" | "shake" | "reach"; readonly periodMs: number }
-  | { readonly kind: "land" | "landed"; readonly since: number };
+  | { readonly kind: "land" | "landed"; readonly since: number }
+  /** Once from `since`: rises 3 board units into place while opacity goes 0 to 1, 200 ms, ease `enter` (the preamble line). */
+  | { readonly kind: "rise"; readonly since: number };
 
 /** A cell of the ring atlas (`activity-atlas.ts`, painted once per theme). */
 export type RingCell = { readonly col: number; readonly row: number };
@@ -438,11 +467,18 @@ export type Quad = {
   readonly scale: ScaleRule;
   readonly style: QuadStyle;
   /** `shape`: its outline; absent is a rectangle. */
+  /** `triangle` has its apex up; `flip` mirrors any shape top to bottom. */
   readonly shape?: "rect" | "disc" | "triangle";
+  readonly flip?: boolean;
   readonly radii?: Radii;
   readonly sprite?: SpriteRef;
   readonly text?: TextRun;
   readonly motion?: QuadMotion;
+  /**
+   * `live`: drawn only while motion runs; `paused`: only while it does not
+   * (hidden window, reduced motion), which shows a ring's rest pose.
+   */
+  readonly gate?: "live" | "paused";
   /** The part of the card this quad answers pointer input for (picking, section 15). */
   readonly part?: Part;
 };
@@ -462,6 +498,12 @@ export type CardView = {
   readonly focus?: { readonly kind: "impact" | "connection"; readonly role: "root" | "member" | "lead" | "outsider" };
   /** The theme the generated art (portraits, icons, bands) is made for. */
   readonly mode: ThemeMode;
+};
+
+/** The environment paint is handed: text measurement, from the engine's text atlas (section 8). */
+export type PaintEnv = {
+  /** Width in board units of the run on one line, untruncated. */
+  readonly measure: (run: TextRun) => number;
 };
 
 /** What `paintCard` returns: the quads, and the card-wide values the engine animates. */
@@ -679,8 +721,11 @@ export interface CanvasApi {
   readonly moveCamera: (to: CameraTarget, options?: CameraMoveOptions) => void;
   /** Fit view: padding 0.18, max zoom 1.15 with regions else 1.35, 320 ms. */
   readonly fit: (options?: { readonly durationMs?: number }) => void;
-  /** Focus cards: padding 0.35, max zoom 1.45, 360 ms. */
-  readonly focusNodes: (ids: ReadonlyArray<NodeId>, options?: { readonly durationMs?: number }) => void;
+  /** Focus cards: padding 0.35, max zoom 1.45, 360 ms unless the caller says otherwise. */
+  readonly focusNodes: (
+    ids: ReadonlyArray<NodeId>,
+    options?: { readonly durationMs?: number; readonly padding?: number; readonly maxZoom?: number },
+  ) => void;
   readonly zoomBy: (factor: number, options?: CameraMoveOptions) => void;
   readonly zoomTo: (zoom: number, options?: CameraMoveOptions) => void;
   /** A card's board rectangle, and the bounds of several. */
@@ -694,7 +739,18 @@ export interface CanvasApi {
   readonly setWireMode: (mode: WireMode) => void;
   readonly tier: () => CanvasTier;
   /** The canvas element, for focus and the focus law's scope. */
-  readonly element: () => HTMLCanvasElement | null;
+  readonly element: () => HTMLElement | null;
+  /**
+   * A transient position over the model, for the demo's tween (nothing is
+   * written to the model until the tween ends). `null` drops every override.
+   */
+  readonly previewMoves?: (moves: ReadonlyArray<{ readonly id: NodeId } & Point> | null) => void;
+  /**
+   * The DOM elements a card is drawn as, when this canvas draws cards as DOM
+   * (the old canvas). Empty under the GPU canvas: the marks a legacy caller
+   * sets live in its nodes, and the new canvas paints its own.
+   */
+  readonly cardElements?: (id: NodeId) => ReadonlyArray<Element>;
 }
 
 /**

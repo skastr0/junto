@@ -27,6 +27,7 @@ import {
   SIGNAL_FLAG_TONE,
   ringState,
   type LoopRing,
+  type RingState,
   type RingGlow,
   type RingHalo,
   type RingPulseTiming,
@@ -215,20 +216,32 @@ const stillCell = (ring: StillRing): CoreCell => {
  * only finds the cells that draw it, frozen at the rest pose unless
  * `animate`.
  */
-export const ringCells = (input: RingInput): RingCells => {
-  const state = ringState(input);
+export const ringCells = (input: RingInput): RingCells => ringCellsOf(ringState(input), input.animate);
+
+/**
+ * The cells for a ring state already decided: what the phone sends per seat
+ * and what the canvas reads from a seat's facts. `ringCells` is this after
+ * `ringState`.
+ */
+export const ringCellsOf = (state: RingState, animate: boolean): RingCells => {
   const { ring, hue } = state;
   const core: CoreCell =
     ring === "done"
-      ? input.animate
+      ? animate
         ? { ...loopCell("glint", "green", true), land: LAND_ROW }
         : { col: LAND_FRAMES, row: LAND_ROW, motion: "still" }
       : ring === "rest" || ring === "off"
         ? stillCell(ring)
-        : loopCell(ring, hue, input.animate);
+        : loopCell(ring, hue, animate);
   const band = LAYOUT.bands.get(bandKey(state.glow ?? "none", state.halo ?? "none", state.stale, state.flag ?? "none"));
   return band ? { core, band, ring, hue } : { core, ring, hue };
 };
+
+/** The blank cell: a done ring's base until it has landed. */
+export const MARK_BLANK_CELL: AtlasCell = LAYOUT.blank;
+
+/** The row of the one-shot done draw-in. */
+export const MARK_LAND_ROW = LAND_ROW;
 
 // --- painting ----------------------------------------------------------------
 
@@ -317,7 +330,13 @@ const paintAtlas = (ctx: Ctx, mode: ThemeMode): void => {
 const STYLE_ID = "junto-mark-atlas";
 const atlasUrl = new Map<ThemeMode, string>();
 
-const renderAtlas = (mode: ThemeMode): string | undefined => {
+/**
+ * The atlas as the painted canvas itself, for a texture upload: the page's
+ * data URL and the GPU canvas's texture come from this one painter, so the two
+ * cannot drift (architecture section 10). Undefined where there is no 2D
+ * canvas.
+ */
+export const paintMarkAtlasCanvas = (mode: ThemeMode): HTMLCanvasElement | undefined => {
   if (typeof document === "undefined") return undefined;
   const canvas = document.createElement("canvas");
   canvas.width = MARK_ATLAS_COLS * CELL;
@@ -330,13 +349,18 @@ const renderAtlas = (mode: ThemeMode): string | undefined => {
   }
   if (!ctx) return undefined;
   paintAtlas(ctx, mode);
+  return canvas;
+};
+
+const renderAtlas = (mode: ThemeMode): string | undefined => {
+  const canvas = paintMarkAtlasCanvas(mode);
+  if (!canvas) return undefined;
   try {
     return canvas.toDataURL("image/png");
   } catch {
     return undefined;
   }
 };
-
 
 const cellAt = (col: string, row: string): string =>
   `calc(var(${col}) * var(--mark-u) * -1) calc(var(${row}) * var(--mark-u) * -1)`;
