@@ -4,31 +4,52 @@
 
 import type { GpuEntry } from "../src/window/canvas/engine/device";
 
+export type FakeWrite = { readonly buffer: GPUBuffer; readonly offset: number; readonly size: number };
+
 export type FakeDevice = {
   readonly device: GPUDevice;
   readonly submits: () => number;
   readonly clears: () => ReadonlyArray<GPUColor>;
   readonly destroyed: () => boolean;
+  /** Every queue.writeBuffer the engine made, in order. */
+  readonly writes: () => ReadonlyArray<FakeWrite>;
   /** Lose the device as the browser would (sleep, a GPU process restart). */
   readonly lose: () => void;
 };
+
+const fakeBuffer = (size: number) => ({ size, destroy: () => undefined });
 
 const fakeDevice = (): FakeDevice => {
   let submits = 0;
   let destroyed = false;
   const clears: Array<GPUColor> = [];
+  const writes: Array<FakeWrite> = [];
   let resolveLost: (info: GPUDeviceLostInfo) => void = () => undefined;
   const lost = new Promise<GPUDeviceLostInfo>((resolve) => {
     resolveLost = resolve;
   });
+  const pass = {
+    setPipeline: () => undefined,
+    setBindGroup: () => undefined,
+    draw: () => undefined,
+    end: () => undefined,
+  };
   const device = {
     lost,
+    createBuffer: ({ size }: GPUBufferDescriptor) => fakeBuffer(size),
+    createShaderModule: () => ({ getCompilationInfo: async () => ({ messages: [] }) }),
+    createRenderPipeline: () => ({}),
+    createBindGroupLayout: () => ({}),
+    createPipelineLayout: () => ({}),
+    createBindGroup: () => ({}),
+    createSampler: () => ({}),
+    createTexture: () => ({ createView: () => ({}), destroy: () => undefined }),
     createCommandEncoder: () => ({
       beginRenderPass: (descriptor: GPURenderPassDescriptor) => {
         for (const attachment of descriptor.colorAttachments) {
           if (attachment?.clearValue !== undefined) clears.push(attachment.clearValue);
         }
-        return { end: () => undefined };
+        return pass;
       },
       finish: () => ({}),
     }),
@@ -36,6 +57,13 @@ const fakeDevice = (): FakeDevice => {
       submit: () => {
         submits += 1;
       },
+      writeBuffer: (buffer: GPUBuffer, offset: number, data: ArrayBufferView | ArrayBuffer, dataOffset?: number, size?: number) => {
+        const bytes = data instanceof ArrayBuffer ? data.byteLength : data.byteLength;
+        const length = size ?? bytes - (dataOffset ?? 0) * (data instanceof ArrayBuffer ? 1 : (data as unknown as { BYTES_PER_ELEMENT?: number }).BYTES_PER_ELEMENT ?? 1);
+        writes.push({ buffer, offset, size: Math.max(0, length) });
+      },
+      writeTexture: () => undefined,
+      copyExternalImageToTexture: () => undefined,
     },
     destroy: () => {
       if (destroyed) return;
@@ -48,6 +76,7 @@ const fakeDevice = (): FakeDevice => {
     submits: () => submits,
     clears: () => clears,
     destroyed: () => destroyed,
+    writes: () => writes,
     lose: () => resolveLost({ reason: "unknown", message: "lost" } as GPUDeviceLostInfo),
   };
 };

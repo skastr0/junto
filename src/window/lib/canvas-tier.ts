@@ -19,41 +19,29 @@
 // boundary never flaps.
 
 import { observable } from "@legendapp/state";
-import { DURATION, easingCss } from "@shared/theme";
 
-export type CanvasTier = "near" | "mid" | "far" | "overview";
+// The pure tier and scale functions live in @shared so the GPU canvas engine
+// imports exactly one source; this module keeps the DOM publishers and the
+// ReactFlow-facing writers, and re-exports the pure part.
+export {
+  FAR_RING_SCREEN_PX,
+  OVERVIEW_RING_FLOOR_PX,
+  SEAT_SCALE_MAX,
+  TIER_FAR_MIN,
+  TIER_HYSTERESIS,
+  TIER_MID_MIN,
+  TIER_NEAR_MIN,
+  farSeatScale,
+  nodeScale,
+  seatFloorScale,
+  tierForZoom,
+  type CanvasTier,
+} from "@shared/canvas-tier";
 
-const ORDER: readonly CanvasTier[] = ["near", "mid", "far", "overview"];
+import { farSeatScale, nodeScale, seatFloorScale, tierForZoom, type CanvasTier } from "@shared/canvas-tier";
 
-/** Zoom at or above which cards read: region glance starts below it. */
-export const TIER_NEAR_MIN = 0.62;
-/** Zoom at or above which a seat's ring and name still read (glance fully inked below). */
-export const TIER_MID_MIN = 0.34;
-/** Below this the board is regions. */
-export const TIER_FAR_MIN = 0.2;
-/** A boundary must be passed by this much zoom before the tier changes. */
-export const TIER_HYSTERESIS = 0.03;
-
+/** The attribute the tier is stamped on, as the stylesheet reads it. */
 export const TIER_ATTR = "data-canvas-tier";
-
-const tierAt = (zoom: number): CanvasTier =>
-  zoom >= TIER_NEAR_MIN ? "near" : zoom >= TIER_MID_MIN ? "mid" : zoom >= TIER_FAR_MIN ? "far" : "overview";
-
-/**
- * The tier for a zoom, given the tier the camera is in now. Moving to less
- * detail needs the zoom a margin below the boundary; moving back needs it a
- * margin above.
- */
-export const tierForZoom = (zoom: number, previous?: CanvasTier): CanvasTier => {
-  if (!Number.isFinite(zoom) || zoom <= 0) return previous ?? "near";
-  if (previous === undefined) return tierAt(zoom);
-  const now = ORDER.indexOf(previous);
-  const lower = tierAt(zoom + TIER_HYSTERESIS);
-  if (ORDER.indexOf(lower) > now) return lower;
-  const higher = tierAt(zoom - TIER_HYSTERESIS);
-  if (ORDER.indexOf(higher) < now) return higher;
-  return previous;
-};
 
 export const canvasTier$ = observable<CanvasTier>("near");
 
@@ -83,48 +71,10 @@ export const clearCanvasTier = (): void => {
   if (canvasTier$.peek() !== "near") canvasTier$.set("near");
 };
 
-/** Screen diameter a far seat's ring is held at, when its neighbours leave room. */
-export const FAR_RING_SCREEN_PX = 40;
-/** The seat ring's own diameter (node-geometry.ts SEAT_RING_PX). */
-const SEAT_RING_UNITS = 52;
 /** Custom property on the ReactFlow root that canvas-lod.css scales far rings by. */
 export const FAR_SEAT_SCALE_VAR = "--far-seat-scale";
-
-/** The largest scale a ring is drawn at: FAR_RING_SCREEN_PX at the camera's minimum zoom (0.15). */
-export const SEAT_SCALE_MAX = 5.2;
-/**
- * The smallest a seat ring is drawn at the overview, on screen: a crowded
- * ring shrinks to this before its seat gathers into a cluster
- * (seat-clusters.ts SEAT_FLOOR_SCREEN_PX).
- */
-export const OVERVIEW_RING_FLOOR_PX = 22;
 /** Custom property on the ReactFlow root: the scale that draws a seat ring at the overview floor. */
 export const SEAT_FLOOR_SCALE_VAR = "--seat-floor-scale";
-
-/**
- * Steps a scale is rounded up to. Tenths, not halves: the ring must never be
- * more than 2px over its screen floor (seat-ring-room.test.ts), and at the
- * far tier's closest zoom 40 + 2px leaves room for a step of only about 0.09.
- * A coarser step bought fewer whole-board restyles but broke that bound.
- */
-const SCALE_STEP = 0.1;
-
-const scaleFor = (screenPx: number, zoom: number, floor: number): number => {
-  if (!Number.isFinite(zoom) || zoom <= 0) return floor;
-  const exact = screenPx / (SEAT_RING_UNITS * zoom);
-  return Math.min(SEAT_SCALE_MAX, Math.max(floor, Math.ceil(exact / SCALE_STEP) * SCALE_STEP));
-};
-
-/**
- * The scale that draws a 52-unit seat ring FAR_RING_SCREEN_PX across at this
- * zoom, rounded up to a tenth so the ring never passes its screen floor.
- * Never below the 1.75 a ring is drawn at before the floor
- * bites, never above SEAT_SCALE_MAX.
- */
-export const farSeatScale = (zoom: number): number => scaleFor(FAR_RING_SCREEN_PX, zoom, 1.75);
-
-/** The scale that draws a seat ring OVERVIEW_RING_FLOOR_PX across at this zoom. */
-export const seatFloorScale = (zoom: number): number => scaleFor(OVERVIEW_RING_FLOOR_PX, zoom, 1);
 
 /** The text a scale is written as; the ease must use the value the page reads back. */
 const scaleText = (value: number): string => value.toFixed(1);
@@ -208,9 +158,9 @@ const writeSeatScales = (
 };
 
 /** How long the ring's size eases after a camera rest. Same 160 ms the CSS keyframe ran. */
-export const SEAT_EASE_MS = DURATION.quick;
+export const SEAT_EASE_MS = 160;
 /** The ease's curve, unchanged from the CSS keyframe. */
-export const SEAT_EASE_CURVE = easingCss("settle");
+export const SEAT_EASE_CURVE = "cubic-bezier(.33, 1, .68, 1)";
 /** The animation's id, so a second rest in the same second replaces the first instead of stacking. */
 export const SEAT_EASE_ID = "junto-seat-ease";
 
@@ -358,15 +308,6 @@ export const easeSeatScaleOnTierEntry = (
 
 /** Custom property on the ReactFlow root: the inverse zoom, for sizes held in screen pixels (spine discs, focus rings). */
 export const NODE_SCALE_VAR = "--node-s";
-
-/** The largest node scale: the inverse of the camera's minimum zoom (0.15). */
-const NODE_SCALE_MAX = 6.7;
-
-/** The inverse zoom, rounded up to a tenth like the seat scales, between 1 and NODE_SCALE_MAX. */
-export const nodeScale = (zoom: number): number => {
-  if (!Number.isFinite(zoom) || zoom <= 0) return 1;
-  return Math.min(NODE_SCALE_MAX, Math.max(1, Math.ceil((1 / zoom) * 10) / 10));
-};
 
 /**
  * Write the far seat scale, the overview floor and the node scale on `host`

@@ -134,7 +134,7 @@ describe("the frame loop", () => {
     await settle();
     frames.tick();
     expect(context.configured()).toEqual([gpu.devices[0]?.device, gpu.devices[1]?.device]);
-    expect(engine.stats()).toEqual({ frames: 2, generation: 2 });
+    expect(engine.stats()).toMatchObject({ frames: 2, generation: 2 });
     expect(gpu.devices[1]?.submits()).toBe(1);
     engine.dispose();
     keeper.dispose();
