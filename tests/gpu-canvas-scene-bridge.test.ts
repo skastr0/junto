@@ -80,7 +80,7 @@ describe("the GPU canvas scene bridge", () => {
     ]);
     state$.canvasName.set("factory");
     const ops: Array<{ kind: string; cards?: ReadonlyArray<{ id: string }> }> = [];
-    const stop = startSceneBridge({ apply: (batch) => { ops.push(...(batch as typeof ops)); } });
+    const stop = startSceneBridge({ apply: (batch) => { ops.push(...batch.map((op) => op as (typeof ops)[number])); } });
     // Attached while the read is in flight: nothing to load yet (the
     // selection fact is sent at once, as the shell's mirror needs it).
     expect(ops.some((op) => op.kind === "load")).toBe(false);

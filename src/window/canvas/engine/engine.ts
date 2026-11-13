@@ -297,7 +297,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   const schedule = (): void => {
     if (disposed || !visible || pending !== undefined) return;
     if (keeper.state().kind !== "ready") return;
-    const busy = dirty || animation !== undefined || keys.size > 0 || !settled || autoPan !== null || scene.hasMotion() || (host.wires?.busy(wallNow()) ?? false);
+    const busy = dirty || animation !== undefined || keys.size > 0 || !settled || autoPan !== null || scene.hasMotion(wallNow()) || (host.wires?.busy(wallNow()) ?? false);
     if (!busy) return;
     pending = scheduler.request(frame);
   };
@@ -441,7 +441,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     lastFrameMs = clock() - start;
     dirty = false;
 
-    const moving = scene.hasMotion() || (host.wires?.busy(wallNow()) ?? false);
+    const moving = scene.hasMotion(wallNow()) || (host.wires?.busy(wallNow()) ?? false);
     if (moving || animation !== undefined || keys.size > 0 || !settled || autoPan !== null) schedule();
   };
 

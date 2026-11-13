@@ -16,7 +16,7 @@
  */
 
 import { renderedNodeSize } from "@shared/node-geometry";
-import { themeGpu, type GpuTheme, type ThemeMode } from "@shared/theme";
+import { DURATION, themeGpu, type GpuTheme, type ThemeMode } from "@shared/theme";
 import type {
   CanvasTier,
   CardFact,
@@ -197,6 +197,9 @@ const KIND_OF: Readonly<Record<Quad["kind"], number>> = {
 
 export type Scene = ReturnType<typeof createScene>;
 
+/** How long a same-key style change eases; the shader holds the other half. */
+export const STYLE_TRANSITION_MS = DURATION.state;
+
 const approximateMeasure = (run: TextRun): number => run.text.length * run.size * 0.6;
 
 export const createScene = (options: {
@@ -241,6 +244,8 @@ export const createScene = (options: {
   let wireMode: WireMode = "rest";
   let wires = new Map<WireId, WireFact>();
   let motionVisible = false;
+  /** The wall time the last style transition ends; the loop draws until then. */
+  let transitionUntil = 0;
   let wallNow = 0;
 
   const markOrder = (): void => {
@@ -323,11 +328,13 @@ export const createScene = (options: {
     // style it left and when. A repaint with the same style keeps a running
     // transition's start. A fresh slot starts already at its style.
     const at = slot * QUAD_FLOATS;
+    const oldStyle = quads.u32[at + 27];
     const previous = fresh
       ? { previousStyle: style, changeAt: wallNow }
-      : quads.u32[at + 27] === style
+      : oldStyle === style
         ? { previousStyle: quads.u32[at + 28] ?? style, changeAt: quads.f32[at + 29] ?? wallNow }
-        : { previousStyle: quads.u32[at + 27] ?? style, changeAt: wallNow };
+        : { previousStyle: oldStyle ?? style, changeAt: wallNow };
+    if (!fresh && oldStyle !== style) transitionUntil = Math.max(transitionUntil, wallNow + STYLE_TRANSITION_MS);
     const radius = typeof quad.radii === "number"
       ? ([quad.radii, quad.radii, quad.radii, quad.radii] as const)
       : quad.radii ?? ([0, 0, 0, 0] as const);
@@ -501,6 +508,7 @@ export const createScene = (options: {
     allQuadsDirty = true;
     orderCount = 0;
     bandEnds = [0, 0, 0];
+    transitionUntil = 0;
     grid.clear();
     wires = new Map();
     markOrder();
@@ -737,7 +745,7 @@ export const createScene = (options: {
     return { orderChanged: changed, visible: orderCount };
   };
 
-  const hasMotion = (): boolean => motionVisible;
+  const hasMotion = (wall: number = wallNow): boolean => motionVisible || wall < transitionUntil;
 
   const index: SpatialIndex = {
     cardsAt: (at) => {

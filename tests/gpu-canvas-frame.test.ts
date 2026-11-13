@@ -94,8 +94,9 @@ describe("the moving picture", () => {
     }
     expect(r.engine.stats().frames).toBe(afterFirst + 5);
 
-    // The ring rests: the next frame is the last one scheduled.
+    // The ring rests: the fade runs out, then the next frame is the last.
     r.engine.apply([{ kind: "seat", id: "a", live: live("rest") }]);
+    r.advance(200);
     r.frames.tick();
     expect(r.frames.waiting()).toBe(0);
     const still = r.engine.stats().frames;
@@ -117,6 +118,26 @@ describe("the moving picture", () => {
     r.engine.apply([{ kind: "seat", id: "a", live: live("rest") }]);
     r.frames.tick();
     expect(r.engine.ringAngle!("a")).toBeUndefined();
+    r.engine.dispose();
+    r.keeper.dispose();
+  });
+
+  it("keeps drawing while a style change fades, then stops", async () => {
+    const r = await rig();
+    load(r, [factOf(note("n", "fade", { x: 100, y: 100 }))]);
+    r.frames.tick();
+    r.engine.apply([{ kind: "selection", fact: { nodeIds: ["n"] } }]);
+    r.frames.tick();
+    expect(r.frames.waiting()).toBe(1);
+    r.advance(90);
+    r.frames.tick();
+    expect(r.frames.waiting()).toBe(1);
+    r.advance(100);
+    r.frames.tick();
+    expect(r.frames.waiting()).toBe(0);
+    const still = r.engine.stats().frames;
+    for (let tick = 0; tick < 5; tick += 1) r.frames.tick();
+    expect(r.engine.stats().frames).toBe(still);
     r.engine.dispose();
     r.keeper.dispose();
   });
@@ -145,6 +166,7 @@ describe("the moving picture", () => {
     const r = await rig();
     load(r, [seatFact("a"), factOf(note("n", "hello", { x: 400, y: 40 }))]);
     r.engine.apply([{ kind: "seat", id: "a", live: live("rest") }]);
+    r.advance(200);
     r.frames.tick();
     expect(r.engine.stats().frames).toBe(1);
     expect(r.frames.waiting()).toBe(0);
