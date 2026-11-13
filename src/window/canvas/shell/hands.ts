@@ -21,7 +21,7 @@ import { topZ } from "../../lib/model-edits";
 import { newNote } from "../../lib/model-factories";
 import { addNode, deleteNodes } from "../../lib/mutations";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
-import { canvasOwnsKeyboard } from "../../lib/canvas-keyboard-pan";
+import { canvasOwnsKeyboard, panKeyFor } from "../../lib/canvas-keyboard-pan";
 import { canvasKeyboardTaken } from "../../lib/canvas-keys";
 import { dock$, openTaskCreateSurface } from "../../lib/dock-state";
 import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
@@ -29,7 +29,6 @@ import { topModal } from "../../lib/modal-stack";
 import { openOperatorModal } from "../../lib/operator-modal";
 import { isMac } from "../../lib/platform";
 import { dismissPreamble } from "../../lib/preamble-state";
-import { panKeyFor } from "../../lib/canvas-keyboard-pan";
 import {
   clearSelection,
   selectEdge,
@@ -55,7 +54,6 @@ export interface InputEngine {
 /** The engine surface hands needs: intents out, scene facts in, input in. */
 export interface HandsEngine extends InputEngine {
   readonly apply: (ops: ReadonlyArray<{ readonly kind: "selection"; readonly fact: SelectionFact }>) => void;
-  readonly input: (event: CanvasInput) => void;
   readonly onIntent: (listener: (intent: Intent) => void) => () => void;
 }
 
