@@ -29,7 +29,7 @@ export const SEAT = {
   snug: 1.375,
   /** The task strip's `text-caption`. */
   captionSize: 9,
-  /** The AI prefix of a reading: `font-display text-[9px] tracking-[0.12em]`. */
+  /** The AI prefix of a reading: display face, 9 by 0.12 tracking. */
   aiSize: 9,
   aiTracking: 0.12,
 } as const;
