@@ -176,6 +176,8 @@ const packScale = (
       return { scaleRule: SCALE_RULE.seat, scaleCap: scale.cap, anchorX: scale.anchor.x, anchorY: scale.anchor.y };
     case "node":
       return { scaleRule: SCALE_RULE.node, scaleCap: 1, anchorX: scale.anchor.x, anchorY: scale.anchor.y };
+    case "seatTag":
+      return { scaleRule: SCALE_RULE.seatTag, scaleCap: scale.cap, anchorX: scale.anchor.x, anchorY: scale.anchor.y };
     default:
       return { scaleRule: SCALE_RULE.board, scaleCap: 1, anchorX: 0, anchorY: 0 };
   }
@@ -311,12 +313,21 @@ export const createScene = (options: {
     if (changed) dirtyOwners.add(card.slot);
   };
 
-  const packQuad = (quad: Quad): PackedQuad => {
+  const packQuad = (quad: Quad, slot: number, fresh: boolean): PackedQuad => {
     const style = styles.intern(quad.style);
     if (styles.size !== knownStyles) {
       knownStyles = styles.size;
       styleRevision += 1;
     }
+    // A style change on the same key is a transition: the record keeps the
+    // style it left and when. A repaint with the same style keeps a running
+    // transition's start. A fresh slot starts already at its style.
+    const at = slot * QUAD_FLOATS;
+    const previous = fresh
+      ? { previousStyle: style, changeAt: wallNow }
+      : quads.u32[at + 27] === style
+        ? { previousStyle: quads.u32[at + 28] ?? style, changeAt: quads.f32[at + 29] ?? wallNow }
+        : { previousStyle: quads.u32[at + 27] ?? style, changeAt: wallNow };
     const radius = typeof quad.radii === "number"
       ? ([quad.radii, quad.radii, quad.radii, quad.radii] as const)
       : quad.radii ?? ([0, 0, 0, 0] as const);
@@ -338,8 +349,7 @@ export const createScene = (options: {
       source: 0xffffffff,
       gradientAngle: 0,
       style,
-      previousStyle: 0xffffffff,
-      changeAt: wallNow,
+      ...previous,
       dash: 0,
     };
   };
@@ -358,12 +368,14 @@ export const createScene = (options: {
     }
     for (const quad of sorted) {
       let slot = card.quads.get(quad.key);
+      let fresh = false;
       if (slot === undefined) {
         slot = allocateQuad();
         card.quads.set(quad.key, slot);
         held.add(slot);
+        fresh = true;
       }
-      writeQuad(quads, slot, packQuad(quad));
+      writeQuad(quads, slot, packQuad(quad, slot, fresh));
       dirtyQuads.add(slot);
     }
     quadSlotsOf.set(card.slot, held);
@@ -630,6 +642,21 @@ export const createScene = (options: {
   const rectOf = (id: NodeId): Rect | undefined => byId.get(id)?.rect;
   const cardOf = (id: NodeId): CardFact | undefined => byId.get(id)?.fact;
 
+  /** The turning ring's angle as the DOM's rotate() shows it at `wall`. */
+  const ringAngle = (id: NodeId, wall: number): number | undefined => {
+    const card = byId.get(id);
+    if (card === undefined) return undefined;
+    for (const quad of card.ordered) {
+      const motion = quad.motion;
+      if (motion === undefined || motion.kind !== "turn") continue;
+      const lap = motion.periodMs > 0 ? motion.periodMs : 1;
+      const phase = (((wall % lap) + lap) % lap) / lap;
+      const angle = 360 * (motion.ccw === true ? 1 - phase : phase);
+      return angle === 360 ? 0 : angle;
+    }
+    return undefined;
+  };
+
   const visibleSlots: number[] = [];
   const visibleCards: CardSlot[] = [];
   const previousOrder: number[] = [];
@@ -753,6 +780,7 @@ export const createScene = (options: {
     query,
     rectOf,
     cardOf,
+    ringAngle,
     prepare,
     hasMotion,
     index,

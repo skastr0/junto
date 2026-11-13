@@ -173,6 +173,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   let configuredGeneration = 0;
   let lastFrameAt = 0;
   let lastFrameMs = 0;
+  let lastDrawnWall = 0;
   let lastRanges: ReadonlyArray<{ buffer: string; offset: number; size: number }> = [];
 
   let settled = true;
@@ -376,6 +377,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     const prepared = scene.prepare(viewRect(camera, size), tier);
     const wall = wallNow();
     scene.setWallClock(wall);
+    lastDrawnWall = wall;
     if (prepared.orderChanged) dirty = true;
 
     // 5: uploads.
@@ -574,6 +576,9 @@ export const createEngine = (host: EngineHost): SeamEngine => {
 
   return {
     apply: (ops) => {
+      // A style change starts its transition at the wall clock of the fact,
+      // not at the last frame's.
+      scene.setWallClock(wallNow());
       for (const op of ops) {
         if (op.kind === "theme") ground = clearColour(themeRuntime(op.mode).ground ?? "");
         scene.apply(op);
@@ -607,6 +612,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
         frameListeners.delete(listener);
       };
     },
+    ringAngle: (id) => scene.ringAngle(id, lastDrawnWall),
     stats: (): EngineStats => ({
       frames,
       generation: configuredGeneration,

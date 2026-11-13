@@ -711,6 +711,8 @@ export interface Engine {
   readonly anchor: (id: NodeId) => () => void;
   readonly onIntent: (listener: (intent: Intent) => void) => () => void;
   readonly onFrame: (listener: (facts: FrameFacts) => void) => () => void;
+  /** The seat's turning ring angle in degrees as last drawn, for the phase test. */
+  readonly ringAngle?: (id: NodeId) => number | undefined;
   readonly stats: () => EngineStats;
   readonly dispose: () => void;
 }

@@ -94,6 +94,7 @@ const build = (mirror: SurfaceMirror, engine: () => SeamEngine | undefined): Ful
     camera: () => mirror.camera(),
     settled: () => mirror.settled(),
     tier: () => mirror.tier(),
+    ringAngle: (id) => engine()?.ringAngle?.(id),
     stats: () => engineStats(engine()),
   };
 };

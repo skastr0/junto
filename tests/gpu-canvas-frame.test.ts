@@ -5,7 +5,8 @@
 
 import { describe, expect, it } from "vitest";
 import { asCanvasName } from "@shared/model";
-import { ringState, type RingStateInput } from "@shared/wire/rings";
+import { RING_MOTION, ringState, type RingStateInput } from "@shared/wire/rings";
+import { sampleMotion } from "../src/window/canvas/paint/motion";
 import type { CardFact, FrameFacts, SeatLive } from "../src/window/canvas/contract";
 import { createDeviceKeeper } from "../src/window/canvas/engine/device";
 import { createEngine } from "../src/window/canvas/engine/engine";
@@ -100,6 +101,22 @@ describe("the moving picture", () => {
     const still = r.engine.stats().frames;
     for (let tick = 0; tick < 10; tick += 1) r.frames.tick();
     expect(r.engine.stats().frames).toBe(still);
+    r.engine.dispose();
+    r.keeper.dispose();
+  });
+
+  it("reports the turning ring's angle as last drawn", async () => {
+    const r = await rig();
+    load(r, [seatFact("a")]);
+    r.engine.apply([{ kind: "seat", id: "a", live: live("work") }]);
+    r.advance(1_234);
+    r.frames.tick();
+    const wall = 1_000_000 + 1_234;
+    const expected = sampleMotion({ kind: "turn", periodMs: RING_MOTION.work.spin!.lapMs }, wall).angle;
+    expect(r.engine.ringAngle!("a")).toBeCloseTo(expected, 9);
+    r.engine.apply([{ kind: "seat", id: "a", live: live("rest") }]);
+    r.frames.tick();
+    expect(r.engine.ringAngle!("a")).toBeUndefined();
     r.engine.dispose();
     r.keeper.dispose();
   });

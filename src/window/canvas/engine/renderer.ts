@@ -21,6 +21,7 @@
 
 import type { Scene } from "./scene";
 import { QUAD_BYTES } from "./quad";
+import { DURATION } from "@shared/theme";
 import { STYLE_STRIDE } from "./styles";
 import type { AtlasBinding } from "./types";
 
@@ -38,6 +39,8 @@ const SHADOW_LAYER_FLOATS = 8;
 const SHADOW_SPEC_WORDS = 4;
 
 const SHADER = /* wgsl */ `
+const TRANSITION_MS = ${DURATION.state.toFixed(1)};
+
 struct Uniforms {
   view: vec4f,    // width, height, pixelRatio, wallMs
   camera: vec4f,  // x, y, zoom, tier bit
@@ -117,6 +120,16 @@ fn styleColour(base: u32, at: u32) -> vec4f {
   return vec4f(styles[base + at], styles[base + at + 1u], styles[base + at + 2u], styles[base + at + 3u]);
 }
 
+fn filled(base: u32, local: vec2f) -> vec4f {
+  let from = styleColour(base, 0u);
+  let to = styleColour(base, 4u);
+  if (to.a <= 0.0) { return from; }
+  let theta = styles[base + 8u] * PI2 / 360.0;
+  let dir = vec2f(sin(theta), -cos(theta));
+  let t = clamp(dot(local, dir) * 0.5 + 0.5, 0.0, 1.0);
+  return mix(from, to, t);
+}
+
 @vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VSOut {
   var out: VSOut;
   let slot = order[ii];
@@ -138,6 +151,17 @@ fn styleColour(base: u32, at: u32) -> vec4f {
   } else if (q.scaleRule == 2u) {
     scale = u.scales.z;
     center = o.p.xy + vec2f(q.anchorX, q.anchorY);
+  } else if (q.scaleRule == 3u) {
+    // The far name tag: its offset from the ring centre scales with the seat,
+    // the tag itself by farSeat * 1.4 about its top centre.
+    let far = max(1.0, min(u.scales.x, q.scaleCap));
+    let floorScale = max(u.scales.y, min(u.scales.x, q.scaleCap));
+    let seatScale = select(far, floorScale, tierBit == 8u);
+    let anchor = vec2f(q.anchorX, q.anchorY);
+    let relTop = vec2f(q.rect.x + q.rect.z * 0.5, q.rect.y);
+    let top = anchor + (relTop - anchor) * seatScale;
+    scale = u.scales.x * 1.4;
+    center = o.p.xy + top + vec2f(0.0, q.rect.w * scale * 0.5);
   }
 
   var motionScale = 1.0;
@@ -172,22 +196,22 @@ fn styleColour(base: u32, at: u32) -> vec4f {
   let o = owners[q.owner];
   let ppu = u.camera.z * u.view.z;
   let base = q.style * STYLE;
-
-  var fill = styleColour(base, 0u);
-  let fillTo = styleColour(base, 4u);
-  let angle = styles[base + 8u];
-  var stroke = styleColour(base, 9u);
   let strokeWidth = styles[base + 13u];
   let shadowId = i32(styles[base + 17u]);
+
+  var fill = filled(base, in.local);
+  var stroke = styleColour(base, 9u);
   var ink = styleColour(base, 18u);
-  let styleOpacity = styles[base + 22u];
-  if (ink.a <= 0.0) { ink = fill; }
-  if (fillTo.a > 0.0) {
-    let theta = angle * PI2 / 360.0;
-    let dir = vec2f(sin(theta), -cos(theta));
-    let t = clamp(dot(in.local, dir) * 0.5 + 0.5, 0.0, 1.0);
-    fill = mix(fill, fillTo, t);
+  var styleOpacity = styles[base + 22u];
+  if (q.previousStyle != q.style && q.previousStyle != 0xffffffffu) {
+    let from = q.previousStyle * STYLE;
+    let t = smoothstep(0.0, 1.0, clamp((u.view.w - q.changeAt) / TRANSITION_MS, 0.0, 1.0));
+    fill = mix(filled(from, in.local), fill, t);
+    stroke = mix(styleColour(from, 9u), stroke, t);
+    ink = mix(styleColour(from, 18u), ink, t);
+    styleOpacity = mix(styles[from + 22u], styleOpacity, t);
   }
+  if (ink.a <= 0.0) { ink = fill; }
 
   var motionAlpha = 1.0;
   if (q.motion == 3u) { motionAlpha = beat(phaseOf(q.motionPeriod)); }
