@@ -112,9 +112,11 @@ export const HUES: Record<"dark" | "bright", HueRamp> = {
   bright: {
     // Display variants stay in the same families; fg variants darken to the
     // functional inks of the daylight edition (rust, slate blue, deep red).
-    amber: { l: 0.63, c: 0.18, h: 72 },
+    // Pinned inside sRGB at the colour it already drew as everywhere but CSS
+    // on a wide-colour screen, so one name is one colour (oklch.ts inSrgb).
+    amber: { l: 0.63401, c: 0.14784, h: 60.59 }, // #c97100
     // Emphasis on paper is darker, not lighter: 5.0 on the primary button's hover fill, 6.5 on the ground.
-    "amber-hi": { l: 0.45, c: 0.11, h: 62 },
+    "amber-hi": { l: 0.45004, c: 0.10614, h: 59.43 }, // #7f4400, pinned inside sRGB
     "amber-fg": { l: 0.48, c: 0.11, h: 60 }, // burnished rust; 4.6 on a chip wash on well
     cyan: { l: 0.60, c: 0.09, h: 220 },
     "cyan-fg": { l: 0.47, c: 0.075, h: 225 }, // slate blue, 4.7 on a chip wash on well
@@ -131,7 +133,7 @@ export const HUES: Record<"dark" | "bright", HueRamp> = {
     "green-fg": { l: 0.46, c: 0.1, h: 160 }, // 4.6 on a chip wash on well
     // Yellow cannot darken far on paper before it turns mustard; it keeps
     // its lightness and the frame carries it.
-    yellow: { l: 0.75, c: 0.155, h: 96 },
+    yellow: { l: 0.74939, c: 0.15416, h: 96 }, // #cbac00, pinned inside sRGB
     lime: { l: 0.63, c: 0.16, h: 130 },
     blue: { l: 0.52, c: 0.13, h: 252 },
     pink: { l: 0.56, c: 0.16, h: 352 },
@@ -150,19 +152,19 @@ export type LabelColour = (typeof LABEL_COLOURS)[number];
 
 export const LABEL_FG: Record<"dark" | "bright", Record<LabelColour, Oklch>> = {
   dark: {
-    red: { l: 0.84, c: 0.09, h: 24 },
+    red: { l: 0.83902, c: 0.08849, h: 24.23 }, // #ffb4ae, pinned inside sRGB
     orange: { l: 0.85, c: 0.09, h: 52 },
     yellow: { l: 0.9, c: 0.09, h: 98 },
     green: { l: 0.86, c: 0.09, h: 160 },
     teal: { l: 0.86, c: 0.08, h: 185 },
-    blue: { l: 0.85, c: 0.08, h: 250 },
-    purple: { l: 0.85, c: 0.09, h: 292 },
+    blue: { l: 0.84825, c: 0.07842, h: 249.34 }, // #a6d2ff, pinned inside sRGB
+    purple: { l: 0.84836, c: 0.082, h: 292.33 }, // #cec4ff, pinned inside sRGB
     pink: { l: 0.86, c: 0.08, h: 352 },
   },
   bright: {
     red: { l: 0.42, c: 0.15, h: 25 },
-    orange: { l: 0.43, c: 0.12, h: 50 },
-    yellow: { l: 0.42, c: 0.09, h: 90 },
+    orange: { l: 0.43083, c: 0.117, h: 48.18 }, // #813700, pinned inside sRGB
+    yellow: { l: 0.42049, c: 0.08593, h: 89.06 }, // #604a00, pinned inside sRGB
     green: { l: 0.4, c: 0.09, h: 160 },
     teal: { l: 0.4, c: 0.07, h: 188 },
     blue: { l: 0.42, c: 0.12, h: 252 },
