@@ -173,7 +173,6 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   let configuredGeneration = 0;
   let lastFrameAt = 0;
   let lastFrameMs = 0;
-  let lastDrawnWall = 0;
   let lastRanges: ReadonlyArray<{ buffer: string; offset: number; size: number }> = [];
 
   let settled = true;
@@ -377,7 +376,6 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     const prepared = scene.prepare(viewRect(camera, size), tier);
     const wall = wallNow();
     scene.setWallClock(wall);
-    lastDrawnWall = wall;
     if (prepared.orderChanged) dirty = true;
 
     // 5: uploads.
@@ -612,7 +610,9 @@ export const createEngine = (host: EngineHost): SeamEngine => {
         frameListeners.delete(listener);
       };
     },
-    ringAngle: (id) => scene.ringAngle(id, lastDrawnWall),
+    // At the wall clock when asked: the DOM phase test samples a live CSS
+    // animation, and a last-frame angle can be a frame behind it.
+    ringAngle: (id) => scene.ringAngle(id, wallNow()),
     stats: (): EngineStats => ({
       frames,
       generation: configuredGeneration,
