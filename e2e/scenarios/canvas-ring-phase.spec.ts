@@ -28,7 +28,10 @@ const domSpinAngle = (page: import("@playwright/test").Page, seatId: string): Pr
       if (host === null) continue;
       const part = mark.querySelector<HTMLElement>(".junto-mark__part[data-spin]");
       if (part === null) continue;
-      const anim = part.getAnimations().find((a) => a.animationName === "junto-mark-turn");
+      const anim = part.getAnimations().find(
+        (a): a is Animation & { readonly animationName: string } =>
+          "animationName" in a && a.animationName === "junto-mark-turn",
+      );
       if (anim === undefined) continue;
       const style = getComputedStyle(part);
       const duration = parseFloat(style.animationDuration) * 1000;
