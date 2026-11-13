@@ -93,6 +93,15 @@ export const useSeatSignalRollup = (
       : undefined,
   );
 
+/** The same rollup read once, outside React: the canvas feed's derivation. */
+export const seatSignalRollupOf = (
+  canvasName: string,
+  nodeId: string,
+): SeatSignalRollup | undefined =>
+  canvasName === state$.canvasName.peek()
+    ? seatSignalRollups$.peek()[nodeId]
+    : undefined;
+
 /**
  * One call to the core's signals group on the window's link. A page without
  * a runtime (a gallery, a test's stand-in) is not connected, and its call

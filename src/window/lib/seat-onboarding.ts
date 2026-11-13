@@ -83,6 +83,10 @@ export const useSeatOnboardingOf = (bindingId: string | undefined): SeatOnboardi
   return use$(() => (bindingId ? seatOnboarding$.byBindingId[bindingId].get()?.status : undefined));
 };
 
+/** The same status read once, outside React: the canvas feed's derivation. */
+export const seatOnboardingStatusOf = (bindingId: string | undefined): SeatOnboardingStatus | undefined =>
+  bindingId === undefined ? undefined : seatOnboarding$.byBindingId[bindingId].peek()?.status;
+
 /** Ask main to type the onboarding nudge into this seat now. */
 export const sendOnboardNudge = async (seatId: string): Promise<SeatOnboardNudgeResult> => {
   const result = await getJuntoApi()

@@ -203,28 +203,35 @@ let clockReaders = 0;
 let clockTimer: ReturnType<typeof setInterval> | undefined;
 
 /**
- * Keeps the shared clock running while the caller is mounted, without
- * re-rendering the caller on each tick. A reader that derives something from
- * the time reads healthClockNow() inside its own use$ selector and answers a
- * string, so it re-renders only when what it draws changes. Every seat card,
- * the minimap and the command bar re-rendering on every tick was a 55 ms
- * main-thread task every 15 s on the operator's board (0.11.10).
+ * Keeps the shared clock running for one holder, without re-rendering it.
+ * The canvas feed retains it so health-derived state stays fresh with no
+ * card mounted; `useHealthClockRunning` delegates here. A reader that
+ * derives something from the time reads healthClockNow() inside its own
+ * selector and answers a string, so it re-renders only when what it draws
+ * changes. Every seat card, the minimap and the command bar re-rendering on
+ * every tick was a 55 ms main-thread task every 15 s on the operator's
+ * board (0.11.10).
  */
-export const useHealthClockRunning = (): void => {
-  useEffect(() => {
-    clockReaders += 1;
-    if (clockTimer === undefined) {
-      healthClock$.set(Date.now());
-      clockTimer = setInterval(() => healthClock$.set(Date.now()), HEALTH_CLOCK_MS);
+export const retainHealthClock = (): (() => void) => {
+  clockReaders += 1;
+  if (clockTimer === undefined) {
+    healthClock$.set(Date.now());
+    clockTimer = setInterval(() => healthClock$.set(Date.now()), HEALTH_CLOCK_MS);
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    clockReaders -= 1;
+    if (clockReaders === 0 && clockTimer !== undefined) {
+      clearInterval(clockTimer);
+      clockTimer = undefined;
     }
-    return () => {
-      clockReaders -= 1;
-      if (clockReaders === 0 && clockTimer !== undefined) {
-        clearInterval(clockTimer);
-        clockTimer = undefined;
-      }
-    };
-  }, []);
+  };
+};
+
+export const useHealthClockRunning = (): void => {
+  useEffect(() => retainHealthClock(), []);
 };
 
 /** The shared clock, followed: call inside a use$ selector, with useHealthClockRunning mounted. */
@@ -256,6 +263,16 @@ export const threadHealthMarkKey = (mark: ThreadHealthMark): string =>
   mark === NO_MARK
     ? ""
     : [mark.health ?? "-", mark.value ?? "-", mark.healthStale ? "stale" : "fresh", mark.label ?? "", mark.line ?? ""].join("\n");
+
+/**
+ * The same mark the hook answers, read once outside React: `now` defaults to
+ * the shared clock, which an `observe` caller tracks through healthClockNow().
+ */
+export const threadHealthMarkOf = (
+  bindingId: string | undefined,
+  signal: AgentSignalKind | undefined,
+  now: number = healthClockNow(),
+): ThreadHealthMark => healthMarkAt(bindingId, signal, now);
 
 /**
  * Props for the card's activity mark rim, with the non-contradiction rule

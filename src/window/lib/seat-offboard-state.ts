@@ -91,3 +91,7 @@ export const useSeatOffboardFailure = (seatId: string): string | undefined => {
   const canvasName = use$(state$.canvasName);
   return use$(() => offboardFailureLine(seatOffboard$.byKey[keyOf(canvasName, seatId)].get()));
 };
+
+/** The same failure line read once, outside React: the canvas feed's derivation. */
+export const seatOffboardFailureOf = (canvasName: string, seatId: string): string | undefined =>
+  offboardFailureLine(seatOffboard$.byKey[keyOf(canvasName, seatId)].peek());
