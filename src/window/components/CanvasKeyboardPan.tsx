@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useReactFlow } from "@xyflow/react";
+import { canvasApi } from "../canvas/shell/canvas-api";
 import {
   canvasOwnsKeyboard,
   panKeyFor,
@@ -11,14 +11,12 @@ import {
 /**
  * WASD / arrow-key camera panning.
  *
- * Mounted inside the ReactFlow tree so it drives the live viewport. The gate
- * lives in canvas-keyboard-pan.ts: keys are only claimed while the canvas
- * owns the keyboard, so a focus modal, menu, terminal, or any focused field
- * keeps every letter to itself.
+ * Drives the mounted canvas through its CanvasApi, so the same keys fly
+ * either canvas. The gate lives in canvas-keyboard-pan.ts: keys are only
+ * claimed while the canvas owns the keyboard, so a focus modal, menu,
+ * terminal, or any focused field keeps every letter to itself.
  */
 export function CanvasKeyboardPan() {
-  const rf = useReactFlow();
-
   useEffect(() => {
     const held = new Map<string, number>();
     let boost = false;
@@ -52,12 +50,11 @@ export function CanvasKeyboardPan() {
         boost,
       });
       if (delta.x !== 0 || delta.y !== 0) {
-        const viewport = rf.getViewport();
-        rf.setViewport({
-          x: viewport.x + delta.x,
-          y: viewport.y + delta.y,
-          zoom: viewport.zoom,
-        });
+        const api = canvasApi();
+        const camera = api?.camera();
+        if (api !== undefined && camera !== undefined) {
+          api.moveCamera({ kind: "camera", camera: { x: camera.x + delta.x, y: camera.y + delta.y, zoom: camera.zoom } });
+        }
       }
       frame = requestAnimationFrame(tick);
     };
@@ -108,7 +105,7 @@ export function CanvasKeyboardPan() {
       document.removeEventListener("visibilitychange", stop);
       stop();
     };
-  }, [rf]);
+  }, []);
 
   return null;
 }

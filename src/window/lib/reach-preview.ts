@@ -18,6 +18,7 @@ import {
 } from "@shared/reach-preview";
 import type { ReachCanvas, ReachNode } from "@shared/region-reach";
 import type { SeatTask } from "@shared/seat-task-index";
+import { canvasApi } from "../canvas/shell/canvas-api";
 import { watchUnseen } from "./unseen";
 
 type Point = { readonly x: number; readonly y: number };
@@ -36,8 +37,16 @@ type Preview = {
 
 let preview: Preview | null = null;
 
-const elementsOf = (root: ParentNode, id: string): ReadonlyArray<Element> =>
-  [...root.querySelectorAll(`.react-flow__node[data-id="${CSS.escape(id)}"]`)];
+/**
+ * The elements a card is drawn as. The old canvas draws a node element; the
+ * GPU canvas paints its cards, so there is nothing to mark and the preview is
+ * the engine's own (section 10), not a DOM attribute.
+ */
+const elementsOf = (root: ParentNode, id: string): ReadonlyArray<Element> => {
+  const api = canvasApi();
+  if (api !== undefined) return api.cardElements?.(id) ?? [];
+  return [...root.querySelectorAll(`.react-flow__node[data-id="${CSS.escape(id)}"]`)];
+};
 
 /**
  * A marked card is watched for as long as it carries the mark: off screen

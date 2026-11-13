@@ -421,6 +421,8 @@ export const IPC_CHANNELS = {
 
 export interface ChassisApi {
   readonly doctor: () => Promise<DoctorReport>;
+  /** Launched by the e2e harness (`JUNTO_E2E=1`). Gates the canvas test hook. */
+  readonly testHarness: boolean;
 }
 
 export type CanvasSummary = typeof CanvasSummarySchema.Type;

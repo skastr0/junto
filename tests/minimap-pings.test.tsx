@@ -14,15 +14,29 @@ import { resolve } from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
-import { ReactFlowProvider, type Node } from "@xyflow/react";
 import { FactoryMinimap, pingLayerTransform, type SeatMark } from "../src/window/components/FactoryMinimap";
+import type { MinimapRect, MinimapSource } from "../src/window/canvas/shell/minimap-source";
 import { RegionUrgency } from "../src/shared/wire/urgency";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const CSS = readFileSync(resolve(__dirname, "../src/window/components/factory-minimap.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 
-const seat = (id: string, x: number): Node => ({ id, position: { x, y: 0 }, width: 216, height: 56, data: {} });
+const seat = (id: string, x: number): MinimapRect => ({ id, kind: "agent", x, y: 0, width: 216, height: 56 });
+
+const fakeSource = (rects: ReadonlyArray<MinimapRect>): MinimapSource => ({
+  rects: () => rects,
+  onRects: () => () => undefined,
+  camera: () => ({ x: 0, y: 0, zoom: 1 }),
+  onCamera: () => () => undefined,
+  viewport: () => ({ width: 1024, height: 768 }),
+  onViewport: () => () => undefined,
+  setCamera: () => undefined,
+  zoomBy: () => undefined,
+  moveCamera: () => undefined,
+  screenToBoard: (screen) => screen,
+  element: () => null,
+});
 const MARKS: Record<string, SeatMark | undefined> = {
   stuck: { urgency: RegionUrgency.group.blocked },
   asking: { urgency: RegionUrgency.group["needs-you"] },
@@ -44,9 +58,13 @@ const mount = (): HTMLElement => {
   const nodes = [seat("stuck", 0), seat("asking", 300), seat("review", 600), seat("calm", 900), seat("note", 1200)];
   act(() => {
     root!.render(
-      <ReactFlowProvider initialNodes={nodes}>
-        <FactoryMinimap nodeColor={() => "#123"} nodeStrokeColor={() => "#456"} seatMarkOf={(node) => MARKS[node.id]} maskColor="#000" />
-      </ReactFlowProvider>,
+      <FactoryMinimap
+        source={fakeSource(nodes)}
+        nodeColor={() => "#123"}
+        nodeStrokeColor={() => "#456"}
+        seatMarkOf={(rect) => MARKS[rect.id]}
+        maskColor="#000"
+      />,
     );
   });
   return host;

@@ -7,6 +7,7 @@
  * Callers name what happened; they never pick a sound or a volume.
  */
 
+import { canvasApi } from "../../canvas/shell/canvas-api";
 import { state$ } from "../state";
 import { SoundEngine } from "./engine";
 import { CUES, type CueId } from "./cues";
@@ -36,13 +37,12 @@ export const PAN_SPREAD = 0.6;
 export const panForScreenX = (x: number, width: number): number =>
   Math.max(-PAN_SPREAD, Math.min(PAN_SPREAD, ((x / Math.max(1, width)) * 2 - 1) * PAN_SPREAD));
 
-/** Where a canvas node sits across the window, if it is drawn. */
+/** Where a canvas card sits across the window, if it is drawn. */
 const panForNode = (nodeId: string): number | undefined => {
-  if (typeof document === "undefined" || typeof window === "undefined") return undefined;
-  const node = document.querySelector(`.react-flow__node[data-id="${CSS.escape(nodeId)}"]`);
-  if (node === null) return undefined;
-  const box = node.getBoundingClientRect();
-  return panForScreenX(box.left + box.width / 2, window.innerWidth);
+  if (typeof window === "undefined") return undefined;
+  const rect = canvasApi()?.screenRectOf(nodeId);
+  if (rect === undefined) return undefined;
+  return panForScreenX(rect.x + rect.width / 2, window.innerWidth);
 };
 
 /**

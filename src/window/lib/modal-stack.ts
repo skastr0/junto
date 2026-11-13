@@ -416,7 +416,7 @@ const syncHidden = (force = false): void => {
     } else {
       // The canvas itself, wherever it sits in the tree: the surface may be
       // wrapped (an error boundary), so its siblings are not the place to look.
-      for (const canvas of Array.from(document.querySelectorAll(".react-flow"))) {
+      for (const canvas of Array.from(document.querySelectorAll(".react-flow, .junto-canvas"))) {
         if (!canvas.contains(container) && !container.contains(canvas)) want.add(canvas);
       }
     }

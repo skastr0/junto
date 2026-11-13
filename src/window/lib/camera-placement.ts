@@ -1,4 +1,5 @@
-import { getViewportForBounds, type Viewport } from "@xyflow/react";
+import type { Camera } from "../canvas/contract";
+import { viewportForBounds } from "../canvas/shell/camera-targets";
 
 // Where the camera sits when a canvas opens. Worked out from where the cards
 // are and the size each is drawn at, both of which are known the moment the
@@ -60,14 +61,13 @@ export const openingViewport = <N extends PlacedNode>(
   nameOf: (node: N) => string,
   pane: { readonly width: number; readonly height: number },
   minZoom: number,
-): Viewport | undefined => {
+): Camera | undefined => {
   if (nodes.length === 0 || pane.width <= 0 || pane.height <= 0) return undefined;
   const anchors = openingAnchors(nodes, nameOf);
   const hasRegions = anchors.some((node) => node.type === "group");
-  return getViewportForBounds(
+  return viewportForBounds(
     around(anchors.map(rectOf)),
-    pane.width,
-    pane.height,
+    { width: pane.width, height: pane.height },
     minZoom,
     hasRegions ? 1.15 : 1.35,
     PADDING,

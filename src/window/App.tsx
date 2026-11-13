@@ -85,6 +85,8 @@ import { closeAllWorkbenchSurfaces, closeFocusModalSurface, dock$ } from "./lib/
 import { TooltipLayer } from "./components/TooltipLayer";
 import { DemoCameraBridge } from "./demo/camera-bridge";
 import { CanvasHost } from "./canvas/shell/CanvasHost";
+import { WorkDetailHost } from "./canvas/shell/WorkDetailHost";
+import { CanvasBottomBar } from "./components/rts/CanvasBottomBar";
 import { DemoLayer } from "./demo/demo-layer";
 import { SEED_CANVAS_NAME } from "@shared/seed";
 import { bootStep, nextCanvasBootAction } from "./lib/canvas-boot";
@@ -636,6 +638,8 @@ export function App() {
             </ReactFlowProvider>
           }
         />
+        <CanvasBottomBar />
+        <WorkDetailHost />
         <CountedSurface id="canvas-chrome">
           <CanvasChrome />
         </CountedSurface>

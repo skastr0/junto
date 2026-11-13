@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useOnViewportChange, useReactFlow } from "@xyflow/react";
+import { use$ } from "@legendapp/state/react";
 import { Schema } from "effect";
 import { MemberSeverity } from "@shared/region-rollup";
-import type { FlowEdge, FlowNode } from "../lib/convert";
-import { nodeAt, titleAt } from "../lib/use-model";
+import type { Node as ModelNode } from "@shared/model";
+import type { Wire as ModelWire } from "@shared/model/wire";
+import { titleOf } from "@shared/model/title";
 import { signalMark, identityHueOf } from "../lib/signal-mark";
 import { themeFor, withAlpha } from "../lib/theme";
 import { themeMode$ } from "../lib/theme-mode";
 import { state$ } from "../lib/state";
+import { useCanvasApi } from "../canvas/shell/CanvasApiContext";
+import { useCanvas } from "../lib/use-model";
 import "./CanvasMagnifier.css";
 import { isOperatorTyping } from "../lib/focus-ownership";
 
@@ -22,9 +25,10 @@ const MAX_VISIBLE_NODES = 64;
 const paintTokens = (): Record<string, string> => themeFor(themeMode$.peek());
 
 type Point = { x: number; y: number };
+type Rect = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
 
 type VisibleNode = {
-  readonly flow: FlowNode;
+  readonly node: ModelNode;
   readonly x: number;
   readonly y: number;
   readonly width: number;
@@ -37,25 +41,13 @@ type VisibleNode = {
 
 const validSeverity = Schema.is(MemberSeverity.Group);
 
-const severityOf = (node: FlowNode): MemberSeverity => {
-  if (node.data.blocked) return MemberSeverity.group.blocked;
+const severityOf = (node: ModelNode): MemberSeverity => {
   const live = state$.regionSeverityByNodeId.peek()[node.id];
   return validSeverity(live) ? live : MemberSeverity.group.idle;
 };
 
-const nodeBounds = (node: FlowNode) => {
-  const width = node.measured?.width ?? node.width ?? Number(node.style?.width ?? 0);
-  const height = node.measured?.height ?? node.height ?? Number(node.style?.height ?? 0);
-  return {
-    x: node.position.x,
-    y: node.position.y,
-    width,
-    height,
-  };
-};
-
 const intersectsLens = (
-  bounds: ReturnType<typeof nodeBounds>,
+  bounds: Rect,
   center: Point,
   radius: number,
 ): boolean => {
@@ -64,29 +56,33 @@ const intersectsLens = (
   return Math.hypot(nearestX - center.x, nearestY - center.y) <= radius;
 };
 
-const visibleNodes = (nodes: ReadonlyArray<FlowNode>, center: Point): VisibleNode[] => {
+const visibleNodes = (
+  nodes: ReadonlyArray<ModelNode>,
+  boundsOf: (id: string) => Rect | undefined,
+  center: Point,
+): VisibleNode[] => {
   const worldRadius = CONTENT_RADIUS / INSPECTION_SCALE;
   return nodes
-    .map((flow) => {
-      const bounds = nodeBounds(flow);
+    .map((node) => {
+      const bounds = boundsOf(node.id) ?? { x: node.x, y: node.y, width: node.width, height: node.height };
       const centerX = bounds.x + bounds.width / 2;
       const centerY = bounds.y + bounds.height / 2;
       return {
-        flow,
+        node,
         ...bounds,
         centerX,
         centerY,
         distance: Math.hypot(centerX - center.x, centerY - center.y),
-        severity: severityOf(flow),
+        severity: severityOf(node),
       };
     })
     .filter((node) => intersectsLens(node, center, worldRadius))
     .sort((a, b) => a.distance - b.distance)
     .slice(0, MAX_VISIBLE_NODES)
     .sort((a, b) => {
-      const aGroup = a.flow.data.kind === "region" ? 0 : 1;
-      const bGroup = b.flow.data.kind === "region" ? 0 : 1;
-      return aGroup - bGroup || b.distance - a.distance;
+      const aGroup = a.node.kind === "region" ? 0 : 1;
+      const bGroup = b.node.kind === "region" ? 0 : 1;
+      return aGroup - bGroup || a.distance - b.distance;
     });
 };
 
@@ -145,16 +141,16 @@ const drawField = (context: CanvasRenderingContext2D) => {
 
 const drawEdges = (
   context: CanvasRenderingContext2D,
-  edges: ReadonlyArray<FlowEdge>,
+  edges: ReadonlyArray<ModelWire>,
   visible: ReadonlyArray<VisibleNode>,
   center: Point,
 ) => {
-  const byId = new Map(visible.map((node) => [node.flow.id, node]));
+  const byId = new Map(visible.map((node) => [node.node.id, node]));
   const t = paintTokens();
   context.lineCap = "round";
   for (const edge of edges) {
-    const from = byId.get(edge.source);
-    const to = byId.get(edge.target);
+    const from = byId.get(edge.from);
+    const to = byId.get(edge.to);
     if (!from || !to) continue;
     const fromX = LENS_RADIUS + (from.centerX - center.x) * INSPECTION_SCALE;
     const fromY = LENS_RADIUS + (from.centerY - center.y) * INSPECTION_SCALE;
@@ -174,15 +170,14 @@ const drawNode = (
   visible: VisibleNode,
   center: Point,
 ) => {
-  const { flow, severity } = visible;
+  const { node: source, severity } = visible;
   const t = paintTokens();
-  const source = nodeAt(flow.data.canvas, flow.id);
-  const title = titleAt(flow.data.canvas, flow.id);
+  const title = titleOf(source);
   const x = LENS_RADIUS + (visible.x - center.x) * INSPECTION_SCALE;
   const y = LENS_RADIUS + (visible.y - center.y) * INSPECTION_SCALE;
   const width = visible.width * INSPECTION_SCALE;
   const height = visible.height * INSPECTION_SCALE;
-  const isGroup = flow.data.kind === "region";
+  const isGroup = source.kind === "region";
   const mark = signalMark(severity);
   const elevated = severity !== "idle";
   const accent = elevated ? mark.hue : identityHueOf(source);
@@ -215,7 +210,7 @@ const drawNode = (
   if (height >= 38 && width >= 62) {
     context.fillStyle = elevated ? withAlpha(accent, 0.9) : t.dim!;
     context.font = "600 8px ui-monospace, SFMono-Regular, Menlo, monospace";
-    const detail = elevated ? mark.label : flow.data.kind;
+    const detail = elevated ? mark.label : source.kind;
     context.fillText(
       fitText(context, detail.toUpperCase(), Math.max(width - 28, 8)),
       x + 11,
@@ -287,16 +282,15 @@ const drawHud = (context: CanvasRenderingContext2D) => {
   context.fill();
 };
 
-const fieldTarget = (root: HTMLElement, target: EventTarget | null): boolean =>
-  target instanceof Element
-  && root.contains(target)
-  && Boolean(target.closest(".react-flow__pane, .react-flow__node, .react-flow__edge"));
-
 export function CanvasMagnifier() {
-  const rf = useReactFlow<FlowNode, FlowEdge>();
+  const api = useCanvasApi();
+  const canvasName = use$(state$.canvasName);
+  const canvas = useCanvas(canvasName);
+  const canvasRef = useRef(canvas);
+  canvasRef.current = canvas;
   const anchorRef = useRef<HTMLSpanElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const lensCanvasRef = useRef<HTMLCanvasElement>(null);
   const subjectRef = useRef<HTMLSpanElement>(null);
   const statusRef = useRef<HTMLSpanElement>(null);
   const targetRef = useRef<Point>({ x: 0, y: 0 });
@@ -309,23 +303,23 @@ export function CanvasMagnifier() {
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
 
   useLayoutEffect(() => {
-    setPortalTarget(anchorRef.current?.closest<HTMLElement>(".react-flow") ?? null);
-  }, []);
+    setPortalTarget(api?.element()?.parentElement ?? null);
+  }, [api]);
 
   const renderLens = useCallback(() => {
     const shell = shellRef.current;
-    const canvas = canvasRef.current;
-    if (!shell || !canvas || !activeRef.current) return;
-    const root = shell.closest<HTMLElement>(".react-flow");
-    if (!root) return;
+    const lens = lensCanvasRef.current;
+    if (api === undefined) return;
+    const root = api.element();
+    if (!shell || !lens || !root || !activeRef.current) return;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     const width = Math.round(LENS_SIZE * dpr);
-    if (canvas.width !== width || canvas.height !== width) {
-      canvas.width = width;
-      canvas.height = width;
+    if (lens.width !== width || lens.height !== width) {
+      lens.width = width;
+      lens.height = width;
     }
-    const context = canvas.getContext("2d");
+    const context = lens.getContext("2d");
     if (!context) return;
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
     context.clearRect(0, 0, LENS_SIZE, LENS_SIZE);
@@ -336,31 +330,32 @@ export function CanvasMagnifier() {
     drawField(context);
 
     const rootRect = root.getBoundingClientRect();
-    const center = rf.screenToFlowPosition({
+    const center = api.screenToBoard({
       x: rootRect.left + currentRef.current.x,
       y: rootRect.top + currentRef.current.y,
     });
-    const visible = visibleNodes(rf.getNodes(), center);
-    drawEdges(context, rf.getEdges(), visible, center);
+    const nodes = [...canvasRef.current.nodes.values()];
+    const visible = visibleNodes(nodes, (id) => api.rectOf(id), center);
+    drawEdges(context, [...canvasRef.current.wires.values()], visible, center);
     for (const node of visible) drawNode(context, node, center);
     context.restore();
     drawHud(context);
 
     const nearest = [...visible]
-      .filter((node) => node.flow.data.kind !== "region")
+      .filter((node) => node.node.kind !== "region")
       .sort((a, b) => a.distance - b.distance)[0] ?? visible.at(-1);
     if (subjectRef.current) {
-      subjectRef.current.textContent = nearest ? titleAt(nearest.flow.data.canvas, nearest.flow.id) : "open field";
+      subjectRef.current.textContent = nearest ? titleOf(nearest.node) : "open field";
     }
     if (statusRef.current) {
       statusRef.current.textContent = nearest
-        ? `${nearest.flow.data.kind} - ${signalMark(nearest.severity).label}`
+        ? `${nearest.node.kind} - ${signalMark(nearest.severity).label}`
         : "no node in range";
       statusRef.current.style.color = nearest && nearest.severity !== "idle"
         ? signalMark(nearest.severity).hue
         : "";
     }
-  }, [rf]);
+  }, [api]);
 
   const animate = useCallback(() => {
     frameRef.current = 0;
@@ -374,14 +369,14 @@ export function CanvasMagnifier() {
     if (shell) {
       shell.style.setProperty("--magnifier-x", `${current.x}px`);
       shell.style.setProperty("--magnifier-y", `${current.y}px`);
-      const root = shell.closest<HTMLElement>(".react-flow");
+      const root = api?.element();
       shell.dataset.readoutSide = root && current.x > root.clientWidth - 280 ? "left" : "right";
     }
     renderLens();
     if (Math.abs(target.x - current.x) > 0.2 || Math.abs(target.y - current.y) > 0.2) {
       frameRef.current = requestAnimationFrame(animate);
     }
-  }, [renderLens]);
+  }, [api, renderLens]);
 
   const requestRender = useCallback(() => {
     if (frameRef.current || !activeRef.current) return;
@@ -401,12 +396,8 @@ export function CanvasMagnifier() {
     if (!shell) return;
     shell.dataset.active = String(active);
     // The loupe is the canvas's alt mode: while it is up the wires show in
-    // full and can be picked (factory-grammar.css).
-    const root = shell.closest<HTMLElement>(".react-flow");
-    if (root) {
-      if (active) root.dataset.wires = "shown";
-      else delete root.dataset.wires;
-    }
+    // full and can be picked.
+    api?.setWireMode(active ? "loupe" : "rest");
     if (active) {
       currentRef.current = { ...targetRef.current };
       requestRender();
@@ -414,12 +405,9 @@ export function CanvasMagnifier() {
       cancelAnimationFrame(frameRef.current);
       frameRef.current = 0;
     }
-  }, [requestRender]);
+  }, [api, requestRender]);
 
-  useOnViewportChange({
-    onChange: requestRender,
-    onEnd: requestRender,
-  });
+  useEffect(() => api?.onCamera(() => requestRender()), [api, requestRender]);
 
   useEffect(() => {
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -431,9 +419,9 @@ export function CanvasMagnifier() {
 
     const onPointerMove = (event: PointerEvent) => {
       const shell = shellRef.current;
-      const root = shell?.closest<HTMLElement>(".react-flow");
+      const root = api?.element();
       if (!shell || !root) return;
-      const inside = fieldTarget(root, event.target);
+      const inside = event.target instanceof Element && root.contains(event.target);
       pointerInsideRef.current = inside;
       if (!inside || isOperatorTyping(event.target)) {
         setActive(false);
@@ -482,7 +470,7 @@ export function CanvasMagnifier() {
       document.removeEventListener("visibilitychange", deactivate);
       if (frameRef.current) cancelAnimationFrame(frameRef.current);
     };
-  }, [portalTarget, requestRender, setActive]);
+  }, [api, portalTarget, requestRender, setActive]);
 
   const lens = (
     <div
@@ -493,7 +481,7 @@ export function CanvasMagnifier() {
       data-testid="canvas-magnifier"
       aria-hidden="true"
     >
-      <canvas ref={canvasRef} className="canvas-magnifier__canvas" />
+      <canvas ref={lensCanvasRef} className="canvas-magnifier__canvas" />
       <div className="canvas-magnifier__readout">
         <span className="canvas-magnifier__mode">field scan - 0.8×</span>
         <span ref={subjectRef} className="canvas-magnifier__subject">open field</span>

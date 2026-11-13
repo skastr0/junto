@@ -138,7 +138,7 @@ export const absorbNativeTitlesInTree = (root: TitleHost | null | undefined): vo
 const coveredByView = (element: HTMLElement): boolean => {
   const rect = element.getBoundingClientRect();
   const front = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-  return front !== null && !element.contains(front) && front.closest(".react-flow") === null;
+  return front !== null && !element.contains(front) && front.closest(".react-flow, .junto-canvas") === null;
 };
 
 /** A control whose popup is open: the popup is the answer, a tip only covers it. */

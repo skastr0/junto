@@ -38,7 +38,7 @@ export const stepUrgencyWalk = (
 
 const PRESSABLE =
   "button, a[href], summary, select, [role='button'], [role='link'], [role='checkbox'], [role='switch'], [role='radio'], [role='tab'], [role='menuitem'], [role='option']";
-const CANVAS_ITSELF = ".react-flow__node, .react-flow__edge, .react-flow__pane";
+const CANVAS_ITSELF = ".react-flow__node, .react-flow__edge, .react-flow__pane, .junto-canvas";
 
 type Matches = { readonly matches?: (selector: string) => boolean };
 

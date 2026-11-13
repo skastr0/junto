@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactElement } from "react";
-import { useStoreApi, type Node } from "@xyflow/react";
+import type { MinimapRect, MinimapSource } from "../canvas/shell/minimap-source";
 import type { Urgency } from "../lib/region-urgency";
 import { unseenRef } from "../lib/unseen";
 import "./factory-minimap.css";
@@ -13,11 +13,14 @@ import "./factory-minimap.css";
  * Measured on the live board: about 45% of what a pan still cost the main
  * thread after the viewport itself was taken off it.
  *
- * Here the node rectangles are React state that changes only when nodes
- * change (position, size, hidden, colour inputs). The camera is applied
- * imperatively: a store subscription rewrites the mask path on viewport
- * changes and touches the viewBox only when the camera leaves the node
- * bounds. Pan and zoom on the map use the same math as React Flow's XYMinimap.
+ * The map reads a `MinimapSource` (canvas/shell/minimap-source.ts): rectangles,
+ * their changes, the camera and the camera's changes. Both canvases implement
+ * it while both exist, so the same map sits beside either canvas and touches
+ * no store. Node rectangles are React state that changes only when the scene
+ * changes (position, size, hidden, colour inputs). The camera is applied
+ * imperatively: a subscription rewrites the mask path on viewport changes and
+ * touches the viewBox only when the camera leaves the node bounds. Pan and
+ * zoom on the map call the source's camera; the canvas does the easing.
  *
  * The mask write is the map's whole remaining cost, and it is not cheap: an
  * SVG path rewrite re-lays out the drawing, and a layout marks the document
@@ -41,8 +44,6 @@ import "./factory-minimap.css";
  * over the map that carries the viewBox's own placement as one transform,
  * written with the viewBox, so each ping is placed in flow units like the dot
  * it rings and animates transform and opacity only.
- *
- * Must be mounted inside <ReactFlow> so the store resolves.
  */
 
 type Rect = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
@@ -84,15 +85,17 @@ const SEAT_DOT_PX = 2.2;
 const URGENT_DOT_PX = 3;
 
 export type FactoryMinimapProps = {
-  readonly nodeColor: (node: Node) => string;
-  readonly nodeStrokeColor: (node: Node) => string;
+  readonly source: MinimapSource;
+  readonly nodeColor: (rect: MinimapRect) => string;
+  readonly nodeStrokeColor: (rect: MinimapRect) => string;
   /** Agent seats are drawn as dots; undefined for any other node. */
-  readonly seatMarkOf?: (node: Node) => SeatMark | undefined;
+  readonly seatMarkOf?: (rect: MinimapRect) => SeatMark | undefined;
   readonly nodeStrokeWidth?: number;
   readonly nodeBorderRadius?: number;
   readonly maskColor: string;
+  /** A click on the empty map, with the board point under it. */
   readonly onClick?: (event: ReactMouseEvent, position: { x: number; y: number }) => void;
-  readonly onNodeClick?: (event: ReactMouseEvent, node: Node) => void;
+  readonly onNodeClick?: (event: ReactMouseEvent, id: string) => void;
   readonly ariaLabel?: string;
   readonly style?: CSSProperties;
 };
@@ -153,6 +156,7 @@ export const pingLayerTransform = (box: Rect, elementWidth: number, elementHeigh
 };
 
 export function FactoryMinimap({
+  source,
   nodeColor,
   nodeStrokeColor,
   seatMarkOf,
@@ -164,7 +168,6 @@ export function FactoryMinimap({
   ariaLabel,
   style,
 }: FactoryMinimapProps): ReactElement {
-  const store = useStoreApi();
   const svgRef = useRef<SVGSVGElement | null>(null);
   const maskRef = useRef<SVGPathElement | null>(null);
   const pingsRef = useRef<HTMLDivElement | null>(null);
@@ -182,19 +185,21 @@ export function FactoryMinimap({
   const viewBoxRef = useRef<string>("");
   const colorRef = useRef({ nodeColor, nodeStrokeColor, seatMarkOf });
   colorRef.current = { nodeColor, nodeStrokeColor, seatMarkOf };
+  const sourceRef = useRef(source);
+  sourceRef.current = source;
   // Flow units per map pixel, for dot sizes; changes only with the viewBox.
   const [unit, setUnit] = useState(1);
   const unitRef = useRef(1);
 
-  // Camera → mask path (every viewport change) and viewBox (only when the
+  // Camera → mask path (every camera change) and viewBox (only when the
   // camera leaves the node bounds). Direct DOM writes, coalesced per frame.
   const applyCamera = (): void => {
     const svg = svgRef.current;
     const mask = maskRef.current;
     if (!svg || !mask) return;
-    const state = store.getState();
-    const [tx, ty, zoom] = state.transform;
-    const view: Rect = { x: -tx / zoom, y: -ty / zoom, width: state.width / zoom, height: state.height / zoom };
+    const camera = sourceRef.current.camera();
+    const size = sourceRef.current.viewport();
+    const view: Rect = { x: -camera.x / camera.zoom, y: -camera.y / camera.zoom, width: size.width / camera.zoom, height: size.height / camera.zoom };
     const current = viewBoxRef.current === "" ? EMPTY_BOUNDS : parseViewBox(viewBoxRef.current);
     const nodeBounds = nodeBoundsRef.current;
     const needsBox = viewBoxRef.current === "" || !contains(current, view) || !contains(current, nodeBounds);
@@ -235,45 +240,33 @@ export function FactoryMinimap({
   const applyCameraRef = useRef(applyCamera);
   applyCameraRef.current = applyCamera;
 
-  // Nodes → rectangles. Recomputed when the node set changes, never on pan.
+  // Rectangles. Recomputed when the scene changes, never on pan.
   useEffect(() => {
     const recompute = (): void => {
-      const { nodeLookup } = store.getState();
-      const { nodeColor: fill, nodeStrokeColor: stroke, seatMarkOf: seatOf } = colorRef.current;
+      const { nodeColor: fillOf, nodeStrokeColor: strokeOf, seatMarkOf: seatOf } = colorRef.current;
       const next: MinimapNodeRect[] = [];
-      for (const internal of nodeLookup.values()) {
-        const user = internal.internals.userNode;
-        if (user.hidden) continue;
-        const width = internal.measured.width ?? user.width ?? 0;
-        const height = internal.measured.height ?? user.height ?? 0;
-        if (width <= 0 || height <= 0) continue;
-        const { x, y } = internal.internals.positionAbsolute;
-        const seat = seatOf?.(user);
-        next.push({ id: user.id, x, y, width, height, fill: fill(user), stroke: stroke(user), ...(seat ? { seat } : {}) });
+      for (const rect of sourceRef.current.rects()) {
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        const seat = seatOf?.(rect);
+        next.push({ id: rect.id, x: rect.x, y: rect.y, width: rect.width, height: rect.height, fill: fillOf(rect), stroke: strokeOf(rect), ...(seat ? { seat } : {}) });
       }
-      // React Flow replaces its node list for changes the map cannot show (a
+      // The scene replaces its rectangles for changes the map cannot show (a
       // selection, a measurement, a card's class). Rectangles that say what
       // the last ones said are not published again: the map does not render
       // and its view box is not worked out afresh.
       if (sameRects(rectsRef.current, next)) return;
       rectsRef.current = next;
       nodeBoundsRef.current = boundsOf(next);
-      // A new node set may change the bounds; let the camera pass re-fit.
+      // A new scene may change the bounds; let the camera pass re-fit.
       viewBoxRef.current = "";
       setRects(next);
       applyCameraRef.current();
     };
     recompute();
-    let lastNodes = store.getState().nodes;
-    let lastLookup = store.getState().nodeLookup;
-    const unsubscribe = store.subscribe((state) => {
-      if (state.nodes === lastNodes && state.nodeLookup === lastLookup) return;
-      lastNodes = state.nodes;
-      lastLookup = state.nodeLookup;
+    return sourceRef.current.onRects(() => {
       recompute();
     });
-    return unsubscribe;
-  }, [store, nodeColor, nodeStrokeColor, seatMarkOf]);
+  }, [source, nodeColor, nodeStrokeColor, seatMarkOf]);
 
   // Camera subscription + element size.
   useEffect(() => {
@@ -287,15 +280,8 @@ export function FactoryMinimap({
         applyCameraRef.current();
       });
     };
-    let lastTransform = store.getState().transform;
-    let lastSize = `${store.getState().width}x${store.getState().height}`;
-    const unsubscribe = store.subscribe((state) => {
-      const size = `${state.width}x${state.height}`;
-      if (state.transform === lastTransform && size === lastSize) return;
-      lastTransform = state.transform;
-      lastSize = size;
-      schedule();
-    });
+    const offCamera = sourceRef.current.onCamera(schedule);
+    const offViewport = sourceRef.current.onViewport(schedule);
     const observer =
       typeof ResizeObserver === "function"
         ? new ResizeObserver((entries) => {
@@ -311,11 +297,12 @@ export function FactoryMinimap({
     if (rect.width > 0 && rect.height > 0) elementSizeRef.current = { width: rect.width, height: rect.height };
     applyCameraRef.current();
     return () => {
-      unsubscribe();
+      offCamera();
+      offViewport();
       observer?.disconnect();
       if (frame !== 0) cancelAnimationFrame(frame);
     };
-  }, [store]);
+  }, [source]);
 
   // Client pixel → flow coordinates through the SVG's own transform.
   const flowPointOf = (clientX: number, clientY: number): { x: number; y: number } | null => {
@@ -349,16 +336,9 @@ export function FactoryMinimap({
     drag.lastY = event.clientY;
     drag.travel += Math.abs(dx) + Math.abs(dy);
     if (drag.travel <= CLICK_SLOP_PX) return;
-    const state = store.getState();
-    const panZoom = state.panZoom;
-    if (!panZoom) return;
-    const [tx, ty, zoom] = state.transform;
-    const moveScale = viewScaleOf() * Math.max(zoom, Math.log(zoom));
-    void panZoom.setViewportConstrained(
-      { x: tx - dx * moveScale, y: ty - dy * moveScale, zoom },
-      [[0, 0], [state.width, state.height]],
-      state.translateExtent,
-    );
+    const camera = sourceRef.current.camera();
+    const moveScale = viewScaleOf() * Math.max(camera.zoom, Math.log(camera.zoom));
+    sourceRef.current.setCamera({ x: camera.x - dx * moveScale, y: camera.y - dy * moveScale, zoom: camera.zoom });
   };
   const endDrag = (event: React.PointerEvent<SVGSVGElement>): boolean => {
     const drag = dragRef.current;
@@ -372,12 +352,9 @@ export function FactoryMinimap({
     suppressClickRef.current = endDrag(event);
   };
   const onWheel = (event: React.WheelEvent<SVGSVGElement>): void => {
-    const state = store.getState();
-    const panZoom = state.panZoom;
-    if (!panZoom) return;
     const factor = event.ctrlKey && /Mac/.test(navigator.platform) ? 10 : 1;
     const pinchDelta = -event.deltaY * (event.deltaMode === 1 ? 0.05 : event.deltaMode ? 1 : 0.002);
-    void panZoom.scaleTo(state.transform[2] * Math.pow(2, pinchDelta * factor));
+    sourceRef.current.zoomBy(Math.pow(2, pinchDelta * factor));
   };
   const onSvgClick = (event: ReactMouseEvent<SVGSVGElement>): void => {
     if (suppressClickRef.current) {
@@ -395,8 +372,7 @@ export function FactoryMinimap({
       return;
     }
     if (!onNodeClick) return;
-    const node = store.getState().nodeLookup.get(id)?.internals.userNode;
-    if (node) onNodeClick(event, node);
+    onNodeClick(event, id);
   };
 
   return (

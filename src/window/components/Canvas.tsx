@@ -97,7 +97,6 @@ import { nodeTypes } from "./nodes";
 import { edgeTypes } from "./edges/WireEdge";
 import { CanvasLoom } from "./edges/CanvasLoom";
 import { WirePulseFeed } from "./edges/WirePulseFeed";
-import { RtsBottomBar } from "./rts/RtsBottomBar";
 import { saveSelectionToCommandGroup } from "../lib/command-group-runtime";
 import { SaveToGroupPicker } from "./rts/SaveToGroupPicker";
 import { SquadDialogHost } from "./squads/SquadDialog";
@@ -112,19 +111,17 @@ import { GitWizard, createGitFromRegion } from "./git/GitWizard";
 import { FilesWizard, createFilesFromRegion } from "./files/FilesWizard";
 import { featureOnNow } from "../lib/experimental-features";
 import { CanvasMagnifier } from "./CanvasMagnifier";
+import { LegacyCanvasApiProvider } from "../canvas/shell/LegacyCanvasApi";
+import { makeAddActions, ModeDeckFocus, onTop } from "./CanvasFieldTools";
 import { CanvasKeyboardPan } from "./CanvasKeyboardPan";
 import { RegionGlanceGate } from "./RegionGlanceGate";
 import { CanvasTierGate } from "./CanvasTierGate";
 import { SeatClusterLayer } from "./SeatClusterLayer";
 import { RegionUrgencyGate } from "./RegionUrgencyGate";
-import { FactoryMinimap, type SeatMark } from "./FactoryMinimap";
 import { canvasPerformance } from "../lib/performance/canvas-performance";
 import { PERF_ENABLED } from "../lib/performance/perf-flag";
 import { CountedSurface } from "../lib/performance/surface-commits";
-import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePaletteModeDeck";
-import { FocusSurface } from "./FocusSurface";
 import { useCanvasGroupFocus } from "./useCanvasGroupFocus";
-import { IconButton, OverlayHeader } from "./ui";
 
 /**
  * A node's class: agents carry junto-flow-agent (convert.ts), which keeps them
@@ -754,115 +751,6 @@ function useCanvasInteractions(
   };
 }
 
-// Node creation against a caller-supplied placement strategy — the toolbar
-// places near the viewport center, the context menu at the click point.
-const onTop = (position: { readonly x: number; readonly y: number }) => ({
-  ...position, z: topZ(modelStore.canvasOf(state$.canvasName.peek())),
-});
-
-const makeAddActions = (
-  positionFor: (size: { width: number; height: number }) => { x: number; y: number },
-  dismiss: () => void,
-  content: ContentCalls | undefined,
-): ModeDeckActions => ({
-  create: (kind) => {
-    const size = kind === "text"
-      ? { width: 240, height: 100 }
-      : { width: 560, height: 320 };
-    const position = positionFor(size);
-    const node = kind === "text"
-      ? newNote(onTop(position))
-      : newRegion(onTop(position));
-    addNode(node);
-    state$.focusNodeId.set(node.id);
-    dismiss();
-  },
-  addSquad: async (squadId, launch) => {
-    const outcome = await placeSquadInSlot(squadId, positionFor, launch, content);
-    if (outcome !== "needs-folder") dismiss();
-    return outcome;
-  },
-  addProfile: async (profileId, launch) => {
-    const outcome = await placeProfileInSlot(profileId, positionFor, launch, content);
-    if (outcome !== "needs-folder") dismiss();
-    return outcome;
-  },
-  createProfile: () => {
-    dismiss();
-    openProfileDraft();
-  },
-  addConfiguredAgent: (choices, position) => {
-    const node = newSeat(onTop(position), choices);
-    addNode(node, { edit: false });
-    state$.focusNodeId.set(node.id);
-    dismiss();
-  },
-  addTasks: () => {
-    if (!TASKS_ENABLED) return;
-    const position = positionFor({ width: 240, height: 120 });
-    const node = newTaskBoard(onTop(position));
-    // An unnamed Tasks node is called by its id, so it opens its name field: the operator names it now.
-    addNode(node);
-    state$.focusNodeId.set(node.id);
-    dismiss();
-  },
-  addArtifacts: () => {
-    if (!ARTIFACTS_ENABLED) return;
-    const position = positionFor({ width: 240, height: 120 });
-    const node = newArtifacts(onTop(position));
-    addNode(node, { edit: false });
-    state$.focusNodeId.set(node.id);
-    dismiss();
-  },
-  addAutomations: () => {
-    const position = positionFor({ width: 240, height: 120 });
-    const node = newAutomations(onTop(position));
-    addNode(node, { edit: false });
-    state$.focusNodeId.set(node.id);
-    dismiss();
-  },
-  addGit: () => {
-    const position = positionFor({ width: 280, height: 128 });
-    window.dispatchEvent(new CustomEvent("junto:new-git", { detail: position }));
-    dismiss();
-  },
-  addFiles: () => {
-    const position = positionFor({ width: 280, height: 128 });
-    window.dispatchEvent(new CustomEvent("junto:new-files", { detail: position }));
-    dismiss();
-  },
-  addTerminal: () => {
-    const position = positionFor({ width: 260, height: 110 });
-    window.dispatchEvent(new CustomEvent("junto:new-terminal", { detail: position }));
-    dismiss();
-  },
-  addPage: () => {
-    if (!BROWSER_ENABLED) return;
-    const size = { width: 260, height: 110 };
-    const position = positionFor(size);
-    // Create-time stamp from containing region defaults (center-in-region).
-    // Escape hatch: place outside the region, or edit url/profile after create.
-    const seed = resolvePageSpawnDefaults(
-      modelStore.canvasOf(state$.canvasName.peek()),
-      position.x + size.width / 2,
-      position.y + size.height / 2,
-    );
-    const node = newPage(onTop(position), seed?.url?.trim() || "https://example.com", {
-      ...(seed?.profile ? { profile: seed.profile } : {}),
-    });
-    addNode(node);
-    dismiss();
-  },
-  addLabel: () => {
-    const size = { width: 160, height: 40 };
-    const position = positionFor(size);
-    const node = newLabel(onTop(position));
-    addNode(node);
-    state$.focusNodeId.set(node.id);
-    dismiss();
-  },
-});
-
 const MENU_ITEMS = "button:not(:disabled)";
 
 /**
@@ -912,103 +800,6 @@ const useMenuKeys = (
     claimFocus(rows[next], "gesture", { event: event.nativeEvent });
   };
 };
-
-function ModeDeckFocus({
-  actions,
-  agentPosition,
-  onClose,
-}: {
-  readonly actions: ModeDeckActions;
-  readonly agentPosition: { readonly x: number; readonly y: number };
-  readonly onClose: () => void;
-}) {
-  return (
-    <FocusSurface
-      measure="workspace"
-      height="fit"
-      label="Add canvas item"
-      onClose={onClose}
-      panelClassName="node-deck-focus-panel"
-    >
-      <OverlayHeader
-        title="Add item"
-        status="Choose an agent or work surface"
-        actions={
-          <IconButton aria-label="Close add canvas item" title="Close" onClick={onClose}>
-            <X size={14} />
-          </IconButton>
-        }
-      />
-      <NodePaletteModeDeck actions={actions} agentPosition={agentPosition} />
-    </FocusSurface>
-  );
-}
-
-// Add from the field opens a focused workspace; creation still chooses the
-// same unobstructed canvas positions as the former docked deck.
-function CanvasFieldTools() {
-  const rf = useReactFlow<FlowNode, FlowEdge>();
-  // Shared with the command bar action: the palette opens from either the
-  // field trigger or "Add canvas item" in the palette.
-  const open = use$(state$.nodePaletteOpen);
-  const dismiss = useCallback(() => { state$.nodePaletteOpen.set(false); }, []);
-
-  // A non-overlapping slot near the viewport center for a node of the given size.
-  const nextPosition = (size: { width: number; height: number }) => {
-    const canvasNodes = [...modelStore.canvasOf(state$.canvasName.peek()).nodes.values()];
-    const slot = canvasNodes.length;
-    const gridPlacement = slot < 6
-      ? { x: (slot % 3) * 340 - 120, y: Math.floor(slot / 3) * 190 - 60 }
-      : null;
-    const center = gridPlacement
-      ? { x: gridPlacement.x + size.width / 2, y: gridPlacement.y + size.height / 2 }
-      : rf.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
-    return gridPlacement ? gridPlacement : findOpenPosition(canvasNodes, center, size);
-  };
-
-  const content = useContentCalls();
-  const actions = makeAddActions(nextPosition, dismiss, content);
-  // This position is shared with the persistent launch context while the deck
-  // is open, so its region default describes the same next-agent placement.
-  const agentPosition = useMemo(
-    () => nextPosition(AGENT_NODE_SIZE),
-    // Recompute only when the deck opens; do not make folder/host interaction
-    // shift the containing-region decision underneath the operator.
-    [open],
-  );
-
-  return (
-    <div className="rts-field-tools" aria-label="Canvas field tools">
-      <div className="node-deck-host node-deck-host--docked" data-canvas-menu-surface>
-        <button
-          type="button"
-          className="node-deck-trigger"
-          aria-label="Add canvas item"
-          aria-expanded={open}
-          onClick={() => { state$.nodePaletteOpen.set(!state$.nodePaletteOpen.peek()); }}
-        >
-          <Plus size={12} /><span>add item</span>
-        </button>
-        {open ? <ModeDeckFocus actions={actions} agentPosition={agentPosition} onClose={dismiss} /> : null}
-      </div>
-      <button
-        type="button"
-        className="rts-field-tools__fit"
-        aria-label="Fit all nodes"
-        title="Fit all nodes"
-        onClick={() => {
-          void rf.fitView({
-            padding: 0.18,
-            duration: 320,
-            maxZoom: 1.35,
-          }).catch(() => undefined);
-        }}
-      >
-        <Expand size={12} />fit all
-      </button>
-    </div>
-  );
-}
 
 // Right-click on empty canvas opens the same centered surface. Its placement
 // strategy stays bound to the click, independent of where the modal renders.
@@ -1322,113 +1113,6 @@ const connectableSourceIds = (
     })
     .map((node) => node.id);
 
-function FieldControls() {
-  const rf = useReactFlow<FlowNode, FlowEdge>();
-  return (
-    <Controls showFitView={false} showInteractive={false} aria-label="Canvas controls">
-      <ControlButton aria-label="Fit readable view" title="Fit readable view" onClick={() => fitReadableField(rf)}>
-        <ScanLine size={14} />
-      </ControlButton>
-    </Controls>
-  );
-}
-
-function RtsMinimapStack() {
-  const rf = useReactFlow<FlowNode, FlowEdge>();
-  const severityByNodeId = use$(state$.regionSeverityByNodeId) as Readonly<Record<string, string>>;
-  const canvasName = use$(state$.canvasName);
-  const minimapCanvas = useCanvas(canvasName);
-  const minimapTheme = themeFor(use$(themeMode$));
-  const lastClickAt = useRef(0);
-  const lastClickPos = useRef<{ x: number; y: number } | null>(null);
-
-  // Agent seats paint their seat rollup (signal, proven attention, Jev's
-  // reading, control state), the order their ring and name line use.
-  const seatRollups = useSeatRollups();
-  const ground = minimapTheme.ground!;
-  const miniMapNodeColor = useCallback((node: Node): string => {
-    const canvasNode = minimapCanvas.nodes.get(node.id as never);
-    const severity = severityByNodeId[node.id] as MemberSeverity | undefined;
-    if (canvasNode) return minimapNodeColors(canvasNode, severity, seatRollups.get(node.id), ground).fill;
-    return HUE.amber;
-  }, [minimapCanvas, severityByNodeId, seatRollups, ground]);
-  // Agents are dots on the map, rimmed and pinging by urgency (FactoryMinimap).
-  // A string key: seatUrgency$ changes in place, so its object never changes identity.
-  const seatUrgencyKey = use$(() =>
-    Object.entries(seatUrgency$.get())
-      .map(([id, urgency]) => `${id}:${urgency}`)
-      .sort()
-      .join("|"),
-  );
-  const miniMapSeatMark = useCallback((node: Node): SeatMark | undefined => {
-    const data = node.data as FlowNode["data"] | undefined;
-    if (data?.seatRegion === undefined) return undefined;
-    const urgency = seatUrgency$[node.id].peek();
-    return urgency ? { urgency } : {};
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seatUrgencyKey]);
-  const miniMapNodeStroke = useCallback((node: Node): string => {
-    const severity = severityByNodeId[node.id] as MemberSeverity | undefined;
-    return minimapNodeColors(minimapCanvas.nodes.get(node.id as never), severity, seatRollups.get(node.id), ground).stroke;
-  }, [minimapCanvas, severityByNodeId, seatRollups, ground]);
-
-  // Click = pan camera to that world point; double-click = zoom in on it.
-  // Stock MiniMap onClick already yields flow coordinates.
-  const onMiniMapClick = useCallback((event: React.MouseEvent, position: { x: number; y: number }) => {
-    const now = Date.now();
-    const prev = lastClickPos.current;
-    const dt = now - lastClickAt.current;
-    const near =
-      prev !== null &&
-      Math.hypot(prev.x - position.x, prev.y - position.y) < 40;
-    const isDouble = dt > 0 && dt < 320 && near;
-    lastClickAt.current = now;
-    lastClickPos.current = position;
-
-    const zoom = rf.getZoom();
-    if (isDouble) {
-      const nextZoom = Math.min(Math.max(zoom * 1.55, 0.35), 1.6);
-      void rf.setCenter(position.x, position.y, {
-        zoom: nextZoom,
-        duration: 280,
-      }).catch(() => undefined);
-      return;
-    }
-    void rf.setCenter(position.x, position.y, {
-      zoom,
-      duration: 240,
-    }).catch(() => undefined);
-  }, [rf]);
-
-  const onMiniMapNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
-    // Prefer unit pick over empty-map click bubbling.
-    event.stopPropagation();
-    selectNode(node.id);
-    // Focus path = camera fit on the entity (same as command Focus / chip).
-    state$.focusNodeId.set(node.id);
-  }, []);
-
-  // The map stays mounted for every pan/zoom frame — chrome must not blank.
-  // FactoryMinimap applies the camera imperatively, so a pan costs it one
-  // attribute write and no React work (see FactoryMinimap.tsx).
-  return (
-    <>
-      <FactoryMinimap
-        nodeColor={miniMapNodeColor}
-        nodeStrokeColor={miniMapNodeStroke}
-        seatMarkOf={miniMapSeatMark}
-        nodeStrokeWidth={1.5}
-        maskColor={withAlpha(minimapTheme.ground!, 0.72)}
-        onClick={onMiniMapClick}
-        onNodeClick={onMiniMapNodeClick}
-        ariaLabel="Strategic minimap — click to move camera, double-click to zoom, click a node to focus"
-        style={{ background: "color-mix(in oklab, var(--color-ground) 90%, transparent)", border: "1px solid var(--color-overlay-4)" }}
-      />
-      <FieldControls />
-    </>
-  );
-}
-
 function useCanvasGraph() {
   // No React subscriptions here: doc/execution/selection drive RF via
   // onChange → setNodes so CanvasGraph does not re-render on every kernel
@@ -1522,29 +1206,6 @@ function ImpactSeedChip() {
 // the other end of the screen names neither the verb nor the card, and it
 // still reads the retired role-pair grant rather than the verb table. So the
 // gesture is silent, and the colour under the cursor is the whole answer.
-
-// The bottom bar's two slots, made once. Neither takes a prop, and each
-// follows what it shows for itself, so a render of the canvas hands the bar the
-// same two elements and gives it no reason to render.
-// Each is counted under its own name, inside the bar's total, so a run can
-// tell the bar's own commits from those of what sits in its slots.
-const FIELD_TOOLS = (
-  <CountedSurface id="bar-tools">
-    <CanvasFieldTools />
-  </CountedSurface>
-);
-const MINIMAP_STACK = (
-  <CountedSurface id="bar-minimap">
-    <RtsMinimapStack />
-  </CountedSurface>
-);
-// The bar itself, made once too: a render of the canvas then hands React the
-// same element, and neither the bar nor the boundary that counts it commits.
-const BOTTOM_BAR = (
-  <CountedSurface id="bottom-bar">
-    <RtsBottomBar tools={FIELD_TOOLS} minimap={MINIMAP_STACK} />
-  </CountedSurface>
-);
 
 function CanvasPerformanceBoundary({ children }: { readonly children: ReactNode }) {
   // Dev always profiles; a packaged build profiles only when JUNTO_PERF armed
@@ -1826,15 +1487,17 @@ function CanvasGraph() {
   const impactMode = use$(impactModeActive$);
   const connectionFocusNodeId = use$(state$.connectionFocusNodeId);
 
-  return <CanvasPerformanceBoundary><>
+  return <CanvasPerformanceBoundary>
+    <LegacyCanvasApiProvider>
     {terminalAnchor ? <TerminalWizard anchor={terminalAnchor} onClose={() => setTerminalAnchor(null)} /> : null}
     {gitAnchor ? <GitWizard anchor={gitAnchor} onClose={() => setGitAnchor(null)} /> : null}
     {filesAnchor ? <FilesWizard anchor={filesAnchor} onClose={() => setFilesAnchor(null)} /> : null}
     <ReactFlow
       className={[
+        "junto-canvas",
         connecting ? "is-connecting" : "",
         impactMode ? (connectionFocusNodeId ? "connection-focus-mode" : "impact-mode") : "",
-      ].filter(Boolean).join(" ") || undefined}
+      ].filter(Boolean).join(" ")}
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}
@@ -1920,10 +1583,6 @@ function CanvasGraph() {
       <CountedSurface id="impact-chip">
         <ImpactSeedChip />
       </CountedSurface>
-      {/* Bar (incl. MiniMap) must be a ReactFlow child so MiniMap binds to the instance. */}
-      <Panel position="bottom-center" className="rts-bar-panel" style={{ width: "100%", margin: 0, left: 0, right: 0, transform: "none", maxWidth: "none" }}>
-        {BOTTOM_BAR}
-      </Panel>
     </ReactFlow>
     {ctxMenu ? <ContextModeDeck at={ctxMenu} onClose={() => setCtxMenu(null)} /> : null}
     {multiMenu ? <MultiSelectMenu anchor={multiMenu} onClose={closeMultiMenu} /> : null}
@@ -1939,7 +1598,8 @@ function CanvasGraph() {
         onClose={() => setConnectMenu(null)}
       />
     ) : null}
-  </></CanvasPerformanceBoundary>;
+    </LegacyCanvasApiProvider>
+  </CanvasPerformanceBoundary>;
 }
 
 export function Canvas() {

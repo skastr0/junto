@@ -45,6 +45,7 @@ export const FOCUS_SCOPE_SELECTOR = [
   "[data-canvas-menu-surface]",
   ".work-focus-shell",
   ".react-flow__node",
+  ".junto-canvas",
 ].join(", ");
 
 type Closest = { readonly closest?: (selector: string) => unknown };

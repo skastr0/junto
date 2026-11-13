@@ -105,6 +105,7 @@ const invoke = <T>(channel: string, timeoutMs: number, ...args: unknown[]): Prom
 
 const chassisApi: ChassisApi = {
   doctor: () => invoke(IPC_CHANNELS.doctor, IPC_TIMEOUT_MS),
+  testHarness: process.env.JUNTO_E2E === "1",
 };
 
 // A surface port (terminal process, phase 3) cannot cross the context
