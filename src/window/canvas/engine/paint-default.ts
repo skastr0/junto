@@ -72,7 +72,7 @@ export const ringStyle = (live: SeatLive | undefined): QuadStyle => {
   const ring = live?.ring;
   const hue = TONE[ring?.hue ?? "steel"] ?? "steel";
   return {
-    fill: { kind: "flat", color: token(hue, ring?.stale === true ? 55 : 100) },
+    fill: { kind: "flat", color: token(hue, ring?.stale === true ? 0.55 : 1) },
     stroke: { color: token(hue), width: 0 },
     opacity: 0.92,
   };
