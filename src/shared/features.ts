@@ -41,6 +41,7 @@ declare const __JUNTO_VAULT_ENABLED__: boolean | undefined;
 declare const __JUNTO_FILES_REMOTE_ENABLED__: boolean | undefined;
 declare const __JUNTO_CODE_STEPS_ENABLED__: boolean | undefined;
 declare const __JUNTO_AUTOMATION_SIGNALS_ENABLED__: boolean | undefined;
+declare const __JUNTO_GPU_CANVAS_TIER__: FeatureTier | undefined;
 
 const envEnabled = (key: string): boolean => {
   try {
@@ -268,6 +269,16 @@ export const AUTOMATION_SIGNALS_ENABLED: boolean =
     ? __JUNTO_AUTOMATION_SIGNALS_ENABLED__
     : envEnabled("JUNTO_AUTOMATION_SIGNALS");
 
+/**
+ * The GPU canvas (docs/canvas-gpu-architecture.md, section 21). This is the
+ * build's tier: read `featureOn("gpuCanvas", ...)` (the renderer's
+ * `useFeatureOn("gpuCanvas")`), which folds in the operator's toggle.
+ */
+export const GPU_CANVAS_TIER: FeatureTier =
+  typeof __JUNTO_GPU_CANVAS_TIER__ !== "undefined" && definedTier(__JUNTO_GPU_CANVAS_TIER__)
+    ? __JUNTO_GPU_CANVAS_TIER__
+    : envTier("JUNTO_GPU_CANVAS");
+
 export const BUILD_FEATURES = {
   browser: BROWSER_ENABLED,
   artifacts: ARTIFACTS_ENABLED,
@@ -293,6 +304,7 @@ export const BUILD_FEATURES = {
   filesRemote: FILES_REMOTE_ENABLED,
   codeSteps: CODE_STEPS_ENABLED,
   automationSignals: AUTOMATION_SIGNALS_ENABLED,
+  gpuCanvas: GPU_CANVAS_TIER,
 } as const satisfies Readonly<Record<FeatureKey, FeatureTier>>;
 
 /** The operator's experimental toggles, as the settings row stores them. */

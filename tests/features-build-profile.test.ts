@@ -53,6 +53,8 @@ describe("compile-time feature profiles", () => {
       harnessPrimeAgent: true,
       // Settings, Agents: per-harness launch defaults ship on.
       harnessSettings: true,
+      // The GPU canvas is unfinished: built in, off until the operator turns it on.
+      gpuCanvas: "experimental",
     });
   });
 
@@ -109,21 +111,23 @@ describe("compile-time feature profiles", () => {
 
   it("keeps the receipt and fingerprint honest about the three tiers", () => {
     const ship = resolveBuildFeatures({});
-    expect(ship.experimental).toEqual(["seatAwareness"]);
+    expect(ship.experimental).toEqual(["seatAwareness", "gpuCanvas"]);
     expect(ship.fingerprint).toContain("seatAwareness=x");
     expect(ship.fingerprint).toContain("files=1");
     expect(ship.fingerprint).toContain("usage=0");
     expect(ship.fingerprint).toContain("harnessKimi=1");
     // Experimental is not on: an all-on build and a ship build differ here.
     const allOn = resolveBuildFeatures({ JUNTO_FEATURE_PROFILE: "all-on" });
-    expect(allOn.experimental).toEqual([]);
+    // The GPU canvas stays the operator's switch even in all-on, until it is
+    // the default canvas.
+    expect(allOn.experimental).toEqual(["gpuCanvas"]);
     expect(allOn.fingerprint).toContain("seatAwareness=1");
     expect(allOn.fingerprint).toContain("files=1");
     // Compiled out is not experimental either.
-    const out = resolveBuildFeatures({ JUNTO_SEAT_AWARENESS: "0" });
+    const out = resolveBuildFeatures({ JUNTO_SEAT_AWARENESS: "0", JUNTO_GPU_CANVAS: "0" });
     expect(out.experimental).toEqual([]);
     expect(out.fingerprint).toContain("seatAwareness=0");
-    expect(out.overrides).toEqual(["seatAwareness"]);
+    expect(out.overrides).toEqual(["seatAwareness", "gpuCanvas"]);
     // The define carries the tier itself, so the bundle knows the difference.
     expect(featureViteDefines(ship)[FEATURE_CATALOG.seatAwareness.define]).toBe('"experimental"');
     expect(featureBunDefineArgs(ship)).toContain(

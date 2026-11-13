@@ -27,6 +27,7 @@ import {
 import { kernel$ } from "../lib/kernel-view";
 import { dock$ } from "../lib/dock-state";
 import { openingAnchors, openingViewport } from "../lib/camera-placement";
+import { leaveCamera, takeCamera } from "../canvas/shell/camera-handoff";
 import { keepHeldNodes } from "../lib/flow-identity";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { createFlowIdentityCache, toFlowOfCanvas } from "../lib/convert";
@@ -528,11 +529,20 @@ function useCanvasViewport(nodes: ReadonlyArray<FlowNode>, rf: CanvasFlow) {
   // whether its cards arrive in one step or several.
   useLayoutEffect(() => {
     if (!ready || !canvasName || placedRef.current === canvasName) return;
-    const viewport = openingViewport(nodes, regionLabelOf, { width: paneWidth, height: paneHeight }, minZoom);
+    // A camera handed across the GPU canvas switch wins over the opening one.
+    const viewport = takeCamera(canvasName) ?? openingViewport(nodes, regionLabelOf, { width: paneWidth, height: paneHeight }, minZoom);
     if (viewport === undefined) return;
     placedRef.current = canvasName;
     void rf.setViewport(viewport);
   }, [ready, canvasName, nodes, paneWidth, paneHeight, minZoom, rf]);
+  // Unmounting (the GPU canvas switch), leave the camera for the next canvas.
+  const storeApi = useStoreApi();
+  useEffect(() => () => {
+    const placed = placedRef.current;
+    if (!placed || state$.canvasName.peek() !== placed) return;
+    const [x, y, zoom] = storeApi.getState().transform;
+    leaveCamera(placed, { x, y, zoom });
+  }, [storeApi]);
 }
 
 function useCanvasInteractions(

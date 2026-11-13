@@ -188,6 +188,24 @@ export const FEATURE_CATALOG = {
     env: "JUNTO_AUTOMATION_SIGNALS",
     define: "__JUNTO_AUTOMATION_SIGNALS_ENABLED__",
   },
+  /**
+   * The GPU canvas (docs/canvas-gpu-architecture.md): one WebGPU canvas in
+   * place of React Flow, built milestone by milestone behind this toggle.
+   * Live: turning it on or off swaps the canvas with the app open, and the
+   * camera is handed across. Experimental in every profile until the new
+   * canvas is the default (plan milestone 6); the toggle and the old canvas
+   * are deleted together (milestone 7).
+   */
+  gpuCanvas: {
+    env: "JUNTO_GPU_CANVAS",
+    define: "__JUNTO_GPU_CANVAS_TIER__",
+    experimental: {
+      title: "GPU canvas",
+      description:
+        "Draws the canvas on the graphics card in place of today's canvas. Unfinished: turn it on to try what is built so far, and off to go back at once.",
+      applies: "live",
+    },
+  },
 } as const;
 
 export type FeatureKey = keyof typeof FEATURE_CATALOG;
@@ -267,6 +285,8 @@ export const SHIP_FEATURES: FeatureSet = {
   // On from 0.11.1: N2 and H5 walked in the real app, dark and bright
   // (operator-work-verify 25/25, human-loop-h5-verify 12/12).
   automationSignals: true,
+  // The GPU canvas is unfinished: off until the operator turns it on.
+  gpuCanvas: "experimental",
   harnessHermes: true,
   harnessKimi: true,
   harnessMuse: true,
@@ -294,6 +314,8 @@ export const ALL_FEATURES: FeatureSet = {
   filesRemote: true,
   codeSteps: true,
   automationSignals: true,
+  // The GPU canvas is unfinished: off until the operator turns it on.
+  gpuCanvas: "experimental",
   harnessHermes: true,
   harnessKimi: true,
   harnessMuse: true,

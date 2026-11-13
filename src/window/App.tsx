@@ -84,6 +84,7 @@ import { TerminalGridFocus } from "./components/terminal/TerminalGridFocus";
 import { closeAllWorkbenchSurfaces, closeFocusModalSurface, dock$ } from "./lib/dock-state";
 import { TooltipLayer } from "./components/TooltipLayer";
 import { DemoCameraBridge } from "./demo/camera-bridge";
+import { CanvasHost } from "./canvas/shell/CanvasHost";
 import { DemoLayer } from "./demo/demo-layer";
 import { SEED_CANVAS_NAME } from "@shared/seed";
 import { bootStep, nextCanvasBootAction } from "./lib/canvas-boot";
@@ -627,10 +628,14 @@ export function App() {
           </div>
         ) : null}
 
-        <ReactFlowProvider>
-          <Canvas />
-          <DemoCameraBridge />
-        </ReactFlowProvider>
+        <CanvasHost
+          legacy={
+            <ReactFlowProvider>
+              <Canvas />
+              <DemoCameraBridge />
+            </ReactFlowProvider>
+          }
+        />
         <CountedSurface id="canvas-chrome">
           <CanvasChrome />
         </CountedSurface>
