@@ -119,9 +119,9 @@ export interface CanvasPane {
  * The test hook the GPU canvas exposes in test builds (milestone 0.3 owns the
  * app side). This is the contract's `CanvasTestHook` (src/window/canvas/
  * contract.ts), which the shell puts on `window.__juntoCanvas`. `rectOf`'s
- * `part` is a `Part["kind"]`; the helper also asks for two names outside the
- * pick union — `"toolbar"` and `"region-handle"` — which the shell answers
- * for the overlay and region-drag rects.
+ * `part` carries the hook's part vocabulary — `handle:<role>:<side>`,
+ * `verb:<verb>`, `region-handle`, `toolbar` — wider than `Part["kind"]`, so
+ * the calls below cast the key through.
  */
 export type { CanvasTestHook, EngineStats };
 
@@ -167,16 +167,16 @@ const partSelector = (id: string, part: CanvasPartQuery): string => {
 };
 
 /**
- * The hook's part vocabulary. `Part["kind"]` names where they line up; the
- * two helper-only names ("toolbar", "region-handle") are answered by the
- * shell beyond the pick union.
+ * The hook's part vocabulary — the strings `rectOf`'s `part` argument carries
+ * in the shell's test hook (`src/window/canvas/shell/test-hook.ts`):
+ * `handle:<role>:<side>`, `verb:<verb>`, `region-handle`, `toolbar`.
  */
 const hookPartKey = (part: CanvasPartQuery): string => {
   switch (part.kind) {
     case "handle":
-      return "handle";
+      return `handle:${part.type ?? "source"}:${part.side}`;
     case "verbZone":
-      return "verbZone";
+      return `verb:${part.verb}`;
     case "regionHandle":
       return "region-handle";
     case "toolbar":
