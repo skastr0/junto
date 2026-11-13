@@ -230,6 +230,36 @@ export type SelectionFact = {
 /** How wires are shown (section 13, opacity modes). */
 export type WireMode = "rest" | "loupe" | "connecting" | "cone" | "far" | "overview";
 
+/**
+ * One wire's route as the loom planned it for the settled board (track D,
+ * section 13). The feed's loom runs the router and sends points; the engine
+ * draws them while the wire's ends still sit where the plan put them, and
+ * draws the fallback elbow between the cards' live rectangles otherwise (a
+ * card is being dragged, or the model has not yet taken a move).
+ */
+export type WireRouteFact = {
+  readonly id: WireId;
+  readonly sourceSide: HandleSide;
+  readonly targetSide: HandleSide;
+  /** Where the plan met each card: the side's midpoint, pair lane applied. */
+  readonly source: Point;
+  readonly target: Point;
+  /** The route, source to target; absent: the engine draws the fallback elbow between the anchors. */
+  readonly points?: ReadonlyArray<Point>;
+  /** One of a cable (three or more wires on one handle): hit within 3 units, not 20. */
+  readonly cable: boolean;
+};
+
+/** The wire a connect gesture is drawing, board points; the engine draws it in a token's colour. */
+export type ConnectionPreview = {
+  readonly from: Point;
+  readonly fromSide: HandleSide;
+  readonly to: Point;
+};
+
+/** `WireTrafficKind`: violet mail, amber prompts, green answers. */
+export type PulseKind = "notice" | "prompt" | "answer";
+
 /** Everything the feed and the shell may tell the engine. */
 export type SceneOp =
   /** A canvas opened: replaces the whole scene. */
@@ -246,8 +276,15 @@ export type SceneOp =
   | { readonly kind: "reachMarks"; readonly marks: ReadonlyArray<ReachMark> | null }
   | { readonly kind: "theme"; readonly mode: ThemeMode }
   | { readonly kind: "wireMode"; readonly mode: WireMode }
-  /** Traffic on a wire from main (`WireTrafficEvent`): one pulse, on the wall clock. */
-  | { readonly kind: "pulse"; readonly wireId: WireId; readonly at: number }
+  /**
+   * Traffic on a wire from main (`WireTrafficEvent`): one pulse, on the wall
+   * clock. `reverse` runs the light target to source (`pickPulseEdge`).
+   */
+  | { readonly kind: "pulse"; readonly wireId: WireId; readonly at: number; readonly pulse?: PulseKind; readonly reverse?: boolean }
+  /** The loom's routes (track D): rewrites those wires' strips and no others. */
+  | { readonly kind: "routes"; readonly set: ReadonlyArray<WireRouteFact>; readonly remove: ReadonlyArray<WireId> }
+  /** The connection preview while a connect gesture runs, or none. */
+  | { readonly kind: "preview"; readonly preview: ConnectionPreview | null }
   /** The reach preview while a drag or connect shows it (section 10). */
   | { readonly kind: "reach"; readonly nodeIds: ReadonlyArray<NodeId> | null }
   /** Hide a card's own text while an overlay editor stands in for it (section 16). */
