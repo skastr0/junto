@@ -121,13 +121,13 @@ fn styleColour(base: u32, at: u32) -> vec4f {
 }
 
 fn filled(base: u32, local: vec2f) -> vec4f {
-  let from = styleColour(base, 0u);
-  let to = styleColour(base, 4u);
-  if (to.a <= 0.0) { return from; }
+  let stopA = styleColour(base, 0u);
+  let stopB = styleColour(base, 4u);
+  if (stopB.a <= 0.0) { return stopA; }
   let theta = styles[base + 8u] * PI2 / 360.0;
   let dir = vec2f(sin(theta), -cos(theta));
   let t = clamp(dot(local, dir) * 0.5 + 0.5, 0.0, 1.0);
-  return mix(from, to, t);
+  return mix(stopA, stopB, t);
 }
 
 @vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VSOut {
@@ -204,12 +204,12 @@ fn filled(base: u32, local: vec2f) -> vec4f {
   var ink = styleColour(base, 18u);
   var styleOpacity = styles[base + 22u];
   if (q.previousStyle != q.style && q.previousStyle != 0xffffffffu) {
-    let from = q.previousStyle * STYLE;
+    let previousBase = q.previousStyle * STYLE;
     let t = smoothstep(0.0, 1.0, clamp((u.view.w - q.changeAt) / TRANSITION_MS, 0.0, 1.0));
-    fill = mix(filled(from, in.local), fill, t);
-    stroke = mix(styleColour(from, 9u), stroke, t);
-    ink = mix(styleColour(from, 18u), ink, t);
-    styleOpacity = mix(styles[from + 22u], styleOpacity, t);
+    fill = mix(filled(previousBase, in.local), fill, t);
+    stroke = mix(styleColour(previousBase, 9u), stroke, t);
+    ink = mix(styleColour(previousBase, 18u), ink, t);
+    styleOpacity = mix(styles[previousBase + 22u], styleOpacity, t);
   }
   if (ink.a <= 0.0) { ink = fill; }
 
@@ -323,6 +323,10 @@ fn filled(base: u32, local: vec2f) -> vec4f {
   return vec4f(colour * alpha, alpha);
 }
 `;
+
+/** The WGSL source, exported for the reserved-word guard and diagnostics. */
+export const QUAD_SHADER = SHADER;
+export const WGSL_RESERVED = "NULL Self abstract active alignas alignof as asm asm_fragment async attribute auto await become binding_array cast catch class co_await co_return co_yield coherent column_major common compile compile_fragment concept const_cast consteval constexpr constinit crate debugger decltype delete demote demote_to_helper do dynamic_cast enum explicit export extends extern external fallthrough filter final finally friend from fxgroup get goto groupshared highp impl implements import inline instanceof interface layout lowp macro macro_rules match mediump meta mod module move mut mutable namespace new nil noexcept noinline nointerpolation noperspective null nullptr of operator package packoffset partition pass patch pixelfragment precise precision premerge priv protected pub public readonly ref regardless register reinterpret_cast require resource restrict self set shared sizeof smooth snorm static static_assert static_cast std subroutine super target template this thread_local throw trait try type typedef typeid typename typeof union unless unorm unsafe unsized use using varying virtual volatile wgsl where writeonly yield" as const;
 
 type Range = { readonly buffer: string; readonly offset: number; readonly size: number };
 
