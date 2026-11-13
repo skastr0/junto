@@ -125,6 +125,13 @@ export const startSceneBridge = (sink: Sink): (() => void) => {
     const model = modelStore.canvas$(canvasName);
 
     offScene = observe(() => {
+      // Read the lists first: they are what a load or a change moves. A first
+      // run against a canvas that has not opened yet must still subscribe to
+      // the rows arriving, or the scene stays empty for the page's life.
+      const nodeIds = model.nodeIds.get();
+      const wireIds = model.wireIds.get();
+      model.status.get();
+      model.seq.get();
       const canvas = modelStore.canvasOf(canvasName);
       if (canvas.name !== canvasName) return;
       if (!loaded) {
@@ -142,7 +149,7 @@ export const startSceneBridge = (sink: Sink): (() => void) => {
       const nextRows = new Map<string, ModelNode>();
       const ops: SceneOp[] = [];
       // Read every row once: a changed row sends that card alone.
-      for (const id of model.nodeIds.get()) {
+      for (const id of nodeIds) {
         const row = model.nodes[id]?.get();
         if (row !== undefined) nextRows.set(id, row);
       }
@@ -155,7 +162,7 @@ export const startSceneBridge = (sink: Sink): (() => void) => {
         if (!nextRows.has(id)) ops.push({ kind: "removeCard", id });
       }
       const nextWires = new Map<string, ModelWire>();
-      for (const id of model.wireIds.get()) {
+      for (const id of wireIds) {
         const row = model.wires[id]?.get();
         if (row !== undefined) nextWires.set(id, row);
       }

@@ -149,7 +149,17 @@ export const createGpuCanvasApi = (
     screenRectOf: (id) => mirror.screenRectOf(id),
     pick: (screen) => {
       const full = engine as (SeamEngine & { readonly pick?: (at: Point) => Hit | null }) | undefined;
-      return full?.pick?.(screen) ?? mirror.pick(screen);
+      if (full?.pick === undefined) return mirror.pick(screen);
+      // The engine's input points are relative to the canvas element; the
+      // CanvasApi's are page pixels. Subtract the canvas origin here, once.
+      const element = mirror.element();
+      const local = element === null
+        ? screen
+        : (() => {
+            const rect = element.getBoundingClientRect();
+            return { x: screen.x - rect.left, y: screen.y - rect.top };
+          })();
+      return full.pick(local);
     },
     anchor: (id, element) => mirror.anchor(id, element),
     setWireMode: (mode: WireMode) => {
