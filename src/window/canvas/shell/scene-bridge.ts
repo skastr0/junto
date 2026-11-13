@@ -130,11 +130,16 @@ export const startSceneBridge = (sink: Sink): (() => void) => {
       // the rows arriving, or the scene stays empty for the page's life.
       const nodeIds = model.nodeIds.get();
       const wireIds = model.wireIds.get();
-      model.status.get();
+      const status = model.status.get();
       model.seq.get();
       const canvas = modelStore.canvasOf(canvasName);
       if (canvas.name !== canvasName) return;
       if (!loaded) {
+        // The first load is the whole board. Before the read that fills the
+        // store lands there is no board to load: sending the empty one and
+        // marking it loaded is what left the GPU scene empty for the life of
+        // the page when the canvas opened late.
+        if (status !== "open") return;
         const ops = loadOps(canvas);
         for (const op of ops) {
           if (op.kind === "load") {
