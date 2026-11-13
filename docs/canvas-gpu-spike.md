@@ -141,8 +141,8 @@ Chromium, between the canvas finishing a frame and macOS taking it.
 | second view in the window | own process and own input; the arrangement the tables above measure |
 
 The rewrite starts on the page main thread (operator's decision), which makes
-the page's long tasks the first thing to measure there. See the plan's first
-milestone.
+the page's long tasks the first thing to measure there. See the plan's
+measuring section.
 
 ## No GPU
 

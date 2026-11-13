@@ -6,7 +6,7 @@
 
 Companions:
 
-- [canvas-gpu-plan.md](canvas-gpu-plan.md): the ordered work, with a done-test per milestone.
+- [canvas-gpu-plan.md](canvas-gpu-plan.md): the work as eight parallel tracks, with a done-test each.
 - [canvas-gpu-spike.md](canvas-gpu-spike.md): what the spike measured, and what it did not.
 - [canvas-gpu-inventory/](canvas-gpu-inventory/README.md): what today's canvas does, file by
   file, with line receipts. Parity is checked against it.
@@ -212,7 +212,7 @@ It starts on the page's main thread, by decision. The spike found that there a
 long task on the page stalls the canvas for as long as the task lasts, and the
 installed app under 30 agents showed tasks of 280 to 440 ms. Today's rings do
 not have that problem, because CSS animation runs off the main thread. So the
-first shipped milestone measures two things on the real app: dropped frames per
+first shipped version measures two things on the real app: dropped frames per
 gesture, and dropped frames at rest while rings turn under fleet load. If rings
 hold, the main thread stays. If they do not, the engine moves to a worker, then
 to a view of its own, in that order, with no change to its code beyond where it
@@ -325,12 +325,11 @@ The style table is computed from tokens, per mode, into one small buffer.
   express. Put one `mixOklab` in `src/shared/theme/` (the only implementation
   today is private to `src/window/lib/region-word-ink.ts:19-39`) and build
   styles with it.
-- **Wide colour.** Three bright-mode tokens lie outside sRGB: `amber`,
-  `amber-hi` and `yellow` (computed from `primitives.ts`; amber's linear blue
-  is -0.051). `amber` is the app's main colour. On a P3 display CSS shows these
-  more saturated than the clamped hex that `oklchToHex` returns. To match,
-  configure the canvas for `display-p3` and project tokens into it. Check this
-  on both a P3 and an sRGB display before the first look review.
+- **One colour on every screen.** Every primitive sits inside sRGB (`inSrgb` in
+  `src/shared/theme/oklch.ts`, held by `tests/theme-gamut.test.ts`), so a
+  token's hex is exact and the canvas needs no colour-space handling of its
+  own. Eight tokens used to lie outside and were pinned in `a9ef0a3bb`. If a
+  colour needs to change, change the token; never adjust it in canvas code.
 - **Dimming.** Focus modes fade a card to 22% and desaturate it. Recommended:
   mix the finished colour toward the ground and desaturate in the shader. Over
   the ground that equals group opacity; over a region wash it differs slightly.
@@ -832,8 +831,7 @@ Use the existing experimental feature mechanism; it is already live.
 
 `docs/state-architecture.md` forbids "feature flags... that keep an obsolete
 path alive". That list is storage law, and the operator asked for this switch
-by name. It is temporary: the plan's last milestone deletes it with the old
-canvas.
+by name. It is temporary: the plan's finish deletes it with the old canvas.
 
 ### No GPU
 
@@ -861,7 +859,7 @@ much as 13.6% to between 0 and 3 in about 1,700:
 process start (`src/app/index.ts:172-180` is where the app sets its switches),
 so neither can be toggled live. They were measured on the spike's separate
 view, not on a canvas in the page. Measure them again on the first shipped
-milestone before turning either on.
+version before turning either on.
 
 ## 22. Tests
 
@@ -967,7 +965,8 @@ class `react-flow__node` for styling outside any flow (`KindSeatGallery.tsx`,
 
 Any change to the look needs the operator's yes. The default everywhere is
 parity. These are the places where the GPU canvas would differ, or could be
-better, and each needs a decision at the look review:
+better. None stops the work: build the closest match to today, raise the
+item to the operator as a signal, and carry on.
 
 | Item | Today | On the GPU |
 | --- | --- | --- |
@@ -1001,7 +1000,7 @@ better, and each needs a decision at the look review:
 | Frame pacing in Chromium | Two switches fix it on a separate view | Their effect on a canvas in the page |
 | Text rasterizing during zoom | The design | Its cost on the factory board; no measurement exists |
 | WebGPU on Linux and in headless e2e | Nothing | Whether it runs at all |
-| `display-p3` canvas, SVG decode off the page | From the platform's documentation | Not tried in this Electron |
+| SVG decode off the page | From the platform's documentation | Not tried in this Electron |
 | Memory | The spike used about 510 MB against 2.2 to 2.4 GB, not like for like | The product's real figure |
 | Hidden dependence on mounted cards | Six cases found (section 20) | Whether there are more |
 | Editing text in a scaled overlay | The design | Caret and IME behaviour at small zoom |
