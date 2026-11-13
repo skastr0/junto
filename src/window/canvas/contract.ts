@@ -1,0 +1,363 @@
+/**
+ * The GPU canvas contract (docs/canvas-gpu-plan.md, "First: the contract").
+ *
+ * The types every track builds against: the facts the feed sends, the scene
+ * ops, the input the shell forwards, the hit a pick returns, the intents the
+ * engine emits, the frame facts it reports, the engine's surface and the
+ * `CanvasApi` the rest of the app calls. Sections refer to
+ * docs/canvas-gpu-architecture.md.
+ *
+ * Rules this file keeps (section 3, must 9): it imports only from
+ * `src/shared/`, and holds types and a few constants, no behaviour. The
+ * engine, `paint/`, `feed/` and `shell/` all import it; it imports none of
+ * them.
+ *
+ * Changing it: any track may add to it. A change that alters or removes
+ * something another track uses is agreed with that track first, and
+ * canvas-lead hears of it. Additions need no agreement.
+ */
+
+import type { CanvasName } from "@shared/model/base";
+import type { Node as ModelNode } from "@shared/model/kinds";
+import type { Wire as ModelWire } from "@shared/model/wire";
+import type { RingState } from "@shared/wire/rings";
+import type { ThemeMode } from "@shared/theme";
+
+// ---------------------------------------------------------------------------
+// Geometry. Board units unless a name says screen. One function converts
+// screen to board and one converts back (must 8); both live in the engine's
+// camera module and nothing else does that arithmetic.
+// ---------------------------------------------------------------------------
+
+export type Point = { readonly x: number; readonly y: number };
+export type Size = { readonly width: number; readonly height: number };
+export type Rect = Point & Size;
+
+/**
+ * The camera as today's canvas holds it: the board's offset on screen in CSS
+ * pixels, and the zoom (0.15 to 2.5, section 14). It reaches shaders as a
+ * matrix built from this (section 23); nothing outside the camera module
+ * reads `zoom` to size things, it asks for the scale at a point.
+ */
+export type Camera = { readonly x: number; readonly y: number; readonly zoom: number };
+
+export const CAMERA_MIN_ZOOM = 0.15;
+export const CAMERA_MAX_ZOOM = 2.5;
+
+/** Where a camera move goes. */
+export type CameraTarget =
+  | { readonly kind: "camera"; readonly camera: Camera }
+  /** Fit these board rectangles, with today's padding and zoom cap per caller. */
+  | { readonly kind: "fit"; readonly rects: ReadonlyArray<Rect>; readonly padding: number; readonly maxZoom: number }
+  /** Centre on a board point, keeping or setting the zoom. */
+  | { readonly kind: "centre"; readonly at: Point; readonly zoom?: number }
+  /** Zoom by a factor about a screen point (the view's centre when absent). */
+  | { readonly kind: "zoomBy"; readonly factor: number; readonly about?: Point }
+  | { readonly kind: "zoomTo"; readonly zoom: number; readonly about?: Point };
+
+export type CameraMoveOptions = {
+  /** 0 or absent: at once. Moves ease cubic in-out on the smooth zoom path. */
+  readonly durationMs?: number;
+};
+
+/** Same thresholds and names as `src/window/lib/canvas-tier.ts` (section 11). */
+export type CanvasTier = "near" | "mid" | "far" | "overview";
+
+// ---------------------------------------------------------------------------
+// Facts in (section 20). The feed sends facts, never drawing instructions:
+// `paint/` turns facts into records inside the engine, so a tier change or a
+// theme switch repaints without the feed.
+// ---------------------------------------------------------------------------
+
+export type NodeId = string;
+export type WireId = string;
+
+/** What the canvas knows about a card beyond its model row. */
+export type CardDerived = {
+  /** The innermost region the card sits in, and how deep that is (0: none). */
+  readonly regionId?: NodeId;
+  readonly regionDepth: number;
+  /** A graph blocker holds this card (`kernel$`). */
+  readonly blocked: boolean;
+  /** Paint order: model `z`, then id (section 6, the cards band). */
+  readonly z: number;
+};
+
+/** A seat's live state: what its ring, line and marks show right now. */
+export type SeatLive = {
+  readonly ring: RingState;
+  /** The seat's one line under its name: process, reason or last output. */
+  readonly line: string;
+  /** Today's `cardMark` tone and label (`seat-projections.ts`). */
+  readonly mark: { readonly tone: string; readonly label: string };
+  /** The seat's urgency, as `seatUrgency$` holds it today; region rollups read it. */
+  readonly urgency: number;
+  /** The process is running or starting. */
+  readonly running: boolean;
+  readonly overseer: boolean;
+  /** Harness id for the badge, when the seat is a managed agent. */
+  readonly harness?: string;
+  /** Open and done task counts for the task strip. */
+  readonly tasks?: { readonly open: number; readonly done: number };
+  /** The preamble bubble's text, while one is shown. */
+  readonly preamble?: string;
+};
+
+/** One card: its row as the model stores it, plus what the canvas derives. */
+export type CardFact = {
+  readonly id: NodeId;
+  readonly row: ModelNode;
+  readonly derived: CardDerived;
+};
+
+export type WireFact = {
+  readonly id: WireId;
+  readonly row: ModelWire;
+};
+
+/** Selection and focus as `state$` holds them (section 15). */
+export type SelectionFact = {
+  readonly nodeIds: ReadonlyArray<NodeId>;
+  readonly wireId?: WireId;
+  /** Connection focus: the card whose cone is shown (impact, focus cone). */
+  readonly connectionFocusNodeId?: NodeId;
+};
+
+/** How wires are shown (section 13, opacity modes). */
+export type WireMode = "rest" | "loupe" | "connecting" | "cone" | "far" | "overview";
+
+/** Everything the feed and the shell may tell the engine. */
+export type SceneOp =
+  /** A canvas opened: replaces the whole scene. */
+  | { readonly kind: "load"; readonly canvas: CanvasName; readonly cards: ReadonlyArray<CardFact>; readonly wires: ReadonlyArray<WireFact> }
+  /** One card added or changed: rewrites that card's records only (must 5). */
+  | { readonly kind: "card"; readonly fact: CardFact }
+  | { readonly kind: "removeCard"; readonly id: NodeId }
+  | { readonly kind: "wire"; readonly fact: WireFact }
+  | { readonly kind: "removeWire"; readonly id: WireId }
+  /** One seat's live state changed: rewrites that seat's bytes and no others. */
+  | { readonly kind: "seat"; readonly id: NodeId; readonly live: SeatLive }
+  | { readonly kind: "selection"; readonly fact: SelectionFact }
+  | { readonly kind: "theme"; readonly mode: ThemeMode }
+  | { readonly kind: "wireMode"; readonly mode: WireMode }
+  /** Traffic on a wire from main (`WireTrafficEvent`): one pulse, on the wall clock. */
+  | { readonly kind: "pulse"; readonly wireId: WireId; readonly at: number }
+  /** The reach preview while a drag or connect shows it (section 10). */
+  | { readonly kind: "reach"; readonly nodeIds: ReadonlyArray<NodeId> | null }
+  /** Hide a card's own text while an overlay editor stands in for it (section 16). */
+  | { readonly kind: "editing"; readonly id: NodeId | null };
+
+// ---------------------------------------------------------------------------
+// Input in. The shell forwards browser input as plain data. Screen points are
+// CSS pixels relative to the canvas element's top left.
+// ---------------------------------------------------------------------------
+
+export type Modifiers = {
+  readonly shift: boolean;
+  readonly alt: boolean;
+  readonly ctrl: boolean;
+  readonly meta: boolean;
+};
+
+export type CanvasInput =
+  | {
+      readonly kind: "pointer";
+      readonly phase: "down" | "move" | "up" | "cancel" | "leave";
+      readonly pointerId: number;
+      readonly at: Point;
+      /** The button that changed (0 left, 1 middle, 2 right), and those held. */
+      readonly button: number;
+      readonly buttons: number;
+      readonly modifiers: Modifiers;
+      /** The browser's click count on down and up (2 for a double click). */
+      readonly clicks: number;
+    }
+  | {
+      readonly kind: "wheel";
+      readonly at: Point;
+      readonly dx: number;
+      readonly dy: number;
+      /** 0 pixels, 1 lines, 2 pages, as `WheelEvent.deltaMode`. */
+      readonly deltaMode: number;
+      readonly modifiers: Modifiers;
+    }
+  /** Held keys for keyboard pan (section 14); every other key stays in the key dispatcher. */
+  | { readonly kind: "key"; readonly code: string; readonly down: boolean; readonly modifiers: Modifiers }
+  | { readonly kind: "resize"; readonly width: number; readonly height: number; readonly pixelRatio: number }
+  /** Hidden page, or an opaque surface over the whole canvas: no one can see it. */
+  | { readonly kind: "visibility"; readonly visible: boolean };
+
+// ---------------------------------------------------------------------------
+// Picking (section 15). One function over the spatial index, in paint order.
+// ---------------------------------------------------------------------------
+
+export type HandleSide = "top" | "right" | "bottom" | "left";
+
+export type Part =
+  | { readonly kind: "pane" }
+  | { readonly kind: "body" }
+  | { readonly kind: "resize"; readonly corner: "nw" | "ne" | "se" | "sw" }
+  | { readonly kind: "handle"; readonly side: HandleSide; readonly role: "source" | "target"; readonly id: string }
+  | { readonly kind: "verbZone"; readonly verb: string }
+  | { readonly kind: "ringFlag" }
+  | { readonly kind: "taskEnqueue" }
+  | { readonly kind: "bubbleClose" }
+  | { readonly kind: "noteLink"; readonly href: string }
+  | { readonly kind: "image" }
+  | { readonly kind: "regionTitle" }
+  | { readonly kind: "regionFrame" }
+  | { readonly kind: "wire" }
+  | { readonly kind: "cluster"; readonly memberIds: ReadonlyArray<NodeId> };
+
+export type Hit = {
+  /** The card the part belongs to; absent for the pane, a wire and a cluster. */
+  readonly nodeId?: NodeId;
+  readonly wireId?: WireId;
+  readonly part: Part;
+  /** The board point under the pointer. */
+  readonly at: Point;
+};
+
+// ---------------------------------------------------------------------------
+// Intents out (section 4). The engine says what happened; the shell turns it
+// into today's writers (`model-edits.ts`, `commitCommands`, `state$`).
+// ---------------------------------------------------------------------------
+
+export type Intent =
+  | { readonly kind: "select"; readonly nodeIds: ReadonlyArray<NodeId>; readonly mode: "replace" | "toggle" | "add" }
+  | { readonly kind: "selectWire"; readonly wireId: WireId }
+  | { readonly kind: "clearSelection" }
+  /** A drag or region drag dropped: final board positions of every card that moved. */
+  | { readonly kind: "move"; readonly positions: ReadonlyArray<{ readonly id: NodeId } & Point> }
+  /** A resize released: the card's final board rectangle. */
+  | { readonly kind: "resize"; readonly id: NodeId; readonly rect: Rect }
+  | { readonly kind: "connect"; readonly source: NodeId; readonly target: NodeId; readonly sourceHandle?: string; readonly verb?: string }
+  /** A double click, or a part that opens something (image, ring flag, note link). */
+  | { readonly kind: "open"; readonly nodeId: NodeId; readonly part: Part }
+  | { readonly kind: "menu"; readonly target: "pane" | "card" | "selection" | "wire"; readonly nodeId?: NodeId; readonly wireId?: WireId; readonly at: Point; readonly screen: Point }
+  | { readonly kind: "hover"; readonly hit: Hit | null }
+  | { readonly kind: "delete"; readonly nodeIds: ReadonlyArray<NodeId>; readonly wireIds: ReadonlyArray<WireId> }
+  | { readonly kind: "enqueueTask"; readonly nodeId: NodeId }
+  | { readonly kind: "closeBubble"; readonly nodeId: NodeId }
+  /** A drag or connect in progress, for the reach preview and edge auto-pan feedback. */
+  | { readonly kind: "gesture"; readonly gesture: "drag" | "connect" | "marquee" | "resize" | null; readonly nodeIds: ReadonlyArray<NodeId> };
+
+// ---------------------------------------------------------------------------
+// Frame facts out (section 5, step 7). Reported once per drawn frame that
+// changed them. The shell writes anchored rectangles straight to overlay
+// elements' styles, with no render (section 16).
+// ---------------------------------------------------------------------------
+
+export type ZoomScales = {
+  /** Today's `--far-seat-scale`, `--seat-floor-scale` and `--node-s`. */
+  readonly farSeat: number;
+  readonly seatFloor: number;
+  readonly node: number;
+};
+
+export type FrameFacts = {
+  readonly at: number;
+  readonly camera: Camera;
+  readonly tier: CanvasTier;
+  readonly scales: ZoomScales;
+  /** The camera has not moved for 160 ms (section 14). */
+  readonly settled: boolean;
+  /** Screen rectangles of the cards the shell anchors overlays to. */
+  readonly anchors: ReadonlyArray<{ readonly id: NodeId; readonly rect: Rect }>;
+};
+
+/** The engine's own counters, for the frame test and the performance harness. */
+export type EngineStats = {
+  readonly frames: number;
+  /** Device generation the surface is configured for; 0 before any. */
+  readonly generation: number;
+  /** Bytes uploaded since the engine started, and in the last frame. */
+  readonly uploadedBytes: number;
+  readonly lastUploadRanges: ReadonlyArray<{ readonly buffer: string; readonly offset: number; readonly size: number }>;
+  /** Script time of the last frame, in ms, by the injected clock. */
+  readonly lastFrameMs: number;
+  /** Text and image rasters waiting for budget. */
+  readonly rasterQueue: number;
+};
+
+// ---------------------------------------------------------------------------
+// The engine (section 4). Everything it needs from the browser is handed in.
+// ---------------------------------------------------------------------------
+
+export interface FrameScheduler {
+  readonly request: (frame: (now: number) => void) => number;
+  readonly cancel: (handle: number) => void;
+}
+
+/** Images (portraits, icons, bands, media) become bitmaps through this. */
+export type Rasterize = (source: { readonly svg: string } | { readonly url: string }, size: Size) => Promise<ImageBitmap>;
+
+export interface Engine {
+  readonly apply: (ops: ReadonlyArray<SceneOp>) => void;
+  readonly input: (event: CanvasInput) => void;
+  readonly camera: () => Camera;
+  readonly moveCamera: (to: CameraTarget, options?: CameraMoveOptions) => void;
+  readonly screenToBoard: (screen: Point) => Point;
+  readonly boardToScreen: (board: Point) => Point;
+  readonly pick: (screen: Point) => Hit | null;
+  readonly rectOf: (id: NodeId) => Rect | undefined;
+  /** Ask for a card's screen rectangle in every frame's facts. */
+  readonly anchor: (id: NodeId) => () => void;
+  readonly onIntent: (listener: (intent: Intent) => void) => () => void;
+  readonly onFrame: (listener: (facts: FrameFacts) => void) => () => void;
+  readonly stats: () => EngineStats;
+  readonly dispose: () => void;
+}
+
+// ---------------------------------------------------------------------------
+// The CanvasApi (section 19): one object for the rest of the app, provided by
+// the shell through context and as a module handle. It replaces `useReactFlow`,
+// `useStoreApi` and every DOM lookup of `.react-flow`. Calls that return values
+// are synchronous: the shell mirrors the camera and rectangles.
+// ---------------------------------------------------------------------------
+
+export interface CanvasApi {
+  readonly screenToBoard: (screen: Point) => Point;
+  readonly boardToScreen: (board: Point) => Point;
+  readonly camera: () => Camera;
+  /** Hears the camera once per changed frame. */
+  readonly onCamera: (listener: (camera: Camera) => void) => () => void;
+  readonly moveCamera: (to: CameraTarget, options?: CameraMoveOptions) => void;
+  /** Fit view: padding 0.18, max zoom 1.15 with regions else 1.35, 320 ms. */
+  readonly fit: (options?: { readonly durationMs?: number }) => void;
+  /** Focus cards: padding 0.35, max zoom 1.45, 360 ms. */
+  readonly focusNodes: (ids: ReadonlyArray<NodeId>, options?: { readonly durationMs?: number }) => void;
+  readonly zoomBy: (factor: number, options?: CameraMoveOptions) => void;
+  readonly zoomTo: (zoom: number, options?: CameraMoveOptions) => void;
+  /** A card's board rectangle, and the bounds of several. */
+  readonly rectOf: (id: NodeId) => Rect | undefined;
+  readonly boundsOf: (ids: ReadonlyArray<NodeId>) => Rect | undefined;
+  /** A card's rectangle on screen, in CSS pixels relative to the page. */
+  readonly screenRectOf: (id: NodeId) => Rect | undefined;
+  readonly pick: (screen: Point) => Hit | null;
+  /** Keep `element` over a card, written each frame with no render. */
+  readonly anchor: (id: NodeId, element: HTMLElement) => () => void;
+  readonly setWireMode: (mode: WireMode) => void;
+  readonly tier: () => CanvasTier;
+  /** The canvas element, for focus and the focus law's scope. */
+  readonly element: () => HTMLCanvasElement | null;
+}
+
+/**
+ * The test hook (section 22), exposed by the shell in test and development
+ * builds only, on `window.__juntoCanvas`. The e2e helper reads it under the
+ * new canvas; clicks and drags stay real pointer input at the points it gives.
+ */
+export interface CanvasTestHook {
+  readonly ready: () => boolean;
+  readonly cardIds: () => ReadonlyArray<NodeId>;
+  readonly regionIds: () => ReadonlyArray<NodeId>;
+  /** Screen rectangle of a card, or of one of its parts, in page CSS pixels. */
+  readonly rectOf: (id: NodeId, part?: Part["kind"]) => Rect | undefined;
+  readonly textOf: (id: NodeId) => string | undefined;
+  readonly selection: () => ReadonlyArray<NodeId>;
+  readonly camera: () => Camera;
+  readonly settled: () => boolean;
+  readonly tier: () => CanvasTier;
+  readonly stats: () => EngineStats;
+}
