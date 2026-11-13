@@ -21,6 +21,7 @@
  * hook — those assertions get rewritten against the hook when it lands.
  */
 import { expect, type Locator, type Page } from "@playwright/test";
+import type { CanvasTestHook, EngineStats } from "../../src/window/canvas/contract";
 
 export interface CanvasPoint {
   readonly x: number;
@@ -116,26 +117,17 @@ export interface CanvasPane {
 
 /**
  * The test hook the GPU canvas exposes in test builds (milestone 0.3 owns the
- * app side). This is the contract the `hook` backend reads; `rect`'s `part`
- * names a card sub-rect with the same vocabulary `CanvasPartQuery` uses on
- * the DOM side ("handle:source:right", "verb:messages", "toolbar",
- * "region-handle"). `rect("")` is the pane.
+ * app side). This is the contract's `CanvasTestHook` (src/window/canvas/
+ * contract.ts), which the shell puts on `window.__juntoCanvas`. `rectOf`'s
+ * `part` is a `Part["kind"]`; the helper also asks for two names outside the
+ * pick union — `"toolbar"` and `"region-handle"` — which the shell answers
+ * for the overlay and region-drag rects.
  */
-export interface JuntoCanvasTestHook {
-  ready(): boolean;
-  /** Card ids in paint order. Regions are not cards. */
-  ids(): ReadonlyArray<string>;
-  regionCount(): number;
-  selected(): ReadonlyArray<string>;
-  rect(id: string, part?: string): CanvasRect | null;
-  text(id: string): string;
-  camera(): CanvasCamera;
-  tier(): string;
-}
+export type { CanvasTestHook, EngineStats };
 
 declare global {
   interface Window {
-    __juntoCanvas?: JuntoCanvasTestHook;
+    __juntoCanvas?: CanvasTestHook;
   }
 }
 
@@ -174,13 +166,17 @@ const partSelector = (id: string, part: CanvasPartQuery): string => {
   }
 };
 
-/** The hook's part vocabulary, mirrored from CanvasPartQuery. */
+/**
+ * The hook's part vocabulary. `Part["kind"]` names where they line up; the
+ * two helper-only names ("toolbar", "region-handle") are answered by the
+ * shell beyond the pick union.
+ */
 const hookPartKey = (part: CanvasPartQuery): string => {
   switch (part.kind) {
     case "handle":
-      return `handle:${part.type ?? "source"}:${part.side}`;
+      return "handle";
     case "verbZone":
-      return `verb:${part.verb}`;
+      return "verbZone";
     case "regionHandle":
       return "region-handle";
     case "toolbar":
@@ -263,28 +259,28 @@ const hookProbe: CanvasProbe = {
   ready: (page) =>
     page.evaluate(() => window.__juntoCanvas?.ready() === true).catch(() => false),
   ids: (page) =>
-    page.evaluate(() => [...(window.__juntoCanvas?.ids() ?? [])]),
+    page.evaluate(() => [...(window.__juntoCanvas?.cardIds() ?? [])]),
   regionCount: (page) =>
-    page.evaluate(() => window.__juntoCanvas?.regionCount() ?? 0),
+    page.evaluate(() => window.__juntoCanvas?.regionIds().length ?? 0),
   selectedIds: (page) =>
-    page.evaluate(() => [...(window.__juntoCanvas?.selected() ?? [])]),
+    page.evaluate(() => [...(window.__juntoCanvas?.selection() ?? [])]),
   cardCount: (page, id) =>
     page.evaluate(
-      (cardId) => (window.__juntoCanvas?.ids().includes(cardId) === true ? 1 : 0),
+      (cardId) => (window.__juntoCanvas?.cardIds().includes(cardId) === true ? 1 : 0),
       id,
     ),
   cardVisible: (page, id) =>
     page.evaluate((cardId) => {
-      const rect = window.__juntoCanvas?.rect(cardId);
-      return rect !== null && rect !== undefined && rect.width > 0 && rect.height > 0;
+      const rect = window.__juntoCanvas?.rectOf(cardId);
+      return rect !== undefined && rect.width > 0 && rect.height > 0;
     }, id),
   cardRect: (page, id) =>
-    page.evaluate((cardId) => window.__juntoCanvas?.rect(cardId) ?? null, id),
+    page.evaluate((cardId) => window.__juntoCanvas?.rectOf(cardId) ?? null, id),
   cardText: (page, id) =>
-    page.evaluate((cardId) => window.__juntoCanvas?.text(cardId) ?? "", id),
+    page.evaluate((cardId) => window.__juntoCanvas?.textOf(cardId) ?? "", id),
   cardSelected: (page, id) =>
     page.evaluate(
-      (cardId) => window.__juntoCanvas?.selected().includes(cardId) === true,
+      (cardId) => window.__juntoCanvas?.selection().includes(cardId) === true,
       id,
     ),
   cardIdsByText: (page, text) =>
@@ -292,18 +288,25 @@ const hookProbe: CanvasProbe = {
       const hook = window.__juntoCanvas;
       if (hook === undefined) return [] as string[];
       const wanted = needle.toLowerCase();
-      return hook.ids().filter((id) => hook.text(id).toLowerCase().includes(wanted));
+      return hook.cardIds().filter((id) => (hook.textOf(id) ?? "").toLowerCase().includes(wanted));
     }, text),
   paneRect: (page) =>
-    page.evaluate(() => window.__juntoCanvas?.rect("") ?? null),
+    page.evaluate(() => window.__juntoCanvas?.rectOf("") ?? null),
   partRect: (page, id, part) =>
     page.evaluate(
-      ([cardId, key]) => window.__juntoCanvas?.rect(cardId, key) ?? null,
+      ([cardId, key]) =>
+        window.__juntoCanvas?.rectOf(cardId, key as Parameters<NonNullable<Window["__juntoCanvas"]>["rectOf"]>[1]) ?? null,
       [id, hookPartKey(part)] as const,
     ),
   partCount: (page, id, part) =>
     page.evaluate(
-      ([cardId, key]) => (window.__juntoCanvas?.rect(cardId, key) != null ? 1 : 0),
+      ([cardId, key]) =>
+        (window.__juntoCanvas?.rectOf(
+          cardId,
+          key as Parameters<NonNullable<Window["__juntoCanvas"]>["rectOf"]>[1],
+        ) != null
+          ? 1
+          : 0),
       [id, hookPartKey(part)] as const,
     ),
   camera: (page) =>
@@ -731,6 +734,22 @@ export const camera = async (page: Page): Promise<CanvasCamera> => {
 };
 
 /**
+ * The tier the canvas is drawing at. The hook answers `tier()`; the DOM
+ * backend reads the app's `data-canvas-tier` (what the DOM canvas sets today).
+ */
+export const canvasTier = async (page: Page): Promise<string> => {
+  const backend = await canvasBackend(page);
+  if (backend.kind === "hook") {
+    return page.evaluate(() => window.__juntoCanvas!.tier());
+  }
+  return page.evaluate(() => document.documentElement.dataset.canvasTier ?? "dom");
+};
+
+/** The engine's own counters — the hook backend only; null on the DOM canvas. */
+export const canvasStats = async (page: Page): Promise<EngineStats | null> =>
+  page.evaluate(() => window.__juntoCanvas?.stats() ?? null).catch(() => null);
+
+/**
  * Wait until the camera holds still — the animation-complete wait specs used
  * as a fixed `waitForTimeout`. Polls `camera()` until the transform is
  * unchanged for `stableMs` (default 400ms, about what 30 held animation
@@ -793,15 +812,22 @@ export interface CanvasViewportFrameLog {
 export const watchViewportFrames = (page: Page): Promise<void> =>
   page.evaluate((selector) => {
     const viewport = document.querySelector<HTMLElement>(selector);
-    if (viewport === null) return;
+    const hook = window.__juntoCanvas;
+    if (viewport === null && hook === undefined) return;
     const log = { t: [] as number[], moved: [] as number[], wheel: { at: [] as number[], stamp: [] as number[] } };
     window.addEventListener("wheel", (event) => {
       log.wheel.at.push(performance.timeOrigin + performance.now());
       log.wheel.stamp.push(performance.timeOrigin + event.timeStamp);
     }, { capture: true, passive: true });
-    let last = viewport.style.transform;
+    // The DOM canvas moves its viewport transform; the GPU canvas moves the
+    // camera the hook reports. Either way `now` is the frame's motion sample.
+    const sample = (): string =>
+      hook !== undefined
+        ? JSON.stringify(hook.camera())
+        : (viewport?.style.transform ?? "");
+    let last = sample();
     const tick = (): void => {
-      const now = viewport.style.transform;
+      const now = sample();
       log.t.push(performance.timeOrigin + performance.now());
       log.moved.push(now === last ? 0 : 1);
       last = now;
