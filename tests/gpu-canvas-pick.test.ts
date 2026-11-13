@@ -124,6 +124,14 @@ describe("the parts a gesture starts from", () => {
     expect(top).toMatchObject({ part: { kind: "handle", side: "top", role: "source" } });
   });
 
+  it("has no handles to press from far or overview, as the stylesheet hides them", () => {
+    const row = note("a", "a", { x: 100, y: 100 });
+    for (const tier of ["far", "overview"] as const) {
+      const world = { ...worldOf([factOf(row)]), tier };
+      expect(pickAt(world, { x: 300 + 2, y: 150 }).part.kind).toBe("pane");
+    }
+  });
+
   it("finds a target handle just inside the border", () => {
     const row = note("a", "a", { x: 100, y: 100 });
     const hit = pickAt(worldOf([factOf(row)]), { x: 300 - 3, y: 150 });

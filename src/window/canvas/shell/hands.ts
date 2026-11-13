@@ -27,6 +27,7 @@ import { dock$, openTaskCreateSurface } from "../../lib/dock-state";
 import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
 import { topModal } from "../../lib/modal-stack";
 import { openOperatorModal } from "../../lib/operator-modal";
+import { isMac } from "../../lib/platform";
 import { dismissPreamble } from "../../lib/preamble-state";
 import { panKeyFor } from "../../lib/canvas-keyboard-pan";
 import {
@@ -37,6 +38,7 @@ import {
   state$,
 } from "../../lib/state";
 import { modelStore } from "../../lib/use-model";
+import { openCanvasMenu } from "./canvas-menu";
 import type { CanvasInput, Hit, Intent, Point, SelectionFact } from "../contract";
 
 /** The menus the pointer machine asks for, all opened by the shell. */
@@ -45,8 +47,13 @@ export type MenuIntent =
   | Extract<Intent, { readonly kind: "connectMenu" }>
   | Extract<Intent, { readonly kind: "marqueeMenu" }>;
 
+/** What input forwarding needs of the engine: one way in. */
+export interface InputEngine {
+  readonly input: (event: CanvasInput) => void;
+}
+
 /** The engine surface hands needs: intents out, scene facts in, input in. */
-export interface HandsEngine {
+export interface HandsEngine extends InputEngine {
   readonly apply: (ops: ReadonlyArray<{ readonly kind: "selection"; readonly fact: SelectionFact }>) => void;
   readonly input: (event: CanvasInput) => void;
   readonly onIntent: (listener: (intent: Intent) => void) => () => void;
@@ -98,6 +105,17 @@ const select = (intent: Extract<Intent, { readonly kind: "select" }>): void => {
   else selectNodes(ids);
 };
 
+/** The kinds whose cards enter text edit on a click while already selected (TextNode.tsx:384-415). */
+const textEditable = (id: string): boolean => {
+  const name = state$.canvasName.peek();
+  if (name === "") return false;
+  const node = modelStore.canvasOf(name).nodes.get(id as never);
+  return node?.kind === "note" || node?.kind === "label";
+};
+
+/** What a click means beyond its intent: whether a gesture is running, and thus what a select is. */
+export type HandsMemory = { gesturing: boolean };
+
 /** The verb a connection landed with, when it names one the table knows. */
 const verbOf = (intent: Extract<Intent, { readonly kind: "connect" }>): Verb | undefined =>
   intent.verb === undefined ? undefined : (intent.verb as Verb);
@@ -106,11 +124,22 @@ const verbOf = (intent: Extract<Intent, { readonly kind: "connect" }>): Verb | u
  * One intent, at the writer it belongs to. Exported so a test can drive the
  * wiring without a browser and read the command back from the model.
  */
-export const handleIntent = (intent: Intent, host: HandsHost = {}): void => {
+export const handleIntent = (intent: Intent, host: HandsHost = {}, memory: HandsMemory = { gesturing: false }): void => {
   switch (intent.kind) {
-    case "select":
+    case "select": {
+      const ids = [...new Set(intent.nodeIds)];
+      const soleBefore =
+        ids.length === 1 &&
+        state$.selectedNodeIds.peek().length <= 1 &&
+        (state$.selectedNodeId.peek() === ids[0] || state$.selectedNodeIds.peek()[0] === ids[0]);
       select(intent);
+      // The pointer machine reports a click on an already selected note or
+      // label as a select. Today that click puts the card into text edit.
+      if (!memory.gesturing && intent.mode === "replace" && soleBefore && ids[0] !== undefined && textEditable(ids[0])) {
+        state$.editNodeId.set(ids[0]);
+      }
       return;
+    }
     case "selectWire":
       selectEdge(intent.wireId);
       return;
@@ -190,8 +219,10 @@ export const handleIntent = (intent: Intent, host: HandsHost = {}): void => {
       dismissPreamble(intent.nodeId);
       return;
     case "gesture":
-      // No writer: the angle of the drag only feeds the reach preview, which
-      // the feed owns.
+      // No writer of its own: the angle of the drag feeds the reach preview
+      // (the feed owns it), and the flag tells a click from a gesture so a
+      // click on a selected note opens its text editor.
+      memory.gesturing = intent.gesture !== null;
       return;
   }
 };
@@ -232,7 +263,8 @@ export const cursorFor = (hit: Hit | null): string => {
  * step. Returns the way to stop both.
  */
 export const installHands = (engine: HandsEngine, host: HandsHost = {}): (() => void) => {
-  const offIntent = engine.onIntent((intent) => handleIntent(intent, host));
+  const memory: HandsMemory = { gesturing: false };
+  const offIntent = engine.onIntent((intent) => handleIntent(intent, host, memory));
   const tell = (): void => engine.apply([{ kind: "selection", fact: selectionFact() }]);
   const offSelection = state$.selectedNodeIds.onChange(tell);
   const offSingle = state$.selectedNodeId.onChange(tell);
@@ -248,7 +280,7 @@ export const installHands = (engine: HandsEngine, host: HandsHost = {}): (() => 
   };
 };
 
-const modifiersOf = (event: MouseEvent | WheelEvent): {
+const modifiersOf = (event: Pick<MouseEvent, "shiftKey" | "altKey" | "ctrlKey" | "metaKey">): {
   readonly shift: boolean;
   readonly alt: boolean;
   readonly ctrl: boolean;
@@ -267,7 +299,7 @@ const modifiersOf = (event: MouseEvent | WheelEvent): {
  * stays in `installKeyDispatcher(KEY_ACTIONS)`; only keys the camera holds
  * are read here, and only while the canvas owns the keyboard.
  */
-export const attachCanvasInput = (engine: HandsEngine, canvas: HTMLCanvasElement): (() => void) => {
+export const attachCanvasInput = (engine: InputEngine, canvas: HTMLCanvasElement): (() => void) => {
   const point = (event: MouseEvent | WheelEvent): Point => {
     const rect = canvas.getBoundingClientRect();
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
@@ -281,7 +313,9 @@ export const attachCanvasInput = (engine: HandsEngine, canvas: HTMLCanvasElement
       phase,
       pointerId: event.pointerId,
       at: point(event),
-      button: event.button,
+      // macOS reports a Control-click as the left button; it is the context
+      // menu gesture everywhere else, so it is sent as one.
+      button: isMac() && event.button === 0 && event.ctrlKey ? 2 : event.button,
       buttons: event.buttons,
       modifiers: modifiersOf(event),
       clicks: event.detail,
@@ -352,6 +386,22 @@ export const attachCanvasInput = (engine: HandsEngine, canvas: HTMLCanvasElement
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);
   };
+};
+
+/**
+ * Mount everything the shell needs from the hands: the intent wiring (with
+ * the menus and the hover cursor), and the browser's pointer, wheel and held
+ * keys. Returns the way to stop all of it.
+ */
+export const mountHands = (engine: HandsEngine, canvas: HTMLElement): (() => void) => {
+  const offHands = installHands(engine, {
+    menu: openCanvasMenu,
+    hover: (hit) => {
+      const cursor = cursorFor(hit);
+      if (canvas.style.cursor !== cursor) canvas.style.cursor = cursor;
+    },
+  });
+  return offHands;
 };
 
 /**

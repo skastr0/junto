@@ -19,8 +19,11 @@ import {
   installHands,
   selectionFact,
   type HandsEngine,
+  type HandsMemory,
 } from "../src/window/canvas/shell/hands";
 import type { Intent, SelectionFact } from "../src/window/canvas/contract";
+import { canvasMenu$, closeCanvasMenu } from "../src/window/canvas/shell/canvas-menu";
+import { openCanvasMenu } from "../src/window/canvas/shell/canvas-menu";
 import { note, seat, taskBoard } from "./support/model-nodes";
 
 const canvas = asCanvasName("hands");
@@ -204,6 +207,36 @@ describe("selection lives in state$", () => {
   });
 });
 
+describe("a click on a selected note enters text edit", () => {
+  it("opens the editor only on a click, never on the click that selected it", () => {
+    open([note("a", "a")]);
+    state$.editNodeId.set("");
+    handleIntent({ kind: "select", nodeIds: ["a"], mode: "replace" });
+    expect(state$.editNodeId.peek()).toBe("");
+    handleIntent({ kind: "select", nodeIds: ["a"], mode: "replace" });
+    expect(state$.editNodeId.peek()).toBe("a");
+  });
+
+  it("leaves a card of another kind alone", () => {
+    open([taskBoard("t")]);
+    state$.editNodeId.set("");
+    handleIntent({ kind: "select", nodeIds: ["t"], mode: "replace" });
+    handleIntent({ kind: "select", nodeIds: ["t"], mode: "replace" });
+    expect(state$.editNodeId.peek()).toBe("");
+  });
+
+  it("does not edit while a marquee or a drag is running", () => {
+    open([note("a", "a")]);
+    const memory: HandsMemory = { gesturing: false };
+    handleIntent({ kind: "select", nodeIds: ["a"], mode: "replace" }, {}, memory);
+    state$.editNodeId.set("");
+    handleIntent({ kind: "gesture", gesture: "marquee", nodeIds: [] }, {}, memory);
+    handleIntent({ kind: "select", nodeIds: ["a"], mode: "replace" }, {}, memory);
+    expect(state$.editNodeId.peek()).toBe("");
+    handleIntent({ kind: "gesture", gesture: null, nodeIds: [] }, {}, memory);
+  });
+});
+
 describe("a connect writes the wire the verb makes", () => {
   it("adds one wire and selects it", async () => {
     open([seat("a"), seat("b", { x: 400 })]);
@@ -270,6 +303,31 @@ describe("a double click opens what the card opens", () => {
     // The writer is synchronous about the model it opens; the surface itself
     // is another component's. What matters here is that the open reached it.
     expect(state$.error.peek()).toBe("");
+  });
+});
+
+describe("a menu intent opens the shell's menu", () => {
+  it("carries the connect menu and the marquee menu through installHands", () => {
+    open([note("a"), note("b")]);
+    let listener: ((intent: Intent) => void) | undefined;
+    const engine: HandsEngine = {
+      apply: () => undefined,
+      input: () => undefined,
+      onIntent: (next) => {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+    };
+    const stop = installHands(engine, { menu: openCanvasMenu });
+    listener?.({ kind: "connectMenu", targetId: "b", sourceIds: ["a"], at: { x: 10, y: 20 }, screen: { x: 100, y: 120 } });
+    expect(canvasMenu$.peek()).toMatchObject({ kind: "target", targetId: "b", sourceIds: ["a"] });
+    closeCanvasMenu();
+    listener?.({ kind: "marqueeMenu", nodeIds: ["a", "b"], bounds: { x: 0, y: 0, width: 10, height: 10 } });
+    expect(canvasMenu$.peek()).toMatchObject({ kind: "selection", nodeIds: ["a", "b"] });
+    closeCanvasMenu();
+    stop();
   });
 });
 

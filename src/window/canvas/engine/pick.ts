@@ -218,6 +218,9 @@ const enqueuePart = (node: ModelNode, rect: Rect, at: Point): Part | null => {
  * on.
  */
 export const pickCard = (world: PickWorld, at: Point): Hit | null => {
+  // Handles are hidden from far and overview (canvas-lod.css:142-144), so
+  // they are not there to be pressed either; every other part still is.
+  const drawnHandles = world.tier === "near" || world.tier === "mid";
   const near = world.index.cardsNear(at, PART_BLEED);
   for (let index = near.length - 1; index >= 0; index -= 1) {
     const id = near[index];
@@ -243,6 +246,7 @@ export const pickCard = (world: PickWorld, at: Point): Hit | null => {
 
     if (!contains(rect, at)) {
       // Handles and verb zones bleed past the rectangle; nothing else does.
+      if (!drawnHandles) continue;
       const part = verbZonePart(world, rect, at) ?? (takesHandles(node) ? handlePart(rect, at) : null);
       if (part !== null) return hitAt(fact, part, at);
       continue;
@@ -252,7 +256,7 @@ export const pickCard = (world: PickWorld, at: Point): Hit | null => {
       const resize = resizePart(rect, at);
       if (resize !== null && resizable(node)) return hitAt(fact, resize, at);
     }
-    if (takesHandles(node) && world.connecting?.from !== id) {
+    if (drawnHandles && takesHandles(node) && world.connecting?.from !== id) {
       const part = verbZonePart(world, rect, at) ?? handlePart(rect, at);
       if (part !== null) return hitAt(fact, part, at);
     }
