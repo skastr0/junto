@@ -21,6 +21,7 @@
 
 import type { Scene } from "./scene";
 import { QUAD_BYTES } from "./quad";
+import { STYLE_STRIDE } from "./styles";
 import type { AtlasBinding } from "./types";
 
 export type Renderer = ReturnType<typeof createRenderer>;
@@ -32,7 +33,6 @@ const BUFFER = { STORAGE: 0x80, COPY_DST: 0x08, UNIFORM: 0x40 } as const;
 const TEXTURE = { COPY_DST: 0x02, TEXTURE_BINDING: 0x04 } as const;
 const STAGE = { VERTEX: 1, FRAGMENT: 2 } as const;
 
-const STYLE_STRIDE = 24;
 const ATLAS_DUMMY_WIDTH = 1;
 const SHADOW_LAYER_FLOATS = 8;
 const SHADOW_SPEC_WORDS = 4;
