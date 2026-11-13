@@ -217,6 +217,22 @@ describe("a click on a selected note enters text edit", () => {
     expect(state$.editNodeId.peek()).toBe("a");
   });
 
+  it("opens a note or label on a double click", () => {
+    open([note("a", "a")]);
+    state$.editNodeId.set("");
+    handleIntent({ kind: "open", nodeId: "a", part: { kind: "body" } });
+    expect(state$.editNodeId.peek()).toBe("a");
+  });
+
+  it("lets go of the focus cone when the selection moves to another card", () => {
+    open([note("a"), note("b")]);
+    state$.selectedNodeIds.set(["a"]);
+    state$.selectedNodeId.set("a");
+    state$.connectionFocusNodeId.set("a");
+    handleIntent({ kind: "select", nodeIds: ["b"], mode: "replace" });
+    expect(state$.connectionFocusNodeId.peek()).toBe("");
+  });
+
   it("leaves a card of another kind alone", () => {
     open([taskBoard("t")]);
     state$.editNodeId.set("");

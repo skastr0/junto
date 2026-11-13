@@ -133,6 +133,12 @@ export const handleIntent = (intent: Intent, host: HandsHost = {}, memory: Hands
         state$.selectedNodeIds.peek().length <= 1 &&
         (state$.selectedNodeId.peek() === ids[0] || state$.selectedNodeIds.peek()[0] === ids[0]);
       select(intent);
+      // The selection moved to another card: the focus cone was about the old
+      // one and is let go (Canvas.tsx:703-708).
+      const focus = state$.connectionFocusNodeId.peek();
+      const nowSelected = state$.selectedNodeIds.peek();
+      const sole = nowSelected.length === 1 ? nowSelected[0] : state$.selectedNodeId.peek();
+      if (focus !== "" && focus !== sole) state$.connectionFocusNodeId.set("");
       // The pointer machine reports a click on an already selected note or
       // label as a select. Today that click puts the card into text edit.
       if (!memory.gesturing && intent.mode === "replace" && soleBefore && ids[0] !== undefined && textEditable(ids[0])) {
@@ -168,6 +174,13 @@ export const handleIntent = (intent: Intent, host: HandsHost = {}, memory: Hands
       return;
     }
     case "open": {
+      // A double click on a note or label opens its text editor on the card
+      // today (TextNode.tsx:442-465), not the focused note surface that
+      // Cmd+Enter opens.
+      if (intent.part.kind === "body" && textEditable(intent.nodeId)) {
+        state$.editNodeId.set(intent.nodeId);
+        return;
+      }
       const surface = activateNodeSurface(intent.nodeId);
       if (surface.opened) return;
       switch (intent.part.kind) {
