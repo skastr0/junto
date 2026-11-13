@@ -2,6 +2,7 @@ import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import type { HarnessId } from "../../src/shared/managed-terminal-templates";
 import type { ClaudeModelCacheEntry } from "../harness/agent-harness-fixture";
+import { canvasReady, cardCount, cardIdsByText } from "../harness/canvas";
 import { modelFixture } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
@@ -37,7 +38,7 @@ const seededLaunch = (
   });
 
 const openModeDeck = async (page: Page): Promise<Locator> => {
-  await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+  await canvasReady(page, { timeout: 30_000 });
   await page.getByRole("button", { name: "Add canvas item" }).click();
 
   const modal = page.getByRole("dialog", { name: "Add canvas item" });
@@ -106,15 +107,12 @@ test("one agent-row click creates exactly one configured agent without a legacy 
       .getByRole("button", { name: "Close folder picker" })
       .click();
 
-    const canvasNodes = page.locator(".react-flow__node");
-    const before = await canvasNodes.count();
+    const before = await cardCount(page);
     await deck.getByRole("button", { name: "Claude Code", exact: true }).click();
 
     await expect(deck).toHaveCount(0);
-    await expect(canvasNodes).toHaveCount(before + 1);
-    await expect(
-      page.locator(".react-flow__node", { hasText: "Claude Code" }),
-    ).toHaveCount(1);
+    await expect.poll(() => cardCount(page)).toBe(before + 1);
+    await expect.poll(() => cardIdsByText(page, "Claude Code")).toHaveLength(1);
     await expect(
       page.getByRole("dialog", { name: /agent location/i }),
     ).toHaveCount(0);
@@ -147,8 +145,7 @@ test("a create attempt with no working directory opens the folder picker instead
   try {
     const { page } = junto;
     const deck = await openModeDeck(page);
-    const canvasNodes = page.locator(".react-flow__node");
-    const before = await canvasNodes.count();
+    const before = await cardCount(page);
 
     // Kimi offers a single "Use harness defaults" row, so one activation
     // reaches the create step with no model choice in the way.
@@ -166,7 +163,7 @@ test("a create attempt with no working directory opens the folder picker instead
       page.getByRole("dialog", { name: "Choose starting folder" }),
     ).toBeVisible();
     await expect(deck).toHaveCount(1);
-    await expect(canvasNodes).toHaveCount(before);
+    await expect.poll(() => cardCount(page)).toBe(before);
   } finally {
     await junto.close();
   }

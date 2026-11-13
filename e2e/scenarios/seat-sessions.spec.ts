@@ -1,4 +1,5 @@
 import { readSeatSession } from "../harness/seat-session";
+import { card } from "../harness/canvas";
 import { modelFixture, modelSeat, modelSeatSession, readModelSeat } from "../harness/model";
 /**
  * Seat sessions [fake-tui]: after a seat moves to a second session,
@@ -64,7 +65,7 @@ test("a seat's second session onboards with the first one's notes", async ({}, t
   appProcess.stderr?.on("data", appendLog);
   try {
     const { page, sandbox } = junto;
-    await expect(page.locator(`.react-flow__node[data-id="${SEAT}"]`)).toBeVisible({ timeout: 30_000 });
+    await card(page, SEAT).visible({ timeout: 30_000 });
     await crewPlayFactory(page);
     const seat = crewSeat(sandbox, CANVAS, SEAT);
     const first = await crewOccupySeat(page, CANVAS, seatNode, seat);

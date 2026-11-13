@@ -18,6 +18,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { canvasReady } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 import { inheritedEnvForLaunch } from "../harness/launch-env";
 
@@ -80,7 +81,7 @@ test("pairs a phone through the running app and removes it", async () => {
   try {
     const { page, sandbox } = junto;
     const keysPath = join(sandbox.homeDir, ".ssh", "authorized_keys");
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 60_000 });
+    await canvasReady(page, { timeout: 60_000 });
 
     const openCompanion = async (mode: "dark" | "bright") => {
       await page.getByRole("button", { name: "Open settings" }).click();

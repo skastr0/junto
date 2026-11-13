@@ -18,6 +18,7 @@ import { join } from "node:path";
 import type { ElectronApplication } from "@playwright/test";
 import { SeatStateMachine } from "../../src/core/term/agent-state";
 import { OPERATOR_DISPLAY, type NestedCanvasFixture } from "../harness/nested-canvas-fixture";
+import { camera as canvasCamera, pane, regionCount, viewportFrameLog, watchViewportFrames } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const CHANNEL = "junto:agent-seat-state-changed";
@@ -78,20 +79,19 @@ test("zoom smoothness probe: how often the canvas moves during a scripted zoom",
   const junto = await launchJunto({ ...OPERATOR_DISPLAY, electronArgs: [...OPERATOR_DISPLAY.electronArgs, ...ARGS], nestedCanvas: { fixture, name: "factory" } });
   try {
     const { app, page } = junto;
-    await expect(page.locator(".react-flow__node-group")).toHaveCount(fixture.stats.regions, { timeout: 120_000 });
+    await expect.poll(() => regionCount(page), { timeout: 120_000 }).toBe(fixture.stats.regions);
     await send(app, active.map((s) => { working.set(s.bindingId, true); return machine.force(s.bindingId, "working", "probe:working"); }));
     await page.waitForTimeout(4_000);
 
     const cdp = await page.context().newCDPSession(page);
-    const box = (await page.locator(".react-flow__pane").boundingBox())!;
+    const box = (await pane(page).box())!;
     const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
     const wheel = (dx: number, dy: number, ctrl: boolean) =>
       cdp.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: at.x, y: at.y, deltaX: dx, deltaY: dy, modifiers: ctrl ? 2 : 0 });
-    const camera = () =>
-      page.evaluate(() => {
-        const m = /translate\(([-\d.e]+)px,\s*([-\d.e]+)px\)\s*scale\(([-\d.e]+)\)/.exec(document.querySelector<HTMLElement>(".react-flow__viewport")!.style.transform);
-        return m ? { x: Number(m[1]), y: Number(m[2]), z: Number(m[3]) } : { x: 0, y: 0, z: 1 };
-      });
+    const camera = async () => {
+      const cam = await canvasCamera(page);
+      return { x: cam.x, y: cam.y, z: cam.zoom };
+    };
 
     // Start where the lab starts: zoomed all the way out, the board's centre
     // under the pointer. A plain wheel pans the camera by 1.2 px per unit.
@@ -112,26 +112,7 @@ test("zoom smoothness probe: how often the canvas moves during a scripted zoom",
 
     // One row per animation frame: when it started, and whether the camera
     // had moved since the frame before.
-    await page.evaluate(() => {
-      const viewport = document.querySelector<HTMLElement>(".react-flow__viewport")!;
-      const log = { t: [] as number[], moved: [] as number[], wheel: { at: [] as number[], stamp: [] as number[] } };
-      // A passive listener ahead of the canvas's own: when each wheel event
-      // reached the page, and when it was made.
-      window.addEventListener("wheel", (event) => {
-        log.wheel.at.push(performance.timeOrigin + performance.now());
-        log.wheel.stamp.push(performance.timeOrigin + event.timeStamp);
-      }, { capture: true, passive: true });
-      let last = viewport.style.transform;
-      const tick = (): void => {
-        const now = viewport.style.transform;
-        log.t.push(performance.timeOrigin + performance.now());
-        log.moved.push(now === last ? 0 : 1);
-        last = now;
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-      (window as unknown as { __zoomLog: typeof log }).__zoomLog = log;
-    });
+    await watchViewportFrames(page);
     const sample = (): Promise<Sample> =>
       app.evaluate(({ app }) => ({
         t: performance.timeOrigin + performance.now(),
@@ -173,7 +154,7 @@ test("zoom smoothness probe: how often the canvas moves during a scripted zoom",
     const sent = await reports;
     if (TRACE) await app.evaluate(async ({ contentTracing }, out) => contentTracing.stopRecording(out), tracePath);
 
-    const frames = await page.evaluate(() => (window as unknown as { __zoomLog: Omit<FrameLog, "n"> }).__zoomLog);
+    const frames = await viewportFrameLog(page);
     const log: FrameLog & { reports: number[] } = { n: frames.t.length, t: frames.t, moved: frames.moved, wheel: frames.wheel, reports: [sent] };
     const raw = {
       log,

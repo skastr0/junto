@@ -5,7 +5,7 @@ import { modelFixture, modelSeat } from "../harness/model";
  *
  *   bun run test:e2e:fast e2e/scenarios/space-on-control.spec.ts
  */
-import type { Locator } from "@playwright/test";
+import { card, selectedIds } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 
 test("Space with a canvas node focused goes to the next agent; on a top bar button it presses the button", async () => {
@@ -15,15 +15,15 @@ test("Space with a canvas node focused goes to the next agent; on a top bar butt
   const junto = await launchJunto({ seedModels: { [SPACE]: modelFixture([a, b]) } });
   try {
     const { page } = junto;
-    const node = (id: string): Locator => page.locator(`.react-flow__node[data-id="${id}"]`);
-    await expect(node("a")).toBeVisible({ timeout: 30_000 });
-    const selected = (): Promise<Array<string | null>> =>
-      page.locator(".react-flow__node.selected").evaluateAll((nodes) => nodes.map((el) => el.getAttribute("data-id")));
+    const node = (id: string) => card(page, id);
+    await node("a").visible({ timeout: 30_000 });
+    const selected = (): Promise<ReadonlyArray<string>> => selectedIds(page);
 
     // The node itself has the keyboard: Space is the step to the next agent.
     await node("a").click();
-    await node("a").focus();
-    await expect(node("a")).toBeFocused();
+    const seatEl = await node("a").element();
+    await seatEl.focus();
+    await expect(seatEl).toBeFocused();
     await expect.poll(selected).toEqual(["a"]);
     await page.keyboard.press("Space");
     await expect.poll(selected).toEqual(["b"]);

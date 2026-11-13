@@ -10,6 +10,7 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
+import { card } from "../harness/canvas";
 import { seededHarnessBinDir } from "../harness/agent-harness-fixture";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { modelFixture, modelSeat, modelSeatSession } from "../harness/model";
@@ -35,7 +36,7 @@ const rollout = (home: string, id: string) =>
     `${JSON.stringify({ type: "session_meta", payload: { id, cwd: "/tmp", timestamp: "2026-10-17T00:00:00.000Z", thread_source: "user" } })}\n`,
   );
 
-const line = (page: Page, id: string) => page.locator(`.react-flow__node[data-id="${id}"]`);
+const line = (page: Page, id: string) => card(page, id);
 
 test("a seat that is not running says fresh next only when its next turn starts fresh", async () => {
   test.setTimeout(180_000);
@@ -57,17 +58,17 @@ test("a seat that is not running says fresh next only when its next turn starts 
   });
   try {
     const { page, sandbox } = junto;
-    await expect(line(page, "holds")).toBeVisible({ timeout: 30_000 });
+    await line(page, "holds").visible({ timeout: 30_000 });
     await page.getByRole("button", { name: /fit all/i }).first().click();
 
-    await expect(line(page, "fresh")).toContainText("fresh next", { timeout: 20_000 });
-    await expect(line(page, "holds")).toContainText("not running");
-    await expect(line(page, "holds")).not.toContainText("fresh next");
-    await expect(line(page, "rested")).not.toContainText("fresh next");
+    await expect.poll(() => line(page, "fresh").text(), { timeout: 20_000 }).toContain("fresh next");
+    await expect.poll(() => line(page, "holds").text()).toContain("not running");
+    await expect.poll(() => line(page, "holds").text()).not.toContain("fresh next");
+    await expect.poll(() => line(page, "rested").text()).not.toContain("fresh next");
 
     // Offboard the third seat with rest: its session closes at an offboard.
     await offboardNowFromPanel(page, "rested");
-    await expect(line(page, "rested")).toContainText("fresh next", { timeout: 20_000 });
+    await expect.poll(() => line(page, "rested").text(), { timeout: 20_000 }).toContain("fresh next");
 
     // A start takes the same path as a ping: the held seat resumes its session.
     expect(readSeatSession(sandbox, "holds", holds.bindingId)).toBe(HELD);
@@ -161,7 +162,7 @@ test("a seat whose harness has a shorter cache window says fresh next at its own
       await page.getByRole("button", { name: /fit all/i }).first().click();
     };
 
-    await expect(line(page, "short")).toBeVisible({ timeout: 30_000 });
+    await line(page, "short").visible({ timeout: 30_000 });
     // The auto mode: an open starts a cold session fresh. The default, hybrid,
     // resumes whatever the operator opens, so its card never says when.
     await page.getByRole("button", { name: "Open settings" }).click();
@@ -174,23 +175,23 @@ test("a seat whose harness has a shorter cache window says fresh next at its own
 
     // The installation's window, 60 minutes: both sessions are still warm and both resume.
     for (const id of ["short", "long"]) {
-      await expect(line(page, id)).toContainText("not running");
-      await expect(line(page, id)).not.toContainText("fresh next");
+      await expect.poll(() => line(page, id).text()).toContain("not running");
+      await expect.poll(() => line(page, id).text()).not.toContain("fresh next");
     }
 
     // Codex's own window, 5 minutes: the codex session has been still past it.
     await setCodexWindow(5);
-    await expect(line(page, "short")).toContainText("fresh next", { timeout: 20_000 });
-    await expect(line(page, "long")).not.toContainText("fresh next");
+    await expect.poll(() => line(page, "short").text(), { timeout: 20_000 }).toContain("fresh next");
+    await expect.poll(() => line(page, "long").text()).not.toContain("fresh next");
     await page.mouse.move(4, 600);
 
     // 15 minutes: still warm.
     await setCodexWindow(15);
-    await expect(line(page, "short")).not.toContainText("fresh next", { timeout: 20_000 });
+    await expect.poll(() => line(page, "short").text(), { timeout: 20_000 }).not.toContain("fresh next");
 
     // No window of its own: codex follows the installation's again.
     await setCodexWindow(null);
-    await expect(line(page, "short")).not.toContainText("fresh next");
+    await expect.poll(() => line(page, "short").text()).not.toContain("fresh next");
   } finally {
     await junto.close();
   }
@@ -243,7 +244,7 @@ test("a running seat at rest says fresh next past its window, and not while held
     const closeView = () => page.getByRole("button", { name: "Close view", exact: true }).click();
     const crew = Object.fromEntries(RUNNING.map((id) => [id, crewSeat(sandbox, CANVAS, id)]));
 
-    await expect(line(page, "rests")).toBeVisible({ timeout: 30_000 });
+    await line(page, "rests").visible({ timeout: 30_000 });
     await crewPlayFactory(page);
     for (const [i, id] of RUNNING.entries()) {
       await crewOccupySeat(page, CANVAS, seats[i]!, crew[id]!);
@@ -253,7 +254,7 @@ test("a running seat at rest says fresh next past its window, and not while held
     await page.getByRole("button", { name: /fit all/i }).first().click();
 
     // The 60 minute window: every seat continues, and says nothing.
-    for (const id of RUNNING) await expect(line(page, id)).not.toContainText("fresh next");
+    for (const id of RUNNING) await expect.poll(() => line(page, id).text()).not.toContain("fresh next");
 
     await crew.dialog!.control({ screen: { mode: "attention" } });
     await expect.poll(() => seatState("dialog"), { timeout: 30_000 }).toBe("attention");
@@ -282,15 +283,15 @@ test("a running seat at rest says fresh next past its window, and not while held
     await minutes.fill("5");
     await minutes.press("Enter");
     await page.getByRole("button", { name: "Close settings" }).click();
-    await expect(line(page, "rests")).toContainText("fresh next", { timeout: 20_000 });
+    await expect.poll(() => line(page, "rests").text(), { timeout: 20_000 }).toContain("fresh next");
     expect(Date.now() - typedAt, "the typed hold is still running").toBeLessThan(30_000);
-    for (const id of ["viewed", "typed", "dialog", "raised"]) await expect(line(page, id)).not.toContainText("fresh next");
+    for (const id of ["viewed", "typed", "dialog", "raised"]) await expect.poll(() => line(page, id).text()).not.toContain("fresh next");
 
     // Closing the view lets go: viewed goes cold at once, the card asking on the close itself
     // (a cut at the minute pass would also turn it; still idle means it was not that).
     await closeView();
-    await expect(line(page, "viewed")).toContainText("fresh next", { timeout: 5_000 });
-    for (const id of ["dialog", "raised"]) await expect(line(page, id)).not.toContainText("fresh next");
+    await expect.poll(() => line(page, "viewed").text(), { timeout: 5_000 }).toContain("fresh next");
+    for (const id of ["dialog", "raised"]) await expect.poll(() => line(page, id).text()).not.toContain("fresh next");
     await page.mouse.move(4, 600);
   } finally {
     await junto.close();

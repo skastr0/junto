@@ -1,3 +1,4 @@
+import { card, canvasReady } from "../harness/canvas";
 import { modelFixture, modelMessagesWire, modelSeat, type ModelFixture } from "../harness/model";
 /**
  * Mail is delivered once, across a quit and a reopen [fake-tui].
@@ -315,7 +316,7 @@ const walk = async (testInfo: TestInfo, id: string, body: (walk: Walk) => Promis
     reopened.push(app);
     tap(app);
     current = await app.firstWindow();
-    await expect(current.locator(".react-flow")).toBeVisible({ timeout: 60_000 });
+    await canvasReady(current, { timeout: 60_000 });
     await current.waitForFunction(() => Boolean(window.junto?.modelOpen), undefined, { timeout: 30_000 });
     mark("Junto is open again");
     return current;
@@ -323,7 +324,7 @@ const walk = async (testInfo: TestInfo, id: string, body: (walk: Walk) => Promis
 
   let failure: unknown;
   try {
-    await expect(junto.page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await canvasReady(junto.page, { timeout: 30_000 });
     await body({ junto, sandbox, mark, shot, reopen });
   } catch (error) {
     failure = error;
@@ -488,7 +489,7 @@ test("M2 [fake-tui] a mail that could not be delivered before the quit is delive
     const { ada, bo } = await stage(junto);
 
     // The operator has an unsent draft in Bo's box: mail for Bo is held.
-    await page.locator(`.react-flow__node[data-id="${BO.id}"]`).dblclick();
+    await card(page, BO.id).dblclick();
     const surface: Locator = page.locator(SURFACE);
     await expect(surface).toBeVisible({ timeout: 30_000 });
     await surface.locator(".xterm-screen").click();
@@ -579,7 +580,7 @@ test("M3 [fake-tui] a stopped seat that had read its mail is not woken by a rest
     mark(`receipt before the quit: ${JSON.stringify(receiptBefore ?? null)}`, "receipt-before");
 
     // The operator stops Bo: Stop, then confirm, in its terminal view (terminal-kill-ux.ts).
-    await page.locator(`.react-flow__node[data-id="${BO.id}"]`).dblclick();
+    await card(page, BO.id).dblclick();
     const surface = page.locator(SURFACE);
     await expect(surface).toBeVisible({ timeout: 30_000 });
     await surface.getByRole("button", { name: "Stop this agent's process", exact: true }).click();

@@ -52,6 +52,7 @@ import {
   type CrewSeat,
   type WorkEnvelope,
 } from "../harness/crew-fixture";
+import { card, canvasReady } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const CANVAS = "overseercli";
@@ -240,7 +241,7 @@ test("[fake-tui] the overseer's offboard commands: rules, status, now, ask, a re
   };
 
   try {
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await canvasReady(page, { timeout: 30_000 });
     await crewPlayFactory(page);
 
     // ── Staging ────────────────────────────────────────────────────────────
@@ -261,7 +262,7 @@ test("[fake-tui] the overseer's offboard commands: rules, status, now, ask, a re
 
     // O: the grant, through the human seam, before anything else is edited.
     await grantOverseer(page, CANVAS, O.id);
-    await expect(page.locator(`.react-flow__node[data-id="${O.id}"] .junto-node`)).toHaveAttribute("data-overseer", "true", { timeout: 15_000 });
+    await expect((await card(page, O.id).element()).locator(".junto-node")).toHaveAttribute("data-overseer", "true", { timeout: 15_000 });
 
     // I: one turn behind it, then idle at its prompt.
     opData(await peer.op("msg.send", { target: I.id, text: "a first turn for the idle seat" }));

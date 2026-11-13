@@ -1,3 +1,4 @@
+import { cardByText } from "../harness/canvas";
 import { modelFixture, modelNote, modelSeat } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
@@ -26,8 +27,7 @@ test("operator UI write round-trips through main IPC and survives renderer reloa
 }) => {
   const { page } = junto;
 
-  const node = page.locator(".react-flow__node", { hasText: ORIGINAL_TEXT });
-  await expect(node).toBeVisible({ timeout: 30_000 });
+  const node = await cardByText(page, ORIGINAL_TEXT, { timeout: 30_000 });
   await node.click();
   // Cards carry no action buttons; free-note editing lives on the RTS kind
   // strip ("Edit note") and opens the note editor focus surface.
@@ -56,7 +56,5 @@ test("operator UI write round-trips through main IPC and survives renderer reloa
     .toBe(UI_EDITED_TEXT);
 
   await page.reload();
-  await expect(
-    page.locator(".react-flow__node", { hasText: UI_EDITED_TEXT }),
-  ).toBeVisible({ timeout: 30_000 });
+  await cardByText(page, UI_EDITED_TEXT, { timeout: 30_000 });
 });

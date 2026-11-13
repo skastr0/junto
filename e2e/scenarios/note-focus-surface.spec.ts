@@ -1,3 +1,4 @@
+import { card } from "../harness/canvas";
 import { commandModel, modelFixture, modelNote, readModelNode } from "../harness/model";
 
 import { expect, launchJunto, test } from "../harness/launch";
@@ -14,11 +15,9 @@ test("Note focus survives canvas updates", async () => {
   });
   try {
     const { page } = junto;
-    await expect(page.locator('.react-flow__node[data-id="note-1"]')).toBeVisible({
-      timeout: 30_000,
-    });
+    await card(page, "note-1").visible({ timeout: 30_000 });
 
-    await page.locator('.react-flow__node[data-id="note-1"]').click();
+    await card(page, "note-1").click();
     await page.getByRole("button", { name: "Expand note editor" }).click();
     const noteEditor = page.getByRole("dialog", { name: "Edit note" });
     const textarea = noteEditor.getByLabel("Note markdown");

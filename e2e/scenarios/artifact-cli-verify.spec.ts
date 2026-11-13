@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mentionLink } from "../../src/shared/mention";
 import { asNodeId } from "../../src/shared/model";
+import { card } from "../harness/canvas";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelNode, modelRegion, modelSeat, modelWire } from "../harness/model";
@@ -47,7 +48,7 @@ test("artifact CLI: labels fold, set, clear and cap; [[Title]] resolves or refus
   };
   try {
     const { page, sandbox } = junto;
-    await expect(page.locator('.react-flow__node[data-id="shelf"]')).toBeVisible({ timeout: 30_000 });
+    await card(page, "shelf").visible({ timeout: 30_000 });
     const seat = crewSeat(sandbox, CANVAS, "scout");
     await crewPlayFactory(page);
     await crewOccupySeat(page, CANVAS, scout, seat);

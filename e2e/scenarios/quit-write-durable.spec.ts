@@ -10,6 +10,7 @@
  *   bun run test:e2e:fast e2e/scenarios/quit-write-durable.spec.ts
  */
 import { modelFixture } from "../harness/model";
+import { canvasReady } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const CANVAS = "quitwrite";
@@ -24,7 +25,7 @@ test("a write in flight at quit survives the restart", async () => {
     else child.once("exit", () => resolve());
   });
   try {
-    await expect(junto.page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await canvasReady(junto.page, { timeout: 30_000 });
 
     // The write goes out and the quit is asked for before its reply returns.
     await junto.page.evaluate(([canvas, id]) => {

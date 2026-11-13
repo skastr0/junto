@@ -11,6 +11,7 @@ import { Schema } from "effect";
 import { asNodeId, Node } from "../../src/shared/model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { taskNodeId } from "../../src/shared/task-model";
+import { card } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelWire, readModelCanvas } from "../harness/model";
 
@@ -56,11 +57,11 @@ test("board targets: list, toggle rewrites the verb, a derives loop is refused",
   const junto = await launchJunto({ windowContentSize: { width: 1500, height: 900 }, seedModels: { [CANVAS]: modelFixture(nodes, wires) } });
   try {
     const { page } = junto;
-    await expect(page.locator('.react-flow__node[data-id="build"]')).toBeVisible({ timeout: 30_000 });
+    await card(page, "build").visible({ timeout: 30_000 });
     await seedTask(page, "build");
     await seedTask(page, "docs");
     // The card's centre can be its add-task button; press the corner instead.
-    await page.locator('.react-flow__node[data-id="build"]').dblclick({ position: { x: 10, y: 10 } });
+    await card(page, "build").dblclick({ position: { x: 10, y: 10 } });
     await page.getByRole("button", { name: "Board settings" }).click();
     const targets = page.getByTestId("board-targets");
     await expect(targets).toBeVisible({ timeout: 15_000 });
@@ -73,7 +74,7 @@ test("board targets: list, toggle rewrites the verb, a derives loop is refused",
 
     // Build already derives to Docs, so Docs deriving back to Build closes a loop.
     await page.keyboard.press("Escape");
-    await page.locator('.react-flow__node[data-id="docs"]').dblclick({ position: { x: 10, y: 10 } });
+    await card(page, "docs").dblclick({ position: { x: 10, y: 10 } });
     await page.getByRole("button", { name: "Board settings" }).click();
     const docs = page.getByTestId("board-targets");
     await docs.getByRole("radiogroup", { name: /Build/ }).getByRole("radio", { name: "Derives" }).click();

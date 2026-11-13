@@ -32,6 +32,7 @@ import type { ElectronApplication } from "@playwright/test";
 import { makeStateEngineLive } from "../../src/core/state/engine";
 import { canonicalJson } from "../../src/shared/work-canonical-json";
 import { OPERATOR_DISPLAY, type NestedCanvasFixture } from "../harness/nested-canvas-fixture";
+import { card, pane, regionCount } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 import type { Sandbox } from "../harness/sandbox";
 
@@ -375,13 +376,13 @@ test("artifact/task probe: factory-shaped work data, opens and write busy", asyn
     const settle = want("boot") || want("open-cost");
     const events = bootTrace
       ? await trace(app, join(process.cwd(), "test-results/zz-arttask-boot.json"), async () => {
-          await expect(page.locator(".react-flow__node-group")).toHaveCount(fixture.stats.regions, { timeout: 120_000 });
+          await expect.poll(() => regionCount(page), { timeout: 120_000 }).toBe(fixture.stats.regions);
           await page.waitForTimeout(3_000);
         })
       : undefined;
     if (!bootTrace) {
       if (settle) {
-        await expect(page.locator(".react-flow__node-group")).toHaveCount(fixture.stats.regions, { timeout: 120_000 });
+        await expect.poll(() => regionCount(page), { timeout: 120_000 }).toBe(fixture.stats.regions);
         await page.waitForTimeout(3_000);
       }
     }
@@ -412,10 +413,9 @@ test("artifact/task probe: factory-shaped work data, opens and write busy", asyn
 
     /** Pan/zoom the camera until the node's box sits near viewport centre. */
     const centerOn = async (nodeId: string): Promise<void> => {
-      const pane = page.locator(".react-flow__pane");
       for (let i = 0; i < 10; i += 1) {
-        const box = await page.locator(`.react-flow__node[data-id="${nodeId}"]`).boundingBox();
-        const pb = await pane.boundingBox();
+        const box = await card(page, nodeId).box();
+        const pb = await pane(page).box();
         if (!box || !pb) return;
         const dx = pb.x + pb.width / 2 - (box.x + box.width / 2);
         const dy = pb.y + pb.height / 2 - (box.y + box.height / 2);
@@ -430,14 +430,14 @@ test("artifact/task probe: factory-shaped work data, opens and write busy", asyn
         // Still tiny: zoom in toward the node, then re-centre. If the wheel
         // went the wrong way the box shrinks — zoom back out once.
         if (box.width <= 120) {
-          const nb = await page.locator(`.react-flow__node[data-id="${nodeId}"]`).boundingBox();
+          const nb = await card(page, nodeId).box();
           if (nb) {
             await page.mouse.move(nb.x + nb.width / 2, nb.y + nb.height / 2);
             await page.keyboard.down("Meta");
             await page.mouse.wheel(0, -240);
             await page.keyboard.up("Meta");
             await page.waitForTimeout(150);
-            const after = await page.locator(`.react-flow__node[data-id="${nodeId}"]`).boundingBox();
+            const after = await card(page, nodeId).box();
             if (after && after.width < box.width * 0.8) {
               await page.mouse.move(after.x + after.width / 2, after.y + after.height / 2);
               await page.keyboard.down("Meta");
@@ -486,10 +486,10 @@ test("artifact/task probe: factory-shaped work data, opens and write busy", asyn
       }
       // The last node stays selected: its floating toolbar can sit over the
       // next node's click point. A pane click clears the selection.
-      await page.evaluate(() => document.querySelector(".react-flow__pane")?.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })));
+      await pane(page).dispatchClick();
       await centerOn(nodeId);
       const t0 = await page.evaluate(() => performance.now());
-      await page.locator(`.react-flow__node[data-id="${nodeId}"]`).dblclick();
+      await card(page, nodeId).dblclick();
       const listName = kind === "art" ? "Artifacts" : "Tasks";
       await expect(page.getByRole("list", { name: listName })).toBeVisible({ timeout: 20_000 });
       const ms = await page.evaluate(() => performance.now()) - t0;
@@ -645,12 +645,12 @@ test("artifact/task probe: factory-shaped work data, opens and write busy", asyn
       for (const [kind, nodeId] of [["art", ART_NODES[1]!], ["task", TASK_NODES[0]!]] as const) {
         const listName = kind === "art" ? "Artifacts" : "Tasks";
         await centerOn(nodeId);
-        await page.evaluate(() => document.querySelector(".react-flow__pane")?.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })));
+        await pane(page).dispatchClick();
         await resetMeter(app);
         await cdp.send("Profiler.start");
         const t0 = await page.evaluate(() => performance.now());
         const events = await trace(app, join(process.cwd(), `test-results/zz-arttask-cost-${kind}.json`), async () => {
-          await page.locator(`.react-flow__node[data-id="${nodeId}"]`).dblclick();
+          await card(page, nodeId).dblclick();
           await expect(page.getByRole("list", { name: listName })).toBeVisible({ timeout: 20_000 });
           await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
         });

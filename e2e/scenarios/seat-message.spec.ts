@@ -17,6 +17,7 @@ import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
+import { card, canvasReady } from "../harness/canvas";
 import type { AgentSeatStateEvent } from "../../src/shared/agent-seat-state";
 import { expect, launchJunto, test } from "../harness/launch";
 import {
@@ -66,13 +67,13 @@ test("[fake-tui] the seat toolbar messages a sleeping seat, which wakes and rece
   const junto = await launch();
   try {
     const { page, sandbox } = junto;
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await canvasReady(page, { timeout: 30_000 });
     await crewPlayFactory(page);
     const ada = crewSeat(sandbox, CANVAS, A);
     expect(asleep(ada)).toBe(true);
 
-    const card = page.locator(`.react-flow__node[data-id="${A}"]`);
-    await card.click();
+    const seatCard = card(page, A);
+    await seatCard.click();
     const open = page.getByTestId("seat-message-open");
     await expect(open).toBeVisible();
 
@@ -80,11 +81,12 @@ test("[fake-tui] the seat toolbar messages a sleeping seat, which wakes and rece
     // The click above lands on the name and its press hides the tip; the
     // pointer comes back onto the name from outside, as a hand would.
     await page.mouse.move(5, 5);
-    await card.getByText("Ada", { exact: true }).first().hover();
+    const seatEl = await seatCard.element();
+    await seatEl.getByText("Ada", { exact: true }).first().hover();
     const tip = page.locator(".junto-tooltip[data-positioned='true']");
     await expect(tip).toHaveText("Ada");
     const tipBox = (await tip.boundingBox())!;
-    const barBox = (await page.locator(".react-flow__node-toolbar").first().boundingBox())!;
+    const barBox = (await seatCard.toolbar().box())!;
     expect(tipBox.y).toBeGreaterThanOrEqual(barBox.y + barBox.height);
     await page.screenshot({ path: join(SHOTS, "name-tooltip-clear-of-toolbar.png") });
 
@@ -103,7 +105,7 @@ test("[fake-tui] the seat toolbar messages a sleeping seat, which wakes and rece
     await expect(page.locator(".junto-tooltip")).toHaveCount(0);
     const openBox = (await open.boundingBox())!;
     const composerBox = (await composer.boundingBox())!;
-    const toolbarBox = (await page.locator(".react-flow__node-toolbar").first().boundingBox())!;
+    const toolbarBox = (await seatCard.toolbar().box())!;
     expect(Math.abs(composerBox.x + composerBox.width / 2 - (openBox.x + openBox.width / 2))).toBeLessThan(2);
     expect(composerBox.y + composerBox.height).toBeLessThanOrEqual(toolbarBox.y);
 
@@ -161,7 +163,7 @@ test("[fake-tui] the selection menu sends one message to every selected seat", a
   const junto = await launch();
   try {
     const { page, sandbox } = junto;
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await canvasReady(page, { timeout: 30_000 });
     await crewPlayFactory(page);
     const ada = crewSeat(sandbox, CANVAS, A);
     const bo = crewSeat(sandbox, CANVAS, B);
@@ -170,9 +172,9 @@ test("[fake-tui] the selection menu sends one message to every selected seat", a
     await expect.poll(() => seatState(page, `local:${A}`), { timeout: 30_000 }).toBe("idle");
     expect(asleep(bo)).toBe(true);
 
-    await page.locator(`.react-flow__node[data-id="${A}"]`).click();
-    await page.locator(`.react-flow__node[data-id="${B}"]`).click({ modifiers: ["Shift"] });
-    await page.locator(`.react-flow__node[data-id="${B}"]`).click({ button: "right" });
+    await card(page, A).click();
+    await card(page, B).click({ modifiers: ["Shift"] });
+    await card(page, B).click({ button: "right" });
     const menu = page.getByRole("toolbar", { name: "Actions for 2 nodes" });
     await expect(menu).toBeVisible();
     await menu.getByRole("button", { name: "Message 2 agents" }).click();

@@ -31,6 +31,7 @@ import type { Page } from "@playwright/test";
 import type { Message } from "../../src/shared/work-model";
 import { readMailExtension } from "../../src/shared/crew";
 import { MAIL_ONBOARD_POINTER, composeImmediatePromptPayload } from "../../src/shared/message-delivery";
+import { canvasReady } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 import {
   crewOccupySeat,
@@ -68,7 +69,7 @@ const launch = () =>
 
 const boot = async (junto: Awaited<ReturnType<typeof launch>>) => {
   const { page, sandbox } = junto;
-  await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+  await canvasReady(page, { timeout: 30_000 });
   await crewPlayFactory(page);
   const a = crewSeat(sandbox, CANVAS, A);
   const b = crewSeat(sandbox, CANVAS, B);

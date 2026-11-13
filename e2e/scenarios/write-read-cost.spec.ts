@@ -25,6 +25,7 @@ import { RESOURCE_IPC_CHANNELS } from "../../src/shared/resource-ipc-channels";
 import { makeStateEngineLive } from "../../src/core/state/engine";
 import { Node } from "../../src/shared/model";
 import { canonicalJson } from "../../src/shared/work-canonical-json";
+import { card } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 import { mod } from "../harness/keys";
 import { modelFixture } from "../harness/model";
@@ -188,7 +189,7 @@ const measure = async (count: number): Promise<Run> => {
   });
   try {
     const { app, page } = junto;
-    for (const id of nodeIds(count)) await expect(page.locator(`.react-flow__node[data-id="${id}"]`)).toBeVisible({ timeout: 60_000 });
+    for (const id of nodeIds(count)) await card(page, id).visible({ timeout: 60_000 });
     expect(await installMeter(app), "invoke channels metered").toBeGreaterThan(10);
     await page.waitForTimeout(2_000);
     const versions = new Map<string, number>();

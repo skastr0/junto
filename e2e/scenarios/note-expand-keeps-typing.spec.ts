@@ -6,6 +6,7 @@
  * never commits on its own. The editor must open on what was typed, and the
  * saved note must hold it after done.
  */
+import { card } from "../harness/canvas";
 import { modelFixture, modelNote } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
@@ -16,11 +17,12 @@ test("Expand carries a note's in-place typing into the editor and the saved note
   const junto = await launchJunto({ seedModels: { [CANVAS]: fixture } });
   try {
     const { page } = junto;
-    const note = page.locator('.react-flow__node[data-id="note-1"]');
-    await expect(note).toBeVisible({ timeout: 30_000 });
+    const noteCard = card(page, "note-1");
+    await noteCard.visible({ timeout: 30_000 });
 
-    await note.click();
-    await note.dblclick();
+    await noteCard.click();
+    await noteCard.dblclick();
+    const note = await noteCard.element();
     const inPlace = note.getByRole("textbox", { name: "Edit note" });
     await expect(inPlace).toBeFocused();
     await page.keyboard.press("End");

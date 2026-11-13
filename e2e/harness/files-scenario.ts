@@ -17,6 +17,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect, type JSHandle, type Locator, type Page } from "@playwright/test";
+import { card } from "./canvas";
 import type { Node } from "../../src/shared/model";
 import { THIS_MACHINE } from "../../tests/support/machines";
 import { buildFilesFixture, type FilesFixture } from "./files-fixture";
@@ -53,11 +54,11 @@ export const stageFiles = async (): Promise<FilesStage> => {
 export const filesNode = (root: string): Node =>
   modelNode({ kind: "files", id: FILES_ID, label: "Files", x: 60, y: 60, width: 280, height: 160, z: 0, host: THIS_MACHINE, root });
 
-export const filesCard = (page: Page): Locator => page.locator(`.react-flow__node[data-id="${FILES_ID}"]`);
+export const filesCard = (page: Page) => card(page, FILES_ID);
 
 /** Double-clicks the Files card, as the operator opens it, and returns the modal. */
 export const openFilesModal = async (page: Page): Promise<Locator> => {
-  await expect(filesCard(page)).toBeVisible({ timeout: 30_000 });
+  await filesCard(page).visible({ timeout: 30_000 });
   await filesCard(page).dblclick();
   const modal = page.getByRole("dialog", { name: "Files" });
   await expect(modal).toBeVisible({ timeout: 20_000 });

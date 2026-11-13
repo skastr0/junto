@@ -1,3 +1,4 @@
+import { card } from "../harness/canvas";
 import { modelFixture, modelNode, modelSeat } from "../harness/model";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -42,9 +43,9 @@ test("the Automations node: create, edit, stale edit, toggle, run now, history, 
   try {
     const { page } = junto;
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
-    await expect(page.locator(`.react-flow__node[data-id="${NODE}"]`)).toBeVisible({ timeout: 30_000 });
+    await card(page, NODE).visible({ timeout: 30_000 });
     await page.getByRole("button", { name: /fit all/i }).click();
-    await page.locator(`.react-flow__node[data-id="${NODE}"]`).dblclick();
+    await card(page, NODE).dblclick();
     const pane = page.getByTestId("automations-node");
     await expect(pane).toBeVisible({ timeout: 20_000 });
 

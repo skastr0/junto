@@ -1,3 +1,4 @@
+import { card } from "../harness/canvas";
 import { modelFixture, modelSeat } from "../harness/model";
 /**
  * Offboard from the seat — asking the agent, in the running product.
@@ -65,9 +66,8 @@ const mailboxOf = (appHome: string, nodeId: string): readonly string[] => {
 
 /** Open the offboard popup from the toolbar above the seat's card. */
 const openOffboard = async (page: Page, seatId: string, name: string) => {
-  const seat = page.locator(`.react-flow__node[data-id="${seatId}"]`);
-  await expect(seat).toBeVisible({ timeout: 60_000 });
-  await seat.click();
+  await card(page, seatId).visible({ timeout: 60_000 });
+  await card(page, seatId).click();
   await page.getByTestId("seat-offboard-open").click();
   const panel = page.getByRole("dialog", { name: `Offboard ${name}` });
   await expect(panel).toBeVisible({ timeout: 10_000 });
@@ -76,8 +76,7 @@ const openOffboard = async (page: Page, seatId: string, name: string) => {
 
 /** Open the seat's Customize editor on its Sessions tab. */
 const openSessions = async (page: Page, seatId: string) => {
-  const seat = page.locator(`.react-flow__node[data-id="${seatId}"]`);
-  await seat.click();
+  await card(page, seatId).click();
   await page.getByTestId("toolbar-customize-agent").click();
   const editor = page.getByTestId("agent-editor");
   await expect(editor).toBeVisible({ timeout: 10_000 });

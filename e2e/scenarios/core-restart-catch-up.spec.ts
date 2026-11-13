@@ -21,6 +21,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { crashCoreNow } from "../harness/crash-core";
+import { card } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 import { grantOverseer, modelFixture, modelSeat } from "../harness/model";
 
@@ -60,7 +61,7 @@ test("a window and its seat's hold survive the core being killed", async () => {
   });
   try {
     const { page } = junto;
-    await expect(page.locator('.react-flow__node[data-id="overseer"]')).toBeVisible({ timeout: 30_000 });
+    await card(page, "overseer").visible({ timeout: 30_000 });
     await crewPlayFactory(page);
     const seat = crewSeat(junto.sandbox, CANVAS, "overseer");
     await crewOccupySeat(page, CANVAS, O, seat);
@@ -68,7 +69,7 @@ test("a window and its seat's hold survive the core being killed", async () => {
 
     // Opening the seat's terminal in the window is what makes it report the
     // binding to the core; a seat the window does not show is not held.
-    await page.locator('.react-flow__node[data-id="overseer"]').dblclick();
+    await card(page, "overseer").dblclick();
     await expect(page.locator(".xterm").first()).toBeVisible({ timeout: 30_000 });
     await expect
       .poll(() => windowReports(coreLog(logDir)).length, { timeout: 60_000 })

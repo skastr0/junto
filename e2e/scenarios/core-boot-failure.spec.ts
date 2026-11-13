@@ -18,6 +18,7 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { _electron as electron } from "playwright-core";
+import { card } from "../harness/canvas";
 import { expect, launchJunto, test, type JuntoHandle } from "../harness/launch";
 import { inheritedEnvForLaunch } from "../harness/launch-env";
 import { createSandbox, destroySandbox, type Sandbox } from "../harness/sandbox";
@@ -73,7 +74,7 @@ test("a core that fails once is retried and the window still opens", async () =>
       seedModels: { [CANVAS]: modelFixture([O]) },
       extraEnv: { JUNTO_E2E_CORE_ENTRY: entry },
     });
-    await expect(junto.page.locator('.react-flow__node[data-id="overseer"]')).toBeVisible({ timeout: 90_000 });
+    await card(junto.page, "overseer").visible({ timeout: 90_000 });
   } finally {
     await junto?.close().catch(() => undefined);
     await destroySandbox(sandbox);

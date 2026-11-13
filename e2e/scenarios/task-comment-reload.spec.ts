@@ -10,6 +10,7 @@ import { Schema } from "effect";
 import { asNodeId, Node } from "../../src/shared/model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { taskNodeId } from "../../src/shared/task-model";
+import { card } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
 
@@ -27,10 +28,9 @@ const shot = async (page: Page, name: string): Promise<void> => {
 };
 
 const openTask = async (page: Page, title: string): Promise<void> => {
-  const card = page.locator('.react-flow__node[data-id="board"]');
-  await expect(card).toBeVisible({ timeout: 30_000 });
   // The card's centre is its add-task button: open the board from its name.
-  await card.dblclick({ position: { x: 24, y: 12 } });
+  await card(page, "board").visible({ timeout: 30_000 });
+  await card(page, "board").dblclick({ position: { x: 24, y: 12 } });
   await page.getByRole("list", { name: "Tasks" }).locator("button").filter({ hasText: title }).first().click();
   await expect(page.getByTestId("task-thread")).toBeVisible({ timeout: 20_000 });
 };

@@ -11,11 +11,12 @@
  * main reports, never from what the window draws.
  * Run: `bunx electron-vite build && bun run test:e2e:fast e2e/scenarios/wire-writers.spec.ts`
  */
-import type { Locator, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { Schema } from "effect";
 import { asNodeId, Node } from "../../src/shared/model";
 import { taskNodeId } from "../../src/shared/task-model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
+import { card, canvasReady, handle as cardHandle, pane, verbZone } from "../harness/canvas";
 import { expect, test } from "../harness/launch";
 import { modelFixture, modelSeat, modelWire, readModelCanvas } from "../harness/model";
 import { mod } from "../harness/keys";
@@ -37,8 +38,6 @@ const boards = [board("build", "Build", 0), board("review", "Review", 520)];
 
 const undoKey = mod("z");
 const redoKey = mod("Shift+z");
-
-const card = (page: Page, id: string): Locator => page.locator(`.react-flow__node[data-id="${id}"]`);
 
 /** Count every change main reports for this canvas from here on. */
 const watchChanges = async (page: Page): Promise<void> => {
@@ -97,8 +96,8 @@ const confirmsAsked = (page: Page): Promise<string[]> =>
   page.evaluate(() => (window as unknown as { wireWriterConfirms: string[] }).wireWriterConfirms);
 
 const ready = async (page: Page, ids: ReadonlyArray<string>): Promise<void> => {
-  await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-  for (const id of ids) await expect(card(page, id)).toBeVisible({ timeout: 30_000 });
+  await canvasReady(page, { timeout: 30_000 });
+  for (const id of ids) await card(page, id).visible({ timeout: 30_000 });
   await page.getByRole("button", { name: "Fit all nodes", exact: true }).click();
   await page.waitForTimeout(900);
   await watchChanges(page);
@@ -107,14 +106,13 @@ const ready = async (page: Page, ids: ReadonlyArray<string>): Promise<void> => {
 /** The keys act on the canvas, not on a card or a field that holds focus. */
 const toCanvas = async (page: Page): Promise<void> => {
   await page.keyboard.press("Escape");
-  await page.locator(".react-flow__pane").click({ position: { x: 8, y: 8 } });
+  await pane(page).click({ position: { x: 8, y: 8 } });
 };
 
 /** Drag from a seat's right handle onto the `messages` landing zone of another. */
 const drawMessages = async (page: Page, from: string, to: string): Promise<void> => {
-  const handle = card(page, from).locator(".junto-handle--source.junto-handle--right");
-  const start = await handle.boundingBox();
-  const target = await card(page, to).boundingBox();
+  const start = await cardHandle(page, from, "right").box();
+  const target = await card(page, to).box();
   expect(start).toBeTruthy();
   expect(target).toBeTruthy();
   if (!start || !target) return;
@@ -122,9 +120,9 @@ const drawMessages = async (page: Page, from: string, to: string): Promise<void>
   await page.mouse.down();
   await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 14 });
   // Two seats admit two verbs, chosen by where the wire lands.
-  const zone = card(page, to).locator('[data-verb="messages"]');
-  await expect(zone).toHaveCount(1);
-  const landing = await zone.boundingBox();
+  const zone = verbZone(page, to, "messages");
+  await expect.poll(() => zone.count()).toBe(1);
+  const landing = await zone.box();
   expect(landing).toBeTruthy();
   if (landing) await page.mouse.move(landing.x + landing.width / 2, landing.y + landing.height / 2, { steps: 6 });
   await page.mouse.up();
@@ -133,7 +131,7 @@ const drawMessages = async (page: Page, from: string, to: string): Promise<void>
 const shiftSelect = async (page: Page, ids: ReadonlyArray<string>): Promise<void> => {
   for (const id of ids) {
     await card(page, id).click({ modifiers: ["Shift"] });
-    await expect(card(page, id)).toHaveClass(/selected/);
+    await expect.poll(() => card(page, id).selected()).toBe(true);
   }
 };
 
@@ -145,7 +143,7 @@ test.describe("wires between seats", () => {
     await ready(page, ["c", "d"]);
 
     await card(page, "c").click();
-    await expect(card(page, "c")).toHaveClass(/selected/);
+    await expect.poll(() => card(page, "c").selected()).toBe(true);
     await page.getByRole("button", { name: "Connect", exact: true }).click();
     const search = page.getByTestId("connect-pick-input");
     await expect(search).toBeVisible();

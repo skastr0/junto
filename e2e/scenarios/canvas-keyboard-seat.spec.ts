@@ -2,6 +2,7 @@
  * A seat worked by keyboard: focus shows, selection is said, and the seat menu
  * takes focus, moves by arrows, and closes on Escape back to the seat.
  */
+import { card } from "../harness/canvas";
 import { modelSeat, modelFixture } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
@@ -17,8 +18,9 @@ test.use({
 
 test("a focused seat shows a ring, says it is selected, and its menu works by keys", async ({ junto }) => {
   const { page } = junto;
-  const seat = page.getByTestId("rf__node-seat");
-  await expect(seat).toBeVisible({ timeout: 30_000 });
+  const seatCard = card(page, "seat");
+  await seatCard.visible({ timeout: 30_000 });
+  const seat = await seatCard.element();
 
   // Keyboard focus shows a ring.
   await seat.focus();

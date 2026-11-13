@@ -20,6 +20,7 @@ import { modelFixture, modelMessagesWire, modelSeat } from "../harness/model";
  *   5. authority is the edge: no messages edge (or a mask that drops the
  *      port) is ScopeError, and removing the edge mid-follow ends it.
  */
+import { canvasReady } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness, type WorkEnvelope } from "../harness/crew-fixture";
 
@@ -48,7 +49,7 @@ const launch = () =>
 
 const boot = async (junto: Awaited<ReturnType<typeof launch>>) => {
   const { page, sandbox } = junto;
-  await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+  await canvasReady(page, { timeout: 30_000 });
   await crewPlayFactory(page);
   const a = crewSeat(sandbox, CANVAS, A);
   const b = crewSeat(sandbox, CANVAS, B);

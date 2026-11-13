@@ -11,6 +11,7 @@ import { Schema } from "effect";
 import { asNodeId, Node } from "../../src/shared/model";
 import { mintItemId, mintOpId, type ItemId } from "../../src/shared/resource-command";
 import { taskNodeId, type TaskCommand } from "../../src/shared/task-model";
+import { card } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture } from "../harness/model";
 
@@ -72,7 +73,7 @@ test("artifacts, dark and bright: header row, narrow sidebar, live document", as
   const junto = await launchJunto({ windowContentSize: { width: 1500, height: 900 }, seedModels: { [CANVAS]: modelFixture([shelf, board], []) } });
   try {
     const { page } = junto;
-    await expect(page.locator('.react-flow__node[data-id="shelf"]')).toBeVisible({ timeout: 30_000 });
+    await card(page, "shelf").visible({ timeout: 30_000 });
     const tasks: ItemId[] = [];
     for (const title of ["Ship the pricing page", "Write the migration guide for the new entitlement"]) {
       const taskId = mintItemId();
@@ -91,7 +92,7 @@ test("artifacts, dark and bright: header row, narrow sidebar, live document", as
         { canvas: CANVAS, node: asNodeId("shelf"), artifactId, opId: mintOpId(), title, markdown },
       );
     }
-    await page.locator('.react-flow__node[data-id="shelf"]').dblclick();
+    await card(page, "shelf").dblclick();
     const list = page.getByRole("list", { name: "Artifacts" });
     await expect(list).toBeVisible({ timeout: 20_000 });
     await list.locator("button").filter({ hasText: "Junto monetization" }).first().click();

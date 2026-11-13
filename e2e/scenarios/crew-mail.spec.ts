@@ -32,6 +32,7 @@ import type { Page } from "@playwright/test";
 import type { Message } from "../../src/shared/work-model";
 import { readMailExtension } from "../../src/shared/crew";
 import { composeMailBatch, composeMessageDeliveryPayload, MAIL_ONBOARD_POINTER } from "../../src/shared/message-delivery";
+import { canvasReady } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 import { crewMessageCount, crewReceipts, crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness, type CrewSeat, type WorkEnvelope } from "../harness/crew-fixture";
 
@@ -99,7 +100,7 @@ const deliveredAtOf = async (page: Page, messageId: string): Promise<number | un
 /** Occupy both seats and wait until B's seat reads idle. */
 const boot = async (junto: Awaited<ReturnType<typeof launch>>) => {
   const { page, sandbox } = junto;
-  await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+  await canvasReady(page, { timeout: 30_000 });
   await crewPlayFactory(page);
   const seatAHandle = crewSeat(sandbox, CANVAS, A);
   const seatBHandle = crewSeat(sandbox, CANVAS, B);
@@ -318,7 +319,7 @@ test("crew mail [fake-tui]: masking msg.send off the edge refuses the send", asy
   });
   try {
     const { page, sandbox } = junto;
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await canvasReady(page, { timeout: 30_000 });
     await crewPlayFactory(page);
 
     const seatAHandle = crewSeat(sandbox, CANVAS, A);

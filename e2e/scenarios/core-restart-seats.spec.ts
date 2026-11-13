@@ -38,6 +38,7 @@ import {
   type CrewSeat,
 } from "../harness/crew-fixture";
 import { crashCoreNow } from "../harness/crash-core";
+import { card } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelMessagesWire, modelSeat } from "../harness/model";
 
@@ -121,7 +122,7 @@ test("a running seat keeps its terminal across a core crash", async () => {
   });
   try {
     const { page } = junto;
-    await expect(page.locator('.react-flow__node[data-id="overseer"]')).toBeVisible({ timeout: 30_000 });
+    await card(page, "overseer").visible({ timeout: 30_000 });
     await crewPlayFactory(page);
     const sender = crewSeat(junto.sandbox, CANVAS, SENDER.id);
     const seat = crewSeat(junto.sandbox, CANVAS, OVERSEER.id);
@@ -129,7 +130,7 @@ test("a running seat keeps its terminal across a core crash", async () => {
     await crewOccupySeat(page, CANVAS, OVERSEER, seat);
     // The overseer's view stays open across the kill: its surface port belongs
     // to the terminal process, and the adoption has to keep it fed.
-    await page.locator('.react-flow__node[data-id="overseer"]').dblclick();
+    await card(page, "overseer").dblclick();
     await expect(page.locator(SURFACE)).toBeVisible({ timeout: 30_000 });
     const surface = page.locator(SURFACE);
     const terminal = surface.locator(".xterm").first();
@@ -207,7 +208,7 @@ test("a running seat keeps its terminal across a core crash", async () => {
     // Reopen: a view attached after the crash paints the screen a new core rebuilt.
     await surface.getByRole("button", { name: "Close view" }).first().click();
     await expect(page.locator(SURFACE)).toHaveCount(0);
-    await page.locator('.react-flow__node[data-id="overseer"]').dblclick();
+    await card(page, "overseer").dblclick();
     await expect(page.locator(SURFACE)).toBeVisible({ timeout: 30_000 });
     await expect
       .poll(async () => squash(await transcriptText(page)), { message: "a view reopened after the crash paints the rebuilt screen", timeout: 30_000 })

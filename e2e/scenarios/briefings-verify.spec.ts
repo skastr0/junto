@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { asNodeId } from "../../src/shared/model";
+import { card, canvasReady, pane, regionHandle } from "../harness/canvas";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
@@ -79,7 +80,8 @@ test("briefings: region, app and reference texts are documents, onboard returns 
   try {
     const { page, sandbox } = junto;
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
-    await expect(page.locator('.react-flow__node[data-id="shelf"]')).toBeVisible({ timeout: 30_000 });
+    await canvasReady(page, { timeout: 30_000 });
+    await card(page, "shelf").visible({ timeout: 30_000 });
     const make = async (node: string, title: string) => {
       const id = mintItemId();
       await page.evaluate(
@@ -97,7 +99,7 @@ test("briefings: region, app and reference texts are documents, onboard returns 
     // Region briefing.
     await page.getByRole("button", { name: "Fit all nodes" }).click();
     await page.waitForTimeout(500);
-    await page.getByTestId("rf__node-ops").locator(".region-drag-handle").first().click();
+    await regionHandle(page, "ops").click();
     await page.getByRole("button", { name: "Region briefing" }).click();
     const regionDialog = page.getByRole("dialog", { name: "Briefing" });
     const region = regionDialog.getByRole("textbox", { name: "Region briefing" });
@@ -111,7 +113,7 @@ test("briefings: region, app and reference texts are documents, onboard returns 
     await page.keyboard.press("Escape");
     if ((await regionDialog.count()) > 0) await page.keyboard.press("Escape");
     await expect(regionDialog).toHaveCount(0, { timeout: 5_000 });
-    await page.locator(".react-flow__pane").click({ position: { x: 1300, y: 700 } });
+    await pane(page).click({ position: { x: 1300, y: 700 } });
     await page.waitForTimeout(1_500);
 
     // App briefing.
@@ -138,7 +140,7 @@ test("briefings: region, app and reference texts are documents, onboard returns 
 
     // The Bin node goes: its artifact's link must list as missing.
     await commandModel(page, { _tag: "Remove", canvas: CANVAS, nodes: ["bin"], wires: [] });
-    await expect(page.locator('.react-flow__node[data-id="bin"]')).toHaveCount(0, { timeout: 10_000 });
+    await expect.poll(() => card(page, "bin").count(), { timeout: 10_000 }).toBe(0);
 
     const json = async (argv: ReadonlyArray<string>) => {
       const r = await seat.cli(argv);

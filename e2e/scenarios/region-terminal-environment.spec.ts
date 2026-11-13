@@ -10,6 +10,7 @@
  * renderer puts no text in the DOM (TerminalSurface.tsx, __juntoTermScreenText).
  */
 import type { Page } from "@playwright/test";
+import { card } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelRegion, modelTerminal } from "../harness/model";
 
@@ -35,7 +36,7 @@ const screenOf = (page: Page, bindingId: string): Promise<string> =>
 
 /** Open the terminal, run one command in its shell, and return the screen once the end mark shows. */
 const runIn = async (page: Page, nodeId: string, bindingId: string, mark: string): Promise<string> => {
-  await page.locator(`.react-flow__node[data-id="${nodeId}"]`).dblclick();
+  await card(page, nodeId).dblclick();
   const surface = page.locator(SURFACE);
   await expect(surface).toBeVisible({ timeout: 30_000 });
   await expect(surface.locator(".native-terminal-surface__status")).toContainText("control", { timeout: 30_000 });
@@ -65,7 +66,7 @@ test("a plain terminal inside a region has the region's variable, and one outsid
   });
   try {
     const { page } = junto;
-    await expect(page.locator('.react-flow__node[data-id="term-in"]')).toBeVisible({ timeout: 30_000 });
+    await card(page, "term-in").visible({ timeout: 30_000 });
 
     const inside = await runIn(page, "term-in", "local:term-in", "done-inside");
     expect(inside, "the terminal inside the region prints the region's variable").toContain(`${NAME}=${VALUE}`);

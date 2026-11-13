@@ -1,3 +1,4 @@
+import { canvasReady } from "../harness/canvas";
 import { readSeatSession } from "../harness/seat-session";
 import { modelFixture, modelSeatSession, modelMessagesWire, modelSeat, type ModelFixture } from "../harness/model";
 import { readModelSeat } from "../harness/model";
@@ -134,7 +135,7 @@ const walk = async (testInfo: TestInfo, id: string, body: (walk: Walk) => Promis
     await junto.page.screenshot({ path: join(dir, `${id}-${name}.png`) });
   };
   try {
-    await expect(junto.page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await canvasReady(junto.page, { timeout: 30_000 });
     await body({ junto, mainLog: () => chunks.join(""), mark, shot });
   } catch (error) {
     await shot("on-failure").catch(() => undefined);

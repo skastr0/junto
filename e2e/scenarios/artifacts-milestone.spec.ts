@@ -15,6 +15,7 @@ import { ArtifactVersion } from "../../src/shared/artifact";
 import { asNodeId, Node } from "../../src/shared/model";
 import { mintOpId } from "../../src/shared/resource-command";
 import { ItemId } from "../../src/shared/work-ids";
+import { card } from "../harness/canvas";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness, type CrewCliResult } from "../harness/crew-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
@@ -50,8 +51,7 @@ test("artifacts: each type, a new version, history, a stale edit refused, commen
     const { page, sandbox } = junto;
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "bright" } }));
     await expect(page.locator("html")).toHaveAttribute("data-theme", "bright");
-    const card = page.locator('.react-flow__node[data-id="shelf"]');
-    await expect(card).toBeVisible({ timeout: 30_000 });
+    await card(page, "shelf").visible({ timeout: 30_000 });
 
     const seat = crewSeat(sandbox, CANVAS, "scout");
     await crewPlayFactory(page);
@@ -65,7 +65,7 @@ test("artifacts: each type, a new version, history, a stale edit refused, commen
     };
 
     const open = async (): Promise<void> => {
-      await card.dblclick();
+      await card(page, "shelf").dblclick();
       await expect(page.getByRole("list", { name: "Artifacts" })).toBeVisible({ timeout: 20_000 });
     };
     const list = () => page.getByRole("list", { name: "Artifacts" });
@@ -171,7 +171,7 @@ test("artifacts: each type, a new version, history, a stale edit refused, commen
 
     // It survives a reload of the window.
     await page.reload();
-    await expect(card).toBeVisible({ timeout: 30_000 });
+    await card(page, "shelf").visible({ timeout: 30_000 });
     await open();
     await pick("Untitled document");
     await expect(threads.getByText("for the merge")).toBeVisible({ timeout: 20_000 });

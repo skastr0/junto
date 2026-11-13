@@ -1,3 +1,4 @@
+import { card } from "../harness/canvas";
 import { modelFixture, modelSeat } from "../harness/model";
 /**
  * Git at a glance in the agent modal header.
@@ -66,10 +67,10 @@ test("the agent modal header shows the seat's repository on one line and opens i
   });
   try {
     const { page } = junto;
-    await expect(page.locator('.react-flow__node[data-id="in-repo"]')).toBeVisible({ timeout: 30_000 });
+    await card(page, "in-repo").visible({ timeout: 30_000 });
 
     // The seat in the repository: its header says the branch against main.
-    await page.locator('.react-flow__node[data-id="in-repo"]').dblclick();
+    await card(page, "in-repo").dblclick();
     await expect(page.locator(".native-terminal-surface")).toBeVisible({ timeout: 30_000 });
     const line = page.getByTestId("seat-git-line");
     await expect(line).toBeVisible({ timeout: 15_000 });
@@ -106,7 +107,7 @@ test("the agent modal header shows the seat's repository on one line and opens i
     await expect(page.locator(".native-terminal-surface")).toHaveCount(0);
 
     // A seat whose folder is not a repository: no git line, no placeholder.
-    await page.locator('.react-flow__node[data-id="no-repo"]').dblclick();
+    await card(page, "no-repo").dblclick();
     await expect(page.locator(".native-terminal-surface")).toBeVisible({ timeout: 30_000 });
     await page.waitForTimeout(2_000);
     await expect(page.getByTestId("seat-git-line")).toHaveCount(0);

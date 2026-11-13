@@ -23,6 +23,7 @@ import type { Page } from "@playwright/test";
 import type { AgentSignal } from "../../src/shared/agent-signals";
 import type { Node as ModelNode, Wire as ModelWire } from "../../src/shared/model";
 import { crewPlayFactory } from "../harness/crew-fixture";
+import { canvasReady, pane } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 import {
   modelFixture,
@@ -559,10 +560,10 @@ test("hotkey performance probe", async () => {
   const results: Record<string, unknown> = {};
   try {
     const { page } = junto;
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 60_000 });
+    await canvasReady(page, { timeout: 60_000 });
     await installProbe(page);
     await page.reload();
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 60_000 });
+    await canvasReady(page, { timeout: 60_000 });
     await crewPlayFactory(page);
     await sleep(1_500);
 
@@ -575,7 +576,7 @@ test("hotkey performance probe", async () => {
     await page.keyboard.press("Meta+Enter");
     await sleep(1_800);
     // Put the keyboard back on the canvas chrome for the unstageable chords.
-    await page.locator(".react-flow__pane").first().click({ position: { x: 8, y: 8 } }).catch(() => undefined);
+    await pane(page).click({ position: { x: 8, y: 8 } }).catch(() => undefined);
     await sleep(400);
 
     // CPU-profile one switcher sweep: JS self-time per function. Native

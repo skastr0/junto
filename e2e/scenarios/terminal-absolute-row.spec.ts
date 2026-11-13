@@ -13,6 +13,7 @@
  * The probe emits STATUS at the row the PTY reports, and fills the rest with
  * numbered content. Correct behaviour: STATUS is on the last rendered row.
  */
+import { cardByText } from "../harness/canvas";
 import { modelFixture, modelTerminal } from "../harness/model";
 import { expect, test } from "../harness/launch";
 import { terminalRows, waitForTerminalPaint, waitForTerminalText } from "../harness/term-ready";
@@ -37,8 +38,7 @@ test.use({
 test("a TUI status line lands on the real last row, not a stale one", async ({ junto }) => {
   const { page } = junto;
   page.on("console", (m) => { const t = m.text(); if (t.includes("[junto:term-geom]")) console.log("LOG " + t.slice(t.indexOf("[junto:term-geom]"))); });
-  const node = page.locator(".react-flow__node", { hasText: LABEL });
-  await expect(node).toBeVisible({ timeout: 30_000 });
+  const node = await cardByText(page, LABEL, { timeout: 30_000 });
   await node.dblclick();
   const surface = page.locator(".native-terminal-surface");
   await expect(surface).toBeVisible({ timeout: 30_000 });

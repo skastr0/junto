@@ -1,3 +1,4 @@
+import { canvasReady } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 
 for (const seedRetiredCommercialState of [false, true]) {
@@ -5,7 +6,7 @@ for (const seedRetiredCommercialState of [false, true]) {
     const junto = await launchJunto({ seedRetiredCommercialState, offline: true });
     try {
       const { page } = junto;
-      await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+      await canvasReady(page, { timeout: 30_000 });
       const connectivity = await junto.app.evaluate(async ({ app, net }) => {
         const requests = await Promise.allSettled([
           globalThis.fetch("https://offline-startup.invalid/"),
@@ -54,7 +55,7 @@ test("opens a fresh home with the first-run introduction", async () => {
     // mounts, and the window stays empty.
     await expect(page.getByTestId("first-run-intro-slide")).toBeVisible({ timeout: 30_000 });
     await page.getByTestId("first-run-intro-skip").click();
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await canvasReady(page, { timeout: 30_000 });
   } finally {
     await junto.close();
   }

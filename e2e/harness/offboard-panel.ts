@@ -4,6 +4,7 @@
  * for the seat has arrived, then closed again.
  */
 import { expect, type Page } from "@playwright/test";
+import { card } from "./canvas";
 
 /**
  * Why Offboard now is refused for one seat, as the panel says it, or null
@@ -11,8 +12,8 @@ import { expect, type Page } from "@playwright/test";
  * status as arrived: the core always sends the session's work minutes.
  */
 export const offboardNowBlockOf = async (page: Page, seatId: string): Promise<string | null> => {
-  const seat = page.locator(`.react-flow__node[data-id="${seatId}"]`);
-  await expect(seat).toBeVisible({ timeout: 30_000 });
+  const seat = card(page, seatId);
+  await seat.visible({ timeout: 30_000 });
   await seat.click();
   await page.getByTestId("seat-offboard-open").click();
   const panel = page.getByRole("dialog", { name: /^Offboard / }).getByTestId("seat-offboard-panel");
@@ -30,8 +31,8 @@ export const offboardNowBlockOf = async (page: Page, seatId: string): Promise<st
  * answers with.
  */
 export const offboardNowFromPanel = async (page: Page, seatId: string): Promise<string> => {
-  const seat = page.locator(`.react-flow__node[data-id="${seatId}"]`);
-  await expect(seat).toBeVisible({ timeout: 30_000 });
+  const seat = card(page, seatId);
+  await seat.visible({ timeout: 30_000 });
   await seat.click();
   await page.getByTestId("seat-offboard-open").click();
   const panel = page.getByRole("dialog", { name: /^Offboard / }).getByTestId("seat-offboard-panel");

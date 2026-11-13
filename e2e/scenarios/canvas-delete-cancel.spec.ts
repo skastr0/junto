@@ -2,6 +2,7 @@
  * The delete key asks before it deletes. Refusing the confirm leaves the card
  * on the canvas; accepting removes it.
  */
+import { card } from "../harness/canvas";
 import { modelNote, modelFixture } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
@@ -15,8 +16,8 @@ test.use({
 
 test("refusing the delete confirm keeps the note; accepting removes it", async ({ junto }) => {
   const { page } = junto;
-  const note = page.getByTestId("rf__node-note");
-  await expect(note).toBeVisible({ timeout: 30_000 });
+  const note = card(page, "note");
+  await note.visible({ timeout: 30_000 });
 
   // Electron's native confirm is not drivable from here: answer it in page.
   const answerWith = (accept: boolean): Promise<void> =>
@@ -34,16 +35,16 @@ test("refusing the delete confirm keeps the note; accepting removes it", async (
 
   // The locator click waits for the opening fit to settle under the note.
   await note.click({ position: { x: 6, y: 6 } });
-  await expect(note).toHaveClass(/selected/);
+  await expect.poll(() => note.selected()).toBe(true);
 
   await page.keyboard.press("Backspace");
   await expect.poll(async () => (await asked()).length).toBe(1);
   expect((await asked())[0]).toContain("Delete this node?");
   await page.waitForTimeout(1_500);
-  await expect(note).toBeVisible();
+  await note.visible();
 
   await answerWith(true);
   await page.keyboard.press("Backspace");
   await expect.poll(async () => (await asked()).length).toBe(2);
-  await expect(note).toHaveCount(0);
+  await expect.poll(() => note.count()).toBe(0);
 });

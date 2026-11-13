@@ -12,6 +12,7 @@ import { join } from "node:path";
 import type { ElectronApplication } from "playwright-core";
 import { SeatStateMachine } from "../../src/core/term/agent-state";
 import { OPERATOR_DISPLAY, type NestedCanvasFixture } from "../harness/nested-canvas-fixture";
+import { regionCount } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const CHANNEL = "junto:agent-seat-state-changed";
@@ -48,7 +49,7 @@ test("anim census: which animations tick during a seat-event storm", async () =>
   const junto = await launchJunto({ ...OPERATOR_DISPLAY, nestedCanvas: { fixture, name: "factory" } });
   try {
     const { app, page } = junto;
-    await expect(page.locator(".react-flow__node-group")).toHaveCount(fixture.stats.regions, { timeout: 120_000 });
+    await expect.poll(() => regionCount(page), { timeout: 120_000 }).toBe(fixture.stats.regions);
     await send(app, seats.map((s) => { working.set(s.bindingId, true); return machine.force(s.bindingId, "working", "probe:working"); }));
     await page.waitForTimeout(4_000);
 

@@ -17,6 +17,7 @@ import { SeatStateMachine } from "../../src/core/term/agent-state";
 import type { SeatFact } from "../../src/core/term/agent-state/seat-state-machine";
 import type { SeatSignal, SignalSource } from "../../src/shared/harness-domain";
 import { OPERATOR_DISPLAY, type NestedCanvasFixture } from "../harness/nested-canvas-fixture";
+import { regionCount } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const CHANNEL = "junto:agent-seat-state-changed";
@@ -99,7 +100,7 @@ test("seat-event probe: what live seats reporting cost the window", async () => 
   const junto = await launchJunto({ ...OPERATOR_DISPLAY, nestedCanvas: { fixture, name: "factory" } });
   try {
     const { app, page } = junto;
-    await expect(page.locator(".react-flow__node-group")).toHaveCount(fixture.stats.regions, { timeout: 120_000 });
+    await expect.poll(() => regionCount(page), { timeout: 120_000 }).toBe(fixture.stats.regions);
     // Every seat working, as on the operator's board.
     await send(app, seats.map((s) => { working.set(s.bindingId, true); return machine.force(s.bindingId, "working", "probe:working"); }));
     // A measurement arm: a stylesheet laid over the page (PROBE_CSS), never shipped.
