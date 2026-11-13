@@ -98,6 +98,8 @@ type CardSlot = {
   ordered: QuadRef[];
   dim: CardPaint["dim"];
   lift: number;
+  /** The size a live resize is drawing at, until the writer's fact lands. */
+  size?: { readonly width: number; readonly height: number };
 };
 
 const BAND_OF: Readonly<Record<Quad["band"], 0 | 1 | 2>> = { regions: 0, cards: 1, lifted: 2 };
@@ -112,6 +114,16 @@ const compareQuad = (a: Quad, b: Quad): number => {
 
 const sameRect = (a: Rect, b: Rect): boolean =>
   a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+
+/** Two motions with the same tempo and the same one-shot start. */
+const sameMotion = (a: QuadMotion | undefined, b: QuadMotion | undefined): boolean => {
+  if (a === b) return true;
+  if (a === undefined || b === undefined || a.kind !== b.kind) return false;
+  const period = (motion: QuadMotion): number => ("periodMs" in motion ? motion.periodMs : motion.since);
+  const flags = (motion: QuadMotion): string =>
+    "ccw" in motion ? `${motion.ccw === true ? 1 : 0}${motion.fade === true ? 1 : 0}` : "";
+  return period(a) === period(b) && flags(a) === flags(b);
+};
 
 const rectOfFact = (fact: CardFact): Rect => {
   const size = renderedNodeSize(fact.row.kind, fact.row);
@@ -355,7 +367,8 @@ export const createScene = (options: {
       dirtyQuads.add(slot);
     }
     quadSlotsOf.set(card.slot, held);
-    card.ordered = sorted.map((quad) => ({
+    const previous = card.ordered;
+    const ordered = sorted.map((quad) => ({
       key: quad.key,
       slot: card.quads.get(quad.key)!,
       z: quad.z,
@@ -363,11 +376,25 @@ export const createScene = (options: {
       motion: quad.motion,
       tiers: quad.tiers,
     }));
+    card.ordered = ordered;
     card.dim = result.dim;
     card.lift = result.lift;
     writeOwner(card);
     grid.set(card.slot, insetBy(card.rect, 28));
-    markOrder();
+    // A style-only repaint (a seat report, a selection) leaves the order
+    // list alone; a new key, a restack or a band move rewrites it.
+    let orderChanged = previous.length !== ordered.length;
+    if (!orderChanged) {
+      for (let index = 0; index < ordered.length; index += 1) {
+        const a = previous[index]!;
+        const b = ordered[index]!;
+        if (a.slot !== b.slot || a.band !== b.band || a.z !== b.z || a.tiers !== b.tiers || !sameMotion(a.motion, b.motion)) {
+          orderChanged = true;
+          break;
+        }
+      }
+    }
+    if (orderChanged) markOrder();
   };
 
   const viewOf = (fact: CardFact): CardView => {
@@ -410,8 +437,12 @@ export const createScene = (options: {
     const existing = byId.get(fact.id);
     if (existing !== undefined) {
       existing.fact = fact;
+      existing.size = undefined;
       const rect = rectOfFact(fact);
-      if (!sameRect(existing.rect, rect)) existing.rect = rect;
+      if (!sameRect(existing.rect, rect)) {
+        existing.rect = rect;
+        markOrder();
+      }
       repaint(existing);
       return;
     }
@@ -572,17 +603,21 @@ export const createScene = (options: {
   const restoreCard = (id: NodeId): void => {
     const card = byId.get(id);
     if (card === undefined) return;
+    const resized = card.size !== undefined;
+    card.size = undefined;
     moveCard(id, rectOfFact(card.fact));
+    if (resized) paint(card);
   };
 
-  /** A live resize keeps the card's records and moves its owner rectangle. */
+  /** A live resize draws the card at its new size until the writer's fact lands. */
   const resizeCard = (id: NodeId, rect: Rect): void => {
     const card = byId.get(id);
     if (card === undefined) return;
     card.rect = rect;
+    card.size = { width: rect.width, height: rect.height };
     writeOwner(card);
     grid.set(card.slot, insetBy(card.rect, 28));
-    markOrder();
+    paint(card);
   };
 
   /** Cards whose rectangles meet a board rectangle, in paint order (the pointer machine's query). */
@@ -598,6 +633,9 @@ export const createScene = (options: {
   const visibleSlots: number[] = [];
   const visibleCards: CardSlot[] = [];
   const previousOrder: number[] = [];
+  let lastView: Rect = { x: 0, y: 0, width: -1, height: -1 };
+  let lastTier: CanvasTier | undefined;
+  let orderReady = false;
 
   const orderCards = (found: ReadonlyArray<number>): CardSlot[] => {
     const cards: CardSlot[] = [];
@@ -613,6 +651,11 @@ export const createScene = (options: {
   };
 
   const prepare = (view: Rect, tier: CanvasTier): Prepared => {
+    // A still camera and an unchanged scene reuse the list: a turning ring
+    // draws every tick without re-culling the board.
+    if (orderReady && !orderDirty && tier === lastTier && sameRect(view, lastView)) {
+      return { orderChanged: false, visible: orderCount };
+    }
     visibleSlots.length = 0;
     grid.query(insetBy(view, 140), visibleSlots);
     // Fill the reusable visible list, in paint order, without a per-frame array.
@@ -661,6 +704,9 @@ export const createScene = (options: {
       for (let index = 0; index < orderCount; index += 1) previousOrder[index] = order[index]!;
     }
     orderDirty = false;
+    lastView = view;
+    lastTier = tier;
+    orderReady = true;
     return { orderChanged: changed, visible: orderCount };
   };
 

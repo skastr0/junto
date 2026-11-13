@@ -183,8 +183,8 @@ fn styleColour(base: u32, at: u32) -> vec4f {
   let styleOpacity = styles[base + 22u];
   if (ink.a <= 0.0) { ink = fill; }
   if (fillTo.a > 0.0) {
-    let radians = angle * PI2 / 360.0;
-    let dir = vec2f(sin(radians), -cos(radians));
+    let theta = angle * PI2 / 360.0;
+    let dir = vec2f(sin(theta), -cos(theta));
     let t = clamp(dot(in.local, dir) * 0.5 + 0.5, 0.0, 1.0);
     fill = mix(fill, fillTo, t);
   }
@@ -217,9 +217,9 @@ fn styleColour(base: u32, at: u32) -> vec4f {
       let layer = shadowLayers[meta.y + i * 2u];
       let tint = shadowLayers[meta.y + i * 2u + 1u];
       let p = abs(in.local * in.half - vec2f(layer.x, layer.y));
-      let half = in.half + vec2f(layer.w);
-      let r = max(0.0, min(q.radii.x + layer.w, min(half.x, half.y)));
-      let corner = p - half + r;
+      let halfSize = in.half + vec2f(layer.w);
+      let r = max(0.0, min(q.radii.x + layer.w, min(halfSize.x, halfSize.y)));
+      let corner = p - halfSize + r;
       let d = length(max(corner, vec2f(0.0))) + min(max(corner.x, corner.y), 0.0) - r;
       let blur = max(layer.z, 0.5);
       let soft = clamp(0.5 - d / blur, 0.0, 1.0);
@@ -279,7 +279,9 @@ fn styleColour(base: u32, at: u32) -> vec4f {
   if (q.kind >= 2u && q.source != 0xffffffffu) {
     let cell = cells[q.source];
     let uv = mix(cell.xy, cell.zw, in.corner);
-    let tex = textureSample(atlas, atlasSampler, uv);
+    // Level sample: a per-instance branch is not uniform control flow, where
+    // textureSample is not allowed.
+    let tex = textureSampleLevel(atlas, atlasSampler, uv, 0.0);
     if (q.kind == 3u) {
       colour = ink.rgb;
       alpha = tex.r * ink.a * outer;
@@ -466,7 +468,7 @@ export const createRenderer = () => {
       owners: bufferOf(device, Math.max(1, scene.ownerCapacity) * 8 * 4),
       order: bufferOf(device, Math.max(1, scene.orderBuffer.length) * 4),
       uniform: device.createBuffer({ size: uniform.byteLength, usage: BUFFER.UNIFORM | BUFFER.COPY_DST }),
-      cells: bufferOf(device, 16),
+      cells: bufferOf(device, Math.max(16, atlas?.cells.byteLength ?? 16)),
       styles: bufferOf(device, styleFloats(scene) * 4),
       shadowMeta: bufferOf(device, SHADOW_META_CAPACITY * SHADOW_SPEC_WORDS * 4),
       shadowLayers: bufferOf(device, SHADOW_LAYER_CAPACITY * SHADOW_LAYER_FLOATS * 4),
@@ -492,6 +494,10 @@ export const createRenderer = () => {
     }
     scene.takeQuadDirty();
     scene.takeOwnerDirty();
+    if (atlas !== undefined) {
+      device.queue.writeBuffer(next.cells, 0, atlas.cells);
+      note(next, "cells", 0, atlas.cells.byteLength);
+    }
     uploadStyles(next, scene);
   };
 
