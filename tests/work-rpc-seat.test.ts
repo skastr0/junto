@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Result, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Preamble, SeatRead, SeatWait } from "../src/contract/work/seat";
-import { SeatReadArgs, SeatWaitArgs } from "../src/shared/seat-control";
+import { SeatReadRequest, SeatWaitRequest } from "../src/shared/seat-control";
 import { WorkSocketLive, callWorkRpc } from "../src/cli/core/socket";
 import { PreambleArgs, WORK_TOKEN_ENV, encodeWorkFrame } from "../src/shared/work-control";
 import { PREAMBLE_MAX_TEXT_LENGTH, PREAMBLE_TTL_MS, type PreambleEvent } from "../src/shared/preamble";
@@ -211,10 +211,10 @@ describe("the seat contract across the work socket", () => {
 
   it("refuses arguments the contract does not name, in the schema's words as before", async () => {
     for (const args of [{}, { target: PEER, any: true, until: "idle" }, { target: PEER, until: "idle", tone: 1 }, { any: true, until: "soon" }]) {
-      expect((await raw(mine, "seat.wait", args)).error).toEqual(v1Refusal(SeatWaitArgs, args));
+      expect((await raw(mine, "seat.wait", args)).error).toEqual(v1Refusal(SeatWaitRequest, args));
     }
     for (const args of [{}, { brief: true, lines: 3 }, { target: PEER, since: 2 }, { target: PEER, lines: 0 }]) {
-      expect((await raw(mine, "seat.read", args)).error).toEqual(v1Refusal(SeatReadArgs, args));
+      expect((await raw(mine, "seat.read", args)).error).toEqual(v1Refusal(SeatReadRequest, args));
     }
   });
 });

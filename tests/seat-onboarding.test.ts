@@ -41,7 +41,8 @@ describe("onboard guidance", () => {
     expect(text).toContain("Work comes from the operator");
     expect(text).toContain("mail addressed to this seat");
     expect(text).toContain("Do not invent work");
-    expect(text).toContain("Mail a seat by its name or its node id.");
+    expect(text).toContain("Mail a seat by name or node id.");
+    expect(text).toContain("never ask the operator to relaunch");
   });
 
   it("names the three signals and why: the operator reads the feed, not terminals", () => {

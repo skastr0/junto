@@ -11,7 +11,7 @@
 import { Schema } from "effect";
 import { Rpc, RpcGroup } from "effect/rpc";
 import { PreambleArgs } from "../../shared/work-control";
-import { SeatReadArgs, SeatReadBriefResult, SeatReadResult, SeatWaitArgs, SeatWaitResult } from "../../shared/seat-control";
+import { SeatReadBriefView, SeatReadRequest, SeatReadView, SeatWaitRequest, SeatWaitView } from "../../shared/seat-control";
 import { PreambleEventSchema } from "../../shared/preamble";
 import { WorkFailure } from "./failure";
 
@@ -27,12 +27,16 @@ export const PreambleAnswer = Schema.Struct({
   disposition: Schema.Literal("applied"),
 });
 
-/** `seat read` on one seat, with its screen, or `--brief` on every peer, without one. */
-export const SeatReadAnswer = Schema.Union([SeatReadResult, SeatReadBriefResult]);
+/**
+ * `seat read` on one seat, with its screen, or `--brief` on every peer, without one.
+ * Both answer collaboration state only; process and PTY internals ride
+ * `internals`, for an overseer that asks.
+ */
+export const SeatReadAnswer = Schema.Union([SeatReadView, SeatReadBriefView]);
 
 export const Preamble = Rpc.make("preamble", { payload: PreambleArgs, success: PreambleAnswer, error: WorkFailure });
-export const SeatWait = Rpc.make("seat.wait", { payload: SeatWaitArgs, success: SeatWaitResult, error: WorkFailure });
-export const SeatRead = Rpc.make("seat.read", { payload: SeatReadArgs, success: SeatReadAnswer, error: WorkFailure });
+export const SeatWait = Rpc.make("seat.wait", { payload: SeatWaitRequest, success: SeatWaitView, error: WorkFailure });
+export const SeatRead = Rpc.make("seat.read", { payload: SeatReadRequest, success: SeatReadAnswer, error: WorkFailure });
 
 /** Decoded strictly where the core serves it: an argument or an answer field the contract does not name is refused. */
 export const SeatRpcs = RpcGroup.make(Preamble, SeatWait, SeatRead).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });

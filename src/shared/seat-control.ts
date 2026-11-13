@@ -3,6 +3,11 @@ import type { AgentSeatState } from "./agent-seat-state";
 import { Need, SeatSnapshot } from "./harness-domain";
 import { TaskState } from "./work-model";
 import { MailMessageId } from "./crew";
+import {
+  SEAT_COLLABORATION_STATES,
+  SeatCollaborationState,
+  collaborationStateOf,
+} from "./seat-collaboration-state";
 
 // Seat wait/observe wire contract — the shared shapes for work-control ops
 // `seat.wait`, `seat.read` and `tasks.wait`.
@@ -336,6 +341,162 @@ export const SeatReadBriefResult = Schema.Struct({
   withheld: Schema.Number,
 });
 export type SeatReadBriefResult = typeof SeatReadBriefResult.Type;
+
+// ---------------------------------------------------------------------------
+// The seat-facing wire: collaboration state only
+//
+// What `junto seat wait` and `junto seat read` send and answer. A seat is
+// always live and always available, so nothing here reports a process, a PTY
+// stream, a session generation or how sure a screen rule was: a peer sees the
+// seat's collaboration state (seat-collaboration-state.ts), its words on
+// screen, and the mail between the two. The shapes above are the core's own
+// observation; an overseer reads them as `internals` (`seat read --internals`).
+
+/** What a seat wait waits for: a collaboration state, or `replied`. */
+export const SEAT_WAIT_REQUEST_UNTIL = [...SEAT_COLLABORATION_STATES, "replied"] as const;
+export const SeatWaitRequestUntil = Schema.Literals(SEAT_WAIT_REQUEST_UNTIL);
+export type SeatWaitRequestUntil = typeof SeatWaitRequestUntil.Type;
+
+/** `seat wait <seat|--any> --until <state> [--timeout <duration>] [--after <mail>]`. */
+export const SeatWaitRequest = Schema.Struct({
+  target: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)))),
+  any: Schema.optionalKey(Schema.Boolean),
+  until: SeatWaitRequestUntil,
+  timeoutMs: Schema.optionalKey(boundedMs(SEAT_WAIT_MAX_MS)),
+  after: Schema.optionalKey(MailMessageId),
+}).pipe(
+  Schema.check(
+    Schema.makeFilter((args) => {
+      if (args.after !== undefined && args.until !== "replied") return "seat.wait after applies to until: replied";
+      if (args.target !== undefined && args.any === true) return "seat.wait takes exactly one of target or any";
+      if (args.target === undefined && args.any !== true) return "seat.wait requires a target seat or any: true";
+      return true;
+    }),
+  ),
+);
+export type SeatWaitRequest = typeof SeatWaitRequest.Type;
+
+/**
+ * `seat read <seat> [--lines N] [--since <cursor>] [--follow] [--max-seconds S] [--internals]`,
+ * or `seat read --brief`. `since` is the `cursor` a previous read answered,
+ * opaque to the caller.
+ */
+export const SeatReadRequest = Schema.Struct({
+  target: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)))),
+  brief: Schema.optionalKey(Schema.Boolean),
+  lines: Schema.optionalKey(boundedMs(SEAT_READ_MAX_LINES)),
+  since: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)))),
+  follow: Schema.optionalKey(Schema.Boolean),
+  maxSeconds: Schema.optionalKey(boundedMs(SEAT_READ_MAX_SECONDS)),
+  /** Overseer only: add the core's own observation of the seat as `internals`. */
+  internals: Schema.optionalKey(Schema.Boolean),
+}).pipe(
+  Schema.check(
+    Schema.makeFilter((args) => {
+      if (args.brief === true) {
+        if (args.target !== undefined) return "seat.read brief reads every peer and takes no target";
+        if (args.lines !== undefined || args.since !== undefined || args.follow !== undefined ||
+            args.maxSeconds !== undefined || args.internals !== undefined) {
+          return "seat.read brief returns no screen, so it takes no lines, cursor, follow or internals";
+        }
+        return true;
+      }
+      return args.target === undefined ? "seat.read requires a target seat, or brief: true for every peer" : true;
+    }),
+  ),
+);
+export type SeatReadRequest = typeof SeatReadRequest.Type;
+
+/** One seat as a wait answers it. */
+export const SeatWaitView = Schema.Struct({
+  target: Schema.String,
+  state: SeatCollaborationState,
+  at: Schema.Number,
+  reply: Schema.optionalKey(SeatReadMail),
+});
+export type SeatWaitView = typeof SeatWaitView.Type;
+
+/** Why a follow returned: the seat's screen or state moved, or the follow ran out. */
+export const SeatReadViewStopped = Schema.Literals(["advanced", "duration"]);
+export type SeatReadViewStopped = typeof SeatReadViewStopped.Type;
+
+/** One seat as a read answers it. */
+export const SeatReadView = Schema.Struct({
+  target: Schema.String,
+  peer: SeatPeer,
+  state: SeatCollaborationState,
+  /** When the seat entered `state`, ms since epoch, when known. */
+  since: Schema.optionalKey(Schema.Number),
+  /** When the seat last wrote anything to its screen, ms since epoch. */
+  lastActivityAt: Schema.optionalKey(Schema.Number),
+  preamble: Schema.optionalKey(Schema.Struct({ text: Schema.String, expiresAt: Schema.Number })),
+  /** The settled tail of the seat's screen; empty when it shows nothing new. */
+  text: Schema.String,
+  lineCount: Schema.Number,
+  bytes: Schema.Number,
+  truncated: Schema.Boolean,
+  /** Pass back as `--since` to read only what is new. */
+  cursor: Schema.optionalKey(Schema.String),
+  /** With `--follow`: why the follow returned. */
+  stopped: Schema.optionalKey(SeatReadViewStopped),
+  mail: Schema.Array(SeatReadMail),
+  /** Overseer only, with `--internals`: the core's own observation of the seat. */
+  internals: Schema.optionalKey(SeatReadResult),
+});
+export type SeatReadView = typeof SeatReadView.Type;
+
+/** One peer in a brief read. */
+export const SeatBriefView = Schema.Struct({
+  target: Schema.String,
+  peer: SeatPeer,
+  state: SeatCollaborationState,
+  since: Schema.optionalKey(Schema.Number),
+  lastActivityAt: Schema.optionalKey(Schema.Number),
+  preamble: Schema.optionalKey(Schema.Struct({ text: Schema.String, expiresAt: Schema.Number })),
+  mail: Schema.Array(SeatReadMail),
+});
+export type SeatBriefView = typeof SeatBriefView.Type;
+
+export const SeatReadBriefView = Schema.Struct({
+  peers: Schema.Array(SeatBriefView),
+  withheld: Schema.Number,
+});
+export type SeatReadBriefView = typeof SeatReadBriefView.Type;
+
+/** A read's cursor: the observer sequence and the generation it belongs to, opaque to the caller. */
+export const encodeSeatReadCursor = (seq: number, generation: string): string => `${seq}@${generation}`;
+
+export const decodeSeatReadCursor = (
+  cursor: string,
+): { readonly since: number; readonly sinceGeneration: string } | undefined => {
+  const at = cursor.indexOf("@");
+  if (at <= 0) return undefined;
+  const since = Number(cursor.slice(0, at));
+  if (!Number.isInteger(since) || since < 0) return undefined;
+  return { since, sinceGeneration: cursor.slice(at + 1) };
+};
+
+/** The core's observation of one seat, as a peer reads it. */
+export const seatReadViewOf = (observed: SeatReadResult, withInternals: boolean): SeatReadView => {
+  const stopped: SeatReadViewStopped | undefined =
+    observed.stopped === "not-following" ? undefined : observed.stopped === "duration" ? "duration" : "advanced";
+  return {
+    target: observed.target,
+    peer: observed.peer,
+    state: collaborationStateOf({ state: observed.state, need: observed.status?.need }),
+    ...(observed.since === undefined ? {} : { since: observed.since }),
+    ...(observed.lastActivityAt === undefined ? {} : { lastActivityAt: observed.lastActivityAt }),
+    ...(observed.preamble === undefined ? {} : { preamble: observed.preamble }),
+    text: observed.text,
+    lineCount: observed.lineCount,
+    bytes: observed.bytes,
+    truncated: observed.truncated,
+    ...(observed.epoch.length > 0 ? { cursor: encodeSeatReadCursor(observed.seq, observed.epoch) } : {}),
+    ...(stopped === undefined ? {} : { stopped }),
+    mail: observed.mail,
+    ...(withInternals ? { internals: observed } : {}),
+  };
+};
 
 // ---------------------------------------------------------------------------
 // Lowering helpers (CLI input → wire args)

@@ -15,10 +15,12 @@
         "until": {
           "type": "string",
           "enum": [
-            "idle",
-            "attention",
             "working",
-            "gone",
+            "idle",
+            "waiting-on-operator",
+            "blocked",
+            "ready-for-review",
+            "done",
             "replied"
           ]
         },
@@ -50,28 +52,13 @@
         "state": {
           "type": "string",
           "enum": [
-            "idle",
             "working",
-            "attention",
-            "unknown",
-            "gone"
+            "idle",
+            "waiting-on-operator",
+            "blocked",
+            "ready-for-review",
+            "done"
           ]
-        },
-        "reason": {
-          "type": "string"
-        },
-        "confidence": {
-          "type": "string",
-          "enum": [
-            "high",
-            "low"
-          ]
-        },
-        "generation": {
-          "type": "string"
-        },
-        "epoch": {
-          "type": "string"
         },
         "at": {
           "anyOf": [
@@ -169,10 +156,6 @@
       "required": [
         "target",
         "state",
-        "reason",
-        "confidence",
-        "generation",
-        "epoch",
         "at"
       ],
       "additionalProperties": false

@@ -92,7 +92,7 @@ const NODE_EVENTS: Readonly<Record<string, readonly string[]>> = {
     "msg.append — operator or peer messages land in the seat mailbox",
     "msg.list — own inbox marks listed mail read; sent shows peer readAt",
     "msg.react / msg.reply — ack without a reply, or reply",
-    "seat.state — idle/working/attention/unknown/gone derived from the PTY",
+    "seat.state — working, idle, waiting-on-operator, blocked, ready-for-review or done; mail reaches every connected seat",
   ],
   page: [
     "page.load — page session navigation state",

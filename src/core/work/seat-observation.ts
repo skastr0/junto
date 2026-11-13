@@ -64,7 +64,12 @@ import {
   type SeatReadResult,
   type SeatWaitArgs,
   type SeatWaitResult,
+  type SeatBriefView,
+  type SeatReadBriefView,
+  type SeatWaitRequest,
+  type SeatWaitView,
 } from "@shared/seat-control";
+import { collaborationStateOf, type SeatCollaborationState } from "@shared/seat-collaboration-state";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { ObserverGridSnapshot, ObserverGridWindow } from "../term/observer";
 import {
@@ -147,6 +152,17 @@ export type SeatObservation = {
   ) => Effect.Effect<SeatReadResult, WorkErrorBody>;
   /** `seat read --brief`: every connected seat the caller may read, without screens. */
   readonly readPeers: (caller: SeatObservationCaller) => Effect.Effect<SeatReadBriefResult, WorkErrorBody>;
+  /**
+   * `seat wait` as a peer asks it: until the seat's collaboration state is
+   * `until`, or it replied. A seat with nothing observed, or whose process
+   * left, is idle: never unavailable.
+   */
+  readonly waitCollaboration: (
+    args: SeatWaitRequest,
+    caller: SeatObservationCaller,
+  ) => Effect.Effect<SeatWaitView, WorkErrorBody>;
+  /** `seat read --brief` as a peer reads it: collaboration state, preamble and mail. */
+  readonly readPeersView: (caller: SeatObservationCaller) => Effect.Effect<SeatReadBriefView, WorkErrorBody>;
 };
 
 // ---------------------------------------------------------------------------
@@ -203,11 +219,16 @@ const noLiveGrid = (targetId: string): WorkErrorBody => ({
   message: `seat "${targetId}" has no live terminal grid to follow`,
   details: {
     target: targetId,
+    missing: "screen",
     hint: "the seat has no live screen to observe in this generation",
     retryable: true,
     next_step: "start the seat's terminal, then retry the follow",
   },
 });
+
+/** Whether a follow failed only because the seat shows no screen yet: never a reason a peer is unreachable. */
+export const isNoScreenToFollow = (error: WorkErrorBody): boolean =>
+  error.type === "UnknownTarget" && (error.details as { readonly missing?: unknown } | undefined)?.missing === "screen";
 
 // ---------------------------------------------------------------------------
 // Subscription helpers
@@ -729,6 +750,100 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
       }
     });
 
+  /** A seat's collaboration state from one state event; a replaced generation's event says nothing, so idle. */
+  const collaborationOfEvent = (event: AgentSeatStateEvent | undefined): SeatCollaborationState => {
+    const live = event !== undefined && eventIsLive(event.bindingId, event.epoch) ? event : undefined;
+    return collaborationStateOf({ state: live?.state, need: agentSeatStatusOf(live)?.need });
+  };
+
+  const collaborationOf = (target: SeatTarget): SeatCollaborationState =>
+    collaborationOfEvent(seatStateOf(deps.seatStates.current(), target.bindingId));
+
+  const waitCollaboration = (
+    args: SeatWaitRequest,
+    caller: SeatObservationCaller,
+  ): Effect.Effect<SeatWaitView, WorkErrorBody> =>
+    Effect.gen(function* () {
+      if (args.until === "replied") {
+        const replied = yield* waitReply({ ...args, until: "replied" }, caller);
+        const doc = yield* deps.readTopology(caller.canvasName);
+        const node = findNode(doc, replied.target);
+        return {
+          target: replied.target,
+          state: node?.kind === "agent" ? collaborationOf(seatTargetOf(node)) : "idle",
+          at: replied.at,
+          ...(replied.reply === undefined ? {} : { reply: replied.reply }),
+        };
+      }
+      const until = args.until;
+      const timeoutMs = args.timeoutMs ?? SEAT_WAIT_DEFAULT_MS;
+      const deadlineAt = now() + timeoutMs;
+      let last: SeatCollaborationState | undefined;
+
+      type Signal =
+        | { readonly _tag: "matched"; readonly nodeId: string }
+        | { readonly _tag: "canvas" }
+        | { readonly _tag: "deadline" };
+
+      for (;;) {
+        const doc = yield* deps.readTopology(caller.canvasName);
+        const targets = resolveSeatTargets(doc, caller.nodeId, args);
+        if (Result.isFailure(targets)) return yield* Effect.fail(targets.failure);
+        const byBinding = new Map(targets.success.map((target) => [target.bindingId, target] as const));
+        if (targets.success.length === 1) last = collaborationOf(targets.success[0]!);
+
+        const eventSignal: Effect.Effect<Signal, WorkErrorBody> = awaitSelected(
+          deps.seatStates.subscribe,
+          (event: AgentSeatStateEvent) => byBinding.has(event.bindingId) && collaborationOfEvent(event) === until,
+        ).pipe(Effect.map((event): Signal => ({ _tag: "matched", nodeId: byBinding.get(event.bindingId)!.nodeId })));
+        // Runs after the subscription above is registered, so a transition
+        // that landed during registration is still observed.
+        const currentSignal: Effect.Effect<Signal, WorkErrorBody> = Effect.suspend(() => {
+          const match = targets.success.find((target) => collaborationOf(target) === until);
+          return match === undefined ? Effect.never : Effect.succeed<Signal>({ _tag: "matched", nodeId: match.nodeId });
+        });
+        const canvasSignal: Effect.Effect<Signal, WorkErrorBody> = awaitSelected(
+          deps.subscribeCanvasChanges,
+          (name: string) => name === caller.canvasName,
+        ).pipe(Effect.map((): Signal => ({ _tag: "canvas" })));
+        // A grant removed between the read above and the subscription fails
+        // closed now rather than at the deadline.
+        const recheck: Effect.Effect<Signal, WorkErrorBody> = Effect.suspend(() =>
+          Effect.gen(function* () {
+            const fresh = resolveSeatTargets(yield* deps.readTopology(caller.canvasName), caller.nodeId, args);
+            if (Result.isFailure(fresh)) return yield* Effect.fail(fresh.failure);
+            if (sameSeatTargets(targets.success, fresh.success)) return yield* (Effect.never as Effect.Effect<Signal, WorkErrorBody>);
+            return { _tag: "canvas" } as Signal;
+          }),
+        );
+        const deadlineSignal: Effect.Effect<Signal, WorkErrorBody> = sleepUntil(deadlineAt, now).pipe(
+          Effect.map((): Signal => ({ _tag: "deadline" })),
+        );
+
+        const signal = yield* Effect.raceFirst(
+          Effect.raceFirst(eventSignal, currentSignal),
+          Effect.raceFirst(canvasSignal, Effect.raceFirst(recheck, deadlineSignal)),
+        );
+        if (signal._tag === "deadline") {
+          return yield* Effect.fail(
+            timeoutError({
+              target: args.target ?? "any",
+              from: last,
+              to: until,
+              waitedMs: timeoutMs,
+              hint: last === undefined ? `no authorized seat was ${until}` : `the seat stayed ${last}`,
+            }),
+          );
+        }
+        if (signal._tag === "canvas") continue;
+        // Answer only under a grant that still holds.
+        const fresh = resolveSeatTargets(yield* deps.readTopology(caller.canvasName), caller.nodeId, args);
+        if (Result.isFailure(fresh)) return yield* Effect.fail(fresh.failure);
+        if (!fresh.success.some((target) => target.nodeId === signal.nodeId)) continue;
+        return { target: signal.nodeId, state: until, at: now() };
+      }
+    });
+
   /** The newest mail between caller and peer, both ways, newest first. */
   const mailBetween = (
     caller: SeatObservationCaller,
@@ -771,6 +886,56 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
   const readPeers = (
     caller: SeatObservationCaller,
   ): Effect.Effect<SeatReadBriefResult, WorkErrorBody> =>
+    collectPeers(caller, (target, live, status, mail) => {
+      const since = live === undefined ? undefined : (status?.snapshot.since ?? live.at);
+      const lastActivityAt = deps.lastOutputAt?.(target.bindingId);
+      const preamble = deps.preambleOf?.(caller.canvasName, target.nodeId);
+      return {
+        target: target.nodeId,
+        peer: target.peer,
+        state: live?.state ?? (seatExited(target.bindingId) ? "gone" : "unknown"),
+        reason: live?.reason ?? "no_seat_state",
+        confidence: live?.confidence ?? "low",
+        ...(since === undefined ? {} : { since }),
+        ...(lastActivityAt === undefined ? {} : { lastActivityAt }),
+        ...(status === undefined ? {} : { summary: describeSeatStatus(status.snapshot) }),
+        ...(preamble === undefined ? {} : { preamble: { text: preamble.text, expiresAt: preamble.expiresAt } }),
+        mail,
+      } satisfies SeatBrief;
+    });
+
+  const readPeersView = (
+    caller: SeatObservationCaller,
+  ): Effect.Effect<SeatReadBriefView, WorkErrorBody> =>
+    collectPeers(caller, (target, live, status, mail) => {
+      const since = live === undefined ? undefined : (status?.snapshot.since ?? live.at);
+      const lastActivityAt = deps.lastOutputAt?.(target.bindingId);
+      const preamble = deps.preambleOf?.(caller.canvasName, target.nodeId);
+      return {
+        target: target.nodeId,
+        peer: target.peer,
+        state: collaborationStateOf({ state: live?.state, need: status?.need }),
+        ...(since === undefined ? {} : { since }),
+        ...(lastActivityAt === undefined ? {} : { lastActivityAt }),
+        ...(preamble === undefined ? {} : { preamble: { text: preamble.text, expiresAt: preamble.expiresAt } }),
+        mail,
+      } satisfies SeatBriefView;
+    });
+
+  /**
+   * Every connected seat the caller may read, in canvas order, each as `make`
+   * shapes it. A connected seat the caller's edge does not grant reading is
+   * left out and counted, never named.
+   */
+  const collectPeers = <P extends { readonly target: string }>(
+    caller: SeatObservationCaller,
+    make: (
+      target: ReadTarget,
+      live: AgentSeatStateEvent | undefined,
+      status: ReturnType<typeof agentSeatStatusOf>,
+      mail: ReadonlyArray<SeatReadMail>,
+    ) => P,
+  ): Effect.Effect<{ readonly peers: ReadonlyArray<P>; readonly withheld: number }, WorkErrorBody> =>
     Effect.gen(function* () {
       const authorized = (doc: Canvas): { readonly targets: ReadonlyArray<ReadTarget>; readonly withheld: number } => {
         const targets: ReadTarget[] = [];
@@ -784,26 +949,11 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
         return { targets, withheld };
       };
       const first = authorized(yield* deps.readTopology(caller.canvasName));
-      const peers: SeatBrief[] = [];
+      const peers: P[] = [];
       for (const target of first.targets) {
         const event = seatStateOf(deps.seatStates.current(), target.bindingId);
         const live = event !== undefined && eventIsLive(target.bindingId, event.epoch) ? event : undefined;
-        const status = agentSeatStatusOf(live);
-        const since = live === undefined ? undefined : (status?.snapshot.since ?? live.at);
-        const lastActivityAt = deps.lastOutputAt?.(target.bindingId);
-        const preamble = deps.preambleOf?.(caller.canvasName, target.nodeId);
-        peers.push({
-          target: target.nodeId,
-          peer: target.peer,
-          state: live?.state ?? (seatExited(target.bindingId) ? "gone" : "unknown"),
-          reason: live?.reason ?? "no_seat_state",
-          confidence: live?.confidence ?? "low",
-          ...(since === undefined ? {} : { since }),
-          ...(lastActivityAt === undefined ? {} : { lastActivityAt }),
-          ...(status === undefined ? {} : { summary: describeSeatStatus(status.snapshot) }),
-          ...(preamble === undefined ? {} : { preamble: { text: preamble.text, expiresAt: preamble.expiresAt } }),
-          mail: yield* mailBetween(caller, target.nodeId),
-        });
+        peers.push(make(target, live, agentSeatStatusOf(live), yield* mailBetween(caller, target.nodeId)));
       }
       // Answer only for seats still readable once everything was read.
       const still = new Set(authorized(yield* deps.readTopology(caller.canvasName)).targets.map((target) => target.nodeId));
@@ -1066,7 +1216,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
       }
     });
 
-  return { waitSeat, readSeat, readPeers };
+  return { waitSeat, readSeat, readPeers, waitCollaboration, readPeersView };
 };
 
 /** Why a timeout reports what it does, including an untrusted stale event. */

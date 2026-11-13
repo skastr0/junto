@@ -24,10 +24,10 @@ describe("seat wait lowering", () => {
   });
 
   it("lowers --any and a spoken duration", () => {
-    const lowered = lowerSeatWait({ seat: undefined, any: true, until: "gone", timeout: "600s" });
+    const lowered = lowerSeatWait({ seat: undefined, any: true, until: "blocked", timeout: "600s" });
     expect(lowered.ok).toBe(true);
     if (!lowered.ok) return;
-    expect(lowered.args).toEqual({ any: true, until: "gone", timeoutMs: SEAT_WAIT_MAX_MS });
+    expect(lowered.args).toEqual({ any: true, until: "blocked", timeoutMs: SEAT_WAIT_MAX_MS });
     expect(lowered.socketTimeoutMs).toBe(SEAT_WAIT_MAX_MS + 5_000);
   });
 
@@ -36,8 +36,9 @@ describe("seat wait lowering", () => {
     expect(both.ok).toBe(false);
     const neither = lowerSeatWait({ seat: undefined, any: false, until: "idle", timeout: undefined });
     expect(neither.ok).toBe(false);
-    const unknown = lowerSeatWait({ seat: "peer", any: false, until: "done", timeout: undefined });
-    expect(unknown.ok).toBe(false);
+    for (const internal of ["gone", "attention", "unknown"]) {
+      expect(lowerSeatWait({ seat: "peer", any: false, until: internal, timeout: undefined }).ok, internal).toBe(false);
+    }
     const oversize = lowerSeatWait({ seat: "peer", any: false, until: "idle", timeout: "601s" });
     expect(oversize.ok).toBe(false);
     if (!oversize.ok) expect(oversize.error.message).toContain("capped at 600s");
@@ -50,7 +51,6 @@ describe("seat read lowering", () => {
       seat: "peer",
       lines: 200,
       since: undefined,
-      sinceGeneration: undefined,
       follow: false,
       maxSeconds: undefined,
     });
@@ -60,12 +60,11 @@ describe("seat read lowering", () => {
     expect(lowered.socketTimeoutMs).toBeGreaterThanOrEqual(30_000);
   });
 
-  it("lowers a follow with a cursor and keeps the generation with the sequence", () => {
+  it("lowers a follow with the opaque cursor a previous read answered", () => {
     const lowered = lowerSeatRead({
       seat: "peer",
       lines: 40,
-      since: "12",
-      sinceGeneration: "e1",
+      since: "12@e1",
       follow: true,
       maxSeconds: "5",
     });
@@ -74,8 +73,7 @@ describe("seat read lowering", () => {
     expect(lowered.args).toEqual({
       target: "peer",
       lines: 40,
-      since: 12,
-      sinceGeneration: "e1",
+      since: "12@e1",
       follow: true,
       maxSeconds: 5,
     });
@@ -87,7 +85,6 @@ describe("seat read lowering", () => {
       seat: "peer",
       lines: undefined,
       since: undefined,
-      sinceGeneration: undefined,
       follow: true,
       maxSeconds: "5",
     });
@@ -101,7 +98,6 @@ describe("seat read lowering", () => {
       seat: "peer",
       lines: undefined,
       since: undefined,
-      sinceGeneration: undefined,
       follow: true,
       maxSeconds: "5m",
     });
@@ -114,8 +110,7 @@ describe("seat read lowering", () => {
           seat: "peer",
           lines: undefined,
           since: undefined,
-          sinceGeneration: undefined,
-          follow: true,
+              follow: true,
           maxSeconds: rejected,
         }).ok,
         rejected,
@@ -123,23 +118,21 @@ describe("seat read lowering", () => {
     }
   });
 
-  it("refuses a cursor without its generation, a bare max-seconds and an over-long follow", () => {
-    const noGeneration = lowerSeatRead({
+  it("refuses an empty cursor, a bare max-seconds and an over-long follow", () => {
+    const empty = lowerSeatRead({
       seat: "peer",
       lines: undefined,
-      since: "12",
-      sinceGeneration: undefined,
+      since: " ",
       follow: false,
       maxSeconds: undefined,
     });
-    expect(noGeneration.ok).toBe(false);
-    if (!noGeneration.ok) expect(noGeneration.error.path).toBe("since");
+    expect(empty.ok).toBe(false);
+    if (!empty.ok) expect(empty.error.path).toBe("since");
 
     const strayMax = lowerSeatRead({
       seat: "peer",
       lines: undefined,
       since: undefined,
-      sinceGeneration: undefined,
       follow: false,
       maxSeconds: "5",
     });
@@ -149,7 +142,6 @@ describe("seat read lowering", () => {
       seat: "peer",
       lines: undefined,
       since: undefined,
-      sinceGeneration: undefined,
       follow: true,
       maxSeconds: `${SEAT_READ_MAX_SECONDS + 1}s`,
     });
@@ -159,7 +151,6 @@ describe("seat read lowering", () => {
       seat: "peer",
       lines: 5_000,
       since: undefined,
-      sinceGeneration: undefined,
       follow: false,
       maxSeconds: undefined,
     });

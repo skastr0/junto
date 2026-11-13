@@ -169,6 +169,52 @@ describe("seat read names the peer", () => {
   });
 });
 
+describe("a peer sees collaboration state, never process or PTY liveness", () => {
+  const INTERNAL_KEYS = ["reason", "confidence", "epoch", "generation", "replaced", "seq", "status"];
+
+  it("reads a seat with no terminal as idle, with nothing that says gone", async () => {
+    const read = await call("agent", "seat.read", { target: "peer", lines: 8 });
+    expect(read.ok).toBe(true);
+    expect(read.data.state).toBe("idle");
+    expect(read.data.text).toBe("");
+    for (const key of [...INTERNAL_KEYS, "stopped", "internals"]) expect(read.data, key).not.toHaveProperty(key);
+    expect(JSON.stringify(read.data)).not.toMatch(/gone|no_live_grid|not-following/u);
+  });
+
+  it("answers a follow on a seat with no screen at once instead of refusing it", async () => {
+    const read = await call("agent", "seat.read", { target: "peer", follow: true, maxSeconds: 1 });
+    expect(read.ok).toBe(true);
+    expect(read.data.state).toBe("idle");
+  });
+
+  it("reads a working seat as working, with an opaque cursor that reads only what is new", async () => {
+    seatStateRuntime.machine.bind("bind-peer", { harness: "claude", epoch: "e1" });
+    seatStateRuntime.machine.force("bind-peer", "working", "test_working");
+    terminalObserverPlane.attach({ bindingId: "bind-peer", epoch: "e1", cols: 80, rows: 24 });
+    terminalObserverPlane.feed("bind-peer", "hello\r\n", 1n);
+    const read = await call("agent", "seat.read", { target: "peer" });
+    expect(read.data.state).toBe("working");
+    for (const key of INTERNAL_KEYS) expect(read.data, key).not.toHaveProperty(key);
+    expect(typeof read.data.cursor).toBe("string");
+    const again = await call("agent", "seat.read", { target: "peer", since: read.data.cursor });
+    expect(again.ok).toBe(true);
+    expect(again.data.text).toBe("");
+  });
+
+  it("waits on idle for a seat whose process is not running, and answers at once", async () => {
+    const waited = await call("agent", "seat.wait", { target: "peer", until: "idle", timeoutMs: 2_000 });
+    expect(waited.ok).toBe(true);
+    expect(waited.data).toEqual({ target: "peer", state: "idle", at: expect.any(Number) });
+  });
+
+  it("keeps the harness internals for an overseer: a seat asking for them is refused", async () => {
+    const read = await call("agent", "seat.read", { target: "peer", internals: true });
+    expect(read.ok).toBe(false);
+    expect(read.error.type).toBe("ScopeError");
+    expect(read.error.details.missing).toBe("overseer");
+  });
+});
+
 describe("seat read gives the peer's live preamble", () => {
   it("carries the peer's own last preamble, and none for a seat that said nothing", async () => {
     expect((await call("agent", "seat.read", { target: "peer" })).data.preamble).toBeUndefined();
@@ -248,7 +294,7 @@ describe("seat wait --until replied", () => {
     const replyId = await send("peer", "agent", "here is the answer");
     const answered = await waiting;
     expect(answered.ok).toBe(true);
-    expect(answered.data).toMatchObject({ target: "peer", reason: "replied" });
+    expect(answered.data).toMatchObject({ target: "peer", state: "idle" });
     expect(answered.data.reply).toMatchObject({ messageId: replyId, direction: "received", gist: "here is the answer" });
   });
 

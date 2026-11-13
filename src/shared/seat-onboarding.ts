@@ -436,7 +436,7 @@ const WORK_SOURCE_LINE = TASKS_ENABLED
  * `junto docs` away.
  */
 export const ONBOARD_GUIDANCE: ReadonlyArray<string> = [
-  "You are a seat on a Junto canvas, a workspace the operator draws. Your region is your reach: the resources under `reach` are there for you to use, and edges join you to the seats under `connected`. Run only the commands under `commands`. Mail a seat by its name or its node id.",
+  "You are a seat on a Junto canvas, a workspace the operator draws. Your region is your reach: the resources under `reach` are there for you to use, and edges join you to the seats under `connected`. Run only the commands under `commands`. Mail a seat by name or node id. Every seat under `connected` is always reachable: never ask the operator to relaunch one.",
   WORK_SOURCE_LINE,
   "Report through `junto feedback \"...\"` (ready for review), `junto blocked \"...\"` (cannot continue; stop and wait) and `junto escalate \"...\"` (needs attention; keep working). The operator reads that feed, not your terminal.",
   "When findings are ready but work remains, post `junto feedback` and keep working.",

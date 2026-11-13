@@ -8,10 +8,11 @@ import {
   SEAT_READ_MAX_SECONDS,
   SEAT_WAIT_DEFAULT_MS,
   SEAT_WAIT_MAX_MS,
+  SEAT_WAIT_REQUEST_UNTIL,
   socketTimeoutFor,
-  type SeatReadArgs,
-  type SeatWaitArgs,
-  type SeatWaitUntil,
+  type SeatReadRequest,
+  type SeatWaitRequest,
+  type SeatWaitRequestUntil,
 } from "../../shared/seat-control";
 import {
   TASK_WAIT_DEFAULT_MS,
@@ -30,13 +31,7 @@ import { callWorkRpc } from "../core/socket";
 const toUndefined = <A>(value: Option.Option<A>) =>
   Option.isSome(value) ? value.value : undefined;
 
-const SEAT_WAIT_UNTIL: ReadonlyArray<SeatWaitUntil> = [
-  "idle",
-  "attention",
-  "working",
-  "gone",
-  "replied",
-];
+const SEAT_WAIT_UNTIL: ReadonlyArray<SeatWaitRequestUntil> = SEAT_WAIT_REQUEST_UNTIL;
 
 const seatUntilFlag = Flag.String("until").pipe(
   Flag.withDescription(`State to wait for (${SEAT_WAIT_UNTIL.join(" | ")})`),
@@ -131,7 +126,7 @@ export const lowerSeatWait = (input: {
   readonly until: string;
   readonly timeout: string | undefined;
   readonly after?: string | undefined;
-}): Lowered<SeatWaitArgs> => {
+}): Lowered<SeatWaitRequest> => {
   if (input.seat !== undefined && input.any) {
     return {
       ok: false,
@@ -179,7 +174,7 @@ export const lowerSeatWait = (input: {
     ok: true,
     args: {
       ...(input.seat !== undefined ? { target: input.seat } : { any: true }),
-      until: input.until as SeatWaitUntil,
+      until: input.until as SeatWaitRequestUntil,
       timeoutMs: parsedTimeout.ms,
       ...(input.after !== undefined ? { after: input.after } : {}),
     },
@@ -188,18 +183,19 @@ export const lowerSeatWait = (input: {
 };
 
 /**
- * Lower `seat read <seat> [--lines N] [--since <seq> --since-generation <g>]
- * [--follow --max-seconds S]` onto the wire.
+ * Lower `seat read <seat> [--lines N] [--since <cursor>] [--follow --max-seconds S]
+ * [--internals]` onto the wire. `--since` takes the `cursor` a previous read
+ * answered, as it was printed.
  */
 export const lowerSeatRead = (input: {
   readonly seat: string | undefined;
   readonly lines: number | undefined;
   readonly since: string | undefined;
-  readonly sinceGeneration: string | undefined;
   readonly follow: boolean;
   readonly maxSeconds: string | undefined;
   readonly brief?: boolean;
-}): Lowered<SeatReadArgs> => {
+  readonly internals?: boolean;
+}): Lowered<SeatReadRequest> => {
   if (input.brief === true) {
     if (input.seat !== undefined) {
       return {
@@ -211,8 +207,8 @@ export const lowerSeatRead = (input: {
         }),
       };
     }
-    if (input.lines !== undefined || input.since !== undefined || input.sinceGeneration !== undefined ||
-        input.follow || input.maxSeconds !== undefined) {
+    if (input.lines !== undefined || input.since !== undefined || input.follow ||
+        input.maxSeconds !== undefined || input.internals === true) {
       return {
         ok: false,
         error: new InputError({
@@ -234,31 +230,16 @@ export const lowerSeatRead = (input: {
     };
   }
   const seat = input.seat;
-  if (input.since !== undefined && input.sinceGeneration === undefined) {
+  const since = input.since?.trim();
+  if (since !== undefined && since.length === 0) {
     return {
       ok: false,
       error: new InputError({
-        message: "--since requires --since-generation",
+        message: "--since takes the cursor a previous seat read answered",
         path: "since",
-        hint: "an observer sequence belongs to one generation",
-        next_step: "copy both from the previous seat read result",
+        next_step: `junto seat read ${seat}`,
       }),
     };
-  }
-  let sinceValue: number | undefined;
-  if (input.since !== undefined) {
-    const parsed = parseWaitFor(input.since);
-    if (!parsed.ok || !Number.isInteger(parsed.ms) || parsed.ms < 0) {
-      return {
-        ok: false,
-        error: new InputError({
-          message: "--since must be an observer sequence (a whole number)",
-          path: "since",
-          received: input.since,
-        }),
-      };
-    }
-    sinceValue = parsed.ms;
   }
   if (
     input.lines !== undefined &&
@@ -295,12 +276,10 @@ export const lowerSeatRead = (input: {
     args: {
       target: seat,
       ...(input.lines !== undefined ? { lines: input.lines } : {}),
-      ...(sinceValue !== undefined ? { since: sinceValue } : {}),
-      ...(input.sinceGeneration !== undefined
-        ? { sinceGeneration: input.sinceGeneration }
-        : {}),
+      ...(since !== undefined ? { since } : {}),
       ...(input.follow ? { follow: true } : {}),
       ...(input.follow ? { maxSeconds: parsedMax.ms / 1_000 } : {}),
+      ...(input.internals === true ? { internals: true } : {}),
     },
     socketTimeoutMs: socketTimeoutFor(budgetMs),
   };
@@ -374,7 +353,7 @@ const seatWaitCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Wait for a seat to reach a state, or with --until replied for its mail to you (grant seat.wait). Bounded: returns the observed state, reason, confidence and generation (and the reply), or a typed timeout.",
+    "Wait for a seat to reach a collaboration state (idle, working, waiting-on-operator, blocked, ready-for-review, done), or with --until replied for its mail to you (grant seat.wait). Bounded: returns the state (and the reply), or a typed timeout. Every connected seat is reachable: mail it, whatever its state.",
   ),
 );
 
@@ -399,20 +378,12 @@ const seatReadCommand = Command.make(
     ),
     since: Flag.String("since").pipe(
       Flag.optional,
-      Flag.withDescription(
-        "Observer sequence the caller last saw; pair with --since-generation",
-      ),
-    ),
-    sinceGeneration: Flag.String("since-generation").pipe(
-      Flag.optional,
-      Flag.withDescription(
-        "Generation --since was observed in; required with --since, and a different current generation is reported as replaced",
-      ),
+      Flag.withDescription("The cursor a previous read answered: return only what is new since it"),
     ),
     follow: Flag.Boolean("follow").pipe(
       Flag.withDefault(false),
       Flag.withDescription(
-        "Hold until the settled grid advances past the cursor, the generation is replaced, or --max-seconds elapses",
+        "Hold until the seat's screen or state moves past the cursor, or --max-seconds elapses",
       ),
     ),
     maxSeconds: Flag.String("max-seconds").pipe(
@@ -421,8 +392,12 @@ const seatReadCommand = Command.make(
         `Bounded follow as seconds or a duration (max ${SEAT_READ_MAX_SECONDS}, default ${SEAT_READ_DEFAULT_FOLLOW_SECONDS})`,
       ),
     ),
+    internals: Flag.Boolean("internals").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription("Overseer only: add the harness and process internals the core observes"),
+    ),
   },
-  ({ seat, brief, lines, since, sinceGeneration, follow, maxSeconds }) =>
+  ({ seat, brief, lines, since, follow, maxSeconds, internals }) =>
     executeJsonCommand(
       "seat read",
       Effect.gen(function* () {
@@ -431,9 +406,9 @@ const seatReadCommand = Command.make(
           brief,
           lines: toUndefined(lines),
           since: toUndefined(since),
-          sinceGeneration: toUndefined(sinceGeneration),
           follow,
           maxSeconds: toUndefined(maxSeconds),
+          internals,
         });
         if (!lowered.ok) return yield* Effect.fail(lowered.error);
         return yield* callWorkRpc(SeatRead, lowered.args, lowered.socketTimeoutMs);
@@ -441,7 +416,7 @@ const seatReadCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Read a seat in one call (grant terminal.read): who it is, its state and since when, its live preamble, recent mail between you, and a bounded window of its settled terminal grid. Read-only: no input, resize, or signal. --follow holds until the grid advances; --brief reads every peer without screens.",
+    "Read a seat in one call (grant terminal.read): who it is, its collaboration state and since when, its preamble, recent mail between you, and the settled tail of its screen. Read-only. Every connected seat is reachable: mail it, whatever its state. --follow holds until the screen moves; --brief reads every peer without screens.",
   ),
 );
 

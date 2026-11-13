@@ -52,23 +52,28 @@ fn max_seconds(raw: Option<&str>) -> Result<u64> {
     Ok(ms / 1_000)
 }
 
-/// A state a wait answers on.
+/// A collaboration state a wait answers on (src/shared/seat-collaboration-state.ts),
+/// or `replied`. Never a process or PTY state: every connected seat is reachable.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "kebab-case")]
 pub enum SeatUntil {
-    Idle,
-    Attention,
     Working,
-    Gone,
+    Idle,
+    WaitingOnOperator,
+    Blocked,
+    ReadyForReview,
+    Done,
     Replied,
 }
 
 impl SeatUntil {
-    const ALL: [(&'static str, SeatUntil); 5] = [
-        ("idle", SeatUntil::Idle),
-        ("attention", SeatUntil::Attention),
+    const ALL: [(&'static str, SeatUntil); 7] = [
         ("working", SeatUntil::Working),
-        ("gone", SeatUntil::Gone),
+        ("idle", SeatUntil::Idle),
+        ("waiting-on-operator", SeatUntil::WaitingOnOperator),
+        ("blocked", SeatUntil::Blocked),
+        ("ready-for-review", SeatUntil::ReadyForReview),
+        ("done", SeatUntil::Done),
         ("replied", SeatUntil::Replied),
     ];
 
@@ -112,14 +117,16 @@ pub struct ReadArgs {
     brief: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     lines: Option<i64>,
+    /// The opaque cursor a previous read answered.
     #[serde(skip_serializing_if = "Option::is_none")]
-    since: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    since_generation: Option<String>,
+    since: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     follow: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_seconds: Option<u64>,
+    /// Overseer only: the core's own observation of the seat.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    internals: Option<bool>,
 }
 
 ops! {
@@ -184,8 +191,8 @@ fn lower_wait(flags: Wait) -> Result<Lowered<WaitArgs>> {
     })
 }
 
-/// lowerSeatRead: `seat read <seat> [--lines] [--since --since-generation]
-/// [--follow --max-seconds]`, or `seat read --brief`.
+/// lowerSeatRead: `seat read <seat> [--lines] [--since <cursor>]
+/// [--follow --max-seconds] [--internals]`, or `seat read --brief`.
 fn lower_read(flags: Read) -> Result<Lowered<ReadArgs>> {
     if flags.brief {
         if flags.seat.is_some() {
@@ -197,9 +204,9 @@ fn lower_read(flags: Read) -> Result<Lowered<ReadArgs>> {
         }
         let windowed = flags.lines.is_some()
             || flags.since.is_some()
-            || flags.since_generation.is_some()
             || flags.follow
-            || flags.max_seconds.is_some();
+            || flags.max_seconds.is_some()
+            || flags.internals;
         if windowed {
             return Err(Failure::input(
                 "seat read --brief returns no screen, so it takes no --lines, --since or --follow",
@@ -212,9 +219,9 @@ fn lower_read(flags: Read) -> Result<Lowered<ReadArgs>> {
                 brief: Some(true),
                 lines: None,
                 since: None,
-                since_generation: None,
                 follow: None,
                 max_seconds: None,
+                internals: None,
             },
             socket: socket_timeout(SEAT_READ_DEFAULT_TIMEOUT_MS),
         });
@@ -226,26 +233,14 @@ fn lower_read(flags: Read) -> Result<Lowered<ReadArgs>> {
         )
         .and("next_step", "junto seat read <seat>"));
     };
-    if flags.since.is_some() && flags.since_generation.is_none() {
-        return Err(
-            Failure::input("--since requires --since-generation", "since")
-                .and("hint", "an observer sequence belongs to one generation")
-                .and("next_step", "copy both from the previous seat read result"),
-        );
+    let since = flags.since.map(|raw| raw.trim().to_string());
+    if since.as_deref() == Some("") {
+        return Err(Failure::input(
+            "--since takes the cursor a previous seat read answered",
+            "since",
+        )
+        .and("next_step", format!("junto seat read {target}")));
     }
-    let since = flags
-        .since
-        .as_deref()
-        .map(|raw| {
-            parse_wait_for(raw).map_err(|_| {
-                Failure::input(
-                    "--since must be an observer sequence (a whole number)",
-                    "since",
-                )
-                .and("received", raw)
-            })
-        })
-        .transpose()?;
     if let Some(lines) = flags
         .lines
         .filter(|n| !(1..=SEAT_READ_MAX_LINES).contains(n))
@@ -274,9 +269,9 @@ fn lower_read(flags: Read) -> Result<Lowered<ReadArgs>> {
             brief: None,
             lines: flags.lines,
             since,
-            since_generation: flags.since_generation,
             follow: flags.follow.then_some(true),
             max_seconds: flags.follow.then_some(seconds),
+            internals: flags.internals.then_some(true),
         },
         socket: socket_timeout(budget_ms),
     })
@@ -311,12 +306,12 @@ struct Read {
     lines: Option<i64>,
     #[arg(long)]
     since: Option<String>,
-    #[arg(long = "since-generation")]
-    since_generation: Option<String>,
     #[arg(long)]
     follow: bool,
     #[arg(long = "max-seconds")]
     max_seconds: Option<String>,
+    #[arg(long)]
+    internals: bool,
 }
 
 #[derive(Subcommand)]
@@ -374,9 +369,9 @@ mod tests {
             brief: false,
             lines: Some(5),
             since: None,
-            since_generation: None,
             follow: true,
             max_seconds: None,
+            internals: false,
         };
         assert_eq!(
             wire_of(lower_read(read)),
@@ -387,9 +382,9 @@ mod tests {
             brief: true,
             lines: None,
             since: None,
-            since_generation: None,
             follow: false,
             max_seconds: None,
+            internals: false,
         };
         assert_eq!(wire_of(lower_read(brief)), r#"[{"brief":true},35000]"#);
     }
