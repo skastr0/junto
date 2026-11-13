@@ -780,4 +780,11 @@ export interface CanvasTestHook {
   readonly settled: () => boolean;
   readonly tier: () => CanvasTier;
   readonly stats: () => EngineStats;
+  /**
+   * The seat's ring angle in degrees, 0 to 360, as last drawn — the value the
+   * DOM ring's `rotate()` shows at the same instant (section 10's phase
+   * test). Absent until the engine exposes it; undefined when the seat has
+   * no turning ring.
+   */
+  readonly ringAngle?: (id: NodeId) => number | undefined;
 }
