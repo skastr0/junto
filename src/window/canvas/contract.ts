@@ -242,6 +242,8 @@ export type SelectionFact = {
     readonly rootId: NodeId;
     readonly memberIds: ReadonlyArray<NodeId>;
     readonly leadIds: ReadonlyArray<NodeId>;
+    /** The wires in the cone (`impact-edge-in`); absent: wires with both ends among the members. */
+    readonly wireIds?: ReadonlyArray<WireId>;
   };
   /** The card holding keyboard focus (the cyan outline). */
   readonly focusedNodeId?: NodeId;
@@ -261,9 +263,11 @@ export type WireRouteFact = {
   readonly id: WireId;
   readonly sourceSide: HandleSide;
   readonly targetSide: HandleSide;
-  /** Where the plan met each card: the side's midpoint, pair lane applied. */
+  /** Where the plan met each card: the side's midpoint with the pair lane applied. */
   readonly source: Point;
   readonly target: Point;
+  /** The pair lane's shift at each end, already in `source` and `target` (zero when none). */
+  readonly lane: { readonly source: Point; readonly target: Point };
   /** The route, source to target; absent: the engine draws the fallback elbow between the anchors. */
   readonly points?: ReadonlyArray<Point>;
   /** One of a cable (three or more wires on one handle): hit within 3 units, not 20. */

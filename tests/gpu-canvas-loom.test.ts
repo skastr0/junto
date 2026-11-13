@@ -123,6 +123,9 @@ describe("the loom planner", () => {
     );
     const facts = byId(update.set);
     expect(facts.get("up")!.source.y).not.toBe(facts.get("down")!.source.y);
+    // The lane is carried, so the engine can tell a stale plan from a live one.
+    expect(facts.get("up")!.lane.source).toEqual({ x: 0, y: -7 });
+    expect(facts.get("down")!.lane.source).toEqual({ x: 0, y: 7 });
   });
 
   it("does not treat a region as furniture to route around", () => {

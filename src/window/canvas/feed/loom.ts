@@ -21,7 +21,7 @@ import type { Node, Side } from "@shared/model";
 import type { WireDirection } from "@shared/wire-route";
 import { routeWire } from "@shared/wire-route";
 import type { Point, SceneOp, WireId, WireRouteFact } from "../contract";
-import { routesForTick, routesOwedWithCause, type LoomRoute } from "../../lib/loom-view";
+import { routesForTick, routesOwedWithCause, type LoomLane, type LoomRoute } from "../../lib/loom-view";
 import { planLoom, stitchStrand, type LoomEdgeInput, type LoomStrand } from "../../lib/wire-loom";
 import {
   buildInputs,
@@ -71,6 +71,7 @@ export type LoomPlanner = {
 };
 
 const NOT_DRAGGING: ReadonlySet<string> = new Set();
+const NO_SHIFT: Point = { x: 0, y: 0 };
 
 const point = (p: Point): Point => ({ x: p.x, y: p.y });
 
@@ -91,6 +92,10 @@ const sameFact = (a: WireRouteFact, b: WireRouteFact): boolean =>
   a.source.y === b.source.y &&
   a.target.x === b.target.x &&
   a.target.y === b.target.y &&
+  a.lane.source.x === b.lane.source.x &&
+  a.lane.source.y === b.lane.source.y &&
+  a.lane.target.x === b.lane.target.x &&
+  a.lane.target.y === b.lane.target.y &&
   samePoints(a.points, b.points);
 
 const geometryOf = (cards: ReadonlyArray<LoomCard>): LoomNode[] =>
@@ -122,6 +127,7 @@ export const createLoomPlanner = (): LoomPlanner => {
     | { geometry: LoomNode[]; obstacles: ReturnType<typeof collectObstacles>; specs: ReadonlyMap<string, string> }
     | undefined;
   let strands: ReadonlyMap<string, LoomStrand> = new Map();
+  let lanesNow: ReadonlyMap<string, LoomLane> = new Map();
   const routes = new Map<string, LoomRoute>();
   const held = new Map<string, WireRouteFact>();
 
@@ -158,6 +164,10 @@ export const createLoomPlanner = (): LoomPlanner => {
         targetSide: input.targetSide,
         source: point(input.sourceAnchor),
         target: point(input.targetAnchor),
+        lane: {
+          source: point(lanesNow.get(input.id)?.source ?? NO_SHIFT),
+          target: point(lanesNow.get(input.id)?.target ?? NO_SHIFT),
+        },
         ...(points ? { points: points.map(point) } : {}),
         cable: strand !== undefined,
       });
@@ -190,7 +200,8 @@ export const createLoomPlanner = (): LoomPlanner => {
     }
 
     const obstacles = collectObstacles(geometry);
-    const { inputs } = buildInputs(specs, geometry);
+    const { inputs, lanes } = buildInputs(specs, geometry);
+    lanesNow = lanes;
     const loom = planLoom({ edges: inputs, obstacles });
     const wasStrand = new Set(strands.keys());
     strands = loom.strands;
@@ -244,6 +255,7 @@ export const createLoomPlanner = (): LoomPlanner => {
     strands = new Map();
     routes.clear();
     held.clear();
+    lanesNow = new Map();
   };
 
   return { plan, reset };
