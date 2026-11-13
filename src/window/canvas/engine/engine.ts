@@ -34,6 +34,7 @@ import type {
   Rect,
   ConnectionPreview,
   SceneOp,
+  SpatialIndex,
   TextRun,
   WireId,
 } from "../contract";
@@ -191,8 +192,17 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     return "left";
   };
 
+  /** The scene's index, with the wire layer's hit answering for wire candidates. */
+  const spatialIndex: SpatialIndex = {
+    ...scene.index,
+    wiresAt: (at) => {
+      const id = host.wires?.hit(at);
+      return id === undefined ? [] : [id];
+    },
+  };
+
   const pointerWorld: PointerWorld = {
-    pick: (screen) => pickAt({ index: scene.index, card: scene.cardOf, wire: scene.wire, selection: scene.selection(), scale: camera.zoom, tier, wireMode: scene.wireMode, rectOf: scene.rectOf }, toBoard(camera, screen)),
+    pick: (screen) => pickAt({ index: spatialIndex, card: scene.cardOf, wire: scene.wire, selection: scene.selection(), scale: camera.zoom, tier, wireMode: scene.wireMode, rectOf: scene.rectOf }, toBoard(camera, screen)),
     screenToBoard: (screen) => toBoard(camera, screen),
     viewport: () => size,
     rectOf: scene.rectOf,
@@ -484,7 +494,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   };
 
   const pickWorld = (): PickWorld => ({
-    index: scene.index,
+    index: spatialIndex,
     card: scene.cardOf,
     wire: scene.wire,
     selection: scene.selection(),
