@@ -87,6 +87,9 @@ const sameLive = (a: SeatLive | undefined, b: SeatLive): boolean =>
   a.preamble?.now === b.preamble?.now &&
   a.preamble?.before === b.preamble?.before &&
   a.preamble?.hue === b.preamble?.hue &&
+  a.preamble?.strong === b.preamble?.strong &&
+  a.preamble?.glyph === b.preamble?.glyph &&
+  a.preamble?.since === b.preamble?.since &&
   a.preamble?.dx === b.preamble?.dx &&
   a.portrait?.seed === b.portrait?.seed &&
   a.portrait?.expression === b.portrait?.expression &&
@@ -106,13 +109,30 @@ const sayingFact = (saying: SeatSaying): NonNullable<SeatLive["saying"]> => {
   }
 };
 
-/** The speaker word the bubble prints, "" for the agent's own voice. */
-const BUBBLE_SPEAKER: Readonly<Record<PreambleProvenance, string>> = {
-  agent: "",
+/** The speaker word the bubble prints; the agent's own voice carries none. */
+const BUBBLE_SPEAKER: Readonly<Record<PreambleProvenance, string | undefined>> = {
+  agent: undefined,
   ai: "AI",
   system: "Junto",
   operator: "you",
 };
+
+/** The action's glyph, named as the view's icon is (PreambleBubbleView's KIND). */
+const BUBBLE_GLYPH: Readonly<Record<string, string | undefined>> = {
+  say: undefined,
+  tool: "package-check",
+  signal: "flag",
+  "signal-clear": "circle-check",
+  health: "activity",
+  "mail-in": "mail",
+  "mail-out": "send",
+  "mail-failed": "mail-warning",
+  "mail-held": "mail-warning",
+  state: "circle-dot",
+};
+
+/** A firmer frame for a signal or failed mail (contract's `strong`). */
+const BUBBLE_STRONG = new Set(["signal", "mail-failed"]);
 
 /** The offboard failure the card falls back to, read tracked (the `Of` readers peek). */
 const offboardFailure = (canvasName: string, seatId: string): string | undefined =>
@@ -224,11 +244,16 @@ const seatLiveOf = (
       ? {}
       : {
           preamble: {
-            speaker: BUBBLE_SPEAKER[current.provenance],
+            ...(BUBBLE_SPEAKER[current.provenance] === undefined
+              ? {}
+              : { speaker: BUBBLE_SPEAKER[current.provenance] }),
             now: current.text,
             ...(bubble?.previous === undefined ? {} : { before: bubble.previous.text }),
             hue: current.tone,
+            ...(BUBBLE_STRONG.has(current.action) ? { strong: true } : {}),
             dx: 0,
+            ...(BUBBLE_GLYPH[current.action] === undefined ? {} : { glyph: BUBBLE_GLYPH[current.action] }),
+            since: current.shownAt,
           },
         }),
     portrait: {
