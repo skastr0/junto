@@ -22,6 +22,7 @@ import {
   Trash2,
   Unlink,
   UserRoundPen,
+  Users,
 } from "lucide-react";
 import { AGENT_NODE_SIZE } from "@shared/node-geometry";
 import { titleOf } from "@shared/model/title";
@@ -36,12 +37,15 @@ import { claimFocus, recentGestureKind } from "../../lib/focus-ownership";
 import { placeAtPoint, placeBesideRect, type ScreenRect } from "../../lib/menu-placement";
 import { useMenuDismiss } from "../../lib/menu-dismiss";
 import { seatIdsAmong } from "../../lib/multi-selection";
+import { openSaveSquad } from "../../lib/squads-state";
+import { saveSelectionToCommandGroup } from "../../lib/command-group-runtime";
 import { state$ } from "../../lib/state";
 import { modelStore } from "../../lib/use-model";
 import { useContentCalls } from "../../lib/content-calls";
 import { makeAddActions, ModeDeckFocus } from "../../components/CanvasFieldTools";
 import { SeatMessageForm } from "../../components/nodes/SeatMessage";
 import { SeatOffboardMenuRows } from "../../components/nodes/SeatOffboard";
+import { SaveToGroupPicker } from "../../components/rts/SaveToGroupPicker";
 import { canvasMenu$, closeCanvasMenu, type CanvasMenuState } from "./canvas-menu";
 
 const MENU_ITEMS = "button:not(:disabled)";
@@ -272,6 +276,22 @@ function SelectionMenu({ menu }: { readonly menu: Extract<CanvasMenuState, { rea
       icon: <Unlink size={14} />,
       onSelect: () => { disconnectWithin(agents); closeCanvasMenu(); },
     }]),
+    ...(agents.length === 1 ? [{
+      key: "profile",
+      label: "save as profile",
+      detail: "1 agent, reusable",
+      ariaLabel: "Save the agent as a profile",
+      icon: <BookmarkPlus size={14} />,
+      onSelect: () => { closeCanvasMenu(); openSaveProfile(agents[0]!); },
+    }] : []),
+    ...(agents.length === 0 ? [] : [{
+      key: "squad",
+      label: "save as squad",
+      detail: `${agents.length} agent${agents.length === 1 ? "" : "s"}, reusable`,
+      ariaLabel: "Save the selected agents as a squad",
+      icon: <Users size={14} />,
+      onSelect: () => { closeCanvasMenu(); openSaveSquad(agents); },
+    }]),
     { key: "delete", label: `delete ${nodes}`, ariaLabel: `Delete ${count} nodes`, icon: <Trash2 size={14} />, onSelect: () => { deleteNodes(ids); closeCanvasMenu(); } },
   ];
   if (composing && agents.length > 0) {
@@ -285,9 +305,18 @@ function SelectionMenu({ menu }: { readonly menu: Extract<CanvasMenuState, { rea
   }
   return (
     <MenuHost menu={menu} anchor={menu.anchor} label={`Actions for ${nodes}`} onClose={closeCanvasMenu}>
-      {rows.map((row) => <MenuRow key={row.key} row={row} />)}
+      {rows.filter((row) => row.key !== "profile" && row.key !== "squad").map((row) => <MenuRow key={row.key} row={row} />)}
       {agents.length > 0 ? <hr className="canvas-action-menu__rule" /> : null}
       <SeatOffboardMenuRows nodeIds={agents} />
+      {rows.filter((row) => row.key === "profile" || row.key === "squad").map((row) => <MenuRow key={row.key} row={row} />)}
+      <hr className="canvas-action-menu__rule" />
+      <SaveToGroupPicker
+        count={count}
+        onPick={(slot) => {
+          saveSelectionToCommandGroup(ids, slot);
+          closeCanvasMenu();
+        }}
+      />
     </MenuHost>
   );
 }
