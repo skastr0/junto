@@ -55,6 +55,8 @@ export const automations = (id: string, more: Partial<NodeOf<"automations">> = {
   ({ kind: "automations", ...placed(id), ...more });
 export const files = (id: string, more: Partial<NodeOf<"files">> = {}): NodeOf<"files"> =>
   ({ kind: "files", ...placed(id), host: THIS_MACHINE, root: "/Users/me/Projects/junto", ...more });
+export const file = (id: string, more: Partial<NodeOf<"file">> = {}): NodeOf<"file"> =>
+  ({ kind: "file", ...placed(id), path: `/Users/me/Projects/junto/${id}.txt`, ...more });
 export const page = (id: string, more: Partial<NodeOf<"page">> = {}): NodeOf<"page"> => ({
   kind: "page",
   ...placed(id),
