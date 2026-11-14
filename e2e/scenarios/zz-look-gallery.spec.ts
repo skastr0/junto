@@ -60,24 +60,33 @@ const setTheme = async (page: Page, theme: (typeof THEMES)[number]): Promise<voi
 /** Wheel the camera toward a zoom, then let it settle. */
 const zoomTo = async (page: Page, zoom: number): Promise<void> => {
   const deadline = Date.now() + 20_000;
-  for (;;) {
-    const cam = await camera(page);
-    if (Math.abs(cam.zoom - zoom) < 0.008) break;
-    const box = await pane(page).box();
-    if (box === null) throw new Error("no pane to zoom over");
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    // The wheel zooms under the platform's zoom key; a bare wheel pans.
-    const zoomKey = process.platform === "darwin" ? "Meta" : "Control";
-    await page.keyboard.down(zoomKey);
-    try {
-      await page.mouse.wheel(0, cam.zoom > zoom ? 180 : -180);
-    } finally {
-      await page.keyboard.up(zoomKey);
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    for (;;) {
+      const cam = await camera(page);
+      if (Math.abs(cam.zoom - zoom) < 0.005) break;
+      const box = await pane(page).box();
+      if (box === null) throw new Error("no pane to zoom over");
+      // Ctrl+wheel is the browser's zoom gesture (a macOS pinch, ten times
+      // faster); a bare wheel pans. Size the step from the multiplicative
+      // wheel law so it lands on the target instead of overshooting forever.
+      const factor = 0.002 * 10;
+      const delta = -Math.log2(zoom / cam.zoom) / factor;
+      await cdp.send("Input.dispatchMouseEvent", {
+        type: "mouseWheel",
+        x: box.x + box.width / 2,
+        y: box.y + box.height / 2,
+        deltaX: 0,
+        deltaY: Math.max(-240, Math.min(240, delta)),
+        modifiers: 2,
+      });
+      if (Date.now() >= deadline) throw new Error(`camera never reached zoom ${zoom} (at ${cam.zoom})`);
+      await page.waitForTimeout(80);
     }
-    if (Date.now() >= deadline) throw new Error(`camera never reached zoom ${zoom} (at ${cam.zoom})`);
-    await page.waitForTimeout(80);
+    await cameraSettled(page);
+  } finally {
+    await cdp.detach();
   }
-  await cameraSettled(page);
 };
 
 /** The card's shot, padded for its tag, shadow and selected outline. */
