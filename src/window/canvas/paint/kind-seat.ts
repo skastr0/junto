@@ -14,7 +14,7 @@ import type { KindIconKind } from "@shared/kind-icon";
 import type { KindLedger, KindState } from "../../lib/kind-band";
 import type { CardFact, CardPaint, CardView, KindLive, PaintEnv, Quad, QuadStyle, ScaleRule, TextRun } from "../contract";
 import { TIER_BIT } from "../contract";
-import { FAR, FOCUS, KIND_SHELL_RADII, LIFT_PX, SEAT, SEAT_BOX, SEAT_RING_CENTRE, SEAT_TEXT } from "./card-spec";
+import { FAR, FOCUS, KIND_SHELL_RADII, LIFT_PX, SEAT, SEAT_BOX, SEAT_CONTENT_CENTRE_DX, SEAT_RING_CENTRE, SEAT_TEXT } from "./card-spec";
 import { bandSprites, kindIconSprite } from "./images";
 import { bandMotion, ringQuads } from "./motion";
 import { dimOf, reachQuads } from "./overlays";
@@ -107,7 +107,7 @@ const unboundQuads = (fact: CardFact, live: KindLive, view: CardView): ReadonlyA
     // Far: a tinted box and the kind's glyph (inventory 3, remaining cards).
     shape({ key: "far.box", z: 1, rect: box }, { fill: { kind: "flat", color: tok("ink", 0.05) } }, { tiers: TIER_BIT.far }),
     sprite(
-      { key: "far.glyph", z: 2, rect: at((SEAT_BOX.width - 33.6) / 2, (SEAT_BOX.height - 33.6) / 2, 33.6, 33.6) },
+      { key: "far.glyph", z: 2, rect: at((SEAT_BOX.width - 33.6) / 2 + SEAT_CONTENT_CENTRE_DX, (SEAT_BOX.height - 33.6) / 2, 33.6, 33.6) },
       { tiers: TIER_BIT.far, sprite: { atlas: "glyph", name: `kind-glyph:${kind}` }, style: { ink: tok("ink", 0.38) } },
     ),
   );

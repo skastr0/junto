@@ -50,7 +50,7 @@ struct Uniforms {
 
 struct Owner {
   p: vec4f, // x, y, lift, opacity
-  q: vec4f, // saturate, card width, card height, pad
+  q: vec4f, // saturate, card width, card height, content-centre dx
 };
 
 struct Quad {
@@ -165,13 +165,23 @@ fn filled(base: u32, local: vec2f) -> vec4f {
     let relCentre = vec2f(q.rect.x + q.rect.z * 0.5, q.rect.y + q.rect.w * 0.5);
     var base = anchor;
     if (tierBit == 4u || tierBit == 8u) {
-      base = vec2f(o.q.y, o.q.z) * 0.5;
+      // A seat's ring is centred on its content box, not the card: the sheet
+      // pads the seat 1px 10px 1px 1px. o.q.w carries that half-difference;
+      // a cluster badge owns its box and carries 0.
+      base = vec2f(o.q.y * 0.5 + o.q.w, o.q.z * 0.5);
     }
     scale = seatScale;
     center = o.p.xy + base + (relCentre - anchor) * seatScale;
   } else if (q.scaleRule == 2u) {
+    // A node-scale quad grows about its anchor: a note's tick keeps its
+    // top-left on the card and a label's far text keeps its left centre, as
+    // the DOM lays them out; only the size is held at --node-s. Placing the
+    // centre on the anchor instead put the tick half outside the card and
+    // flung the label's huge far text across its neighbour.
+    let anchor = vec2f(q.anchorX, q.anchorY);
+    let relCentre = vec2f(q.rect.x + q.rect.z * 0.5, q.rect.y + q.rect.w * 0.5);
     scale = u.scales.z;
-    center = o.p.xy + vec2f(q.anchorX, q.anchorY);
+    center = o.p.xy + anchor + (relCentre - anchor) * scale;
   } else if (q.scaleRule == 3u) {
     // The far name tag: its offset from the ring centre scales with the seat,
     // the tag itself by farSeat * 1.4 about its top centre.
@@ -186,7 +196,7 @@ fn filled(base: u32, local: vec2f) -> vec4f {
     let anchor = vec2f(q.anchorX, q.anchorY);
     var base = anchor;
     if (tierBit == 4u || tierBit == 8u) {
-      base = vec2f(o.q.y, o.q.z) * 0.5;
+      base = vec2f(o.q.y * 0.5 + o.q.w, o.q.z * 0.5);
     }
     let relTop = vec2f(q.rect.x + q.rect.z * 0.5, q.rect.y);
     let top = base + (relTop - anchor) * seatScale;

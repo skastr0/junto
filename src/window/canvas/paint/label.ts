@@ -10,8 +10,8 @@ import { dimOf, focusQuads, reachQuads } from "./overlays";
 import { accentRef, at, grow, shape, text } from "./refs";
 
 const NEAR_MID = TIER_BIT.near | TIER_BIT.mid;
-/** `px-1 py-0.5` on the bare shell. */
-const PAD = { x: 4, y: 2 } as const;
+/** The spine label surface has no padding: the display type starts at the node's left. */
+const PAD_X = 0;
 const HERO = Number.parseFloat(TEXT_SIZES.hero);
 /** The far floor, `13px * --node-s`. */
 const FAR_FLOOR = 13;
@@ -23,19 +23,23 @@ export const paintLabel = (fact: CardFact, view: CardView, env: PaintEnv): CardP
   const w = row.width;
   const h = row.height;
   const box = at(0, 0, w, h);
-  const width = w - 2 * PAD.x;
+  const width = w - 2 * PAD_X;
   const ink = accentRef(row.color, "ink");
   const run = (size: number): TextRun => ({ text: value, font: "display", size, weight: 700, leading: LEADING, truncate: "end", width, halo: true });
+  // The renderer draws from the run's em box; the DOM centres the line box,
+  // so half the leading sits above the glyphs. Add it to the box the words
+  // are placed in, or every label rides high by (leading - 1) / 2 em.
+  const leadingOffset = (size: number): number => (size * (LEADING - 1)) / 2;
   const quads: Quad[] = [];
   const near = HERO * LEADING;
   if (!view.editing) {
     quads.push(
-      text({ key: "text", z: 10, rect: at(PAD.x, (h - near) / 2, width, near) }, { ink }, { tiers: NEAR_MID, text: run(HERO), part: { kind: "body" } }),
+      text({ key: "text", z: 10, rect: at(PAD_X, (h - near) / 2 + leadingOffset(HERO), width, near) }, { ink }, { tiers: NEAR_MID, text: run(HERO), part: { kind: "body" } }),
       // Far: the floor size, held by the node scale about the text's left centre.
       text(
-        { key: "text.far", z: 10, rect: at(PAD.x, (h - FAR_FLOOR * LEADING) / 2, width, FAR_FLOOR * LEADING) },
+        { key: "text.far", z: 10, rect: at(PAD_X, (h - FAR_FLOOR * LEADING) / 2 + leadingOffset(FAR_FLOOR), width, FAR_FLOOR * LEADING) },
         { ink },
-        { tiers: TIER_BIT.far, text: run(FAR_FLOOR), scale: { kind: "node", anchor: { x: PAD.x, y: h / 2 } }, part: { kind: "body" } },
+        { tiers: TIER_BIT.far, text: run(FAR_FLOOR), scale: { kind: "node", anchor: { x: PAD_X, y: h / 2 } }, part: { kind: "body" } },
       ),
     );
   }

@@ -16,7 +16,8 @@
  */
 
 import { farSeatScale, nodeScale, seatFloorScale } from "@shared/canvas-tier";
-import { renderedNodeSize } from "@shared/node-geometry";
+import { holdsSeatRing, renderedNodeSize } from "@shared/node-geometry";
+import { SEAT_CONTENT_CENTRE_DX } from "../paint/card-spec";
 import { DURATION, themeGpu, type GpuTheme, type ThemeMode } from "@shared/theme";
 import type {
   CanvasTier,
@@ -452,11 +453,12 @@ export const createScene = (options: {
     return slot;
   };
 
-  const writeOwnerAt = (slot: number, rect: Rect, lift: number, dim: CardPaint["dim"]): void => {
+  const writeOwnerAt = (slot: number, rect: Rect, lift: number, dim: CardPaint["dim"], centreDx = 0): void => {
     const at = slot * 8;
-    // Words 5 and 6 carry the drawn box size: the far seat rule centres the
-    // ring on the card box, and the shader reads that size from here.
-    const next = [rect.x, rect.y, lift, dim.opacity, dim.saturate, rect.width, rect.height, 0];
+    // Words 5 and 6 carry the drawn box size and word 7 the point the far
+    // seat rule centres on: the card box for a badge, the seat's content box
+    // (the sheet pads it `1px 10px 1px 1px`) for a card that holds a ring.
+    const next = [rect.x, rect.y, lift, dim.opacity, dim.saturate, rect.width, rect.height, centreDx];
     let changed = false;
     for (let index = 0; index < next.length; index += 1) {
       if (owners[at + index] !== next[index]) {
@@ -467,7 +469,12 @@ export const createScene = (options: {
     if (changed) dirtyOwners.add(slot);
   };
 
-  const writeOwner = (card: CardSlot): void => writeOwnerAt(card.slot, card.rect, card.lift, card.dim);
+  const writeOwner = (card: CardSlot): void => {
+    const row = card.fact.row;
+    const path = "path" in row ? row.path : undefined;
+    const centreDx = holdsSeatRing(row.kind, path) ? SEAT_CONTENT_CENTRE_DX : 0;
+    writeOwnerAt(card.slot, card.rect, card.lift, card.dim, centreDx);
+  };
 
   const packQuad = (quad: Quad, slot: number, fresh: boolean): PackedQuad => {
     const style = styles.intern(quad.style);

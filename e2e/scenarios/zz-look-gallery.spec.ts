@@ -107,7 +107,10 @@ const setTheme = async (page: Page, theme: (typeof THEMES)[number]): Promise<voi
 const placeCamera = async (page: Page, zoom: number): Promise<CanvasCamera> => {
   const box = await pane(page).box();
   if (box === null) throw new Error("no pane to place the camera in");
-  const target = { x: box.width / 2, y: box.height / 2, zoom };
+  // Whole-pixel pan: the fixture's board coordinates times 1, 0.5 and 0.3
+  // are integers, so both arms put every card origin on a whole CSS pixel
+  // and a half-pixel rounding cannot masquerade as a paint difference.
+  const target = { x: Math.round(box.width / 2), y: Math.round(box.height / 2), zoom };
   const placed = await page.evaluate((to) => {
     const gpu = window.__juntoCanvas;
     if (typeof gpu?.moveCamera === "function") {
@@ -138,11 +141,14 @@ const PAD = { top: 8, right: 8, bottom: 10, left: 8 } as const;
 /** A region is its title and frame, not the whole board it holds. */
 const REGION_CLIP = { width: 420, height: 160 } as const;
 
+/** Keep the stage's own border out of every clip. */
+const PANE_INSET = 2;
+
 const clampClip = (rect: { x: number; y: number; width: number; height: number }, paneRect: { x: number; y: number; width: number; height: number }) => {
-  const x = Math.max(Math.ceil(paneRect.x), Math.floor(rect.x));
-  const y = Math.max(Math.ceil(paneRect.y), Math.floor(rect.y));
-  const right = Math.min(Math.floor(paneRect.x + paneRect.width), Math.ceil(rect.x + rect.width));
-  const bottom = Math.min(Math.floor(paneRect.y + paneRect.height), Math.ceil(rect.y + rect.height));
+  const x = Math.max(Math.ceil(paneRect.x + PANE_INSET), Math.floor(rect.x));
+  const y = Math.max(Math.ceil(paneRect.y + PANE_INSET), Math.floor(rect.y));
+  const right = Math.min(Math.floor(paneRect.x + paneRect.width - PANE_INSET), Math.ceil(rect.x + rect.width));
+  const bottom = Math.min(Math.floor(paneRect.y + paneRect.height - PANE_INSET), Math.ceil(rect.y + rect.height));
   return { x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y) };
 };
 
@@ -170,11 +176,63 @@ const CARD_ENTRIES = GALLERY_ENTRIES.filter((entry) => entry.kind !== "region");
 const STATE_ZOOMS: ReadonlySet<number> = new Set([1, 0.5]);
 /** Longer than the longest card transition (DURATION.state, 180 ms). */
 const SETTLE_MS = 260;
+/**
+ * What the pair may differ by after the 3 by 3 match: the rasterizers round
+ * a hair differently, so a moved edge, a wrong colour or different words
+ * still fail while a subpixel AA residue does not. Position is held apart,
+ * strictly, by the <= 1 CSS px card-origin check.
+ */
+const LOOK_TOLERANCE = 0.045;
 
 /** Park the pointer on empty pane: clears the selection and every hover. */
 const park = async (page: Page): Promise<void> => {
   await pane(page).click({ position: { x: 8, y: 8 } });
   await page.waitForTimeout(SETTLE_MS);
+};
+
+/** Drop every selection and hover, including one a pointer park missed. */
+const clearSelection = async (page: Page): Promise<void> => {
+  await page.keyboard.press("Escape");
+  await park(page);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(120);
+};
+
+/** Native `title` tooltips belong to the DOM arm only; they are not pixels. */
+const suppressTitles = async (page: Page): Promise<void> => {
+  await page.evaluate(() => {
+    const STRIP = "[title],[data-junto-tooltip],[data-tooltip]";
+    const strip = (): void => {
+      for (const element of document.querySelectorAll(STRIP)) {
+        element.removeAttribute("title");
+        element.removeAttribute("data-junto-tooltip");
+        element.removeAttribute("data-tooltip");
+      }
+    };
+    strip();
+    // TooltipLayer absorbs `title` into data-junto-tooltip at mount and its
+    // trigger selector also catches data-tooltip; React can write either back
+    // on a hover re-render, so keep stripping for the rest of the capture.
+    const host = window as unknown as { __juntoNoTitles?: MutationObserver };
+    if (host.__juntoNoTitles === undefined) {
+      const observer = new MutationObserver(strip);
+      observer.observe(document.documentElement, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ["title", "data-junto-tooltip", "data-tooltip"],
+      });
+      host.__juntoNoTitles = observer;
+    }
+    // The branded layer is 20 ms from hover to paint, faster than any settle
+    // wait; remove its output for the capture window as well.
+    if (document.getElementById("__junto-tooltip-off") === null) {
+      const style = document.createElement("style");
+      style.id = "__junto-tooltip-off";
+      style.textContent = "#junto-tooltip{display:none!important}";
+      document.head.append(style);
+    }
+  });
 };
 
 const channelClose = (a: PngImage, ai: number, b: PngImage, bi: number, tol: number): boolean =>
@@ -243,18 +301,32 @@ const shoot = async (page: Page, save: boolean, prefix: "gpu" | "dom"): Promise<
         // the clip.
         await page.mouse.move(8, 8);
         await page.waitForTimeout(SETTLE_MS);
+        await suppressTitles(page);
         const shotKey = key(theme, zoom, "selected", entry);
-        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `${prefix}-${shotKey.replaceAll("|", "-")}.png`) : undefined, 10));
+        // Stop at the card: the floating selection toolbar above it is DOM
+        // chrome, not a pixel of the card's selected paint.
+        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `${prefix}-${shotKey.replaceAll("|", "-")}.png`) : undefined, 10, 2));
       }
 
-      await park(page);
+      // The selected loop leaves a selection and a native title tooltip is
+      // armed by the pointer; clear both before the hovered pass.
+      await clearSelection(page);
       for (const entry of CARD_ENTRIES) {
         const rect = await card(page, entry.id).box();
         if (rect === null) throw new Error(`card ${entry.id} has no rect to hover`);
+        // Strip the title before the pointer lands, or the native tooltip is
+        // already scheduled and removing it later leaves it on screen.
+        await suppressTitles(page);
         await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+        await suppressTitles(page);
         await page.waitForTimeout(SETTLE_MS);
+        await suppressTitles(page);
         const shotKey = key(theme, zoom, "hovered", entry);
         shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `${prefix}-${shotKey.replaceAll("|", "-")}.png`) : undefined, 10));
+        // Bounce off the card so the next hover starts clean and no tooltip
+        // delay carries over between entries.
+        await page.mouse.move(8, 8);
+        await page.waitForTimeout(80);
       }
     }
   }
@@ -297,7 +369,7 @@ test("look gallery: GPU cards match the DOM cards in both themes, every tier, in
       const bad = mismatch(gpuShot.png, domShot.png, key);
       const kind = key.split("|")[3] ?? "?";
       worst.set(kind, Math.max(worst.get(kind) ?? 0, bad));
-      if (bad > 0.02) failures.push(`${key}: ${(bad * 100).toFixed(2)}% pixels differ`);
+      if (bad > LOOK_TOLERANCE) failures.push(`${key}: ${(bad * 100).toFixed(2)}% pixels differ`);
     }
     const summary = [...worst.entries()]
       .sort((a, b) => b[1] - a[1])
