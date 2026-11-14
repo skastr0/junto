@@ -21,6 +21,7 @@ import type {
   Camera,
   CanvasTier,
   CardFact,
+  FrameFacts,
   Hit,
   NodeId,
   Point,
@@ -53,6 +54,18 @@ const rectOfRow = (row: ModelNode): Rect => ({
 const sameRect = (a: Rect, b: Rect): boolean =>
   a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 
+/**
+ * What the mirror needs from the engine once one is mounted: the drawn
+ * rectangle of a card, live, and the frame facts that carry the rectangles a
+ * pointer is moving. A drag moves the drawn card without touching its row, so
+ * a mirror that answers only from rows points overlays at where the card used
+ * to be.
+ */
+export type LiveSource = {
+  readonly rectOf: (id: NodeId) => Rect | undefined;
+  readonly onFrame: (listener: (facts: FrameFacts) => void) => () => void;
+};
+
 export type SurfaceMirror = ReturnType<typeof createSurfaceMirror>;
 
 export const createSurfaceMirror = () => {
@@ -61,6 +74,9 @@ export const createSurfaceMirror = () => {
   let camera: Camera = { x: 0, y: 0, zoom: 1 };
   let viewport: Size = { width: 0, height: 0 };
   let element: HTMLElement | null = null;
+  let live: LiveSource | undefined;
+  /** Screen rectangles of cards a pointer is dragging or resizing, as the engine drew them this frame. */
+  const liveScreen = new Map<NodeId, Rect>();
   let wireMode: WireMode = "rest";
   let selection: SelectionFact = { nodeIds: [] };
   let editing: NodeId | null = null;
@@ -96,6 +112,8 @@ export const createSurfaceMirror = () => {
   };
 
   const boardRectOf = (id: NodeId): Rect | undefined => {
+    const drawn = live?.rectOf(id);
+    if (drawn !== undefined) return drawn;
     const card = cards.get(id);
     return card === undefined ? undefined : rectOfRow(card.row);
   };
@@ -103,11 +121,28 @@ export const createSurfaceMirror = () => {
   const boundsOf = (ids: ReadonlyArray<NodeId>): Rect | undefined =>
     boundsOfRects(ids.map((id) => boardRectOf(id)).filter((rect): rect is Rect => rect !== undefined));
 
+  /** A board rectangle on the page, at a given camera. */
+  const pageRectOf = (rect: Rect, at: Camera): Rect => {
+    const origin = screenOrigin();
+    return {
+      x: origin.x + at.x + rect.x * at.zoom,
+      y: origin.y + at.y + rect.y * at.zoom,
+      width: rect.width * at.zoom,
+      height: rect.height * at.zoom,
+    };
+  };
+
   const screenRectOf = (id: NodeId): Rect | undefined => {
+    // A frame answered for a card the pointer owns: its rectangle is the one
+    // the engine drew, not the row's. It is frame-exact even while the mirror
+    // camera is a fraction behind, which a drag cannot be.
+    const drawn = liveScreen.get(id);
+    if (drawn !== undefined) {
+      const origin = screenOrigin();
+      return { x: drawn.x + origin.x, y: drawn.y + origin.y, width: drawn.width, height: drawn.height };
+    }
     const rect = boardRectOf(id);
-    if (rect === undefined) return undefined;
-    const origin = boardToScreen({ x: rect.x, y: rect.y });
-    return { x: origin.x, y: origin.y, width: rect.width * camera.zoom, height: rect.height * camera.zoom };
+    return rect === undefined ? undefined : pageRectOf(rect, camera);
   };
 
   const writeAnchor = (id: NodeId, node: HTMLElement): void => {
@@ -148,6 +183,65 @@ export const createSurfaceMirror = () => {
 
   const notifyRects = (): void => {
     for (const listener of [...rectListeners]) listener();
+  };
+
+  /**
+   * Reconcile the live screen rectangles with the frame the engine drew. A
+   * card is live exactly while its drawn rectangle differs from the one its
+   * row would put on screen: the engine reports the cards a pointer owns, and
+   * also the anchored ones, so a card that sits on its row drops out of the
+   * cache rather than letting a camera move read a frame-old rectangle.
+   */
+  const reconcileLive = (facts: FrameFacts): boolean => {
+    let changed = false;
+    const reported = new Set<NodeId>();
+    for (const anchor of facts.anchors) {
+      reported.add(anchor.id);
+      const card = cards.get(anchor.id);
+      const row = card === undefined ? undefined : rectOfRow(card.row);
+      if (row !== undefined && sameRect(pageRectOf(row, facts.camera), anchor.rect)) {
+        if (liveScreen.delete(anchor.id)) changed = true;
+        continue;
+      }
+      const before = liveScreen.get(anchor.id);
+      if (before === undefined || !sameRect(before, anchor.rect)) {
+        liveScreen.set(anchor.id, anchor.rect);
+        changed = true;
+      }
+    }
+    for (const id of [...liveScreen.keys()]) {
+      if (reported.has(id)) continue;
+      liveScreen.delete(id);
+      changed = true;
+    }
+    return changed;
+  };
+
+  /**
+   * One engine frame: the camera, and the live rectangle of every card the
+   * pointer is moving. Overlays subscribed through `onRects` re-place from
+   * `screenRectOf` in the same frame the card is drawn at its new spot, with no
+   * React work. This is the whole of the drag and resize path for the DOM over
+   * the canvas.
+   */
+  const frame = (facts: FrameFacts): void => {
+    const moved = !sameCamera(camera, facts.camera);
+    const liveChanged = reconcileLive(facts);
+    if (moved) setCamera(facts.camera);
+    if (!liveChanged) return;
+    if (!moved) writeAnchors();
+    notifyRects();
+  };
+
+  /** Follow a mounted engine: its live rectangles and its frames. Returns the release. */
+  const attachLive = (source: LiveSource): (() => void) => {
+    live = source;
+    const off = source.onFrame(frame);
+    return () => {
+      off();
+      if (live === source) live = undefined;
+      liveScreen.clear();
+    };
   };
 
   const mirrorCard = (fact: CardFact): MirrorCard => ({
@@ -226,6 +320,7 @@ export const createSurfaceMirror = () => {
 
   return {
     apply,
+    attachLive,
     ready: () => ready,
     camera: () => camera,
     setCamera,
@@ -306,6 +401,7 @@ export const createSurfaceMirror = () => {
     clear: () => {
       cards = new Map();
       wires = new Map();
+      liveScreen.clear();
       ready = false;
       for (const listener of [...rectListeners]) listener();
     },

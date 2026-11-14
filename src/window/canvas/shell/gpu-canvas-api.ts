@@ -100,8 +100,13 @@ export const createGpuCanvasApi = (
     attachEngine: (next) => {
       offFrame?.();
       engine = next;
-      offFrame = next.onFrame((facts) => {
-        mirror.setCamera(facts.camera);
+      // The mirror follows the engine's frames: the camera, and the live
+      // rectangle of every card a pointer is dragging or resizing. Overlays
+      // and anchors read those rectangles, so they cannot stay where the row
+      // left the card.
+      offFrame = mirror.attachLive({
+        rectOf: (id) => next.rectOf(id),
+        onFrame: (listener) => next.onFrame(listener),
       });
     },
     applyScene: (ops) => {
