@@ -31,8 +31,8 @@ export type WireLabelsOptions = {
 };
 
 const LABEL_SIZE = 14;
-/** Above the canvas and its overlays' common band, below operator modals. */
-const LABEL_LAYER = 40;
+/** Above the canvas, below the card overlays (their toolbar and editors). */
+const LABEL_LAYER = 30;
 
 export const mountWireLabels = ({ canvas, layer }: WireLabelsOptions): WireLabels => {
   const host = document.createElement("div");
