@@ -1,8 +1,8 @@
 // Section 10's phase test, formula level: at a frozen clock the canvas ring's
 // angle is the DOM ring's angle. The DOM spin part is `junto-mark-turn` —
-// rotate(0) to rotate(360), linear, infinite, delayed by --mark-t0 =
-// -wall % MARK_PHASE_MS (ActivityMark.tsx syncPhase) — so its angle at wall
-// time t is 360 * ((t mod lapMs) / lapMs), reversed when ccw. The canvas reads
+// rotate(0) to rotate(360), linear, infinite, delayed by --mark-t0, which
+// ActivityMark.tsx anchors to the animation's own startTime — so its angle at
+// wall time t is 360 * ((t mod lapMs) / lapMs), reversed when ccw. The canvas reads
 // the same wall clock through sampleMotion; this holds the two together for
 // every turning ring, sampled across the shared phase cycle.
 
@@ -11,7 +11,7 @@ import { LoopRing, MARK_PHASE_MS, RING_MOTION } from "../src/shared/wire/rings";
 import { sampleMotion } from "../src/window/canvas/paint/motion";
 import type { QuadMotion } from "../src/window/canvas/contract";
 
-/** The DOM rule: activity-atlas.ts motionCss + ActivityMark.tsx syncPhase. */
+/** The DOM rule: activity-atlas.ts motionCss + ActivityMark.tsx syncPhase, anchored to the animation start. */
 const domSpinAngle = (wallMs: number, lapMs: number, ccw: boolean | undefined): number => {
   const p = ((wallMs % lapMs) + lapMs) % lapMs / lapMs;
   const angle = 360 * (ccw === true ? 1 - p : p);

@@ -54,10 +54,18 @@ const sampleAngles = (page: Page, seatId: string): Promise<AngleSample> =>
       if (anim === undefined) continue;
       const duration = parseFloat(getComputedStyle(part).animationDuration) * 1000;
       if (!Number.isFinite(duration) || duration <= 0) continue;
-      // --mark-t0 rides in animation-delay: the shared clock is
+      // --mark-t0 rides in animation-delay: the phase is
       // (currentTime - delay) mod duration, not currentTime mod duration.
+      // animation.currentTime is pinned to the last frame, so on its own it
+      // trails the wall clock by up to a frame (0 to 16.7 ms); read the
+      // animation's real start wall instead, the clock the GPU ring samples.
+      const now = Date.now();
+      const perf = performance.now();
       const delay = Number(anim.effect?.getComputedTiming().delay ?? 0);
-      const p = ((((Number(anim.currentTime ?? 0) - delay) % duration) + duration) % duration) / duration;
+      const current = typeof anim.startTime === "number"
+        ? now - (anim.startTime + now - perf)
+        : Number(anim.currentTime ?? 0);
+      const p = ((((current - delay) % duration) + duration) % duration) / duration;
       const angle = 360 * (part.dataset.spin === "ccw" ? 1 - p : p);
       return { gpu, dom: angle === 360 ? 0 : angle };
     }

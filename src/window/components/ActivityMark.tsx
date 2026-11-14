@@ -117,9 +117,30 @@ let motionSource: Readable<boolean> = ALWAYS_LIVE;
  * Every ring runs on one clock: a part starts its animation when it shows,
  * so its delay is set to where that clock stands. The clock is wall time,
  * so every screen showing a seat (the phone too) is in the same phase.
+ *
+ * A mark first shows at style resolution, a frame after the call that makes
+ * it visible, so Date.now() at that call is early by however long the style
+ * pass waits (10 to 60 ms measured); the ring then trails the GPU by that
+ * gap (9.39 degrees at 38.6 ms on a 1.44 s lap). Once the parts start, their
+ * own animation startTime says when the clock really picked them up, and the
+ * delay is anchored to that instead. Before they start (and without a
+ * browser timeline) wall time is the best answer, as it always was.
  */
+const animationStartWall = (el: HTMLElement): number | undefined => {
+  if (typeof el.getAnimations !== "function") return undefined;
+  let earliest: number | undefined;
+  for (const animation of el.getAnimations({ subtree: true })) {
+    if (animation.playState !== "running") continue;
+    const start = animation.startTime;
+    if (typeof start !== "number" || !Number.isFinite(start)) continue;
+    earliest = earliest === undefined ? start : Math.min(earliest, start);
+  }
+  return earliest === undefined ? undefined : earliest + Date.now() - performance.now();
+};
+
 const syncPhase = (el: HTMLElement): void => {
-  el.style.setProperty("--mark-t0", `${String(-Math.round(Date.now() % MARK_PHASE_MS))}ms`);
+  const clock = animationStartWall(el) ?? Date.now();
+  el.style.setProperty("--mark-t0", `${String(-Math.round(clock % MARK_PHASE_MS))}ms`);
 };
 
 /** Motion back on (window shown again): the parts restart, so resync them. */
@@ -189,6 +210,14 @@ const watchLoop = (el: HTMLElement): (() => void) => {
     onCoverChange(showIfSeen);
     coverWatched = true;
   }
+  // The parts start a frame after the attribute makes them visible; their
+  // animationstart is when the real startTime exists, so the phase is
+  // anchored there instead of to the call that showed them.
+  const onAnimationStart = (event: AnimationEvent): void => {
+    if (!(event.target instanceof Node) || !el.contains(event.target)) return;
+    syncPhase(el);
+  };
+  el.addEventListener("animationstart", onAnimationStart);
   const io = visibilityObserver();
   watched.add(el);
   const uncover = watchCoverable(el);
@@ -196,6 +225,7 @@ const watchLoop = (el: HTMLElement): (() => void) => {
   // No observer (tests, old engines): treat as visible so it still animates.
   else setIntersecting(el, true);
   return () => {
+    el.removeEventListener("animationstart", onAnimationStart);
     io?.unobserve(el);
     uncover();
     setVisible(el, false);
