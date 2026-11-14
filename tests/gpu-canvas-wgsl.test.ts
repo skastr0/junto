@@ -47,4 +47,24 @@ describe("the quad shader's names", () => {
     }
     expect(QUAD_SHADER).toContain("@group(0) @binding(9)");
   });
+
+  it("turns a sprite quad's offset, not only a disc's sweep", () => {
+    // A ring's spin cell is a sprite (kind 2, shape rect). The operator saw
+    // every moving ring frozen on 2026-11-14 because the turn was handled
+    // only inside the disc branch below, in the fragment shader.
+    const vertex = QUAD_SHADER.slice(0, QUAD_SHADER.indexOf("@fragment fn fs"));
+    expect(vertex).toContain("if (q.motion == 1u) {");
+    expect(vertex).toContain("offset = vec2f(offset.x * turnCos - offset.y * turnSin");
+    // Counter-clockwise runs the same lap backwards (animation-direction: reverse).
+    expect(vertex).toContain("if ((q.motionFlags & 1u) != 0u) { turn = 1.0 - turn; }");
+    expect(vertex).toContain("if (q.motion == 9u) {");
+    expect(vertex).toContain("center = vec2f(center.x + dx, center.y);");
+  });
+
+  it("breathes a fading turn (glint) and keeps the disc sweep's fade", () => {
+    const fragment = QUAD_SHADER.slice(QUAD_SHADER.indexOf("@fragment fn fs"));
+    expect(fragment).toContain("if (q.motion == 1u) {");
+    expect(fragment).toContain("motionAlpha = 0.5 - 0.5 * cos(phaseOfQuad(q) * PI2);");
+    expect(fragment).toContain("motionAlpha = motionAlpha * (0.22 + 0.78 * sweep * sweep);");
+  });
 });

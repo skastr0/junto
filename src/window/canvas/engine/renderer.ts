@@ -200,11 +200,31 @@ fn filled(base: u32, local: vec2f) -> vec4f {
   } else if (q.motion == 13u) {
     let age = clamp((u.view.w - q.motionSince) / 200.0, 0.0, 1.0);
     center = center + vec2f(0.0, 3.0 * (1.0 - age));
+  } else if (q.motion == 9u) {
+    // The shake: 0, -1, 1 board units across the lap, then back to rest.
+    let phase = phaseOfQuad(q);
+    var dx = 0.0;
+    if (phase < 0.25) { dx = -4.0 * phase; } else if (phase < 0.75) { dx = -1.0 + 4.0 * (phase - 0.25); } else { dx = 1.0 - 4.0 * (phase - 0.75); }
+    center = vec2f(center.x + dx, center.y);
   }
 
   let size = q.rect.zw * scale * motionScale;
   let radii = q.radii * scale * motionScale;
-  let world = center + local * size * 0.5 - vec2f(0.0, o.p.z);
+  var offset = local * size * 0.5;
+  if (q.motion == 1u) {
+    // A turning part turns about its centre, exactly as the DOM's part does
+    // (transform: rotate, origin 50% 50%). A ring's spin cell is a sprite
+    // quad, not a disc, so it has to turn here: before this it drew at zero
+    // degrees on every frame and every moving ring stood still.
+    var turn = phaseOfQuad(q);
+    if ((q.motionFlags & 1u) != 0u) { turn = 1.0 - turn; }
+    let angle = turn * PI2;
+    let turnCos = cos(angle);
+    let turnSin = sin(angle);
+    // y grows down the screen, so this is clockwise, the CSS direction.
+    offset = vec2f(offset.x * turnCos - offset.y * turnSin, offset.x * turnSin + offset.y * turnCos);
+  }
+  let world = center + offset - vec2f(0.0, o.p.z);
   let screen = world * u.camera.z + u.camera.xy;
   let clip = vec2f(screen.x / u.view.x * 2.0 - 1.0, 1.0 - screen.y / u.view.y * 2.0);
   out.pos = select(vec4f(2.0, 2.0, 2.0, 1.0), vec4f(clip, 0.0, 1.0), tierOn);
@@ -238,7 +258,11 @@ fn filled(base: u32, local: vec2f) -> vec4f {
   if (ink.a <= 0.0) { ink = fill; }
 
   var motionAlpha = 1.0;
-  if (q.motion == 3u) { motionAlpha = beat(phaseOfQuad(q)); }
+  if (q.motion == 1u) {
+    // A turning part with the fade flag breathes once a lap (glint), as the
+    // DOM's second animation on the same part does.
+    if ((q.motionFlags & 2u) != 0u) { motionAlpha = 0.5 - 0.5 * cos(phaseOfQuad(q) * PI2); }
+  } else if (q.motion == 3u) { motionAlpha = beat(phaseOfQuad(q)); }
   else if (q.motion == 4u) { motionAlpha = 0.5 - 0.5 * cos(phaseOfQuad(q) * PI2); }
   else if (q.motion == 5u) { motionAlpha = 0.25 + 0.75 * (0.5 - 0.5 * cos(phaseOfQuad(q) * PI2)); }
   else if (q.motion == 6u) { motionAlpha = select(1.0, 0.1, phaseOfQuad(q) >= 0.5); }
@@ -303,11 +327,8 @@ fn filled(base: u32, local: vec2f) -> vec4f {
       var phase = phaseOfQuad(q);
       if ((q.motionFlags & 1u) != 0u) { phase = 1.0 - phase; }
       let sweep = fract(turn + phase);
-      var sweepAlpha = 0.22 + 0.78 * sweep * sweep;
-      if ((q.motionFlags & 2u) != 0u) {
-        sweepAlpha = sweepAlpha * (0.5 - 0.5 * cos(phase * PI2));
-      }
-      motionAlpha = motionAlpha * sweepAlpha;
+      // The fade flag rides the common turn branch below; the sweep holds shape only.
+      motionAlpha = motionAlpha * (0.22 + 0.78 * sweep * sweep);
       inner = 0.0;
     } else if (strokeWidth > 0.0) {
       // A disc's stroke is a rim just inside its edge, the width a rect's

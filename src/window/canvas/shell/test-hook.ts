@@ -69,7 +69,7 @@ const partRect = (mirror: SurfaceMirror, id: NodeId, part: string | undefined): 
   return undefined;
 };
 
-const build = (mirror: SurfaceMirror, engine: () => SeamEngine | undefined): FullHook => {
+const build = (mirror: SurfaceMirror, engine: () => SeamEngine | undefined, atlasRequests: () => number): FullHook => {
   const cardIds = (): ReadonlyArray<NodeId> =>
     mirror.cardIds().filter((id) => mirror.card(id)?.row.kind !== "region");
   const rect = (id: NodeId, part?: string): Rect | null => {
@@ -110,6 +110,7 @@ const build = (mirror: SurfaceMirror, engine: () => SeamEngine | undefined): Ful
     },
     stats: () => engineStats(engine()),
     reachMarks: () => lastReachMarks(),
+    atlasRequests,
   };
 };
 
@@ -125,9 +126,10 @@ export const canvasTestHookWanted = (): boolean => {
 export const installCanvasTestHook = (
   mirror: SurfaceMirror,
   engine: () => SeamEngine | undefined,
+  atlasRequests: () => number = () => 0,
 ): (() => void) => {
   if (!canvasTestHookWanted()) return () => undefined;
-  const hook = build(mirror, engine);
+  const hook = build(mirror, engine, atlasRequests);
   (window as unknown as { __juntoCanvas?: FullHook }).__juntoCanvas = hook;
   return () => {
     const held = (window as unknown as { __juntoCanvas?: FullHook }).__juntoCanvas;

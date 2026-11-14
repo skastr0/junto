@@ -825,4 +825,10 @@ export interface CanvasTestHook {
    * computes them, the canvas paints them.
    */
   readonly reachMarks?: () => ReadonlyArray<ReachMark> | null;
+  /**
+   * How many atlas cell rasterizations have started (one per new cell key).
+   * A camera gesture must start none: the raster in hand is scaled until the
+   * camera rests (section 8 rule 2).
+   */
+  readonly atlasRequests?: () => number;
 }

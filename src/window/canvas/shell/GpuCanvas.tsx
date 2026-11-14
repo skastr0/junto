@@ -41,6 +41,7 @@ import { CanvasMenus } from "./CanvasMenus";
 import { CardOverlays } from "./CardOverlays";
 import { CanvasMagnifier } from "../../components/CanvasMagnifier";
 import { clearCanvasTier, publishCanvasTier } from "../../lib/canvas-tier";
+import { surfaceMotionLive$ } from "../../lib/surface-motion";
 import { viewportForBounds } from "./camera-targets";
 import { paintCard } from "../paint";
 import { isMac } from "../../lib/platform";
@@ -152,6 +153,10 @@ export function GpuCanvas({ onUnavailable }: Props) {
       atlas: atlas.binding,
       sourceOf: (quad, scale) => atlas.sourceFor(quad, scale),
       atlasRevision: () => atlas.revision(),
+      // A paused surface shows a ring's rest pose; hidden or reduced motion
+      // stops its parts (surface-motion.ts). The canvas reads the same gate
+      // the DOM rings do, and repaints when it flips.
+      motionLive: () => surfaceMotionLive$.peek(),
       ...(textCtx === null || typeof textCtx.measureText !== "function"
         ? {}
         : { measure: (run: TextRun) => measureRun(textCtx, run, window.devicePixelRatio || 1) }),
@@ -214,6 +219,9 @@ export function GpuCanvas({ onUnavailable }: Props) {
       atlas.setMode(value);
       engine.apply([{ kind: "theme", mode: value }]);
     });
+    // Motion's gate flips between a ring's moving parts and its rest pose in
+    // the scene's order list, which only a prepared frame rebuilds.
+    const offMotion = surfaceMotionLive$.onChange(() => engine.invalidate());
 
     // The marquee follows the pointer drag on the engine's frame, written
     // straight to this element's style: a selection drag commits no render.
@@ -279,7 +287,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
     const minimap = createGpuMinimapSource(mirror, api);
     setCanvasApi(api);
     setMinimapSource(minimap);
-    const offHook = installCanvasTestHook(mirror, () => engineRef.current);
+    const offHook = installCanvasTestHook(mirror, () => engineRef.current, () => atlas.requests);
 
     return () => {
       offDelete();
@@ -300,6 +308,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
       canvas.removeEventListener("pointerleave", leave);
       document.removeEventListener("visibilitychange", visibility);
       sizes.disconnect();
+      offMotion();
       offTheme();
       offKeeper();
       offAtlasDevice();

@@ -121,6 +121,12 @@ export interface EngineHost {
   readonly sourceOf?: (quad: Quad, scale: number) => number;
   /** The atlas's cell-table revision; a change re-uploads the UV table. */
   readonly atlasRevision?: () => number;
+  /**
+   * The app's surface motion gate (hidden window, reduced motion). A ring's
+   * rest pose draws only while motion is off, its moving parts only while it
+   * runs. Defaults to live.
+   */
+  readonly motionLive?: () => boolean;
   /** Text measurement for the painter; the shell hands the browser's. */
   readonly measure?: (run: TextRun) => number;
   /**
@@ -203,6 +209,10 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     ...(host.measure === undefined ? {} : { measure: host.measure }),
     ...(host.sourceOf === undefined ? {} : { source: host.sourceOf }),
     ...(host.atlasRevision === undefined ? {} : { atlasRevision: host.atlasRevision }),
+    ...(host.motionLive === undefined ? {} : { motionLive: host.motionLive }),
+    // Section 8 rule 2: nothing re-rasterizes mid-gesture; every visible run
+    // is exact once the camera rests.
+    settled: () => settled,
     // The atlas keys a raster by device pixels per board unit, and a quad's
     // scale rule multiplies it (a far ring is drawn larger than the camera).
     scale: () => size.pixelRatio * camera.zoom,

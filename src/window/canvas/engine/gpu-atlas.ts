@@ -69,6 +69,12 @@ export interface GpuAtlas {
   sourceFor(quad: Quad, scale: number): number;
   /** Bumped every time landed cells change the texture or the UV buffer. */
   revision(): number;
+  /**
+   * How many cell rasterizations have started: one per new key, never per ask.
+   * A camera gesture must add none (section 8 rule 2), which the frame test
+   * reads.
+   */
+  readonly requests: number;
   readonly pending: number;
   dispose(): void;
 }
@@ -215,6 +221,8 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   // sourceFor cheap for repeated asks of the same key.
   const indices = new Map<string, number>();
   let nextIndex = 0;
+  /** New cell keys rasterized so far; one per key, never per ask. */
+  let requests = 0;
   const indexOf = (key: string): number => indices.get(key) ?? NO_ATLAS_CELL;
   const remember = (key: string, index: number): void => {
     indices.set(key, index);
@@ -227,7 +235,10 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     const known = indices.get(key);
     if (known !== undefined) return known;
     const index = intern(key, rasterize);
-    if (index !== NO_ATLAS_CELL) remember(key, index);
+    if (index !== NO_ATLAS_CELL) {
+      remember(key, index);
+      requests += 1;
+    }
     return index;
   };
 
@@ -309,6 +320,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       mode = next;
     },
     revision: () => revision,
+    get requests() {
+      return requests;
+    },
     get pending() {
       return jobs.size + awaiting.size;
     },

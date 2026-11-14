@@ -249,6 +249,18 @@ export const createScene = (options: {
   readonly zoom?: () => number;
   /** The atlas's cell-table revision; a change re-uploads the UVs. */
   readonly atlasRevision?: () => number;
+  /**
+   * Whether motion is running (the app's surface motion gate): a `paused`
+   * quad draws only while it is not, a `live` quad only while it is. Absent:
+   * live, the way a ring draws in a window nobody paused.
+   */
+  readonly motionLive?: () => boolean;
+  /**
+   * Whether the camera has come to rest. While it moves, a record keeps the
+   * raster scale it already holds (section 8 rule 2: the existing raster is
+   * scaled during a gesture, every visible run is exact once it rests).
+   */
+  readonly settled?: () => boolean;
 }) => {
   let mode: ThemeMode = options.mode ?? "dark";
   let theme: GpuTheme = themeGpu(mode);
@@ -788,6 +800,7 @@ export const createScene = (options: {
   let lastTier: CanvasTier | undefined;
   let lastSourceEpoch = "";
   let lastAtlasRevision = -1;
+  let lastMotionLive: boolean | undefined;
   let orderReady = false;
 
   const orderCards = (found: ReadonlyArray<number>): CardSlot[] => {
@@ -805,6 +818,7 @@ export const createScene = (options: {
 
   const prepare = (view: Rect, tier: CanvasTier): Prepared => {
     currentTier = tier;
+    const motionOn = options.motionLive?.() ?? true;
     // A source is right for one camera bucket, one tier and one zoom (the
     // scale rules read the zoom), plus one atlas revision.
     const sourceEpoch = `${String(atlasScaleNow())}|${String(options.zoom?.() ?? 1)}|${tier}`;
@@ -818,6 +832,7 @@ export const createScene = (options: {
       !orderDirty &&
       tier === lastTier &&
       sameRect(view, lastView) &&
+      motionOn === lastMotionLive &&
       sourceEpoch === lastSourceEpoch &&
       revision === lastAtlasRevision
     ) {
@@ -845,13 +860,23 @@ export const createScene = (options: {
     // visible records take their new cell; the cell index changes with the
     // key, so the record's source word is rewritten in place.
     if (sourceEpoch !== lastSourceEpoch || revision !== lastAtlasRevision) {
-      lastSourceEpoch = sourceEpoch;
-      lastAtlasRevision = revision;
+      // Section 8 rule 2: during a gesture the raster already in hand is
+      // scaled; every run becomes exact once the camera rests. Resolving the
+      // whole visible board here on every wheel tick ran canvas2d, measureText
+      // and SVG decode for hundreds of runs inside the gesture and dropped its
+      // frames. A record with no cell yet is still resolved at once, so a card
+      // that arrives mid-gesture is never blank.
+      const exact = options.settled?.() ?? true;
+      if (exact) {
+        lastSourceEpoch = sourceEpoch;
+        lastAtlasRevision = revision;
+      }
       for (const card of cards) {
         for (const ref of card.ordered) {
           if (ref.painted.text === undefined && ref.painted.sprite === undefined) continue;
-          const source = resolveSource(ref.painted, sourceScaleFor(ref.painted));
           const at = ref.slot * QUAD_FLOATS + 23;
+          if (!exact && quads.u32[at] !== NO_ATLAS_CELL) continue;
+          const source = resolveSource(ref.painted, sourceScaleFor(ref.painted));
           if (quads.u32[at] !== source) {
             quads.u32[at] = source;
             dirtyQuads.add(ref.slot);
@@ -867,6 +892,9 @@ export const createScene = (options: {
       for (const card of cards) {
         for (const quad of card.ordered) {
           if (quad.band !== band) continue;
+          // Motion's gate: a ring's rest pose draws only while motion is off,
+          // its moving parts only while it runs (contract, `Quad.gate`).
+          if (quad.painted.gate !== undefined && (quad.painted.gate === "live") !== motionOn) continue;
           order[counts[0]! + counts[1]! + counts[2]!] = quad.slot;
           counts[band] = counts[band]! + 1;
           if (quad.motion !== undefined && (quad.tiers & mask) !== 0) moving = true;
@@ -893,6 +921,7 @@ export const createScene = (options: {
     orderDirty = false;
     lastView = view;
     lastTier = tier;
+    lastMotionLive = motionOn;
     orderReady = true;
     return { orderChanged: changed, visible: orderCount, atlasRevision: revision };
   };
