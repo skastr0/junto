@@ -9,7 +9,9 @@
 // state/tier matrix and the padded clip are canvas-verifier's half.
 
 import { test, expect, type Page } from "@playwright/test";
+import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { join } from "node:path";
 import { launchJunto, type JuntoHandle } from "../harness/launch";
 import { GALLERY_ENTRIES, GALLERY_IDS, GALLERY_IMAGE_BYTES, galleryFixture, type GalleryEntry } from "../harness/gallery-fixture";
 import { writeFixtureContentObject } from "../harness/sandbox";
@@ -26,6 +28,7 @@ interface PngImage {
 const { PNG } = createRequire(import.meta.url)("pngjs") as {
   readonly PNG: { readonly sync: { read(buf: Buffer): PngImage } };
 };
+const VISUAL_DIR = join(process.cwd(), "test-results", "look-gallery");
 
 export const IDS: ReadonlyArray<string> = GALLERY_IDS;
 export const ZOOMS = [1, 0.5, 0.3, 0.15] as const;
@@ -110,7 +113,7 @@ const clampClip = (rect: { x: number; y: number; width: number; height: number }
   return { x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y) };
 };
 
-const shotFor = async (page: Page, entry: GalleryEntry): Promise<PngImage> => {
+const shotFor = async (page: Page, entry: GalleryEntry, dest?: string): Promise<PngImage> => {
   const rect = await card(page, entry.id).box();
   if (rect === null) throw new Error(`card ${entry.id} has no rect`);
   const paneRect = await pane(page).box();
@@ -119,6 +122,7 @@ const shotFor = async (page: Page, entry: GalleryEntry): Promise<PngImage> => {
     ? clampClip({ x: rect.x, y: rect.y, width: Math.min(rect.width, REGION_CLIP.width), height: Math.min(rect.height, REGION_CLIP.height) }, paneRect)
     : clampClip({ x: rect.x - PAD.left, y: rect.y - PAD.top, width: rect.width + PAD.left + PAD.right, height: rect.height + PAD.top + PAD.bottom }, paneRect);
   const buffer = await page.screenshot({ clip });
+  if (dest !== undefined) await writeFile(dest, buffer);
   return PNG.sync.read(buffer);
 };
 
@@ -159,8 +163,9 @@ const mismatch = (a: PngImage, b: PngImage, label: string, tol = 24): number => 
 };
 
 /** Capture one canvas from every theme, tier and state, keyed for the pair. */
-const shoot = async (page: Page): Promise<ReadonlyMap<string, PngImage>> => {
+const shoot = async (page: Page, save: boolean): Promise<ReadonlyMap<string, PngImage>> => {
   const shots = new Map<string, PngImage>();
+  if (save) await mkdir(VISUAL_DIR, { recursive: true });
   const key = (theme: string, zoom: number, state: string, entry: GalleryEntry): string =>
     `${theme}|${zoom}|${state}|${entry.kind}|${entry.id}`;
 
@@ -171,14 +176,17 @@ const shoot = async (page: Page): Promise<ReadonlyMap<string, PngImage>> => {
       await zoomTo(page, zoom);
       await park(page);
       for (const entry of GALLERY_ENTRIES) {
-        shots.set(key(theme, zoom, "default", entry), await shotFor(page, entry));
+        const shotKey = key(theme, zoom, "default", entry);
+        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `gpu-${shotKey.replaceAll("|", "-")}.png`) : undefined));
       }
+      if (save) await page.screenshot({ path: join(VISUAL_DIR, `gpu-full-${theme}-${zoom}.png`) });
       if (!STATE_ZOOMS.has(zoom)) continue;
 
       for (const entry of CARD_ENTRIES) {
         await card(page, entry.id).click();
         await page.waitForTimeout(SETTLE_MS);
-        shots.set(key(theme, zoom, "selected", entry), await shotFor(page, entry));
+        const shotKey = key(theme, zoom, "selected", entry);
+        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `gpu-${shotKey.replaceAll("|", "-")}.png`) : undefined));
       }
 
       await park(page);
@@ -187,7 +195,8 @@ const shoot = async (page: Page): Promise<ReadonlyMap<string, PngImage>> => {
         if (rect === null) throw new Error(`card ${entry.id} has no rect to hover`);
         await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
         await page.waitForTimeout(SETTLE_MS);
-        shots.set(key(theme, zoom, "hovered", entry), await shotFor(page, entry));
+        const shotKey = key(theme, zoom, "hovered", entry);
+        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `gpu-${shotKey.replaceAll("|", "-")}.png`) : undefined));
       }
     }
   }
@@ -205,7 +214,7 @@ test("look gallery: GPU cards match the DOM cards in both themes, every tier, in
     // The GPU run must really be the engine, never a DOM fallback.
     const hooked = await gpu.page.evaluate(() => typeof window.__juntoCanvas?.ready === "function");
     test.skip(!hooked, "window.__juntoCanvas absent — the GPU canvas is not in this build yet");
-    gpuShots = await shoot(gpu.page);
+    gpuShots = await shoot(gpu.page, true);
   } finally {
     await gpu.close();
   }
@@ -213,7 +222,7 @@ test("look gallery: GPU cards match the DOM cards in both themes, every tier, in
 
   const dom = await open(false);
   try {
-    const domShots = await shoot(dom.page);
+    const domShots = await shoot(dom.page, false);
     for (const [key, gpuPng] of gpuShots) {
       const domPng = domShots.get(key);
       expect(domPng, `no DOM shot for ${key}`).toBeDefined();
