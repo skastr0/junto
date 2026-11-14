@@ -68,6 +68,11 @@ test("ring phase: the DOM ring and the canvas ring of one seat show the same ang
   try {
     const { app, page } = junto;
     await canvasReady(page);
+    // React Flow mounts first and the feature swap lands the GPU canvas a
+    // beat later; wait for the hook before deciding the arm is missing.
+    await page
+      .waitForFunction(() => typeof window.__juntoCanvas?.ringAngle === "function", undefined, { timeout: 30_000 })
+      .catch(() => undefined);
     const hooked = await page.evaluate(() => typeof window.__juntoCanvas?.ringAngle === "function");
     test.skip(!hooked, "hook has no ringAngle yet");
 
