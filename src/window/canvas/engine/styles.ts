@@ -89,7 +89,7 @@ const hexToSrgb = (hex: string): readonly [number, number, number] => {
   return h.length >= 6 ? [v(0), v(2), v(4)] : [v(0) / 17, v(1) / 17, v(2) / 17];
 };
 
-const resolveColour = (
+export const resolveColour = (
   ref: ColorRef | undefined,
   theme: GpuTheme,
 ): GpuColor | undefined => {

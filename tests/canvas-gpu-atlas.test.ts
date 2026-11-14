@@ -97,7 +97,10 @@ describe("gpu atlas", () => {
     await settle();
     await settle();
     const base = index * 4;
-    expect(atlas.binding.cells[base]).toBe(0);
+    // Texel (0,0) is reserved transparent for failed rasters, so the first
+    // cell starts at x = 1 and its UV origin is a hair above zero.
+    expect(atlas.binding.cells[base]).toBeGreaterThan(0);
+    expect(atlas.binding.cells[base]).toBeLessThan(atlas.binding.cells[base + 2]);
     expect(atlas.binding.cells[base + 1]).toBe(0);
     expect(atlas.binding.cells[base + 2]).toBeGreaterThan(0);
     expect(atlas.binding.cells[base + 3]).toBeGreaterThan(0);
@@ -105,12 +108,27 @@ describe("gpu atlas", () => {
     expect(dirty.length).toBeGreaterThan(0);
   });
 
-  it("keeps glyph and media sprites out of the atlas for now", () => {
+  it("keeps unknown glyphs out of the atlas and interns known glyphs and media", () => {
     const { atlas } = atlasWith();
+    // A name no painter emits stays NO_ATLAS_CELL, as the DOM draws nothing.
     expect(atlas.sourceFor(spriteQuad({ atlas: "glyph", name: "x" }), 2)).toBe(NO_ATLAS_CELL);
-    expect(
-      atlas.sourceFor(spriteQuad({ atlas: "media", ref: "r", fit: "cover" }), 2),
-    ).toBe(NO_ATLAS_CELL);
+    // "preamble" is the bubble's plain-voice case: no glyph element in the DOM.
+    expect(atlas.sourceFor(spriteQuad({ atlas: "glyph", name: "preamble" }), 2)).toBe(NO_ATLAS_CELL);
+    const glyph = atlas.sourceFor(spriteQuad({ atlas: "glyph", name: "plus" }), 2);
+    const media = atlas.sourceFor(
+      spriteQuad({ atlas: "media", ref: "junto-content://object/abc", fit: "contain" }),
+      2,
+    );
+    expect(glyph).not.toBe(NO_ATLAS_CELL);
+    expect(media).not.toBe(NO_ATLAS_CELL);
+    expect(glyph).not.toBe(media);
+    // The ink is part of the glyph cell's key.
+    const otherInk = quad({
+      kind: "sprite",
+      sprite: { atlas: "glyph", name: "plus" },
+      style: { ink: { token: "amber" } },
+    });
+    expect(atlas.sourceFor(otherInk, 2)).not.toBe(glyph);
   });
 
   it("assigns mark and image sprites cells keyed by mode", async () => {

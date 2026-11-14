@@ -16,10 +16,12 @@
  * built on document canvases; tests hand fakes.
  */
 
-import type { Quad, SpriteRef, TextRun } from "../contract";
-import type { ThemeMode } from "@shared/theme";
+import type { ColorRef, Quad, TextRun } from "../contract";
+import { themeGpu, type GpuTheme, type ThemeMode } from "@shared/theme";
 import { NO_ATLAS_CELL } from "./quad";
 import type { AtlasBinding } from "./types";
+import { resolveColour } from "./styles";
+import { drawGlyph, glyphKnown } from "./glyphs";
 import {
   fontCss,
   layoutRun,
@@ -34,8 +36,14 @@ export type AtlasPixels = ImageBitmap | HTMLCanvasElement | OffscreenCanvas;
 export interface TextRasterize {
   (run: TextRun, scale: number): Promise<AtlasPixels>;
 }
+/**
+ * A sprite cell is rasterized for the quad that asked: `scale` is device
+ * pixels per board unit (the scene's atlas bucket, pixelRatio included) and
+ * the cell is the quad's rect at that scale, so the shader's UV stretch is
+ * always pixel-exact.
+ */
 export interface SpriteRasterize {
-  (ref: Extract<SpriteRef, { atlas: "image" | "mark" }>, mode: ThemeMode): Promise<AtlasPixels>;
+  (quad: Quad, mode: ThemeMode, scale: number): Promise<AtlasPixels>;
 }
 
 export interface GpuAtlasOptions {
@@ -91,7 +99,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   let device: GPUDevice | undefined;
   let texture: GPUTexture | undefined;
   let sampler: GPUSampler | undefined;
-  let cursorX = 0;
+  let cursorX = 1; // texel (0,0) stays transparent: a cell whose raster failed keeps zeroed UVs and must sample nothing
   let cursorY = 0;
   let rowH = 0;
   let dirty = false;
@@ -225,21 +233,39 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
 
   const textKey = (run: TextRun, scale: number): string => `${runKey(run, scale, 0)}`;
 
+  /** A ColorRef as key text: the same ink must hit the same cell. */
+  const inkKey = (ref: ColorRef | undefined): string => {
+    if (ref === undefined) return "-";
+    if ("token" in ref) return `t:${ref.token}:${ref.alpha ?? 1}`;
+    if ("custom" in ref) return `c:${ref.custom}:${ref.alpha ?? 1}`;
+    return `m:${inkKey(ref.mix[0])},${inkKey(ref.mix[1])},${ref.share}`;
+  };
+
   const sourceFor = (quad: Quad, scale: number): number => {
     if (quad.sprite !== undefined) {
       const ref = quad.sprite;
-      // Mode is part of the key: generated art and the mark atlas repaint per
-      // theme, so a theme switch must not hit a stale cell.
+      // Mode, raster scale and quad size are part of every sprite key:
+      // generated art repaints per theme, a zoom bucket wants sharper cells,
+      // and the shader maps the cell's UV across the quad's rect, so the
+      // cell is rasterized at that rect's pixels. Glyph cells also carry
+      // the resolved ink — coverage tinted at raster time, not in the shader.
+      const box = `${Math.ceil(quad.rect.width * scale)}x${Math.ceil(quad.rect.height * scale)}`;
       if (ref.atlas === "image") {
-        return internRemembered(`img:${mode}:${ref.key}:${ref.size.width}x${ref.size.height}`,
-          () => options.rasterizeSprite?.(ref, mode) ?? Promise.reject(new Error("no sprite rasterizer")));
+        return internRemembered(`img:${mode}:${scale}:${box}:${ref.key}:${ref.size.width}x${ref.size.height}`,
+          () => options.rasterizeSprite?.(quad, mode, scale) ?? Promise.reject(new Error("no sprite rasterizer")));
       }
       if (ref.atlas === "mark") {
-        return internRemembered(`mark:${mode}:${ref.cell.col},${ref.cell.row}`,
-          () => options.rasterizeSprite?.(ref, mode) ?? Promise.reject(new Error("no sprite rasterizer")));
+        return internRemembered(`mark:${mode}:${scale}:${box}:${ref.cell.col},${ref.cell.row}`,
+          () => options.rasterizeSprite?.(quad, mode, scale) ?? Promise.reject(new Error("no sprite rasterizer")));
       }
-      // glyph and media have no raster path yet: they keep drawing nothing.
-      return NO_ATLAS_CELL;
+      if (ref.atlas === "glyph") {
+        if (!glyphKnown(ref.name)) return NO_ATLAS_CELL;
+        return internRemembered(`glyph:${mode}:${scale}:${box}:${inkKey(quad.style.ink)}:${ref.name}`,
+          () => options.rasterizeSprite?.(quad, mode, scale) ?? Promise.reject(new Error("no sprite rasterizer")));
+      }
+      // media
+      return internRemembered(`media:${mode}:${scale}:${box}:${ref.fit}:${ref.ref}`,
+        () => options.rasterizeSprite?.(quad, mode, scale) ?? Promise.reject(new Error("no sprite rasterizer")));
     }
     if (quad.text !== undefined && options.rasterizeText !== undefined) {
       return internRemembered(`txt:${textKey(quad.text, scale)}`,
@@ -347,31 +373,137 @@ const markAtlasCanvas = (mode: ThemeMode): HTMLCanvasElement | undefined => {
   return canvas;
 };
 
-/** Sprites the shell can already paint: generated art (SVG) and mark cells. */
-export const rasterizeSprite: SpriteRasterize = async (ref, mode) => {
-  const scale = 2; // generated art rasterizes at 2x its board size for near-tier sharpness
+let themeCache: { mode: ThemeMode; theme: GpuTheme } | undefined;
+const themeFor = (mode: ThemeMode): GpuTheme => {
+  if (themeCache?.mode !== mode) themeCache = { mode, theme: themeGpu(mode) };
+  return themeCache.theme;
+};
+
+const cssColor = (c: { r: number; g: number; b: number; a: number }): string =>
+  `rgb(${Math.round(c.r * 255)} ${Math.round(c.g * 255)} ${Math.round(c.b * 255)} / ${c.a})`;
+
+const loadImage = async (src: string): Promise<HTMLImageElement> => {
+  const image = new Image();
+  image.src = src;
+  await image.decode();
+  return image;
+};
+
+/**
+ * Chromium refuses nested `<image>` loads inside an SVG loaded as an image,
+ * so harness badges that embed a vendor raster mark would lose it. The SVG
+ * still draws; after it lands, each `<image>` the markup declared is fetched
+ * itself and drawn at its declared rect, in the SVG's own user units.
+ */
+const IMAGE_TAG = /<image\b[^>]*>/g;
+const tagAttr = (tag: string, name: string): string | undefined => {
+  const m = tag.match(new RegExp(`${name}\\s*=\\s*"([^"]*)"`, "i"))
+    ?? tag.match(new RegExp(`${name}\\s*=\\s*'([^']*)'`, "i"));
+  return m?.[1];
+};
+
+const compositeNestedImages = async (
+  ctx: CanvasRenderingContext2D,
+  svg: string,
+  userToPx: { readonly x: number; readonly y: number },
+): Promise<void> => {
+  const tags = svg.match(IMAGE_TAG) ?? [];
+  for (const tag of tags) {
+    const href = tagAttr(tag, "href") ?? tagAttr(tag, "xlink:href");
+    if (href === undefined || href === "") continue;
+    const x = Number(tagAttr(tag, "x") ?? 0);
+    const y = Number(tagAttr(tag, "y") ?? 0);
+    const w = Number(tagAttr(tag, "width") ?? 0);
+    const h = Number(tagAttr(tag, "height") ?? 0);
+    if (!Number.isFinite(x + y + w + h) || w <= 0 || h <= 0) continue;
+    try {
+      const image = await loadImage(href);
+      ctx.drawImage(image, x * userToPx.x, y * userToPx.y, w * userToPx.x, h * userToPx.y);
+    } catch {
+      // A mark that will not decode leaves the badge's plate, as the DOM's
+      // broken <img> would; the rest of the art is already down.
+    }
+  }
+};
+
+const drawFitted = (
+  ctx: CanvasRenderingContext2D,
+  image: CanvasImageSource,
+  iw: number,
+  ih: number,
+  fit: "contain" | "cover",
+): void => {
+  const { width: w, height: h } = ctx.canvas;
+  const scale = fit === "cover" ? Math.max(w / iw, h / ih) : Math.min(w / iw, h / ih);
+  const dw = iw * scale;
+  const dh = ih * scale;
+  ctx.drawImage(image, (w - dw) / 2, (h - dh) / 2, dw, dh);
+};
+
+/**
+ * Sprite cells, rasterized for the quad that asked: `scale` is device pixels
+ * per board unit and the cell is the quad's rect at that scale, so the
+ * shader's UV stretch is always pixel-exact. The cell carries the sprite's
+ * own colours — generated art and media are opaque RGBA; glyphs bake their
+ * resolved ink because the sprite path tints by fill, not style.ink.
+ */
+export const rasterizeSprite: SpriteRasterize = async (quad, mode, scale) => {
+  const ref = quad.sprite;
+  if (ref === undefined) throw new Error("rasterizeSprite needs a sprite quad");
+  const w = Math.max(1, Math.ceil(quad.rect.width * scale));
+  const h = Math.max(1, Math.ceil(quad.rect.height * scale));
+  const { canvas, ctx } = canvas2d(w, h);
+
   if (ref.atlas === "image") {
-    const { width, height } = ref.size;
     const url = URL.createObjectURL(new Blob([ref.svg], { type: "image/svg+xml" }));
     try {
-      const image = new Image();
-      image.src = url;
-      await image.decode();
-      const { canvas, ctx } = canvas2d(width * scale, height * scale);
+      const image = await loadImage(url);
       ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-      return createImageBitmap(canvas);
+      await compositeNestedImages(ctx, ref.svg, {
+        x: canvas.width / Math.max(1, ref.size.width),
+        y: canvas.height / Math.max(1, ref.size.height),
+      });
     } finally {
       URL.revokeObjectURL(url);
     }
+    return createImageBitmap(canvas);
   }
-  const atlas = markAtlasCanvas(mode);
-  if (atlas === undefined) throw new Error("mark atlas unavailable");
-  const { canvas, ctx } = canvas2d(MARK_CELL * scale, MARK_CELL * scale);
-  ctx.drawImage(
-    atlas,
-    ref.cell.col * MARK_CELL, ref.cell.row * MARK_CELL, MARK_CELL, MARK_CELL,
-    0, 0, canvas.width, canvas.height,
-  );
+
+  if (ref.atlas === "mark") {
+    const atlas = markAtlasCanvas(mode);
+    if (atlas === undefined) throw new Error("mark atlas unavailable");
+    ctx.drawImage(
+      atlas,
+      ref.cell.col * MARK_CELL, ref.cell.row * MARK_CELL, MARK_CELL, MARK_CELL,
+      0, 0, canvas.width, canvas.height,
+    );
+    return createImageBitmap(canvas);
+  }
+
+  if (ref.atlas === "glyph") {
+    const ink = resolveColour(quad.style.ink, themeFor(mode))
+      ?? { r: 1, g: 1, b: 1, a: 1 };
+    const side = Math.min(canvas.width, canvas.height);
+    ctx.translate((canvas.width - side) / 2, (canvas.height - side) / 2);
+    drawGlyph(ctx, ref.name, side, ink);
+    return createImageBitmap(canvas);
+  }
+
+  // media: the content store's bitmap on the DOM's bare ground, fitted the
+  // way object-fit fits it.
+  const ground = resolveColour({ token: "shadow-2" }, themeFor(mode));
+  if (ground !== undefined) {
+    ctx.fillStyle = cssColor(ground);
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  const response = await fetch(ref.ref);
+  if (!response.ok) throw new Error(`media fetch ${response.status}`);
+  const bitmap = await createImageBitmap(await response.blob());
+  try {
+    drawFitted(ctx, bitmap, bitmap.width, bitmap.height, ref.fit);
+  } finally {
+    bitmap.close();
+  }
   return createImageBitmap(canvas);
 };
 
