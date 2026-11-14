@@ -306,14 +306,14 @@ fn filled(base: u32, local: vec2f) -> vec4f {
       // Every corner keeps its own radius. One radius for all four painted
       // a seat's 28 left end into its 14 bottom corners and filled the
       // rounded cutouts with the drop.
-      let layerRight = select(radii.x, radii.y, lp.x > 0.0);
-      let layerLeft = select(radii.w, radii.z, lp.x > 0.0);
+      let layerRight = select(q.radii.x, q.radii.y, lp.x > 0.0);
+      let layerLeft = select(q.radii.w, q.radii.z, lp.x > 0.0);
       let layerR = max(select(layerRight, layerLeft, lp.y > 0.0) + layer.w, 0.0);
       let r = max(0.0, min(layerR, min(halfSize.x, halfSize.y)));
       let corner = p - halfSize + r;
       let d = length(max(corner, vec2f(0.0))) + min(max(corner.x, corner.y), 0.0) - r;
-      let holeRight = select(radii.x, radii.y, in.local.x > 0.0);
-      let holeLeft = select(radii.w, radii.z, in.local.x > 0.0);
+      let holeRight = select(q.radii.x, q.radii.y, in.local.x > 0.0);
+      let holeLeft = select(q.radii.w, q.radii.z, in.local.x > 0.0);
       let holeR = max(select(holeRight, holeLeft, in.local.y > 0.0) - q.hole, 0.0);
       let hc = p0 - baseHalf + holeR;
       let hd = length(max(hc, vec2f(0.0))) + min(max(hc.x, hc.y), 0.0) - holeR;
