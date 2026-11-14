@@ -611,11 +611,15 @@ export const createScene = (options: {
       }
       case "theme": {
         // A theme switch rewrites the style table's colour channels in place;
-        // records keep their style ids, so no record changes.
+        // records keep their style ids, so no record changes there.
         mode = op.mode;
         theme = themeGpu(mode);
         styles.setTheme(theme);
         styleRevision += 1;
+        // Generated art (portraits, icons, bands, glyph masks) bakes the mode
+        // into its SVG at paint time, and the atlas keys every sprite cell by
+        // mode, so each card repaints to hand the atlas the new refs.
+        for (const card of byId.values()) repaint(card);
         return;
       }
       case "wireMode": {

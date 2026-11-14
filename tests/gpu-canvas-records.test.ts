@@ -274,3 +274,21 @@ describe("the shader clock", () => {
     expect(scene.hasMotion(600)).toBe(false);
   });
 });
+
+describe("a theme switch", () => {
+  it("repaints every card, so generated art is handed the new mode", () => {
+    const painted: Array<{ id: string; mode: string }> = [];
+    const scene = createScene({
+      painter: (card, _live, view) => {
+        painted.push({ id: card.id, mode: view.mode });
+        return { quads: [], dim: { opacity: 1, saturate: 1 }, lift: 0 };
+      },
+    });
+    const b: CardFact = { id: "b", row: seat("b", { x: 400, y: 200 }), derived: { regionDepth: 0, blocked: false, z: 0 } };
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact(), b], wires: [] });
+    painted.length = 0;
+    scene.apply({ kind: "theme", mode: "bright" });
+    expect(painted.map((entry) => entry.id).sort()).toEqual(["a", "b"]);
+    expect(painted.every((entry) => entry.mode === "bright")).toBe(true);
+  });
+});
