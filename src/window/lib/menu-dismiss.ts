@@ -3,7 +3,12 @@ import { isOperatorModalOpen } from "./operator-modal";
 
 /**
  * A canvas menu closes on Escape, or on a press anywhere outside a canvas
- * menu surface.
+ * menu surface. The press closes it in the capture phase, before any surface
+ * that the press itself opens: the GPU canvas opens a menu from the pointer
+ * machine on the same `pointerdown` that dismisses the previous one, and a
+ * bubble-phase dismiss listener then found the menu mounted and closed it
+ * again inside that one dispatch, so a right click on the GPU canvas never
+ * showed a menu at all.
  *
  * The listeners are put on once per opening and read the latest `dismiss`
  * through a ref. They must not be re-subscribed when the callback changes:
@@ -34,10 +39,10 @@ export const useMenuDismiss = (active: boolean, dismiss: () => void): void => {
     };
     // focus-law: Escape-only dismissal of the open canvas menu.
     window.addEventListener("keydown", onKeyDown);
-    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("pointerdown", onPointerDown, true);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
-      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("pointerdown", onPointerDown, true);
     };
   }, [active]);
 };
