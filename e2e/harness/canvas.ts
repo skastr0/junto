@@ -125,9 +125,16 @@ export interface CanvasPane {
  */
 export type { CanvasTestHook, EngineStats };
 
+/** The DOM canvas's camera hook: the setter the look gallery pairs with the GPU's. */
+export interface CanvasDomTestHook {
+  readonly camera: () => CanvasCamera;
+  readonly moveCamera: (camera: CanvasCamera) => void;
+}
+
 declare global {
   interface Window {
     __juntoCanvas?: CanvasTestHook;
+    __juntoDomCanvas?: CanvasDomTestHook;
   }
 }
 

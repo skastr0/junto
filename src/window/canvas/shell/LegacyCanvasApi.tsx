@@ -15,6 +15,7 @@ import { clearCanvasApi, setCanvasApi } from "./canvas-api";
 import { clearMinimapSource, setMinimapSource } from "./minimap-source";
 import { CanvasApiProvider } from "./CanvasApiContext";
 import { ownWireMode } from "./wire-mode";
+import { canvasTestHookWanted } from "./test-hook";
 
 type FlowStore = ReturnType<typeof useStoreApi>;
 type FlowInstance = ReturnType<typeof useReactFlow>;
@@ -251,6 +252,21 @@ export function LegacyCanvasApiProvider({ children }: { readonly children: React
       element: dom,
     } satisfies MinimapSource;
   }, [rf, store]);
+
+  // The DOM arm's camera setter, beside the GPU canvas's test hook: a spec
+  // comparing the two canvases puts both at one exact camera with it.
+  useEffect(() => {
+    if (!canvasTestHookWanted()) return;
+    const hook = {
+      camera: () => api.camera(),
+      moveCamera: (camera: Camera) => api.moveCamera({ kind: "camera", camera }),
+    };
+    const target = window as unknown as { __juntoDomCanvas?: typeof hook };
+    target.__juntoDomCanvas = hook;
+    return () => {
+      if (target.__juntoDomCanvas === hook) delete target.__juntoDomCanvas;
+    };
+  }, [api]);
 
   useEffect(() => {
     setCanvasApi(api);

@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { launchJunto, type JuntoHandle } from "../harness/launch";
 import { GALLERY_ENTRIES, GALLERY_IDS, GALLERY_IMAGE_BYTES, galleryFixture, type GalleryEntry } from "../harness/gallery-fixture";
 import { writeFixtureContentObject } from "../harness/sandbox";
-import { camera, cameraSettled, card, canvasReady, pane } from "../harness/canvas";
+import { camera, cameraSettled, card, canvasReady, pane, type CanvasCamera } from "../harness/canvas";
 
 const CANVAS = "factory";
 
@@ -49,16 +49,35 @@ const open = async (gpu: boolean): Promise<JuntoHandle> => {
       }).then(() => undefined),
     ...(gpu ? { seedExperimentalFeatures: ["gpuCanvas" as const] } : {}),
   });
-  await canvasReady(junto.page);
-  if (gpu) {
-    // The feature can swap the canvas after first paint; wait for the hook
-    // before deciding the arm is missing.
-    await junto.page
-      .waitForFunction(() => typeof window.__juntoCanvas?.ready === "function", undefined, { timeout: 30_000 })
-      .catch(() => undefined);
+  try {
     await canvasReady(junto.page);
+    if (gpu) {
+      // The feature can swap the canvas after first paint; wait for the hook
+      // before deciding the arm is missing.
+      await junto.page
+        .waitForFunction(() => typeof window.__juntoCanvas?.ready === "function", undefined, { timeout: 30_000 })
+        .catch(() => undefined);
+      await canvasReady(junto.page);
+    }
+  } catch (error) {
+    await junto.close().catch(() => undefined);
+    throw error;
   }
   return junto;
+};
+
+/** Electron can quit a launch that races the previous arm's teardown; one retry is the fix. */
+const openRetry = async (gpu: boolean): Promise<JuntoHandle> => {
+  let last: unknown;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await open(gpu);
+    } catch (error) {
+      last = error;
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 3_000 * attempt));
+    }
+  }
+  throw last;
 };
 
 const setTheme = async (page: Page, theme: (typeof THEMES)[number]): Promise<void> => {
@@ -68,36 +87,37 @@ const setTheme = async (page: Page, theme: (typeof THEMES)[number]): Promise<voi
     .toBe(theme === "bright" ? "bright" : null);
 };
 
-/** Wheel the camera toward a zoom, then let it settle. */
-const zoomTo = async (page: Page, zoom: number): Promise<void> => {
-  const deadline = Date.now() + 20_000;
-  const cdp = await page.context().newCDPSession(page);
-  try {
-    for (;;) {
-      const cam = await camera(page);
-      if (Math.abs(cam.zoom - zoom) < 0.005) break;
-      const box = await pane(page).box();
-      if (box === null) throw new Error("no pane to zoom over");
-      // Ctrl+wheel is the browser's zoom gesture (a macOS pinch, ten times
-      // faster); a bare wheel pans. Size the step from the multiplicative
-      // wheel law so it lands on the target instead of overshooting forever.
-      const factor = 0.002 * 10;
-      const delta = -Math.log2(zoom / cam.zoom) / factor;
-      await cdp.send("Input.dispatchMouseEvent", {
-        type: "mouseWheel",
-        x: box.x + box.width / 2,
-        y: box.y + box.height / 2,
-        deltaX: 0,
-        deltaY: Math.max(-240, Math.min(240, delta)),
-        modifiers: 2,
-      });
-      if (Date.now() >= deadline) throw new Error(`camera never reached zoom ${zoom} (at ${cam.zoom})`);
-      await page.waitForTimeout(80);
+/**
+ * Put both arms at one exact camera. The zoom is the spec's; the pan is the
+ * pane's centre on the board's origin, so a card lands on the same screen
+ * pixel in both arms and the crops differ only by how each canvas draws.
+ */
+const placeCamera = async (page: Page, zoom: number): Promise<CanvasCamera> => {
+  const box = await pane(page).box();
+  if (box === null) throw new Error("no pane to place the camera in");
+  const target = { x: box.width / 2, y: box.height / 2, zoom };
+  const placed = await page.evaluate((to) => {
+    const gpu = window.__juntoCanvas;
+    if (typeof gpu?.moveCamera === "function") {
+      gpu.moveCamera(to);
+      return "gpu";
     }
-    await cameraSettled(page);
-  } finally {
-    await cdp.detach();
-  }
+    if (window.__juntoDomCanvas !== undefined) {
+      window.__juntoDomCanvas.moveCamera(to);
+      return "dom";
+    }
+    return "";
+  }, target);
+  if (placed === "") throw new Error("this canvas has no test camera setter");
+  await expect
+    .poll(async () => {
+      const at = await camera(page);
+      return Math.max(Math.abs(at.x - target.x), Math.abs(at.y - target.y), Math.abs(at.zoom - target.zoom));
+    }, { message: `the camera lands exactly at zoom ${zoom}`, timeout: 10_000 })
+    .toBeLessThanOrEqual(0.01);
+  await page.waitForTimeout(SETTLE_MS);
+  await cameraSettled(page);
+  return target;
 };
 
 /** The card's shot, padded for its tag, shadow and selected outline. */
@@ -113,7 +133,13 @@ const clampClip = (rect: { x: number; y: number; width: number; height: number }
   return { x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y) };
 };
 
-const shotFor = async (page: Page, entry: GalleryEntry, dest?: string, bottom: number = PAD.bottom, top: number = PAD.top): Promise<PngImage> => {
+interface Shot {
+  readonly png: PngImage;
+  /** The card's own screen origin: the pair must agree, so position stays tested. */
+  readonly origin: { readonly x: number; readonly y: number };
+}
+
+const shotFor = async (page: Page, entry: GalleryEntry, dest?: string, bottom: number = PAD.bottom, top: number = PAD.top): Promise<Shot> => {
   const rect = await card(page, entry.id).box();
   if (rect === null) throw new Error(`card ${entry.id} has no rect`);
   const paneRect = await pane(page).box();
@@ -123,7 +149,7 @@ const shotFor = async (page: Page, entry: GalleryEntry, dest?: string, bottom: n
     : clampClip({ x: rect.x - PAD.left, y: rect.y - top, width: rect.width + PAD.left + PAD.right, height: rect.height + top + bottom }, paneRect);
   const buffer = await page.screenshot({ clip });
   if (dest !== undefined) await writeFile(dest, buffer);
-  return PNG.sync.read(buffer);
+  return { png: PNG.sync.read(buffer), origin: { x: rect.x, y: rect.y } };
 };
 
 const CARD_ENTRIES = GALLERY_ENTRIES.filter((entry) => entry.kind !== "region");
@@ -138,7 +164,18 @@ const park = async (page: Page): Promise<void> => {
   await page.waitForTimeout(SETTLE_MS);
 };
 
-/** Fraction of pixels whose channels differ by more than `tol`. */
+const channelClose = (a: PngImage, ai: number, b: PngImage, bi: number, tol: number): boolean =>
+  Math.abs(a.data[ai]! - b.data[bi]!) <= tol &&
+  Math.abs(a.data[ai + 1]! - b.data[bi + 1]!) <= tol &&
+  Math.abs(a.data[ai + 2]! - b.data[bi + 2]!) <= tol;
+
+/**
+ * Fraction of pixels whose colour has no match in the other arm's 3 by 3
+ * neighbourhood. Electron's text rasteriser leaves a little anti-aliasing
+ * residue that is not a shape, colour, position or word difference; one
+ * pixel of slack in every direction forgives it while a moved edge, a wrong
+ * colour or different words still find no match.
+ */
 const mismatch = (a: PngImage, b: PngImage, label: string, tol = 24): number => {
   // A fractional card rect can round a clip one pixel apart between the two
   // backends; compare the overlap rather than failing on the clip arithmetic.
@@ -150,21 +187,25 @@ const mismatch = (a: PngImage, b: PngImage, label: string, tol = 24): number => 
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const i = (y * a.width + x) * 4;
-      const j = (y * b.width + x) * 4;
-      const d = Math.max(
-        Math.abs(a.data[i]! - b.data[j]!),
-        Math.abs(a.data[i + 1]! - b.data[j + 1]!),
-        Math.abs(a.data[i + 2]! - b.data[j + 2]!),
-      );
-      if (d > tol) bad += 1;
+      let matched = false;
+      for (let dy = -1; dy <= 1 && !matched; dy += 1) {
+        const by = y + dy;
+        if (by < 0 || by >= b.height) continue;
+        for (let dx = -1; dx <= 1 && !matched; dx += 1) {
+          const bx = x + dx;
+          if (bx < 0 || bx >= b.width) continue;
+          matched = channelClose(a, i, b, (by * b.width + bx) * 4, tol);
+        }
+      }
+      if (!matched) bad += 1;
     }
   }
   return bad / (width * height);
 };
 
 /** Capture one canvas from every theme, tier and state, keyed for the pair. */
-const shoot = async (page: Page, save: boolean): Promise<ReadonlyMap<string, PngImage>> => {
-  const shots = new Map<string, PngImage>();
+const shoot = async (page: Page, save: boolean, prefix: "gpu" | "dom"): Promise<ReadonlyMap<string, Shot>> => {
+  const shots = new Map<string, Shot>();
   if (save) await mkdir(VISUAL_DIR, { recursive: true });
   const key = (theme: string, zoom: number, state: string, entry: GalleryEntry): string =>
     `${theme}|${zoom}|${state}|${entry.kind}|${entry.id}`;
@@ -173,13 +214,13 @@ const shoot = async (page: Page, save: boolean): Promise<ReadonlyMap<string, Png
     await setTheme(page, theme);
     await page.waitForTimeout(SETTLE_MS);
     for (const zoom of ZOOMS) {
-      await zoomTo(page, zoom);
+      await placeCamera(page, zoom);
       await park(page);
       for (const entry of GALLERY_ENTRIES) {
         const shotKey = key(theme, zoom, "default", entry);
-        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `gpu-${shotKey.replaceAll("|", "-")}.png`) : undefined, zoom <= 0.3 ? 14 : 10, zoom <= 0.3 ? 14 : PAD.top));
+        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `${prefix}-${shotKey.replaceAll("|", "-")}.png`) : undefined, zoom <= 0.3 ? 14 : 10, zoom <= 0.3 ? 14 : PAD.top));
       }
-      if (save) await page.screenshot({ path: join(VISUAL_DIR, `gpu-full-${theme}-${zoom}.png`) });
+      if (save) await page.screenshot({ path: join(VISUAL_DIR, `${prefix}-full-${theme}-${zoom}.png`) });
       if (!STATE_ZOOMS.has(zoom)) continue;
 
       for (const entry of CARD_ENTRIES) {
@@ -190,7 +231,7 @@ const shoot = async (page: Page, save: boolean): Promise<ReadonlyMap<string, Png
         await page.mouse.move(8, 8);
         await page.waitForTimeout(SETTLE_MS);
         const shotKey = key(theme, zoom, "selected", entry);
-        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `gpu-${shotKey.replaceAll("|", "-")}.png`) : undefined, 10));
+        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `${prefix}-${shotKey.replaceAll("|", "-")}.png`) : undefined, 10));
       }
 
       await park(page);
@@ -200,7 +241,7 @@ const shoot = async (page: Page, save: boolean): Promise<ReadonlyMap<string, Png
         await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
         await page.waitForTimeout(SETTLE_MS);
         const shotKey = key(theme, zoom, "hovered", entry);
-        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `gpu-${shotKey.replaceAll("|", "-")}.png`) : undefined, 10));
+        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `${prefix}-${shotKey.replaceAll("|", "-")}.png`) : undefined, 10));
       }
     }
   }
@@ -212,30 +253,33 @@ test("look gallery: GPU cards match the DOM cards in both themes, every tier, in
   // One canvas at a time, the GPU first: two Electron apps racing for the
   // adapter on the same machine can leave the second on the DOM fallback
   // (no test hook), and a closed app's GPU process can linger for a moment.
-  const gpu = await open(true);
-  let gpuShots: ReadonlyMap<string, PngImage>;
+  const gpu = await openRetry(true);
+  let gpuShots: ReadonlyMap<string, Shot>;
   try {
     // The GPU run must really be the engine, never a DOM fallback.
     const hooked = await gpu.page.evaluate(() => typeof window.__juntoCanvas?.ready === "function");
     test.skip(!hooked, "window.__juntoCanvas absent — the GPU canvas is not in this build yet");
-    gpuShots = await shoot(gpu.page, true);
+    gpuShots = await shoot(gpu.page, true, "gpu");
   } finally {
     await gpu.close();
   }
   await new Promise((resolve) => setTimeout(resolve, 2_000));
 
-  const dom = await open(false);
+  const dom = await openRetry(false);
   try {
-    const domShots = await shoot(dom.page, false);
+    const domShots = await shoot(dom.page, true, "dom");
     const failures: string[] = [];
     const worst = new Map<string, number>();
-    for (const [key, gpuPng] of gpuShots) {
-      const domPng = domShots.get(key);
-      if (domPng === undefined) {
+    for (const [key, gpuShot] of gpuShots) {
+      const domShot = domShots.get(key);
+      if (domShot === undefined) {
         failures.push(`${key}: no DOM shot`);
         continue;
       }
-      const bad = mismatch(gpuPng, domPng, key);
+      const dx = Math.abs(gpuShot.origin.x - domShot.origin.x);
+      const dy = Math.abs(gpuShot.origin.y - domShot.origin.y);
+      if (dx > 1 || dy > 1) failures.push(`${key}: card origins differ by ${dx.toFixed(2)}, ${dy.toFixed(2)} CSS px`);
+      const bad = mismatch(gpuShot.png, domShot.png, key);
       const kind = key.split("|")[3] ?? "?";
       worst.set(kind, Math.max(worst.get(kind) ?? 0, bad));
       if (bad > 0.02) failures.push(`${key}: ${(bad * 100).toFixed(2)}% pixels differ`);

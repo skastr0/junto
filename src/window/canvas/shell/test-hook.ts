@@ -99,6 +99,8 @@ const build = (mirror: SurfaceMirror, engine: () => SeamEngine | undefined, atla
     selected: () => mirror.selection().nodeIds,
     focused: () => mirror.selection().focusedNodeId ?? "",
     camera: () => mirror.camera(),
+    // The engine's own fact: the mirror follows the next frame's camera.
+    moveCamera: (camera) => engine()?.moveCamera(camera),
     settled: () => mirror.settled(),
     tier: () => mirror.tier(),
     ringAngle: (id) => engine()?.ringAngle?.(id),

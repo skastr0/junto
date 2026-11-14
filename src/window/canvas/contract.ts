@@ -802,6 +802,11 @@ export interface CanvasTestHook {
   /** The card holding the cyan keyboard focus ring, or "" when none does. */
   readonly focused?: () => NodeId | "";
   readonly camera: () => Camera;
+  /**
+   * Move the camera at once, without an ease, so a spec can put two canvases
+   * at one exact camera instead of wheeling each toward it.
+   */
+  readonly moveCamera?: (camera: Camera) => void;
   readonly settled: () => boolean;
   readonly tier: () => CanvasTier;
   readonly stats: () => EngineStats;
