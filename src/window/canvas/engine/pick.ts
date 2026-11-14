@@ -244,17 +244,20 @@ export const pickCard = (world: PickWorld, at: Point): Hit | null => {
       continue;
     }
 
+    // A selected card's resize grip straddles the border, and a point read
+    // at a corner can land a float outside it. It is tested before the
+    // contains guard, as the region branch does, or that grip is the pane.
+    if (selected) {
+      const resize = resizePart(rect, at);
+      if (resize !== null && resizable(node)) return hitAt(fact, resize, at);
+    }
+
     if (!contains(rect, at)) {
       // Handles and verb zones bleed past the rectangle; nothing else does.
       if (!drawnHandles) continue;
       const part = verbZonePart(world, rect, at) ?? (takesHandles(node) ? handlePart(rect, at) : null);
       if (part !== null) return hitAt(fact, part, at);
       continue;
-    }
-
-    if (selected) {
-      const resize = resizePart(rect, at);
-      if (resize !== null && resizable(node)) return hitAt(fact, resize, at);
     }
     if (drawnHandles && takesHandles(node) && world.connecting?.from !== id) {
       const part = verbZonePart(world, rect, at) ?? handlePart(rect, at);

@@ -162,6 +162,15 @@ describe("the parts a gesture starts from", () => {
     });
   });
 
+  it("takes a selected card's corner a float outside its rectangle", () => {
+    // The hook's grip centre is the card's bottom-right; a board point read
+    // through the camera can arrive as 280.00000000000006, 250.00000000000006.
+    const row = note("a", "a", { x: 40, y: 130, width: 240, height: 120 });
+    const world = worldOf([factOf(row)], { selected: ["a"] });
+    const hit = pickAt(world, { x: 280.00000000000006, y: 250.00000000000006 });
+    expect(hit).toMatchObject({ nodeId: "a", part: { kind: "resize", corner: "se" } });
+  });
+
   it("shows the four edge lines, one axis each, between the corners", () => {
     const row = note("a", "a", { x: 100, y: 100 });
     const world = worldOf([factOf(row)], { selected: ["a"] });
