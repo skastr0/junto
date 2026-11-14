@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TIER_BIT, type Quad } from "../src/window/canvas/contract";
 import { paintSeat } from "../src/window/canvas/paint/seat";
-import { SEAT, SEAT_RING_CENTRE } from "../src/window/canvas/paint/card-spec";
+import { SEAT, SEAT_RING_CENTRE, SEAT_TEXT } from "../src/window/canvas/paint/card-spec";
 import { agentFact, fakeEnv, seatLive, view } from "./canvas-paint-fixtures";
 
 const at = (quads: ReadonlyArray<Quad>, tier: keyof typeof TIER_BIT): ReadonlyArray<Quad> =>
@@ -11,14 +11,31 @@ const keys = (quads: ReadonlyArray<Quad>): string[] => quads.map((q) => q.key);
 describe("agent seat paint", () => {
   const working = seatLive({ glyph: "work", tone: "cyan" });
 
-  it("near draws the shell, ring, portrait, name and line; mid only the shell and name", () => {
+  it("near draws the shell, ring, portrait, name and line; mid a compact shell and larger name", () => {
     const paint = paintSeat(agentFact(), working, view(), fakeEnv);
     const near = keys(at(paint.quads, "near"));
     expect(near).toEqual(expect.arrayContaining(["shell", "ring.base", "portrait", "name", "line.text"]));
     const mid = keys(at(paint.quads, "mid"));
-    expect(mid).toEqual(expect.arrayContaining(["shell", "name.mid", "ring.base", "portrait"]));
+    expect(mid).toEqual(expect.arrayContaining(["shell.mid", "name.mid", "ring.base", "portrait"]));
+    expect(mid).not.toContain("shell");
     expect(mid).not.toContain("line.text");
     expect(mid).not.toContain("badge");
+  });
+
+  it("mid hugs its content and enlarges the name: no empty 216 bar, 16px at weight 600", () => {
+    const short = paintSeat(agentFact({ label: "Ada" }), working, view(), fakeEnv).quads;
+    const shortShell = short.find((q) => q.key === "shell.mid")!;
+    const shortName = short.find((q) => q.key === "name.mid")!;
+    expect(shortShell.rect.width).toBe(108);
+    expect(shortShell.style.fill).toEqual({ kind: "flat", color: { token: "raise", alpha: 0.88 } });
+    expect(shortShell.style.stroke).toEqual({ color: { token: "stroke", alpha: 0.55 }, width: 1 });
+    expect(shortName.rect.width).toBe(Math.ceil("Ada".length * 16 * 0.6) + 2);
+    expect(shortName.text?.size).toBe(16);
+    expect(shortName.text?.weight).toBe(600);
+    const long = paintSeat(agentFact({ label: "product-automation" }), working, view(), fakeEnv).quads;
+    const longShell = long.find((q) => q.key === "shell.mid")!;
+    expect(longShell.rect.width).toBe(216);
+    expect(long.find((q) => q.key === "name.mid")?.rect.width).toBe(SEAT_TEXT.width);
   });
 
   it("far has no shell and no text; the ring and portrait are held by the seat scale", () => {
@@ -91,7 +108,7 @@ describe("agent seat paint", () => {
     expect(shadow.radii).toEqual(SEAT.radii);
   });
 
-  it("far halo says call, wait and halt in their hues; far hover shows the name tag", () => {
+  it("far halo says call, wait and halt in their hues; far hover blooms the full card instead of the tag", () => {
     const call = paintSeat(agentFact(), seatLive({ glyph: "call", tone: "amber" }), view(), fakeEnv).quads;
     expect(call.find((q) => q.key === "halo.inner")?.style.stroke?.color).toEqual({ token: "amber", alpha: 0.92 });
     const halt = paintSeat(agentFact(), seatLive({ glyph: "halt", tone: "crimson" }), view(), fakeEnv).quads;
@@ -100,8 +117,28 @@ describe("agent seat paint", () => {
     expect(keys(idle)).not.toContain("halo.inner");
     expect(keys(idle)).not.toContain("tag");
     const hovered = paintSeat(agentFact(), working, view({ hovered: true }), fakeEnv).quads;
-    expect(hovered.find((q) => q.key === "tag")?.scale.kind).toBe("seatTag");
-    expect(hovered.find((q) => q.key === "tag.name")?.text?.text).toBe("canvas-cards");
+    expect(keys(hovered)).toContain("hover.name");
+    expect(keys(hovered)).toContain("hover.shell");
+    expect(keys(hovered)).toContain("hover.portrait");
+    const bloom = hovered.find((q) => q.key === "hover.name")!;
+    expect(bloom.tiers).toBe(TIER_BIT.mid | TIER_BIT.far);
+    expect(bloom.band).toBe("lifted");
+    expect(bloom.scale).toEqual({ kind: "hover", anchor: SEAT_RING_CENTRE });
+    expect(hovered.find((q) => q.key === "tag")?.tiers).toBe(TIER_BIT.overview);
+  });
+
+  it("hover hides the mid pill and the far ring while the bloom stands in", () => {
+    const hovered = paintSeat(agentFact(), working, view({ hovered: true }), fakeEnv).quads;
+    expect(keys(hovered)).not.toContain("shell.mid");
+    expect(keys(hovered)).not.toContain("name.mid");
+    const ring = hovered.find((q) => q.key === "ring.base")!;
+    expect(ring.tiers & TIER_BIT.near).toBe(TIER_BIT.near);
+    expect(ring.tiers & TIER_BIT.overview).toBe(TIER_BIT.overview);
+    expect(ring.tiers & (TIER_BIT.mid | TIER_BIT.far)).toBe(0);
+    // Connecting is a wire gesture, not a hover: the bloom stays out of it.
+    const connecting = paintSeat(agentFact(), working, view({ hovered: true, connecting: true }), fakeEnv).quads;
+    expect(keys(connecting)).not.toContain("hover.name");
+    expect(keys(connecting)).toContain("shell.mid");
   });
 
   it("an editing seat hides its own name for the overlay editor", () => {
@@ -112,6 +149,7 @@ describe("agent seat paint", () => {
     const name = paintSeat(agentFact(), working, view(), fakeEnv).quads.find((q) => q.key === "name")!;
     const mid = paintSeat(agentFact(), working, view(), fakeEnv).quads.find((q) => q.key === "name.mid")!;
     expect(mid.rect.y + mid.rect.height / 2).toBe(28);
+    expect(mid.rect.height).toBe(22);
     expect(name.rect.x).toBe(SEAT.rowLeft + SEAT.ring + SEAT.gap);
     expect(name.rect.width).toBe(143);
   });

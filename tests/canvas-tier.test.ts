@@ -17,6 +17,8 @@ describe("canvas tier", () => {
     expect(tierForZoom(1)).toBe("near");
     expect(tierForZoom(TIER_NEAR_MIN)).toBe("near");
     expect(tierForZoom(0.5)).toBe("mid");
+    expect(tierForZoom(0.46)).toBe("mid");
+    expect(tierForZoom(0.45)).toBe("far");
     expect(tierForZoom(0.25)).toBe("far");
     expect(tierForZoom(0.15)).toBe("overview");
   });

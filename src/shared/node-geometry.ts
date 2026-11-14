@@ -14,6 +14,9 @@ export const AGENT_NODE_SIZE = { width: 216, height: 56 } as const;
 /** The ring a seat's portrait sits in (activity-atlas.ts, data-mark-size="seat"). */
 export const SEAT_RING_PX = 52;
 
+/** The ring's centre inside a seat's box (border 1 plus padding 1, then the 52 ring). */
+export const SEAT_RING_CENTRE = { x: 2 + SEAT_RING_PX / 2, y: 2 + SEAT_RING_PX / 2 } as const;
+
 /**
  * Kinds drawn as kind seats (KindSeat.tsx): the seat's 52px ring around the
  * kind's icon, the name, one line. Like agents they render at AGENT_NODE_SIZE

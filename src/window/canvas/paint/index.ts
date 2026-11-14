@@ -5,7 +5,7 @@
  */
 
 import { KIND_SEAT_KINDS, isImageFile } from "@shared/node-geometry";
-import type { CardFact, CardPaint, CardView, PaintEnv, SeatLive } from "../contract";
+import { TIER_BIT, type CardFact, type CardPaint, type CardView, type PaintEnv, type SeatLive } from "../contract";
 import { paintDefaultCard } from "./card";
 import { paintKindSeat } from "./kind-seat";
 import { paintLabel } from "./label";
@@ -42,7 +42,14 @@ export const paintCard = (fact: CardFact, live: SeatLive | undefined, view: Card
   const handles = takesHandles(fact) && (view.hovered || view.connecting === true)
     ? handleQuads(fact, view)
     : [];
-  return handles.length === 0 ? base : { ...base, quads: [...base.quads, ...handles] };
+  // A mid/far hover blooms the card about its ring; the handles were laid out
+  // on the unscaled card and would float inside the bloom. Keep them near-only
+  // while the bloom stands in; a connect gesture has no bloom, so its handles
+  // stay where the pointer expects them.
+  const placed = view.hovered && view.connecting !== true && view.dragging !== true
+    ? handles.map((quad) => ({ ...quad, tiers: TIER_BIT.near }))
+    : handles;
+  return placed.length === 0 ? base : { ...base, quads: [...base.quads, ...placed] };
 };
 
 export { paintClusters, gatheredIds, planClusters } from "./cluster";

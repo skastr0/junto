@@ -48,6 +48,26 @@ describe("the quad shader's names", () => {
     expect(QUAD_SHADER).toContain("@group(0) @binding(9)");
   });
 
+  it("scales a bloom's radii and shadow hole with its half-size", () => {
+    // The vertex shader scales in.half by the hover rule, but the record's
+    // radii and hole are authored in the unscaled board rect. Unscaled they
+    // broke the pill arc and left a 20px gap at the drop's rounded corners.
+    const fragment = QUAD_SHADER.slice(QUAD_SHADER.indexOf("@fragment fn fs"));
+    expect(fragment).toContain("let quadScale = select(1.0, (in.half.x * 2.0) / q.rect.z, q.rect.z > 0.001);");
+    expect(fragment).toContain("let qRadii = q.radii * quadScale;");
+    expect(fragment).toContain("let qHole = q.hole * quadScale;");
+    expect(fragment).toContain("let baseHalf = max(in.half - vec2f(qHole), vec2f(0.0));");
+    expect(fragment).toContain("let layerRight = select(qRadii.x, qRadii.y, lp.x > 0.0);");
+    expect(fragment).toContain("let right = select(qRadii.x, qRadii.y, in.local.x > 0.0);");
+    expect(fragment).not.toContain("select(q.radii.x");
+  });
+
+  it("blooms a far card from its held content-box ring, not the authored anchor", () => {
+    const vertex = QUAD_SHADER.slice(0, QUAD_SHADER.indexOf("@fragment fn fs"));
+    expect(vertex).toContain("if (tierBit == 4u) {\n      base = vec2f(o.q.y * 0.5 + o.q.w, o.q.z * 0.5);\n    }\n    scale = u.misc.y;");
+    expect(vertex).toContain("center = o.p.xy + base + (relCentre - anchor) * scale;");
+  });
+
   it("turns a sprite quad's offset, not only a disc's sweep", () => {
     // A ring's spin cell is a sprite (kind 2, shape rect). The operator saw
     // every moving ring frozen on 2026-11-14 because the turn was handled

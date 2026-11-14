@@ -16,6 +16,7 @@
  * hold at every zoom, exactly as the DOM hit areas do today.
  */
 
+import { hoverCardScale } from "@shared/canvas-tier";
 import { isImageFile, renderedNodeSize } from "@shared/node-geometry";
 import type { Node as ModelNode } from "@shared/model/kinds";
 import type {
@@ -51,6 +52,40 @@ const REGION_FRAME = 12;
 /** The tasks card's enqueue: a 20 px pill with a 24 px hit area, end of the name row. */
 const ENQUEUE_SIZE = 24;
 
+/**
+ * The hovered card's bloomed rectangle and the way back into its unbloomed
+ * coordinates. The engine builds this for mid and far: the bloom is lifted
+ * above neighbours and follows the pointer, so its whole surface stays the
+ * hovered card, including the enqueue at the end of its name row.
+ */
+export type HoveredCard = {
+  readonly id: NodeId;
+  readonly rect: Rect;
+  readonly toCard: (at: Point) => Point;
+};
+
+/**
+ * The rectangle a hover bloom covers. `origin` is the point the card scales
+ * about in its own coordinates (the ring), `base` where that point lands on
+ * the board. At mid the two coincide; at far the ring sits on the content-box
+ * centre, which is 4.5 board right of the card's own centre.
+ */
+export const hoverCardRect = (rect: Rect, origin: Point, base: Point, zoom: number): Rect => {
+  const scale = hoverCardScale(zoom);
+  return {
+    x: base.x + (rect.x - origin.x) * scale,
+    y: base.y + (rect.y - origin.y) * scale,
+    width: rect.width * scale,
+    height: rect.height * scale,
+  };
+};
+
+/** A bloomed board point in the card's own unbloomed units. */
+export const hoverCardPoint = (at: Point, origin: Point, base: Point, zoom: number): Point => {
+  const scale = hoverCardScale(zoom);
+  return { x: origin.x + (at.x - base.x) / scale, y: origin.y + (at.y - base.y) / scale };
+};
+
 /** What picking needs to know, all of it supplied by the engine. */
 export type PickWorld = {
   readonly index: SpatialIndex;
@@ -83,6 +118,8 @@ export type PickWorld = {
    * lands on; it has no card id of its own.
    */
   readonly clusterAt?: (at: Point) => ReadonlyArray<NodeId> | undefined;
+  /** The card under the pointer while its mid/far bloom stands in. */
+  readonly hovered?: HoveredCard;
 };
 
 const rectOf = (world: PickWorld, fact: CardFact): Rect => {
@@ -218,61 +255,66 @@ const enqueuePart = (node: ModelNode, rect: Rect, at: Point): Part | null => {
     : null;
 };
 
+/** One card's part under a board point, or null when the point misses it. */
+const cardPart = (world: PickWorld, fact: CardFact, at: Point): Hit | null => {
+  // Handles are hidden from far and overview (canvas-lod.css:142-144), so
+  // they are not there to be pressed either; every other part still is.
+  const drawnHandles = world.tier === "near" || world.tier === "mid";
+  const node = fact.row;
+  const rect = rectOf(world, fact);
+  const selected = world.selection.nodeIds.includes(fact.id);
+
+  if (node.kind === "region") {
+    // Region resize corners come before its chrome, as the resizer paints
+    // over the strips at the corners.
+    if (selected) {
+      const resize = resizePart(rect, at);
+      if (resize !== null) return hitAt(fact, resize, at);
+    }
+    const chrome = regionPart(rect, at, selected);
+    if (chrome !== null) return hitAt(fact, chrome, at);
+    // The interior is geography, not a target: a press there is the pane's.
+    return null;
+  }
+
+  // A selected card's resize grip straddles the border, and a point read
+  // at a corner can land a float outside it. It is tested before the
+  // contains guard, as the region branch does, or that grip is the pane.
+  if (selected) {
+    const resize = resizePart(rect, at);
+    if (resize !== null && resizable(node)) return hitAt(fact, resize, at);
+  }
+
+  if (!contains(rect, at)) {
+    // Handles and verb zones bleed past the rectangle; nothing else does.
+    if (!drawnHandles) return null;
+    const part = verbZonePart(world, rect, at) ?? (takesHandles(node) ? handlePart(rect, at) : null);
+    return part === null ? null : hitAt(fact, part, at);
+  }
+  if (drawnHandles && takesHandles(node) && world.connecting?.from !== fact.id) {
+    const part = verbZonePart(world, rect, at) ?? handlePart(rect, at);
+    if (part !== null) return hitAt(fact, part, at);
+  }
+  const enqueue = enqueuePart(node, rect, at);
+  if (enqueue !== null) return hitAt(fact, enqueue, at);
+  if (node.kind === "file" && isImageFile(node.path)) return hitAt(fact, { kind: "image" }, at);
+  return hitAt(fact, { kind: "body" }, at);
+};
+
 /**
  * The topmost card part under a board point, without wires or the pane. Used
  * by `pickAt` and, while a connection is dragged, to know what it would land
  * on.
  */
 export const pickCard = (world: PickWorld, at: Point): Hit | null => {
-  // Handles are hidden from far and overview (canvas-lod.css:142-144), so
-  // they are not there to be pressed either; every other part still is.
-  const drawnHandles = world.tier === "near" || world.tier === "mid";
   const near = world.index.cardsNear(at, PART_BLEED);
   for (let index = near.length - 1; index >= 0; index -= 1) {
     const id = near[index];
     if (id === undefined) continue;
     const fact = world.card(id);
     if (fact === undefined) continue;
-    const node = fact.row;
-    const rect = rectOf(world, fact);
-    const selected = world.selection.nodeIds.includes(id);
-
-    if (node.kind === "region") {
-      // Region resize corners come before its chrome, as the resizer paints
-      // over the strips at the corners.
-      if (selected) {
-        const resize = resizePart(rect, at);
-        if (resize !== null) return hitAt(fact, resize, at);
-      }
-      const chrome = regionPart(rect, at, selected);
-      if (chrome !== null) return hitAt(fact, chrome, at);
-      // The interior is geography, not a target: a press there is the pane's.
-      continue;
-    }
-
-    // A selected card's resize grip straddles the border, and a point read
-    // at a corner can land a float outside it. It is tested before the
-    // contains guard, as the region branch does, or that grip is the pane.
-    if (selected) {
-      const resize = resizePart(rect, at);
-      if (resize !== null && resizable(node)) return hitAt(fact, resize, at);
-    }
-
-    if (!contains(rect, at)) {
-      // Handles and verb zones bleed past the rectangle; nothing else does.
-      if (!drawnHandles) continue;
-      const part = verbZonePart(world, rect, at) ?? (takesHandles(node) ? handlePart(rect, at) : null);
-      if (part !== null) return hitAt(fact, part, at);
-      continue;
-    }
-    if (drawnHandles && takesHandles(node) && world.connecting?.from !== id) {
-      const part = verbZonePart(world, rect, at) ?? handlePart(rect, at);
-      if (part !== null) return hitAt(fact, part, at);
-    }
-    const enqueue = enqueuePart(node, rect, at);
-    if (enqueue !== null) return hitAt(fact, enqueue, at);
-    if (node.kind === "file" && isImageFile(node.path)) return hitAt(fact, { kind: "image" }, at);
-    return hitAt(fact, { kind: "body" }, at);
+    const part = cardPart(world, fact, at);
+    if (part !== null) return part;
   }
   return null;
 };
@@ -285,6 +327,17 @@ export const pickCard = (world: PickWorld, at: Point): Hit | null => {
 export const pickAt = (world: PickWorld, at: Point): Hit => {
   const cluster = world.clusterAt?.(at);
   if (cluster !== undefined) return { part: { kind: "cluster", memberIds: cluster }, at };
+  const hovered = world.hovered;
+  if (hovered !== undefined && contains(hovered.rect, at)) {
+    const fact = world.card(hovered.id);
+    if (fact !== undefined) {
+      // Test the bloomed point in the card's own coordinates, so the enqueue
+      // and the other parts keep the geometry they were painted with.
+      const part = cardPart(world, fact, hovered.toCard(at));
+      const kept = part?.part.kind === "taskEnqueue" || part?.part.kind === "ringFlag" ? part.part : { kind: "body" as const };
+      return { nodeId: fact.id, part: kept, at };
+    }
+  }
   const card = pickCard(world, at);
   if (card !== null) return card;
   if (world.wireMode === "loupe" || world.wireMode === "cone") {

@@ -25,10 +25,27 @@ describe("kind seat paint", () => {
   it("mid keeps the shell, ring, band and a centred name; no line", () => {
     const quads = paint("task", { state: "working", ledger: { kind: "task", finished: 1, open: 2, asks: 0, stuck: 0, backlog: 1 } }).quads;
     const mid = at(quads, "mid");
-    expect(keys(mid)).toEqual(expect.arrayContaining(["shell", "icon", "name.mid", "band.0"]));
+    expect(keys(mid)).toEqual(expect.arrayContaining(["shell.mid", "icon", "name.mid", "band.0"]));
+    expect(keys(mid)).not.toContain("shell");
     expect(keys(mid)).not.toContain("line");
     expect(keys(mid)).not.toContain("name");
-    expect(mid.find((q) => q.key === "name.mid")?.rect.y).toBeCloseTo(SEAT_RING_CENTRE.y - (13 * 1.375) / 2);
+    expect(mid.find((q) => q.key === "name.mid")?.rect.y).toBeCloseTo(SEAT_RING_CENTRE.y - (16 * 1.375) / 2);
+  });
+
+  it("mid hugs the name and enqueue and enlarges the name to 16", () => {
+    const short = paint("task", { name: "Ada" }).quads;
+    const shortShell = short.find((q) => q.key === "shell.mid")!;
+    expect(shortShell.rect.width).toBe(108);
+    expect(shortShell.style.stroke).toEqual({ color: { token: "stroke", alpha: 0.55 }, width: 1 });
+    const name = short.find((q) => q.key === "name.mid")!;
+    expect(name.text?.size).toBe(16);
+    expect(name.text?.weight).toBe(600);
+    const withEnqueue = paint("task", { enqueue: true, name: "board" }).quads;
+    const shell = withEnqueue.find((q) => q.key === "shell.mid")!;
+    const enqueue = withEnqueue.find((q) => q.key === "enqueue.mid")!;
+    expect(shell.rect.width).toBe(147);
+    expect(enqueue.rect.x).toBe(116);
+    expect(enqueue.rect.width).toBe(20);
   });
 
   it("far and overview have no shell, text or band; ring and icon are held by the seat scale from the ring cap", () => {
@@ -139,14 +156,27 @@ describe("kind seat paint", () => {
     expect(quads.find((q) => q.key === "task.more")?.text?.text).toBe("+2");
   });
 
-  it("far halo says call, wait and halt; far hover shows the name tag", () => {
+  it("far halo says call, wait and halt; far hover blooms the full card instead of the tag", () => {
     expect(paint("page", { state: "waiting" }).quads.find((q) => q.key === "halo.inner")?.style.stroke?.color).toEqual({ token: "amber", alpha: 0.92 });
     expect(paint("page", { state: "blocked" }).quads.find((q) => q.key === "halo.outer")?.style.stroke?.color).toEqual({ token: "crimson", alpha: 0.3 });
     expect(keys(paint("page", { state: "working" }).quads)).not.toContain("halo.inner");
     const hov = paint("page", {}, view({ hovered: true })).quads;
-    expect(hov.find((q) => q.key === "tag")?.scale.kind).toBe("seatTag");
-    expect(hov.find((q) => q.key === "tag.name")?.text?.text).toBe("my page");
+    expect(keys(hov)).toContain("hover.name");
+    expect(keys(hov)).toContain("hover.line");
+    expect(hov.find((q) => q.key === "tag")?.tiers).toBe(TIER_BIT.overview);
+    expect(hov.find((q) => q.key === "hover.icon")?.scale).toEqual({ kind: "hover", anchor: SEAT_RING_CENTRE });
     expect(keys(paint("page").quads)).not.toContain("tag");
+  });
+
+  it("hover hides the mid pill and the base far ring; the bloom takes their tier", () => {
+    const hovered = paint("task", { enqueue: true }, view({ hovered: true })).quads;
+    expect(keys(hovered)).not.toContain("shell.mid");
+    expect(keys(hovered)).not.toContain("name.mid");
+    expect(keys(hovered)).not.toContain("enqueue.mid");
+    const icon = hovered.find((q) => q.key === "icon")!;
+    expect(icon.tiers & (TIER_BIT.mid | TIER_BIT.far)).toBe(0);
+    expect(hovered.find((q) => q.key === "hover.enqueue")?.band).toBe("lifted");
+    expect(hovered.find((q) => q.key === "hover.enqueue")?.tiers).toBe(TIER_BIT.mid | TIER_BIT.far);
   });
 
   it("an unbound card draws the default shell and one plain line", () => {

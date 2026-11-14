@@ -182,6 +182,20 @@ fn filled(base: u32, local: vec2f) -> vec4f {
     let relCentre = vec2f(q.rect.x + q.rect.z * 0.5, q.rect.y + q.rect.w * 0.5);
     scale = u.scales.z;
     center = o.p.xy + anchor + (relCentre - anchor) * scale;
+  } else if (q.scaleRule == 4u) {
+    // The hovered card's full-detail bloom: every near quad grows about the
+    // ring centre by the camera's hold (u.misc.y, hoverCardScale). At far the
+    // unhovered ring already sits on the card's content-box centre (o.q),
+    // not the ring's authored anchor; bloom from there or the card jumps out
+    // from under the pointer. At mid the two points coincide.
+    let anchor = vec2f(q.anchorX, q.anchorY);
+    let relCentre = vec2f(q.rect.x + q.rect.z * 0.5, q.rect.y + q.rect.w * 0.5);
+    var base = anchor;
+    if (tierBit == 4u) {
+      base = vec2f(o.q.y * 0.5 + o.q.w, o.q.z * 0.5);
+    }
+    scale = u.misc.y;
+    center = o.p.xy + base + (relCentre - anchor) * scale;
   } else if (q.scaleRule == 3u) {
     // The far name tag: its offset from the ring centre scales with the seat,
     // the tag itself by farSeat * 1.4 about its top centre.
@@ -225,7 +239,6 @@ fn filled(base: u32, local: vec2f) -> vec4f {
   }
 
   let size = q.rect.zw * scale * motionScale;
-  let radii = q.radii * scale * motionScale;
   var offset = local * size * 0.5;
   if (q.motion == 1u) {
     // A turning part turns about its centre, exactly as the DOM's part does
@@ -255,6 +268,13 @@ fn filled(base: u32, local: vec2f) -> vec4f {
   let q = quads[in.slot];
   let o = owners[q.owner];
   let ppu = u.camera.z * u.view.z;
+  // The vertex shader scales the half-size by the quad's rule and motion;
+  // the record's radii and hole are authored in the unscaled board rect.
+  // Scale them with the same factor or a bloomed pill's 28 radius arcs over
+  // a 112 high box and the drop's hole leaves a gap at its rounded corners.
+  let quadScale = select(1.0, (in.half.x * 2.0) / q.rect.z, q.rect.z > 0.001);
+  let qRadii = q.radii * quadScale;
+  let qHole = q.hole * quadScale;
   let base = q.style * STYLE;
   let strokeWidth = styles[base + 13u];
   let shadowId = i32(styles[base + 17u]);
@@ -305,7 +325,7 @@ fn filled(base: u32, local: vec2f) -> vec4f {
     // outside that box. The painter grows the quad past the element to give a
     // glow room and names the growth as its hole; without the hole the solid
     // first layer of a ring shadow fills the card with its tint.
-    let baseHalf = max(in.half - vec2f(q.hole), vec2f(0.0));
+    let baseHalf = max(in.half - vec2f(qHole), vec2f(0.0));
     for (var i = 0u; i < count; i = i + 1u) {
       let layer = shadowLayers[spec.y + i * 2u];
       let tint = shadowLayers[spec.y + i * 2u + 1u];
@@ -316,14 +336,14 @@ fn filled(base: u32, local: vec2f) -> vec4f {
       // Every corner keeps its own radius. One radius for all four painted
       // a seat's 28 left end into its 14 bottom corners and filled the
       // rounded cutouts with the drop.
-      let layerRight = select(q.radii.x, q.radii.y, lp.x > 0.0);
-      let layerLeft = select(q.radii.w, q.radii.z, lp.x > 0.0);
+      let layerRight = select(qRadii.x, qRadii.y, lp.x > 0.0);
+      let layerLeft = select(qRadii.w, qRadii.z, lp.x > 0.0);
       let layerR = max(select(layerRight, layerLeft, lp.y > 0.0) + layer.w, 0.0);
       let r = max(0.0, min(layerR, min(halfSize.x, halfSize.y)));
       let corner = p - halfSize + r;
       let d = length(max(corner, vec2f(0.0))) + min(max(corner.x, corner.y), 0.0) - r;
-      let holeRight = select(q.radii.x, q.radii.y, in.local.x > 0.0);
-      let holeLeft = select(q.radii.w, q.radii.z, in.local.x > 0.0);
+      let holeRight = select(qRadii.x, qRadii.y, in.local.x > 0.0);
+      let holeLeft = select(qRadii.w, qRadii.z, in.local.x > 0.0);
       // q.radii are the element's used radii already: shadow() clamps them to
       // the element box. Subtracting q.hole here squared the hole at the card
       // corners and left the drop as a sharp grey triangle outside the border.
@@ -368,8 +388,8 @@ fn filled(base: u32, local: vec2f) -> vec4f {
     }
   } else {
     let p = abs(in.local * in.half);
-    let right = select(q.radii.x, q.radii.y, in.local.x > 0.0);
-    let left = select(q.radii.w, q.radii.z, in.local.x > 0.0);
+    let right = select(qRadii.x, qRadii.y, in.local.x > 0.0);
+    let left = select(qRadii.w, qRadii.z, in.local.x > 0.0);
     // CSS never lets a radius pass half the shorter side; a pill asks for 999.
     let rr = min(select(right, left, in.local.y > 0.0), min(in.half.x, in.half.y));
     let corner = p - in.half + rr;
@@ -713,6 +733,7 @@ export const createRenderer = () => {
       readonly farSeat: number;
       readonly seatFloor: number;
       readonly nodeScale: number;
+      readonly hoverScale: number;
     },
   ): void => {
     const state = gpu;
@@ -730,7 +751,7 @@ export const createRenderer = () => {
     uniform[10] = frame.nodeScale;
     uniform[11] = 0;
     uniform[12] = scene.orderCount;
-    uniform[13] = 0;
+    uniform[13] = frame.hoverScale;
     uniform[14] = 0;
     uniform[15] = 0;
     state.device.queue.writeBuffer(state.uniform, 0, uniform);

@@ -152,15 +152,18 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   };
 
   const alloc = (w: number, h: number): Placed | undefined => {
-    if (cursorX + w > size) {
+    // One texel of transparent gutter on every cell's right and bottom edge:
+    // the linear sampler reaches half a texel past the UV edge, and a 0 px
+    // gutter sampled the next cell's first column as a hairline.
+    if (cursorX + w + 1 > size) {
       cursorX = 0;
       cursorY += rowH;
       rowH = 0;
     }
-    if (cursorY + h > size) return undefined; // atlas full: rebuild is a later problem
+    if (cursorY + h + 1 > size) return undefined; // atlas full: rebuild is a later problem
     const at: Placed = { x: cursorX, y: cursorY, w, h };
-    cursorX += w;
-    rowH = Math.max(rowH, h);
+    cursorX += w + 1;
+    rowH = Math.max(rowH, h + 1);
     return at;
   };
 

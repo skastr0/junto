@@ -53,14 +53,8 @@ export const SEAT = {
   aiTracking: 0.12,
 } as const;
 
-/** The ring's centre inside a seat's box: the anchor every far scale holds. */
-export const SEAT_RING_CENTRE = {
-  x: SEAT.rowLeft + SEAT.ring / 2,
-  y: SEAT.rowTop + SEAT.ring / 2,
-} as const;
-
-/** The seat's content-box centre against the card's own (node-geometry.ts). */
-export { SEAT_CONTENT_CENTRE_DX } from "@shared/node-geometry";
+/** The ring centre and content-box centre: the shared card geometry both paint and engine read. */
+export { SEAT_CONTENT_CENTRE_DX, SEAT_RING_CENTRE } from "@shared/node-geometry";
 
 /** Text column of a seat: right of the ring and its gap, to the padded edge. */
 export const SEAT_TEXT = {

@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { asCanvasName } from "@shared/model";
-import { farSeatScale } from "@shared/canvas-tier";
+import { farSeatScale, hoverCardScale } from "@shared/canvas-tier";
 import type { CardFact, CardView, PaintEnv, Quad, QuadStyle } from "../src/window/canvas/contract";
 import { atlasScale, createScene } from "../src/window/canvas/engine/scene";
 import { SCALE_RULE, QUAD_FLOATS } from "../src/window/canvas/engine/quad";
@@ -45,6 +45,25 @@ describe("the far name tag", () => {
     expect(word(scene, 0, 17)).toBe(SCALE_RULE.seatTag);
     expect(float(scene, 0, 18)).toBe(2);
     expect(float(scene, 0, 25)).toBe(26);
+  });
+});
+
+describe("the hover bloom", () => {
+  it("packs the hover scale rule, anchored on the ring", () => {
+    const scene = sceneWith(() => [{
+      key: "bloom",
+      kind: "shape",
+      band: "lifted",
+      z: 1,
+      rect: { x: 0, y: 0, width: 216, height: 56 },
+      tiers: 6,
+      scale: { kind: "hover", anchor: { x: 28, y: 28 } },
+      style: {},
+    }]);
+    expect(word(scene, 0, 17)).toBe(SCALE_RULE.hover);
+    expect(float(scene, 0, 18)).toBe(1);
+    expect(float(scene, 0, 25)).toBe(28);
+    expect(float(scene, 0, 26)).toBe(28);
   });
 });
 
@@ -338,6 +357,39 @@ describe("a sprite's raster scale", () => {
     expect(far).toBeCloseTo(atlasScale(0.3 * Math.min(farSeatScale(0.3), 1.75)), 9);
     expect(far).toBeGreaterThan(atlasScale(0.3));
     expect(near).toBeCloseTo(atlasScale(0.3), 9);
+  });
+});
+
+describe("a hover bloom's atlas cell", () => {
+  it("rasterizes at the hover scale, not the camera scale alone", () => {
+    const scales: number[] = [];
+    const scene = createScene({
+      painter: () => ({
+        quads: [{
+          key: "hover.portrait",
+          kind: "sprite",
+          band: "lifted",
+          z: 1,
+          rect: { x: 10, y: 10, width: 34, height: 34 },
+          tiers: 6,
+          scale: { kind: "hover", anchor: { x: 28, y: 28 } },
+          style: {},
+          sprite: { atlas: "mark", cell: { col: 0, row: 1 } },
+        }],
+        dim: { opacity: 1, saturate: 1 },
+        lift: 0,
+      }),
+      source: (_quad, scale) => {
+        scales.push(scale);
+        return 3;
+      },
+      scale: () => 0.4,
+      zoom: () => 0.4,
+    });
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact()], wires: [] });
+    scene.prepare({ x: -100, y: -100, width: 800, height: 600 }, "far");
+    expect(scales.at(-1)).toBeCloseTo(atlasScale(0.4 * hoverCardScale(0.4)), 9);
+    expect(scales.at(-1)!).toBeGreaterThan(atlasScale(0.4));
   });
 });
 

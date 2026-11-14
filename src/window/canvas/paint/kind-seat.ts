@@ -13,10 +13,12 @@ import { ringState, type ActivityTone, type RingState } from "@shared/wire/rings
 import type { KindIconKind } from "@shared/kind-icon";
 import type { KindLedger, KindState } from "../../lib/kind-band";
 import type { CardFact, CardPaint, CardView, KindLive, PaintEnv, Quad, QuadStyle, ScaleRule, TextRun } from "../contract";
-import { TIER_BIT } from "../contract";
+import { ALL_TIERS, TIER_BIT } from "../contract";
 import { FAR, FOCUS, KIND_SHELL_RADII, LIFT_PX, SEAT, SEAT_BOX, SEAT_CONTENT_CENTRE_DX, SEAT_RING_CENTRE, SEAT_TEXT } from "./card-spec";
 import { bandSprites, kindIconSprite } from "./images";
 import { bandMotion, ringQuads } from "./motion";
+import { hoverBloom } from "./hover";
+import { MID_ENQUEUE, midNameRun, midSeatLayout, midShellStyle } from "./mid";
 import { dimOf, reachQuads } from "./overlays";
 import { at, fade, grow, mixOf, shadow, shape, sprite, text, tok } from "./refs";
 
@@ -105,16 +107,19 @@ const unboundQuads = (fact: CardFact, live: KindLive, view: CardView): ReadonlyA
       { tiers: NEAR_MID, text: run(live.line, { size, font: "body", leading: 1.375, width: SEAT_BOX.width - 30 }) },
     ),
     // Far: a tinted box and the kind's glyph (inventory 3, remaining cards).
-    shape({ key: "far.box", z: 1, rect: box }, { fill: { kind: "flat", color: tok("ink", 0.05) } }, { tiers: TIER_BIT.far }),
+    shape({ key: "far.box", z: 1, rect: box }, { fill: { kind: "flat", color: tok("ink", 0.05) } }, { tiers: view.hovered ? TIER_BIT.overview : TIER_BIT.far }),
     sprite(
       { key: "far.glyph", z: 2, rect: at((SEAT_BOX.width - 33.6) / 2 + SEAT_CONTENT_CENTRE_DX, (SEAT_BOX.height - 33.6) / 2, 33.6, 33.6) },
-      { tiers: TIER_BIT.far, sprite: { atlas: "glyph", name: `kind-glyph:${kind}` }, style: { ink: tok("ink", 0.38) } },
+      { tiers: view.hovered ? TIER_BIT.overview : TIER_BIT.far, sprite: { atlas: "glyph", name: `kind-glyph:${kind}` }, style: { ink: tok("ink", 0.38) } },
     ),
   );
   if (view.selected) {
     out.push(shape({ key: "far.selected", z: 3, rect: grow(box, 2) }, { stroke: { color: tok("main", 0.7), width: 4, outside: true } }, { tiers: TIER_BIT.far }));
   }
-  return out;
+  const quads = view.hovered && !view.dragging && view.connecting !== true
+    ? [...out, ...hoverBloom(out, { selected: view.selected, radii: 10 })]
+    : out;
+  return quads;
 };
 
 export const paintKindSeat = (fact: CardFact, view: CardView, env: PaintEnv): CardPaint => {
@@ -133,6 +138,10 @@ export const paintKindSeat = (fact: CardFact, view: CardView, env: PaintEnv): Ca
   const iconRect = at(SEAT.rowLeft + (SEAT.ring - SEAT.portrait) / 2, SEAT.rowTop + (SEAT.ring - SEAT.portrait) / 2, SEAT.portrait, SEAT.portrait);
   const state: KindState = live.state as KindState;
   const quads: Quad[] = [];
+  const bloomed = view.hovered && !view.dragging && view.connecting !== true;
+  /** What the base ring keeps while the bloom stands in: near, and overview. */
+  const baseTiers = bloomed ? TIER_BIT.near | TIER_BIT.overview : ALL_TIERS;
+  const mid = midSeatLayout(live.name, live.enqueue === true, env);
 
   // --- shell, near and mid -----------------------------------------------------
   if (view.selected) {
@@ -144,40 +153,52 @@ export const paintKindSeat = (fact: CardFact, view: CardView, env: PaintEnv): Ca
       ),
     );
   }
-  quads.push(shape({ key: "shell", z: 1, rect: box }, shellStyle(hue, view), { tiers: NEAR_MID, radii: KIND_SHELL_RADII }));
+  quads.push(shape({ key: "shell", z: 1, rect: box }, shellStyle(hue, view), { tiers: NEAR, radii: KIND_SHELL_RADII }));
+  if (!bloomed) {
+    quads.push(shape({ key: "shell.mid", z: 1, rect: mid.shell }, midShellStyle(view), { tiers: TIER_BIT.mid, radii: KIND_SHELL_RADII }));
+  }
   if (view.keyboardFocus) {
     quads.push(
       shape(
         { key: "focus", z: 2, rect: grow(box, FOCUS.offset) },
         { stroke: { color: tok("cyan"), width: FOCUS.width, outside: true } },
-        { tiers: NEAR_MID, radii: FOCUS.radius + FOCUS.offset },
+        { tiers: NEAR, radii: FOCUS.radius + FOCUS.offset },
       ),
     );
+    if (!bloomed) {
+      quads.push(
+        shape(
+          { key: "focus.mid", z: 2, rect: grow(mid.shell, FOCUS.offset) },
+          { stroke: { color: tok("cyan"), width: FOCUS.width, outside: true } },
+          { tiers: TIER_BIT.mid, radii: FOCUS.radius + FOCUS.offset },
+        ),
+      );
+    }
   }
   if (live.dropTarget === true) {
     quads.push(
       shape(
         { key: "drop", z: 3, rect: at(2, 2, SEAT_BOX.width - 4, SEAT_BOX.height - 4) },
         { fill: { kind: "flat", color: tok("cyan", 0.08) }, stroke: { color: tok("cyan"), width: 1, dash: [4, 3] } },
-        { tiers: NEAR_MID, radii: 6 },
+        { tiers: bloomed ? NEAR : NEAR_MID, radii: 6 },
       ),
     );
   }
 
   // --- ring, band, icon ----------------------------------------------------------
   const rings = ringQuads(kindRingState(live.state), live.stateSince ?? 0, ringRect, ringScale, "ring", 10);
-  quads.push(...rings.under);
+  quads.push(...rings.under.map((q) => ({ ...q, tiers: baseTiers })));
   const layers = bandSprites(kind, state, view.mode, live.ledger as KindLedger | undefined);
   layers.forEach((layer, index) => {
     quads.push(
       sprite(
         { key: `band.${String(index)}`, z: 15 + index * 0.1, rect: ringRect },
-        { tiers: NEAR_MID, sprite: layer.sprite, ...(layer.motion ? { motion: bandMotion(layer.motion) } : {}) },
+        { tiers: bloomed ? NEAR : NEAR_MID, sprite: layer.sprite, ...(layer.motion ? { motion: bandMotion(layer.motion) } : {}) },
       ),
     );
   });
-  quads.push(sprite({ key: "icon", z: 20, rect: iconRect }, { scale: ringScale, sprite: kindIconSprite(kind, view.mode, SEAT.portrait), shape: "disc" }));
-  quads.push(...rings.over);
+  quads.push(sprite({ key: "icon", z: 20, rect: iconRect }, { scale: ringScale, tiers: baseTiers, sprite: kindIconSprite(kind, view.mode, SEAT.portrait), shape: "disc" }));
+  quads.push(...rings.over.map((q) => ({ ...q, tiers: baseTiers })));
 
   // --- text: near name, line, strip; mid the name alone, centred on the ring ----
   const nameH = SEAT.nameSize * SEAT.snug;
@@ -193,13 +214,17 @@ export const paintKindSeat = (fact: CardFact, view: CardView, env: PaintEnv): Ca
     const w = live.enqueue === true ? nameW() : SEAT_TEXT.width;
     quads.push(
       text({ key: "name", z: 40, rect: at(SEAT_TEXT.x, top + (rowH - nameH) / 2, w, nameH) }, { ink: tok("ink") }, { tiers: NEAR, text: nameRun(w) }),
-      // Mid hides the line and the rows under it, but the name row, and the
-      // enqueue at its end, stay: the text block is that row, centred on the ring.
-      text(
-        { key: "name.mid", z: 40, rect: at(SEAT_TEXT.x, SEAT_RING_CENTRE.y - nameH / 2, w, nameH) },
-        { ink: tok("ink") },
-        { tiers: TIER_BIT.mid, text: nameRun(w) },
-      ),
+      // Mid is a content-hugged compact pill with a larger name; the bloom
+      // stands in for it while hovered.
+      ...(bloomed
+        ? []
+        : [
+            text(
+              { key: "name.mid", z: 40, rect: mid.name },
+              { ink: tok("ink") },
+              { tiers: TIER_BIT.mid, text: midNameRun(live.name, mid.name.width) },
+            ),
+          ]),
     );
   }
   if (live.enqueue === true) {
@@ -210,8 +235,12 @@ export const paintKindSeat = (fact: CardFact, view: CardView, env: PaintEnv): Ca
     quads.push(
       shape({ key: "enqueue", z: 42, rect: at(x, yNear, ENQUEUE, ENQUEUE) }, {}, { tiers: NEAR, radii: 999, part: { kind: "taskEnqueue" } }),
       sprite({ key: "enqueue.plus", z: 43, rect: at(x + (ENQUEUE - 11) / 2, yNear + (ENQUEUE - 11) / 2, 11, 11) }, { tiers: NEAR, sprite: { atlas: "glyph", name: "plus" }, style: { ink: tok("amber") } }),
-      shape({ key: "enqueue.mid", z: 42, rect: at(x, yMid, ENQUEUE, ENQUEUE) }, {}, { tiers: TIER_BIT.mid, radii: 999, part: { kind: "taskEnqueue" } }),
-      sprite({ key: "enqueue.plus.mid", z: 43, rect: at(x + (ENQUEUE - 11) / 2, yMid + (ENQUEUE - 11) / 2, 11, 11) }, { tiers: TIER_BIT.mid, sprite: { atlas: "glyph", name: "plus" }, style: { ink: tok("amber") } }),
+      ...(bloomed
+        ? []
+        : [
+            shape({ key: "enqueue.mid", z: 42, rect: at(mid.enqueueX, yMid, MID_ENQUEUE, MID_ENQUEUE) }, {}, { tiers: TIER_BIT.mid, radii: 999, part: { kind: "taskEnqueue" } }),
+            sprite({ key: "enqueue.plus.mid", z: 43, rect: at(mid.enqueueX + (MID_ENQUEUE - 11) / 2, yMid + (MID_ENQUEUE - 11) / 2, 11, 11) }, { tiers: TIER_BIT.mid, sprite: { atlas: "glyph", name: "plus" }, style: { ink: tok("amber") } }),
+          ]),
     );
   }
   quads.push(
@@ -247,8 +276,8 @@ export const paintKindSeat = (fact: CardFact, view: CardView, env: PaintEnv): Ca
   if (form === "call" || form === "wait" || form === "halt") {
     const h = form === "halt" ? "crimson" : "amber";
     quads.push(
-      shape({ key: "halo.outer", z: 5, rect: ringRect }, { stroke: { color: tok(h, FAR.halo.outerAlpha), width: FAR.halo.outer, outside: true } }, { tiers: FAR_UP, shape: "disc", scale: ringScale }),
-      shape({ key: "halo.inner", z: 6, rect: ringRect }, { stroke: { color: tok(h, FAR.halo.innerAlpha), width: FAR.halo.inner, outside: true } }, { tiers: FAR_UP, shape: "disc", scale: ringScale }),
+      shape({ key: "halo.outer", z: 5, rect: ringRect }, { stroke: { color: tok(h, FAR.halo.outerAlpha), width: FAR.halo.outer, outside: true } }, { tiers: bloomed ? TIER_BIT.overview : FAR_UP, shape: "disc", scale: ringScale }),
+      shape({ key: "halo.inner", z: 6, rect: ringRect }, { stroke: { color: tok(h, FAR.halo.innerAlpha), width: FAR.halo.inner, outside: true } }, { tiers: bloomed ? TIER_BIT.overview : FAR_UP, shape: "disc", scale: ringScale }),
     );
   }
   if (view.selected || view.hovered) {
@@ -257,7 +286,7 @@ export const paintKindSeat = (fact: CardFact, view: CardView, env: PaintEnv): Ca
       shape(
         { key: "far.outline", z: 7, rect: grow(ringRect, spec.offset) },
         { stroke: { color: view.selected ? tok("main", spec.alpha) : tok("ink", spec.alpha), width: spec.width, outside: true } },
-        { tiers: FAR_UP, shape: "disc", scale: ringScale },
+        { tiers: bloomed ? TIER_BIT.overview : FAR_UP, shape: "disc", scale: ringScale },
       ),
     );
     const t = FAR.tag;
@@ -271,15 +300,16 @@ export const paintKindSeat = (fact: CardFact, view: CardView, env: PaintEnv): Ca
       shape(
         { key: "tag", z: 60, rect: tagRect },
         { fill: { kind: "flat", color: tok("raise") }, stroke: { color: tok("stroke"), width: t.border } },
-        { tiers: FAR_UP, radii: t.radius, scale: tagScale, band: "lifted" },
+        { tiers: bloomed ? TIER_BIT.overview : FAR_UP, radii: t.radius, scale: tagScale, band: "lifted" },
       ),
       text(
         { key: "tag.name", z: 61, rect: at(tagRect.x + t.border + t.padX, tagRect.y + t.border + t.padTop, textW, nameH) },
         { ink: tok("ink") },
-        { tiers: FAR_UP, scale: tagScale, band: "lifted", text: { ...tagRun, align: "center", width: textW } },
+        { tiers: bloomed ? TIER_BIT.overview : FAR_UP, scale: tagScale, band: "lifted", text: { ...tagRun, align: "center", width: textW } },
       ),
     );
   }
   quads.push(...reachQuads(view, box, env));
+  if (bloomed) quads.push(...hoverBloom(quads, { selected: view.selected, radii: KIND_SHELL_RADII }));
   return { quads, dim: dimOf(view), lift: view.hovered && !view.dragging ? LIFT_PX : 0 };
 };

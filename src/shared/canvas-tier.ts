@@ -12,8 +12,13 @@ const ORDER: readonly CanvasTier[] = ["near", "mid", "far", "overview"];
 
 /** Zoom at or above which cards read: region glance starts below it. */
 export const TIER_NEAR_MIN = 0.62;
-/** Zoom at or above which a seat's ring and name still read (glance fully inked below). */
-export const TIER_MID_MIN = 0.34;
+/**
+ * Zoom at or above which a seat keeps its compact mid pill. Below it the ring
+ * is held at far size: a 13px name at 0.34 is 4.4px on screen, unreadable,
+ * while the 40px portrait and ring still read. The operator's live QA found
+ * the old 0.34 boundary doing exactly that.
+ */
+export const TIER_MID_MIN = 0.46;
 /** Below this the board is regions. */
 export const TIER_FAR_MIN = 0.2;
 /** A boundary must be passed by this much zoom before the tier changes. */
@@ -83,4 +88,18 @@ const NODE_SCALE_MAX = 6.7;
 export const nodeScale = (zoom: number): number => {
   if (!Number.isFinite(zoom) || zoom <= 0) return 1;
   return Math.min(NODE_SCALE_MAX, Math.max(1, Math.ceil((1 / zoom) * 10) / 10));
+};
+
+/**
+ * The hovered card blooms to a fixed 172.8 screen px (216 board at 0.8), so
+ * its near-detail words stay about 10px on screen at every mid and far zoom.
+ * The scale is clamped so a near card barely grows and an overview card does
+ * not become a giant; the camera's own zoom supplies the rest.
+ */
+export const HOVER_CARD_SCALE_MIN = 1.1;
+export const HOVER_CARD_SCALE_MAX = 2.8;
+export const HOVER_CARD_TARGET_WIDTH = 172.8;
+export const hoverCardScale = (zoom: number): number => {
+  if (!Number.isFinite(zoom) || zoom <= 0) return HOVER_CARD_SCALE_MIN;
+  return Math.min(HOVER_CARD_SCALE_MAX, Math.max(HOVER_CARD_SCALE_MIN, HOVER_CARD_TARGET_WIDTH / (216 * zoom)));
 };

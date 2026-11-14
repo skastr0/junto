@@ -1,11 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { handleQuads, takesHandles } from "../src/window/canvas/paint/handles";
+import { paintCard } from "../src/window/canvas/paint/index";
+import { TIER_BIT } from "../src/window/canvas/contract";
 import { tok } from "../src/window/canvas/paint/refs";
-import { agentFact, view } from "./canvas-paint-fixtures";
+import { agentFact, fakeEnv, view } from "./canvas-paint-fixtures";
 
 const keys = (quads: ReturnType<typeof handleQuads>): string[] => quads.map((q) => q.key);
 
 describe("connection handles", () => {
+  it("a hover bloom keeps its handle dots out of the scaled card", () => {
+    const bloomed = paintCard(agentFact(), undefined, view({ hovered: true }), fakeEnv).quads
+      .filter((quad) => quad.key.startsWith("handle."));
+    expect(bloomed.length).toBeGreaterThan(0);
+    expect(bloomed.every((quad) => quad.tiers === TIER_BIT.near)).toBe(true);
+    // A connect gesture has no bloom; its handles stay at mid as well.
+    const connecting = paintCard(agentFact(), undefined, view({ hovered: true, connecting: true }), fakeEnv).quads
+      .filter((quad) => quad.key.startsWith("handle."));
+    expect(connecting.some((quad) => (quad.tiers & TIER_BIT.mid) !== 0)).toBe(true);
+  });
   it("hover shows one source dot per side, and no target dot", () => {
     const quads = handleQuads(agentFact(), view({ hovered: true }));
     expect(keys(quads)).toEqual([

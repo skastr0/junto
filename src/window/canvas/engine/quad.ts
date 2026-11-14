@@ -77,7 +77,7 @@ export type MotionKind = (typeof MOTION)[keyof typeof MOTION];
 export const MOTION_FLAG = { ccw: 1, fade: 2 } as const;
 
 /** Scale-rule ids, shared with the shader's switch. */
-export const SCALE_RULE = { board: 0, seat: 1, node: 2, seatTag: 3 } as const;
+export const SCALE_RULE = { board: 0, seat: 1, node: 2, seatTag: 3, hover: 4 } as const;
 
 /** One slot's CPU side: what the record cannot carry (the part it answers to). */
 export type SlotPart = Part | undefined;

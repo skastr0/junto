@@ -8,6 +8,8 @@ import { describe, expect, it } from "vitest";
 import type { Node } from "@shared/model";
 import { isImageFile, renderedNodeSize } from "@shared/node-geometry";
 import {
+  hoverCardPoint,
+  hoverCardRect,
   pickAt,
   pickCard,
   type PickWorld,
@@ -111,6 +113,49 @@ describe("picking a card", () => {
 
   it("falls back to the pane for empty ground", () => {
     expect(pickAt(worldOf([]), { x: 5, y: 5 }).part.kind).toBe("pane");
+  });
+
+  it("blooms a far card about the held content-box ring", () => {
+    const rect = { x: 100, y: 100, width: 216, height: 56 };
+    const origin = { x: 128, y: 128 };
+    const base = { x: 203.5, y: 128 };
+    const bloom = hoverCardRect(rect, origin, base, 0.4);
+    expect(bloom).toEqual({ x: 147.5, y: 72, width: 432, height: 112 });
+    // The ring's authored point maps back to itself; the shell's right edge
+    // maps through the same scale and translation.
+    expect(hoverCardPoint(base, origin, base, 0.4)).toEqual(origin);
+    const right = { x: bloom.x + bloom.width - 1, y: base.y };
+    expect(hoverCardPoint(right, origin, base, 0.4).x).toBeCloseTo(rect.x + rect.width - 0.5, 9);
+  });
+
+  it("keeps the hovered card under the pointer across its bloom, enqueue included", () => {
+    const row = taskBoard("t", { x: 100, y: 100, width: 216, height: 56 });
+    const base = worldOf([factOf(row)]);
+    const rect = drawnRect(row);
+    const anchor = { x: rect.x + 28, y: rect.y + 28 };
+    const world: PickWorld = {
+      ...base,
+      tier: "mid",
+      hovered: {
+        id: "t",
+        rect: hoverCardRect(rect, anchor, anchor, 0.4),
+        toCard: (at) => hoverCardPoint(at, anchor, anchor, 0.4),
+      },
+    };
+    const bloomed = (local: { readonly x: number; readonly y: number }) => ({
+      x: anchor.x + (local.x - anchor.x) * 2,
+      y: anchor.y + (local.y - anchor.y) * 2,
+    });
+    // Right of the unbloomed card, still on the bloomed surface: body, not pane.
+    expect(pickAt(world, bloomed({ x: rect.x + 180, y: rect.y + 40 }))).toMatchObject({
+      nodeId: "t",
+      part: { kind: "body" },
+    });
+    // The enqueue at the end of the name row keeps its part when bloomed.
+    expect(pickAt(world, bloomed({ x: rect.x + rect.width - 5, y: rect.y + 10 }))).toMatchObject({
+      nodeId: "t",
+      part: { kind: "taskEnqueue" },
+    });
   });
 });
 

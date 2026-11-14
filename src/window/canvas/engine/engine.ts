@@ -17,7 +17,8 @@
  */
 
 import { themeRuntime, type ThemeMode } from "@shared/theme";
-import { farSeatScale, nodeScale, seatFloorScale, tierForZoom, type CanvasTier } from "@shared/canvas-tier";
+import { farSeatScale, hoverCardScale, nodeScale, seatFloorScale, tierForZoom, type CanvasTier } from "@shared/canvas-tier";
+import { SEAT_CONTENT_CENTRE_DX, SEAT_RING_CENTRE } from "@shared/node-geometry";
 import type {
   Camera,
   CameraMoveOptions,
@@ -59,7 +60,7 @@ import {
 import { defaultPainter } from "./paint-default";
 import { createScene, type CardPainter } from "./scene";
 import { createRenderer, type AtlasBinding } from "./renderer";
-import { pickAt, type PickWorld } from "./pick";
+import { hoverCardPoint, hoverCardRect, pickAt, type HoveredCard, type PickWorld } from "./pick";
 import { POINTER_IDLE, stepPointer, type PointerEffect, type PointerState, type PointerWorld } from "./pointer";
 
 export type { Camera, CanvasInput, FrameScheduler, SceneOp };
@@ -255,8 +256,44 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   /** The magnifier's answer while the loupe is up; undefined is the canvas's own pick. */
   const viaLens = (screen: Point): Hit | undefined => host.lensPick?.(screen);
 
+  /** The bloomed hit box of the card under the pointer, at mid and far. */
+  const hoveredPick = (): HoveredCard | undefined => {
+    if (tier !== "mid" && tier !== "far") return undefined;
+    const id = scene.hoveredId();
+    if (id === null) return undefined;
+    const rect = scene.rectOf(id);
+    if (rect === undefined) return undefined;
+    const origin = { x: rect.x + SEAT_RING_CENTRE.x, y: rect.y + SEAT_RING_CENTRE.y };
+    // At far the ring is held on the card's content-box centre; the bloom
+    // scales about the ring and lands that ring on the same held point.
+    const base = tier === "far"
+      ? { x: rect.x + rect.width / 2 + SEAT_CONTENT_CENTRE_DX, y: rect.y + rect.height / 2 }
+      : origin;
+    return {
+      id,
+      rect: hoverCardRect(rect, origin, base, camera.zoom),
+      toCard: (at) => hoverCardPoint(at, origin, base, camera.zoom),
+    };
+  };
+
+  const pickWorld = (): PickWorld => ({
+    index: spatialIndex,
+    card: scene.cardOf,
+    wire: scene.wire,
+    selection: scene.selection(),
+    scale: camera.zoom,
+    tier,
+    wireMode: scene.wireMode,
+    rectOf: scene.rectOf,
+    // Badges paint above cards, so their hit is tested first.
+    clusterAt: scene.clusterAt,
+    ...(hoveredPick() === undefined ? {} : { hovered: hoveredPick() }),
+  });
+
+  const pickBoard = (at: Point): Hit | null => pickAt(pickWorld(), at);
+
   const pointerWorld: PointerWorld = {
-    pick: (screen) => viaLens(screen) ?? pickAt({ index: spatialIndex, card: scene.cardOf, wire: scene.wire, selection: scene.selection(), scale: camera.zoom, tier, wireMode: scene.wireMode, rectOf: scene.rectOf }, toBoard(camera, screen)),
+    pick: (screen) => viaLens(screen) ?? pickBoard(toBoard(camera, screen)),
     screenToBoard: (screen) => toBoard(camera, screen),
     viewport: () => size,
     rectOf: scene.rectOf,
@@ -454,6 +491,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       farSeat: farSeatScale(camera.zoom),
       seatFloor: seatFloorScale(camera.zoom),
       nodeScale: nodeScale(camera.zoom),
+      hoverScale: hoverCardScale(camera.zoom),
     });
     renderer.upload(scene, prepared);
     host.wires?.frame?.({ camera, width: size.width, height: size.height, pixelRatio: size.pixelRatio, tier, wall });
@@ -571,20 +609,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     setCamera(target, now);
   };
 
-  const pickWorld = (): PickWorld => ({
-    index: spatialIndex,
-    card: scene.cardOf,
-    wire: scene.wire,
-    selection: scene.selection(),
-    scale: camera.zoom,
-    tier,
-    wireMode: scene.wireMode,
-    rectOf: scene.rectOf,
-    // Badges paint above cards, so their hit is tested first.
-    clusterAt: scene.clusterAt,
-  });
-
-  const pick = (screen: Point): Hit | null => viaLens(screen) ?? pickAt(pickWorld(), toBoard(camera, screen));
+  const pick = (screen: Point): Hit | null => viaLens(screen) ?? pickBoard(toBoard(camera, screen));
 
   const input = (event: CanvasInput): void => {
     switch (event.kind) {

@@ -408,7 +408,13 @@ export type ScaleRule =
    * the tag itself by `farSeat * 1.4` about its top centre (canvas-lod.css).
    */
   | { readonly kind: "seatTag"; readonly cap: number; readonly anchor: Point }
-  | { readonly kind: "node"; readonly anchor: Point };
+  | { readonly kind: "node"; readonly anchor: Point }
+  /**
+   * A hovered card's full near-detail bloom: the card grows about `anchor`
+   * by `hoverCardScale(zoom)` (clamped 1.10 to 2.80), holding the portrait
+   * under the pointer while the shell and words bloom out.
+   */
+  | { readonly kind: "hover"; readonly anchor: Point };
 
 /**
  * The five ring motions and the band motions (section 10). Periods come from

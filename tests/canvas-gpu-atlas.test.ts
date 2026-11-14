@@ -131,6 +131,20 @@ describe("gpu atlas", () => {
     expect(atlas.sourceFor(otherInk, 2)).not.toBe(glyph);
   });
 
+  it("leaves one transparent texel between neighbouring cells", async () => {
+    const { atlas } = atlasWith({ size: 64 });
+    atlas.attach(fakeDevice().device);
+    const first = atlas.sourceFor(textQuad(), 2);
+    const second = atlas.sourceFor(textQuad({ ...textRun, text: "world" }), 2);
+    expect(second).not.toBe(first);
+    await settle();
+    await settle();
+    const right = atlas.binding.cells[first * 4 + 2]! * 64;
+    const left = atlas.binding.cells[second * 4]! * 64;
+    // The right edge is exclusive: its first free texel is the gutter.
+    expect(Math.round(left - right)).toBeGreaterThanOrEqual(1);
+  });
+
   it("gives a text run a different cell per ink, because coverage is per-colour", async () => {
     const { atlas } = atlasWith();
     const base = atlas.sourceFor(textQuad(), 2);

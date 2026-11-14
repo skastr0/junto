@@ -15,7 +15,7 @@
  * it the view rectangle, the tier and the theme.
  */
 
-import { farSeatScale, nodeScale, seatFloorScale } from "@shared/canvas-tier";
+import { farSeatScale, hoverCardScale, nodeScale, seatFloorScale } from "@shared/canvas-tier";
 import { holdsSeatRing, renderedNodeSize } from "@shared/node-geometry";
 import { SEAT_CONTENT_CENTRE_DX } from "../paint/card-spec";
 import { DURATION, themeGpu, type GpuTheme, type ThemeMode } from "@shared/theme";
@@ -240,6 +240,8 @@ const packScale = (
       return { scaleRule: SCALE_RULE.seat, scaleCap: scale.cap, anchorX: scale.anchor.x, anchorY: scale.anchor.y };
     case "node":
       return { scaleRule: SCALE_RULE.node, scaleCap: 1, anchorX: scale.anchor.x, anchorY: scale.anchor.y };
+    case "hover":
+      return { scaleRule: SCALE_RULE.hover, scaleCap: 1, anchorX: scale.anchor.x, anchorY: scale.anchor.y };
     case "seatTag":
       return { scaleRule: SCALE_RULE.seatTag, scaleCap: scale.cap, anchorX: scale.anchor.x, anchorY: scale.anchor.y };
     default:
@@ -329,6 +331,8 @@ export const createScene = (options: {
         return farSeatScale(zoom) * 1.4;
       case "node":
         return nodeScale(zoom);
+      case "hover":
+        return hoverCardScale(zoom);
       case "board":
         return 1;
     }
@@ -1364,6 +1368,8 @@ export const createScene = (options: {
   return {
     apply,
     setHover,
+    /** The card the pointer is over, for the hover bloom's pick and rect. */
+    hoveredId: (): NodeId | null => hovered,
     setConnectTarget,
     setDragging,
     moveCard,

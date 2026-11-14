@@ -31,7 +31,10 @@ const { PNG } = createRequire(import.meta.url)("pngjs") as {
 const VISUAL_DIR = join(process.cwd(), "test-results", "look-gallery");
 
 export const IDS: ReadonlyArray<string> = GALLERY_IDS;
-export const ZOOMS = [1, 0.5, 0.3, 0.15] as const;
+// The GPU's mid and far tiers are now its own legibility design (compact
+// mid pill, hover bloom); the legacy DOM only mirrors near and the quiet
+// overview ring. Mid/far are proven in e2e/scenarios/gpu-seat-zoom.spec.ts.
+export const ZOOMS = [1, 0.15] as const;
 export const THEMES = ["dark", "bright"] as const;
 
 /** The app under one canvas: off = today's DOM, on = the GPU engine. */
@@ -158,11 +161,24 @@ interface Shot {
   readonly origin: { readonly x: number; readonly y: number };
 }
 
-const shotFor = async (page: Page, entry: GalleryEntry, dest?: string, bottom: number = PAD.bottom, top: number = PAD.top): Promise<Shot> => {
+const shotFor = async (page: Page, entry: GalleryEntry, dest?: string, bottom: number = PAD.bottom, top: number = PAD.top, zoom?: number): Promise<Shot> => {
   const rect = await card(page, entry.id).box();
   if (rect === null) throw new Error(`card ${entry.id} has no rect`);
   const paneRect = await pane(page).box();
   if (paneRect === null) throw new Error("no canvas pane");
+  // At overview the GPU hook answers a ringed card with the held ring it
+  // paints (the overlay anchor), while the DOM boxes the unpainted full card.
+  // A fixed square about the visible centre compares the ring both draw,
+  // rather than two different rectangles around one card.
+  const holdsRing = ["agent", "terminal", "task", "artifacts", "automations", "files", "page", "git", "link"].includes(entry.kind)
+    || (entry.kind === "file" && entry.id !== "gal-file-img");
+  if (zoom === 0.15 && holdsRing) {
+    const centre = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    const clip = clampClip({ x: centre.x - 36, y: centre.y - 36, width: 72, height: 72 }, paneRect);
+    const buffer = await page.screenshot({ clip });
+    if (dest !== undefined) await writeFile(dest, buffer);
+    return { png: PNG.sync.read(buffer), origin: centre };
+  }
   const clip = entry.kind === "region"
     ? clampClip({ x: rect.x, y: rect.y, width: Math.min(rect.width, REGION_CLIP.width), height: Math.min(rect.height, REGION_CLIP.height) }, paneRect)
     : clampClip({ x: rect.x - PAD.left, y: rect.y - top, width: rect.width + PAD.left + PAD.right, height: rect.height + top + bottom }, paneRect);
@@ -173,7 +189,7 @@ const shotFor = async (page: Page, entry: GalleryEntry, dest?: string, bottom: n
 
 const CARD_ENTRIES = GALLERY_ENTRIES.filter((entry) => entry.kind !== "region");
 /** Selected and hovered are pointer states; far and overview keep the default card. */
-const STATE_ZOOMS: ReadonlySet<number> = new Set([1, 0.5]);
+const STATE_ZOOMS: ReadonlySet<number> = new Set([1]);
 /** Longer than the longest card transition (DURATION.state, 180 ms). */
 const SETTLE_MS = 260;
 /**
@@ -289,7 +305,7 @@ const shoot = async (page: Page, save: boolean, prefix: "gpu" | "dom"): Promise<
       await park(page);
       for (const entry of GALLERY_ENTRIES) {
         const shotKey = key(theme, zoom, "default", entry);
-        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `${prefix}-${shotKey.replaceAll("|", "-")}.png`) : undefined, zoom <= 0.3 ? 14 : 10, zoom <= 0.3 ? 14 : PAD.top));
+        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `${prefix}-${shotKey.replaceAll("|", "-")}.png`) : undefined, zoom <= 0.3 ? 14 : 10, zoom <= 0.3 ? 14 : PAD.top, zoom));
       }
       if (save) await page.screenshot({ path: join(VISUAL_DIR, `${prefix}-full-${theme}-${zoom}.png`) });
       if (!STATE_ZOOMS.has(zoom)) continue;
@@ -305,7 +321,7 @@ const shoot = async (page: Page, save: boolean, prefix: "gpu" | "dom"): Promise<
         const shotKey = key(theme, zoom, "selected", entry);
         // Stop at the card: the floating selection toolbar above it is DOM
         // chrome, not a pixel of the card's selected paint.
-        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `${prefix}-${shotKey.replaceAll("|", "-")}.png`) : undefined, 10, 2));
+        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `${prefix}-${shotKey.replaceAll("|", "-")}.png`) : undefined, 10, 2, zoom));
       }
 
       // The selected loop leaves a selection and a native title tooltip is
@@ -322,7 +338,7 @@ const shoot = async (page: Page, save: boolean, prefix: "gpu" | "dom"): Promise<
         await page.waitForTimeout(SETTLE_MS);
         await suppressTitles(page);
         const shotKey = key(theme, zoom, "hovered", entry);
-        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `${prefix}-${shotKey.replaceAll("|", "-")}.png`) : undefined, 10));
+        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `${prefix}-${shotKey.replaceAll("|", "-")}.png`) : undefined, 10, PAD.top, zoom));
         // Bounce off the card so the next hover starts clean and no tooltip
         // delay carries over between entries.
         await page.mouse.move(8, 8);
