@@ -10,6 +10,7 @@ import { MAX_REGION_DEPTH } from "@shared/graph";
 import { canvasSwatchFor } from "@shared/canvas-colors";
 import { UNNAMED_REGION } from "@shared/model/canvas";
 import { BORDER } from "@shared/theme";
+import { RegionUrgency } from "@shared/wire/urgency";
 import type { CardFact, CardPaint, CardView, ColorRef, PaintEnv, Quad, QuadStyle, TextRun } from "../contract";
 import { TIER_BIT } from "../contract";
 import { accentAt, accentRef, at, fade, mixOf, shadow, shape, sprite, text, tok } from "./refs";
@@ -33,13 +34,18 @@ export const REGION = {
   icon: 10,
 } as const;
 
-const URGENCY_HUE = { blocked: "crimson", "needs-you": "amber", review: "cyan" } as const;
+/** `canvas-lod-regions.css` `--urgency`: the group's hue, read from the urgency view. */
+const urgencyHue = (kind: NonNullable<CardFact["derived"]["regionUrgency"]>["kind"]): ColorRef => {
+  if (kind === RegionUrgency.group.blocked) return tok("crimson");
+  if (kind === RegionUrgency.group["needs-you"]) return tok("amber");
+  return tok("cyan");
+};
 
 /** `--region-hue`: the tint, leaning 72% (90% when held) toward the urgency's hue. */
 const hueOf = (tint: ColorRef, urgency: CardFact["derived"]["regionUrgency"]): ColorRef =>
   urgency === undefined
     ? tint
-    : mixOf(tint, tok(URGENCY_HUE[urgency.kind]), urgency.reach === "held" ? 0.9 : 0.72);
+    : mixOf(tint, urgencyHue(urgency.kind), urgency.reach === "held" ? 0.9 : 0.72);
 
 /** `borderColor(color, emphasized)`: stored custom hex as it is, else stroke, else the accent at 32% or 50%. */
 const borderOf = (color: string | undefined, emphasized: boolean): ColorRef => {
@@ -107,7 +113,7 @@ export const paintRegion = (
   // --- urgency rollup: a faint fill and an inset frame and glow --------------------
   const urgency = fact.derived.regionUrgency;
   if (urgency !== undefined) {
-    const tintU = tok(URGENCY_HUE[urgency.kind]);
+    const tintU = urgencyHue(urgency.kind);
     const direct = urgency.reach === "direct";
     const nearName = direct ? "region-urgency" : "region-urgency-held";
     const farName = direct ? "region-urgency-far" : "region-urgency-held-far";

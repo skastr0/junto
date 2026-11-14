@@ -1,9 +1,9 @@
 /**
  * The connection handles on a card's edges (`NodeShell`'s eight handles,
- * styles.css 1495-1548). A card shows its four source dots on hover; while a
- * connection is being drawn it also shows the four dashed target dots, never
- * as a permanent overlay on a selected card. Hidden below mid, as the DOM
- * hides them at far and overview.
+ * styles.css 1495-1548). A card shows its four source dots on hover and while a
+ * connection is drawn. The one dashed target dot appears only on the handle
+ * being aimed at, never on every side, and never as a permanent overlay on a
+ * selected card. Hidden below mid, as the DOM hides them at far and overview.
  *
  * Positions match `engine/pick.ts`: a 9 unit dot, source 2 units outside the
  * border, target 3 units inside it, centred on each side.
@@ -73,9 +73,16 @@ export const handleQuads = (fact: CardFact, view: CardView): Quad[] => {
   if (!view.hovered && !view.connecting) return [];
   const box = renderedNodeSize(fact.row.kind, fact.row);
   const quads: Quad[] = [];
+  // The dashed target dot is the handle the pointer is on, not every handle
+  // the snap radius could reach: at rest of a connect gesture the card wears
+  // one ring per side.
+  const landing =
+    view.hoveredPart === "handle" && view.connectTarget?.nodeId === fact.id && view.connectTarget.role === "target"
+      ? view.connectTarget.side
+      : undefined;
   for (const side of SIDES) {
     const edge = edgeOf(side, box.width, box.height);
-    if (view.connecting) {
+    if (view.connecting === true && side.name === landing) {
       quads.push(dot(
         `handle.target.${side.name}`,
         edge.x + side.out.x * TARGET_OUT,

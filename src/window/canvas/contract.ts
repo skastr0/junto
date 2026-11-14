@@ -510,8 +510,10 @@ export type CardView = {
   /** The card is being dragged or its overlay editor stands in for it. */
   readonly editing: boolean;
   readonly dragging: boolean;
-  /** A wire is being drawn: the card shows its dashed target handles. */
+  /** A wire is being drawn: the card shows its source handles. */
   readonly connecting?: boolean;
+  /** The handle the gesture would land on (the DOM's `connectingto`), only on the card that owns it. */
+  readonly connectTarget?: { readonly nodeId: NodeId; readonly side: HandleSide; readonly role: "source" | "target" };
   readonly reach?: ReachMark;
   readonly focus?: { readonly kind: "impact" | "connection"; readonly role: "root" | "member" | "lead" | "outsider" };
   /** The part under the pointer, where it matters to paint (a region's title bar or frame strips). */

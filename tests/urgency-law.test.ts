@@ -127,6 +127,8 @@ const ALLOWED: readonly Allowed[] = [
   { file: "src/window/lib/sound/index.ts", name: "DEMO_CUE", rule: "names", reason: KIND_MAP },
 
   // Vocabularies.
+  { file: "src/shared/seat-collaboration-state.ts", name: "SEAT_COLLABORATION_STATES", rule: "names", reason: VOCAB },
+  { file: "src/shared/seat-collaboration-state.ts", name: "BY_CAUSE", rule: "names", reason: `${VOCAB}; every need cause maps to one collaboration state` },
   { file: "src/shared/wire/companion-protocol.ts", name: "COMPANION_SEAT_STATES", rule: "names", reason: VOCAB },
   { file: "src/shared/wire/companion-artifacts.ts", name: "COMPANION_FACE_SEAT_STATES", rule: "names", reason: `${VOCAB}; held equal to COMPANION_SEAT_STATES by companion-protocol.test.ts` },
   { file: "src/shared/terminal.ts", name: "TerminalHarnessState", rule: "names", reason: VOCAB },

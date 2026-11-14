@@ -23,6 +23,7 @@ import type {
   CardFact,
   CardPaint,
   CardView,
+  HandleSide,
   Hit,
   NodeId,
   PaintEnv,
@@ -360,6 +361,8 @@ export const createScene = (options: {
   let editing: NodeId | null = null;
   let hovered: NodeId | null = null;
   let hoveredPart: Part["kind"] | undefined;
+  /** The handle a connect gesture would land on: one dotted side, never all four. */
+  let connectTarget: CardView["connectTarget"] | undefined;
   let dragging = new Set<NodeId>();
   let wireMode: WireMode = "rest";
   let wires = new Map<WireId, WireFact>();
@@ -588,6 +591,7 @@ export const createScene = (options: {
       hovered: hovered === fact.id,
       ...(hovered === fact.id && hoveredPart !== undefined ? { hoveredPart } : {}),
       connecting: wireMode === "connecting",
+      ...(connectTarget?.nodeId === fact.id ? { connectTarget } : {}),
       keyboardFocus: selection.focusedNodeId === fact.id,
       editing: editing === fact.id,
       dragging: dragging.has(fact.id),
@@ -1003,6 +1007,19 @@ export const createScene = (options: {
     return true;
   };
 
+  const setConnectTarget = (target: { readonly nodeId: NodeId; readonly handle: string } | null): void => {
+    const match = target === null ? null : /^([st])-(top|right|bottom|left)$/.exec(target.handle);
+    const next: CardView["connectTarget"] =
+      target === null || match === null
+        ? undefined
+        : { nodeId: target.nodeId, side: match[2] as HandleSide, role: match[1] === "s" ? "source" : "target" };
+    const was = connectTarget;
+    if (was?.nodeId === next?.nodeId && was?.side === next?.side && was?.role === next?.role) return;
+    connectTarget = next;
+    if (was !== undefined) repaintIds([was.nodeId]);
+    if (next !== undefined) repaintIds([next.nodeId]);
+  };
+
   const setDragging = (ids: ReadonlyArray<NodeId> | null): void => {
     const next = new Set(ids ?? []);
     if (next.size === dragging.size && [...next].every((id) => dragging.has(id))) return;
@@ -1290,6 +1307,7 @@ export const createScene = (options: {
   return {
     apply,
     setHover,
+    setConnectTarget,
     setDragging,
     moveCard,
     restoreCard,

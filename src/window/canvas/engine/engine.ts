@@ -295,6 +295,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
         preview = next === null
           ? null
           : { from: next.start, fromSide: sideOf(next.fromHandle), to: next.pointer };
+        scene.setConnectTarget(next?.target ?? null);
         host.wires?.apply([{ kind: "preview", preview }]);
         dirty = true;
         return;
