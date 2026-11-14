@@ -10,6 +10,11 @@
  * empty until a state source exists; the matrix spec owns those.
  */
 
+import { createHash } from "node:crypto";
+import { deflateSync } from "node:zlib";
+import { Schema } from "effect";
+import { contentObjectUrl } from "../../src/shared/content-url";
+import { ContentRef } from "../../src/shared/wire/content-ref";
 import {
   modelArtifacts,
   modelAutomations,
@@ -67,6 +72,72 @@ export const GALLERY_ENTRIES: ReadonlyArray<GalleryEntry> = entries;
 export const GALLERY_IDS: ReadonlyArray<string> = entries.map((entry) => entry.id);
 export const GALLERY_LIVE: ReadonlyArray<string> = [];
 
+/**
+ * The image-file entry's bytes: a small RGB gradient, encoded once here so
+ * the sha256 — and therefore the content URL — is stable. A spec seeds the
+ * same bytes into the sandbox content store (writeFixtureContentObject)
+ * before boot, so `junto-content://` resolves to a verified object and
+ * isImageFile takes the image branch on both canvases.
+ */
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+const crc32 = (buf: Buffer): number => {
+  let c = 0xffffffff;
+  for (const b of buf) c = CRC_TABLE[(c ^ b) & 0xff]! ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+};
+
+const pngChunk = (type: string, data: Buffer): Buffer => {
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length);
+  const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(body));
+  return Buffer.concat([len, body, crc]);
+};
+
+const gradientPng = (width: number, height: number): Buffer => {
+  const raw = Buffer.alloc((width * 3 + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    const row = y * (width * 3 + 1);
+    raw[row] = 0;
+    for (let x = 0; x < width; x += 1) {
+      const i = row + 1 + x * 3;
+      raw[i] = Math.round((x / (width - 1)) * 255);
+      raw[i + 1] = Math.round((y / (height - 1)) * 255);
+      raw[i + 2] = 128;
+    }
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", deflateSync(raw)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+};
+
+export const GALLERY_IMAGE_BYTES: Buffer = gradientPng(96, 64);
+export const GALLERY_IMAGE_SHA256: string = createHash("sha256").update(GALLERY_IMAGE_BYTES).digest("hex");
+export const GALLERY_IMAGE_URL: string = contentObjectUrl(Schema.decodeSync(ContentRef)({
+  sha256: GALLERY_IMAGE_SHA256,
+  byteLength: GALLERY_IMAGE_BYTES.byteLength,
+  mediaType: "image/png",
+  displayName: "cover.png",
+}));
+
 const nodeAt = (index: number) => at(index);
 
 export const galleryFixture: ModelFixture = modelFixture([
@@ -87,7 +158,7 @@ export const galleryFixture: ModelFixture = modelFixture([
       case "page": return [modelPage(entry.id, x, y)];
       case "link": return [modelLink(entry.id, x, y)];
       case "file":
-        return [modelFile(entry.id, x, y, entry.id === "gal-file-img" ? "/tmp/cover.png" : `/tmp/${entry.id}.txt`)];
+        return [modelFile(entry.id, x, y, entry.id === "gal-file-img" ? GALLERY_IMAGE_URL : `/tmp/${entry.id}.txt`)];
       case "note": return [modelNote(entry.id, "A note on the gallery\nSecond line.", x, y)];
       case "label": return [modelLabel(entry.id, "A label", x, y)];
       case "peer": return [modelPeer(entry.id, x, y)];

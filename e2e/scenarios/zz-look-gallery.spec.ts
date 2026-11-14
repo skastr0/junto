@@ -11,7 +11,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { createRequire } from "node:module";
 import { launchJunto, type JuntoHandle } from "../harness/launch";
-import { GALLERY_ENTRIES, GALLERY_IDS, galleryFixture, type GalleryEntry } from "../harness/gallery-fixture";
+import { GALLERY_ENTRIES, GALLERY_IDS, GALLERY_IMAGE_BYTES, galleryFixture, type GalleryEntry } from "../harness/gallery-fixture";
+import { writeFixtureContentObject } from "../harness/sandbox";
 import { camera, cameraSettled, card, canvasReady, pane } from "../harness/canvas";
 
 const CANVAS = "factory";
@@ -34,6 +35,15 @@ export const THEMES = ["dark", "bright"] as const;
 const open = async (gpu: boolean): Promise<JuntoHandle> => {
   const junto = await launchJunto({
     seedModels: { [CANVAS]: galleryFixture },
+    // gal-file-img's path is a junto-content:// URL; the object must be a
+    // verified manifest row with bytes on disk or both canvases paint the
+    // kind-seat fallback instead of the image branch.
+    afterSeed: (sandbox) =>
+      writeFixtureContentObject(sandbox, {
+        bytes: GALLERY_IMAGE_BYTES,
+        mediaType: "image/png",
+        displayName: "cover.png",
+      }).then(() => undefined),
     ...(gpu ? { seedExperimentalFeatures: ["gpuCanvas" as const] } : {}),
   });
   await canvasReady(junto.page);

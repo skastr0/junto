@@ -4,9 +4,10 @@
  * fixture builders. Nothing here ever reads or writes the operator's real
  * ~/.junto or userData; every path lives under os.tmpdir().
  */
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 import { ModelService } from "../../src/core/model/service";
@@ -31,6 +32,9 @@ import {
 import { THIS_MACHINE } from "../../tests/support/machines";
 import type { FeatureKey } from "../../src/shared/feature-catalog";
 import { SettingsService } from "../../src/core/settings/service";
+import { contentObjectPath, contentStoreRoot } from "../../src/node/content/paths";
+import { contentObjectUrl } from "../../src/shared/content-url";
+import { ContentRef } from "../../src/shared/wire/content-ref";
 export interface Sandbox {
   readonly root: string;
   readonly userDataDir: string;
@@ -178,6 +182,53 @@ export const writeFixtureExperimentalFeatures = async (
   } finally {
     await runtime.dispose();
   }
+};
+
+/**
+ * Publish bytes into the sandbox's content store before boot: the object
+ * file lands at its content-addressed path and the manifest gets the
+ * content_objects + content_receipts rows the junto-content:// protocol
+ * requires before it will serve the object as verified. Returns the
+ * content object URL a model node's `path` should carry.
+ */
+export const writeFixtureContentObject = async (
+  sandbox: Sandbox,
+  input: {
+    readonly bytes: Uint8Array;
+    readonly mediaType: string;
+    readonly displayName?: string;
+  },
+): Promise<string> => {
+  const sha256 = createHash("sha256").update(input.bytes).digest("hex");
+  const objectPath = contentObjectPath(contentStoreRoot(sandbox.homeDir), sha256);
+  await mkdir(dirname(objectPath), { recursive: true });
+  await writeFile(objectPath, input.bytes);
+
+  const state = makeStateEngineLive(
+    join(sandbox.homeDir, ".junto", "state", "junto.db"),
+  );
+  const runtime = ManagedRuntime.make(state);
+  try {
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
+    const now = new Date().toISOString();
+    await runtime.runPromise(sql.withTransaction(Effect.gen(function* () {
+      yield* sql`INSERT INTO content_objects(sha256, byte_length, created_at, verified_at)
+        VALUES (${sha256}, ${input.bytes.byteLength}, ${now}, ${now})`;
+      yield* sql`INSERT INTO content_receipts(sha256, verified_sha256, verified_byte_length, verified_at)
+        VALUES (${sha256}, ${sha256}, ${input.bytes.byteLength}, ${now})
+        ON CONFLICT(sha256) DO UPDATE SET verified_sha256 = excluded.verified_sha256,
+          verified_byte_length = excluded.verified_byte_length, verified_at = excluded.verified_at`;
+    })));
+  } finally {
+    await runtime.dispose();
+  }
+
+  return contentObjectUrl(Schema.decodeSync(ContentRef)({
+    sha256,
+    byteLength: input.bytes.byteLength,
+    mediaType: input.mediaType,
+    displayName: input.displayName,
+  }));
 };
 
 /**
