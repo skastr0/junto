@@ -34,7 +34,7 @@ import { MARK_CELL, paintMarkAtlasCanvas } from "../../lib/activity-atlas";
 export type AtlasPixels = ImageBitmap | HTMLCanvasElement | OffscreenCanvas;
 
 export interface TextRasterize {
-  (run: TextRun, scale: number): Promise<AtlasPixels>;
+  (run: TextRun, scale: number, ink: GpuColor): Promise<AtlasPixels>;
 }
 /**
  * A sprite cell is rasterized for the quad that asked: `scale` is device
@@ -91,7 +91,12 @@ interface Placed {
   readonly h: number;
 }
 
-const DEFAULT_SIZE = 2048;
+// 4096, not 2048: text cells key on mode and ink now, so one theme's cells
+// never share another's, and the gallery's four zoom tiers plus wide sprite
+// cells (a 480x272 image, region watermarks) overflowed 2048 — alloc() then
+// dropped every later cell and bright-mode text and sprites sampled the
+// transparent texel. WebGPU's baseline maxTextureDimension2D is 8192.
+const DEFAULT_SIZE = 4096;
 const DEFAULT_CELLS = 8192;
 
 export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
@@ -279,8 +284,14 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         () => options.rasterizeSprite?.(quad, mode, scale) ?? Promise.reject(new Error("no sprite rasterizer")));
     }
     if (quad.text !== undefined && options.rasterizeText !== undefined) {
-      return internRemembered(`txt:${textKey(quad.text, scale)}`,
-        () => options.rasterizeText!(quad.text!, scale));
+      // The coverage is rasterized for the run's ink, not for white: Skia's
+      // mask pre-blend — the gamma/contrast lift Chromium gives glyph edges —
+      // is picked by the paint's luminance, so the alpha a cell carries must
+      // be the coverage the DOM computes for this colour. The shader still
+      // tints with the style's ink; only the mask is colour-aware. The ink
+      // resolves inside the job, once per cell, not per ask.
+      return internRemembered(`txt:${mode}:${textKey(quad.text, scale)}:${inkKey(quad.style.ink)}`,
+        () => options.rasterizeText!(quad.text!, scale, { r: 1, g: 1, b: 1, a: 1 }));
     }
     return NO_ATLAS_CELL;
   };
@@ -349,12 +360,18 @@ const canvas2d = (w: number, h: number): { canvas: HTMLCanvasElement; ctx: Canva
 };
 
 /**
- * Text runs as coverage: white glyphs on transparent, the style's ink tints
- * them in the shader (architecture §8: the atlas stores coverage, never the
- * colour). `scale` is device pixels per board unit (pixelRatio at the tier's
+ * Text runs as coverage: glyphs rasterized for the run's ink on transparent,
+ * the style's ink tints them in the shader (architecture §8: the atlas
+ * stores coverage, never the colour). The paint colour is not cosmetic —
+ * canvas 2D's fillText applies Skia's mask pre-blend, whose correcting table
+ * is picked by the paint's luminance, so the alpha channel already carries
+ * the gamma/contrast-corrected coverage Chromium gives that colour; white
+ * coverage made every run read heavier than the DOM's. The paint stays
+ * opaque because the shader multiplies the style's ink alpha itself.
+ * `scale` is device pixels per board unit (pixelRatio at the tier's
  * raster scale).
  */
-export const rasterizeTextRun: TextRasterize = async (run, scale) => {
+export const rasterizeTextRun: TextRasterize = async (run, scale, ink) => {
   const ctx = canvas2d(8, 8).ctx; // measure context; the draw canvas is the cell
   const measure: MeasureContext = ctx;
   ctx.font = fontCss(run, scale);
@@ -369,9 +386,10 @@ export const rasterizeTextRun: TextRasterize = async (run, scale) => {
   const { canvas, ctx: draw } = canvas2d(cellW, cellH);
   draw.font = ctx.font;
   draw.letterSpacing = ctx.letterSpacing;
-  // Coverage is opaque white: the shader reads the cell's alpha as the glyph
-  // mask and tints it with the quad's ink, so the rgb channels never show.
-  draw.fillStyle = gpuColorCss(COVERAGE);
+  // The shader reads the cell's alpha as the glyph mask and tints it with
+  // the quad's ink, so the rgb channels never show. Opaque paint keeps the
+  // alpha channel pure coverage (a translucent paint would scale it).
+  draw.fillStyle = gpuColorCss({ ...ink, a: 1 });
   draw.textBaseline = "middle";
   lines.forEach((line, i) => {
     const x = run.align === "center" ? (cellW - draw.measureText(line).width) / 2 : 0;
@@ -379,9 +397,6 @@ export const rasterizeTextRun: TextRasterize = async (run, scale) => {
   });
   return createImageBitmap(canvas);
 };
-
-/** Opaque white for coverage cells: the shader reads alpha as the glyph mask. */
-const COVERAGE: GpuColor = { r: 1, g: 1, b: 1, a: 1 };
 
 let markAtlasCache: { mode: ThemeMode; canvas: HTMLCanvasElement } | undefined;
 

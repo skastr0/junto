@@ -131,6 +131,37 @@ describe("gpu atlas", () => {
     expect(atlas.sourceFor(otherInk, 2)).not.toBe(glyph);
   });
 
+  it("gives a text run a different cell per ink, because coverage is per-colour", async () => {
+    const { atlas } = atlasWith();
+    const base = atlas.sourceFor(textQuad(), 2);
+    expect(base).not.toBe(NO_ATLAS_CELL);
+    // Skia's mask pre-blend picks its correcting table by paint luminance, so
+    // the same run in another ink must not share the coverage cell.
+    const otherInk = quad({
+      kind: "text",
+      text: textRun,
+      style: { ink: { token: "amber" } },
+    });
+    const other = atlas.sourceFor(otherInk, 2);
+    expect(other).not.toBe(NO_ATLAS_CELL);
+    expect(other).not.toBe(base);
+    // Same run, same ink, same scale: the same cell.
+    expect(atlas.sourceFor(textQuad(), 2)).toBe(base);
+    // And the rasterizer sees the resolved ink, not a colourless run.
+    const seen: Array<unknown> = [];
+    const inked = atlasWith({
+      rasterizeText: async (_run, _scale, ink) => {
+        seen.push(ink);
+        return pixels(20, 10);
+      },
+    });
+    inked.atlas.sourceFor(textQuad(), 2);
+    await settle();
+    await settle();
+    expect(seen.length).toBe(1);
+    expect(seen[0]).toMatchObject({ r: expect.any(Number), g: expect.any(Number), b: expect.any(Number) });
+  });
+
   it("assigns mark and image sprites cells keyed by mode", async () => {
     const { atlas } = atlasWith();
     const mark = spriteQuad({ atlas: "mark", cell: { col: 1, row: 2 } });

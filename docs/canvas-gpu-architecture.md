@@ -374,7 +374,7 @@ judgment, not a measurement; the look test is what settles it.
 
 | Concern | Rule |
 | --- | --- |
-| Colour | The atlas holds coverage only; the style colours it. A theme switch redraws nothing. Colour emoji go to a second, colour atlas. |
+| Colour | The atlas holds coverage only; the style colours it. Coverage is rasterized for the run's ink, not for white: Skia's mask pre-blend picks its correcting table by paint luminance, so the alpha must be the coverage Chromium computes for that colour or the text reads heavier than the DOM's. Text cells key on theme and ink like sprite cells do, so a theme switch re-rasters them queued. Colour emoji go to a second, colour atlas. |
 | Zoom | A run is rasterized for the scale it is shown at. During a gesture the existing raster is scaled; a run more than about a quarter off its scale is queued again. All visible runs are exact once the camera rests (`CAMERA_SETTLE_MS = 160`). |
 | Budget | Rasterizing is queued and capped per frame. A late raster shows the previous text one frame longer; it never delays a frame. |
 | Changing text | A seat's line changes with each report (30 a second in the probes). The run is redrawn into its own cell. |
