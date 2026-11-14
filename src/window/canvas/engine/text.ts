@@ -91,9 +91,14 @@ export const haloPadDevice = (scale: number): number => Math.ceil(HALO_PAD * sca
 export const runText = (run: TextRun): string =>
   run.upper ? run.text.toUpperCase() : run.text;
 
-/** Cache key: everything that changes the raster, and nothing that does not
- *  (colour is the style's ink, layout fields truncate/width/align are
- *  resolved before rasterizing, so none of them key the cell). */
+/** Cache key: everything that changes the raster, and nothing that does not.
+ *  The cell is `ceil(width * pixelRatio)` pixels wide and the shader stretches
+ *  it across the quad, so the layout fields are raster inputs, not resolved
+ *  beforehand: two runs that differ only in width, truncate or align lay out
+ *  and aspect differently and must never share a cell (a far hover tag and a
+ *  near card name did, and "Pi" drew as a sliver or a smear). Colour is not
+ *  here: the gpu atlas wraps this key with mode and ink, which is what Skia's
+ *  paint-luminance pre-blend actually keys on. */
 export const runKey = (
   run: TextRun,
   pixelRatio: number,
@@ -111,6 +116,9 @@ export const runKey = (
     run.tabular ? 1 : 0,
     run.halo ? 1 : 0,
     run.blur ?? 0,
+    Math.ceil(run.width * pixelRatio),
+    run.truncate,
+    run.align ?? "left",
     pixelRatio,
     scaleBucket,
   ].join("|");

@@ -162,6 +162,28 @@ describe("gpu atlas", () => {
     expect(seen[0]).toMatchObject({ r: expect.any(Number), g: expect.any(Number), b: expect.any(Number) });
   });
 
+  it("gives a text run a different cell per layout, because the cell is the run's box", async () => {
+    const { atlas } = atlasWith();
+    // Same text, font, size and scale: the far hover tag and the near card
+    // name differed only in width/truncate, shared one key, and the shader's
+    // UV stretch squished or smeared the glyphs (the "Pi" QA bug).
+    const narrow = { ...textRun, width: 16, truncate: "none" as const };
+    const wide = { ...textRun, width: 140, truncate: "end" as const };
+    const base = atlas.sourceFor(textQuad(narrow), 2);
+    const other = atlas.sourceFor(textQuad(wide), 2);
+    expect(base).not.toBe(NO_ATLAS_CELL);
+    expect(other).not.toBe(NO_ATLAS_CELL);
+    expect(other).not.toBe(base);
+    // Align is a raster input too: centred glyphs sit differently in the cell.
+    const centred = atlas.sourceFor(textQuad({ ...textRun, align: "center" as const }), 2);
+    expect(centred).not.toBe(NO_ATLAS_CELL);
+    expect(centred).not.toBe(atlas.sourceFor(textQuad(), 2));
+    // Same run object asks still share their cell.
+    expect(atlas.sourceFor(textQuad(narrow), 2)).toBe(base);
+    await settle();
+    await settle();
+  });
+
   it("assigns mark and image sprites cells keyed by mode", async () => {
     const { atlas } = atlasWith();
     const mark = spriteQuad({ atlas: "mark", cell: { col: 1, row: 2 } });
