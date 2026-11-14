@@ -314,7 +314,10 @@ fn filled(base: u32, local: vec2f) -> vec4f {
       let d = length(max(corner, vec2f(0.0))) + min(max(corner.x, corner.y), 0.0) - r;
       let holeRight = select(q.radii.x, q.radii.y, in.local.x > 0.0);
       let holeLeft = select(q.radii.w, q.radii.z, in.local.x > 0.0);
-      let holeR = max(select(holeRight, holeLeft, in.local.y > 0.0) - q.hole, 0.0);
+      // q.radii are the element's used radii already: shadow() clamps them to
+      // the element box. Subtracting q.hole here squared the hole at the card
+      // corners and left the drop as a sharp grey triangle outside the border.
+      let holeR = max(select(holeRight, holeLeft, in.local.y > 0.0), 0.0);
       let hc = p0 - baseHalf + holeR;
       let hd = length(max(hc, vec2f(0.0))) + min(max(hc.x, hc.y), 0.0) - holeR;
       let blur = max(layer.z, 0.5);
