@@ -69,7 +69,7 @@ const dot = (
 
 /** The handles a hovered, selected or connecting card shows, in its own units. */
 export const handleQuads = (fact: CardFact, view: CardView): Quad[] => {
-  if (!view.hovered && !view.selected && !view.connecting) return [];
+  if (!view.hovered && !view.connecting) return [];
   const box = renderedNodeSize(fact.row.kind, fact.row);
   const quads: Quad[] = [];
   for (const side of SIDES) {

@@ -39,7 +39,7 @@ export const paintCard = (fact: CardFact, live: SeatLive | undefined, view: Card
         return KIND_SEAT_KINDS.has(row.kind) ? paintKindSeat(fact, view, env) : { quads: [], dim: dimOf(view), lift: 0 };
     }
   })();
-  const handles = takesHandles(fact) && (view.hovered || view.selected || view.connecting === true)
+  const handles = takesHandles(fact) && (view.hovered || view.connecting === true)
     ? handleQuads(fact, view)
     : [];
   return handles.length === 0 ? base : { ...base, quads: [...base.quads, ...handles] };
