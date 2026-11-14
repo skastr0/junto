@@ -537,6 +537,11 @@ export type CardView = {
   readonly focus?: { readonly kind: "impact" | "connection"; readonly role: "root" | "member" | "lead" | "outsider" };
   /** The part under the pointer, where it matters to paint (a region's title bar or frame strips). */
   readonly hoveredPart?: Part["kind"];
+  /**
+   * The handle under the pointer, when it is one: the DOM lights that dot
+   * (`:hover`), not every dot on the card, so the paint needs which.
+   */
+  readonly hoveredHandle?: { readonly side: HandleSide; readonly role: "source" | "target" };
   /** The theme the generated art (portraits, icons, bands) is made for. */
   readonly mode: ThemeMode;
   /** Region name fades from `region-glance.ts` (0 to 1): regions and sub-regions. Regions only. */

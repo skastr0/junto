@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { handleQuads, takesHandles } from "../src/window/canvas/paint/handles";
+import { tok } from "../src/window/canvas/paint/refs";
 import { agentFact, view } from "./canvas-paint-fixtures";
 
 const keys = (quads: ReturnType<typeof handleQuads>): string[] => quads.map((q) => q.key);
@@ -24,23 +25,76 @@ describe("connection handles", () => {
     ]);
   });
 
-  it("only the target handle under the pointer adds its dashed dot, 5 units inside the source", () => {
+  it("the landing side adds its dashed dot, 5 units inside the source", () => {
     const quads = handleQuads(
       agentFact(),
-      view({ connecting: true, hoveredPart: "handle", connectTarget: { nodeId: "agent-1", side: "right", role: "target" } }),
+      view({ connecting: true, connectTarget: { nodeId: "agent-1", side: "right", role: "target" } }),
     );
-    expect(keys(quads)).toContain("handle.target.right");
-    expect(keys(quads).filter((key) => key.startsWith("handle.target."))).toEqual(["handle.target.right"]);
+    expect(keys(quads).filter((key) => key.startsWith("handle.target."))).toEqual([
+      "handle.target.frame",
+      "handle.target.room.right",
+      "handle.target.right",
+    ]);
     const source = quads.find((q) => q.key === "handle.source.right")!;
     const target = quads.find((q) => q.key === "handle.target.right")!;
     expect(source.rect.x - target.rect.x).toBe(5);
     expect(target.rect.y).toBe(source.rect.y);
   });
 
-  it("a snap onto another card, a source handle, or a body hover adds no target dot", () => {
-    expect(keys(handleQuads(agentFact(), view({ connecting: true, hoveredPart: "handle", connectTarget: { nodeId: "other", side: "right", role: "target" } })))).not.toContain("handle.target.right");
-    expect(keys(handleQuads(agentFact(), view({ connecting: true, hoveredPart: "handle", connectTarget: { nodeId: "agent-1", side: "right", role: "source" } })))).not.toContain("handle.target.right");
-    expect(keys(handleQuads(agentFact(), view({ connecting: true, connectTarget: { nodeId: "agent-1", side: "right", role: "target" } })))).not.toContain("handle.target.right");
+  it("says the landing from the pointer being anywhere: a snap and a body drop paint it too", () => {
+    // The DOM gates the dot on `connectingto`, not on the pointer being over a
+    // handle: a snap within the radius and a drop on the body both land there.
+    for (const hoveredPart of [undefined, "body", "handle"] as const) {
+      const quads = handleQuads(
+        agentFact(),
+        view({
+          connecting: true,
+          ...(hoveredPart === undefined ? {} : { hoveredPart }),
+          connectTarget: { nodeId: "agent-1", side: "bottom", role: "target" },
+        }),
+      );
+      expect(keys(quads), String(hoveredPart)).toContain("handle.target.bottom");
+    }
+  });
+
+  it("the landing card takes a second-colour frame, two units out", () => {
+    const quads = handleQuads(
+      agentFact(),
+      view({ connecting: true, connectTarget: { nodeId: "agent-1", side: "right", role: "target" } }),
+    );
+    const frame = quads.find((q) => q.key === "handle.target.frame")!;
+    expect(frame).toMatchObject({ kind: "shape", band: "lifted", rect: { x: -2, y: -2, width: 220, height: 60 } });
+    expect(frame.style?.stroke).toMatchObject({ color: tok("second", 0.55), width: 1 });
+  });
+
+  it("the landing dot wears the connectingto.valid paint", () => {
+    const quads = handleQuads(
+      agentFact(),
+      view({ connecting: true, connectTarget: { nodeId: "agent-1", side: "right", role: "target" } }),
+    );
+    const target = quads.find((q) => q.key === "handle.target.right")!;
+    const stroke = target.style?.stroke;
+    expect(stroke && "color" in stroke ? stroke.color : undefined).toEqual(tok("second", 0.95));
+    const fill = target.style?.fill;
+    expect(fill).toMatchObject({ kind: "flat", color: tok("second", 0.25) });
+    const room = quads.find((q) => q.key === "handle.target.room.right")!;
+    expect(room.rect).toMatchObject({ width: 19, height: 19 });
+  });
+
+  it("only the hovered source dot lights, as the DOM's :hover does", () => {
+    const quads = handleQuads(agentFact(), view({ hovered: true, hoveredHandle: { side: "left", role: "source" } }));
+    const fill = (key: string) => {
+      const quad = quads.find((q) => q.key === key)!;
+      const quadFill = quad.style?.fill;
+      return quadFill !== undefined && "color" in quadFill ? quadFill.color : undefined;
+    };
+    expect(fill("handle.source.left")).toEqual(tok("main", 0.35));
+    expect(fill("handle.source.right")).toEqual(tok("ground"));
+  });
+
+  it("no target dot for another card's landing or a source-role landing", () => {
+    expect(keys(handleQuads(agentFact(), view({ connecting: true, connectTarget: { nodeId: "other", side: "right", role: "target" } })))).not.toContain("handle.target.right");
+    expect(keys(handleQuads(agentFact(), view({ connecting: true, connectTarget: { nodeId: "agent-1", side: "right", role: "source" } })))).not.toContain("handle.target.right");
   });
 
   it("regions, labels, git and files take no handles", () => {

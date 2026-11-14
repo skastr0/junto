@@ -363,6 +363,7 @@ export const createScene = (options: {
   let editing: NodeId | null = null;
   let hovered: NodeId | null = null;
   let hoveredPart: Part["kind"] | undefined;
+  let hoveredHandle: CardView["hoveredHandle"] | undefined;
   /** The handle a connect gesture would land on: one dotted side, never all four. */
   let connectTarget: CardView["connectTarget"] | undefined;
   let dragging = new Set<NodeId>();
@@ -637,6 +638,7 @@ export const createScene = (options: {
       selected: selection.nodeIds.includes(fact.id),
       hovered: hovered === fact.id,
       ...(hovered === fact.id && hoveredPart !== undefined ? { hoveredPart } : {}),
+      ...(hovered === fact.id && hoveredHandle !== undefined ? { hoveredHandle } : {}),
       connecting: wireMode === "connecting",
       ...(connectTarget?.nodeId === fact.id ? { connectTarget } : {}),
       keyboardFocus: selection.focusedNodeId === fact.id,
@@ -1039,16 +1041,24 @@ export const createScene = (options: {
     }
   };
 
-  const setHover = (id: NodeId | null, part?: Part["kind"], at?: Point): boolean => {
+  const setHover = (
+    id: NodeId | null,
+    part?: Part["kind"],
+    at?: Point,
+    handle?: CardView["hoveredHandle"],
+  ): boolean => {
     // A badge has no card id: the point names the cluster under the pointer.
     const nextCluster = part === "cluster" && at !== undefined ? (clusterSlotAt(at)?.key ?? null) : null;
     const clusterChanged = nextCluster !== hoveredCluster;
     hoveredCluster = nextCluster;
     if (clusterChanged) clusterDirty = true;
-    if (hovered === id && hoveredPart === part && !clusterChanged) return false;
+    const sameHandle =
+      hoveredHandle?.side === handle?.side && hoveredHandle?.role === handle?.role;
+    if (hovered === id && hoveredPart === part && sameHandle && !clusterChanged) return false;
     const before = hovered;
     hovered = id;
     hoveredPart = id === null ? undefined : part;
+    hoveredHandle = id === null ? undefined : handle;
     if (before !== null) repaintIds([before]);
     if (id !== null) repaintIds([id]);
     return true;

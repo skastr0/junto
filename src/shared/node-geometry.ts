@@ -49,5 +49,37 @@ export const renderedNodeSize = (
 ): { readonly width: number; readonly height: number } =>
   holdsSeatRing(kind, stored.path) ? AGENT_NODE_SIZE : { width: stored.width, height: stored.height };
 
+/**
+ * Where a ringed card's content box sits against the card's own centre: the
+ * sheet pads a seat `1px 10px 1px 1px` (kind-seat.css, factory-grammar.css),
+ * so the box the ring is laid out in is 4.5 units left of the card's middle.
+ * At far and overview the ring is held at a screen size and centred there, not
+ * on the card, and the GPU's owner record carries the same half-difference
+ * (engine/scene.ts, renderer.ts).
+ */
+export const SEAT_CONTENT_CENTRE_DX = -4.5;
+
+/**
+ * The square a ringed card's ring is drawn in when the far rule holds it: a
+ * 52 unit ring scaled about the card's content-box centre, in board units.
+ * `scale` is the tier's seat multiplier (canvas-tier.ts farSeatScale or
+ * seatFloorScale, capped by the card's ring room). Absent for a card with no
+ * ring, which keeps its own rectangle at every tier.
+ */
+export const heldRingRect = (
+  row: { readonly kind?: string; readonly path?: string; readonly x: number; readonly y: number; readonly width: number; readonly height: number },
+  scale: number,
+): { readonly x: number; readonly y: number; readonly width: number; readonly height: number } | undefined => {
+  if (!holdsSeatRing(row.kind, row.path)) return undefined;
+  const size = renderedNodeSize(row.kind, row);
+  const side = SEAT_RING_PX * scale;
+  return {
+    x: row.x + size.width / 2 + SEAT_CONTENT_CENTRE_DX - side / 2,
+    y: row.y + size.height / 2 - side / 2,
+    width: side,
+    height: side,
+  };
+};
+
 /** New free notes: a title and a few lines, not a page. */
 export const NOTE_NODE_SIZE = { width: 220, height: 84 } as const;

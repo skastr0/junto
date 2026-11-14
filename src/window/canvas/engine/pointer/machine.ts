@@ -563,6 +563,9 @@ const marqueeTo = (marquee: Marquee, at: Point, world: PointerWorld, out: Out): 
 
 type Candidate = { readonly nodeId: NodeId; readonly handle: string; readonly role: "source" | "target"; readonly verb?: string; readonly at: Point };
 
+/** The role a wire lands on: the other end of the handle it left. */
+const oppositeRole = (role: "source" | "target"): "source" | "target" => (role === "source" ? "target" : "source");
+
 /** The pair a landing on `onto` makes, in loose mode (rf-system:2588-2593): from a target handle the wire runs the other way. */
 const pairOf = (connect: Connect, onto: NodeId, handle: string) =>
   connect.fromHandle.role === "source"
@@ -594,6 +597,7 @@ const connectTo = (connect: Connect, at: Point, world: PointerWorld, out: Out): 
  * dots, z-index 20), else the closest handle within the snap radius.
  */
 const resolveTarget = (connect: Connect, screen: Point, board: Point, world: PointerWorld): ConnectTarget | null => {
+  const landing = oppositeRole(connect.fromHandle.role);
   const near = world.query(around(board, CONNECT_SNAP_RADIUS + VERB_ZONE_BLEED + 4));
   const candidates: Array<Candidate> = [];
   for (const id of near) {
@@ -607,9 +611,20 @@ const resolveTarget = (connect: Connect, screen: Point, board: Point, world: Poi
       }
     }
     for (const side of HANDLE_SIDES) {
+      if (id !== connect.from) {
+        // A card the wire is not coming from offers its landing side only: the
+        // role opposite the handle the gesture left. Offering both meant the
+        // source dots, 2 units outside the border, sat nearer an approaching
+        // wire than the target dots 3 units inside it, so the snap reported
+        // role "source" on the very card the wire would land on and no landing
+        // paint followed. From a target handle the wire runs the other way, so
+        // that card's landing side is its source dot (loose mode).
+        candidates.push({ nodeId: id, handle: handleId(landing, side), role: landing, at: handlePoint(rect, side, landing) });
+        continue;
+      }
       for (const role of ["source", "target"] as const) {
         const handle = handleId(role, side);
-        if (id === connect.from && handle === connect.fromHandle.id) continue;
+        if (handle === connect.fromHandle.id) continue;
         candidates.push({ nodeId: id, handle, role, at: handlePoint(rect, side, role) });
       }
     }
@@ -633,8 +648,7 @@ const resolveTarget = (connect: Connect, screen: Point, board: Point, world: Poi
     }
   }
   // Handles at one distance: the one of the opposite role wins (rf-system:2361-2365).
-  const opposite = connect.fromHandle.role === "source" ? "target" : "source";
-  const chosen = best.find((candidate) => candidate.role === opposite) ?? best[0];
+  const chosen = best.find((candidate) => candidate.role === landing) ?? best[0];
   if (chosen === undefined) return null;
   return chosen.verb === undefined
     ? { nodeId: chosen.nodeId, handle: chosen.handle, at: chosen.at }

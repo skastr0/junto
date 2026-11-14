@@ -461,19 +461,31 @@ describe("connect", () => {
   // a's right source handle sits at (302, 150); b's left target at (403, 150).
   it("from a handle to another card's handle within 42 connects with both handles and the pair's first verb", () => {
     const b = three({ verbs: { "a>b": ["feeds", "watches", "asks"] } });
-    // (365, 160): b's source left dot (398, 150) is 34.5 away, its target left dot (403, 150) 39.3; loose mode lands on either.
+    // (365, 160): b's landing side is its target dot (403, 150), 39.3 away. Its
+    // source dot (398, 150) is nearer but is not a landing: the card the wire
+    // arrives at offers the opposite role only.
     const { said, intents } = run(b, [down(302, 150), move(320, 150), move(365, 160), up(365, 160)]);
-    expect(said).toEqual([{ kind: "connect", source: "a", target: "b", sourceHandle: "s-right", targetHandle: "s-left", verb: "feeds" }]);
+    expect(said).toEqual([{ kind: "connect", source: "a", target: "b", sourceHandle: "s-right", targetHandle: "t-left", verb: "feeds" }]);
     expect(ofKind(intents, "gesture")).toEqual([
       { kind: "gesture", gesture: "connect", nodeIds: ["a"] },
       { kind: "gesture", gesture: null, nodeIds: [] },
     ]);
   });
 
-  it("snaps within 42 board units and not beyond", () => {
-    // b's nearest handles: target left (403, 150), source left (398, 150).
-    expect(ofKind(run(three(), [down(302, 150), move(330, 150), move(357, 150), up(357, 150)]).said, "connect")).toHaveLength(1); // 41 from 398
-    expect(run(three(), [down(302, 150), move(330, 150), move(355, 150), up(355, 150)]).said).toEqual([]); // 43 from 398
+  it("snaps within 42 board units of the landing dot and not beyond", () => {
+    // b's landing dot is (403, 150): 3 units inside its border, where the DOM's
+    // target handle sits. The 2 units it moved in from the source dot is the
+    // whole cost of no longer snapping to a role the card cannot take.
+    expect(ofKind(run(three(), [down(302, 150), move(330, 150), move(361, 150), up(361, 150)]).said, "connect")).toHaveLength(1); // 42 from 403
+    expect(run(three(), [down(302, 150), move(330, 150), move(359, 150), up(359, 150)]).said).toEqual([]); // 44 from 403
+  });
+
+  it("reports the landing card's side as a target, not as its own source", () => {
+    // The snap used to resolve to b's nearer source dot, so the landing read as
+    // role "source" on the card receiving the wire and no landing paint showed.
+    const { effects } = run(three(), [down(302, 150), move(330, 150), move(380, 150)]);
+    const preview = effects.filter((e) => e.kind === "connecting").at(-1);
+    expect(preview).toMatchObject({ preview: { target: { nodeId: "b", handle: "t-left" }, valid: true } });
   });
 
   it("a drop on a card body counts", () => {

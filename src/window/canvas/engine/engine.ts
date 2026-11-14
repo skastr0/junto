@@ -335,7 +335,15 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     const step = stepPointer(pointerState, event, pointerWorld);
     pointerState = step.state;
     for (const intent of step.intents) {
-      if (intent.kind === "hover") scene.setHover(intent.hit?.nodeId ?? null, intent.hit?.part.kind, intent.hit?.at);
+      if (intent.kind === "hover") {
+        const part = intent.hit?.part;
+        scene.setHover(
+          intent.hit?.nodeId ?? null,
+          part?.kind,
+          intent.hit?.at,
+          part?.kind === "handle" ? { side: part.side, role: part.role } : undefined,
+        );
+      }
       emit(intent);
     }
     for (const effect of step.effects) applyEffect(effect);

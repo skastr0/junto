@@ -59,14 +59,8 @@ export const SEAT_RING_CENTRE = {
   y: SEAT.rowTop + SEAT.ring / 2,
 } as const;
 
-/**
- * Where the seat's content box sits inside the card, against the card's own
- * centre. The sheet pads the seat `1px 10px 1px 1px` (`kind-seat.css`,
- * `factory-grammar.css`); at far the DOM centres the ring in that content
- * box, so the GPU's far seat rule must use the same point, not the card
- * centre. Half the left/right padding difference, in board units.
- */
-export const SEAT_CONTENT_CENTRE_DX = -4.5;
+/** The seat's content-box centre against the card's own (node-geometry.ts). */
+export { SEAT_CONTENT_CENTRE_DX } from "@shared/node-geometry";
 
 /** Text column of a seat: right of the ring and its gap, to the padded edge. */
 export const SEAT_TEXT = {

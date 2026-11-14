@@ -13,6 +13,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { asNodeId } from "@shared/model";
 import type { CanvasTier, CardFact, FrameFacts, Rect } from "../src/window/canvas/contract";
 import { createSurfaceMirror, type LiveSource } from "../src/window/canvas/shell/surface-mirror";
+import { farSeatScale, seatFloorScale } from "@shared/canvas-tier";
+import { heldRingRect } from "@shared/node-geometry";
 
 const CARD: CardFact = {
   id: asNodeId("n"),
@@ -156,5 +158,86 @@ describe("the mirror's live rectangles", () => {
     expect(r.mirror.screenRectOf("n")).toEqual(rect(120, 100, 440, 168));
     expect(r.mirror.boardRectOf("n")).toEqual(rect(120, 100, 440, 168));
     r.dispose();
+  });
+});
+
+describe("a ringed card's answered rectangle at the far tiers", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  const seatRow = (over: Record<string, unknown> = {}): CardFact["row"] => ({
+    id: asNodeId("s"), kind: "agent", label: "Ada", x: 100, y: 200, width: 216, height: 56, z: 1,
+    agentKey: "local:pi", harness: "pi", overseer: false, host: "local", ...over,
+  }) as unknown as CardFact["row"];
+
+  // Room to grow: a lone card takes the full ring at the far tiers.
+  const card = (row: CardFact["row"], ringCap = 5.2): CardFact => ({
+    id: row.id,
+    row,
+    derived: { regionDepth: 0, blocked: false, z: 1, ringCap },
+  });
+
+  const pageRect = (zoom: number, ring: { x: number; y: number; width: number; height: number }): Rect => ({
+    x: ring.x * zoom,
+    y: ring.y * zoom,
+    width: ring.width * zoom,
+    height: ring.height * zoom,
+  });
+
+  const ringScale = (zoom: number): number => Math.max(seatFloorScale(zoom), Math.min(farSeatScale(zoom), 5.2));
+
+  it("answers the held ring alone, so an overlay centres on the ring", () => {
+    const mirror = createSurfaceMirror();
+    mirror.apply([{ kind: "load", canvas: "factory" as never, cards: [card(seatRow())], wires: [] }]);
+    mirror.setCamera({ x: 0, y: 0, zoom: 0.15 });
+    const answered = mirror.screenRectOf("s")!;
+    const expected = pageRect(0.15, heldRingRect(seatRow(), ringScale(0.15))!);
+    expect(answered.x).toBeCloseTo(expected.x, 4);
+    expect(answered.y).toBeCloseTo(expected.y, 4);
+    expect(answered.width).toBeCloseTo(expected.width, 4);
+    expect(answered.height).toBeCloseTo(expected.height, 4);
+    // The ring, never a union with the card box the far tier does not paint: a
+    // union reaches from the box's left edge to the ring's right, 48.5 wide at
+    // this zoom, and centres the toolbar a quarter card right of the ring.
+    expect(answered.width).toBeLessThan(45);
+    // It stands about 16 screen px above the card's own top edge, which is
+    // where the selection toolbar used to land across the ring.
+    expect(answered.y).toBeLessThan(200 * 0.15 - 15);
+  });
+
+  it("covers a kind seat's ring too: the far tier holds one for every seat kind", () => {
+    const terminal = seatRow({ kind: "terminal", bindingId: "b", label: "Shell" });
+    const mirror = createSurfaceMirror();
+    mirror.apply([{ kind: "load", canvas: "factory" as never, cards: [card(terminal)], wires: [] }]);
+    mirror.setCamera({ x: 0, y: 0, zoom: 0.15 });
+    expect(mirror.screenRectOf("s")).toEqual(pageRect(0.15, heldRingRect(terminal, ringScale(0.15))!));
+  });
+
+  it("leaves an unringed card on its own rectangle at the far tiers", () => {
+    const note = { id: asNodeId("n"), kind: "note" as const, text: "note", x: 10, y: 20, width: 220, height: 84, z: 1 };
+    const mirror = createSurfaceMirror();
+    mirror.apply([{ kind: "load", canvas: "factory" as never, cards: [{ id: "n", row: note, derived: { regionDepth: 0, blocked: false, z: 1 } }], wires: [] }]);
+    mirror.setCamera({ x: 0, y: 0, zoom: 0.15 });
+    expect(mirror.screenRectOf("n")).toEqual(rect(1.5, 3, 33, 12.6));
+  });
+
+  it("leaves the card's own rectangle alone at near", () => {
+    const mirror = createSurfaceMirror();
+    mirror.apply([{ kind: "load", canvas: "factory" as never, cards: [card(seatRow())], wires: [] }]);
+    mirror.setCamera({ x: 0, y: 0, zoom: 1 });
+    expect(mirror.screenRectOf("s")).toEqual(rect(100, 200, 216, 56));
+  });
+
+  it("keeps a live drag rectangle as the engine drew it, ring or no ring", () => {
+    const mirror = createSurfaceMirror();
+    const listeners = new Set<(facts: FrameFacts) => void>();
+    mirror.attachLive({ rectOf: (id) => (id === "s" ? rect(150, 240, 216, 56) : undefined), onFrame: (l) => { listeners.add(l); return () => listeners.delete(l); } });
+    mirror.apply([{ kind: "load", canvas: "factory" as never, cards: [card(seatRow())], wires: [] }]);
+    mirror.setCamera({ x: 0, y: 0, zoom: 0.15 });
+    for (const listener of listeners) {
+      listener({ at: 0, camera: mirror.camera(), tier: mirror.tier() as CanvasTier, scales: { farSeat: 1, seatFloor: 1, node: 1 }, settled: true, anchors: [{ id: "s", rect: rect(150, 240, 216, 56) }], marquee: null });
+    }
+    expect(mirror.screenRectOf("s")).toEqual(rect(150, 240, 216, 56));
   });
 });

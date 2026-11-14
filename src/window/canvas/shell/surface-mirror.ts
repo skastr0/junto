@@ -32,6 +32,8 @@ import type {
   WireMode,
 } from "../contract";
 import { boundsOfRects, sameCamera } from "./camera-targets";
+import { farSeatScale, seatFloorScale } from "@shared/canvas-tier";
+import { heldRingRect } from "@shared/node-geometry";
 import { publishCanvasTier, tierForZoom } from "../../lib/canvas-tier";
 
 export type MirrorCard = {
@@ -132,6 +134,22 @@ export const createSurfaceMirror = () => {
     };
   };
 
+  /**
+   * The square a ringed card is drawn in at far and overview: every seat and
+   * kind seat holds its ring at a screen size on its content-box centre
+   * (canvas-tier.ts farSeatScale, node-geometry.ts heldRingRect), so at far the
+   * ring is the whole card, and the card's own rectangle is not painted at all.
+   * At zoom 0.15 that is a 40 screen px ring against an 8 px card box, nearly
+   * all of it above the box's top edge.
+   */
+  const ringRectOf = (id: NodeId): Rect | undefined => {
+    const card = cards.get(id);
+    if (card === undefined) return undefined;
+    const far = Math.max(1, Math.min(farSeatScale(camera.zoom), card.derived.ringCap ?? 1));
+    const scale = tier === "overview" ? Math.max(seatFloorScale(camera.zoom), far) : tier === "far" ? far : 1;
+    return scale <= 1 ? undefined : heldRingRect(card.row, scale);
+  };
+
   const screenRectOf = (id: NodeId): Rect | undefined => {
     // A frame answered for a card the pointer owns: its rectangle is the one
     // the engine drew, not the row's. It is frame-exact even while the mirror
@@ -142,7 +160,13 @@ export const createSurfaceMirror = () => {
       return { x: drawn.x + origin.x, y: drawn.y + origin.y, width: drawn.width, height: drawn.height };
     }
     const rect = boardRectOf(id);
-    return rect === undefined ? undefined : pageRectOf(rect, camera);
+    if (rect === undefined) return undefined;
+    // An overlay anchored to a ringed card sits on what the operator sees. At
+    // far and overview that is the held ring alone, so the answer is the ring
+    // and never a union with the unpainted card box: a union would centre the
+    // selection toolbar a quarter of a card to the right of a 40 px ring.
+    const ring = ringRectOf(id);
+    return ring === undefined ? pageRectOf(rect, camera) : pageRectOf(ring, camera);
   };
 
   const writeAnchor = (id: NodeId, node: HTMLElement): void => {
