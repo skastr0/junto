@@ -113,14 +113,14 @@ const clampClip = (rect: { x: number; y: number; width: number; height: number }
   return { x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y) };
 };
 
-const shotFor = async (page: Page, entry: GalleryEntry, dest?: string): Promise<PngImage> => {
+const shotFor = async (page: Page, entry: GalleryEntry, dest?: string, bottom: number = PAD.bottom): Promise<PngImage> => {
   const rect = await card(page, entry.id).box();
   if (rect === null) throw new Error(`card ${entry.id} has no rect`);
   const paneRect = await pane(page).box();
   if (paneRect === null) throw new Error("no canvas pane");
   const clip = entry.kind === "region"
     ? clampClip({ x: rect.x, y: rect.y, width: Math.min(rect.width, REGION_CLIP.width), height: Math.min(rect.height, REGION_CLIP.height) }, paneRect)
-    : clampClip({ x: rect.x - PAD.left, y: rect.y - PAD.top, width: rect.width + PAD.left + PAD.right, height: rect.height + PAD.top + PAD.bottom }, paneRect);
+    : clampClip({ x: rect.x - PAD.left, y: rect.y - PAD.top, width: rect.width + PAD.left + PAD.right, height: rect.height + PAD.top + bottom }, paneRect);
   const buffer = await page.screenshot({ clip });
   if (dest !== undefined) await writeFile(dest, buffer);
   return PNG.sync.read(buffer);
@@ -177,7 +177,7 @@ const shoot = async (page: Page, save: boolean): Promise<ReadonlyMap<string, Png
       await park(page);
       for (const entry of GALLERY_ENTRIES) {
         const shotKey = key(theme, zoom, "default", entry);
-        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `gpu-${shotKey.replaceAll("|", "-")}.png`) : undefined));
+        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `gpu-${shotKey.replaceAll("|", "-")}.png`) : undefined, zoom <= 0.3 ? PAD.bottom : 16));
       }
       if (save) await page.screenshot({ path: join(VISUAL_DIR, `gpu-full-${theme}-${zoom}.png`) });
       if (!STATE_ZOOMS.has(zoom)) continue;
@@ -186,7 +186,7 @@ const shoot = async (page: Page, save: boolean): Promise<ReadonlyMap<string, Png
         await card(page, entry.id).click();
         await page.waitForTimeout(SETTLE_MS);
         const shotKey = key(theme, zoom, "selected", entry);
-        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `gpu-${shotKey.replaceAll("|", "-")}.png`) : undefined));
+        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `gpu-${shotKey.replaceAll("|", "-")}.png`) : undefined, 12));
       }
 
       await park(page);
@@ -196,7 +196,7 @@ const shoot = async (page: Page, save: boolean): Promise<ReadonlyMap<string, Png
         await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
         await page.waitForTimeout(SETTLE_MS);
         const shotKey = key(theme, zoom, "hovered", entry);
-        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `gpu-${shotKey.replaceAll("|", "-")}.png`) : undefined));
+        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `gpu-${shotKey.replaceAll("|", "-")}.png`) : undefined, 12));
       }
     }
   }
