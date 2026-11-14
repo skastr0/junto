@@ -14,14 +14,9 @@ import { useNodeFieldOf } from "../../lib/use-model";
 import { ContentMedia } from "../work/ContentMedia";
 import { FocusSurface } from "../FocusSurface";
 import { Button, Eyebrow, IconButton } from "../ui";
+import { pathTail } from "../../lib/presentation";
 import { NodeShell } from "./NodeShell";
 import { KindCard } from "./SpineCard";
-
-/** The folders a path sits in, the nearest last: what the leaf line names, its start giving way. */
-const pathTail = (path: string): string => {
-  const parts = path.split("/").filter(Boolean);
-  return parts.length > 1 ? parts.slice(0, -1).join("/") : path;
-};
 
 export function FileNode({ id, data, selected }: NodeProps<FlowNode>) {
   const canvasName = use$(state$.canvasName);

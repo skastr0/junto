@@ -20,7 +20,7 @@ import { agentSeat$, clueFromAgentSeat } from "../../lib/agent-seat-state";
 import { seatSignalRollups$ } from "../../lib/agent-signals-state";
 import { resolveActivityGlyph } from "../../lib/activity";
 import { getJuntoApi } from "../../lib/junto-api";
-import { seatMachineLine } from "../../lib/machines";
+import { machineLabelIn, seatMachineLine } from "../../lib/machines";
 import { modelStore } from "../../lib/use-model";
 import { regionUrgency$ } from "../../lib/region-urgency";
 import { preambleByNodeId$ } from "../../lib/preamble-state";
@@ -35,7 +35,9 @@ import { threadHealthMarkOf } from "../../lib/thread-health";
 import { pickPulseEdge, type PulseEdge } from "../../lib/wire-pulse";
 import { portraitOverrides$ } from "../../lib/portrait-overrides-state";
 import { seatPortraitMood } from "../../lib/portrait-mood";
-import { blockedNodeIds, regionParentOf } from "./shared";
+import { blockedNodeIds } from "./shared";
+import { cardLive$, sameCardLive } from "./kinds";
+import { cardLayout } from "./layout";
 import { deriveOccupancy } from "@shared/occupancy";
 import { portraitExpression } from "@shared/portrait-expression";
 import { portraitCharacter, type PortraitConfig } from "@shared/agent-portrait";
@@ -273,8 +275,12 @@ const sameFact = (a: CardFact | undefined, b: CardFact): boolean =>
   a.derived.regionDepth === b.derived.regionDepth &&
   a.derived.blocked === b.derived.blocked &&
   a.derived.z === b.derived.z &&
+  a.derived.ringCap === b.derived.ringCap &&
+  a.derived.remote?.machine === b.derived.remote?.machine &&
+  JSON.stringify(a.derived.nameSlot) === JSON.stringify(b.derived.nameSlot) &&
   a.derived.regionUrgency?.kind === b.derived.regionUrgency?.kind &&
-  a.derived.regionUrgency?.reach === b.derived.regionUrgency?.reach;
+  a.derived.regionUrgency?.reach === b.derived.regionUrgency?.reach &&
+  sameCardLive(a, b);
 
 const sameWire = (a: WireFact | undefined, b: WireFact): boolean => a !== undefined && a.row === b.row;
 
@@ -305,7 +311,10 @@ export const retainSceneOps = (
       const model = modelStore.canvas$(canvasName);
       const nodeIds = model.nodeIds.get();
       const wireIds = model.wireIds.get();
-      const parentOf = regionParentOf(canvasName);
+      const layout = cardLayout(canvasName);
+      const parentOf = layout.parentOf;
+      const liveFacts = cardLive$(canvasName);
+      const machines = state$.machines.get();
       const blocked = blockedNodeIds(canvasName);
       const regionUrgency = regionUrgency$.get();
 
@@ -317,6 +326,15 @@ export const retainSceneOps = (
         if (row === undefined) return;
         const regionId = parentOf.get(id);
         const held = row.kind === "region" ? regionUrgency[id] : undefined;
+        const ringCap = layout.ringCaps.get(id);
+        const nameSlot = row.kind === "region" ? layout.nameSlots.get(id) : undefined;
+        const remote =
+          row.kind === "peer" || row.kind === "stub"
+            ? row.host === undefined
+              ? undefined
+              : { machine: machineLabelIn(machines, row.host) }
+            : undefined;
+        const live = liveFacts[id].get();
         cards.push({
           id,
           row,
@@ -325,8 +343,13 @@ export const retainSceneOps = (
             regionDepth: regionDepthOf(parentOf, regionId),
             blocked: blocked.has(id),
             z: row.z,
+            ...(ringCap === undefined ? {} : { ringCap }),
+            ...(nameSlot === undefined ? {} : { nameSlot }),
             ...(held === undefined ? {} : { regionUrgency: { kind: held.urgency, reach: held.reach } }),
+            ...(remote === undefined ? {} : { remote }),
           },
+          ...(live?.kind === undefined ? {} : { kind: live.kind }),
+          ...(live?.spine === undefined ? {} : { spine: live.spine }),
         });
       });
       const wires: WireFact[] = [];

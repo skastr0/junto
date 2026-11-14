@@ -70,11 +70,10 @@ describe("sessionChromeUnchanged", () => {
   });
 });
 
-describe("card wiring", () => {
-  const files = [
-    "src/window/components/terminal/TerminalCard.tsx",
-    "src/window/components/nodes/SeatCard.tsx",
-  ] as const;
+describe("session wiring", () => {
+  // The hydration moved from the cards to the feed (canvas/feed/sessions.ts):
+  // the lock follows it there.
+  const files = ["src/window/canvas/feed/sessions.ts"] as const;
 
   it("gates terminalGet on session/exit, not output", () => {
     for (const file of files) {

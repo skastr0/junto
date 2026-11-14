@@ -65,6 +65,32 @@ export const page = (id: string, more: Partial<NodeOf<"page">> = {}): NodeOf<"pa
   onRemove: "kill-session",
   ...more,
 });
+export const link = (id: string, more: Partial<NodeOf<"link">> = {}): NodeOf<"link"> => ({
+  kind: "link",
+  ...placed(id),
+  url: "https://example.com/docs",
+  ...more,
+});
+export const git = (id: string, more: Partial<NodeOf<"git">> = {}): NodeOf<"git"> => ({
+  kind: "git",
+  ...placed(id),
+  cwd: "/Users/me/Projects/junto",
+  ...more,
+});
+export const peer = (id: string, more: Partial<NodeOf<"peer">> = {}): NodeOf<"peer"> => ({
+  kind: "peer",
+  ...placed(id),
+  label: id,
+  host: THIS_MACHINE,
+  seatId: `seat_${id}` as NodeOf<"peer">["seatId"],
+  ...more,
+});
+export const stub = (id: string, more: Partial<NodeOf<"stub">> = {}): NodeOf<"stub"> => ({
+  kind: "stub",
+  ...placed(id),
+  of: "git",
+  ...more,
+});
 export const note = (id: string, text = id, more: Place = {}): NodeOf<"note"> =>
   ({ kind: "note", ...placed(id), text, ...more });
 export const region = (

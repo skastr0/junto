@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useContext, useEffect } from "react";
 import { use$ } from "@legendapp/state/react";
 import { state$ } from "../lib/state";
+import { WindowRuntimeContext } from "../rpc/runtime";
 import { retainCanvasFeed } from "../canvas/feed";
 
 /**
@@ -13,6 +14,12 @@ import { retainCanvasFeed } from "../canvas/feed";
  */
 export function RegionUrgencyGate() {
   const canvasName = use$(state$.canvasName);
-  useEffect(() => (canvasName === "" ? undefined : retainCanvasFeed(canvasName)), [canvasName]);
+  // Undefined outside a runtime provider (tests): the feed then reads git
+  // cards as "reading", the same as a card with no git window.
+  const runtime = useContext(WindowRuntimeContext);
+  useEffect(
+    () => (canvasName === "" ? undefined : retainCanvasFeed(canvasName, undefined, runtime)),
+    [canvasName, runtime],
+  );
   return null;
 }

@@ -239,9 +239,11 @@ describe("registerTerminalSessionPoll", () => {
   });
 });
 
-describe("card wiring", () => {
+describe("session wiring", () => {
+  // The hydration moved from the cards to the feed (canvas/feed/sessions.ts):
+  // the lock follows it there.
   const source = readFileSync(
-    join(root, "src/window/components/terminal/TerminalCard.tsx"),
+    join(root, "src/window/canvas/feed/sessions.ts"),
     "utf8",
   );
 

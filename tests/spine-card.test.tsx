@@ -7,12 +7,19 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { asCanvasName, asNodeId, type Node } from "../src/shared/model";
+import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
+import { applyAgentSeatStateEvent, resetAgentSeatState } from "../src/window/lib/agent-seat-state";
 import { KindCard, SpineCard, spineStatusLook } from "../src/window/components/nodes/SpineCard";
 import { kindStateOf } from "../src/window/components/nodes/KindSeat";
 import { nodeScale } from "../src/window/lib/canvas-tier";
+import { retainNodeChrome } from "../src/window/canvas/feed/nodes";
 import { spokenNodeName } from "../src/window/lib/flow-nodes";
+import { kernel$ } from "../src/window/lib/kernel-view";
 import { NODE_STATUSES, NodeBlockedContext, NodeIdContext, nodeSpokenKind$, nodeStatus$, shownStatus } from "../src/window/lib/node-status";
 import { PeerCard, StubCard } from "../src/window/components/nodes/RemoteNodeCards";
+import { modelStore } from "../src/window/lib/use-model";
+import { peer, stub, terminal } from "./support/model-nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -29,6 +36,33 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  kernel$.execution.set(null);
+  resetAgentSeatState();
+});
+
+const FEED_CANVAS = "spine-feed";
+
+/**
+ * nodeStatus$ and nodeSpokenKind$ are the canvas feed's publications now
+ * (feed/nodes.ts): a node on the model, the feed retained, no card needed.
+ */
+const withFeed = (nodes: ReadonlyArray<Node>, run: () => void): void => {
+  const releaseModel = modelStore.adopt({ canvas: asCanvasName(FEED_CANVAS), seq: 0, nodes: [...nodes], wires: [] });
+  const releaseFeed = retainNodeChrome(FEED_CANVAS);
+  try {
+    run();
+  } finally {
+    releaseFeed();
+    releaseModel();
+  }
+};
+
+const seatEvent = (partial: Partial<AgentSeatStateEvent> & { bindingId: string; state: AgentSeatStateEvent["state"] }): AgentSeatStateEvent => ({
+  epoch: "e1",
+  reason: partial.state,
+  confidence: "high",
+  at: 1_700_000_000_000,
+  ...partial,
 });
 
 const glyph = <svg data-testid="glyph" />;
@@ -110,15 +144,21 @@ describe("spoken name", () => {
     expect(spokenNodeName("Board", "task", true, "needs-you")).toBe("Board, tasks, needs you");
   });
 
-  it("is published by the card drawn in a node, and cleared when it goes", () => {
-    render(
-      <NodeIdContext.Provider value="n1">
-        <SpineCard glyph={glyph} hue="green" name="Board" status="failed" />
-      </NodeIdContext.Provider>,
-    );
-    expect(nodeStatus$.n1.peek()).toBe("failed");
-    render(<NodeIdContext.Provider value="n1"><SpineCard glyph={glyph} hue="green" name="Board" /></NodeIdContext.Provider>);
-    expect(nodeStatus$.n1.peek()).toBeUndefined();
+  it("is published by the feed for the node on the model, card mounted or not, and cleared when it goes", () => {
+    withFeed([terminal("n1")], () => {
+      expect(nodeStatus$.n1.peek()).toBeUndefined();
+      applyAgentSeatStateEvent(seatEvent({ bindingId: "terminal-n1", state: "attention", reason: "permission" }));
+      expect(nodeStatus$.n1.peek()).toBe("needs-you");
+      modelStore.applyChanged({
+        canvas: asCanvasName(FEED_CANVAS),
+        seq: 1,
+        nodes: [],
+        wires: [],
+        removedNodes: [asNodeId("n1")],
+        removedWires: [],
+      });
+      expect(nodeStatus$.n1.peek()).toBeUndefined();
+    });
   });
 });
 
@@ -141,7 +181,10 @@ describe("graph blocked", () => {
       </NodeIdContext.Provider>,
     );
     expect(host.querySelector(".spine-tag")?.textContent).toBe("Blocked");
-    expect(nodeStatus$.n2.peek()).toBe("blocked");
+    withFeed([terminal("n2")], () => {
+      kernel$.execution.set({ blocked: ["n2"], reasonsByNodeId: {} });
+      expect(nodeStatus$.n2.peek()).toBe("blocked");
+    });
   });
 });
 
@@ -155,7 +198,9 @@ describe("peer and stub", () => {
     );
     expect(host.querySelector(".spine-portrait")?.textContent).toBe("L");
     expect(host.querySelector(".spine-leaf")?.textContent).toBe("seat on studio");
-    expect(nodeSpokenKind$.p1.peek()).toBe("seat on studio");
+    withFeed([peer("p1", { host: "studio" })], () => {
+      expect(nodeSpokenKind$.p1.peek()).toBe("seat on studio");
+    });
   });
 
   it("a stub is its kind's chip, dashed, a copy on its machine", () => {
@@ -166,7 +211,9 @@ describe("peer and stub", () => {
     );
     expect(host.querySelector(".spine-chip")?.getAttribute("data-dashed")).toBe("true");
     expect(host.querySelector(".spine-leaf")?.textContent).toBe("page on studio");
-    expect(nodeSpokenKind$.s1.peek()).toBe("page copy on studio");
+    withFeed([stub("s1", { of: "page", host: "studio" })], () => {
+      expect(nodeSpokenKind$.s1.peek()).toBe("page copy on studio");
+    });
   });
 });
 
@@ -206,9 +253,10 @@ describe("KindCard", () => {
       </NodeIdContext.Provider>,
     );
     expect(seat()?.dataset["state"]).toBe(kindStateOf("blocked"));
-    expect(nodeStatus$.k1.peek()).toBe("blocked");
-    expect(nodeSpokenKind$.k1.peek()).toBe("terminal on studio");
+    withFeed([terminal("k1")], () => {
+      kernel$.execution.set({ blocked: ["k1"], reasonsByNodeId: {} });
+      expect(nodeStatus$.k1.peek()).toBe("blocked");
+    });
     render(null);
-    expect(nodeStatus$.k1.peek()).toBeUndefined();
   });
 });

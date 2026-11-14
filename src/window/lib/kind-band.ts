@@ -2,6 +2,7 @@ import { MARK_PHASE_MS, RING_FRAME_MS } from "@shared/wire/rings";
 import { themeRuntime, type ThemeMode } from "@shared/theme";
 import type { KindIconKind } from "@shared/kind-icon";
 import { SeatUrgency, type ViewGroup } from "@shared/wire/urgency";
+import type { NodeStatus } from "./node-status";
 
 // The ledger band: the static art around a kind's ring that says what the kind holds (task states,
 // artifact ticks, tabs, commits), baked as parts the way the ring's own parts are. A band has its
@@ -18,6 +19,28 @@ import { SeatUrgency, type ViewGroup } from "@shared/wire/urgency";
  */
 export type KindState = ViewGroup<typeof SeatUrgency>;
 const U = SeatUrgency.group;
+
+/**
+ * A node status as the seat's states say it; `done` is for a kind that
+ * finished (a board with nothing left, a live session). The canvas feed and
+ * KindCard share it so a kind seat's ring means the same on both canvases.
+ */
+export const kindStateOf = (status: NodeStatus | undefined, done = false): KindState => {
+  switch (status) {
+    case "blocked":
+    case "failed":
+      return U.blocked;
+    case "needs-you":
+      return U.waiting;
+    case "working":
+      return U.working;
+    case "off":
+    case "retired":
+      return U.offline;
+    default:
+      return done ? U.done : U.resting;
+  }
+};
 
 /** What a kind holds, as counts the card already reads. Absent fields draw as zero. */
 export type KindLedger =

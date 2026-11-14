@@ -8,23 +8,12 @@ import { PageToolbarActions } from "../browser/PageToolbarActions";
 import type { FlowNode } from "../../lib/convert";
 import { openDockBrowser } from "../../lib/dock-state";
 import { browser$ } from "../../lib/browser-state";
-import { hostOf } from "../../lib/presentation";
+import { hostAndTail, hostOf } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { useNodeFieldOf, useNodeValue, useNodeOf } from "../../lib/use-model";
 import { NodeShell } from "./NodeShell";
 import { KindCard } from "./SpineCard";
 
-/** An address as its host and the last step of its path: "effect.website/…/docs". */
-const hostAndTail = (url: string): string => {
-  try {
-    const parsed = new URL(url);
-    const steps = parsed.pathname.split("/").filter(Boolean);
-    if (steps.length === 0) return parsed.host;
-    return steps.length === 1 ? `${parsed.host}/${steps[0]}` : `${parsed.host}/…/${steps.at(-1)}`;
-  } catch {
-    return url;
-  }
-};
 import { BROWSER_ENABLED } from "@shared/features";
 
 export function LinkNode({ id, data, selected }: NodeProps<FlowNode>) {

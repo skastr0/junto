@@ -6,13 +6,12 @@
  * publish because their "off" is a per-card read (a files count, a git IPC),
  * not canvas state.
  */
-import { observable, observe } from "@legendapp/state";
+import { observe } from "@legendapp/state";
 import { BROWSER_ENABLED } from "@shared/features";
 import { formatNodeRef } from "@shared/node-ref";
 import type { NodeId } from "@shared/physics/schema";
 import { RegionUrgency } from "@shared/wire/urgency";
 import { agentSeat$ } from "../../lib/agent-seat-state";
-import { automationsSource } from "../../lib/automations-source";
 import type { AutomationListResponse } from "@shared/automation";
 import { browser$ } from "../../lib/browser-state";
 import { dock$ } from "../../lib/dock-state";
@@ -33,6 +32,7 @@ import { state$ } from "../../lib/state";
 import { terminal$ } from "../../lib/terminal-state";
 import { tasksCardBody } from "../../components/tasks/tasks-pane-model";
 import { blockedNodeIds } from "./shared";
+import { retainAutomationFacts } from "./automations";
 
 /** One field of a model node, tracked when read inside `observe`. */
 const field = <T>(node$: unknown, name: string): T | undefined =>
@@ -50,32 +50,9 @@ const automationStatus = (list: AutomationListResponse | undefined): NodeStatus 
 };
 
 export const retainNodeChrome = (canvasName: string): (() => void) => {
-  // The automations node's list read, kept like useAutomationList keeps it:
-  // re-read on mount-equivalent and after every source change.
-  const automationFacts$ = observable<Record<string, AutomationListResponse | undefined>>({});
-  let automationSig = "";
-  const loadAutomations = async (): Promise<void> => {
-    const model = modelStore.canvas$(canvasName);
-    const targets: string[] = [];
-    for (const id of model.nodeIds.peek()) {
-      if (model.nodes[id].kind.peek() === "automations") targets.push(id);
-    }
-    automationSig = targets.slice().sort().join("");
-    await Promise.all(
-      targets.map(async (id) => {
-        try {
-          automationFacts$[id].set(await automationsSource().list(canvasName, id as NodeId));
-        } catch {
-          // A failed read keeps the last answer, as the card's does.
-        }
-      }),
-    );
-    const wanted = new Set(targets);
-    for (const id of Object.keys(automationFacts$.peek())) {
-      if (!wanted.has(id)) automationFacts$[id].delete();
-    }
-  };
-  const offAutomations = automationsSource().subscribe(() => void loadAutomations());
+  // The automations nodes' list reads, shared with the kind live facts
+  // (feed/automations.ts): one retention per canvas, refcounted.
+  const automations = retainAutomationFacts(canvasName);
 
   const previous = {
     status: new Map<string, NodeStatus | undefined>(),
@@ -91,7 +68,7 @@ export const retainNodeChrome = (canvasName: string): (() => void) => {
     const tasksByNode = canvasTasks$.byNode.get();
     const sessionByBinding = terminal$.sessionByBindingId.get();
     const machines = state$.machines.get();
-    const automationReads = automationFacts$.get();
+    const automationReads = automations.facts.get();
     const browserSessions = browser$.sessionByRef.get();
     const opErrors = dock$.opErrorByRef.get();
     const workingByRef = pageDriving$.workingByRef.get();
@@ -101,7 +78,6 @@ export const retainNodeChrome = (canvasName: string): (() => void) => {
       spoken: new Map<string, string | undefined>(),
       urgency: new Map<string, Urgency | undefined>(),
     };
-    const automationIds: string[] = [];
 
     for (const id of ids) {
       const node$ = model.nodes[id];
@@ -157,7 +133,6 @@ export const retainNodeChrome = (canvasName: string): (() => void) => {
           break;
         }
         case "automations": {
-          automationIds.push(id);
           const status = automationStatus(automationReads[id]);
           reported = status;
           urgency = status === "failed" ? RegionUrgency.group.blocked : undefined;
@@ -203,11 +178,6 @@ export const retainNodeChrome = (canvasName: string): (() => void) => {
       next.urgency.set(id, urgency);
     }
 
-    // The automations set is tracked through automationFacts$ reads above;
-    // reload when the canvas's automations nodes change.
-    const sig = automationIds.slice().sort().join("");
-    if (sig !== automationSig) void loadAutomations();
-
     for (const id of previous.status.keys()) {
       if (!next.status.has(id)) publishNodeStatus(id, undefined);
     }
@@ -227,10 +197,9 @@ export const retainNodeChrome = (canvasName: string): (() => void) => {
 
   return () => {
     offNodes();
-    offAutomations();
+    automations.release();
     for (const id of previous.status.keys()) publishNodeStatus(id, undefined);
     for (const id of previous.spoken.keys()) publishNodeSpokenKind(id, undefined);
     for (const id of previous.urgency.keys()) publishNodeUrgency(id, undefined);
-    automationFacts$.set({});
   };
 };

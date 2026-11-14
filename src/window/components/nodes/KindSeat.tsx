@@ -52,26 +52,7 @@ const lineTone = (state: KindState): string => {
   }
 };
 
-/** A node status as the seat's states say it; `done` is for a kind that finished (a board with nothing left, a live session). */
-export const kindStateOf = (
-  status: "blocked" | "needs-you" | "working" | "failed" | "off" | "retired" | undefined,
-  done = false,
-): KindState => {
-  switch (status) {
-    case "blocked":
-    case "failed":
-      return S.blocked;
-    case "needs-you":
-      return S.waiting;
-    case "working":
-      return S.working;
-    case "off":
-    case "retired":
-      return S.offline;
-    default:
-      return done ? S.done : S.resting;
-  }
-};
+export { kindStateOf } from "../../lib/kind-band";
 
 export type KindSeatProps = {
   readonly kind: KindIconKind;

@@ -17,18 +17,26 @@ import { retainRegionChrome } from "./regions";
 import { retainSceneOps } from "./scene";
 import { retainSeatSessions } from "./sessions";
 import { retainSeatUrgency } from "./seats";
+import { retainKindLive } from "./kinds";
+import type { WindowRuntime } from "../../rpc/runtime";
+import type { SceneOp } from "../contract";
 
 export { readSeatRollups } from "./rollups";
 export { retainSceneOps } from "./scene";
+export { cardLive$, retainKindLive } from "./kinds";
 
 /**
  * Derive and publish everything the open canvas's cards used to publish:
  * seat and node urgency, node status and spoken kinds, seat session
- * hydration, region severity/counts and region urgency. Returns the release.
+ * hydration, region severity/counts and region urgency, and the kind/spine
+ * live facts the card ops carry. `runtime` is the window's Effect runtime
+ * for the git card's IPC read; without it git cards read "reading". Returns
+ * the release.
  */
 export const retainCanvasFeed = (
   canvasName: string,
-  emit?: (ops: ReadonlyArray<import("../contract").SceneOp>) => void,
+  emit?: (ops: ReadonlyArray<SceneOp>) => void,
+  runtime?: WindowRuntime,
 ): (() => void) => {
   if (canvasName === "") return () => undefined;
   const stops: Array<() => void> = [modelStore.open(canvasName)];
@@ -44,6 +52,7 @@ export const retainCanvasFeed = (
   stops.push(retainSeatUrgency(canvasName));
   stops.push(retainSeatSessions(canvasName));
   stops.push(retainNodeChrome(canvasName));
+  stops.push(retainKindLive(canvasName, runtime));
   stops.push(retainRegionChrome(canvasName));
   if (emit !== undefined) stops.push(retainSceneOps(canvasName, emit));
   let released = false;
