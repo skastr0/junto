@@ -55,6 +55,8 @@ export interface GpuAtlas {
   readonly binding: AtlasBinding;
   /** Attach the device the atlas uploads into; safe to call again per generation. */
   attach(device: GPUDevice): void;
+  /** Theme switch: sprite keys carry the mode, so new asks rasterize anew. */
+  setMode(mode: ThemeMode): void;
   /** The record's atlas cell for a quad's sprite or text, or NO_ATLAS_CELL. */
   sourceFor(quad: Quad, scale: number): number;
   /** Bumped every time landed cells change the texture or the UV buffer. */
@@ -81,7 +83,7 @@ const DEFAULT_CELLS = 8192;
 export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   const size = options.size ?? DEFAULT_SIZE;
   const maxCells = options.maxCells ?? DEFAULT_CELLS;
-  const mode = options.mode ?? "dark";
+  let mode = options.mode ?? "dark";
 
   const cells = new Float32Array(maxCells * 4);
   const jobs = new Map<string, CellJob>();
@@ -275,6 +277,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       }
     },
     sourceFor,
+    setMode: (next) => {
+      mode = next;
+    },
     revision: () => revision,
     get pending() {
       return jobs.size + awaiting.size;
