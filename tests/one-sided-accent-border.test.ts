@@ -27,9 +27,9 @@ const filesUnder = (dir: string, ext: RegExp): string[] =>
     return ext.test(name) && !/\.(?:test|spec)\.tsx?$/.test(name) ? [rel] : [];
   });
 
-/** Gray tokens: an edge in these is a divider or a quote rule, never accent. */
+/** Gray tokens and hairline widths: an edge in these is a divider or a quote rule, never accent. */
 const NEUTRAL_VAR =
-  /^--(?:color-(?:stroke|stroke-hi|overlay-\d|ground|raise|raise-2|inset|well|ink|ink-2|dim|faint|steel|umbra|shadow-\d|backdrop)|deck-line)$/;
+  /^--(?:color-(?:stroke|stroke-hi|overlay-\d|ground|raise|raise-2|inset|well|ink|ink-2|dim|faint|steel|umbra|shadow-\d|backdrop)|border-(?:hairline|bold)|deck-line)$/;
 const NEUTRAL_WORD = /^(?:transparent|currentcolor|inherit|initial|unset|none|0)$/i;
 const LITERAL_COLOR = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|oklch|lab|lch|color)\(/i;
 

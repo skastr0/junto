@@ -115,7 +115,6 @@ function RtsMinimapStack() {
         ariaLabel="Strategic minimap — click to move camera, double-click to zoom, click a node to focus"
         style={{ background: "color-mix(in oklab, var(--color-ground) 90%, transparent)", border: "1px solid var(--color-overlay-4)" }}
       />
-      <CanvasFieldTools />
     </>
   );
 }

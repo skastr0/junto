@@ -21,6 +21,8 @@ type FullHook = CanvasTestHook & {
   readonly rect: (id: NodeId, part?: string) => Rect | null;
   readonly text: (id: NodeId) => string;
   readonly selected: () => ReadonlyArray<NodeId>;
+  /** The card holding the cyan keyboard focus ring, or "" when none does. */
+  readonly focused: () => NodeId | "";
   /** The wire mode the shell has pushed to the engine (shell/wire-mode.ts). */
   readonly wireMode: () => string;
 };
@@ -95,6 +97,7 @@ const build = (mirror: SurfaceMirror, engine: () => SeamEngine | undefined, atla
     text: (id) => mirror.card(id)?.text ?? "",
     selection: () => mirror.selection().nodeIds,
     selected: () => mirror.selection().nodeIds,
+    focused: () => mirror.selection().focusedNodeId ?? "",
     camera: () => mirror.camera(),
     settled: () => mirror.settled(),
     tier: () => mirror.tier(),

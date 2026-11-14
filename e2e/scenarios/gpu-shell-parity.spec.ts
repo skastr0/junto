@@ -11,9 +11,35 @@
  * the same act, the same result, and the pixels of the proof.
  */
 import type { Page } from "@playwright/test";
+import { createRequire } from "node:module";
+import { writeFileSync } from "node:fs";
 import { card, cardCount, canvasReady, handle as cardHandle, pane } from "../harness/canvas";
 import { expect, test } from "../harness/launch";
 import { modelFixture, modelSeat, modelWire } from "../harness/model";
+
+interface PngImage {
+  readonly width: number;
+  readonly height: number;
+  readonly data: Buffer;
+}
+const { PNG } = createRequire(import.meta.url)("pngjs") as {
+  readonly PNG: { readonly sync: { read(buf: Buffer): PngImage } };
+};
+
+/** Cyan pixels in the band around a card's edge: the keyboard focus ring. */
+const focusRingPixels = (image: PngImage, rect: { readonly x: number; readonly y: number; readonly width: number; readonly height: number }): number => {
+  let count = 0;
+  for (let y = Math.max(0, Math.floor(rect.y - 8)); y <= Math.min(image.height - 1, Math.ceil(rect.y + rect.height + 8)); y += 1) {
+    for (let x = Math.max(0, Math.floor(rect.x - 8)); x <= Math.min(image.width - 1, Math.ceil(rect.x + rect.width + 8)); x += 1) {
+      // Only the edge: the card's own portrait may be blue.
+      if (x > rect.x + 1 && x < rect.x + rect.width - 1 && y > rect.y + 1 && y < rect.y + rect.height - 1) continue;
+      const at = (y * image.width + x) * 4;
+      const [r, g, b] = [image.data[at] ?? 0, image.data[at + 1] ?? 0, image.data[at + 2] ?? 0];
+      if (b > 140 && g > 120 && b > r * 1.25 && g > r * 1.1) count += 1;
+    }
+  }
+  return count;
+};
 
 const CANVAS = "gpu-shell-parity";
 
@@ -45,9 +71,8 @@ const shot = async (page: Page, testInfo: import("@playwright/test").TestInfo, n
 };
 
 const openDeck = async (page: Page) => {
-  // The bottom bar mounts the field tools twice (one in the minimap stack, one
-  // in the bar); the one on top is the bar's, and it is the one a press lands on.
-  await page.getByRole("button", { name: "Add canvas item" }).last().click();
+  // The bar mounts the field tools once, over the minimap.
+  await page.getByRole("button", { name: "Add canvas item" }).click();
   const deck = page.getByRole("dialog", { name: "Add canvas item" });
   await expect(deck).toBeVisible();
   return deck;
@@ -202,4 +227,33 @@ test("the cone chip and the wire mode follow the focus and the connect gesture",
   await page.getByTestId("node-toolbar-focus").click();
   await expect.poll(() => wireMode(page)).toBe("rest");
   await expect(chip).toHaveCount(0);
+});
+
+test("Tab walks the keyboard focus ring across cards", async ({ junto }, testInfo) => {
+  test.setTimeout(120_000);
+  const { page } = junto;
+  await canvasReady(page);
+  const focused = (): Promise<string> => page.evaluate(() => window.__juntoCanvas?.focused?.() ?? "");
+
+  // A press on empty pane hands the canvas the keyboard and leaves no
+  // selection, so the walk starts from the reading order's first card.
+  await pane(page).click({ position: { x: 80, y: 80 } });
+  await expect.poll(focused).toBe("");
+  await expect.poll(() => page.evaluate(() => window.__juntoCanvas?.selection() ?? [])).toEqual([]);
+
+  await page.keyboard.press("Tab");
+  await expect.poll(focused).toBe("a");
+  const buffer = await page.screenshot({ scale: "css" });
+  writeFileSync(testInfo.outputPath("keyboard-focus-ring.png"), buffer);
+  const image = PNG.sync.read(buffer);
+  const box = await card(page, "a").box();
+  expect(box).not.toBeNull();
+  expect(focusRingPixels(image, box!), "the cyan ring paints around the focused card").toBeGreaterThan(40);
+
+  await page.keyboard.press("Tab");
+  await expect.poll(focused).toBe("b");
+  await page.keyboard.press("Shift+Tab");
+  await expect.poll(focused).toBe("a");
+  await page.keyboard.press("Escape");
+  await expect.poll(focused).toBe("");
 });

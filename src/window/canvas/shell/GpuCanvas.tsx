@@ -37,6 +37,7 @@ import { installCanvasTestHook } from "./test-hook";
 import { mountWireLabels } from "./wire-labels";
 import { holdConeWireMode, ownWireMode } from "./wire-mode";
 import { attachCanvasDelete, attachCanvasInput, mountHands } from "./hands";
+import { installCanvasFocusChain } from "./focus-chain";
 import { canvasHands } from "./pointer-host";
 import { CanvasMenus } from "./CanvasMenus";
 import { CardOverlays } from "./CardOverlays";
@@ -191,6 +192,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
     // Real browser input reaches the engine; shortcuts stay in the one key
     // dispatcher, and the delete chord keeps the gates React Flow had.
     const offInput = attachCanvasInput(engine, canvas);
+    const offFocusChain = installCanvasFocusChain(canvas);
     const offHands = mountHands(engine, canvas);
     const offDelete = attachCanvasDelete();
     mirror.setElement(canvas);
@@ -333,6 +335,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
       offDelete();
       offHands();
       offInput();
+      offFocusChain();
       offWireLabels();
       wireLabels.dispose();
       offConeMode();

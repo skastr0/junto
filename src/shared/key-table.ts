@@ -144,6 +144,8 @@ export type ShortcutId =
  */
 export type SurfaceKeyId =
   | "canvas.pan"
+  | "canvas.next"
+  | "canvas.previous"
   | "canvas.delete"
   | "canvas.escape"
   | "canvas.magnify"
@@ -586,6 +588,22 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     where: ["canvas"],
   }),
   surfaceKey({
+    id: "canvas.next",
+    area: "Canvas",
+    name: "Next card",
+    does: "Move the keyboard focus ring to the next card",
+    keys: ["Tab"],
+    where: ["canvas"],
+  }),
+  surfaceKey({
+    id: "canvas.previous",
+    area: "Canvas",
+    name: "Previous card",
+    does: "Move the keyboard focus ring to the previous card",
+    keys: ["Shift+Tab"],
+    where: ["canvas"],
+  }),
+  surfaceKey({
     id: "canvas.delete",
     area: "Canvas",
     name: "Delete the selection",
@@ -597,7 +615,7 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     id: "canvas.escape",
     area: "Canvas",
     name: "Close or clear",
-    does: "Close what is open, or clear the selection",
+    does: "Close what is open, drop the keyboard focus ring, or clear the selection",
     keys: ["Escape"],
     where: ["canvas", "working", "operator", "dialog"],
   }),
