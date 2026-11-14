@@ -474,13 +474,21 @@ export const canvasReady = async (
   page: Page,
   options?: { readonly timeout?: number },
 ): Promise<void> => {
-  const { probe } = await canvasBackend(page);
+  // The backend is chosen per poll: under the GPU canvas the hook installs
+  // after first paint, and picking the DOM probe early would wait forever on
+  // a `.react-flow` that never mounts.
   await expect
-    .poll(() => probe.ready(page), {
-      timeout: options?.timeout ?? 30_000,
-      message: "the canvas never became ready",
-    })
-    .toBe(true);
+    .poll(
+      async () => {
+        const { probe } = await canvasBackend(page);
+        return (await probe.ready(page)) ? "ready" : null;
+      },
+      {
+        timeout: options?.timeout ?? 30_000,
+        message: "the canvas never became ready",
+      },
+    )
+    .not.toBeNull();
 };
 
 /** Card (non-region) node count. */
