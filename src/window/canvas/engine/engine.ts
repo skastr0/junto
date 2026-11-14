@@ -201,8 +201,10 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     ...(host.measure === undefined ? {} : { measure: host.measure }),
     ...(host.sourceOf === undefined ? {} : { source: host.sourceOf }),
     ...(host.atlasRevision === undefined ? {} : { atlasRevision: host.atlasRevision }),
-    // The atlas keys a text raster by device pixels per board unit.
+    // The atlas keys a raster by device pixels per board unit, and a quad's
+    // scale rule multiplies it (a far ring is drawn larger than the camera).
     scale: () => size.pixelRatio * camera.zoom,
+    zoom: () => camera.zoom,
   });
   const renderer = createRenderer();
 

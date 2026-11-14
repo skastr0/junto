@@ -3,8 +3,9 @@
 
 import { describe, expect, it } from "vitest";
 import { asCanvasName } from "@shared/model";
+import { farSeatScale } from "@shared/canvas-tier";
 import type { CardFact, CardView, PaintEnv, Quad, QuadStyle } from "../src/window/canvas/contract";
-import { createScene } from "../src/window/canvas/engine/scene";
+import { atlasScale, createScene } from "../src/window/canvas/engine/scene";
 import { SCALE_RULE, QUAD_FLOATS } from "../src/window/canvas/engine/quad";
 import { seat } from "./support/model-nodes";
 
@@ -299,5 +300,43 @@ describe("a theme switch", () => {
     scene.apply({ kind: "theme", mode: "bright" });
     expect(painted.map((entry) => entry.id).sort()).toEqual(["a", "b"]);
     expect(painted.every((entry) => entry.mode === "bright")).toBe(true);
+  });
+});
+
+describe("a sprite's raster scale", () => {
+  it("includes the scale-rule multiplier the shader draws it at", () => {
+    const scales: number[] = [];
+    const scene = createScene({
+      painter: () => ({
+        quads: [{
+          key: "portrait",
+          kind: "sprite",
+          band: "cards",
+          z: 1,
+          rect: { x: 10, y: 10, width: 34, height: 34 },
+          tiers: 15,
+          scale: { kind: "seat", cap: 1.75, anchor: { x: 27, y: 27 } },
+          style: {},
+          sprite: { atlas: "mark", cell: { col: 0, row: 1 } },
+        }],
+        dim: { opacity: 1, saturate: 1 },
+        lift: 0,
+      }),
+      source: (_quad, scale) => {
+        scales.push(scale);
+        return 3;
+      },
+      scale: () => 0.3,
+      zoom: () => 0.3,
+    });
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact()], wires: [] });
+    const near = scales.at(-1)!;
+    scene.prepare({ x: -100, y: -100, width: 800, height: 600 }, "far");
+    const far = scales.at(-1)!;
+    // The far ring is drawn at farSeat times its board size, so the cell is
+    // rasterized at that same scale; the camera scale alone reads blurry.
+    expect(far).toBeCloseTo(atlasScale(0.3 * Math.min(farSeatScale(0.3), 1.75)), 9);
+    expect(far).toBeGreaterThan(atlasScale(0.3));
+    expect(near).toBeCloseTo(atlasScale(0.3), 9);
   });
 });

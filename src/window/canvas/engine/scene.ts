@@ -15,6 +15,7 @@
  * it the view rectangle, the tier and the theme.
  */
 
+import { farSeatScale, nodeScale, seatFloorScale } from "@shared/canvas-tier";
 import { renderedNodeSize } from "@shared/node-geometry";
 import { DURATION, themeGpu, type GpuTheme, type ThemeMode } from "@shared/theme";
 import type {
@@ -243,6 +244,8 @@ export const createScene = (options: {
   readonly source?: (quad: Quad, scale: number) => number;
   /** Device pixels per board unit, at the camera right now. */
   readonly scale?: () => number;
+  /** The camera zoom, for the multiplier a quad's scale rule adds. */
+  readonly zoom?: () => number;
   /** The atlas's cell-table revision; a change re-uploads the UVs. */
   readonly atlasRevision?: () => number;
 }) => {
@@ -258,6 +261,32 @@ export const createScene = (options: {
   const atlasScaleNow = (): number => atlasScale(options.scale?.() ?? 1);
   const resolveSource = (quad: Quad, scale: number): number =>
     options.source === undefined ? NO_ATLAS_CELL : options.source(quad, scale);
+
+  /**
+   * The multiplier a quad's scale rule adds on top of the camera's device
+   * pixels per board unit: a far ring is drawn at `farSeat` times its board
+   * size, a tag at `farSeat * 1.4`, a node at `nodeScale`. A cell rasterized
+   * at the camera scale alone is upscaled on screen and reads blurry.
+   */
+  const scaleMultiplier = (quad: Quad, tier: CanvasTier, zoom: number): number => {
+    switch (quad.scale.kind) {
+      case "seat": {
+        const far = Math.max(1, Math.min(farSeatScale(zoom), quad.scale.cap));
+        if (tier === "far") return far;
+        if (tier === "overview") return Math.max(seatFloorScale(zoom), Math.min(farSeatScale(zoom), quad.scale.cap));
+        return 1;
+      }
+      case "seatTag":
+        return farSeatScale(zoom) * 1.4;
+      case "node":
+        return nodeScale(zoom);
+      case "board":
+        return 1;
+    }
+  };
+
+  const sourceScaleFor = (quad: Quad): number =>
+    atlasScale((options.scale?.() ?? 1) * scaleMultiplier(quad, currentTier, options.zoom?.() ?? 1));
 
   let quads: QuadBuffer = createQuadBuffer(1024);
   let quadCapacity = 1024;
@@ -294,6 +323,8 @@ export const createScene = (options: {
   let clockNow = 0;
   /** Epoch milliseconds, the wall clock the DOM ring's phase reads. */
   let wallNow = 0;
+  /** The tier the last prepared frame drew at; a quad's raster scale needs it. */
+  let currentTier: CanvasTier = "near";
 
   const markOrder = (): void => {
     orderDirty = true;
@@ -401,7 +432,7 @@ export const createScene = (options: {
       tiers: quad.tiers,
       ...packScale(quad.scale),
       ...packMotion(quad.motion, clockNow, wallNow),
-      source: resolveSource(quad, atlasScaleNow()),
+      source: resolveSource(quad, sourceScaleFor(quad)),
       gradientAngle: 0,
       style,
       ...previous,
@@ -743,7 +774,7 @@ export const createScene = (options: {
   const previousOrder: number[] = [];
   let lastView: Rect = { x: 0, y: 0, width: -1, height: -1 };
   let lastTier: CanvasTier | undefined;
-  let lastAtlasScale = -1;
+  let lastSourceEpoch = "";
   let lastAtlasRevision = -1;
   let orderReady = false;
 
@@ -761,7 +792,10 @@ export const createScene = (options: {
   };
 
   const prepare = (view: Rect, tier: CanvasTier): Prepared => {
-    const sourceScale = atlasScaleNow();
+    currentTier = tier;
+    // A source is right for one camera bucket, one tier and one zoom (the
+    // scale rules read the zoom), plus one atlas revision.
+    const sourceEpoch = `${String(atlasScaleNow())}|${String(options.zoom?.() ?? 1)}|${tier}`;
     const revision = atlasRevisionNow();
     // A still camera and an unchanged scene reuse the list: a turning ring
     // draws every tick without re-culling the board. A new atlas revision or
@@ -772,7 +806,7 @@ export const createScene = (options: {
       !orderDirty &&
       tier === lastTier &&
       sameRect(view, lastView) &&
-      sourceScale === lastAtlasScale &&
+      sourceEpoch === lastSourceEpoch &&
       revision === lastAtlasRevision
     ) {
       return { orderChanged: false, visible: orderCount, atlasRevision: revision };
@@ -798,13 +832,13 @@ export const createScene = (options: {
     // scale bucket changes (a zoom) or a raster lands (a revision), the
     // visible records take their new cell; the cell index changes with the
     // key, so the record's source word is rewritten in place.
-    if (sourceScale !== lastAtlasScale || revision !== lastAtlasRevision) {
-      lastAtlasScale = sourceScale;
+    if (sourceEpoch !== lastSourceEpoch || revision !== lastAtlasRevision) {
+      lastSourceEpoch = sourceEpoch;
       lastAtlasRevision = revision;
       for (const card of cards) {
         for (const ref of card.ordered) {
           if (ref.painted.text === undefined && ref.painted.sprite === undefined) continue;
-          const source = resolveSource(ref.painted, sourceScale);
+          const source = resolveSource(ref.painted, sourceScaleFor(ref.painted));
           const at = ref.slot * QUAD_FLOATS + 23;
           if (quads.u32[at] !== source) {
             quads.u32[at] = source;
