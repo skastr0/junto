@@ -500,6 +500,8 @@ export type CardView = {
   /** The card is being dragged or its overlay editor stands in for it. */
   readonly editing: boolean;
   readonly dragging: boolean;
+  /** A wire is being drawn: the card shows its dashed target handles. */
+  readonly connecting?: boolean;
   readonly reach?: ReachMark;
   readonly focus?: { readonly kind: "impact" | "connection"; readonly role: "root" | "member" | "lead" | "outsider" };
   /** The part under the pointer, where it matters to paint (a region's title bar or frame strips). */
@@ -670,6 +672,8 @@ export type FrameFacts = {
   readonly settled: boolean;
   /** Screen rectangles of the cards the shell anchors overlays to. */
   readonly anchors: ReadonlyArray<{ readonly id: NodeId; readonly rect: Rect }>;
+  /** The marquee box during a pane drag, in screen pixels; null when not dragging. */
+  readonly marquee: Rect | null;
 };
 
 /** The engine's own counters, for the frame test and the performance harness. */
