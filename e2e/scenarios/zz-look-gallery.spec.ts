@@ -223,12 +223,25 @@ test("look gallery: GPU cards match the DOM cards in both themes, every tier, in
   const dom = await open(false);
   try {
     const domShots = await shoot(dom.page, false);
+    const failures: string[] = [];
+    const worst = new Map<string, number>();
     for (const [key, gpuPng] of gpuShots) {
       const domPng = domShots.get(key);
-      expect(domPng, `no DOM shot for ${key}`).toBeDefined();
-      const bad = mismatch(gpuPng, domPng!, key);
-      expect(bad, `${key}: ${(bad * 100).toFixed(2)}% pixels differ`).toBeLessThanOrEqual(0.02);
+      if (domPng === undefined) {
+        failures.push(`${key}: no DOM shot`);
+        continue;
+      }
+      const bad = mismatch(gpuPng, domPng, key);
+      const kind = key.split("|")[3] ?? "?";
+      worst.set(kind, Math.max(worst.get(kind) ?? 0, bad));
+      if (bad > 0.02) failures.push(`${key}: ${(bad * 100).toFixed(2)}% pixels differ`);
     }
+    const summary = [...worst.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([kind, bad]) => `${kind}=${(bad * 100).toFixed(2)}%`)
+      .join(" ");
+    console.log(`GALLERY worst by kind: ${summary}`);
+    expect(failures, failures.join("\n")).toEqual([]);
   } finally {
     await dom.close();
   }
