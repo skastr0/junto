@@ -101,7 +101,7 @@ const zoomTo = async (page: Page, zoom: number): Promise<void> => {
 };
 
 /** The card's shot, padded for its tag, shadow and selected outline. */
-const PAD = { top: 10, right: 14, bottom: 56, left: 14 } as const;
+const PAD = { top: 8, right: 8, bottom: 10, left: 8 } as const;
 /** A region is its title and frame, not the whole board it holds. */
 const REGION_CLIP = { width: 420, height: 160 } as const;
 
@@ -177,7 +177,7 @@ const shoot = async (page: Page, save: boolean): Promise<ReadonlyMap<string, Png
       await park(page);
       for (const entry of GALLERY_ENTRIES) {
         const shotKey = key(theme, zoom, "default", entry);
-        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `gpu-${shotKey.replaceAll("|", "-")}.png`) : undefined, zoom <= 0.3 ? PAD.bottom : 16));
+        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `gpu-${shotKey.replaceAll("|", "-")}.png`) : undefined, 10));
       }
       if (save) await page.screenshot({ path: join(VISUAL_DIR, `gpu-full-${theme}-${zoom}.png`) });
       if (!STATE_ZOOMS.has(zoom)) continue;
@@ -190,7 +190,7 @@ const shoot = async (page: Page, save: boolean): Promise<ReadonlyMap<string, Png
         await page.mouse.move(8, 8);
         await page.waitForTimeout(SETTLE_MS);
         const shotKey = key(theme, zoom, "selected", entry);
-        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `gpu-${shotKey.replaceAll("|", "-")}.png`) : undefined, 12));
+        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `gpu-${shotKey.replaceAll("|", "-")}.png`) : undefined, 10));
       }
 
       await park(page);
@@ -200,7 +200,7 @@ const shoot = async (page: Page, save: boolean): Promise<ReadonlyMap<string, Png
         await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
         await page.waitForTimeout(SETTLE_MS);
         const shotKey = key(theme, zoom, "hovered", entry);
-        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `gpu-${shotKey.replaceAll("|", "-")}.png`) : undefined, 12));
+        shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `gpu-${shotKey.replaceAll("|", "-")}.png`) : undefined, 10));
       }
     }
   }
