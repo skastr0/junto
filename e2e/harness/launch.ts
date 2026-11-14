@@ -26,7 +26,7 @@ import { dirname, join } from "node:path";
 import { test as base, type Page } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import type { AgentSignal } from "../../src/shared/agent-signals";
-import type { FeatureKey } from "../../src/shared/feature-catalog";
+import { FEATURE_CATALOG, type FeatureKey } from "../../src/shared/feature-catalog";
 import type { HarnessId } from "../../src/shared/managed-terminal-templates";
 import type { UsageState } from "../../src/shared/usage";
 import {
@@ -498,8 +498,22 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
     if (options.seedUsage !== undefined) {
       await writeFixtureUsageState(sandbox, options.seedUsage);
     }
-    if (options.seedExperimentalFeatures !== undefined) {
-      await writeFixtureExperimentalFeatures(sandbox, options.seedExperimentalFeatures);
+    // JUNTO_E2E_FEATURES=gpuCanvas,… seeds every launch in the run, so the
+    // whole suite can run with an experimental switch on; a spec's own
+    // seedExperimentalFeatures merges on top.
+    const envFeatures = (process.env["JUNTO_E2E_FEATURES"] ?? "")
+      .split(",")
+      .map((key) => key.trim())
+      .filter((key) => key.length > 0)
+      .map((key) => {
+        if (!(key in FEATURE_CATALOG)) {
+          throw new Error(`JUNTO_E2E_FEATURES names unknown feature key "${key}"`);
+        }
+        return key as FeatureKey;
+      });
+    const seededFeatures = [...new Set([...(options.seedExperimentalFeatures ?? []), ...envFeatures])];
+    if (seededFeatures.length > 0) {
+      await writeFixtureExperimentalFeatures(sandbox, seededFeatures);
     }
     if (options.seedHarnessInstalls !== undefined) {
       await seedInstalledHarnesses(sandbox, options.seedHarnessInstalls);
