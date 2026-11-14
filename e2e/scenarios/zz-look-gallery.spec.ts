@@ -134,65 +134,67 @@ const mismatch = (a: PngImage, b: PngImage, tol = 24): number => {
   return bad / (width * height);
 };
 
+/** Capture one canvas from every theme, tier and state, keyed for the pair. */
+const shoot = async (page: Page): Promise<ReadonlyMap<string, PngImage>> => {
+  const shots = new Map<string, PngImage>();
+  const key = (theme: string, zoom: number, state: string, entry: GalleryEntry): string =>
+    `${theme}|${zoom}|${state}|${entry.kind}|${entry.id}`;
+
+  for (const theme of THEMES) {
+    await setTheme(page, theme);
+    await page.waitForTimeout(SETTLE_MS);
+    for (const zoom of ZOOMS) {
+      await zoomTo(page, zoom);
+      await park(page);
+      for (const entry of GALLERY_ENTRIES) {
+        shots.set(key(theme, zoom, "default", entry), await shotFor(page, entry));
+      }
+      if (!STATE_ZOOMS.has(zoom)) continue;
+
+      for (const entry of CARD_ENTRIES) {
+        await card(page, entry.id).click();
+        await page.waitForTimeout(SETTLE_MS);
+        shots.set(key(theme, zoom, "selected", entry), await shotFor(page, entry));
+      }
+
+      await park(page);
+      for (const entry of CARD_ENTRIES) {
+        const rect = await card(page, entry.id).box();
+        if (rect === null) throw new Error(`card ${entry.id} has no rect to hover`);
+        await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+        await page.waitForTimeout(SETTLE_MS);
+        shots.set(key(theme, zoom, "hovered", entry), await shotFor(page, entry));
+      }
+    }
+  }
+  return shots;
+};
+
 test("look gallery: GPU cards match the DOM cards in both themes, every tier, in card states", async () => {
-  test.setTimeout(1_200_000);
+  test.setTimeout(1_800_000);
+  // One canvas at a time: two Electron apps racing for the GPU adapter on the
+  // same machine can leave the second on the DOM fallback (no test hook).
   const dom = await open(false);
+  let domShots: ReadonlyMap<string, PngImage>;
+  try {
+    domShots = await shoot(dom.page);
+  } finally {
+    await dom.close();
+  }
+
   const gpu = await open(true);
   try {
     // The GPU run must really be the engine, never a DOM fallback.
     const hooked = await gpu.page.evaluate(() => typeof window.__juntoCanvas?.ready === "function");
     test.skip(!hooked, "window.__juntoCanvas absent — the GPU canvas is not in this build yet");
-
-    const compare = async (entry: GalleryEntry, theme: string, zoom: number, state: string): Promise<void> => {
-      const a = await shotFor(dom.page, entry);
-      const b = await shotFor(gpu.page, entry);
-      const bad = mismatch(a, b);
-      expect(
-        bad,
-        `${theme} zoom=${zoom} ${entry.kind} ${entry.id} ${state}: ${(bad * 100).toFixed(2)}% pixels differ`,
-      ).toBeLessThanOrEqual(0.02);
-    };
-
-    for (const theme of THEMES) {
-      await setTheme(dom.page, theme);
-      await setTheme(gpu.page, theme);
-      await dom.page.waitForTimeout(SETTLE_MS);
-      await gpu.page.waitForTimeout(SETTLE_MS);
-      for (const zoom of ZOOMS) {
-        await zoomTo(dom.page, zoom);
-        await zoomTo(gpu.page, zoom);
-        await park(dom.page);
-        await park(gpu.page);
-
-        for (const entry of GALLERY_ENTRIES) {
-          await compare(entry, theme, zoom, "default");
-        }
-        if (!STATE_ZOOMS.has(zoom)) continue;
-
-        for (const entry of CARD_ENTRIES) {
-          await card(dom.page, entry.id).click();
-          await card(gpu.page, entry.id).click();
-          await dom.page.waitForTimeout(SETTLE_MS);
-          await gpu.page.waitForTimeout(SETTLE_MS);
-          await compare(entry, theme, zoom, "selected");
-        }
-
-        await park(dom.page);
-        await park(gpu.page);
-        for (const entry of CARD_ENTRIES) {
-          for (const page of [dom.page, gpu.page]) {
-            const rect = await card(page, entry.id).box();
-            if (rect === null) throw new Error(`card ${entry.id} has no rect to hover`);
-            await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
-          }
-          await dom.page.waitForTimeout(SETTLE_MS);
-          await gpu.page.waitForTimeout(SETTLE_MS);
-          await compare(entry, theme, zoom, "hovered");
-        }
-      }
+    const gpuShots = await shoot(gpu.page);
+    for (const [key, domPng] of domShots) {
+      const gpuPng = gpuShots.get(key);
+      expect(gpuPng, `no GPU shot for ${key}`).toBeDefined();
+      const bad = mismatch(domPng, gpuPng!);
+      expect(bad, `${key}: ${(bad * 100).toFixed(2)}% pixels differ`).toBeLessThanOrEqual(0.02);
     }
   } finally {
-    await dom.close();
     await gpu.close();
   }
 });
