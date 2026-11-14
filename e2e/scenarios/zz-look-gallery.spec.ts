@@ -4,11 +4,14 @@
 // test hook), the page is clipped to it, and the two PNGs are compared
 // pixel by pixel. Skips until the gpuCanvas build exposes the test hook, so
 // it can never pass DOM against DOM.
+//
+// The fixture and kind list live in e2e/harness/gallery-fixture.ts; the
+// state/tier matrix and the padded clip are canvas-verifier's half.
 
 import { test, expect, type Page } from "@playwright/test";
 import { createRequire } from "node:module";
 import { launchJunto, type JuntoHandle } from "../harness/launch";
-import { modelFixture, modelNote, modelRegion, modelSeat } from "../harness/model";
+import { GALLERY_IDS, galleryFixture } from "../harness/gallery-fixture";
 import { camera, card, canvasReady, pane } from "../harness/canvas";
 
 const CANVAS = "factory";
@@ -23,21 +26,14 @@ const { PNG } = createRequire(import.meta.url)("pngjs") as {
   readonly PNG: { readonly sync: { read(buf: Buffer): PngImage } };
 };
 
-const fixture = modelFixture([
-  modelRegion({ id: "region-main", label: "Main", x: -400, y: -300, width: 900, height: 700 }),
-  modelSeat({ id: "seat-a", label: "Ada", x: -200, y: -100 }),
-  modelSeat({ id: "seat-b", label: "Bex", x: 120, y: -100 }),
-  modelNote("note-1", "Ship the canvas rewrite\nParity is the default.", 60, 40),
-]);
-
-const IDS = ["seat-a", "seat-b", "note-1"] as const;
-const ZOOMS = [1, 0.6, 0.35] as const;
-const THEMES = ["dark", "bright"] as const;
+export const IDS: ReadonlyArray<string> = GALLERY_IDS;
+export const ZOOMS = [1, 0.6, 0.35] as const;
+export const THEMES = ["dark", "bright"] as const;
 
 /** The app under one canvas: off = today's DOM, on = the GPU engine. */
 const open = async (gpu: boolean): Promise<JuntoHandle> => {
   const junto = await launchJunto({
-    seedModels: { [CANVAS]: fixture },
+    seedModels: { [CANVAS]: galleryFixture },
     ...(gpu ? { seedExperimentalFeatures: ["gpuCanvas" as const] } : {}),
   });
   await canvasReady(junto.page);

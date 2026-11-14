@@ -182,3 +182,44 @@ export const grantOverseer = async (page: Page, canvas: string, id: string, over
   await page.evaluate((command) => window.junto!.modelCommand(command), decodeCommand({ _tag: "GrantOverseer", canvas, id, overseer }));
 };
 
+
+// --- the rest of the card-kind list (docs/canvas-gpu-inventory/cards.md §1) ---
+// Smallest valid node of each kind for fixtures; field shapes follow
+// tests/support/model-nodes.ts, decoded through the real Node schema.
+
+const placedNode = (id: string, x: number, y: number, more: Record<string, unknown> = {}): Record<string, unknown> => ({
+  id, x, y, width: 200, height: 100, z: 0, ...more,
+});
+
+export const modelTask = (id: string, x = 0, y = 0): Node =>
+  modelNode(placedNode(id, x, y, { kind: "task" }));
+
+export const modelArtifacts = (id: string, x = 0, y = 0): Node =>
+  modelNode(placedNode(id, x, y, { kind: "artifacts" }));
+
+export const modelAutomations = (id: string, x = 0, y = 0): Node =>
+  modelNode(placedNode(id, x, y, { kind: "automations" }));
+
+export const modelGit = (id: string, x = 0, y = 0): Node =>
+  modelNode(placedNode(id, x, y, { kind: "git", cwd: "/tmp" }));
+
+export const modelFiles = (id: string, x = 0, y = 0): Node =>
+  modelNode(placedNode(id, x, y, { kind: "files", host: THIS_MACHINE, root: "/tmp" }));
+
+export const modelPage = (id: string, x = 0, y = 0): Node =>
+  modelNode(placedNode(id, x, y, { kind: "page", url: "https://example.com/", profile: "default", onRemove: "kill-session" }));
+
+export const modelLink = (id: string, x = 0, y = 0): Node =>
+  modelNode(placedNode(id, x, y, { kind: "link", url: "https://example.com/docs" }));
+
+export const modelFile = (id: string, x = 0, y = 0, path = `/tmp/${id}.txt`): Node =>
+  modelNode(placedNode(id, x, y, { kind: "file", path }));
+
+export const modelLabel = (id: string, text: string, x = 0, y = 0): Node =>
+  modelNode(placedNode(id, x, y, { kind: "label", text }));
+
+export const modelPeer = (id: string, x = 0, y = 0): Node =>
+  modelNode(placedNode(id, x, y, { kind: "peer", label: id, host: THIS_MACHINE, seatId: `seat_${"a".repeat(64)}` }));
+
+export const modelStub = (id: string, of: string, x = 0, y = 0): Node =>
+  modelNode(placedNode(id, x, y, { kind: "stub", of }));
