@@ -842,4 +842,9 @@ export interface CanvasTestHook {
    * camera rests (section 8 rule 2).
    */
   readonly atlasRequests?: () => number;
+  /**
+   * Cell rasterizations still in flight: queued jobs plus landed cells not
+   * yet uploaded. A spec waits for zero before it reads pixels.
+   */
+  readonly atlasPending?: () => number;
 }

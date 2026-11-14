@@ -80,11 +80,23 @@ const openRetry = async (gpu: boolean): Promise<JuntoHandle> => {
   throw last;
 };
 
+/** Wait until the atlas has no cell left to rasterize or upload. */
+const atlasSettled = async (page: Page): Promise<void> => {
+  // Give the next frame time to ask for the new mode's cells before reading
+  // pending, so an empty queue right after a theme change is not mistaken
+  // for a finished one.
+  await page.waitForTimeout(200);
+  await expect
+    .poll(() => page.evaluate(() => window.__juntoCanvas?.atlasPending?.() ?? 0), { timeout: 20_000 })
+    .toBe(0);
+};
+
 const setTheme = async (page: Page, theme: (typeof THEMES)[number]): Promise<void> => {
   await page.evaluate((t) => window.junto!.settingsPatch({ appearance: { theme: t } }), theme);
   await expect
     .poll(() => page.locator("html").getAttribute("data-theme"), { timeout: 10_000 })
     .toBe(theme === "bright" ? "bright" : null);
+  await atlasSettled(page);
 };
 
 /**
@@ -117,6 +129,7 @@ const placeCamera = async (page: Page, zoom: number): Promise<CanvasCamera> => {
     .toBeLessThanOrEqual(0.01);
   await page.waitForTimeout(SETTLE_MS);
   await cameraSettled(page);
+  await atlasSettled(page);
   return target;
 };
 

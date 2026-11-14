@@ -73,7 +73,7 @@ const partRect = (mirror: SurfaceMirror, id: NodeId, part: string | undefined): 
   return undefined;
 };
 
-const build = (mirror: SurfaceMirror, engine: () => SeamEngine | undefined, atlasRequests: () => number): FullHook => {
+const build = (mirror: SurfaceMirror, engine: () => SeamEngine | undefined, atlasRequests: () => number, atlasPending: () => number): FullHook => {
   const cardIds = (): ReadonlyArray<NodeId> =>
     mirror.cardIds().filter((id) => mirror.card(id)?.row.kind !== "region");
   const rect = (id: NodeId, part?: string): Rect | null => {
@@ -119,6 +119,7 @@ const build = (mirror: SurfaceMirror, engine: () => SeamEngine | undefined, atla
     reachMarks: () => lastReachMarks(),
     wireMode: () => mirror.wireMode(),
     atlasRequests,
+    atlasPending,
   };
 };
 
@@ -135,9 +136,10 @@ export const installCanvasTestHook = (
   mirror: SurfaceMirror,
   engine: () => SeamEngine | undefined,
   atlasRequests: () => number = () => 0,
+  atlasPending: () => number = () => 0,
 ): (() => void) => {
   if (!canvasTestHookWanted()) return () => undefined;
-  const hook = build(mirror, engine, atlasRequests);
+  const hook = build(mirror, engine, atlasRequests, atlasPending);
   (window as unknown as { __juntoCanvas?: FullHook }).__juntoCanvas = hook;
   return () => {
     const held = (window as unknown as { __juntoCanvas?: FullHook }).__juntoCanvas;
