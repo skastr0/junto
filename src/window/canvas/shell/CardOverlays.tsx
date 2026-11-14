@@ -276,7 +276,7 @@ function InlineEditor({
         ref={fieldRef as RefObject<HTMLInputElement>}
         data-focus-owner="canvas-draft"
         aria-label="Region name"
-        className="h-6 w-full rounded-t-[13px] border-0 bg-transparent px-2 font-mono text-xs font-semibold outline-none"
+        className="h-6 w-full rounded-t-xl border-0 bg-transparent px-2 font-mono text-xs font-semibold outline-none"
         style={{ color: "var(--color-ink)" }}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
