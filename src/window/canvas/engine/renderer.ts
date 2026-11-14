@@ -144,9 +144,14 @@ fn filled(base: u32, local: vec2f) -> vec4f {
   var scale = 1.0;
   var center = o.p.xy + q.rect.xy + q.rect.zw * 0.5;
   if (q.scaleRule == 1u) {
+    // 1 at near and mid; the far ring's scale at far; its floor at overview.
     let far = max(1.0, min(u.scales.x, q.scaleCap));
     let floorScale = max(u.scales.y, min(u.scales.x, q.scaleCap));
-    scale = select(far, floorScale, tierBit == 8u);
+    if (tierBit == 4u) {
+      scale = far;
+    } else if (tierBit == 8u) {
+      scale = floorScale;
+    }
     center = o.p.xy + vec2f(q.anchorX, q.anchorY);
   } else if (q.scaleRule == 2u) {
     scale = u.scales.z;
@@ -156,7 +161,12 @@ fn filled(base: u32, local: vec2f) -> vec4f {
     // the tag itself by farSeat * 1.4 about its top centre.
     let far = max(1.0, min(u.scales.x, q.scaleCap));
     let floorScale = max(u.scales.y, min(u.scales.x, q.scaleCap));
-    let seatScale = select(far, floorScale, tierBit == 8u);
+    var seatScale = 1.0;
+    if (tierBit == 4u) {
+      seatScale = far;
+    } else if (tierBit == 8u) {
+      seatScale = floorScale;
+    }
     let anchor = vec2f(q.anchorX, q.anchorY);
     let relTop = vec2f(q.rect.x + q.rect.z * 0.5, q.rect.y);
     let top = anchor + (relTop - anchor) * seatScale;

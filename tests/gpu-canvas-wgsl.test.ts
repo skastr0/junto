@@ -27,6 +27,13 @@ describe("the quad shader's names", () => {
     expect(QUAD_SHADER).not.toContain("world - u.camera.xy");
   });
 
+  it("holds a seat rule at 1 at near and mid, with far and floor only at far and overview", () => {
+    // The operator saw rings and portraits 1.75x at near: the shader applied
+    // the far scale at every tier but overview.
+    expect(QUAD_SHADER).not.toContain("select(far, floorScale, tierBit == 8u)");
+    expect(QUAD_SHADER).toContain("if (tierBit == 4u)");
+  });
+
   it("binds every table the pipeline layout gives it", () => {
     for (const binding of ["order", "quads", "owners", "styles", "shadowMeta", "shadowLayers"]) {
       expect(QUAD_SHADER).toContain(`var<storage, read> ${binding}`);

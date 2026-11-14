@@ -149,7 +149,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
       atlas: atlas.binding,
       sourceOf: (quad, scale) => atlas.sourceFor(quad, scale),
       atlasRevision: () => atlas.revision(),
-      ...(textCtx === null
+      ...(textCtx === null || typeof textCtx.measureText !== "function"
         ? {}
         : { measure: (run: TextRun) => measureRun(textCtx, run, window.devicePixelRatio || 1) }),
       ...(handed === undefined ? {} : { camera: handed }),
