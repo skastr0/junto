@@ -7,14 +7,14 @@
   /* Above React Flow's selected-node/connection plane (1001), below Junto
      focus surfaces (10000). The scanner must occlude the live card it redraws. */
   z-index: 1002;
-  width: 312px;
-  height: 312px;
+  width: 480px;
+  height: 480px;
   pointer-events: none;
   opacity: 0;
   transform:
     translate3d(
-      calc(var(--magnifier-x) - 156px),
-      calc(var(--magnifier-y) - 156px),
+      calc(var(--magnifier-x) - 50%),
+      calc(var(--magnifier-y) - 50%),
       0
     );
   scale: 0.97;
@@ -31,10 +31,35 @@
   scale: 1;
 }
 
-.canvas-magnifier__canvas {
+.canvas-magnifier__view {
+  position: relative;
+  width: 480px;
+  height: 480px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--color-ground);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--color-amber) 55%, transparent),
+    0 18px 48px color-mix(in oklab, var(--color-ground) 72%, transparent);
+}
+
+.canvas-magnifier__view canvas {
+  position: absolute;
+  inset: 0;
   display: block;
-  width: 312px;
-  height: 312px;
+  width: 480px;
+  height: 480px;
+}
+
+/* The GPU lens draws the scene; the HUD canvas carries the reticle. The
+   legacy 2D canvas is the fallback for a canvas without a lens engine. */
+.canvas-magnifier[data-gpu="false"] .canvas-magnifier__gpu,
+.canvas-magnifier[data-gpu="false"] .canvas-magnifier__hud {
+  display: none;
+}
+
+.canvas-magnifier[data-gpu="true"] .canvas-magnifier__canvas {
+  display: none;
 }
 
 .canvas-magnifier__readout {

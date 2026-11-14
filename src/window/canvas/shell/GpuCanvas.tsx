@@ -19,12 +19,12 @@ import { selectNode, state$ } from "../../lib/state";
 import { themeMode$ } from "../../lib/theme-mode";
 import { canvasZoomRequest$ } from "../../lib/canvas-zoom";
 import { createEngine, type SeamEngine, type WireLayer } from "../engine/engine";
-import { browserRasterizers, createGpuAtlas } from "../engine/gpu-atlas";
 import { measureRun } from "../engine/text";
 import { createWireLayer, type WiresLayer } from "../engine/wires";
 import type { Camera, Rect, TextRun } from "../contract";
 import { takeCamera, leaveCamera } from "./camera-handoff";
 import { pageDeviceKeeper } from "./gpu-device";
+import { onGpuAtlasDirty, pageGpuAtlas } from "./gpu-atlas-page";
 import { CanvasApiProvider } from "./CanvasApiContext";
 import { setCanvasApi, clearCanvasApi } from "./canvas-api";
 import { createGpuCanvasApi, type GpuCanvasApi } from "./gpu-canvas-api";
@@ -128,21 +128,11 @@ export function GpuCanvas({ onUnavailable }: Props) {
         wires?.dispose();
       },
     };
-    // The atlas rasterizes text runs and sprites into one texture off the
-    // GPU path: canvas 2D for coverage, SVG decode for generated art, the
-    // mark atlas for rings. It subscribes the device before the engine does,
-    // so the binding is live when the engine first configures; cells that
-    // land later bump the revision and invalidate for a repaint.
-    const atlas = createGpuAtlas({
-      ...browserRasterizers(),
-      mode: themeMode$.peek(),
-      onDirty: () => engine.invalidate(),
-    });
-    const offAtlasDevice = keeper.subscribe((state) => {
-      if (state.kind === "ready") atlas.attach(state.device);
-    });
-    const atlasNow = keeper.state();
-    if (atlasNow.kind === "ready") atlas.attach(atlasNow.device);
+    // The atlas is the page's one (shell/gpu-atlas-page.ts): the lens engine
+    // rasterizes into the same cells, so text, sprites and marks land once
+    // for both views. The module owns the device subscribe and the dirty
+    // broadcast; each engine registers its own invalidate below.
+    const atlas = pageGpuAtlas();
     const textCtx = document.createElement("canvas").getContext("2d");
     const engine = createEngine({
       surface: canvas,
@@ -155,6 +145,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
       mac: isMac(),
       painter: paintCard,
       hands: canvasHands(),
+      lensPick: api.lensPick,
       wires: wireHost,
       atlas: atlas.binding,
       sourceOf: (quad, scale) => atlas.sourceFor(quad, scale),
@@ -171,6 +162,9 @@ export function GpuCanvas({ onUnavailable }: Props) {
         : { measure: (run: TextRun) => measureRun(textCtx, run, window.devicePixelRatio || 1) }),
       ...(handed === undefined ? {} : { camera: handed }),
     });
+    // A cell that lands after the first frame repaints this canvas too — the
+    // lens registers the same listener for its own invalidate.
+    const offAtlasDirty = onGpuAtlasDirty(() => engine.invalidate());
     wires = createWireLayer({
       rectOf: (id) => engine.rectOf(id),
       device: keeper,
@@ -359,8 +353,8 @@ export function GpuCanvas({ onUnavailable }: Props) {
       offMotion();
       offTheme();
       offKeeper();
-      offAtlasDevice();
-      atlas.dispose();
+      offAtlasDirty();
+      // The atlas is the page's: the lens may still draw from it.
       clearMinimapSource(minimap);
       clearCanvasApi(api);
       // Only a camera this canvas was handed, or placed, goes back: one it

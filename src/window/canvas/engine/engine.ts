@@ -144,6 +144,14 @@ export interface EngineHost {
     readonly verbsFor: (source: NodeId, target: NodeId) => ReadonlyArray<string>;
     readonly riders: (regionId: NodeId) => ReadonlyArray<NodeId>;
   };
+  /**
+   * The magnifier's lens, while the loupe is up: every pick — the pointer
+   * machine's and the shell's — answers what the lens shows at the canvas
+   * point asked, near tier, instead of this canvas's own hit. `undefined`
+   * falls through to the canvas's own pick, so a lens that has not been fed
+   * yet changes nothing. The screen point is canvas-local, as `pick` takes.
+   */
+  readonly lensPick?: (screen: Point) => Hit | undefined;
 }
 
 /** The seam's frame facts; now the contract's. */
@@ -244,8 +252,11 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     },
   };
 
+  /** The magnifier's answer while the loupe is up; undefined is the canvas's own pick. */
+  const viaLens = (screen: Point): Hit | undefined => host.lensPick?.(screen);
+
   const pointerWorld: PointerWorld = {
-    pick: (screen) => pickAt({ index: spatialIndex, card: scene.cardOf, wire: scene.wire, selection: scene.selection(), scale: camera.zoom, tier, wireMode: scene.wireMode, rectOf: scene.rectOf }, toBoard(camera, screen)),
+    pick: (screen) => viaLens(screen) ?? pickAt({ index: spatialIndex, card: scene.cardOf, wire: scene.wire, selection: scene.selection(), scale: camera.zoom, tier, wireMode: scene.wireMode, rectOf: scene.rectOf }, toBoard(camera, screen)),
     screenToBoard: (screen) => toBoard(camera, screen),
     viewport: () => size,
     rectOf: scene.rectOf,
@@ -565,7 +576,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     clusterAt: scene.clusterAt,
   });
 
-  const pick = (screen: Point): Hit | null => pickAt(pickWorld(), toBoard(camera, screen));
+  const pick = (screen: Point): Hit | null => viaLens(screen) ?? pickAt(pickWorld(), toBoard(camera, screen));
 
   const input = (event: CanvasInput): void => {
     switch (event.kind) {

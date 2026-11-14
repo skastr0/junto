@@ -12,11 +12,13 @@ import { themeMode$ } from "../lib/theme-mode";
 import { state$ } from "../lib/state";
 import { useCanvasApi } from "../canvas/shell/CanvasApiContext";
 import { holdWireMode } from "../canvas/shell/wire-mode";
+import { LENS_SIZE, LENS_ZOOM, type CanvasLensHandle, type Hit } from "../canvas/contract";
 import { useCanvas } from "../lib/use-model";
+import { useAnyModalOpen } from "../lib/modal-stack";
+import { dock$ } from "../lib/dock-state";
 import "./CanvasMagnifier.css";
 import { isOperatorTyping } from "../lib/focus-ownership";
 
-const LENS_SIZE = 312;
 const LENS_RADIUS = LENS_SIZE / 2;
 const CONTENT_RADIUS = LENS_RADIUS - 18;
 const INSPECTION_SCALE = 0.78;
@@ -126,16 +128,23 @@ const drawField = (context: CanvasRenderingContext2D) => {
     }
   }
 
+  drawVignette(context);
+};
+
+const drawVignette = (context: CanvasRenderingContext2D) => {
+  const t = paintTokens();
+  // The fade lives at the rim only: the interior stays unobstructed so every
+  // card and wire in the lens reads crisp, not mudded under a dark wash.
   const vignette = context.createRadialGradient(
     LENS_RADIUS,
     LENS_RADIUS,
-    CONTENT_RADIUS * 0.45,
+    CONTENT_RADIUS * 0.84,
     LENS_RADIUS,
     LENS_RADIUS,
     CONTENT_RADIUS,
   );
   vignette.addColorStop(0, withAlpha(t.ground!, 0));
-  vignette.addColorStop(1, withAlpha(t.ground!, 0.64));
+  vignette.addColorStop(1, withAlpha(t.ground!, 0.32));
   context.fillStyle = vignette;
   context.fillRect(0, 0, LENS_SIZE, LENS_SIZE);
 };
@@ -283,6 +292,31 @@ const drawHud = (context: CanvasRenderingContext2D) => {
   context.fill();
 };
 
+/**
+ * What sits over the GPU lens's own drawing: the vignette and the amber
+ * reticle. The scene — cards, portraits, rings, wires — is the lens
+ * engine's, so this canvas carries chrome only and paints once per
+ * activation or theme flip, never per frame.
+ */
+const drawLensHud = (context: CanvasRenderingContext2D) => {
+  drawVignette(context);
+  drawHud(context);
+};
+
+/** Size a 2D lens canvas to the device pixel ratio and hand back its context. */
+const lensContext2d = (canvas: HTMLCanvasElement): CanvasRenderingContext2D | null => {
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  const px = Math.round(LENS_SIZE * dpr);
+  if (canvas.width !== px || canvas.height !== px) {
+    canvas.width = px;
+    canvas.height = px;
+  }
+  const context = canvas.getContext("2d");
+  if (context === null) return null;
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return context;
+};
+
 export function CanvasMagnifier() {
   const api = useCanvasApi();
   const canvasName = use$(state$.canvasName);
@@ -291,7 +325,10 @@ export function CanvasMagnifier() {
   canvasRef.current = canvas;
   const anchorRef = useRef<HTMLSpanElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
+  const gpuCanvasRef = useRef<HTMLCanvasElement>(null);
   const lensCanvasRef = useRef<HTMLCanvasElement>(null);
+  const hudCanvasRef = useRef<HTMLCanvasElement>(null);
+  const lensHandleRef = useRef<CanvasLensHandle | null>(null);
   const subjectRef = useRef<HTMLSpanElement>(null);
   const statusRef = useRef<HTMLSpanElement>(null);
   const targetRef = useRef<Point>({ x: 0, y: 0 });
@@ -303,6 +340,10 @@ export function CanvasMagnifier() {
   const frameRef = useRef(0);
   const reducedMotionRef = useRef(false);
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+  const [gpuLens, setGpuLens] = useState(false);
+  const anyModal = useAnyModalOpen();
+  const openSurfaces = use$(dock$.registry).surfaces.length;
+  const openSurfacesRef = useRef(openSurfaces);
 
   // The GPU shell sets its element after this component mounts, so wait for
   // it instead of reading once: the lens portals into the canvas's parent.
@@ -320,13 +361,94 @@ export function CanvasMagnifier() {
     return () => cancelAnimationFrame(frame);
   }, [api]);
 
+  // The lens engine mounts on the magnifier's own canvas while the API can
+  // host one (the GPU canvas); the DOM canvas's magnifier keeps its own
+  // drawing. Ops reach it through the canvas's single scene feed. The
+  // portal mounts a frame after this component does, so the effect waits on
+  // portalTarget for the surface to exist.
+  useEffect(() => {
+    const surface = gpuCanvasRef.current;
+    const handle =
+      api?.lens !== undefined && surface !== null ? api.lens.attach(surface) : undefined;
+    lensHandleRef.current = handle ?? null;
+    setGpuLens(handle !== undefined);
+    if (handle === undefined) return;
+    const hud = hudCanvasRef.current;
+    if (hud !== null) {
+      const context = lensContext2d(hud);
+      if (context !== null) {
+        context.clearRect(0, 0, LENS_SIZE, LENS_SIZE);
+        drawLensHud(context);
+      }
+    }
+    return () => {
+      handle.dispose();
+      lensHandleRef.current = null;
+    };
+  }, [api, portalTarget]);
+
+  /** The readout's two lines for what the lens's pick answers. */
+  const updateReadout = useCallback((hit: Hit | undefined) => {
+    const subject = subjectRef.current;
+    const status = statusRef.current;
+    if (subject === null || status === null) return;
+    const open = (): void => {
+      subject.textContent = "open field";
+      status.textContent = "no node in range";
+      status.style.color = "";
+    };
+    if (hit === undefined || hit.part.kind === "pane") {
+      open();
+      return;
+    }
+    if (hit.wireId !== undefined || hit.part.kind === "wire") {
+      subject.textContent = "wire";
+      status.textContent = "wire - loupe";
+      status.style.color = "";
+      return;
+    }
+    if (hit.part.kind === "cluster") {
+      subject.textContent = "cluster";
+      status.textContent = `${hit.part.memberIds.length} cards`;
+      status.style.color = "";
+      return;
+    }
+    const node = hit.nodeId === undefined ? undefined : canvasRef.current.nodes.get(hit.nodeId as never);
+    if (node === undefined) {
+      open();
+      return;
+    }
+    const severity = severityOf(node);
+    const mark = signalMark(severity);
+    subject.textContent = titleOf(node);
+    status.textContent = `${node.kind} - ${mark.label}`;
+    status.style.color = severity !== "idle" ? mark.hue : "";
+  }, []);
+
   const renderLens = useCallback(() => {
     const shell = shellRef.current;
     const lens = lensCanvasRef.current;
     if (api === undefined) return;
     const root = api.element();
-    if (!shell || !lens || !root || !activeRef.current) return;
+    if (!shell || !root || !activeRef.current) return;
 
+    const rootRect = root.getBoundingClientRect();
+    const center = api.screenToBoard({
+      x: rootRect.left + currentRef.current.x,
+      y: rootRect.top + currentRef.current.y,
+    });
+
+    const handle = lensHandleRef.current;
+    if (handle !== null) {
+      // The GPU lens draws the real scene at the lens zoom — cards,
+      // portraits, rings, wires — and the readout reads its own pick at
+      // the crosshair. The 2D canvas stays empty in this mode.
+      handle.lookAt(center);
+      updateReadout(handle.pick());
+      return;
+    }
+
+    if (lens === null) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     const width = Math.round(LENS_SIZE * dpr);
     if (lens.width !== width || lens.height !== width) {
@@ -343,11 +465,6 @@ export function CanvasMagnifier() {
     context.clip();
     drawField(context);
 
-    const rootRect = root.getBoundingClientRect();
-    const center = api.screenToBoard({
-      x: rootRect.left + currentRef.current.x,
-      y: rootRect.top + currentRef.current.y,
-    });
     const nodes = [...canvasRef.current.nodes.values()];
     const visible = visibleNodes(nodes, (id) => api.rectOf(id), center);
     drawEdges(context, [...canvasRef.current.wires.values()], visible, center);
@@ -369,7 +486,7 @@ export function CanvasMagnifier() {
         ? signalMark(nearest.severity).hue
         : "";
     }
-  }, [api]);
+  }, [api, updateReadout]);
 
   const animate = useCallback(() => {
     frameRef.current = 0;
@@ -384,7 +501,7 @@ export function CanvasMagnifier() {
       shell.style.setProperty("--magnifier-x", `${current.x}px`);
       shell.style.setProperty("--magnifier-y", `${current.y}px`);
       const root = api?.element();
-      shell.dataset.readoutSide = root && current.x > root.clientWidth - 280 ? "left" : "right";
+      shell.dataset.readoutSide = root && current.x > root.clientWidth - 360 ? "left" : "right";
     }
     renderLens();
     if (Math.abs(target.x - current.x) > 0.2 || Math.abs(target.y - current.y) > 0.2) {
@@ -397,35 +514,52 @@ export function CanvasMagnifier() {
     frameRef.current = requestAnimationFrame(animate);
   }, [animate]);
 
-  // Repaint the lens when the theme mode flips while it is visible.
+  // Repaint the lens chrome and tell the lens engine when the theme flips.
   useEffect(
-    () => themeMode$.onChange(() => requestRender()),
+    () =>
+      themeMode$.onChange(() => {
+        const hud = hudCanvasRef.current;
+        if (hud !== null && lensHandleRef.current !== null) {
+          const context = lensContext2d(hud);
+          if (context !== null) {
+            context.clearRect(0, 0, LENS_SIZE, LENS_SIZE);
+            drawLensHud(context);
+          }
+        }
+        requestRender();
+      }),
     [requestRender],
   );
 
-  const setActive = useCallback((active: boolean) => {
-    if (activeRef.current === active) return;
-    activeRef.current = active;
-    const shell = shellRef.current;
-    if (!shell) return;
-    shell.dataset.active = String(active);
-    // The loupe is the canvas's alt mode: while it is up the wires show in
-    // full and can be picked. It holds one wire-mode reason; the strongest
-    // reason wins where the canvases compose them (shell/wire-mode.ts).
-    if (active) {
-      loupeHold.current ??= holdWireMode("loupe");
-    } else {
-      loupeHold.current?.();
-      loupeHold.current = null;
-    }
-    if (active) {
-      currentRef.current = { ...targetRef.current };
-      requestRender();
-    } else if (frameRef.current) {
-      cancelAnimationFrame(frameRef.current);
-      frameRef.current = 0;
-    }
-  }, [requestRender]);
+  const setActive = useCallback(
+    (active: boolean) => {
+      if (activeRef.current === active) return;
+      activeRef.current = active;
+      const shell = shellRef.current;
+      if (!shell) return;
+      shell.dataset.active = String(active);
+      // The loupe is the canvas's alt mode: while it is up the wires show in
+      // full and can be picked, and the canvas's picks answer what the lens
+      // draws at the pointer — the lensPick override in the engine. It holds
+      // one wire-mode reason; the strongest reason wins where the canvases
+      // compose them (shell/wire-mode.ts).
+      api?.lens?.setActive(active);
+      if (active) {
+        loupeHold.current ??= holdWireMode("loupe");
+      } else {
+        loupeHold.current?.();
+        loupeHold.current = null;
+      }
+      if (active) {
+        currentRef.current = { ...targetRef.current };
+        requestRender();
+      } else if (frameRef.current) {
+        cancelAnimationFrame(frameRef.current);
+        frameRef.current = 0;
+      }
+    },
+    [api, requestRender],
+  );
 
   // Let the loupe's reason go with the magnifier.
   useEffect(
@@ -435,6 +569,24 @@ export function CanvasMagnifier() {
     },
     [],
   );
+
+  // A modal or a freshly opened surface owns the view: the loupe stands
+  // down instead of picking through to cards behind it.
+  useEffect(() => {
+    if (!anyModal) return;
+    altHeldRef.current = false;
+    pointerInsideRef.current = false;
+    setActive(false);
+  }, [anyModal, setActive]);
+
+  useEffect(() => {
+    const grew = openSurfaces > openSurfacesRef.current;
+    openSurfacesRef.current = openSurfaces;
+    if (!grew) return;
+    altHeldRef.current = false;
+    pointerInsideRef.current = false;
+    setActive(false);
+  }, [openSurfaces, setActive]);
 
   useEffect(() => api?.onCamera(() => requestRender()), [api, requestRender]);
 
@@ -506,13 +658,20 @@ export function CanvasMagnifier() {
       ref={shellRef}
       className="canvas-magnifier"
       data-active="false"
+      data-gpu={gpuLens ? "true" : "false"}
       data-readout-side="right"
       data-testid="canvas-magnifier"
       aria-hidden="true"
     >
-      <canvas ref={lensCanvasRef} className="canvas-magnifier__canvas" />
+      <div className="canvas-magnifier__view">
+        <canvas ref={gpuCanvasRef} className="canvas-magnifier__gpu" />
+        <canvas ref={lensCanvasRef} className="canvas-magnifier__canvas" />
+        <canvas ref={hudCanvasRef} className="canvas-magnifier__hud" />
+      </div>
       <div className="canvas-magnifier__readout">
-        <span className="canvas-magnifier__mode">field scan - 0.8×</span>
+        <span className="canvas-magnifier__mode">
+          {gpuLens ? `field scan - ${LENS_ZOOM}×` : "field scan - 0.8×"}
+        </span>
         <span ref={subjectRef} className="canvas-magnifier__subject">open field</span>
         <span ref={statusRef} className="canvas-magnifier__status">no node in range</span>
       </div>

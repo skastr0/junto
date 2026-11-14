@@ -12,6 +12,7 @@ import type {
   CameraMoveOptions,
   CameraTarget,
   CanvasApi,
+  CanvasLensHandle,
   CanvasTier,
   EngineStats,
   Hit,
@@ -23,6 +24,7 @@ import type {
 } from "../contract";
 import type { SeamEngine } from "../engine/engine";
 import { cameraForTarget, interpolateCamera, sameCamera } from "./camera-targets";
+import { createGpuLensSession, type GpuLensSession } from "./gpu-lens";
 import type { SurfaceMirror } from "./surface-mirror";
 
 type Scheduler = {
@@ -50,6 +52,8 @@ const EMPTY_STATS: EngineStats = {
 export type GpuCanvasApi = CanvasApi & {
   readonly attachEngine: (engine: SeamEngine) => void;
   readonly applyScene: (ops: ReadonlyArray<SceneOp>) => void;
+  /** While the loupe is held, what the lens shows at a canvas-local screen point — the engine's pick override. */
+  readonly lensPick: (screen: Point) => Hit | undefined;
   readonly dispose: () => void;
 };
 
@@ -62,6 +66,17 @@ export const createGpuCanvasApi = (
   let offFrame: (() => void) | undefined;
   let animation: number | undefined;
   let disposed = false;
+  // The magnifier's lens: one session at a time, fed by applyScene's fan-out.
+  // The lens portals in a frame after this canvas's effect starts the feed,
+  // so ops collect in `lensBuffer` until the first attach flushes them; once
+  // a session exists ops go straight to it, and a failed attach (no WebGPU
+  // context) closes the buffer for good — the magnifier keeps its own path.
+  const lensBox: { session: GpuLensSession | undefined; active: boolean } = {
+    session: undefined,
+    active: false,
+  };
+  let lensBuffer: SceneOp[] | null = [];
+  const LENS_BUFFER_MAX = 50_000;
 
   const viewport = () => mirror.viewport();
 
@@ -112,6 +127,56 @@ export const createGpuCanvasApi = (
     applyScene: (ops) => {
       mirror.apply(ops);
       engine?.apply(ops);
+      const session = lensBox.session;
+      if (session !== undefined) {
+        session.apply(ops);
+      } else if (lensBuffer !== null) {
+        lensBuffer.push(...ops);
+        if (lensBuffer.length > LENS_BUFFER_MAX) {
+          lensBuffer.splice(0, lensBuffer.length - LENS_BUFFER_MAX);
+        }
+      }
+    },
+    lensPick: (screen) => {
+      const session = lensBox.session;
+      if (!lensBox.active || session === undefined) return undefined;
+      // Engine points are canvas-local; the mirror's are page pixels.
+      const element = mirror.element();
+      const page =
+        element === null
+          ? screen
+          : (() => {
+              const rect = element.getBoundingClientRect();
+              return { x: screen.x + rect.left, y: screen.y + rect.top };
+            })();
+      return session.pick(mirror.screenToBoard(page));
+    },
+    lens: {
+      attach: (surface) => {
+        lensBox.session?.dispose();
+        const session = createGpuLensSession(surface);
+        lensBox.session = session;
+        const buffered = lensBuffer;
+        lensBuffer = null;
+        if (session === undefined) return undefined;
+        if (buffered !== null && buffered.length > 0) session.apply(buffered);
+        session.setActive(lensBox.active);
+        const handle: CanvasLensHandle = {
+          lookAt: (at) => session.lookAt(at),
+          pick: (at) => session.pick(at),
+          setActive: (on) => session.setActive(on),
+          ready: () => session.ready(),
+          dispose: () => {
+            if (lensBox.session === session) lensBox.session = undefined;
+            session.dispose();
+          },
+        };
+        return handle;
+      },
+      setActive: (on) => {
+        lensBox.active = on;
+        lensBox.session?.setActive(on);
+      },
     },
     screenToBoard: (screen) => mirror.screenToBoard(screen),
     boardToScreen: (board) => mirror.boardToScreen(board),
@@ -190,6 +255,10 @@ export const createGpuCanvasApi = (
       stopAnimation();
       offFrame?.();
       offFrame = undefined;
+      lensBox.session?.dispose();
+      lensBox.session = undefined;
+      lensBox.active = false;
+      lensBuffer = null;
       engine = undefined;
     },
   };

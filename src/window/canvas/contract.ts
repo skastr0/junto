@@ -46,6 +46,16 @@ export type Camera = { readonly x: number; readonly y: number; readonly zoom: nu
 export const CAMERA_MIN_ZOOM = 0.15;
 export const CAMERA_MAX_ZOOM = 2.5;
 
+/**
+ * The magnifier's lens (CanvasMagnifier): a second engine view on its own
+ * surface, at a zoom a few points above full zoom so every card draws its
+ * near-tier form. `LENS_CENTER` is the lens point the pick-through reads —
+ * the crosshair the operator aims with.
+ */
+export const LENS_SIZE = 480;
+export const LENS_ZOOM = 0.7;
+export const LENS_CENTER: Point = { x: LENS_SIZE / 2, y: LENS_SIZE / 2 };
+
 /** Where a camera move goes. */
 export type CameraTarget =
   | { readonly kind: "camera"; readonly camera: Camera }
@@ -793,6 +803,41 @@ export interface CanvasApi {
    * sets live in its nodes, and the new canvas paints its own.
    */
   readonly cardElements?: (id: NodeId) => ReadonlyArray<Element>;
+  /**
+   * The magnifier's lens, on a canvas that can mount one (the GPU canvas).
+   * Absent on the DOM canvas, whose magnifier keeps its own drawing. While
+   * the loupe is held, `setActive(true)` makes this canvas's picks answer
+   * what the lens shows at its centre, near tier, so a seat inside a
+   * far-zoom cluster is still hoverable, clickable and double-clickable.
+   */
+  readonly lens?: CanvasLens;
+}
+
+/** A mounted lens view: the surface the magnifier hands over, and what it answers. */
+export interface CanvasLensHandle {
+  /** Centre the lens on a board point at the lens zoom. */
+  readonly lookAt: (at: Point) => void;
+  /**
+   * The hit at a board point in the lens's own view — the crosshair's when
+   * `at` is absent. Undefined until the lens scene is fed.
+   */
+  readonly pick: (at?: Point) => Hit | undefined;
+  /** Engage or release the lens: frames draw only while it is engaged. */
+  readonly setActive: (active: boolean) => void;
+  /** The lens scene has taken its first load. */
+  readonly ready: () => boolean;
+  readonly dispose: () => void;
+}
+
+export interface CanvasLens {
+  /**
+   * Hand the magnifier's surface to the canvas. Undefined where no GPU lens
+   * can mount (no WebGPU context, or a canvas without one); the caller then
+   * keeps its own drawing.
+   */
+  readonly attach: (surface: HTMLCanvasElement) => CanvasLensHandle | undefined;
+  /** Engage pick-through while the loupe is held; idempotent. */
+  readonly setActive: (active: boolean) => void;
 }
 
 /**

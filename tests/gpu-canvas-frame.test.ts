@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { asCanvasName } from "@shared/model";
 import { RING_MOTION, ringState, type RingStateInput } from "@shared/wire/rings";
 import { sampleMotion } from "../src/window/canvas/paint/motion";
-import type { CardFact, FrameFacts, SeatLive } from "../src/window/canvas/contract";
+import type { CardFact, FrameFacts, Hit, SeatLive } from "../src/window/canvas/contract";
 import { createDeviceKeeper } from "../src/window/canvas/engine/device";
 import { createEngine, type EngineHost } from "../src/window/canvas/engine/engine";
 import { tierForZoom as oldTierForZoom, type CanvasTier as OldTier } from "../src/window/lib/canvas-tier";
@@ -302,6 +302,28 @@ describe("the hands in the engine", () => {
     expect(moves).toEqual([{ kind: "move", positions: [{ id: "a", x: 130, y: 30 }] }]);
     // The drop clears the live offset and the card is back on its row.
     expect(r.engine.rectOf("a")?.x).toBe(100);
+    r.engine.dispose();
+    r.keeper.dispose();
+  });
+
+  it("answers picks from the lens while the loupe is up, at the point asked", async () => {
+    const lensHit: Hit = { nodeId: "lens-seat" as never, part: { kind: "body" }, at: { x: 0, y: 0 } };
+    let lensAnswer: Hit | undefined = lensHit;
+    const asked: Array<{ x: number; y: number }> = [];
+    const r = await rig({
+      lensPick: (screen) => {
+        asked.push(screen);
+        return lensAnswer;
+      },
+    });
+    load(r, [seatFact("a", 100)]);
+    // While the lens answers, its hit wins over the canvas's own — the seat
+    // inside a far-zoom cluster is the one picked.
+    expect(r.engine.pick({ x: 110, y: 10 })).toMatchObject({ nodeId: "lens-seat" });
+    expect(asked).toEqual([{ x: 110, y: 10 }]);
+    // An unfed lens changes nothing: the canvas's own pick answers.
+    lensAnswer = undefined;
+    expect(r.engine.pick({ x: 110, y: 10 })).toMatchObject({ nodeId: "a" });
     r.engine.dispose();
     r.keeper.dispose();
   });
