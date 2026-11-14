@@ -14,7 +14,7 @@ import type { KindIconKind } from "@shared/kind-icon";
 import type { KindLedger, KindState } from "../../lib/kind-band";
 import type { CardFact, CardPaint, CardView, KindLive, PaintEnv, Quad, QuadStyle, ScaleRule, TextRun } from "../contract";
 import { TIER_BIT } from "../contract";
-import { FAR, FOCUS, LIFT_PX, SEAT, SEAT_BOX, SEAT_RING_CENTRE, SEAT_TEXT } from "./card-spec";
+import { FAR, FOCUS, KIND_SHELL_RADII, LIFT_PX, SEAT, SEAT_BOX, SEAT_RING_CENTRE, SEAT_TEXT } from "./card-spec";
 import { bandSprites, kindIconSprite } from "./images";
 import { bandMotion, ringQuads } from "./motion";
 import { dimOf, reachQuads } from "./overlays";
@@ -135,8 +135,8 @@ export const paintKindSeat = (fact: CardFact, view: CardView, env: PaintEnv): Ca
   const quads: Quad[] = [];
 
   // --- shell, near and mid -----------------------------------------------------
-  if (view.selected) quads.push(shadow({ key: "shell.shadow", z: 0, rect: box }, { shadow: { name: "seat" } }, { tiers: NEAR, radii: SEAT.radii }));
-  quads.push(shape({ key: "shell", z: 1, rect: box }, shellStyle(hue, view), { tiers: NEAR_MID, radii: SEAT.radii }));
+  if (view.selected) quads.push(shadow({ key: "shell.shadow", z: 0, rect: box }, { shadow: { name: "seat" } }, { tiers: NEAR, radii: KIND_SHELL_RADII }));
+  quads.push(shape({ key: "shell", z: 1, rect: box }, shellStyle(hue, view), { tiers: NEAR_MID, radii: KIND_SHELL_RADII }));
   if (view.keyboardFocus) {
     quads.push(
       shape(

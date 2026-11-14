@@ -12,6 +12,7 @@ import {
   type Point,
   type Quad,
   type QuadStyle,
+  type Radii,
   type Rect,
   type ScaleRule,
 } from "../contract";
@@ -69,6 +70,27 @@ type Base = {
 };
 type Extra = Partial<Omit<Quad, "key" | "z" | "rect" | "kind">>;
 
+/**
+ * The radii CSS actually uses, in tl, tr, br, bl order.
+ *
+ * `border-radius` never shrinks one corner on its own: when the two radii on
+ * any edge would overlap, every radius is multiplied by the same factor
+ * (Backgrounds and Borders 3, "Overlapping curves"). So a pill end beside a
+ * 12px end is a fully round end beside square corners, never 28 beside 12: the
+ * sheet's `999px 12px 12px 999px` on a seat's 216 by 56 shell is 28, 0.34,
+ * 0.34, 28. Clamping each radius on its own, as the shader used to guard, is
+ * right only when every radius is the same.
+ */
+export const cssRadii = (radii: Radii, width: number, height: number): Radii => {
+  const [tl, tr, br, bl] = typeof radii === "number" ? [radii, radii, radii, radii] : radii;
+  if (width <= 0 || height <= 0) return 0;
+  const fit = (sum: number, length: number): number => (sum <= length ? 1 : length / sum);
+  const f = Math.min(1, fit(tl + tr, width), fit(bl + br, width), fit(tl + bl, height), fit(tr + br, height));
+  // A scalar stays a scalar: a pill asks for one radius, not four.
+  if (typeof radii === "number") return f === 1 ? radii : radii * f;
+  return f === 1 ? [tl, tr, br, bl] : [tl * f, tr * f, br * f, bl * f];
+};
+
 const make = (kind: Quad["kind"], base: Base, extra: Extra): Quad => ({
   kind,
   band: "cards",
@@ -77,6 +99,9 @@ const make = (kind: Quad["kind"], base: Base, extra: Extra): Quad => ({
   style: {},
   ...base,
   ...extra,
+  // One site for the corner law: every painter names the radii its sheet
+  // names, and the quad carries the values CSS would draw.
+  ...(extra.radii === undefined ? {} : { radii: cssRadii(extra.radii, base.rect.width, base.rect.height) }),
 });
 
 export const shape = (base: Base, style: QuadStyle, extra: Extra = {}): Quad => make("shape", base, { ...extra, style });

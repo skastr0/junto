@@ -7,10 +7,23 @@
  */
 
 import { AGENT_NODE_SIZE, SEAT_RING_PX } from "@shared/node-geometry";
-import { CARD } from "@shared/theme";
+import { CARD, RADIUS } from "@shared/theme";
 
 /** A seat's box: 216 by 56. */
 export const SEAT_BOX = AGENT_NODE_SIZE;
+
+/** A radius token's length in board units (`RADIUS` holds CSS strings). */
+const radiusPx = (name: keyof typeof RADIUS): number => Number.parseFloat(RADIUS[name] ?? "0");
+
+/**
+ * A kind seat's shell corners as its sheet authors them:
+ * `border-radius: var(--radius-pill) var(--radius-xl) var(--radius-xl)
+ * var(--radius-pill)` (`kind-seat.css`). The sheet's pill beside an xl is not
+ * what CSS draws — it clamps the whole set — so `paint/` hands these to the
+ * quad builder and `cssRadii` gives the used values: a fully round left end
+ * concentric with the ring, square right corners.
+ */
+export const KIND_SHELL_RADII = [radiusPx("pill"), radiusPx("xl"), radiusPx("xl"), radiusPx("pill")] as const;
 
 export const SEAT = {
   /** `border-radius: 28px 14px 14px 28px` (inventory 2.1). */

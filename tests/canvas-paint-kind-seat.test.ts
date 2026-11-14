@@ -167,4 +167,17 @@ describe("kind seat paint", () => {
     expect(reach.find((q) => q.key === "reach")?.band).toBe("lifted");
     expect(reach.find((q) => q.key === "reach.pill.text")?.text?.text).toBe("gains 2");
   });
+
+  it("the shell's corners are the ones its sheet draws: a round left end, square right corners", () => {
+    // `border-radius: 999px 12px 12px 999px` on a 216 by 56 card is what CSS
+    // makes of it: the left end round at 28 (concentric with the ring), the
+    // right corners leftovers of the same factor. Drawing the authored 12px
+    // corners there put a 14px arc where the sheet has none.
+    for (const selected of [false, true]) {
+      const shell = paint("page", {}, view({ selected })).quads.find((q) => q.key === "shell")!;
+      expect(shell.radii).toEqual([28, 12 * (56 / 1998), 12 * (56 / 1998), 28]);
+    }
+    const shadow = paint("task", {}, view({ selected: true })).quads.find((q) => q.key === "shell.shadow")!;
+    expect(shadow.radii).toEqual([28, 12 * (56 / 1998), 12 * (56 / 1998), 28]);
+  });
 });

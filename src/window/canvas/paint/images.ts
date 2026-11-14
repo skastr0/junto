@@ -9,7 +9,7 @@ import { portraitConfigKey, portraitDetailFor, portraitSvg, type PortraitConfig 
 import { kindIconSvg, type KindIconKind } from "@shared/kind-icon";
 import { EXPRESSION_FACES, type PortraitExpression } from "@shared/portrait-expression";
 import type { ThemeMode } from "@shared/theme";
-import { bandBackground, kindBandLayers, BAND_BOX, type BandLayer, type KindLedger, type KindState } from "../../lib/kind-band";
+import { bandBackground, bandSvg, kindBandLayers, BAND_BOX, type BandLayer, type KindLedger, type KindState } from "../../lib/kind-band";
 import { markTileFor } from "../../lib/harness-icons";
 import type { SpriteRef } from "../contract";
 
@@ -56,7 +56,7 @@ export const bandSprites = (kind: KindIconKind, state: KindState, mode: ThemeMod
   const key = `band|${mode}|${kind}|${state}|${ledgerKey(ledger)}`;
   const layers = bounded(bands, key, () => kindBandLayers(kind, state, mode, ledger), 800);
   return layers.map((layer, index) => ({
-    sprite: { atlas: "image", key: `${key}|${index}`, svg: layer.svg, size: { width: BAND_BOX, height: BAND_BOX } },
+    sprite: { atlas: "image", key: `${key}|${index}`, svg: bandSvg(layer.svg), size: { width: BAND_BOX, height: BAND_BOX } },
     ...(layer.motion ? { motion: layer.motion } : {}),
   }));
 };

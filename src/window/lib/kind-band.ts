@@ -261,9 +261,20 @@ function layersOf(kind: KindIconKind, shown: KindState, mode: ThemeMode, ledger?
   }
 }
 
+/**
+ * A layer's art as one SVG document, in the layer's own 52 unit box.
+ *
+ * A layer is a fragment — paths in board units — so both projections need the
+ * same root wrapped round it: the DOM as a CSS background, the GPU as an
+ * `<img>` the rasterizer can read. Handed the bare fragment, an image decoder
+ * has no root element and no viewBox, and draws nothing: every kind seat
+ * showed a bare ring in place of its band.
+ */
+export const bandSvg = (svg: string): string =>
+  `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${String(BAND_BOX)} ${String(BAND_BOX)}'>${svg}</svg>`;
+
 /** A layer's art as a CSS background value. */
-export const bandBackground = (svg: string): string =>
-  `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${String(BAND_BOX)} ${String(BAND_BOX)}'>${svg}</svg>`)}")`;
+export const bandBackground = (svg: string): string => `url("data:image/svg+xml,${encodeURIComponent(bandSvg(svg))}")`;
 
 /** Every band period divides the ring's phase cycle, so band and ring share one clock. */
 export const bandPeriodsDivideThePhase = (): boolean =>
