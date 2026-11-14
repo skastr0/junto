@@ -10,6 +10,7 @@ import { farSeatScale, seatFloorScale } from "@shared/canvas-tier";
 import type { SeamEngine } from "../engine/engine";
 import { engineStats } from "./gpu-canvas-api";
 import type { SurfaceMirror } from "./surface-mirror";
+import { lastReachMarks } from "./reach-live";
 
 type HookPart = Part["kind"] | "toolbar" | "region-handle" | `handle:${"source" | "target"}:${"top" | "right" | "bottom" | "left"}` | `verb:${string}`;
 
@@ -108,6 +109,7 @@ const build = (mirror: SurfaceMirror, engine: () => SeamEngine | undefined): Ful
       return 1;
     },
     stats: () => engineStats(engine()),
+    reachMarks: () => lastReachMarks(),
   };
 };
 

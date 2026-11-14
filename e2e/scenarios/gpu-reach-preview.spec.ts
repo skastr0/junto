@@ -113,6 +113,10 @@ const hookRect = (page: Page, id: string): Promise<Rect> =>
 
 const hookCamera = (page: Page): Promise<Camera> => page.evaluate(() => window.__juntoCanvas!.camera() as Camera);
 
+type Mark = { readonly id: string; readonly effect?: string; readonly summary?: string };
+const hookMarks = (page: Page): Promise<ReadonlyArray<Mark> | null> =>
+  page.evaluate(() => (window.__juntoCanvas!.reachMarks?.() ?? null) as ReadonlyArray<{ id: string; effect?: string; summary?: string }> | null);
+
 const twoFrames = (page: Page): Promise<void> =>
   page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 
@@ -190,13 +194,10 @@ test("a card dragged out of a region paints the loss, and the drop clears it", a
   }
 });
 
-// Known defect, canvas-model's shadow path: a `gains` mark takes the shadow
-// branch of reachQuads, and the quad is drawn in band lifted over the card, so
-// the whole card reads black instead of a green rim and glow (measured below:
-// mean 0,0,0 over 15110 pixels). The `loses` stroke branch paints right, so
-// the marks reach the engine; only the shadow quad is wrong. This test stays
-// until that paints the rim, then it goes green as written.
-test.fixme("a card dragged into a region paints the reach it gains", async () => {
+// The shadow branch: a gains mark is a green rim and glow drawn in the lifted
+// band, with no paint inside the card (the shadow quad's hole). It painted an
+// opaque black box until f14369f6c fixed the shadow profile's layer stride.
+test("a card dragged into a region paints the reach it gains", async () => {
   test.setTimeout(420_000);
   const junto: JuntoHandle = await launchJunto({ seedModels: { [CANVAS]: cards } });
   const { page } = junto;
@@ -243,9 +244,19 @@ test("a region dragged into another nests, and the reach it brings shows while i
     await page.mouse.move(into.x, into.y, { steps: 18 });
     await twoFrames(page);
     await shot(page, "32-during-region-drag");
+    // The shell's marks for this frame: the seat and the task gain each other,
+    // and the dragged region carries the words (a summary-only mark, no ring).
+    const marks = await hookMarks(page);
+    console.log("marks on region drag", JSON.stringify(marks));
+    expect(marks).toEqual(
+      expect.arrayContaining([
+        { id: SEAT, effect: "gains" },
+        { id: TC, effect: "gains" },
+        { id: C, summary: "1 comes into reach" },
+      ]),
+    );
     const gains = moved(rest, await shot(page, "33-seat-marked", clip));
     console.log("seat marked on region drag", JSON.stringify(gains));
-    expect(gains.count, "the seat was marked while the region nests over it").toBeGreaterThan(40);
     await page.mouse.up();
 
     // 4. Nested membership is written: the region is wholly inside the other.
@@ -259,8 +270,9 @@ test("a region dragged into another nests, and the reach it brings shows while i
     expect(regionC.y + regionC.height).toBeLessThanOrEqual(regionA.y + regionA.height);
     await twoFrames(page);
     await page.waitForTimeout(120);
+    expect(await hookMarks(page), "the marks are gone after the drop").toBeNull();
     const after = moved(rest, await shot(page, "34-seat-after-region-drop", clip));
-    expect(after.count, "the seat's mark is gone after the region drop").toBeLessThan(20);
+    expect(after.count, "the seat's pixels are back after the region drop").toBeLessThan(20);
     await shot(page, "35-after-region-drop");
   } finally {
     await junto.close();

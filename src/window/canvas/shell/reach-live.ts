@@ -52,6 +52,10 @@ const liveHost = (): ReachPreviewHost => ({
   bySeat: () => seatTasks$.bySeat.peek() as BySeat,
 });
 
+/** The marks the last step painted, for the test hook; null when nothing is painted. */
+let paintedNow: ReadonlyArray<ReachMark> | null = null;
+export const lastReachMarks = (): ReadonlyArray<ReachMark> | null => paintedNow;
+
 const sameMarks = (a: ReadonlyMap<NodeId, NodeReachChange>, b: ReadonlyMap<NodeId, NodeReachChange>): boolean => {
   if (a.size !== b.size) return false;
   for (const [id, effect] of a) if (b.get(id) !== effect) return false;
@@ -86,6 +90,7 @@ export const installReachPreview = (
     summary = "";
     if (!painted) return;
     painted = false;
+    paintedNow = null;
     engine.apply([{ kind: "reachMarks", marks: null }]);
   };
 
@@ -123,6 +128,7 @@ export const installReachPreview = (
       // Dragged back onto its row: the marks go, the gesture goes on.
       if (!painted) return;
       painted = false;
+      paintedNow = null;
       marks = new Map();
       summary = "";
       engine.apply([{ kind: "reachMarks", marks: null }]);
@@ -143,6 +149,7 @@ export const installReachPreview = (
     }));
     if (summary !== "" && !marks.has(grabbed)) list.push({ id: grabbed, summary });
     painted = list.length > 0;
+    paintedNow = painted ? list : null;
     engine.apply([{ kind: "reachMarks", marks: painted ? list : null }]);
   };
 
