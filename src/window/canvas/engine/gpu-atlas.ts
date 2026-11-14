@@ -259,8 +259,10 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         texture = next.createTexture({
           size: { width: size, height: size },
           format: "rgba8unorm",
-          // GPUTextureUsage bits, as renderer.ts spells them: copy in, sample out.
-          usage: 0x04 | 0x02,
+          // GPUTextureUsage bits, as renderer.ts spells them: copy in, sample
+          // out, and a render attachment because copyExternalImageToTexture
+          // may run as a render pass and validates that bit.
+          usage: 0x04 | 0x02 | 0x10,
         });
         sampler = next.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
         mutable.texture = texture;
