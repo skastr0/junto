@@ -686,19 +686,31 @@ export const createScene = (options: {
   const rectOf = (id: NodeId): Rect | undefined => byId.get(id)?.rect;
   const cardOf = (id: NodeId): CardFact | undefined => byId.get(id)?.fact;
 
-  /** The turning ring's angle as the DOM's rotate() shows it at `wall`. */
+  /**
+   * The turning ring's angle as the DOM's rotate() shows it at `wall`. The
+   * ring's own spin answers first: a card can carry another turning quad (a
+   * band's chase, a cluster ring), and those have their own periods, so
+   * answering whichever turn quad came first made the phase test read a
+   * different lap than the mark it compares against.
+   */
   const ringAngle = (id: NodeId, wall: number): number | undefined => {
     const card = byId.get(id);
     if (card === undefined) return undefined;
+    let chosen: Extract<QuadMotion, { kind: "turn" }> | undefined;
     for (const quad of card.ordered) {
       const motion = quad.motion;
       if (motion === undefined || motion.kind !== "turn") continue;
-      const lap = motion.periodMs > 0 ? motion.periodMs : 1;
-      const phase = (((wall % lap) + lap) % lap) / lap;
-      const angle = 360 * (motion.ccw === true ? 1 - phase : phase);
-      return angle === 360 ? 0 : angle;
+      if (quad.key.endsWith(".spin")) {
+        chosen = motion;
+        break;
+      }
+      chosen ??= motion;
     }
-    return undefined;
+    if (chosen === undefined) return undefined;
+    const lap = chosen.periodMs > 0 ? chosen.periodMs : 1;
+    const phase = (((wall % lap) + lap) % lap) / lap;
+    const angle = 360 * (chosen.ccw === true ? 1 - phase : phase);
+    return angle === 360 ? 0 : angle;
   };
 
   const visibleSlots: number[] = [];

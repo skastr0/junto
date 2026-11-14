@@ -201,3 +201,31 @@ describe("a connect in progress", () => {
     expect(seen.get("b")).toBe(false);
   });
 });
+
+describe("the ring angle hook", () => {
+  it("answers the ring's spin, not a band's turn that paints first", () => {
+    const turning = (key: string, z: number, periodMs: number): Quad => ({
+      key,
+      kind: "sprite",
+      band: "cards",
+      z,
+      rect: { x: 0, y: 0, width: 52, height: 52 },
+      tiers: 15,
+      scale: { kind: "board" },
+      style: {},
+      sprite: { atlas: "mark", cell: { col: 0, row: 0 } },
+      motion: { kind: "turn", periodMs },
+    });
+    const scene = createScene({
+      painter: () => ({
+        quads: [turning("ring.band", 1, 2_400), turning("ring.spin", 3, 1_440)],
+        dim: { opacity: 1, saturate: 1 },
+        lift: 0,
+      }),
+    });
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact()], wires: [] });
+    // 360 ms into the spin's 1440 ms lap is a quarter turn, clockwise; the
+    // band's slower lap would read 54 degrees.
+    expect(scene.ringAngle("a", 360)).toBeCloseTo(90, 9);
+  });
+});
