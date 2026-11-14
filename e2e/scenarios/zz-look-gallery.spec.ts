@@ -74,7 +74,7 @@ const openRetry = async (gpu: boolean): Promise<JuntoHandle> => {
       return await open(gpu);
     } catch (error) {
       last = error;
-      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 3_000 * attempt));
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 5_000 * attempt));
     }
   }
   throw last;
@@ -263,7 +263,9 @@ test("look gallery: GPU cards match the DOM cards in both themes, every tier, in
   } finally {
     await gpu.close();
   }
-  await new Promise((resolve) => setTimeout(resolve, 2_000));
+  // The closed arm's macOS quit event can still land on a launch that starts
+  // in its shadow; give it room before the other arm boots.
+  await new Promise((resolve) => setTimeout(resolve, 8_000));
 
   const dom = await openRetry(false);
   try {
