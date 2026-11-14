@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { asCanvasName, asNodeId } from "../src/shared/model";
+import { asCanvasName, asNodeId, asWireId } from "../src/shared/model";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import type { ArtifactHead, ResourceChanged } from "../src/shared/resource-ipc";
 import { applyAgentSeatStateEvent, resetAgentSeatState } from "../src/window/lib/agent-seat-state";
@@ -10,7 +10,7 @@ import { modelStore } from "../src/window/lib/use-model";
 import { retainCanvasFeed, retainSceneOps } from "../src/window/canvas/feed";
 import type { SceneOp } from "../src/window/canvas/contract";
 import { THIS_MACHINE } from "./support/machines";
-import { artifacts, file, git, link, note, peer, region, seat, stub, taskBoard, terminal } from "./support/model-nodes";
+import { artifacts, file, git, link, note, peer, region, seat, stub, taskBoard, terminal, wire } from "./support/model-nodes";
 
 /**
 /// The feed's done-test (canvas-gpu-plan.md, track E): with every canvas card
@@ -175,8 +175,10 @@ describe("kind and spine live facts", () => {
         link("link1"),
         git("git1"),
         file("file1"),
+        seat("seatA"),
+        seat("seatB"),
       ],
-      wires: [],
+      wires: [wire("w1", "seatA", "seatB", "messages")],
     });
     releases.push(releaseModel);
 
@@ -214,6 +216,13 @@ describe("kind and spine live facts", () => {
     expect(byId.get("link1")?.kind).toMatchObject({ name: "example.com", line: "example.com/docs" });
     expect(byId.get("git1")?.kind).toMatchObject({ name: "git", line: "reading" });
     expect(byId.get("file1")?.kind).toMatchObject({ name: "file1.txt", lineTitle: "/Users/me/Projects/junto/file1.txt" });
+
+    // The loom plans the wire's route with no card mounted, after the load.
+    const routesOp = ops.find((op) => op.kind === "routes");
+    expect(routesOp?.kind).toBe("routes");
+    if (routesOp?.kind === "routes") {
+      expect(routesOp.set.map((fact) => fact.id)).toContain(asWireId("w1"));
+    }
 
     // The artifacts count starts empty and lands with its async read.
     const art = byId.get("art1");

@@ -18,6 +18,7 @@ import { retainSceneOps } from "./scene";
 import { retainSeatSessions } from "./sessions";
 import { retainSeatUrgency } from "./seats";
 import { retainKindLive } from "./kinds";
+import { retainWireRoutes } from "./loom";
 import type { WindowRuntime } from "../../rpc/runtime";
 import type { SceneOp } from "../contract";
 
@@ -28,10 +29,10 @@ export { cardLive$, retainKindLive } from "./kinds";
 /**
  * Derive and publish everything the open canvas's cards used to publish:
  * seat and node urgency, node status and spoken kinds, seat session
- * hydration, region severity/counts and region urgency, and the kind/spine
- * live facts the card ops carry. `runtime` is the window's Effect runtime
- * for the git card's IPC read; without it git cards read "reading". Returns
- * the release.
+ * hydration, region severity/counts and region urgency, the kind/spine
+ * live facts the card ops carry, and the loom's wire routes. `runtime` is
+ * the window's Effect runtime for the git card's IPC read; without it git
+ * cards read "reading". Returns the release.
  */
 export const retainCanvasFeed = (
   canvasName: string,
@@ -54,7 +55,11 @@ export const retainCanvasFeed = (
   stops.push(retainNodeChrome(canvasName));
   stops.push(retainKindLive(canvasName, runtime));
   stops.push(retainRegionChrome(canvasName));
-  if (emit !== undefined) stops.push(retainSceneOps(canvasName, emit));
+  if (emit !== undefined) {
+    // Scene ops first: the load carries the cards and wires the routes name.
+    stops.push(retainSceneOps(canvasName, emit));
+    stops.push(retainWireRoutes(canvasName, emit));
+  }
   let released = false;
   return () => {
     if (released) return;
