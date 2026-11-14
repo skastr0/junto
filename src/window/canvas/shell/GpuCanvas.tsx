@@ -14,7 +14,7 @@
  * never through React.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useContext, useEffect, useMemo, useRef } from "react";
 import { selectNode, state$ } from "../../lib/state";
 import { themeMode$ } from "../../lib/theme-mode";
 import { canvasZoomRequest$ } from "../../lib/canvas-zoom";
@@ -36,6 +36,9 @@ import { canvasHands } from "./pointer-host";
 import { CanvasMenus } from "./CanvasMenus";
 import { clearCanvasTier, publishCanvasTier } from "../../lib/canvas-tier";
 import { viewportForBounds } from "./camera-targets";
+import { paintCard } from "../paint";
+import { isMac } from "../../lib/platform";
+import { WindowRuntimeContext } from "../../rpc/runtime";
 
 type Props = {
   /** Heard once if this machine cannot run the GPU canvas, with the reason. */
@@ -76,6 +79,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
   const ref = useRef<HTMLCanvasElement>(null);
   const unavailableRef = useRef(onUnavailable);
   unavailableRef.current = onUnavailable;
+  const runtime = useContext(WindowRuntimeContext);
   const mirror = useMemo(() => createSurfaceMirror(), []);
   const api = useMemo<GpuCanvasApi>(() => createGpuCanvasApi(mirror), [mirror]);
   const engineRef = useRef<SeamEngine | undefined>(undefined);
@@ -118,6 +122,8 @@ export function GpuCanvas({ onUnavailable }: Props) {
       clock: () => performance.now(),
       // Wall clock for ring phase: the DOM ring's phase comes from Date.now().
       wallClock: () => Date.now(),
+      mac: isMac(),
+      painter: paintCard,
       hands: canvasHands(),
       wires: wireHost,
       ...(handed === undefined ? {} : { camera: handed }),
@@ -164,7 +170,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
 
     const offScene = startSceneBridge({
       apply: (ops) => api.applyScene(ops),
-    });
+    }, runtime);
 
     engine.apply([{ kind: "theme", mode: themeMode$.peek() }]);
     const offTheme = themeMode$.onChange(({ value }) => engine.apply([{ kind: "theme", mode: value }]));
@@ -246,7 +252,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
       api.dispose();
       engine.dispose();
     };
-  }, [api, mirror]);
+  }, [api, mirror, runtime]);
 
   return (
     <CanvasApiProvider api={api}>

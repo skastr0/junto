@@ -11,6 +11,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeGpu, settle, type FakeGpu } from "./gpu-canvas-fakes";
 import { asCanvasName } from "@shared/model";
 
+// The shell mounts the feed in this test only for a real app read; the
+// scene ops are applied by hand below.
+vi.mock("../src/window/canvas/shell/scene-bridge", () => ({
+  startSceneBridge: () => () => undefined,
+}));
+
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 type Modules = {
