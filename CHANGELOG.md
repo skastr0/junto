@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+## 0.11.12 — 2026-11-14
+
+No database change: 0.11.12 opens the same version 73 as 0.11.11.
+
+- Experimental GPU canvas (`Settings, Experimental, GPU canvas`): flips live
+  with the app open and hands the camera across. Cards, portraits, turning
+  activity rings, region watermarks, far-zoom seat clusters, focus cones, live
+  reach previews and wire routes draw in WebGPU without re-rendering React on
+  pan, zoom, drag or seat updates.
+- Mid and far zoom read cleanly on the GPU canvas: mid zoom (`0.46` to `0.62`)
+  hugs each seat's name in a compact pill with larger type, below `0.46` holds
+  the portrait and state ring, and hovering a mid or far seat blooms the full
+  readable card in place.
+- Magnifier (`Alt`): enlarged to 480 px at `0.7x` zoom, drawing live cards,
+  portraits, turning rings, status lines and wires on the GPU canvas, and
+  clicking or double-clicking acts straight on the card under the lens while
+  zoomed out.
+- Selecting multiple agents adds a one-click grid button in the bottom bar
+  beside the selection menu.
+- `junto msg send` returns as soon as mail is stored instead of holding the
+  sender across the batching window, and peer seats read collaboration state
+  only.
+- Machine send and update install cleanly again, the terminal code path warms on
+  idle so the first terminal opens faster, activity rings anchor their phase to
+  animation start, and every theme colour token sits inside sRGB.
+
 ## 0.11.11 — 2026-11-08
 
 No database change: 0.11.11 opens the same version 73 as 0.11.10.
