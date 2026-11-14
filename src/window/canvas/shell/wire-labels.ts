@@ -6,16 +6,27 @@
  * Today's canvas puts an invisible midpoint button on every wire
  * (`WireEdge.tsx:138-161`): the stroke is deaf at rest, so that button is how
  * a pointer and a screen reader select a relation. The GPU canvas draws the
- * strokes itself, so the button is the one piece of a wire that stays DOM. It
- * follows the camera without a React render, as the selection toolbar and the
- * marquee do; only the wires the camera can see have a button.
+ * strokes itself, so the button is the one piece of a wire that stays DOM.
+ *
+ * The buttons sit in board space inside one wrapper, and the wrapper is the
+ * only thing the camera moves: a pan or a zoom writes one transform, never
+ * one per button. A button's own style changes only when its wire's geometry
+ * does, so the frame the engine draws while the camera rests (a seat ring
+ * keeps the loop running) writes nothing at all. The wrapper is scaled by the
+ * camera, so each button carries the inverse scale in a custom property and
+ * keeps its 14 px target at any zoom.
+ *
+ * The canvas's page box is measured on layout changes only, by a
+ * ResizeObserver and the two window events: this module's callback runs on
+ * every drawn frame, where a `getBoundingClientRect()` forces style and
+ * layout at display rate.
  *
  * The label is silent by design (no visible text); `labelOf`'s point is the
  * midpoint of a route or the longest run of an elbow, exactly React Flow's
  * `labelX`/`labelY`.
  */
 import { selectEdge } from "../../lib/state";
-import type { Camera } from "../contract";
+import type { Camera, Point } from "../contract";
 import type { WiresLayer } from "../engine/wires";
 
 export type WireLabels = {
@@ -33,6 +44,8 @@ export type WireLabelsOptions = {
 const LABEL_SIZE = 14;
 /** Above the canvas, below the card overlays (their toolbar and editors). */
 const LABEL_LAYER = 30;
+/** The inverse camera scale a button carries, so its target stays 14 px. */
+const SCALE_VAR = "--wire-label-scale";
 
 export const mountWireLabels = ({ canvas, layer }: WireLabelsOptions): WireLabels => {
   const host = document.createElement("div");
@@ -43,16 +56,32 @@ export const mountWireLabels = ({ canvas, layer }: WireLabelsOptions): WireLabel
   host.style.top = "0";
   host.style.zIndex = String(LABEL_LAYER);
   host.style.pointerEvents = "none";
+  host.style.transformOrigin = "0 0";
+  host.style.willChange = "transform";
   document.body.appendChild(host);
 
   const buttons = new Map<string, HTMLButtonElement>();
+  /** The canvas's page box at the last layout change: the frame path never reads it. */
+  let origin: Point = { x: 0, y: 0 };
+  /** A layout change may have moved the canvas and changed what the camera sees. */
+  let layoutDirty = true;
   let lastCamera: Camera | undefined;
+  let lastOrigin: Point = { x: 0, y: 0 };
   let lastRevision = -1;
-  let lastOrigin: { readonly x: number; readonly y: number } | undefined;
+
+  const measure = (): void => {
+    const rect = canvas.getBoundingClientRect();
+    origin = { x: rect.left, y: rect.top };
+    layoutDirty = true;
+  };
+  measure();
+  const sizes = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : undefined;
+  sizes?.observe(canvas);
+  window.addEventListener("resize", measure);
+  // A scroll above the canvas moves its box; the capture phase hears it.
+  window.addEventListener("scroll", measure, { capture: true, passive: true });
 
   const buttonFor = (id: string): HTMLButtonElement => {
-    const existing = buttons.get(id);
-    if (existing !== undefined) return existing;
     const button = document.createElement("button");
     button.type = "button";
     // The DOM canvas's own class and label, so the same role query and the
@@ -75,33 +104,55 @@ export const mountWireLabels = ({ canvas, layer }: WireLabelsOptions): WireLabel
     return button;
   };
 
+  /** Board-space placement. The inverse scale keeps the button's centre on the
+   *  label point whatever the camera's zoom does to the wrapper. */
+  const place = (button: HTMLButtonElement, at: Point): void => {
+    button.style.transform = `translate3d(${at.x}px, ${at.y}px, 0) translate(-50%, -50%) scale(var(${SCALE_VAR}, 1))`;
+  };
+
   const frame = (camera: Camera): void => {
     const wires = layer();
     if (wires === undefined) return;
     const revision = wires.labelsRevision();
-    const origin = canvas.getBoundingClientRect();
-    const still =
-      lastCamera !== undefined &&
-      lastRevision === revision &&
-      lastCamera.x === camera.x &&
-      lastCamera.y === camera.y &&
-      lastCamera.zoom === camera.zoom &&
-      lastOrigin?.x === origin.left &&
-      lastOrigin.y === origin.top;
-    if (still) return;
+    const last = lastCamera;
+    const posed =
+      !layoutDirty &&
+      last !== undefined &&
+      last.x === camera.x &&
+      last.y === camera.y &&
+      last.zoom === camera.zoom &&
+      lastOrigin.x === origin.x &&
+      lastOrigin.y === origin.y;
+    // The resting frame, which is most frames: a seat ring keeps the loop
+    // drawing, and there is nothing here for it to write. A layout change
+    // reconciles even at a still camera, because the view can reveal or hide
+    // labels without the camera moving.
+    if (posed && revision === lastRevision) return;
+    layoutDirty = false;
+
+    if (!posed) {
+      host.style.transform = `translate3d(${origin.x + camera.x}px, ${origin.y + camera.y}px, 0) scale(${camera.zoom})`;
+      if (last === undefined || last.zoom !== camera.zoom) host.style.setProperty(SCALE_VAR, String(1 / camera.zoom));
+    }
+    const relaid = revision !== lastRevision;
     lastCamera = camera;
+    lastOrigin = origin;
     lastRevision = revision;
-    lastOrigin = { x: origin.left, y: origin.top };
 
     const seen = new Set<string>();
     for (const label of wires.labelsInView()) {
       seen.add(label.id);
-      const button = buttonFor(label.id);
-      button.setAttribute("aria-label", `Select edge - ${label.verb ?? "connection"}`);
-      const x = origin.left + camera.x + label.at.x * camera.zoom;
-      const y = origin.top + camera.y + label.at.y * camera.zoom;
-      const transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%)`;
-      if (button.style.transform !== transform) button.style.transform = transform;
+      let button = buttons.get(label.id);
+      const created = button === undefined;
+      if (button === undefined) button = buttonFor(label.id);
+      // A wire's label point moves only when its geometry does, so a pan and
+      // a zoom leave every button's own transform alone.
+      if (created || relaid) place(button, label.at);
+      const verb = label.verb ?? "";
+      if (button.dataset["verb"] !== verb) {
+        button.dataset["verb"] = verb;
+        button.setAttribute("aria-label", `Select edge - ${label.verb ?? "connection"}`);
+      }
     }
     for (const [id, button] of buttons) {
       if (seen.has(id)) continue;
@@ -113,6 +164,9 @@ export const mountWireLabels = ({ canvas, layer }: WireLabelsOptions): WireLabel
   return {
     frame,
     dispose: () => {
+      sizes?.disconnect();
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, { capture: true });
       host.remove();
       buttons.clear();
     },
