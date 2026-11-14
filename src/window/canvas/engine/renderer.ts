@@ -279,7 +279,7 @@ fn filled(base: u32, local: vec2f) -> vec4f {
       let hc = p0 - baseHalf + baseR;
       let hd = length(max(hc, vec2f(0.0))) + min(max(hc.x, hc.y), 0.0) - baseR;
       let blur = max(layer.z, 0.5);
-      let soft = clamp(0.5 - d / blur, 0.0, 1.0) * (1.0 - clamp(0.5 + hd * ppu, 0.0, 1.0));
+      let soft = clamp(0.5 - d / blur, 0.0, 1.0) * (1.0 - clamp(0.5 - hd * ppu, 0.0, 1.0));
       let a = tint.a * soft * styleOpacity * o.p.w * motionAlpha;
       outColour = outColour + tint.rgb * a * (1.0 - outAlpha);
       outAlpha = outAlpha + a * (1.0 - outAlpha);
