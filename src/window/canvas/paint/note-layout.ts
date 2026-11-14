@@ -7,7 +7,7 @@
  * and every later block near alone.
  */
 
-import { LEADING, TEXT_SIZES } from "@shared/theme";
+import { TEXT_SIZES } from "@shared/theme";
 import { parseBlocks, parseInline } from "../../lib/note-markdown";
 import type { FontRole, PaintEnv, Quad, QuadStyle, Rect, TextRun } from "../contract";
 import { TIER_BIT } from "../contract";
@@ -20,9 +20,9 @@ type Inline = ReturnType<typeof parseInline>[number];
 const NEAR_MID = TIER_BIT.near | TIER_BIT.mid;
 const NEAR = TIER_BIT.near;
 
-/** The callout's body size and leading (`--text-body`, `--leading-open`). */
-export const NOTE_SIZE = Number.parseFloat(TEXT_SIZES.body);
-export const NOTE_LEADING = Number.parseFloat(LEADING.open);
+/** `.note-md` overrides the callout's inherited 11/1.6 with 12/1.55 (styles.css:1914-1917). */
+export const NOTE_SIZE = Number.parseFloat(TEXT_SIZES["body-lg"] ?? "12");
+export const NOTE_LEADING = 1.55;
 const TITLE_SIZE = Number.parseFloat(TEXT_SIZES.title);
 
 type Face = {

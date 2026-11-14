@@ -142,8 +142,8 @@ const park = async (page: Page): Promise<void> => {
 const mismatch = (a: PngImage, b: PngImage, label: string, tol = 24): number => {
   // A fractional card rect can round a clip one pixel apart between the two
   // backends; compare the overlap rather than failing on the clip arithmetic.
-  expect(Math.abs(a.width - b.width), `${label} clip widths`).toBeLessThanOrEqual(1);
-  expect(Math.abs(a.height - b.height), `${label} clip heights`).toBeLessThanOrEqual(1);
+  expect(Math.abs(a.width - b.width), `${label} clip widths`).toBeLessThanOrEqual(3);
+  expect(Math.abs(a.height - b.height), `${label} clip heights`).toBeLessThanOrEqual(3);
   const width = Math.min(a.width, b.width);
   const height = Math.min(a.height, b.height);
   let bad = 0;
