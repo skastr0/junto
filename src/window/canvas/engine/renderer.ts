@@ -321,7 +321,8 @@ fn filled(base: u32, local: vec2f) -> vec4f {
     let p = abs(in.local * in.half);
     let right = select(q.radii.x, q.radii.y, in.local.x > 0.0);
     let left = select(q.radii.w, q.radii.z, in.local.x > 0.0);
-    let rr = select(right, left, in.local.y > 0.0);
+    // CSS never lets a radius pass half the shorter side; a pill asks for 999.
+    let rr = min(select(right, left, in.local.y > 0.0), min(in.half.x, in.half.y));
     let corner = p - in.half + rr;
     let d = length(max(corner, vec2f(0.0))) + min(max(corner.x, corner.y), 0.0) - rr;
     outer = clamp(0.5 - d * ppu, 0.0, 1.0);
