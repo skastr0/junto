@@ -16,8 +16,12 @@
 import { useEffect } from "react";
 import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
+import type { AgentSeatState } from "@shared/agent-seat-state";
+import type { AgentSignalKind } from "@shared/agent-signals";
 import type { SeatCacheWindow, SeatNextTurn } from "@shared/seat-next-launch";
+import type { ActivitySpec } from "./activity";
 import { getJuntoApi } from "./junto-api";
+import { notifyItem, type SeatFacts } from "./seat-projections";
 import { seatOffboard$, seatOffboardProgressOf, subscribeSeatOffboard } from "./seat-offboard-state";
 import { state$ } from "./state";
 
@@ -27,7 +31,8 @@ export const seatNextTurn$ = observable<Record<string, Record<string, SeatNextTu
 /** Canvas, then seat id: the seat against its cache window, from the same answer. */
 export const seatCacheWindow$ = observable<Record<string, Record<string, SeatCacheWindow | undefined> | undefined>>({});
 
-const forget = (canvas: string, id: string): void => {
+/** Drop the last answer: a turn, or a seat that is no longer still, makes it stale. */
+export const forgetSeatNextTurn = (canvas: string, id: string): void => {
   seatNextTurn$[canvas][id].delete();
   seatCacheWindow$[canvas][id].delete();
 };
@@ -43,7 +48,7 @@ export const askSeatNextTurn = async (canvas: string, id: string): Promise<void>
     if (cacheWindow) seatCacheWindow$[canvas][id].set(cacheWindow);
     else seatCacheWindow$[canvas][id].delete();
   } catch {
-    forget(canvas, id);
+    forgetSeatNextTurn(canvas, id);
   }
 };
 
@@ -59,6 +64,41 @@ export const nextMoment = (freshAt: number | undefined, windowEndsAt: number | u
   if (freshAt === undefined) return ahead;
   return ahead === undefined ? freshAt : Math.min(freshAt, ahead);
 };
+
+/**
+ * The still predicate every surface shares: no process, or one sitting idle,
+ * with nothing asking for the operator. A blocked or escalated seat, or one
+ * whose notify item is up, says only that. The card and the canvas feed both
+ * ask main's next-turn answer on exactly this.
+ */
+export const seatStillForNextTurn = (input: {
+  readonly facts: SeatFacts;
+  readonly mark: ActivitySpec;
+  readonly hand: AgentSignalKind | undefined;
+  readonly seatState: AgentSeatState | undefined;
+}): boolean =>
+  notifyItem(input.facts) === null &&
+  input.hand !== "blocked" &&
+  input.hand !== "escalate" &&
+  ((input.mark.mode === "static" && input.mark.glyph === "off") || input.seatState === "idle");
+
+/**
+ * What may have changed the answer, as one string: the seat's binding, its
+ * reported state and time, its session epoch and status, whether its machine
+ * is reachable, and whether the operator is looking at it. A surface that
+ * asks on change keys on this; the offboard step and the cache windows this
+ * machine's seats are cut at join it at the call site.
+ */
+export const seatLaunchMovedKey = (input: {
+  readonly bindingId: string | undefined;
+  readonly seatState: AgentSeatState | undefined;
+  readonly seatAt: number | undefined;
+  readonly epoch: string | undefined;
+  readonly status: string | undefined;
+  readonly reachable: boolean | undefined;
+  readonly viewed: boolean;
+}): string =>
+  `${input.bindingId ?? ""}:${input.seatState ?? ""}:${input.seatAt ?? 0}:${input.epoch ?? ""}:${input.status ?? ""}:${String(input.reachable)}:${String(input.viewed)}`;
 
 /** The still seat against its cache window, while main tells it. */
 export const useSeatCacheWindow = (canvas: string, id: string): SeatCacheWindow | undefined =>
@@ -83,7 +123,7 @@ export const useSeatFreshNext = (canvas: string, id: string, still: boolean, mov
   useEffect(() => {
     if (still) void askSeatNextTurn(canvas, id);
     // A turn makes the last answer stale: drop it, so the line never flashes it.
-    else forget(canvas, id);
+    else forgetSeatNextTurn(canvas, id);
   }, [canvas, id, still, moved, offboardAt, windows]);
   const next = use$(seatNextTurn$[canvas][id]);
   const windowEndsAt = use$(() => seatCacheWindow$[canvas][id].get()?.windowEndsAt);

@@ -5,9 +5,11 @@
  * it, whichever machine runs the seat (seat-next-launch.ts).
  */
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
-import type { SeatCacheWindow } from "@shared/seat-next-launch";
+import { seatCacheMinutesWords, seatCacheStatusLine, type SeatCacheWindow } from "@shared/seat-next-launch";
 import { tokensWords } from "../../lib/seat-offboard";
 import { CACHE_MODE_COPY } from "../settings/OffboardSettingsSection";
+
+export { nextCacheStatusChange } from "@shared/seat-next-launch";
 
 /** What the card hands the status line: the window, and whose it is. */
 export type SeatCacheFace = {
@@ -31,12 +33,7 @@ export type SeatCacheStatusCopy = {
 const MINUTE_MS = 60_000;
 
 /** Whole minutes as the seat line says them: 14m, 1h, 1h 12m. */
-export const minutesWords = (minutes: number): string => {
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
-};
+export const minutesWords = seatCacheMinutesWords;
 
 const clockTime = (at: number): string =>
   new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
@@ -51,7 +48,8 @@ const harnessName = (harness: string | undefined): string | undefined =>
 export const seatCacheStatusCopy = (words: string, face: SeatCacheFace, now: number): SeatCacheStatusCopy => {
   const { window } = face;
   const still = Math.max(0, Math.floor((now - window.stillSince) / MINUTE_MS));
-  const expired = now >= window.windowEndsAt;
+  const status = seatCacheStatusLine(words, window, now);
+  const expired = status.expired;
   const since = clockTime(window.stillSince);
   const ends = clockTime(window.windowEndsAt);
   const harness = harnessName(face.harness);
@@ -76,14 +74,5 @@ export const seatCacheStatusCopy = (words: string, face: SeatCacheFace, now: num
       : "Within the window the harness's cache is warm, so the next turn continues the session cheaply. Past it, continuing re-reads the whole session at full price.",
     ...(mode === undefined ? [] : [mode.line]),
   ];
-  return { line: still === 0 ? words : `${words} ${minutesWords(still)}`, expired, rows, notes };
-};
-
-/**
- * When the words next change: the next whole minute still, or the window's
- * end if that comes first. The line redraws then and not before.
- */
-export const nextCacheStatusChange = (window: SeatCacheWindow, now: number): number => {
-  const minute = window.stillSince + (Math.floor((now - window.stillSince) / MINUTE_MS) + 1) * MINUTE_MS;
-  return window.windowEndsAt > now ? Math.min(minute, window.windowEndsAt) : minute;
+  return { line: status.line, expired, rows, notes };
 };

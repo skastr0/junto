@@ -198,6 +198,8 @@ export type SeatLive = {
     readonly lead?: string;
     readonly tone?: string;
     readonly stale?: boolean;
+    /** A cache line past its window: the words end in a comma and "cache expired" follows in amber. */
+    readonly expired?: boolean;
   };
   /** Epoch ms the ring's form last changed: `done` lands once from here. */
   readonly ringSince: number;

@@ -62,6 +62,20 @@ const lineQuads = (live: SeatLive, y: number, env: PaintEnv): ReadonlyArray<Quad
     const lead = line("ai", SEAT_TEXT.x, used, "AI", tok("faint"), { font: "display", size: SEAT.aiSize, tracking: SEAT.aiTracking }, -1);
     return rest(lead, SEAT_TEXT.x + used, Math.max(0, SEAT_TEXT.width - used), live.line, saying.stale === true ? tok("faint") : tok("dim"));
   }
+  if (saying.kind === "cache" && saying.expired === true) {
+    // The card's expired line: the dim words (ending in their comma) truncate
+    // first, then "cache expired" in amber after a half-em gap, never moved.
+    const wordsW = env.measure(run(live.line, {}));
+    const tailW = env.measure(run("cache expired", {}));
+    const gap = env.measure(run("0", {})) * 0.5;
+    const wordsWidth = Math.min(wordsW, Math.max(0, SEAT_TEXT.width - tailW - gap));
+    const tailX = SEAT_TEXT.x + wordsWidth + gap;
+    const tailDrawW = Math.min(tailW, Math.max(0, SEAT_TEXT.x + SEAT_TEXT.width - tailX));
+    return [
+      line("words", SEAT_TEXT.x, wordsWidth, live.line, tok("dim")),
+      line("expired", tailX, tailDrawW, "cache expired", tok("amber-fg")),
+    ];
+  }
   return rest(undefined, SEAT_TEXT.x, SEAT_TEXT.width, live.line, tone !== undefined ? toneInk : tok("dim"));
 };
 

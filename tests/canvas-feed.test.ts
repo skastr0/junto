@@ -8,7 +8,8 @@ import { regionUrgency$, seatUrgency$ } from "../src/window/lib/region-urgency";
 import { state$ } from "../src/window/lib/state";
 import { modelStore } from "../src/window/lib/use-model";
 import { retainCanvasFeed, retainSceneOps } from "../src/window/canvas/feed";
-import type { SceneOp } from "../src/window/canvas/contract";
+import type { SceneOp, SeatLive } from "../src/window/canvas/contract";
+import { seatCacheWindow$, seatNextTurn$ } from "../src/window/lib/seat-next-launch";
 import { THIS_MACHINE } from "./support/machines";
 import { artifacts, file, git, link, note, peer, region, seat, stub, taskBoard, terminal, wire } from "./support/model-nodes";
 
@@ -66,6 +67,8 @@ afterEach(() => {
   for (const release of releases.splice(0).reverse()) release();
   setArtifactsSource(originalArtifacts);
   resetAgentSeatState();
+  seatNextTurn$.set({});
+  seatCacheWindow$.set({});
   seatUrgency$.set({});
   regionUrgency$.set({});
   state$.regionSeverityByNodeId.set({});
@@ -288,5 +291,74 @@ describe("kind and spine live facts", () => {
       kind: "card",
       fact: { kind: { line: "permission", state: "waiting" } },
     });
+  });
+});
+
+describe("seat status line", () => {
+  const seatOps = (ops: ReadonlyArray<SceneOp>, id: string): ReadonlyArray<SeatLive> =>
+    ops.flatMap((op) => (op.kind === "seat" && op.id === id ? [op.live] : []));
+
+  it("a still seat reads the next-turn answer and its cache window, as its card would", () => {
+    state$.canvasName.set(CANVAS);
+    const releaseModel = modelStore.adopt({
+      canvas: asCanvasName(CANVAS),
+      seq: 0,
+      nodes: [seat("seatA")],
+      wires: [],
+    });
+    releases.push(releaseModel);
+
+    const ops: SceneOp[] = [];
+    releases.push(retainSceneOps(CANVAS, (batch) => ops.push(...batch)));
+
+    // No answer yet: the still seat reads its control state.
+    expect(seatOps(ops, "seatA").at(-1)?.line).toBe("not running");
+    ops.length = 0;
+
+    // Main's answer lands: the next turn starts fresh, the line says so.
+    seatNextTurn$[CANVAS]["seatA"].set({ fresh: true });
+    expect(seatOps(ops, "seatA").at(-1)?.line).toBe("fresh next");
+    ops.length = 0;
+
+    // A continuing turn instead reads against the cache window, on the same
+    // clock the card's status line uses.
+    seatNextTurn$[CANVAS]["seatA"].set({ fresh: false });
+    const now = Date.now();
+    seatCacheWindow$[CANVAS]["seatA"].set({
+      windowMinutes: 60,
+      stillSince: now - 14 * 60_000,
+      windowEndsAt: now + 46 * 60_000,
+      pastWindow: false,
+      pastByMs: 0,
+    });
+    const warm = seatOps(ops, "seatA").at(-1);
+    expect(warm?.line).toBe("not running 14m");
+    expect(warm?.saying).toEqual({ kind: "cache" });
+    ops.length = 0;
+
+    // Past the window the same line ends in a comma and the amber words.
+    seatCacheWindow$[CANVAS]["seatA"].set({
+      windowMinutes: 60,
+      stillSince: now - 74 * 60_000,
+      windowEndsAt: now - 14 * 60_000,
+      pastWindow: true,
+      pastByMs: 14 * 60_000,
+    });
+    const expired = seatOps(ops, "seatA").at(-1);
+    expect(expired?.line).toBe("not running 1h 14m,");
+    expect(expired?.saying).toEqual({ kind: "cache", expired: true });
+    ops.length = 0;
+
+    // "fresh next" and the cache window never stand together.
+    seatNextTurn$[CANVAS]["seatA"].set({ fresh: true });
+    expect(seatOps(ops, "seatA").at(-1)?.line).toBe("fresh next");
+    ops.length = 0;
+
+    // A turn ends the still: the answer is dropped and the line is the state.
+    applyAgentSeatStateEvent(seatEvent({ bindingId: "binding-seatA", state: "working" }));
+    const running = seatOps(ops, "seatA").at(-1);
+    expect(running?.line).not.toBe("fresh next");
+    expect(seatNextTurn$[CANVAS]["seatA"].peek()).toBeUndefined();
+    expect(seatCacheWindow$[CANVAS]["seatA"].peek()).toBeUndefined();
   });
 });

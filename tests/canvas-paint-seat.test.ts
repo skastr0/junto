@@ -134,4 +134,32 @@ describe("agent seat paint", () => {
     expect(keys(quads)).toContain("crest");
     expect(quads.find((q) => q.key === "flag.hit")?.part).toEqual({ kind: "ringFlag" });
   });
+
+  it("a warm cache line is one dim run; expired ends in a comma and amber words after a gap", () => {
+    const warm = paintSeat(
+      agentFact(),
+      seatLive({ glyph: "rest", tone: "steel" }, { line: "resting 14m", saying: { kind: "cache" } }),
+      view(),
+      fakeEnv,
+    ).quads.filter((q) => q.key.startsWith("line."));
+    expect(warm.map((q) => q.key)).toEqual(["line.text"]);
+    expect(warm[0]?.style.ink).toEqual({ token: "dim" });
+
+    const expired = paintSeat(
+      agentFact(),
+      seatLive({ glyph: "rest", tone: "steel" }, { line: "resting 14m,", saying: { kind: "cache", expired: true } }),
+      view(),
+      fakeEnv,
+    ).quads.filter((q) => q.key.startsWith("line."));
+    expect(expired.map((q) => q.key)).toEqual(["line.words", "line.expired"]);
+    const words = expired[0]!;
+    const tail = expired[1]!;
+    expect(words.style.ink).toEqual({ token: "dim" });
+    expect(words.text?.text).toBe("resting 14m,");
+    expect(tail.style.ink).toEqual({ token: "amber-fg" });
+    expect(tail.text?.text).toBe("cache expired");
+    // The amber words follow the dim run plus the card's half-em gap.
+    expect(tail.rect.x - (words.rect.x + words.rect.width)).toBeGreaterThan(0);
+    expect(tail.rect.x - (words.rect.x + words.rect.width)).toBeLessThan(SEAT.lineSize);
+  });
 });

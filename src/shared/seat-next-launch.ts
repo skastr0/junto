@@ -122,3 +122,35 @@ export const seatCacheWindow = (
  * own warning (`SeatCacheWindow`).
  */
 export const SEAT_FRESH_NEXT_LINE = "fresh next";
+
+/** Whole minutes as the seat line says them: 14m, 1h, 1h 12m. */
+export const seatCacheMinutesWords = (minutes: number): string => {
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
+};
+
+/**
+ * The still seat's status line against its cache window, as every surface
+ * prints it: the state words and how long it has been still, and whether the
+ * window has ended on this clock. The DOM card draws it through
+ * `seatCacheStatusCopy`; the GPU feed reads the same answer for its seat op.
+ */
+export const seatCacheStatusLine = (
+  words: string,
+  window: SeatCacheWindow,
+  now: number,
+): { readonly line: string; readonly expired: boolean } => {
+  const still = Math.max(0, Math.floor((now - window.stillSince) / 60_000));
+  return {
+    line: still === 0 ? words : `${words} ${seatCacheMinutesWords(still)}`,
+    expired: now >= window.windowEndsAt,
+  };
+};
+
+/** When the cache line's words next change: the next whole minute still, or the window's end. */
+export const nextCacheStatusChange = (window: SeatCacheWindow, now: number): number => {
+  const minute = window.stillSince + (Math.floor((now - window.stillSince) / 60_000) + 1) * 60_000;
+  return window.windowEndsAt > now ? Math.min(minute, window.windowEndsAt) : minute;
+};

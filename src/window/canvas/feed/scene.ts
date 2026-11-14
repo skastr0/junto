@@ -6,7 +6,7 @@
  * names, one per seat whose live state moved, plus selection, theme and
  * wire pulses. Facts only — `paint/` turns them into records.
  */
-import { observe } from "@legendapp/state";
+import { observable, observe } from "@legendapp/state";
 import { asCanvasName } from "@shared/model";
 import type { NodeOf } from "@shared/model";
 import type { RingState } from "@shared/wire/rings";
@@ -14,6 +14,7 @@ import { ringState } from "@shared/wire/rings";
 import { rankOf } from "@shared/wire/urgency";
 import { seatLevel } from "@shared/wire/seat-level";
 import type { AgentSignalKind } from "@shared/agent-signals";
+import { nextCacheStatusChange, seatCacheStatusLine, SEAT_FRESH_NEXT_LINE } from "@shared/seat-next-launch";
 import type { WireTrafficEvent } from "@shared/wire-traffic";
 import type { CardFact, SceneOp, SeatLive, SelectionFact, WireFact } from "../contract";
 import { agentSeat$, clueFromAgentSeat } from "../../lib/agent-seat-state";
@@ -24,6 +25,15 @@ import { machineLabelIn, seatMachineLine } from "../../lib/machines";
 import { modelStore } from "../../lib/use-model";
 import { regionUrgency$ } from "../../lib/region-urgency";
 import { preambleByNodeId$ } from "../../lib/preamble-state";
+import {
+  askSeatNextTurn,
+  forgetSeatNextTurn,
+  nextMoment,
+  seatCacheWindow$,
+  seatLaunchMovedKey,
+  seatNextTurn$,
+  seatStillForNextTurn,
+} from "../../lib/seat-next-launch";
 import { offboardFailureLine, seatOffboard$ } from "../../lib/seat-offboard-state";
 import { cardMark, seatFactsForNode } from "../../lib/seat-projections";
 import { seatSaying, type SeatSaying } from "../../lib/seat-line";
@@ -82,6 +92,7 @@ const sameLive = (a: SeatLive | undefined, b: SeatLive): boolean =>
   a.saying?.lead === b.saying?.lead &&
   a.saying?.tone === b.saying?.tone &&
   a.saying?.stale === b.saying?.stale &&
+  a.saying?.expired === b.saying?.expired &&
   a.tasks?.state === b.tasks?.state &&
   a.tasks?.label === b.tasks?.label &&
   a.tasks?.title === b.tasks?.title &&
@@ -107,10 +118,29 @@ const sayingFact = (saying: SeatSaying): NonNullable<SeatLive["saying"]> => {
       return { kind: "failure" };
     case "reading":
       return { kind: "reading", stale: saying.stale };
+    case "state":
+      return saying.tone === undefined ? { kind: "plain" } : { kind: "plain", tone: saying.tone };
     default:
       return { kind: "plain" };
   }
 };
+
+/**
+ * Bumped by a seat's scheduled re-ask or cache-line tick so its observer
+ * re-derives even when main's answer is unchanged. Read only inside the
+ * cache-line branch, so only a seat showing that line follows it.
+ */
+const seatLineTick$ = observable<Record<string, number>>({});
+
+/** What the seat's next-turn ask owes: the card's effect deps as one key, and the moments still ahead. */
+type SeatLaunchProbe = {
+  readonly still: boolean;
+  readonly key: string;
+  readonly askAt: number | undefined;
+  readonly lineAt: number | undefined;
+};
+
+type SeatLiveOf = { readonly live: SeatLive; readonly launch: SeatLaunchProbe };
 
 /** The speaker word the bubble prints; the agent's own voice carries none. */
 const BUBBLE_SPEAKER: Readonly<Record<PreambleProvenance, string | undefined>> = {
@@ -153,7 +183,7 @@ const seatLiveOf = (
   node: NodeOf<"agent">,
   blocked: ReadonlySet<string>,
   ringForms: Map<string, { form: RingForm; since: number }>,
-): SeatLive => {
+): SeatLiveOf => {
   const bindingId = node.bindingId;
   const rollup = seatSignalRollups$.get()[id];
   const signal: AgentSignalKind | undefined = rollup?.kind;
@@ -169,8 +199,16 @@ const seatLiveOf = (
     managedSeat: true,
   });
   const mark = cardMark(facts);
-  const activity =
+  // The card's next-turn answer, read tracked: a still seat whose next turn
+  // starts fresh says so, and one that picks up where it was reads against
+  // its cache window. The feed asks main for both (below, `launch`).
+  const still = seatStillForNextTurn({ facts, mark, hand: signal, seatState: seatEvent?.state });
+  const nextTurn = seatNextTurn$[canvasName][id].get();
+  const cacheWindow = seatCacheWindow$[canvasName][id].get();
+  const freshNext = still && nextTurn?.fresh === true;
+  const base =
     seatEvent?.state === "attention" && seatEvent.reason ? { ...mark, label: seatEvent.reason } : mark;
+  const activity = freshNext ? { ...base, label: SEAT_FRESH_NEXT_LINE } : base;
   const health = threadHealthMarkOf(bindingId, signal);
   const ring = ringState({
     glyph: resolveActivityGlyph(activity.mode, activity.tone, activity.glyph),
@@ -208,7 +246,22 @@ const seatLiveOf = (
     failure,
     health: { health: health.health, healthStale: health.healthStale, line: health.line },
   });
-  const line = saying.kind === "signal" ? `${saying.word} ${saying.text}` : saying.text;
+  // The card's cache line: a still seat that picks up where it was reads its
+  // state words against the window, never beside "fresh next". Only a plain
+  // state line takes it — a signal, failure or reading speaks instead.
+  const cacheWindowFace = cacheWindow !== undefined && !freshNext ? cacheWindow : undefined;
+  let line = saying.kind === "signal" ? `${saying.word} ${saying.text}` : saying.text;
+  let sayingOut = sayingFact(saying);
+  let lineAt: number | undefined;
+  if (saying.kind === "state" && saying.tone === undefined && cacheWindowFace !== undefined) {
+    // The words change on the minute and at the window's end; the tick below
+    // re-derives this seat at each, as the card's own timer does.
+    seatLineTick$[`${canvasName}\u0000${id}`].get();
+    const status = seatCacheStatusLine(saying.text, cacheWindowFace, Date.now());
+    line = status.expired ? `${status.line},` : status.line;
+    sayingOut = { kind: "cache", ...(status.expired ? { expired: true } : {}) };
+    lineAt = nextCacheStatusChange(cacheWindowFace, Date.now());
+  }
   const clue = clueFromAgentSeat(seatEvent, needsLook);
   const spectrum = deriveOccupancy({
     hasOccupant: clue?.hasOccupant ?? false,
@@ -223,49 +276,73 @@ const seatLiveOf = (
     temperament: portraitCharacter(id, portraitConfig).temperament,
   });
   const current = bubble?.current;
+  // The ask's inputs, all read tracked: the card's moved key plus the offboard
+  // step and the cache windows this machine's seats are cut at.
+  const reachable =
+    node.host === undefined ? undefined : state$.machineFacts[node.host].reachable.get();
+  const viewed = terminal$.openByNodeId[id].get() !== undefined;
+  const offboardAt = seatOffboard$.byKey[`${canvasName}\u0000${id}`].get()?.at;
+  const windows = JSON.stringify(state$.settings.offboard.get() ?? null);
+  const launch: SeatLaunchProbe = {
+    still,
+    key: `${seatLaunchMovedKey({
+      bindingId,
+      seatState: seatEvent?.state,
+      seatAt: seatEvent?.at,
+      epoch: session?.epoch,
+      status: session?.status,
+      reachable,
+      viewed,
+    })}${offboardAt ?? ""}${windows}`,
+    askAt: still ? nextMoment(nextTurn?.freshAt, cacheWindow?.windowEndsAt, Date.now()) : undefined,
+    lineAt,
+  };
   return {
-    ring,
-    line,
-    mark: { tone: activity.tone, label: activity.label },
-    urgency: rankOf(seatLevel({ activity, signal, failure })),
-    running: facts.running === true,
-    overseer: node.overseer,
-    harness: node.harness,
-    saying: sayingFact(saying),
-    ringSince,
-    ...(held === undefined
-      ? {}
-      : {
-          tasks: {
-            state: held.state,
-            label: held.label,
-            title: held.title,
-            more: Math.max(0, held.tasks.length - 1),
-          },
-        }),
-    ...(current === undefined
-      ? {}
-      : {
-          preamble: {
-            ...(BUBBLE_SPEAKER[current.provenance] === undefined
-              ? {}
-              : { speaker: BUBBLE_SPEAKER[current.provenance] }),
-            now: current.text,
-            ...(bubble?.previous === undefined ? {} : { before: bubble.previous.text }),
-            hue: current.tone,
-            ...(BUBBLE_STRONG.has(current.action) ? { strong: true } : {}),
-            dx: 0,
-            ...(BUBBLE_GLYPH[current.action] === undefined ? {} : { glyph: BUBBLE_GLYPH[current.action] }),
-            since: current.shownAt,
-          },
-        }),
-    portrait: {
-      seed: id,
-      expression,
-      ...(portraitConfig === undefined ? {} : { config: portraitConfig }),
+    live: {
+      ring,
+      line,
+      mark: { tone: activity.tone, label: activity.label },
+      urgency: rankOf(seatLevel({ activity, signal, failure })),
+      running: facts.running === true,
+      overseer: node.overseer,
+      harness: node.harness,
+      saying: sayingOut,
+      ringSince,
+      ...(held === undefined
+        ? {}
+        : {
+            tasks: {
+              state: held.state,
+              label: held.label,
+              title: held.title,
+              more: Math.max(0, held.tasks.length - 1),
+            },
+          }),
+      ...(current === undefined
+        ? {}
+        : {
+            preamble: {
+              ...(BUBBLE_SPEAKER[current.provenance] === undefined
+                ? {}
+                : { speaker: BUBBLE_SPEAKER[current.provenance] }),
+              now: current.text,
+              ...(bubble?.previous === undefined ? {} : { before: bubble.previous.text }),
+              hue: current.tone,
+              ...(BUBBLE_STRONG.has(current.action) ? { strong: true } : {}),
+              dx: 0,
+              ...(BUBBLE_GLYPH[current.action] === undefined ? {} : { glyph: BUBBLE_GLYPH[current.action] }),
+              since: current.shownAt,
+            },
+          }),
+      portrait: {
+        seed: id,
+        expression,
+        ...(portraitConfig === undefined ? {} : { config: portraitConfig }),
+      },
+      ...(spectrum === "empty" || spectrum === "gone" ? { occupancy: spectrum } : {}),
+      ...(node.color === undefined ? {} : { nameColor: node.color }),
     },
-    ...(spectrum === "empty" || spectrum === "gone" ? { occupancy: spectrum } : {}),
-    ...(node.color === undefined ? {} : { nameColor: node.color }),
+    launch,
   };
 };
 
@@ -408,6 +485,56 @@ export const retainSceneOps = (
   const seatOffs = new Map<string, () => void>();
   const seatLives = new Map<string, SeatLive>();
   const ringForms = new Map<string, { form: RingForm; since: number }>();
+  // The next-turn ask each still seat owes main, with its scheduled moments.
+  // The card's useSeatFreshNext does this per mounted card; the feed does it
+  // per seat so the line is fed with no card on the canvas.
+  const launchAsks = new Map<
+    string,
+    { key: string; askAt: number | undefined; lineAt: number | undefined; timer: ReturnType<typeof setTimeout> | undefined }
+  >();
+  const MAX_ASK_DELAY_MS = 2_147_483_647;
+  const tickKey = (seatId: string): string => `${canvasName}\u0000${seatId}`;
+  const armLaunchAsk = (seatId: string, at: number | undefined): ReturnType<typeof setTimeout> | undefined => {
+    if (at === undefined) return undefined;
+    return setTimeout(() => {
+      const rec = launchAsks.get(seatId);
+      if (rec === undefined) return;
+      rec.timer = undefined;
+      const now = Date.now();
+      // The scheduled moment passed: a cold session or a window's end may have
+      // moved the answer; the cache line's minute count moves regardless.
+      if (rec.askAt !== undefined && now >= rec.askAt - 1_000) void askSeatNextTurn(canvasName, seatId);
+      seatLineTick$[tickKey(seatId)].set(now);
+    }, Math.min(Math.max(at - Date.now(), 0) + 1_000, MAX_ASK_DELAY_MS));
+  };
+  const syncLaunchAsk = (seatId: string, probe: SeatLaunchProbe): void => {
+    const prior = launchAsks.get(seatId);
+    if (!probe.still) {
+      // A turn makes the last answer stale: drop it, so the line never flashes it.
+      if (prior !== undefined) {
+        if (prior.timer !== undefined) clearTimeout(prior.timer);
+        launchAsks.delete(seatId);
+        forgetSeatNextTurn(canvasName, seatId);
+      }
+      return;
+    }
+    const fireAt =
+      probe.askAt !== undefined && probe.lineAt !== undefined
+        ? Math.min(probe.askAt, probe.lineAt)
+        : (probe.askAt ?? probe.lineAt);
+    if (prior === undefined || prior.key !== probe.key) {
+      if (prior?.timer !== undefined) clearTimeout(prior.timer);
+      void askSeatNextTurn(canvasName, seatId);
+      launchAsks.set(seatId, { key: probe.key, askAt: probe.askAt, lineAt: probe.lineAt, timer: armLaunchAsk(seatId, fireAt) });
+      return;
+    }
+    if (prior.askAt !== probe.askAt || prior.lineAt !== probe.lineAt) {
+      if (prior.timer !== undefined) clearTimeout(prior.timer);
+      prior.askAt = probe.askAt;
+      prior.lineAt = probe.lineAt;
+      prior.timer = armLaunchAsk(seatId, fireAt);
+    }
+  };
   stops.push(
     observe(() => {
       const agents = new Set<string>();
@@ -420,6 +547,12 @@ export const retainSceneOps = (
           seatOffs.delete(id);
           seatLives.delete(id);
           ringForms.delete(id);
+          const ask = launchAsks.get(id);
+          if (ask !== undefined) {
+            if (ask.timer !== undefined) clearTimeout(ask.timer);
+            launchAsks.delete(id);
+          }
+          seatLineTick$[tickKey(id)].delete();
         }
       }
       for (const id of agents) {
@@ -428,7 +561,8 @@ export const retainSceneOps = (
         const off = observe(() => {
           const node = node$.get();
           if (node === undefined || node.kind !== "agent") return;
-          const live = seatLiveOf(canvasName, id, node, blockedNodeIds(canvasName), ringForms);
+          const { live, launch } = seatLiveOf(canvasName, id, node, blockedNodeIds(canvasName), ringForms);
+          syncLaunchAsk(id, launch);
           const was = seatLives.get(id);
           seatLives.set(id, live);
           if (!sameLive(was, live)) emit([{ kind: "seat", id, live }]);
@@ -475,8 +609,13 @@ export const retainSceneOps = (
   return () => {
     for (const stop of stops.reverse()) stop();
     for (const off of seatOffs.values()) off();
+    for (const id of seatOffs.keys()) seatLineTick$[`${canvasName}\u0000${id}`].delete();
     seatOffs.clear();
     seatLives.clear();
     ringForms.clear();
+    for (const ask of launchAsks.values()) {
+      if (ask.timer !== undefined) clearTimeout(ask.timer);
+    }
+    launchAsks.clear();
   };
 };
