@@ -313,22 +313,25 @@ const canvas2d = (w: number, h: number): { canvas: HTMLCanvasElement; ctx: Canva
  * raster scale).
  */
 export const rasterizeTextRun: TextRasterize = async (run, scale) => {
-  const ctx = canvas2d(8, 8).ctx; // measure context; the draw canvas is sized after
+  const ctx = canvas2d(8, 8).ctx; // measure context; the draw canvas is the cell
   const measure: MeasureContext = ctx;
   ctx.font = fontCss(run, scale);
   ctx.letterSpacing = run.tracking !== undefined ? `${run.tracking}em` : "0px";
   const lines = layoutRun(run, Math.max(1, run.width * scale), (t) => ctx.measureText(t).width);
   const lineHeight = run.size * scale * (run.leading ?? 1.2);
-  const widest = Math.max(...lines.map((line) => ctx.measureText(line).width), 1);
-  const pad = Math.ceil(run.size * scale * 0.25);
-  const { canvas, ctx: draw } = canvas2d(widest + pad * 2, lineHeight * lines.length + pad * 2);
+  // The cell is exactly the quad's aspect: the shader stretches the UV rect
+  // across the whole quad, so any padding or widest-line sizing would smear
+  // every run to its wrap box.
+  const cellW = Math.max(1, Math.ceil(run.width * scale));
+  const cellH = Math.max(1, Math.ceil(lineHeight * lines.length));
+  const { canvas, ctx: draw } = canvas2d(cellW, cellH);
   draw.font = ctx.font;
   draw.letterSpacing = ctx.letterSpacing;
   draw.fillStyle = "#fff";
-  draw.textBaseline = "top";
+  draw.textBaseline = "middle";
   lines.forEach((line, i) => {
-    const x = run.align === "center" ? (canvas.width - draw.measureText(line).width) / 2 : pad;
-    draw.fillText(line, x, pad + i * lineHeight);
+    const x = run.align === "center" ? (cellW - draw.measureText(line).width) / 2 : 0;
+    draw.fillText(line, x, lineHeight * i + lineHeight / 2);
   });
   return createImageBitmap(canvas);
 };
