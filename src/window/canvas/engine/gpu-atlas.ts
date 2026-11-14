@@ -382,6 +382,19 @@ const themeFor = (mode: ThemeMode): GpuTheme => {
 const cssColor = (c: { r: number; g: number; b: number; a: number }): string =>
   `rgb(${Math.round(c.r * 255)} ${Math.round(c.g * 255)} ${Math.round(c.b * 255)} / ${c.a})`;
 
+/**
+ * A sprite SVG rasterizes as a standalone image: no document, so no custom
+ * properties. `var(--color-ink)` and friends arrive unresolved and paint
+ * nothing (the harness badge was exactly this). Every `--color-*` the
+ * markup names resolves through the theme before the blob is made.
+ */
+const CSS_VAR = /var\(--color-([a-zA-Z0-9-]+)\)/g;
+const resolveSvgVars = (svg: string, theme: GpuTheme): string =>
+  svg.replace(CSS_VAR, (_match, name: string) => {
+    const colour = theme.colors[name];
+    return colour === undefined ? "transparent" : cssColor(colour);
+  });
+
 const loadImage = async (src: string): Promise<HTMLImageElement> => {
   const image = new Image();
   image.src = src;
@@ -455,11 +468,12 @@ export const rasterizeSprite: SpriteRasterize = async (quad, mode, scale) => {
   const { canvas, ctx } = canvas2d(w, h);
 
   if (ref.atlas === "image") {
-    const url = URL.createObjectURL(new Blob([ref.svg], { type: "image/svg+xml" }));
+    const svg = resolveSvgVars(ref.svg, themeFor(mode));
+    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
     try {
       const image = await loadImage(url);
       ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-      await compositeNestedImages(ctx, ref.svg, {
+      await compositeNestedImages(ctx, svg, {
         x: canvas.width / Math.max(1, ref.size.width),
         y: canvas.height / Math.max(1, ref.size.height),
       });
