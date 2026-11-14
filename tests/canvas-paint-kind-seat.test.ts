@@ -84,6 +84,9 @@ describe("kind seat paint", () => {
       expect(shell.style.fill).toEqual({ kind: "flat", color: { mix: [{ token: KIND_HUE[kind] }, { token: "raise" }], share: 0.1 } });
       expect(keys(sel.quads)).toContain("shell.shadow");
       expect(sel.lift).toBe(0);
+      const drop = sel.quads.find((q) => q.key === "shell.shadow")!;
+      expect(drop.rect.width).toBe(216 + 40);
+      expect(drop.hole).toBe(20);
     }
     const hover = paint("link", {}, view({ hovered: true }));
     expect(hover.quads.find((q) => q.key === "shell")?.style.stroke?.color).toEqual({ token: "stroke" });
@@ -111,14 +114,20 @@ describe("kind seat paint", () => {
     expect(keys(paint("files").quads)).not.toContain("drop");
   });
 
-  it("the task card's enqueue is a 20 pill with a taskEnqueue part after the name", () => {
+  it("the task card's enqueue is a 20 pill with a taskEnqueue part after the name, at near and mid", () => {
     const quads = paint("task", { enqueue: true, name: "board" }).quads;
     const enqueue = quads.find((q) => q.key === "enqueue")!;
     expect(enqueue.part).toEqual({ kind: "taskEnqueue" });
     expect(enqueue.rect.width).toBe(20);
     const name = quads.find((q) => q.key === "name")!;
+    expect(name.rect.width).toBeLessThan(SEAT_TEXT.width);
     expect(enqueue.rect.x).toBeCloseTo(name.rect.x + name.rect.width + 4);
     expect(enqueue.tiers).toBe(TIER_BIT.near);
+    // Mid keeps the name row, so the plus stays, centred with it on the ring.
+    const midEnqueue = quads.find((q) => q.key === "enqueue.mid")!;
+    expect(midEnqueue.part).toEqual({ kind: "taskEnqueue" });
+    expect(midEnqueue.tiers).toBe(TIER_BIT.mid);
+    expect(midEnqueue.rect.y).toBeCloseTo(SEAT_RING_CENTRE.y - 10);
     expect(keys(paint("task").quads)).not.toContain("enqueue");
   });
 

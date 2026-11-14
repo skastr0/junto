@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cssRadii, shape, at } from "../src/window/canvas/paint/refs";
+import { cssRadii, shadow, shape, at } from "../src/window/canvas/paint/refs";
 
 /**
  * The corner law: CSS multiplies every radius by one factor when a pair on any
@@ -37,5 +37,14 @@ describe("cssRadii: the values CSS draws", () => {
 
   it("a zero-sized rect has no corners to draw", () => {
     expect(cssRadii(999, 0, 56)).toBe(0);
+  });
+
+  it("a grown shadow clamps the element's radii, not the glow's larger box", () => {
+    const quad = shadow(
+      { key: "shell.shadow", z: 0, rect: at(-20, -20, 256, 96) },
+      {},
+      { radii: [999, 12, 12, 999], hole: 20 },
+    );
+    expect(quad.radii).toEqual(cssRadii([999, 12, 12, 999], 216, 56));
   });
 });

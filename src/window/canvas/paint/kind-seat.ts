@@ -135,7 +135,15 @@ export const paintKindSeat = (fact: CardFact, view: CardView, env: PaintEnv): Ca
   const quads: Quad[] = [];
 
   // --- shell, near and mid -----------------------------------------------------
-  if (view.selected) quads.push(shadow({ key: "shell.shadow", z: 0, rect: box }, { shadow: { name: "seat" } }, { tiers: NEAR, radii: KIND_SHELL_RADII }));
+  if (view.selected) {
+    quads.push(
+      shadow(
+        { key: "shell.shadow", z: 0, rect: grow(box, SEAT.shadowInset) },
+        { shadow: { name: "seat" } },
+        { tiers: NEAR, radii: KIND_SHELL_RADII, hole: SEAT.shadowInset },
+      ),
+    );
+  }
   quads.push(shape({ key: "shell", z: 1, rect: box }, shellStyle(hue, view), { tiers: NEAR_MID, radii: KIND_SHELL_RADII }));
   if (view.keyboardFocus) {
     quads.push(
@@ -185,19 +193,25 @@ export const paintKindSeat = (fact: CardFact, view: CardView, env: PaintEnv): Ca
     const w = live.enqueue === true ? nameW() : SEAT_TEXT.width;
     quads.push(
       text({ key: "name", z: 40, rect: at(SEAT_TEXT.x, top + (rowH - nameH) / 2, w, nameH) }, { ink: tok("ink") }, { tiers: NEAR, text: nameRun(w) }),
+      // Mid hides the line and the rows under it, but the name row, and the
+      // enqueue at its end, stay: the text block is that row, centred on the ring.
       text(
-        { key: "name.mid", z: 40, rect: at(SEAT_TEXT.x, SEAT_RING_CENTRE.y - nameH / 2, SEAT_TEXT.width, nameH) },
+        { key: "name.mid", z: 40, rect: at(SEAT_TEXT.x, SEAT_RING_CENTRE.y - nameH / 2, w, nameH) },
         { ink: tok("ink") },
-        { tiers: TIER_BIT.mid, text: nameRun(SEAT_TEXT.width) },
+        { tiers: TIER_BIT.mid, text: nameRun(w) },
       ),
     );
   }
   if (live.enqueue === true) {
     const x = SEAT_TEXT.x + nameW() + ENQUEUE_GAP;
-    const y = top + (rowH - ENQUEUE) / 2;
+    // At mid the name row is the whole block, so the plus sits at the ring's centre.
+    const yNear = top + (rowH - ENQUEUE) / 2;
+    const yMid = SEAT_RING_CENTRE.y - ENQUEUE / 2;
     quads.push(
-      shape({ key: "enqueue", z: 42, rect: at(x, y, ENQUEUE, ENQUEUE) }, {}, { tiers: NEAR, radii: 999, part: { kind: "taskEnqueue" } }),
-      sprite({ key: "enqueue.plus", z: 43, rect: at(x + (ENQUEUE - 11) / 2, y + (ENQUEUE - 11) / 2, 11, 11) }, { tiers: NEAR, sprite: { atlas: "glyph", name: "plus" }, style: { ink: tok("amber") } }),
+      shape({ key: "enqueue", z: 42, rect: at(x, yNear, ENQUEUE, ENQUEUE) }, {}, { tiers: NEAR, radii: 999, part: { kind: "taskEnqueue" } }),
+      sprite({ key: "enqueue.plus", z: 43, rect: at(x + (ENQUEUE - 11) / 2, yNear + (ENQUEUE - 11) / 2, 11, 11) }, { tiers: NEAR, sprite: { atlas: "glyph", name: "plus" }, style: { ink: tok("amber") } }),
+      shape({ key: "enqueue.mid", z: 42, rect: at(x, yMid, ENQUEUE, ENQUEUE) }, {}, { tiers: TIER_BIT.mid, radii: 999, part: { kind: "taskEnqueue" } }),
+      sprite({ key: "enqueue.plus.mid", z: 43, rect: at(x + (ENQUEUE - 11) / 2, yMid + (ENQUEUE - 11) / 2, 11, 11) }, { tiers: TIER_BIT.mid, sprite: { atlas: "glyph", name: "plus" }, style: { ink: tok("amber") } }),
     );
   }
   quads.push(

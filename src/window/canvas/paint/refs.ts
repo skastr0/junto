@@ -68,7 +68,10 @@ type Base = {
   readonly z: number;
   readonly rect: Rect;
 };
-type Extra = Partial<Omit<Quad, "key" | "z" | "rect" | "kind">>;
+type Extra = Partial<Omit<Quad, "key" | "z" | "rect" | "kind">> & {
+  /** The element a grown quad's radii belong to; defaults to the quad itself. */
+  readonly element?: { readonly width: number; readonly height: number };
+};
 
 /**
  * The radii CSS actually uses, in tl, tr, br, bl order.
@@ -91,21 +94,34 @@ export const cssRadii = (radii: Radii, width: number, height: number): Radii => 
   return f === 1 ? [tl, tr, br, bl] : [tl * f, tr * f, br * f, bl * f];
 };
 
-const make = (kind: Quad["kind"], base: Base, extra: Extra): Quad => ({
-  kind,
-  band: "cards",
-  tiers: ALL_TIERS,
-  scale: BOARD,
-  style: {},
-  ...base,
-  ...extra,
-  // One site for the corner law: every painter names the radii its sheet
-  // names, and the quad carries the values CSS would draw.
-  ...(extra.radii === undefined ? {} : { radii: cssRadii(extra.radii, base.rect.width, base.rect.height) }),
-});
+const make = (kind: Quad["kind"], base: Base, extra: Extra): Quad => {
+  const { element, radii, ...rest } = extra;
+  const box = element ?? base.rect;
+  return {
+    kind,
+    band: "cards",
+    tiers: ALL_TIERS,
+    scale: BOARD,
+    style: {},
+    ...base,
+    ...rest,
+    // One site for the corner law: every painter names the radii its sheet
+    // names, and the quad carries the values CSS would draw. A grown shadow
+    // names its element, because CSS clamps the element's radii, not the
+    // glow's larger box.
+    ...(radii === undefined ? {} : { radii: cssRadii(radii, box.width, box.height) }),
+  };
+};
 
 export const shape = (base: Base, style: QuadStyle, extra: Extra = {}): Quad => make("shape", base, { ...extra, style });
-export const shadow = (base: Base, style: QuadStyle, extra: Extra = {}): Quad => make("shadow", base, { ...extra, style });
+export const shadow = (base: Base, style: QuadStyle, extra: Extra = {}): Quad =>
+  make("shadow", base, {
+    ...extra,
+    style,
+    ...(extra.hole === undefined
+      ? {}
+      : { element: { width: Math.max(0, base.rect.width - extra.hole * 2), height: Math.max(0, base.rect.height - extra.hole * 2) } }),
+  });
 export const sprite = (base: Base, extra: Extra): Quad => make("sprite", base, extra);
 export const text = (base: Base, style: QuadStyle, extra: Extra): Quad => make("text", base, { ...extra, style });
 

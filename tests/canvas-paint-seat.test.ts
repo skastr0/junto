@@ -16,7 +16,7 @@ describe("agent seat paint", () => {
     const near = keys(at(paint.quads, "near"));
     expect(near).toEqual(expect.arrayContaining(["shell", "ring.base", "portrait", "name", "line.text"]));
     const mid = keys(at(paint.quads, "mid"));
-    expect(mid).toEqual(expect.arrayContaining(["shell", "name", "ring.base", "portrait"]));
+    expect(mid).toEqual(expect.arrayContaining(["shell", "name.mid", "ring.base", "portrait"]));
     expect(mid).not.toContain("line.text");
     expect(mid).not.toContain("badge");
   });
@@ -83,6 +83,12 @@ describe("agent seat paint", () => {
     expect(selected.lift).toBe(0);
     expect(keys(selected.quads)).toContain("shell.shadow");
     expect(keys(rest.quads)).not.toContain("shell.shadow");
+    // The drop has room outside the card, and the card is its hole: a shadow
+    // clipped at the box filled the rounded bottom corners with a grey square.
+    const shadow = selected.quads.find((q) => q.key === "shell.shadow")!;
+    expect(shadow.rect).toEqual({ x: -SEAT.shadowInset, y: -SEAT.shadowInset, width: 216 + SEAT.shadowInset * 2, height: 56 + SEAT.shadowInset * 2 });
+    expect(shadow.hole).toBe(SEAT.shadowInset);
+    expect(shadow.radii).toEqual(SEAT.radii);
   });
 
   it("far halo says call, wait and halt in their hues; far hover shows the name tag", () => {
@@ -104,6 +110,8 @@ describe("agent seat paint", () => {
 
   it("puts the text column where the DOM does: 62 from the left, 143 wide", () => {
     const name = paintSeat(agentFact(), working, view(), fakeEnv).quads.find((q) => q.key === "name")!;
+    const mid = paintSeat(agentFact(), working, view(), fakeEnv).quads.find((q) => q.key === "name.mid")!;
+    expect(mid.rect.y + mid.rect.height / 2).toBe(28);
     expect(name.rect.x).toBe(SEAT.rowLeft + SEAT.ring + SEAT.gap);
     expect(name.rect.width).toBe(143);
   });

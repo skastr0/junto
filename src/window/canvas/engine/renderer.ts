@@ -296,18 +296,27 @@ fn filled(base: u32, local: vec2f) -> vec4f {
     // glow room and names the growth as its hole; without the hole the solid
     // first layer of a ring shadow fills the card with its tint.
     let baseHalf = max(in.half - vec2f(q.hole), vec2f(0.0));
-    let baseR = max(q.radii.x - q.hole, 0.0);
     for (var i = 0u; i < count; i = i + 1u) {
       let layer = shadowLayers[spec.y + i * 2u];
       let tint = shadowLayers[spec.y + i * 2u + 1u];
-      let p = abs(in.local * in.half - vec2f(layer.x, layer.y));
+      let lp = in.local * in.half - vec2f(layer.x, layer.y);
+      let p = abs(lp);
       let p0 = abs(in.local * in.half);
       let halfSize = baseHalf + vec2f(layer.w);
-      let r = max(0.0, min(baseR + layer.w, min(halfSize.x, halfSize.y)));
+      // Every corner keeps its own radius. One radius for all four painted
+      // a seat's 28 left end into its 14 bottom corners and filled the
+      // rounded cutouts with the drop.
+      let layerRight = select(radii.x, radii.y, lp.x > 0.0);
+      let layerLeft = select(radii.w, radii.z, lp.x > 0.0);
+      let layerR = max(select(layerRight, layerLeft, lp.y > 0.0) + layer.w, 0.0);
+      let r = max(0.0, min(layerR, min(halfSize.x, halfSize.y)));
       let corner = p - halfSize + r;
       let d = length(max(corner, vec2f(0.0))) + min(max(corner.x, corner.y), 0.0) - r;
-      let hc = p0 - baseHalf + baseR;
-      let hd = length(max(hc, vec2f(0.0))) + min(max(hc.x, hc.y), 0.0) - baseR;
+      let holeRight = select(radii.x, radii.y, in.local.x > 0.0);
+      let holeLeft = select(radii.w, radii.z, in.local.x > 0.0);
+      let holeR = max(select(holeRight, holeLeft, in.local.y > 0.0) - q.hole, 0.0);
+      let hc = p0 - baseHalf + holeR;
+      let hd = length(max(hc, vec2f(0.0))) + min(max(hc.x, hc.y), 0.0) - holeR;
       let blur = max(layer.z, 0.5);
       let soft = clamp(0.5 - d / blur, 0.0, 1.0) * (1.0 - clamp(0.5 - hd * ppu, 0.0, 1.0));
       let a = tint.a * soft * styleOpacity * o.p.w * motionAlpha;

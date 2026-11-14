@@ -28,6 +28,12 @@ export const KIND_SHELL_RADII = [radiusPx("pill"), radiusPx("xl"), radiusPx("xl"
 export const SEAT = {
   /** `border-radius: 28px 14px 14px 28px` (inventory 2.1). */
   radii: CARD.seatRadii,
+  /**
+   * Room the selected seat's drop needs: `0 8px 22px`, so 8 down plus half
+   * the blur reaches 19 past the box. The shadow quad grows by this much and
+   * names the element as its hole; the element is what the corners clamp to.
+   */
+  shadowInset: 20,
   /** Shell border 1px plus padding `1px 10px 1px 1px`: the row starts at 2 and ends 11 short of the edge. */
   rowLeft: 2,
   rowTop: 2,

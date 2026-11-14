@@ -83,7 +83,15 @@ export const paintSeat = (fact: CardFact, live: SeatLive | undefined, view: Card
 
   // --- shell: near and mid; the far seat has none --------------------------------
   if (view.selected) {
-    quads.push(shadow({ key: "shell.shadow", z: 0, rect: box }, { shadow: { name: "seat" } }, { tiers: NEAR, radii: SEAT.radii }));
+    // The drop is ``0 8px 22px``: the quad grows past the card so the blur
+    // has room, and the card itself is the hole no layer paints inside.
+    quads.push(
+      shadow(
+        { key: "shell.shadow", z: 0, rect: grow(box, SEAT.shadowInset) },
+        { shadow: { name: "seat" } },
+        { tiers: NEAR, radii: SEAT.radii, hole: SEAT.shadowInset },
+      ),
+    );
   }
   quads.push(shape({ key: "shell", z: 1, rect: box }, shellStyle(view), { tiers: NEAR_MID, radii: SEAT.radii }));
   if (view.keyboardFocus) {
@@ -150,7 +158,13 @@ export const paintSeat = (fact: CardFact, live: SeatLive | undefined, view: Card
       text(
         { key: "name", z: 40, rect: at(SEAT_TEXT.x, top, SEAT_TEXT.width, SEAT.nameSize * SEAT.snug) },
         { ink: accentRef(live?.nameColor, "ink") },
-        { tiers: NEAR_MID, text: run(name, { size: SEAT.nameSize, weight: 600 }) },
+        { tiers: NEAR, text: run(name, { size: SEAT.nameSize, weight: 600 }) },
+      ),
+      // Mid shows the name alone, so the text block is the name and sits at the ring's centre.
+      text(
+        { key: "name.mid", z: 40, rect: at(SEAT_TEXT.x, SEAT_RING_CENTRE.y - (SEAT.nameSize * SEAT.snug) / 2, SEAT_TEXT.width, SEAT.nameSize * SEAT.snug) },
+        { ink: accentRef(live?.nameColor, "ink") },
+        { tiers: TIER_BIT.mid, text: run(name, { size: SEAT.nameSize, weight: 600 }) },
       ),
     );
   }
