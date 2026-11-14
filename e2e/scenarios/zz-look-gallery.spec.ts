@@ -66,7 +66,14 @@ const zoomTo = async (page: Page, zoom: number): Promise<void> => {
     const box = await pane(page).box();
     if (box === null) throw new Error("no pane to zoom over");
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.wheel(0, cam.zoom > zoom ? 180 : -180);
+    // The wheel zooms under the platform's zoom key; a bare wheel pans.
+    const zoomKey = process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(zoomKey);
+    try {
+      await page.mouse.wheel(0, cam.zoom > zoom ? 180 : -180);
+    } finally {
+      await page.keyboard.up(zoomKey);
+    }
     if (Date.now() >= deadline) throw new Error(`camera never reached zoom ${zoom} (at ${cam.zoom})`);
     await page.waitForTimeout(80);
   }
