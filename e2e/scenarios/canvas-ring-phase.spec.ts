@@ -4,8 +4,10 @@
 // ring. The DOM side is the focus switcher's `.junto-mark` spin part — its
 // `junto-mark-turn` animation's currentTime gives the angle the browser is
 // showing — read inside one evaluate together with `ringAngle`, so both
-// sample the same wall-clock instant. Skips until the hook carries
-// ringAngle and a DOM ring for the seat is on screen.
+// sample the same wall-clock instant. The animation's delay carries the
+// shared clock (`--mark-t0`), so the phase is `(currentTime - delay) mod
+// duration`. Skips until the hook carries ringAngle and a DOM ring for the
+// seat is on screen.
 
 import { test, expect, type ElectronApplication, type Page } from "@playwright/test";
 import { SeatStateMachine } from "../../src/core/term/agent-state";
@@ -52,7 +54,10 @@ const sampleAngles = (page: Page, seatId: string): Promise<AngleSample> =>
       if (anim === undefined) continue;
       const duration = parseFloat(getComputedStyle(part).animationDuration) * 1000;
       if (!Number.isFinite(duration) || duration <= 0) continue;
-      const p = (((Number(anim.currentTime ?? 0) % duration) + duration) % duration) / duration;
+      // --mark-t0 rides in animation-delay: the shared clock is
+      // (currentTime - delay) mod duration, not currentTime mod duration.
+      const delay = Number(anim.effect?.getComputedTiming().delay ?? 0);
+      const p = ((((Number(anim.currentTime ?? 0) - delay) % duration) + duration) % duration) / duration;
       const angle = 360 * (part.dataset.spin === "ccw" ? 1 - p : p);
       return { gpu, dom: angle === 360 ? 0 : angle };
     }
