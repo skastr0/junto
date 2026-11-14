@@ -26,6 +26,7 @@ import type {
   Hit,
   NodeId,
   PaintEnv,
+  Part,
   Point,
   Quad,
   QuadMotion,
@@ -313,6 +314,7 @@ export const createScene = (options: {
   let reach: ReadonlyMap<NodeId, ReachMark> = new Map();
   let editing: NodeId | null = null;
   let hovered: NodeId | null = null;
+  let hoveredPart: Part["kind"] | undefined;
   let dragging = new Set<NodeId>();
   let wireMode: WireMode = "rest";
   let wires = new Map<WireId, WireFact>();
@@ -441,7 +443,13 @@ export const createScene = (options: {
   };
 
   const paint = (card: CardSlot): void => {
-    const result = painter(card.fact, card.live, card.view, env);
+    // A live resize draws the size the pointer holds; the writer's fact still
+    // carries the old row until the drop, and painters read the row.
+    const drawn: CardFact =
+      card.size === undefined
+        ? card.fact
+        : { ...card.fact, row: { ...card.fact.row, width: card.size.width, height: card.size.height } };
+    const result = painter(drawn, card.live, card.view, env);
     const sorted = [...result.quads].sort(compareQuad);
     const keys = new Set(sorted.map((quad) => quad.key));
     const held = quadSlotsOf.get(card.slot) ?? new Set<number>();
@@ -511,6 +519,7 @@ export const createScene = (options: {
     return {
       selected: selection.nodeIds.includes(fact.id),
       hovered: hovered === fact.id,
+      ...(hovered === fact.id && hoveredPart !== undefined ? { hoveredPart } : {}),
       connecting: wireMode === "connecting",
       keyboardFocus: selection.focusedNodeId === fact.id,
       editing: editing === fact.id,
@@ -683,10 +692,11 @@ export const createScene = (options: {
     }
   };
 
-  const setHover = (id: NodeId | null): boolean => {
-    if (hovered === id) return false;
+  const setHover = (id: NodeId | null, part?: Part["kind"]): boolean => {
+    if (hovered === id && hoveredPart === part) return false;
     const before = hovered;
     hovered = id;
+    hoveredPart = id === null ? undefined : part;
     if (before !== null) repaintIds([before]);
     if (id !== null) repaintIds([id]);
     return true;

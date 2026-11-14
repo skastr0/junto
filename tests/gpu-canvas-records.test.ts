@@ -340,3 +340,50 @@ describe("a sprite's raster scale", () => {
     expect(near).toBeCloseTo(atlasScale(0.3), 9);
   });
 });
+
+describe("a live resize", () => {
+  it("hands the painter the size the pointer holds, not the row it left", () => {
+    const scene = createScene({
+      painter: (drawn) => ({
+        quads: [{
+          key: "body",
+          kind: "shape",
+          band: "cards",
+          z: 1,
+          rect: { x: 0, y: 0, width: drawn.row.width, height: drawn.row.height },
+          tiers: 15,
+          scale: { kind: "board" },
+          style: {},
+        }],
+        dim: { opacity: 1, saturate: 1 },
+        lift: 0,
+      }),
+    });
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact()], wires: [] });
+    expect(float(scene, 0, 2)).toBe(200);
+    scene.resizeCard("a", { x: 0, y: 0, width: 300, height: 80 });
+    expect(float(scene, 0, 2)).toBe(300);
+    expect(float(scene, 0, 3)).toBe(80);
+    expect(scene.ownerBuffer[5]).toBe(300);
+    expect(scene.ownerBuffer[6]).toBe(80);
+  });
+});
+
+describe("a hovered part", () => {
+  it("tells the painter which part the pointer is over, and repaints when it moves", () => {
+    const seen: Array<string | undefined> = [];
+    const scene = createScene({
+      painter: (_fact, _live, view) => {
+        seen.push(view.hoveredPart);
+        return { quads: [], dim: { opacity: 1, saturate: 1 }, lift: 0 };
+      },
+    });
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact()], wires: [] });
+    scene.setHover("a", "regionFrame");
+    expect(seen.at(-1)).toBe("regionFrame");
+    scene.setHover("a", "regionTitle");
+    expect(seen.at(-1)).toBe("regionTitle");
+    scene.setHover("a");
+    expect(seen.at(-1)).toBeUndefined();
+  });
+});
