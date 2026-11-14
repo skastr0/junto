@@ -436,6 +436,7 @@ export const createScene = (options: {
       ...packMotion(quad.motion, clockNow, wallNow),
       source: resolveSource(quad, sourceScaleFor(quad)),
       gradientAngle: 0,
+      hole: quad.hole ?? 0,
       style,
       ...previous,
       dash: 0,
@@ -977,7 +978,8 @@ export const createScene = (options: {
       const layers: number[] = [];
       styles.shadows.forEach((spec: ShadowSpec, index) => {
         meta[index * 4] = spec.layers.length;
-        meta[index * 4 + 1] = layers.length / 8;
+        // The shader indexes vec4s; a layer is two of them.
+        meta[index * 4 + 1] = layers.length / 4;
         for (const layer of spec.layers) {
           const named = layer.color === undefined ? undefined : theme.colors[layer.color];
           const colour = named ?? spec.tint ?? { r: 0, g: 0, b: 0, a: 0 };

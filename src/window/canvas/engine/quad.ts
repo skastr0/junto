@@ -35,7 +35,7 @@
  *   112 previousStyle          u32     reserved for the style transition
  *   116 changeAt               f32     wall-clock ms of the style change
  *   120 dash                   u16x2   reserved
- *   124 reserved               u32
+ *   124 hole                   f32     element inset a shadow must not fill
  *
  * Colour lives in the style table (engine/styles.ts): the record names its
  * style by id and the fill, fillTo and stroke words below are reserved (zero),
@@ -117,6 +117,8 @@ export type PackedQuad = {
   readonly gradientAngle: number;
   readonly anchorX: number;
   readonly anchorY: number;
+  /** A shadow's element inset in board units: no layer paints inside it. */
+  readonly hole: number;
   readonly style: number;
   readonly previousStyle: number;
   readonly changeAt: number;
@@ -144,6 +146,7 @@ export const EMPTY_QUAD: PackedQuad = {
   gradientAngle: 0,
   anchorX: 0,
   anchorY: 0,
+  hole: 0,
   style: INLINE_STYLE,
   previousStyle: INLINE_STYLE,
   changeAt: 0,
@@ -199,7 +202,7 @@ export const writeQuad = (buffer: QuadBuffer, slot: number, quad: PackedQuad, ow
   u[at + 28] = quad.previousStyle;
   f[at + 29] = quad.changeAt;
   u[at + 30] = quad.dash;
-  u[at + 31] = 0;
+  f[at + 31] = quad.hole;
 };
 
 /** Pack a dash/gap pair into one word; both are board units, rounded. */

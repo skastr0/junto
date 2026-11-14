@@ -387,3 +387,28 @@ describe("a hovered part", () => {
     expect(seen.at(-1)).toBeUndefined();
   });
 });
+
+describe("a shadow's element hole", () => {
+  it("packs the inset and gives each spec an offset in vec4s", () => {
+    const shadowAt = (key: string, name: string, hole: number, z: number): Quad => ({
+      key,
+      kind: "shadow",
+      band: "lifted",
+      z,
+      rect: { x: 0, y: 0, width: 100, height: 60 },
+      tiers: 15,
+      scale: { kind: "board" },
+      radii: 8,
+      hole,
+      style: { shadow: { name, tint: { token: "green" } } },
+    });
+    const scene = sceneWith(() => [shadowAt("reach", "reach", 6, 70), shadowAt("far", "reach-far", 18, 71)]);
+    expect(float(scene, 0, 31)).toBe(6);
+    expect(float(scene, 1, 31)).toBe(18);
+    const snapshot = scene.shadowSnapshot();
+    // The reach is two layers at vec4 0; reach-far is one layer after those
+    // four vec4s, not after two.
+    expect(Array.from(snapshot.meta.slice(0, 8))).toEqual([2, 0, 0, 0, 1, 4, 0, 0]);
+    expect(snapshot.layers.length).toBe(3 * 8);
+  });
+});

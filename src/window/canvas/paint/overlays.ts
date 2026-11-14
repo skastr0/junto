@@ -75,7 +75,7 @@ export const reachQuads = (
         shadow(
           { key, z: 70, rect },
           { shadow: { name: near ? "reach" : "reach-far", tint: hue } },
-          { tiers: tiers(near), radii: REACH.radius, motion, band: "lifted" },
+          { tiers: tiers(near), radii: REACH.radius, motion, band: "lifted", hole: inset },
         ),
       );
     }

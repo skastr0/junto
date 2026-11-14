@@ -79,7 +79,7 @@ struct Quad {
   previousStyle: u32,
   changeAt: f32,
   dash: u32,
-  reserved: u32,
+  hole: f32,
 };
 
 struct VSOut {
@@ -261,16 +261,25 @@ fn filled(base: u32, local: vec2f) -> vec4f {
     let count = min(spec.x, 32u);
     var outColour = vec3f(0.0);
     var outAlpha = 0.0;
+    // A shadow is the element's own box grown by each layer, painted only
+    // outside that box. The painter grows the quad past the element to give a
+    // glow room and names the growth as its hole; without the hole the solid
+    // first layer of a ring shadow fills the card with its tint.
+    let baseHalf = max(in.half - vec2f(q.hole), vec2f(0.0));
+    let baseR = max(q.radii.x - q.hole, 0.0);
     for (var i = 0u; i < count; i = i + 1u) {
       let layer = shadowLayers[spec.y + i * 2u];
       let tint = shadowLayers[spec.y + i * 2u + 1u];
       let p = abs(in.local * in.half - vec2f(layer.x, layer.y));
-      let halfSize = in.half + vec2f(layer.w);
-      let r = max(0.0, min(q.radii.x + layer.w, min(halfSize.x, halfSize.y)));
+      let p0 = abs(in.local * in.half);
+      let halfSize = baseHalf + vec2f(layer.w);
+      let r = max(0.0, min(baseR + layer.w, min(halfSize.x, halfSize.y)));
       let corner = p - halfSize + r;
       let d = length(max(corner, vec2f(0.0))) + min(max(corner.x, corner.y), 0.0) - r;
+      let hc = p0 - baseHalf + baseR;
+      let hd = length(max(hc, vec2f(0.0))) + min(max(hc.x, hc.y), 0.0) - baseR;
       let blur = max(layer.z, 0.5);
-      let soft = clamp(0.5 - d / blur, 0.0, 1.0);
+      let soft = clamp(0.5 - d / blur, 0.0, 1.0) * (1.0 - clamp(0.5 + hd * ppu, 0.0, 1.0));
       let a = tint.a * soft * styleOpacity * o.p.w * motionAlpha;
       outColour = outColour + tint.rgb * a * (1.0 - outAlpha);
       outAlpha = outAlpha + a * (1.0 - outAlpha);

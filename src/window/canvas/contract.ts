@@ -484,6 +484,11 @@ export type Quad = {
   readonly radii?: Radii;
   readonly sprite?: SpriteRef;
   readonly text?: TextRun;
+  /**
+   * A shadow's element inset in board units: the quad is grown past the
+   * element by this much, and no shadow layer paints inside the element.
+   */
+  readonly hole?: number;
   readonly motion?: QuadMotion;
   /**
    * `live`: drawn only while motion runs; `paused`: only while it does not
@@ -814,4 +819,10 @@ export interface CanvasTestHook {
    * floor at overview. Undefined for a card with no ring.
    */
   readonly seatScaleOf?: (id: NodeId) => number | undefined;
+  /**
+   * The reach marks the shell handed the canvas on its last step, or null
+   * when none are painted. The drag preview's facts, for a test: the shell
+   * computes them, the canvas paints them.
+   */
+  readonly reachMarks?: () => ReadonlyArray<ReachMark> | null;
 }
