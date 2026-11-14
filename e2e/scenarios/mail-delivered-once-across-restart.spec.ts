@@ -429,7 +429,7 @@ test("M1 [fake-tui] a mail delivered before a quit is not typed again after reop
       .toBeDefined();
     const receiptBefore = await receiptOf(page, BO.id, messageId);
     mark(`receipt before the quit: ${JSON.stringify(receiptBefore ?? null)}`, "receipt-before");
-    soft(sent.delivery, "msg.send answered delivered").toBe("delivered");
+    soft(sent.delivery, "msg.send answered queued").toBe("queued");
     const sentView = opData(await ada.op("msg.sent", {}));
     const mine = ((sentView.items ?? []) as ReadonlyArray<Record<string, unknown>>).find((item) => item.messageId === messageId);
     mark(`Ada's msg sent view of it: ${JSON.stringify(mine ?? null)}`, "msg-sent-view");

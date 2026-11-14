@@ -33,8 +33,8 @@ export const SeatIdentity = Schema.Struct({
   regions: Schema.Array(SeatRegion),
 });
 
-/** Where a mail is once it is written: typed into its seat, kept for it, handed to a link, or held for one. */
-export const MailDelivery = Schema.Literals(["delivered", "waiting", "handed", "held"]);
+/** Where a mail is once it is written: typed into its seat, gathered for its next turn, kept for it, handed to a link, or held for one. */
+export const MailDelivery = Schema.Literals(["delivered", "queued", "waiting", "handed", "held"]);
 
 /** A write applied here, or queued for the machine that edits the canvas, with its words when it has any. */
 const mutation = {

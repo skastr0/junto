@@ -132,12 +132,13 @@ export const MAIL_PASS_CHUNK = 64;
 
 /** Whether a message reached its seat now, or waits for the seat to come up. */
 /**
- * What became of mail, as its sender is told. `delivered` and `waiting` are
- * for a seat of this machine: typed into it, or kept until it can be. For a
+ * What became of mail, as its sender is told. `delivered`, `queued` and
+ * `waiting` are for a seat of this machine: typed into it, gathered into the
+ * batch its next mail turn types, or kept until the seat can take it. For a
  * seat of another machine the mail is `handed` to an open link on its way
  * there, or `held` here until a link opens.
  */
-export type MailDeliveryState = "delivered" | "waiting" | "handed" | "held";
+export type MailDeliveryState = "delivered" | "queued" | "waiting" | "handed" | "held";
 
 /** Is a link open that mail for this seat of another machine leaves on. */
 export type MailLinkRoute = (canvas: string, nodeId: string) => Promise<boolean>;

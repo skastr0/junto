@@ -10,8 +10,8 @@ import { readSeatMailbox } from "../harness/work-mail";
  * admitted seat process; delivery rides the real drive onto the seat's
  * PTY. msg.send types the notice whole under one header,
  * `mail from <sender>, id <id> — reply: junto msg reply '...'`, marks it
- * read, and answers { messageId, delivery }: "delivered" once it is on the seat,
- * "waiting" when the seat is not up yet. Evidence comes from the op's
+ * read, and answers { messageId, delivery: "queued" } once stored and queued
+ * for the seat's next mail turn. Evidence comes from the op's
  * `delivery` field, the app's projected mailbox and `deliveredAt` receipt,
  * and the fake's own stdin log (one bracketed paste of the exact payload).
  *
@@ -126,7 +126,7 @@ test("mail [fake-tui]: sent mail is delivered at once with one PTY paste", async
     const data = opData(send);
     const messageId = data.messageId as string;
     expect(typeof messageId).toBe("string");
-    expect(data.delivery).toBe("delivered");
+    expect(data.delivery).toBe("queued");
 
     await expect
       .poll(() => crewMessageCount(page, CANVAS, B), { timeout: 15_000 })
@@ -208,7 +208,7 @@ test("crew mail [fake-tui]: mail sent together is typed as one turn, never one e
     // Five sends at once, each its own op on A's socket, well inside the 2 s quiet.
     const texts = ["one", "two", "three", "four", "five"].map((word) => `peer mail: burst ${word}`);
     const sends = await Promise.all(texts.map((text) => seatAHandle.op("msg.send", { target: B, text })));
-    expect(sends.map((send) => opData(send).delivery), JSON.stringify(sends)).toEqual(texts.map(() => "delivered"));
+    expect(sends.map((send) => opData(send).delivery), JSON.stringify(sends)).toEqual(texts.map(() => "queued"));
     const ids = sends.map((send) => opData(send).messageId as string).sort();
 
     // One paste: a count line, then each mail under its own header, oldest first.
@@ -241,7 +241,7 @@ test("crew mail [fake-tui]: read and reply state stay truthful across the pair",
     });
     const data = opData(send);
     const messageId = data.messageId as string;
-    expect(data.delivery).toBe("delivered");
+    expect(data.delivery).toBe("queued");
     await expect
       .poll(() => deliveredAtOf(page, messageId), { timeout: 60_000 })
       .toBeDefined();
@@ -351,7 +351,7 @@ test("crew mail [fake-tui]: removing the edge mid-flight closes further sends", 
       target: B,
       text: "peer mail: before the cut",
     });
-    expect(opData(first).delivery).toBe("delivered");
+    expect(opData(first).delivery).toBe("queued");
 
     // Operator removes the edge through the real authoring path.
     await commandModel(page, { _tag: "Remove", canvas: CANVAS, nodes: [], wires: ["e-ab"] });

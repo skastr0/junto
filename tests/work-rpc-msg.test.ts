@@ -136,6 +136,7 @@ describe("the msg contract across the work socket", () => {
   it("answers each op as the contract types it, decoded by the CLI", async () => {
     const sent = await cli(mine, callWorkRpc(MsgSend, { target: PEER, text: "hello" }).pipe(Effect.provide(WorkSocketLive)));
     expect("delivery" in sent && sent.recipient.nodeId).toBe(PEER);
+    expect("delivery" in sent && sent.delivery).toBe("queued");
     const messageId = sent.messageId;
 
     const listed = await cli(peerToken, callWorkRpc(MsgList, { peek: true }).pipe(Effect.provide(WorkSocketLive)));

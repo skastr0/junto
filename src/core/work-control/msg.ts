@@ -341,10 +341,14 @@ export const MsgHandlers = MsgServed.toLayer(
       );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      const delivery = yield* Effect.promise(() =>
-        messageDelivery.deliver(caller.canvasName, decoded.success.target, messageId),
-      );
-      return { ...exposeWorkMutation(mapped.success), messageId, threadId: threadId ?? messageId, recipient, delivery, ...unlinkedField(linked) };
+      return {
+        ...exposeWorkMutation(mapped.success),
+        messageId,
+        threadId: threadId ?? messageId,
+        recipient,
+        delivery: "queued" as const,
+        ...unlinkedField(linked),
+      };
     }).pipe(Effect.mapError(workFailure)),
   "msg.read": (args) =>
     Effect.gen(function* () {

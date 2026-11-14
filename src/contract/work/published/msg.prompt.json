@@ -342,6 +342,7 @@
           "type": "string",
           "enum": [
             "delivered",
+            "queued",
             "waiting",
             "handed",
             "held"
