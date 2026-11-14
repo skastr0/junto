@@ -18,7 +18,8 @@ import { useEffect, useMemo, useRef } from "react";
 import { selectNode, state$ } from "../../lib/state";
 import { themeMode$ } from "../../lib/theme-mode";
 import { canvasZoomRequest$ } from "../../lib/canvas-zoom";
-import { createEngine, type SeamEngine } from "../engine/engine";
+import { createEngine, type SeamEngine, type WireLayer } from "../engine/engine";
+import { createWireLayer, type WiresLayer } from "../engine/wires";
 import type { Camera, Rect } from "../contract";
 import { takeCamera, leaveCamera } from "./camera-handoff";
 import { pageDeviceKeeper } from "./gpu-device";
@@ -91,6 +92,24 @@ export function GpuCanvas({ onUnavailable }: Props) {
     }
     const canvasName = state$.canvasName.peek();
     const handed = takeCamera(canvasName);
+    const reducedMotion = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-reduced-motion: reduce)") : undefined;
+    let wires: WiresLayer | undefined;
+    // The engine hosts the wire layer before the layer exists: the delegate is
+    // stable, and every call lands on the layer once it is built just below.
+    const wireHost: WireLayer = {
+      apply: (ops) => wires?.apply(ops),
+      frame: (facts) => {
+        wires?.frame(facts);
+      },
+      upload: (device) => wires?.upload(device),
+      encodeRest: (pass) => wires?.encodeRest(pass),
+      encodeTracks: (pass) => wires?.encodeTracks(pass),
+      hit: (at) => wires?.hit(at),
+      busy: (now) => wires?.busy(now) ?? false,
+      dispose: () => {
+        wires?.dispose();
+      },
+    };
     const engine = createEngine({
       surface: canvas,
       context,
@@ -100,7 +119,14 @@ export function GpuCanvas({ onUnavailable }: Props) {
       // Wall clock for ring phase: the DOM ring's phase comes from Date.now().
       wallClock: () => Date.now(),
       hands: canvasHands(),
+      wires: wireHost,
       ...(handed === undefined ? {} : { camera: handed }),
+    });
+    wires = createWireLayer({
+      rectOf: (id) => engine.rectOf(id),
+      device: keeper,
+      mode: themeMode$.peek(),
+      reducedMotion: () => reducedMotion?.matches ?? false,
     });
     mounted = engine;
     engineRef.current = engine;
@@ -159,10 +185,12 @@ export function GpuCanvas({ onUnavailable }: Props) {
     // The pointer names the card under it for the native title, as the DOM did.
     const hover = (event: PointerEvent): void => {
       const hit = api.pick({ x: event.clientX, y: event.clientY });
+      wires?.setHover(hit?.wireId);
       const title = hit?.nodeId === undefined ? "" : mirror.card(hit.nodeId)?.text ?? "";
       if (canvas.title !== title) canvas.title = title;
     };
     const leave = (): void => {
+      wires?.setHover(undefined);
       canvas.title = "";
     };
     canvas.addEventListener("pointermove", hover, { passive: true });

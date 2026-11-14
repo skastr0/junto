@@ -16,6 +16,7 @@ import type { Wire as ModelWire } from "@shared/model/wire";
 import type { CardDerived, CardFact, SceneOp, WireFact } from "../contract";
 import { state$ } from "../../lib/state";
 import { modelStore } from "../../lib/use-model";
+import { retainWireRoutes } from "../feed/loom";
 
 type Sink = {
   readonly apply: (ops: ReadonlyArray<SceneOp>) => void;
@@ -99,6 +100,7 @@ export const startSceneBridge = (sink: Sink): (() => void) => {
   let releaseCanvas: (() => void) | undefined;
   let offScene: (() => void) | undefined;
   let offSelection: (() => void) | undefined;
+  let offLoom: (() => void) | undefined;
   let loadedFor: string | undefined;
   let loaded = false;
   let rows = new Map<string, ModelNode>();
@@ -107,9 +109,11 @@ export const startSceneBridge = (sink: Sink): (() => void) => {
   const close = (): void => {
     offScene?.();
     offSelection?.();
+    offLoom?.();
     releaseCanvas?.();
     offScene = undefined;
     offSelection = undefined;
+    offLoom = undefined;
     releaseCanvas = undefined;
     loadedFor = undefined;
     loaded = false;
@@ -196,6 +200,10 @@ export const startSceneBridge = (sink: Sink): (() => void) => {
         },
       ]);
     });
+
+    // The settled board's wire routes: the loom plans from model rectangles
+    // and sends only the wires a change can have altered.
+    offLoom = retainWireRoutes(canvasName, (ops) => sink.apply(ops));
   };
 
   const offName = observe(() => {

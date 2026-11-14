@@ -14,6 +14,7 @@
  */
 
 export * from "./elbow";
+export * from "./limits";
 export * from "./ease";
 export * from "./motion";
 export * from "./pick";

@@ -29,16 +29,16 @@ export const TRACK_WIDTH = BORDER["wire-track"];
 /** Canvas units from one chevron to the next, at near. */
 export const TRACK_PERIOD = 18;
 /** How far a chevron's arms reach back from its tip. */
-const TRACK_ARM = 4;
+export const TRACK_ARM = 4;
 /** Half the chevron's height, across the path. */
-const TRACK_SPREAD = 4.4;
+export const TRACK_SPREAD = 4.4;
 /** One period's slide: 40 canvas units a second at near (flow-track.css). */
 export const TRACK_PERIOD_MS = DURATION.flow;
 /** One breath of a derives track (flow-track.css). */
 export const TRACK_BREATH_MS = DURATION.breathe;
 /** A derives arrowhead: its back and tip either side of the period's middle. */
-const DERIVE_BACK = 3;
-const DERIVE_TIP = 3.5;
+export const DERIVE_BACK = 3;
+export const DERIVE_TIP = 3.5;
 
 /**
  * How much larger the track is laid as the camera pulls back, so a chevron

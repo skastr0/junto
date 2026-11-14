@@ -1,8 +1,8 @@
 /**
  * The fallback elbow: the wire drawn when the router answers null (an open
  * field) or while a card is dragged. Today it is React Flow's
- * `getSmoothStepPath` with `borderRadius: 8` and its defaults, `offset: 20`
- * and `stepPosition: 0.5` (WireEdge.tsx:83-94); this is that path as points,
+ * `getSmoothStepPath` with a corner radius of 8 and its defaults, an offset
+ * of 20 and step position 0.5 (WireEdge.tsx:83-94); this is that path as points,
  * so the GPU canvas draws the same elbow without React Flow.
  *
  * `elbowPoints` is `getPoints` from @xyflow/system 0.0.79 (index.js:1184-1305)
