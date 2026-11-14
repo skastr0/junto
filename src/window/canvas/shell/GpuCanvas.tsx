@@ -319,7 +319,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
         data-testid="gpu-canvas"
         tabIndex={-1}
       />
-      <div ref={marqueeRef} className="junto-marquee" data-testid="canvas-marquee" aria-hidden hidden />
+      <div ref={marqueeRef} className="junto-marquee" data-testid="canvas-marquee" aria-hidden />
       <CanvasMenus />
     </CanvasApiProvider>
   );

@@ -188,7 +188,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   let pointerState: PointerState = POINTER_IDLE;
   let autoPan: Point | null = null;
   let preview: ConnectionPreview | null = null;
-  /** The marquee box on screen, as the shell's overlay draws it. */
+  /** The marquee box in board units; converted to screen at each frame. */
   let marquee: Rect | null = null;
 
   const frameListeners = new Set<(facts: FrameFacts) => void>();
@@ -257,9 +257,10 @@ export const createEngine = (host: EngineHost): SeamEngine => {
         dirty = true;
         return;
       case "marquee":
-        // The engine reports the box in screen pixels; the shell's overlay
-        // draws it outside React (track G). Null when the drag ends.
-        marquee = effect.rect === null ? null : rectToScreen(camera, effect.rect);
+        // The shell's overlay draws it outside React (track G): the frame
+        // fact carries the box in screen pixels, converted here so it follows
+        // an auto-pan between pointer moves. Null when the drag ends.
+        marquee = effect.rect;
         dirty = true;
         return;
       case "connecting": {
@@ -445,7 +446,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       scales: { farSeat: farSeatScale(camera.zoom), seatFloor: seatFloorScale(camera.zoom), node: nodeScale(camera.zoom) },
       settled,
       anchors,
-      marquee,
+      marquee: marquee === null ? null : rectToScreen(camera, marquee),
     };
     for (const listener of [...frameListeners]) listener(facts);
 
