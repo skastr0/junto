@@ -300,19 +300,25 @@ fn filled(base: u32, local: vec2f) -> vec4f {
     alpha = fill.a * inner + stroke.a * max(0.0, outer - inner);
   }
 
-  if (q.kind >= 2u && q.source != 0xffffffffu) {
-    let cell = cells[q.source];
-    let uv = mix(cell.xy, cell.zw, in.corner);
-    // Level sample: a per-instance branch is not uniform control flow, where
-    // textureSample is not allowed.
-    let tex = textureSampleLevel(atlas, atlasSampler, uv, 0.0);
-    if (q.kind == 3u) {
-      colour = ink.rgb;
-      alpha = tex.r * ink.a * outer;
+  if (q.kind >= 2u) {
+    if (q.source == 0xffffffffu) {
+      // A text or sprite quad with no cell yet draws nothing; without this
+      // the fill path above would stamp the style's fill across the rect.
+      alpha = 0.0;
     } else {
-      let tint = select(vec4f(1.0), fill, fill.a > 0.0);
-      colour = tex.rgb * tint.rgb;
-      alpha = tex.a * select(1.0, tint.a, fill.a > 0.0) * outer;
+      let cell = cells[q.source];
+      let uv = mix(cell.xy, cell.zw, in.corner);
+      // Level sample: a per-instance branch is not uniform control flow, where
+      // textureSample is not allowed.
+      let tex = textureSampleLevel(atlas, atlasSampler, uv, 0.0);
+      if (q.kind == 3u) {
+        colour = ink.rgb;
+        alpha = tex.r * ink.a * outer;
+      } else {
+        let tint = select(vec4f(1.0), fill, fill.a > 0.0);
+        colour = tex.rgb * tint.rgb;
+        alpha = tex.a * select(1.0, tint.a, fill.a > 0.0) * outer;
+      }
     }
   }
 
