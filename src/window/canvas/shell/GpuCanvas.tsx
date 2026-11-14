@@ -19,7 +19,7 @@ import { selectNode, state$ } from "../../lib/state";
 import { themeMode$ } from "../../lib/theme-mode";
 import { canvasZoomRequest$ } from "../../lib/canvas-zoom";
 import { createEngine, type SeamEngine, type WireLayer } from "../engine/engine";
-import { measureRun } from "../engine/text";
+import { browserRasterizers, createGpuAtlas } from "../engine/gpu-atlas";
 import { measureRun } from "../engine/text";
 import { createWireLayer, type WiresLayer } from "../engine/wires";
 import type { Camera, Rect, TextRun } from "../contract";
