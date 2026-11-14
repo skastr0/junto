@@ -19,7 +19,7 @@ import { selectNode, state$ } from "../../lib/state";
 import { themeMode$ } from "../../lib/theme-mode";
 import { canvasZoomRequest$ } from "../../lib/canvas-zoom";
 import { createEngine, type SeamEngine, type WireLayer } from "../engine/engine";
-import { browserRasterizers, createGpuAtlas } from "../engine/gpu-atlas";
+import { measureRun } from "../engine/text";
 import { measureRun } from "../engine/text";
 import { createWireLayer, type WiresLayer } from "../engine/wires";
 import type { Camera, Rect, TextRun } from "../contract";
@@ -378,10 +378,11 @@ export function GpuCanvas({ onUnavailable }: Props) {
     <CanvasApiProvider api={api}>
       <canvas
         ref={ref}
-        className="junto-gpu-canvas junto-canvas block h-full w-full"
+        className="junto-gpu-canvas junto-canvas block h-full w-full outline-none focus:outline-none"
         data-canvas-scope
         data-testid="gpu-canvas"
         tabIndex={-1}
+        style={{ outline: "none" }}
       />
       <div ref={marqueeRef} className="junto-marquee" data-testid="canvas-marquee" aria-hidden />
       <CardOverlays mirror={mirror} api={api} />

@@ -14,6 +14,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { use$ } from "@legendapp/state/react";
 import {
   BookmarkPlus,
+  LayoutGrid,
   Link2,
   MessageSquare,
   Pencil,
@@ -40,6 +41,7 @@ import { seatIdsAmong } from "../../lib/multi-selection";
 import { openSaveSquad } from "../../lib/squads-state";
 import { saveSelectionToCommandGroup } from "../../lib/command-group-runtime";
 import { state$ } from "../../lib/state";
+import { openTerminalGrid } from "../../lib/terminal-grid-state";
 import { modelStore } from "../../lib/use-model";
 import { useContentCalls } from "../../lib/content-calls";
 import { makeAddActions, ModeDeckFocus } from "../../components/CanvasFieldTools";
@@ -266,6 +268,14 @@ function SelectionMenu({ menu }: { readonly menu: Extract<CanvasMenuState, { rea
       ariaLabel: "Connect the selected agents to each other",
       icon: <Link2 size={14} />,
       onSelect: () => { connectMesh(agents); closeCanvasMenu(); },
+    }]),
+    ...(agents.length === 0 ? [] : [{
+      key: "open",
+      label: "open",
+      detail: `${agents.length} agent${agents.length === 1 ? "" : "s"}, grid`,
+      ariaLabel: "Open the selected agents in a grid",
+      icon: <LayoutGrid size={14} />,
+      onSelect: () => { openTerminalGrid(agents); closeCanvasMenu(); },
     }]),
     { key: "region", label: "create region", detail: "from selection", ariaLabel: "Create region from selection", icon: <SquareDashed size={14} />, onSelect: () => { regionAround(ids); closeCanvasMenu(); } },
     ...(agents.length < 2 ? [] : [{

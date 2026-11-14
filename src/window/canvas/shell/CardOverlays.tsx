@@ -26,6 +26,7 @@ import { claimFocus } from "../../lib/focus-ownership";
 import { deleteNode, editText, renameGroup } from "../../lib/mutations";
 import { state$, toggleConnectionFocus } from "../../lib/state";
 import { useNode } from "../../lib/use-model";
+import { canvasGesture$ } from "./hands";
 import type { GpuCanvasApi } from "./gpu-canvas-api";
 import type { SurfaceMirror } from "./surface-mirror";
 
@@ -330,10 +331,11 @@ export function CardOverlays({
 }) {
   const selection = use$(() => selectionNow());
   const editId = use$(state$.editNodeId);
+  const gesture = use$(() => canvasGesture$.gesture.get());
   const sole = selection.length === 1 ? selection[0] : undefined;
   return (
     <>
-      {sole !== undefined && editId === "" ? <SelectionToolbar id={sole} mirror={mirror} /> : null}
+      {sole !== undefined && editId === "" && gesture === null ? <SelectionToolbar id={sole} mirror={mirror} /> : null}
       {editId !== "" ? <InlineEditor id={editId} mirror={mirror} api={api} /> : null}
     </>
   );

@@ -14,6 +14,8 @@
  * React store, no card and no React Flow is read here.
  */
 
+import { startTransition } from "react";
+import { observable } from "@legendapp/state";
 import type { Verb } from "@shared/physics";
 import { verbHandleId, addEdge, connectAllToTarget, deleteEdges } from "../../lib/edge-mutations";
 import { resizeNode, syncPositions } from "../../lib/geometry";
@@ -69,6 +71,16 @@ export type HandsHost = {
 
 /** The selection `state$` holds, as the engine is told it — the same fact the feed derives (lib/canvas-focus.ts). */
 export const selectionFact = (): SelectionFact => canvasSelectionFact(state$.canvasName.peek());
+
+/**
+ * The gesture the engine is running, as the shell sees it. A drag or resize
+ * commits to no rows until the drop, so the React chrome that reads the
+ * selection (the card toolbar, the RTS agent surface) stays unmounted until
+ * the pointer lets go: mounting eight action popovers on the first drag pixel
+ * cost a frame at the start of every drag of an unselected card.
+ */
+export type CanvasGesture = "drag" | "connect" | "marquee" | "resize" | null;
+export const canvasGesture$ = observable<{ gesture: CanvasGesture }>({ gesture: null });
 
 const toggleInSelection = (id: string): void => {
   const held = state$.selectedNodeIds.peek();
@@ -229,6 +241,7 @@ export const handleIntent = (intent: Intent, host: HandsHost = {}, memory: Hands
       // (the feed owns it), and the flag tells a click from a gesture so a
       // click on a selected note opens its text editor.
       memory.gesturing = intent.gesture !== null;
+      if (canvasGesture$.gesture.peek() !== intent.gesture) canvasGesture$.gesture.set(intent.gesture);
       // A wire being drawn shows the wires a drop can land on (wire-mode.ts).
       if (intent.gesture === "connect") {
         memory.releaseConnecting ??= holdWireMode("connecting");
@@ -277,7 +290,17 @@ export const cursorFor = (hit: Hit | null): string => {
  */
 export const installHands = (engine: HandsEngine, host: HandsHost = {}): (() => void) => {
   const memory: HandsMemory = { gesturing: false };
-  const offIntent = engine.onIntent((intent) => handleIntent(intent, host, memory));
+  const offIntent = engine.onIntent((intent) => {
+    // A drag's first pixel selects the card it grabbed. The selection write is
+    // synchronous for the model and the engine, but its React chrome is a
+    // transition: the toolbar and the bottom bar mount after the frame, not
+    // inside the pointermove that started the drag.
+    if (intent.kind === "select" || intent.kind === "selectWire" || intent.kind === "clearSelection") {
+      startTransition(() => handleIntent(intent, host, memory));
+      return;
+    }
+    handleIntent(intent, host, memory);
+  });
   const tell = (): void => engine.apply([{ kind: "selection", fact: selectionFact() }]);
   const offSelection = state$.selectedNodeIds.onChange(tell);
   const offSingle = state$.selectedNodeId.onChange(tell);
@@ -312,15 +335,64 @@ const modifiersOf = (event: Pick<MouseEvent, "shiftKey" | "altKey" | "ctrlKey" |
  * stays in `installKeyDispatcher(KEY_ACTIONS)`; only keys the camera holds
  * are read here, and only while the canvas owns the keyboard.
  */
+const CLICK_MS = 400;
+const CLICK_SLOP_PX = 8;
+
+/**
+ * A primary-button click chain, as the browser counts one (W3C UI Events): a
+ * second press within 400ms and 8px of the first is a double click, and the
+ * count resets after it or after a drag. `PointerEvent.detail` is always 0,
+ * so the click count a pointer event cannot carry is counted here.
+ */
+const clickChain = () => {
+  let prior: { readonly at: number; readonly x: number; readonly y: number; readonly count: number } | null = null;
+  let press = { x: 0, y: 0, clicks: 0, dragged: false };
+  const at = (event: PointerEvent): { readonly x: number; readonly y: number } => ({ x: event.clientX, y: event.clientY });
+  const down = (event: PointerEvent): number => {
+    const here = at(event);
+    if (event.button !== 0) {
+      // A middle or right press is not a click, and it breaks the chain.
+      prior = null;
+      press = { x: here.x, y: here.y, clicks: 0, dragged: false };
+      return 0;
+    }
+    const now = performance.now();
+    const continuing =
+      prior !== null &&
+      now - prior.at <= CLICK_MS &&
+      Math.hypot(here.x - prior.x, here.y - prior.y) <= CLICK_SLOP_PX;
+    const count = prior !== null && continuing ? prior.count + 1 : 1;
+    // A double click ends the chain: a third press starts over at one.
+    prior = count >= 2 ? null : { at: now, x: here.x, y: here.y, count };
+    press = { x: here.x, y: here.y, clicks: count, dragged: false };
+    return count;
+  };
+  const move = (event: PointerEvent): void => {
+    if (press.clicks === 0 || press.dragged || (event.buttons & 1) === 0) return;
+    if (Math.hypot(event.clientX - press.x, event.clientY - press.y) <= CLICK_SLOP_PX) return;
+    // The press became a drag: it can neither end as a click nor feed a double.
+    press.dragged = true;
+    prior = null;
+  };
+  const up = (): number => {
+    const count = press.clicks;
+    press = { ...press, clicks: 0 };
+    return count;
+  };
+  return { down, move, up };
+};
+
 export const attachCanvasInput = (engine: InputEngine, canvas: HTMLCanvasElement): (() => void) => {
   const point = (event: MouseEvent | WheelEvent): Point => {
     const rect = canvas.getBoundingClientRect();
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   };
+  const clicks = clickChain();
   const pointer = (
     phase: "down" | "move" | "up" | "cancel" | "leave",
     event: PointerEvent,
   ): void => {
+    if (phase === "move") clicks.move(event);
     engine.input({
       kind: "pointer",
       phase,
@@ -331,7 +403,7 @@ export const attachCanvasInput = (engine: InputEngine, canvas: HTMLCanvasElement
       button: isMac() && event.button === 0 && event.ctrlKey ? 2 : event.button,
       buttons: event.buttons,
       modifiers: modifiersOf(event),
-      clicks: event.detail,
+      clicks: phase === "down" ? clicks.down(event) : phase === "up" ? clicks.up() : 0,
     });
   };
   const onDown = (event: PointerEvent): void => {

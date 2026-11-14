@@ -18,6 +18,7 @@ import {
   FolderOpen,
   Globe,
   KeyRound,
+  LayoutGrid,
   Package,
   Pencil,
   RefreshCw,
@@ -31,6 +32,7 @@ import {
   productNodeKindEnabled,
 } from "@shared/features";
 import { state$ } from "../../lib/state";
+import { openTerminalGrid } from "../../lib/terminal-grid-state";
 import { titleOf } from "@shared/model/title";
 import { detailOf } from "../../lib/node-presentation";
 import { HUE } from "../../lib/theme";
@@ -419,6 +421,14 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<Node> }) {
       <>
         <div className="rts-kind-strip" role="toolbar" aria-label="Selected agents actions">
           <SeatOffboardKindKey nodeIds={targets.map((target) => target.nodeId)} />
+          <IconButton
+            aria-label="Open selected agents in a grid"
+            title="Open selected agents in a grid"
+            data-testid="rts-open-grid"
+            onClick={() => openTerminalGrid(targets.map((target) => target.nodeId))}
+          >
+            <LayoutGrid size={14} />
+          </IconButton>
         </div>
         <MultiPromptComposer
           key={ownerIdentity}
