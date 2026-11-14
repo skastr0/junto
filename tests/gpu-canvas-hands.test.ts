@@ -168,7 +168,7 @@ describe("selection lives in state$", () => {
     expect(state$.selectedNodeId.peek()).toBe("");
   });
 
-  it("is told to the engine as one fact, and stays in step", () => {
+  it("is told to the engine as one fact, and stays in step", async () => {
     open([note("a")]);
     const facts: SelectionFact[] = [];
     let listener: ((intent: Intent) => void) | undefined;
@@ -187,6 +187,7 @@ describe("selection lives in state$", () => {
     const stop = installHands(engine);
     expect(facts.at(-1)).toEqual({ nodeIds: [] });
     listener?.({ kind: "select", nodeIds: ["a"], mode: "replace" });
+    await Promise.resolve();
     expect(facts.at(-1)).toEqual({ nodeIds: ["a"] });
     state$.selectedEdgeId.set("w");
     expect(facts.at(-1)).toMatchObject({ wireId: "w" });
@@ -194,6 +195,36 @@ describe("selection lives in state$", () => {
     const heard = facts.length;
     state$.selectedNodeId.set("");
     expect(facts).toHaveLength(heard);
+  });
+
+  it("highlights the grabbed card at once and writes its selection on the drop", () => {
+    open([note("a"), note("b")]);
+    const facts: SelectionFact[] = [];
+    let listener: ((intent: Intent) => void) | undefined;
+    const engine: HandsEngine = {
+      apply: (ops) => {
+        for (const op of ops) facts.push(op.fact);
+      },
+      input: () => undefined,
+      onIntent: (next) => {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+    };
+    const stop = installHands(engine);
+    listener?.({ kind: "select", nodeIds: ["a"], mode: "replace" });
+    listener?.({ kind: "gesture", gesture: "drag", nodeIds: ["a"] });
+    // The engine has the new selection on the first drag frame...
+    expect(facts.at(-1)).toEqual({ nodeIds: ["a"] });
+    // ...while the row the React chrome reads waits for the drop.
+    expect(state$.selectedNodeId.peek()).toBe("");
+    expect(state$.selectedNodeIds.peek()).toEqual([]);
+    listener?.({ kind: "gesture", gesture: null, nodeIds: [] });
+    expect(state$.selectedNodeId.peek()).toBe("a");
+    expect(facts.at(-1)).toEqual({ nodeIds: ["a"] });
+    stop();
   });
 
   it("reads the single selection and the multi set as one fact", () => {

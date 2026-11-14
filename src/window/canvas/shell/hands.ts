@@ -14,7 +14,6 @@
  * React store, no card and no React Flow is read here.
  */
 
-import { startTransition } from "react";
 import { observable } from "@legendapp/state";
 import type { Verb } from "@shared/physics";
 import { verbHandleId, addEdge, connectAllToTarget, deleteEdges } from "../../lib/edge-mutations";
@@ -287,19 +286,68 @@ export const cursorFor = (hit: Hit | null): string => {
 /**
  * Wire the engine's intents to the writers and keep its selection fact in
  * step. Returns the way to stop both.
+ *
+ * A drag's first pixel selects the card it grabbed, and the pointer machine
+ * says that as `select` immediately followed by `gesture: "drag"` in one
+ * batch. Writing the selection then would mount the card toolbar and the RTS
+ * agent surface inside the first pointermove, on the frame the drag needs. So
+ * the select is held for one microtask: when a drag follows it, the canvas is
+ * sent the selection fact at once (the grabbed card highlights on frame 0)
+ * and the row is written on the drop, where the chrome may mount; any other
+ * select is written before the intent that followed it.
  */
 export const installHands = (engine: HandsEngine, host: HandsHost = {}): (() => void) => {
   const memory: HandsMemory = { gesturing: false };
+  /** A select held one microtask until the batch says whether a drag follows. */
+  let pending: Extract<Intent, { readonly kind: "select" }> | null = null;
+  let scheduled = false;
+  /** The drag's own selection: highlighted now, written on the drop. */
+  let dragSelection: Extract<Intent, { readonly kind: "select" }> | null = null;
+
+  /** The fact the grabbed card gets before its selection row is written. */
+  const dragFact = (nodeIds: SelectionFact["nodeIds"]): SelectionFact => {
+    const focused = state$.focusedNodeId.peek();
+    const focus = state$.connectionFocusNodeId.peek();
+    const sole = nodeIds.length === 1 ? nodeIds[0] : undefined;
+    return {
+      nodeIds: [...nodeIds],
+      ...(focus === "" || focus !== sole ? {} : { connectionFocusNodeId: focus }),
+      ...(focused === "" ? {} : { focusedNodeId: focused }),
+    };
+  };
+
+  const flush = (): void => {
+    scheduled = false;
+    const intent = pending;
+    pending = null;
+    if (intent !== null) handleIntent(intent, host, memory);
+  };
+
   const offIntent = engine.onIntent((intent) => {
-    // A drag's first pixel selects the card it grabbed. The selection write is
-    // synchronous for the model and the engine, but its React chrome is a
-    // transition: the toolbar and the bottom bar mount after the frame, not
-    // inside the pointermove that started the drag.
-    if (intent.kind === "select" || intent.kind === "selectWire" || intent.kind === "clearSelection") {
-      startTransition(() => handleIntent(intent, host, memory));
+    if (intent.kind === "gesture" && intent.gesture === "drag" && pending !== null) {
+      dragSelection = pending;
+      pending = null;
+      engine.apply([{ kind: "selection", fact: dragFact(intent.nodeIds) }]);
+      handleIntent(intent, host, memory);
+      return;
+    }
+    if (pending !== null) flush();
+    if (intent.kind === "select" && intent.mode === "replace") {
+      // The one select a drag may follow is held until this batch ends.
+      pending = intent;
+      if (!scheduled) {
+        scheduled = true;
+        queueMicrotask(flush);
+      }
       return;
     }
     handleIntent(intent, host, memory);
+    if (intent.kind === "gesture" && intent.gesture === null && dragSelection !== null) {
+      // The drop: the selection lands once the chrome can afford to mount.
+      const selected = dragSelection;
+      dragSelection = null;
+      handleIntent(selected, host, memory);
+    }
   });
   const tell = (): void => engine.apply([{ kind: "selection", fact: selectionFact() }]);
   const offSelection = state$.selectedNodeIds.onChange(tell);
@@ -379,7 +427,11 @@ const clickChain = () => {
     press = { ...press, clicks: 0 };
     return count;
   };
-  return { down, move, up };
+  const cancel = (): void => {
+    prior = null;
+    press = { x: 0, y: 0, clicks: 0, dragged: false };
+  };
+  return { down, move, up, cancel };
 };
 
 export const attachCanvasInput = (engine: InputEngine, canvas: HTMLCanvasElement): (() => void) => {
@@ -393,6 +445,7 @@ export const attachCanvasInput = (engine: InputEngine, canvas: HTMLCanvasElement
     event: PointerEvent,
   ): void => {
     if (phase === "move") clicks.move(event);
+    if (phase === "cancel") clicks.cancel();
     engine.input({
       kind: "pointer",
       phase,
