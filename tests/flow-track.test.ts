@@ -9,9 +9,7 @@ import { describe, expect, it } from "vitest";
 import { roundedOrthogonalPath } from "../src/shared/wire-route";
 import {
   flattenWirePath,
-  TRACK_BREATH_MS,
   TRACK_PERIOD,
-  TRACK_PERIOD_MS,
   TRACK_SCALE,
   TRACK_WIDTH,
   trackClearances,
@@ -128,7 +126,7 @@ describe("flow track motion and paint", () => {
 
   it("loops forever at an even pace, every run on one clock", () => {
     expect(css).toContain(
-      `[data-track-visible] > .junto-flow-track__mover {\n  animation: junto-flow-track ${TRACK_PERIOD_MS}ms linear var(--flow-track-t0, 0ms) infinite;`,
+      `[data-track-visible] > .junto-flow-track__mover {\n  animation: junto-flow-track var(--duration-flow) var(--ease-linear) var(--flow-track-t0, 0ms) infinite;`,
     );
   });
 
@@ -165,7 +163,7 @@ describe("derives track", () => {
     expect(breath).not.toBe("");
     for (const decl of breath.matchAll(/([a-z-]+)\s*:/g)) expect(decl[1]).toBe("opacity");
     expect(css).toContain(
-      `.junto-flow-track[data-verb="derives"] .junto-flow-track__run[data-track-visible] {\n  animation: junto-derive-track ${TRACK_BREATH_MS}ms ease-in-out var(--flow-track-breath-t0, 0ms) infinite;`,
+      `.junto-flow-track[data-verb="derives"] .junto-flow-track__run[data-track-visible] {\n  animation: junto-derive-track var(--duration-breathe) var(--ease-in-out) var(--flow-track-breath-t0, 0ms) infinite;`,
     );
   });
 
