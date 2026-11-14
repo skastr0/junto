@@ -344,6 +344,9 @@ const down = (state: PointerState, event: PointerInput, world: PointerWorld, out
     // The region's own handler: left button, no threshold (GroupNode.tsx:232-283).
     const ids = [id, ...world.riders(id).filter((rider) => rider !== id)];
     const origins = originsOf(ids, world);
+    // The reach preview follows a region across a boundary as it follows a
+    // card: the frame says which rectangles the pointer owns from here on.
+    out.intents.push({ kind: "gesture", gesture: "drag", nodeIds: [id, ...origins.map((o) => o.id).filter((member) => member !== id)] });
     return {
       ...state,
       gesture: {
@@ -499,7 +502,9 @@ const pressMove = (press: Pending, at: Point, world: PointerWorld, out: Out): Ge
     ids = [id];
   }
   const origins = originsOf(ids, world);
-  out.intents.push({ kind: "gesture", gesture: "drag", nodeIds: origins.map((o) => o.id) });
+  // The grabbed card leads the gesture's ids: its card carries the reach
+  // preview's words, however the selection is ordered.
+  out.intents.push({ kind: "gesture", gesture: "drag", nodeIds: [id, ...origins.map((o) => o.id).filter((member) => member !== id)] });
   const drag: Drag = {
     kind: "drag",
     pointerId: press.pointerId,
@@ -749,7 +754,7 @@ const finishDrag = (drag: Drag, out: Out): void => {
   if (positions.length > 0) out.intents.push({ kind: "move", positions });
   out.effects.push({ kind: "offset", ids: drag.ids, by: null });
   if (drag.autoPan !== null) out.effects.push({ kind: "autoPan", perFrame: null });
-  if (drag.region === undefined) out.intents.push({ kind: "gesture", gesture: null, nodeIds: [] });
+  out.intents.push({ kind: "gesture", gesture: null, nodeIds: [] });
 };
 
 /** The release: one `resize` with the final rectangle, nothing when it did not change. */

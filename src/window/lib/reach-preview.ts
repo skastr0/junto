@@ -10,12 +10,7 @@
  */
 import type { Canvas } from "@shared/model";
 import type { NodeId } from "@shared/model/base";
-import {
-  nodeReachChanges,
-  reachChange,
-  reachChangeSummary,
-  type NodeReachChange,
-} from "@shared/reach-preview";
+import { reachPreviewOf, type NodeReachChange } from "@shared/reach-preview";
 import type { ReachCanvas, ReachNode } from "@shared/region-reach";
 import type { SeatTask } from "@shared/seat-task-index";
 import { canvasApi } from "../canvas/shell/canvas-api";
@@ -102,8 +97,8 @@ export const updateReachPreview = (positions: ReadonlyMap<string, Point>, grabbe
     nodes.set(id, at === undefined || (at.x === node.x && at.y === node.y) ? node : { ...node, x: at.x, y: at.y });
   }
   const after: ReachCanvas = { nodes };
-  const changes = reachChange(current.before, after, (seat, node) => current.bySeat[seat]?.tasks.some((task) => task.node === node) === true);
-  const marks = nodeReachChanges(changes);
+  const frame = reachPreviewOf(current.before, after, (seat, node) => current.bySeat[seat]?.tasks.some((task) => task.node === node) === true);
+  const marks = frame.marks;
 
   for (const [id] of current.marks) {
     if (marks.has(id)) continue;
@@ -115,7 +110,7 @@ export const updateReachPreview = (positions: ReadonlyMap<string, Point>, grabbe
   }
   current.marks = marks;
 
-  const summary = changes.length === 0 ? "" : reachChangeSummary(changes);
+  const summary = frame.summary;
   const summaryOn = summary === "" ? undefined : grabbed;
   if (summaryOn !== current.summaryOn || summary !== current.summary) {
     if (current.summaryOn !== undefined) {

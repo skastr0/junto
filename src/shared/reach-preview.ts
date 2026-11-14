@@ -27,6 +27,13 @@ export type ReachPairChange = {
 /** How one node's reach changes, over every pair it is part of. */
 export type NodeReachChange = "gains" | "loses" | "both" | "held";
 
+/** What a move would change, as both canvases draw it: one mark per node, and the words. */
+export type ReachPreviewFrame = {
+  readonly marks: ReadonlyMap<NodeId, NodeReachChange>;
+  /** One line for the card under the pointer; empty when nothing changes. */
+  readonly summary: string;
+};
+
 /** Only an agent acts (01 rule 4); a live overseer reaches every Tasks node. */
 const isActingSeat = (node: ReachNode): boolean => node.kind === "agent";
 const isOverseer = (node: ReachNode): boolean => "overseer" in node && node.overseer === true;
@@ -129,4 +136,22 @@ export const reachChangeSummary = (changes: ReadonlyArray<ReachPairChange>): str
   if (loses > 0) parts.push(`${loses} ${loses === 1 ? "leaves" : "leave"}`);
   if (held > 0) parts.push(`${held} kept by assignment`);
   return parts.length === 0 ? "reach unchanged" : parts.join(", ");
+};
+
+/**
+ * One step of a move, as both canvases show it: the marks to draw and the
+ * words for the card under the pointer. The DOM canvas writes the marks as
+ * attributes, the GPU canvas paints them from `reachMarks`; the rules and the
+ * words are this one function so the two cannot drift.
+ */
+export const reachPreviewOf = (
+  before: ReachCanvas,
+  after: ReachCanvas,
+  holdsTaskOn: (seat: NodeId, node: NodeId) => boolean = () => false,
+): ReachPreviewFrame => {
+  const changes = reachChange(before, after, holdsTaskOn);
+  return {
+    marks: nodeReachChanges(changes),
+    summary: changes.length === 0 ? "" : reachChangeSummary(changes),
+  };
 };

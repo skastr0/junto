@@ -226,7 +226,12 @@ export type WireFact = {
 };
 
 export type ReachEffect = "gains" | "loses" | "both" | "held";
-export type ReachMark = { readonly id: NodeId; readonly effect: ReachEffect; readonly summary?: string };
+/**
+ * A reach preview on one card. `effect` is absent on the card that only
+ * carries the words, the one under the pointer when the grabbed card is a
+ * region: a mark with no effect paints no ring.
+ */
+export type ReachMark = { readonly id: NodeId; readonly effect?: ReachEffect; readonly summary?: string };
 
 /** Selection and focus as `state$` holds them (section 15). */
 export type SelectionFact = {

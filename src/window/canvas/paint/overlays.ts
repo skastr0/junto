@@ -48,7 +48,6 @@ export const reachQuads = (
 ): ReadonlyArray<Quad> => {
   const mark = view.reach;
   if (mark === undefined) return [];
-  const hue: ColorRef = tok(REACH_HUE[mark.effect]);
   const out: Quad[] = [];
   const motion = { kind: "reach", periodMs: DURATION.reach } as const;
   const loses = mark.effect === "loses";
@@ -58,7 +57,8 @@ export const reachQuads = (
       : hiddenAtOverview
         ? TIER_BIT.far
         : TIER_BIT.far | TIER_BIT.overview;
-  for (const near of [true, false]) {
+  for (const near of mark.effect === undefined ? [] : [true, false]) {
+    const hue: ColorRef = tok(REACH_HUE[mark.effect!]);
     const inset = near ? REACH.inset : REACH.insetFar;
     const rect = grow(box, inset);
     const key = near ? "reach" : "reach.far";

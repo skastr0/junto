@@ -32,6 +32,7 @@ import { createSurfaceMirror, type SurfaceMirror } from "./surface-mirror";
 import { createGpuMinimapSource } from "./gpu-minimap-source";
 import { clearMinimapSource, setMinimapSource } from "./minimap-source";
 import { startSceneBridge } from "./scene-bridge";
+import { installReachPreview } from "./reach-live";
 import { installCanvasTestHook } from "./test-hook";
 import { mountWireLabels } from "./wire-labels";
 import { attachCanvasDelete, attachCanvasInput, mountHands } from "./hands";
@@ -204,6 +205,9 @@ export function GpuCanvas({ onUnavailable }: Props) {
     const offScene = startSceneBridge({
       apply: (ops) => api.applyScene(ops),
     }, runtime);
+    // The reach preview rides the engine's drag and resize gestures: the marks
+    // are scene facts the canvas paints, so a drag step commits no React work.
+    const offReach = installReachPreview(engine);
 
     engine.apply([{ kind: "theme", mode: themeMode$.peek() }]);
     const offTheme = themeMode$.onChange(({ value }) => {
@@ -284,6 +288,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
       offWireLabels();
       wireLabels.dispose();
       offHook();
+      offReach();
       offScene();
       offMarquee();
       offFocus();
