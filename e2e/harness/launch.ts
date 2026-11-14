@@ -545,6 +545,17 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
     const app = await electron.launch({
       executablePath: ELECTRON_BINARY,
       args: [
+        // Native confirm dialogs (honest-quit live-work gate, browser-automation
+        // grant) cannot be clicked under focus isolation, so auto-accept them
+        // everywhere. Response index 1 is QUIT_CONFIRM_ACCEPT_INDEX ("quit
+        // anyway"); the browser grant flow uses the same index for "allow".
+        // Installed as an -r preload, before the product main module: a
+        // post-launch app.evaluate here intermittently died with "Execution
+        // context was destroyed" in the window where the previous app was
+        // still exiting, and a launch that fails before its window is still
+        // torn down by a quit whose confirm must never show natively.
+        "-r",
+        join(REPO_ROOT, "e2e/harness/accept-dialogs.cjs"),
         ...(options.offline === true
           ? ["-r", join(REPO_ROOT, "e2e/harness/offline-network.cjs")]
           : []),
@@ -561,20 +572,6 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
       kind: "observed",
       witness: observeElectronApplicationClose(app),
     };
-    // Native confirm dialogs (honest-quit live-work gate, browser-automation
-    // grant) cannot be clicked under focus isolation, so auto-accept them
-    // everywhere. Response index 1 is QUIT_CONFIRM_ACCEPT_INDEX ("quit anyway");
-    // the browser grant flow uses the same index for "allow".
-    // Installed before firstWindow, never after: a launch that fails before its
-    // window (an incomplete out/, say) is torn down by a quit, and an unstubbed
-    // honest-quit confirm then shows natively on the operator's display and
-    // holds the process until someone clicks.
-    await app.evaluate(({ dialog }) => {
-      dialog.showMessageBox = (async () => ({
-        response: 1,
-        checkboxChecked: false,
-      })) as typeof dialog.showMessageBox;
-    });
     // JUNTO_E2E_MAIN_LOG=<dir>: every launch's main-process stdout and stderr,
     // one file per launch, so a run can list what main said went wrong.
     const mainLogDir = process.env.JUNTO_E2E_MAIN_LOG;
@@ -591,6 +588,9 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
       const tee = (data: Buffer): void => appendFileSync(file, data);
       app.process().stdout?.on("data", tee);
       app.process().stderr?.on("data", tee);
+      app.process().on("exit", (code, sig) =>
+        appendFileSync(file, `\n# EXIT code=${String(code)} sig=${String(sig)}\n`),
+      );
     }
 
     const page = await app.firstWindow();
