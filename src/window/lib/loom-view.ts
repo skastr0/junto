@@ -24,8 +24,6 @@ export type LoomRoute = {
   readonly labelX: number;
   readonly labelY: number;
   readonly detoured: boolean;
-  /** The orthogonal polyline `path` rounds, source to target (the GPU canvas draws these). */
-  readonly points?: ReadonlyArray<WirePoint>;
 };
 
 /**
@@ -216,7 +214,6 @@ export function planStandaloneRoutes(input: {
       labelX: routed.labelX,
       labelY: routed.labelY,
       detoured: routed.detoured,
-      points: routed.points,
     });
   }
   return out;
