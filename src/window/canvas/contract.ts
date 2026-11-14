@@ -460,6 +460,13 @@ export type TextRun = {
   readonly width: number;
   /** A ground-coloured halo behind the glyphs. */
   readonly halo?: boolean;
+  /**
+   * A mask blur in board units, for the halo's own pass: the run is drawn soft
+   * instead of sharp, which is how the DOM's `text-shadow` wash lands. Only
+   * the engine writes it, on the copy of a `halo` run it lays down behind the
+   * sharp one; a run the paint authored never carries it.
+   */
+  readonly blur?: number;
 };
 
 export type QuadKind = "shape" | "shadow" | "sprite" | "text";

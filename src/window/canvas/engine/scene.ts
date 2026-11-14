@@ -57,6 +57,7 @@ import {
   type QuadBuffer,
 } from "./quad";
 import { createStyleTable, type ShadowSpec } from "./styles";
+import { HALO_BLUR, haloPadDevice } from "./text";
 import { CARD_CELL, RectGrid } from "./grid";
 // A badge has no card, so the scene composes the pure cluster painter itself:
 // the plan's geometry is `seat-clusters.ts`, its quads are `paint/cluster.ts`.
@@ -512,6 +513,38 @@ export const createScene = (options: {
     };
   };
 
+  /**
+   * The wash behind a `halo` run's words: the same run, soft, in the ground's
+   * ink, on a quad grown by the halo's own padding so the shader's UV stretch
+   * stays exact. Its cell is keyed by the blurred run, so it never shares the
+   * sharp glyphs' coverage.
+   */
+  const haloPassOf = (quad: Quad): Quad | undefined => {
+    const run = quad.text;
+    if (quad.kind !== "text" || run === undefined || run.halo !== true) return undefined;
+    const scale = sourceScaleFor(quad);
+    const pad = haloPadDevice(scale) / scale; // board units, exact at this scale
+    return {
+      ...quad,
+      key: `halo:${quad.key}`,
+      // The wash sits under its own words, and above whatever was under them: a
+      // hair under the glyph quad's z keeps that true whatever the key is.
+      z: quad.z - 0.001,
+      rect: {
+        x: quad.rect.x - pad,
+        y: quad.rect.y - pad,
+        width: quad.rect.width + 2 * pad,
+        height: quad.rect.height + 2 * pad,
+      },
+      style: { ...quad.style, ink: { token: "ground" } },
+      // Same text, same wrap width: the wash must break and ellipsize with the
+      // words it sits behind, so only the mask softens.
+      text: { ...run, halo: false, blur: HALO_BLUR },
+      // Picking still answers for the words' own box, never the wash's growth.
+      part: undefined,
+    };
+  };
+
   const paint = (card: CardSlot): void => {
     // A live resize draws the size the pointer holds; the writer's fact still
     // carries the old row until the drop, and painters read the row.
@@ -520,7 +553,14 @@ export const createScene = (options: {
         ? card.fact
         : { ...card.fact, row: { ...card.fact.row, width: card.size.width, height: card.size.height } };
     const result = painter(drawn, card.live, card.view, env);
-    const sorted = [...result.quads].sort(compareQuad);
+    // A halo run lays down its wash first, as the DOM's text-shadow does. The
+    // cell stays one colour each: the halo is a ground-tinted coverage cell and
+    // the glyphs are an ink-tinted one, so the text path's single tint holds.
+    const painted = result.quads.flatMap((quad) => {
+      const halo = haloPassOf(quad);
+      return halo === undefined ? [quad] : [halo, quad];
+    });
+    const sorted = painted.sort(compareQuad);
     const keys = new Set(sorted.map((quad) => quad.key));
     const held = quadSlotsOf.get(card.slot) ?? new Set<number>();
     for (const key of card.quads.keys()) {

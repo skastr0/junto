@@ -68,6 +68,25 @@ export const fontCss = (
   return `${style}${run.weight} ${size}px ${FONT_STACK[run.font]}`;
 };
 
+/**
+ * A halo is the DOM's `text-shadow: 0 0 <radius> var(--color-ground)`, painted
+ * twice (spine-card.css). The radius is in board units, so the wash holds its
+ * on-screen size when the camera zooms.
+ */
+export const HALO_BLUR = 5;
+/** The halo's blur radius / its sigma: a CSS shadow's radius is two sigmas. */
+export const HALO_SIGMA_PER_RADIUS = 0.5;
+/**
+ * How far past the run's box the halo still shows: three sigmas plus a texel
+ * for the filter's own rounding, in board units. A run that grows its cell by
+ * this and draws its glyphs inset by it keeps the shader's UV stretch exact.
+ */
+export const HALO_PAD = 8;
+/** The halo cell's padding in device pixels, an integer so that
+ *  `ceil((width + 2 * pad / scale) * scale) === ceil(width * scale) + 2 * pad`
+ *  and the grown quad lands on its cell pixel for pixel. */
+export const haloPadDevice = (scale: number): number => Math.ceil(HALO_PAD * scale);
+
 /** The text a run actually lays out: uppercase transform applied. */
 export const runText = (run: TextRun): string =>
   run.upper ? run.text.toUpperCase() : run.text;
@@ -91,6 +110,7 @@ export const runKey = (
     run.italic ? 1 : 0,
     run.tabular ? 1 : 0,
     run.halo ? 1 : 0,
+    run.blur ?? 0,
     pixelRatio,
     scaleBucket,
   ].join("|");

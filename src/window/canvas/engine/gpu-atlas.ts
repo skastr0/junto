@@ -24,6 +24,8 @@ import { resolveColour } from "./styles";
 import { drawGlyph, glyphKnown } from "./glyphs";
 import {
   fontCss,
+  HALO_SIGMA_PER_RADIUS,
+  haloPadDevice,
   layoutRun,
   runKey,
   type MeasureContext,
@@ -368,6 +370,11 @@ const canvas2d = (w: number, h: number): { canvas: HTMLCanvasElement; ctx: Canva
  * the gamma/contrast-corrected coverage Chromium gives that colour; white
  * coverage made every run read heavier than the DOM's. The paint stays
  * opaque because the shader multiplies the style's ink alpha itself.
+ *
+ * A `blur` run is the halo's pass: the same layout, its mask softened by the
+ * text-shadow radius and drawn twice, the way the DOM stacks two shadows. Its
+ * cell carries the padding that tail needs, so the quad the scene grew by the
+ * same padding still stretches its UVs pixel for pixel.
  * `scale` is device pixels per board unit (pixelRatio at the tier's
  * raster scale).
  */
@@ -380,21 +387,46 @@ export const rasterizeTextRun: TextRasterize = async (run, scale, ink) => {
   const lineHeight = run.size * scale * (run.leading ?? 1.2);
   // The cell is exactly the quad's aspect: the shader stretches the UV rect
   // across the whole quad, so any padding or widest-line sizing would smear
-  // every run to its wrap box.
-  const cellW = Math.max(1, Math.ceil(run.width * scale));
-  const cellH = Math.max(1, Math.ceil(lineHeight * lines.length));
+  // every run to its wrap box. A halo's padding is the exception the scene
+  // grows the quad by too, in the same integer device pixels.
+  const pad = run.blur === undefined ? 0 : haloPadDevice(scale);
+  const cellW = Math.max(1, Math.ceil(run.width * scale) + 2 * pad);
+  const cellH = Math.max(1, Math.ceil(lineHeight * lines.length) + 2 * pad);
   const { canvas, ctx: draw } = canvas2d(cellW, cellH);
   draw.font = ctx.font;
   draw.letterSpacing = ctx.letterSpacing;
   // The shader reads the cell's alpha as the glyph mask and tints it with
   // the quad's ink, so the rgb channels never show. Opaque paint keeps the
   // alpha channel pure coverage (a translucent paint would scale it).
-  draw.fillStyle = gpuColorCss({ ...ink, a: 1 });
+  const paint = gpuColorCss({ ...ink, a: 1 });
+  draw.fillStyle = paint;
   draw.textBaseline = "middle";
+  const textWidth = cellW - 2 * pad;
+  const glyphX = (target: CanvasRenderingContext2D, line: string): number => {
+    const x = run.align === "center" ? (textWidth - target.measureText(line).width) / 2 : 0;
+    return x + pad;
+  };
+  if (run.blur === undefined) {
+    lines.forEach((line, i) => {
+      draw.fillText(line, glyphX(draw, line), pad + lineHeight * i + lineHeight / 2);
+    });
+    return createImageBitmap(canvas);
+  }
+  // Blurred and stacked: drawing the sharp mask twice through one blur is the
+  // DOM's `0 0 5px` twice (two shadows of one shape compose as a over a).
+  const sharp = canvas2d(cellW, cellH);
+  sharp.ctx.font = draw.font;
+  sharp.ctx.letterSpacing = draw.letterSpacing;
+  sharp.ctx.fillStyle = paint;
+  sharp.ctx.textBaseline = "middle";
   lines.forEach((line, i) => {
-    const x = run.align === "center" ? (cellW - draw.measureText(line).width) / 2 : 0;
-    draw.fillText(line, x, lineHeight * i + lineHeight / 2);
+    sharp.ctx.fillText(line, glyphX(sharp.ctx, line), pad + lineHeight * i + lineHeight / 2);
   });
+  // A text-shadow's radius is two sigmas, and CSS blur() takes a sigma.
+  draw.filter = `blur(${run.blur * scale * HALO_SIGMA_PER_RADIUS}px)`;
+  draw.drawImage(sharp.canvas, 0, 0);
+  draw.drawImage(sharp.canvas, 0, 0);
+  draw.filter = "none";
   return createImageBitmap(canvas);
 };
 
