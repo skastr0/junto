@@ -42,6 +42,7 @@ import { CardOverlays } from "./CardOverlays";
 import { CanvasMagnifier } from "../../components/CanvasMagnifier";
 import { clearCanvasTier, publishCanvasTier } from "../../lib/canvas-tier";
 import { surfaceMotionLive$ } from "../../lib/surface-motion";
+import { regionGlanceOpacity, subregionGlanceOpacity } from "../../lib/region-glance";
 import { viewportForBounds } from "./camera-targets";
 import { paintCard } from "../paint";
 import { isMac } from "../../lib/platform";
@@ -157,6 +158,9 @@ export function GpuCanvas({ onUnavailable }: Props) {
       // stops its parts (surface-motion.ts). The canvas reads the same gate
       // the DOM rings do, and repaints when it flips.
       motionLive: () => surfaceMotionLive$.peek(),
+      // The region watermarks the DOM draws from two CSS variables on the
+      // root, as the two opacities the painter bakes into a region's name.
+      glance: (zoom) => ({ region: regionGlanceOpacity(zoom), sub: subregionGlanceOpacity(zoom) }),
       ...(textCtx === null || typeof textCtx.measureText !== "function"
         ? {}
         : { measure: (run: TextRun) => measureRun(textCtx, run, window.devicePixelRatio || 1) }),

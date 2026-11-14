@@ -127,6 +127,11 @@ export interface EngineHost {
    * runs. Defaults to live.
    */
   readonly motionLive?: () => boolean;
+  /**
+   * Region watermarks at a zoom (`region-glance.ts`): the outer and nested
+   * opacities the region painter bakes into its name quads.
+   */
+  readonly glance?: (zoom: number) => { readonly region: number; readonly sub: number };
   /** Text measurement for the painter; the shell hands the browser's. */
   readonly measure?: (run: TextRun) => number;
   /**
@@ -210,6 +215,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     ...(host.sourceOf === undefined ? {} : { source: host.sourceOf }),
     ...(host.atlasRevision === undefined ? {} : { atlasRevision: host.atlasRevision }),
     ...(host.motionLive === undefined ? {} : { motionLive: host.motionLive }),
+    ...(host.glance === undefined ? {} : { glance: host.glance }),
     // Section 8 rule 2: nothing re-rasterizes mid-gesture; every visible run
     // is exact once the camera rests.
     settled: () => settled,
@@ -317,7 +323,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     const step = stepPointer(pointerState, event, pointerWorld);
     pointerState = step.state;
     for (const intent of step.intents) {
-      if (intent.kind === "hover") scene.setHover(intent.hit?.nodeId ?? null, intent.hit?.part.kind);
+      if (intent.kind === "hover") scene.setHover(intent.hit?.nodeId ?? null, intent.hit?.part.kind, intent.hit?.at);
       emit(intent);
     }
     for (const effect of step.effects) applyEffect(effect);
@@ -554,6 +560,8 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     tier,
     wireMode: scene.wireMode,
     rectOf: scene.rectOf,
+    // Badges paint above cards, so their hit is tested first.
+    clusterAt: scene.clusterAt,
   });
 
   const pick = (screen: Point): Hit | null => pickAt(pickWorld(), toBoard(camera, screen));

@@ -150,19 +150,25 @@ fn filled(base: u32, local: vec2f) -> vec4f {
     // 1 at near and mid; the far ring's scale at far; its floor at overview.
     let far = max(1.0, min(u.scales.x, q.scaleCap));
     let floorScale = max(u.scales.y, min(u.scales.x, q.scaleCap));
+    var seatScale = 1.0;
     if (tierBit == 4u) {
-      scale = far;
+      seatScale = far;
     } else if (tierBit == 8u) {
-      scale = floorScale;
+      seatScale = floorScale;
     }
-    // At far and overview the DOM centres the grown ring on the card box
-    // (canvas-lod.css .junto-seat justify-content: center); at near and mid
-    // it sits at the card's ring anchor.
-    var at = vec2f(q.anchorX, q.anchorY);
+    // The quad's own centre, and the point it is placed about: its anchor at
+    // near and mid, the card box's centre at far and overview (the DOM
+    // re-lays a seat out there, the ring centred on the box). Its offset from
+    // that point scales with the ring, so a crest (or a cluster's count) rides
+    // the grown ring instead of pinning to its middle.
+    let anchor = vec2f(q.anchorX, q.anchorY);
+    let relCentre = vec2f(q.rect.x + q.rect.z * 0.5, q.rect.y + q.rect.w * 0.5);
+    var base = anchor;
     if (tierBit == 4u || tierBit == 8u) {
-      at = vec2f(o.q.y, o.q.z) * 0.5;
+      base = vec2f(o.q.y, o.q.z) * 0.5;
     }
-    center = o.p.xy + at;
+    scale = seatScale;
+    center = o.p.xy + base + (relCentre - anchor) * seatScale;
   } else if (q.scaleRule == 2u) {
     scale = u.scales.z;
     center = o.p.xy + vec2f(q.anchorX, q.anchorY);

@@ -21,6 +21,7 @@ import {
   clusterBadgeMark,
   clustersOf,
   linksHeldFor,
+  type ClusterIndex,
   type ClusterSeat,
   type SeatCluster,
 } from "../../lib/seat-clusters";
@@ -61,14 +62,34 @@ export type ClusterPlan = {
   readonly gathered: ReadonlySet<string>;
 };
 
-export const planClusters = (input: ClusterInput): ClusterPlan => {
-  const facts: ClusterSeat[] = input.seats.map((s) => ({ id: s.id, x: s.x, y: s.y, region: s.region }));
-  const apart = new Set(input.seats.filter(keepsApart).map((s) => s.id));
-  const index = buildClusterIndex(facts, apart);
-  const held = linksHeldFor(index, input.zoom, input.view);
+/**
+ * The grouping index for these seats: the minimum spanning tree of each
+ * region, apart seats left out. The scene holds it across frames (a seat's
+ * position, region, ring or selection changes it) and only asks for the
+ * links this zoom holds.
+ */
+export const clusterIndexOf = (seats: ReadonlyArray<ClusterSeatFact>): ClusterIndex => {
+  const facts: ClusterSeat[] = seats.map((s) => ({ id: s.id, x: s.x, y: s.y, region: s.region }));
+  const apart = new Set(seats.filter(keepsApart).map((s) => s.id));
+  return buildClusterIndex(facts, apart);
+};
+
+/** The clusters a held index forms at this zoom and viewport, and the seats they gather. */
+export const clusterHeldAt = (index: ClusterIndex, zoom: number, view: { readonly width: number; readonly height: number }): number =>
+  linksHeldFor(index, zoom, view);
+
+/** The clusters the shortest `held` links form, and the seats they gather. */
+export const clustersFor = (index: ClusterIndex, held: number): ClusterPlan => {
   const clusters = clustersOf(index, held);
   return { clusters, gathered: new Set(clusters.flatMap((c) => c.members)) };
 };
+
+/** The clusters at this zoom and viewport: one planning step for a caller with no cache. */
+export const clustersAt = (index: ClusterIndex, zoom: number, view: { readonly width: number; readonly height: number }): ClusterPlan =>
+  clustersFor(index, clusterHeldAt(index, zoom, view));
+
+export const planClusters = (input: ClusterInput): ClusterPlan =>
+  clustersAt(clusterIndexOf(input.seats), input.zoom, input.view);
 
 /** The seats a cluster badge stands for: the engine hides their own paint. */
 export const gatheredIds = (input: ClusterInput): ReadonlySet<string> => planClusters(input).gathered;
@@ -85,7 +106,13 @@ export const CLUSTER = { disc: 40, count: { minWidth: 20, height: 20, padX: 5, r
 
 const FAR_UP = TIER_BIT.far | TIER_BIT.overview;
 
-const badgeQuads = (cluster: SeatCluster, byId: ReadonlyMap<string, ClusterSeatFact>, input: ClusterInput, env: PaintEnv): ReadonlyArray<Quad> => {
+/**
+ * One badge's quads, in absolute board units around the cluster's centroid.
+ * The scene places them under a cluster owner at that centroid, so its
+ * records are relative to the badge's disc and an owner move never
+ * repaints them.
+ */
+export const paintClusterBadge = (cluster: SeatCluster, byId: ReadonlyMap<string, ClusterSeatFact>, input: ClusterInput, env: PaintEnv): ReadonlyArray<Quad> => {
   const members = cluster.members.map((id) => byId.get(id)).filter((s): s is ClusterSeatFact => s !== undefined);
   const forms: RingForm[] = members.map((s) => s.ring.ring);
   const mark = clusterBadgeMark(forms);
@@ -146,5 +173,5 @@ const badgeQuads = (cluster: SeatCluster, byId: ReadonlyMap<string, ClusterSeatF
 export const paintClusters = (input: ClusterInput, env: PaintEnv): ReadonlyArray<Quad> => {
   const plan = planClusters(input);
   const byId = new Map(input.seats.map((s) => [s.id, s] as const));
-  return plan.clusters.flatMap((c) => badgeQuads(c, byId, input, env));
+  return plan.clusters.flatMap((c) => paintClusterBadge(c, byId, input, env));
 };

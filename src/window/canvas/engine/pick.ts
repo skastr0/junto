@@ -77,6 +77,12 @@ export type PickWorld = {
     readonly fromKind: string;
     readonly verbs: ReadonlyArray<string>;
   };
+  /**
+   * The members of the seat cluster whose badge is under a board point, if
+   * any. A badge paints above every card, so it is the first thing a press
+   * lands on; it has no card id of its own.
+   */
+  readonly clusterAt?: (at: Point) => ReadonlyArray<NodeId> | undefined;
 };
 
 const rectOf = (world: PickWorld, fact: CardFact): Rect => {
@@ -277,6 +283,8 @@ export const pickCard = (world: PickWorld, at: Point): Hit | null => {
  * pane.
  */
 export const pickAt = (world: PickWorld, at: Point): Hit => {
+  const cluster = world.clusterAt?.(at);
+  if (cluster !== undefined) return { part: { kind: "cluster", memberIds: cluster }, at };
   const card = pickCard(world, at);
   if (card !== null) return card;
   if (world.wireMode === "loupe" || world.wireMode === "cone") {

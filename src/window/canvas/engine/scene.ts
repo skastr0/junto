@@ -57,6 +57,18 @@ import {
 } from "./quad";
 import { createStyleTable, type ShadowSpec } from "./styles";
 import { CARD_CELL, RectGrid } from "./grid";
+// A badge has no card, so the scene composes the pure cluster painter itself:
+// the plan's geometry is `seat-clusters.ts`, its quads are `paint/cluster.ts`.
+import {
+  CLUSTER,
+  clusterHeldAt,
+  clusterIndexOf,
+  clustersFor,
+  paintClusterBadge,
+  type ClusterInput,
+  type ClusterSeatFact,
+} from "../paint/cluster";
+import type { ClusterIndex, SeatCluster } from "../../lib/seat-clusters";
 
 export type CardPainter = (
   fact: CardFact,
@@ -118,6 +130,20 @@ type CardSlot = {
   lift: number;
   /** The size a live resize is drawing at, until the writer's fact lands. */
   size?: { readonly width: number; readonly height: number };
+};
+
+/** A cluster badge's slot: an owner entry and quads of its own, with no card. */
+type ClusterSlot = {
+  readonly key: string;
+  members: ReadonlyArray<NodeId>;
+  /** Its own owner-buffer entry: the badge's disc, the box the ring scales about. */
+  readonly owner: number;
+  /** The disc in board units; the quads are stored relative to it. */
+  rect: Rect;
+  quads: Map<string, number>;
+  ordered: QuadRef[];
+  /** What the badge draws; a change is what repaints it. */
+  signature: string;
 };
 
 const BAND_OF: Readonly<Record<Quad["band"], 0 | 1 | 2>> = { regions: 0, cards: 1, lifted: 2 };
@@ -261,6 +287,13 @@ export const createScene = (options: {
    * scaled during a gesture, every visible run is exact once it rests).
    */
   readonly settled?: () => boolean;
+  /**
+   * Region watermarks at this zoom (`region-glance.ts`): 0 to 1 each, the
+   * outer regions' and the nested ones'. A region repaints on a glance step
+   * once the camera rests, so the name fades in at a far zoom without
+   * re-rasterizing its text inside the gesture.
+   */
+  readonly glance?: (zoom: number) => { readonly region: number; readonly sub: number };
 }) => {
   let mode: ThemeMode = options.mode ?? "dark";
   let theme: GpuTheme = themeGpu(mode);
@@ -331,6 +364,23 @@ export const createScene = (options: {
   let wireMode: WireMode = "rest";
   let wires = new Map<WireId, WireFact>();
   let motionVisible = false;
+  /** The empty set a board with no clusters gathers. */
+  const NO_SEATS: ReadonlySet<NodeId> = new Set();
+  /** Badge slots by cluster key: their quads and owner entries. */
+  const clusterSlots = new Map<string, ClusterSlot>();
+  /** The badges this frame draws, hovered last. */
+  let clustersActive: ClusterSlot[] = [];
+  /** Seats a badge stands for this frame: hidden from the order and from picking. */
+  let gatheredSeats: ReadonlySet<NodeId> = NO_SEATS;
+  let hoveredCluster: string | null = null;
+  /** The grouping index and the seat facts it was built from; held across frames. */
+  let clusterCache: { readonly signature: string; readonly index: ClusterIndex; readonly byId: ReadonlyMap<NodeId, ClusterSeatFact> } | undefined;
+  /** Links held at the last planned zoom; a zoom that changes it regroups. */
+  let clusterHeld = -1;
+  /** A seat, its ring, its selection or the theme changed since the last frame. */
+  let clusterDirty = true;
+  /** The active badges or their quads changed: the order list must be rebuilt. */
+  let clusterVersion = 0;
   /** The wall time the last style transition ends; the loop draws until then. */
   let transitionUntil = 0;
   /** Page-relative milliseconds, the shader's clock (small enough for f32). */
@@ -339,6 +389,8 @@ export const createScene = (options: {
   let wallNow = 0;
   /** The tier the last prepared frame drew at; a quad's raster scale needs it. */
   let currentTier: CanvasTier = "near";
+  /** The region watermarks in force (0 to 1): applied, not merely requested. */
+  let glanceNow = { region: 0, sub: 0 };
 
   const markOrder = (): void => {
     orderDirty = true;
@@ -396,11 +448,11 @@ export const createScene = (options: {
     return slot;
   };
 
-  const writeOwner = (card: CardSlot): void => {
-    const at = card.slot * 8;
-    // Words 5 and 6 carry the drawn card size: the far seat rule centres the
+  const writeOwnerAt = (slot: number, rect: Rect, lift: number, dim: CardPaint["dim"]): void => {
+    const at = slot * 8;
+    // Words 5 and 6 carry the drawn box size: the far seat rule centres the
     // ring on the card box, and the shader reads that size from here.
-    const next = [card.rect.x, card.rect.y, card.lift, card.dim.opacity, card.dim.saturate, card.rect.width, card.rect.height, 0];
+    const next = [rect.x, rect.y, lift, dim.opacity, dim.saturate, rect.width, rect.height, 0];
     let changed = false;
     for (let index = 0; index < next.length; index += 1) {
       if (owners[at + index] !== next[index]) {
@@ -408,8 +460,10 @@ export const createScene = (options: {
         changed = true;
       }
     }
-    if (changed) dirtyOwners.add(card.slot);
+    if (changed) dirtyOwners.add(slot);
   };
+
+  const writeOwner = (card: CardSlot): void => writeOwnerAt(card.slot, card.rect, card.lift, card.dim);
 
   const packQuad = (quad: Quad, slot: number, fresh: boolean): PackedQuad => {
     const style = styles.intern(quad.style);
@@ -539,6 +593,7 @@ export const createScene = (options: {
       dragging: dragging.has(fact.id),
       ...(reachMark === undefined ? {} : { reach: reachMark }),
       ...(focusRole === undefined ? {} : { focus: { kind: focus!.kind, role: focusRole } }),
+      glance: glanceNow,
       mode,
     };
   };
@@ -555,7 +610,220 @@ export const createScene = (options: {
     }
   };
 
+  // --- seat clusters: badges have no card ------------------------------------
+  //
+  // At far and overview two seats too close to draw as rings are one badge: a
+  // portrait in a turning ring, a stack of rings and a count. The grouping is
+  // `seat-clusters.ts`; the quads are `paint/cluster.ts`. A badge is given an
+  // owner-buffer entry of its own (its disc), so its records are relative to
+  // the disc and a moving centroid rewrites one owner entry. Gathered seats
+  // draw nothing at all and answer no pointer, as the DOM's hidden nodes do.
+
+  /** An owner entry with no card and no grid cell; card and badge slots share one index space. */
+  const allocateOwnerSlot = (): number => {
+    const slot = slots.length;
+    slots.push(undefined);
+    ensureOwnerCapacity(slots.length);
+    return slot;
+  };
+
+  /** The disc a badge's owner box is: its ring grows about this box's centre. */
+  const clusterRect = (cluster: SeatCluster): Rect => ({
+    x: cluster.x - CLUSTER.disc / 2,
+    y: cluster.y - CLUSTER.disc / 2,
+    width: CLUSTER.disc,
+    height: CLUSTER.disc,
+  });
+
+  /** A badge quad as its owner stores it: the disc is the origin. */
+  const relativeTo = (quad: Quad, origin: Rect): Quad => {
+    const rect = { ...quad.rect, x: quad.rect.x - origin.x, y: quad.rect.y - origin.y };
+    if (quad.scale.kind === "board") return { ...quad, rect };
+    const anchor = quad.scale.anchor;
+    return { ...quad, rect, scale: { ...quad.scale, anchor: { x: anchor.x - origin.x, y: anchor.y - origin.y } } };
+  };
+
+  const releaseCluster = (card: ClusterSlot): void => {
+    for (const slot of card.quads.values()) freeQuad(slot);
+    card.quads.clear();
+    card.ordered = [];
+  };
+
+  /** The badge's quads under its owner slot; keys keep their records across repaints. */
+  const paintClusterSlot = (
+    slot: ClusterSlot,
+    cluster: SeatCluster,
+    seats: ReadonlyMap<NodeId, ClusterSeatFact>,
+    input: ClusterInput,
+  ): void => {
+    const origin = clusterRect(cluster);
+    slot.members = cluster.members;
+    slot.rect = origin;
+    writeOwnerAt(slot.owner, origin, 0, { opacity: 1, saturate: 1 });
+    const sorted = paintClusterBadge(cluster, seats, input, env).map((quad) => relativeTo(quad, origin)).sort(compareQuad);
+    const keys = new Set(sorted.map((quad) => quad.key));
+    for (const key of [...slot.quads.keys()]) {
+      if (keys.has(key)) continue;
+      freeQuad(slot.quads.get(key)!);
+      slot.quads.delete(key);
+    }
+    for (const quad of sorted) {
+      let quadSlot = slot.quads.get(quad.key);
+      const fresh = quadSlot === undefined;
+      if (quadSlot === undefined) {
+        quadSlot = allocateQuad();
+        slot.quads.set(quad.key, quadSlot);
+      }
+      writeQuad(quads, quadSlot, packQuad(quad, quadSlot, fresh), slot.owner);
+      dirtyQuads.add(quadSlot);
+    }
+    slot.ordered = sorted.map((quad) => ({
+      key: quad.key,
+      slot: slot.quads.get(quad.key)!,
+      z: quad.z,
+      band: BAND_OF[quad.band],
+      motion: quad.motion,
+      tiers: quad.tiers,
+      painted: quad,
+    }));
+  };
+
+  /** What a badge draws: its members and their rings, its portrait, its count, its hover. */
+  const clusterSignature = (cluster: SeatCluster, seats: ReadonlyMap<NodeId, ClusterSeatFact>): string =>
+    `${cluster.members.join(",")}|${cluster.members
+      .map((id) => {
+        const seat = seats.get(id);
+        return seat === undefined ? "-" : `${seat.ring.ring}:${seat.ring.hue}:${seat.ring.stale ? 1 : 0}:${String(seat.ringSince)}`;
+      })
+      .join(",")}|${JSON.stringify(seats.get(cluster.members[0] ?? "")?.portrait ?? null)}|${hoveredCluster === cluster.key ? "h" : ""}`;
+
+  /** Every seat the plan reads: its card centre, region, ring, selection and portrait. */
+  const clusterSeats = (): { readonly seats: ClusterSeatFact[]; readonly signature: string } => {
+    const selected = new Set(selection.nodeIds);
+    const seats: ClusterSeatFact[] = [];
+    for (const card of byId.values()) {
+      if (card.fact.row.kind !== "agent" || card.live === undefined) continue;
+      seats.push({
+        id: card.id,
+        x: card.rect.x + card.rect.width / 2,
+        y: card.rect.y + card.rect.height / 2,
+        region: card.fact.derived.regionId ?? "",
+        ring: card.live.ring,
+        ringSince: card.live.ringSince,
+        selected: selected.has(card.id),
+        ...(card.live.portrait === undefined ? {} : { portrait: card.live.portrait }),
+      });
+    }
+    seats.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    // What the grouping depends on: where a seat is, its region, whether it
+    // stays apart (selected, or a ring that calls) and its identity.
+    const signature = seats
+      .map((seat) => `${seat.id}:${String(Math.round(seat.x))},${String(Math.round(seat.y))}:${seat.region}:${seat.selected ? 1 : 0}:${seat.ring.ring}`)
+      .join("|");
+    return { seats, signature };
+  };
+
+  /**
+   * Regroup and repaint the badges for this frame, at far and overview only.
+   * Returns a version that changes whenever the order list must be rebuilt:
+   * a badge appeared, left the plan, or repainted, or a seat gathered.
+   */
+  const refreshClusters = (view: Rect, tier: CanvasTier): number => {
+    if (tier !== "far" && tier !== "overview") {
+      if (clustersActive.length > 0 || gatheredSeats.size > 0) {
+        for (const slot of clustersActive) releaseCluster(slot);
+        clustersActive = [];
+        gatheredSeats = NO_SEATS;
+        clusterVersion += 1;
+      }
+      clusterCache = undefined;
+      clusterHeld = -1;
+      clusterDirty = false;
+      return clusterVersion;
+    }
+    const dirty = clusterDirty;
+    clusterDirty = false;
+    if (dirty || clusterCache === undefined) {
+      const { seats, signature } = clusterSeats();
+      if (clusterCache === undefined || clusterCache.signature !== signature) {
+        clusterCache = { signature, index: clusterIndexOf(seats), byId: new Map(seats.map((seat) => [seat.id, seat] as const)) };
+        clusterHeld = -1;
+      } else {
+        clusterCache = { signature, index: clusterCache.index, byId: new Map(seats.map((seat) => [seat.id, seat] as const)) };
+      }
+    }
+    const cache = clusterCache;
+    if (cache === undefined) return clusterVersion;
+    const zoom = options.zoom?.() ?? 1;
+    const screen = { width: view.width * zoom, height: view.height * zoom };
+    const held = clusterHeldAt(cache.index, zoom, screen);
+    if (!dirty && held === clusterHeld) return clusterVersion;
+    clusterHeld = held;
+    const plan = clustersFor(cache.index, held);
+    const input: ClusterInput = {
+      seats: [...cache.byId.values()],
+      zoom,
+      view: screen,
+      mode,
+      ...(hoveredCluster === null ? {} : { hoveredKey: hoveredCluster }),
+    };
+    const active: ClusterSlot[] = [];
+    const live = new Set<string>();
+    for (const cluster of plan.clusters) {
+      live.add(cluster.key);
+      let slot = clusterSlots.get(cluster.key);
+      if (slot === undefined) {
+        slot = {
+          key: cluster.key,
+          members: cluster.members,
+          owner: allocateOwnerSlot(),
+          rect: clusterRect(cluster),
+          quads: new Map(),
+          ordered: [],
+          signature: "",
+        };
+        clusterSlots.set(cluster.key, slot);
+      }
+      const signature = clusterSignature(cluster, cache.byId);
+      if (slot.signature !== signature) {
+        slot.signature = signature;
+        paintClusterSlot(slot, cluster, cache.byId, input);
+        clusterVersion += 1;
+      } else {
+        // The badge holds still; only its owner follows the centroid.
+        slot.members = cluster.members;
+        const rect = clusterRect(cluster);
+        if (!sameRect(slot.rect, rect)) {
+          slot.rect = rect;
+          writeOwnerAt(slot.owner, rect, 0, { opacity: 1, saturate: 1 });
+        }
+      }
+      active.push(slot);
+    }
+    for (const [key, slot] of clusterSlots) {
+      if (live.has(key) || slot.ordered.length === 0) continue;
+      releaseCluster(slot);
+      slot.signature = "";
+      clusterVersion += 1;
+    }
+    // The hovered badge rides above the rest, as the DOM's z says.
+    active.sort((a, b) => (a.key === hoveredCluster ? 1 : 0) - (b.key === hoveredCluster ? 1 : 0) || (a.key < b.key ? -1 : 1));
+    clustersActive = active;
+    gatheredSeats = plan.gathered;
+    return clusterVersion;
+  };
+
+  /** The badge under a board point, if any (the disc; badges paint above cards). */
+  const clusterSlotAt = (at: Point): ClusterSlot | undefined => {
+    for (let index = clustersActive.length - 1; index >= 0; index -= 1) {
+      const slot = clustersActive[index];
+      if (slot !== undefined && contains(slot.rect, at)) return slot;
+    }
+    return undefined;
+  };
+
   const putCard = (fact: CardFact): void => {
+    clusterDirty = true;
     const existing = byId.get(fact.id);
     if (existing !== undefined) {
       existing.fact = fact;
@@ -589,6 +857,7 @@ export const createScene = (options: {
   const removeCard = (id: NodeId): void => {
     const card = byId.get(id);
     if (card === undefined) return;
+    clusterDirty = true;
     byId.delete(id);
     slots[card.slot] = undefined;
     freeSlots.push(card.slot);
@@ -600,6 +869,15 @@ export const createScene = (options: {
   };
 
   const clearAll = (): void => {
+    for (const slot of clusterSlots.values()) releaseCluster(slot);
+    clusterSlots.clear();
+    clustersActive = [];
+    gatheredSeats = NO_SEATS;
+    hoveredCluster = null;
+    clusterCache = undefined;
+    clusterHeld = -1;
+    clusterDirty = true;
+    clusterVersion += 1;
     slots.length = 0;
     freeSlots.length = 0;
     byId.clear();
@@ -634,12 +912,14 @@ export const createScene = (options: {
         const card = byId.get(op.id);
         if (card === undefined) return;
         card.live = op.live;
+        if (card.fact.row.kind === "agent") clusterDirty = true;
         repaint(card);
         return;
       }
       case "selection": {
         const before = selection;
         selection = op.fact;
+        clusterDirty = true;
         if (before.focusMode !== undefined || op.fact.focusMode !== undefined) {
           for (const card of byId.values()) repaint(card);
           return;
@@ -674,6 +954,9 @@ export const createScene = (options: {
         // into its SVG at paint time, and the atlas keys every sprite cell by
         // mode, so each card repaints to hand the atlas the new refs.
         for (const card of byId.values()) repaint(card);
+        // A badge's portrait, ring and count art bake the mode too.
+        for (const slot of clusterSlots.values()) slot.signature = "";
+        clusterDirty = true;
         return;
       }
       case "wireMode": {
@@ -705,8 +988,13 @@ export const createScene = (options: {
     }
   };
 
-  const setHover = (id: NodeId | null, part?: Part["kind"]): boolean => {
-    if (hovered === id && hoveredPart === part) return false;
+  const setHover = (id: NodeId | null, part?: Part["kind"], at?: Point): boolean => {
+    // A badge has no card id: the point names the cluster under the pointer.
+    const nextCluster = part === "cluster" && at !== undefined ? (clusterSlotAt(at)?.key ?? null) : null;
+    const clusterChanged = nextCluster !== hoveredCluster;
+    hoveredCluster = nextCluster;
+    if (clusterChanged) clusterDirty = true;
+    if (hovered === id && hoveredPart === part && !clusterChanged) return false;
     const before = hovered;
     hovered = id;
     hoveredPart = id === null ? undefined : part;
@@ -731,6 +1019,7 @@ export const createScene = (options: {
     card.rect = { ...card.rect, x: at.x, y: at.y };
     writeOwner(card);
     grid.set(card.slot, insetBy(card.rect, 28));
+    if (card.fact.row.kind === "agent") clusterDirty = true;
     // A move is an owner offset: the records keep their order, so a drag
     // frame must not rebuild the order list (it stuttered on the first drag).
   };
@@ -753,6 +1042,7 @@ export const createScene = (options: {
     card.size = { width: rect.width, height: rect.height };
     writeOwner(card);
     grid.set(card.slot, insetBy(card.rect, 28));
+    if (card.fact.row.kind === "agent") clusterDirty = true;
     paint(card);
   };
 
@@ -801,6 +1091,8 @@ export const createScene = (options: {
   let lastSourceEpoch = "";
   let lastAtlasRevision = -1;
   let lastMotionLive: boolean | undefined;
+  /** The badge version the last prepared frame drew. */
+  let lastClusters = -1;
   let orderReady = false;
 
   const orderCards = (found: ReadonlyArray<number>): CardSlot[] => {
@@ -819,10 +1111,26 @@ export const createScene = (options: {
   const prepare = (view: Rect, tier: CanvasTier): Prepared => {
     currentTier = tier;
     const motionOn = options.motionLive?.() ?? true;
+    const zoom = options.zoom?.() ?? 1;
+    // Region watermarks are a style on the region's name quads, not a raster:
+    // they step with the zoom. A step waits for the camera's rest, so the
+    // text is never re-rasterized inside a gesture (section 8 rule 2).
+    const glance = options.glance?.(zoom);
+    if (glance !== undefined && (glance.region !== glanceNow.region || glance.sub !== glanceNow.sub)) {
+      if (options.settled?.() ?? true) {
+        glanceNow = { region: glance.region, sub: glance.sub };
+        for (const card of byId.values()) {
+          if (card.fact.row.kind === "region") repaint(card);
+        }
+      }
+    }
     // A source is right for one camera bucket, one tier and one zoom (the
     // scale rules read the zoom), plus one atlas revision.
     const sourceEpoch = `${String(atlasScaleNow())}|${String(options.zoom?.() ?? 1)}|${tier}`;
     const revision = atlasRevisionNow();
+    // Grouping comes before the order: a badge that appeared, parted or
+    // repainted rewrites the visible list's tail.
+    const clusters = refreshClusters(view, tier);
     // A still camera and an unchanged scene reuse the list: a turning ring
     // draws every tick without re-culling the board. A new atlas revision or
     // raster scale is a source change, not an order change, and is handled
@@ -833,6 +1141,7 @@ export const createScene = (options: {
       tier === lastTier &&
       sameRect(view, lastView) &&
       motionOn === lastMotionLive &&
+      clusters === lastClusters &&
       sourceEpoch === lastSourceEpoch &&
       revision === lastAtlasRevision
     ) {
@@ -852,7 +1161,11 @@ export const createScene = (options: {
     });
     const cards = visibleCards;
     let needed = 0;
-    for (const card of cards) needed += card.ordered.length;
+    for (const card of cards) {
+      if (gatheredSeats.has(card.id)) continue;
+      needed += card.ordered.length;
+    }
+    for (const slot of clustersActive) needed += slot.ordered.length;
     ensureOrderCapacity(needed);
 
     // Text and sprites name the atlas cell they draw from. When the raster
@@ -890,6 +1203,8 @@ export const createScene = (options: {
     let moving = false;
     for (let band = 0; band < BAND_COUNT; band += 1) {
       for (const card of cards) {
+        // A gathered seat draws nothing: its badge stands for it.
+        if (gatheredSeats.has(card.id)) continue;
         for (const quad of card.ordered) {
           if (quad.band !== band) continue;
           // Motion's gate: a ring's rest pose draws only while motion is off,
@@ -898,6 +1213,16 @@ export const createScene = (options: {
           order[counts[0]! + counts[1]! + counts[2]!] = quad.slot;
           counts[band] = counts[band]! + 1;
           if (quad.motion !== undefined && (quad.tiers & mask) !== 0) moving = true;
+        }
+      }
+      // Badges paint in the lifted band, over every card (DOM z 3000).
+      if (band === 2) {
+        for (const slot of clustersActive) {
+          for (const quad of slot.ordered) {
+            order[counts[0]! + counts[1]! + counts[2]!] = quad.slot;
+            counts[2] = counts[2]! + 1;
+            if (quad.motion !== undefined && (quad.tiers & mask) !== 0) moving = true;
+          }
         }
       }
     }
@@ -922,6 +1247,7 @@ export const createScene = (options: {
     lastView = view;
     lastTier = tier;
     lastMotionLive = motionOn;
+    lastClusters = clusters;
     orderReady = true;
     return { orderChanged: changed, visible: orderCount, atlasRevision: revision };
   };
@@ -933,13 +1259,15 @@ export const createScene = (options: {
       const found: number[] = [];
       grid.query({ x: at.x, y: at.y, width: 0, height: 0 }, found);
       return orderCards(found)
-        .filter((card) => contains(card.rect, at))
+        .filter((card) => !gatheredSeats.has(card.id) && contains(card.rect, at))
         .map((card) => card.id);
     },
     cardsNear: (at, slop) => {
       const found: number[] = [];
       grid.query({ x: at.x - slop, y: at.y - slop, width: slop * 2, height: slop * 2 }, found);
-      return orderCards(found).map((card) => card.id);
+      return orderCards(found)
+        .filter((card) => !gatheredSeats.has(card.id))
+        .map((card) => card.id);
     },
     wiresAt: () => [],
   };
@@ -970,6 +1298,8 @@ export const createScene = (options: {
     rectOf,
     cardOf,
     ringAngle,
+    /** The members of the badge under a board point, if any (the pointer's cluster hit). */
+    clusterAt: (at: Point) => clusterSlotAt(at)?.members,
     prepare,
     hasMotion,
     index,

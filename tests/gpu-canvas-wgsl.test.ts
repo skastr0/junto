@@ -61,6 +61,15 @@ describe("the quad shader's names", () => {
     expect(vertex).toContain("center = vec2f(center.x + dx, center.y);");
   });
 
+  it("scales a seat quad's offset from its anchor, so a crest and a cluster count ride the ring", () => {
+    // At far the seat rule places a ring on its card box; anything off the
+    // ring's centre (the overseer crest, a cluster badge's count pill) must
+    // move with the grown ring, not pin to its middle.
+    const vertex = QUAD_SHADER.slice(0, QUAD_SHADER.indexOf("@fragment fn fs"));
+    expect(vertex).toContain("let relCentre = vec2f(q.rect.x + q.rect.z * 0.5, q.rect.y + q.rect.w * 0.5);");
+    expect(vertex).toContain("center = o.p.xy + base + (relCentre - anchor) * seatScale;");
+  });
+
   it("breathes a fading turn (glint) and keeps the disc sweep's fade", () => {
     const fragment = QUAD_SHADER.slice(QUAD_SHADER.indexOf("@fragment fn fs"));
     expect(fragment).toContain("if (q.motion == 1u) {");
