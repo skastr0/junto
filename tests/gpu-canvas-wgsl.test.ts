@@ -27,6 +27,13 @@ describe("the quad shader's names", () => {
     expect(QUAD_SHADER).not.toContain("world - u.camera.xy");
   });
 
+  it("takes text alpha from the coverage channel, not the white red channel", () => {
+    // The atlas is white coverage over transparent, unpremultiplied: r is 1
+    // inside edge texels, so using it made every antialiased glyph edge opaque.
+    expect(QUAD_SHADER).toContain("alpha = tex.a * ink.a * outer;");
+    expect(QUAD_SHADER).not.toContain("alpha = tex.r * ink.a * outer;");
+  });
+
   it("holds a seat rule at 1 at near and mid, with far and floor only at far and overview", () => {
     // The operator saw rings and portraits 1.75x at near: the shader applied
     // the far scale at every tier but overview.

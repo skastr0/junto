@@ -336,8 +336,12 @@ fn filled(base: u32, local: vec2f) -> vec4f {
       // textureSample is not allowed.
       let tex = textureSampleLevel(atlas, atlasSampler, uv, 0.0);
       if (q.kind == 3u) {
+        // The atlas holds white coverage over transparent, landed
+        // unpremultiplied: the alpha channel is the glyph coverage, and the
+        // red channel is white inside every edge texel too. Reading r made
+        // antialiased edges opaque and text bold.
         colour = ink.rgb;
-        alpha = tex.r * ink.a * outer;
+        alpha = tex.a * ink.a * outer;
       } else {
         let tint = select(vec4f(1.0), fill, fill.a > 0.0);
         colour = tex.rgb * tint.rgb;
