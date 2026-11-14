@@ -11,10 +11,11 @@ import { cssRadii, shape, at } from "../src/window/canvas/paint/refs";
 describe("cssRadii: the values CSS draws", () => {
   it("scales every corner by one factor when a pill meets a small radius", () => {
     const f = 56 / (999 + 999);
-    expect(cssRadii([999, 12, 12, 999], 216, 56)).toEqual([28, 12 * f, 12 * f, 28]);
+    const used = [28, 12 * f, 12 * f, 28] as const;
+    expect(cssRadii([999, 12, 12, 999], 216, 56)).toEqual(used);
     // Chromium's own capture: the right end is square (inset 0 at row 0), the
     // left end round (white starts at x 23, which is the 28px arc).
-    expect(cssRadii([999, 12, 12, 999], 216, 56)[1]).toBeLessThan(0.5);
+    expect(used[1]).toBeLessThan(0.5);
   });
 
   it("leaves a set that fits alone, the seat's own silhouette", () => {
