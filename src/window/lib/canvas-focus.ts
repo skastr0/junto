@@ -47,15 +47,18 @@ export const canvasSelectionFact = (canvasName: string): SelectionFact => {
   model.wires.get();
   const canvas = canvasOfState(canvasName, model.peek());
 
+  // Canvas.tsx's selectionForCanvas roots the cone on the inspected node:
+  // the single selection, or the sole member of a multi-selection.
+  const impactRoot = single !== "" ? single : nodeIds.length === 1 ? nodeIds[0]! : "";
   const cone =
     connectionFocus !== ""
       ? { kind: "connection" as const, selection: connectionFocusSelection(canvas, connectionFocus) }
-      : single !== ""
+      : impactRoot !== ""
         ? {
             kind: "impact" as const,
             selection: selectionImpact(
               canvas,
-              single,
+              impactRoot,
               kernel$.execution.get(),
               executionGraphContextFromActorRefs(
                 state$.canvasName.get(),
