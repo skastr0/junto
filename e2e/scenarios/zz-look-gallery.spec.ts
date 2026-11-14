@@ -91,26 +91,37 @@ const shotFor = async (page: Page, entry: GalleryEntry): Promise<PngImage> => {
 const CARD_ENTRIES = GALLERY_ENTRIES.filter((entry) => entry.kind !== "region");
 /** Selected and hovered are pointer states; far and overview keep the default card. */
 const STATE_ZOOMS: ReadonlySet<number> = new Set([1, 0.5]);
+/** Longer than the longest card transition (DURATION.state, 180 ms). */
+const SETTLE_MS = 260;
 
 /** Park the pointer on empty pane: clears the selection and every hover. */
 const park = async (page: Page): Promise<void> => {
   await pane(page).click({ position: { x: 8, y: 8 } });
+  await page.waitForTimeout(SETTLE_MS);
 };
 
 /** Fraction of pixels whose channels differ by more than `tol`. */
 const mismatch = (a: PngImage, b: PngImage, tol = 24): number => {
-  expect(a.width).toBe(b.width);
-  expect(a.height).toBe(b.height);
+  // A fractional card rect can round a clip one pixel apart between the two
+  // backends; compare the overlap rather than failing on the clip arithmetic.
+  expect(Math.abs(a.width - b.width), "clip widths").toBeLessThanOrEqual(1);
+  expect(Math.abs(a.height - b.height), "clip heights").toBeLessThanOrEqual(1);
+  const width = Math.min(a.width, b.width);
+  const height = Math.min(a.height, b.height);
   let bad = 0;
-  for (let i = 0; i < a.data.length; i += 4) {
-    const d = Math.max(
-      Math.abs(a.data[i]! - b.data[i]!),
-      Math.abs(a.data[i + 1]! - b.data[i + 1]!),
-      Math.abs(a.data[i + 2]! - b.data[i + 2]!),
-    );
-    if (d > tol) bad += 1;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * a.width + x) * 4;
+      const j = (y * b.width + x) * 4;
+      const d = Math.max(
+        Math.abs(a.data[i]! - b.data[j]!),
+        Math.abs(a.data[i + 1]! - b.data[j + 1]!),
+        Math.abs(a.data[i + 2]! - b.data[j + 2]!),
+      );
+      if (d > tol) bad += 1;
+    }
   }
-  return bad / (a.width * a.height);
+  return bad / (width * height);
 };
 
 test("look gallery: GPU cards match the DOM cards in both themes, every tier, in card states", async () => {
@@ -135,6 +146,8 @@ test("look gallery: GPU cards match the DOM cards in both themes, every tier, in
     for (const theme of THEMES) {
       await setTheme(dom.page, theme);
       await setTheme(gpu.page, theme);
+      await dom.page.waitForTimeout(SETTLE_MS);
+      await gpu.page.waitForTimeout(SETTLE_MS);
       for (const zoom of ZOOMS) {
         await zoomTo(dom.page, zoom);
         await zoomTo(gpu.page, zoom);
@@ -149,6 +162,8 @@ test("look gallery: GPU cards match the DOM cards in both themes, every tier, in
         for (const entry of CARD_ENTRIES) {
           await card(dom.page, entry.id).click();
           await card(gpu.page, entry.id).click();
+          await dom.page.waitForTimeout(SETTLE_MS);
+          await gpu.page.waitForTimeout(SETTLE_MS);
           await compare(entry, theme, zoom, "selected");
         }
 
@@ -160,6 +175,8 @@ test("look gallery: GPU cards match the DOM cards in both themes, every tier, in
             if (rect === null) throw new Error(`card ${entry.id} has no rect to hover`);
             await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
           }
+          await dom.page.waitForTimeout(SETTLE_MS);
+          await gpu.page.waitForTimeout(SETTLE_MS);
           await compare(entry, theme, zoom, "hovered");
         }
       }
