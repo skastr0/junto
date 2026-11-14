@@ -18,12 +18,15 @@ import { join } from "node:path";
 import type { ElectronApplication } from "@playwright/test";
 import { SeatStateMachine } from "../../src/core/term/agent-state";
 import { OPERATOR_DISPLAY, type NestedCanvasFixture } from "../harness/nested-canvas-fixture";
-import { camera as canvasCamera, pane, regionCount, viewportFrameLog, watchViewportFrames } from "../harness/canvas";
+import { camera as canvasCamera, canvasStats, pane, regionCount, viewportFrameLog, watchViewportFrames } from "../harness/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const CHANNEL = "junto:agent-seat-state-changed";
+const ARM = process.env["PROBE_ARM"] === "gpu" ? "gpu" : "dom";
 const RATE = Number(process.env["PROBE_RATE"] ?? 30);
 const HZ = Number(process.env["PROBE_HZ"] ?? 120);
+const REST_MS = Number(process.env["PROBE_REST_MS"] ?? 4000);
+const OUT = process.env["PROBE_OUT"] ?? "test-results/zz-zoom-smooth";
 // How many seats work and report, spread over the board; unset means every seat, 0 none.
 const WORKING = process.env["PROBE_WORKING"];
 const TRACE = process.env["PROBE_TRACE"] !== "0";
@@ -76,7 +79,12 @@ test("zoom smoothness probe: how often the canvas moves during a scripted zoom",
     return machine.force(seat.bindingId, state ? "working" : "idle", state ? "probe:working" : "probe:idle");
   };
 
-  const junto = await launchJunto({ ...OPERATOR_DISPLAY, electronArgs: [...OPERATOR_DISPLAY.electronArgs, ...ARGS], nestedCanvas: { fixture, name: "factory" } });
+  const junto = await launchJunto({
+    ...OPERATOR_DISPLAY,
+    electronArgs: [...OPERATOR_DISPLAY.electronArgs, ...ARGS],
+    nestedCanvas: { fixture, name: "factory" },
+    ...(ARM === "gpu" ? { seedExperimentalFeatures: ["gpuCanvas"] as const } : {}),
+  });
   try {
     const { app, page } = junto;
     await expect.poll(() => regionCount(page), { timeout: 120_000 }).toBe(fixture.stats.regions);
@@ -135,7 +143,7 @@ test("zoom smoothness probe: how often the canvas moves during a scripted zoom",
       return sent;
     })();
 
-    const tracePath = join(process.cwd(), "test-results/zz-zoom-smooth-trace.json");
+    const tracePath = join(process.cwd(), `${OUT}-trace.json`);
     if (TRACE) await app.evaluate(async ({ contentTracing }, categories) => contentTracing.startRecording({ included_categories: categories }), CATEGORIES);
     const samples = [await sample()];
     const start = epoch();
@@ -149,12 +157,14 @@ test("zoom smoothness probe: how often the canvas moves during a scripted zoom",
       if (t >= script.end) break;
       await pause(2);
     }
+    if (REST_MS > 0) await pause(REST_MS);
     samples.push(await sample());
     stop = true;
     const sent = await reports;
     if (TRACE) await app.evaluate(async ({ contentTracing }, out) => contentTracing.stopRecording(out), tracePath);
 
     const frames = await viewportFrameLog(page);
+    const engineStats = await canvasStats(page);
     const log: FrameLog & { reports: number[] } = { n: frames.t.length, t: frames.t, moved: frames.moved, wheel: frames.wheel, reports: [sent] };
     const raw = {
       log,
@@ -162,12 +172,12 @@ test("zoom smoothness probe: how often the canvas moves during a scripted zoom",
       start,
       samples,
       pids: { host: windowPid, canvas: -1 },
-      options: { arm: "dom", rate: RATE, working: active.length, seats: seats.length, hz: HZ, args: ARGS, size: [Math.round(box.width), Math.round(box.height)], startCamera, endCamera: await camera(), trace: TRACE ? tracePath : null },
+      options: { arm: ARM, rate: RATE, working: active.length, seats: seats.length, hz: HZ, restMs: REST_MS, args: ARGS, size: [Math.round(box.width), Math.round(box.height)], startCamera, endCamera: await camera(), engineStats, trace: TRACE ? tracePath : null },
     };
-    const rawPath = join(process.cwd(), "test-results/zz-zoom-smooth-raw.json");
+    const rawPath = join(process.cwd(), `${OUT}-raw.json`);
     await writeFile(rawPath, JSON.stringify(raw));
     const summary = execFileSync("node", [join(process.cwd(), "lab/gpu-canvas/summarize.cjs"), rawPath], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-    await writeFile(join(process.cwd(), "test-results/zz-zoom-smooth.json"), summary);
+    await writeFile(join(process.cwd(), `${OUT}.json`), summary);
     console.log(`ZOOM-SMOOTH ${JSON.stringify(JSON.parse(summary))}`);
   } finally {
     await junto.close();

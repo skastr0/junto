@@ -210,3 +210,40 @@ for pid, times in sorted(shown.items(), key=lambda kv: -len(kv[1])):
     print(f"  all gestures   {total[0]:4d} refreshes  {total[1]:4d} new pictures  {total[2]:4d} dropped ({100 * total[2] / max(total[0], 1):.1f}%)  longest wait {max(r[4] for r in rows):6.1f} ms;  updates Chromium itself counted as dropped: {lost[pid]}")
     all_gaps = [(y - x) / 1e3 for x, y in zip(times, times[1:]) if window(x) == window(y)]
     print(f"  wait between new pictures: {spread(all_gaps)}")
+
+# Rest window after the last gesture: rings turning under fleet load with no
+# wheel input. Answers whether the page main thread freezes visible motion.
+all_ticks = sorted(e["ts"] for e in events if e.get("name") == "ExternalBeginFrameSourceMac::OnDisplayLinkCallback" and "ts" in e)
+all_ticks = [t for i, t in enumerate(all_ticks) if i == 0 or t - all_ticks[i - 1] > 2000]
+rest_start = wins[-1][1] + 200_000
+rest_end = (all_ticks[-1] - 100_000) if all_ticks else 0
+if rest_end - rest_start >= 1_500_000:
+    rest_s = (rest_end - rest_start) / 1e6
+    rest_draws = sorted(e["ts"] for e in xs if e["name"] == "Display::DrawAndSwap" and rest_start <= e["ts"] <= rest_end)
+    rest_running = {}
+    rest_main_shown = collections.defaultdict(list)
+    for e in stages:
+        key = (e["pid"], e.get("id2", {}).get("local", e.get("id")))
+        if e["name"] == "Commit":
+            if key in rest_running:
+                rest_running[key]["main"] = True
+        elif e["ph"] == "b":
+            rest_running[key] = {"state": e.get("args", {}).get("frame_reporter", {}).get("state"), "main": False}
+        elif key in rest_running:
+            r = rest_running.pop(key)
+            if r["main"] and r["state"] == "STATE_PRESENTED_ALL" and rest_start <= e["ts"] <= rest_end:
+                rest_main_shown[e["pid"]].append(e["ts"])
+    refreshes = round((rest_end - rest_start) / interval)
+    draw_gaps = [(y - x) / 1e3 for x, y in zip(rest_draws, rest_draws[1:])]
+    draw_dropped = sum(max(0, round((y - x) / interval) - 1) for x, y in zip(rest_draws, rest_draws[1:])) if len(rest_draws) > 1 else max(0, refreshes - len(rest_draws))
+    print(f"\n== rest window after gestures ({rest_s:.1f} s, no wheel input, rings turning under load)")
+    print(f"  screen presents (all):   {refreshes:4d} refreshes  {len(rest_draws):4d} presented  {draw_dropped:4d} dropped ({100 * draw_dropped / max(refreshes, 1):.1f}%)  longest wait {max(draw_gaps, default=rest_s * 1e3):6.1f} ms")
+    for pid, times in sorted(rest_main_shown.items(), key=lambda kv: -len(kv[1])):
+        times.sort()
+        gaps = [(y - x) / 1e3 for x, y in zip(times, times[1:])]
+        dropped = sum(max(0, round((y - x) / interval) - 1) for x, y in zip(times, times[1:])) if len(times) > 1 else max(0, refreshes - len(times))
+        print(f"  main-thread pictures pid {pid}: {refreshes:4d} refreshes  {len(times):4d} new pictures  {dropped:4d} dropped ({100 * dropped / max(refreshes, 1):.1f}%)  longest wait {max(gaps, default=rest_s * 1e3):6.1f} ms")
+    for main in mains[:1]:
+        mx = [e for e in xs if (e["pid"], e["tid"]) == main and rest_start <= e["ts"] <= rest_end and e["name"] == "RunTask"]
+        tasks = [e["dur"] / 1e3 for e in mx]
+        print(f"  renderer pid {main[0]} main thread at rest: busy {sum(tasks) / rest_s:.0f} ms/s;  tasks over 8.3 ms {sum(1 for t in tasks if t > 8.3) / rest_s:.1f}/s, over 16.7 ms {sum(1 for t in tasks if t > 16.7) / rest_s:.1f}/s, over 50 ms {sum(1 for t in tasks if t > 50) / rest_s:.1f}/s, max {max(tasks, default=0.0):.1f} ms")
