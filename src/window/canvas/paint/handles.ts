@@ -1,8 +1,9 @@
 /**
  * The connection handles on a card's edges (`NodeShell`'s eight handles,
- * styles.css 1495-1548). A card shows its four source dots on hover or when
- * selected; while a connection is being drawn it also shows the four dashed
- * target dots. Hidden below mid, as the DOM hides them at far and overview.
+ * styles.css 1495-1548). A card shows its four source dots on hover; while a
+ * connection is being drawn it also shows the four dashed target dots, never
+ * as a permanent overlay on a selected card. Hidden below mid, as the DOM
+ * hides them at far and overview.
  *
  * Positions match `engine/pick.ts`: a 9 unit dot, source 2 units outside the
  * border, target 3 units inside it, centred on each side.
