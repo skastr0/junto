@@ -38,6 +38,7 @@ import { attachCanvasDelete, attachCanvasInput, mountHands } from "./hands";
 import { canvasHands } from "./pointer-host";
 import { CanvasMenus } from "./CanvasMenus";
 import { CardOverlays } from "./CardOverlays";
+import { CanvasMagnifier } from "../../components/CanvasMagnifier";
 import { clearCanvasTier, publishCanvasTier } from "../../lib/canvas-tier";
 import { viewportForBounds } from "./camera-targets";
 import { paintCard } from "../paint";
@@ -322,6 +323,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
       />
       <div ref={marqueeRef} className="junto-marquee" data-testid="canvas-marquee" aria-hidden />
       <CardOverlays mirror={mirror} api={api} />
+      <CanvasMagnifier />
       <CanvasMenus />
     </CanvasApiProvider>
   );

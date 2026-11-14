@@ -302,8 +302,20 @@ export function CanvasMagnifier() {
   const reducedMotionRef = useRef(false);
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
 
+  // The GPU shell sets its element after this component mounts, so wait for
+  // it instead of reading once: the lens portals into the canvas's parent.
   useLayoutEffect(() => {
-    setPortalTarget(api?.element()?.parentElement ?? null);
+    let frame = 0;
+    const settle = (): void => {
+      const element = api?.element() ?? null;
+      if (element === null) {
+        frame = requestAnimationFrame(settle);
+        return;
+      }
+      setPortalTarget(element.parentElement ?? null);
+    };
+    settle();
+    return () => cancelAnimationFrame(frame);
   }, [api]);
 
   const renderLens = useCallback(() => {
