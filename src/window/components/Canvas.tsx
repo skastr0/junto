@@ -48,7 +48,7 @@ import { CANVAS_DELETE_KEY_CODE, canvasKeyboardTaken } from "../lib/canvas-keys"
 import { claimFocus, recentGestureKind } from "../lib/focus-ownership";
 import { isEditableEventTarget, toggleInSelection } from "../lib/multi-select-gesture";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
-import { addNode, deleteNodes } from "../lib/mutations";
+import { addNode, deleteNodes, onTop } from "../lib/mutations";
 import { addEdge, canConnect, connectAllToTarget, connectMesh, deleteEdges, disconnectWithin, meshPlanOn, wireIdsWithin } from "../lib/edge-mutations";
 import { agentCountLabel, seatIdsAmong } from "../lib/multi-selection";
 import type { Node as ModelNode } from "@shared/model";
@@ -75,17 +75,15 @@ import "../styles/canvas-lod.css";
 import "../styles/canvas-lod-regions.css";
 import "../styles/reach-preview.css";
 import {
-  newArtifacts, newAutomations, newRegion, newImage,
+  newArtifacts, newAutomations, newRegion,
   newLabel, newSeat, newPage, newTaskBoard, newNote,
 } from "../lib/model-factories";
 import { topZ } from "../lib/model-edits";
 import { useContentCalls, type ContentCalls } from "../lib/content-calls";
-import { putImagesFromDataTransfer } from "../lib/image-content";
-import { contentObjectUrl } from "@shared/content-url";
+import { clipboardHasImage, dropPoint, pastePoint, useImagePlacement } from "../lib/canvas-images";
 import {
   ARTIFACTS_ENABLED,
   BROWSER_ENABLED,
-  FLEET_UI_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
 import { HUE, themeFor, withAlpha } from "../lib/theme";
@@ -99,25 +97,19 @@ import { CanvasLoom } from "./edges/CanvasLoom";
 import { WirePulseFeed } from "./edges/WirePulseFeed";
 import { saveSelectionToCommandGroup } from "../lib/command-group-runtime";
 import { SaveToGroupPicker } from "./rts/SaveToGroupPicker";
-import { SquadDialogHost } from "./squads/SquadDialog";
-import { openSaveSquad, placeSquadInSlot } from "../lib/squads-state";
-import { openSaveProfile, placeProfileInSlot } from "../lib/profiles-state";
-import { ProfileDialogHost } from "./profiles/ProfileDialog";
-import { ProfileDraftEditorHost } from "./profiles/ProfileDraftEditor";
-import { openProfileDraft } from "../lib/profile-draft-state";
-import { TerminalWizard, createTerminalAt } from "./terminal/TerminalWizard";
+import { openSaveSquad } from "../lib/squads-state";
+import { openSaveProfile } from "../lib/profiles-state";
 import { openTerminalGrid } from "../lib/terminal-grid-state";
-import { GitWizard, createGitFromRegion } from "./git/GitWizard";
-import { FilesWizard, createFilesFromRegion } from "./files/FilesWizard";
-import { featureOnNow } from "../lib/experimental-features";
 import { CanvasMagnifier } from "./CanvasMagnifier";
 import { LegacyCanvasApiProvider } from "../canvas/shell/LegacyCanvasApi";
-import { makeAddActions, ModeDeckFocus, onTop } from "./CanvasFieldTools";
+import { makeAddActions, ModeDeckFocus } from "./CanvasFieldTools";
 import { CanvasKeyboardPan } from "./CanvasKeyboardPan";
 import { RegionGlanceGate } from "./RegionGlanceGate";
 import { CanvasTierGate } from "./CanvasTierGate";
 import { SeatClusterLayer } from "./SeatClusterLayer";
 import { RegionUrgencyGate } from "./RegionUrgencyGate";
+import { ImpactSeedChip } from "./ImpactSeedChip";
+import { currentExecutionGraphContext, selectionForCanvas } from "../lib/canvas-impact";
 import { canvasPerformance } from "../lib/performance/canvas-performance";
 import { PERF_ENABLED } from "../lib/performance/perf-flag";
 import { CountedSurface } from "../lib/performance/surface-commits";
@@ -186,27 +178,6 @@ const withEdgeImpact = (
 /** The nodes of a canvas named by `ids`, in paint order. */
 const selectedOn = (canvas: Canvas, ids: ReadonlySet<string>): ReadonlyArray<ModelNode> =>
   inPaintOrder(canvas).filter((node) => ids.has(node.id));
-
-const currentExecutionGraphContext = () =>
-  executionGraphContextFromActorRefs(
-    state$.canvasName.peek(),
-    state$.actorRefs.peek(),
-    seatTasks$.bySeat.peek(),
-  );
-
-const selectionForCanvas = (
-  selectedNodeId: string,
-  context: ReturnType<typeof currentExecutionGraphContext>,
-): ImpactSelection => {
-  const connectionFocusNodeId = state$.connectionFocusNodeId.peek();
-  const canvas = modelStore.canvasOf(context.canvasName);
-  if (connectionFocusNodeId) {
-    return connectionFocusSelection(canvas, connectionFocusNodeId);
-  }
-  return selectedNodeId
-    ? selectionImpact(canvas, selectedNodeId, kernel$.execution.peek(), context)
-    : selectionImpact(canvas, "", null, context);
-};
 
 /**
  * Legend mirrors React Flow's full selection separately from its single-node
@@ -1167,36 +1138,6 @@ function useCanvasGraph() {
   };
 }
 
-/** Isolated so selection/execution ticks do not re-render React Flow. */
-function ImpactSeedChip() {
-  const selectedNodeId = use$(state$.selectedNodeId);
-  const connectionFocusNodeId = use$(state$.connectionFocusNodeId);
-  const executionRev = use$(kernel$.executionRev);
-  const canvasName = use$(state$.canvasName);
-  const actorRefs = use$(state$.actorRefs);
-  const canvas = useCanvas(canvasName);
-  const heldBy = use$(seatTasks$.bySeat);
-  const impact = useMemo(() => {
-    const context = executionGraphContextFromActorRefs(canvasName, actorRefs, heldBy);
-    return selectionForCanvas(selectedNodeId, context);
-  }, [actorRefs, canvasName, connectionFocusNodeId, selectedNodeId, canvas, executionRev, heldBy]);
-  if (!impact.active) return null;
-  return (
-    <Panel position="top-left" className="impact-hud-panel">
-      <div
-        className="impact-hud"
-        role="status"
-        aria-live="polite"
-        title={connectionFocusNodeId ? "Focused node connections" : "Stoppage impact cone for selection"}
-      >
-        <span className="impact-hud__mark" aria-hidden />
-        <span className="impact-hud__eyebrow">{connectionFocusNodeId ? "focus" : "impact"}</span>
-        <span className="impact-hud__label">{impact.seedLabel}</span>
-      </div>
-    </Panel>
-  );
-}
-
 // The connect gesture answers itself on the card. A wire being drawn used to
 // raise a chip at the top of the canvas counting the ports the drop would
 // mint ("allows 6 actions"): the port mask was the thing being authored, so
@@ -1230,47 +1171,6 @@ function CanvasGraph() {
   // discoverable mid-gesture.
   const connecting = useConnection((connection) => connection.inProgress);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  const [terminalAnchor, setTerminalAnchor] = useState<{ x: number; y: number } | null>(null);
-  const [gitAnchor, setGitAnchor] = useState<{ x: number; y: number } | null>(null);
-  const [filesAnchor, setFilesAnchor] = useState<{ x: number; y: number } | null>(null);
-  useEffect(() => {
-    const openTerminal = (event: Event) => {
-      const anchor = (event as CustomEvent<{ x: number; y: number }>).detail;
-      // Host choice is a fleet surface; without it there is nothing to ask.
-      if (!FLEET_UI_ENABLED) {
-        void createTerminalAt(anchor);
-        return;
-      }
-      setTerminalAnchor(anchor);
-    };
-    window.addEventListener("junto:new-terminal", openTerminal);
-    return () => {
-      window.removeEventListener("junto:new-terminal", openTerminal);
-    };
-  }, []);
-  useEffect(() => {
-    const openGit = (event: Event) => {
-      const anchor = (event as CustomEvent<{ x: number; y: number }>).detail;
-      if (createGitFromRegion(anchor)) return;
-      setGitAnchor(anchor);
-    };
-    window.addEventListener("junto:new-git", openGit);
-    return () => {
-      window.removeEventListener("junto:new-git", openGit);
-    };
-  }, []);
-  useEffect(() => {
-    const openFiles = (event: Event) => {
-      if (!featureOnNow("files")) return;
-      const anchor = (event as CustomEvent<{ x: number; y: number }>).detail;
-      if (createFilesFromRegion(anchor)) return;
-      setFilesAnchor(anchor);
-    };
-    window.addEventListener("junto:new-files", openFiles);
-    return () => {
-      window.removeEventListener("junto:new-files", openFiles);
-    };
-  }, []);
   const [multiMenu, setMultiMenu] = useState<MultiMenuAnchor | null>(null);
   const [seatMenu, setSeatMenu] = useState<{ readonly x: number; readonly y: number; readonly seatId: string } | null>(null);
   const [connectMenu, setConnectMenu] = useState<{
@@ -1381,30 +1281,8 @@ function CanvasGraph() {
     interactions.onPaneClick(event);
   }, [interactions.onPaneClick, closeMenus]);
 
-  const content = useContentCalls();
   /** Drop / paste images onto the field → content store → image file nodes. */
-  const placeImagesAt = useCallback(
-    async (data: DataTransfer | null | undefined, flow: { x: number; y: number }) => {
-      const result = await putImagesFromDataTransfer(content, data);
-      if (result.kind === "none") return false;
-      if (result.kind === "error") {
-        state$.error.set(result.error);
-        return true;
-      }
-      let offset = 0;
-      for (const ref of result.refs) {
-        const node = newImage(
-          onTop({ x: flow.x + offset, y: flow.y + offset }),
-          contentObjectUrl(ref),
-        );
-        addNode(node, { edit: false });
-        state$.focusNodeId.set(node.id);
-        offset += 24;
-      }
-      return true;
-    },
-    [content],
-  );
+  const placeImages = useImagePlacement();
 
   const onDragOver = useCallback((event: React.DragEvent) => {
     if (!event.dataTransfer?.types?.includes("Files")) return;
@@ -1420,12 +1298,9 @@ function CanvasGraph() {
       event.preventDefault();
       event.stopPropagation();
       const flow = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-      void placeImagesAt(event.dataTransfer, {
-        x: flow.x - 140,
-        y: flow.y - 100,
-      });
+      void placeImages(event.dataTransfer, dropPoint(flow));
     },
-    [rf, placeImagesAt],
+    [rf, placeImages],
   );
 
   useEffect(() => {
@@ -1434,23 +1309,14 @@ function CanvasGraph() {
       if (target?.closest("input, textarea, [contenteditable='true']")) return;
       const data = event.clipboardData;
       if (!data) return;
-      const hasImageItem =
-        Array.from(data.items ?? []).some(
-          (item) => item.kind === "file" && item.type.startsWith("image/"),
-        ) ||
-        Array.from(data.files ?? []).some((file) => file.type.startsWith("image/"));
-      if (!hasImageItem) return;
+      if (!clipboardHasImage(data)) return;
       // Must cancel default paste synchronously before the async put.
       event.preventDefault();
-      const center = rf.screenToFlowPosition({
-        x: window.innerWidth / 2,
-        y: window.innerHeight / 2,
-      });
-      void placeImagesAt(data, { x: center.x - 140, y: center.y - 100 });
+      void placeImages(data, dropPoint(rf.screenToFlowPosition(pastePoint())));
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [rf, placeImagesAt]);
+  }, [rf, placeImages]);
 
   // Shift multi-select is product law: a shift+primary press on a node is
   // additive selection — never open, rename, edit, or React Flow's own
@@ -1489,9 +1355,6 @@ function CanvasGraph() {
 
   return <CanvasPerformanceBoundary>
     <LegacyCanvasApiProvider>
-    {terminalAnchor ? <TerminalWizard anchor={terminalAnchor} onClose={() => setTerminalAnchor(null)} /> : null}
-    {gitAnchor ? <GitWizard anchor={gitAnchor} onClose={() => setGitAnchor(null)} /> : null}
-    {filesAnchor ? <FilesWizard anchor={filesAnchor} onClose={() => setFilesAnchor(null)} /> : null}
     <ReactFlow
       className={[
         "junto-canvas",
@@ -1587,9 +1450,6 @@ function CanvasGraph() {
     {ctxMenu ? <ContextModeDeck at={ctxMenu} onClose={() => setCtxMenu(null)} /> : null}
     {multiMenu ? <MultiSelectMenu anchor={multiMenu} onClose={closeMultiMenu} /> : null}
     {seatMenu ? <SeatMenu at={seatMenu} seatId={seatMenu.seatId} onClose={() => setSeatMenu(null)} /> : null}
-    <SquadDialogHost />
-    <ProfileDialogHost />
-    <ProfileDraftEditorHost />
     {connectMenu ? (
       <TargetConnectMenu
         at={{ x: connectMenu.x, y: connectMenu.y }}

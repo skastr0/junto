@@ -14,6 +14,7 @@ import type { MinimapRect, MinimapSource } from "./minimap-source";
 import { clearCanvasApi, setCanvasApi } from "./canvas-api";
 import { clearMinimapSource, setMinimapSource } from "./minimap-source";
 import { CanvasApiProvider } from "./CanvasApiContext";
+import { ownWireMode } from "./wire-mode";
 
 type FlowStore = ReturnType<typeof useStoreApi>;
 type FlowInstance = ReturnType<typeof useReactFlow>;
@@ -254,7 +255,12 @@ export function LegacyCanvasApiProvider({ children }: { readonly children: React
   useEffect(() => {
     setCanvasApi(api);
     setMinimapSource(minimap);
+    // The old canvas draws the loupe alone: its own classes already show the
+    // wires for a connect gesture and the focus cone, so only the loupe mode
+    // reaches this root.
+    const offWireMode = ownWireMode((mode) => api.setWireMode(mode === "loupe" ? "loupe" : "rest"));
     return () => {
+      offWireMode();
       clearCanvasApi(api);
       clearMinimapSource(minimap);
     };

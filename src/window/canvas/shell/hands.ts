@@ -39,6 +39,7 @@ import {
 } from "../../lib/state";
 import { modelStore } from "../../lib/use-model";
 import { openCanvasMenu } from "./canvas-menu";
+import { holdWireMode } from "./wire-mode";
 import type { CanvasInput, Hit, Intent, Point, SelectionFact } from "../contract";
 
 /** The menus the pointer machine asks for, all opened by the shell. */
@@ -102,7 +103,11 @@ const textEditable = (id: string): boolean => {
 };
 
 /** What a click means beyond its intent: whether a gesture is running, and thus what a select is. */
-export type HandsMemory = { gesturing: boolean };
+export type HandsMemory = {
+  gesturing: boolean;
+  /** The wire-mode reason a connect gesture holds while its pointer is down. */
+  releaseConnecting?: (() => void) | undefined;
+};
 
 /** The verb a connection landed with, when it names one the table knows. */
 const verbOf = (intent: Extract<Intent, { readonly kind: "connect" }>): Verb | undefined =>
@@ -224,6 +229,13 @@ export const handleIntent = (intent: Intent, host: HandsHost = {}, memory: Hands
       // (the feed owns it), and the flag tells a click from a gesture so a
       // click on a selected note opens its text editor.
       memory.gesturing = intent.gesture !== null;
+      // A wire being drawn shows the wires a drop can land on (wire-mode.ts).
+      if (intent.gesture === "connect") {
+        memory.releaseConnecting ??= holdWireMode("connecting");
+      } else if (memory.releaseConnecting !== undefined) {
+        memory.releaseConnecting();
+        memory.releaseConnecting = undefined;
+      }
       return;
   }
 };

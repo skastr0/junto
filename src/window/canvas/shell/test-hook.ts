@@ -21,6 +21,8 @@ type FullHook = CanvasTestHook & {
   readonly rect: (id: NodeId, part?: string) => Rect | null;
   readonly text: (id: NodeId) => string;
   readonly selected: () => ReadonlyArray<NodeId>;
+  /** The wire mode the shell has pushed to the engine (shell/wire-mode.ts). */
+  readonly wireMode: () => string;
 };
 
 const inset = (rect: Rect, dx: number, dy: number): Rect => ({
@@ -110,6 +112,7 @@ const build = (mirror: SurfaceMirror, engine: () => SeamEngine | undefined, atla
     },
     stats: () => engineStats(engine()),
     reachMarks: () => lastReachMarks(),
+    wireMode: () => mirror.wireMode(),
     atlasRequests,
   };
 };

@@ -11,6 +11,7 @@ import { themeFor, withAlpha } from "../lib/theme";
 import { themeMode$ } from "../lib/theme-mode";
 import { state$ } from "../lib/state";
 import { useCanvasApi } from "../canvas/shell/CanvasApiContext";
+import { holdWireMode } from "../canvas/shell/wire-mode";
 import { useCanvas } from "../lib/use-model";
 import "./CanvasMagnifier.css";
 import { isOperatorTyping } from "../lib/focus-ownership";
@@ -294,6 +295,7 @@ export function CanvasMagnifier() {
   const subjectRef = useRef<HTMLSpanElement>(null);
   const statusRef = useRef<HTMLSpanElement>(null);
   const targetRef = useRef<Point>({ x: 0, y: 0 });
+  const loupeHold = useRef<(() => void) | null>(null);
   const currentRef = useRef<Point>({ x: 0, y: 0 });
   const pointerInsideRef = useRef(false);
   const altHeldRef = useRef(false);
@@ -408,8 +410,14 @@ export function CanvasMagnifier() {
     if (!shell) return;
     shell.dataset.active = String(active);
     // The loupe is the canvas's alt mode: while it is up the wires show in
-    // full and can be picked.
-    api?.setWireMode(active ? "loupe" : "rest");
+    // full and can be picked. It holds one wire-mode reason; the strongest
+    // reason wins where the canvases compose them (shell/wire-mode.ts).
+    if (active) {
+      loupeHold.current ??= holdWireMode("loupe");
+    } else {
+      loupeHold.current?.();
+      loupeHold.current = null;
+    }
     if (active) {
       currentRef.current = { ...targetRef.current };
       requestRender();
@@ -417,7 +425,16 @@ export function CanvasMagnifier() {
       cancelAnimationFrame(frameRef.current);
       frameRef.current = 0;
     }
-  }, [api, requestRender]);
+  }, [requestRender]);
+
+  // Let the loupe's reason go with the magnifier.
+  useEffect(
+    () => () => {
+      loupeHold.current?.();
+      loupeHold.current = null;
+    },
+    [],
+  );
 
   useEffect(() => api?.onCamera(() => requestRender()), [api, requestRender]);
 

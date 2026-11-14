@@ -10,7 +10,7 @@ import { useCallback, useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Expand, Plus, X } from "lucide-react";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
-import { addNode } from "../lib/mutations";
+import { addNode, onTop } from "../lib/mutations";
 import { topZ } from "../lib/model-edits";
 import { findOpenPosition } from "../lib/geometry";
 import { state$ } from "../lib/state";
@@ -35,10 +35,6 @@ import { canvasApi } from "../canvas/shell/canvas-api";
 import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePaletteModeDeck";
 import { FocusSurface } from "./FocusSurface";
 import { IconButton, OverlayHeader } from "./ui";
-
-export const onTop = (position: { readonly x: number; readonly y: number }) => ({
-  ...position, z: topZ(modelStore.canvasOf(state$.canvasName.peek())),
-});
 
 /** Node creation against a caller-supplied placement strategy. */
 export const makeAddActions = (

@@ -9,6 +9,7 @@ import { useCallback, useState, type ReactNode } from "react";
 import { useFeatureOn } from "../../lib/experimental-features";
 import { state$ } from "../../lib/state";
 import { GpuCanvas } from "./GpuCanvas";
+import { CanvasCreationHosts } from "../../components/CanvasCreationHosts";
 
 type Props = {
   /** Today's canvas, mounted when the switch is off or the GPU cannot run. */
@@ -26,6 +27,14 @@ export function CanvasHost({ legacy }: Props) {
     unavailableSaid = true;
     state$.error.set(`GPU canvas is on, but it cannot run here, so the current canvas is shown. ${reason}`);
   }, []);
-  if (!on || unavailable !== undefined) return <>{legacy}</>;
-  return <GpuCanvas onUnavailable={onUnavailable} />;
+  // The wizards and the squad and profile dialogs belong to the canvas, not to
+  // one canvas: mounted with the seam, +Add Item → Terminal / Git / Files and
+  // Save as Squad reach whichever canvas is drawing, and switching canvases
+  // does not unmount them mid-answer.
+  return (
+    <>
+      {!on || unavailable !== undefined ? <>{legacy}</> : <GpuCanvas onUnavailable={onUnavailable} />}
+      <CanvasCreationHosts />
+    </>
+  );
 }

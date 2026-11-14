@@ -9,7 +9,7 @@ import type { Color, Command, Node, NodeOf, RegionContract, RegionDefaults, Regi
 import type { TasksContract } from "@shared/work-model";
 import { authoring } from "./authoring";
 import type { Canvas } from "@shared/model/canvas";
-import { added, filesEdited, gitEdited, pageEdited, recolored, regionEdited, removed as nodesRemoved, renamed, retexted, taskBoardEdited, titled } from "./model-edits";
+import { added, filesEdited, gitEdited, pageEdited, recolored, regionEdited, removed as nodesRemoved, renamed, retexted, taskBoardEdited, titled, topZ } from "./model-edits";
 import { modelStore } from "./use-model";
 import {
   removeEdgesFromSelection,
@@ -298,6 +298,12 @@ export const parseSide = (handle?: string | null): Side | undefined => {
 // that is already fully in view — a zoom jump there would be jarring).
 // Regions open the folder-paths modal instead of the label editor so the first
 // configure step is host cwd (the main reason to create a region).
+/** The z a node added now takes: above every card on the open canvas. */
+export const onTop = (position: { readonly x: number; readonly y: number }) => ({
+  ...position,
+  z: topZ(modelStore.canvasOf(state$.canvasName.peek())),
+});
+
 export const addNode = (
   node: Node,
   options?: {

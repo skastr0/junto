@@ -1195,8 +1195,15 @@ html[data-surface-motion="paused"] *::after {
   opacity: 1;
   border-color: color-mix(in oklab, var(--color-accent) 45%, transparent);
 }
-.impact-hud-panel {
-  margin: 12px 0 0 12px !important;
+/* The cone chip's corner. It is the chip's own placement, not a React Flow
+   panel's: the same element sits over either canvas, and it never takes a
+   press meant for the field under it. */
+.impact-hud-anchor {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 5;
+  pointer-events: none;
 }
 .impact-hud {
   display: inline-flex;

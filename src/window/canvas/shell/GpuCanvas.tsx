@@ -35,11 +35,14 @@ import { startSceneBridge } from "./scene-bridge";
 import { installReachPreview } from "./reach-live";
 import { installCanvasTestHook } from "./test-hook";
 import { mountWireLabels } from "./wire-labels";
+import { holdConeWireMode, ownWireMode } from "./wire-mode";
 import { attachCanvasDelete, attachCanvasInput, mountHands } from "./hands";
 import { canvasHands } from "./pointer-host";
 import { CanvasMenus } from "./CanvasMenus";
 import { CardOverlays } from "./CardOverlays";
 import { CanvasMagnifier } from "../../components/CanvasMagnifier";
+import { ImpactSeedChip } from "../../components/ImpactSeedChip";
+import { clipboardHasImage, dropPoint, pastePoint, useImagePlacement } from "../../lib/canvas-images";
 import { clearCanvasTier, publishCanvasTier } from "../../lib/canvas-tier";
 import { surfaceMotionLive$ } from "../../lib/surface-motion";
 import { regionGlanceOpacity, subregionGlanceOpacity } from "../../lib/region-glance";
@@ -92,6 +95,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
   const mirror = useMemo(() => createSurfaceMirror(), []);
   const api = useMemo<GpuCanvasApi>(() => createGpuCanvasApi(mirror), [mirror]);
   const engineRef = useRef<SeamEngine | undefined>(undefined);
+  const placeImages = useImagePlacement();
 
   useEffect(() => {
     const canvas = ref.current;
@@ -180,6 +184,10 @@ export function GpuCanvas({ onUnavailable }: Props) {
     mounted = engine;
     engineRef.current = engine;
     api.attachEngine(engine);
+    // The wire mode has one owner: the loupe, a connect gesture and the focus
+    // cone each hold a reason, and the strongest wins (shell/wire-mode.ts).
+    const offWireMode = ownWireMode((mode) => api.setWireMode(mode));
+    const offConeMode = holdConeWireMode();
     // Real browser input reaches the engine; shortcuts stay in the one key
     // dispatcher, and the delete chord keeps the gates React Flow had.
     const offInput = attachCanvasInput(engine, canvas);
@@ -271,6 +279,34 @@ export function GpuCanvas({ onUnavailable }: Props) {
     canvas.addEventListener("pointermove", hover, { passive: true });
     canvas.addEventListener("pointerleave", leave, { passive: true });
 
+    // Images: a file dropped on the field, or pasted with nothing typing, is a
+    // content-store image at the board point the gesture names. That point comes
+    // from the mirror, so the drop lands under the pointer on this canvas too.
+    const onDragOver = (event: DragEvent): void => {
+      if (event.dataTransfer?.types?.includes("Files") !== true) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+    };
+    const onDrop = (event: DragEvent): void => {
+      const data = event.dataTransfer;
+      if (data === null || ![...data.types].includes("Files")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void placeImages(data, dropPoint(api.screenToBoard({ x: event.clientX, y: event.clientY })));
+    };
+    const onPaste = (event: ClipboardEvent): void => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, [contenteditable='true']")) return;
+      const data = event.clipboardData;
+      if (data === null || !clipboardHasImage(data)) return;
+      // Must cancel default paste synchronously before the async put.
+      event.preventDefault();
+      void placeImages(data, dropPoint(api.screenToBoard(pastePoint())));
+    };
+    canvas.addEventListener("dragover", onDragOver);
+    canvas.addEventListener("drop", onDrop);
+    window.addEventListener("paste", onPaste);
+
     // The camera the rest of the app asks for, and the focus target.
     const offFit = state$.fitViewRequest.onChange(() => api.fit());
     const offZoom = canvasZoomRequest$.onChange(() => {
@@ -299,6 +335,8 @@ export function GpuCanvas({ onUnavailable }: Props) {
       offInput();
       offWireLabels();
       wireLabels.dispose();
+      offConeMode();
+      offWireMode();
       offHook();
       offReach();
       offScene();
@@ -310,6 +348,9 @@ export function GpuCanvas({ onUnavailable }: Props) {
       offViewport();
       canvas.removeEventListener("pointermove", hover);
       canvas.removeEventListener("pointerleave", leave);
+      canvas.removeEventListener("dragover", onDragOver);
+      canvas.removeEventListener("drop", onDrop);
+      window.removeEventListener("paste", onPaste);
       document.removeEventListener("visibilitychange", visibility);
       sizes.disconnect();
       offMotion();
@@ -328,7 +369,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
       api.dispose();
       engine.dispose();
     };
-  }, [api, mirror, runtime]);
+  }, [api, mirror, runtime, placeImages]);
 
   return (
     <CanvasApiProvider api={api}>
@@ -341,6 +382,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
       />
       <div ref={marqueeRef} className="junto-marquee" data-testid="canvas-marquee" aria-hidden />
       <CardOverlays mirror={mirror} api={api} />
+      <ImpactSeedChip />
       <CanvasMagnifier />
       <CanvasMenus />
     </CanvasApiProvider>
