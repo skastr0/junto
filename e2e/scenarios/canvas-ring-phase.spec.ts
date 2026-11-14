@@ -1,30 +1,47 @@
 // Section 10's phase test, end to end: at the same instant a DOM ring and the
-// canvas ring of the same seat show the same angle. The DOM side is a
-// `.junto-mark` spin part on a non-canvas surface (its `junto-mark-turn`
-// animation's currentTime gives the angle the browser is showing); the
-// canvas side is `window.__juntoCanvas.ringAngle(id)`. Skips until the hook
-// carries ringAngle and a DOM ring for the seat is on screen.
+// canvas ring of the same seat show the same angle. Both seats are forced
+// "working" through the state-machine channel, so each carries a turning
+// ring. The DOM side is the focus switcher's `.junto-mark` spin part — its
+// `junto-mark-turn` animation's currentTime gives the angle the browser is
+// showing — read inside one evaluate together with `ringAngle`, so both
+// sample the same wall-clock instant. Skips until the hook carries
+// ringAngle and a DOM ring for the seat is on screen.
 
-import { test, expect } from "@playwright/test";
+import { test, expect, type ElectronApplication, type Page } from "@playwright/test";
+import { SeatStateMachine } from "../../src/core/term/agent-state";
 import { launchJunto } from "../harness/launch";
 import { modelFixture, modelSeat } from "../harness/model";
 import { canvasReady } from "../harness/canvas";
 
 const CANVAS = "factory";
-const SEAT = "seat-phase";
+const SEAT = "seat-phase-a";
+const CHANNEL = "junto:agent-seat-state-changed";
 
 const fixture = modelFixture([
-  modelSeat({ id: SEAT, label: "Phase", x: 0, y: 0 }),
+  modelSeat({ id: SEAT, key: "local:seat-phase-a", bindingId: "local:seat-phase-a", label: "Phase", x: 0, y: 0 }),
+  modelSeat({ id: "seat-phase-b", key: "local:seat-phase-b", bindingId: "local:seat-phase-b", label: "Other", x: 320, y: 0 }),
 ]);
 
-/** The angle a DOM spin part is showing, from its running CSS animation. */
-const domSpinAngle = (page: import("@playwright/test").Page, seatId: string): Promise<number | null> =>
+const send = (app: ElectronApplication, events: ReadonlyArray<unknown>) =>
+  app.evaluate(({ BrowserWindow }, { channel, events }) => {
+    for (const w of BrowserWindow.getAllWindows()) for (const e of events) w.webContents.send(channel, e);
+  }, { channel: CHANNEL, events });
+
+interface AngleSample {
+  readonly gpu: number | null;
+  readonly dom: number | null;
+}
+
+/**
+ * One evaluate, one instant: the hook's wall-clock ring angle and the DOM
+ * spin part's animation angle for the seat's mark in the focus switcher.
+ */
+const sampleAngles = (page: Page, seatId: string): Promise<AngleSample> =>
   page.evaluate((id) => {
-    // A DOM surface that shows this seat's mark (a row, the switcher HUD, a
-    // panel) carries the seat id on an ancestor of the mark.
+    const gpu = window.__juntoCanvas?.ringAngle?.(id) ?? null;
     const marks = [...document.querySelectorAll(".junto-mark")];
     for (const mark of marks) {
-      const host = mark.closest(`[data-id="${id}"], [data-node-id="${id}"], [data-seat="${id}"]`);
+      const host = mark.closest(`[data-node-id="${id}"], [data-id="${id}"], [data-seat="${id}"]`);
       if (host === null) continue;
       const part = mark.querySelector<HTMLElement>(".junto-mark__part[data-spin]");
       if (part === null) continue;
@@ -33,15 +50,13 @@ const domSpinAngle = (page: import("@playwright/test").Page, seatId: string): Pr
           "animationName" in a && a.animationName === "junto-mark-turn",
       );
       if (anim === undefined) continue;
-      const style = getComputedStyle(part);
-      const duration = parseFloat(style.animationDuration) * 1000;
+      const duration = parseFloat(getComputedStyle(part).animationDuration) * 1000;
       if (!Number.isFinite(duration) || duration <= 0) continue;
       const p = (((Number(anim.currentTime ?? 0) % duration) + duration) % duration) / duration;
-      const ccw = part.dataset.spin === "ccw";
-      const angle = 360 * (ccw ? 1 - p : p);
-      return angle === 360 ? 0 : angle;
+      const angle = 360 * (part.dataset.spin === "ccw" ? 1 - p : p);
+      return { gpu, dom: angle === 360 ? 0 : angle };
     }
-    return null;
+    return { gpu, dom: null };
   }, seatId);
 
 test("ring phase: the DOM ring and the canvas ring of one seat show the same angle", async () => {
@@ -51,32 +66,47 @@ test("ring phase: the DOM ring and the canvas ring of one seat show the same ang
     seedExperimentalFeatures: ["gpuCanvas"],
   });
   try {
-    const page = junto.page;
+    const { app, page } = junto;
     await canvasReady(page);
     const hooked = await page.evaluate(() => typeof window.__juntoCanvas?.ringAngle === "function");
     test.skip(!hooked, "hook has no ringAngle yet");
 
-    // Poll until the seat's ring is turning on the canvas and a DOM surface
-    // shows the same seat's mark.
-    const deadline = Date.now() + 60_000;
-    let dom: number | null = null;
-    let gpu: number | undefined;
-    for (;;) {
-      gpu = await page.evaluate((id) => window.__juntoCanvas?.ringAngle?.(id), SEAT);
-      dom = await domSpinAngle(page, SEAT);
-      if (gpu !== undefined && dom !== null) break;
-      if (Date.now() >= deadline) {
-        test.skip(true, `no turning ring pair found (gpu=${gpu}, dom=${dom})`);
-      }
-      await page.waitForTimeout(250);
+    // Both seats working: each carries a turning ring on either canvas.
+    const machine = new SeatStateMachine({ now: () => Date.now() });
+    for (const binding of ["local:seat-phase-a", "local:seat-phase-b"]) {
+      machine.bind(binding, { harness: "codex", epoch: "probe" });
     }
-    // Sample back to back: both read the same wall clock.
-    const again = await page.evaluate((id) => window.__juntoCanvas?.ringAngle?.(id), SEAT);
-    const domAgain = await domSpinAngle(page, SEAT);
-    expect(again).toBeCloseTo(gpu!, 0);
-    expect(domAgain).not.toBeNull();
-    // One frame of the shortest lap (1440 ms) is ~0.25 degrees at 60 fps.
-    expect(Math.abs(domAgain! - gpu!), "DOM ring angle vs canvas ring angle").toBeLessThan(1);
+    await send(app, [
+      machine.force("local:seat-phase-a", "working", "probe:working"),
+      machine.force("local:seat-phase-b", "working", "probe:working"),
+    ]);
+    await page.waitForTimeout(1_000);
+
+    // The focus switcher lists every agent's DOM ring; hold Cmd so it stays up.
+    await page.keyboard.down("Meta");
+    try {
+      await page.keyboard.press("Backquote");
+      const deadline = Date.now() + 30_000;
+      let sample: AngleSample = { gpu: null, dom: null };
+      for (;;) {
+        sample = await sampleAngles(page, SEAT);
+        if (sample.gpu !== null && sample.dom !== null) break;
+        if (Date.now() >= deadline) {
+          test.skip(true, `no turning ring pair found (${JSON.stringify(sample)})`);
+        }
+        await page.waitForTimeout(250);
+      }
+      // Same-instant samples a beat apart must agree: one evaluate reads both.
+      const second = await sampleAngles(page, SEAT);
+      expect(second.gpu).not.toBeNull();
+      expect(second.dom).not.toBeNull();
+      // The shortest lap is 1440 ms; a few ms of sampling skew is <1 degree.
+      expect(Math.abs(second.dom! - second.gpu!), "DOM ring angle vs canvas ring angle").toBeLessThan(1);
+      expect(Math.abs(sample.dom! - sample.gpu!), "first sample pair").toBeLessThan(1);
+    } finally {
+      await page.keyboard.press("Escape").catch(() => undefined);
+      await page.keyboard.up("Meta");
+    }
   } finally {
     await junto.close();
   }
