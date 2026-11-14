@@ -57,6 +57,8 @@ export interface GpuAtlas {
   attach(device: GPUDevice): void;
   /** The record's atlas cell for a quad's sprite or text, or NO_ATLAS_CELL. */
   sourceFor(quad: Quad, scale: number): number;
+  /** Bumped every time landed cells change the texture or the UV buffer. */
+  revision(): number;
   readonly pending: number;
   dispose(): void;
 }
@@ -93,6 +95,12 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   let dirty = false;
   let flushScheduled = false;
   let disposed = false;
+  let revision = 0;
+  // Every landed cell keeps its pixels so a new device (context loss, a new
+  // generation) gets a fresh texture with the same contents; `awaiting` marks
+  // the ones whose UV rect is not in `cells` yet (landed before attach).
+  const landed = new Map<number, { readonly pixels: AtlasPixels; readonly at: Placed }>();
+  const awaiting = new Set<number>();
 
   // The binding object is stable for the engine's lifetime; attach() fills
   // its fields through the mutable view. Until then the renderer's dummy
@@ -113,6 +121,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   };
   const markDirty = (): void => {
     dirty = true;
+    revision += 1;
     if (!flushScheduled) {
       flushScheduled = true;
       queueMicrotask(flush);
@@ -132,21 +141,33 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     return at;
   };
 
-  const land = (key: string, index: number, pixels: AtlasPixels, at: Placed): void => {
-    if (device === undefined || texture === undefined) return;
+  const copyPixels = (pixels: AtlasPixels, at: Placed): void => {
+    device!.queue.copyExternalImageToTexture(
+      { source: pixels as unknown as ImageBitmap },
+      { texture: texture!, origin: { x: at.x, y: at.y } },
+      { width: Math.max(1, pixels.width), height: Math.max(1, pixels.height) },
+    );
+  };
+
+  const writeUV = (index: number, pixels: AtlasPixels, at: Placed): void => {
     const w = Math.max(1, pixels.width);
     const h = Math.max(1, pixels.height);
-    device.queue.copyExternalImageToTexture(
-      { source: pixels as unknown as ImageBitmap },
-      { texture, origin: { x: at.x, y: at.y } },
-      { width: w, height: h },
-    );
     cells[index * 4] = at.x / size;
     cells[index * 4 + 1] = at.y / size;
     cells[index * 4 + 2] = (at.x + w) / size;
     cells[index * 4 + 3] = (at.y + h) / size;
+  };
+
+  const land = (index: number, pixels: AtlasPixels, at: Placed): void => {
+    landed.set(index, { pixels, at });
+    if (device === undefined || texture === undefined) {
+      awaiting.add(index);
+      return;
+    }
+    copyPixels(pixels, at);
+    writeUV(index, pixels, at);
+    awaiting.delete(index);
     markDirty();
-    void key;
   };
 
   const intern = (key: string, rasterize: () => Promise<AtlasPixels>): number => {
@@ -167,7 +188,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         const at = alloc(w, h);
         if (at === undefined) return;
         placed.set(key, at);
-        land(key, index, pixels, at);
+        land(index, pixels, at);
       })
       .catch(() => {
         // A failed raster leaves the cell empty; the quad keeps NO_ATLAS_CELL
@@ -205,12 +226,14 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   const sourceFor = (quad: Quad, scale: number): number => {
     if (quad.sprite !== undefined) {
       const ref = quad.sprite;
+      // Mode is part of the key: generated art and the mark atlas repaint per
+      // theme, so a theme switch must not hit a stale cell.
       if (ref.atlas === "image") {
-        return internRemembered(`img:${ref.key}:${ref.size.width}x${ref.size.height}`,
+        return internRemembered(`img:${mode}:${ref.key}:${ref.size.width}x${ref.size.height}`,
           () => options.rasterizeSprite?.(ref, mode) ?? Promise.reject(new Error("no sprite rasterizer")));
       }
       if (ref.atlas === "mark") {
-        return internRemembered(`mark:${ref.cell.col},${ref.cell.row}`,
+        return internRemembered(`mark:${mode}:${ref.cell.col},${ref.cell.row}`,
           () => options.rasterizeSprite?.(ref, mode) ?? Promise.reject(new Error("no sprite rasterizer")));
       }
       // glyph and media have no raster path yet: they keep drawing nothing.
@@ -227,8 +250,10 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     binding,
     attach: (next) => {
       if (disposed) return;
+      const fresh = device !== next;
       device = next;
-      if (texture === undefined) {
+      if (texture === undefined || fresh) {
+        texture?.destroy();
         texture = next.createTexture({
           size: { width: size, height: size },
           format: "rgba8unorm",
@@ -238,12 +263,21 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         sampler = next.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
         mutable.texture = texture;
         mutable.sampler = sampler;
+        // A fresh texture starts blank: replay every landed cell's pixels,
+        // then write the UVs of the ones that landed before any attach.
+        for (const job of landed.values()) copyPixels(job.pixels, job.at);
+        for (const index of awaiting) {
+          const job = landed.get(index);
+          if (job !== undefined) writeUV(index, job.pixels, job.at);
+        }
+        awaiting.clear();
         markDirty();
       }
     },
     sourceFor,
+    revision: () => revision,
     get pending() {
-      return jobs.size;
+      return jobs.size + awaiting.size;
     },
     dispose: () => {
       disposed = true;
@@ -251,6 +285,8 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       jobs.clear();
       placed.clear();
       indices.clear();
+      landed.clear();
+      awaiting.clear();
     },
   };
 };
