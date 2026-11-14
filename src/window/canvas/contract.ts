@@ -672,8 +672,6 @@ export type FrameFacts = {
   readonly settled: boolean;
   /** Screen rectangles of the cards the shell anchors overlays to. */
   readonly anchors: ReadonlyArray<{ readonly id: NodeId; readonly rect: Rect }>;
-  /** The marquee box during a pane drag, in screen pixels; null when not dragging. */
-  readonly marquee: Rect | null;
 };
 
 /** The engine's own counters, for the frame test and the performance harness. */

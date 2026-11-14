@@ -474,21 +474,38 @@ export const canvasReady = async (
   page: Page,
   options?: { readonly timeout?: number },
 ): Promise<void> => {
-  // The backend is chosen per poll: under the GPU canvas the hook installs
-  // after first paint, and picking the DOM probe early would wait forever on
-  // a `.react-flow` that never mounts.
-  await expect
-    .poll(
-      async () => {
-        const { probe } = await canvasBackend(page);
-        return (await probe.ready(page)) ? "ready" : null;
-      },
-      {
-        timeout: options?.timeout ?? 30_000,
-        message: "the canvas never became ready",
-      },
+  const timeout = options?.timeout ?? 30_000;
+  const deadline = Date.now() + timeout;
+
+  // With gpuCanvas opted in, React Flow paints first and the engine swaps in
+  // a beat later when settings resolve; a DOM "ready" inside that window is
+  // not the final backend. Read the toggle once: opted in, only the hook —
+  // or a DOM that stays put, the engine's own unavailable fallback — may
+  // answer, and a DOM answer must hold for a beat before it counts.
+  const gpuOptIn = await page
+    .evaluate(async () =>
+      (await window.junto?.settingsGet?.())?.settings?.advanced?.experimental?.["gpuCanvas"] === true,
     )
-    .not.toBeNull();
+    .catch(() => false);
+
+  let domStreak = 0;
+  for (;;) {
+    const { kind, probe } = await canvasBackend(page);
+    const ready = await probe.ready(page).catch(() => false);
+    if (ready && kind === "hook") return;
+    if (ready && kind === "dom") {
+      if (!gpuOptIn) return;
+      domStreak += 1;
+      if (domStreak >= 5) return;
+      await page.waitForTimeout(400);
+      continue;
+    }
+    domStreak = 0;
+    if (Date.now() >= deadline) {
+      throw new Error("the canvas never became ready");
+    }
+    await page.waitForTimeout(250);
+  }
 };
 
 /** Card (non-region) node count. */
