@@ -29,10 +29,14 @@ describe("screen and board", () => {
 });
 
 describe("wheel", () => {
-  it("pans by -(delta / zoom) * 1.2 on both axes", () => {
-    const out = wheelCamera({ x: 0, y: 0, zoom: 2 }, { at: { x: 100, y: 100 }, dx: 30, dy: -40, deltaMode: 0, ...mods }, true);
-    expect(out.kind).toBe("pan");
-    expect(out.camera).toEqual({ x: -18, y: 24, zoom: 2 });
+  it("pans by the screen delta * 1.2 on both axes, at every zoom", () => {
+    const at = { at: { x: 100, y: 100 }, dx: 30, dy: -40, deltaMode: 0, ...mods };
+    for (const zoom of [0.15, 1, 2.5]) {
+      const out = wheelCamera({ x: 0, y: 0, zoom }, at, true);
+      expect(out.kind).toBe("pan");
+      // d3's translateBy multiplies by k, cancelling React Flow's divide.
+      expect(out.camera).toEqual({ x: -36, y: 48, zoom });
+    }
   });
 
   it("normalizes line mode by 20", () => {

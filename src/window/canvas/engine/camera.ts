@@ -237,8 +237,11 @@ export const wheelDelta = (dy: number, deltaMode: number, ctrlFactor: boolean): 
  *   about the pointer.
  * - the platform's zoom key (Meta on macOS, Control elsewhere) zooms by
  *   `2 ^ (-dy * 0.002)` about the pointer.
- * - anything else pans by `-(delta / zoom) * 1.2`, with `deltaMode 1` (lines)
- *   multiplied by 20 first; Shift on non-macOS pans sideways.
+ * - anything else pans by `delta * 1.2` screen pixels, with `deltaMode 1`
+ *   (lines) multiplied by 20 first; Shift on non-macOS pans sideways. React
+ *   Flow hands `-(delta / zoom) * 1.2` to d3's `translateBy`, and d3
+ *   multiplies x and y by k, so the net camera move is the screen delta: a
+ *   pan is the same speed at every zoom.
  */
 export const wheelCamera = (camera: Camera, event: WheelEvent, mac: boolean): WheelOutcome => {
   const zoomKey = mac ? event.meta : event.ctrl;
@@ -262,8 +265,8 @@ export const wheelCamera = (camera: Camera, event: WheelEvent, mac: boolean): Wh
   if (deltaX === 0 && deltaY === 0) return { camera, kind: "none" };
   return {
     camera: {
-      x: camera.x - (deltaX / camera.zoom) * PAN_ON_SCROLL_SPEED,
-      y: camera.y - (deltaY / camera.zoom) * PAN_ON_SCROLL_SPEED,
+      x: camera.x - deltaX * PAN_ON_SCROLL_SPEED,
+      y: camera.y - deltaY * PAN_ON_SCROLL_SPEED,
       zoom: camera.zoom,
     },
     kind: "pan",
