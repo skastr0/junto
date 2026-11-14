@@ -47,6 +47,36 @@ describe("the far name tag", () => {
   });
 });
 
+describe("the owner slot", () => {
+  it("names the card's own owner slot, not slot zero, and a move writes that entry", () => {
+    const second: CardFact = { id: "b", row: seat("b", { x: 400, y: 200 }), derived: { regionDepth: 0, blocked: false, z: 0 } };
+    const scene = createScene({
+      painter: (_fact, _live, _view, _env) => ({
+        quads: [{
+          key: "shell",
+          kind: "shape",
+          band: "cards",
+          z: 1,
+          rect: { x: 0, y: 0, width: 216, height: 56 },
+          tiers: 15,
+          scale: { kind: "board" },
+          style: {},
+        }],
+        dim: { opacity: 1, saturate: 1 },
+        lift: 0,
+      }),
+    });
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact(), second], wires: [] });
+    expect(word(scene, 0, 15)).toBe(0);
+    expect(word(scene, 1, 15)).toBe(1);
+    // A drag is the owner entry, never the record's card-local rect.
+    scene.moveCard("b", { x: 640, y: 260 });
+    expect(float(scene, 1, 0)).toBe(0);
+    expect(scene.ownerBuffer[1 * 8]).toBe(640);
+    expect(scene.ownerBuffer[1 * 8 + 1]).toBe(260);
+  });
+});
+
 describe("a style change on the same key", () => {
   it("keeps the style it left and when, and a same-style repaint keeps it running", () => {
     const scene = sceneWith((view) => [{
@@ -71,5 +101,103 @@ describe("a style change on the same key", () => {
     expect(word(scene, 0, 27)).toBe(second);
     expect(word(scene, 0, 28)).toBe(first);
     expect(float(scene, 0, 29)).toBe(1_000);
+  });
+});
+
+describe("the atlas cell a record draws from", () => {
+  const textQuad = (key: string): Quad => ({
+    key,
+    kind: "text",
+    band: "cards",
+    z: 1,
+    rect: { x: 8, y: 12, width: 120, height: 16 },
+    tiers: 15,
+    scale: { kind: "board" },
+    style: {},
+    text: { text: "Planner", font: "mono", size: 12, weight: 500, truncate: "end", width: 120 },
+  });
+
+  const sceneWithSource = (source: (quad: Quad, scale: number) => number) => {
+    let zoom = 1;
+    let revision = 0;
+    const seen: number[] = [];
+    const scene = createScene({
+      painter: () => ({ quads: [textQuad("name")], dim: { opacity: 1, saturate: 1 }, lift: 0 }),
+      source: (quad, scale) => {
+        seen.push(scale);
+        return source(quad, scale) + revision;
+      },
+      scale: () => zoom,
+      atlasRevision: () => revision,
+    });
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact()], wires: [] });
+    return {
+      scene,
+      seen,
+      setZoom: (next: number): void => {
+        zoom = next;
+      },
+      bumpRevision: (): void => {
+        revision += 1;
+      },
+      view: { x: -100, y: -100, width: 800, height: 600 },
+    };
+  };
+
+  it("packs the source the atlas answers instead of none", () => {
+    const { scene } = sceneWithSource((_quad, scale) => Math.round(scale * 100));
+    expect(word(scene, 0, 23)).toBe(100);
+  });
+
+  it("re-resolves a visible text record when the raster scale bucket changes", () => {
+    const { scene, setZoom, view } = sceneWithSource((_quad, scale) => Math.round(scale * 100));
+    scene.prepare(view, "near");
+    setZoom(2);
+    scene.prepare(view, "near");
+    expect(word(scene, 0, 23)).toBe(200);
+  });
+
+  it("re-resolves when a raster lands and the atlas revision moves", () => {
+    const { scene, bumpRevision, view } = sceneWithSource(() => 0);
+    scene.prepare(view, "near");
+    expect(word(scene, 0, 23)).toBe(0);
+    bumpRevision();
+    scene.prepare(view, "near");
+    expect(word(scene, 0, 23)).toBe(1);
+  });
+
+  it("keeps a shape record at no atlas cell", () => {
+    const scene = sceneWith(() => [{
+      key: "shell",
+      kind: "shape",
+      band: "cards",
+      z: 1,
+      rect: { x: 0, y: 0, width: 216, height: 56 },
+      tiers: 15,
+      scale: { kind: "board" },
+      style: {},
+    }]);
+    expect(word(scene, 0, 23)).toBe(0xffffffff);
+  });
+});
+
+describe("a connect in progress", () => {
+  it("tells the painter every card is connecting on the way in and out", () => {
+    const seen = new Map<string, boolean>();
+    const scene = createScene({
+      painter: (card, _live, view) => {
+        seen.set(card.id, view.connecting === true);
+        return { quads: [], dim: { opacity: 1, saturate: 1 }, lift: 0 };
+      },
+    });
+    const b: CardFact = { id: "b", row: seat("b", { x: 400, y: 200 }), derived: { regionDepth: 0, blocked: false, z: 0 } };
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact(), b], wires: [] });
+    expect(seen.get("a")).toBe(false);
+    scene.apply({ kind: "wireMode", mode: "connecting" });
+    expect(seen.get("a")).toBe(true);
+    expect(seen.get("b")).toBe(true);
+    scene.apply({ kind: "wireMode", mode: "rest" });
+    expect(seen.get("a")).toBe(false);
+    expect(seen.get("b")).toBe(false);
   });
 });

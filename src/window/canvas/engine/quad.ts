@@ -162,8 +162,8 @@ export const createQuadBuffer = (records: number): QuadBuffer => {
   return { bytes, f32: new Float32Array(bytes), u32: new Uint32Array(bytes) };
 };
 
-/** Write one quad at `slot`. */
-export const writeQuad = (buffer: QuadBuffer, slot: number, quad: PackedQuad): void => {
+/** Write one quad at `slot`, owned by the card at `owner` (its owner-buffer index). */
+export const writeQuad = (buffer: QuadBuffer, slot: number, quad: PackedQuad, owner: number): void => {
   const at = slot * QUAD_FLOATS;
   const f = buffer.f32;
   const u = buffer.u32;
@@ -183,7 +183,7 @@ export const writeQuad = (buffer: QuadBuffer, slot: number, quad: PackedQuad): v
   f[at + 12] = quad.opacity;
   u[at + 13] = quad.shape;
   u[at + 14] = quad.kind;
-  u[at + 15] = 0; // owner, filled by the scene
+  u[at + 15] = owner;
   u[at + 16] = quad.tiers;
   u[at + 17] = quad.scaleRule;
   f[at + 18] = quad.scaleCap;
@@ -200,11 +200,6 @@ export const writeQuad = (buffer: QuadBuffer, slot: number, quad: PackedQuad): v
   f[at + 29] = quad.changeAt;
   u[at + 30] = quad.dash;
   u[at + 31] = 0;
-};
-
-/** Set the owner index of every record in a slot range. */
-export const setQuadOwners = (buffer: QuadBuffer, start: number, count: number, owner: number): void => {
-  for (let index = 0; index < count; index += 1) buffer.u32[(start + index) * QUAD_FLOATS + 15] = owner;
 };
 
 /** Pack a dash/gap pair into one word; both are board units, rounded. */

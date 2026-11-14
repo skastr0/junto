@@ -19,7 +19,7 @@
  * camera frame its uniform and (only when the visible set changed) the order.
  */
 
-import type { Scene } from "./scene";
+import type { Prepared, Scene } from "./scene";
 import { QUAD_BYTES } from "./quad";
 import { DURATION } from "@shared/theme";
 import { STYLE_STRIDE } from "./styles";
@@ -181,7 +181,7 @@ fn filled(base: u32, local: vec2f) -> vec4f {
   let size = q.rect.zw * scale * motionScale;
   let radii = q.radii * scale * motionScale;
   let world = center + local * size * 0.5 - vec2f(0.0, o.p.z);
-  let screen = (world - u.camera.xy) * u.camera.z;
+  let screen = world * u.camera.z + u.camera.xy;
   let clip = vec2f(screen.x / u.view.x * 2.0 - 1.0, 1.0 - screen.y / u.view.y * 2.0);
   out.pos = select(vec4f(2.0, 2.0, 2.0, 1.0), vec4f(clip, 0.0, 1.0), tierOn);
   out.local = local;
@@ -351,6 +351,8 @@ type Gpu = {
   shadowMetaCapacity: number;
   shadowLayerCapacity: number;
   styleRevision: number;
+  /** The atlas cell-table revision the cells buffer holds. */
+  cellsRevision: number;
   frameRanges: Range[];
   totalBytes: number;
 };
@@ -509,6 +511,7 @@ export const createRenderer = () => {
       shadowMetaCapacity: SHADOW_META_CAPACITY,
       shadowLayerCapacity: SHADOW_LAYER_CAPACITY,
       styleRevision: -1,
+      cellsRevision: 0,
       frameRanges: [],
       totalBytes: gpu?.totalBytes ?? 0,
     };
@@ -530,7 +533,7 @@ export const createRenderer = () => {
     uploadStyles(next, scene);
   };
 
-  const upload = (scene: Scene, prepared: { readonly orderChanged: boolean }): void => {
+  const upload = (scene: Scene, prepared: Prepared): void => {
     const state = gpu;
     if (state === undefined) return;
     ensure(state, scene);
@@ -586,6 +589,18 @@ export const createRenderer = () => {
       note(state, "order", 0, scene.orderCount * 4);
     }
     if (state.styleRevision !== scene.styleRevision) uploadStyles(state, scene);
+    // The atlas writes UVs as rasters land; its revision names what the cells
+    // buffer holds. One write for the whole table keeps every text and sprite
+    // quad pointing at the cell it asked for.
+    if (state.atlas !== undefined && prepared.atlasRevision !== state.cellsRevision) {
+      const cells = state.atlas.cells;
+      const elements = Math.min(cells.length, Math.floor(state.cells.size / 4));
+      if (elements > 0) {
+        state.device.queue.writeBuffer(state.cells, 0, cells, 0, elements);
+        note(state, "cells", 0, elements * 4);
+      }
+      state.cellsRevision = prepared.atlasRevision;
+    }
   };
 
   const writeUniform = (

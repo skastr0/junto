@@ -2993,3 +2993,19 @@ button.actor-ledger__item-row:focus-visible {
 .authority-banner__label { color: var(--color-ink); }
 .authority-banner__words { color: var(--color-dim); }
 .authority-banner__line { color: var(--color-dim); font-size: var(--text-body); margin: 0; }
+
+/* The GPU canvas's marquee box, written by the shell from the engine's frame
+   fact. It follows the pointer outside React, so a selection drag renders
+   nothing; it is chrome over the GPU surface, not a card or a wire. */
+.junto-marquee {
+  position: fixed;
+  left: 0;
+  top: 0;
+  display: none;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in oklab, var(--color-amber) 72%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--color-amber) 7%, transparent);
+  will-change: transform;
+}

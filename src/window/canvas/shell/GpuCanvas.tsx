@@ -77,6 +77,7 @@ const openingCamera = (mirror: SurfaceMirror): Camera | undefined => {
 
 export function GpuCanvas({ onUnavailable }: Props) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const marqueeRef = useRef<HTMLDivElement>(null);
   const unavailableRef = useRef(onUnavailable);
   unavailableRef.current = onUnavailable;
   const runtime = useContext(WindowRuntimeContext);
@@ -175,6 +176,23 @@ export function GpuCanvas({ onUnavailable }: Props) {
     engine.apply([{ kind: "theme", mode: themeMode$.peek() }]);
     const offTheme = themeMode$.onChange(({ value }) => engine.apply([{ kind: "theme", mode: value }]));
 
+    // The marquee follows the pointer drag on the engine's frame, written
+    // straight to this element's style: a selection drag commits no render.
+    const offMarquee = engine.onFrame((facts) => {
+      const box = marqueeRef.current;
+      if (box === null) return;
+      if (facts.marquee === null) {
+        if (box.style.display !== "none") box.style.display = "none";
+        return;
+      }
+      const at = canvas.getBoundingClientRect();
+      const marquee = facts.marquee;
+      if (box.style.display === "none" || box.style.display === "") box.style.display = "block";
+      box.style.transform = `translate3d(${at.left + marquee.x}px, ${at.top + marquee.y}px, 0)`;
+      box.style.width = `${Math.max(0, marquee.width)}px`;
+      box.style.height = `${Math.max(0, marquee.height)}px`;
+    });
+
     const resize = (): void => {
       const rect = canvas.getBoundingClientRect();
       mirror.setViewport({ width: rect.width, height: rect.height });
@@ -230,6 +248,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
       offInput();
       offHook();
       offScene();
+      offMarquee();
       offFocus();
       offZoom();
       offFit();
@@ -263,6 +282,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
         data-testid="gpu-canvas"
         tabIndex={-1}
       />
+      <div ref={marqueeRef} className="junto-marquee" data-testid="canvas-marquee" aria-hidden hidden />
       <CanvasMenus />
     </CanvasApiProvider>
   );

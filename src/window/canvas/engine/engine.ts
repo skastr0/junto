@@ -31,6 +31,7 @@ import type {
   Intent,
   NodeId,
   Point,
+  Quad,
   Rect,
   ConnectionPreview,
   SceneOp,
@@ -116,6 +117,10 @@ export interface EngineHost {
   readonly wires?: WireLayer;
   /** Track B's atlas, once it exists. */
   readonly atlas?: AtlasBinding;
+  /** The atlas's answer for a quad's text or sprite cell, or NO_ATLAS_CELL. */
+  readonly sourceOf?: (quad: Quad, scale: number) => number;
+  /** The atlas's cell-table revision; a change re-uploads the UV table. */
+  readonly atlasRevision?: () => number;
   /** Text measurement for the painter; the shell hands the browser's. */
   readonly measure?: (run: TextRun) => number;
   /**
@@ -183,6 +188,8 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   let pointerState: PointerState = POINTER_IDLE;
   let autoPan: Point | null = null;
   let preview: ConnectionPreview | null = null;
+  /** The marquee box on screen, as the shell's overlay draws it. */
+  let marquee: Rect | null = null;
 
   const frameListeners = new Set<(facts: FrameFacts) => void>();
   const intentListeners = new Set<(intent: Intent) => void>();
@@ -192,6 +199,10 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     painter: host.painter ?? defaultPainter,
     mode: host.mode ?? "dark",
     ...(host.measure === undefined ? {} : { measure: host.measure }),
+    ...(host.sourceOf === undefined ? {} : { source: host.sourceOf }),
+    ...(host.atlasRevision === undefined ? {} : { atlasRevision: host.atlasRevision }),
+    // The atlas keys a text raster by device pixels per board unit.
+    scale: () => size.pixelRatio * camera.zoom,
   });
   const renderer = createRenderer();
 
@@ -246,8 +257,9 @@ export const createEngine = (host: EngineHost): SeamEngine => {
         dirty = true;
         return;
       case "marquee":
-        // The marquee is drawn by the shell's overlay (track G); the engine
-        // keeps the rectangle for the pick and the frame facts of a later cut.
+        // The engine reports the box in screen pixels; the shell's overlay
+        // draws it outside React (track G). Null when the drag ends.
+        marquee = effect.rect === null ? null : rectToScreen(camera, effect.rect);
         dirty = true;
         return;
       case "connecting": {
@@ -433,6 +445,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       scales: { farSeat: farSeatScale(camera.zoom), seatFloor: seatFloorScale(camera.zoom), node: nodeScale(camera.zoom) },
       settled,
       anchors,
+      marquee,
     };
     for (const listener of [...frameListeners]) listener(facts);
 
@@ -585,6 +598,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       invalidate();
     },
     input,
+    invalidate,
     camera: () => camera,
     moveCamera,
     screenToBoard: (screen) => toBoard(camera, screen),

@@ -20,6 +20,13 @@ describe("the quad shader's names", () => {
     expect(used).toEqual([]);
   });
 
+  it("projects board points with the contract's camera, not its inverse", () => {
+    // The operator saw cards drawn off-screen on 2026-11-14 because this line
+    // was (world - camera) * zoom while pickAt used board * zoom + camera.
+    expect(QUAD_SHADER).toContain("let screen = world * u.camera.z + u.camera.xy;");
+    expect(QUAD_SHADER).not.toContain("world - u.camera.xy");
+  });
+
   it("binds every table the pipeline layout gives it", () => {
     for (const binding of ["order", "quads", "owners", "styles", "shadowMeta", "shadowLayers"]) {
       expect(QUAD_SHADER).toContain(`var<storage, read> ${binding}`);

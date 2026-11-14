@@ -47,6 +47,7 @@ import {
   QUAD_FLOATS,
   QUAD_KIND,
   SCALE_RULE,
+  NO_ATLAS_CELL,
   SHAPE,
   writeQuad,
   type PackedQuad,
@@ -68,6 +69,19 @@ export type Prepared = {
   readonly orderChanged: boolean;
   /** Visible quads this frame. */
   readonly visible: number;
+  /** The atlas's cell table revision, so the renderer re-uploads the UVs. */
+  readonly atlasRevision: number;
+};
+
+/**
+ * The scale a run is rasterized at, quantized to half powers of two. The
+ * atlas keys a text cell by this scale, so a zoom gesture re-rasterizes at a
+ * few steps instead of on every wheel tick, and a record names a cell that
+ * exists at its bucket. `scale` is device pixels per board unit.
+ */
+export const atlasScale = (scale: number): number => {
+  const clamped = Math.max(0.0625, Math.min(16, scale));
+  return 2 ** (Math.round(Math.log2(clamped) * 2) / 2);
 };
 
 export type SceneDirty = {
@@ -82,6 +96,8 @@ type QuadRef = {
   readonly band: 0 | 1 | 2;
   readonly motion: QuadMotion | undefined;
   readonly tiers: number;
+  /** The quad as painted, so a scale bucket or atlas revision re-resolves its cell. */
+  readonly painted: Quad;
 };
 
 type CardSlot = {
@@ -206,6 +222,12 @@ export const createScene = (options: {
   readonly painter: CardPainter;
   readonly mode?: ThemeMode;
   readonly measure?: (run: TextRun) => number;
+  /** The shell's atlas: the cell a quad's text or sprite draws from, or NO_ATLAS_CELL. */
+  readonly source?: (quad: Quad, scale: number) => number;
+  /** Device pixels per board unit, at the camera right now. */
+  readonly scale?: () => number;
+  /** The atlas's cell-table revision; a change re-uploads the UVs. */
+  readonly atlasRevision?: () => number;
 }) => {
   let mode: ThemeMode = options.mode ?? "dark";
   let theme: GpuTheme = themeGpu(mode);
@@ -214,6 +236,11 @@ export const createScene = (options: {
   let knownStyles = 0;
   const painter = options.painter;
   const env: PaintEnv = { measure: options.measure ?? approximateMeasure };
+
+  const atlasRevisionNow = (): number => options.atlasRevision?.() ?? 0;
+  const atlasScaleNow = (): number => atlasScale(options.scale?.() ?? 1);
+  const resolveSource = (quad: Quad, scale: number): number =>
+    options.source === undefined ? NO_ATLAS_CELL : options.source(quad, scale);
 
   let quads: QuadBuffer = createQuadBuffer(1024);
   let quadCapacity = 1024;
@@ -353,7 +380,7 @@ export const createScene = (options: {
       tiers: quad.tiers,
       ...packScale(quad.scale),
       ...packMotion(quad.motion),
-      source: 0xffffffff,
+      source: resolveSource(quad, atlasScaleNow()),
       gradientAngle: 0,
       style,
       ...previous,
@@ -382,7 +409,7 @@ export const createScene = (options: {
         held.add(slot);
         fresh = true;
       }
-      writeQuad(quads, slot, packQuad(quad, slot, fresh));
+      writeQuad(quads, slot, packQuad(quad, slot, fresh), card.slot);
       dirtyQuads.add(slot);
     }
     quadSlotsOf.set(card.slot, held);
@@ -394,6 +421,7 @@ export const createScene = (options: {
       band: BAND_OF[quad.band],
       motion: quad.motion,
       tiers: quad.tiers,
+      painted: quad,
     }));
     card.ordered = ordered;
     card.dim = result.dim;
@@ -431,6 +459,7 @@ export const createScene = (options: {
     return {
       selected: selection.nodeIds.includes(fact.id),
       hovered: hovered === fact.id,
+      connecting: wireMode === "connecting",
       keyboardFocus: selection.focusedNodeId === fact.id,
       editing: editing === fact.id,
       dragging: dragging.has(fact.id),
@@ -569,9 +598,16 @@ export const createScene = (options: {
         styleRevision += 1;
         return;
       }
-      case "wireMode":
+      case "wireMode": {
+        const wasConnecting = wireMode === "connecting";
         wireMode = op.mode;
+        // The source handles show only while a connect runs, so every card
+        // repaints on the way in and out of it.
+        if (wasConnecting !== (op.mode === "connecting")) {
+          for (const card of byId.values()) repaint(card);
+        }
         return;
+      }
       case "wire":
         wires.set(op.fact.id, op.fact);
         return;
@@ -670,6 +706,8 @@ export const createScene = (options: {
   const previousOrder: number[] = [];
   let lastView: Rect = { x: 0, y: 0, width: -1, height: -1 };
   let lastTier: CanvasTier | undefined;
+  let lastAtlasScale = -1;
+  let lastAtlasRevision = -1;
   let orderReady = false;
 
   const orderCards = (found: ReadonlyArray<number>): CardSlot[] => {
@@ -686,10 +724,21 @@ export const createScene = (options: {
   };
 
   const prepare = (view: Rect, tier: CanvasTier): Prepared => {
+    const sourceScale = atlasScaleNow();
+    const revision = atlasRevisionNow();
     // A still camera and an unchanged scene reuse the list: a turning ring
-    // draws every tick without re-culling the board.
-    if (orderReady && !orderDirty && tier === lastTier && sameRect(view, lastView)) {
-      return { orderChanged: false, visible: orderCount };
+    // draws every tick without re-culling the board. A new atlas revision or
+    // raster scale is a source change, not an order change, and is handled
+    // below before this shortcut.
+    if (
+      orderReady &&
+      !orderDirty &&
+      tier === lastTier &&
+      sameRect(view, lastView) &&
+      sourceScale === lastAtlasScale &&
+      revision === lastAtlasRevision
+    ) {
+      return { orderChanged: false, visible: orderCount, atlasRevision: revision };
     }
     visibleSlots.length = 0;
     grid.query(insetBy(view, 140), visibleSlots);
@@ -707,6 +756,26 @@ export const createScene = (options: {
     let needed = 0;
     for (const card of cards) needed += card.ordered.length;
     ensureOrderCapacity(needed);
+
+    // Text and sprites name the atlas cell they draw from. When the raster
+    // scale bucket changes (a zoom) or a raster lands (a revision), the
+    // visible records take their new cell; the cell index changes with the
+    // key, so the record's source word is rewritten in place.
+    if (sourceScale !== lastAtlasScale || revision !== lastAtlasRevision) {
+      lastAtlasScale = sourceScale;
+      lastAtlasRevision = revision;
+      for (const card of cards) {
+        for (const ref of card.ordered) {
+          if (ref.painted.text === undefined && ref.painted.sprite === undefined) continue;
+          const source = resolveSource(ref.painted, sourceScale);
+          const at = ref.slot * QUAD_FLOATS + 23;
+          if (quads.u32[at] !== source) {
+            quads.u32[at] = source;
+            dirtyQuads.add(ref.slot);
+          }
+        }
+      }
+    }
 
     const mask = TIER_BIT[tier];
     const counts = [0, 0, 0];
@@ -742,7 +811,7 @@ export const createScene = (options: {
     lastView = view;
     lastTier = tier;
     orderReady = true;
-    return { orderChanged: changed, visible: orderCount };
+    return { orderChanged: changed, visible: orderCount, atlasRevision: revision };
   };
 
   const hasMotion = (wall: number = wallNow): boolean => motionVisible || wall < transitionUntil;

@@ -672,6 +672,8 @@ export type FrameFacts = {
   readonly settled: boolean;
   /** Screen rectangles of the cards the shell anchors overlays to. */
   readonly anchors: ReadonlyArray<{ readonly id: NodeId; readonly rect: Rect }>;
+  /** The marquee box during a pane drag, in screen pixels; null when not dragging. */
+  readonly marquee: Rect | null;
 };
 
 /** The engine's own counters, for the frame test and the performance harness. */
@@ -702,6 +704,11 @@ export type Rasterize = (source: { readonly svg: string } | { readonly url: stri
 
 export interface Engine {
   readonly apply: (ops: ReadonlyArray<SceneOp>) => void;
+  /**
+   * Ask for a frame without a scene change: the atlas calls this when a
+   * raster lands, so the cells table and the new cell draw next frame.
+   */
+  readonly invalidate: () => void;
   readonly input: (event: CanvasInput) => void;
   readonly camera: () => Camera;
   readonly moveCamera: (to: CameraTarget, options?: CameraMoveOptions) => void;

@@ -9,7 +9,7 @@ import { RING_MOTION, ringState, type RingStateInput } from "@shared/wire/rings"
 import { sampleMotion } from "../src/window/canvas/paint/motion";
 import type { CardFact, FrameFacts, SeatLive } from "../src/window/canvas/contract";
 import { createDeviceKeeper } from "../src/window/canvas/engine/device";
-import { createEngine } from "../src/window/canvas/engine/engine";
+import { createEngine, type EngineHost } from "../src/window/canvas/engine/engine";
 import { tierForZoom as oldTierForZoom, type CanvasTier as OldTier } from "../src/window/lib/canvas-tier";
 import { fakeContext, fakeGpu, fakeScheduler, settle, type FakeDevice } from "./gpu-canvas-fakes";
 import { note, seat } from "./support/model-nodes";
@@ -43,7 +43,7 @@ type Rig = {
   readonly advance: (ms: number) => void;
 };
 
-const rig = async (): Promise<Rig> => {
+const rig = async (host: Partial<EngineHost> = {}): Promise<Rig> => {
   const gpu = fakeGpu();
   const keeper = createDeviceKeeper(gpu.gpu);
   const context = fakeContext();
@@ -56,6 +56,7 @@ const rig = async (): Promise<Rig> => {
     scheduler: frames.scheduler,
     clock: () => now,
     wallClock: () => now + 1_000_000,
+    ...host,
   });
   const facts: FrameFacts[] = [];
   engine.onFrame((heard) => {
@@ -300,6 +301,22 @@ describe("the hands in the engine", () => {
     r.keeper.dispose();
   });
 
+  it("reports the marquee box in screen pixels while a pane drag runs, and null at the end", async () => {
+    const r = await rig();
+    load(r, [seatFact("a", 500)]);
+    r.frames.tick();
+    r.engine.input(pointer("down", 200, 300));
+    r.engine.input(pointer("move", 260, 340));
+    r.engine.input(pointer("move", 400, 420));
+    r.frames.tick();
+    expect(r.facts.at(-1)?.marquee).toEqual({ x: 200, y: 300, width: 200, height: 120 });
+    r.engine.input(pointer("up", 400, 420));
+    r.frames.tick();
+    expect(r.facts.at(-1)?.marquee).toBeNull();
+    r.engine.dispose();
+    r.keeper.dispose();
+  });
+
   it("turns a resize into one Move with the final size", async () => {
     const r = await rig();
     const board = factOf(note("n", "drag me", { x: 400, y: 100, width: 220, height: 84 }));
@@ -312,6 +329,28 @@ describe("the hands in the engine", () => {
     r.engine.input(pointer("up", 650, 214));
     const resized = intents.filter((intent) => intent.kind === "resize");
     expect(resized).toEqual([{ kind: "resize", id: "n", rect: { x: 400, y: 100, width: 250, height: 114 } }]);
+    r.engine.dispose();
+    r.keeper.dispose();
+  });
+});
+
+describe("the atlas cells", () => {
+  it("re-uploads the cell table when a raster lands, and only then", async () => {
+    const cells = new Float32Array(16);
+    let revision = 0;
+    const r = await rig({
+      atlas: { texture: { createView: () => ({}) } as unknown as GPUTexture, sampler: {} as unknown as GPUSampler, cells },
+      atlasRevision: () => revision,
+    });
+    load(r, [seatFact("a")]);
+    r.frames.tick();
+    expect(r.engine.stats().lastUploadRanges.some((range) => range.buffer === "cells")).toBe(false);
+    revision = 1;
+    r.engine.invalidate();
+    r.frames.tick();
+    const uploaded = r.engine.stats().lastUploadRanges.filter((range) => range.buffer === "cells");
+    expect(uploaded).toHaveLength(1);
+    expect(uploaded[0]!.size).toBe(64);
     r.engine.dispose();
     r.keeper.dispose();
   });
