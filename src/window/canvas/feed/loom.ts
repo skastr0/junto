@@ -18,6 +18,7 @@
  */
 import { observe } from "@legendapp/state";
 import type { Node, Side } from "@shared/model";
+import { renderedNodeSize } from "@shared/node-geometry";
 import type { WireDirection } from "@shared/wire-route";
 import { routeWire } from "@shared/wire-route";
 import type { Point, SceneOp, WireId, WireRouteFact } from "../contract";
@@ -261,15 +262,24 @@ export const createLoomPlanner = (): LoomPlanner => {
   return { plan, reset };
 };
 
-/** A card row as the planner reads it. */
-const cardOf = (node: Node): LoomCard => ({
-  id: node.id,
-  x: node.x,
-  y: node.y,
-  width: node.width,
-  height: node.height,
-  region: node.kind === "region",
-});
+/**
+ * A card row as the planner reads it, at the rectangle the canvas draws: a
+ * seat or kind seat renders at its fixed footprint whatever its stored size,
+ * and routing around the stored rectangle would miss it (and leave every
+ * seat wire on the fallback elbow, because the plan's anchors would never
+ * match the live card).
+ */
+const cardOf = (node: Node): LoomCard => {
+  const size = renderedNodeSize(node.kind, node);
+  return {
+    id: node.id,
+    x: node.x,
+    y: node.y,
+    width: size.width,
+    height: size.height,
+    region: node.kind === "region",
+  };
+};
 
 /**
  * Plan the open canvas's wires on every change to its card rectangles or its

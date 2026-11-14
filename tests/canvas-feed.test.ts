@@ -175,8 +175,8 @@ describe("kind and spine live facts", () => {
         link("link1"),
         git("git1"),
         file("file1"),
-        seat("seatA"),
-        seat("seatB"),
+        seat("seatA", { x: 0, y: 0 }),
+        seat("seatB", { x: 600, y: 0 }),
       ],
       wires: [wire("w1", "seatA", "seatB", "messages")],
     });
@@ -221,7 +221,13 @@ describe("kind and spine live facts", () => {
     const routesOp = ops.find((op) => op.kind === "routes");
     expect(routesOp?.kind).toBe("routes");
     if (routesOp?.kind === "routes") {
-      expect(routesOp.set.map((fact) => fact.id)).toContain(asWireId("w1"));
+      const fact = routesOp.set.find((route) => route.id === asWireId("w1"));
+      expect(fact).toBeDefined();
+      // The plan anchors on the rectangle the canvas draws (a seat is 216 by
+      // 56 whatever its stored row says), so the engine keeps its route
+      // instead of falling back to the elbow on every frame.
+      expect(fact?.source).toEqual({ x: 216, y: 28 });
+      expect(fact?.target).toEqual({ x: 600, y: 28 });
     }
 
     // The artifacts count starts empty and lands with its async read.

@@ -121,6 +121,8 @@ type Entry = {
   route: WireRoute | undefined;
   line: WireLine | undefined;
   bounds: { minX: number; minY: number; maxX: number; maxY: number } | undefined;
+  /** Where the wire's invisible select label sits, in board units. */
+  label: Point | undefined;
   strip: Slice | undefined;
   glowStrip: Slice | undefined;
   glowKey: string;
@@ -177,6 +179,10 @@ export type WireScene = {
   readonly pick: (at: Point) => WireId | undefined;
   /** Where a wire's invisible label sits: its midpoint, for the select button and the harness. */
   readonly labelOf: (id: WireId) => Point | undefined;
+  /** The labels of the wires the camera can see: what the shell's select buttons follow. */
+  readonly labelsInView: () => ReadonlyArray<WireLabel>;
+  /** Bumped whenever a label point can have moved (a route rebuilt, a wire added or removed). */
+  readonly labelsRevision: () => number;
   /** A wire's centreline length and route kind, for tests and the harness. */
   readonly inspect: (id: WireId) => WireInspect | undefined;
   readonly pool: StripPool;
@@ -190,6 +196,12 @@ export type WireScene = {
   readonly recordsGeneration: () => number;
   /** The tier the tracks were laid for. */
   readonly size: () => number;
+};
+
+export type WireLabel = {
+  readonly id: WireId;
+  readonly at: Point;
+  readonly verb: WireFact["row"]["verb"];
 };
 
 export type WireInspect = {
@@ -218,6 +230,7 @@ export const createWireScene = (host: WireHost): WireScene => {
 
   const entries = new Map<WireId, Entry>();
   const facts = new Map<WireId, WireRouteFact>();
+  let labelsRevision = 0;
   const pool = createStripPool(1024);
   const glowPool = createStripPool(256);
   const trackPool = createStripPool(256);
@@ -470,6 +483,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       entry.route = undefined;
       entry.line = undefined;
       entry.bounds = undefined;
+      entry.label = undefined;
       syncGlowStrip(entry);
       if (entry.layout.length > 0) {
         entry.layout = [];
@@ -484,6 +498,9 @@ export const createWireScene = (host: WireHost): WireScene => {
     entry.route = route;
     entry.line = line;
     entry.bounds = lineBounds(line);
+    // An elbow's label is React Flow's, on its longest run; a route's is its midpoint.
+    entry.label = route.kind === "elbow" ? route.label : pointAt(line, line.length / 2);
+    labelsRevision += 1;
     const strip: WireStrip = buildStrip(line, WIRE_HALF_WIDTH, { slot: entry.slot });
     entry.strip = strip.count > 0 ? pool.put(entry.strip, strip.vertices, strip.count) : undefined;
     if (strip.count === 0 && entry.strip === undefined) pool.free(entry.strip);
@@ -549,6 +566,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       route: undefined,
       line: undefined,
       bounds: undefined,
+      label: undefined,
       strip: undefined,
       glowStrip: undefined,
       glowKey: "",
@@ -579,6 +597,7 @@ export const createWireScene = (host: WireHost): WireScene => {
     trackPool.free(entry.trackStrip);
     if (entry.pulse !== undefined) clearPulse(entry);
     entries.delete(id);
+    labelsRevision += 1;
     slots.release(entry.slot, 1);
     // A freed record must not draw: it is zero.
     records.fill(0, entry.slot * RECORD_FLOATS, (entry.slot + 1) * RECORD_FLOATS);
@@ -865,11 +884,24 @@ export const createWireScene = (host: WireHost): WireScene => {
     return pickWire(pickList, at)?.id;
   };
 
-  const labelOf: WireScene["labelOf"] = (id) => {
-    const entry = entries.get(id);
-    if (entry?.line === undefined || entry.route === undefined) return undefined;
-    // An elbow's label is React Flow's, on its longest run; a route's is its midpoint.
-    return entry.route.kind === "elbow" ? entry.route.label : pointAt(entry.line, entry.line.length / 2);
+  const labelOf: WireScene["labelOf"] = (id) => entries.get(id)?.label;
+
+  const labelsInView: WireScene["labelsInView"] = () => {
+    const labels: WireLabel[] = [];
+    // The label's own point, not the wire's bounds: a long run that crosses
+    // the view can put its midpoint far outside it.
+    const x0 = -camera.x / zoom;
+    const y0 = -camera.y / zoom;
+    const x1 = x0 + viewSize.width / zoom;
+    const y1 = y0 + viewSize.height / zoom;
+    const margin = 24;
+    for (const entry of entries.values()) {
+      const at = entry.label;
+      if (at === undefined) continue;
+      if (at.x < x0 - margin || at.x > x1 + margin || at.y < y0 - margin || at.y > y1 + margin) continue;
+      labels.push({ id: entry.id, at, verb: entry.fact.row.verb });
+    }
+    return labels;
   };
 
   const inspect: WireScene["inspect"] = (id) => {
@@ -900,6 +932,8 @@ export const createWireScene = (host: WireHost): WireScene => {
     uniforms,
     pick,
     labelOf,
+    labelsInView,
+    labelsRevision: () => labelsRevision,
     inspect,
     pool,
     glowPool,

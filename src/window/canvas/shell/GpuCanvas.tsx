@@ -33,6 +33,7 @@ import { createGpuMinimapSource } from "./gpu-minimap-source";
 import { clearMinimapSource, setMinimapSource } from "./minimap-source";
 import { startSceneBridge } from "./scene-bridge";
 import { installCanvasTestHook } from "./test-hook";
+import { mountWireLabels } from "./wire-labels";
 import { attachCanvasDelete, attachCanvasInput, mountHands } from "./hands";
 import { canvasHands } from "./pointer-host";
 import { CanvasMenus } from "./CanvasMenus";
@@ -159,6 +160,11 @@ export function GpuCanvas({ onUnavailable }: Props) {
       mode: themeMode$.peek(),
       reducedMotion: () => reducedMotion?.matches ?? false,
     });
+    // The wire's invisible select target: the one piece of a wire that stays
+    // DOM, as it is today, so a pointer and a screen reader can select one
+    // while the strokes are deaf at rest.
+    const wireLabels = mountWireLabels({ canvas, layer: () => wires });
+    const offWireLabels = engine.onFrame((facts) => wireLabels.frame(facts.camera));
     mounted = engine;
     engineRef.current = engine;
     api.attachEngine(engine);
@@ -273,6 +279,8 @@ export function GpuCanvas({ onUnavailable }: Props) {
       offDelete();
       offHands();
       offInput();
+      offWireLabels();
+      wireLabels.dispose();
       offHook();
       offScene();
       offMarquee();

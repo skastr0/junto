@@ -20,9 +20,9 @@ import type { ThemeMode } from "@shared/theme";
 import type { NodeId, Point, Rect, SceneOp, WireId } from "../../contract";
 import type { DeviceKeeper } from "../device";
 import { createWireGpu, type UploadRange } from "./gpu";
-import { createWireScene, type WireFrame, type WireInspect } from "./scene";
+import { createWireScene, type WireFrame, type WireInspect, type WireLabel } from "./scene";
 
-export type { WireFrame, WireInspect, UploadRange };
+export type { WireFrame, WireInspect, WireLabel, UploadRange };
 
 export type WireLayerOptions = {
   /** A card's live board rectangle. */
@@ -45,6 +45,9 @@ export type WiresLayer = {
   readonly setHover: (id: WireId | undefined) => void;
   /** Where a wire's invisible label button sits, in board units. */
   readonly labelOf: (id: WireId) => Point | undefined;
+  /** The labels of the wires the camera can see, for the shell's select buttons. */
+  readonly labelsInView: () => ReadonlyArray<WireLabel>;
+  readonly labelsRevision: () => number;
   readonly inspect: (id: WireId) => WireInspect | undefined;
   /** What the last upload wrote, buffer by buffer. */
   readonly lastUploads: () => ReadonlyArray<UploadRange>;
@@ -78,6 +81,8 @@ export const createWireLayer = (options: WireLayerOptions): WiresLayer => {
     busy: () => scene.busy(wall),
     setHover: scene.setHover,
     labelOf: scene.labelOf,
+    labelsInView: scene.labelsInView,
+    labelsRevision: scene.labelsRevision,
     inspect: scene.inspect,
     lastUploads: gpu.lastUploads,
     dispose: gpu.dispose,

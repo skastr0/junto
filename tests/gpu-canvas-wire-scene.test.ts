@@ -83,6 +83,30 @@ describe("the wire scene", () => {
     expect(scene.inspect("w")!.kind).toBe("route");
   });
 
+  it("gives each wire the camera can see one label at its midpoint, and tells the shell when that moves", () => {
+    const cards = new Map<string, Rect>([
+      ["a", rect(0, 0)],
+      ["b", rect(600, 0)],
+      ["far", rect(4000, 0)],
+    ]);
+    const { scene, frame } = makeScene(cards);
+    scene.apply(load([wire("w", "a", "b"), wire("f", "a", "far")]));
+    frame(T0);
+    const labels = scene.labelsInView();
+    expect(labels.map((label) => label.id)).toEqual(["w"]);
+    expect(labels[0]!.at).toEqual(scene.labelOf("w"));
+    expect(labels[0]!.verb).toBe("messages");
+    // The label sits on the run, between the two cards.
+    expect(labels[0]!.at.x).toBeGreaterThan(260);
+    expect(labels[0]!.at.x).toBeLessThan(600);
+
+    const revision = scene.labelsRevision();
+    cards.set("b", rect(600, 300));
+    frame(T0 + 16);
+    expect(scene.labelsRevision()).toBeGreaterThan(revision);
+    expect(scene.labelsInView()[0]!.at).toEqual(scene.labelOf("w"));
+  });
+
   it("marks a cable member by its narrow hit width", () => {
     const { scene, frame } = makeScene(board());
     scene.apply(load([wire("w", "a", "b")]));
