@@ -157,6 +157,46 @@ describe("scene ops", () => {
     });
     expect(ops).toEqual([]);
   });
+
+  it("a connection focus emits the neighborhood as focusMode, keyboard focus rides the fact", () => {
+    state$.canvasName.set(CANVAS);
+    const releaseModel = modelStore.adopt({
+      canvas: asCanvasName(CANVAS),
+      seq: 0,
+      nodes: [seat("seatA"), seat("seatB"), note("n1", "lonely")],
+      wires: [wire("w1", "seatA", "seatB", "messages")],
+    });
+    releases.push(releaseModel);
+
+    const ops: SceneOp[] = [];
+    releases.push(retainSceneOps(CANVAS, (batch) => ops.push(...batch)));
+    ops.length = 0;
+
+    // Focusing seatA cones it and its one wire partner; n1 is an outsider.
+    state$.connectionFocusNodeId.set("seatA");
+    const focused = ops.filter((op) => op.kind === "selection").at(-1);
+    expect(focused).toMatchObject({
+      kind: "selection",
+      fact: {
+        connectionFocusNodeId: "seatA",
+        focusMode: {
+          kind: "connection",
+          rootId: "seatA",
+          memberIds: expect.arrayContaining(["seatA", "seatB"]),
+          leadIds: [],
+          wireIds: [asWireId("w1")],
+        },
+      },
+    });
+    ops.length = 0;
+
+    // Keyboard focus is its own field on the same fact.
+    state$.focusedNodeId.set("seatB");
+    const keyed = ops.filter((op) => op.kind === "selection").at(-1);
+    expect(keyed).toMatchObject({ kind: "selection", fact: { focusedNodeId: "seatB" } });
+    state$.focusedNodeId.set("");
+    state$.connectionFocusNodeId.set("");
+  });
 });
 
 describe("kind and spine live facts", () => {

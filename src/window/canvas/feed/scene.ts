@@ -35,6 +35,7 @@ import { threadHealthMarkOf } from "../../lib/thread-health";
 import { pickPulseEdge, type PulseEdge } from "../../lib/wire-pulse";
 import { portraitOverrides$ } from "../../lib/portrait-overrides-state";
 import { seatPortraitMood } from "../../lib/portrait-mood";
+import { canvasSelectionFact } from "../../lib/canvas-focus";
 import { blockedNodeIds } from "./shared";
 import { cardLive$, sameCardLive } from "./kinds";
 import { cardLayout } from "./layout";
@@ -284,11 +285,24 @@ const sameFact = (a: CardFact | undefined, b: CardFact): boolean =>
 
 const sameWire = (a: WireFact | undefined, b: WireFact): boolean => a !== undefined && a.row === b.row;
 
+const sameIdSet = (a: ReadonlyArray<string> | undefined, b: ReadonlyArray<string> | undefined): boolean => {
+  if (a === undefined || b === undefined) return a === b;
+  return a.length === b.length && new Set(a).size === a.length && a.every((id) => b.includes(id));
+};
+
 const sameSelection = (a: SelectionFact, b: SelectionFact): boolean =>
   a.wireId === b.wireId &&
   a.connectionFocusNodeId === b.connectionFocusNodeId &&
+  a.focusedNodeId === b.focusedNodeId &&
   a.nodeIds.length === b.nodeIds.length &&
-  a.nodeIds.every((id, i) => id === b.nodeIds[i]);
+  a.nodeIds.every((id, i) => id === b.nodeIds[i]) &&
+  (a.focusMode === undefined) === (b.focusMode === undefined) &&
+  (a.focusMode === undefined ||
+    (a.focusMode.kind === b.focusMode!.kind &&
+      a.focusMode.rootId === b.focusMode!.rootId &&
+      sameIdSet(a.focusMode.memberIds, b.focusMode!.memberIds) &&
+      sameIdSet(a.focusMode.leadIds, b.focusMode!.leadIds) &&
+      sameIdSet(a.focusMode.wireIds, b.focusMode!.wireIds)));
 
 /**
  * The ops stream for one open canvas. `emit` is called synchronously, once
@@ -428,13 +442,7 @@ export const retainSceneOps = (
   let previousSelection: SelectionFact | undefined;
   stops.push(
     observe(() => {
-      const edgeId = state$.selectedEdgeId.get();
-      const focus = state$.connectionFocusNodeId.get();
-      const fact: SelectionFact = {
-        nodeIds: [...state$.selectedNodeIds.get()],
-        ...(edgeId === "" ? {} : { wireId: edgeId }),
-        ...(focus === "" ? {} : { connectionFocusNodeId: focus }),
-      };
+      const fact = canvasSelectionFact(canvasName);
       if (previousSelection === undefined || !sameSelection(previousSelection, fact)) {
         previousSelection = fact;
         emit([{ kind: "selection", fact }]);

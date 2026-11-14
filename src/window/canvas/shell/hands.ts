@@ -21,6 +21,7 @@ import { topZ } from "../../lib/model-edits";
 import { newNote } from "../../lib/model-factories";
 import { addNode, deleteNodes } from "../../lib/mutations";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
+import { canvasSelectionFact } from "../../lib/canvas-focus";
 import { canvasOwnsKeyboard, panKeyFor } from "../../lib/canvas-keyboard-pan";
 import { canvasKeyboardTaken } from "../../lib/canvas-keys";
 import { dock$, openTaskCreateSurface } from "../../lib/dock-state";
@@ -65,19 +66,8 @@ export type HandsHost = {
   readonly hover?: (hit: Hit | null) => void;
 };
 
-/** The selection `state$` holds, as the engine is told it. */
-export const selectionFact = (): SelectionFact => {
-  const nodeIds = state$.selectedNodeIds.peek();
-  const single = state$.selectedNodeId.peek();
-  const all = nodeIds.length === 0 && single !== "" ? [single] : nodeIds;
-  const wireId = state$.selectedEdgeId.peek();
-  const connectionFocusNodeId = state$.connectionFocusNodeId.peek();
-  return {
-    nodeIds: all,
-    ...(wireId === "" ? {} : { wireId }),
-    ...(connectionFocusNodeId === "" ? {} : { connectionFocusNodeId }),
-  };
-};
+/** The selection `state$` holds, as the engine is told it — the same fact the feed derives (lib/canvas-focus.ts). */
+export const selectionFact = (): SelectionFact => canvasSelectionFact(state$.canvasName.peek());
 
 const toggleInSelection = (id: string): void => {
   const held = state$.selectedNodeIds.peek();

@@ -37,6 +37,10 @@ export const state$ = observable({
   // camera request), this stays set while the operator inspects one node's
   // neighborhood and is never persisted to the canvas document.
   connectionFocusNodeId: "",
+  // The card holding keyboard focus on the GPU canvas (the cyan outline,
+  // SelectionFact.focusedNodeId). Presentational; the canvas's focus chain
+  // sets it, never persisted.
+  focusedNodeId: "",
   focusNodeId: "",
   // One-shot camera request to frame several nodes together (a recalled
   // command group). Canvas selects them, fits them, then clears it.
