@@ -188,29 +188,31 @@ const shoot = async (page: Page): Promise<ReadonlyMap<string, PngImage>> => {
 
 test("look gallery: GPU cards match the DOM cards in both themes, every tier, in card states", async () => {
   test.setTimeout(1_800_000);
-  // One canvas at a time: two Electron apps racing for the GPU adapter on the
-  // same machine can leave the second on the DOM fallback (no test hook).
-  const dom = await open(false);
-  let domShots: ReadonlyMap<string, PngImage>;
-  try {
-    domShots = await shoot(dom.page);
-  } finally {
-    await dom.close();
-  }
-
+  // One canvas at a time, the GPU first: two Electron apps racing for the
+  // adapter on the same machine can leave the second on the DOM fallback
+  // (no test hook), and a closed app's GPU process can linger for a moment.
   const gpu = await open(true);
+  let gpuShots: ReadonlyMap<string, PngImage>;
   try {
     // The GPU run must really be the engine, never a DOM fallback.
     const hooked = await gpu.page.evaluate(() => typeof window.__juntoCanvas?.ready === "function");
     test.skip(!hooked, "window.__juntoCanvas absent — the GPU canvas is not in this build yet");
-    const gpuShots = await shoot(gpu.page);
-    for (const [key, domPng] of domShots) {
-      const gpuPng = gpuShots.get(key);
-      expect(gpuPng, `no GPU shot for ${key}`).toBeDefined();
-      const bad = mismatch(domPng, gpuPng!);
+    gpuShots = await shoot(gpu.page);
+  } finally {
+    await gpu.close();
+  }
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
+
+  const dom = await open(false);
+  try {
+    const domShots = await shoot(dom.page);
+    for (const [key, gpuPng] of gpuShots) {
+      const domPng = domShots.get(key);
+      expect(domPng, `no DOM shot for ${key}`).toBeDefined();
+      const bad = mismatch(gpuPng, domPng!);
       expect(bad, `${key}: ${(bad * 100).toFixed(2)}% pixels differ`).toBeLessThanOrEqual(0.02);
     }
   } finally {
-    await gpu.close();
+    await dom.close();
   }
 });
