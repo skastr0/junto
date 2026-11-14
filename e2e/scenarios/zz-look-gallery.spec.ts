@@ -11,8 +11,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { createRequire } from "node:module";
 import { launchJunto, type JuntoHandle } from "../harness/launch";
-import { GALLERY_IDS, galleryFixture } from "../harness/gallery-fixture";
-import { camera, card, canvasReady, pane } from "../harness/canvas";
+import { GALLERY_ENTRIES, GALLERY_IDS, galleryFixture, type GalleryEntry } from "../harness/gallery-fixture";
+import { camera, cameraSettled, card, canvasReady, pane } from "../harness/canvas";
 
 const CANVAS = "factory";
 
@@ -27,7 +27,7 @@ const { PNG } = createRequire(import.meta.url)("pngjs") as {
 };
 
 export const IDS: ReadonlyArray<string> = GALLERY_IDS;
-export const ZOOMS = [1, 0.6, 0.35] as const;
+export const ZOOMS = [1, 0.5, 0.3, 0.15] as const;
 export const THEMES = ["dark", "bright"] as const;
 
 /** The app under one canvas: off = today's DOM, on = the GPU engine. */
@@ -49,28 +49,52 @@ const setTheme = async (page: Page, theme: (typeof THEMES)[number]): Promise<voi
 
 /** Wheel the camera toward a zoom, then let it settle. */
 const zoomTo = async (page: Page, zoom: number): Promise<void> => {
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + 20_000;
   for (;;) {
     const cam = await camera(page);
-    if (Math.abs(cam.zoom - zoom) < 0.08) return;
+    if (Math.abs(cam.zoom - zoom) < 0.008) break;
     const box = await pane(page).box();
     if (box === null) throw new Error("no pane to zoom over");
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.wheel(0, cam.zoom > zoom ? 240 : -240);
-    if (Date.now() >= deadline) throw new Error(`camera never reached zoom ${zoom}`);
-    await page.waitForTimeout(120);
+    await page.mouse.wheel(0, cam.zoom > zoom ? 180 : -180);
+    if (Date.now() >= deadline) throw new Error(`camera never reached zoom ${zoom} (at ${cam.zoom})`);
+    await page.waitForTimeout(80);
   }
+  await cameraSettled(page);
 };
 
-interface Shot { readonly id: string; readonly png: PngImage; }
+/** The card's shot, padded for its tag, shadow and selected outline. */
+const PAD = { top: 10, right: 14, bottom: 56, left: 14 } as const;
+/** A region is its title and frame, not the whole board it holds. */
+const REGION_CLIP = { width: 420, height: 160 } as const;
 
-const cardShot = async (page: Page, id: string): Promise<Shot> => {
-  const rect = await card(page, id).box();
-  if (rect === null) throw new Error(`card ${id} has no rect`);
-  const buffer = await page.screenshot({
-    clip: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-  });
-  return { id, png: PNG.sync.read(buffer) };
+const clampClip = (rect: { x: number; y: number; width: number; height: number }, paneRect: { x: number; y: number; width: number; height: number }) => {
+  const x = Math.max(Math.ceil(paneRect.x), Math.floor(rect.x));
+  const y = Math.max(Math.ceil(paneRect.y), Math.floor(rect.y));
+  const right = Math.min(Math.floor(paneRect.x + paneRect.width), Math.ceil(rect.x + rect.width));
+  const bottom = Math.min(Math.floor(paneRect.y + paneRect.height), Math.ceil(rect.y + rect.height));
+  return { x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y) };
+};
+
+const shotFor = async (page: Page, entry: GalleryEntry): Promise<PngImage> => {
+  const rect = await card(page, entry.id).box();
+  if (rect === null) throw new Error(`card ${entry.id} has no rect`);
+  const paneRect = await pane(page).box();
+  if (paneRect === null) throw new Error("no canvas pane");
+  const clip = entry.kind === "region"
+    ? clampClip({ x: rect.x, y: rect.y, width: Math.min(rect.width, REGION_CLIP.width), height: Math.min(rect.height, REGION_CLIP.height) }, paneRect)
+    : clampClip({ x: rect.x - PAD.left, y: rect.y - PAD.top, width: rect.width + PAD.left + PAD.right, height: rect.height + PAD.top + PAD.bottom }, paneRect);
+  const buffer = await page.screenshot({ clip });
+  return PNG.sync.read(buffer);
+};
+
+const CARD_ENTRIES = GALLERY_ENTRIES.filter((entry) => entry.kind !== "region");
+/** Selected and hovered are pointer states; far and overview keep the default card. */
+const STATE_ZOOMS: ReadonlySet<number> = new Set([1, 0.5]);
+
+/** Park the pointer on empty pane: clears the selection and every hover. */
+const park = async (page: Page): Promise<void> => {
+  await pane(page).click({ position: { x: 8, y: 8 } });
 };
 
 /** Fraction of pixels whose channels differ by more than `tol`. */
@@ -89,8 +113,8 @@ const mismatch = (a: PngImage, b: PngImage, tol = 24): number => {
   return bad / (a.width * a.height);
 };
 
-test("look gallery: GPU cards match the DOM cards in both themes at three zooms", async () => {
-  test.setTimeout(600_000);
+test("look gallery: GPU cards match the DOM cards in both themes, every tier, in card states", async () => {
+  test.setTimeout(1_200_000);
   const dom = await open(false);
   const gpu = await open(true);
   try {
@@ -98,17 +122,45 @@ test("look gallery: GPU cards match the DOM cards in both themes at three zooms"
     const hooked = await gpu.page.evaluate(() => typeof window.__juntoCanvas?.ready === "function");
     test.skip(!hooked, "window.__juntoCanvas absent — the GPU canvas is not in this build yet");
 
+    const compare = async (entry: GalleryEntry, theme: string, zoom: number, state: string): Promise<void> => {
+      const a = await shotFor(dom.page, entry);
+      const b = await shotFor(gpu.page, entry);
+      const bad = mismatch(a, b);
+      expect(
+        bad,
+        `${theme} zoom=${zoom} ${entry.kind} ${entry.id} ${state}: ${(bad * 100).toFixed(2)}% pixels differ`,
+      ).toBeLessThanOrEqual(0.02);
+    };
+
     for (const theme of THEMES) {
+      await setTheme(dom.page, theme);
+      await setTheme(gpu.page, theme);
       for (const zoom of ZOOMS) {
-        await setTheme(dom.page, theme);
-        await setTheme(gpu.page, theme);
         await zoomTo(dom.page, zoom);
         await zoomTo(gpu.page, zoom);
-        for (const id of IDS) {
-          const a = await cardShot(dom.page, id);
-          const b = await cardShot(gpu.page, id);
-          const bad = mismatch(a.png, b.png);
-          expect(bad, `${theme} zoom=${zoom} card=${id}: ${(bad * 100).toFixed(2)}% pixels differ`).toBeLessThanOrEqual(0.02);
+        await park(dom.page);
+        await park(gpu.page);
+
+        for (const entry of GALLERY_ENTRIES) {
+          await compare(entry, theme, zoom, "default");
+        }
+        if (!STATE_ZOOMS.has(zoom)) continue;
+
+        for (const entry of CARD_ENTRIES) {
+          await card(dom.page, entry.id).click();
+          await card(gpu.page, entry.id).click();
+          await compare(entry, theme, zoom, "selected");
+        }
+
+        await park(dom.page);
+        await park(gpu.page);
+        for (const entry of CARD_ENTRIES) {
+          for (const page of [dom.page, gpu.page]) {
+            const rect = await card(page, entry.id).box();
+            if (rect === null) throw new Error(`card ${entry.id} has no rect to hover`);
+            await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+          }
+          await compare(entry, theme, zoom, "hovered");
         }
       }
     }
