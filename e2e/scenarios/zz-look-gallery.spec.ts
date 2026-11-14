@@ -47,6 +47,14 @@ const open = async (gpu: boolean): Promise<JuntoHandle> => {
     ...(gpu ? { seedExperimentalFeatures: ["gpuCanvas" as const] } : {}),
   });
   await canvasReady(junto.page);
+  if (gpu) {
+    // The feature can swap the canvas after first paint; wait for the hook
+    // before deciding the arm is missing.
+    await junto.page
+      .waitForFunction(() => typeof window.__juntoCanvas?.ready === "function", undefined, { timeout: 30_000 })
+      .catch(() => undefined);
+    await canvasReady(junto.page);
+  }
   return junto;
 };
 
@@ -127,11 +135,11 @@ const park = async (page: Page): Promise<void> => {
 };
 
 /** Fraction of pixels whose channels differ by more than `tol`. */
-const mismatch = (a: PngImage, b: PngImage, tol = 24): number => {
+const mismatch = (a: PngImage, b: PngImage, label: string, tol = 24): number => {
   // A fractional card rect can round a clip one pixel apart between the two
   // backends; compare the overlap rather than failing on the clip arithmetic.
-  expect(Math.abs(a.width - b.width), "clip widths").toBeLessThanOrEqual(1);
-  expect(Math.abs(a.height - b.height), "clip heights").toBeLessThanOrEqual(1);
+  expect(Math.abs(a.width - b.width), `${label} clip widths`).toBeLessThanOrEqual(1);
+  expect(Math.abs(a.height - b.height), `${label} clip heights`).toBeLessThanOrEqual(1);
   const width = Math.min(a.width, b.width);
   const height = Math.min(a.height, b.height);
   let bad = 0;
@@ -209,7 +217,7 @@ test("look gallery: GPU cards match the DOM cards in both themes, every tier, in
     for (const [key, gpuPng] of gpuShots) {
       const domPng = domShots.get(key);
       expect(domPng, `no DOM shot for ${key}`).toBeDefined();
-      const bad = mismatch(gpuPng, domPng!);
+      const bad = mismatch(gpuPng, domPng!, key);
       expect(bad, `${key}: ${(bad * 100).toFixed(2)}% pixels differ`).toBeLessThanOrEqual(0.02);
     }
   } finally {
