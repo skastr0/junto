@@ -11,14 +11,21 @@
  */
 
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
-import { Crosshair, Pencil, Trash2 } from "lucide-react";
+import { Crosshair, Maximize2, Pencil, Trash2 } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import type { Node as ModelNode } from "@shared/model/kinds";
+import { CustomizeAgentToolbarAction } from "../../components/agent-editor/AgentEditor";
+import { PageToolbarActions } from "../../components/browser/PageToolbarActions";
+import { StartParamsToolbarAction } from "../../components/customize/ParamsSection";
+import { SeatMessageToolbarAction } from "../../components/nodes/SeatMessage";
+import { SeatOffboardToolbarAction } from "../../components/nodes/SeatOffboard";
+import { TerminalToolbarActions } from "../../components/terminal/TerminalToolbarActions";
 import { IconButton, ToolbarPill } from "../../components/ui";
+import { openNoteSurface } from "../../lib/dock-state";
 import { claimFocus } from "../../lib/focus-ownership";
 import { deleteNode, editText, renameGroup } from "../../lib/mutations";
 import { state$, toggleConnectionFocus } from "../../lib/state";
-import { useNode, useNodeValue } from "../../lib/use-model";
+import { useNode } from "../../lib/use-model";
 import type { GpuCanvasApi } from "./gpu-canvas-api";
 import type { SurfaceMirror } from "./surface-mirror";
 
@@ -63,9 +70,10 @@ function SelectionToolbar({
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasName = use$(state$.canvasName);
-  // Only the kind: a drag or a seat report rewrites other fields of the row,
-  // and the toolbar must not commit React for them.
-  const kind = useNodeValue(canvasName, id, (node) => node?.kind);
+  // The row is the same one the card draws; a GPU drag moves the drawn card
+  // without writing the row, so this re-renders on a commit, not on a gesture.
+  const node = useNode(canvasName, id);
+  const kind = node?.kind;
   const canEdit = editableKind(kind);
   const focused = use$(state$.connectionFocusNodeId) === id;
 
@@ -97,7 +105,27 @@ function SelectionToolbar({
       style={{ position: "fixed", left: 0, top: 0, zIndex: overlayStack, willChange: "transform" }}
     >
       <ToolbarPill>
-        {canEdit ? (
+        {node?.kind === "agent" ? (
+          <>
+            <CustomizeAgentToolbarAction seatId={id} />
+            <StartParamsToolbarAction seatId={id} />
+            <SeatMessageToolbarAction id={id} />
+            <SeatOffboardToolbarAction canvas={canvasName} id={id} />
+            <TerminalToolbarActions node={node} />
+          </>
+        ) : null}
+        {node?.kind === "terminal" ? <TerminalToolbarActions node={node} /> : null}
+        {node?.kind === "page" ? <PageToolbarActions node={node} /> : null}
+        {node?.kind === "note" ? (
+          <IconButton
+            aria-label="Expand note editor"
+            title="Expand editor"
+            onClick={() => openNoteSurface(node)}
+          >
+            <Maximize2 size={14} />
+          </IconButton>
+        ) : null}
+        {canEdit && kind !== "note" && kind !== "label" ? (
           <IconButton
             aria-label="Edit card"
             title="Edit"
@@ -106,15 +134,17 @@ function SelectionToolbar({
             <Pencil size={14} />
           </IconButton>
         ) : null}
-        <IconButton
-          aria-label={focused ? "Clear node focus" : "Focus node"}
-          aria-pressed={focused}
-          data-testid="node-toolbar-focus"
-          data-focused={focused ? "true" : "false"}
-          onClick={() => toggleConnectionFocus(id)}
-        >
-          <Crosshair size={14} />
-        </IconButton>
+        {kind !== "label" ? (
+          <IconButton
+            aria-label={focused ? "Clear node focus" : "Focus node"}
+            aria-pressed={focused}
+            data-testid="node-toolbar-focus"
+            data-focused={focused ? "true" : "false"}
+            onClick={() => toggleConnectionFocus(id)}
+          >
+            <Crosshair size={14} />
+          </IconButton>
+        ) : null}
         <IconButton
           tone="danger"
           aria-label="Delete node"
