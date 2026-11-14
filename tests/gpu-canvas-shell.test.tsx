@@ -9,11 +9,13 @@ import { act, Profiler, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeGpu, settle, type FakeGpu } from "./gpu-canvas-fakes";
+import { asCanvasName } from "@shared/model";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 type Modules = {
   readonly GpuCanvas: typeof import("../src/window/canvas/shell/GpuCanvas").GpuCanvas;
+  readonly mountedGpuEngine: typeof import("../src/window/canvas/shell/GpuCanvas").mountedGpuEngine;
   readonly canvasApi: typeof import("../src/window/canvas/shell/canvas-api");
   readonly state$: typeof import("../src/window/lib/state").state$;
   readonly tier: typeof import("../src/window/lib/canvas-tier");
@@ -63,7 +65,7 @@ beforeEach(async () => {
     import("../src/window/lib/canvas-tier"),
     import("../src/window/canvas/shell/gpu-device"),
   ]);
-  modules = { GpuCanvas: shell.GpuCanvas, canvasApi: api, state$: state.state$, tier, device };
+  modules = { GpuCanvas: shell.GpuCanvas, mountedGpuEngine: shell.mountedGpuEngine, canvasApi: api, state$: state.state$, tier, device };
   modules.state$.canvasName.set("factory");
   modules.state$.error.set("");
   commits = 0;
@@ -115,6 +117,37 @@ describe("the GPU canvas shell", () => {
     expect(modules.canvasApi.canvasApi()?.camera().zoom).toBeCloseTo(0.16);
     expect(document.documentElement.getAttribute("data-canvas-tier")).toBe("overview");
     expect(modules.tier.canvasTier$.peek()).toBe("overview");
+  });
+
+  it("the hook's resize grip is the part the engine picks, at the same point", async () => {
+    await mount();
+    const api = modules.canvasApi.canvasApi();
+    const engine = modules.mountedGpuEngine();
+    expect(api).toBeDefined();
+    expect(engine).toBeDefined();
+    const shellApi = api as unknown as { readonly applyScene: (ops: ReadonlyArray<unknown>) => void };
+    const card = {
+      id: "a",
+      row: { id: "a", kind: "note", text: "alpha", x: 0, y: 0, width: 240, height: 120, z: 0 },
+      derived: { regionDepth: 0, blocked: false, z: 0 },
+    };
+    await act(async () => {
+      shellApi.applyScene([
+        { kind: "load", canvas: asCanvasName("factory"), cards: [card], wires: [] },
+        { kind: "selection", fact: { nodeIds: ["a"] } },
+      ]);
+      api!.moveCamera({ kind: "camera", camera: { x: 0, y: 0, zoom: 1 } });
+      await settle();
+    });
+    const hook = (window as { __juntoCanvas?: { rectOf: (id: string, part?: string) => { x: number; y: number; width: number; height: number } | undefined } }).__juntoCanvas;
+    const grip = hook!.rectOf("a", "resize");
+    expect(grip).toBeDefined();
+    const at = { x: grip!.x + grip!.width / 2, y: grip!.y + grip!.height / 2 };
+    const hit = api!.pick(at);
+    expect(hit?.nodeId).toBe("a");
+    expect(hit?.part).toEqual({ kind: "resize", corner: "se" });
+    // The card's middle is its body, so the whole part map lines up.
+    expect(api!.pick({ x: 120, y: 60 })?.part).toEqual({ kind: "body" });
   });
 
   it("installs window.__juntoCanvas in test and development builds", async () => {
