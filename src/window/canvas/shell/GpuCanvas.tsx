@@ -19,8 +19,10 @@ import { selectNode, state$ } from "../../lib/state";
 import { themeMode$ } from "../../lib/theme-mode";
 import { canvasZoomRequest$ } from "../../lib/canvas-zoom";
 import { createEngine, type SeamEngine, type WireLayer } from "../engine/engine";
+import { browserRasterizers, createGpuAtlas } from "../engine/gpu-atlas";
+import { measureRun } from "../engine/text";
 import { createWireLayer, type WiresLayer } from "../engine/wires";
-import type { Camera, Rect } from "../contract";
+import type { Camera, Rect, TextRun } from "../contract";
 import { takeCamera, leaveCamera } from "./camera-handoff";
 import { pageDeviceKeeper } from "./gpu-device";
 import { CanvasApiProvider } from "./CanvasApiContext";
@@ -115,6 +117,22 @@ export function GpuCanvas({ onUnavailable }: Props) {
         wires?.dispose();
       },
     };
+    // The atlas rasterizes text runs and sprites into one texture off the
+    // GPU path: canvas 2D for coverage, SVG decode for generated art, the
+    // mark atlas for rings. It subscribes the device before the engine does,
+    // so the binding is live when the engine first configures; cells that
+    // land later bump the revision and invalidate for a repaint.
+    const atlas = createGpuAtlas({
+      ...browserRasterizers(),
+      mode: themeMode$.peek(),
+      onDirty: () => engine.invalidate(),
+    });
+    const offAtlasDevice = keeper.subscribe((state) => {
+      if (state.kind === "ready") atlas.attach(state.device);
+    });
+    const atlasNow = keeper.state();
+    if (atlasNow.kind === "ready") atlas.attach(atlasNow.device);
+    const textCtx = document.createElement("canvas").getContext("2d");
     const engine = createEngine({
       surface: canvas,
       context,
@@ -127,6 +145,12 @@ export function GpuCanvas({ onUnavailable }: Props) {
       painter: paintCard,
       hands: canvasHands(),
       wires: wireHost,
+      atlas: atlas.binding,
+      sourceOf: (quad, scale) => atlas.sourceFor(quad, scale),
+      atlasRevision: () => atlas.revision(),
+      ...(textCtx === null
+        ? {}
+        : { measure: (run: TextRun) => measureRun(textCtx, run, window.devicePixelRatio || 1) }),
       ...(handed === undefined ? {} : { camera: handed }),
     });
     wires = createWireLayer({
@@ -174,7 +198,10 @@ export function GpuCanvas({ onUnavailable }: Props) {
     }, runtime);
 
     engine.apply([{ kind: "theme", mode: themeMode$.peek() }]);
-    const offTheme = themeMode$.onChange(({ value }) => engine.apply([{ kind: "theme", mode: value }]));
+    const offTheme = themeMode$.onChange(({ value }) => {
+      atlas.setMode(value);
+      engine.apply([{ kind: "theme", mode: value }]);
+    });
 
     // The marquee follows the pointer drag on the engine's frame, written
     // straight to this element's style: a selection drag commits no render.
@@ -260,6 +287,8 @@ export function GpuCanvas({ onUnavailable }: Props) {
       sizes.disconnect();
       offTheme();
       offKeeper();
+      offAtlasDevice();
+      atlas.dispose();
       clearMinimapSource(minimap);
       clearCanvasApi(api);
       // Only a camera this canvas was handed, or placed, goes back: one it
