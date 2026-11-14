@@ -184,6 +184,10 @@ const shoot = async (page: Page, save: boolean): Promise<ReadonlyMap<string, Png
 
       for (const entry of CARD_ENTRIES) {
         await card(page, entry.id).click();
+        // Keep the selection, drop the pointer hover: the card's hover chrome
+        // is not the selected card, and the DOM popover would otherwise sit in
+        // the clip.
+        await page.mouse.move(8, 8);
         await page.waitForTimeout(SETTLE_MS);
         const shotKey = key(theme, zoom, "selected", entry);
         shots.set(shotKey, await shotFor(page, entry, save ? join(VISUAL_DIR, `gpu-${shotKey.replaceAll("|", "-")}.png`) : undefined, 12));
