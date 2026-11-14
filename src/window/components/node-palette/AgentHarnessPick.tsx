@@ -69,7 +69,7 @@ export type AgentHarnessPickProps = {
 const isTabStop = (element: HTMLElement): boolean => {
   if (element.tabIndex < 0) return false;
   if (element.matches(":disabled")) return false;
-  if (element.closest("[inert], [hidden]")) return false;
+  if (element.closest("[inert], [hidden], [data-modal-hidden]")) return false;
   if (element.getClientRects().length === 0) return false;
   const visibility = getComputedStyle(element).visibility;
   if (visibility === "hidden" || visibility === "collapse") return false;

@@ -15,6 +15,7 @@
 
 import { titleOf } from "@shared/model/title";
 import type { Node as ModelNode } from "@shared/model/kinds";
+import { renderedNodeSize } from "@shared/node-geometry";
 import type { Wire as ModelWire } from "@shared/model/wire";
 import type {
   Camera,
@@ -39,11 +40,14 @@ export type MirrorCard = {
   readonly text: string;
 };
 
+// The rectangle the canvas draws, not the one the row stores: a seat keeps
+// its resized row while the engine draws the fixed card size, and the mirror
+// must answer the same rectangle the pick, the anchors and the overlay use.
+// The stored row is for resize previews and writes only.
 const rectOfRow = (row: ModelNode): Rect => ({
   x: row.x,
   y: row.y,
-  width: row.width,
-  height: row.height,
+  ...renderedNodeSize(row.kind, row),
 });
 
 const sameRect = (a: Rect, b: Rect): boolean =>

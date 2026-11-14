@@ -7,7 +7,6 @@ import { use$ } from "@legendapp/state/react";
 import { modelStore } from "./lib/use-model";
 import { impactModeActive$ } from "./lib/impact-mode";
 import { clearSelection, selectNode, state$ } from "./lib/state";
-import { scheduleTerminalCodeWarmup } from "./lib/terminal-code-warmup";
 import { asCanvasName } from "@shared/model";
 import { CountedSurface } from "./lib/performance/surface-commits";
 import type { ActorRef } from "@shared/work-protocol";
@@ -513,9 +512,6 @@ export function App() {
   // The tasks each seat holds: one store for every seat card, terminal and
   // reader of who is blocked, fed by one subscription to the tasks.
   useEffect(() => startSeatTaskStore(), []);
-  // The first terminal is xterm's first use of its code path; warm it once
-  // on idle, detached, with no WebGL, pty or focus.
-  useEffect(() => scheduleTerminalCodeWarmup(), []);
   // Comments on tasks and artifacts reach main, or are not offered.
   useEffect(() => {
     installIpcSubjectThreads(window.junto?.resource?.thread);
