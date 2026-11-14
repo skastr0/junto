@@ -708,7 +708,8 @@ export const createScene = (options: {
     card.rect = { ...card.rect, x: at.x, y: at.y };
     writeOwner(card);
     grid.set(card.slot, insetBy(card.rect, 28));
-    markOrder();
+    // A move is an owner offset: the records keep their order, so a drag
+    // frame must not rebuild the order list (it stuttered on the first drag).
   };
 
   /** Put a card back on its feed row (a gesture let go before the writer's fact arrives). */

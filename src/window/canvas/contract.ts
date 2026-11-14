@@ -798,4 +798,15 @@ export interface CanvasTestHook {
    * no turning ring.
    */
   readonly ringAngle?: (id: NodeId) => number | undefined;
+  /**
+   * The ring room cap the feed derived for a ringed card, the number the DOM
+   * puts in `--ring-cap`; undefined for a card with no ring.
+   */
+  readonly ringCapOf?: (id: NodeId) => number | undefined;
+  /**
+   * The multiplier the seat scale rule draws that card's ring at in the
+   * tier on screen: 1 at near and mid, the capped far scale at far, the
+   * floor at overview. Undefined for a card with no ring.
+   */
+  readonly seatScaleOf?: (id: NodeId) => number | undefined;
 }

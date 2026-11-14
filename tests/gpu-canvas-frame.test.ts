@@ -233,6 +233,9 @@ describe("a seat report", () => {
     // owner entry is the only *position* upload; no order run grows with the card.
     expect(r.engine.stats().uploadedBytes).toBeGreaterThanOrEqual(before);
     for (const range of ranges.filter((range) => range.buffer === "owners")) expect(range.size).toBe(32);
+    // A move never rebuilds the order list: that rebuild stuttered the first
+    // drag frame.
+    expect(ranges.some((range) => range.buffer === "order")).toBe(false);
     r.engine.dispose();
     r.keeper.dispose();
   });
@@ -299,6 +302,22 @@ describe("the hands in the engine", () => {
     expect(moves).toEqual([{ kind: "move", positions: [{ id: "a", x: 130, y: 30 }] }]);
     // The drop clears the live offset and the card is back on its row.
     expect(r.engine.rectOf("a")?.x).toBe(100);
+    r.engine.dispose();
+    r.keeper.dispose();
+  });
+
+  it("reports a dragged card's live screen rectangle, and drops it on release", async () => {
+    const r = await rig();
+    load(r, [seatFact("a", 100)]);
+    r.frames.tick();
+    r.engine.input(pointer("down", 110, 10));
+    r.engine.input(pointer("move", 160, 60));
+    r.frames.tick();
+    const dragged = r.facts.at(-1)!.anchors.find((anchor) => anchor.id === "a");
+    expect(dragged?.rect).toEqual({ x: 150, y: 50, width: 216, height: 56 });
+    r.engine.input(pointer("up", 160, 60));
+    r.frames.tick();
+    expect(r.facts.at(-1)!.anchors.some((anchor) => anchor.id === "a")).toBe(false);
     r.engine.dispose();
     r.keeper.dispose();
   });

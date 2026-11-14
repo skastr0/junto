@@ -6,6 +6,7 @@
  */
 
 import type { CanvasTestHook, NodeId, Part, Rect } from "../contract";
+import { farSeatScale, seatFloorScale } from "@shared/canvas-tier";
 import type { SeamEngine } from "../engine/engine";
 import { engineStats } from "./gpu-canvas-api";
 import type { SurfaceMirror } from "./surface-mirror";
@@ -95,6 +96,17 @@ const build = (mirror: SurfaceMirror, engine: () => SeamEngine | undefined): Ful
     settled: () => mirror.settled(),
     tier: () => mirror.tier(),
     ringAngle: (id) => engine()?.ringAngle?.(id),
+    ringCapOf: (id) => mirror.card(id)?.derived.ringCap,
+    seatScaleOf: (id) => {
+      const cap = mirror.card(id)?.derived.ringCap;
+      if (cap === undefined) return undefined;
+      const zoom = mirror.camera().zoom;
+      const far = Math.max(1, Math.min(farSeatScale(zoom), cap));
+      const tier = mirror.tier();
+      if (tier === "far") return far;
+      if (tier === "overview") return Math.max(seatFloorScale(zoom), Math.min(farSeatScale(zoom), cap));
+      return 1;
+    },
     stats: () => engineStats(engine()),
   };
 };

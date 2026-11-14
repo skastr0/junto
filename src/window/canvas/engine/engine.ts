@@ -190,6 +190,8 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   let preview: ConnectionPreview | null = null;
   /** The marquee box in board units; converted to screen at each frame. */
   let marquee: Rect | null = null;
+  /** Cards whose drawn rectangle a pointer owns right now, for live anchors. */
+  const draggingAnchors = new Set<NodeId>();
 
   const frameListeners = new Set<(facts: FrameFacts) => void>();
   const intentListeners = new Set<(intent: Intent) => void>();
@@ -242,6 +244,8 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   const applyEffect = (effect: PointerEffect): void => {
     switch (effect.kind) {
       case "offset":
+        if (effect.by === null) draggingAnchors.clear();
+        else for (const id of effect.ids) draggingAnchors.add(id);
         for (const id of effect.ids) {
           if (effect.by === null) {
             scene.restoreCard(id);
@@ -254,8 +258,13 @@ export const createEngine = (host: EngineHost): SeamEngine => {
         dirty = true;
         return;
       case "resizing":
-        if (effect.rect === null) scene.restoreCard(effect.id);
-        else scene.resizeCard(effect.id, effect.rect);
+        if (effect.rect === null) {
+          draggingAnchors.delete(effect.id);
+          scene.restoreCard(effect.id);
+        } else {
+          draggingAnchors.add(effect.id);
+          scene.resizeCard(effect.id, effect.rect);
+        }
         dirty = true;
         return;
       case "marquee":
@@ -440,7 +449,8 @@ export const createEngine = (host: EngineHost): SeamEngine => {
 
     // 7: frame facts.
     const anchors: Array<{ id: NodeId; rect: Rect }> = [];
-    for (const id of anchored) {
+    const anchorIds = draggingAnchors.size === 0 ? anchored : new Set([...anchored, ...draggingAnchors]);
+    for (const id of anchorIds) {
       const rect = scene.rectOf(id);
       if (rect !== undefined) anchors.push({ id, rect: rectToScreen(camera, rect) });
     }

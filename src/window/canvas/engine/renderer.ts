@@ -300,6 +300,11 @@ fn filled(base: u32, local: vec2f) -> vec4f {
       }
       motionAlpha = motionAlpha * sweepAlpha;
       inner = 0.0;
+    } else if (strokeWidth > 0.0) {
+      // A disc's stroke is a rim just inside its edge, the width a rect's
+      // stroke takes. inner = outer drew no rim at all, so a handle's ground
+      // fill was the whole dot and its main-coloured rim vanished.
+      inner = clamp(0.5 - (dist - max(r - strokeWidth, 0.0)) * ppu, 0.0, 1.0);
     } else {
       inner = outer;
     }
