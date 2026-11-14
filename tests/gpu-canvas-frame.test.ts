@@ -202,7 +202,7 @@ describe("a seat report", () => {
     r.keeper.dispose();
   });
 
-  it("rewrites the style table on a theme switch and no record", async () => {
+  it("rewrites the style table on a theme switch, and the mode-baked art records with it", async () => {
     const r = await rig();
     load(r, [seatFact("a")]);
     r.engine.apply([{ kind: "seat", id: "a", live: live("rest") }]);
@@ -210,10 +210,12 @@ describe("a seat report", () => {
     r.engine.apply([{ kind: "theme", mode: "bright" }]);
     r.frames.tick();
     const records = r.engine.stats().lastUploadRanges.filter((range) => range.buffer !== "uniform");
-    expect(records.some((range) => range.buffer === "quads")).toBe(false);
+    expect(records.some((range) => range.buffer === "styles")).toBe(true);
+    // Generated art bakes the mode into its SVG and the atlas keys cells by
+    // mode, so sprite records do change. A theme switch never moves a card
+    // or reorders the list.
     expect(records.some((range) => range.buffer === "owners")).toBe(false);
     expect(records.some((range) => range.buffer === "order")).toBe(false);
-    expect(records.some((range) => range.buffer === "styles")).toBe(true);
     r.engine.dispose();
     r.keeper.dispose();
   });

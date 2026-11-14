@@ -75,6 +75,15 @@ describe("the owner slot", () => {
     expect(scene.ownerBuffer[1 * 8]).toBe(640);
     expect(scene.ownerBuffer[1 * 8 + 1]).toBe(260);
   });
+
+  it("carries the drawn card size, which the far seat rule centres the ring on", () => {
+    const scene = sceneWith(() => []);
+    expect(scene.ownerBuffer[5]).toBe(216);
+    expect(scene.ownerBuffer[6]).toBe(56);
+    scene.resizeCard("a", { x: 0, y: 0, width: 300, height: 80 });
+    expect(scene.ownerBuffer[5]).toBe(300);
+    expect(scene.ownerBuffer[6]).toBe(80);
+  });
 });
 
 describe("a style change on the same key", () => {

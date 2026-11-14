@@ -50,7 +50,7 @@ struct Uniforms {
 
 struct Owner {
   p: vec4f, // x, y, lift, opacity
-  q: vec4f, // saturate, pad, pad, pad
+  q: vec4f, // saturate, card width, card height, pad
 };
 
 struct Quad {
@@ -155,7 +155,14 @@ fn filled(base: u32, local: vec2f) -> vec4f {
     } else if (tierBit == 8u) {
       scale = floorScale;
     }
-    center = o.p.xy + vec2f(q.anchorX, q.anchorY);
+    // At far and overview the DOM centres the grown ring on the card box
+    // (canvas-lod.css .junto-seat justify-content: center); at near and mid
+    // it sits at the card's ring anchor.
+    var at = vec2f(q.anchorX, q.anchorY);
+    if (tierBit == 4u || tierBit == 8u) {
+      at = vec2f(o.q.y, o.q.z) * 0.5;
+    }
+    center = o.p.xy + at;
   } else if (q.scaleRule == 2u) {
     scale = u.scales.z;
     center = o.p.xy + vec2f(q.anchorX, q.anchorY);
@@ -171,8 +178,12 @@ fn filled(base: u32, local: vec2f) -> vec4f {
       seatScale = floorScale;
     }
     let anchor = vec2f(q.anchorX, q.anchorY);
+    var base = anchor;
+    if (tierBit == 4u || tierBit == 8u) {
+      base = vec2f(o.q.y, o.q.z) * 0.5;
+    }
     let relTop = vec2f(q.rect.x + q.rect.z * 0.5, q.rect.y);
-    let top = anchor + (relTop - anchor) * seatScale;
+    let top = base + (relTop - anchor) * seatScale;
     scale = u.scales.x * 1.4;
     center = o.p.xy + top + vec2f(0.0, q.rect.w * scale * 0.5);
   }

@@ -353,15 +353,16 @@ export const createScene = (options: {
 
   const writeOwner = (card: CardSlot): void => {
     const at = card.slot * 8;
-    const next = [card.rect.x, card.rect.y, card.lift, card.dim.opacity, card.dim.saturate, 0, 0, 0];
-    let changed = owners[at + 5] !== 0;
+    // Words 5 and 6 carry the drawn card size: the far seat rule centres the
+    // ring on the card box, and the shader reads that size from here.
+    const next = [card.rect.x, card.rect.y, card.lift, card.dim.opacity, card.dim.saturate, card.rect.width, card.rect.height, 0];
+    let changed = false;
     for (let index = 0; index < next.length; index += 1) {
       if (owners[at + index] !== next[index]) {
         owners[at + index] = next[index]!;
         changed = true;
       }
     }
-    owners[at + 5] = 0;
     if (changed) dirtyOwners.add(card.slot);
   };
 
