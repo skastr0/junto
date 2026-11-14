@@ -312,7 +312,7 @@ const lensContext2d = (canvas: HTMLCanvasElement): CanvasRenderingContext2D | nu
     canvas.height = px;
   }
   const context = canvas.getContext("2d");
-  if (context === null) return null;
+  if (context === null || typeof context.setTransform !== "function") return null;
   context.setTransform(dpr, 0, 0, dpr, 0, 0);
   return context;
 };
