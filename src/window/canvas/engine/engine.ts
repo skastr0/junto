@@ -310,7 +310,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   const schedule = (): void => {
     if (disposed || !visible || pending !== undefined) return;
     if (keeper.state().kind !== "ready") return;
-    const busy = dirty || animation !== undefined || keys.size > 0 || !settled || autoPan !== null || scene.hasMotion(wallNow()) || (host.wires?.busy(wallNow()) ?? false);
+    const busy = dirty || animation !== undefined || keys.size > 0 || !settled || autoPan !== null || scene.hasMotion(clock()) || (host.wires?.busy(wallNow()) ?? false);
     if (!busy) return;
     pending = scheduler.request(frame);
   };
@@ -388,7 +388,10 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     // 3: the visible set and the order list (culling by whole cards).
     const prepared = scene.prepare(viewRect(camera, size), tier);
     const wall = wallNow();
-    scene.setWallClock(wall);
+    // The shader's clock is page-relative: `Date.now()` in a float32 uniform
+    // quantizes to about two minutes, freezing every fade and every phase.
+    const shaderNow = clock();
+    scene.setClocks({ now: shaderNow, wall });
     if (prepared.orderChanged) dirty = true;
 
     // 5: uploads.
@@ -398,7 +401,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       width: size.width,
       height: size.height,
       pixelRatio: size.pixelRatio,
-      wallMs: wall,
+      wallMs: shaderNow,
       camera,
       tierBit: TIER_BIT[tier],
       farSeat: farSeatScale(camera.zoom),
@@ -455,7 +458,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     lastFrameMs = clock() - start;
     dirty = false;
 
-    const moving = scene.hasMotion(wallNow()) || (host.wires?.busy(wallNow()) ?? false);
+    const moving = scene.hasMotion(clock()) || (host.wires?.busy(wallNow()) ?? false);
     if (moving || animation !== undefined || keys.size > 0 || !settled || autoPan !== null) schedule();
   };
 
@@ -590,7 +593,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     apply: (ops) => {
       // A style change starts its transition at the wall clock of the fact,
       // not at the last frame's.
-      scene.setWallClock(wallNow());
+      scene.setClocks({ now: clock(), wall: wallNow() });
       for (const op of ops) {
         if (op.kind === "theme") ground = clearColour(themeRuntime(op.mode).ground ?? "");
         scene.apply(op);

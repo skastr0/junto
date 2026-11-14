@@ -156,9 +156,21 @@ const insetBy = (rect: Rect, by: number): Rect => ({
   height: rect.height + by * 2,
 });
 
-/** Motion encoded as the shader's switch reads it. */
+/**
+ * Motion encoded as the shader's switch reads it.
+ *
+ * The shader's clock is the page-relative one (`clock()`, a few thousand
+ * milliseconds), because a float32 uniform cannot hold `Date.now()` at
+ * sub-frame precision: at 1.7e12 the nearest representable step is about two
+ * minutes, so every phase and every 180 ms style fade stood still. `since` is
+ * therefore a page-relative instant, and a periodic motion's phase is anchored
+ * to the wall clock the DOM ring reads: `now - (wall % period)` advances at
+ * the same rate and lands on the same phase as `fract(wall / period)`.
+ */
 const packMotion = (
   motion: QuadMotion | undefined,
+  now: number,
+  wall: number,
 ): Pick<PackedQuad, "motion" | "motionPeriod" | "motionSince" | "motionFlags"> => {
   if (motion === undefined) return { motion: MOTION.none, motionPeriod: 0, motionSince: 0, motionFlags: 0 };
   switch (motion.kind) {
@@ -166,7 +178,7 @@ const packMotion = (
       return {
         motion: MOTION.turn,
         motionPeriod: motion.periodMs,
-        motionSince: 0,
+        motionSince: now - (wall % motion.periodMs),
         motionFlags: (motion.ccw === true ? MOTION_FLAG.ccw : 0) | (motion.fade === true ? MOTION_FLAG.fade : 0),
       };
     case "land":
@@ -174,13 +186,18 @@ const packMotion = (
       return {
         motion: motion.kind === "land" ? MOTION.land : MOTION.landed,
         motionPeriod: 720,
-        motionSince: motion.since,
+        motionSince: now - (wall - motion.since),
         motionFlags: 0,
       };
     case "rise":
-      return { motion: MOTION.rise, motionPeriod: 200, motionSince: motion.since, motionFlags: 0 };
+      return { motion: MOTION.rise, motionPeriod: 200, motionSince: now - (wall - motion.since), motionFlags: 0 };
     default:
-      return { motion: MOTION[motion.kind], motionPeriod: motion.periodMs, motionSince: 0, motionFlags: 0 };
+      return {
+        motion: MOTION[motion.kind],
+        motionPeriod: motion.periodMs,
+        motionSince: now - (wall % Math.max(1, motion.periodMs)),
+        motionFlags: 0,
+      };
   }
 };
 
@@ -273,6 +290,9 @@ export const createScene = (options: {
   let motionVisible = false;
   /** The wall time the last style transition ends; the loop draws until then. */
   let transitionUntil = 0;
+  /** Page-relative milliseconds, the shader's clock (small enough for f32). */
+  let clockNow = 0;
+  /** Epoch milliseconds, the wall clock the DOM ring's phase reads. */
   let wallNow = 0;
 
   const markOrder = (): void => {
@@ -357,11 +377,11 @@ export const createScene = (options: {
     const at = slot * QUAD_FLOATS;
     const oldStyle = quads.u32[at + 27];
     const previous = fresh
-      ? { previousStyle: style, changeAt: wallNow }
+      ? { previousStyle: style, changeAt: clockNow }
       : oldStyle === style
-        ? { previousStyle: quads.u32[at + 28] ?? style, changeAt: quads.f32[at + 29] ?? wallNow }
-        : { previousStyle: oldStyle ?? style, changeAt: wallNow };
-    if (!fresh && oldStyle !== style) transitionUntil = Math.max(transitionUntil, wallNow + STYLE_TRANSITION_MS);
+        ? { previousStyle: quads.u32[at + 28] ?? style, changeAt: quads.f32[at + 29] ?? clockNow }
+        : { previousStyle: oldStyle ?? style, changeAt: clockNow };
+    if (!fresh && oldStyle !== style) transitionUntil = Math.max(transitionUntil, clockNow + STYLE_TRANSITION_MS);
     const radius = typeof quad.radii === "number"
       ? ([quad.radii, quad.radii, quad.radii, quad.radii] as const)
       : quad.radii ?? ([0, 0, 0, 0] as const);
@@ -379,7 +399,7 @@ export const createScene = (options: {
       kind: KIND_OF[quad.kind],
       tiers: quad.tiers,
       ...packScale(quad.scale),
-      ...packMotion(quad.motion),
+      ...packMotion(quad.motion, clockNow, wallNow),
       source: resolveSource(quad, atlasScaleNow()),
       gradientAngle: 0,
       style,
@@ -826,7 +846,7 @@ export const createScene = (options: {
     return { orderChanged: changed, visible: orderCount, atlasRevision: revision };
   };
 
-  const hasMotion = (wall: number = wallNow): boolean => motionVisible || wall < transitionUntil;
+  const hasMotion = (at: number = clockNow): boolean => motionVisible || at < transitionUntil;
 
   const index: SpatialIndex = {
     cardsAt: (at) => {
@@ -875,7 +895,13 @@ export const createScene = (options: {
     index,
     takeQuadDirty,
     takeOwnerDirty,
+    setClocks: (next: { readonly now: number; readonly wall: number }): void => {
+      clockNow = next.now;
+      wallNow = next.wall;
+    },
+    /** One clock for both, for a caller (a test) that does not split them. */
     setWallClock: (now: number): void => {
+      clockNow = now;
       wallNow = now;
     },
     selection: (): SelectionFact => selection,

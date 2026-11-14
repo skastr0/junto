@@ -229,3 +229,48 @@ describe("the ring angle hook", () => {
     expect(scene.ringAngle("a", 360)).toBeCloseTo(90, 9);
   });
 });
+
+describe("the shader clock", () => {
+  // Date.now() in a float32 uniform quantizes to about two minutes, so the
+  // shader runs on page-relative milliseconds. A turning ring keeps the DOM's
+  // wall phase by anchoring its record: now - (wall % period).
+  const turning = (): Quad => ({
+    key: "ring",
+    kind: "shape",
+    band: "cards",
+    z: 1,
+    rect: { x: 0, y: 0, width: 52, height: 52 },
+    tiers: 15,
+    scale: { kind: "board" },
+    style: { fill: { kind: "flat", color: { token: "cyan" } } },
+    motion: { kind: "turn", periodMs: 1_000 },
+  });
+
+  it("writes a page-relative instant whose phase matches the wall clock", () => {
+    const scene = sceneWith(() => [turning()]);
+    const wall = 1_700_000_000_123;
+    scene.setClocks({ now: 250, wall });
+    scene.apply({ kind: "selection", fact: { nodeIds: ["a"] } });
+    const since = float(scene, 0, 21);
+    expect(since).toBe(250 - (wall % 1_000));
+    expect(((250 - since) % 1_000) / 1_000).toBeCloseTo((wall % 1_000) / 1_000, 6);
+  });
+
+  it("starts a style transition on the page-relative clock", () => {
+    const scene = sceneWith((view) => [{
+      key: "shell",
+      kind: "shape",
+      band: "cards",
+      z: 1,
+      rect: { x: 0, y: 0, width: 216, height: 56 },
+      tiers: 15,
+      scale: { kind: "board" },
+      style: styleWhen(view.selected),
+    }]);
+    scene.setClocks({ now: 400, wall: 1_700_000_000_123 });
+    scene.apply({ kind: "selection", fact: { nodeIds: ["a"] } });
+    expect(float(scene, 0, 29)).toBe(400);
+    expect(scene.hasMotion(401)).toBe(true);
+    expect(scene.hasMotion(600)).toBe(false);
+  });
+});

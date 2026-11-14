@@ -104,8 +104,11 @@ struct VSOut {
 const PI2 = 6.283185307179586;
 const STYLE = ${STYLE_STRIDE}u;
 
-fn phaseOf(period: f32) -> f32 {
-  return fract(u.view.w / max(period, 1.0));
+// A motion's phase is anchored to its record: the scene stores
+// now - (wall % period) at paint, so the shader advances from the same
+// DOM wall clock (f32 cannot hold Date.now() itself).
+fn phaseOfQuad(q: Quad) -> f32 {
+  return fract((u.view.w - q.motionSince) / max(q.motionPeriod, 1.0));
 }
 
 fn beat(phase: f32) -> f32 {
@@ -176,9 +179,9 @@ fn filled(base: u32, local: vec2f) -> vec4f {
 
   var motionScale = 1.0;
   if (q.motion == 2u || q.motion == 7u) {
-    motionScale = 1.0 + select(0.31, 0.22, q.motion == 7u) * phaseOf(q.motionPeriod);
+    motionScale = 1.0 + select(0.31, 0.22, q.motion == 7u) * phaseOfQuad(q);
   } else if (q.motion == 10u) {
-    let wave = 0.5 - 0.5 * cos(phaseOf(q.motionPeriod) * PI2);
+    let wave = 0.5 - 0.5 * cos(phaseOfQuad(q) * PI2);
     motionScale = 1.0 + 0.015 * wave;
   } else if (q.motion == 11u) {
     let age = clamp((u.view.w - q.motionSince) / 720.0, 0.0, 1.0);
@@ -224,13 +227,13 @@ fn filled(base: u32, local: vec2f) -> vec4f {
   if (ink.a <= 0.0) { ink = fill; }
 
   var motionAlpha = 1.0;
-  if (q.motion == 3u) { motionAlpha = beat(phaseOf(q.motionPeriod)); }
-  else if (q.motion == 4u) { motionAlpha = 0.5 - 0.5 * cos(phaseOf(q.motionPeriod) * PI2); }
-  else if (q.motion == 5u) { motionAlpha = 0.25 + 0.75 * (0.5 - 0.5 * cos(phaseOf(q.motionPeriod) * PI2)); }
-  else if (q.motion == 6u) { motionAlpha = select(1.0, 0.1, phaseOf(q.motionPeriod) >= 0.5); }
-  else if (q.motion == 7u) { motionAlpha = 1.0 - phaseOf(q.motionPeriod); }
+  if (q.motion == 3u) { motionAlpha = beat(phaseOfQuad(q)); }
+  else if (q.motion == 4u) { motionAlpha = 0.5 - 0.5 * cos(phaseOfQuad(q) * PI2); }
+  else if (q.motion == 5u) { motionAlpha = 0.25 + 0.75 * (0.5 - 0.5 * cos(phaseOfQuad(q) * PI2)); }
+  else if (q.motion == 6u) { motionAlpha = select(1.0, 0.1, phaseOfQuad(q) >= 0.5); }
+  else if (q.motion == 7u) { motionAlpha = 1.0 - phaseOfQuad(q); }
   else if (q.motion == 8u) {
-    let phase = phaseOf(q.motionPeriod);
+    let phase = phaseOfQuad(q);
     motionAlpha = select(select(0.0, 0.9, phase >= 0.3), 0.0, phase >= 0.6);
   } else if (q.motion == 11u || q.motion == 12u) {
     let age = u.view.w - q.motionSince;
@@ -277,7 +280,7 @@ fn filled(base: u32, local: vec2f) -> vec4f {
       let ring = clamp(0.5 - (dist - r * 0.82) * ppu, 0.0, 1.0);
       ringBand = max(0.0, outer - ring);
       let turn = atan2(in.local.y, in.local.x) / PI2 + 0.5;
-      var phase = phaseOf(q.motionPeriod);
+      var phase = phaseOfQuad(q);
       if ((q.motionFlags & 1u) != 0u) { phase = 1.0 - phase; }
       let sweep = fract(turn + phase);
       var sweepAlpha = 0.22 + 0.78 * sweep * sweep;
