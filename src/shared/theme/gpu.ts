@@ -60,3 +60,21 @@ export const themeGpu = (mode: ThemeMode): GpuTheme => {
     easing: EASING,
   };
 };
+
+/**
+ * A resolved GpuColor back to a CSS colour string, for the Canvas2D
+ * rasterizers that feed the atlas (text coverage, glyph ink, media ground,
+ * `var(--color-*)` inside standalone SVG). Hex at full alpha, rgba() below
+ * it — the same shapes themeRuntime emits for the DOM projection, so a cell
+ * and its DOM twin read the same colour.
+ */
+export const gpuColorCss = (c: GpuColor): string => {
+  const channel = (v: number): number =>
+    Math.round(Math.min(1, Math.max(0, v)) * 255);
+  if (c.a >= 1) {
+    const hex = (v: number): string => channel(v).toString(16).padStart(2, "0");
+    return `#${hex(c.r)}${hex(c.g)}${hex(c.b)}`;
+  }
+  const alpha = Math.min(1, Math.max(0, c.a));
+  return `rgba(${channel(c.r)}, ${channel(c.g)}, ${channel(c.b)}, ${alpha})`;
+};

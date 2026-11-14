@@ -10,6 +10,7 @@
  * resolved ink at its alpha, so `tok("ink", 0.38)` arrives pre-mixed.
  */
 
+import { gpuColorCss, type GpuColor } from "@shared/theme";
 import { GLYPH_NODES, type GlyphNode } from "./glyph-nodes";
 
 /** The glyph names paint emits, resolved to a lucide module name. */
@@ -160,12 +161,12 @@ export const drawGlyph = (
   ctx: CanvasRenderingContext2D,
   name: string,
   size: number,
-  ink: { readonly r: number; readonly g: number; readonly b: number; readonly a: number },
+  ink: GpuColor,
 ): boolean => {
   const resolved = resolveName(name);
   if (resolved === undefined) return false;
   const px = Math.max(1, size);
-  const css = `rgb(${Math.round(ink.r * 255)} ${Math.round(ink.g * 255)} ${Math.round(ink.b * 255)} / ${ink.a})`;
+  const css = gpuColorCss(ink);
   ctx.save();
   ctx.scale(px / 24, px / 24);
   if ("crown" in resolved) {

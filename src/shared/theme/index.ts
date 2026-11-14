@@ -70,7 +70,7 @@ export {
   type GlowLayer,
   type ShadowLayer,
 } from "./chrome";
-export { themeGpu, type GpuColor, type GpuTheme } from "./gpu";
+export { themeGpu, gpuColorCss, type GpuColor, type GpuTheme } from "./gpu";
 
 export const FONT_MONO =
   '"SF Mono", SFMono-Regular, Menlo, Consolas, monospace';

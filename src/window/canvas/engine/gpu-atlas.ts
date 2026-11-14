@@ -17,7 +17,7 @@
  */
 
 import type { ColorRef, Quad, TextRun } from "../contract";
-import { themeGpu, type GpuTheme, type ThemeMode } from "@shared/theme";
+import { gpuColorCss, themeGpu, type GpuColor, type GpuTheme, type ThemeMode } from "@shared/theme";
 import { NO_ATLAS_CELL } from "./quad";
 import type { AtlasBinding } from "./types";
 import { resolveColour } from "./styles";
@@ -355,7 +355,9 @@ export const rasterizeTextRun: TextRasterize = async (run, scale) => {
   const { canvas, ctx: draw } = canvas2d(cellW, cellH);
   draw.font = ctx.font;
   draw.letterSpacing = ctx.letterSpacing;
-  draw.fillStyle = "#fff";
+  // Coverage is opaque white: the shader reads the cell's alpha as the glyph
+  // mask and tints it with the quad's ink, so the rgb channels never show.
+  draw.fillStyle = gpuColorCss(COVERAGE);
   draw.textBaseline = "middle";
   lines.forEach((line, i) => {
     const x = run.align === "center" ? (cellW - draw.measureText(line).width) / 2 : 0;
@@ -363,6 +365,9 @@ export const rasterizeTextRun: TextRasterize = async (run, scale) => {
   });
   return createImageBitmap(canvas);
 };
+
+/** Opaque white for coverage cells: the shader reads alpha as the glyph mask. */
+const COVERAGE: GpuColor = { r: 1, g: 1, b: 1, a: 1 };
 
 let markAtlasCache: { mode: ThemeMode; canvas: HTMLCanvasElement } | undefined;
 
@@ -379,9 +384,6 @@ const themeFor = (mode: ThemeMode): GpuTheme => {
   return themeCache.theme;
 };
 
-const cssColor = (c: { r: number; g: number; b: number; a: number }): string =>
-  `rgb(${Math.round(c.r * 255)} ${Math.round(c.g * 255)} ${Math.round(c.b * 255)} / ${c.a})`;
-
 /**
  * A sprite SVG rasterizes as a standalone image: no document, so no custom
  * properties. `var(--color-ink)` and friends arrive unresolved and paint
@@ -392,7 +394,7 @@ const CSS_VAR = /var\(--color-([a-zA-Z0-9-]+)\)/g;
 const resolveSvgVars = (svg: string, theme: GpuTheme): string =>
   svg.replace(CSS_VAR, (_match, name: string) => {
     const colour = theme.colors[name];
-    return colour === undefined ? "transparent" : cssColor(colour);
+    return colour === undefined ? "transparent" : gpuColorCss(colour);
   });
 
 const loadImage = async (src: string): Promise<HTMLImageElement> => {
@@ -507,7 +509,7 @@ export const rasterizeSprite: SpriteRasterize = async (quad, mode, scale) => {
   // way object-fit fits it.
   const ground = resolveColour({ token: "shadow-2" }, themeFor(mode));
   if (ground !== undefined) {
-    ctx.fillStyle = cssColor(ground);
+    ctx.fillStyle = gpuColorCss(ground);
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
   const response = await fetch(ref.ref);
