@@ -475,3 +475,31 @@ bytes), dmg sha256
 `2cdc7fde8c289d393c74e1a2d0f54d132ec6a7b885a6917f4908a0cb45a31894`
 (134,983,320 bytes). The feed says 0.11.10 and the downloaded zip hashes to the
 stapled sha256. Not yet installed: waits for the operator's moment.
+
+## 0.11.12 receipt (product-releases, 2026-11-14)
+
+Published from tag `v0.11.12` = `51d2c60bcb4de29477a184c1c43c4c9e8eb072a9` on
+main (already pushed to origin). Cut from a clean `git archive` export with
+full history. Database stays at v73. Full lanes ran, no shim:
+`lint:product-name`, `tsrs --noEmit`, unit shared (886 passed, 1 skipped),
+isolated (597 passed, 3 skipped), alone (6 passed), `test:features:ship` (13
+files), native CLI `0.11.12`, `audit-packaged-app` (Mach-O count 20, forbidden
+entitlements 0), `packaged-runtime-smoke` (exit 0). Machine build
+`3cbd9b43208066cce71c778650abf3369457cff89a9c5c4bacd2a80f9fb99e13`
+(`darwin-arm64` 42,615,405 bytes sha256
+`f72e37d9459b2724d4d2daccf17d7136f7e55e42daee26e4386879aac7000c18`, `linux-x64`
+45,483,512 bytes sha256
+`9571717ff92cb08949e48db64726fa4de057fb62ecf49c1bcf167c8efab0cd4a`),
+`machine-bundle-boot` `ready:true` relocated. Notarization submission
+`e74c444a-ce27-4608-a408-8093a6cefa21` Accepted, stapled, `spctl` "Notarized
+Developer ID" (team `4452968868`). Stapled zip sha256
+`94ef77326fd2c547dcd152236be0963a4b296795cc02904c500578ee1006af34` (133,792,899
+bytes, sha512
+`Sn5ijoO4MZ3NZIqA32dg9z9bnDFdQ3v49jwxXHIBbhtoSTx1j/XY207+uRwgpaihkjbfgKL0AaPX1qAHVFMIvQ==`),
+dmg sha256
+`18f6043275b78cf3560274ad9107248b63754b980c9c5233707a43ee7af1c18a` (135,137,218
+bytes); local copies at `release/Junto-0.11.12-arm64-mac.dmg` and
+`release/Junto-0.11.12-arm64-mac.zip`. The feed `latest-mac.yml` says 0.11.12
+and the downloaded zip hashes to the stapled sha256. Not yet installed: waits
+for the operator's moment.
+
