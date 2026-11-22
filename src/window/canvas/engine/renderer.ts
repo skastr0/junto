@@ -105,6 +105,9 @@ struct AtlasCell {
 @group(0) @binding(7) var<storage, read> styles: array<f32>;
 @group(0) @binding(8) var<storage, read> shadowMeta: array<vec4u>;
 @group(0) @binding(9) var<storage, read> shadowLayers: array<vec4f>;
+// Text coverage, one channel (r8unorm pages, #911). u.misc.z is 1 when the
+// atlas splits it out; otherwise text sits in the rgba pages' alpha.
+@group(0) @binding(10) var coverageAtlas: texture_2d_array<f32>;
 
 const PI2 = 6.283185307179586;
 const STYLE = ${STYLE_STRIDE}u;
@@ -429,15 +432,23 @@ fn filled(base: u32, local: vec2f) -> vec4f {
         uv = vec2f(uv.x * cell.page.y - f32(tx), uv.y * cell.page.z - f32(ty));
       }
       // Level sample: a per-instance branch is not uniform control flow, where
-      // textureSample is not allowed.
-      let tex = textureSampleLevel(atlas, atlasSampler, uv, layer, 0.0);
+      // textureSample and derivatives are not allowed. The level is worked
+      // out instead: the cell's texels over the device pixels it covers, so
+      // a sprite drawn smaller than its raster reads the page's mips (#911).
+      let dims = vec2f(textureDimensions(atlas));
+      let tiles = select(vec2f(1.0), cell.page.yz, cell.page.y > 0.5);
+      let texels = abs(cell.uv.zw - cell.uv.xy) * tiles * dims;
+      let covered = max(in.half * 2.0 * ppu, vec2f(1.0));
+      let lod = select(0.0, max(0.0, log2(max(texels.x / covered.x, texels.y / covered.y))), q.kind == 2u);
+      let tex = textureSampleLevel(atlas, atlasSampler, uv, layer, lod);
       if (q.kind == 3u) {
-        // The atlas holds white coverage over transparent, landed
-        // unpremultiplied: the alpha channel is the glyph coverage, and the
-        // red channel is white inside every edge texel too. Reading r made
-        // antialiased edges opaque and text bold.
+        // Split pages hold coverage in r. The rgba pages hold white coverage
+        // over transparent, unpremultiplied: there alpha is the coverage, and
+        // r is white inside every edge texel (reading it made text bold).
+        let split = textureSampleLevel(coverageAtlas, atlasSampler, uv, layer, 0.0).r;
+        let coverage = select(tex.a, split, u.misc.z > 0.5);
         colour = ink.rgb;
-        alpha = tex.a * ink.a * outer;
+        alpha = coverage * ink.a * outer;
       } else {
         let tint = select(vec4f(1.0), fill, fill.a > 0.0);
         colour = tex.rgb * tint.rgb;
@@ -588,7 +599,11 @@ export const createRenderer = () => {
 
   const makeBindGroup = (state: Omit<Gpu, "bind">, textureOverride?: GPUTexture): GPUBindGroup => {
     const device = state.device;
-    const texture = textureOverride ?? state.atlas?.texture ?? dummyTexture(device);
+    // A standalone override takes the binding its format names: an r8unorm
+    // text texture is coverage (binding 10), anything else rgba (binding 4).
+    const coverageOverride = textureOverride !== undefined && textureOverride.format === "r8unorm";
+    const texture = (coverageOverride ? undefined : textureOverride) ?? state.atlas?.texture ?? dummyTexture(device);
+    const coverage = (coverageOverride ? textureOverride : undefined) ?? state.atlas?.coverageTexture ?? texture;
     const sampler = state.atlas?.sampler ?? device.createSampler({ magFilter: "nearest", minFilter: "nearest" });
     return device.createBindGroup({
       layout: state.bindLayout,
@@ -603,6 +618,7 @@ export const createRenderer = () => {
         { binding: 7, resource: { buffer: state.styles } },
         { binding: 8, resource: { buffer: state.shadowMeta } },
         { binding: 9, resource: { buffer: state.shadowLayers } },
+        { binding: 10, resource: coverage.createView({ dimension: "2d-array" }) },
       ],
     });
   };
@@ -739,6 +755,7 @@ export const createRenderer = () => {
         { binding: 7, visibility: STAGE.FRAGMENT, buffer: { type: "read-only-storage" } },
         { binding: 8, visibility: STAGE.FRAGMENT, buffer: { type: "read-only-storage" } },
         { binding: 9, visibility: STAGE.FRAGMENT, buffer: { type: "read-only-storage" } },
+        { binding: 10, visibility: STAGE.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d-array" } },
       ],
     });
     const layout = device.createPipelineLayout({ bindGroupLayouts: [bindLayout] });
@@ -815,6 +832,32 @@ export const createRenderer = () => {
     uploadStyles(next, scene);
   };
 
+  /** Write the dirty cell slots as contiguous runs: one writeBuffer per run. */
+  const writeCellRuns = (state: Gpu, cells: Float32Array, slots: ReadonlyArray<number>, fits: number): void => {
+    if (slots.length === 0) return;
+    const sorted = [...slots].sort((a, b) => a - b);
+    let start = sorted[0]!;
+    let end = start;
+    const flush = (): void => {
+      const offset = start * ATLAS_CELL_FLOATS;
+      const elements = Math.min((end - start + 1) * ATLAS_CELL_FLOATS, fits - offset);
+      if (elements <= 0) return;
+      state.device.queue.writeBuffer(state.cells, offset * 4, cells, offset, elements);
+      note(state, "cells", offset * 4, elements * 4);
+    };
+    for (let index = 1; index < sorted.length; index += 1) {
+      const slot = sorted[index]!;
+      if (slot <= end + 1) {
+        end = Math.max(end, slot);
+        continue;
+      }
+      flush();
+      start = slot;
+      end = slot;
+    }
+    flush();
+  };
+
   const upload = (scene: Scene, prepared: Prepared): void => {
     const state = gpu;
     if (state === undefined) return;
@@ -877,11 +920,17 @@ export const createRenderer = () => {
     if (state.atlas !== undefined && prepared.atlasRevision !== state.cellsRevision) {
       const cells = state.atlas.cells;
       const cellCount = state.atlas.cellCount ?? Math.floor(cells.length / ATLAS_CELL_FLOATS);
-      const wanted = Math.max(ATLAS_CELL_FLOATS, cellCount * ATLAS_CELL_FLOATS);
-      const elements = Math.min(wanted, cells.length, Math.floor(state.cells.size / 4));
-      if (elements > 0) {
-        state.device.queue.writeBuffer(state.cells, 0, cells, 0, elements);
-        note(state, "cells", 0, elements * 4);
+      const fits = Math.min(cells.length, Math.floor(state.cells.size / 4));
+      // The atlas names the cells it changed; a fresh or grown buffer takes them all.
+      const dirty = state.atlas.takeDirtyCells?.();
+      if (dirty === undefined || dirty.all || state.cellsRevision === -1) {
+        const elements = Math.min(Math.max(ATLAS_CELL_FLOATS, cellCount * ATLAS_CELL_FLOATS), fits);
+        if (elements > 0) {
+          state.device.queue.writeBuffer(state.cells, 0, cells, 0, elements);
+          note(state, "cells", 0, elements * 4);
+        }
+      } else {
+        writeCellRuns(state, cells, dirty.slots, fits);
       }
       state.cellsRevision = prepared.atlasRevision;
     }
@@ -918,7 +967,7 @@ export const createRenderer = () => {
     uniform[11] = 0;
     uniform[12] = scene.orderCount;
     uniform[13] = frame.hoverScale;
-    uniform[14] = 0;
+    uniform[14] = state.atlas?.coverageTexture === undefined ? 0 : 1;
     uniform[15] = 0;
     state.device.queue.writeBuffer(state.uniform, 0, uniform);
     note(state, "uniform", 0, uniform.byteLength);

@@ -83,3 +83,43 @@ describe("the renderer's buffers", () => {
     expect(quads!.bytes).toBeGreaterThan(200_000);
   });
 });
+
+describe("the atlas cells table", () => {
+  it("uploads only the dirty slot runs the atlas names, not the whole table", () => {
+    const scene = createScene({ painter: () => ({ quads: [], dim: { opacity: 1, saturate: 1 }, lift: 0 }) });
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact()], wires: [] });
+    const writes: Array<{ readonly offset: number; readonly from: number; readonly elements: number }> = [];
+    const { device } = fakeDevice({ maxStorageBufferBindingSize: 2 ** 27, maxBufferSize: 2 ** 28 });
+    const queue = (device as unknown as { queue: { writeBuffer: (...args: unknown[]) => void } }).queue;
+    const cells = new Float32Array(1000 * 8);
+    let dirty = { all: false, slots: [] as number[] };
+    queue.writeBuffer = (_buffer, offset, data, from = 0, elements = 0) => {
+      if (data === cells) writes.push({ offset: offset as number, from: from as number, elements: elements as number });
+    };
+    let revision = 0;
+    const renderer = createRenderer();
+    renderer.configure(device, "bgra8unorm", 1, scene, {
+      texture: { createView: () => ({}) } as unknown as GPUTexture,
+      sampler: {} as GPUSampler,
+      cells,
+      cellCount: 1000,
+      takeDirtyCells: () => {
+        const taken = dirty;
+        dirty = { all: false, slots: [] };
+        return taken;
+      },
+    });
+    const prepare = () => ({ ...scene.prepare(VIEW, "near"), atlasRevision: revision });
+    renderer.upload(scene, prepare());
+    writes.length = 0;
+    revision = 1;
+    dirty = { all: false, slots: [7, 3, 4, 900, 5] };
+    renderer.upload(scene, prepare());
+    // Slots 3 to 5 are one run, 7 another, 900 a third.
+    expect(writes).toEqual([
+      { offset: 3 * 32, from: 24, elements: 24 },
+      { offset: 7 * 32, from: 56, elements: 8 },
+      { offset: 900 * 32, from: 7200, elements: 8 },
+    ]);
+  });
+});

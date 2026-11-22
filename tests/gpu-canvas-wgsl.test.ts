@@ -30,7 +30,9 @@ describe("the quad shader's names", () => {
   it("takes text alpha from the coverage channel, not the white red channel", () => {
     // The atlas is white coverage over transparent, unpremultiplied: r is 1
     // inside edge texels, so using it made every antialiased glyph edge opaque.
-    expect(QUAD_SHADER).toContain("alpha = tex.a * ink.a * outer;");
+    // Split r8unorm pages hold coverage in r; unsplit rgba pages in alpha.
+    expect(QUAD_SHADER).toContain("let coverage = select(tex.a, split, u.misc.z > 0.5);");
+    expect(QUAD_SHADER).toContain("alpha = coverage * ink.a * outer;");
     expect(QUAD_SHADER).not.toContain("alpha = tex.r * ink.a * outer;");
   });
 
