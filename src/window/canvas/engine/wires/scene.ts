@@ -127,6 +127,8 @@ type Entry = {
   bounds: { minX: number; minY: number; maxX: number; maxY: number } | undefined;
   /** Where the wire's invisible select label sits, in board units. */
   label: Point | undefined;
+  /** The label as `labelsInView` hands it out, kept while its point and verb hold. */
+  labelView: WireLabel | undefined;
   strip: Slice | undefined;
   /** The card-body strip and the mid pill strip: a tier swap takes one, never rebuilds. */
   stripBody: Slice | undefined;
@@ -330,10 +332,14 @@ export const createWireScene = (host: WireHost): WireScene => {
   let trackIndex: Uint32Array = new Uint32Array(1024);
   let trackCount = 0;
   /** The labels of the last camera, rebuilt only when the camera or a label moved. */
-  let labelsAt: Camera | undefined;
-  let labelsCache: ReadonlyArray<WireLabel> | undefined;
+  // The labels in view, kept in one list refilled in place when the camera,
+  // the view or a label moves: a pan frame allocates no label.
+  const labelsAt = { x: Number.NaN, y: Number.NaN, zoom: Number.NaN };
+  const labelsCache: WireLabel[] = [];
   let labelsCacheRevision = -1;
-  let labelsCacheView = { width: 0, height: 0 };
+  /** A strip or a wire came or went: `buildVisible` sorts its pool order again. */
+  let stripOrderDirty = true;
+  const labelsCacheView = { width: 0, height: 0 };
   let pulseDraws: Array<{ start: number; count: number }> = [];
   let activePulses = 0;
 
@@ -658,6 +664,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       entry.stripPill = undefined;
       tierOnly.delete(entry.id);
       entry.strip = undefined;
+      stripOrderDirty = true;
       entry.route = undefined;
       entry.line = undefined;
       entry.bounds = undefined;
@@ -699,10 +706,12 @@ export const createWireScene = (host: WireHost): WireScene => {
     if (strip.count > 0) {
       const slice = pool.put(undefined, strip.vertices, strip.count);
       entry.strip = slice;
+      stripOrderDirty = true;
       if (pill) entry.stripPill = slice;
       else entry.stripBody = slice;
     } else {
       entry.strip = undefined;
+      stripOrderDirty = true;
     }
     if (isTrackVerb(entry.fact.row.verb)) {
       entry.layoutByTier = {};
@@ -797,6 +806,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       line: undefined,
       bounds: undefined,
       label: undefined,
+      labelView: undefined,
       strip: undefined,
       stripBody: undefined,
       stripPill: undefined,
@@ -820,6 +830,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       pulse: undefined,
     };
     entries.set(fact.id, entry);
+    stripOrderDirty = true;
     index(entry);
     coneWires = undefined;
     rebuild(entry, now);
@@ -867,6 +878,7 @@ export const createWireScene = (host: WireHost): WireScene => {
     trackPool.free(entry.trackStrip);
     if (entry.pulse !== undefined) clearPulse(entry);
     entries.delete(id);
+    stripOrderDirty = true;
     labelsRevision += 1;
     slots.release(entry.slot, 1);
     // A freed record must not draw: it is zero.
@@ -1129,7 +1141,10 @@ export const createWireScene = (host: WireHost): WireScene => {
     return moving;
   };
 
-  const append = (target: Uint32Array, at: number, start: number, count: number): { array: Uint32Array; at: number } => {
+  /** The index array `append` last wrote into: the one passed, or its grown copy. */
+  let appended: Uint32Array = new Uint32Array(0);
+  /** Append a strip and its restart; returns the new count, the array in `appended`. */
+  const append = (target: Uint32Array, at: number, start: number, count: number): number => {
     let array = target;
     // One trailing restart breaks the strip between two wires: without it the
     // last triangle of one would share an edge with the first of the next.
@@ -1142,40 +1157,51 @@ export const createWireScene = (host: WireHost): WireScene => {
     }
     for (let k = 0; k < count; k += 1) array[at + k] = start + k;
     array[at + count] = RESTART;
-    return { array, at: at + count + 1 };
+    appended = array;
+    return at + count + 1;
   };
 
-  let visibleEntries: Entry[] = [];
+  /**
+   * Every wire in its main strip's pool order, sorted again only when a strip
+   * or a wire comes or goes (a slice's start never moves), so a pan frame
+   * walks it without sorting or allocating.
+   */
+  const byStrip: Entry[] = [];
+  const byStart = (a: Entry, b: Entry): number => (a.strip?.start ?? 0) - (b.strip?.start ?? 0);
+  const collect = (entry: Entry): void => {
+    byStrip.push(entry);
+  };
   const buildVisible = (): void => {
     mainCount = 0;
     glowCount = 0;
     trackCount = 0;
-    visibleEntries.length = 0;
-    for (const entry of entries.values()) if (inView(entry)) visibleEntries.push(entry);
     // The pool covers in index order, so a wire drawn later wins the pixels it
     // shares. Draw the visible strips in that same order; picking reads it.
-    visibleEntries.sort((a, b) => (a.strip?.start ?? 0) - (b.strip?.start ?? 0));
-    for (const entry of visibleEntries) {
+    if (stripOrderDirty) {
+      byStrip.length = 0;
+      entries.forEach(collect);
+      byStrip.sort(byStart);
+      stripOrderDirty = false;
+    }
+    for (let index = 0; index < byStrip.length; index += 1) {
+      const entry = byStrip[index]!;
+      if (!inView(entry)) continue;
       if (entry.strip !== undefined) {
-        const next = append(mainIndex, mainCount, entry.strip.start, entry.strip.count);
-        mainIndex = next.array;
-        mainCount = next.at;
+        mainCount = append(mainIndex, mainCount, entry.strip.start, entry.strip.count);
+        mainIndex = appended;
       }
       if (entry.glowStrip !== undefined && entry.glowPasses.length > 0) {
-        const next = append(glowIndex, glowCount, entry.glowStrip.start, entry.glowStrip.count);
-        glowIndex = next.array;
-        glowCount = next.at;
+        glowCount = append(glowIndex, glowCount, entry.glowStrip.start, entry.glowStrip.count);
+        glowIndex = appended;
       }
       if (entry.trackStrip !== undefined && entry.paint.track !== undefined) {
-        const next = append(trackIndex, trackCount, entry.trackStrip.start, entry.trackStrip.count);
-        trackIndex = next.array;
-        trackCount = next.at;
+        trackCount = append(trackIndex, trackCount, entry.trackStrip.start, entry.trackStrip.count);
+        trackIndex = appended;
       }
     }
     if (preview !== null && previewStrip !== undefined) {
-      const next = append(mainIndex, mainCount, previewStrip.start, previewStrip.count);
-      mainIndex = next.array;
-      mainCount = next.at;
+      mainCount = append(mainIndex, mainCount, previewStrip.start, previewStrip.count);
+      mainIndex = appended;
     }
     visibleRevision += 1;
   };
@@ -1195,7 +1221,7 @@ export const createWireScene = (host: WireHost): WireScene => {
     camera = f.camera;
     zoom = f.camera.zoom;
     pixelRatio = f.pixelRatio;
-    viewSize = { width: f.width, height: f.height };
+    if (resized) viewSize = { width: f.width, height: f.height };
     wall = f.wall;
     now = f.wall;
     if (moved || resized) visibleDirty = true;
@@ -1212,6 +1238,7 @@ export const createWireScene = (host: WireHost): WireScene => {
         const cached = pill ? entry.stripPill : entry.stripBody;
         if (cached !== undefined) {
           entry.strip = cached;
+          stripOrderDirty = true;
           continue;
         }
         dirty.add(entry.id);
@@ -1356,10 +1383,22 @@ export const createWireScene = (host: WireHost): WireScene => {
     return found;
   };
 
+  const labelWindow = { x0: 0, y0: 0, x1: 0, y1: 0 };
+  const collectLabel = (entry: Entry): void => {
+    const at = entry.label;
+    if (at === undefined || waiting(entry)) return;
+    if (at.x < labelWindow.x0 || at.x > labelWindow.x1 || at.y < labelWindow.y0 || at.y > labelWindow.y1) return;
+    const verb = entry.fact.row.verb;
+    let view = entry.labelView;
+    if (view === undefined || view.at !== at || view.verb !== verb) {
+      view = { id: entry.id, at, verb };
+      entry.labelView = view;
+    }
+    labelsCache.push(view);
+  };
+
   const labelsInView: WireScene["labelsInView"] = () => {
     if (
-      labelsCache !== undefined &&
-      labelsAt !== undefined &&
       labelsAt.x === camera.x &&
       labelsAt.y === camera.y &&
       labelsAt.zoom === camera.zoom &&
@@ -1369,25 +1408,22 @@ export const createWireScene = (host: WireHost): WireScene => {
     ) {
       return labelsCache;
     }
-    const labels: WireLabel[] = [];
+    labelsCache.length = 0;
     // The label's own point, not the wire's bounds: a long run that crosses
     // the view can put its midpoint far outside it.
-    const x0 = -camera.x / zoom;
-    const y0 = -camera.y / zoom;
-    const x1 = x0 + viewSize.width / zoom;
-    const y1 = y0 + viewSize.height / zoom;
     const margin = 24;
-    for (const entry of entries.values()) {
-      const at = entry.label;
-      if (at === undefined || waiting(entry)) continue;
-      if (at.x < x0 - margin || at.x > x1 + margin || at.y < y0 - margin || at.y > y1 + margin) continue;
-      labels.push({ id: entry.id, at, verb: entry.fact.row.verb });
-    }
-    labelsCache = labels;
-    labelsAt = { x: camera.x, y: camera.y, zoom: camera.zoom };
-    labelsCacheView = { width: viewSize.width, height: viewSize.height };
+    labelWindow.x0 = -camera.x / zoom - margin;
+    labelWindow.y0 = -camera.y / zoom - margin;
+    labelWindow.x1 = labelWindow.x0 + viewSize.width / zoom + 2 * margin;
+    labelWindow.y1 = labelWindow.y0 + viewSize.height / zoom + 2 * margin;
+    entries.forEach(collectLabel);
+    labelsAt.x = camera.x;
+    labelsAt.y = camera.y;
+    labelsAt.zoom = camera.zoom;
+    labelsCacheView.width = viewSize.width;
+    labelsCacheView.height = viewSize.height;
     labelsCacheRevision = labelsRevision;
-    return labels;
+    return labelsCache;
   };
 
   const inspect: WireScene["inspect"] = (id) => {

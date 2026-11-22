@@ -113,6 +113,10 @@ export const mountWireLabels = ({ canvas, layer }: WireLabelsOptions): WireLabel
     button.style.transform = `translate3d(${at.x}px, ${at.y}px, 0) translate(-50%, -50%) scale(var(${SCALE_VAR}, 1))`;
   };
 
+  /** The reconcile each kept button was last seen in. */
+  const seen = new Map<string, number>();
+  let stamp = 0;
+
   const frame = (camera: Camera): void => {
     const wires = layer();
     if (wires === undefined) return;
@@ -142,9 +146,10 @@ export const mountWireLabels = ({ canvas, layer }: WireLabelsOptions): WireLabel
     lastOrigin = origin;
     lastRevision = revision;
 
-    const seen = new Set<string>();
+    // Each reconcile stamps the buttons it keeps; a pan allocates no set.
+    stamp += 1;
     for (const label of wires.labelsInView()) {
-      seen.add(label.id);
+      seen.set(label.id, stamp);
       let button = buttons.get(label.id);
       const created = button === undefined;
       if (button === undefined) button = buttonFor(label.id);
@@ -157,11 +162,13 @@ export const mountWireLabels = ({ canvas, layer }: WireLabelsOptions): WireLabel
         button.setAttribute("aria-label", `Select edge - ${label.verb ?? "connection"}`);
       }
     }
-    for (const [id, button] of buttons) {
-      if (seen.has(id)) continue;
-      button.remove();
-      buttons.delete(id);
-    }
+    buttons.forEach(dropUnseen);
+  };
+  const dropUnseen = (button: HTMLButtonElement, id: string): void => {
+    if (seen.get(id) === stamp) return;
+    button.remove();
+    buttons.delete(id);
+    seen.delete(id);
   };
 
   return {

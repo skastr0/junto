@@ -116,6 +116,37 @@ describe("the wire scene", () => {
     expect(scene.labelsInView()[0]!.at).toEqual(scene.labelOf("w"));
   });
 
+  it("hands a pan the same labels and draw list it built, allocating no label per frame (issue 912)", () => {
+    const cards = new Map<string, Rect>([
+      ["a", rect(0, 0)],
+      ["b", rect(600, 0)],
+      ["c", rect(0, 400)],
+    ]);
+    const { scene } = makeScene(cards);
+    scene.apply(load([wire("w", "a", "b"), wire("v", "a", "c")]));
+    const at = (x: number): boolean =>
+      scene.frame({ camera: { x, y: 0, zoom: 1 }, width: 1600, height: 1000, pixelRatio: 2, tier: "near", wall: T0 });
+    at(0);
+    const list = scene.labelsInView();
+    const first = [...list];
+    const drawn = (): number[] => {
+      const v = scene.visibleIndices();
+      return Array.from(v.main.subarray(0, v.mainCount));
+    };
+    const indices = drawn();
+    at(-5);
+    expect(scene.labelsInView()).toBe(list);
+    expect(scene.labelsInView()).toHaveLength(first.length);
+    scene.labelsInView().forEach((label, index) => expect(label).toBe(first[index]));
+    expect(drawn()).toEqual(indices);
+    expect(indices.length).toBeGreaterThan(0);
+    // A pan that hides a label drops it, and one that shows it again hands back the same label.
+    at(-5000);
+    expect(scene.labelsInView()).toHaveLength(0);
+    at(0);
+    scene.labelsInView().forEach((label, index) => expect(label).toBe(first[index]));
+  });
+
   it("attaches a wire end to the body the seat draws, and moves it when that body changes", () => {
     const cards = board();
     const surfaces = new Map<string, Rect>([["a", rect(0, 0, 150, 96)]]);
