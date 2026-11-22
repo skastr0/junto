@@ -739,6 +739,9 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     // At the wall clock when asked: the DOM phase test samples a live CSS
     // animation, and a last-frame angle can be a frame behind it.
     ringAngle: (id) => scene.ringAngle(id, wallNow()),
+    partsOf: (id) => scene.partsOf(id),
+    badgePartsOf: (key) => scene.badgePartsOf(key),
+    clusters: () => scene.clusters(),
     stats: (): EngineStats => ({
       frames,
       generation: configuredGeneration,

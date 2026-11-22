@@ -37,6 +37,8 @@ import type {
   CardPaint,
   CardView,
   HandleSide,
+  DrawnCluster,
+  DrawnPart,
   Hit,
   NodeId,
   PaintEnv,
@@ -1921,6 +1923,100 @@ export const createScene = (options: {
     return { orderChanged: changed, visible: orderCount, atlasRevision: revision };
   };
 
+  // --- drawn parts, for the proof's part-level ink check (test hook only) ----
+
+  /** A quad's board rectangle as the shader places it this frame, motion aside (renderer.ts vs). */
+  const placedRect = (ref: QuadRef, owner: number): Rect => {
+    const quad = ref.painted;
+    const at = owner * 8;
+    const ox = owners[at]!;
+    const oy = owners[at + 1]!;
+    const boxW = owners[at + 5]!;
+    const boxH = owners[at + 6]!;
+    const centreDx = owners[at + 7]!;
+    const zoom = options.zoom?.() ?? 1;
+    const tier = currentTier;
+    const farOrOverview = tier === "far" || tier === "overview";
+    const { rect } = quad;
+    const relCentre = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    const sized = (scale: number, cx: number, cy: number): Rect => ({
+      x: cx - (rect.width * scale) / 2,
+      y: cy - (rect.height * scale) / 2,
+      width: rect.width * scale,
+      height: rect.height * scale,
+    });
+    const boxCentre = { x: boxW * 0.5 + centreDx, y: boxH * 0.5 };
+    const rule = quad.scale;
+    switch (rule.kind) {
+      case "board":
+        return { x: ox + rect.x, y: oy + rect.y, width: rect.width, height: rect.height };
+      case "seat": {
+        const scale = scaleMultiplier(quad, tier, zoom);
+        const base = farOrOverview ? boxCentre : rule.anchor;
+        return sized(scale, ox + base.x + (relCentre.x - rule.anchor.x) * scale, oy + base.y + (relCentre.y - rule.anchor.y) * scale);
+      }
+      case "node": {
+        const scale = nodeScale(zoom);
+        return sized(scale, ox + rule.anchor.x + (relCentre.x - rule.anchor.x) * scale, oy + rule.anchor.y + (relCentre.y - rule.anchor.y) * scale);
+      }
+      case "hover": {
+        const scale = hoverCardScale(zoom);
+        const base = tier === "far" ? boxCentre : rule.anchor;
+        return sized(scale, ox + base.x + (relCentre.x - rule.anchor.x) * scale, oy + base.y + (relCentre.y - rule.anchor.y) * scale);
+      }
+      case "seatTag": {
+        const far = Math.max(1, Math.min(farSeatScale(zoom), rule.cap));
+        const seatScale = tier === "far" ? far : tier === "overview" ? Math.max(seatFloorScale(zoom), Math.min(farSeatScale(zoom), rule.cap)) : 1;
+        const base = farOrOverview ? boxCentre : rule.anchor;
+        const topX = base.x + (relCentre.x - rule.anchor.x) * seatScale;
+        const topY = base.y + (rect.y - rule.anchor.y) * seatScale;
+        const scale = farSeatScale(zoom) * 1.4;
+        return sized(scale, ox + topX, oy + topY + (rect.height * scale) / 2);
+      }
+    }
+  };
+
+  const partOf = (ref: QuadRef, owner: number, drawnOwner: boolean): DrawnPart => {
+    const quad = ref.painted;
+    const held = cellOf(ref.slot);
+    const ink = quad.style.ink;
+    return {
+      key: ref.key,
+      kind: quad.kind,
+      band: quad.band,
+      tiers: ref.tiers,
+      drawn: drawnOwner && (ref.tiers & liveMask) !== 0 && gateOpen(quad),
+      rect: placedRect(ref, owner),
+      ...(held === NO_ATLAS_CELL ? {} : { cell: held }),
+      ...(ref.atlas ? { hasImage: held !== NO_ATLAS_CELL && hasImage(held) } : {}),
+      ...(ink !== undefined && "token" in ink ? { ink: ink.token } : {}),
+    };
+  };
+
+  const partsOf = (id: NodeId): DrawnPart[] => {
+    const card = byId.get(id);
+    if (card === undefined) return [];
+    const drawn = card.stamp === liveEpoch && card.role.view && !gatheredSeats.has(id);
+    return card.ordered.map((ref) => partOf(ref, card.slot, drawn));
+  };
+
+  const badgePartsOf = (key: string): DrawnPart[] => {
+    const badge = clusterSlots.get(key);
+    if (badge === undefined) return [];
+    const drawn = badge.stamp === liveEpoch && clustersActive.includes(badge);
+    return badge.ordered.map((ref) => partOf(ref, badge.owner, drawn));
+  };
+
+  const clusters = (): DrawnCluster[] =>
+    clustersActive.map((badge) => ({
+      key: badge.key,
+      x: badge.rect.x + badge.rect.width / 2,
+      y: badge.rect.y + badge.rect.height / 2,
+      radius: badge.rect.width / 2,
+      memberIds: badge.members,
+      drawn: badge.stamp === liveEpoch,
+    }));
+
   const hasMotion = (at: number = clockNow): boolean => motionVisible || at < transitionUntil;
 
   const index: SpatialIndex = {
@@ -1974,6 +2070,9 @@ export const createScene = (options: {
     clusterAt: (at: Point) => clusterSlotAt(at)?.members,
     prepare,
     prefetch,
+    partsOf,
+    badgePartsOf,
+    clusters,
     /** In-view quads with no image on the last presented frame, and cells rasterized in the frame to prevent one. */
     blankStats: (): {
       readonly visibleBlank: number;

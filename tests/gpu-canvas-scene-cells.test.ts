@@ -264,3 +264,24 @@ describe("an in-view quad with no image", () => {
     expect(scene.blankStats().visibleBlank).toBe(1);
   });
 });
+
+describe("the drawn parts hook", () => {
+  it("lists every built quad of a card with its placed rect, cell and image, drawn or not", () => {
+    const { scene, atlas } = sceneOf(
+      (id) => [text(`${id}.near`, TIER_BIT.near), { ...text(`${id}.far`, TIER_BIT.far), style: { ink: { token: "ink-2" } } }],
+      [factAt("a", 40, 10)],
+    );
+    scene.prepare(VIEW, "near");
+    const parts = scene.partsOf("a");
+    expect(parts.map((part) => part.key).sort()).toEqual(["a.far", "a.near"]);
+    const near = parts.find((part) => part.key === "a.near")!;
+    expect(near).toMatchObject({ kind: "text", drawn: true, hasImage: false, rect: { x: 48, y: 22, width: 120, height: 16 } });
+    expect(near.cell).toBeDefined();
+    const far = parts.find((part) => part.key === "a.far")!;
+    expect(far).toMatchObject({ drawn: false, hasImage: false, ink: "ink-2" });
+    expect(far.cell).toBeUndefined();
+    atlas.land();
+    expect(scene.partsOf("a").find((part) => part.key === "a.near")!.hasImage).toBe(true);
+    expect(scene.partsOf("nobody")).toEqual([]);
+  });
+});

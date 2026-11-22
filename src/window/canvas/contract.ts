@@ -764,9 +764,49 @@ export interface Engine {
   readonly onFrame: (listener: (facts: FrameFacts) => void) => () => void;
   /** The seat's turning ring angle in degrees at the wall clock, for the phase test. */
   readonly ringAngle?: (id: NodeId) => number | undefined;
+  /** Every quad the scene has built for a card, as drawn in the last frame (the part-level ink check). */
+  readonly partsOf?: (id: NodeId) => ReadonlyArray<DrawnPart>;
+  /** The same for a cluster badge, by its key. */
+  readonly badgePartsOf?: (key: string) => ReadonlyArray<DrawnPart>;
+  /** The badges the last frame planned, each standing for its members. */
+  readonly clusters?: () => ReadonlyArray<DrawnCluster>;
   readonly stats: () => EngineStats;
   readonly dispose: () => void;
 }
+
+/**
+ * One built quad of a card or badge, as the last frame placed it (test hook
+ * only). `rect` is in board units after the scale rule the shader applies,
+ * motion aside; `drawn` says whether it is in the frame's draw list (card
+ * near the screen and not gathered, tier drawn, gate open).
+ */
+export type DrawnPart = {
+  /** The painter's key: name, status, portrait, ring.spin and so on. */
+  readonly key: string;
+  readonly kind: Quad["kind"];
+  readonly band: Quad["band"];
+  readonly tiers: TierMask;
+  readonly drawn: boolean;
+  readonly rect: Rect;
+  /** The atlas cell its record holds, or undefined for none. */
+  readonly cell?: number;
+  /** Its cell points at pixels; undefined when it draws no atlas cell. */
+  readonly hasImage?: boolean;
+  /** The ink token a text run or glyph is tinted with, when it names one. */
+  readonly ink?: string;
+};
+
+/** A cluster badge the last frame planned (test hook only). */
+export type DrawnCluster = {
+  readonly key: string;
+  /** The disc's centre and radius, in board units. */
+  readonly x: number;
+  readonly y: number;
+  readonly radius: number;
+  readonly memberIds: ReadonlyArray<NodeId>;
+  /** Near the screen this frame, so in the draw list. */
+  readonly drawn: boolean;
+};
 
 // ---------------------------------------------------------------------------
 // The CanvasApi (section 19): one object for the rest of the app, provided by
