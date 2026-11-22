@@ -237,6 +237,8 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   const mac = host.mac ?? false;
 
   let camera: Camera = host.camera ?? HOME;
+  /** Where the pointer is over the canvas, in canvas pixels; a zoom in keeps that point still. */
+  let pointerScreen: Point | undefined;
   let tier: CanvasTier = tierForZoom(camera.zoom);
   let ground = clearColour(themeRuntime(host.mode ?? "dark").ground ?? "");
   let size = { width: 0, height: 0, pixelRatio: 1 };
@@ -280,6 +282,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   const anchored = new Set<NodeId>();
 
   const scene = createScene({
+    anchor: () => (pointerScreen === undefined ? undefined : toBoard(camera, pointerScreen)),
     painter: host.painter ?? defaultPainter,
     mode: host.mode ?? "dark",
     ...(host.measure === undefined ? {} : { measure: host.measure }),
@@ -896,6 +899,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
         return;
       case "wheel": {
         cancelAnimation();
+        pointerScreen = event.at;
         const outcome = wheelCamera(camera, {
           at: event.at,
           dx: event.dx,
@@ -925,6 +929,8 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       }
       case "pointer":
         if (event.phase === "down" || event.phase === "move") cancelAnimation();
+        pointerScreen = event.phase === "leave" || event.phase === "cancel" ? undefined : event.at;
+        scene.anchorMoved();
         stepHand(event);
         return;
     }

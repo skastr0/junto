@@ -11,7 +11,7 @@ import type { MotionPeaks, CardFact, Quad } from "../src/window/canvas/contract"
 import { TIER_BIT } from "../src/window/canvas/contract";
 import { createScene } from "../src/window/canvas/engine/scene";
 import { NO_ATLAS_CELL, QUAD_FLOATS } from "../src/window/canvas/engine/quad";
-import { seat } from "./support/model-nodes";
+import { note, seat } from "./support/model-nodes";
 
 const factAt = (id: string, x: number, y = 0): CardFact => ({
   id,
@@ -228,6 +228,58 @@ describe("cells a record holds", () => {
     atlas.land();
     scene.prepare({ ...VIEW, width: 2_000, x: VIEW.x + 1 }, "near");
     expect(scene.blankStats().marginScreenPx).toBeLessThanOrEqual(1);
+  });
+
+  it("are taken for the zoom-in tier only where a zoom in about the pointer can reach (issue 912)", () => {
+    // A whole board in view at far, a window of 2 octaves (0.3 to 1.2 is near):
+    // a zoom in that far shows a quarter of the view's side about the pointer.
+    const atlas = fakeAtlas();
+    let pointer: { x: number; y: number } | undefined;
+    const cards: CardFact[] = [];
+    for (let column = 0; column < 20; column += 1) {
+      for (let row = 0; row < 15; row += 1) {
+        const id = `n${String(column)}.${String(row)}`;
+        cards.push({ id, row: note(id, id, { x: column * 400, y: row * 400 }), derived: { regionDepth: 0, blocked: false, z: 0 } });
+      }
+    }
+    const scene = createScene({
+      painter: (fact) => ({ quads: [text(`${fact.id}.near`, TIER_BIT.near), text(`${fact.id}.far`, TIER_BIT.far)], dim: { opacity: 1, saturate: 1 }, lift: 0 }),
+      acquire: atlas.acquire,
+      release: atlas.release,
+      hasImage: atlas.hasImage,
+      ensureNow: atlas.ensureNow,
+      zoom: () => 0.3,
+      peaks: { marginPx: 0, octaves: 2, latencyMs: 0 },
+      anchor: () => pointer,
+    });
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards, wires: [] });
+    const view = { x: -200, y: -200, width: 8400, height: 6400 };
+    const reached = (): number => {
+      const inward = scene.inward();
+      if (inward === undefined) return 0;
+      const r = inward.rect;
+      return cards.filter((card) => {
+        const { x, y, width, height } = card.row;
+        return x <= r.x + r.width && x + width >= r.x && y <= r.y + r.height && y + height >= r.y;
+      }).length;
+    };
+    scene.prepare(view, "far");
+    expect(scene.inward()?.tier).toBe("near");
+    // About the view's centre with no pointer: every card's far run, and a near run only within reach.
+    expect(scene.inward()!.rect.width).toBeCloseTo(view.width / 4, 6);
+    expect(reached()).toBeGreaterThan(0);
+    expect(reached()).toBeLessThan(cards.length / 4);
+    expect(atlas.held()).toBe(cards.length + reached());
+    // The pointer moves to a corner: the reach follows it with no frame.
+    pointer = { x: 0, y: 0 };
+    scene.anchorMoved();
+    expect(scene.inward()!.rect.x).toBeLessThan(0);
+    expect(atlas.held()).toBe(cards.length + reached());
+    // It leaves the canvas: back to the centre.
+    pointer = undefined;
+    scene.anchorMoved();
+    scene.prepare(view, "far");
+    expect(atlas.held()).toBe(cards.length + reached());
   });
 
   it("are taken for a camera jump's destination before the camera lands, and let go once cleared", () => {
