@@ -7,7 +7,7 @@
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FactoryMinimap, minimapHits, type MinimapNodeRect } from "../src/window/components/FactoryMinimap";
 import { drawMap } from "../src/window/components/minimap-draw";
 import type { MinimapRect, MinimapSource } from "../src/window/canvas/shell/minimap-source";
@@ -114,6 +114,52 @@ describe("the minimap's drawing", () => {
     const canvas = host.querySelector("canvas.junto-minimap-canvas")!;
     expect(canvas.getAttribute("aria-label")).toBe("map");
     expect(host.querySelectorAll("*").length).toBeLessThan(12);
+  });
+});
+
+describe("the minimap's backing", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete (window as { devicePixelRatio?: number }).devicePixelRatio;
+  });
+
+  it("takes the device pixels the box covers, so a box at a fractional size is not resampled (issue 912)", () => {
+    const observed: Array<{ box?: string }> = [];
+    let deliver: ((entries: ReadonlyArray<unknown>) => void) | undefined;
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: (entries: ReadonlyArray<unknown>) => void) {
+          deliver = callback;
+        }
+        observe(_target: Element, options?: { box?: string }) {
+          observed.push(options ?? {});
+        }
+        disconnect() {}
+      },
+    );
+    const frames: Array<(at: number) => void> = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: (at: number) => void) => frames.push(callback));
+    vi.stubGlobal("cancelAnimationFrame", () => undefined);
+    const flush = (): void => {
+      for (let i = 0; i < 6 && frames.length > 0; i += 1) for (const frame of frames.splice(0)) frame(0);
+    };
+    Object.defineProperty(window, "devicePixelRatio", { value: 2, configurable: true });
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    const rects: MinimapRect[] = [{ id: "a", kind: "note", x: 0, y: 0, width: 400, height: 200 }];
+    act(() => {
+      root!.render(<FactoryMinimap source={source(rects)} nodeColor={() => "#123"} nodeStrokeColor={() => "#456"} maskColor="#000" />);
+    });
+    expect(observed).toContainEqual({ box: "device-pixel-content-box" });
+    // The operator's display: a 495.05 px box is 991 screen pixels where it sits, not round(990.1).
+    act(() => {
+      deliver!([{ contentRect: { width: 495.0546875, height: 118 }, devicePixelContentBoxSize: [{ inlineSize: 991, blockSize: 236 }] }]);
+      flush();
+    });
+    const canvas = host.querySelector<HTMLCanvasElement>("canvas.junto-minimap-canvas")!;
+    expect([canvas.width, canvas.height]).toEqual([991, 236]);
   });
 });
 

@@ -356,7 +356,14 @@ export function FactoryMinimap({
   // Node bounds feed the viewBox; kept in a ref so the camera subscription
   // reads the latest without re-subscribing.
   const nodeBoundsRef = useRef<Rect>(EMPTY_BOUNDS);
-  const elementSizeRef = useRef<{ width: number; height: number }>({ width: 200, height: 150 });
+  /**
+   * The map's box in CSS pixels, and in device pixels as the compositor will
+   * place it (ResizeObserver's device-pixel-content-box). The canvas backing
+   * takes the device size: a backing of round(width * ratio) on a box at a
+   * fractional size or offset is resampled, which softened every card edge
+   * at a ratio of 2 (issue 912).
+   */
+  const elementSizeRef = useRef<{ width: number; height: number; pixels?: { width: number; height: number } }>({ width: 200, height: 150 });
   const viewBoxRef = useRef<string>("");
   const colorRef = useRef({ nodeColor, nodeStrokeColor, seatMarkOf });
   colorRef.current = { nodeColor, nodeStrokeColor, seatMarkOf };
@@ -373,12 +380,14 @@ export function FactoryMinimap({
     const canvas = canvasRef.current;
     const rects = rectsRef.current;
     if (!canvas || !rects || viewBoxRef.current === "") return;
-    const { width, height } = elementSizeRef.current;
-    const ratio = typeof window === "object" && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
-    const key = `${viewBoxRef.current}|${String(width)}x${String(height)}@${String(ratio)}|${String(unitRef.current)}|${String(strokeRef.current.width)}|${String(strokeRef.current.radius)}`;
+    const { width, height, pixels } = elementSizeRef.current;
+    const deviceRatio = typeof window === "object" && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+    const pixelWidth = Math.max(1, pixels?.width ?? Math.round(width * deviceRatio));
+    const pixelHeight = Math.max(1, pixels?.height ?? Math.round(height * deviceRatio));
+    // Device pixels per CSS pixel across the box as placed: one backing pixel per screen pixel.
+    const ratio = pixels !== undefined && width > 0 ? pixelWidth / width : deviceRatio;
+    const key = `${viewBoxRef.current}|${String(width)}x${String(height)}@${String(pixelWidth)}x${String(pixelHeight)}|${String(unitRef.current)}|${String(strokeRef.current.width)}|${String(strokeRef.current.radius)}`;
     if (key === drawnRef.current) return;
-    const pixelWidth = Math.max(1, Math.round(width * ratio));
-    const pixelHeight = Math.max(1, Math.round(height * ratio));
     if (colourRef.current === undefined && probeRef.current) colourRef.current = colourReader(probeRef.current);
     const colour = colourRef.current ?? ((css: string) => css);
     const worker = workerRef.current;
@@ -568,13 +577,23 @@ export function FactoryMinimap({
         ? new ResizeObserver((entries) => {
             const entry = entries[0];
             if (!entry) return;
-            elementSizeRef.current = { width: entry.contentRect.width, height: entry.contentRect.height };
+            const device = entry.devicePixelContentBoxSize?.[0];
+            elementSizeRef.current = {
+              width: entry.contentRect.width,
+              height: entry.contentRect.height,
+              ...(device === undefined ? {} : { pixels: { width: device.inlineSize, height: device.blockSize } }),
+            };
             viewBoxRef.current = "";
             schedule();
             redrawRef.current();
           })
         : undefined;
-    observer?.observe(svg);
+    try {
+      observer?.observe(svg, { box: "device-pixel-content-box" });
+    } catch {
+      // A browser without device-pixel boxes measures the CSS box only.
+      observer?.observe(svg);
+    }
     const rect = svg.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) elementSizeRef.current = { width: rect.width, height: rect.height };
     applyCameraRef.current();
