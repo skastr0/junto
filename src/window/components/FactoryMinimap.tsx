@@ -32,6 +32,13 @@ import "./factory-minimap.css";
  * would land on a different pixel of the map, so nothing the operator can see
  * is dropped.
  *
+ * The cards and dots draw into one 2D canvas under the SVG, not one SVG child
+ * per card: at 100x a child per card was 45,201 children of one svg, which
+ * React placed one at a time (10 s of commit, issue 912). The canvas is
+ * redrawn when the rectangles, their colours, the theme, the viewBox or the
+ * map's size change, never on a pan, and a click finds its card through a
+ * grid of the rectangles. The SVG keeps the camera mask and the pointer.
+ *
  * Agents are dots with a size floor in map pixels, so a seat reads at any
  * board size; a seat that is blocked, needs the operator or has work for
  * review wears a ring in that state's colour, and blocked and needs-you seats
@@ -155,6 +162,152 @@ export const pingLayerTransform = (box: Rect, elementWidth: number, elementHeigh
   return `translate(${x}px, ${y}px) scale(${scale})`;
 };
 
+/** A seat dot's radius in flow units: its card's half height, floored in map pixels. */
+const dotRadius = (rect: MinimapNodeRect, unit: number): number =>
+  Math.max(Math.min(rect.width, rect.height) / 2, (rect.seat?.urgency ? URGENT_DOT_PX : SEAT_DOT_PX) * unit);
+
+/** A seat's rim: the ground, or its state's colour. */
+const rimOf = (rect: MinimapNodeRect): string => {
+  switch (rect.seat?.urgency) {
+    case "blocked":
+      return "var(--color-crimson)";
+    case "needs-you":
+      return "var(--color-amber)";
+    case "review":
+      return "var(--color-cyan)";
+    default:
+      return "color-mix(in oklab, var(--color-ground) 55%, transparent)";
+  }
+};
+
+/**
+ * The card under a board point, as the SVG's own hit test answered it: the
+ * topmost drawn, seats above cards, later above earlier. The rectangles sit
+ * on a grid whose cell is their median side, so a click tests the few near
+ * it; a rectangle spanning more cells than there are rectangles is kept aside
+ * and tested on every click.
+ */
+export type MinimapHits = { readonly at: (point: { readonly x: number; readonly y: number }, unit: number) => string | undefined };
+
+export const minimapHits = (rects: ReadonlyArray<MinimapNodeRect>): MinimapHits => {
+  if (rects.length === 0) return { at: () => undefined };
+  const sides = rects.map((rect) => Math.max(1, rect.width, rect.height)).sort((a, b) => a - b);
+  const cell = sides[sides.length >> 1]!;
+  const cells = new Map<string, number[]>();
+  const wide: number[] = [];
+  rects.forEach((rect, index) => {
+    const x0 = Math.floor(rect.x / cell);
+    const y0 = Math.floor(rect.y / cell);
+    const x1 = Math.floor((rect.x + rect.width) / cell);
+    const y1 = Math.floor((rect.y + rect.height) / cell);
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) > rects.length) {
+      wide.push(index);
+      return;
+    }
+    for (let cx = x0; cx <= x1; cx += 1) {
+      for (let cy = y0; cy <= y1; cy += 1) {
+        const key = `${String(cx)},${String(cy)}`;
+        const list = cells.get(key);
+        if (list === undefined) cells.set(key, [index]);
+        else list.push(index);
+      }
+    }
+  });
+  return {
+    at: (point, unit) => {
+      // A dot can reach past its card by its pixel floor: look one cell out.
+      const reach = Math.ceil((URGENT_DOT_PX * unit) / cell);
+      const cx = Math.floor(point.x / cell);
+      const cy = Math.floor(point.y / cell);
+      const near = new Set<number>(wide);
+      for (let dx = -reach; dx <= reach; dx += 1) {
+        for (let dy = -reach; dy <= reach; dy += 1) for (const index of cells.get(`${String(cx + dx)},${String(cy + dy)}`) ?? []) near.add(index);
+      }
+      let seat = -1;
+      let card = -1;
+      for (const index of near) {
+        const rect = rects[index]!;
+        if (rect.seat) {
+          const r = dotRadius(rect, unit);
+          const ox = point.x - (rect.x + rect.width / 2);
+          const oy = point.y - (rect.y + rect.height / 2);
+          if (ox * ox + oy * oy <= r * r && index > seat) seat = index;
+        } else if (point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height && index > card) {
+          card = index;
+        }
+      }
+      const hit = seat >= 0 ? seat : card;
+      return hit >= 0 ? rects[hit]!.id : undefined;
+    },
+  };
+};
+
+/**
+ * CSS colours (var(), color-mix()) as the canvas can take them, read through
+ * a probe element's computed style inside the map, so they resolve where the
+ * SVG's inline styles did. Kept until the theme changes.
+ */
+const colourReader = (probe: HTMLElement): ((css: string) => string) => {
+  const known = new Map<string, string>();
+  return (css) => {
+    const held = known.get(css);
+    if (held !== undefined) return held;
+    probe.style.color = "";
+    probe.style.color = css;
+    const resolved = probe.style.color === "" ? "transparent" : getComputedStyle(probe).color || "transparent";
+    known.set(css, resolved);
+    return resolved;
+  };
+};
+
+/** Draw the map's cards and dots, in the SVG's order: cards, then seats over them. */
+const drawMap = (
+  context: CanvasRenderingContext2D,
+  rects: ReadonlyArray<MinimapNodeRect>,
+  paint: {
+    readonly box: Rect;
+    readonly width: number;
+    readonly height: number;
+    readonly ratio: number;
+    readonly unit: number;
+    readonly strokeWidth: number;
+    readonly radius: number;
+    readonly colour: (css: string) => string;
+  },
+): void => {
+  const { box, width, height, ratio, unit } = paint;
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+  const unitsPerPixel = Math.max(box.width / Math.max(width, 1), box.height / Math.max(height, 1));
+  if (!(unitsPerPixel > 0) || !Number.isFinite(unitsPerPixel)) return;
+  // The viewBox's own placement (xMidYMid meet), at the device's pixel ratio.
+  const scale = 1 / unitsPerPixel;
+  const x = (width - box.width * scale) / 2 - box.x * scale;
+  const y = (height - box.height * scale) / 2 - box.y * scale;
+  context.setTransform(scale * ratio, 0, 0, scale * ratio, x * ratio, y * ratio);
+  context.lineWidth = paint.strokeWidth;
+  for (const rect of rects) {
+    if (rect.seat) continue;
+    context.beginPath();
+    const r = Math.min(paint.radius, rect.width / 2, rect.height / 2);
+    context.roundRect(rect.x, rect.y, rect.width, rect.height, r);
+    context.fillStyle = paint.colour(rect.fill);
+    context.fill();
+    context.strokeStyle = paint.colour(rect.stroke);
+    context.stroke();
+  }
+  context.lineWidth = 0.8 * unit;
+  for (const rect of rects) {
+    if (!rect.seat) continue;
+    context.beginPath();
+    context.arc(rect.x + rect.width / 2, rect.y + rect.height / 2, dotRadius(rect, unit), 0, Math.PI * 2);
+    context.fillStyle = paint.colour(rect.fill);
+    context.fill();
+    context.strokeStyle = paint.colour(rimOf(rect));
+    context.stroke();
+  }
+};
+
 export function FactoryMinimap({
   source,
   nodeColor,
@@ -169,6 +322,13 @@ export function FactoryMinimap({
   style,
 }: FactoryMinimapProps): ReactElement {
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const probeRef = useRef<HTMLSpanElement | null>(null);
+  const colourRef = useRef<((css: string) => string) | undefined>(undefined);
+  const hitsRef = useRef<MinimapHits | undefined>(undefined);
+  /** What the canvas last drew; a draw with the same inputs is skipped. */
+  const drawnRef = useRef<string>("");
+  const drawFrameRef = useRef(0);
   const maskRef = useRef<SVGPathElement | null>(null);
   const pingsRef = useRef<HTMLDivElement | null>(null);
   const pingTransformRef = useRef<string>("");
@@ -190,6 +350,66 @@ export function FactoryMinimap({
   // Flow units per map pixel, for dot sizes; changes only with the viewBox.
   const [unit, setUnit] = useState(1);
   const unitRef = useRef(1);
+  const strokeRef = useRef({ width: nodeStrokeWidth, radius: nodeBorderRadius });
+  strokeRef.current = { width: nodeStrokeWidth, radius: nodeBorderRadius };
+
+  /** Redraw the canvas in the next frame if anything it draws has changed. */
+  const draw = (): void => {
+    const canvas = canvasRef.current;
+    const rects = rectsRef.current;
+    if (!canvas || !rects || viewBoxRef.current === "") return;
+    const { width, height } = elementSizeRef.current;
+    const ratio = typeof window === "object" && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+    const key = `${viewBoxRef.current}|${String(width)}x${String(height)}@${String(ratio)}|${String(unitRef.current)}|${String(strokeRef.current.width)}|${String(strokeRef.current.radius)}`;
+    if (key === drawnRef.current) return;
+    const pixelWidth = Math.max(1, Math.round(width * ratio));
+    const pixelHeight = Math.max(1, Math.round(height * ratio));
+    if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+    if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    if (colourRef.current === undefined && probeRef.current) colourRef.current = colourReader(probeRef.current);
+    const colour = colourRef.current ?? ((css: string) => css);
+    drawnRef.current = key;
+    drawMap(context, rects, {
+      box: parseViewBox(viewBoxRef.current),
+      width,
+      height,
+      ratio,
+      unit: unitRef.current,
+      strokeWidth: strokeRef.current.width,
+      radius: strokeRef.current.radius,
+      colour,
+    });
+  };
+  const drawRef = useRef(draw);
+  drawRef.current = draw;
+  /** Ask for a redraw: once per frame at most, never when nothing changed. */
+  const redraw = (fresh = false): void => {
+    if (fresh) drawnRef.current = "";
+    if (drawFrameRef.current !== 0 || typeof requestAnimationFrame !== "function") return;
+    drawFrameRef.current = requestAnimationFrame(() => {
+      drawFrameRef.current = 0;
+      drawRef.current();
+    });
+  };
+  const redrawRef = useRef(redraw);
+  redrawRef.current = redraw;
+
+  // The theme moves what var() and color-mix() resolve to: read them again.
+  useEffect(() => {
+    if (typeof MutationObserver !== "function") return;
+    const observer = new MutationObserver(() => {
+      colourRef.current = undefined;
+      redrawRef.current(true);
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class", "style"] });
+    return () => {
+      observer.disconnect();
+      if (drawFrameRef.current !== 0) cancelAnimationFrame(drawFrameRef.current);
+      drawFrameRef.current = 0;
+    };
+  }, []);
 
   // Camera → mask path (every camera change) and viewBox (only when the
   // camera leaves the node bounds). Direct DOM writes, coalesced per frame.
@@ -209,6 +429,7 @@ export function FactoryMinimap({
       if (next !== viewBoxRef.current) {
         viewBoxRef.current = next;
         svg.setAttribute("viewBox", next);
+        redrawRef.current();
       }
     }
     const box = parseViewBox(viewBoxRef.current);
@@ -227,6 +448,7 @@ export function FactoryMinimap({
     if (unitsPerPixel > 0 && Math.abs(unitsPerPixel - unitRef.current) / unitRef.current > 0.02) {
       unitRef.current = unitsPerPixel;
       setUnit(unitsPerPixel);
+      redrawRef.current();
     }
     const density = unitsPerPixel > 0 ? 1 / unitsPerPixel : 0;
     const key =
@@ -256,11 +478,14 @@ export function FactoryMinimap({
       // and its view box is not worked out afresh.
       if (sameRects(rectsRef.current, next)) return;
       rectsRef.current = next;
+      hitsRef.current = undefined;
       nodeBoundsRef.current = boundsOf(next);
       // A new scene may change the bounds; let the camera pass re-fit.
       viewBoxRef.current = "";
-      setRects(next);
+      // Only the pinging seats are React children; the rest are drawn.
+      setRects(next.filter((rect) => rect.seat?.urgency === "blocked" || rect.seat?.urgency === "needs-you"));
       applyCameraRef.current();
+      redrawRef.current(true);
     };
     recompute();
     return sourceRef.current.onRects(() => {
@@ -290,12 +515,14 @@ export function FactoryMinimap({
             elementSizeRef.current = { width: entry.contentRect.width, height: entry.contentRect.height };
             viewBoxRef.current = "";
             schedule();
+            redrawRef.current();
           })
         : undefined;
     observer?.observe(svg);
     const rect = svg.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) elementSizeRef.current = { width: rect.width, height: rect.height };
     applyCameraRef.current();
+    redrawRef.current();
     return () => {
       offCamera();
       offViewport();
@@ -356,74 +583,58 @@ export function FactoryMinimap({
     const pinchDelta = -event.deltaY * (event.deltaMode === 1 ? 0.05 : event.deltaMode ? 1 : 0.002);
     sourceRef.current.zoomBy(Math.pow(2, pinchDelta * factor));
   };
+  /** The card under a client point, through the grid of the drawn rectangles. */
+  const cardAt = (clientX: number, clientY: number): string | undefined => {
+    const rects = rectsRef.current;
+    if (!rects) return undefined;
+    const position = flowPointOf(clientX, clientY);
+    if (!position) return undefined;
+    hitsRef.current ??= minimapHits(rects);
+    return hitsRef.current.at(position, unitRef.current);
+  };
   const onSvgClick = (event: ReactMouseEvent<SVGSVGElement>): void => {
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
       return;
     }
+    // A card's click comes first, then the map's own, as the SVG's bubbling did.
+    if (onNodeClick) {
+      const id = cardAt(event.clientX, event.clientY);
+      if (id !== undefined) onNodeClick(event, id);
+    }
     if (!onClick) return;
     const position = flowPointOf(event.clientX, event.clientY);
     if (position) onClick(event, position);
   };
-  const onRectClick = (event: ReactMouseEvent<SVGElement>, id: string): void => {
-    if (suppressClickRef.current) {
-      suppressClickRef.current = false;
-      event.stopPropagation();
-      return;
-    }
-    if (!onNodeClick) return;
-    onNodeClick(event, id);
+  /** A dot shows the hand it showed as an SVG child. */
+  const pointingRef = useRef(false);
+  const onHover = (event: React.PointerEvent<SVGSVGElement>): void => {
+    if (dragRef.current) return;
+    const over = rectsRef.current?.length ? cardAt(event.clientX, event.clientY) : undefined;
+    const pointing = over !== undefined && (rectsRef.current?.find((rect) => rect.id === over)?.seat !== undefined);
+    if (pointing === pointingRef.current) return;
+    pointingRef.current = pointing;
+    event.currentTarget.style.cursor = pointing ? "pointer" : "";
   };
 
   return (
     // Scrolled out of the bottom bar (a narrow window), the map's pings stop (lib/unseen.ts).
     <div ref={unseenRef} className="react-flow__panel react-flow__minimap bottom right" data-testid="rf__minimap" style={style}>
+      <canvas ref={canvasRef} className="junto-minimap-canvas" role="img" aria-label={ariaLabel} />
+      <span ref={probeRef} className="junto-minimap-probe" aria-hidden="true" />
       <svg
         ref={svgRef}
         className="react-flow__minimap-svg"
-        role="img"
-        aria-label={ariaLabel}
         onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
+        onPointerMove={(event) => {
+          onPointerMove(event);
+          onHover(event);
+        }}
         onPointerUp={onPointerUp}
         onPointerCancel={(event) => { endDrag(event); }}
         onWheel={onWheel}
         onClick={onSvgClick}
       >
-        {rects.map((rect) =>
-          rect.seat ? null : (
-            <rect
-              key={rect.id}
-              className="react-flow__minimap-node"
-              x={rect.x}
-              y={rect.y}
-              rx={nodeBorderRadius}
-              ry={nodeBorderRadius}
-              width={rect.width}
-              height={rect.height}
-              // Inline style, not presentation attributes: the colours are CSS
-              // (var(), color-mix()) which attributes cannot carry, and React
-              // Flow's minimap stylesheet would outrank attributes anyway.
-              style={{ fill: rect.fill, stroke: rect.stroke, strokeWidth: nodeStrokeWidth }}
-              shapeRendering="crispEdges"
-              onClick={(event) => onRectClick(event, rect.id)}
-            />
-          ),
-        )}
-        {rects.map((rect) =>
-          rect.seat ? (
-            <circle
-              key={rect.id}
-              className="react-flow__minimap-node junto-minimap-seat"
-              data-urgency={rect.seat.urgency}
-              cx={rect.x + rect.width / 2}
-              cy={rect.y + rect.height / 2}
-              r={Math.max(Math.min(rect.width, rect.height) / 2, (rect.seat.urgency ? URGENT_DOT_PX : SEAT_DOT_PX) * unit)}
-              style={{ fill: rect.fill, strokeWidth: 0.8 * unit }}
-              onClick={(event) => onRectClick(event, rect.id)}
-            />
-          ) : null,
-        )}
         <path ref={maskRef} className="react-flow__minimap-mask" style={{ fill: maskColor }} fillRule="evenodd" pointerEvents="none" />
       </svg>
       <div ref={pingsRef} className="junto-minimap-pings" data-testid="minimap-pings" aria-hidden="true">

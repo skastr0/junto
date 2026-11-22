@@ -1,6 +1,8 @@
 /* Minimap seats (FactoryMinimap.tsx): agents are dots rimmed in the ground
    so they stand off the region tints; a seat that is blocked, needs the
-   operator or has work for review is rimmed in that state's colour.
+   operator or has work for review is rimmed in that state's colour. The
+   cards and dots are drawn on the map's canvas, under the SVG's camera mask;
+   their rims are FactoryMinimap's rimOf.
 
    Pings: blocked and needs-you seats send a ring outward, smoothly, on the
    seat rings' 2.88 s cycle: blocked twice per cycle, needs-you once. While
@@ -13,13 +15,16 @@
    The layer carries the viewBox's placement as its transform
    (FactoryMinimap.tsx), so a ping is sized in flow units like its dot. */
 
-.junto-minimap-seat {
-  stroke: color-mix(in oklab, var(--color-ground) 55%, transparent);
-  cursor: pointer;
+.junto-minimap-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
-.junto-minimap-seat[data-urgency="blocked"] { stroke: var(--color-crimson); }
-.junto-minimap-seat[data-urgency="needs-you"] { stroke: var(--color-amber); }
-.junto-minimap-seat[data-urgency="review"] { stroke: var(--color-cyan); }
+.react-flow__minimap-svg { position: relative; }
+.junto-minimap-probe { display: none; }
 
 .junto-minimap-pings {
   position: absolute;

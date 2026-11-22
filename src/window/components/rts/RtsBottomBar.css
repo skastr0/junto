@@ -616,6 +616,10 @@
   transform: none !important;
 }
 
+.rts-minimap-wrap .junto-minimap-canvas {
+  clip-path: inset(0 round 8px);
+}
+
 .rts-minimap-wrap .react-flow__minimap-svg {
   width: 100% !important;
   height: 100% !important;
