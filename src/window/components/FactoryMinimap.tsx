@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as Rea
 import type { MinimapRect, MinimapSource } from "../canvas/shell/minimap-source";
 import type { Urgency } from "../lib/region-urgency";
 import { unseenRef } from "../lib/unseen";
+import { canvasColour } from "@shared/theme/oklch";
 import { drawMap, SEAT_DOT_PX, URGENT_DOT_PX, type MapPaint, type MinimapWorkerMessage, type PackedMap } from "./minimap-draw";
 import "./factory-minimap.css";
 
@@ -262,50 +263,6 @@ const colourReader = (probe: HTMLElement): ((css: string) => string) => {
     known.set(css, resolved);
     return resolved;
   };
-};
-
-/** sRGB's transfer curve, from a linear channel to a byte. */
-const srgbByte = (linear: number): number => {
-  const c = linear <= 0.0031308 ? 12.92 * linear : 1.055 * Math.pow(linear, 1 / 2.4) - 0.055;
-  return Math.round(Math.min(1, Math.max(0, c)) * 255);
-};
-
-/** A CSS number, a percentage of `whole` when it carries one; `none` is 0. */
-const cssNumber = (token: string, whole: number): number =>
-  token === "none" ? 0 : token.endsWith("%") ? (Number.parseFloat(token) / 100) * whole : Number.parseFloat(token);
-
-/**
- * A computed colour as #rrggbbaa, which every canvas takes. color-mix(in oklab)
- * computes to oklab(), and a fillStyle the canvas cannot parse is dropped in
- * silence, leaving the card the last card's colour: oklab() and oklch() are
- * converted here (Ottosson's matrices), the rest passed through.
- */
-export const canvasColour = (computed: string): string => {
-  const match = /^(oklab|oklch)\(\s*([^)]*)\)$/.exec(computed.trim());
-  if (match === null) return computed;
-  const [channels = "", alphaPart] = match[2]!.split("/");
-  const [first = "0", second = "0", third = "0"] = channels.trim().split(/\s+/);
-  const lightness = cssNumber(first, 1);
-  let a: number;
-  let b: number;
-  if (match[1] === "oklab") {
-    a = cssNumber(second, 0.4);
-    b = cssNumber(third, 0.4);
-  } else {
-    const chroma = cssNumber(second, 0.4);
-    const hue = (cssNumber(third, 360) * Math.PI) / 180;
-    a = chroma * Math.cos(hue);
-    b = chroma * Math.sin(hue);
-  }
-  const alpha = alphaPart === undefined ? 1 : cssNumber(alphaPart.trim(), 1);
-  const l = (lightness + 0.3963377774 * a + 0.2158037573 * b) ** 3;
-  const m = (lightness - 0.1055613458 * a - 0.0638541728 * b) ** 3;
-  const s = (lightness - 0.0894841775 * a - 1.291485548 * b) ** 3;
-  const red = srgbByte(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s);
-  const green = srgbByte(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s);
-  const blue = srgbByte(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s);
-  const byte = (value: number): string => value.toString(16).padStart(2, "0");
-  return `#${byte(red)}${byte(green)}${byte(blue)}${byte(Math.round(Math.min(1, Math.max(0, alpha)) * 255))}`;
 };
 
 /** The rectangles as the drawing takes them: flat arrays, each colour resolved once. */
