@@ -602,7 +602,7 @@ const drawnParts = (page: Page, ids: ReadonlyArray<string>): Promise<ReadonlyArr
     const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
     const list = hook?.["partsOf"];
     if (typeof list !== "function") return [];
-    const rows: Array<{ id: string; role: string; rect: { x: number; y: number; width: number; height: number }; drawn: boolean; hasImage: boolean | null }> = [];
+    const rows: Array<{ id: string; role: string; kind: string; rect: { x: number; y: number; width: number; height: number }; drawn: boolean; hasImage: boolean | null }> = [];
     for (const id of seatIds as string[]) {
       for (const part of (list(id) ?? []) as Array<Record<string, any>>) {
         if (part["rect"] === undefined) continue;
