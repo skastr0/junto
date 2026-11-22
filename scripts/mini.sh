@@ -18,8 +18,8 @@
 # One measurement at a time: GPU and compositor numbers share the hardware.
 # Take the book before any run that measures (frame times, GPU time) and
 # release it when the run ends. When it is held, `book line` queues you: first
-# come, first served, and the front has 5 minutes from the rig going free to
-# take it before it drops to the back. e2e runs that only check correctness queue on
+# come, first served. When the rig goes free the front seat is mailed, and it
+# has 10 minutes to take it before it drops to the back. e2e runs that only check correctness queue on
 # the mini's own app-run lock through scripts/run-e2e.sh and need no book.
 # Numbers from the mini compare arms on the mini; the operator's Mac is
 # measured separately.
