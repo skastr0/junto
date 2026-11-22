@@ -145,6 +145,7 @@ const build = (
     textOf: (id) => mirror.card(id)?.text,
     text: (id) => mirror.card(id)?.text ?? "",
     selection: () => mirror.selection().nodeIds,
+    selectedWire: () => mirror.selection().wireId ?? "",
     selected: () => mirror.selection().nodeIds,
     focused: () => mirror.selection().focusedNodeId ?? "",
     camera: () => mirror.camera(),

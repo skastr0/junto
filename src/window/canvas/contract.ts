@@ -998,6 +998,8 @@ export interface CanvasTestHook {
   readonly rectOf: (id: NodeId, part?: Part["kind"]) => Rect | undefined;
   readonly textOf: (id: NodeId) => string | undefined;
   readonly selection: () => ReadonlyArray<NodeId>;
+  /** The selected wire's id, or "" when none is selected. */
+  readonly selectedWire?: () => string | "";
   /** The card holding the cyan keyboard focus ring, or "" when none does. */
   readonly focused?: () => NodeId | "";
   readonly camera: () => Camera;
