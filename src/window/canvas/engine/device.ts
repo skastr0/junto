@@ -42,6 +42,31 @@ export interface DeviceKeeper {
 /** The part of `GPU` the keeper uses, so a test can hand it a fake. */
 export type GpuEntry = Pick<GPU, "requestAdapter" | "getPreferredCanvasFormat">;
 
+/**
+ * The limits the canvas grows into: whatever this adapter reports, never
+ * WebGPU's baseline defaults. A device requested with no limits caps a storage
+ * binding at 128 MiB and a texture at 8192 pixels, which is a fixed limit
+ * that is not the machine's own; the adapter's figures are (Apple Metal 3
+ * reports 4 GiB buffers and 16384-pixel textures).
+ */
+export const MACHINE_LIMITS = [
+  "maxBufferSize",
+  "maxStorageBufferBindingSize",
+  "maxTextureDimension2D",
+  "maxTextureArrayLayers",
+] as const;
+
+const machineLimits = (adapter: GPUAdapter): GPUDeviceDescriptor => {
+  const reported = adapter.limits as Partial<Record<(typeof MACHINE_LIMITS)[number], number>> | undefined;
+  if (reported === undefined) return {};
+  const requiredLimits: Record<string, number> = {};
+  for (const name of MACHINE_LIMITS) {
+    const value = reported[name];
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) requiredLimits[name] = value;
+  }
+  return { requiredLimits };
+};
+
 const reasonOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
@@ -80,7 +105,7 @@ export const createDeviceKeeper = (gpu: GpuEntry | undefined): DeviceKeeper => {
     let device: GPUDevice;
     try {
       created += 1;
-      device = await adapter.requestDevice();
+      device = await adapter.requestDevice(machineLimits(adapter));
     } catch (error) {
       if (disposed()) return;
       set({ kind: "unavailable", reason: `The GPU device could not be created: ${reasonOf(error)}` });
