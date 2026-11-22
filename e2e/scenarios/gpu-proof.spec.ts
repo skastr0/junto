@@ -1012,14 +1012,18 @@ test.describe("#913 GPU canvas proof", () => {
           // the pane is an unreachable seat, whatever the counters say.
           const clusterPicks = await page.evaluate(() => {
             const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
-            if (hook === undefined) return { drawn: 0, cluster: 0, own: 0, pane: 0, other: 0, chrome: 0, chromeSamples: [] as Array<Record<string, unknown>> };
+            if (hook === undefined) return { drawn: 0, cluster: 0, own: 0, pane: 0, other: 0, chrome: 0, offPane: 0, chromeSamples: [] as Array<Record<string, unknown>> };
             const pane = hook["rectOf"]("") as ScreenRect;
             const rows = (hook["clusters"]?.() ?? []).filter((cluster: Record<string, unknown>) => cluster["drawn"] === true);
-            const counts = { drawn: rows.length, cluster: 0, own: 0, pane: 0, other: 0, chrome: 0 };
+            const counts = { drawn: rows.length, cluster: 0, own: 0, pane: 0, other: 0, chrome: 0, offPane: 0 };
             const chromeSamples: Array<Record<string, unknown>> = [];
             for (const cluster of rows as Array<Record<string, any>>) {
               const x = Number(cluster["x"]);
               const y = Number(cluster["y"]);
+              if (x < pane.x || y < pane.y || x > pane.x + pane.width || y > pane.y + pane.height) {
+                counts.offPane += 1;
+                continue;
+              }
               const element = document.elementFromPoint(x, y);
               if (!(element instanceof HTMLCanvasElement && element.classList.contains("junto-gpu-canvas"))) {
                 counts.chrome += 1;
