@@ -1,6 +1,7 @@
 /**
  * A note (inventory 2.4): typeset markdown in an amber callout. Near draws the
- * whole note, mid its first block, far an amber tick, overview nothing.
+ * whole note, mid its first block, far and overview an amber tick held in
+ * screen pixels, as the DOM keeps it (spine-card.css, far and overview).
  */
 
 import { RADIUS } from "@shared/theme";
@@ -53,12 +54,12 @@ export const paintNote = (fact: CardFact, view: CardView, env: PaintEnv): CardPa
       );
     }
   }
-  // Far: a tick the size of the card at most, held at 10 by 26 screen px.
+  // Far and overview: a tick the size of the card at most, held at 10 by 26 screen px.
   quads.push(
     shape(
       { key: "tick", z: 1, rect: at(0, 0, Math.min(w, TICK.width), Math.min(h, TICK.height)) },
       { fill: { kind: "flat", color: tok("amber") } },
-      { tiers: TIER_BIT.far, scale: { kind: "node", anchor: { x: 0, y: 0 } }, part: { kind: "body" } },
+      { tiers: TIER_BIT.far | TIER_BIT.overview, scale: { kind: "node", anchor: { x: 0, y: 0 } }, part: { kind: "body" } },
     ),
   );
   quads.push(...focusQuads(view, box, RADIUS_MD), ...reachQuads(view, box, env, true));

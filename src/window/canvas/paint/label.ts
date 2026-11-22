@@ -1,11 +1,11 @@
 /**
  * A label (inventory 2.5): bare display type, no card. Held at a screen size at
- * far, hidden at overview.
+ * far and overview, as the DOM floors it at 13 screen px at both.
  */
 
 import { RADIUS, TEXT_SIZES } from "@shared/theme";
 import type { CardFact, CardPaint, CardView, PaintEnv, Quad, TextRun } from "../contract";
-import { TIER_BIT } from "../contract";
+import { ALL_TIERS, TIER_BIT } from "../contract";
 import { dimOf, focusQuads, reachQuads } from "./overlays";
 import { accentRef, at, grow, shape, text } from "./refs";
 
@@ -39,11 +39,11 @@ export const paintLabel = (fact: CardFact, view: CardView, env: PaintEnv): CardP
       text(
         { key: "text.far", z: 10, rect: at(PAD_X, (h - FAR_FLOOR * LEADING) / 2 + leadingOffset(FAR_FLOOR), width, FAR_FLOOR * LEADING) },
         { ink },
-        { tiers: TIER_BIT.far, text: run(FAR_FLOOR), scale: { kind: "node", anchor: { x: PAD_X, y: h / 2 } }, part: { kind: "body" } },
+        { tiers: TIER_BIT.far | TIER_BIT.overview, text: run(FAR_FLOOR), scale: { kind: "node", anchor: { x: PAD_X, y: h / 2 } }, part: { kind: "body" } },
       ),
     );
   }
-  quads.push(shape({ key: "hit", z: 0, rect: box }, {}, { tiers: NEAR_MID | TIER_BIT.far, part: { kind: "body" } }));
+  quads.push(shape({ key: "hit", z: 0, rect: box }, {}, { tiers: ALL_TIERS, part: { kind: "body" } }));
   if (view.keyboardFocus) {
     quads.push(shape({ key: "focus", z: 2, rect: grow(box, 3) }, { stroke: { color: { token: "cyan" }, width: 2, outside: true } }, { tiers: NEAR_MID, radii: Number.parseFloat(RADIUS.sm) + 3 }));
   }

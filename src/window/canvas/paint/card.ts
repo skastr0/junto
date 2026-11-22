@@ -1,7 +1,7 @@
 /**
  * The default card shell (inventory 2.0, 2.6): reaches the screen only on an
- * image file. Near and mid draw the shell and the image; far a tinted box with
- * a glyph; overview nothing.
+ * image file. Near and mid draw the shell and the image; far and overview a
+ * tinted box with a glyph, as the DOM's block (canvas-lod.css) at both.
  */
 
 import type { CardFact, CardPaint, CardView, ColorRef, PaintEnv, Quad } from "../contract";
@@ -11,6 +11,7 @@ import { dimOf, focusQuads, reachQuads } from "./overlays";
 import { accentRef, at, fade, grow, shadow, shape, sprite, tok } from "./refs";
 
 const NEAR_MID = TIER_BIT.near | TIER_BIT.mid;
+const FAR_UP = TIER_BIT.far | TIER_BIT.overview;
 const RADIUS_CARD = 10;
 /** `px-3.5 py-3` under a 1px border. */
 const PAD = { x: 14, y: 12, border: 1 } as const;
@@ -62,17 +63,17 @@ export const paintDefaultCard = (fact: CardFact, view: CardView, env: PaintEnv):
     quads.push(shape({ key: "focus", z: 2, rect: grow(box, 3) }, { stroke: { color: tok("cyan"), width: 1, outside: true } }, { tiers: NEAR_MID, radii: 8 + 3 }));
   }
 
-  // Far: a box tinted ink 5% with its kind's glyph, 60% of the height up to 120, ink 38%.
-  quads.push(shape({ key: "far.box", z: 1, rect: box }, { fill: { kind: "flat", color: tok("ink", 0.05) } }, { tiers: TIER_BIT.far, part: { kind: "body" } }));
+  // Far and overview: a box tinted ink 5% with its kind's glyph, 60% of the height up to 120, ink 38%.
+  quads.push(shape({ key: "far.box", z: 1, rect: box }, { fill: { kind: "flat", color: tok("ink", 0.05) } }, { tiers: FAR_UP, part: { kind: "body" } }));
   const g = Math.min(h * 0.6, 120);
   quads.push(
     sprite(
       { key: "far.glyph", z: 2, rect: at((w - g) / 2, (h - g) / 2, g, g) },
-      { tiers: TIER_BIT.far, sprite: { atlas: "glyph", name: `kind:${row.kind}` }, style: { ink: tok("ink", 0.38) } },
+      { tiers: FAR_UP, sprite: { atlas: "glyph", name: `kind:${row.kind}` }, style: { ink: tok("ink", 0.38) } },
     ),
   );
   if (view.selected) {
-    quads.push(shape({ key: "far.selected", z: 3, rect: grow(box, 2) }, { stroke: { color: tok("main", 0.7), width: 4, outside: true } }, { tiers: TIER_BIT.far }));
+    quads.push(shape({ key: "far.selected", z: 3, rect: grow(box, 2) }, { stroke: { color: tok("main", 0.7), width: 4, outside: true } }, { tiers: FAR_UP }));
   }
   quads.push(...focusQuads(view, box, RADIUS_CARD), ...reachQuads(view, box, env, true));
   return { quads, dim: dimOf(view), lift: view.hovered && !view.dragging ? LIFT_PX : 0 };

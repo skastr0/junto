@@ -8,7 +8,7 @@ const keys = (quads: ReadonlyArray<Quad>): string[] => quads.map((q) => q.key);
 const paint = (kind: "peer" | "stub", live: Partial<SpineLive> = {}, v = view()) => paintSpine(spineFact(kind, live), v, fakeEnv);
 
 describe("spine card paint", () => {
-  it("near and mid draw the chip, glyph and name; far a disc; overview nothing", () => {
+  it("near and mid draw the chip, glyph and name; far and overview a disc, as the DOM's chip at both", () => {
     const quads = paint("stub", { count: "3" }).quads;
     for (const tier of ["near", "mid"] as const) {
       expect(keys(at(quads, tier))).toEqual(expect.arrayContaining(["chip", "glyph", "name", "count"]));
@@ -17,7 +17,7 @@ describe("spine card paint", () => {
     const far = at(quads, "far");
     expect(keys(far)).toEqual(expect.arrayContaining(["far.disc", "far.glyph"]));
     expect(keys(far)).not.toContain("chip");
-    expect(at(quads, "overview")).toEqual([]);
+    expect(keys(at(quads, "overview"))).toEqual(keys(far));
   });
 
   it("each status is its own shape and tone, in the tag at near and the pip at far", () => {
@@ -42,7 +42,7 @@ describe("spine card paint", () => {
       expect(quads.find((q) => q.key === "tag")?.style.stroke?.color).toEqual({ token: tone });
       expect(quads.find((q) => q.key === "tag.word")?.text?.upper).toBe(true);
       expect(quads.find((q) => q.key === "tag.word")?.text?.halo).toBe(true);
-      expect(quads.find((q) => q.key === "far.pip")?.tiers).toBe(TIER_BIT.far);
+      expect(quads.find((q) => q.key === "far.pip")?.tiers).toBe(TIER_BIT.far | TIER_BIT.overview);
     }
     expect(paint("stub", { status: "blocked", tag: "blocked" }).quads.find((q) => q.key === "far.pip")?.shape).toBe("triangle");
     expect(keys(paint("stub").quads)).not.toContain("tag");

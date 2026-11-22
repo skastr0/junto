@@ -1,8 +1,8 @@
 /**
  * The spine card, peer and stub only (inventory 2.3): a head chip, a status
  * tag, a leaf line or a spine of rows. Near and mid draw it whole, with no
- * shell of its own; far draws a held disc with the kind's glyph and a status
- * pip; overview hides it. Words carry a ground halo. A stub is the same card
+ * shell of its own; far and overview draw a held disc with the kind's glyph
+ * and a status pip, as the DOM's chip at both. Words carry a ground halo. A stub is the same card
  * at 0.72 opacity; a peer wears a 20 unit portrait disc holding its first
  * letter in place of the glyph.
  *
@@ -19,7 +19,7 @@ import { dimOf, focusQuads, reachQuads } from "./overlays";
 import { at, grow, shape, sprite, text, tok } from "./refs";
 
 const NEAR_MID = TIER_BIT.near | TIER_BIT.mid;
-const FAR = TIER_BIT.far;
+const FAR = TIER_BIT.far | TIER_BIT.overview;
 
 /** `SPINE_ROWS_MAX`. */
 export const SPINE_ROWS_MAX = 4;

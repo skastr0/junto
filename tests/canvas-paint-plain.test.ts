@@ -16,7 +16,7 @@ const keys = (quads: ReadonlyArray<Quad>): string[] => quads.map((q) => q.key);
 
 describe("note", () => {
   const note = fact({ kind: "note", text: "# Plan\n\nfirst paragraph here\n\n- one\n- two" });
-  it("near typesets every block, mid only the first, far an amber tick, overview nothing", () => {
+  it("near typesets every block, mid only the first, far and overview an amber tick held in screen px, as the DOM keeps it", () => {
     const p = paintNote(note, view(), fakeEnv);
     const near = keys(at(p.quads, "near"));
     const mid = keys(at(p.quads, "mid"));
@@ -27,7 +27,8 @@ describe("note", () => {
     const far = at(p.quads, "far");
     expect(keys(far)).toEqual(["tick"]);
     expect(far[0]!.scale.kind).toBe("node");
-    expect(at(p.quads, "overview")).toEqual([]);
+    // A note does not vanish on zoom-out: the DOM keeps the tick at overview too.
+    expect(keys(at(p.quads, "overview"))).toEqual(["tick"]);
   });
 
   it("the first heading is ink 600 in the title size; later headings are display caps", () => {
@@ -61,11 +62,11 @@ describe("note", () => {
 
 describe("label", () => {
   const label = fact({ kind: "label", text: "North", width: 200, height: 40 });
-  it("is bare display type at near and mid and floors at 13 held at far, nothing at overview", () => {
+  it("is bare display type at near and mid and floors at 13 held at far and overview, as the DOM does", () => {
     const p = paintLabel(label, view(), fakeEnv);
     expect(at(p.quads, "near").find((q) => q.key === "text")?.text).toMatchObject({ size: 24, weight: 700, font: "display", text: "North" });
     expect(at(p.quads, "far").find((q) => q.key === "text.far")?.scale.kind).toBe("node");
-    expect(at(p.quads, "overview").filter((q) => q.kind === "text")).toEqual([]);
+    expect(at(p.quads, "overview").filter((q) => q.kind === "text").map((q) => q.key)).toEqual(["text.far"]);
     expect(keys(at(p.quads, "near"))).not.toContain("shell");
   });
   it("an empty label reads Label and a colour tints it", () => {
@@ -77,12 +78,12 @@ describe("label", () => {
 
 describe("default card (image file)", () => {
   const image = fact({ kind: "file", path: "junto-content://x/y.png", width: 240, height: 160 });
-  it("draws the gradient shell and the image near, a tinted glyph box far", () => {
+  it("draws the gradient shell and the image near, a tinted glyph box far and overview", () => {
     const p = paintDefaultCard(image, view(), fakeEnv);
     expect(at(p.quads, "near").find((q) => q.key === "shell")?.style.fill?.kind).toBe("gradient");
     expect(at(p.quads, "near").find((q) => q.key === "image")?.sprite).toMatchObject({ atlas: "media" });
     expect(keys(at(p.quads, "far"))).toEqual(expect.arrayContaining(["far.box", "far.glyph"]));
-    expect(at(p.quads, "overview")).toEqual([]);
+    expect(keys(at(p.quads, "overview"))).toEqual(keys(at(p.quads, "far")));
   });
   it("selection uses the accent at 75%, blocked is crimson with its gradient and ring", () => {
     const sel = paintDefaultCard(image, view({ selected: true }), fakeEnv).quads.find((q) => q.key === "shell")!;
