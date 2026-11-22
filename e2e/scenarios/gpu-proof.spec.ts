@@ -867,6 +867,35 @@ test.describe("#913 GPU canvas proof", () => {
             if (cullParity > 0.05) fail(`${String(scale)}x ${tier.name}: cull arms differ by ${(cullParity * 100).toFixed(2)}% of pixels`);
             if (shippedCull === "cpu" && gpuCullFrames === 0) fail(`${String(scale)}x ${tier.name}: the GPU cull arm drew no frames`);
           }
+          // Are cluster badges pickable at all? A drawn badge that answers
+          // the pane is an unreachable seat, whatever the counters say.
+          const clusterPicks = await page.evaluate(() => {
+            const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
+            if (hook === undefined) return { drawn: 0, cluster: 0, own: 0, pane: 0, other: 0, chrome: 0 };
+            const pane = hook["rectOf"]("") as ScreenRect;
+            const rows = (hook["clusters"]?.() ?? []).filter((cluster: Record<string, unknown>) => cluster["drawn"] === true);
+            const counts = { drawn: rows.length, cluster: 0, own: 0, pane: 0, other: 0, chrome: 0 };
+            for (const cluster of rows as Array<Record<string, any>>) {
+              const x = Number(cluster["x"]);
+              const y = Number(cluster["y"]);
+              const element = document.elementFromPoint(x, y);
+              if (!(element instanceof HTMLCanvasElement && element.classList.contains("junto-gpu-canvas"))) {
+                counts.chrome += 1;
+                continue;
+              }
+              const hit = hook["pick"]({ x: x - pane.x, y: y - pane.y }) as
+                | { nodeId?: string; part?: { kind?: string; memberIds?: string[] } }
+                | null;
+              if (hit === null) counts.pane += 1;
+              else if (hit.part?.kind === "cluster" || (hit.part?.memberIds ?? []).length > 0) counts.cluster += 1;
+              else if (hit.nodeId !== undefined) counts.own += 1;
+              else counts.other += 1;
+            }
+            return counts;
+          });
+          if (clusterPicks.drawn > 0 && clusterPicks.cluster === 0) {
+            fail(`${String(scale)}x ${tier.name}: ${String(clusterPicks.drawn)} drawn cluster badges answer no cluster hit (${JSON.stringify(clusterPicks)})`);
+          }
           const blank = await readBlankProbe(page);
           const row = {
             tier: tier.name,
@@ -892,6 +921,7 @@ test.describe("#913 GPU canvas proof", () => {
             shippedCullFrames: shippedCullFrames ?? null,
             cullParity: cullParity === null ? null : round(cullParity, 4),
             gpuCullFrames,
+            clusterPicks,
             gpuLastMs: at.gpuPass?.lastMs ?? null,
             gpuPeakMs: at.gpuPass?.peakMs ?? null,
             gpuSamples: at.gpuPass?.samples ?? null,
