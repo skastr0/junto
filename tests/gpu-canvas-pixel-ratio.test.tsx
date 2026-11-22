@@ -73,5 +73,7 @@ describe("the pixel ratio", () => {
     // The old query is dropped and the new ratio is watched.
     expect(listeners.get("(resolution: 1dppx)")?.size).toBe(0);
     expect(listeners.get("(resolution: 2dppx)")?.size).toBe(1);
-  });
+    // The first mount imports the whole shell cold; under a full parallel run
+    // that alone has passed five seconds.
+  }, 30_000);
 });
