@@ -247,6 +247,16 @@ describe("wire-loom planning", () => {
     expect(plan.strands.size).toBe(3);
   });
 
+  it("answers a launch with its saved plan when nothing that shapes a route changed", () => {
+    const edges = fanOf([-100, 0, 100]);
+    const obstacles = [{ nodeId: "hub", x: -216, y: -28, width: 216, height: 56 }];
+    const plan = planLoom({ edges, obstacles });
+    expect(planLoom({ edges, obstacles, prior: plan })).toBe(plan);
+    // A card that moved, and an edge that changed, each mean a new plan.
+    expect(planLoom({ edges, obstacles: [{ ...obstacles[0]!, x: -216, y: -40 }], prior: plan })).not.toBe(plan);
+    expect(planLoom({ edges: fanOf([-100, 0, 160]), obstacles, prior: plan })).not.toBe(plan);
+  });
+
   it("needs three members before a fan becomes a cable", () => {
     const two = planLoom({ edges: fanOf([-100, 100]), obstacles: [] });
     expect(two.strands.size).toBe(0);

@@ -78,6 +78,10 @@ export type LoomPlan = {
   readonly strands: ReadonlyMap<string, LoomStrand>;
   /** Trunk and comb bounds, for stoppage clearance. */
   readonly corridors: ReadonlyArray<WireRect>;
+  /** The fan geometry this plan was made from (a launch reuses it when unchanged). */
+  readonly fingerprint: number;
+  /** The obstacle field it was made against, sorted by node id. */
+  readonly obstacles: ReadonlyArray<LoomObstacle>;
 };
 
 /** Two wires read as two wires; a cable starts at three. */
@@ -879,6 +883,8 @@ function laneBias(
 export function planLoom(input: {
   readonly edges: ReadonlyArray<LoomEdgeInput>;
   readonly obstacles: ReadonlyArray<LoomObstacle>;
+  /** A plan from an earlier launch: returned as is when nothing that shapes a route changed. */
+  readonly prior?: LoomPlan;
 }): LoomPlan {
   const candidates = new Map<string, Candidate[]>();
   const paired: Array<readonly [Candidate, Candidate]> = [];
@@ -909,14 +915,34 @@ export function planLoom(input: {
     else fans.set(winner.key, [winner]);
   }
 
-  const strands = new Map<string, LoomStrand>();
-  const corridors: WireRect[] = [];
   // One ordered field and its index for the whole plan: a route reads the
   // cards near its corridor, and every fan's router sees the same order. The
   // index is built over the sorted field so its answers are in that order too.
   const routeField = input.obstacles
     .filter((o) => o.width > 0 && o.height > 0)
     .sort((a, b) => compareIds(a.nodeId, b.nodeId));
+  // A launch changes nothing, so the plan it saved answers before any route
+  // runs. The fingerprint covers every value a strand reads from the edges:
+  // hub, member order, sides and anchors, quantized to 0.01.
+  const fingerprint = loomFingerprint(fans);
+  const obstacleSame =
+    input.prior !== undefined &&
+    input.prior.obstacles.length === routeField.length &&
+    input.prior.obstacles.every((o, index) => {
+      const now = routeField[index]!;
+      return (
+        o.nodeId === now.nodeId &&
+        Math.abs(o.x - now.x) < 0.01 &&
+        Math.abs(o.y - now.y) < 0.01 &&
+        Math.abs(o.width - now.width) < 0.01 &&
+        Math.abs(o.height - now.height) < 0.01
+      );
+    });
+  if (input.prior !== undefined && input.prior.fingerprint === fingerprint && obstacleSame) {
+    return input.prior;
+  }
+  const strands = new Map<string, LoomStrand>();
+  const corridors: WireRect[] = [];
   const index = createObstacleIndex(routeField);
   // Bands placed so far, in a uniform grid: a new cable only compares with
   // the stretches beside it, so lane discipline stays local as the board grows.
@@ -977,7 +1003,43 @@ export function planLoom(input: {
     for (const strand of planned.strands) strands.set(strand.edgeId, strand);
     corridors.push(...planned.corridors);
   }
-  return { strands, corridors };
+  return { strands, corridors, fingerprint, obstacles: routeField };
+}
+
+/**
+ * A stable hash of the fan geometry: which fan each edge joins, and every
+ * value a strand's shape reads. A different number means the plan must be
+ * made again; the same number and the same obstacle field mean it cannot
+ * change, however many wires the board holds.
+ */
+function loomFingerprint(fans: ReadonlyMap<string, Candidate[]>): number {
+  let hash = 0x811c9dc5;
+  const mix = (value: number): void => {
+    hash ^= value === 0 ? 0 : Math.round(value * 100) | 0;
+    hash = Math.imul(hash, 0x01000193);
+  };
+  const text = (value: string): void => {
+    for (let index = 0; index < value.length; index += 1) mix(value.charCodeAt(index));
+    mix(0x1f);
+  };
+  const keys = [...fans.keys()].sort();
+  for (const key of keys) {
+    text(key);
+    const members = fans.get(key)!;
+    const ordered = [...members].sort((a, b) => compareIds(a.edge.id, b.edge.id));
+    for (const member of ordered) {
+      text(member.edge.id);
+      mix(member.hubEnd === "source" ? 1 : 2);
+      mix(member.hubAxis.length);
+      text(member.hubAxis);
+      mix(member.hub.x);
+      mix(member.hub.y);
+      text(member.farNodeId);
+      mix(member.far.x);
+      mix(member.far.y);
+    }
+  }
+  return hash;
 }
 
 export type LoomStitch = {
