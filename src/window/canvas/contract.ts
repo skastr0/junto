@@ -70,6 +70,11 @@ export type CameraTarget =
 export type CameraMoveOptions = {
   /** 0 or absent: at once. Moves ease cubic in-out on the smooth zoom path. */
   readonly durationMs?: number;
+  /**
+   * `zoom` (absent): d3's smooth zoom path. `straight`: x, y and zoom each
+   * eased cubic in-out on its own line, the path the canvas API's moves fly.
+   */
+  readonly path?: "zoom" | "straight";
 };
 
 /** Same thresholds and names as `src/window/lib/canvas-tier.ts` (section 11). */

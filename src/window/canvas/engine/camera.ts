@@ -142,6 +142,14 @@ const viewState = (camera: Camera, viewport: Size): readonly [number, number, nu
   return [centre.x, centre.y, Math.max(viewport.width, viewport.height) / camera.zoom];
 };
 
+/** One frame of a straight camera move: x, y and zoom each eased cubic in-out. */
+export const straightCamera = (from: Camera, to: Camera, t: number): Camera => {
+  if (t <= 0) return from;
+  if (t >= 1) return to;
+  const k = easeCubicInOut(t);
+  return { x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k, zoom: from.zoom + (to.zoom - from.zoom) * k };
+};
+
 /** One frame of a smooth camera move: d3 `interpolateZoom.f(t)` then back to a camera. */
 export const interpolateCamera = (
   from: Camera,

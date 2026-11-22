@@ -50,6 +50,7 @@ import {
   fitCamera,
   interpolateCamera,
   panCamera,
+  straightCamera,
   panKeyForCode,
   rectToScreen,
   sameCamera,
@@ -240,7 +241,9 @@ export const createEngine = (host: EngineHost): SeamEngine => {
 
   let settled = true;
   let settleAt = 0;
-  let animation: { readonly from: Camera; readonly to: Camera; readonly start: number; readonly duration: number } | undefined;
+  let animation:
+    | { readonly from: Camera; readonly to: Camera; readonly start: number; readonly duration: number; readonly straight: boolean }
+    | undefined;
   const keys = new Map<string, number>();
   let keyBoost = false;
   let pointerState: PointerState = POINTER_IDLE;
@@ -516,7 +519,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     // 1–2: the camera.
     if (animation !== undefined) {
       const t = animation.duration <= 0 ? 1 : Math.min(1, (start - animation.start) / animation.duration);
-      camera = interpolateCamera(animation.from, animation.to, size, easeCubicInOut(t));
+      camera = animation.straight ? straightCamera(animation.from, animation.to, t) : interpolateCamera(animation.from, animation.to, size, easeCubicInOut(t));
       markCameraMoved(start);
       dirty = true;
       if (t >= 1) {
@@ -752,7 +755,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     }
     const duration = options?.durationMs ?? 0;
     if (duration > 0 && size.width > 0 && size.height > 0) {
-      animation = { from: camera, to: target, start: now, duration };
+      animation = { from: camera, to: target, start: now, duration, straight: options?.path === "straight" };
       // The destination's cards take their cells while the camera travels,
       // so the landing frame is never blank.
       scene.prefetch({ view: viewRect(target, size), zoom: target.zoom });

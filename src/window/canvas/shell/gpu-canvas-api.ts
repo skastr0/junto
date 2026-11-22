@@ -98,6 +98,12 @@ export const createGpuCanvasApi = (
       applyCamera(to);
       return;
     }
+    // The engine flies the move in its own frame (issue 915): one loop sets
+    // the camera and draws, and the mirror follows the frames it presents.
+    if (engine !== undefined) {
+      engine.moveCamera({ kind: "camera", camera: to }, { durationMs, path: "straight" });
+      return;
+    }
     const started = typeof performance === "undefined" ? Date.now() : performance.now();
     const step = (now: number): void => {
       animation = undefined;
