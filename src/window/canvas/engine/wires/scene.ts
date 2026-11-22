@@ -128,8 +128,9 @@ type Entry = {
   /** Where the wire's invisible select label sits, in board units. */
   label: Point | undefined;
   strip: Slice | undefined;
-  /** The strip built at each tier: a return to a tier swaps it in, never rebuilds it. */
-  stripByTier: Partial<Record<CanvasTier, Slice>>;
+  /** The card-body strip and the mid pill strip: a tier swap takes one, never rebuilds. */
+  stripBody: Slice | undefined;
+  stripPill: Slice | undefined;
   glowStrip: Slice | undefined;
   glowKey: string;
   layout: ReadonlyArray<TrackRun>;
@@ -614,8 +615,10 @@ export const createWireScene = (host: WireHost): WireScene => {
     const { ends, from, to, fromSurface, toSurface } = readEnds(entry);
     entry.ends = ends;
     if (from === undefined || to === undefined) {
-      for (const slice of Object.values(entry.stripByTier)) pool.free(slice);
-      entry.stripByTier = {};
+      pool.free(entry.stripBody);
+      pool.free(entry.stripPill);
+      entry.stripBody = undefined;
+      entry.stripPill = undefined;
       tierOnly.delete(entry.id);
       entry.strip = undefined;
       entry.route = undefined;
@@ -645,17 +648,22 @@ export const createWireScene = (host: WireHost): WireScene => {
     // whose route changes must not leave its slice behind, and a zero-length
     // route frees it rather than orphaning it.
     const strip: WireStrip = buildStrip(line, WIRE_HALF_WIDTH, { slot: entry.slot });
+    const pill = tier === "mid";
     if (keepOtherTiers) {
-      pool.free(entry.stripByTier[tier]);
-      delete entry.stripByTier[tier];
+      pool.free(pill ? entry.stripPill : entry.stripBody);
+      if (pill) entry.stripPill = undefined;
+      else entry.stripBody = undefined;
     } else {
-      for (const slice of Object.values(entry.stripByTier)) pool.free(slice);
-      entry.stripByTier = {};
+      pool.free(entry.stripBody);
+      pool.free(entry.stripPill);
+      entry.stripBody = undefined;
+      entry.stripPill = undefined;
     }
     if (strip.count > 0) {
       const slice = pool.put(undefined, strip.vertices, strip.count);
       entry.strip = slice;
-      entry.stripByTier[tier] = slice;
+      if (pill) entry.stripPill = slice;
+      else entry.stripBody = slice;
     } else {
       entry.strip = undefined;
     }
@@ -752,7 +760,8 @@ export const createWireScene = (host: WireHost): WireScene => {
       bounds: undefined,
       label: undefined,
       strip: undefined,
-      stripByTier: {},
+      stripBody: undefined,
+      stripPill: undefined,
       glowStrip: undefined,
       glowKey: "",
       layout: [],
@@ -813,8 +822,8 @@ export const createWireScene = (host: WireHost): WireScene => {
     tierOnly.delete(id);
     running.delete(id);
     tracked.delete(id);
-    for (const slice of Object.values(entry.stripByTier)) pool.free(slice);
-    pool.free(entry.strip);
+    pool.free(entry.stripBody);
+    pool.free(entry.stripPill);
     glowPool.free(entry.glowStrip);
     trackPool.free(entry.trackStrip);
     if (entry.pulse !== undefined) clearPulse(entry);
@@ -1133,19 +1142,19 @@ export const createWireScene = (host: WireHost): WireScene => {
       tier = f.tier;
       refreshAll(now);
       relayoutTracks();
-      // A tier's strip is kept: a return to a tier swaps it in. Only a wire
-      // never built at this tier is rebuilt, and only once.
+      // A crossing changes the body a card draws, not the plan: the body
+      // strip and the mid pill strip are each kept, and a crossing swaps one
+      // in. Only a wire never built with this body is rebuilt, and never a
+      // walk over every wire's ends to find that out.
+      const pill = tier === "mid";
       for (const entry of entries.values()) {
-        const cached = entry.stripByTier[tier];
+        const cached = pill ? entry.stripPill : entry.stripBody;
         if (cached !== undefined) {
           entry.strip = cached;
           continue;
         }
-        const { ends } = readEnds(entry);
-        if (!sameEnds(ends, entry.ends)) {
-          dirty.add(entry.id);
-          tierOnly.add(entry.id);
-        }
+        dirty.add(entry.id);
+        tierOnly.add(entry.id);
       }
     }
     // A card a pointer owns this frame can be somewhere its row is not yet.

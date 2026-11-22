@@ -258,25 +258,31 @@ describe("the wire scene", () => {
       scene.frame({ camera: { x: 0, y: 0, zoom: 1 }, width: 1600, height: 1000, pixelRatio: 2, tier, wall: at });
     frame(T0, "near");
     const near = scene.builds();
-    // Near to far changes only the paint: the plan and the strips stay.
+    // Near to far to overview changes only the paint: the plan and the strips stay.
     frame(T0 + 16, "far");
+    expect(scene.builds()).toBe(near);
+    frame(T0 + 24, "overview");
     expect(scene.builds()).toBe(near);
     // Mid draws a pill where the card was: every wire re-attaches once.
     surfaces.set("a", rect(0, 0, 150, 96));
-    frame(T0 + 32, "mid");
+    frame(T0 + 40, "mid");
     expect(scene.builds()).toBeGreaterThan(near);
     const mid = scene.builds();
     // The near strip was kept: leaving mid swaps it in, with no rebuild.
     surfaces.clear();
     frame(T0 + 48, "near");
     expect(scene.builds()).toBe(mid);
-    // A card move invalidates every tier it built: the return to mid rebuilds.
+    // The pill strip is kept too: a second crossing to mid swaps it in.
+    surfaces.set("a", rect(0, 0, 150, 96));
+    frame(T0 + 56, "mid");
+    expect(scene.builds()).toBe(mid);
+    // A card move invalidates both bodies: the next mid crossing rebuilds.
     card("b");
-    frame(T0 + 64, "near");
+    frame(T0 + 64, "mid");
     expect(scene.builds()).toBeGreaterThan(mid);
     const moved = scene.builds();
-    surfaces.set("a", rect(0, 0, 150, 96));
-    frame(T0 + 80, "mid");
+    surfaces.clear();
+    frame(T0 + 80, "near");
     expect(scene.builds()).toBeGreaterThan(moved);
   });
 
