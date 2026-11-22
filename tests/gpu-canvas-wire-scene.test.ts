@@ -435,6 +435,26 @@ describe("the wire scene", () => {
     expect(record(scene, 1)[4]).toBeCloseTo(0.07);
   });
 
+  it("follows a rewired wire's new card, not only the card it used to end on", () => {
+    const cards = board();
+    cards.set("d", rect(0, 600));
+    const { scene, frame, card } = makeScene(cards);
+    scene.apply(load([wire("w", "a", "b")]));
+    frame(T0);
+    // The same wire now ends on d: a card op for d must rebuild it.
+    scene.apply({ kind: "wire", fact: wire("w", "a", "d") } as unknown as SceneOp);
+    frame(T0 + 16);
+    const before = scene.inspect("w")!.points[scene.inspect("w")!.points.length - 1]!;
+    cards.set("d", rect(300, 600));
+    card("d");
+    frame(T0 + 32);
+    const after = scene.inspect("w")!.points[scene.inspect("w")!.points.length - 1]!;
+    expect(after).not.toEqual(before);
+    expect(after.y).toBe(648);
+    expect(after.x).toBeGreaterThanOrEqual(297);
+    expect(after.x).toBeLessThanOrEqual(302);
+  });
+
   it("does not draw a wire whose card is not on the board yet, then draws it when it arrives", () => {
     const cards = new Map<string, Rect>([["a", rect(0, 0)]]);
     const { scene, frame, card } = makeScene(cards);

@@ -696,7 +696,10 @@ export const createWireScene = (host: WireHost): WireScene => {
     const existing = entries.get(fact.id);
     if (existing !== undefined) {
       const verbChanged = existing.fact.row.verb !== fact.row.verb;
+      const endsChanged = existing.fact.row.from !== fact.row.from || existing.fact.row.to !== fact.row.to;
+      if (endsChanged) unindex(existing);
       existing.fact = fact;
+      if (endsChanged) index(existing);
       if (verbChanged) existing.colour = colourOf(fact.row.verb);
       existing.ends = NAN_ENDS;
       rebuild(existing, now);
