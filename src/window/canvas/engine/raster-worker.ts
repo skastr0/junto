@@ -36,23 +36,23 @@ let sharpCtx: OffscreenCanvasRenderingContext2D | undefined;
 const getMeasure = (): OffscreenCanvasRenderingContext2D => {
   if (measureCtx === undefined) {
     measureCanvas = new OffscreenCanvas(8, 8);
-    measureCtx = measureCanvas.getContext("2d")!;
+    measureCtx = measureCanvas.getContext("2d", { willReadFrequently: true })!;
   }
   return measureCtx;
 };
 
+/** Grow-only scratch canvas: never shrinks (avoids backing-store reallocation on every raster). */
 const getDraw = (w: number, h: number): { canvas: OffscreenCanvas; ctx: OffscreenCanvasRenderingContext2D } => {
   const cw = Math.max(1, Math.ceil(w));
   const ch = Math.max(1, Math.ceil(h));
   if (drawCanvas === undefined || drawCtx === undefined) {
     drawCanvas = new OffscreenCanvas(cw, ch);
-    drawCtx = drawCanvas.getContext("2d")!;
-  } else if (drawCanvas.width !== cw || drawCanvas.height !== ch) {
-    drawCanvas.width = cw;
-    drawCanvas.height = ch;
-  } else {
-    drawCtx.clearRect(0, 0, cw, ch);
+    drawCtx = drawCanvas.getContext("2d", { willReadFrequently: true })!;
+  } else if (cw > drawCanvas.width || ch > drawCanvas.height) {
+    drawCanvas.width = Math.max(drawCanvas.width, cw);
+    drawCanvas.height = Math.max(drawCanvas.height, ch);
   }
+  drawCtx.clearRect(0, 0, cw, ch);
   return { canvas: drawCanvas, ctx: drawCtx };
 };
 
@@ -61,13 +61,12 @@ const getSharp = (w: number, h: number): { canvas: OffscreenCanvas; ctx: Offscre
   const ch = Math.max(1, Math.ceil(h));
   if (sharpCanvas === undefined || sharpCtx === undefined) {
     sharpCanvas = new OffscreenCanvas(cw, ch);
-    sharpCtx = sharpCanvas.getContext("2d")!;
-  } else if (sharpCanvas.width !== cw || sharpCanvas.height !== ch) {
-    sharpCanvas.width = cw;
-    sharpCanvas.height = ch;
-  } else {
-    sharpCtx.clearRect(0, 0, cw, ch);
+    sharpCtx = sharpCanvas.getContext("2d", { willReadFrequently: true })!;
+  } else if (cw > sharpCanvas.width || ch > sharpCanvas.height) {
+    sharpCanvas.width = Math.max(sharpCanvas.width, cw);
+    sharpCanvas.height = Math.max(sharpCanvas.height, ch);
   }
+  sharpCtx.clearRect(0, 0, cw, ch);
   return { canvas: sharpCanvas, ctx: sharpCtx };
 };
 
@@ -114,20 +113,25 @@ const rasterTextCoverage = (run: TextRun, scale: number, ink: GpuColor): { reado
     sharp.ctx.fillText(line, glyphX(sharp.ctx, line), pad + lineHeight * i + lineHeight / 2);
   });
   draw.filter = `blur(${run.blur * scale * HALO_SIGMA_PER_RADIUS}px)`;
-  draw.drawImage(sharp.canvas, 0, 0);
-  draw.drawImage(sharp.canvas, 0, 0);
+  draw.drawImage(sharp.canvas, 0, 0, cellW, cellH, 0, 0, cellW, cellH);
+  draw.drawImage(sharp.canvas, 0, 0, cellW, cellH, 0, 0, cellW, cellH);
   draw.filter = "none";
   return { coverage: extractAlpha(draw, cellW, cellH), width: cellW, height: cellH };
 };
 
 const rasterGlyph = (name: string, width: number, height: number, ink: GpuColor): ImageBitmap => {
-  const { canvas, ctx } = getDraw(width, height);
-  const side = Math.min(canvas.width, canvas.height);
+  const cw = Math.max(1, Math.ceil(width));
+  const ch = Math.max(1, Math.ceil(height));
+  const { canvas, ctx } = getDraw(cw, ch);
+  const side = Math.min(cw, ch);
   ctx.save();
-  ctx.translate((canvas.width - side) / 2, (canvas.height - side) / 2);
+  ctx.translate((cw - side) / 2, (ch - side) / 2);
   drawGlyph(ctx as unknown as CanvasRenderingContext2D, name, side, ink);
   ctx.restore();
-  return canvas.transferToImageBitmap();
+  // Create sub-rect ImageBitmap from grow-only canvas
+  const out = new OffscreenCanvas(cw, ch);
+  out.getContext("2d")!.drawImage(canvas, 0, 0, cw, ch, 0, 0, cw, ch);
+  return out.transferToImageBitmap();
 };
 
 const loadWorkerFonts = async (fonts: ReadonlyArray<WorkerFontSpec>): Promise<void> => {

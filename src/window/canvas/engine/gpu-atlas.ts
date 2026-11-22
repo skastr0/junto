@@ -37,8 +37,16 @@ export type AtlasCoverage = {
   readonly data: Uint8Array;
 };
 
-/** Anything the GPU can upload into the atlas: an ImageBitmap, canvas, or r8unorm coverage buffer. */
-export type AtlasPixels = ImageBitmap | HTMLCanvasElement | OffscreenCanvas | AtlasCoverage;
+/**
+ * Anything the GPU can upload into the atlas: an ImageBitmap, canvas, r8unorm
+ * coverage buffer, or a sub-rect view into a grow-only scratch canvas.
+ */
+export type AtlasCanvasRegion = {
+  readonly source: HTMLCanvasElement | OffscreenCanvas;
+  readonly width: number;
+  readonly height: number;
+};
+export type AtlasPixels = ImageBitmap | HTMLCanvasElement | OffscreenCanvas | AtlasCoverage | AtlasCanvasRegion;
 
 export interface TextRasterize {
   (run: TextRun, scale: number, ink: GpuColor): Promise<AtlasPixels>;
@@ -769,8 +777,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
 
   const coverageBytesOf = (pixels: AtlasPixels, w: number, h: number): Uint8Array => {
     if ("data" in pixels && pixels.data instanceof Uint8Array) return pixels.data;
-    if (typeof (pixels as HTMLCanvasElement).getContext === "function") {
-      const ctx = (pixels as HTMLCanvasElement).getContext("2d");
+    const src = "source" in pixels ? pixels.source : pixels;
+    if (typeof (src as HTMLCanvasElement).getContext === "function") {
+      const ctx = (src as HTMLCanvasElement).getContext("2d", { willReadFrequently: true });
       if (ctx !== null && typeof ctx.getImageData === "function") {
         const rgba = ctx.getImageData(0, 0, w, h).data;
         const alpha = new Uint8Array(w * h);
@@ -778,26 +787,55 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         return alpha;
       }
     }
+    // ImageBitmap fallback: draw onto a willReadFrequently scratch canvas to extract alpha
+    if (typeof document !== "undefined" && typeof (src as ImageBitmap).close === "function") {
+      const { ctx } = getDrawScratch(w, h);
+      ctx.drawImage(src as ImageBitmap, 0, 0, w, h);
+      const rgba = ctx.getImageData(0, 0, w, h).data;
+      const alpha = new Uint8Array(w * h);
+      for (let i = 0; i < alpha.length; i += 1) alpha[i] = rgba[i * 4 + 3]!;
+      return alpha;
+    }
     return new Uint8Array(w * h);
   };
 
   const copyPixels = (pool: PagePool, pixels: AtlasPixels, at: Placed): void => {
     const w = Math.max(1, Math.min(at.w, pixels.width));
     const h = Math.max(1, Math.min(at.h, pixels.height));
+    const gw = Math.min(pageSize - at.x, w + 1);
+    const gh = Math.min(pageSize - at.y, h + 1);
     if (pool.kind === "coverage") {
       const data = coverageBytesOf(pixels, w, h);
-      device!.queue.writeTexture(
-        { texture: pool.texture!, origin: { x: at.x, y: at.y, z: at.layer } },
-        data as Uint8Array<ArrayBuffer>,
-        { bytesPerRow: w, rowsPerImage: h },
-        { width: w, height: h, depthOrArrayLayers: 1 },
-      );
+      // Include 1px transparent gutter on right and bottom so reused space never bleeds old pixels
+      if (gw > w || gh > h) {
+        const padded = new Uint8Array(gw * gh);
+        for (let row = 0; row < h; row += 1) {
+          padded.set(data.subarray(row * w, row * w + w), row * gw);
+        }
+        device!.queue.writeTexture(
+          { texture: pool.texture!, origin: { x: at.x, y: at.y, z: at.layer } },
+          padded as Uint8Array<ArrayBuffer>,
+          { bytesPerRow: gw, rowsPerImage: gh },
+          { width: gw, height: gh, depthOrArrayLayers: 1 },
+        );
+      } else {
+        device!.queue.writeTexture(
+          { texture: pool.texture!, origin: { x: at.x, y: at.y, z: at.layer } },
+          data as Uint8Array<ArrayBuffer>,
+          { bytesPerRow: w, rowsPerImage: h },
+          { width: w, height: h, depthOrArrayLayers: 1 },
+        );
+      }
       return;
     }
+    const imgSource = ("source" in pixels ? pixels.source : pixels) as unknown as ImageBitmap;
+    // Copy with cleared 1px gutter when source is a grow-only scratch canvas that has room
+    const copyW = "source" in pixels && pixels.source.width >= gw ? gw : w;
+    const copyH = "source" in pixels && pixels.source.height >= gh ? gh : h;
     device!.queue.copyExternalImageToTexture(
-      { source: pixels as unknown as ImageBitmap },
+      { source: imgSource },
       { texture: pool.texture!, origin: { x: at.x, y: at.y, z: at.layer } },
-      { width: w, height: h },
+      { width: copyW, height: copyH },
     );
     if (rgbaMipCount > 1) dirtyMipLayers.add(at.layer);
   };
@@ -877,7 +915,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
           const ch = Math.min(tileH, h - sy);
           if (cw <= 0 || ch <= 0) continue;
           device!.queue.copyExternalImageToTexture(
-            { source: pixels as unknown as ImageBitmap, origin: { x: sx, y: sy } },
+            { source: ("source" in pixels ? pixels.source : pixels) as unknown as ImageBitmap, origin: { x: sx, y: sy } },
             { texture: tex, origin: { x: 0, y: 0, z: ty * tilesX + tx } },
             { width: cw, height: ch },
           );
@@ -1014,12 +1052,13 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     rec.jobToken = token;
     rec.state = "rasterizing";
 
-    // Use sync raster in background queue only when async workers are not preferred.
-    // `ensureNow()` always uses sync raster on the main thread as the last resort.
+    // For sprites, always try the synchronous path first (marks, glyphs, and any
+    // already-decoded SVG or media draw straight from the grow-only scratch canvas
+    // with zero ImageBitmap copy). For text, prefer async OffscreenCanvas workers
+    // when preferAsyncRaster is set so the main thread stays free.
     if (
-      !options.preferAsyncRaster &&
-      ((desc.kind === "text" && options.rasterizeTextSync !== undefined) ||
-        (desc.kind === "sprite" && options.rasterizeSpriteSync !== undefined))
+      (desc.kind === "sprite" && options.rasterizeSpriteSync !== undefined) ||
+      (!options.preferAsyncRaster && desc.kind === "text" && options.rasterizeTextSync !== undefined)
     ) {
       try {
         const syncPx = rasterizeSync(desc);
@@ -1107,6 +1146,14 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     return `m:${inkKey(ref.mix[0])},${inkKey(ref.mix[1])},${ref.share}`;
   };
 
+  /** Opaque ink key for text coverage: raster forces alpha 1 (shader multiplies ink.a). */
+  const inkKeyOpaque = (ref: ColorRef | undefined): string => {
+    if (ref === undefined) return "-";
+    if ("token" in ref) return `t:${ref.token}`;
+    if ("custom" in ref) return `c:${ref.custom}`;
+    return `m:${inkKeyOpaque(ref.mix[0])},${inkKeyOpaque(ref.mix[1])},${ref.share}`;
+  };
+
   const keysFor = (quad: Quad, scale: number): { readonly key: string; readonly contentKey: string; readonly kind: "text" | "sprite" } | undefined => {
     if (quad.sprite !== undefined) {
       const ref = quad.sprite;
@@ -1129,7 +1176,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     }
     if (quad.text !== undefined && (options.rasterizeText !== undefined || options.rasterizeTextSync !== undefined)) {
       const run = quad.text;
-      const ink = inkKey(quad.style.ink);
+      const ink = inkKeyOpaque(quad.style.ink);
       const contentKey = `txt:${mode}:${run.text}:${run.font}:${run.weight}:${run.upper ? 1 : 0}:${run.italic ? 1 : 0}:${run.blur ?? 0}:${run.truncate}:${run.align ?? "left"}:${ink}`;
       return { key: `txt:${mode}:${runKey(run, scale, 0)}:${ink}`, contentKey, kind: "text" };
     }
@@ -1311,6 +1358,8 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     if (device === undefined || rgbaPool.texture === undefined) return false;
     const rec = slots[cell];
     if (rec === undefined || rec.desc === undefined) return false;
+    // Respect failure backoff so a broken media URL does not throw on every frame.
+    if (rec.state === "failed" && nowMs() < rec.retryAfter) return false;
     // Attempt synchronous raster + copy before the frame is submitted.
     // Cold async image/media sources stay hasImage===false so the shader draws
     // the shape-exact tone placeholder until the single decode lands.
@@ -1559,32 +1608,34 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
 
 // --- the browser rasterizers (the shell hands these to the atlas) -------------
 
-const canvas2d = (w: number, h: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } => {
+const canvas2d = (w: number, h: number, readFrequently = false): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } => {
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.ceil(w));
   canvas.height = Math.max(1, Math.ceil(h));
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d", readFrequently ? { willReadFrequently: true } : undefined)!;
   return { canvas, ctx };
 };
 
 let measureScratch: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | undefined;
 const getMeasureCtx = (): CanvasRenderingContext2D => {
-  if (measureScratch === undefined) measureScratch = canvas2d(8, 8);
+  if (measureScratch === undefined) measureScratch = canvas2d(8, 8, true);
   return measureScratch.ctx;
 };
 
+/** Grow-only scratch canvas: never shrinks, clears (w+1)x(h+1) so the 1px gutter is transparent. */
 let drawScratch: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | undefined;
 const getDrawScratch = (w: number, h: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } => {
   const cw = Math.max(1, Math.ceil(w));
   const ch = Math.max(1, Math.ceil(h));
+  const needW = cw + 1;
+  const needH = ch + 1;
   if (drawScratch === undefined) {
-    drawScratch = canvas2d(cw, ch);
-  } else if (drawScratch.canvas.width !== cw || drawScratch.canvas.height !== ch) {
-    drawScratch.canvas.width = cw;
-    drawScratch.canvas.height = ch;
-  } else {
-    drawScratch.ctx.clearRect(0, 0, cw, ch);
+    drawScratch = canvas2d(needW, needH, true);
+  } else if (needW > drawScratch.canvas.width || needH > drawScratch.canvas.height) {
+    drawScratch.canvas.width = Math.max(drawScratch.canvas.width, needW);
+    drawScratch.canvas.height = Math.max(drawScratch.canvas.height, needH);
   }
+  drawScratch.ctx.clearRect(0, 0, needW, needH);
   return drawScratch;
 };
 
@@ -1593,13 +1644,12 @@ const getSharpScratch = (w: number, h: number): { canvas: HTMLCanvasElement; ctx
   const cw = Math.max(1, Math.ceil(w));
   const ch = Math.max(1, Math.ceil(h));
   if (sharpScratch === undefined) {
-    sharpScratch = canvas2d(cw, ch);
-  } else if (sharpScratch.canvas.width !== cw || sharpScratch.canvas.height !== ch) {
-    sharpScratch.canvas.width = cw;
-    sharpScratch.canvas.height = ch;
-  } else {
-    sharpScratch.ctx.clearRect(0, 0, cw, ch);
+    sharpScratch = canvas2d(cw, ch, true);
+  } else if (cw > sharpScratch.canvas.width || ch > sharpScratch.canvas.height) {
+    sharpScratch.canvas.width = Math.max(sharpScratch.canvas.width, cw);
+    sharpScratch.canvas.height = Math.max(sharpScratch.canvas.height, ch);
   }
+  sharpScratch.ctx.clearRect(0, 0, cw, ch);
   return sharpScratch;
 };
 
@@ -1633,7 +1683,7 @@ export const rasterizeTextRunSync: TextRasterizeSync = (run, scale, ink) => {
     lines.forEach((line, i) => {
       draw.fillText(line, glyphX(draw, line), pad + lineHeight * i + lineHeight / 2);
     });
-    return canvas;
+    return { source: canvas, width: cellW, height: cellH };
   }
   const sharp = getSharpScratch(cellW, cellH);
   sharp.ctx.font = draw.font;
@@ -1644,15 +1694,15 @@ export const rasterizeTextRunSync: TextRasterizeSync = (run, scale, ink) => {
     sharp.ctx.fillText(line, glyphX(sharp.ctx, line), pad + lineHeight * i + lineHeight / 2);
   });
   draw.filter = `blur(${run.blur * scale * HALO_SIGMA_PER_RADIUS}px)`;
-  draw.drawImage(sharp.canvas, 0, 0);
-  draw.drawImage(sharp.canvas, 0, 0);
+  draw.drawImage(sharp.canvas, 0, 0, cellW, cellH, 0, 0, cellW, cellH);
+  draw.drawImage(sharp.canvas, 0, 0, cellW, cellH, 0, 0, cellW, cellH);
   draw.filter = "none";
-  return canvas;
+  return { source: canvas, width: cellW, height: cellH };
 };
 
 export const rasterizeTextRun: TextRasterize = async (run, scale, ink) => {
-  const canvas = rasterizeTextRunSync(run, scale, ink) as HTMLCanvasElement;
-  return createImageBitmap(canvas);
+  const region = rasterizeTextRunSync(run, scale, ink) as AtlasCanvasRegion;
+  return createImageBitmap(region.source, 0, 0, region.width, region.height);
 };
 
 let markAtlasCache: { mode: ThemeMode; canvas: HTMLCanvasElement } | undefined;
@@ -1716,10 +1766,27 @@ interface DecodedMediaEntry {
 
 const decodedSvgs = new Map<string, DecodedSvgEntry>();
 const decodingSvgs = new Map<string, Promise<DecodedSvgEntry>>();
+const svgPendingRefs = new Map<string, number>();
 const decodedNestedImages = new Map<string, HTMLImageElement>();
 const decodingNestedImages = new Map<string, Promise<HTMLImageElement | undefined>>();
 const decodedMedia = new Map<string, DecodedMediaEntry>();
 const decodingMedia = new Map<string, Promise<DecodedMediaEntry>>();
+const mediaPendingRefs = new Map<string, number>();
+
+const drawFitted = (
+  ctx: CanvasRenderingContext2D,
+  image: CanvasImageSource,
+  iw: number,
+  ih: number,
+  fit: "contain" | "cover",
+  w: number,
+  h: number,
+): void => {
+  const scale = fit === "cover" ? Math.max(w / iw, h / ih) : Math.min(w / iw, h / ih);
+  const dw = iw * scale;
+  const dh = ih * scale;
+  ctx.drawImage(image, (w - dw) / 2, (h - dh) / 2, dw, dh);
+};
 
 const loadNestedCached = (href: string): Promise<HTMLImageElement | undefined> => {
   const hit = decodedNestedImages.get(href);
@@ -1776,9 +1843,12 @@ const decodeSvgSourceOnce = (
       nested,
       width: Math.max(1, ref.size.width),
       height: Math.max(1, ref.size.height),
-      refCount: 0,
+      refCount: svgPendingRefs.get(key) ?? 0,
     };
-    decodedSvgs.set(key, entry);
+    svgPendingRefs.delete(key);
+    if (entry.refCount >= 0) {
+      decodedSvgs.set(key, entry);
+    }
     return entry;
   })().finally(() => {
     decodingSvgs.delete(key);
@@ -1799,8 +1869,11 @@ const decodeMediaSourceOnce = (
     const response = await fetch(ref.ref);
     if (!response.ok) throw new Error(`media fetch ${response.status}`);
     const bitmap = await createImageBitmap(await response.blob());
-    const entry: DecodedMediaEntry = { bitmap, refCount: 0 };
-    decodedMedia.set(ref.ref, entry);
+    const entry: DecodedMediaEntry = { bitmap, refCount: mediaPendingRefs.get(ref.ref) ?? 0 };
+    mediaPendingRefs.delete(ref.ref);
+    if (entry.refCount >= 0) {
+      decodedMedia.set(ref.ref, entry);
+    }
     return entry;
   })().finally(() => {
     decodingMedia.delete(ref.ref);
@@ -1818,14 +1891,16 @@ const prepareDecodedSpriteSource = (ref: NonNullable<Quad["sprite"]>, mode: Them
       hit.refCount += 1;
       return;
     }
-    void decodeSvgSourceOnce(ref, mode).then((e) => { e.refCount += 1; }).catch(() => undefined);
+    svgPendingRefs.set(key, (svgPendingRefs.get(key) ?? 0) + 1);
+    void decodeSvgSourceOnce(ref, mode).catch(() => { svgPendingRefs.delete(key); });
   } else if (ref.atlas === "media") {
     const hit = decodedMedia.get(ref.ref);
     if (hit !== undefined) {
       hit.refCount += 1;
       return;
     }
-    void decodeMediaSourceOnce(ref).then((e) => { e.refCount += 1; }).catch(() => undefined);
+    mediaPendingRefs.set(ref.ref, (mediaPendingRefs.get(ref.ref) ?? 0) + 1);
+    void decodeMediaSourceOnce(ref).catch(() => { mediaPendingRefs.delete(ref.ref); });
   }
 };
 
@@ -1833,25 +1908,35 @@ const releaseDecodedSpriteSource = (ref: NonNullable<Quad["sprite"]>, mode: Them
   if (ref.atlas === "image") {
     const key = `${mode}:${ref.key}`;
     const hit = decodedSvgs.get(key);
-    if (hit !== undefined && hit.refCount > 0) {
-      hit.refCount -= 1;
-      if (hit.refCount === 0) decodedSvgs.delete(key);
+    if (hit !== undefined) {
+      if (hit.refCount > 0) hit.refCount -= 1;
+      if (hit.refCount <= 0) decodedSvgs.delete(key);
+      return;
+    }
+    const pending = svgPendingRefs.get(key);
+    if (pending !== undefined) {
+      if (pending <= 1) svgPendingRefs.delete(key);
+      else svgPendingRefs.set(key, pending - 1);
     }
   } else if (ref.atlas === "media") {
     const hit = decodedMedia.get(ref.ref);
-    if (hit !== undefined && hit.refCount > 0) {
-      hit.refCount -= 1;
-      if (hit.refCount === 0) {
+    if (hit !== undefined) {
+      if (hit.refCount > 0) hit.refCount -= 1;
+      if (hit.refCount <= 0) {
         hit.bitmap.close();
         decodedMedia.delete(ref.ref);
       }
+      return;
+    }
+    const pending = mediaPendingRefs.get(ref.ref);
+    if (pending !== undefined) {
+      if (pending <= 1) mediaPendingRefs.delete(ref.ref);
+      else mediaPendingRefs.set(ref.ref, pending - 1);
     }
   }
 };
 
-const drawDecodedSvg = (ctx: CanvasRenderingContext2D, entry: DecodedSvgEntry): void => {
-  const cw = ctx.canvas.width;
-  const ch = ctx.canvas.height;
+const drawDecodedSvg = (ctx: CanvasRenderingContext2D, entry: DecodedSvgEntry, cw: number, ch: number): void => {
   ctx.drawImage(entry.image, 0, 0, cw, ch);
   if (entry.nested.length > 0) {
     const sx = cw / entry.width;
@@ -1862,13 +1947,20 @@ const drawDecodedSvg = (ctx: CanvasRenderingContext2D, entry: DecodedSvgEntry): 
   }
 };
 
-const drawDecodedMedia = (ctx: CanvasRenderingContext2D, entry: DecodedMediaEntry, fit: "contain" | "cover", mode: ThemeMode): void => {
+const drawDecodedMedia = (
+  ctx: CanvasRenderingContext2D,
+  entry: DecodedMediaEntry,
+  fit: "contain" | "cover",
+  mode: ThemeMode,
+  cw: number,
+  ch: number,
+): void => {
   const ground = resolveColour({ token: "shadow-2" }, themeFor(mode));
   if (ground !== undefined) {
     ctx.fillStyle = gpuColorCss(ground);
-    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.fillRect(0, 0, cw, ch);
   }
-  drawFitted(ctx, entry.bitmap, entry.bitmap.width, entry.bitmap.height, fit);
+  drawFitted(ctx, entry.bitmap, entry.bitmap.width, entry.bitmap.height, fit, cw, ch);
 };
 
 /** Synchronous sprite rasterizer: marks, glyphs, and any already-decoded SVG or media source. */
@@ -1882,16 +1974,16 @@ export const rasterizeSpriteSync: SpriteRasterizeSync = (quad, mode, scale) => {
     const cached = decodedSvgs.get(`${mode}:${ref.key}`);
     if (cached === undefined) return undefined;
     const { canvas, ctx } = getDrawScratch(w, h);
-    drawDecodedSvg(ctx, cached);
-    return canvas;
+    drawDecodedSvg(ctx, cached, w, h);
+    return { source: canvas, width: w, height: h };
   }
 
   if (ref.atlas === "media") {
     const cached = decodedMedia.get(ref.ref);
     if (cached === undefined) return undefined;
     const { canvas, ctx } = getDrawScratch(w, h);
-    drawDecodedMedia(ctx, cached, ref.fit, mode);
-    return canvas;
+    drawDecodedMedia(ctx, cached, ref.fit, mode, w, h);
+    return { source: canvas, width: w, height: h };
   }
 
   const { canvas, ctx } = getDrawScratch(w, h);
@@ -1901,41 +1993,41 @@ export const rasterizeSpriteSync: SpriteRasterizeSync = (quad, mode, scale) => {
     ctx.drawImage(
       atlas,
       ref.cell.col * MARK_CELL, ref.cell.row * MARK_CELL, MARK_CELL, MARK_CELL,
-      0, 0, canvas.width, canvas.height,
+      0, 0, w, h,
     );
-    return canvas;
+    return { source: canvas, width: w, height: h };
   }
   const ink = resolveColour(quad.style.ink, themeFor(mode)) ?? { r: 1, g: 1, b: 1, a: 1 };
-  const side = Math.min(canvas.width, canvas.height);
+  const side = Math.min(w, h);
   ctx.save();
-  ctx.translate((canvas.width - side) / 2, (canvas.height - side) / 2);
+  ctx.translate((w - side) / 2, (h - side) / 2);
   drawGlyph(ctx, ref.name, side, ink);
   ctx.restore();
-  return canvas;
+  return { source: canvas, width: w, height: h };
 };
 
 export const rasterizeSprite: SpriteRasterize = async (quad, mode, scale) => {
   const ref = quad.sprite;
   if (ref === undefined) throw new Error("rasterizeSprite needs a sprite quad");
   if (ref.atlas === "mark" || ref.atlas === "glyph") {
-    const canvas = rasterizeSpriteSync(quad, mode, scale) as HTMLCanvasElement;
-    return createImageBitmap(canvas);
+    const region = rasterizeSpriteSync(quad, mode, scale) as AtlasCanvasRegion;
+    return createImageBitmap(region.source, 0, 0, region.width, region.height);
   }
   const w = Math.max(1, Math.ceil(quad.rect.width * scale));
   const h = Math.max(1, Math.ceil(quad.rect.height * scale));
 
   if (ref.atlas === "image") {
     const entry = await decodeSvgSourceOnce(ref, mode);
-    const { canvas, ctx } = canvas2d(w, h);
-    drawDecodedSvg(ctx, entry);
-    return createImageBitmap(canvas);
+    const { canvas, ctx } = getDrawScratch(w, h);
+    drawDecodedSvg(ctx, entry, w, h);
+    return { source: canvas, width: w, height: h };
   }
 
   // media: decode once per file, draw fitted at any scale
   const entry = await decodeMediaSourceOnce(ref);
-  const { canvas, ctx } = canvas2d(w, h);
-  drawDecodedMedia(ctx, entry, ref.fit, mode);
-  return createImageBitmap(canvas);
+  const { canvas, ctx } = getDrawScratch(w, h);
+  drawDecodedMedia(ctx, entry, ref.fit, mode, w, h);
+  return { source: canvas, width: w, height: h };
 };
 
 // --- OffscreenCanvas worker pool for off-main-thread rasterization -----------
