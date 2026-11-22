@@ -41,6 +41,7 @@ import {
 import { modelStore } from "../../lib/use-model";
 import { openCanvasMenu } from "./canvas-menu";
 import { holdWireMode } from "./wire-mode";
+import { installWheelLatch } from "../../lib/wheel-latch";
 import type { CanvasInput, Hit, Intent, Point, SelectionFact } from "../contract";
 
 /** The menus the pointer machine asks for, all opened by the shell. */
@@ -474,8 +475,7 @@ export const attachCanvasInput = (engine: InputEngine, canvas: HTMLCanvasElement
   };
   const onCancel = (event: PointerEvent): void => pointer("cancel", event);
   const onLeave = (event: PointerEvent): void => pointer("leave", event);
-  const onWheel = (event: WheelEvent): void => {
-    event.preventDefault();
+  const wheelInput = (event: WheelEvent): void => {
     engine.input({
       kind: "wheel",
       at: point(event),
@@ -484,6 +484,19 @@ export const attachCanvasInput = (engine: InputEngine, canvas: HTMLCanvasElement
       deltaMode: event.deltaMode,
       modifiers: modifiersOf(event),
     });
+  };
+  // Wheel transactions (wheel-latch.ts): once a wheel gesture pans or zooms
+  // the board, a wire label, card overlay or editor that arrives under the
+  // still pointer cannot take the rest of it.
+  const wheel = installWheelLatch({
+    surface: () => (canvas.isConnected ? canvas.getBoundingClientRect() : null),
+    ownTarget: (target) => target === canvas,
+    forward: wheelInput,
+  });
+  const onWheel = (event: WheelEvent): void => {
+    event.preventDefault();
+    wheel.latch.took(performance.now());
+    wheelInput(event);
   };
   const onContextMenu = (event: MouseEvent): void => {
     // The canvas draws its own menu from the pointer intent.
@@ -520,6 +533,7 @@ export const attachCanvasInput = (engine: InputEngine, canvas: HTMLCanvasElement
     canvas.removeEventListener("pointercancel", onCancel);
     canvas.removeEventListener("pointerleave", onLeave);
     canvas.removeEventListener("wheel", onWheel);
+    wheel.dispose();
     canvas.removeEventListener("contextmenu", onContextMenu);
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);

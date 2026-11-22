@@ -61,6 +61,7 @@ import { SeatOffboardMenuRows } from "./nodes/SeatOffboard";
 import { AGENT_BROADCAST_PROMPTS, type AgentBroadcastKind } from "@shared/agent-broadcast-prompts";
 import { placeAtPoint, placeBesideRect, type ScreenRect } from "../lib/menu-placement";
 import { findOpenPosition, syncPositions } from "../lib/geometry";
+import { copyWheel, installWheelLatch, type WheelLatch } from "../lib/wheel-latch";
 import { observe } from "@legendapp/state";
 import { heldBy } from "../lib/model-edits";
 import { modelStore, nodeAt, titleAt, useCanvas } from "../lib/use-model";
@@ -1186,6 +1187,33 @@ function CanvasGraph() {
     setConnectMenu(null);
     setSeatMenu(null);
   }, []);
+  // Wheel transactions (wheel-latch.ts): once a wheel gesture pans the board,
+  // a card, terminal or label that scrolls under the still pointer cannot
+  // take the rest of it, so the pan never stops on something it passes.
+  const flowRef = useRef<HTMLDivElement | null>(null);
+  const wheelLatch = useRef<WheelLatch | null>(null);
+  useEffect(() => {
+    const pane = (): HTMLElement | null => flowRef.current?.querySelector<HTMLElement>(".react-flow__pane") ?? null;
+    const { latch, dispose } = installWheelLatch({
+      surface: () => pane()?.getBoundingClientRect() ?? null,
+      ownTarget: (target) => target !== null && target === pane(),
+      forward: (event) => {
+        pane()?.dispatchEvent(copyWheel(event));
+      },
+    });
+    wheelLatch.current = latch;
+    return () => {
+      wheelLatch.current = null;
+      dispose();
+    };
+  }, []);
+  const onFlowMove = useCallback((event: MouseEvent | TouchEvent | null) => {
+    if (event instanceof WheelEvent) wheelLatch.current?.took(performance.now());
+  }, []);
+  const onFlowMoveStart = useCallback((event: MouseEvent | TouchEvent | null) => {
+    onFlowMove(event);
+    closeMenus();
+  }, [onFlowMove, closeMenus]);
   const openContextMenu = useCallback((at: { x: number; y: number }) => {
     setMultiMenu(null);
     setConnectMenu(null);
@@ -1356,6 +1384,7 @@ function CanvasGraph() {
   return <CanvasPerformanceBoundary>
     <LegacyCanvasApiProvider>
     <ReactFlow
+      ref={flowRef}
       className={[
         "junto-canvas",
         connecting ? "is-connecting" : "",
@@ -1376,7 +1405,8 @@ function CanvasGraph() {
       onSelectionEnd={onSelectionEnd}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      onMoveStart={closeMenus}
+      onMoveStart={onFlowMoveStart}
+      onMove={onFlowMove}
       connectionMode={ConnectionMode.Loose}
       connectionRadius={42}
       panOnScroll
