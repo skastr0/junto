@@ -221,6 +221,8 @@ export type WireScene = {
   readonly wires: () => number;
   /** The last tier-crossing repaint, ms. */
   readonly refreshMs: () => number;
+  /** The last motion step, ms. */
+  readonly stepMs: () => number;
   /** Every strip pool's CPU bytes (vertices and indices). */
   readonly poolBytes: () => number;
   /** Wires the loom has not answered yet, all and those whose ends' box meets the view (a measurement). */
@@ -1051,7 +1053,9 @@ export const createWireScene = (host: WireHost): WireScene => {
     return false;
   };
 
+  let stepMs = 0;
   const stepMotion = (at: number): boolean => {
+    const started = performance.now();
     let moving = false;
     activePulses = 0;
     pulseDraws = [];
@@ -1061,20 +1065,31 @@ export const createWireScene = (host: WireHost): WireScene => {
         running.delete(id);
         continue;
       }
+      // A wire no one can see takes no motion this frame. Its tweens are
+      // time-based, so the frame that brings it back writes the values the
+      // clock has reached, never a restart and never a jump.
+      const visible = inView(entry);
       const easing = !tweenDone(entry.opacity, at) || !tweenDone(entry.trackAlpha, at) || !tweenDone(entry.glowAlpha, at);
       // The frame a transition ends writes its final value, once.
       if (easing || entry.settling) {
         entry.settling = easing;
-        if (!easing && entry.glowAlpha.to === 0 && entry.glowStrip !== undefined) {
-          // A finished fade-out frees the glow strip.
-          entry.glowPasses = [];
-          syncGlowStrip(entry);
+        if (visible) {
+          if (!easing && entry.glowAlpha.to === 0 && entry.glowStrip !== undefined) {
+            // A finished fade-out frees the glow strip.
+            entry.glowPasses = [];
+            syncGlowStrip(entry);
+          }
+          writeRecord(entry, at);
         }
-        writeRecord(entry, at);
-        if (easing && inView(entry)) moving = true;
+        if (easing && visible) moving = true;
       }
       const pulse = entry.pulse;
-      if (pulse !== undefined) {
+      if (pulse !== undefined && !visible) {
+        // Its draw is off screen; its expiry is bookkeeping, and it still
+        // holds a place under the cap until it ends.
+        if (at >= pulse.startedAt + WIRE_PULSE_MS) clearPulse(entry);
+        else activePulses += 1;
+      } else if (pulse !== undefined) {
         const length = entry.line?.length ?? 0;
         const token = tokenRgba(pulseToken(pulse.kind), mode);
         const folded = entry.paint.pulseOpacity;
@@ -1103,6 +1118,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       }
       if (!easing && !entry.settling && entry.pulse === undefined) running.delete(id);
     }
+    stepMs = performance.now() - started;
     return moving;
   };
 
@@ -1219,8 +1235,8 @@ export const createWireScene = (host: WireHost): WireScene => {
     for (const id of running) {
       const entry = entries.get(id);
       if (entry === undefined) continue;
-      if (entry.pulse !== undefined) return true;
       if (!inView(entry)) continue;
+      if (entry.pulse !== undefined) return true;
       if (!tweenDone(entry.opacity, at) || !tweenDone(entry.trackAlpha, at) || !tweenDone(entry.glowAlpha, at)) return true;
     }
     return false;
@@ -1402,6 +1418,7 @@ export const createWireScene = (host: WireHost): WireScene => {
     builds: () => builds,
     wires: () => entries.size,
     refreshMs: () => refreshMs,
+    stepMs: () => stepMs,
     poolBytes: () =>
       [pool, glowPool, trackPool].reduce(
         (bytes, each) => bytes + each.vertices().byteLength + each.indices().byteLength,

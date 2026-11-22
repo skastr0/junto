@@ -388,8 +388,8 @@ describe("the wire scene", () => {
     const cards = new Map<string, Rect>();
     const wires: WireFact[] = [];
     for (let i = 0; i < 30; i += 1) {
-      cards.set(`s${i}`, rect(0, i * 200));
-      cards.set(`t${i}`, rect(600, i * 200));
+      cards.set(`s${i}`, rect(0, i * 20));
+      cards.set(`t${i}`, rect(600, i * 20));
       wires.push(wire(`w${i}`, `s${i}`, `t${i}`));
     }
     const { scene, frame } = makeScene(cards);
@@ -400,6 +400,27 @@ describe("the wire scene", () => {
       frame(T0 + 1);
     }
     expect(scene.pulses().length).toBe(24);
+  });
+
+  it("steps no motion for a wire no one can see, and rejoins at the clock", () => {
+    const cards = new Map<string, Rect>([
+      ["a", rect(0, 4000)],
+      ["b", rect(600, 4000)],
+    ]);
+    const { scene, frame } = makeScene(cards);
+    scene.apply(load([wire("w", "a", "b")]));
+    frame(T0);
+    scene.apply({ kind: "pulse", wireId: "w", at: T0 });
+    // Off screen: no step, no draw, and the frame is not busy for it.
+    expect(frame(T0 + 1)).toBe(false);
+    expect(scene.pulses()).toEqual([]);
+    // On screen: the same pulse is mid-flight at the clock's phase, not restarted.
+    cards.set("a", rect(0, 0));
+    cards.set("b", rect(600, 0));
+    scene.apply({ kind: "card", fact: { id: "a" } } as unknown as SceneOp);
+    scene.apply({ kind: "card", fact: { id: "b" } } as unknown as SceneOp);
+    expect(frame(T0 + 2)).toBe(true);
+    expect(scene.pulses().length).toBe(1);
   });
 
   it("picks only in the loupe or the cone, within 10 units, on the wire and not past its end", () => {
