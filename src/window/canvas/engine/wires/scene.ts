@@ -116,8 +116,12 @@ type Entry = {
   readonly id: WireId;
   readonly slot: number;
   fact: WireFact;
-  /** The live rectangles the route was built against, as eight numbers; NaN when a card is missing. */
-  ends: [number, number, number, number, number, number, number, number];
+  /**
+   * The live rectangles the route was built against, as eight numbers, then
+   * the visible body each end attaches to as eight more (NaN when a card is
+   * missing or has no body of its own at this tier).
+   */
+  ends: ReadonlyArray<number>;
   route: WireRoute | undefined;
   line: WireLine | undefined;
   bounds: { minX: number; minY: number; maxX: number; maxY: number } | undefined;
@@ -144,6 +148,13 @@ type Entry = {
 export type WireHost = {
   /** A card's live board rectangle, dragged or not; undefined when it is not on the board. */
   readonly rectOf: (id: NodeId) => Rect | undefined;
+  /**
+   * The filled body a card actually draws at this tier, when it is smaller
+   * than its card (the mid tier's name-hugging seat pill). A wire attaches to
+   * that visible edge, never to the card's invisible one. Undefined when the
+   * card draws its whole box or has no body.
+   */
+  readonly surfaceOf?: (id: NodeId) => Rect | undefined;
   readonly mode?: ThemeMode;
   /** Reduced motion: tracks hold still, pulses hold the wire, nothing eases. */
   readonly reducedMotion?: () => boolean;
@@ -403,17 +414,38 @@ export const createWireScene = (host: WireHost): WireScene => {
 
   // --- routes ---------------------------------------------------------------
 
-  const NAN_ENDS: Entry["ends"] = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN];
+  const NAN_ENDS: Entry["ends"] = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN];
+  const rectNums = (rect: Rect | undefined): ReadonlyArray<number> =>
+    rect === undefined ? [NaN, NaN, NaN, NaN] : [rect.x, rect.y, rect.width, rect.height];
 
-  const readEnds = (entry: Entry): { ends: Entry["ends"]; from: Rect | undefined; to: Rect | undefined } => {
+  const readEnds = (
+    entry: Entry,
+  ): {
+    ends: Entry["ends"];
+    from: Rect | undefined;
+    to: Rect | undefined;
+    fromSurface: Rect | undefined;
+    toSurface: Rect | undefined;
+  } => {
     const from = host.rectOf(entry.fact.row.from);
     const to = host.rectOf(entry.fact.row.to);
-    if (from === undefined || to === undefined) return { ends: NAN_ENDS, from, to };
-    return { ends: [from.x, from.y, from.width, from.height, to.x, to.y, to.width, to.height], from, to };
+    const fromSurface = host.surfaceOf?.(entry.fact.row.from);
+    const toSurface = host.surfaceOf?.(entry.fact.row.to);
+    if (from === undefined || to === undefined) return { ends: NAN_ENDS, from, to, fromSurface, toSurface };
+    return {
+      ends: [
+        from.x, from.y, from.width, from.height, to.x, to.y, to.width, to.height,
+        ...rectNums(fromSurface), ...rectNums(toSurface),
+      ],
+      from,
+      to,
+      fromSurface,
+      toSurface,
+    };
   };
 
   const sameEnds = (a: Entry["ends"], b: Entry["ends"]): boolean => {
-    for (let i = 0; i < 8; i += 1) {
+    for (let i = 0; i < a.length; i += 1) {
       const x = a[i]!;
       const y = b[i]!;
       if (x !== y && !(Number.isNaN(x) && Number.isNaN(y))) return false;
@@ -448,14 +480,67 @@ export const createWireScene = (host: WireHost): WireScene => {
     );
   };
 
-  const routeFor = (entry: Entry, from: Rect, to: Rect): WireRoute => {
+  /**
+   * Where a card's drawn body meets a side, on the axis the side's normal runs.
+   */
+  const faceOf = (surface: Rect, side: WireDirection): number => {
+    switch (side) {
+      case "left":
+        return surface.x;
+      case "right":
+        return surface.x + surface.width;
+      case "top":
+        return surface.y;
+      case "bottom":
+        return surface.y + surface.height;
+    }
+  };
+
+  /**
+   * One end of a route, taken out to the body its card actually draws: the
+   * mid tier's pill, narrower than the card's box. The body's face is added
+   * at the end, the route's own anchor kept. For a planned route or an elbow
+   * the three points are collinear on the side's normal, so the wire simply
+   * starts (or stops) on the pill instead of short of it; for a cable strand,
+   * whose first leg can run across, the face becomes the short lead out of the
+   * pill and the strand's own handle point follows. A side the body does not
+   * inset (the pill's left, top and bottom faces are the card's) is untouched.
+   */
+  const attachEnd = (points: ReadonlyArray<Point>, role: "source" | "target", side: WireDirection, surface: Rect | undefined): ReadonlyArray<Point> => {
+    if (surface === undefined || points.length < 2) return points;
+    const at = role === "source" ? 0 : points.length - 1;
+    const point = points[at];
+    if (point === undefined) return points;
+    const face = faceOf(surface, side);
+    const horizontal = side === "left" || side === "right";
+    const anchor = horizontal ? point.x : point.y;
+    // Already on or inside the face (or a body that does not inset this side).
+    const outside = side === "right" || side === "bottom" ? anchor > face : anchor < face;
+    if (!outside) return points;
+    const lead: Point = horizontal ? { x: face, y: point.y } : { x: point.x, y: face };
+    return role === "source" ? [lead, ...points] : [...points, lead];
+  };
+
+  const attach = (
+    points: ReadonlyArray<Point>,
+    sourceSide: WireDirection,
+    targetSide: WireDirection,
+    fromSurface: Rect | undefined,
+    toSurface: Rect | undefined,
+  ): ReadonlyArray<Point> => {
+    if (fromSurface === undefined && toSurface === undefined) return points;
+    const withSource = attachEnd(points, "source", sourceSide, fromSurface);
+    return attachEnd(withSource, "target", targetSide, toSurface);
+  };
+
+  const routeFor = (entry: Entry, from: Rect, to: Rect, fromSurface: Rect | undefined, toSurface: Rect | undefined): WireRoute => {
     const fact = facts.get(entry.id);
     const holds = fact !== undefined && planHolds(fact, from, to);
     if (holds && fact.points !== undefined && fact.points.length >= 2) {
       const cable = fact.cable;
       return {
         kind: cable ? "strand" : "route",
-        points: fact.points,
+        points: attach(fact.points, fact.sourceSide, fact.targetSide, fromSurface, toSurface),
         radius: cable ? SPINE_RADIUS : ROUTE_RADIUS,
         rounding: "orthogonal",
         label: { x: 0, y: 0 },
@@ -463,7 +548,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       };
     }
     const sides = holds ? { source: fact.sourceSide, target: fact.targetSide } : wireSides(from, to);
-    return routeOfElbow(
+    const elbow = routeOfElbow(
       {
         source: handleEnd(from, sides.source, "source"),
         sourceSide: sides.source,
@@ -472,10 +557,11 @@ export const createWireScene = (host: WireHost): WireScene => {
       },
       holds ? fact.lane : undefined,
     );
+    return { ...elbow, points: attach(elbow.points, sides.source, sides.target, fromSurface, toSurface) };
   };
 
   const rebuild = (entry: Entry, now: number): void => {
-    const { ends, from, to } = readEnds(entry);
+    const { ends, from, to, fromSurface, toSurface } = readEnds(entry);
     entry.ends = ends;
     if (from === undefined || to === undefined) {
       pool.free(entry.strip);
@@ -493,7 +579,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       pickList = undefined;
       return;
     }
-    const route = routeFor(entry, from, to);
+    const route = routeFor(entry, from, to, fromSurface, toSurface);
     const line = wireLine(route);
     entry.route = route;
     entry.line = line;
@@ -501,9 +587,16 @@ export const createWireScene = (host: WireHost): WireScene => {
     // An elbow's label is React Flow's, on its longest run; a route's is its midpoint.
     entry.label = route.kind === "elbow" ? route.label : pointAt(line, line.length / 2);
     labelsRevision += 1;
+    // The previous strip is handed back to the pool, never dropped: a wire
+    // whose route changes must not leave its slice behind, and a zero-length
+    // route frees it rather than orphaning it.
     const strip: WireStrip = buildStrip(line, WIRE_HALF_WIDTH, { slot: entry.slot });
-    entry.strip = strip.count > 0 ? pool.put(entry.strip, strip.vertices, strip.count) : undefined;
-    if (strip.count === 0 && entry.strip === undefined) pool.free(entry.strip);
+    if (strip.count > 0) {
+      entry.strip = pool.put(entry.strip, strip.vertices, strip.count);
+    } else {
+      pool.free(entry.strip);
+      entry.strip = undefined;
+    }
     if (isTrackVerb(entry.fact.row.verb)) {
       entry.layout = trackLayout(route, tier);
       tracksDirty = true;

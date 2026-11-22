@@ -14,8 +14,12 @@ const T0 = 1_700_000_000_000;
 const wire = (id: string, from: string, to: string, verb: "messages" | "flows" | "derives" | "navigates" = "messages"): WireFact =>
   ({ id, row: { id, from, to, verb } }) as unknown as WireFact;
 
-const makeScene = (cards: Map<string, Rect>, reducedMotion = false) => {
-  const scene = createWireScene({ rectOf: (id: NodeId) => cards.get(id), reducedMotion: () => reducedMotion });
+const makeScene = (cards: Map<string, Rect>, reducedMotion = false, surfaces?: Map<string, Rect>) => {
+  const scene = createWireScene({
+    rectOf: (id: NodeId) => cards.get(id),
+    ...(surfaces === undefined ? {} : { surfaceOf: (id: NodeId) => surfaces.get(id) }),
+    reducedMotion: () => reducedMotion,
+  });
   const frame = (at: number, tier: WireFrame["tier"] = "near"): boolean =>
     scene.frame({ camera: { x: 0, y: 0, zoom: 1 }, width: 1600, height: 1000, pixelRatio: 2, tier, wall: at });
   return { scene, frame };
@@ -105,6 +109,58 @@ describe("the wire scene", () => {
     frame(T0 + 16);
     expect(scene.labelsRevision()).toBeGreaterThan(revision);
     expect(scene.labelsInView()[0]!.at).toEqual(scene.labelOf("w"));
+  });
+
+  it("attaches a wire end to the body the seat draws, and moves it when that body changes", () => {
+    const cards = board();
+    const surfaces = new Map<string, Rect>([["a", rect(0, 0, 150, 96)]]);
+    const { scene, frame } = makeScene(cards, false, surfaces);
+    scene.apply(load([wire("w", "a", "b")]));
+    const planned = [
+      { x: 260, y: 48 },
+      { x: 430, y: 48 },
+      { x: 430, y: 200 },
+      { x: 600, y: 200 },
+      { x: 600, y: 48 },
+    ];
+    const fact: WireRouteFact = {
+      id: "w",
+      sourceSide: "right",
+      targetSide: "left",
+      source: { x: 260, y: 48 },
+      target: { x: 600, y: 48 },
+      lane: { source: { x: 0, y: 0 }, target: { x: 0, y: 0 } },
+      points: planned,
+      cable: false,
+    };
+    scene.apply({ kind: "routes", set: [fact], remove: [] });
+    frame(T0, "mid");
+    // The pill's right edge is at 150; the plan's own end at 260 is outside it.
+    const points = scene.inspect("w")!.points;
+    expect(points.slice(0, 2)).toEqual([{ x: 150, y: 48 }, { x: 260, y: 48 }]);
+    // Everything after the plan's own end is the router's geometry, unchanged.
+    expect(points.slice(2)).toEqual(planned.slice(1));
+    // The far end (a left side) needs no move: the pill's left edge is the card's.
+    expect(points[points.length - 1]).toEqual({ x: 600, y: 48 });
+
+    // A wider pill (a longer name) re-attaches on the next frame.
+    surfaces.set("a", rect(0, 0, 170, 96));
+    frame(T0 + 16, "mid");
+    expect(scene.inspect("w")!.points[0]).toEqual({ x: 170, y: 48 });
+  });
+
+  it("attaches a fallback elbow's end to the drawn body too", () => {
+    const cards = board();
+    const surfaces = new Map<string, Rect>([["a", rect(0, 0, 150, 96)]]);
+    const { scene, frame } = makeScene(cards, false, surfaces);
+    scene.apply(load([wire("w", "a", "b")]));
+    frame(T0, "mid");
+    const points = scene.inspect("w")!.points;
+    // The elbow's source sits 2 units out of the card's right edge; it now
+    // starts on the pill and runs straight out.
+    expect(points[0]).toEqual({ x: 150, y: 48 });
+    expect(points[1]!.y).toBe(48);
+    expect(points[1]!.x).toBeGreaterThan(150);
   });
 
   it("marks a cable member by its narrow hit width", () => {

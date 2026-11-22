@@ -190,7 +190,13 @@ export function GpuCanvas({ onUnavailable }: Props) {
     // lens registers the same listener for its own invalidate.
     const offAtlasDirty = onGpuAtlasDirty(() => engine.invalidate());
     wires = createWireLayer({
-      rectOf: (id) => engine.rectOf(id),
+      // The model's own rectangles, with a dragged or resized card's live one
+      // first: a wire whose cards are off screen keeps its ends (and its
+      // strip) instead of blinking out with them.
+      rectOf: (id) => mirror.boardRectOf(id),
+      // Where the seat actually draws, so a wire meets the mid pill's edge
+      // rather than the card's invisible one.
+      surfaceOf: (id) => engine.surfaceOf?.(id),
       device: keeper,
       mode: themeMode$.peek(),
       reducedMotion: () => reducedMotion?.matches ?? false,

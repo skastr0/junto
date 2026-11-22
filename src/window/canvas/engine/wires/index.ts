@@ -27,6 +27,8 @@ export type { WireFrame, WireInspect, WireLabel, UploadRange };
 export type WireLayerOptions = {
   /** A card's live board rectangle. */
   readonly rectOf: (id: NodeId) => Rect | undefined;
+  /** The visible body a card draws at this tier, when it is narrower than the card. */
+  readonly surfaceOf?: (id: NodeId) => Rect | undefined;
   /** The device keeper: the layer builds on the ready device and its surface format. */
   readonly device: DeviceKeeper;
   readonly mode?: ThemeMode;
@@ -57,6 +59,7 @@ export type WiresLayer = {
 export const createWireLayer = (options: WireLayerOptions): WiresLayer => {
   const scene = createWireScene({
     rectOf: options.rectOf,
+    ...(options.surfaceOf ? { surfaceOf: options.surfaceOf } : {}),
     ...(options.mode ? { mode: options.mode } : {}),
     ...(options.reducedMotion ? { reducedMotion: options.reducedMotion } : {}),
   });
