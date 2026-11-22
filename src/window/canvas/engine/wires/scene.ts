@@ -41,6 +41,8 @@ import {
   viewOfMode,
   wireLine,
   wirePaint,
+  tierHide,
+  tierScale,
   WIRE_HALF_WIDTH,
   WIRE_TRANSITIONS,
   FULL_OPACITY,
@@ -194,6 +196,7 @@ export type WireUniforms = {
   readonly camera: readonly [x: number, y: number, zoom: number, pixelRatio: number];
   readonly view: readonly [width: number, height: number, pulseHalf: number, hairHalf: number];
   readonly track: readonly [period: number, flowsOffset: number, derivesOffset: number, derivesOpacity: number];
+  readonly tier: readonly [opacityScale: number, overviewHide: number];
 };
 
 export type WireScene = {
@@ -1117,7 +1120,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       } else if (pulse !== undefined) {
         const length = entry.line?.length ?? 0;
         const token = tokenRgba(pulseToken(pulse.kind), mode);
-        const folded = entry.paint.pulseOpacity;
+        const folded = tier === "near" ? entry.paint.pulseOpacity : 0;
         if (reduced()) {
           const hold = pulseHold(pulse.startedAt, at);
           if (hold === undefined) clearPulse(entry);
@@ -1233,7 +1236,8 @@ export const createWireScene = (host: WireHost): WireScene => {
     if (moved || resized) visibleDirty = true;
     if (f.tier !== tier) {
       tier = f.tier;
-      refreshAll(now);
+      // The tier's scale and overview hide are uniforms; no wire repaints.
+      refreshMs = 0;
       relayoutTracks();
       // A crossing changes the body a card draws, not the plan: the body
       // strip and the mid pill strip are each kept, and a crossing swaps one
@@ -1341,6 +1345,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       camera: [camera.x, camera.y, camera.zoom, pixelRatio],
       view: [viewSize.width, viewSize.height, PULSE_HALF_WIDTH, WIRE_HALF_WIDTH],
       track: [flows.period, flows.offset, derives.offset, derives.opacity],
+      tier: [tierScale(tier), tierHide(tier)],
     };
   };
 

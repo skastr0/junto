@@ -46,6 +46,8 @@ import {
   wireHit,
   wireLine,
   wirePaint,
+  tierHide,
+  tierScale,
   type WireLine,
   type WireRoute,
   type WireStrip,
@@ -643,14 +645,20 @@ describe("style facts", () => {
       ["connecting", false, 0.9],
       ["cone", true, 1],
       ["cone", false, 0.07 * 0.12],
-      ["far", false, 0.07 * 0.4],
-      ["overview", false, 0],
+      ["far", false, 0.07],
+      ["overview", false, 0.07],
     ];
     for (const [mode, inCone, opacity] of table) {
       expect(wirePaint(viewOfMode(mode), { ...look, inCone }).opacity, `${mode} ${inCone}`).toBeCloseTo(opacity, 10);
     }
-    // The modes compose: the loupe at far, the loupe outside a cone.
-    expect(wirePaint(viewOfMode("loupe", "far"), look).opacity).toBeCloseTo(0.9 * 0.4, 10);
+    // The tier's scale and hide are a uniform, so a tier change costs no
+    // per-wire repaint; the paint carries the base opacity.
+    expect(tierScale("far")).toBe(0.4);
+    expect(tierHide("overview")).toBe(1);
+    expect(tierScale("near")).toBe(1);
+    expect(tierHide("far")).toBe(0);
+    // The modes compose: the loupe at far keeps the loupe's opacity.
+    expect(wirePaint(viewOfMode("loupe", "far"), look).opacity).toBeCloseTo(0.9, 10);
     expect(wirePaint({ ...viewOfMode("cone"), loupe: true }, look).opacity).toBeCloseTo(0.9 * 0.12, 10);
     // Selected is always shown in full, but still steps back outside a cone.
     expect(wirePaint(viewOfMode("rest"), { ...look, selected: true }).opacity).toBe(1);

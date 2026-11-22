@@ -309,6 +309,8 @@ export const createWireGpu = (scene: WireScene): WireGpu => {
     uniformData[15] = DERIVE_TIP;
     uniformData[16] = TRACK_WIDTH;
     uniformData[17] = DERIVE_STROKE;
+    uniformData[18] = u.tier[0];
+    uniformData[19] = u.tier[1];
     device.queue.writeBuffer(r.uniform, 0, uniformData);
     for (const range of uploads) bytes += range.size;
   };

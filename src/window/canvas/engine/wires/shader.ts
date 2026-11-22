@@ -28,6 +28,7 @@ struct Uniforms {
   track: vec4f,   // period, flows offset, derives offset, derives opacity
   mark: vec4f,    // chevron arm, spread, derives back, derives tip
   mark2: vec4f,   // track stroke width, derives stroke, 0, 0
+  tier: vec2f,    // opacity scale, overview hide (tracks stay)
 };
 
 struct Wire {
@@ -164,7 +165,8 @@ fn fs_wire(f: VOut) -> @location(0) vec4f {
   let coverage = clamp((drawn - d) / pixel() + 0.5, 0.0, 1.0);
   // The width that is not drawn wide enough to be seen is paid for in alpha.
   let thin = min(1.0, f.widths.x / drawn);
-  let alpha = wire.look.x * coverage * thin * wire.colour.a;
+  let tier = u.tier.x * (1.0 - u.tier.y * (1.0 - step(0.5, wire.look.z)));
+  let alpha = wire.look.x * coverage * thin * tier * wire.colour.a;
   return premultiplied(wire.colour.rgb, alpha);
 }
 
@@ -189,7 +191,8 @@ fn fs_glow(f: VOut) -> @location(0) vec4f {
   let hair = u.view.w;
   let a = wire.glow.y * glowCoverage(d, hair, wire.glow.x);
   let b = wire.glow.w * glowCoverage(d, hair, wire.glow.z);
-  let alpha = (1.0 - (1.0 - clamp(a, 0.0, 1.0)) * (1.0 - clamp(b, 0.0, 1.0))) * wire.colour.a;
+  let tier = u.tier.x * (1.0 - u.tier.y * (1.0 - step(0.5, wire.look.z)));
+  let alpha = (1.0 - (1.0 - clamp(a, 0.0, 1.0)) * (1.0 - clamp(b, 0.0, 1.0))) * tier * wire.colour.a;
   return premultiplied(wire.colour.rgb, alpha);
 }
 

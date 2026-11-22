@@ -96,6 +96,12 @@ export type WireView = {
 
 export const REST_VIEW: WireView = { loupe: false, connecting: false, focus: false, tier: "near" };
 
+/** The tier's opacity scale, a shader uniform: far steps wires back, overview hides all but tracks. */
+export const tierScale = (tier: WireView["tier"]): number => (tier === "far" ? FAR_STROKE_OPACITY : 1);
+
+/** 1 at overview, 0 elsewhere: the shader hides non-track wires by it. */
+export const tierHide = (tier: WireView["tier"]): number => (tier === "overview" ? 1 : 0);
+
 /**
  * The contract's single `WireMode` as a view. `far` and `overview` are tiers,
  * so a loupe at far is `{ ...viewOfMode("loupe"), tier: "far" }`.
@@ -164,12 +170,12 @@ export const wirePaint = (view: WireView, look: WireLook): WirePaint => {
   const track = isTrackVerb(look.verb);
   const coneIn = view.focus && look.inCone;
   const path = look.selected || coneIn ? FULL_OPACITY : view.loupe || view.connecting ? SHOWN_OPACITY : REST_OPACITY;
-  // A track wire's hairline is unpainted (factory-grammar.css:262-265); far steps the stroke back.
-  const stroke = track ? 0 : view.tier === "far" ? FAR_STROKE_OPACITY : 1;
   const group = view.focus && !look.inCone ? OUTSIDE_CONE_OPACITY : 1;
   // Overview hides every wire but a track's (canvas-lod-regions.css:109-117).
   const visible = view.tier !== "overview" || track;
-  const opacity = visible ? path * stroke * group : 0;
+  // The tier's own scale (far's step back, overview's hide) is a uniform the
+  // shader applies, so a tier change costs the same at any board size.
+  const opacity = track ? 0 : path * group;
   const pickable = visible && (view.loupe || coneIn);
   // The filter is on the path, so its glow is faded with it; a track's
   // hairline never glows (filter: none), its track does instead.

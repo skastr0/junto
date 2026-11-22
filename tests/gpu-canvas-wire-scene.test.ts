@@ -249,15 +249,18 @@ describe("the wire scene", () => {
     expect(record(scene, 1)[4]).toBeCloseTo(0.07, 5);
   });
 
-  it("steps back at far and hides at overview, but keeps a track", () => {
+  it("steps back at far and hides at overview by uniform, but keeps a track", () => {
     const { scene, frame } = makeScene(board());
     scene.apply(load([wire("w", "a", "b"), wire("f", "a", "c", "flows")]));
     frame(T0, "far");
     frame(T0 + 5000, "far");
-    expect(record(scene, 1)[4]).toBeCloseTo(0.07 * 0.4, 5);
+    // The wire keeps its base opacity; the tier's scale is a uniform.
+    expect(record(scene, 1)[4]).toBeCloseTo(0.07, 5);
+    expect(scene.uniforms().tier).toEqual([0.4, 0]);
     frame(T0 + 6000, "overview");
     frame(T0 + 11000, "overview");
-    expect(record(scene, 1)[4]).toBe(0);
+    expect(record(scene, 1)[4]).toBeCloseTo(0.07, 5);
+    expect(scene.uniforms().tier).toEqual([1, 1]);
     // The flows wire's hairline is never painted, its track always is.
     expect(record(scene, 2)[4]).toBe(0);
     expect(record(scene, 2)[6]).toBe(1);
