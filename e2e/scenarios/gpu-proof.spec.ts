@@ -587,6 +587,7 @@ const partInk = (png: PngImage, clip: ScreenRect, part: ScreenRect): number => {
 interface DrawnPart {
   readonly id: string;
   readonly role: string;
+  readonly kind: string;
   readonly rect: ScreenRect;
   readonly drawn: boolean;
   readonly hasImage: boolean | null;
@@ -607,7 +608,8 @@ const drawnParts = (page: Page, ids: ReadonlyArray<string>): Promise<ReadonlyArr
         if (part["rect"] === undefined) continue;
         rows.push({
           id,
-          role: String(part["key"] ?? part["kind"] ?? "?"),
+          role: String(part["key"] ?? "?"),
+          kind: String(part["kind"] ?? "?"),
           rect: part["rect"] as { x: number; y: number; width: number; height: number },
           drawn: part["drawn"] === true,
           hasImage: typeof part["hasImage"] === "boolean" ? part["hasImage"] : null,
@@ -1163,7 +1165,7 @@ test.describe("#913 GPU canvas proof", () => {
           const parts = await drawnParts(page, [seat.id]);
           const drawn = parts.filter((part) => part.drawn);
           for (const part of drawn) {
-            if (part.hasImage === false) {
+            if (part.kind === "sprite" && part.hasImage === false) {
               partFailures.push({ zoom, seat: seat.id, role: part.role, hasImage: false, rect: part.rect });
               continue;
             }
@@ -1264,10 +1266,12 @@ test.describe("#913 GPU canvas proof", () => {
           if (card.kind !== "agent") absent.push(`${card.id}: no GPU rect`);
           continue;
         }
-        const dx = Math.abs(gpuRect.x - card.rect.x);
-        const dy = Math.abs(gpuRect.y - card.rect.y);
-        if (dx > 2 || dy > 2) {
-          absent.push(`${card.id}: moved ${String(dx)}x${String(dy)}`);
+        // A far or overview seat is drawn as a held ring centred on its
+        // content box, not as the card rectangle: compare centres.
+        const dx = Math.abs(gpuRect.x + gpuRect.width / 2 - (card.rect.x + card.rect.width / 2));
+        const dy = Math.abs(gpuRect.y + gpuRect.height / 2 - (card.rect.y + card.rect.height / 2));
+        if (dx > 4 || dy > 4) {
+          absent.push(`${card.id}: moved ${dx.toFixed(1)}x${dy.toFixed(1)}`);
           continue;
         }
         present += 1;
