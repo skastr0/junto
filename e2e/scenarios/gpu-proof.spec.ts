@@ -62,6 +62,7 @@ import {
   waitGpuReady,
   wheelSweep,
   type BlankProbe,
+  type BootSplit,
   type FrameTrace,
   type ProofBoard,
   type ProofScale,
@@ -899,9 +900,10 @@ test.describe("#913 GPU canvas proof", () => {
       const junto = await launchProofArm(board, { gpu: true });
       try {
         const { page } = junto;
+        let bootSplit: BootSplit | null = null;
         const bootMs = await timed("boot", async () => {
           const bootAt = Date.now();
-          await waitGpuReady(page, board, Number(process.env["JUNTO_GPU_PROOF_READY_MS"] ?? 240_000));
+          bootSplit = await waitGpuReady(page, board, Number(process.env["JUNTO_GPU_PROOF_READY_MS"] ?? 240_000));
           await settleAtlas(page);
           return Date.now() - bootAt;
         });
@@ -932,6 +934,7 @@ test.describe("#913 GPU canvas proof", () => {
         await startBlankProbe(page);
         await page.screenshot({ path: join(dir, "boot.png") });
         report["bootMs"] = bootMs;
+        report["bootSplit"] = bootSplit;
         report["boot"] = boot;
         console.log(`machine ${JSON.stringify(machine)}`);
 

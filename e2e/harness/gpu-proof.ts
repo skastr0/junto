@@ -322,10 +322,43 @@ export const readProofState = (page: Page): Promise<ProofState> =>
   });
 
 /** The hook has a GPU engine and every seeded card is mirrored. */
-export const waitGpuReady = async (page: Page, board: ProofBoard, timeoutMs = 240_000): Promise<void> => {
+export interface BootSplit {
+  readonly firstFrameMs: number | null;
+  readonly cardsMs: number | null;
+  readonly readyMs: number | null;
+  readonly wiresMs: number | null;
+  readonly wireIndices: number | null;
+  readonly longestStallMs: number;
+  readonly longestFrameMs: number;
+}
+
+export const waitGpuReady = async (page: Page, board: ProofBoard, timeoutMs = 240_000): Promise<BootSplit> => {
   const deadline = Date.now() + timeoutMs;
   const startedAt = Date.now();
   let lastLog = startedAt;
+  let cardsMs: number | null = null;
+  let readyMs: number | null = null;
+  let wiresMs: number | null = null;
+  let wireIndices: number | null = null;
+  let stableIndices = 0;
+  await page.evaluate(() => {
+    const w = window as unknown as { __gpuBoot?: Record<string, unknown> };
+    if (w.__gpuBoot !== undefined) return;
+    const probe: Record<string, unknown> = { started: performance.now(), last: performance.now(), maxGap: 0, firstFrameAt: null, longestFrameMs: 0 };
+    w.__gpuBoot = probe;
+    setInterval(() => {
+      const now = performance.now();
+      const gap = now - Number(probe["last"]);
+      probe["last"] = now;
+      if (gap > Number(probe["maxGap"])) probe["maxGap"] = gap;
+      const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
+      const stats = hook?.["stats"]?.() as { frames?: number; lastFrameMs?: number } | undefined;
+      const frames = Number(stats?.frames ?? 0);
+      if (frames > 0 && probe["firstFrameAt"] === null) probe["firstFrameAt"] = now - Number(probe["started"]);
+      const lastFrame = Number(stats?.lastFrameMs ?? 0);
+      if (lastFrame > Number(probe["longestFrameMs"])) probe["longestFrameMs"] = lastFrame;
+    }, 10);
+  });
   for (;;) {
     const ready = await page.evaluate(
       (expected) => {
@@ -340,7 +373,34 @@ export const waitGpuReady = async (page: Page, board: ProofBoard, timeoutMs = 24
       },
       board.stats.seats,
     );
-    if (ready.ready && ready.cards >= board.stats.seats + board.stats.notes + board.stats.terminals && ready.regions === board.stats.regions) return;
+    const allCards = ready.cards >= board.stats.seats + board.stats.notes + board.stats.terminals && ready.regions === board.stats.regions;
+    if (allCards && cardsMs === null) cardsMs = Date.now() - startedAt;
+    if (ready.ready && readyMs === null) readyMs = Date.now() - startedAt;
+    const indices = await page.evaluate(() => {
+      const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
+      return Number((hook?.["wireStats"]?.() as { indices?: number } | undefined)?.indices ?? 0);
+    });
+    if (indices > 0 && indices === wireIndices) {
+      stableIndices += 1;
+      if (stableIndices >= 3 && wiresMs === null) wiresMs = Date.now() - startedAt;
+    } else {
+      stableIndices = 0;
+      wireIndices = indices > 0 ? indices : wireIndices;
+    }
+    if (ready.ready && allCards) {
+      const probe = await page.evaluate(
+        () => ((window as unknown as { __gpuBoot?: Record<string, unknown> }).__gpuBoot ?? null) as Record<string, unknown> | null,
+      );
+      return {
+        firstFrameMs: probe?.["firstFrameAt"] === null || probe?.["firstFrameAt"] === undefined ? null : Math.round(Number(probe["firstFrameAt"])),
+        cardsMs,
+        readyMs,
+        wiresMs,
+        wireIndices,
+        longestStallMs: Math.round(Number(probe?.["maxGap"] ?? 0)),
+        longestFrameMs: Math.round(Number(probe?.["longestFrameMs"] ?? 0)),
+      };
+    }
     if (Date.now() - lastLog >= 10_000) {
       lastLog = Date.now();
       console.log(
