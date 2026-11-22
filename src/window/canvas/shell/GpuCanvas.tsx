@@ -334,7 +334,14 @@ export function GpuCanvas({ onUnavailable }: Props) {
     const minimap = createGpuMinimapSource(mirror, api);
     setCanvasApi(api);
     setMinimapSource(minimap);
-    const offHook = installCanvasTestHook(mirror, () => engineRef.current, () => atlas.requests, () => atlas.pending);
+    const offHook = installCanvasTestHook(
+      mirror,
+      () => engineRef.current,
+      () => atlas.requests,
+      () => atlas.pending,
+      undefined,
+      () => wires?.stats(),
+    );
 
     return () => {
       offDelete();

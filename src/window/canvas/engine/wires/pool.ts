@@ -65,6 +65,9 @@ export const createStripPool = (initialUnits = 1024): StripPool => {
     indices.fill(RESTART, slice.start, slice.start + slice.cap);
     dirtyIndices.mark(slice.start, slice.start + slice.cap);
     allocator.release(slice.start, slice.cap);
+    // The draw covers the highest live run, not the highest ever used: a freed
+    // top strip lowers the high-water mark so the draw stops spanning it.
+    high = allocator.top();
   };
 
   const put: StripPool["put"] = (slice, strip, count) => {

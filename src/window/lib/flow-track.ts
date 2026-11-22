@@ -96,6 +96,16 @@ export type TrackRun = {
 
 type Stretch = { x: number; y: number; ux: number; uy: number; length: number; at: number };
 
+type PairRun = {
+  readonly id: string;
+  readonly index: number;
+  readonly run: TrackRun;
+  readonly ux: number;
+  readonly uy: number;
+  /** Position in the old all-pairs walk: pairing in that order keeps float results identical. */
+  readonly order: number;
+};
+
 /** The polyline as maximal straight stretches; zero-length pieces join their neighbours. */
 const stretchesOf = (points: ReadonlyArray<TrackPoint>): Stretch[] => {
   const out: Stretch[] = [];
@@ -160,27 +170,62 @@ export const trackRuns = (d: string, min: number, jog = 0): TrackRun[] => {
 export const trackClearances = (
   tracks: Readonly<Record<string, ReadonlyArray<TrackRun>>>,
 ): Record<string, number[]> => {
-  const all = Object.entries(tracks).flatMap(([id, runs]) =>
-    runs.map((run, index) => {
-      const rad = (run.angle * Math.PI) / 180;
-      return { id, index, run, ux: Math.cos(rad), uy: Math.sin(rad) };
-    }),
-  );
   const out: Record<string, number[]> = {};
   for (const [id, runs] of Object.entries(tracks)) out[id] = runs.map(() => Number.POSITIVE_INFINITY);
-  for (let i = 0; i < all.length; i += 1) {
-    const a = all[i]!;
-    for (let j = i + 1; j < all.length; j += 1) {
-      const b = all[j]!;
-      if (Math.abs(a.ux * b.uy - a.uy * b.ux) > 1e-3) continue;
-      // b's two ends along a's line, and its distance across it.
-      const s0 = (b.run.x - a.run.x) * a.ux + (b.run.y - a.run.y) * a.uy;
-      const s1 = s0 + b.run.length * (a.ux * b.ux + a.uy * b.uy);
-      if (Math.max(s0, s1) <= 0 || Math.min(s0, s1) >= a.run.length) continue;
-      const across = Math.abs((b.run.x - a.run.x) * a.uy - (b.run.y - a.run.y) * a.ux);
-      if (across < 1e-6) continue;
-      out[a.id]![a.index] = Math.min(out[a.id]![a.index]!, across);
-      out[b.id]![b.index] = Math.min(out[b.id]![b.index]!, across);
+  // The pairwise loop used to be every run against every other. A run's room
+  // can only change its mark where another run lies alongside it within a few
+  // of its own heights, so pair candidates are narrowed twice first: by
+  // heading (a run's room only counts near-parallel runs, and a degree is
+  // already far from parallel) and, inside a heading, by across distance
+  // (sorted along the heading's normal; a window wider than any room that
+  // could still shrink a mark). Runs further apart keep Infinity, which the
+  // fit treats the same.
+  const STEP = 1;
+  const WIDTH = 180 / STEP;
+  const CAP = 128;
+  const buckets = new Map<number, PairRun[]>();
+  let order = 0;
+  for (const [id, runs] of Object.entries(tracks)) {
+    runs.forEach((run, index) => {
+      const rad = (run.angle * Math.PI) / 180;
+      const bucket = (((Math.round((((run.angle % 180) + 180) % 180) / STEP) % WIDTH) + WIDTH) % WIDTH);
+      const list = buckets.get(bucket) ?? [];
+      list.push({ id, index, run, ux: Math.cos(rad), uy: Math.sin(rad), order: order++ });
+      buckets.set(bucket, list);
+    });
+  }
+  const compare = (first: PairRun, second: PairRun): void => {
+    const a = first.order <= second.order ? first : second;
+    const b = first.order <= second.order ? second : first;
+    if (Math.abs(a.ux * b.uy - a.uy * b.ux) > 1e-3) return;
+    // b's two ends along a's line, and its distance across it.
+    const s0 = (b.run.x - a.run.x) * a.ux + (b.run.y - a.run.y) * a.uy;
+    const s1 = s0 + b.run.length * (a.ux * b.ux + a.uy * b.uy);
+    if (Math.max(s0, s1) <= 0 || Math.min(s0, s1) >= a.run.length) return;
+    const across = Math.abs((b.run.x - a.run.x) * a.uy - (b.run.y - a.run.y) * a.ux);
+    if (across < 1e-6) return;
+    out[a.id]![a.index] = Math.min(out[a.id]![a.index]!, across);
+    out[b.id]![b.index] = Math.min(out[b.id]![b.index]!, across);
+  };
+  for (let k = 0; k < WIDTH; k += 1) {
+    const own = buckets.get(k);
+    if (own === undefined) continue;
+    // The next heading's runs are in the window too: two parallel runs can
+    // straddle a bucket edge.
+    const next = buckets.get((k + 1) % WIDTH) ?? [];
+    const rad = (k * STEP * Math.PI) / 180;
+    const ux = Math.cos(rad);
+    const uy = Math.sin(rad);
+    const all = next.length === 0 ? own : [...own, ...next];
+    all.sort((a, b) => a.run.x * uy - a.run.y * ux - (b.run.x * uy - b.run.y * ux));
+    for (let i = 0; i < all.length; i += 1) {
+      const a = all[i]!;
+      const na = a.run.x * uy - a.run.y * ux;
+      for (let j = i + 1; j < all.length; j += 1) {
+        const b = all[j]!;
+        if (b.run.x * uy - b.run.y * ux - na >= CAP) break;
+        compare(a, b);
+      }
     }
   }
   return out;

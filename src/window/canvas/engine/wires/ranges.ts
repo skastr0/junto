@@ -1,7 +1,7 @@
 /**
  * Two small tools the wire buffers share: a first-fit range allocator over a
- * growing run of slots, and a dirty span that merges what changed so an upload
- * is one write per buffer per frame.
+ * growing run of slots, and a dirty list that keeps the runs that changed so
+ * an upload writes each run, never the ground between two distant writes.
  */
 
 /** Hands out contiguous runs of units and takes them back, coalescing neighbours. */
@@ -14,6 +14,8 @@ export type RangeAllocator = {
   readonly capacity: () => number;
   /** Units handed out and not yet released. */
   readonly used: () => number;
+  /** The start of the free tail that ends at capacity: the highest unit ever allocated. */
+  readonly top: () => number;
 };
 
 export const createRangeAllocator = (initial: number): RangeAllocator => {
@@ -68,38 +70,51 @@ export const createRangeAllocator = (initial: number): RangeAllocator => {
     capacity = next;
   };
 
-  return { alloc, release, grow, capacity: () => capacity, used: () => used };
+  const top = (): number => {
+    const tail = free[free.length - 1];
+    return tail !== undefined && tail.start + tail.size === capacity ? tail.start : capacity;
+  };
+
+  return { alloc, release, grow, capacity: () => capacity, used: () => used, top };
 };
 
-/** The span of a buffer written since the last upload. */
+/** One written run of a buffer: `[start, end)` in units. */
+export type DirtyRun = { readonly start: number; readonly end: number };
+
+/** The runs of a buffer written since the last upload. */
 export type Dirty = {
   readonly mark: (start: number, end: number) => void;
   readonly markAll: (end: number) => void;
-  /** The span and clears it; undefined when nothing changed. */
-  readonly take: () => { readonly start: number; readonly end: number } | undefined;
+  /** The runs, sorted and merged, and clears them; empty when nothing changed. */
+  readonly take: () => ReadonlyArray<DirtyRun>;
   readonly any: () => boolean;
 };
 
 export const createDirty = (): Dirty => {
-  let lo = Number.POSITIVE_INFINITY;
-  let hi = 0;
+  // Runs in write order; `take` sorts and merges whatever overlap, so two
+  // distant writes cost two uploads and never the ground between them.
+  let runs: DirtyRun[] = [];
   return {
     mark: (start, end) => {
       if (end <= start) return;
-      if (start < lo) lo = start;
-      if (end > hi) hi = end;
+      runs.push({ start, end });
     },
     markAll: (end) => {
-      lo = 0;
-      hi = Math.max(hi, end);
+      runs = [{ start: 0, end }];
     },
     take: () => {
-      if (hi <= lo) return undefined;
-      const span = { start: lo, end: hi };
-      lo = Number.POSITIVE_INFINITY;
-      hi = 0;
-      return span;
+      if (runs.length === 0) return [];
+      runs.sort((a, b) => a.start - b.start);
+      const merged: DirtyRun[] = [];
+      for (const run of runs) {
+        const last = merged[merged.length - 1];
+        if (last !== undefined && run.start <= last.end) {
+          merged[merged.length - 1] = { start: last.start, end: Math.max(last.end, run.end) };
+        } else merged.push(run);
+      }
+      runs = [];
+      return merged;
     },
-    any: () => hi > lo,
+    any: () => runs.length > 0,
   };
 };

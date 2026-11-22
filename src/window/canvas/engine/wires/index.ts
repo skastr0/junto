@@ -35,6 +35,20 @@ export type WireLayerOptions = {
   readonly reducedMotion?: () => boolean;
 };
 
+/** The layer's own counters, for a real-Electron measurement (the canvas test hook). */
+export type WireStats = {
+  readonly frames: number;
+  /** Script time inside `frame` over the last frame and since the layer was made, ms. */
+  readonly lastFrameMs: number;
+  readonly frameMsTotal: number;
+  /** Wires rebuilt (a strip rebuilt) since the layer was made. */
+  readonly rebuilds: number;
+  /** Draw calls the last encoded frame issued for wires, glow, tracks and pulses. */
+  readonly draws: number;
+  /** Bytes the last upload wrote. */
+  readonly uploadBytes: number;
+};
+
 export type WiresLayer = {
   readonly apply: (ops: ReadonlyArray<SceneOp>) => void;
   readonly frame: (frame: WireFrame) => boolean;
@@ -51,6 +65,7 @@ export type WiresLayer = {
   readonly labelsInView: () => ReadonlyArray<WireLabel>;
   readonly labelsRevision: () => number;
   readonly inspect: (id: WireId) => WireInspect | undefined;
+  readonly stats: () => WireStats;
   /** What the last upload wrote, buffer by buffer. */
   readonly lastUploads: () => ReadonlyArray<UploadRange>;
   readonly dispose: () => void;
@@ -65,13 +80,22 @@ export const createWireLayer = (options: WireLayerOptions): WiresLayer => {
   });
   const gpu = createWireGpu(scene);
   let wall = 0;
+  let frames = 0;
+  let lastFrameMs = 0;
+  let frameMsTotal = 0;
+  const clock = (): number => (typeof performance === "object" ? performance.now() : Date.now());
   return {
     apply: (ops) => {
       for (const op of ops) scene.apply(op);
     },
     frame: (frame) => {
       wall = frame.wall;
-      return scene.frame(frame);
+      const before = clock();
+      const busy = scene.frame(frame);
+      lastFrameMs = clock() - before;
+      frameMsTotal += lastFrameMs;
+      frames += 1;
+      return busy;
     },
     upload: (device) => {
       const state = options.device.state();
@@ -87,6 +111,7 @@ export const createWireLayer = (options: WireLayerOptions): WiresLayer => {
     labelsInView: scene.labelsInView,
     labelsRevision: scene.labelsRevision,
     inspect: scene.inspect,
+    stats: () => ({ frames, lastFrameMs, frameMsTotal, rebuilds: scene.builds(), draws: gpu.draws(), uploadBytes: gpu.lastBytes() }),
     lastUploads: gpu.lastUploads,
     dispose: gpu.dispose,
   };

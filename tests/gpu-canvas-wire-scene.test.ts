@@ -20,9 +20,13 @@ const makeScene = (cards: Map<string, Rect>, reducedMotion = false, surfaces?: M
     ...(surfaces === undefined ? {} : { surfaceOf: (id: NodeId) => surfaces.get(id) }),
     reducedMotion: () => reducedMotion,
   });
-  const frame = (at: number, tier: WireFrame["tier"] = "near"): boolean =>
-    scene.frame({ camera: { x: 0, y: 0, zoom: 1 }, width: 1600, height: 1000, pixelRatio: 2, tier, wall: at });
-  return { scene, frame };
+  const frame = (at: number, tier: WireFrame["tier"] = "near", live?: ReadonlySet<string>): boolean =>
+    scene.frame({ camera: { x: 0, y: 0, zoom: 1 }, width: 1600, height: 1000, pixelRatio: 2, tier, wall: at, ...(live === undefined ? {} : { live }) });
+  /** A card op, as a model change arrives: the wire layer rebuilds that card's wires. */
+  const card = (id: string): void => {
+    scene.apply({ kind: "card", fact: { id } } as unknown as SceneOp);
+  };
+  return { scene, frame, card };
 };
 
 const rect = (x: number, y: number, width = 260, height = 96): Rect => ({ x, y, width, height });
@@ -56,7 +60,7 @@ describe("the wire scene", () => {
 
   it("draws the loom's points while the ends sit where the plan put them, and the elbow once a card moves", () => {
     const cards = board();
-    const { scene, frame } = makeScene(cards);
+    const { scene, frame, card } = makeScene(cards);
     scene.apply(load([wire("w", "a", "b")]));
     const fact: WireRouteFact = {
       id: "w",
@@ -79,10 +83,11 @@ describe("the wire scene", () => {
     expect(scene.inspect("w")!.kind).toBe("route");
     // A drag moves card b: the plan is stale, so the wire is the elbow on live ends.
     cards.set("b", rect(640, 30));
-    frame(T0 + 16);
+    frame(T0 + 16, "near", new Set(["b"]));
     expect(scene.inspect("w")!.kind).toBe("elbow");
     // The model takes the move and the loom answers: the route returns.
     cards.set("b", rect(600, 0));
+    card("b");
     frame(T0 + 32);
     expect(scene.inspect("w")!.kind).toBe("route");
   });
@@ -106,7 +111,7 @@ describe("the wire scene", () => {
 
     const revision = scene.labelsRevision();
     cards.set("b", rect(600, 300));
-    frame(T0 + 16);
+    frame(T0 + 16, "near", new Set(["b"]));
     expect(scene.labelsRevision()).toBeGreaterThan(revision);
     expect(scene.labelsInView()[0]!.at).toEqual(scene.labelOf("w"));
   });
@@ -114,7 +119,7 @@ describe("the wire scene", () => {
   it("attaches a wire end to the body the seat draws, and moves it when that body changes", () => {
     const cards = board();
     const surfaces = new Map<string, Rect>([["a", rect(0, 0, 150, 96)]]);
-    const { scene, frame } = makeScene(cards, false, surfaces);
+    const { scene, frame, card } = makeScene(cards, false, surfaces);
     scene.apply(load([wire("w", "a", "b")]));
     const planned = [
       { x: 260, y: 48 },
@@ -143,8 +148,9 @@ describe("the wire scene", () => {
     // The far end (a left side) needs no move: the pill's left edge is the card's.
     expect(points[points.length - 1]).toEqual({ x: 600, y: 48 });
 
-    // A wider pill (a longer name) re-attaches on the next frame.
+    // A wider pill (a longer name) re-attaches when the card changes.
     surfaces.set("a", rect(0, 0, 170, 96));
+    card("a");
     frame(T0 + 16, "mid");
     expect(scene.inspect("w")!.points[0]).toEqual({ x: 170, y: 48 });
   });
@@ -401,11 +407,12 @@ describe("the wire scene", () => {
 
   it("does not draw a wire whose card is not on the board yet, then draws it when it arrives", () => {
     const cards = new Map<string, Rect>([["a", rect(0, 0)]]);
-    const { scene, frame } = makeScene(cards);
+    const { scene, frame, card } = makeScene(cards);
     scene.apply(load([wire("w", "a", "b")]));
     frame(T0);
     expect(scene.inspect("w")).toBeUndefined();
     cards.set("b", rect(600, 0));
+    card("b");
     frame(T0 + 16);
     expect(scene.inspect("w")!.kind).toBe("elbow");
   });

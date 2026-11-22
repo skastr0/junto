@@ -24,8 +24,17 @@ export type UploadRange = { readonly buffer: string; readonly offset: number; re
 
 type PoolBuffers = {
   readonly vertex: GPUBuffer;
-  readonly index: GPUBuffer;
   readonly generation: number;
+};
+
+type VisibleBuffers = {
+  readonly main: GPUBuffer;
+  readonly glow: GPUBuffer;
+  readonly tracks: GPUBuffer;
+  revision: number;
+  mainCount: number;
+  glowCount: number;
+  tracksCount: number;
 };
 
 type Resources = {
@@ -43,6 +52,7 @@ type Resources = {
   main: PoolBuffers;
   glowBuffers: PoolBuffers;
   trackBuffers: PoolBuffers;
+  visible: VisibleBuffers;
 };
 
 export type WireGpu = {
@@ -51,6 +61,10 @@ export type WireGpu = {
   readonly encodeTracks: (pass: GPURenderPassEncoder) => void;
   /** The ranges written by the last `upload`, for the engine's counters. */
   readonly lastUploads: () => ReadonlyArray<UploadRange>;
+  /** Bytes the last upload wrote. */
+  readonly lastBytes: () => number;
+  /** Draw calls the last encoded frame issued. */
+  readonly draws: () => number;
   readonly dispose: () => void;
 };
 
@@ -81,6 +95,8 @@ const sized = (bytes: number): number => Math.max(16, Math.ceil(bytes / 4) * 4);
 export const createWireGpu = (scene: WireScene): WireGpu => {
   let res: Resources | undefined;
   let uploads: UploadRange[] = [];
+  let bytes = 0;
+  let drawCalls = 0;
   const uniformData = new Float32Array(UNIFORM_FLOATS);
 
   const makePool = (device: GPUDevice, pool: StripPool, label: string): PoolBuffers => {
@@ -89,14 +105,24 @@ export const createWireGpu = (scene: WireScene): WireGpu => {
       size: sized(pool.vertices().byteLength),
       usage: BUFFER.VERTEX | BUFFER.COPY_DST,
     });
-    const index = device.createBuffer({
-      label: `wires ${label} indices`,
-      size: sized(pool.indices().byteLength),
-      usage: BUFFER.INDEX | BUFFER.COPY_DST,
-    });
     pool.dirtyVertices.markAll(pool.vertices().length);
-    pool.dirtyIndices.markAll(pool.indices().length);
-    return { vertex, index, generation: pool.generation() };
+    return { vertex, generation: pool.generation() };
+  };
+
+  /** The visible strips' index buffers: what the frame draws, nothing else. */
+  const makeVisible = (device: GPUDevice): VisibleBuffers => {
+    const v = scene.visibleIndices();
+    const index = (label: string, array: Uint32Array): GPUBuffer =>
+      device.createBuffer({ label: `wires ${label} visible indices`, size: sized(array.byteLength), usage: BUFFER.INDEX | BUFFER.COPY_DST });
+    return {
+      main: index("strips", v.main),
+      glow: index("glow", v.glow),
+      tracks: index("tracks", v.tracks),
+      revision: -1,
+      mainCount: 0,
+      glowCount: 0,
+      tracksCount: 0,
+    };
   };
 
   const makeRecords = (device: GPUDevice): GPUBuffer =>
@@ -156,12 +182,22 @@ export const createWireGpu = (scene: WireScene): WireGpu => {
       main: makePool(device, scene.pool, "strips"),
       glowBuffers: makePool(device, scene.glowPool, "glow"),
       trackBuffers: makePool(device, scene.trackPool, "tracks"),
+      visible: makeVisible(device),
     };
   };
 
   const destroy = (r: Resources | undefined): void => {
     if (r === undefined) return;
-    for (const buffer of [r.uniform, r.records, r.main.vertex, r.main.index, r.glowBuffers.vertex, r.glowBuffers.index, r.trackBuffers.vertex, r.trackBuffers.index]) {
+    for (const buffer of [
+      r.uniform,
+      r.records,
+      r.main.vertex,
+      r.glowBuffers.vertex,
+      r.trackBuffers.vertex,
+      r.visible.main,
+      r.visible.glow,
+      r.visible.tracks,
+    ]) {
       buffer.destroy();
     }
   };
@@ -170,25 +206,22 @@ export const createWireGpu = (scene: WireScene): WireGpu => {
     let held = buffers;
     if (pool.generation() !== held.generation) {
       held.vertex.destroy();
-      held.index.destroy();
       held = makePool(device, pool, label);
       set(held);
     }
-    const v = pool.dirtyVertices.take();
-    if (v !== undefined) {
-      device.queue.writeBuffer(held.vertex, v.start * 4, pool.vertices(), v.start, v.end - v.start);
-      uploads.push({ buffer: `${label} vertices`, offset: v.start * 4, size: (v.end - v.start) * 4 });
+    for (const run of pool.dirtyVertices.take()) {
+      device.queue.writeBuffer(held.vertex, run.start * 4, pool.vertices(), run.start, run.end - run.start);
+      uploads.push({ buffer: `${label} vertices`, offset: run.start * 4, size: (run.end - run.start) * 4 });
     }
-    const i = pool.dirtyIndices.take();
-    if (i !== undefined) {
-      device.queue.writeBuffer(held.index, i.start * 4, pool.indices(), i.start, i.end - i.start);
-      uploads.push({ buffer: `${label} indices`, offset: i.start * 4, size: (i.end - i.start) * 4 });
-    }
+    // The pool's own index array is not what the frame draws (only visible
+    // strips are); taking the runs keeps the dirty list from growing.
+    pool.dirtyIndices.take();
     return held;
   };
 
   const upload: WireGpu["upload"] = (device, format) => {
     uploads = [];
+    bytes = 0;
     if (res === undefined || res.device !== device || res.format !== format) {
       destroy(res);
       res = create(device, format);
@@ -202,14 +235,42 @@ export const createWireGpu = (scene: WireScene): WireGpu => {
       r.bind = makeBind(device, r.layout, r.uniform, r.records);
       scene.dirtyRecords.markAll(scene.records().length);
     }
-    const span = scene.dirtyRecords.take();
-    if (span !== undefined) {
-      device.queue.writeBuffer(r.records, span.start * 4, scene.records(), span.start, span.end - span.start);
-      uploads.push({ buffer: "records", offset: span.start * 4, size: (span.end - span.start) * 4 });
+    for (const run of scene.dirtyRecords.take()) {
+      device.queue.writeBuffer(r.records, run.start * 4, scene.records(), run.start, run.end - run.start);
+      uploads.push({ buffer: "records", offset: run.start * 4, size: (run.end - run.start) * 4 });
     }
     r.main = syncPool(device, scene.pool, r.main, "strips", (next) => (r.main = next));
     r.glowBuffers = syncPool(device, scene.glowPool, r.glowBuffers, "glow", (next) => (r.glowBuffers = next));
     r.trackBuffers = syncPool(device, scene.trackPool, r.trackBuffers, "tracks", (next) => (r.trackBuffers = next));
+
+    // The visible draw: one upload when the camera (or a strip) moved, sized
+    // by the strips in view, never by the pool's high-water mark.
+    const v = scene.visibleIndices();
+    if (r.visible.revision !== v.revision) {
+      const fit = (buffer: GPUBuffer, array: Uint32Array): GPUBuffer => {
+        if (buffer.size >= array.byteLength) return buffer;
+        buffer.destroy();
+        return device.createBuffer({ label: "wires visible indices", size: sized(array.byteLength), usage: BUFFER.INDEX | BUFFER.COPY_DST });
+      };
+      r.visible = {
+        ...r.visible,
+        main: fit(r.visible.main, v.main),
+        glow: fit(r.visible.glow, v.glow),
+        tracks: fit(r.visible.tracks, v.tracks),
+        revision: v.revision,
+        mainCount: v.mainCount,
+        glowCount: v.glowCount,
+        tracksCount: v.tracksCount,
+      };
+      const put = (buffer: GPUBuffer, array: Uint32Array, count: number, label: string): void => {
+        if (count === 0) return;
+        device.queue.writeBuffer(buffer, 0, array, 0, count);
+        uploads.push({ buffer: `visible ${label}`, offset: 0, size: count * 4 });
+      };
+      put(r.visible.main, v.main, v.mainCount, "strips");
+      put(r.visible.glow, v.glow, v.glowCount, "glow");
+      put(r.visible.tracks, v.tracks, v.tracksCount, "tracks");
+    }
 
     const u = scene.uniforms();
     uniformData.set(u.camera, 0);
@@ -222,33 +283,39 @@ export const createWireGpu = (scene: WireScene): WireGpu => {
     uniformData[16] = TRACK_WIDTH;
     uniformData[17] = DERIVE_STROKE;
     device.queue.writeBuffer(r.uniform, 0, uniformData);
+    for (const range of uploads) bytes += range.size;
   };
 
-  const drawIndexed = (pass: GPURenderPassEncoder, pipeline: GPURenderPipeline, buffers: PoolBuffers, extent: number): void => {
-    if (res === undefined || extent <= 0) return;
+  const drawIndexed = (pass: GPURenderPassEncoder, pipeline: GPURenderPipeline, vertex: GPUBuffer, index: GPUBuffer, count: number): void => {
+    if (res === undefined || count <= 0) return;
+    drawCalls += 1;
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, res.bind);
-    pass.setVertexBuffer(0, buffers.vertex);
-    pass.setIndexBuffer(buffers.index, "uint32");
-    pass.drawIndexed(extent);
+    pass.setVertexBuffer(0, vertex);
+    pass.setIndexBuffer(index, "uint32");
+    pass.drawIndexed(count);
   };
 
   const encodeRest: WireGpu["encodeRest"] = (pass) => {
+    drawCalls = 0;
     if (res === undefined) return;
     // The soft pass goes under the hairlines.
-    drawIndexed(pass, res.glow, res.glowBuffers, scene.glowPool.extent());
-    drawIndexed(pass, res.wire, res.main, scene.pool.extent());
+    drawIndexed(pass, res.glow, res.glowBuffers.vertex, res.visible.glow, res.visible.glowCount);
+    drawIndexed(pass, res.wire, res.main.vertex, res.visible.main, res.visible.mainCount);
   };
 
   const encodeTracks: WireGpu["encodeTracks"] = (pass) => {
     if (res === undefined) return;
-    drawIndexed(pass, res.track, res.trackBuffers, scene.trackPool.extent());
+    drawIndexed(pass, res.track, res.trackBuffers.vertex, res.visible.tracks, res.visible.tracksCount);
     const pulses = scene.pulses();
     if (pulses.length === 0) return;
     pass.setPipeline(res.pulse);
     pass.setBindGroup(0, res.bind);
     pass.setVertexBuffer(0, res.main.vertex);
-    for (const pulse of pulses) pass.draw(pulse.count, 1, pulse.start);
+    for (const pulse of pulses) {
+      drawCalls += 1;
+      pass.draw(pulse.count, 1, pulse.start);
+    }
   };
 
   return {
@@ -256,6 +323,8 @@ export const createWireGpu = (scene: WireScene): WireGpu => {
     encodeRest,
     encodeTracks,
     lastUploads: () => uploads,
+    lastBytes: () => bytes,
+    draws: () => drawCalls,
     dispose: () => {
       destroy(res);
       res = undefined;

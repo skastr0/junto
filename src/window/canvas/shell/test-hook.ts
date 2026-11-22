@@ -93,6 +93,14 @@ const build = (
   atlasRequests: () => number,
   atlasPending: () => number,
   atlasStats: () => AtlasStats,
+  wireStats: () => {
+    readonly frames: number;
+    readonly lastFrameMs: number;
+    readonly frameMsTotal: number;
+    readonly rebuilds: number;
+    readonly draws: number;
+    readonly uploadBytes: number;
+  } | undefined,
 ): FullHook => {
   const cardIds = (): ReadonlyArray<NodeId> =>
     mirror.cardIds().filter((id) => mirror.card(id)?.row.kind !== "region");
@@ -159,6 +167,7 @@ const build = (
     atlasRequests,
     atlasPending,
     atlasStats,
+    wireStats,
     pick: (screen) => engine()?.pick(screen) ?? null,
     partsOf: (id) => mapParts(engine()?.partsOf?.(id) ?? []),
     setCull: (mode) => engine()?.setCull?.(mode),
@@ -191,9 +200,17 @@ export const installCanvasTestHook = (
   atlasRequests: () => number = () => 0,
   atlasPending: () => number = () => 0,
   atlasStats: () => AtlasStats = pageGpuAtlasStats,
+  wireStats: () => {
+    readonly frames: number;
+    readonly lastFrameMs: number;
+    readonly frameMsTotal: number;
+    readonly rebuilds: number;
+    readonly draws: number;
+    readonly uploadBytes: number;
+  } | undefined = () => undefined,
 ): (() => void) => {
   if (!canvasTestHookWanted()) return () => undefined;
-  const hook = build(mirror, engine, atlasRequests, atlasPending, atlasStats);
+  const hook = build(mirror, engine, atlasRequests, atlasPending, atlasStats, wireStats);
   (window as unknown as { __juntoCanvas?: FullHook }).__juntoCanvas = hook;
   return () => {
     const held = (window as unknown as { __juntoCanvas?: FullHook }).__juntoCanvas;

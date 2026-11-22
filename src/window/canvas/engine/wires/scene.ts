@@ -132,6 +132,8 @@ type Entry = {
   glowKey: string;
   layout: ReadonlyArray<TrackRun>;
   trackStrip: Slice | undefined;
+  /** The runs and fits its track strip was built from; a rebuild with the same key keeps the strip. */
+  trackKey: string;
   paint: WirePaint;
   look: WireLook;
   opacity: Tween;
@@ -168,6 +170,8 @@ export type WireFrame = {
   readonly tier: CanvasTier;
   /** Epoch milliseconds: the wall clock every phase reads. */
   readonly wall: number;
+  /** Cards whose live rectangle a pointer owns this frame: a drag or a resize. */
+  readonly live?: ReadonlySet<NodeId>;
 };
 
 /** The numbers the shader reads once a frame, as plain floats (see `shader.ts`). */
@@ -196,6 +200,10 @@ export type WireScene = {
   readonly labelsRevision: () => number;
   /** A wire's centreline length and route kind, for tests and the harness. */
   readonly inspect: (id: WireId) => WireInspect | undefined;
+  /** How many wires have had their strip rebuilt since the scene was made (a measurement). */
+  readonly builds: () => number;
+  /** The visible strips' index data, rebuilt when the camera or a strip changes. */
+  readonly visibleIndices: () => WireVisibleIndex;
   readonly pool: StripPool;
   readonly glowPool: StripPool;
   readonly trackPool: StripPool;
@@ -207,6 +215,17 @@ export type WireScene = {
   readonly recordsGeneration: () => number;
   /** The tier the tracks were laid for. */
   readonly size: () => number;
+};
+
+/** The index data of the wires the camera can see, per pool: what the frame draws. */
+export type WireVisibleIndex = {
+  readonly main: Uint32Array;
+  readonly mainCount: number;
+  readonly glow: Uint32Array;
+  readonly glowCount: number;
+  readonly tracks: Uint32Array;
+  readonly tracksCount: number;
+  readonly revision: number;
 };
 
 export type WireLabel = {
@@ -241,6 +260,14 @@ export const createWireScene = (host: WireHost): WireScene => {
 
   const entries = new Map<WireId, Entry>();
   const facts = new Map<WireId, WireRouteFact>();
+  /** Wires by the card each end names, so a moved card rebuilds only its own wires. */
+  const byCard = new Map<NodeId, Set<WireId>>();
+  /** Wires whose ends may have changed since the last frame (a card or wire op). */
+  const dirty = new Set<WireId>();
+  /** Wires with a running tween or pulse: the only ones a frame has to write. */
+  const running = new Set<WireId>();
+  /** Wires with track runs: the only ones track motion or a fit rebuild reads. */
+  const tracked = new Set<WireId>();
   let labelsRevision = 0;
   const pool = createStripPool(1024);
   const glowPool = createStripPool(256);
@@ -257,6 +284,21 @@ export const createWireScene = (host: WireHost): WireScene => {
 
   let tracksDirty = false;
   let pickList: Array<PickCandidate<WireId>> | undefined;
+  // The visible draw: only the strips the camera can see, in one index list
+  // per pool, so a freed or off-screen strip costs no vertex work.
+  let visibleDirty = true;
+  let visibleRevision = 0;
+  let mainIndex: Uint32Array = new Uint32Array(4096);
+  let mainCount = 0;
+  let glowIndex: Uint32Array = new Uint32Array(2048);
+  let glowCount = 0;
+  let trackIndex: Uint32Array = new Uint32Array(1024);
+  let trackCount = 0;
+  /** The labels of the last camera, rebuilt only when the camera or a label moved. */
+  let labelsAt: Camera | undefined;
+  let labelsCache: ReadonlyArray<WireLabel> | undefined;
+  let labelsCacheRevision = -1;
+  let labelsCacheView = { width: 0, height: 0 };
   let pulseDraws: Array<{ start: number; count: number }> = [];
   let activePulses = 0;
 
@@ -403,6 +445,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       entry.glowAlpha = { from: tweenAt(entry.glowAlpha, now, easeOf.glow), to: glowTarget, since: now, ms: ms("glow") };
     }
     entry.settling = true;
+    running.add(entry.id);
     syncGlowStrip(entry);
     pickList = undefined;
     writeRecord(entry, now);
@@ -442,15 +485,6 @@ export const createWireScene = (host: WireHost): WireScene => {
       fromSurface,
       toSurface,
     };
-  };
-
-  const sameEnds = (a: Entry["ends"], b: Entry["ends"]): boolean => {
-    for (let i = 0; i < a.length; i += 1) {
-      const x = a[i]!;
-      const y = b[i]!;
-      if (x !== y && !(Number.isNaN(x) && Number.isNaN(y))) return false;
-    }
-    return true;
   };
 
   const anchorOn = (rect: Rect, side: WireDirection): Point => {
@@ -560,7 +594,10 @@ export const createWireScene = (host: WireHost): WireScene => {
     return { ...elbow, points: attach(elbow.points, sides.source, sides.target, fromSurface, toSurface) };
   };
 
+  let builds = 0;
   const rebuild = (entry: Entry, now: number): void => {
+    builds += 1;
+    visibleDirty = true;
     const { ends, from, to, fromSurface, toSurface } = readEnds(entry);
     entry.ends = ends;
     if (from === undefined || to === undefined) {
@@ -599,6 +636,9 @@ export const createWireScene = (host: WireHost): WireScene => {
     }
     if (isTrackVerb(entry.fact.row.verb)) {
       entry.layout = trackLayout(route, tier);
+      entry.trackKey = "";
+      if (entry.layout.length > 0) tracked.add(entry.id);
+      else tracked.delete(entry.id);
       tracksDirty = true;
     }
     syncGlowStrip(entry);
@@ -607,6 +647,7 @@ export const createWireScene = (host: WireHost): WireScene => {
   };
 
   const rebuildTracks = (): void => {
+    visibleDirty = true;
     const layouts: Record<string, ReadonlyArray<TrackRun>> = {};
     for (const entry of entries.values()) if (entry.layout.length > 0) layouts[entry.id] = entry.layout;
     const fits = trackFits(layouts, tier);
@@ -615,10 +656,17 @@ export const createWireScene = (host: WireHost): WireScene => {
       if (runs.length === 0) {
         trackPool.free(entry.trackStrip);
         entry.trackStrip = undefined;
+        entry.trackKey = "";
         continue;
       }
-      const strip = buildTrackStrip(runs, tier, { fits: fits[entry.id] ?? [], slot: entry.slot });
+      const fit = fits[entry.id] ?? [];
+      // A rebuild that changes nothing near this track leaves its strip where
+      // it is: only a changed run or fit re-puts vertices.
+      const key = `${runs.length}|${fit.join(",")}|${runs[0]?.x ?? 0},${runs[0]?.y ?? 0}|${entry.line?.length ?? 0}`;
+      if (key === entry.trackKey && entry.trackStrip !== undefined) continue;
+      const strip = buildTrackStrip(runs, tier, { fits: fit, slot: entry.slot });
       entry.trackStrip = strip.count > 0 ? trackPool.put(entry.trackStrip, strip.vertices, strip.count) : undefined;
+      entry.trackKey = entry.trackStrip === undefined ? "" : key;
     }
     tracksDirty = false;
   };
@@ -627,6 +675,9 @@ export const createWireScene = (host: WireHost): WireScene => {
     for (const entry of entries.values()) {
       if (!isTrackVerb(entry.fact.row.verb) || entry.route === undefined) continue;
       entry.layout = trackLayout(entry.route, tier);
+      entry.trackKey = "";
+      if (entry.layout.length > 0) tracked.add(entry.id);
+      else tracked.delete(entry.id);
     }
     tracksDirty = true;
   };
@@ -665,6 +716,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       glowKey: "",
       layout: [],
       trackStrip: undefined,
+      trackKey: "",
       paint,
       look,
       // A new wire is at its paint at once: it does not fade in from nothing.
@@ -677,14 +729,46 @@ export const createWireScene = (host: WireHost): WireScene => {
       pulse: undefined,
     };
     entries.set(fact.id, entry);
+    index(entry);
     coneWires = undefined;
     rebuild(entry, now);
     refreshPaint(entry, now);
   };
 
+  const index = (entry: Entry): void => {
+    for (const card of [entry.fact.row.from, entry.fact.row.to] as const) {
+      let wires = byCard.get(card);
+      if (wires === undefined) {
+        wires = new Set();
+        byCard.set(card, wires);
+      }
+      wires.add(entry.id);
+    }
+  };
+
+  const unindex = (entry: Entry): void => {
+    for (const card of [entry.fact.row.from, entry.fact.row.to] as const) {
+      const wires = byCard.get(card);
+      if (wires === undefined) continue;
+      wires.delete(entry.id);
+      if (wires.size === 0) byCard.delete(card);
+    }
+  };
+
+  /** A card moved or changed: its wires' ends may have moved with it. */
+  const markCard = (id: NodeId): void => {
+    const wires = byCard.get(id);
+    if (wires === undefined) return;
+    for (const wire of wires) dirty.add(wire);
+  };
+
   const removeWire = (id: WireId): void => {
     const entry = entries.get(id);
     if (entry === undefined) return;
+    unindex(entry);
+    dirty.delete(id);
+    running.delete(id);
+    tracked.delete(id);
     pool.free(entry.strip);
     glowPool.free(entry.glowStrip);
     trackPool.free(entry.trackStrip);
@@ -696,6 +780,7 @@ export const createWireScene = (host: WireHost): WireScene => {
     records.fill(0, entry.slot * RECORD_FLOATS, (entry.slot + 1) * RECORD_FLOATS);
     dirtyRecords.mark(entry.slot * RECORD_FLOATS, (entry.slot + 1) * RECORD_FLOATS);
     if (entry.layout.length > 0) tracksDirty = true;
+    visibleDirty = true;
     coneWires = undefined;
     pickList = undefined;
   };
@@ -749,6 +834,7 @@ export const createWireScene = (host: WireHost): WireScene => {
   };
 
   const syncPreview = (): void => {
+    visibleDirty = true;
     const o = PREVIEW_SLOT * RECORD_FLOATS;
     if (preview === null) {
       pool.free(previewStrip);
@@ -793,6 +879,12 @@ export const createWireScene = (host: WireHost): WireScene => {
         removeWire(op.id);
         facts.delete(op.id);
         return;
+      case "card":
+        markCard(op.fact.id);
+        return;
+      case "removeCard":
+        markCard(op.id);
+        return;
       case "routes": {
         for (const id of op.remove) facts.delete(id);
         for (const fact of op.set) facts.set(fact.id, fact);
@@ -824,15 +916,20 @@ export const createWireScene = (host: WireHost): WireScene => {
         wireMode = op.mode;
         refreshAll(now);
         return;
-      case "preview":
+      case "preview": {
+        const wasConnecting = preview !== null;
         preview = op.preview === null ? null : { from: op.preview.from, fromSide: op.preview.fromSide, to: op.preview.to };
         syncPreview();
-        refreshAll(now);
+        // The preview's own geometry changes each pointer move; the view every
+        // wire paints in changes only when a connect starts or ends.
+        if (wasConnecting !== (preview !== null)) refreshAll(now);
         return;
+      }
       case "pulse": {
         const entry = entries.get(op.wireId);
         if (entry === undefined || activePulses >= WIRE_PULSE_MAX_ACTIVE) return;
         entry.pulse = { startedAt: op.at, kind: op.pulse ?? PULSE_KIND_DEFAULT, reverse: op.reverse ?? false };
+        running.add(entry.id);
         return;
       }
       default:
@@ -854,8 +951,9 @@ export const createWireScene = (host: WireHost): WireScene => {
 
   const tracksMove = (): boolean => {
     if (reduced()) return false;
-    for (const entry of entries.values()) {
-      if (entry.layout.length > 0 && entry.paint.track !== undefined && inView(entry)) return true;
+    for (const id of tracked) {
+      const entry = entries.get(id);
+      if (entry !== undefined && entry.paint.track !== undefined && inView(entry)) return true;
     }
     return false;
   };
@@ -864,7 +962,12 @@ export const createWireScene = (host: WireHost): WireScene => {
     let moving = false;
     activePulses = 0;
     pulseDraws = [];
-    for (const entry of entries.values()) {
+    for (const id of running) {
+      const entry = entries.get(id);
+      if (entry === undefined) {
+        running.delete(id);
+        continue;
+      }
       const easing = !tweenDone(entry.opacity, at) || !tweenDone(entry.trackAlpha, at) || !tweenDone(entry.glowAlpha, at);
       // The frame a transition ends writes its final value, once.
       if (easing || entry.settling) {
@@ -905,37 +1008,99 @@ export const createWireScene = (host: WireHost): WireScene => {
           }
         }
       }
+      if (!easing && !entry.settling && entry.pulse === undefined) running.delete(id);
     }
     return moving;
   };
 
+  const append = (target: Uint32Array, at: number, start: number, count: number): { array: Uint32Array; at: number } => {
+    let array = target;
+    if (at + count > array.length) {
+      let next = array.length;
+      while (next < at + count) next *= 2;
+      const grown = new Uint32Array(next);
+      grown.set(array.subarray(0, at));
+      array = grown;
+    }
+    for (let k = 0; k < count; k += 1) array[at + k] = start + k;
+    return { array, at: at + count };
+  };
+
+  const buildVisible = (): void => {
+    mainCount = 0;
+    glowCount = 0;
+    trackCount = 0;
+    for (const entry of entries.values()) {
+      if (!inView(entry)) continue;
+      if (entry.strip !== undefined) {
+        const next = append(mainIndex, mainCount, entry.strip.start, entry.strip.count);
+        mainIndex = next.array;
+        mainCount = next.at;
+      }
+      if (entry.glowStrip !== undefined && entry.glowPasses.length > 0) {
+        const next = append(glowIndex, glowCount, entry.glowStrip.start, entry.glowStrip.count);
+        glowIndex = next.array;
+        glowCount = next.at;
+      }
+      if (entry.trackStrip !== undefined && entry.paint.track !== undefined) {
+        const next = append(trackIndex, trackCount, entry.trackStrip.start, entry.trackStrip.count);
+        trackIndex = next.array;
+        trackCount = next.at;
+      }
+    }
+    if (preview !== null && previewStrip !== undefined) {
+      const next = append(mainIndex, mainCount, previewStrip.start, previewStrip.count);
+      mainIndex = next.array;
+      mainCount = next.at;
+    }
+    visibleRevision += 1;
+  };
+
   const frame: WireScene["frame"] = (f) => {
+    const moved = camera.x !== f.camera.x || camera.y !== f.camera.y || camera.zoom !== f.camera.zoom;
+    const resized = viewSize.width !== f.width || viewSize.height !== f.height;
     camera = f.camera;
     zoom = f.camera.zoom;
     pixelRatio = f.pixelRatio;
     viewSize = { width: f.width, height: f.height };
     wall = f.wall;
     now = f.wall;
+    if (moved || resized) visibleDirty = true;
     if (f.tier !== tier) {
       tier = f.tier;
+      // The body every wire attaches to and the track layout are the tier's:
+      // every wire is rebuilt once, when the tier flips.
       refreshAll(now);
       relayoutTracks();
+      for (const id of entries.keys()) dirty.add(id);
     }
-    // Ends that moved (a drag, a model move, a card that arrived) rebuild their wires.
-    for (const entry of entries.values()) {
-      const { ends } = readEnds(entry);
-      if (!sameEnds(ends, entry.ends)) rebuild(entry, now);
+    // A card a pointer owns this frame can be somewhere its row is not yet.
+    if (f.live !== undefined) {
+      for (const id of f.live) markCard(id);
     }
+    // Only what a model op or a live card touched is rebuilt: no wire is read
+    // per frame just in case.
+    for (const id of dirty) {
+      const entry = entries.get(id);
+      if (entry !== undefined) rebuild(entry, now);
+    }
+    dirty.clear();
     if (tracksDirty) rebuildTracks();
+    if (visibleDirty) {
+      buildVisible();
+      visibleDirty = false;
+    }
     return stepMotion(now) || tracksMove();
   };
 
   const busy: WireScene["busy"] = (at) => {
     if (tracksMove()) return true;
-    for (const entry of entries.values()) {
+    for (const id of running) {
+      const entry = entries.get(id);
+      if (entry === undefined) continue;
+      if (entry.pulse !== undefined) return true;
       if (!inView(entry)) continue;
       if (!tweenDone(entry.opacity, at) || !tweenDone(entry.trackAlpha, at) || !tweenDone(entry.glowAlpha, at)) return true;
-      if (entry.pulse !== undefined) return true;
     }
     return false;
   };
@@ -980,6 +1145,18 @@ export const createWireScene = (host: WireHost): WireScene => {
   const labelOf: WireScene["labelOf"] = (id) => entries.get(id)?.label;
 
   const labelsInView: WireScene["labelsInView"] = () => {
+    if (
+      labelsCache !== undefined &&
+      labelsAt !== undefined &&
+      labelsAt.x === camera.x &&
+      labelsAt.y === camera.y &&
+      labelsAt.zoom === camera.zoom &&
+      labelsCacheRevision === labelsRevision &&
+      labelsCacheView.width === viewSize.width &&
+      labelsCacheView.height === viewSize.height
+    ) {
+      return labelsCache;
+    }
     const labels: WireLabel[] = [];
     // The label's own point, not the wire's bounds: a long run that crosses
     // the view can put its midpoint far outside it.
@@ -994,6 +1171,10 @@ export const createWireScene = (host: WireHost): WireScene => {
       if (at.x < x0 - margin || at.x > x1 + margin || at.y < y0 - margin || at.y > y1 + margin) continue;
       labels.push({ id: entry.id, at, verb: entry.fact.row.verb });
     }
+    labelsCache = labels;
+    labelsAt = { x: camera.x, y: camera.y, zoom: camera.zoom };
+    labelsCacheView = { width: viewSize.width, height: viewSize.height };
+    labelsCacheRevision = labelsRevision;
     return labels;
   };
 
@@ -1028,6 +1209,16 @@ export const createWireScene = (host: WireHost): WireScene => {
     labelsInView,
     labelsRevision: () => labelsRevision,
     inspect,
+    builds: () => builds,
+    visibleIndices: () => ({
+      main: mainIndex,
+      mainCount,
+      glow: glowIndex,
+      glowCount,
+      tracks: trackIndex,
+      tracksCount: trackCount,
+      revision: visibleRevision,
+    }),
     pool,
     glowPool,
     trackPool,

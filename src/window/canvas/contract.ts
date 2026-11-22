@@ -1015,4 +1015,17 @@ export interface CanvasTestHook {
    * yet uploaded. A spec waits for zero before it reads pixels.
    */
   readonly atlasPending?: () => number;
+  /**
+   * The wire layer's own counters, for a measurement: script time in its
+   * frame, wires rebuilt, draw calls the last encoded frame issued, and the
+   * bytes the last upload wrote.
+   */
+  readonly wireStats?: () => {
+    readonly frames: number;
+    readonly lastFrameMs: number;
+    readonly frameMsTotal: number;
+    readonly rebuilds: number;
+    readonly draws: number;
+    readonly uploadBytes: number;
+  } | undefined;
 }

@@ -90,6 +90,8 @@ export type WireFrameFacts = {
   readonly pixelRatio: number;
   readonly tier: CanvasTier;
   readonly wall: number;
+  /** Cards whose live rectangle a pointer owns this frame: a drag or a resize. */
+  readonly live?: ReadonlySet<NodeId>;
 };
 
 export interface WireLayer {
@@ -577,7 +579,17 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       hoverScale: hoverCardScale(camera.zoom),
     });
     renderer.upload(scene, prepared);
-    host.wires?.frame?.({ camera, width: size.width, height: size.height, pixelRatio: size.pixelRatio, tier, wall });
+    host.wires?.frame?.({
+      camera,
+      width: size.width,
+      height: size.height,
+      pixelRatio: size.pixelRatio,
+      tier,
+      wall,
+      // A card the pointer owns is drawn where the pointer holds it, not on
+      // its row; the wire layer rebuilds only those wires from those ends.
+      live: draggingAnchors,
+    });
     host.wires?.upload(device);
 
     // 6: draw. Wires rest, then cards, then tracks, then lifted quads.

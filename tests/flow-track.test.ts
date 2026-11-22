@@ -17,6 +17,7 @@ import {
   trackFit,
   trackRuns,
   trackTile,
+  type TrackRun,
   WIRE_WIDTH,
 } from "../src/window/lib/flow-track";
 
@@ -174,5 +175,42 @@ describe("derives track", () => {
 
   it("paints in its own token", () => {
     expect(css).toMatch(/\.junto-flow-track\[data-verb="derives"\] \{\s*color: var\(--wire-verb-derives\);/);
+  });
+});
+
+describe("trackClearances", () => {
+  const run = (x: number, y: number, length: number, angle: number): TrackRun => ({ x, y, length, angle, at: 0 });
+
+  it("measures room across between parallel runs that overlap, and leaves the rest unbounded", () => {
+    const room = trackClearances({
+      a: [run(0, 0, 200, 0)],
+      b: [run(50, 9, 200, 0)],
+      c: [run(0, 300, 200, 0)],
+      d: [run(0, 0, 200, 90)],
+    });
+    expect(room.a![0]).toBeCloseTo(9, 6);
+    expect(room.b![0]).toBeCloseTo(9, 6);
+    expect(room.c![0]).toBe(Number.POSITIVE_INFINITY);
+    expect(room.d![0]).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("sees two parallel runs that straddle a heading bucket edge", () => {
+    const room = trackClearances({
+      a: [run(0, 0, 200, 0.49)],
+      b: [run(40, 12, 200, 0.51)],
+    });
+    expect(room.a![0]).toBeCloseTo(Math.abs(40 * Math.sin((0.49 * Math.PI) / 180) - 12 * Math.cos((0.49 * Math.PI) / 180)), 3);
+    expect(room.b![0]).toBeCloseTo(room.a![0]!, 6);
+  });
+
+  it("follows a run's own line, not the bucket's, for overlap along it", () => {
+    const room = trackClearances({
+      a: [run(0, 0, 100, 0)],
+      b: [run(120, 20, 100, 0)],
+      c: [run(40, 20, 100, 0)],
+    });
+    expect(room.a![0]).toBeCloseTo(20, 6);
+    expect(room.b![0]).toBe(Number.POSITIVE_INFINITY);
+    expect(room.c![0]).toBeCloseTo(20, 6);
   });
 });
