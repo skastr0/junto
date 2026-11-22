@@ -57,6 +57,8 @@ export interface GpuAtlasOptions {
   readonly onDirty?: () => void;
   /** Reported when a real GPU allocation or raster failure occurs. */
   readonly onFailure?: (reason: string) => void;
+  /** Optional measured display frame interval (ms) for deriving queue drain yield slice. */
+  readonly frameIntervalMs?: () => number;
 }
 
 export interface GpuAtlas {
@@ -137,6 +139,17 @@ interface CellDesc {
   readonly kind: "text" | "sprite";
 }
 
+interface StandalonePlaced {
+  readonly texture: GPUTexture;
+  readonly w: number;
+  readonly h: number;
+  readonly tileW: number;
+  readonly tileH: number;
+  readonly tilesX: number;
+  readonly tilesY: number;
+  readonly bytes: number;
+}
+
 interface SlotRecord {
   readonly index: number;
   key: string;
@@ -145,6 +158,7 @@ interface SlotRecord {
   refCount: number;
   state: CellState;
   placed?: Placed;
+  standalone?: StandalonePlaced;
   aliasOf?: number;
   inPlace?: boolean;
   attempts: number;
@@ -157,7 +171,6 @@ const PREFERRED_PAGE_SIZE = 4096;
 const INITIAL_CELL_CAPACITY = 256;
 const TEXTURE_USAGE_ATLAS = 0x01 | 0x02 | 0x04 | 0x10; // COPY_SRC | COPY_DST | TEXTURE_BINDING | RENDER_ATTACHMENT
 const SHELF_CLASSES = [16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024] as const;
-const DRAIN_YIELD_MS = 4;
 const BASE_RETRY_MS = 250;
 const MAX_RETRY_MS = 8000;
 
@@ -179,9 +192,33 @@ const nowMs = (): number => (typeof performance !== "undefined" ? performance.no
 export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   const preferredSize = Math.max(64, options.size ?? PREFERRED_PAGE_SIZE);
   let pageSize = preferredSize;
+  let maxTexDim = 8192;
   let maxArrayLayers = 256;
   let maxCellsByLimit = Number.MAX_SAFE_INTEGER;
   let mode: ThemeMode = options.mode ?? "dark";
+
+  // Measured display frame interval (ms) for deriving the queue drain yield slice
+  // from the machine's actual refresh cadence (no hardcoded slice constant).
+  let measuredFrameMs = 16.67;
+  let lastRafAt = 0;
+  let rafSampling = false;
+  const sampleFrameInterval = (): void => {
+    if (options.frameIntervalMs !== undefined || rafSampling || disposed || typeof requestAnimationFrame !== "function") return;
+    rafSampling = true;
+    requestAnimationFrame((t1) => {
+      lastRafAt = t1;
+      if (disposed) return;
+      requestAnimationFrame((t2) => {
+        rafSampling = false;
+        const dt = t2 - lastRafAt;
+        if (dt > 1 && dt < 100) measuredFrameMs = measuredFrameMs * 0.5 + dt * 0.5;
+      });
+    });
+  };
+  const drainYieldMs = (): number => {
+    const interval = options.frameIntervalMs?.() ?? measuredFrameMs;
+    return Math.max(1, interval * 0.25);
+  };
 
   let cells = new Float32Array(INITIAL_CELL_CAPACITY * ATLAS_CELL_FLOATS);
   let cellCapacity = INITIAL_CELL_CAPACITY;
@@ -194,6 +231,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   const contentLanded = new Map<string, Set<number>>();
   /** Insertion-ordered LRU of unreferenced (refCount === 0) landed/placed slot indices. */
   const unreferencedLru = new Map<number, true>();
+  /** Standalone full-resolution textures for cells larger than a packing page. */
+  const standaloneTextures = new Map<number, GPUTexture>();
+  let standaloneBytes = 0;
   /** Compat tracking so repeated `sourceFor` calls for the same key don't leak refs. */
   const compatHeld = new Set<string>();
 
@@ -229,6 +269,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     cells,
     cellCount: 0,
     textureGeneration: 0,
+    standalone: standaloneTextures as ReadonlyMap<number, GPUTexture>,
   };
   const binding = mutable as AtlasBinding;
 
@@ -451,6 +492,14 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     }
   };
 
+  const freeStandalone = (rec: SlotRecord): void => {
+    if (rec.standalone === undefined) return;
+    rec.standalone.texture.destroy();
+    standaloneBytes = Math.max(0, standaloneBytes - rec.standalone.bytes);
+    standaloneTextures.delete(rec.index);
+    rec.standalone = undefined;
+  };
+
   const evictOneUnreferenced = (): boolean => {
     const first = unreferencedLru.keys().next();
     if (first.done) return false;
@@ -462,6 +511,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       freePlaced(rec.placed);
       rec.placed = undefined;
     }
+    freeStandalone(rec);
     if (rec.state === "landed") {
       landedCount = Math.max(0, landedCount - 1);
       removeContentLanded(rec.contentKey, idx);
@@ -475,30 +525,33 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     return true;
   };
 
-  const createArrayTexture = (targetDevice: GPUDevice, layers: number): GPUTexture | undefined => {
+  const createTexture2DArray = (targetDevice: GPUDevice, width: number, height: number, layers: number): GPUTexture | undefined => {
     const hasScope = typeof targetDevice.pushErrorScope === "function" && typeof targetDevice.popErrorScope === "function";
     if (hasScope) targetDevice.pushErrorScope("out-of-memory");
     let created: GPUTexture | undefined;
     try {
       created = targetDevice.createTexture({
-        size: { width: pageSize, height: pageSize, depthOrArrayLayers: layers },
+        size: { width, height, depthOrArrayLayers: layers },
         format: "rgba8unorm",
         usage: TEXTURE_USAGE_ATLAS,
       });
     } catch (error) {
-      reportFailure(`atlas texture allocation failed (${pageSize}x${pageSize}x${layers}): ${String(error)}`);
+      reportFailure(`atlas texture allocation failed (${width}x${height}x${layers}): ${String(error)}`);
       if (hasScope) void targetDevice.popErrorScope().catch(() => undefined);
       return undefined;
     }
     if (hasScope) {
       void targetDevice.popErrorScope().then((err) => {
         if (err !== null) {
-          reportFailure(`atlas GPU out-of-memory (${pageSize}x${pageSize}x${layers}): ${err.message}`);
+          reportFailure(`atlas GPU out-of-memory (${width}x${height}x${layers}): ${err.message}`);
         }
       }).catch(() => undefined);
     }
     return created;
   };
+
+  const createArrayTexture = (targetDevice: GPUDevice, layers: number): GPUTexture | undefined =>
+    createTexture2DArray(targetDevice, pageSize, pageSize, layers);
 
   const growPages = (): boolean => {
     if (device === undefined || texture === undefined) return false;
@@ -556,40 +609,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     return undefined;
   };
 
-  // --- Scale clamping & pixel upload ------------------------------------------
-
-  const effectiveScaleFor = (quad: Quad, scale: number): number => {
-    const maxEdge = Math.max(1, pageSize - 1);
-    let estW = 0;
-    let estH = 0;
-    if (quad.sprite !== undefined) {
-      estW = Math.ceil(quad.rect.width * scale);
-      estH = Math.ceil(quad.rect.height * scale);
-    } else if (quad.text !== undefined) {
-      const run = quad.text;
-      const pad = run.blur === undefined ? 0 : haloPadDevice(scale);
-      estW = Math.ceil(run.width * scale) + 2 * pad;
-      estH = Math.ceil(run.size * scale * (run.leading ?? 1.2)) + 2 * pad;
-    }
-    if (estW <= maxEdge && estH <= maxEdge) return scale;
-    const factor = Math.min(maxEdge / Math.max(1, estW), maxEdge / Math.max(1, estH));
-    return Math.max(1e-3, scale * factor);
-  };
-
-  const clampPixelsToPage = (pixels: AtlasPixels): { readonly pixels: AtlasPixels; readonly owned: boolean } => {
-    const maxEdge = Math.max(1, pageSize - 1);
-    const w = Math.max(1, pixels.width);
-    const h = Math.max(1, pixels.height);
-    if (w <= maxEdge && h <= maxEdge) return { pixels, owned: false };
-    const ratio = Math.min(maxEdge / w, maxEdge / h);
-    const dw = Math.max(1, Math.floor(w * ratio));
-    const dh = Math.max(1, Math.floor(h * ratio));
-    if (typeof document === "undefined") return { pixels, owned: false };
-    const { canvas, ctx } = scratchClampCanvas(dw, dh);
-    ctx.clearRect(0, 0, dw, dh);
-    ctx.drawImage(pixels as CanvasImageSource, 0, 0, dw, dh);
-    return { pixels: canvas, owned: true };
-  };
+  // --- Full-resolution pixel upload (paged, standalone, or tiled) -------------
 
   const copyPixels = (pixels: AtlasPixels, at: Placed): void => {
     device!.queue.copyExternalImageToTexture(
@@ -597,6 +617,97 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       { texture: texture!, origin: { x: at.x, y: at.y, z: at.layer } },
       { width: Math.max(1, Math.min(at.w, pixels.width)), height: Math.max(1, Math.min(at.h, pixels.height)) },
     );
+  };
+
+  /**
+   * Land an item larger than a packing page at full on-screen resolution:
+   * - Up to `maxTexDim` per side: a dedicated 1-layer standalone texture sized to `(w, h)`.
+   * - Beyond `maxTexDim`: a dedicated tiled `2d-array` texture of `tilesX * tilesY` layers.
+   * Never downscales visible content.
+   */
+  const landStandalone = (rec: SlotRecord, pixels: AtlasPixels, w: number, h: number): boolean => {
+    const tilesX = Math.max(1, Math.ceil(w / maxTexDim));
+    const tilesY = Math.max(1, Math.ceil(h / maxTexDim));
+    const layers = tilesX * tilesY;
+    if (layers > maxArrayLayers) {
+      rec.state = "failed";
+      rec.attempts += 1;
+      rec.retryAfter = nowMs() + Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** Math.min(6, rec.attempts - 1));
+      reportFailure(`tiled item ${w}x${h} needs ${layers} layers (limit ${maxArrayLayers})`);
+      return false;
+    }
+    const tileW = tilesX === 1 ? w : Math.min(w, maxTexDim);
+    const tileH = tilesY === 1 ? h : Math.min(h, maxTexDim);
+
+    // Reuse existing standalone texture in place if dimensions match
+    let tex: GPUTexture | undefined;
+    if (
+      rec.inPlace &&
+      rec.standalone !== undefined &&
+      rec.standalone.tileW === tileW &&
+      rec.standalone.tileH === tileH &&
+      rec.standalone.tilesX === tilesX &&
+      rec.standalone.tilesY === tilesY
+    ) {
+      tex = rec.standalone.texture;
+    } else {
+      if (rec.placed !== undefined) {
+        freePlaced(rec.placed);
+        rec.placed = undefined;
+      }
+      freeStandalone(rec);
+      tex = createTexture2DArray(device!, tileW, tileH, layers);
+      if (tex === undefined) {
+        rec.state = "failed";
+        rec.attempts += 1;
+        rec.retryAfter = nowMs() + Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** Math.min(6, rec.attempts - 1));
+        return false;
+      }
+      const bytes = tileW * tileH * layers * 4;
+      rec.standalone = { texture: tex, w, h, tileW, tileH, tilesX, tilesY, bytes };
+      standaloneTextures.set(rec.index, tex);
+      standaloneBytes += bytes;
+    }
+
+    for (let ty = 0; ty < tilesY; ty += 1) {
+      for (let tx = 0; tx < tilesX; tx += 1) {
+        const sx = tx * tileW;
+        const sy = ty * tileH;
+        const cw = Math.min(tileW, w - sx);
+        const ch = Math.min(tileH, h - sy);
+        if (cw <= 0 || ch <= 0) continue;
+        device!.queue.copyExternalImageToTexture(
+          { source: pixels as unknown as ImageBitmap, origin: { x: sx, y: sy } },
+          { texture: tex, origin: { x: 0, y: 0, z: ty * tilesX + tx } },
+          { width: cw, height: ch },
+        );
+      }
+    }
+
+    const base = rec.index * ATLAS_CELL_FLOATS;
+    cells[base] = 0;
+    cells[base + 1] = 0;
+    cells[base + 2] = w / (tilesX * tileW);
+    cells[base + 3] = h / (tilesY * tileH);
+    cells[base + 4] = 0;
+    cells[base + 5] = layers > 1 ? tilesX : 0;
+    cells[base + 6] = layers > 1 ? tilesY : 0;
+    cells[base + 7] = 0;
+
+    rec.inPlace = false;
+    const wasLanded = rec.state === "landed";
+    rec.state = "landed";
+    rec.attempts = 0;
+    rec.retryAfter = 0;
+    if (!wasLanded) landedCount += 1;
+    addContentLanded(rec.contentKey, rec.index);
+    releaseAlias(rec);
+    if (rec.refCount === 0) {
+      rec.desc = undefined;
+      unreferencedLru.set(rec.index, true);
+    }
+    markDirty();
+    return true;
   };
 
   // --- Reference release & alias settlement -----------------------------------
@@ -608,13 +719,17 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     release(target);
   };
 
-  const landPixels = (rec: SlotRecord, rawPixels: AtlasPixels): boolean => {
+  const landPixels = (rec: SlotRecord, pixels: AtlasPixels): boolean => {
     if (disposed || device === undefined || texture === undefined) return false;
-    const clamped = clampPixelsToPage(rawPixels);
-    const pixels = clamped.pixels;
-    const w = Math.max(1, Math.min(pageSize - 1, pixels.width));
-    const h = Math.max(1, Math.min(pageSize - 1, pixels.height));
+    const w = Math.max(1, pixels.width);
+    const h = Math.max(1, pixels.height);
 
+    // Items larger than a packing page get a full-resolution standalone (or tiled) texture.
+    if (w + 1 > pageSize || h + 1 > pageSize) {
+      return landStandalone(rec, pixels, w, h);
+    }
+
+    freeStandalone(rec);
     // In-place overwrite if rec already holds a matching rect
     let at: Placed | undefined;
     if (rec.inPlace && rec.placed !== undefined && rec.placed.w === w && rec.placed.h === h) {
@@ -670,25 +785,23 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   };
 
   const rasterizeSync = (desc: CellDesc): AtlasPixels | undefined => {
-    const effScale = effectiveScaleFor(desc.quad, desc.scale);
     if (desc.kind === "text") {
       if (options.rasterizeTextSync === undefined) return undefined;
       const ink = resolveColour(desc.quad.style.ink, themeFor(desc.mode)) ?? { r: 1, g: 1, b: 1, a: 1 };
-      return options.rasterizeTextSync(desc.quad.text!, effScale, ink);
+      return options.rasterizeTextSync(desc.quad.text!, desc.scale, ink);
     }
     if (options.rasterizeSpriteSync === undefined) return undefined;
-    return options.rasterizeSpriteSync(desc.quad, desc.mode, effScale);
+    return options.rasterizeSpriteSync(desc.quad, desc.mode, desc.scale);
   };
 
   const rasterizeAsync = (desc: CellDesc): Promise<AtlasPixels> => {
-    const effScale = effectiveScaleFor(desc.quad, desc.scale);
     if (desc.kind === "text") {
       if (options.rasterizeText === undefined) return Promise.reject(new Error("no text rasterizer"));
       const ink = resolveColour(desc.quad.style.ink, themeFor(desc.mode)) ?? { r: 1, g: 1, b: 1, a: 1 };
-      return options.rasterizeText(desc.quad.text!, effScale, ink);
+      return options.rasterizeText(desc.quad.text!, desc.scale, ink);
     }
     if (options.rasterizeSprite === undefined) return Promise.reject(new Error("no sprite rasterizer"));
-    return options.rasterizeSprite(desc.quad, desc.mode, effScale);
+    return options.rasterizeSprite(desc.quad, desc.mode, desc.scale);
   };
 
   const runJob = (rec: SlotRecord): void => {
@@ -752,7 +865,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   const drainQueue = (): void => {
     drainScheduled = false;
     if (disposed || device === undefined || texture === undefined) return;
+    sampleFrameInterval();
     const start = nowMs();
+    const budget = drainYieldMs();
     while (queue.length > 0) {
       const idx = queue.shift()!;
       queuedSet.delete(idx);
@@ -768,7 +883,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       }
       runJob(rec);
       // Yield between chunks during large bursts so input/frames never stall.
-      if (queue.length > 0 && nowMs() - start >= DRAIN_YIELD_MS) {
+      if (queue.length > 0 && nowMs() - start >= budget) {
         drainScheduled = true;
         setTimeout(drainQueue, 0);
         return;
@@ -815,21 +930,20 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   };
 
   const expectedBoxFor = (quad: Quad, scale: number): { readonly w: number; readonly h: number } | undefined => {
-    const effScale = effectiveScaleFor(quad, scale);
     if (quad.sprite !== undefined) {
       return {
-        w: Math.max(1, Math.min(pageSize - 1, Math.ceil(quad.rect.width * effScale))),
-        h: Math.max(1, Math.min(pageSize - 1, Math.ceil(quad.rect.height * effScale))),
+        w: Math.max(1, Math.ceil(quad.rect.width * scale)),
+        h: Math.max(1, Math.ceil(quad.rect.height * scale)),
       };
     }
     if (quad.text !== undefined) {
       const run = quad.text;
       if (run.truncate === "none" || run.truncate === "clamp2") return undefined; // multi-line height may vary
-      const pad = run.blur === undefined ? 0 : haloPadDevice(effScale);
-      const lineHeight = run.size * effScale * (run.leading ?? 1.2);
+      const pad = run.blur === undefined ? 0 : haloPadDevice(scale);
+      const lineHeight = run.size * scale * (run.leading ?? 1.2);
       return {
-        w: Math.max(1, Math.min(pageSize - 1, Math.ceil(run.width * effScale) + 2 * pad)),
-        h: Math.max(1, Math.min(pageSize - 1, Math.ceil(lineHeight) + 2 * pad)),
+        w: Math.max(1, Math.ceil(run.width * scale) + 2 * pad),
+        h: Math.max(1, Math.ceil(lineHeight) + 2 * pad),
       };
     }
     return undefined;
@@ -1045,7 +1159,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       failures,
       pages: layerCount,
       pageSize,
-      bytesInUse: layerCount * pageSize * pageSize * 4,
+      bytesInUse: layerCount * pageSize * pageSize * 4 + standaloneBytes,
       activeCells,
       pinnedCells,
       visibleBlank,
@@ -1061,9 +1175,10 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       device = next;
       if (texture !== undefined && !fresh) return;
 
-      // Read real device limits; page edge is a packing choice clamped to GPU limits.
+      // Read real device limits; page edge is a packing choice, never a capacity cap.
       const maxDim = next.limits?.maxTextureDimension2D;
-      pageSize = typeof maxDim === "number" && maxDim > 0 ? Math.min(preferredSize, maxDim) : preferredSize;
+      maxTexDim = typeof maxDim === "number" && maxDim > 0 ? maxDim : 8192;
+      pageSize = Math.min(preferredSize, maxTexDim);
       const maxLayers = next.limits?.maxTextureArrayLayers;
       maxArrayLayers = typeof maxLayers === "number" && maxLayers > 0 ? maxLayers : 256;
       const maxStorage = next.limits?.maxStorageBufferBindingSize;
@@ -1073,6 +1188,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
           : Number.MAX_SAFE_INTEGER;
 
       texture?.destroy();
+      for (const tex of standaloneTextures.values()) tex.destroy();
+      standaloneTextures.clear();
+      standaloneBytes = 0;
       pages.length = 0;
       layerCount = 0;
       const initialTex = createArrayTexture(next, 1);
@@ -1101,6 +1219,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         const rec = slots[i];
         if (rec === undefined) continue;
         rec.placed = undefined;
+        rec.standalone = undefined;
         clearCellUV(i);
         if (rec.refCount === 0) {
           keyToIndex.delete(rec.key);
@@ -1143,6 +1262,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       disposed = true;
       texture?.destroy();
       texture = undefined;
+      for (const tex of standaloneTextures.values()) tex.destroy();
+      standaloneTextures.clear();
+      standaloneBytes = 0;
       layerCount = 0;
       pages.length = 0;
       queue.length = 0;
@@ -1203,19 +1325,6 @@ const getSharpScratch = (w: number, h: number): { canvas: HTMLCanvasElement; ctx
     sharpScratch.ctx.clearRect(0, 0, cw, ch);
   }
   return sharpScratch;
-};
-
-let clampScratch: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | undefined;
-const scratchClampCanvas = (w: number, h: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } => {
-  const cw = Math.max(1, Math.ceil(w));
-  const ch = Math.max(1, Math.ceil(h));
-  if (clampScratch === undefined) {
-    clampScratch = canvas2d(cw, ch);
-  } else if (clampScratch.canvas.width !== cw || clampScratch.canvas.height !== ch) {
-    clampScratch.canvas.width = cw;
-    clampScratch.canvas.height = ch;
-  }
-  return clampScratch;
 };
 
 /**

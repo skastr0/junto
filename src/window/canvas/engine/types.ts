@@ -17,6 +17,8 @@ export type AtlasBinding = {
   readonly cellCount?: number;
   /** Bumped whenever `texture` is recreated (device attach or page growth) so the renderer rebinds. */
   readonly textureGeneration?: number;
+  /** Dedicated full-resolution textures for cells larger than a packing page, keyed by cell index. */
+  readonly standalone?: ReadonlyMap<number, GPUTexture>;
 };
 
 /** Observable atlas counters for diagnostics and the test hook. */

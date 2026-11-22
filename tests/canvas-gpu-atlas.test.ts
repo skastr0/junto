@@ -331,7 +331,7 @@ describe("gpu atlas (#911)", () => {
     expect(atlas.stats().pinnedCells).toBe(1); // at1 alias released once at2 landed
   });
 
-  it("clamps oversized items to fit within the page", async () => {
+  it("gives items larger than a page their own full-resolution standalone texture (no downscaling)", async () => {
     const scales: number[] = [];
     const { atlas } = atlasWith({
       size: 128,
@@ -340,14 +340,38 @@ describe("gpu atlas (#911)", () => {
         return pixels(Math.ceil(run.width * scale), Math.ceil(run.size * scale));
       },
     });
-    atlas.attach(fakeDevice().device);
+    const fake = fakeDevice({ maxTextureDimension2D: 4096 });
+    atlas.attach(fake.device);
 
     const huge = textQuad({ ...textRun, width: 1000, size: 40 });
-    const idx = atlas.acquire(huge, 2); // raw 2000px > 127px
+    const idx = atlas.acquire(huge, 2); // 2000x80 > 128 page, <= 4096 maxTextureDimension2D
     await settle();
     await settle();
     expect(atlas.hasImage(idx)).toBe(true);
-    expect(scales[0]!).toBeLessThan(0.13);
+    expect(scales[0]).toBe(2); // never downscaled!
+    expect(atlas.binding.standalone?.has(idx)).toBe(true);
+    expect(atlas.stats().failures).toBe(0);
+    expect(atlas.stats().bytesInUse).toBeGreaterThan(128 * 128 * 4);
+  });
+
+  it("tiles items larger than maxTextureDimension2D without downscaling", async () => {
+    const { atlas } = atlasWith({
+      size: 128,
+      rasterizeText: async () => pixels(500, 120),
+    });
+    const fake = fakeDevice({ maxTextureDimension2D: 256, maxTextureArrayLayers: 16 });
+    atlas.attach(fake.device);
+
+    const gigantic = textQuad({ ...textRun, width: 250, size: 60 });
+    const idx = atlas.acquire(gigantic, 2); // 500x120 > 256 maxTextureDimension2D -> 2x1 tiles
+    await settle();
+    await settle();
+    expect(atlas.hasImage(idx)).toBe(true);
+    expect(atlas.binding.standalone?.has(idx)).toBe(true);
+    const base = idx * ATLAS_CELL_FLOATS;
+    expect(atlas.binding.cells[base + 5]).toBe(2); // tilesX = 2
+    expect(atlas.binding.cells[base + 6]).toBe(1); // tilesY = 1
+    expect(fake.copies.length).toBe(2); // 2 tile copies
     expect(atlas.stats().failures).toBe(0);
   });
 

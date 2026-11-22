@@ -20,7 +20,7 @@
  */
 
 import type { Prepared, Scene } from "./scene";
-import { QUAD_BYTES } from "./quad";
+import { QUAD_BYTES, QUAD_FLOATS } from "./quad";
 import { DURATION } from "@shared/theme";
 import { STYLE_STRIDE } from "./styles";
 import { ATLAS_CELL_FLOATS, type AtlasBinding } from "./types";
@@ -420,8 +420,14 @@ fn filled(base: u32, local: vec2f) -> vec4f {
       alpha = 0.0;
     } else {
       let cell = cells[q.source];
-      let uv = mix(cell.uv.xy, cell.uv.zw, in.corner);
-      let layer = i32(cell.page.x);
+      var uv = mix(cell.uv.xy, cell.uv.zw, in.corner);
+      var layer = i32(cell.page.x);
+      if (cell.page.y > 0.5) {
+        let tx = clamp(i32(floor(uv.x * cell.page.y)), 0, i32(cell.page.y) - 1);
+        let ty = clamp(i32(floor(uv.y * cell.page.z)), 0, i32(cell.page.z) - 1);
+        layer = ty * i32(cell.page.y) + tx;
+        uv = vec2f(uv.x * cell.page.y - f32(tx), uv.y * cell.page.z - f32(ty));
+      }
       // Level sample: a per-instance branch is not uniform control flow, where
       // textureSample is not allowed.
       let tex = textureSampleLevel(atlas, atlasSampler, uv, layer, 0.0);
@@ -480,6 +486,9 @@ type Gpu = {
   cellsRevision: number;
   /** The atlas texture generation currently bound in `bind`. */
   atlasTextureGeneration: number;
+  /** Cached bind groups for standalone oversized textures (rebuilt on buffer rebind). */
+  standaloneBinds: WeakMap<GPUTexture, GPUBindGroup>;
+  lastScene?: Scene;
   frameRanges: Range[];
   totalBytes: number;
 };
@@ -511,9 +520,9 @@ export const createRenderer = () => {
       usage: TEXTURE.TEXTURE_BINDING | TEXTURE.COPY_DST,
     });
 
-  const makeBindGroup = (state: Omit<Gpu, "bind">): GPUBindGroup => {
+  const makeBindGroup = (state: Omit<Gpu, "bind">, textureOverride?: GPUTexture): GPUBindGroup => {
     const device = state.device;
-    const texture = state.atlas?.texture ?? dummyTexture(device);
+    const texture = textureOverride ?? state.atlas?.texture ?? dummyTexture(device);
     const sampler = state.atlas?.sampler ?? device.createSampler({ magFilter: "nearest", minFilter: "nearest" });
     return device.createBindGroup({
       layout: state.bindLayout,
@@ -598,7 +607,10 @@ export const createRenderer = () => {
         rebind = true;
       }
     }
-    if (rebind) state.bind = makeBindGroup(state);
+    if (rebind) {
+      state.bind = makeBindGroup(state);
+      state.standaloneBinds = new WeakMap();
+    }
   };
 
   const configure = (
@@ -671,6 +683,8 @@ export const createRenderer = () => {
       styleRevision: -1,
       cellsRevision: 0,
       atlasTextureGeneration: atlas?.textureGeneration ?? 0,
+      standaloneBinds: new WeakMap(),
+      lastScene: scene,
       frameRanges: [],
       totalBytes: gpu?.totalBytes ?? 0,
     };
@@ -685,8 +699,9 @@ export const createRenderer = () => {
     }
     scene.takeQuadDirty();
     scene.takeOwnerDirty();
-    if (atlas !== undefined && atlas.cellCount > 0) {
-      const elements = Math.min(atlas.cellCount * ATLAS_CELL_FLOATS, atlas.cells.length, Math.floor(next.cells.size / 4));
+    const initialAtlasCells = atlas?.cellCount ?? Math.floor((atlas?.cells.length ?? 0) / ATLAS_CELL_FLOATS);
+    if (atlas !== undefined && initialAtlasCells > 0) {
+      const elements = Math.min(initialAtlasCells * ATLAS_CELL_FLOATS, atlas.cells.length, Math.floor(next.cells.size / 4));
       if (elements > 0) {
         device.queue.writeBuffer(next.cells, 0, atlas.cells, 0, elements);
         note(next, "cells", 0, elements * 4);
@@ -698,6 +713,7 @@ export const createRenderer = () => {
   const upload = (scene: Scene, prepared: Prepared): void => {
     const state = gpu;
     if (state === undefined) return;
+    state.lastScene = scene;
     ensure(state, scene);
     const quadDirty = scene.takeQuadDirty();
     if (quadDirty.all) {
@@ -814,8 +830,42 @@ export const createRenderer = () => {
     const count = lastBands[band]! - first;
     if (count <= 0) return;
     pass.setPipeline(state.pipeline);
-    pass.setBindGroup(0, state.bind);
-    pass.draw(4, count, 0, first);
+    const standalone = state.atlas?.standalone;
+    const scene = state.lastScene;
+    if (standalone === undefined || standalone.size === 0 || scene === undefined) {
+      pass.setBindGroup(0, state.bind);
+      pass.draw(4, count, 0, first);
+      return;
+    }
+    // Split the band into contiguous runs when oversized standalone textures are present.
+    const order = scene.orderBuffer;
+    const u32 = scene.quadBuffer.u32;
+    let runStart = first;
+    let runTex: GPUTexture | undefined = standalone.get(u32[order[first]! * QUAD_FLOATS + 23]!);
+    const flushRun = (end: number): void => {
+      const len = end - runStart;
+      if (len <= 0) return;
+      if (runTex === undefined) {
+        pass.setBindGroup(0, state.bind);
+      } else {
+        let bg = state.standaloneBinds.get(runTex);
+        if (bg === undefined) {
+          bg = makeBindGroup(state, runTex);
+          state.standaloneBinds.set(runTex, bg);
+        }
+        pass.setBindGroup(0, bg);
+      }
+      pass.draw(4, len, 0, runStart);
+    };
+    for (let i = first + 1; i < first + count; i += 1) {
+      const tex = standalone.get(u32[order[i]! * QUAD_FLOATS + 23]!);
+      if (tex !== runTex) {
+        flushRun(i);
+        runStart = i;
+        runTex = tex;
+      }
+    }
+    flushRun(first + count);
   };
 
   const beginFrame = (bands: BandEnds): void => {
@@ -832,9 +882,10 @@ export const createRenderer = () => {
     attachAtlas: (atlas: AtlasBinding): void => {
       if (gpu === undefined) return;
       gpu.atlas = atlas;
-      gpu.atlasTextureGeneration = atlas.textureGeneration;
+      gpu.atlasTextureGeneration = atlas.textureGeneration ?? 0;
       gpu.cellsRevision = -1;
       gpu.bind = makeBindGroup(gpu);
+      gpu.standaloneBinds = new WeakMap();
     },
     get configured(): boolean {
       return gpu !== undefined;
