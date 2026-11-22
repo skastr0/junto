@@ -30,8 +30,15 @@ import {
 import { MARK_CELL, paintMarkAtlasCanvas } from "../../lib/activity-atlas";
 import type { RasterWorkerRequest, RasterWorkerResponse } from "./raster-worker";
 
-/** Anything the GPU can copy into the atlas: an ImageBitmap or canvas. */
-export type AtlasPixels = ImageBitmap | HTMLCanvasElement | OffscreenCanvas;
+/** One-channel 8-bit coverage buffer (for r8unorm text pages, 1 byte/px). */
+export type AtlasCoverage = {
+  readonly width: number;
+  readonly height: number;
+  readonly data: Uint8Array;
+};
+
+/** Anything the GPU can upload into the atlas: an ImageBitmap, canvas, or r8unorm coverage buffer. */
+export type AtlasPixels = ImageBitmap | HTMLCanvasElement | OffscreenCanvas | AtlasCoverage;
 
 export interface TextRasterize {
   (run: TextRun, scale: number, ink: GpuColor): Promise<AtlasPixels>;
@@ -107,7 +114,10 @@ export interface GpuAtlas {
   dispose(): void;
 }
 
+type PoolKind = "rgba" | "coverage";
+
 interface Placed {
+  readonly pool: PoolKind;
   readonly layer: number;
   readonly shelfIndex: number;
   readonly x: number;
@@ -115,6 +125,16 @@ interface Placed {
   readonly w: number;
   readonly h: number;
   readonly spanW: number;
+}
+
+interface PagePool {
+  readonly kind: PoolKind;
+  readonly format: GPUTextureFormat;
+  readonly bytesPerPixel: number;
+  readonly usage: number;
+  texture?: GPUTexture;
+  layerCount: number;
+  readonly pages: Page[];
 }
 
 interface FreeSpan {
@@ -176,6 +196,7 @@ interface SlotRecord {
 const PREFERRED_PAGE_SIZE = 4096;
 const INITIAL_CELL_CAPACITY = 256;
 const TEXTURE_USAGE_ATLAS = 0x01 | 0x02 | 0x04 | 0x10; // COPY_SRC | COPY_DST | TEXTURE_BINDING | RENDER_ATTACHMENT
+const TEXTURE_USAGE_COVERAGE = 0x01 | 0x02 | 0x04; // COPY_SRC | COPY_DST | TEXTURE_BINDING (writeTexture needs no RENDER_ATTACHMENT)
 const SHELF_CLASSES = [16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024] as const;
 const BASE_RETRY_MS = 250;
 const MAX_RETRY_MS = 8000;
@@ -252,10 +273,25 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   let inFlightCount = 0;
 
   let device: GPUDevice | undefined;
-  let texture: GPUTexture | undefined;
   let sampler: GPUSampler | undefined;
-  let layerCount = 0;
-  const pages: Page[] = [];
+  const rgbaPool: PagePool = {
+    kind: "rgba",
+    format: "rgba8unorm",
+    bytesPerPixel: 4,
+    usage: TEXTURE_USAGE_ATLAS,
+    layerCount: 0,
+    pages: [],
+  };
+  const coveragePool: PagePool = {
+    kind: "coverage",
+    format: "r8unorm",
+    bytesPerPixel: 1,
+    usage: TEXTURE_USAGE_COVERAGE,
+    layerCount: 0,
+    pages: [],
+  };
+  const poolFor = (kind: PoolKind): PagePool => (kind === "coverage" ? coveragePool : rgbaPool);
+  const poolKindOf = (cellKind: "text" | "sprite"): PoolKind => (cellKind === "text" ? "coverage" : "rgba");
 
   let dirty = false;
   let flushScheduled = false;
@@ -286,6 +322,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
 
   const mutable = {
     texture: undefined as unknown as GPUTexture,
+    coverageTexture: undefined as unknown as GPUTexture,
     sampler: undefined as unknown as GPUSampler,
     cells,
     cellCount: 0,
@@ -413,13 +450,13 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     shelves: [],
   });
 
-  const tryPlaceOnPages = (w: number, h: number): Placed | undefined => {
+  const tryPlaceOnPages = (pool: PagePool, w: number, h: number): Placed | undefined => {
     const needW = w + 1; // 1px transparent gutter on right
     const needH = h + 1; // 1px transparent gutter on bottom
     if (needW > pageSize || needH > pageSize) return undefined;
 
     // 1. Fit into an existing shelf of compatible height class (free span first, then cursor).
-    for (const page of pages) {
+    for (const page of pool.pages) {
       for (let sIdx = 0; sIdx < page.shelves.length; sIdx += 1) {
         const shelf = page.shelves[sIdx]!;
         if (shelf.height < needH || shelf.height > needH * 2) continue;
@@ -435,7 +472,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
               span.w -= needW;
             }
             shelf.usedCount += 1;
-            return { layer: page.layer, shelfIndex: sIdx, x, y: shelf.y, w, h, spanW: needW };
+            return { pool: pool.kind, layer: page.layer, shelfIndex: sIdx, x, y: shelf.y, w, h, spanW: needW };
           }
         }
         // Check tail cursor
@@ -443,14 +480,14 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
           const x = shelf.cursorX;
           shelf.cursorX += needW;
           shelf.usedCount += 1;
-          return { layer: page.layer, shelfIndex: sIdx, x, y: shelf.y, w, h, spanW: needW };
+          return { pool: pool.kind, layer: page.layer, shelfIndex: sIdx, x, y: shelf.y, w, h, spanW: needW };
         }
       }
     }
 
     // 2. Open a new shelf on any page with vertical room.
     const shelfH = shelfClassFor(needH, pageSize);
-    for (const page of pages) {
+    for (const page of pool.pages) {
       if (page.nextY + shelfH <= pageSize) {
         // Reserve texel (0,0) on layer 0 row 0 as permanently transparent.
         const startX = page.layer === 0 && page.nextY === 0 ? 1 : 0;
@@ -465,14 +502,15 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         const sIdx = page.shelves.length;
         page.shelves.push(shelf);
         page.nextY += shelfH;
-        return { layer: page.layer, shelfIndex: sIdx, x: startX, y: shelf.y, w, h, spanW: needW };
+        return { pool: pool.kind, layer: page.layer, shelfIndex: sIdx, x: startX, y: shelf.y, w, h, spanW: needW };
       }
     }
     return undefined;
   };
 
   const freePlaced = (at: Placed): void => {
-    const page = pages[at.layer];
+    const pool = poolFor(at.pool);
+    const page = pool.pages[at.layer];
     if (page === undefined) return;
     const shelf = page.shelves[at.shelfIndex];
     if (shelf === undefined) return;
@@ -480,19 +518,16 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     if (shelf.usedCount === 0) {
       shelf.freeSpans.length = 0;
       shelf.cursorX = page.layer === 0 && shelf.y === 0 ? 1 : 0;
-      // Rewind trailing empty shelves on this page so tall items can claim contiguous vertical room.
       while (page.shelves.length > 0 && page.shelves[page.shelves.length - 1]!.usedCount === 0) {
         const popped = page.shelves.pop()!;
         page.nextY = popped.y;
       }
       return;
     }
-    // Insert and coalesce free span
     const spans = shelf.freeSpans;
     let insertAt = 0;
     while (insertAt < spans.length && spans[insertAt]!.x < at.x) insertAt += 1;
     spans.splice(insertAt, 0, { x: at.x, w: at.spanW });
-    // Coalesce with next
     if (insertAt + 1 < spans.length) {
       const cur = spans[insertAt]!;
       const nxt = spans[insertAt + 1]!;
@@ -501,7 +536,6 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         spans.splice(insertAt + 1, 1);
       }
     }
-    // Coalesce with prev
     if (insertAt > 0) {
       const prev = spans[insertAt - 1]!;
       const cur = spans[insertAt]!;
@@ -510,7 +544,6 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         spans.splice(insertAt, 1);
       }
     }
-    // Trim tail span back into cursorX if adjacent
     const last = spans[spans.length - 1];
     if (last !== undefined && last.x + last.w === shelf.cursorX) {
       shelf.cursorX = last.x;
@@ -526,13 +559,22 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     rec.standalone = undefined;
   };
 
-  const evictOneUnreferenced = (): boolean => {
-    const first = unreferencedLru.keys().next();
-    if (first.done) return false;
-    const idx = first.value;
-    unreferencedLru.delete(idx);
-    const rec = slots[idx];
-    if (rec === undefined || rec.refCount > 0) return false;
+  const evictOneUnreferenced = (preferredPool?: PoolKind): boolean => {
+    let chosen: number | undefined;
+    for (const idx of unreferencedLru.keys()) {
+      const rec = slots[idx];
+      if (rec === undefined || rec.refCount > 0) {
+        unreferencedLru.delete(idx);
+        continue;
+      }
+      if (preferredPool === undefined || rec.placed?.pool === preferredPool) {
+        chosen = idx;
+        break;
+      }
+    }
+    if (chosen === undefined) return false;
+    unreferencedLru.delete(chosen);
+    const rec = slots[chosen]!;
     if (rec.placed !== undefined) {
       freePlaced(rec.placed);
       rec.placed = undefined;
@@ -540,96 +582,92 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     freeStandalone(rec);
     if (rec.state === "landed") {
       landedCount = Math.max(0, landedCount - 1);
-      removeContentLanded(rec.contentKey, idx);
+      removeContentLanded(rec.contentKey, chosen);
     }
     keyToIndex.delete(rec.key);
     compatHeld.delete(rec.key);
-    clearCellUV(idx);
-    slots[idx] = undefined;
-    freeIndices.push(idx);
+    clearCellUV(chosen);
+    slots[chosen] = undefined;
+    freeIndices.push(chosen);
     evictions += 1;
     return true;
   };
 
-  const createTexture2DArray = (targetDevice: GPUDevice, width: number, height: number, layers: number): GPUTexture | undefined => {
+  const createTexture2DArray = (
+    targetDevice: GPUDevice,
+    width: number,
+    height: number,
+    layers: number,
+    format: GPUTextureFormat = "rgba8unorm",
+    usage: number = TEXTURE_USAGE_ATLAS,
+  ): GPUTexture | undefined => {
     const hasScope = typeof targetDevice.pushErrorScope === "function" && typeof targetDevice.popErrorScope === "function";
     if (hasScope) targetDevice.pushErrorScope("out-of-memory");
     let created: GPUTexture | undefined;
     try {
       created = targetDevice.createTexture({
         size: { width, height, depthOrArrayLayers: layers },
-        format: "rgba8unorm",
-        usage: TEXTURE_USAGE_ATLAS,
+        format,
+        usage,
       });
     } catch (error) {
-      reportFailure(`atlas texture allocation failed (${width}x${height}x${layers}): ${String(error)}`);
+      reportFailure(`atlas texture allocation failed (${width}x${height}x${layers} ${format}): ${String(error)}`);
       if (hasScope) void targetDevice.popErrorScope().catch(() => undefined);
       return undefined;
     }
     if (hasScope) {
       void targetDevice.popErrorScope().then((err) => {
         if (err !== null) {
-          reportFailure(`atlas GPU out-of-memory (${width}x${height}x${layers}): ${err.message}`);
+          reportFailure(`atlas GPU out-of-memory (${width}x${height}x${layers} ${format}): ${err.message}`);
         }
       }).catch(() => undefined);
     }
     return created;
   };
 
-  const createArrayTexture = (targetDevice: GPUDevice, layers: number): GPUTexture | undefined =>
-    createTexture2DArray(targetDevice, pageSize, pageSize, layers);
-
-  const growPages = (): boolean => {
-    if (device === undefined || texture === undefined) return false;
-    if (layerCount >= maxArrayLayers) {
-      reportFailure(`atlas page limit reached (${layerCount}/${maxArrayLayers} layers)`);
+  const growPages = (pool: PagePool): boolean => {
+    if (device === undefined || pool.texture === undefined) return false;
+    if (pool.layerCount >= maxArrayLayers) {
+      reportFailure(`atlas ${pool.kind} page limit reached (${pool.layerCount}/${maxArrayLayers} layers)`);
       return false;
     }
-    const nextLayers = layerCount + 1;
-    const nextTexture = createArrayTexture(device, nextLayers);
+    const nextLayers = pool.layerCount + 1;
+    const nextTexture = createTexture2DArray(device, pageSize, pageSize, nextLayers, pool.format, pool.usage);
     if (nextTexture === undefined) return false;
-    // Copy existing layers into the new array texture on GPU.
-    if (layerCount > 0 && typeof device.createCommandEncoder === "function") {
+    if (pool.layerCount > 0 && typeof device.createCommandEncoder === "function") {
       const encoder = device.createCommandEncoder();
       if (typeof encoder.copyTextureToTexture === "function") {
         encoder.copyTextureToTexture(
-          { texture, origin: { x: 0, y: 0, z: 0 } },
+          { texture: pool.texture, origin: { x: 0, y: 0, z: 0 } },
           { texture: nextTexture, origin: { x: 0, y: 0, z: 0 } },
-          { width: pageSize, height: pageSize, depthOrArrayLayers: layerCount },
+          { width: pageSize, height: pageSize, depthOrArrayLayers: pool.layerCount },
         );
       }
       device.queue.submit([encoder.finish()]);
     }
-    texture.destroy();
-    texture = nextTexture;
-    mutable.texture = texture;
-    pages.push(makePage(layerCount));
-    layerCount = nextLayers;
+    pool.texture.destroy();
+    pool.texture = nextTexture;
+    if (pool.kind === "rgba") mutable.texture = nextTexture;
+    else mutable.coverageTexture = nextTexture;
+    pool.pages.push(makePage(pool.layerCount));
+    pool.layerCount = nextLayers;
     textureGeneration += 1;
     mutable.textureGeneration = textureGeneration;
     markDirty();
     return true;
   };
 
-  /**
-   * Allocate a rect of `(w, h)` on the paged texture:
-   * 1. Try existing pages.
-   * 2. Reclaim unreferenced (off-screen) cells in LRU order until it fits.
-   * 3. Add a page on demand only when referenced cells do not fit.
-   */
-  const alloc = (w: number, h: number): Placed | undefined => {
-    let at = tryPlaceOnPages(w, h);
+  const alloc = (pool: PagePool, w: number, h: number): Placed | undefined => {
+    let at = tryPlaceOnPages(pool, w, h);
     if (at !== undefined) return at;
 
-    // Reclaim off-screen (unreferenced) cells first
-    while (evictOneUnreferenced()) {
-      at = tryPlaceOnPages(w, h);
+    while (evictOneUnreferenced(pool.kind)) {
+      at = tryPlaceOnPages(pool, w, h);
       if (at !== undefined) return at;
     }
 
-    // Only what is on screen (referenced) remains; add a page on demand
-    if (growPages()) {
-      at = tryPlaceOnPages(w, h);
+    if (growPages(pool)) {
+      at = tryPlaceOnPages(pool, w, h);
       if (at !== undefined) return at;
     }
     return undefined;
@@ -637,21 +675,47 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
 
   // --- Full-resolution pixel upload (paged, standalone, or tiled) -------------
 
-  const copyPixels = (pixels: AtlasPixels, at: Placed): void => {
+  const coverageBytesOf = (pixels: AtlasPixels, w: number, h: number): Uint8Array => {
+    if ("data" in pixels && pixels.data instanceof Uint8Array) return pixels.data;
+    if (typeof (pixels as HTMLCanvasElement).getContext === "function") {
+      const ctx = (pixels as HTMLCanvasElement).getContext("2d");
+      if (ctx !== null && typeof ctx.getImageData === "function") {
+        const rgba = ctx.getImageData(0, 0, w, h).data;
+        const alpha = new Uint8Array(w * h);
+        for (let i = 0; i < alpha.length; i += 1) alpha[i] = rgba[i * 4 + 3]!;
+        return alpha;
+      }
+    }
+    return new Uint8Array(w * h);
+  };
+
+  const copyPixels = (pool: PagePool, pixels: AtlasPixels, at: Placed): void => {
+    const w = Math.max(1, Math.min(at.w, pixels.width));
+    const h = Math.max(1, Math.min(at.h, pixels.height));
+    if (pool.kind === "coverage") {
+      const data = coverageBytesOf(pixels, w, h);
+      device!.queue.writeTexture(
+        { texture: pool.texture!, origin: { x: at.x, y: at.y, z: at.layer } },
+        data as Uint8Array<ArrayBuffer>,
+        { bytesPerRow: w, rowsPerImage: h },
+        { width: w, height: h, depthOrArrayLayers: 1 },
+      );
+      return;
+    }
     device!.queue.copyExternalImageToTexture(
       { source: pixels as unknown as ImageBitmap },
-      { texture: texture!, origin: { x: at.x, y: at.y, z: at.layer } },
-      { width: Math.max(1, Math.min(at.w, pixels.width)), height: Math.max(1, Math.min(at.h, pixels.height)) },
+      { texture: pool.texture!, origin: { x: at.x, y: at.y, z: at.layer } },
+      { width: w, height: h },
     );
   };
 
   /**
    * Land an item larger than a packing page at full on-screen resolution:
+   * - Text uses `r8unorm` (1 byte/px); sprites use `rgba8unorm` (4 bytes/px).
    * - Up to `maxTexDim` per side: a dedicated 1-layer standalone texture sized to `(w, h)`.
    * - Beyond `maxTexDim`: a dedicated tiled `2d-array` texture of `tilesX * tilesY` layers.
-   * Never downscales visible content.
    */
-  const landStandalone = (rec: SlotRecord, pixels: AtlasPixels, w: number, h: number): boolean => {
+  const landStandalone = (pool: PagePool, rec: SlotRecord, pixels: AtlasPixels, w: number, h: number): boolean => {
     const tilesX = Math.max(1, Math.ceil(w / maxTexDim));
     const tilesY = Math.max(1, Math.ceil(h / maxTexDim));
     const layers = tilesX * tilesY;
@@ -665,7 +729,6 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     const tileW = tilesX === 1 ? w : Math.min(w, maxTexDim);
     const tileH = tilesY === 1 ? h : Math.min(h, maxTexDim);
 
-    // Reuse existing standalone texture in place if dimensions match
     let tex: GPUTexture | undefined;
     if (
       rec.inPlace &&
@@ -682,31 +745,50 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         rec.placed = undefined;
       }
       freeStandalone(rec);
-      tex = createTexture2DArray(device!, tileW, tileH, layers);
+      tex = createTexture2DArray(device!, tileW, tileH, layers, pool.format, pool.usage);
       if (tex === undefined) {
         rec.state = "failed";
         rec.attempts += 1;
         rec.retryAfter = nowMs() + Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** Math.min(6, rec.attempts - 1));
         return false;
       }
-      const bytes = tileW * tileH * layers * 4;
+      const bytes = tileW * tileH * layers * pool.bytesPerPixel;
       rec.standalone = { texture: tex, w, h, tileW, tileH, tilesX, tilesY, bytes };
       standaloneTextures.set(rec.index, tex);
       standaloneBytes += bytes;
     }
 
-    for (let ty = 0; ty < tilesY; ty += 1) {
-      for (let tx = 0; tx < tilesX; tx += 1) {
-        const sx = tx * tileW;
-        const sy = ty * tileH;
-        const cw = Math.min(tileW, w - sx);
-        const ch = Math.min(tileH, h - sy);
-        if (cw <= 0 || ch <= 0) continue;
-        device!.queue.copyExternalImageToTexture(
-          { source: pixels as unknown as ImageBitmap, origin: { x: sx, y: sy } },
-          { texture: tex, origin: { x: 0, y: 0, z: ty * tilesX + tx } },
-          { width: cw, height: ch },
-        );
+    if (pool.kind === "coverage") {
+      const full = coverageBytesOf(pixels, w, h);
+      for (let ty = 0; ty < tilesY; ty += 1) {
+        for (let tx = 0; tx < tilesX; tx += 1) {
+          const sx = tx * tileW;
+          const sy = ty * tileH;
+          const cw = Math.min(tileW, w - sx);
+          const ch = Math.min(tileH, h - sy);
+          if (cw <= 0 || ch <= 0) continue;
+          device!.queue.writeTexture(
+            { texture: tex, origin: { x: 0, y: 0, z: ty * tilesX + tx } },
+            full as Uint8Array<ArrayBuffer>,
+            { offset: sy * w + sx, bytesPerRow: w, rowsPerImage: ch },
+            { width: cw, height: ch, depthOrArrayLayers: 1 },
+          );
+        }
+      }
+    } else {
+      for (let ty = 0; ty < tilesY; ty += 1) {
+        for (let tx = 0; tx < tilesX; tx += 1) {
+          const sx = tx * tileW;
+          const sy = ty * tileH;
+          const cw = Math.min(tileW, w - sx);
+          const ch = Math.min(tileH, h - sy);
+          if (cw <= 0 || ch <= 0) continue;
+          device!.queue.copyExternalImageToTexture(
+            { source: pixels as unknown as ImageBitmap, origin: { x: sx, y: sy } },
+            { texture: tex, origin: { x: 0, y: 0, z: ty * tilesX + tx } },
+            { width: cw, height: ch },
+          );
+        }
       }
     }
 
@@ -747,26 +829,27 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   };
 
   const landPixels = (rec: SlotRecord, pixels: AtlasPixels): boolean => {
-    if (disposed || device === undefined || texture === undefined) return false;
+    const pool = poolFor(poolKindOf(rec.desc?.kind ?? "sprite"));
+    if (disposed || device === undefined || pool.texture === undefined) return false;
     const w = Math.max(1, pixels.width);
     const h = Math.max(1, pixels.height);
 
     // Items larger than a packing page get a full-resolution standalone (or tiled) texture.
     if (w + 1 > pageSize || h + 1 > pageSize) {
-      return landStandalone(rec, pixels, w, h);
+      return landStandalone(pool, rec, pixels, w, h);
     }
 
     freeStandalone(rec);
-    // In-place overwrite if rec already holds a matching rect
+    // In-place overwrite if rec already holds a matching rect in the same pool
     let at: Placed | undefined;
-    if (rec.inPlace && rec.placed !== undefined && rec.placed.w === w && rec.placed.h === h) {
+    if (rec.inPlace && rec.placed !== undefined && rec.placed.pool === pool.kind && rec.placed.w === w && rec.placed.h === h) {
       at = rec.placed;
     } else {
       if (rec.placed !== undefined) {
         freePlaced(rec.placed);
         rec.placed = undefined;
       }
-      at = alloc(w, h);
+      at = alloc(pool, w, h);
     }
 
     if (at === undefined) {
@@ -777,7 +860,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       return false;
     }
 
-    copyPixels(pixels, at);
+    copyPixels(pool, pixels, at);
     rec.placed = at;
     rec.inPlace = false;
     const wasLanded = rec.state === "landed";
@@ -806,7 +889,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   };
 
   const scheduleDrain = (): void => {
-    if (drainScheduled || disposed || device === undefined || texture === undefined) return;
+    if (drainScheduled || disposed || device === undefined || rgbaPool.texture === undefined) return;
     drainScheduled = true;
     queueMicrotask(drainQueue);
   };
@@ -832,7 +915,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   };
 
   const runJob = (rec: SlotRecord): void => {
-    if (rec.desc === undefined || device === undefined || texture === undefined) return;
+    if (rec.desc === undefined || device === undefined || rgbaPool.texture === undefined) return;
     const desc = rec.desc;
     const token = ++nextJobToken;
     rec.jobToken = token;
@@ -895,7 +978,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
 
   const drainQueue = (): void => {
     drainScheduled = false;
-    if (disposed || device === undefined || texture === undefined) return;
+    if (disposed || device === undefined || rgbaPool.texture === undefined) return;
     sampleFrameInterval();
     const start = nowMs();
     const budget = drainYieldMs();
@@ -1132,7 +1215,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   const ensureNow = (cell: number): boolean => {
     if (disposed || cell === NO_ATLAS_CELL || cell < 0 || cell >= slots.length) return false;
     if (hasImage(cell)) return true;
-    if (device === undefined || texture === undefined) return false;
+    if (device === undefined || rgbaPool.texture === undefined) return false;
     const rec = slots[cell];
     if (rec === undefined || rec.desc === undefined) return false;
     // Attempt synchronous raster + copy before the frame is submitted.
@@ -1188,9 +1271,12 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       landed: landedCount,
       evictions,
       failures,
-      pages: layerCount,
+      pages: rgbaPool.layerCount + coveragePool.layerCount,
       pageSize,
-      bytesInUse: layerCount * pageSize * pageSize * 4 + standaloneBytes,
+      bytesInUse:
+        rgbaPool.layerCount * pageSize * pageSize * rgbaPool.bytesPerPixel +
+        coveragePool.layerCount * pageSize * pageSize * coveragePool.bytesPerPixel +
+        standaloneBytes,
       activeCells,
       pinnedCells,
       visibleBlank,
@@ -1204,7 +1290,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       if (disposed) return;
       const fresh = device !== next;
       device = next;
-      if (texture !== undefined && !fresh) return;
+      if (rgbaPool.texture !== undefined && !fresh) return;
 
       // Read real device limits; page edge is a packing choice, never a capacity cap.
       const maxDim = next.limits?.maxTextureDimension2D;
@@ -1218,24 +1304,37 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
           ? Math.max(1, Math.floor(maxStorage / (ATLAS_CELL_FLOATS * 4)))
           : Number.MAX_SAFE_INTEGER;
 
-      texture?.destroy();
+      rgbaPool.texture?.destroy();
+      coveragePool.texture?.destroy();
       for (const tex of standaloneTextures.values()) tex.destroy();
       standaloneTextures.clear();
       standaloneBytes = 0;
-      pages.length = 0;
-      layerCount = 0;
-      const initialTex = createArrayTexture(next, 1);
-      if (initialTex === undefined) return;
-      texture = initialTex;
-      layerCount = 1;
-      pages.push(makePage(0));
+      rgbaPool.pages.length = 0;
+      rgbaPool.layerCount = 0;
+      coveragePool.pages.length = 0;
+      coveragePool.layerCount = 0;
+
+      const initialRgba = createTexture2DArray(next, pageSize, pageSize, 1, rgbaPool.format, rgbaPool.usage);
+      const initialCov = createTexture2DArray(next, pageSize, pageSize, 1, coveragePool.format, coveragePool.usage);
+      if (initialRgba === undefined || initialCov === undefined) {
+        initialRgba?.destroy();
+        initialCov?.destroy();
+        return;
+      }
+      rgbaPool.texture = initialRgba;
+      rgbaPool.layerCount = 1;
+      rgbaPool.pages.push(makePage(0));
+      coveragePool.texture = initialCov;
+      coveragePool.layerCount = 1;
+      coveragePool.pages.push(makePage(0));
       sampler = next.createSampler({
         magFilter: "linear",
         minFilter: "linear",
         addressModeU: "clamp-to-edge",
         addressModeV: "clamp-to-edge",
       });
-      mutable.texture = texture;
+      mutable.texture = initialRgba;
+      mutable.coverageTexture = initialCov;
       mutable.sampler = sampler;
       textureGeneration += 1;
       mutable.textureGeneration = textureGeneration;
@@ -1292,13 +1391,17 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     },
     dispose: () => {
       disposed = true;
-      texture?.destroy();
-      texture = undefined;
+      rgbaPool.texture?.destroy();
+      rgbaPool.texture = undefined;
+      coveragePool.texture?.destroy();
+      coveragePool.texture = undefined;
       for (const tex of standaloneTextures.values()) tex.destroy();
       standaloneTextures.clear();
       standaloneBytes = 0;
-      layerCount = 0;
-      pages.length = 0;
+      rgbaPool.layerCount = 0;
+      rgbaPool.pages.length = 0;
+      coveragePool.layerCount = 0;
+      coveragePool.pages.length = 0;
       queue.length = 0;
       queuedSet.clear();
       unreferencedLru.clear();
@@ -1576,7 +1679,7 @@ const getWorkerPool = (): WorkerPool | undefined => {
       : 4;
     const count = Math.max(1, Math.floor(cores / 2));
     const workers: Worker[] = [];
-    const pending = new Map<number, { resolve: (bm: ImageBitmap) => void; reject: (err: Error) => void }>();
+    const pending = new Map<number, { resolve: (px: AtlasPixels) => void; reject: (err: Error) => void }>();
     let nextId = 1;
     let rr = 0;
 
@@ -1586,22 +1689,26 @@ const getWorkerPool = (): WorkerPool | undefined => {
         const msg = event.data;
         const entry = pending.get(msg.id);
         if (entry === undefined) {
-          if (msg.ok) msg.bitmap.close();
+          if (msg.ok && "bitmap" in msg) msg.bitmap.close();
           return;
         }
         pending.delete(msg.id);
-        if (msg.ok) entry.resolve(msg.bitmap);
-        else entry.reject(new Error(msg.error));
+        if (!msg.ok) {
+          entry.reject(new Error(msg.error));
+        } else if ("coverage" in msg) {
+          entry.resolve({ width: msg.width, height: msg.height, data: msg.coverage });
+        } else {
+          entry.resolve(msg.bitmap);
+        }
       };
       worker.onerror = (err) => {
-        // Reject nothing globally; individual jobs fall back if worker dies.
         console.error("atlas raster worker error:", err.message);
       };
       workers.push(worker);
     }
 
-    const dispatch = (req: RasterWorkerRequest, id: number): Promise<ImageBitmap> =>
-      new Promise<ImageBitmap>((resolve, reject) => {
+    const dispatch = (req: RasterWorkerRequest, id: number): Promise<AtlasPixels> =>
+      new Promise<AtlasPixels>((resolve, reject) => {
         pending.set(id, { resolve, reject });
         const target = workers[rr % workers.length]!;
         rr = (rr + 1) % workers.length;
@@ -1615,7 +1722,7 @@ const getWorkerPool = (): WorkerPool | undefined => {
       },
       rasterGlyph: (name, width, height, ink) => {
         const id = nextId++;
-        return dispatch({ kind: "glyph", id, name, width, height, ink }, id);
+        return dispatch({ kind: "glyph", id, name, width, height, ink }, id) as Promise<ImageBitmap>;
       },
     };
     return workerPool;

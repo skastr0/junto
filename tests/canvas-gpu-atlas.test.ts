@@ -55,6 +55,20 @@ const fakeDevice = (limits?: Partial<GPUSupportedLimits>) => {
           layer: destination.origin?.z ?? 0,
         });
       },
+      writeTexture: (
+        destination: { readonly origin?: { readonly x?: number; readonly y?: number; readonly z?: number } },
+        _data: unknown,
+        _layout: unknown,
+        size: { readonly width: number; readonly height: number },
+      ) => {
+        copies.push({
+          width: size.width,
+          height: size.height,
+          x: destination.origin?.x ?? 0,
+          y: destination.origin?.y ?? 0,
+          layer: destination.origin?.z ?? 0,
+        });
+      },
       submit: () => undefined,
       writeBuffer: () => undefined,
     },
@@ -194,7 +208,8 @@ describe("gpu atlas (#911)", () => {
     const a = atlas.acquire(textQuad({ ...textRun, text: "a" }), 1);
     await settle();
     await settle();
-    expect(atlas.stats().pages).toBe(1);
+    // 1 rgba page + 1 r8unorm coverage page
+    expect(atlas.stats().pages).toBe(2);
     expect(atlas.stats().evictions).toBe(0);
 
     // Release a: stays cached until space is needed
@@ -207,7 +222,7 @@ describe("gpu atlas (#911)", () => {
     await settle();
     await settle();
     expect(atlas.hasImage(b)).toBe(true);
-    expect(atlas.stats().pages).toBe(1);
+    expect(atlas.stats().pages).toBe(2);
     expect(atlas.stats().evictions).toBe(1);
   });
 
@@ -227,9 +242,9 @@ describe("gpu atlas (#911)", () => {
 
     expect(atlas.hasImage(a)).toBe(true);
     expect(atlas.hasImage(b)).toBe(true);
-    expect(atlas.stats().pages).toBe(2);
+    expect(atlas.stats().pages).toBe(3); // 1 rgba + 2 coverage pages
     expect(atlas.stats().evictions).toBe(0);
-    expect(atlas.binding.textureGeneration).toBeGreaterThan(genBefore);
+    expect(atlas.binding.textureGeneration).toBeGreaterThan(genBefore!);
     expect(fake.textureCopies.length).toBe(1);
     // a on layer 0, b on layer 1
     expect(atlas.binding.cells[a * ATLAS_CELL_FLOATS + 4]).toBe(0);
@@ -435,7 +450,7 @@ describe("gpu atlas (#911)", () => {
     atlas.attach(second.device);
     await settle();
     await settle();
-    expect(second.textures()).toBe(1);
+    expect(second.textures()).toBe(2); // 1 rgba + 1 r8unorm coverage texture
     // Only the referenced cell was re-rasterized (1 copy, not 2)
     expect(second.copies.length).toBe(1);
     expect(atlas.hasImage(pinned)).toBe(true);

@@ -23,6 +23,7 @@ export type RasterWorkerRequest =
 
 export type RasterWorkerResponse =
   | { readonly id: number; readonly ok: true; readonly bitmap: ImageBitmap }
+  | { readonly id: number; readonly ok: true; readonly coverage: Uint8Array; readonly width: number; readonly height: number }
   | { readonly id: number; readonly ok: false; readonly error: string };
 
 let measureCanvas: OffscreenCanvas | undefined;
@@ -70,7 +71,14 @@ const getSharp = (w: number, h: number): { canvas: OffscreenCanvas; ctx: Offscre
   return { canvas: sharpCanvas, ctx: sharpCtx };
 };
 
-const rasterText = (run: TextRun, scale: number, ink: GpuColor): ImageBitmap => {
+const extractAlpha = (ctx: OffscreenCanvasRenderingContext2D, w: number, h: number): Uint8Array => {
+  const rgba = ctx.getImageData(0, 0, w, h).data;
+  const alpha = new Uint8Array(w * h);
+  for (let i = 0; i < alpha.length; i += 1) alpha[i] = rgba[i * 4 + 3]!;
+  return alpha;
+};
+
+const rasterTextCoverage = (run: TextRun, scale: number, ink: GpuColor): { readonly coverage: Uint8Array; readonly width: number; readonly height: number } => {
   const mctx = getMeasure();
   const measure: MeasureContext = mctx;
   mctx.font = fontCss(run, scale);
@@ -80,7 +88,7 @@ const rasterText = (run: TextRun, scale: number, ink: GpuColor): ImageBitmap => 
   const pad = run.blur === undefined ? 0 : haloPadDevice(scale);
   const cellW = Math.max(1, Math.ceil(run.width * scale) + 2 * pad);
   const cellH = Math.max(1, Math.ceil(lineHeight * lines.length) + 2 * pad);
-  const { canvas, ctx: draw } = getDraw(cellW, cellH);
+  const { ctx: draw } = getDraw(cellW, cellH);
   draw.font = mctx.font;
   draw.letterSpacing = mctx.letterSpacing;
   const paint = gpuColorCss({ ...ink, a: 1 });
@@ -95,7 +103,7 @@ const rasterText = (run: TextRun, scale: number, ink: GpuColor): ImageBitmap => 
     lines.forEach((line, i) => {
       draw.fillText(line, glyphX(draw, line), pad + lineHeight * i + lineHeight / 2);
     });
-    return canvas.transferToImageBitmap();
+    return { coverage: extractAlpha(draw, cellW, cellH), width: cellW, height: cellH };
   }
   const sharp = getSharp(cellW, cellH);
   sharp.ctx.font = draw.font;
@@ -109,7 +117,7 @@ const rasterText = (run: TextRun, scale: number, ink: GpuColor): ImageBitmap => 
   draw.drawImage(sharp.canvas, 0, 0);
   draw.drawImage(sharp.canvas, 0, 0);
   draw.filter = "none";
-  return canvas.transferToImageBitmap();
+  return { coverage: extractAlpha(draw, cellW, cellH), width: cellW, height: cellH };
 };
 
 const rasterGlyph = (name: string, width: number, height: number, ink: GpuColor): ImageBitmap => {
@@ -151,11 +159,13 @@ if (typeof scope !== "undefined" && typeof OffscreenCanvas !== "undefined") {
       return;
     }
     try {
-      const bitmap =
-        msg.kind === "text"
-          ? rasterText(msg.run, msg.scale, msg.ink)
-          : rasterGlyph(msg.name, msg.width, msg.height, msg.ink);
-      scope.postMessage({ id: msg.id, ok: true, bitmap }, [bitmap]);
+      if (msg.kind === "text") {
+        const { coverage, width, height } = rasterTextCoverage(msg.run, msg.scale, msg.ink);
+        scope.postMessage({ id: msg.id, ok: true, coverage, width, height }, [coverage.buffer]);
+      } else {
+        const bitmap = rasterGlyph(msg.name, msg.width, msg.height, msg.ink);
+        scope.postMessage({ id: msg.id, ok: true, bitmap }, [bitmap]);
+      }
     } catch (error) {
       scope.postMessage({ id: msg.id, ok: false, error: String(error) });
     }
