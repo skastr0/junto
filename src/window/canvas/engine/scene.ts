@@ -1072,6 +1072,8 @@ export const createScene = (options: {
     for (const slot of card.quads.values()) freeQuad(slot);
     card.quads.clear();
     card.ordered = [];
+    // A released badge has no quads; its next plan must paint it again.
+    card.signature = "";
   };
 
   /** The badge's quads under its owner slot; keys keep their records across repaints. */
@@ -1278,7 +1280,6 @@ export const createScene = (options: {
     for (const [key, slot] of clusterSlots) {
       if (live.has(key) || slot.ordered.length === 0) continue;
       releaseCluster(slot);
-      slot.signature = "";
       clusterVersion += 1;
     }
     // The hovered badge rides above the rest, as the DOM's z says.

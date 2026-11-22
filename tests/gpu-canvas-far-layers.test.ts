@@ -118,6 +118,47 @@ describe("seat clusters at far and overview", () => {
     expect(scene.index.cardsAt({ x: 108, y: 28 })).toEqual(["a", "b", "c"]);
   });
 
+  /**
+   * What the scene draws, in paint order: each ordered record's own words
+   * with its owner's placement in place of the owner slot, and slot ids
+   * (atlas cell, style ids, wall instants) left out, since two scenes number
+   * those differently.
+   */
+  const picture = (scene: ReturnType<typeof createScene>): number[][] => {
+    const rows: number[][] = [];
+    const { f32 } = scene.quadBuffer;
+    const words = new Uint32Array(f32.buffer);
+    const skip = new Set([15, 21, 23, 27, 28, 29]);
+    for (let index = 0; index < scene.orderCount; index += 1) {
+      const at = scene.orderBuffer[index]! * 32;
+      const row: number[] = [];
+      for (let word = 0; word < 32; word += 1) if (!skip.has(word)) row.push(f32[at + word]!);
+      const owner = words[at + 15]!;
+      row.push(...scene.ownerBuffer.subarray(owner * 8, owner * 8 + 8));
+      rows.push(row);
+    }
+    return rows;
+  };
+
+  it("draws a camera after a zoom sweep exactly as a fresh boot draws it", () => {
+    const swept = clustered(0.3, "far").scene;
+    for (const tier of ["overview", "mid", "near", "mid", "overview", "far"] as const) swept.prepare(VIEW, tier);
+    const fresh = clustered(0.3, "far").scene;
+    fresh.prepare(VIEW, "far");
+    expect(picture(swept)).toEqual(picture(fresh));
+    expect(swept.clusterAt({ x: 148, y: 28 })).toEqual(fresh.clusterAt({ x: 148, y: 28 }));
+  });
+
+  it("paints the badge again on the way back to far, after near released it", () => {
+    const { scene } = clustered(0.3, "far");
+    const far = scene.prepare(VIEW, "far").visible;
+    expect(far).toBeGreaterThan(3);
+    expect(scene.prepare(VIEW, "near").visible).toBe(3);
+    // Same plan, same signature: the released badge must still draw its quads.
+    expect(scene.prepare(VIEW, "far").visible).toBe(far);
+    expect(scene.clusterAt({ x: 148, y: 28 })).toEqual(["a", "b", "c"]);
+  });
+
   it("a selected seat stays apart, so the rest regroup around it", () => {
     const { scene, facts } = clustered(0.3, "far");
     scene.apply({ kind: "selection", fact: { nodeIds: ["a"] } });
