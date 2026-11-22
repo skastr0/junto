@@ -501,12 +501,20 @@ interface OpenDiagnostics {
   readonly active: string;
 }
 
+interface OpenAttempt {
+  readonly id: string;
+  readonly point: { x: number; y: number } | null;
+  readonly hit: string;
+  readonly reason: "no-hit" | "no-selection" | "no-surface" | "opened";
+  readonly selection: ReadonlyArray<string>;
+}
+
 const openSeat = async (
   page: Page,
   id: string,
   rect: ScreenRect,
   pane: ScreenRect,
-): Promise<{ opened: boolean; diagnostics: OpenDiagnostics }> => {
+): Promise<{ opened: boolean; diagnostics: OpenDiagnostics; attempt: OpenAttempt }> => {
   const candidates = [
     { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 },
     { x: rect.x + rect.width * 0.4, y: rect.y + rect.height / 2 },
@@ -514,7 +522,13 @@ const openSeat = async (
   ].filter((point) => insidePane(point, pane));
   const hits = await hypothesize(page, candidates, pane, id);
   const own = hits.find((hit) => hit.hit === "own");
-  if (own === undefined) return { opened: false, diagnostics: { selection: [], surfaces: 0, backdrops: 0, dialogs: 0, active: "" } };
+  if (own === undefined) {
+    return {
+      opened: false,
+      diagnostics: { selection: [], surfaces: 0, backdrops: 0, dialogs: 0, active: "" },
+      attempt: { id, point: null, hit: hits.map((hit) => hit.hit).join(","), reason: "no-hit", selection: [] },
+    };
+  }
   const point = own.point;
   await resetOperator(page);
   await page.mouse.dblclick(point.x, point.y);
@@ -535,7 +549,10 @@ const openSeat = async (
     };
   });
   if (opened) await closeSurfaces(page);
-  return { opened: opened && (await page.locator(".focus-surface").count()) === 0, diagnostics };
+  const closed = opened && (await page.locator(".focus-surface").count()) === 0;
+  const reason: OpenAttempt["reason"] =
+    diagnostics.selection.length === 0 ? "no-selection" : diagnostics.surfaces === 0 ? "no-surface" : closed ? "opened" : "no-surface";
+  return { opened: closed, diagnostics, attempt: { id, point, hit: "own", reason, selection: diagnostics.selection } };
 };
 
 // --- visuals: side by side, near pixels and mid/far structure ---------------------
@@ -862,6 +879,23 @@ test.describe("#913 GPU canvas proof", () => {
           }
           freshPortraits.set(tier.name, okPortraits);
           tierCameras.set(tier.name, at.camera);
+          // What the damage path left against a forced full redraw at the
+          // same camera, no masking: a region painted inside a stale damage
+          // rectangle differs here even when every counter is green.
+          const forceFull = async (mode: "cpu" | "gpu", name: string): Promise<PngImage> => {
+            await page.evaluate((arm) => {
+              const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
+              hook?.["setCull"]?.(arm);
+            }, mode);
+            await page.waitForTimeout(120);
+            await settleAtlas(page);
+            return PNG.sync.read(await page.screenshot({ path: join(dir, name) }));
+          };
+          const shippedFull = await forceFull((at.cull ?? "cpu") as "cpu" | "gpu", `${tier.name}-full.png`);
+          const fullRedrawDelta = mismatch(image, shippedFull);
+          if (fullRedrawDelta > 0.02) {
+            fail(`${String(scale)}x ${tier.name}: the damaged frame differs from a full redraw on ${(fullRedrawDelta * 100).toFixed(2)}% of pixels`);
+          }
           // The shipped arm is the picture above. Prove the GPU cull arm draws
           // the same picture at this camera, and that it actually culled on
           // the GPU (cullFrames.gpu moved), then restore the shipped arm.
@@ -878,8 +912,8 @@ test.describe("#913 GPU canvas proof", () => {
             }, other);
             await page.waitForTimeout(350);
             const otherState = await settleAtlas(page);
-            const otherImage = PNG.sync.read(await page.screenshot({ path: join(dir, `${tier.name}-cull-${other}.png`) }));
-            cullParity = mismatch(image, otherImage);
+            const otherImage = await forceFull(other as "cpu" | "gpu", `${tier.name}-cull-${other}.png`);
+            cullParity = mismatch(shippedFull, otherImage);
             const after = otherState.cullFrames;
             gpuCullFrames = other === "gpu" ? Math.max(0, (after?.gpu ?? 0) - (before?.gpu ?? 0)) : 0;
             await page.evaluate((mode) => {
@@ -945,6 +979,7 @@ test.describe("#913 GPU canvas proof", () => {
             marginScreenPx: at.blank?.marginScreenPx ?? null,
             tierWindowOctaves: at.blank?.tierWindowOctaves ?? null,
             cull: at.cull,
+            fullRedrawDelta: round(fullRedrawDelta, 4),
             shippedCullFrames: shippedCullFrames ?? null,
             cullParity: cullParity === null ? null : round(cullParity, 4),
             gpuCullFrames,
@@ -1092,6 +1127,17 @@ test.describe("#913 GPU canvas proof", () => {
           await settleAtlas(page);
           const screens = await seatScreens(page, board);
           const image = PNG.sync.read(await page.screenshot({ path: join(dir, `${tier.name}-after.png`) }));
+          const revisitFull = await (async (): Promise<PngImage> => {
+            await page.evaluate(() => {
+              const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
+              const mode = String((hook?.["stats"]() as { cull?: string } | undefined)?.cull ?? "cpu");
+              hook?.["setCull"]?.(mode);
+            });
+            await page.waitForTimeout(120);
+            await settleAtlas(page);
+            return PNG.sync.read(await page.screenshot({ path: join(dir, `${tier.name}-after-full.png`) }));
+          })();
+          const revisitFullDelta = mismatch(image, revisitFull);
           const viewport = await page.evaluate(() => ({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }));
           const content = await seatContent(page, screens.onPane.map((seat) => seat.id));
           const badgeCache = new Map<string, ContentPart | null>();
@@ -1109,7 +1155,8 @@ test.describe("#913 GPU canvas proof", () => {
           }
           const before = freshPortraits.get(tier.name) ?? new Set<string>();
           const lost = [...before].filter((id) => !now.has(id));
-          revisit[tier.name] = { before: before.size, after: now.size, lost: lost.length, samples: lost.slice(0, 8) };
+          revisit[tier.name] = { before: before.size, after: now.size, lost: lost.length, samples: lost.slice(0, 8), fullRedrawDelta: round(revisitFullDelta, 4) };
+          if (revisitFullDelta > 0.02) fail(`${String(scale)}x ${tier.name}: after the sweep the damaged frame differs from a full redraw on ${(revisitFullDelta * 100).toFixed(2)}% of pixels`);
           if (lost.length > 0) fail(`${String(scale)}x ${tier.name}: ${String(lost.length)} seats lost their portrait after the sweep: ${JSON.stringify(lost.slice(0, 8))}`);
         }
         report["revisit"] = revisit;
@@ -1132,18 +1179,26 @@ test.describe("#913 GPU canvas proof", () => {
         let opened = false;
         let openedId: string | null = null;
         let diagnostics: OpenDiagnostics = { selection: [], surfaces: 0, backdrops: 0, dialogs: 0, active: "" };
+        const attempts: OpenAttempt[] = [];
         for (const candidate of nearScreens.onPane.slice(0, 12)) {
           const node = rects[candidate.id]!;
           await placeCamera(page, await cameraOn(page, { x: node.x + node.width / 2, y: node.y + node.height / 2 }, 1));
           const attempt = await openSeat(page, candidate.id, candidate.rect, pane);
           diagnostics = attempt.diagnostics;
+          attempts.push(attempt.attempt);
           if (attempt.opened) {
             opened = true;
             openedId = candidate.id;
             break;
           }
         }
-        report["open"] = { seat: openedId, opened, tried: Math.min(12, nearScreens.onPane.length), last: diagnostics };
+        report["open"] = {
+          seat: openedId,
+          opened,
+          tried: Math.min(12, nearScreens.onPane.length),
+          last: diagnostics,
+          attempts,
+        };
         if (!opened) fail(`${String(scale)}x: double-click did not open a seat's focus surface at near`);
         });
 

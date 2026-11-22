@@ -636,26 +636,48 @@ export const readMotionProbe = async (page: Page): Promise<MotionProbe> => {
 export const wheelSweep = async (page: Page, targets: ReadonlyArray<number>, deltaPerEvent = 4, frameMs = 16): Promise<void> => {
   const camera = await page.evaluate(() => {
     const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
-    return hook?.["camera"]() as { zoom: number } | undefined;
+    return { zoom: (hook?.["camera"]() as { zoom: number } | undefined)?.zoom ?? 1, pane: hook?.["rectOf"]("") as { x: number; y: number; width: number; height: number } | undefined };
   });
-  let zoom = camera?.zoom ?? 1;
+  let zoom = camera.zoom;
+  const pane = camera.pane ?? { x: 0, y: 0, width: 800, height: 600 };
+  const cdp = await page.context().newCDPSession(page);
+  const sends: Array<Promise<unknown>> = [];
   const stamps: number[] = [];
-  for (const target of targets) {
-    const events = Math.ceil(Math.abs(Math.log2(target / zoom)) / (deltaPerEvent * 0.02));
-    const direction = target > zoom ? 1 : -1;
-    for (let index = 0; index < events; index += 1) {
-      await page.mouse.wheel(0, -direction * deltaPerEvent);
-      stamps.push(Date.now());
-      await page.waitForTimeout(frameMs);
+  const startedAt = Date.now();
+  let index = 0;
+  try {
+    for (const target of targets) {
+      const events = Math.ceil(Math.abs(Math.log2(target / zoom)) / (deltaPerEvent * 0.02));
+      const direction = target > zoom ? 1 : -1;
+      for (let step = 0; step < events; step += 1) {
+        const due = startedAt + index * frameMs;
+        const wait = due - Date.now();
+        if (wait > 0) await page.waitForTimeout(wait);
+        stamps.push(Date.now());
+        sends.push(
+          cdp.send("Input.dispatchMouseEvent", {
+            type: "mouseWheel",
+            x: pane.x + pane.width / 2,
+            y: pane.y + pane.height / 2,
+            deltaX: 0,
+            deltaY: -direction * deltaPerEvent,
+          }).catch(() => undefined),
+        );
+        index += 1;
+      }
+      zoom = target;
     }
-    zoom = target;
+    await Promise.all(sends);
+  } finally {
+    await cdp.detach().catch(() => undefined);
   }
-  const gaps = stamps.slice(1).map((ts, index) => ts - stamps[index]!);
+  const gaps = stamps.slice(1).map((ts, i) => ts - stamps[i]!);
   await page.evaluate(
     (input: { events: number; gaps: number[] }) => {
       const w = window as unknown as { __gpuMotion?: Record<string, unknown>; __gpuInputGaps?: number[] };
       if (w.__gpuMotion !== undefined) w.__gpuMotion["inputEvents"] = Number(w.__gpuMotion["inputEvents"]) + input.events;
-      w.__gpuInputGaps = input.gaps;
+      const previous = w.__gpuInputGaps ?? [];
+      w.__gpuInputGaps = previous.concat(input.gaps);
     },
     { events: stamps.length, gaps },
   );
