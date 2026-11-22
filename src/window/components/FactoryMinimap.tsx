@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as Rea
 import type { MinimapRect, MinimapSource } from "../canvas/shell/minimap-source";
 import type { Urgency } from "../lib/region-urgency";
 import { unseenRef } from "../lib/unseen";
-import { canvasColour } from "@shared/theme/oklch";
 import { drawMap, SEAT_DOT_PX, URGENT_DOT_PX, type MapPaint, type MinimapWorkerMessage, type PackedMap } from "./minimap-draw";
 import "./factory-minimap.css";
 
@@ -248,9 +247,11 @@ export const minimapHits = (rects: ReadonlyArray<MinimapNodeRect>): MinimapHits 
 };
 
 /**
- * CSS colours (var(), color-mix()) as the canvas can take them, read through
- * a probe element's computed style inside the map, so they resolve where the
- * SVG's inline styles did. Kept until the theme changes.
+ * CSS colours (var(), color-mix()) resolved through a probe element's computed
+ * style inside the map, so they resolve where the SVG's inline styles did.
+ * The computed string goes to the canvas as it is (oklab() from color-mix):
+ * Chromium's canvas parses it and converts it as its SVG paint did, where a
+ * conversion here rounds a channel a step off. Kept until the theme changes.
  */
 const colourReader = (probe: HTMLElement): ((css: string) => string) => {
   const known = new Map<string, string>();
@@ -259,7 +260,7 @@ const colourReader = (probe: HTMLElement): ((css: string) => string) => {
     if (held !== undefined) return held;
     probe.style.color = "";
     probe.style.color = css;
-    const resolved = probe.style.color === "" ? "transparent" : canvasColour(getComputedStyle(probe).color || "transparent");
+    const resolved = probe.style.color === "" ? "transparent" : getComputedStyle(probe).color || "transparent";
     known.set(css, resolved);
     return resolved;
   };

@@ -171,28 +171,3 @@ export function hexAtAlpha(hex: string, alpha: number): string {
   const [r, g, b] = hexToSrgb(hex).map((v) => Math.round(v * 255));
   return `rgba(${r},${g},${b},${alpha})`;
 }
-
-/** A CSS number, a percentage of `whole` when it carries one; `none` is 0. */
-const cssNumber = (token: string, whole: number): number =>
-  token === "none" ? 0 : token.endsWith("%") ? (Number.parseFloat(token) / 100) * whole : Number.parseFloat(token);
-
-/**
- * A computed colour as a canvas takes it. color-mix(in oklab) computes to
- * oklab(), and a fillStyle the canvas cannot parse is dropped in silence,
- * leaving the last colour set: oklab() and oklch() come back as rgba(), with
- * the alpha unrounded, and anything else as it came.
- */
-export const canvasColour = (computed: string): string => {
-  const match = /^(oklab|oklch)\(\s*([^)]*)\)$/.exec(computed.trim());
-  if (match === null) return computed;
-  const [channels = "", alphaPart] = match[2]!.split("/");
-  const [first = "0", second = "0", third = "0"] = channels.trim().split(/\s+/);
-  const l = cssNumber(first, 1);
-  const polar =
-    match[1] === "oklab"
-      ? oklabToOklch({ l, a: cssNumber(second, 0.4), b: cssNumber(third, 0.4) })
-      : { l, c: cssNumber(second, 0.4), h: cssNumber(third, 360) };
-  const alpha = alphaPart === undefined ? 1 : Math.min(1, Math.max(0, cssNumber(alphaPart.trim(), 1)));
-  const [r, g, b] = oklchToSrgb(polar).map((v) => Math.round(v * 255));
-  return `rgba(${String(r)}, ${String(g)}, ${String(b)}, ${String(alpha)})`;
-};
