@@ -206,6 +206,26 @@ const SHELF_CLASSES = [16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 102
 const BASE_RETRY_MS = 250;
 const MAX_RETRY_MS = 8000;
 
+const MIP_BLIT_SHADER = /* wgsl */ `
+@group(0) @binding(0) var srcTex: texture_2d<f32>;
+@group(0) @binding(1) var srcSamp: sampler;
+struct MipOut {
+  @builtin(position) pos: vec4f,
+  @location(0) uv: vec2f,
+};
+@vertex fn vs(@builtin(vertex_index) vi: u32) -> MipOut {
+  var p = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  var u = array<vec2f, 3>(vec2f(0.0, 1.0), vec2f(2.0, 1.0), vec2f(0.0, -1.0));
+  var o: MipOut;
+  o.pos = vec4f(p[vi], 0.0, 1.0);
+  o.uv = u[vi];
+  return o;
+}
+@fragment fn fs(in: MipOut) -> @location(0) vec4f {
+  return textureSample(srcTex, srcSamp, in.uv);
+}
+`;
+
 const shelfClassFor = (needH: number, pageSize: number): number => {
   for (const h of SHELF_CLASSES) {
     if (h >= needH && h <= pageSize) return h;
@@ -279,6 +299,10 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
 
   let device: GPUDevice | undefined;
   let sampler: GPUSampler | undefined;
+  let mipPipeline: GPURenderPipeline | undefined;
+  let mipBindLayout: GPUBindGroupLayout | undefined;
+  let rgbaMipCount = 1;
+  const dirtyMipLayers = new Set<number>();
   const rgbaPool: PagePool = {
     kind: "rgba",
     format: "rgba8unorm",
@@ -342,10 +366,67 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     options.onFailure?.(reason);
   };
 
+  const generateDirtyMipmaps = (): void => {
+    if (
+      dirtyMipLayers.size === 0 ||
+      device === undefined ||
+      rgbaPool.texture === undefined ||
+      sampler === undefined ||
+      mipPipeline === undefined ||
+      mipBindLayout === undefined ||
+      rgbaMipCount <= 1 ||
+      typeof device.createCommandEncoder !== "function"
+    ) {
+      dirtyMipLayers.clear();
+      return;
+    }
+    const encoder = device.createCommandEncoder();
+    if (typeof encoder.beginRenderPass !== "function") {
+      dirtyMipLayers.clear();
+      return;
+    }
+    for (const layer of dirtyMipLayers) {
+      if (layer < 0 || layer >= rgbaPool.layerCount) continue;
+      for (let level = 1; level < rgbaMipCount; level += 1) {
+        const srcView = rgbaPool.texture.createView({
+          dimension: "2d",
+          baseArrayLayer: layer,
+          arrayLayerCount: 1,
+          baseMipLevel: level - 1,
+          mipLevelCount: 1,
+        });
+        const dstView = rgbaPool.texture.createView({
+          dimension: "2d",
+          baseArrayLayer: layer,
+          arrayLayerCount: 1,
+          baseMipLevel: level,
+          mipLevelCount: 1,
+        });
+        const bg = device.createBindGroup({
+          layout: mipBindLayout,
+          entries: [
+            { binding: 0, resource: srcView },
+            { binding: 1, resource: sampler },
+          ],
+        });
+        const pass = encoder.beginRenderPass({
+          colorAttachments: [{ view: dstView, loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 0 } }],
+        });
+        pass.setPipeline(mipPipeline);
+        pass.setBindGroup(0, bg);
+        pass.draw(3);
+        pass.end();
+      }
+    }
+    dirtyMipLayers.clear();
+    device.queue.submit([encoder.finish()]);
+  };
+
   const flushDirty = (): void => {
     flushScheduled = false;
     if (dirty && !disposed) {
       dirty = false;
+      generateDirtyMipmaps();
       options.onDirty?.();
     }
   };
@@ -605,6 +686,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     layers: number,
     format: GPUTextureFormat = "rgba8unorm",
     usage: number = TEXTURE_USAGE_ATLAS,
+    mipLevelCount = 1,
   ): GPUTexture | undefined => {
     const hasScope = typeof targetDevice.pushErrorScope === "function" && typeof targetDevice.popErrorScope === "function";
     if (hasScope) targetDevice.pushErrorScope("out-of-memory");
@@ -614,6 +696,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         size: { width, height, depthOrArrayLayers: layers },
         format,
         usage,
+        ...(mipLevelCount > 1 ? { mipLevelCount } : {}),
       });
     } catch (error) {
       reportFailure(`atlas texture allocation failed (${width}x${height}x${layers} ${format}): ${String(error)}`);
@@ -637,7 +720,8 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       return false;
     }
     const nextLayers = pool.layerCount + 1;
-    const nextTexture = createTexture2DArray(device, pageSize, pageSize, nextLayers, pool.format, pool.usage);
+    const mips = pool.kind === "rgba" ? rgbaMipCount : 1;
+    const nextTexture = createTexture2DArray(device, pageSize, pageSize, nextLayers, pool.format, pool.usage, mips);
     if (nextTexture === undefined) return false;
     if (pool.layerCount > 0 && typeof device.createCommandEncoder === "function") {
       const encoder = device.createCommandEncoder();
@@ -649,6 +733,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         );
       }
       device.queue.submit([encoder.finish()]);
+      if (pool.kind === "rgba" && rgbaMipCount > 1) {
+        for (let l = 0; l < pool.layerCount; l += 1) dirtyMipLayers.add(l);
+      }
     }
     pool.texture.destroy();
     pool.texture = nextTexture;
@@ -712,6 +799,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       { texture: pool.texture!, origin: { x: at.x, y: at.y, z: at.layer } },
       { width: w, height: h },
     );
+    if (rgbaMipCount > 1) dirtyMipLayers.add(at.layer);
   };
 
   /**
@@ -1281,7 +1369,13 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       pages: rgbaPool.layerCount + coveragePool.layerCount,
       pageSize,
       bytesInUse:
-        rgbaPool.layerCount * pageSize * pageSize * rgbaPool.bytesPerPixel +
+        Math.round(
+          rgbaPool.layerCount *
+            pageSize *
+            pageSize *
+            rgbaPool.bytesPerPixel *
+            (rgbaMipCount > 1 ? 4 / 3 : 1),
+        ) +
         coveragePool.layerCount * pageSize * pageSize * coveragePool.bytesPerPixel +
         standaloneBytes,
       activeCells,
@@ -1320,9 +1414,37 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       rgbaPool.layerCount = 0;
       coveragePool.pages.length = 0;
       coveragePool.layerCount = 0;
+      dirtyMipLayers.clear();
 
-      const initialRgba = createTexture2DArray(next, pageSize, pageSize, 1, rgbaPool.format, rgbaPool.usage);
-      const initialCov = createTexture2DArray(next, pageSize, pageSize, 1, coveragePool.format, coveragePool.usage);
+      // Build GPU mipmap blit pipeline when device supports render passes (real WebGPU).
+      mipPipeline = undefined;
+      mipBindLayout = undefined;
+      rgbaMipCount = 1;
+      if (
+        typeof next.createShaderModule === "function" &&
+        typeof next.createBindGroupLayout === "function" &&
+        typeof next.createPipelineLayout === "function" &&
+        typeof next.createRenderPipeline === "function" &&
+        typeof next.createBindGroup === "function"
+      ) {
+        const mod = next.createShaderModule({ code: MIP_BLIT_SHADER });
+        mipBindLayout = next.createBindGroupLayout({
+          entries: [
+            { binding: 0, visibility: 2, texture: { sampleType: "float" } },
+            { binding: 1, visibility: 2, sampler: { type: "filtering" } },
+          ],
+        });
+        mipPipeline = next.createRenderPipeline({
+          layout: next.createPipelineLayout({ bindGroupLayouts: [mipBindLayout] }),
+          vertex: { module: mod, entryPoint: "vs" },
+          fragment: { module: mod, entryPoint: "fs", targets: [{ format: "rgba8unorm" }] },
+          primitive: { topology: "triangle-list" },
+        });
+        rgbaMipCount = Math.max(1, Math.floor(Math.log2(pageSize)) + 1);
+      }
+
+      const initialRgba = createTexture2DArray(next, pageSize, pageSize, 1, rgbaPool.format, rgbaPool.usage, rgbaMipCount);
+      const initialCov = createTexture2DArray(next, pageSize, pageSize, 1, coveragePool.format, coveragePool.usage, 1);
       if (initialRgba === undefined || initialCov === undefined) {
         initialRgba?.destroy();
         initialCov?.destroy();
@@ -1337,6 +1459,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       sampler = next.createSampler({
         magFilter: "linear",
         minFilter: "linear",
+        mipmapFilter: "linear",
         addressModeU: "clamp-to-edge",
         addressModeV: "clamp-to-edge",
       });
@@ -1417,6 +1540,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       rgbaPool.pages.length = 0;
       coveragePool.layerCount = 0;
       coveragePool.pages.length = 0;
+      dirtyMipLayers.clear();
+      mipPipeline = undefined;
+      mipBindLayout = undefined;
       queue.length = 0;
       queuedSet.clear();
       unreferencedLru.clear();
