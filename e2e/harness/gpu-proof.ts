@@ -181,8 +181,11 @@ export const buildProofBoard = (fixture: NestedCanvasFixture, scale: ProofScale)
 /** The build this run uses, so a schema change cannot reuse an old seed. */
 const buildTag = (): string => {
   try {
-    const source = JSON.parse(readFileSync(join(process.cwd(), "out", "build-source.json"), "utf8")) as { commit?: string };
-    return (source.commit ?? "unknown").slice(0, 12);
+    const source = JSON.parse(readFileSync(join(process.cwd(), "out", "build-source.json"), "utf8")) as {
+      commit?: string;
+      sourceCommit?: string;
+    };
+    return (source.sourceCommit ?? source.commit ?? "unknown").slice(0, 12);
   } catch {
     return "unknown";
   }

@@ -556,6 +556,18 @@ const addressSeat = async (page: Page, id: string, pane: ScreenRect): Promise<Se
       },
       { id, point: target.point },
     );
+    const selectedIds = ((diagnosis as { selected?: string[] } | null)?.selected ?? []).filter((selected) => selected !== id);
+    if (selectedIds.length > 0) {
+      const drawnOver = await page.evaluate((ids) => {
+        const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
+        return ids.some((other) =>
+          ((hook?.["partsOf"]?.(other) ?? []) as Array<Record<string, unknown>>).some(
+            (part) => part["drawn"] === true && (part["key"] === "shell" || part["key"] === "body" || part["key"] === "card"),
+          ),
+        );
+      }, selectedIds);
+      if (drawnOver) return { id, result: "covered", detail: `a drawn card selects at its points: ${selectedIds.join(",")}` };
+    }
     return { id, result: "miss", detail: `click on its own hit box landed on nothing: ${JSON.stringify(diagnosis)}` };
   }
 
