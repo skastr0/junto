@@ -421,7 +421,10 @@ const addressSeat = async (page: Page, id: string, pane: ScreenRect): Promise<Se
     const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
     return ((hook?.["partsOf"]?.(seat) ?? []) as Array<Record<string, unknown>>).some((part) => part["drawn"] === true);
   }, id);
-  let target = hypotheses.find((hypothesis) => hypothesis.hit === "own" && drawnSeat);
+  // A drawn badge is the authored way into a gathered seat at far and
+  // overview: clicking the seat's own held ring selects nothing.
+  const hasClubBadge = (await drawnClusters(page)).some((cluster) => cluster.drawn && cluster.memberIds.includes(id));
+  let target = hasClubBadge && drawnSeat ? undefined : hypotheses.find((hypothesis) => hypothesis.hit === "own" && drawnSeat);
   if (target === undefined) {
     target = hypotheses.find((hypothesis) => hypothesis.hit === "cluster");
     if (target === undefined) {
