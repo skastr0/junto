@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+## 0.11.13 — 2026-11-22
+
+Opening the database with 0.11.13 moves it to version 75, and 0.11.12 then
+refuses it as newer than supported. To go back to 0.11.12, open the backup
+taken at the upgrade. The two steps add tables that keep each canvas's settled
+wire routes and its routing seed beside it, so a launch routes only what
+changed. Both only add; no existing row changes.
+
+- Panning carries on when a card or a wire slides under the pointer, on both
+  canvases, where before the pan stopped dead.
+- The experimental GPU canvas stays smooth on a factory-sized board and on one
+  twice its size: pan, zoom and every zoom level change, with every seat
+  clickable at every zoom.
+- Boards open faster: wires route in background workers against only the
+  cards near them, and settled routes are saved, so a launch routes only what
+  changed while the app was closed.
+- At overview, notes, labels, spine cards and plain cards keep their far-zoom
+  mark instead of vanishing, as on the DOM canvas.
+- The minimap draws as one canvas, pixel for pixel on Retina displays, instead
+  of an element per card.
+- At far zoom a click selects the seat drawn under the pointer, faint pixels
+  no longer linger after a fade, portraits and badges never flash blank after
+  a jump, and wire select targets no longer cover seats past near zoom.
+
 ## 0.11.12 — 2026-11-14
 
 No database change: 0.11.12 opens the same version 73 as 0.11.11.
