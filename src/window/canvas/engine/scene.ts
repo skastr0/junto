@@ -498,6 +498,10 @@ export const createScene = (options: {
   let movers: Array<{ readonly ref: QuadRef; readonly owner: number }> = [];
   /** Page-clock instant the last one-shot in view ends. */
   let oneShotUntil = 0;
+  /** The board rectangles the in-view movers can reach this frame (the damage). */
+  const moverRects: Rect[] = [];
+  /** Page-clock instant of the last motion test, so a one-shot that ended since is drawn at rest once. */
+  let motionTestedAt = 0;
   /** The empty set a board with no clusters gathers. */
   const NO_SEATS: ReadonlySet<NodeId> = new Set();
   /** Badge slots by cluster key: their quads and owner entries. */
@@ -2008,6 +2012,7 @@ export const createScene = (options: {
   const refreshMotion = (view: Rect): void => {
     let periodic = false;
     let until = 0;
+    moverRects.length = 0;
     for (const { ref, owner } of movers) {
       const motion = ref.motion!;
       const oneShot = motion.kind === "land" || motion.kind === "landed" || motion.kind === "rise";
@@ -2015,20 +2020,21 @@ export const createScene = (options: {
       if (oneShot) {
         // `since` is a wall instant; the loop's clock is the page's.
         end = clockNow + (motion.since + ONE_SHOT_MS[motion.kind] - wallNow);
-        if (end <= clockNow || end <= until) continue;
+        // Ended before the last test: at rest and already drawn so.
+        if (end <= motionTestedAt) continue;
       }
       // Turned, grown and shifted at most this far from its centre.
       const rect = placedRect(ref, owner);
       const half = Math.hypot(rect.width, rect.height) * 0.5 * MOTION_GROWTH + MOTION_SHIFT;
       const cx = rect.x + rect.width / 2;
       const cy = rect.y + rect.height / 2;
-      if (!intersects({ x: cx - half, y: cy - half, width: half * 2, height: half * 2 }, view)) continue;
-      if (!oneShot) {
-        periodic = true;
-        break;
-      }
-      until = end;
+      const reach = { x: cx - half, y: cy - half, width: half * 2, height: half * 2 };
+      if (!intersects(reach, view)) continue;
+      moverRects.push(reach);
+      if (!oneShot) periodic = true;
+      else if (end > clockNow) until = Math.max(until, end);
     }
+    motionTestedAt = clockNow;
     motionVisible = periodic;
     oneShotUntil = until;
   };
@@ -2377,6 +2383,12 @@ export const createScene = (options: {
       needSamples: needPx.length - needStart,
     }),
     hasMotion,
+    /**
+     * What a frame driven by motion alone must redraw: the board rectangles
+     * the in-view movers can reach, or undefined while a style transition
+     * runs (it can change any quad).
+     */
+    motionDamage: (at: number = clockNow): ReadonlyArray<Rect> | undefined => (at < transitionUntil ? undefined : moverRects),
     index,
     takeQuadDirty,
     takeOwnerDirty,

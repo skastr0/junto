@@ -274,6 +274,7 @@ export const engineStats = (engine: SeamEngine | undefined): EngineStats => {
     ...(stats.gpuPass === undefined ? {} : { gpuPass: stats.gpuPass }),
     ...(stats.cull === undefined ? {} : { cull: stats.cull }),
     ...(stats.frameMsTotal === undefined ? {} : { frameMsTotal: stats.frameMsTotal }),
+    ...(stats.damage === undefined ? {} : { damage: stats.damage }),
   };
 };
 

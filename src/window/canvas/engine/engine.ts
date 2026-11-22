@@ -62,6 +62,10 @@ import { defaultPainter } from "./paint-default";
 import { createScene, type CardPainter } from "./scene";
 import { createRenderer, type AtlasBinding } from "./renderer";
 import { createGpuTimer, type GpuTimer } from "./gpu-timing";
+import { damageRects, type PixelRect } from "./damage";
+
+/** WebGPU's texture-usage flags, by the numbers the spec gives them. */
+const TEXTURE_USAGE = { COPY_SRC: 0x01, COPY_DST: 0x02, RENDER_ATTACHMENT: 0x10 } as const;
 import { hoverCardPoint, hoverCardRect, pickAt, type HoveredCard, type PickWorld } from "./pick";
 import { POINTER_IDLE, stepPointer, type PointerEffect, type PointerState, type PointerWorld } from "./pointer";
 
@@ -97,6 +101,8 @@ export interface WireLayer {
   readonly encodeTracks: (pass: GPURenderPassEncoder) => void;
   readonly hit: (at: Point) => WireId | undefined;
   readonly busy: (now: number) => boolean;
+  /** The ranges the last `upload` wrote; any at all means wires changed this frame. */
+  readonly lastUploads?: () => ReadonlyArray<unknown>;
   readonly dispose?: () => void;
 }
 
@@ -220,6 +226,12 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   let configuredGeneration = 0;
   let lastFrameAt = 0;
   let lastFrameMs = 0;
+  /** The frame the canvas shows, kept so a motion-only frame redraws only its damage. */
+  let kept: { texture: GPUTexture; width: number; height: number; valid: boolean; atlasRevision: number } | undefined;
+  /** Device pixels the last frame shaded, and the running sums against the screen's. */
+  let lastDrawnPixels = 0;
+  let drawnPixelsTotal = 0;
+  let screenPixelsTotal = 0;
   /** Every frame's CPU time summed, so a window's mean is a difference. */
   let frameMsTotal = 0;
   let lastRanges: ReadonlyArray<{ buffer: string; offset: number; size: number }> = [];
@@ -487,7 +499,10 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     if (state.kind !== "ready") return;
     const start = clock();
     if (configuredGeneration !== state.generation) {
-      context.configure({ device: state.device, format: state.format, alphaMode: "opaque" });
+      // The canvas takes the kept frame by copy (damage, #915): RENDER_ATTACHMENT | COPY_DST.
+      context.configure({ device: state.device, format: state.format, alphaMode: "opaque", usage: TEXTURE_USAGE.RENDER_ATTACHMENT | TEXTURE_USAGE.COPY_DST });
+      kept?.texture.destroy();
+      kept = undefined;
       renderer.configure(state.device, state.format, state.generation, scene, host.atlas);
       configuredGeneration = state.generation;
       timer?.destroy();
@@ -572,24 +587,76 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     if (surface.height !== pixelHeight) surface.height = pixelHeight;
     const encoder = device.createCommandEncoder();
     renderer.cull(encoder, () => timer?.computeWrites());
+    const canvasTexture = context.getCurrentTexture();
+    // Damage (#915): the frame is drawn into a kept texture and copied to the
+    // canvas, so a frame that only motion drives redraws the pixels its
+    // in-view movers reach and keeps the rest. Anything else (a camera move,
+    // an op, an upload, a landed cell, a wire change, a style fade) draws whole.
+    const keeping = typeof encoder.copyTextureToTexture === "function";
+    let rects: PixelRect[] | undefined;
+    if (keeping) {
+      if (kept === undefined || kept.width !== pixelWidth || kept.height !== pixelHeight) {
+        kept?.texture.destroy();
+        kept = {
+          texture: device.createTexture({
+            size: [pixelWidth, pixelHeight, 1],
+            format: state.format,
+            usage: TEXTURE_USAGE.RENDER_ATTACHMENT | TEXTURE_USAGE.COPY_SRC,
+          }),
+          width: pixelWidth,
+          height: pixelHeight,
+          valid: false,
+          atlasRevision: -1,
+        };
+      }
+      // A new atlas revision can rebind or rewrite texels no buffer range names.
+      const uploaded =
+        renderer.lastFrameRanges.some((range) => range.buffer !== "uniform") ||
+        (host.wires?.lastUploads?.().length ?? 0) > 0 ||
+        prepared.atlasRevision !== kept.atlasRevision;
+      kept.atlasRevision = prepared.atlasRevision;
+      const wholeFrame = dirty || !kept.valid || uploaded || (host.wires?.busy(wall) ?? false);
+      const damage = wholeFrame ? undefined : scene.motionDamage(shaderNow);
+      if (damage !== undefined) rects = damageRects(damage, camera, size.pixelRatio, { width: pixelWidth, height: pixelHeight });
+    }
     const timestampWrites = timer?.writes();
     const pass = encoder.beginRenderPass({
       ...(timestampWrites === undefined ? {} : { timestampWrites }),
       colorAttachments: [
         {
-          view: context.getCurrentTexture().createView(),
+          view: (keeping ? kept!.texture : canvasTexture).createView(),
           clearValue: ground,
-          loadOp: "clear",
+          loadOp: rects === undefined ? "clear" : "load",
           storeOp: "store",
         },
       ],
     });
-    renderer.encode(pass, 0);
-    host.wires?.encodeRest(pass);
-    renderer.encode(pass, 1);
-    host.wires?.encodeTracks(pass);
-    renderer.encode(pass, 2);
+    const drawAll = (): void => {
+      renderer.encode(pass, 0);
+      host.wires?.encodeRest(pass);
+      renderer.encode(pass, 1);
+      host.wires?.encodeTracks(pass);
+      renderer.encode(pass, 2);
+    };
+    let drawnPixels = pixelWidth * pixelHeight;
+    if (rects === undefined) {
+      drawAll();
+    } else {
+      drawnPixels = 0;
+      for (const rect of rects) {
+        pass.setScissorRect(rect.x, rect.y, rect.width, rect.height);
+        drawAll();
+        drawnPixels += rect.width * rect.height;
+      }
+    }
     pass.end();
+    if (keeping) {
+      encoder.copyTextureToTexture({ texture: kept!.texture }, { texture: canvasTexture }, [pixelWidth, pixelHeight, 1]);
+      kept!.valid = true;
+    }
+    lastDrawnPixels = drawnPixels;
+    drawnPixelsTotal += drawnPixels;
+    screenPixelsTotal += pixelWidth * pixelHeight;
     timer?.resolve(encoder);
     device.queue.submit([encoder.finish()]);
     timer?.collect();
@@ -799,6 +866,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       lastUploadRanges: lastRanges,
       lastFrameMs,
       frameMsTotal,
+      damage: { lastPixels: lastDrawnPixels, drawnPixelsTotal, screenPixelsTotal },
       rasterQueue: 0,
       blank: (({ visibleBlank, placeholders, ensuredNow, marginScreenPx, tierWindowOctaves }) => ({
         visibleBlank,
