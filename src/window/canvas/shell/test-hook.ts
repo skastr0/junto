@@ -5,7 +5,7 @@
  * gives. Facts come from the shell's mirror, never from a DOM card.
  */
 
-import type { CanvasTestHook, Hit, NodeId, Part, Point, Rect } from "../contract";
+import type { CanvasTestHook, DrawnCluster, DrawnPart, Hit, NodeId, Part, Point, Rect } from "../contract";
 import { farSeatScale, seatFloorScale } from "@shared/canvas-tier";
 import type { SeamEngine } from "../engine/engine";
 import type { AtlasStats } from "../engine/types";
@@ -31,6 +31,12 @@ type FullHook = CanvasTestHook & {
   readonly atlasStats: () => AtlasStats;
   /** Engine hit test at canvas-local screen coordinates. */
   readonly pick: (screen: Point) => Hit | null;
+  /** Painted quads for a card, with rect in page screen pixels. */
+  readonly partsOf: (id: NodeId) => ReadonlyArray<DrawnPart>;
+  /** Painted quads for a cluster badge, with rect in page screen pixels. */
+  readonly badgePartsOf: (key: string) => ReadonlyArray<DrawnPart>;
+  /** Painted cluster badges at far/overview, with x, y, radius in page screen pixels. */
+  readonly clusters: () => ReadonlyArray<DrawnCluster>;
 };
 
 const inset = (rect: Rect, dx: number, dy: number): Rect => ({
@@ -97,6 +103,24 @@ const build = (
     }
     return partRect(mirror, id, part) ?? null;
   };
+  const origin = (): Point => {
+    const el = mirror.element();
+    if (el === null) return { x: 0, y: 0 };
+    const box = el.getBoundingClientRect();
+    return { x: box.left, y: box.top };
+  };
+  const boardRectToScreen = (r: Rect): Rect => {
+    const cam = mirror.camera();
+    const o = origin();
+    return {
+      x: o.x + r.x * cam.zoom + cam.x,
+      y: o.y + r.y * cam.zoom + cam.y,
+      width: r.width * cam.zoom,
+      height: r.height * cam.zoom,
+    };
+  };
+  const mapParts = (parts: ReadonlyArray<DrawnPart>): ReadonlyArray<DrawnPart> =>
+    parts.map((p) => ({ ...p, rect: boardRectToScreen(p.rect) }));
   return {
     ready: () => mirror.ready() && mirror.element() !== null,
     cardIds,
@@ -134,6 +158,18 @@ const build = (
     atlasPending,
     atlasStats,
     pick: (screen) => engine()?.pick(screen) ?? null,
+    partsOf: (id) => mapParts(engine()?.partsOf?.(id) ?? []),
+    badgePartsOf: (key) => mapParts(engine()?.badgePartsOf?.(key) ?? []),
+    clusters: () => {
+      const cam = mirror.camera();
+      const o = origin();
+      return (engine()?.clusters?.() ?? []).map((c) => ({
+        ...c,
+        x: o.x + c.x * cam.zoom + cam.x,
+        y: o.y + c.y * cam.zoom + cam.y,
+        radius: c.radius * cam.zoom,
+      }));
+    },
   };
 };
 
