@@ -1224,36 +1224,14 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     const rec = slots[cell];
     if (rec === undefined || rec.desc === undefined) return false;
     // Attempt synchronous raster + copy before the frame is submitted.
+    // Cold async image/media sources stay hasImage===false so the shader draws
+    // the shape-exact tone placeholder until the single decode lands.
     try {
       const px = rasterizeSync(rec.desc);
       if (px !== undefined) {
         queuedSet.delete(cell);
         rec.jobToken = ++nextJobToken;
         landPixels(rec, px);
-        return hasImage(cell);
-      }
-      // Genuinely cold async image/media source: paint a full-opacity tone placeholder
-      // in place so nothing on screen is ever empty while the single decode completes.
-      if (rec.desc.kind === "sprite" && typeof document !== "undefined") {
-        const placeholder = rasterizePlaceholderSync(rec.desc.quad, rec.desc.mode, rec.desc.scale);
-        if (placeholder !== undefined) {
-          const pool = poolFor("rgba");
-          const w = Math.max(1, placeholder.width);
-          const h = Math.max(1, placeholder.height);
-          if (w + 1 <= pageSize && h + 1 <= pageSize) {
-            const at = alloc(pool, w, h);
-            if (at !== undefined) {
-              copyPixels(pool, placeholder, at);
-              rec.placed = at;
-              rec.inPlace = true;
-              writeCellUV(rec.index, at.x, at.y, w, h, at.layer);
-              markDirty();
-              // Keep async decode queued so the real image overwrites this rect in place.
-              enqueue(cell);
-              return true;
-            }
-          }
-        }
       }
     } catch (error) {
       rec.state = "failed";
@@ -1765,21 +1743,6 @@ const drawDecodedMedia = (ctx: CanvasRenderingContext2D, entry: DecodedMediaEntr
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   }
   drawFitted(ctx, entry.bitmap, entry.bitmap.width, entry.bitmap.height, fit);
-};
-
-/** Full-opacity tone placeholder for genuinely cold image/media sources while first decode runs. */
-const rasterizePlaceholderSync = (quad: Quad, mode: ThemeMode, scale: number): HTMLCanvasElement | undefined => {
-  const ref = quad.sprite;
-  if (ref === undefined || (ref.atlas !== "image" && ref.atlas !== "media")) return undefined;
-  const w = Math.max(1, Math.ceil(quad.rect.width * scale));
-  const h = Math.max(1, Math.ceil(quad.rect.height * scale));
-  const { canvas, ctx } = getDrawScratch(w, h);
-  const theme = themeFor(mode);
-  const tone = resolveColour({ token: ref.atlas === "media" ? "shadow-2" : "raise" }, theme)
-    ?? { r: 0.2, g: 0.2, b: 0.2, a: 1 };
-  ctx.fillStyle = gpuColorCss({ ...tone, a: 1 });
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  return canvas;
 };
 
 /** Synchronous sprite rasterizer: marks, glyphs, and any already-decoded SVG or media source. */
