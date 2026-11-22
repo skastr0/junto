@@ -28,6 +28,8 @@ const EMPTY_ATLAS_STATS: AtlasStats = {
   activeCells: 0,
   pinnedCells: 0,
   standaloneCount: 0,
+  decodedSourceBytes: 0,
+  decodedSvgCount: 0,
   visibleBlank: 0,
   visibleBlankTotal: 0,
 };

@@ -69,6 +69,10 @@ export type AtlasStats = {
   readonly pinnedCells: number;
   /** Live standalone/overflow texture entries currently bound outside the main page bind group. */
   readonly standaloneCount: number;
+  /** Estimated bytes held by the decoded SVG + media source cache. */
+  readonly decodedSourceBytes: number;
+  /** Number of decoded SVG sources currently cached. */
+  readonly decodedSvgCount: number;
   /** On-screen text/sprite quads drawn with no image in the last frame. */
   readonly visibleBlank: number;
   /** Cumulative on-screen text/sprite quads drawn with no image across all frames. */

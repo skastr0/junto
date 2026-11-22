@@ -641,9 +641,11 @@ describe("gpu atlas (#911)", () => {
       await new Promise((r) => setTimeout(r, 10));
       await settle();
 
-      // Warm hit: zero re-decode!
+      // Warm hit: zero re-decode, and stats report decoded cache bytes/count!
       expect(createUrlCalls).toBe(1);
       expect(decodeCalls).toBe(1);
+      expect(atlas.stats().decodedSourceBytes).toBeGreaterThan(0);
+      expect(atlas.stats().decodedSvgCount).toBeGreaterThanOrEqual(1);
     } finally {
       g["document"] = prevDoc;
       g["Image"] = prevImage;
