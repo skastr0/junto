@@ -1214,7 +1214,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       }
       for (let cx = x0; cx <= x1; cx += 1) {
         for (let cy = y0; cy <= y1; cy += 1) {
-          const key = cx * 1048576 + cy;
+          const key = cx * 2097152 + (cy + 1048576);
           const bucket = cells.get(key);
           const entry = { candidate, order };
           if (bucket === undefined) cells.set(key, [entry]);
@@ -1262,7 +1262,7 @@ export const createWireScene = (host: WireHost): WireScene => {
     const seen = new Set<number>();
     for (let cx = x0; cx <= x1; cx += 1) {
       for (let cy = y0; cy <= y1; cy += 1) {
-        for (const entry of cells.get(cx * 1048576 + cy) ?? []) {
+        for (const entry of cells.get(cx * 2097152 + (cy + 1048576)) ?? []) {
           if (seen.has(entry.order)) continue;
           seen.add(entry.order);
           consider(entry);

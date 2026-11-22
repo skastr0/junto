@@ -85,4 +85,42 @@ describe("the obstacle index", () => {
       }
     }
   }, 30_000);
+
+  it("routes a wire that needs more than three growths without reading a far field", () => {
+    // A staircase of walls just off the direct corridor: each grows the box
+    // one step further, and each step is clear of the box before it.
+    const local: WireRect[] = [{ x: 495, y: -300, width: 20, height: 600 }];
+    for (const y of [300, 320, 340, 360, 380, 400]) {
+      local.push({ x: 400, y, width: 200, height: 10 });
+      local.push({ x: 400, y: -y - 10, width: 200, height: 10 });
+    }
+    const far = Array.from({ length: 5000 }, (_, i) => ({
+      x: 10_000 + (i % 50) * 300,
+      y: 10_000 + Math.floor(i / 50) * 300,
+      width: 200,
+      height: 100,
+    }));
+    const obstacles = [...local, ...far];
+    const index = createObstacleIndex(obstacles);
+    let growths = 0;
+    let scans = 0;
+    const routed = routeWire({
+      source: { x: 0, y: 0 },
+      target: { x: 1000, y: 0 },
+      obstacles,
+      index,
+      sourceDirection: "right",
+      targetDirection: "left",
+      onGrowth: (value) => {
+        growths = value;
+      },
+      onScan: (count) => {
+        scans += count;
+      },
+    });
+    expect(routed).not.toBeNull();
+    expect(growths).toBeGreaterThan(3);
+    // Four local walls and the stairs: the far field is never in a pass.
+    expect(scans).toBeLessThan(100);
+  });
 });

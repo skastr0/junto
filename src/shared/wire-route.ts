@@ -29,6 +29,9 @@ export type WireRouteInput = {
   readonly index?: ObstacleIndex<WireRect>;
   /** Cards to leave out of the search, by their own fields (a hub, a far card). */
   readonly skip?: (rect: WireRect) => boolean;
+  /** How many rects a pass read, and how many growths the route took (a measurement). */
+  readonly onScan?: (rects: number) => void;
+  readonly onGrowth?: (growths: number) => void;
   /** Clearance around each obstacle. Default 14. */
   readonly padding?: number;
   /** Corner radius for the SVG path. Default 8. */
@@ -345,15 +348,27 @@ function visibilityRouteIndexed(
   const inflate = (rect: WireRect): WireRect => inflateRect(rect, pad);
   const skip = input.skip;
   const kept = (rect: WireRect): boolean => !(skip?.(rect) ?? false);
-  for (let growth = 0; ; growth++) {
-    const everything = growth === BOX_GROWTHS;
-    const relevant = (everything ? index.all() : index.near(box, pad)).filter(kept).map(inflate);
+  // No final pass over every card: the box grows around the detour until the
+  // index finds nothing unseen on it, so a wire that needs a fourth pass reads
+  // its own corridor again, never the board.
+  for (let growth = 1; ; growth += 1) {
+    const relevant = index.near(box, pad).filter(kept).map(inflate);
+    input.onScan?.(relevant.length);
     const found = routePast(source, target, relevant, input, borderRadius);
-    if (!found) return null;
-    if (everything || (skip === undefined && relevant.length === index.size)) return found.route;
+    if (!found) {
+      input.onGrowth?.(growth);
+      return null;
+    }
+    if (skip === undefined && relevant.length === index.size) {
+      input.onGrowth?.(growth);
+      return found.route;
+    }
     const known = box;
     const seen = (rect: WireRect): boolean => !kept(rect) || touchesBox(inflate(rect), known);
-    if (!index.hits(found.corners, pad, seen)) return found.route;
+    if (!index.hits(found.corners, pad, seen)) {
+      input.onGrowth?.(growth);
+      return found.route;
+    }
     let { minX, maxX, minY, maxY } = box;
     for (const corner of found.corners) {
       minX = Math.min(minX, corner.x - corridorPad);

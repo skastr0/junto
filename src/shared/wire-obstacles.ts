@@ -26,7 +26,7 @@ export type ObstacleIndex<T extends WireRect> = {
 
 const CELL = 512;
 
-const cellKey = (cx: number, cy: number): number => cx * 1048576 + cy;
+const cellKey = (cx: number, cy: number): number => cx * 2097152 + (cy + 1048576);
 const firstCell = (value: number): number => Math.floor(value / CELL);
 const lastCell = (value: number): number => Math.floor(value / CELL);
 

@@ -17,6 +17,7 @@ import {
   type WireRect,
   type WireRouteResult,
 } from "@shared/wire-route";
+import { createObstacleIndex, type ObstacleIndex } from "@shared/wire-obstacles";
 
 /** Planned standalone (non-fan) route — same shape as routeWire result. */
 export type LoomRoute = {
@@ -190,21 +191,30 @@ export function planStandaloneRoutes(input: {
   readonly obstacles: ReadonlyArray<LoomObstacle>;
   readonly strandIds: ReadonlySet<string>;
   readonly routeWire?: RouteWireFn;
+  /** The obstacles in a grid; built once here when the caller has none. */
+  readonly index?: ObstacleIndex<LoomObstacle>;
   /** Invoked once per edge that actually enters routeWire (injectable counters). */
   readonly onRouteWire?: (edgeId: string) => void;
 }): Map<string, LoomRoute> {
   const route = input.routeWire ?? defaultRouteWire;
   const out = new Map<string, LoomRoute>();
+  // Each wire skips its own two cards, so the shared field is indexed once
+  // and the router reads only what lies near each corridor.
+  const index =
+    input.index ??
+    createObstacleIndex(input.obstacles.filter((rect) => rect.width > 0 && rect.height > 0));
   for (const edge of input.edges) {
     if (input.strandIds.has(edge.id)) continue;
-    const base = input.obstacles.filter(
-      (rect) => rect.nodeId !== edge.sourceNodeId && rect.nodeId !== edge.targetNodeId,
-    );
     input.onRouteWire?.(edge.id);
     const routed = route({
       source: edge.sourceAnchor,
       target: edge.targetAnchor,
-      obstacles: base,
+      obstacles: input.obstacles,
+      index,
+      skip: (rect) => {
+        const nodeId = (rect as LoomObstacle).nodeId;
+        return nodeId === edge.sourceNodeId || nodeId === edge.targetNodeId;
+      },
       padding: 14,
       borderRadius: 8,
       sourceDirection: edge.sourceSide,
@@ -375,6 +385,7 @@ export function routesForTick(input: {
   /** Only these wires are routed; every wire when absent. */
   readonly scope?: ReadonlySet<string>;
   readonly routeWire?: RouteWireFn;
+  readonly index?: ObstacleIndex<LoomObstacle>;
   readonly onRouteWire?: (edgeId: string) => void;
 }): { readonly routes: Map<string, LoomRoute>; readonly drop: ReadonlySet<string> } {
   if (input.dragging.size > 0) {
@@ -387,6 +398,7 @@ export function routesForTick(input: {
       obstacles: input.obstacles,
       strandIds: input.strandIds,
       ...(input.routeWire ? { routeWire: input.routeWire } : {}),
+      ...(input.index ? { index: input.index } : {}),
       ...(input.onRouteWire ? { onRouteWire: input.onRouteWire } : {}),
     }),
     drop: new Set(),

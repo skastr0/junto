@@ -922,7 +922,7 @@ export function planLoom(input: {
     const height = leg.orientation === "h" ? leg.perp[1] - leg.perp[0] : leg.axial[1] - leg.axial[0];
     return { x: x - LANE_GAP, y: y - LANE_GAP, width: width + LANE_GAP * 2, height: height + LANE_GAP * 2 };
   };
-  const cellKey = (cx: number, cy: number): number => cx * 1048576 + cy;
+  const cellKey = (cx: number, cy: number): number => cx * 2097152 + (cy + 1048576);
   const placeBand = (band: FanBand): void => {
     for (const leg of band) {
       const rect = legRect(leg);
