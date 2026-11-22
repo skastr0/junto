@@ -552,8 +552,41 @@ export type { ViewStateApplyResult } from "./view-state";
 
 /** The loom's settled routes for one canvas, kept in junto.db beside it. */
 export interface JuntoLoomSeedApi {
-  readonly load: (canvas: string) => Promise<{ routerVersion: number; seedJson: string } | null>;
-  readonly save: (canvas: string, routerVersion: number, seedJson: string) => Promise<boolean>;
+  readonly load: (canvas: string) => Promise<{
+    readonly meta: {
+      readonly routerVersion: number;
+      readonly fingerprint: number;
+      readonly specsKey: string;
+      readonly geometryKey: number;
+    } | null;
+    readonly cards: ReadonlyArray<{
+      readonly nodeId: string;
+      readonly x: number;
+      readonly y: number;
+      readonly width: number;
+      readonly height: number;
+      readonly obstacle: boolean;
+    }>;
+    readonly wires: ReadonlyArray<{ readonly wireId: string; readonly specKey: string; readonly fact: string }>;
+  }>;
+  readonly save: (
+    canvas: string,
+    change: {
+      readonly routerVersion: number;
+      readonly meta: { readonly fingerprint: number; readonly specsKey: string; readonly geometryKey: number };
+      readonly cards: ReadonlyArray<{
+        readonly nodeId: string;
+        readonly x: number;
+        readonly y: number;
+        readonly width: number;
+        readonly height: number;
+        readonly obstacle: boolean;
+      }>;
+      readonly wires: ReadonlyArray<{ readonly wireId: string; readonly specKey: string; readonly fact: string }>;
+      readonly removedCards: ReadonlyArray<string>;
+      readonly removedWires: ReadonlyArray<string>;
+    },
+  ) => Promise<boolean>;
 }
 
 /** How the operator arranged Junto (0.11, 04): read once, written per row, pushed to every window. */

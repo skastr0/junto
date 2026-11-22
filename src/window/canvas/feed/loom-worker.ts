@@ -6,10 +6,10 @@
  */
 import type { LoomUpdate } from "./loom-planner";
 import { createLoomRun, type LoomRequest } from "./loom-run";
-import type { LoomSeed } from "./loom-seed";
+import type { LoomSeedChange } from "./loom-seed";
 
 /** What the worker posts back: a slice's facts, or a seed the page asked for. */
-type LoomReply = LoomUpdate | { readonly kind: "snapshot"; readonly seed: LoomSeed };
+type LoomReply = LoomUpdate | { readonly kind: "snapshot"; readonly seed: LoomSeedChange };
 
 const scope = globalThis as unknown as {
   onmessage: ((event: MessageEvent<LoomRequest>) => void) | null;

@@ -8,7 +8,7 @@
  */
 import type { Rect } from "../contract";
 import { createLoomPlanner, type LoomCard, type LoomShare, type LoomUpdate, type LoomWireRow } from "./loom-planner";
-import type { LoomSeed } from "./loom-seed";
+import type { LoomSeed, LoomSeedChange } from "./loom-seed";
 import { unpackCards, unpackWires, type PackedCards } from "./loom-board";
 
 export type LoomRequest =
@@ -40,7 +40,7 @@ export const createLoomRun = (
   send: (update: LoomUpdate) => void,
   clock: () => number,
   later: (run: () => void) => void,
-  snapshot?: (seed: LoomSeed) => void,
+  snapshot?: (seed: LoomSeedChange) => void,
 ): LoomRun => {
   let planner = createLoomPlanner();
   let share = 0;

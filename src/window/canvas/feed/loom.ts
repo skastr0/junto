@@ -12,12 +12,12 @@
  * its route has landed, fading it in.
  */
 import { observe } from "@legendapp/state";
-import type { Rect, SceneOp, WireRouteFact } from "../contract";
+import type { Rect, SceneOp } from "../contract";
 import { modelStore } from "../../lib/use-model";
-import { cardOf, type LoomCard, type LoomUpdate, type LoomWireRow } from "./loom-planner";
+import { cardOf, shareOf, type LoomCard, type LoomUpdate, type LoomWireRow } from "./loom-planner";
 import { packCards, packWireShares } from "./loom-board";
 import { createLoomRun, type LoomRequest } from "./loom-run";
-import type { LoomSeed } from "./loom-seed";
+import type { LoomSeed, LoomSeedChange } from "./loom-seed";
 import { loadLoomSeed, saveLoomSeed } from "./loom-store";
 
 export { createLoomPlanner, cardOf, type LoomCard, type LoomPlanner, type LoomUpdate, type LoomWireRow } from "./loom-planner";
@@ -35,7 +35,7 @@ type LoomHost = {
  */
 const inWorker = (): boolean => typeof Worker === "function" && typeof OffscreenCanvas === "function";
 
-const pageHost = (send: (update: LoomUpdate) => void, snapshot: (seed: LoomSeed) => void): LoomHost =>
+const pageHost = (send: (update: LoomUpdate) => void, snapshot: (change: LoomSeedChange) => void): LoomHost =>
   createLoomRun(send, () => performance.now(), (next) => setTimeout(next, 0), snapshot);
 
 /**
@@ -64,12 +64,21 @@ export const loomStats = (): { readonly shares: ReadonlyArray<NonNullable<LoomUp
   applied: { ...applied },
 });
 
-const workerHost = (send: (update: LoomUpdate) => void, snapshot: (seed: LoomSeed) => void): LoomHost => {
+const mergeChanges = (changes: ReadonlyArray<LoomSeedChange>): LoomSeedChange => ({
+  meta: changes[0]!.meta,
+  cards: changes[0]!.cards,
+  removedCards: changes[0]!.removedCards,
+  wires: changes.flatMap((change) => change.wires),
+  removedWires: changes.flatMap((change) => change.removedWires),
+});
+
+const workerHost = (send: (update: LoomUpdate) => void, snapshot: (change: LoomSeedChange) => void): LoomHost => {
   const count = loomWorkerCount(deviceCores());
   const workers: Worker[] = [];
   let fallback: LoomHost | undefined;
   let last: Extract<LoomRequest, { kind: "plan" }> | undefined;
   let lastView: Rect | undefined;
+  let pending: LoomSeedChange[] = [];
   const fail = (message: string): void => {
     // A worker that cannot start: the page routes the whole board instead,
     // from the last board and view.
@@ -82,9 +91,18 @@ const workerHost = (send: (update: LoomUpdate) => void, snapshot: (seed: LoomSee
   };
   for (let index = 0; index < count; index += 1) {
     const worker = new Worker(new URL("./loom-worker.ts", import.meta.url), { type: "module" });
-    worker.onmessage = (event: MessageEvent<LoomUpdate | { kind: "snapshot"; seed: LoomSeed }>) => {
-      if ((event.data as { kind?: string }).kind === "snapshot") snapshot((event.data as { seed: LoomSeed }).seed);
-      else send(event.data as LoomUpdate);
+    worker.onmessage = (event: MessageEvent<LoomUpdate | { kind: "snapshot"; seed: LoomSeedChange }>) => {
+      if ((event.data as { kind?: string }).kind === "snapshot") {
+        // One save per settle: every share's changed rows together.
+        pending.push((event.data as { seed: LoomSeedChange }).seed);
+        if (pending.length === workers.length) {
+          const merged = mergeChanges(pending);
+          pending = [];
+          snapshot(merged);
+        }
+        return;
+      }
+      send(event.data as LoomUpdate);
     };
     worker.onerror = (event) => fail(event.message);
     worker.postMessage({ kind: "share", index, count } satisfies LoomRequest);
@@ -100,9 +118,19 @@ const workerHost = (send: (update: LoomUpdate) => void, snapshot: (seed: LoomSee
         return;
       }
       if (request.kind === "settled") {
-        // One share's base is the whole board's (every worker plans it);
-        // the page has every share's facts.
-        workers[0]?.postMessage(request);
+        for (const worker of workers) worker.postMessage(request);
+        return;
+      }
+      if (request.kind === "seed") {
+        // Each worker plans the whole board and draws only its share: it gets
+        // every card and meta, and only the wires its share owns.
+        const count = workers.length;
+        for (const [index, worker] of workers.entries()) {
+          worker.postMessage({
+            kind: "seed",
+            seed: { ...request.seed, wires: request.seed.wires.filter((wire) => shareOf(wire.wireId, count) === index) },
+          } satisfies LoomRequest);
+        }
         return;
       }
       if (request.kind !== "plan") {
@@ -172,8 +200,6 @@ export const retainWireRoutes = (
   const send = (update: LoomUpdate): void => {
     const started = performance.now();
     if (update.stats !== undefined) shareStats.set(update.stats.share, update.stats);
-    for (const fact of update.set) heldFacts.set(fact.id, fact);
-    for (const id of update.remove) heldFacts.delete(id);
     if (update.owed !== undefined) owedByShare.set(update.stats?.share ?? 0, update.owed);
     emit([{ kind: "routes", set: update.set, remove: update.remove }]);
     applied.slices += 1;
@@ -183,14 +209,13 @@ export const retainWireRoutes = (
     // leave wires with no fact and a planner that believes they are set.
     if (owedByShare.size > 0 && [...owedByShare.values()].every((owed) => owed === 0)) settleSoon();
   };
-  // Facts the engine holds, by wire: the seed's facts are all of them, so a
-  // save needs only the base (geometry, specs, obstacles) from a planner.
-  const heldFacts = new Map<string, WireRouteFact>();
   const owedByShare = new Map<number, number>();
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
-  const snapshot = (base: LoomSeed): void => {
-    if (base.geometry.length === 0) return;
-    void saveLoomSeed(canvasName, { ...base, facts: [...heldFacts.values()] });
+  const snapshot = (change: LoomSeedChange): void => {
+    if (change.cards.length === 0 && change.wires.length === 0 && change.removedCards.length === 0 && change.removedWires.length === 0) {
+      return;
+    }
+    void saveLoomSeed(canvasName, change);
   };
   const settleSoon = (): void => {
     if (saveTimer !== undefined) clearTimeout(saveTimer);

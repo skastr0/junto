@@ -44,7 +44,7 @@ import {
   type LoomWire,
 } from "../../lib/loom-geometry";
 import { handleEnd } from "../paint/wires/route";
-import { LOOM_ROUTER_VERSION, loomSeedTrusted, type LoomSeed } from "./loom-seed";
+import { LOOM_ROUTER_VERSION, loomSeedFact, loomSeedTrusted, type LoomSeed, type LoomSeedCard, type LoomSeedChange, type LoomSeedWire } from "./loom-seed";
 
 /** What the planner reads of a card: its board rectangle, and whether it is a region. */
 export type LoomCard = {
@@ -116,7 +116,7 @@ export type LoomPlanner = {
    */
   readonly seed: (seed: LoomSeed) => void;
   /** The settled state as a seed, with this planner's share of the facts. */
-  readonly snapshot: () => LoomSeed;
+  readonly snapshot: () => LoomSeedChange;
   /** Forget everything: the next plan is a first plan and returns every fact. */
   readonly reset: () => void;
   readonly stats: () => LoomPlannerStats;
@@ -203,14 +203,40 @@ const distanceFrom = (view: Rect | undefined, input: LoomEdgeInput): number => {
   return Math.hypot((minX + maxX) / 2 - (view.x + view.width / 2), (minY + maxY) / 2 - (view.y + view.height / 2));
 };
 
+/** An order-independent key of the board's rectangles: the seed's rows mirror it. */
+const geometryKeyOf = (nodes: ReadonlyArray<LoomNode>): number => {
+  let sum = 0;
+  for (const node of nodes) {
+    let local = 0x811c9dc5;
+    const mix = (value: number): void => {
+      local ^= Math.round(value * 100) | 0;
+      local = Math.imul(local, 0x01000193);
+    };
+    for (let index = 0; index < node.nodeId.length; index += 1) mix(node.nodeId.charCodeAt(index));
+    mix(node.x);
+    mix(node.y);
+    mix(node.width);
+    mix(node.height);
+    mix(node.obstacle ? 1 : 0);
+    sum = (sum + local) | 0;
+  }
+  return sum;
+};
+
 export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
   const owns = (id: string): boolean => share === undefined || share.count <= 1 || shareOf(id, share.count) === share.index;
-  // Geometry and topology the standing plan was built from.
-  let planned: { geometry: LoomNode[]; specsKey: string } | undefined;
+  // Geometry and topology the standing plan was built from, as keys so the
+  // seed's row order never matters.
+  let planned: { geometryKey: number; specsKey: string } | undefined;
   // The cards the standing routes were worked out against, and each wire as it
   // was then, so the next plan can tell which wires a change can have altered.
   let routed:
-    | { geometry: LoomNode[]; obstacles: ReturnType<typeof collectObstacles>; specs: ReadonlyMap<string, string> }
+    | {
+        geometry: LoomNode[];
+        obstacles: ReturnType<typeof collectObstacles>;
+        specs: ReadonlyMap<string, string>;
+        strands: ReadonlySet<string>;
+      }
     | undefined;
   let strands: ReadonlyMap<string, LoomStrand> = new Map();
   let lanesNow: ReadonlyMap<string, LoomLane> = new Map();
@@ -228,7 +254,10 @@ export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
   const routedOnce = new Set<string>();
   // A seeded launch hands the stored facts over once, then plans as usual.
   let replay: ReadonlyArray<WireRouteFact> | undefined;
-  let planMeta: { readonly fingerprint: number; readonly corridors: ReadonlyArray<WireRect> } | undefined;
+  let planMeta: { readonly fingerprint: number; readonly specsKey: string; readonly geometryKey: number } | undefined;
+  let seededCards: ReadonlyMap<string, LoomSeedCard> | undefined;
+  let seededWires: ReadonlyMap<string, { readonly specKey: string; readonly fact: string }> | undefined;
+  let seededGeometry: ReadonlyArray<LoomNode> = [];
   let strandIdsNow: ReadonlySet<string> = new Set();
   let queue: string[] = [];
   let view: Rect | undefined;
@@ -295,11 +324,12 @@ export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
     const geometry = geometryOf(cards);
     const specs = specsOf(wiresOf(rows), geometry);
     const specsKey = specsKeyOf(specs);
+    const geometryKey = geometryKeyOf(geometry);
     const carried = new Set(queue);
 
     // Settled geometry and topology already planned: nothing more is owed
     // than what the last plan had left.
-    if (planned && planned.specsKey === specsKey && sameGeometry(planned.geometry, geometry)) {
+    if (planned && planned.specsKey === specsKey && planned.geometryKey === geometryKey) {
       order();
       if (replay !== undefined) {
         // The engine has no facts yet; the seed's are exactly what it draws.
@@ -318,15 +348,17 @@ export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
     const { inputs, lanes } = buildInputs(specs, geometry);
     lanesNow = lanes;
     const loom = planLoom({ edges: inputs, obstacles });
-    planMeta = { fingerprint: loom.fingerprint, corridors: loom.corridors };
+    planMeta = { fingerprint: loom.fingerprint, specsKey, geometryKey };
     replay = undefined;
-    const wasStrand = new Set(strands.keys());
     strands = loom.strands;
     const strandIds = new Set(loom.strands.keys());
     const specsById = new Map(specs.map((spec) => [spec.id, specKeyOf(spec)] as const));
     const live = new Set(specs.map((spec) => spec.id));
     for (const id of [...routes.keys()]) if (!live.has(id)) routes.delete(id);
 
+    // The seed's cable flags are the previous plan's strands; a first plan
+    // has none.
+    const wasStrand = new Set(routed?.strands ?? []);
     const scope = routed
       ? routesOwedWithCause({
           edges: inputs,
@@ -366,8 +398,9 @@ export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
       queue.push(id);
     }
     order();
-    routed = { geometry, obstacles, specs: specsById };
-    planned = { geometry, specsKey };
+    routed = { geometry, obstacles, specs: specsById, strands: strandIds };
+    planned = { geometryKey, specsKey };
+    seededGeometry = geometry;
 
     // Every wire that owes no route sends its fact now; an owed wire keeps
     // the fact it had (the engine draws it as the elbow while its card is
@@ -441,13 +474,30 @@ export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
 
   const seed: LoomPlanner["seed"] = (stored) => {
     if (!loomSeedTrusted(stored)) return;
-    const geometry = [...stored.geometry];
-    const specs = new Map(stored.specs);
-    // The seed's entries are `specKeyOf` strings in `specsOf` order, so their
-    // join is the key a plan of the same board computes.
-    planned = { geometry, specsKey: stored.specs.map(([, key]) => key).join(";") };
-    routed = { geometry, obstacles: [...stored.obstacles], specs };
-    obstaclesNow = [...stored.obstacles];
+    const geometry: LoomNode[] = stored.cards.map((card) => ({
+      nodeId: card.nodeId,
+      x: card.x,
+      y: card.y,
+      width: card.width,
+      height: card.height,
+      obstacle: card.obstacle,
+      dragging: false,
+    }));
+    const obstacles = collectObstacles(geometry);
+    const specs = new Map(stored.wires.map((wire) => [wire.wireId, wire.specKey] as const));
+    // Only the facts this planner owns are parsed and drawn here; every
+    // worker gets the same cards and meta, and its share of the wires.
+    const facts: WireRouteFact[] = [];
+    const cableStrands = new Set<string>();
+    for (const wire of stored.wires) {
+      if (!owns(wire.wireId)) continue;
+      const fact = loomSeedFact(wire);
+      facts.push(fact);
+      if (fact.cable) cableStrands.add(wire.wireId);
+    }
+    planned = { geometryKey: stored.meta.geometryKey, specsKey: stored.meta.specsKey };
+    routed = { geometry, obstacles, specs, strands: cableStrands };
+    obstaclesNow = obstacles;
     indexNow = undefined;
     strands = new Map();
     routes.clear();
@@ -457,23 +507,68 @@ export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
     inputsNow = new Map();
     rectsNow = new Map();
     strandIdsNow = new Set();
-    replay = stored.facts;
-    planMeta = { fingerprint: stored.fingerprint, corridors: stored.corridors };
+    replay = facts;
+    planMeta = { fingerprint: stored.meta.fingerprint, specsKey: stored.meta.specsKey, geometryKey: stored.meta.geometryKey };
+    seededGeometry = geometry;
+    seededCards = new Map(stored.cards.map((card) => [card.nodeId, card] as const));
+    seededWires = new Map(stored.wires.map((wire) => [wire.wireId, { specKey: wire.specKey, fact: wire.fact }] as const));
+    seededGeometry = geometry;
   };
 
-  const snapshot: LoomPlanner["snapshot"] = () => ({
-    version: LOOM_ROUTER_VERSION,
-    geometry: planned?.geometry ?? [],
-    specs: routed === undefined ? [] : [...routed.specs],
-    obstacles: obstaclesNow,
-    facts: [...held.values()],
-    fingerprint: planMeta?.fingerprint ?? 0,
-    corridors: planMeta?.corridors ?? [],
-  });
+  const snapshot: LoomPlanner["snapshot"] = () => {
+    const cards: LoomSeedCard[] = [];
+    const removedCards: string[] = [];
+    const current = new Map<string, LoomSeedCard>();
+    for (const node of seededGeometry) {
+      current.set(node.nodeId, {
+        nodeId: node.nodeId,
+        x: node.x,
+        y: node.y,
+        width: node.width,
+        height: node.height,
+        obstacle: node.obstacle,
+      });
+    }
+    for (const [id, row] of current) {
+      const before = seededCards?.get(id);
+      if (
+        before === undefined ||
+        before.x !== row.x ||
+        before.y !== row.y ||
+        before.width !== row.width ||
+        before.height !== row.height ||
+        before.obstacle !== row.obstacle
+      ) {
+        cards.push(row);
+      }
+    }
+    for (const id of seededCards?.keys() ?? []) if (!current.has(id)) removedCards.push(id);
+    const wires: LoomSeedWire[] = [];
+    const removedWires: string[] = [];
+    for (const [id, fact] of held) {
+      const specKey = routed?.specs.get(id) ?? "";
+      const json = JSON.stringify(fact);
+      const before = seededWires?.get(id);
+      if (before === undefined || before.specKey !== specKey || before.fact !== json) {
+        wires.push({ wireId: id, specKey, fact: json });
+      }
+    }
+    for (const id of seededWires?.keys() ?? []) if (!held.has(id)) removedWires.push(id);
+    return {
+      meta: planMeta ?? { fingerprint: 0, specsKey: "", geometryKey: 0 },
+      cards,
+      wires,
+      removedCards,
+      removedWires,
+    };
+  };
 
   const reset = (): void => {
     replay = undefined;
     planMeta = undefined;
+    seededCards = undefined;
+    seededWires = undefined;
+    seededGeometry = [];
     planned = undefined;
     routed = undefined;
     strands = new Map();

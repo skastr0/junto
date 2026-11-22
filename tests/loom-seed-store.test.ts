@@ -1,19 +1,15 @@
-/** The page side of the loom seed: version check, decode refusal, and a failed store. */
+/** The page side of the loom seed: the version check, no meta, and a failed store. */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LOOM_ROUTER_VERSION, type LoomSeed } from "../src/window/canvas/feed/loom-seed";
 import { loadLoomSeed, saveLoomSeed } from "../src/window/canvas/feed/loom-store";
 
-const seed: LoomSeed = {
-  version: LOOM_ROUTER_VERSION,
-  geometry: [],
-  specs: [],
-  obstacles: [],
-  facts: [],
-  fingerprint: 0,
-  corridors: [],
-};
+const meta = { routerVersion: LOOM_ROUTER_VERSION, fingerprint: 7, specsKey: "a|b", geometryKey: 3 };
+const seed: LoomSeed = { version: LOOM_ROUTER_VERSION, meta: { fingerprint: 7, specsKey: "a|b", geometryKey: 3 }, cards: [], wires: [] };
 
-const stored = (value: string) => ({ load: async () => ({ routerVersion: LOOM_ROUTER_VERSION, seedJson: value }), save: async () => true });
+const stored = (value: { meta: typeof meta | null; cards: LoomSeed["cards"]; wires: LoomSeed["wires"] }) => ({
+  load: async () => value,
+  save: async () => true,
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -21,26 +17,31 @@ afterEach(() => {
 
 describe("the loom seed store", () => {
   it("reads a seed at this router version", async () => {
-    vi.stubGlobal("window", { junto: { loomSeed: stored(JSON.stringify(seed)) } });
+    vi.stubGlobal("window", { junto: { loomSeed: stored({ meta, cards: [], wires: [] }) } });
     expect(await loadLoomSeed("main")).toEqual(seed);
   });
 
   it("ignores a seed from another router version", async () => {
-    vi.stubGlobal("window", { junto: { loomSeed: { load: async () => ({ routerVersion: LOOM_ROUTER_VERSION + 1, seedJson: JSON.stringify(seed) }), save: async () => true } } });
+    vi.stubGlobal("window", {
+      junto: { loomSeed: stored({ meta: { ...meta, routerVersion: LOOM_ROUTER_VERSION + 1 }, cards: [], wires: [] }) },
+    });
     expect(await loadLoomSeed("main")).toBeUndefined();
   });
 
-  it("ignores a seed that does not decode", async () => {
-    vi.stubGlobal("window", { junto: { loomSeed: stored("{not json") } });
+  it("ignores a canvas with no seed", async () => {
+    vi.stubGlobal("window", { junto: { loomSeed: stored({ meta: null, cards: [], wires: [] }) } });
     expect(await loadLoomSeed("main")).toBeUndefined();
   });
 
-  it("writes the seed at this router version, and answers a failure", async () => {
+  it("writes the changed rows, and answers a failure", async () => {
     const save = vi.fn(async () => true);
-    vi.stubGlobal("window", { junto: { loomSeed: { load: async () => null, save } } });
-    expect(await saveLoomSeed("main", seed)).toBe(true);
-    expect(save).toHaveBeenCalledWith("main", LOOM_ROUTER_VERSION, JSON.stringify(seed));
-    vi.stubGlobal("window", { junto: { loomSeed: { load: async () => null, save: async () => { throw new Error("gone"); } } } });
-    expect(await saveLoomSeed("main", seed)).toBe(false);
+    vi.stubGlobal("window", { junto: { loomSeed: { load: async () => ({ meta: null, cards: [], wires: [] }), save } } });
+    const change = { meta: seed.meta, cards: [], wires: [], removedCards: [], removedWires: [] };
+    expect(await saveLoomSeed("main", change)).toBe(true);
+    expect(save).toHaveBeenCalledWith("main", { ...change, routerVersion: LOOM_ROUTER_VERSION });
+    vi.stubGlobal("window", {
+      junto: { loomSeed: { load: async () => ({ meta: null, cards: [], wires: [] }), save: async () => { throw new Error("gone"); } } },
+    });
+    expect(await saveLoomSeed("main", change)).toBe(false);
   });
 });

@@ -82,7 +82,7 @@ import { OPERATOR_MAIL_READS_SCHEMA_SQL } from "../work/mail-reads-state-schema"
 import { WORK_MESSAGES_SENDER_INDEX_SQL, WORK_READ_INDEXES_SQL } from "../work/state-schema";
 import { TASK_HEADS_BY_STATE_INDEX_SQL } from "../work/task-state-schema";
 import { OPEN_PROJECTIONS_BACKFILL_SQL, OPEN_PROJECTIONS_STATE_SCHEMA_SQL } from "../work/open-projections-schema";
-import { LOOM_SEEDS_STATE_SCHEMA_SQL } from "../loom-seed/state-schema";
+import { LOOM_SEEDS_STATE_SCHEMA_SQL, LOOM_SEED_PARTS_STATE_SCHEMA_SQL } from "../loom-seed/state-schema";
 import {
   actualStateSchemaSha256,
   normalizeSchemaSql,
@@ -921,6 +921,15 @@ export const STATE_SCHEMA_V74_IDENTITY = {
     "73d82258e31b82977c4236ba071581f51dc99d1f7cc555e810d02c0a93407837",
 } as const satisfies VerifiedStateSchemaIdentity;
 
+/**
+ * Version 75 keeps the loom seed in parts: a meta row, a row per card and a
+ * row per wire, so an edit writes what it changed. Expand only.
+ */
+export const STATE_SCHEMA_V75_IDENTITY = {
+  actualSchemaSha256:
+    "310f2b4202b59a9715e061d9af29d25e776883a08318b772c08b33efec7febd0",
+} as const satisfies VerifiedStateSchemaIdentity;
+
 import { CURRENT_STATE_SCHEMA_VERSION } from "../../node/state/schema-version";
 
 export { CURRENT_STATE_SCHEMA_VERSION };
@@ -1520,6 +1529,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V73_IDENTITY,
     migrate: (database) => database.exec(LOOM_SEEDS_STATE_SCHEMA_SQL),
+  },
+  {
+    fromVersion: 74,
+    toVersion: 75,
+    name: "keep the loom seed in parts, one row per card and per wire",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V74_IDENTITY,
+    migrate: (database) => database.exec(LOOM_SEED_PARTS_STATE_SCHEMA_SQL),
   },
 ];
 

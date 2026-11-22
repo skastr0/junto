@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { createLoomPlanner, type LoomCard, type LoomWireRow } from "../src/window/canvas/feed/loom-planner";
+import { LOOM_ROUTER_VERSION, type LoomSeed } from "../src/window/canvas/feed/loom-seed";
 
 const cards: LoomCard[] = [
   { id: "a", x: 0, y: 0, width: 216, height: 96, region: false },
@@ -16,14 +17,20 @@ const wires: LoomWireRow[] = [
   { id: "bc", from: "b", to: "c" },
 ];
 
+/** A seed as the store would hand it back: the first plan's whole rows. */
+const seedOf = (planner: ReturnType<typeof createLoomPlanner>): LoomSeed => {
+  const change = planner.snapshot();
+  return { version: LOOM_ROUTER_VERSION, meta: change.meta, cards: change.cards, wires: change.wires };
+};
+
 describe("the planner's seed", () => {
   it("hands a launch the stored facts, owes nothing, and plans nothing", () => {
     const first = createLoomPlanner();
     const planned = first.plan(cards, wires);
     expect(planned.set.length).toBe(2);
-    const seed = first.snapshot();
-    expect(seed.geometry.length).toBe(3);
-    expect(seed.facts.length).toBe(2);
+    const seed = seedOf(first);
+    expect(seed.cards.length).toBe(3);
+    expect(seed.wires.length).toBe(2);
 
     const second = createLoomPlanner();
     second.seed(seed);
@@ -39,7 +46,7 @@ describe("the planner's seed", () => {
   it("routes only the wires a move touched, from a stale seed", () => {
     const first = createLoomPlanner();
     first.plan(cards, wires);
-    const seed = first.snapshot();
+    const seed = seedOf(first);
 
     const second = createLoomPlanner();
     second.seed(seed);
@@ -48,5 +55,11 @@ describe("the planner's seed", () => {
     while (second.owed() > 0) second.step(Number.POSITIVE_INFINITY, () => 0);
     expect(second.stats().begins).toBe(1);
     expect(second.stats().routed).toBe(1);
+    // A one-card move writes one card row and the wire it re-routed.
+    const change = second.snapshot();
+    expect(change.cards.map((card) => card.nodeId)).toEqual(["c"]);
+    expect(change.wires.map((wire) => wire.wireId)).toEqual(["bc"]);
+    expect(change.removedCards).toEqual([]);
+    expect(change.removedWires).toEqual([]);
   });
 });

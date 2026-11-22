@@ -1,7 +1,7 @@
 /**
- * The loom's seed over IPC: one read at a launch, one write when the planner
- * settles. Both handlers ask the core's loom-seed group; the seed is a JSON
- * string the renderer's planner owns, so main passes it through.
+ * The loom seed over IPC: every part at a launch, only the changed rows when
+ * the planner settles. Both handlers ask the core's loom-seed group; the rows
+ * are plain data the renderer's planner owns, so main passes them through.
  */
 import type { IpcMain } from "electron";
 import { Context } from "effect";
@@ -15,14 +15,32 @@ export const registerLoomSeedIpc = (
 ): void => {
   const loomSeed = Context.get(core, LoomSeedCore);
   ipc.handle(IPC_CHANNELS.loomSeedLoad, (_event, canvas: unknown) =>
-    typeof canvas === "string" ? AppRuntime.runPromise(loomSeed.LoomSeedLoad({ canvas })) : Promise.resolve(null),
+    typeof canvas === "string"
+      ? AppRuntime.runPromise(loomSeed.LoomSeedLoad({ canvas }))
+      : Promise.resolve({ meta: null, cards: [], wires: [] }),
   );
   ipc.handle(IPC_CHANNELS.loomSeedSave, (_event, payload: unknown) => {
     if (payload === null || typeof payload !== "object") return Promise.resolve(false);
-    const { canvas, routerVersion, seedJson } = payload as Record<string, unknown>;
-    if (typeof canvas !== "string" || typeof routerVersion !== "number" || typeof seedJson !== "string") {
+    const { canvas, meta, cards, wires, removedCards, removedWires } = payload as Record<string, unknown>;
+    if (
+      typeof canvas !== "string" ||
+      meta === null || typeof meta !== "object" ||
+      !Array.isArray(cards) ||
+      !Array.isArray(wires) ||
+      !Array.isArray(removedCards) ||
+      !Array.isArray(removedWires)
+    ) {
       return Promise.resolve(false);
     }
-    return AppRuntime.runPromise(loomSeed.LoomSeedSave({ canvas, routerVersion, seedJson }));
+    return AppRuntime.runPromise(
+      loomSeed.LoomSeedSave({
+        canvas,
+        meta: meta as { routerVersion: number; fingerprint: number; specsKey: string; geometryKey: number },
+        cards: cards as never,
+        wires: wires as never,
+        removedCards: removedCards as string[],
+        removedWires: removedWires as string[],
+      }),
+    );
   });
 };

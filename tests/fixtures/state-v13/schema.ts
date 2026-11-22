@@ -432,3 +432,15 @@ export const STATE_SCHEMA_V73_SQL = stepped(
   STATE_SCHEMA_V72_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 73)!.migrate,
 );
+
+/** Step 74 adds `loom_seeds`, the loom's settled routes beside the canvas. */
+export const STATE_SCHEMA_V74_SQL = stepped(
+  STATE_SCHEMA_V73_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 74)!.migrate,
+);
+
+/** Step 75 keeps the loom seed in parts: a meta row, a row per card and a row per wire. */
+export const STATE_SCHEMA_V75_SQL = stepped(
+  STATE_SCHEMA_V74_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 75)!.migrate,
+);

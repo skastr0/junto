@@ -54,7 +54,7 @@ import {
 import { APP_TEXTS_STATE_SCHEMA_SQL } from "../references/state-schema";
 import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-models-state-schema";
 import { OPEN_PROJECTIONS_STATE_SCHEMA_SQL } from "../work/open-projections-schema";
-import { LOOM_SEEDS_STATE_SCHEMA_SQL } from "../loom-seed/state-schema";
+import { LOOM_SEEDS_STATE_SCHEMA_SQL, LOOM_SEED_PARTS_STATE_SCHEMA_SQL } from "../loom-seed/state-schema";
 import { VIEW_CAPTURE_DESK_SCHEMA_SQL, VIEW_CAPTURE_INBOX_SCHEMA_SQL, VIEW_STATE_SCHEMA_SQL } from "../view-state/state-schema";
 import { OPERATOR_MAIL_READS_SCHEMA_SQL } from "../work/mail-reads-state-schema";
 import { MACHINE_CODE_ALLOWANCES_SQL } from "../automation/code-allowance-schema";
@@ -161,6 +161,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   VIEW_CAPTURE_DESK_SCHEMA_SQL,
   OPEN_PROJECTIONS_STATE_SCHEMA_SQL,
   LOOM_SEEDS_STATE_SCHEMA_SQL,
+  LOOM_SEED_PARTS_STATE_SCHEMA_SQL,
 ] as const;
 
 

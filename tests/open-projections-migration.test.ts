@@ -19,6 +19,7 @@ import {
   STATE_SCHEMA_V72_IDENTITY,
   STATE_SCHEMA_V73_IDENTITY,
   STATE_SCHEMA_V74_IDENTITY,
+  STATE_SCHEMA_V75_IDENTITY,
   migrateStateSchema,
   type StateSchemaMigrationDatabase,
   type StateSchemaMigrationPlan,
@@ -27,7 +28,7 @@ import { migrateMachineNames } from "../src/core/state/migrate-machine-names";
 import { expectedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_SQL } from "../src/core/state/schema";
 import { OPEN_READS, openCommandsOf } from "../src/core/work/open-projections-schema";
-import { STATE_SCHEMA_V72_SQL, STATE_SCHEMA_V73_SQL } from "./fixtures/state-v13/schema";
+import { STATE_SCHEMA_V72_SQL, STATE_SCHEMA_V73_SQL, STATE_SCHEMA_V74_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -210,9 +211,8 @@ const seeder = (database: DatabaseSync) => {
 };
 
 describe("state migration 73 -> 74 (the loom seed)", () => {
-  it("starts from the version-73 witness and ends at the version-74 one, as a fresh install has it", () => {
+  it("starts from the version-73 witness and ends at the version-74 one", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V73_SQL)).toEqual(STATE_SCHEMA_V73_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V74_IDENTITY);
   });
 
   it.each(["command-center-v13.db", "remote-v13.db"])(
@@ -226,7 +226,7 @@ describe("state migration 73 -> 74 (the loom seed)", () => {
         });
         const before = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
 
-        expect(migrateStateSchema(database, upTo(74, STATE_SCHEMA_SQL))).toMatchObject({
+        expect(migrateStateSchema(database, upTo(74, STATE_SCHEMA_V74_SQL))).toMatchObject({
           schemaVersion: 74,
           ...STATE_SCHEMA_V74_IDENTITY,
         });
@@ -248,6 +248,41 @@ describe("state migration 73 -> 74 (the loom seed)", () => {
         expect(() =>
           database.prepare("INSERT INTO loom_seeds (canvas_name, router_version, seed_json, saved_at) VALUES ('no-such-canvas', 1, '{}', 1)").run(),
         ).toThrow(/FOREIGN KEY/);
+        expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+        expect(database.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
+      } finally {
+        database.close();
+      }
+    },
+    60_000,
+  );
+});
+
+describe("state migration 74 -> 75 (the loom seed in parts)", () => {
+  it("ends at the version-75 witness, which is the current schema", () => {
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V75_IDENTITY);
+  });
+
+  it.each(["command-center-v13.db", "remote-v13.db"])(
+    "adds the part tables to %s and moves no other row",
+    async (fixture) => {
+      const database = await openCopy(fixture);
+      try {
+        expect(migrateStateSchema(database, upTo(74, STATE_SCHEMA_V74_SQL))).toMatchObject({
+          schemaVersion: 74,
+          ...STATE_SCHEMA_V74_IDENTITY,
+        });
+        const before = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
+        expect(migrateStateSchema(database, upTo(75, STATE_SCHEMA_SQL))).toMatchObject({
+          schemaVersion: 75,
+          ...STATE_SCHEMA_V75_IDENTITY,
+        });
+        const after = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
+        const { loom_seed_meta: meta, loom_seed_cards: cards, loom_seed_wires: wires, ...rest } = after;
+        expect(rest).toEqual(before);
+        expect(meta).toEqual([]);
+        expect(cards).toEqual([]);
+        expect(wires).toEqual([]);
         expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
         expect(database.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
       } finally {

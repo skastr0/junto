@@ -1,7 +1,7 @@
 /**
- * The loom's settled routes, kept beside the canvas and read by the planner's
- * worker before its first plan. Derived local data: one seed per canvas at a
- * router version, never journalled and never sent to another machine.
+ * The loom seed, kept beside the canvas in parts: a meta row, a row per card
+ * and a row per wire. The renderer loads it before the planner's first plan
+ * and saves only what changed after the planner settles.
  */
 import { Context, Layer, Schema } from "effect";
 import { Rpc, RpcGroup, type RpcClient, type RpcClientError } from "effect/rpc";
@@ -12,9 +12,40 @@ export class LoomSeedUnavailable extends Schema.TaggedError<LoomSeedUnavailable>
   message: Schema.String,
 }) {}
 
-export const LoomSeedStored = Schema.Struct({
+export const LoomSeedMeta = Schema.Struct({
   routerVersion: Schema.Number,
-  seedJson: Schema.String,
+  fingerprint: Schema.Number,
+  specsKey: Schema.String,
+  geometryKey: Schema.Number,
+});
+
+export const LoomSeedCard = Schema.Struct({
+  nodeId: Schema.String,
+  x: Schema.Number,
+  y: Schema.Number,
+  width: Schema.Number,
+  height: Schema.Number,
+  obstacle: Schema.Boolean,
+});
+
+export const LoomSeedWire = Schema.Struct({
+  wireId: Schema.String,
+  specKey: Schema.String,
+  fact: Schema.String,
+});
+
+export const LoomSeedSnapshot = Schema.Struct({
+  meta: Schema.NullOr(LoomSeedMeta),
+  cards: Schema.Array(LoomSeedCard),
+  wires: Schema.Array(LoomSeedWire),
+});
+
+export const LoomSeedChanges = Schema.Struct({
+  meta: LoomSeedMeta,
+  cards: Schema.Array(LoomSeedCard),
+  wires: Schema.Array(LoomSeedWire),
+  removedCards: Schema.Array(Schema.String),
+  removedWires: Schema.Array(Schema.String),
 });
 
 export const LoomSeedSaved = Schema.Boolean;
@@ -22,11 +53,18 @@ export const LoomSeedSaved = Schema.Boolean;
 export const LoomSeedRpcs = RpcGroup.make(
   Rpc.make("LoomSeedLoad", {
     payload: { canvas: Schema.String },
-    success: Schema.NullOr(LoomSeedStored),
+    success: LoomSeedSnapshot,
     error: LoomSeedUnavailable,
   }),
   Rpc.make("LoomSeedSave", {
-    payload: { canvas: Schema.String, routerVersion: Schema.Number, seedJson: Schema.String },
+    payload: {
+      canvas: Schema.String,
+      meta: LoomSeedMeta,
+      cards: Schema.Array(LoomSeedCard),
+      wires: Schema.Array(LoomSeedWire),
+      removedCards: Schema.Array(Schema.String),
+      removedWires: Schema.Array(Schema.String),
+    },
     success: LoomSeedSaved,
     error: LoomSeedUnavailable,
   }),
