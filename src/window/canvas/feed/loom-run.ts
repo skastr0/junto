@@ -8,9 +8,12 @@
  */
 import type { Rect } from "../contract";
 import { createLoomPlanner, type LoomCard, type LoomShare, type LoomUpdate, type LoomWireRow } from "./loom-planner";
+import { unpackCards, unpackWires, type PackedCards } from "./loom-board";
 
 export type LoomRequest =
   | { readonly kind: "plan"; readonly cards: ReadonlyArray<LoomCard>; readonly wires: ReadonlyArray<LoomWireRow>; readonly view?: Rect }
+  /** A board packed on the page (loom-board.ts): every card, and only this run's share of the wires. */
+  | { readonly kind: "board"; readonly cards: PackedCards; readonly wires: string; readonly view?: Rect }
   | { readonly kind: "focus"; readonly view: Rect }
   | { readonly kind: "reset" }
   /** This run's part of the board among several (sent first, before any board). */
@@ -34,7 +37,9 @@ export const createLoomRun = (
   later: (run: () => void) => void,
 ): LoomRun => {
   let planner = createLoomPlanner();
-  let board: Extract<LoomRequest, { kind: "plan" }> | undefined;
+  // The newest board, unpacked only when its turn comes: a board a newer
+  // one replaced before then is never read.
+  let board: Extract<LoomRequest, { kind: "plan" | "board" }> | undefined;
   let scheduled = false;
   let disposed = false;
 
@@ -48,7 +53,8 @@ export const createLoomRun = (
     if (board !== undefined) {
       const next = board;
       board = undefined;
-      post(planner.begin(next.cards, next.wires, next.view));
+      if (next.kind === "plan") post(planner.begin(next.cards, next.wires, next.view));
+      else post(planner.begin(unpackCards(next.cards), unpackWires(next.wires), next.view));
     }
     if (planner.owed() > 0) post(planner.step(LOOM_SLICE_MS, clock));
     if (planner.owed() > 0 || board !== undefined) schedule();
@@ -65,6 +71,7 @@ export const createLoomRun = (
       if (disposed) return;
       switch (request.kind) {
         case "plan":
+        case "board":
           board = request;
           schedule();
           return;

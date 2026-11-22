@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { createLoomPlanner, shareOf, type LoomCard, type LoomUpdate, type LoomWireRow } from "../src/window/canvas/feed/loom-planner";
 import { loomWorkerCount } from "../src/window/canvas/feed/loom";
 import { createLoomRun } from "../src/window/canvas/feed/loom-run";
+import { packCards, packWireShares, unpackCards, unpackWires } from "../src/window/canvas/feed/loom-board";
 import { createWireScene, RECORD_FLOATS } from "../src/window/canvas/engine/wires/scene";
 import type { NodeId, Rect, SceneOp, WireFact, WireRouteFact } from "../src/window/canvas/contract";
 
@@ -97,6 +98,39 @@ describe("the loom in shares, one per worker", () => {
     expect(loomWorkerCount(8)).toBe(6);
     expect(loomWorkerCount(2)).toBe(1);
     expect(loomWorkerCount(1)).toBe(1);
+  });
+});
+
+describe("the board, packed once for the workers", () => {
+  it("unpacks every card and wire exactly as they were packed", () => {
+    const region: LoomCard = { id: "r", x: -10.5, y: 3, width: 900, height: 400, region: true };
+    expect(unpackCards(packCards([...cards, region]))).toEqual([...cards, region]);
+    expect(unpackCards(packCards([]))).toEqual([]);
+    const sided: LoomWireRow = { id: "s", from: "a", to: "c", fromSide: "bottom", toSide: "top" };
+    expect(packWireShares([...wires, sided], 1).flatMap(unpackWires)).toEqual([...wires, sided]);
+  });
+
+  it("posts each worker only its own share of the wires", () => {
+    const many = Array.from({ length: 40 }, (_, i) => wire(`w${i}`, "a", "b"));
+    const shares = packWireShares(many, 3).map(unpackWires);
+    expect(shares.flat().map((row) => row.id).sort()).toEqual(many.map((row) => row.id).sort());
+    for (const [index, share] of shares.entries()) for (const row of share) expect(shareOf(row.id, 3)).toBe(index);
+    expect(packWireShares([], 2).map(unpackWires)).toEqual([[], []]);
+  });
+
+  it("routes a packed board as it routes the same board unpacked", () => {
+    const routed = (request: Parameters<ReturnType<typeof createLoomRun>["request"]>[0]): string[] => {
+      const sent: LoomUpdate[] = [];
+      const turns: Array<() => void> = [];
+      const run = createLoomRun((update) => sent.push(update), ONE, (next) => turns.push(next));
+      run.request(request);
+      while (turns.length > 0) turns.shift()!();
+      return sent.flatMap(ids);
+    };
+    const [wiresPacked] = packWireShares(wires, 1);
+    expect(routed({ kind: "board", cards: packCards(cards), wires: wiresPacked!, view: atOrigin })).toEqual(
+      routed({ kind: "plan", cards, wires, view: atOrigin }),
+    );
   });
 });
 

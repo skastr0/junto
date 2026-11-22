@@ -15,6 +15,7 @@ import { observe } from "@legendapp/state";
 import type { Rect, SceneOp } from "../contract";
 import { modelStore } from "../../lib/use-model";
 import { cardOf, type LoomCard, type LoomUpdate, type LoomWireRow } from "./loom-planner";
+import { packCards, packWireShares } from "./loom-board";
 import { createLoomRun, type LoomRequest } from "./loom-run";
 
 export { createLoomPlanner, cardOf, type LoomCard, type LoomPlanner, type LoomUpdate, type LoomWireRow } from "./loom-planner";
@@ -77,8 +78,26 @@ const workerHost = (send: (update: LoomUpdate) => void): LoomHost => {
     request: (request) => {
       if (request.kind === "plan") last = request;
       if (request.kind === "focus") lastView = request.view;
-      if (fallback !== undefined) fallback.request(request);
-      else for (const worker of workers) worker.postMessage(request);
+      if (fallback !== undefined) {
+        fallback.request(request);
+        return;
+      }
+      if (request.kind !== "plan") {
+        for (const worker of workers) worker.postMessage(request);
+        return;
+      }
+      // The board is packed once: each worker is posted every card as flat
+      // memory and only the wires of its own share.
+      const cards = packCards(request.cards);
+      const shares = packWireShares(request.wires, workers.length);
+      for (const [index, worker] of workers.entries()) {
+        worker.postMessage({
+          kind: "board",
+          cards,
+          wires: shares[index]!,
+          ...(request.view === undefined ? {} : { view: request.view }),
+        } satisfies LoomRequest);
+      }
     },
     dispose: () => {
       for (const worker of workers) worker.terminate();
