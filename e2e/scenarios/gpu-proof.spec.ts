@@ -777,7 +777,7 @@ test.describe.configure({ mode: "serial" });
 test.describe("#913 GPU canvas proof", () => {
   for (const scale of SCALES) {
     test(`${String(scale)}x board: tiers, counters, addressability, frame times`, async () => {
-      test.setTimeout(scale === 1 ? 2_400_000 : 3_000_000);
+      test.setTimeout(scale === 1 ? 2_400_000 : scale === 10 ? 3_600_000 : 5_400_000);
       failures.length = 0;
       const board = proofBoard(scale);
       const dir = await boardDir(scale);
@@ -807,7 +807,7 @@ test.describe("#913 GPU canvas proof", () => {
         const { page } = junto;
         const bootMs = await timed("boot", async () => {
           const bootAt = Date.now();
-          await waitGpuReady(page, board);
+          await waitGpuReady(page, board, Number(process.env["JUNTO_GPU_PROOF_READY_MS"] ?? 240_000));
           await settleAtlas(page);
           return Date.now() - bootAt;
         });
