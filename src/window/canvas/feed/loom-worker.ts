@@ -6,10 +6,14 @@
  */
 import type { LoomUpdate } from "./loom-planner";
 import { createLoomRun, type LoomRequest } from "./loom-run";
+import type { LoomSeed } from "./loom-seed";
+
+/** What the worker posts back: a slice's facts, or a seed the page asked for. */
+type LoomReply = LoomUpdate | { readonly kind: "snapshot"; readonly seed: LoomSeed };
 
 const scope = globalThis as unknown as {
   onmessage: ((event: MessageEvent<LoomRequest>) => void) | null;
-  postMessage: (message: LoomUpdate) => void;
+  postMessage: (message: LoomReply) => void;
 };
 
 const run = createLoomRun(
@@ -17,6 +21,7 @@ const run = createLoomRun(
   () => performance.now(),
   // A macrotask between slices: the next board or view is read before the next slice.
   (next) => setTimeout(next, 0),
+  (seed) => scope.postMessage({ kind: "snapshot", seed }),
 );
 
 scope.onmessage = (event) => run.request(event.data);

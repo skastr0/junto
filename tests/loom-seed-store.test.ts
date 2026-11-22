@@ -8,8 +8,7 @@ const seed: LoomSeed = {
   geometry: [],
   specs: [],
   obstacles: [],
-  routes: [],
-  strands: [],
+  facts: [],
   fingerprint: 0,
   corridors: [],
 };

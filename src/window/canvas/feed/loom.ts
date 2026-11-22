@@ -12,11 +12,13 @@
  * its route has landed, fading it in.
  */
 import { observe } from "@legendapp/state";
-import type { Rect, SceneOp } from "../contract";
+import type { Rect, SceneOp, WireRouteFact } from "../contract";
 import { modelStore } from "../../lib/use-model";
 import { cardOf, type LoomCard, type LoomUpdate, type LoomWireRow } from "./loom-planner";
 import { packCards, packWireShares } from "./loom-board";
 import { createLoomRun, type LoomRequest } from "./loom-run";
+import type { LoomSeed } from "./loom-seed";
+import { loadLoomSeed, saveLoomSeed } from "./loom-store";
 
 export { createLoomPlanner, cardOf, type LoomCard, type LoomPlanner, type LoomUpdate, type LoomWireRow } from "./loom-planner";
 
@@ -33,8 +35,8 @@ type LoomHost = {
  */
 const inWorker = (): boolean => typeof Worker === "function" && typeof OffscreenCanvas === "function";
 
-const pageHost = (send: (update: LoomUpdate) => void): LoomHost =>
-  createLoomRun(send, () => performance.now(), (next) => setTimeout(next, 0));
+const pageHost = (send: (update: LoomUpdate) => void, snapshot: (seed: LoomSeed) => void): LoomHost =>
+  createLoomRun(send, () => performance.now(), (next) => setTimeout(next, 0), snapshot);
 
 /**
  * How many workers route side by side: every core the device reports but
@@ -62,7 +64,7 @@ export const loomStats = (): { readonly shares: ReadonlyArray<NonNullable<LoomUp
   applied: { ...applied },
 });
 
-const workerHost = (send: (update: LoomUpdate) => void): LoomHost => {
+const workerHost = (send: (update: LoomUpdate) => void, snapshot: (seed: LoomSeed) => void): LoomHost => {
   const count = loomWorkerCount(deviceCores());
   const workers: Worker[] = [];
   let fallback: LoomHost | undefined;
@@ -75,12 +77,15 @@ const workerHost = (send: (update: LoomUpdate) => void): LoomHost => {
     for (const worker of workers) worker.terminate();
     workersNow = 0;
     if (fallback !== undefined) return;
-    fallback = pageHost(send);
+    fallback = pageHost(send, snapshot);
     if (last !== undefined) fallback.request(lastView === undefined || last.view !== undefined ? last : { ...last, view: lastView });
   };
   for (let index = 0; index < count; index += 1) {
     const worker = new Worker(new URL("./loom-worker.ts", import.meta.url), { type: "module" });
-    worker.onmessage = (event: MessageEvent<LoomUpdate>) => send(event.data);
+    worker.onmessage = (event: MessageEvent<LoomUpdate | { kind: "snapshot"; seed: LoomSeed }>) => {
+      if ((event.data as { kind?: string }).kind === "snapshot") snapshot((event.data as { seed: LoomSeed }).seed);
+      else send(event.data as LoomUpdate);
+    };
     worker.onerror = (event) => fail(event.message);
     worker.postMessage({ kind: "share", index, count } satisfies LoomRequest);
     workers.push(worker);
@@ -92,6 +97,12 @@ const workerHost = (send: (update: LoomUpdate) => void): LoomHost => {
       if (request.kind === "focus") lastView = request.view;
       if (fallback !== undefined) {
         fallback.request(request);
+        return;
+      }
+      if (request.kind === "settled") {
+        // One share's base is the whole board's (every worker plans it);
+        // the page has every share's facts.
+        workers[0]?.postMessage(request);
         return;
       }
       if (request.kind !== "plan") {
@@ -161,14 +172,45 @@ export const retainWireRoutes = (
   const send = (update: LoomUpdate): void => {
     const started = performance.now();
     if (update.stats !== undefined) shareStats.set(update.stats.share, update.stats);
+    for (const fact of update.set) heldFacts.set(fact.id, fact);
+    for (const id of update.remove) heldFacts.delete(id);
+    if (update.owed !== undefined) owedByShare.set(update.stats?.share ?? 0, update.owed);
     emit([{ kind: "routes", set: update.set, remove: update.remove }]);
     applied.slices += 1;
     applied.facts += update.set.length + update.remove.length;
     applied.ms += performance.now() - started;
+    // Only a plan with nothing owed is a seed: saving a partial one would
+    // leave wires with no fact and a planner that believes they are set.
+    if (owedByShare.size > 0 && [...owedByShare.values()].every((owed) => owed === 0)) settleSoon();
   };
-  const host = inWorker() ? workerHost(send) : pageHost(send);
+  // Facts the engine holds, by wire: the seed's facts are all of them, so a
+  // save needs only the base (geometry, specs, obstacles) from a planner.
+  const heldFacts = new Map<string, WireRouteFact>();
+  const owedByShare = new Map<number, number>();
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  const snapshot = (base: LoomSeed): void => {
+    if (base.geometry.length === 0) return;
+    void saveLoomSeed(canvasName, { ...base, facts: [...heldFacts.values()] });
+  };
+  const settleSoon = (): void => {
+    if (saveTimer !== undefined) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      saveTimer = undefined;
+      host.request({ kind: "settled" });
+    }, 600);
+  };
+  const host = inWorker() ? workerHost(send, snapshot) : pageHost(send, snapshot);
   const onView = (view: Rect): void => host.request({ kind: "focus", view });
   viewListeners.add(onView);
+  // The passphrase the seed arrives after the first board is read: hold the
+  // board until then, so a launch never routes what the seed already holds.
+  let ready = false;
+  let latest: Extract<LoomRequest, { kind: "plan" }> | undefined;
+  void loadLoomSeed(canvasName).then((seed) => {
+    if (seed !== undefined) host.request({ kind: "seed", seed });
+    ready = true;
+    if (latest !== undefined) host.request(latest);
+  });
   const stop = observe(() => {
     const canvas = modelStore.canvas$(canvasName);
     const cards: LoomCard[] = [];
@@ -193,11 +235,13 @@ export const retainWireRoutes = (
       const wire = wire$.peek();
       if (wire !== undefined) rows.push({ id: wire.id, from: wire.from, to: wire.to, fromSide: wire.fromSide, toSide: wire.toSide });
     }
-    host.request({ kind: "plan", cards, wires: rows, ...(routeView === undefined ? {} : { view: routeView }) });
+    latest = { kind: "plan", cards, wires: rows, ...(routeView === undefined ? {} : { view: routeView }) };
+    if (ready) host.request(latest);
   });
   return () => {
     stop();
     viewListeners.delete(onView);
+    if (saveTimer !== undefined) clearTimeout(saveTimer);
     host.dispose();
   };
 };

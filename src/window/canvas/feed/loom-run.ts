@@ -8,6 +8,7 @@
  */
 import type { Rect } from "../contract";
 import { createLoomPlanner, type LoomCard, type LoomShare, type LoomUpdate, type LoomWireRow } from "./loom-planner";
+import type { LoomSeed } from "./loom-seed";
 import { unpackCards, unpackWires, type PackedCards } from "./loom-board";
 
 export type LoomRequest =
@@ -16,6 +17,10 @@ export type LoomRequest =
   | { readonly kind: "board"; readonly cards: PackedCards; readonly wires: string; readonly view?: Rect }
   | { readonly kind: "focus"; readonly view: Rect }
   | { readonly kind: "reset" }
+  /** The stored seed from the page, before the first board. */
+  | { readonly kind: "seed"; readonly seed: LoomSeed }
+  /** The page wants a seed back now (the board settled). */
+  | { readonly kind: "settled" }
   /** This run's part of the board among several (sent first, before any board). */
   | ({ readonly kind: "share" } & LoomShare);
 
@@ -35,6 +40,7 @@ export const createLoomRun = (
   send: (update: LoomUpdate) => void,
   clock: () => number,
   later: (run: () => void) => void,
+  snapshot?: (seed: LoomSeed) => void,
 ): LoomRun => {
   let planner = createLoomPlanner();
   let share = 0;
@@ -45,7 +51,9 @@ export const createLoomRun = (
   let disposed = false;
 
   const post = (update: LoomUpdate): void => {
-    if (update.set.length > 0 || update.remove.length > 0) send({ ...update, stats: { ...planner.stats(), share } });
+    if (update.set.length > 0 || update.remove.length > 0) {
+      send({ ...update, stats: { ...planner.stats(), share }, owed: planner.owed() });
+    }
   };
 
   const tick = (): void => {
@@ -75,6 +83,12 @@ export const createLoomRun = (
         case "board":
           board = request;
           schedule();
+          return;
+        case "seed":
+          planner.seed(request.seed);
+          return;
+        case "settled":
+          snapshot?.(planner.snapshot());
           return;
         case "focus":
           planner.focus(request.view);

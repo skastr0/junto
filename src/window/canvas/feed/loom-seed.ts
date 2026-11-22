@@ -10,10 +10,10 @@
  * The planner owns the shape; the store owns the bytes. No DB, no renderer
  * state here.
  */
-import type { LoomObstacle, LoomPlan, LoomStrand } from "../../lib/wire-loom";
-import type { WireRect } from "../../../shared/wire-route";
+import type { LoomObstacle } from "../../lib/wire-loom";
+import type { WireRect } from "@shared/wire-route";
 import type { LoomNode } from "../../lib/loom-geometry";
-import type { LoomRoute } from "../../lib/loom-view";
+import type { WireRouteFact } from "../contract";
 
 /**
  * Bump when a routing change can move an existing path: routeWire's geometry,
@@ -28,26 +28,13 @@ export type LoomSeed = {
   /** Every wire's spec key at the time (`specsOf`), as entries. */
   readonly specs: ReadonlyArray<readonly [string, string]>;
   readonly obstacles: ReadonlyArray<LoomObstacle>;
-  /** The routes themselves, as entries; a strand carries its own geometry. */
-  readonly routes: ReadonlyArray<readonly [string, LoomRoute]>;
-  readonly strands: ReadonlyArray<readonly [string, LoomStrand]>;
+  /** Every wire's drawn fact: a launch hands these to the engine, then routes nothing. */
+  readonly facts: ReadonlyArray<WireRouteFact>;
   /** The fan fingerprint the plan was made from (planLoom's prior check). */
   readonly fingerprint: number;
   /** The plan's trunk and comb bounds, for stoppage clearance. */
   readonly corridors: ReadonlyArray<WireRect>;
 };
-
-/**
- * The plan the seed was made from, ready as `planLoom`'s prior: a launch
- * whose edges and obstacles did not change gets its strands back without
- * routing a wire.
- */
-export const loomSeedPlan = (seed: LoomSeed): LoomPlan => ({
-  strands: new Map(seed.strands),
-  corridors: seed.corridors,
-  fingerprint: seed.fingerprint,
-  obstacles: seed.obstacles,
-});
 
 /** A seed is trusted only at this router's version. */
 export const loomSeedTrusted = (seed: LoomSeed): boolean => seed.version === LOOM_ROUTER_VERSION;

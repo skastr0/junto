@@ -28,6 +28,7 @@ import { renderedNodeSize } from "@shared/node-geometry";
 import type { WireDirection } from "@shared/wire-route";
 import { routeWire } from "@shared/wire-route";
 import type { Point, Rect, WireId, WireRouteFact } from "../contract";
+import type { WireRect } from "@shared/wire-route";
 import { createObstacleIndex, type ObstacleIndex } from "@shared/wire-obstacles";
 import { routesForTick, routesOwedWithCause, type LoomLane, type LoomRoute } from "../../lib/loom-view";
 import { planLoom, stitchStrand, type LoomEdgeInput, type LoomStrand } from "../../lib/wire-loom";
@@ -43,6 +44,7 @@ import {
   type LoomWire,
 } from "../../lib/loom-geometry";
 import { handleEnd } from "../paint/wires/route";
+import { LOOM_ROUTER_VERSION, loomSeedTrusted, type LoomSeed } from "./loom-seed";
 
 /** What the planner reads of a card: its board rectangle, and whether it is a region. */
 export type LoomCard = {
@@ -70,6 +72,8 @@ export type LoomUpdate = {
   readonly remove: ReadonlyArray<WireId>;
   /** The sending run's counters so far (loom-run), for the boot measurement. */
   readonly stats?: LoomPlannerStats & { readonly share: number };
+  /** Wires this run still owes a route after the slice. */
+  readonly owed?: number;
 };
 
 /** What a planner has done since it was made, for the boot measurement (issue 912). */
@@ -106,6 +110,13 @@ export type LoomPlanner = {
   readonly focus: (view: Rect) => void;
   /** Wires the plan still owes a route. */
   readonly owed: () => number;
+  /**
+   * Start from a stored seed: the planner's diff says nothing is owed, and
+   * the first begin hands the seed's facts to the engine once.
+   */
+  readonly seed: (seed: LoomSeed) => void;
+  /** The settled state as a seed, with this planner's share of the facts. */
+  readonly snapshot: () => LoomSeed;
   /** Forget everything: the next plan is a first plan and returns every fact. */
   readonly reset: () => void;
   readonly stats: () => LoomPlannerStats;
@@ -215,6 +226,9 @@ export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
   let indexNow: ObstacleIndex<ReturnType<typeof collectObstacles>[number]> | undefined;
   const counts = { begins: 0, beginMs: 0, routed: 0, rerouted: 0, routeMs: 0, indexes: 0 };
   const routedOnce = new Set<string>();
+  // A seeded launch hands the stored facts over once, then plans as usual.
+  let replay: ReadonlyArray<WireRouteFact> | undefined;
+  let planMeta: { readonly fingerprint: number; readonly corridors: ReadonlyArray<WireRect> } | undefined;
   let strandIdsNow: ReadonlySet<string> = new Set();
   let queue: string[] = [];
   let view: Rect | undefined;
@@ -287,6 +301,13 @@ export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
     // than what the last plan had left.
     if (planned && planned.specsKey === specsKey && sameGeometry(planned.geometry, geometry)) {
       order();
+      if (replay !== undefined) {
+        // The engine has no facts yet; the seed's are exactly what it draws.
+        const set = replay.filter((fact) => owns(fact.id));
+        for (const fact of set) held.set(fact.id, fact);
+        replay = undefined;
+        return { set, remove: [] };
+      }
       return NOTHING;
     }
 
@@ -297,6 +318,8 @@ export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
     const { inputs, lanes } = buildInputs(specs, geometry);
     lanesNow = lanes;
     const loom = planLoom({ edges: inputs, obstacles });
+    planMeta = { fingerprint: loom.fingerprint, corridors: loom.corridors };
+    replay = undefined;
     const wasStrand = new Set(strands.keys());
     strands = loom.strands;
     const strandIds = new Set(loom.strands.keys());
@@ -416,7 +439,41 @@ export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
     order();
   };
 
+  const seed: LoomPlanner["seed"] = (stored) => {
+    if (!loomSeedTrusted(stored)) return;
+    const geometry = [...stored.geometry];
+    const specs = new Map(stored.specs);
+    // The seed's entries are `specKeyOf` strings in `specsOf` order, so their
+    // join is the key a plan of the same board computes.
+    planned = { geometry, specsKey: stored.specs.map(([, key]) => key).join(";") };
+    routed = { geometry, obstacles: [...stored.obstacles], specs };
+    obstaclesNow = [...stored.obstacles];
+    indexNow = undefined;
+    strands = new Map();
+    routes.clear();
+    lanesNow = new Map();
+    held.clear();
+    queue = [];
+    inputsNow = new Map();
+    rectsNow = new Map();
+    strandIdsNow = new Set();
+    replay = stored.facts;
+    planMeta = { fingerprint: stored.fingerprint, corridors: stored.corridors };
+  };
+
+  const snapshot: LoomPlanner["snapshot"] = () => ({
+    version: LOOM_ROUTER_VERSION,
+    geometry: planned?.geometry ?? [],
+    specs: routed === undefined ? [] : [...routed.specs],
+    obstacles: obstaclesNow,
+    facts: [...held.values()],
+    fingerprint: planMeta?.fingerprint ?? 0,
+    corridors: planMeta?.corridors ?? [],
+  });
+
   const reset = (): void => {
+    replay = undefined;
+    planMeta = undefined;
     planned = undefined;
     routed = undefined;
     strands = new Map();
@@ -431,7 +488,7 @@ export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
     queue = [];
   };
 
-  return { plan, begin, step, focus, owed: () => queue.length, reset, stats: () => ({ ...counts }) };
+  return { plan, begin, step, focus, owed: () => queue.length, seed, snapshot, reset, stats: () => ({ ...counts }) };
 };
 
 /**
